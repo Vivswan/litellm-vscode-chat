@@ -9,16 +9,19 @@
  * (records and arrays, no Maps), so results ride the dashboard message
  * protocol unchanged.
  *
- * Unlike models.parameters (an open pass-through), capabilities are a closed
- * vocabulary: parseCapabilityRecord is the one boundary where keys and value
- * types are enforced, so everything downstream handles typed fields and
- * diagnostics instead of re-checking raw records. Records are keyed by the
- * shared matcher grammar and combine through the shared inheritance walk
- * (recordResolution.ts); each layer resolves its own chain, then the entry
- * result beats the global result field by field. A record's `_fallback`
- * directive demotes all or the listed fields from override level (above
- * server) to fallback level (below server), the flag riding from each
- * field's source record wherever inheritance carries it.
+ * Like models.parameters, capabilities are an OPEN vocabulary: the user is
+ * always right - it is their server. CAPABILITY_FIELDS is the
+ * registration-typed core (total with floors, driving token limits and
+ * capability flags); CONSUMED_CAPABILITY_FIELDS is the advisory-typed set the
+ * extension reads somewhere (validated per kind, invalid values diagnosed and
+ * unset); every other non-underscore key is applied as-is through the same
+ * precedence walk, with an informational `unrecognized-key` diagnostic.
+ * Records are keyed by the shared matcher grammar and combine through the
+ * shared inheritance walk (recordResolution.ts); each layer resolves its own
+ * chain, then the entry result beats the global result field by field. A
+ * record's `_fallback` directive demotes all or the listed fields from
+ * override level (above server) to fallback level (below server), the flag
+ * riding from each field's source record wherever inheritance carries it.
  */
 
 import type { ModelRecordMap } from "./modelMatcher";
@@ -26,10 +29,11 @@ import type { ParsedRecord, RecordChainResolution, RecordDiagnostic, RecordLayer
 import { lintRecordMap, parseSharedDirectives, resolveRecordChain } from "./recordResolution";
 
 /**
- * The closed capability vocabulary, keyed by wire name (aligned with
- * /model/info), each with its value kind. Unknown non-underscore keys in a
- * capability record are diagnosed, not passed through; unknown underscore
- * keys are reserved for future directives and ignored silently.
+ * The registration-typed core of the capability vocabulary, keyed by wire
+ * name (aligned with /model/info), each with its value kind. These seven are
+ * total in every resolution result (floors and the max_input_tokens
+ * derivation backstop them); everything else resolves only where some level
+ * carries a value.
  */
 export const CAPABILITY_FIELDS = {
 	context_length: "number",
@@ -56,12 +60,73 @@ type CapabilityFieldValue<K extends CapabilityFieldName> = (typeof CAPABILITY_FI
 /** A total capability assignment; Partial<CapabilityFieldValues> is the parsed shape of one record. */
 export type CapabilityFieldValues = { readonly [K in CapabilityFieldName]: CapabilityFieldValue<K> };
 
+/** A capability value as configuration carries it: JSON-serializable (null included), so it rides the dashboard protocol. */
+export type CapabilityJsonValue =
+	| null
+	| boolean
+	| number
+	| string
+	| readonly CapabilityJsonValue[]
+	| { readonly [key: string]: CapabilityJsonValue };
+
+/**
+ * The value kinds the consumed vocabulary validates: "number" is a positive
+ * integer, "cost" a finite non-negative number (zero is how "free" is
+ * written), "boolean" a boolean, "string-array" an array of non-empty strings
+ * (the empty array is valid).
+ */
+export type CapabilityValueKind = "number" | "boolean" | "cost" | "string-array";
+
+/**
+ * The advisory-typed vocabulary: the core fields plus every capability key
+ * the extension consumes somewhere (cost display, caching hints). A consumed
+ * key's value is validated per kind - an invalid value is diagnosed and the
+ * field stays unset so a lower level can win, exactly like the core fields.
+ * Keys outside this set pass through as-is.
+ */
+export const CONSUMED_CAPABILITY_FIELDS: Readonly<Record<string, CapabilityValueKind>> = {
+	...CAPABILITY_FIELDS,
+	input_cost_per_token: "cost",
+	output_cost_per_token: "cost",
+	cache_read_input_token_cost: "cost",
+	cache_creation_input_token_cost: "cost",
+	long_context_input_cost_per_token: "cost",
+	long_context_output_cost_per_token: "cost",
+	long_context_cache_read_input_token_cost: "cost",
+	long_context_cache_creation_input_token_cost: "cost",
+	supports_prompt_caching: "boolean",
+	supports_pdf_input: "boolean",
+	supports_response_schema: "boolean",
+	supported_openai_params: "string-array",
+};
+
 function isCapabilityFieldName(key: string): key is CapabilityFieldName {
 	return Object.hasOwn(CAPABILITY_FIELDS, key);
 }
 
-function isNumberCapabilityField(name: CapabilityFieldName): name is NumberCapabilityField {
-	return CAPABILITY_FIELDS[name] === "number";
+function consumedValueValid(kind: CapabilityValueKind, value: unknown): boolean {
+	switch (kind) {
+		case "number":
+			return typeof value === "number" && Number.isInteger(value) && value > 0;
+		case "cost":
+			return typeof value === "number" && Number.isFinite(value) && value >= 0;
+		case "boolean":
+			return typeof value === "boolean";
+		case "string-array":
+			return Array.isArray(value) && value.every((item) => typeof item === "string" && item.length > 0);
+	}
+}
+
+/**
+ * The own-property read for the open field bags (EffectiveCapabilityFields,
+ * ResolvedCapabilityOverrideFields, ResolvedCapabilityFallbackFields). The
+ * bags are plain objects (they ride the dashboard message protocol), so a
+ * dynamic read by a user-controlled name must go through here: a field named
+ * "toString" or "constructor" must read as absent from a bag that does not
+ * carry it, never as the inherited Object.prototype member.
+ */
+export function capabilityField<T>(bag: Readonly<Record<string, T | undefined>>, name: string): T | undefined {
+	return Object.hasOwn(bag, name) ? bag[name] : undefined;
 }
 
 /** Names an OpenRouter catalog entry whose capabilities backfill fields the record leaves unset. */
@@ -89,30 +154,34 @@ export interface CapabilityDiagnostic extends RecordDiagnostic {
 	readonly layer: CapabilityConfigLayer;
 }
 export interface ParsedCapabilityRecord extends ParsedRecord {
-	/** The validly typed capability fields; invalid and unknown keys are diagnosed away. */
-	readonly fields: Readonly<Partial<CapabilityFieldValues>>;
+	/** Every kept field: validly-typed consumed fields plus verbatim extras; invalid consumed values are diagnosed away. */
+	readonly fields: Readonly<Record<string, CapabilityJsonValue>>;
 	/** The `_openrouter_model` directive's catalog ID, when validly set. */
 	readonly openrouterModel?: string | undefined;
 }
 
 /**
- * The one enforcement boundary of the capability vocabulary. A number field
- * accepts positive integers only; a boolean field accepts booleans only;
- * anything else is an invalid-value diagnostic and the field stays unset, so
- * a lower precedence source's valid value can still win. `_openrouter_model`
- * must be a non-blank string. `_fallback` must be `true` (all of the record's
- * valid fields), a list of field names the record validly sets (anything
- * else in the list is an invalid-directive diagnostic), or `false`. `_force`
- * belongs to parameters records and is diagnosed as the wrong record type;
- * the shared `_inheritable`/`_inherit_from` directives parse in
- * recordResolution; other underscore keys are ignored without diagnosis
- * (forward compatibility). Model declaration is not a directive: an entry's
+ * The one typing boundary of the capability vocabulary. A consumed field
+ * (CONSUMED_CAPABILITY_FIELDS) validates per kind; anything else is an
+ * invalid-value diagnostic and the field stays unset, so a lower precedence
+ * source's valid value can still win. Every other non-underscore key is kept
+ * verbatim with an informational unrecognized-key diagnostic - validation is
+ * advisory, never gating. `_openrouter_model` must be a non-blank string.
+ * `_fallback` must be `true` (all of the record's kept fields), a list of
+ * field names the record keeps (anything else in the list is an
+ * invalid-directive diagnostic), or `false`. `_force` belongs to parameters
+ * records and is diagnosed as the wrong record type; the shared
+ * `_inheritable`/`_inherit_from` directives parse in recordResolution; other
+ * underscore keys are ignored without diagnosis (forward compatibility) -
+ * which also keeps a hostile own "__proto__" key out of the field object, as
+ * in parseParameterRecord (other prototype-named fields like "toString" are
+ * legal open fields; every dynamic read downstream is hasOwn-guarded). Model
+ * declaration is not a directive: an entry's
  * `discovery.declared` list is the one way to create a model discovery
  * cannot list.
  */
 export function parseCapabilityRecord(record: Readonly<Record<string, unknown>>): ParsedCapabilityRecord {
-	const numbers: { -readonly [K in NumberCapabilityField]?: number } = {};
-	const booleans: { -readonly [K in BooleanCapabilityField]?: boolean } = {};
+	const fields: Record<string, CapabilityJsonValue> = {};
 	let openrouterModel: string | undefined;
 	const diagnostics: Omit<RecordDiagnostic, "recordKey">[] = [];
 
@@ -132,24 +201,24 @@ export function parseCapabilityRecord(record: Readonly<Record<string, unknown>>)
 		if (key.startsWith("_")) {
 			continue;
 		}
-		if (!isCapabilityFieldName(key)) {
-			diagnostics.push({ kind: "unknown-key", key });
-			continue;
-		}
-		if (isNumberCapabilityField(key)) {
-			if (typeof value === "number" && Number.isInteger(value) && value > 0) {
-				numbers[key] = value;
+		const kind = Object.hasOwn(CONSUMED_CAPABILITY_FIELDS, key) ? CONSUMED_CAPABILITY_FIELDS[key] : undefined;
+		if (kind !== undefined) {
+			if (consumedValueValid(kind, value)) {
+				// A cost of -0 would ride a negative sign into arithmetic; "free" is +0.
+				fields[key] = kind === "cost" && value === 0 ? 0 : (value as CapabilityJsonValue);
 			} else {
 				diagnostics.push({ kind: "invalid-value", key });
 			}
-		} else if (typeof value === "boolean") {
-			booleans[key] = value;
-		} else {
-			diagnostics.push({ kind: "invalid-value", key });
+			continue;
+		}
+		// Settings values arrive from JSON, so anything present is serializable;
+		// only an undefined (an in-memory caller's hole) is dropped.
+		if (value !== undefined) {
+			fields[key] = value as CapabilityJsonValue;
+			diagnostics.push({ kind: "unrecognized-key", key });
 		}
 	}
 
-	const fields = { ...numbers, ...booleans };
 	const fallback = new Set<string>();
 	if (Object.hasOwn(record, FALLBACK_DIRECTIVE)) {
 		const directive = record[FALLBACK_DIRECTIVE];
@@ -159,7 +228,7 @@ export function parseCapabilityRecord(record: Readonly<Record<string, unknown>>)
 			}
 		} else if (Array.isArray(directive)) {
 			for (const name of directive) {
-				if (typeof name === "string" && isCapabilityFieldName(name) && Object.hasOwn(fields, name)) {
+				if (typeof name === "string" && Object.hasOwn(fields, name)) {
 					fallback.add(name);
 				} else {
 					diagnostics.push({ kind: "invalid-directive", key: FALLBACK_DIRECTIVE });
@@ -191,33 +260,21 @@ export function resolveCapabilityLayer(rawModelId: string, records: ModelCapabil
 
 /**
  * Record-level lint of a capability record map, independent of any model:
- * invalid matchers, unknown fields, invalid values, malformed directives, and
- * `_inherit_from` entries naming keys the map does not hold (see
- * lintParameterRecords for why the per-model chain resolution cannot cover
- * this); the caller attributes the layer.
+ * invalid matchers, invalid consumed values, unrecognized fields
+ * (informational), malformed directives, and `_inherit_from` entries naming
+ * keys the map does not hold (see lintParameterRecords for why the per-model
+ * chain resolution cannot cover this); the caller attributes the layer.
  */
 export function lintCapabilityRecords(records: ModelCapabilitiesRecord): readonly RecordDiagnostic[] {
 	return lintRecordMap(records, (record) => parseCapabilityRecord(record));
 }
 
-/**
- * Catalog pricing in the wire vocabulary (USD per token, matching LiteLLM's
- * cost keys). The resolver never touches it - it rides the lookup result so
- * consumers can apply the pricing precedence: server-reported pricing beats
- * directive-derived pricing beats implicit-match pricing.
- */
-export interface CatalogPricing {
-	readonly input_cost_per_token?: number | undefined;
-	readonly output_cost_per_token?: number | undefined;
-}
-
-/** A catalog answer: capability fields (and any pricing) for the matched entry, or why there is none. */
+/** A catalog answer: capability fields for the matched entry, or why there is none. */
 export type CatalogLookupResult =
 	| {
 			readonly kind: "found";
 			readonly id: string;
 			readonly fields: Readonly<Partial<CapabilityFieldValues>>;
-			readonly pricing?: CatalogPricing | undefined;
 	  }
 	| { readonly kind: "ambiguous" }
 	| { readonly kind: "not-found" };
@@ -266,10 +323,10 @@ export interface ShadowedCapabilityValue {
 	readonly level: CapabilityLevel;
 	/** The source record key (entry/global levels), or the catalog entry ID (directive/catalog). */
 	readonly key?: string | undefined;
-	readonly value: number | boolean;
+	readonly value: CapabilityJsonValue;
 }
 
-export interface ResolvedCapabilityOverrideField<V extends number | boolean> {
+export interface ResolvedCapabilityOverrideField<V extends CapabilityJsonValue = CapabilityJsonValue> {
 	readonly value: V;
 	readonly level: CapabilityOverrideLevel;
 	/** The record key whose literal field set it (entry/global) or the directive's catalog ID (directive). */
@@ -280,12 +337,13 @@ export interface ResolvedCapabilityOverrideField<V extends number | boolean> {
 	readonly shadowed: readonly ShadowedCapabilityValue[];
 }
 
+/** Every field some override level set, by wire name; absent fields set no override. */
 export type ResolvedCapabilityOverrideFields = {
-	readonly [K in CapabilityFieldName]?: ResolvedCapabilityOverrideField<CapabilityFieldValue<K>> | undefined;
+	readonly [key: string]: ResolvedCapabilityOverrideField | undefined;
 };
 
 /** One `_fallback`-demoted value, ready to slot into the walk below the server level. */
-export interface CapabilityFallbackCandidate<V extends number | boolean> {
+export interface CapabilityFallbackCandidate<V extends CapabilityJsonValue = CapabilityJsonValue> {
 	readonly level: CapabilityFallbackLevel;
 	/** The record key whose literal field carries the value. */
 	readonly key: string;
@@ -296,15 +354,13 @@ export interface CapabilityFallbackCandidate<V extends number | boolean> {
 
 /** Per field, the fallback candidates in precedence order (entry-fallback before global-fallback). */
 export type ResolvedCapabilityFallbackFields = {
-	readonly [K in CapabilityFieldName]?: readonly CapabilityFallbackCandidate<CapabilityFieldValue<K>>[] | undefined;
+	readonly [key: string]: readonly CapabilityFallbackCandidate[] | undefined;
 };
 
 /** Whether the `_openrouter_model` directive found its catalog entry; not-found feeds the warning badge. */
 export interface DirectiveOutcome {
 	readonly kind: "applied" | "not-found";
 	readonly id: string;
-	/** The applied entry's catalog pricing, when it carries one. */
-	readonly pricing?: CatalogPricing | undefined;
 }
 
 export interface ResolveCapabilityOverridesInput {
@@ -355,28 +411,24 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
 		directiveId === undefined
 			? undefined
 			: directiveLookup?.kind === "found"
-				? {
-						kind: "applied",
-						id: directiveId,
-						...(directiveLookup.pricing !== undefined ? { pricing: directiveLookup.pricing } : {}),
-					}
+				? { kind: "applied", id: directiveId }
 				: { kind: "not-found", id: directiveId };
 	const directiveFields: Readonly<Partial<CapabilityFieldValues>> =
 		directiveLookup?.kind === "found" ? directiveLookup.fields : {};
 
-	const layerField = <K extends CapabilityFieldName>(
+	const layerField = (
 		resolution: RecordChainResolution,
-		name: K,
+		name: string,
 		wantFallback: boolean
-	): { value: CapabilityFieldValue<K>; key: string; inheritedFrom?: string } | undefined => {
+	): { value: CapabilityJsonValue; key: string; inheritedFrom?: string } | undefined => {
 		const field = resolution.fields.get(name);
 		if (field === undefined || field.fallback !== wantFallback) {
 			return undefined;
 		}
 		return {
 			// The chain carries only parseCapabilityRecord output, so the value is
-			// already vocabulary-typed for its field name.
-			value: field.value as CapabilityFieldValue<K>,
+			// already a kept capability value.
+			value: field.value as CapabilityJsonValue,
 			key: field.sourceKey,
 			...(resolution.winnerKey !== undefined && field.sourceKey !== resolution.winnerKey
 				? { inheritedFrom: field.sourceKey }
@@ -384,14 +436,12 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
 		};
 	};
 
-	const overrideField = <K extends CapabilityFieldName>(
-		name: K
-	): ResolvedCapabilityOverrideField<CapabilityFieldValue<K>> | undefined => {
+	const overrideField = (name: string): ResolvedCapabilityOverrideField | undefined => {
 		const layered: {
 			level: CapabilityOverrideLevel;
 			key: string;
 			inheritedFrom?: string;
-			value: CapabilityFieldValue<K>;
+			value: CapabilityJsonValue;
 		}[] = [];
 		const fromEntry = layerField(entry, name, false);
 		if (fromEntry !== undefined) {
@@ -401,7 +451,7 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
 		if (fromGlobal !== undefined) {
 			layered.push({ level: "global", ...fromGlobal });
 		}
-		const derivedValue = directiveFields[name];
+		const derivedValue = isCapabilityFieldName(name) ? directiveFields[name] : undefined;
 		if (derivedValue !== undefined && directiveId !== undefined) {
 			layered.push({ level: "directive", key: directiveId, value: derivedValue });
 		}
@@ -409,10 +459,8 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
 		return winner === undefined ? undefined : { ...winner, shadowed };
 	};
 
-	const fallbackField = <K extends CapabilityFieldName>(
-		name: K
-	): readonly CapabilityFallbackCandidate<CapabilityFieldValue<K>>[] | undefined => {
-		const candidates: CapabilityFallbackCandidate<CapabilityFieldValue<K>>[] = [];
+	const fallbackField = (name: string): readonly CapabilityFallbackCandidate[] | undefined => {
+		const candidates: CapabilityFallbackCandidate[] = [];
 		const fromEntry = layerField(entry, name, true);
 		if (fromEntry !== undefined) {
 			candidates.push({ level: "entry-fallback", ...fromEntry });
@@ -429,30 +477,50 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
 		...global.diagnostics.map((d) => ({ ...d, layer: "global" as const })),
 	];
 
+	// Every name any override source carries: the two chains' resolved views
+	// plus the directive's catalog fields (core-only by construction).
+	const names = new Set<string>([...entry.fields.keys(), ...global.fields.keys(), ...Object.keys(directiveFields)]);
+	const fields: Record<string, ResolvedCapabilityOverrideField> = {};
+	const fallbackFields: Record<string, readonly CapabilityFallbackCandidate[]> = {};
+	for (const name of names) {
+		const override = overrideField(name);
+		if (override !== undefined) {
+			fields[name] = override;
+		}
+		const fallback = fallbackField(name);
+		if (fallback !== undefined) {
+			fallbackFields[name] = fallback;
+		}
+	}
+
 	return {
-		fields: {
-			context_length: overrideField("context_length"),
-			max_input_tokens: overrideField("max_input_tokens"),
-			max_output_tokens: overrideField("max_output_tokens"),
-			supports_function_calling: overrideField("supports_function_calling"),
-			supports_vision: overrideField("supports_vision"),
-			supports_reasoning: overrideField("supports_reasoning"),
-			supports_audio_input: overrideField("supports_audio_input"),
-		},
-		fallbackFields: {
-			context_length: fallbackField("context_length"),
-			max_input_tokens: fallbackField("max_input_tokens"),
-			max_output_tokens: fallbackField("max_output_tokens"),
-			supports_function_calling: fallbackField("supports_function_calling"),
-			supports_vision: fallbackField("supports_vision"),
-			supports_reasoning: fallbackField("supports_reasoning"),
-			supports_audio_input: fallbackField("supports_audio_input"),
-		},
+		fields,
+		fallbackFields,
 		...(directive !== undefined ? { directive } : {}),
 		implicitCatalog: catalog.byRawModelId(rawModelId),
 		diagnostics,
 	};
 }
+
+/**
+ * The typed server-reported capability values the walk may read: the core
+ * fields plus the consumed vocabulary's wire keys, as discovery maps them
+ * from /model/info.
+ */
+export type ServerCapabilityValues = CapabilityFieldValues & {
+	readonly input_cost_per_token: number;
+	readonly output_cost_per_token: number;
+	readonly cache_read_input_token_cost: number;
+	readonly cache_creation_input_token_cost: number;
+	readonly long_context_input_cost_per_token: number;
+	readonly long_context_output_cost_per_token: number;
+	readonly long_context_cache_read_input_token_cost: number;
+	readonly long_context_cache_creation_input_token_cost: number;
+	readonly supports_prompt_caching: boolean;
+	readonly supports_pdf_input: boolean;
+	readonly supports_response_schema: boolean;
+	readonly supported_openai_params: readonly string[];
+};
 
 /**
  * Registration's post-aggregation baseline for one model: the conservative
@@ -467,7 +535,7 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
 export type ServerDeclaredCapabilities =
 	| {
 			readonly kind: "discovered";
-			readonly values: Readonly<Partial<CapabilityFieldValues>>;
+			readonly values: Readonly<Partial<ServerCapabilityValues>>;
 			readonly outputDeclared: boolean;
 	  }
 	| { readonly kind: "declared" };
@@ -483,7 +551,8 @@ export const FLOOR_MAX_OUTPUT_TOKENS = 16000;
  * The built-in backstop of the walk: tools on, vision/audio/reasoning off,
  * and the floor totals for the two numbers. max_input_tokens has no floor -
  * the context-minus-output derivation is its backstop, and it is total
- * because both inputs are.
+ * because both inputs are. Only the core fields have floors; every other
+ * field resolves open (absent when no level carries it).
  */
 export const CAPABILITY_FLOOR: Readonly<Omit<CapabilityFieldValues, "max_input_tokens">> = {
 	context_length: FLOOR_CONTEXT_LENGTH,
@@ -503,7 +572,7 @@ export const CAPABILITY_FLOOR: Readonly<Omit<CapabilityFieldValues, "max_input_t
  */
 export type EffectiveOutputLimitSource = "user" | "provider" | "defaults";
 
-export interface EffectiveCapabilityField<V extends number | boolean> {
+export interface EffectiveCapabilityField<V extends CapabilityJsonValue = CapabilityJsonValue> {
 	readonly value: V;
 	readonly level: CapabilityLevel;
 	/** The source record key (entry/global/fallback) or catalog entry ID (directive/catalog); absent elsewhere. */
@@ -514,10 +583,18 @@ export interface EffectiveCapabilityField<V extends number | boolean> {
 	readonly shadowed: readonly ShadowedCapabilityValue[];
 }
 
-/** Total by construction: every capability field resolves to a value at some level. */
+/**
+ * The core fields, total by construction (every one resolves at some level),
+ * plus every non-core field some level carried - open fields with no
+ * candidate anywhere do not appear. A plain object (it rides the dashboard
+ * message protocol), so a dynamic read by an arbitrary open name must be
+ * own-property guarded (Object.hasOwn or Object.entries): a bare index read
+ * of an unset prototype name like "valueOf" would surface the inherited
+ * Object.prototype member.
+ */
 export type EffectiveCapabilityFields = {
 	readonly [K in CapabilityFieldName]: EffectiveCapabilityField<CapabilityFieldValue<K>>;
-};
+} & { readonly [key: string]: EffectiveCapabilityField | undefined };
 
 export interface ResolveModelCapabilitiesInput extends ResolveCapabilityOverridesInput {
 	readonly serverDeclared: ServerDeclaredCapabilities;
@@ -531,18 +608,18 @@ export interface EffectiveCapabilities {
 	readonly diagnostics: readonly CapabilityDiagnostic[];
 }
 
-interface LevelCandidate<V extends number | boolean> {
+interface LevelCandidate {
 	readonly level: CapabilityLevel;
 	readonly key?: string | undefined;
 	readonly inheritedFrom?: string | undefined;
-	readonly value: V;
+	readonly value: CapabilityJsonValue;
 }
 
-function resolveField<V extends number | boolean>(
-	override: ResolvedCapabilityOverrideField<V> | undefined,
-	lower: readonly LevelCandidate<V>[],
-	backstop: { readonly level: "derived" | "floor"; readonly value: V }
-): EffectiveCapabilityField<V> {
+/** The walk's per-field core: override wins, else the highest lower candidate; undefined when nothing carries a value. */
+function resolveField(
+	override: ResolvedCapabilityOverrideField | undefined,
+	lower: readonly LevelCandidate[]
+): EffectiveCapabilityField | undefined {
 	if (override !== undefined) {
 		return {
 			value: override.value,
@@ -554,7 +631,7 @@ function resolveField<V extends number | boolean>(
 	}
 	const [winner, ...shadowed] = lower;
 	if (winner === undefined) {
-		return { value: backstop.value, level: backstop.level, shadowed: [] };
+		return undefined;
 	}
 	return {
 		value: winner.value,
@@ -603,6 +680,12 @@ const LEVEL_IS_USER_SET: Readonly<Record<CapabilityLevel, boolean>> = {
  *  8. built-in floor; max_input_tokens instead derives
  *     max(1, context - output) from the effective values
  *
+ * The core fields are total (level 8 backstops them); every other field the
+ * configuration, the server, or a fallback carries resolves through the same
+ * walk with no backstop, so a field no level carries is simply absent. The
+ * directive and implicit catalog levels carry core fields only, by
+ * construction of the catalog mapping.
+ *
  * Levels 1-2 and 5-6 count as user-declared output limits ("user"); the
  * server level is "provider" only under the every-contributor declaredness
  * rule; every other level - both catalog paths included - stays "defaults"
@@ -610,42 +693,45 @@ const LEVEL_IS_USER_SET: Readonly<Record<CapabilityLevel, boolean>> = {
  */
 export function resolveModelCapabilities(input: ResolveModelCapabilitiesInput): EffectiveCapabilities {
 	const overrides = resolveCapabilityOverrides(input);
-	const serverValues: Readonly<Partial<CapabilityFieldValues>> =
+	const serverValues: Readonly<Record<string, CapabilityJsonValue | undefined>> =
 		input.serverDeclared.kind === "discovered" ? input.serverDeclared.values : {};
 	const catalogMatch = overrides.implicitCatalog.kind === "found" ? overrides.implicitCatalog : undefined;
 
-	const fromServer = <K extends CapabilityFieldName>(name: K): LevelCandidate<CapabilityFieldValue<K>>[] => {
-		const value = serverValues[name];
+	const fromServer = (name: string): LevelCandidate[] => {
+		const value = capabilityField(serverValues, name);
 		return value !== undefined ? [{ level: "server", value }] : [];
 	};
-	const fromFallback = <K extends CapabilityFieldName>(name: K): LevelCandidate<CapabilityFieldValue<K>>[] => [
-		...(overrides.fallbackFields[name] ?? []),
-	];
-	const fromCatalog = <K extends CapabilityFieldName>(name: K): LevelCandidate<CapabilityFieldValue<K>>[] => {
-		const value = catalogMatch?.fields[name];
+	const fromFallback = (name: string): LevelCandidate[] => [...(capabilityField(overrides.fallbackFields, name) ?? [])];
+	const fromCatalog = (name: string): LevelCandidate[] => {
+		const value = catalogMatch !== undefined && isCapabilityFieldName(name) ? catalogMatch.fields[name] : undefined;
 		return value !== undefined && catalogMatch !== undefined ? [{ level: "catalog", key: catalogMatch.id, value }] : [];
 	};
+	const lowerFor = (name: string): LevelCandidate[] => [
+		...fromServer(name),
+		...fromFallback(name),
+		...fromCatalog(name),
+	];
+	// Every level that feeds a core field is kind-validated at its source
+	// (parse, discovery's typed values, the catalog mapping), so narrowing the
+	// open walk's result to the field's declared kind is safe.
+	const coreField = <K extends CapabilityFieldName>(
+		name: K,
+		backstop: { readonly level: "derived" | "floor"; readonly value: CapabilityFieldValue<K> }
+	): EffectiveCapabilityField<CapabilityFieldValue<K>> =>
+		(resolveField(capabilityField(overrides.fields, name), lowerFor(name)) ?? {
+			value: backstop.value,
+			level: backstop.level,
+			shadowed: [],
+		}) as EffectiveCapabilityField<CapabilityFieldValue<K>>;
 
-	const contextLength = resolveField(
-		overrides.fields.context_length,
-		[...fromServer("context_length"), ...fromFallback("context_length"), ...fromCatalog("context_length")],
-		{ level: "floor", value: CAPABILITY_FLOOR.context_length }
-	);
-	const maxOutputTokens = resolveField(
-		overrides.fields.max_output_tokens,
-		[...fromServer("max_output_tokens"), ...fromFallback("max_output_tokens"), ...fromCatalog("max_output_tokens")],
-		{ level: "floor", value: CAPABILITY_FLOOR.max_output_tokens }
-	);
-	const maxInputTokens = resolveField(
-		overrides.fields.max_input_tokens,
-		[...fromServer("max_input_tokens"), ...fromFallback("max_input_tokens"), ...fromCatalog("max_input_tokens")],
-		{ level: "derived", value: Math.max(1, contextLength.value - maxOutputTokens.value) }
-	);
+	const contextLength = coreField("context_length", { level: "floor", value: CAPABILITY_FLOOR.context_length });
+	const maxOutputTokens = coreField("max_output_tokens", { level: "floor", value: CAPABILITY_FLOOR.max_output_tokens });
+	const maxInputTokens = coreField("max_input_tokens", {
+		level: "derived",
+		value: Math.max(1, contextLength.value - maxOutputTokens.value),
+	});
 	const booleanField = (name: BooleanCapabilityField): EffectiveCapabilityField<boolean> =>
-		resolveField(overrides.fields[name], [...fromServer(name), ...fromFallback(name), ...fromCatalog(name)], {
-			level: "floor",
-			value: CAPABILITY_FLOOR[name],
-		});
+		coreField(name, { level: "floor", value: CAPABILITY_FLOOR[name] });
 
 	const outputLevel = maxOutputTokens.level;
 	const outputLimitSource: EffectiveOutputLimitSource = LEVEL_IS_USER_SET[outputLevel]
@@ -654,16 +740,37 @@ export function resolveModelCapabilities(input: ResolveModelCapabilitiesInput): 
 			? "provider"
 			: "defaults";
 
+	const fields: Record<string, EffectiveCapabilityField> = {
+		context_length: contextLength,
+		max_input_tokens: maxInputTokens,
+		max_output_tokens: maxOutputTokens,
+		supports_function_calling: booleanField("supports_function_calling"),
+		supports_vision: booleanField("supports_vision"),
+		supports_reasoning: booleanField("supports_reasoning"),
+		supports_audio_input: booleanField("supports_audio_input"),
+	};
+	// Every remaining name any level carries resolves through the same walk
+	// with no backstop; a server-supplied consumed field appears here even
+	// with zero user configuration. Underscore names are skipped like the
+	// parse skips them - which also keeps a hostile own "__proto__" key in a
+	// server baseline out of the result object.
+	const openNames = new Set<string>([
+		...Object.keys(overrides.fields),
+		...Object.keys(overrides.fallbackFields),
+		...Object.keys(serverValues),
+	]);
+	for (const name of openNames) {
+		if (isCapabilityFieldName(name) || name.startsWith("_")) {
+			continue;
+		}
+		const resolved = resolveField(capabilityField(overrides.fields, name), lowerFor(name));
+		if (resolved !== undefined) {
+			fields[name] = resolved;
+		}
+	}
+
 	return {
-		fields: {
-			context_length: contextLength,
-			max_input_tokens: maxInputTokens,
-			max_output_tokens: maxOutputTokens,
-			supports_function_calling: booleanField("supports_function_calling"),
-			supports_vision: booleanField("supports_vision"),
-			supports_reasoning: booleanField("supports_reasoning"),
-			supports_audio_input: booleanField("supports_audio_input"),
-		},
+		fields: fields as EffectiveCapabilityFields,
 		outputLimitSource,
 		...(overrides.directive !== undefined ? { directive: overrides.directive } : {}),
 		diagnostics: overrides.diagnostics,

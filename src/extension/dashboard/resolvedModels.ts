@@ -372,13 +372,19 @@ export function buildResolvedModelsView(query: ResolvedModelsQuery): ResolvedMod
 			query.resolution !== undefined
 				? query.resolution.resolveCapabilities(model.serverId, model.rawId, capabilityInputs)
 				: resolveModelCapabilities({ rawModelId: model.rawId, ...capabilityInputs });
-		const capabilities: ResolvedCapCell[] = Object.entries(resolvedCaps.fields).map(([name, field]) => ({
-			name,
-			valueText: formatJsonValue(field.value),
-			level: field.level,
-			...(field.key !== undefined ? { key: field.key } : {}),
-			...(field.inheritedFrom !== undefined ? { inheritedFrom: field.inheritedFrom } : {}),
-		}));
+		const capabilities: ResolvedCapCell[] = Object.entries(resolvedCaps.fields).flatMap(([name, field]) =>
+			field === undefined
+				? []
+				: [
+						{
+							name,
+							valueText: formatJsonValue(field.value),
+							level: field.level,
+							...(field.key !== undefined ? { key: field.key } : {}),
+							...(field.inheritedFrom !== undefined ? { inheritedFrom: field.inheritedFrom } : {}),
+						},
+					]
+		);
 
 		const matchedKeys = new Set<string>();
 		for (const map of [

@@ -3,8 +3,9 @@
  * matcher (modelMatcher.ts) orders every record matching a model into a
  * chain, broadest first; this module resolves that chain into one flat view
  * per model. Pure and type-agnostic: callers hand in a per-record parser (the
- * parameters records' open vocabulary, the capability records' closed one)
- * and get back fields with provenance; nothing here knows a setting name.
+ * parameters records' open pass-through, the capability records' open
+ * advisory-typed one) and get back fields with provenance; nothing here knows
+ * a setting name.
  *
  * The semantics, in one paragraph: by default the most specific matching
  * record wins wholesale. `_inheritable` (giver-side) marks fields that flow
@@ -43,8 +44,8 @@ export type RecordDiagnosticKind =
 	| "unknown-inherit-key"
 	/** `_force` naming a provider-owned or underscore key (parameters records only). */
 	| "unforceable-key"
-	/** An unknown capability field name (capabilities records only). */
-	| "unknown-key"
+	/** Informational: a capability field outside the consumed vocabulary; the field still applies as-is (capabilities records only). */
+	| "unrecognized-key"
 	/** A capability field with a value of the wrong type (capabilities records only). */
 	| "invalid-value";
 

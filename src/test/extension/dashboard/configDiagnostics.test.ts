@@ -48,7 +48,7 @@ suite("extension/dashboard/configDiagnostics", () => {
 			{
 				kind: "record",
 				setting: "models.capabilities",
-				diagnostic: { kind: "unknown-key", recordKey: "gpt-4", key: "supports_levitation" },
+				diagnostic: { kind: "unrecognized-key", recordKey: "gpt-4", key: "supports_levitation" },
 			},
 		]);
 	});

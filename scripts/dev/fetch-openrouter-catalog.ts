@@ -103,7 +103,6 @@ function validateAndSlim(payload: unknown): { text: string; modelCount: number }
 	assertShare(models, 0.9, "context_length", (m) => m.fields.context_length !== undefined);
 	assertShare(models, 0.5, "top_provider.max_completion_tokens", (m) => m.fields.max_output_tokens !== undefined);
 	assertShare(models, 0.9, "supported_parameters", (m) => m.fields.supports_function_calling !== undefined);
-	assertShare(models, 0.9, "pricing", (m) => m.pricing !== undefined);
 
 	// Mapping sanity: each derived capability must actually light up somewhere.
 	assertSome(models, "supports_vision: true", (m) => m.fields.supports_vision === true);

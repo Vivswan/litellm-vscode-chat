@@ -1,6 +1,6 @@
 /**
  * The OpenRouter capability catalog: the mapping from OpenRouter's /models
- * payload to the closed capability vocabulary, the slimming that produces the
+ * payload to the core capability vocabulary, the slimming that produces the
  * packaged dist/openrouter-models.json artifact, and the lookup the resolver
  * consumes (capabilityResolution's CapabilityCatalogLookup). Pure (no vscode,
  * no zod, no Node) and lenient by contract: the catalog is best-effort backfill
@@ -13,12 +13,7 @@
 
 import { isRecord } from "../util/json";
 import { normalizePositiveNumber } from "../util/numbers";
-import type {
-	CapabilityCatalogLookup,
-	CapabilityFieldValues,
-	CatalogLookupResult,
-	CatalogPricing,
-} from "./capabilityResolution";
+import type { CapabilityCatalogLookup, CapabilityFieldValues, CatalogLookupResult } from "./capabilityResolution";
 
 /** The unauthenticated endpoint both the fetch script and the runtime refresh read. */
 export const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
@@ -31,12 +26,11 @@ export const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
  */
 export const CATALOG_MODEL_COUNT_FLOOR = 200;
 
-/** One catalog entry after mapping: the capability fields and pricing its OpenRouter record declares. */
+/** One catalog entry after mapping: the capability fields its OpenRouter record declares. */
 export interface CatalogModel {
 	readonly id: string;
 	readonly name?: string | undefined;
 	readonly fields: Readonly<Partial<CapabilityFieldValues>>;
-	readonly pricing?: CatalogPricing | undefined;
 }
 
 /** A parsed catalog snapshot; ids are unique (the first occurrence of a duplicate wins). */
@@ -49,8 +43,7 @@ export const EMPTY_CATALOG_SNAPSHOT: OpenRouterCatalogSnapshot = { models: [] };
 /**
  * One slimmed OpenRouter entry, in the wire shape: exactly the fields the
  * mapping consumes plus id and name, so raw payloads and slimmed artifacts
- * parse through the same code path. Pricing keeps OpenRouter's
- * strings-of-USD-per-token encoding.
+ * parse through the same code path.
  */
 export interface SlimOpenRouterModel {
 	readonly id: string;
@@ -58,7 +51,6 @@ export interface SlimOpenRouterModel {
 	readonly context_length?: number;
 	readonly architecture?: { readonly input_modalities: readonly string[] };
 	readonly top_provider?: { readonly max_completion_tokens: number };
-	readonly pricing?: { readonly prompt?: string; readonly completion?: string };
 	readonly supported_parameters?: readonly string[];
 }
 
@@ -94,27 +86,12 @@ function stringTokens(value: unknown): readonly string[] | undefined {
 }
 
 /**
- * A per-token USD cost from OpenRouter's pricing encoding: a numeric string
- * (or, leniently, a number), finite and non-negative - zero means a free
- * model. Anything else degrades to absent.
- */
-function parseCost(value: unknown): number | undefined {
-	const candidate =
-		typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
-	if (!Number.isFinite(candidate) || candidate < 0) {
-		return undefined;
-	}
-	// -0 would leak a negative-signed cost.
-	return candidate === 0 ? 0 : candidate;
-}
-
-/**
  * Map one OpenRouter entry to the capability vocabulary:
  * context_length -> context_length, top_provider.max_completion_tokens ->
  * max_output_tokens, architecture.input_modalities containing "image" ->
  * supports_vision, supported_parameters containing "tools"/"reasoning" ->
- * supports_function_calling/supports_reasoning, pricing -> per-token USD
- * costs. A present modality or parameter list is authoritative both ways
+ * supports_function_calling/supports_reasoning. A present modality or
+ * parameter list is authoritative both ways
  * (its booleans are set true or false); an absent or malformed one leaves the
  * fields unset so lower precedence levels keep them. Entries without a
  * usable id map to undefined; nothing here throws.
@@ -155,22 +132,11 @@ export function mapOpenRouterEntry(entry: unknown): CatalogModel | undefined {
 		booleans.supports_reasoning = parameters.includes("reasoning");
 	}
 
-	const inputCost = isRecord(entry.pricing) ? parseCost(entry.pricing.prompt) : undefined;
-	const outputCost = isRecord(entry.pricing) ? parseCost(entry.pricing.completion) : undefined;
-	const pricing: CatalogPricing | undefined =
-		inputCost !== undefined || outputCost !== undefined
-			? {
-					...(inputCost !== undefined ? { input_cost_per_token: inputCost } : {}),
-					...(outputCost !== undefined ? { output_cost_per_token: outputCost } : {}),
-				}
-			: undefined;
-
 	const name = nonBlankString(entry.name);
 	return {
 		id,
 		...(name !== undefined ? { name } : {}),
 		fields: { ...numbers, ...booleans },
-		...(pricing !== undefined ? { pricing } : {}),
 	};
 }
 
@@ -205,7 +171,7 @@ function slimEntry(entry: unknown): SlimOpenRouterModel | undefined {
 	if (model === undefined || !isRecord(entry)) {
 		return undefined;
 	}
-	const { fields, pricing } = model;
+	const { fields } = model;
 	const modalities = isRecord(entry.architecture) ? stringTokens(entry.architecture.input_modalities) : undefined;
 	const parameters = stringTokens(entry.supported_parameters);
 	return {
@@ -217,16 +183,6 @@ function slimEntry(entry: unknown): SlimOpenRouterModel | undefined {
 			: {}),
 		...(fields.max_output_tokens !== undefined
 			? { top_provider: { max_completion_tokens: fields.max_output_tokens } }
-			: {}),
-		...(pricing !== undefined
-			? {
-					pricing: {
-						...(pricing.input_cost_per_token !== undefined ? { prompt: String(pricing.input_cost_per_token) } : {}),
-						...(pricing.output_cost_per_token !== undefined
-							? { completion: String(pricing.output_cost_per_token) }
-							: {}),
-					},
-				}
 			: {}),
 		...(parameters !== undefined
 			? { supported_parameters: MAPPED_SUPPORTED_PARAMETERS.filter((token) => parameters.includes(token)) }
@@ -258,7 +214,6 @@ function foundResult(model: CatalogModel): CatalogLookupResult {
 		kind: "found",
 		id: model.id,
 		fields: model.fields,
-		...(model.pricing !== undefined ? { pricing: model.pricing } : {}),
 	};
 }
 

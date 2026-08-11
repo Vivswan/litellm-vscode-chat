@@ -148,9 +148,7 @@ const capabilityRecordArb: fc.Arbitrary<Record<string, unknown>> = fc
 function makeCatalog(entries: Record<string, Partial<CapabilityFieldValues>>): CapabilityCatalogLookup {
 	const byExactId = (id: string): CatalogLookupResult => {
 		const fields = entries[id];
-		return fields !== undefined
-			? { kind: "found", id, fields, pricing: { input_cost_per_token: 0.000002, output_cost_per_token: 0.000004 } }
-			: { kind: "not-found" };
+		return fields !== undefined ? { kind: "found", id, fields } : { kind: "not-found" };
 	};
 	return {
 		byExactId,

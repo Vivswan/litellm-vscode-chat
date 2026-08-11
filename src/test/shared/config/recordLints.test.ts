@@ -5,7 +5,7 @@
  * counts as a problem - and what stays silent - is pinned here at the source.
  */
 import * as assert from "node:assert";
-import { lintCapabilityRecords } from "../../../shared/config/capabilityResolution";
+import { lintCapabilityRecords, parseCapabilityRecord } from "../../../shared/config/capabilityResolution";
 import { lintParameterRecords, parseParameterRecord } from "../../../shared/config/parameterResolution";
 import { lintRecordMap } from "../../../shared/config/recordResolution";
 
@@ -71,7 +71,7 @@ suite("shared/config record-level lints", () => {
 		]);
 	});
 
-	test("capability records: unknown fields, wrong-typed values, and _force as the wrong record type", () => {
+	test("capability records: unrecognized fields (kept, informational), wrong-typed values, and _force as the wrong record type", () => {
 		const diagnostics = lintCapabilityRecords({
 			"gpt*": {
 				supports_levitation: true,
@@ -81,11 +81,15 @@ suite("shared/config record-level lints", () => {
 			},
 		});
 		assert.deepStrictEqual(diagnostics, [
-			{ kind: "unknown-key", recordKey: "gpt*", key: "supports_levitation" },
+			{ kind: "unrecognized-key", recordKey: "gpt*", key: "supports_levitation" },
 			{ kind: "invalid-value", recordKey: "gpt*", key: "context_length" },
 			{ kind: "invalid-value", recordKey: "gpt*", key: "supports_vision" },
 			{ kind: "wrong-record-type", recordKey: "gpt*", key: "_force" },
 		]);
+		// The unrecognized field is advisory, not gating: the record keeps it.
+		assert.deepStrictEqual(parseCapabilityRecord({ supports_levitation: true }).fields, {
+			supports_levitation: true,
+		});
 	});
 
 	test("lintRecordMap deduplicates identical diagnostics from one record", () => {

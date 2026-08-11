@@ -141,7 +141,7 @@ test("declared, directive-not-found, inherited fields, and diagnostics all rende
 				...makeCapabilities().fields,
 				context_length: { value: 200000, level: "global", key: "gpt*", inheritedFrom: "gpt*", shadowed: [] },
 			},
-			diagnostics: [{ kind: "unknown-key", key: "supports_pdf_input", layer: "global", recordKey: "gpt-4" }],
+			diagnostics: [{ kind: "unrecognized-key", key: "supports_pdf_input", layer: "global", recordKey: "gpt-4" }],
 		}),
 		{ declared: true }
 	);

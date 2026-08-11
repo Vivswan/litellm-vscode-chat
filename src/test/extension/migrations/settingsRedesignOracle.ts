@@ -59,7 +59,6 @@
  */
 
 import {
-	CAPABILITY_FIELDS,
 	EMPTY_CATALOG_LOOKUP,
 	resolveCapabilityOverrides,
 	resolveModelCapabilities,
@@ -86,6 +85,21 @@ export interface OracleServer {
 	readonly label: string;
 	readonly baseUrl: string;
 }
+
+/**
+ * The pre-redesign capability vocabulary, frozen LOCALLY like
+ * oldWorldResolvers' constants: the old world had exactly these seven fields,
+ * so the oracle's projections must not track the live (now open) vocabulary.
+ */
+const OLD_CAPABILITY_FIELD_NAMES = [
+	"context_length",
+	"max_input_tokens",
+	"max_output_tokens",
+	"supports_function_calling",
+	"supports_vision",
+	"supports_reasoning",
+	"supports_audio_input",
+] as const;
 
 /**
  * Apply a plan to a snapshot the way the applier applies it to user
@@ -444,7 +458,7 @@ export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 	// resolution rides along only to characterize the retired ban.
 	const caps = resolveOldCapabilityOverrides({ ...capsInput, liftDeclareFallbackBan: true });
 	const capsWithBan = resolveOldCapabilityOverrides(capsInput);
-	const banRescuedFields = Object.keys(CAPABILITY_FIELDS).filter((field) => {
+	const banRescuedFields = OLD_CAPABILITY_FIELD_NAMES.filter((field) => {
 		const banned = capsWithBan.overrides[field as keyof typeof capsWithBan.overrides];
 		const lifted = caps.overrides[field as keyof typeof caps.overrides];
 		return banned !== lifted;
@@ -508,7 +522,7 @@ export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 
 	const capabilityOverrides: Record<string, unknown> = {};
 	const capabilityFallbacks: Record<string, unknown> = {};
-	for (const field of Object.keys(CAPABILITY_FIELDS)) {
+	for (const field of OLD_CAPABILITY_FIELD_NAMES) {
 		const override = caps.overrides[field as keyof typeof caps.overrides];
 		if (override !== undefined) {
 			capabilityOverrides[field] = override;
@@ -596,7 +610,7 @@ export const resolveNewWorldReference: NewWorldResolve = (snapshot, server, mode
 
 	const capabilityOverrides: Record<string, unknown> = {};
 	const capabilityFallbacks: Record<string, unknown> = {};
-	for (const field of Object.keys(CAPABILITY_FIELDS) as (keyof typeof CAPABILITY_FIELDS)[]) {
+	for (const field of OLD_CAPABILITY_FIELD_NAMES) {
 		const override = caps.fields[field];
 		if (override !== undefined) {
 			capabilityOverrides[field] = override.value;
@@ -610,12 +624,7 @@ export const resolveNewWorldReference: NewWorldResolve = (snapshot, server, mode
 	const walks: WalkView[] = WALK_BASELINES.map((serverDeclared) => {
 		const effective = resolveModelCapabilities({ ...capsInput, serverDeclared });
 		return {
-			fields: Object.fromEntries(
-				Object.keys(CAPABILITY_FIELDS).map((field) => [
-					field,
-					effective.fields[field as keyof typeof CAPABILITY_FIELDS].value,
-				])
-			),
+			fields: Object.fromEntries(OLD_CAPABILITY_FIELD_NAMES.map((field) => [field, effective.fields[field].value])),
 			outputLimitSource: effective.outputLimitSource,
 		};
 	});

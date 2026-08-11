@@ -52,7 +52,7 @@ export type ModelPricing = Pick<
 >;
 
 /** The per-token cost fields pricingFromCosts converts; a LiteLLMProvider satisfies it as-is. */
-export type PerTokenCosts = Pick<
+type PerTokenCosts = Pick<
 	LiteLLMProvider,
 	| "input_cost_per_token"
 	| "output_cost_per_token"
@@ -126,12 +126,8 @@ function configurationSchemaFor(
  * typical LiteLLM user the label is the only cost line that hover can show;
  * the Manage Models markdown hover renders label and numbers together, one
  * accepted duplicated line.
- *
- * Exported for capabilityOverrides.ts, which converts OpenRouter catalog
- * pricing through the same rules (including the zero-pair-is-undeclared one),
- * so a catalog price can never render differently from a server price.
  */
-export function pricingFromCosts(costs: PerTokenCosts): ModelPricing {
+function pricingFromCosts(costs: PerTokenCosts): ModelPricing {
 	// LiteLLM (observed on v1.93) stamps input/output_cost_per_token: 0 onto
 	// /model/info entries that declare no pricing at all, so a zero pair is
 	// "undeclared", not "free": rendering $0 would mislead the picker and any

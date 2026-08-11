@@ -1,10 +1,11 @@
 /**
  * The attach-side override application and declared-model synthesis: coherent
  * rebuilds (token constraints, capability flags, the reasoning control,
- * outputLimitSource promotion, pricing precedence), the object-identity fast
- * path when no configuration matches, inertness against the DISCOVERED raw-ID
- * set, and collision suppression against reserved exposed IDs. The
- * seed-pinned equivalence twin lives in capabilityOverrides.property.test.ts.
+ * outputLimitSource promotion, stale catalog-pricing strips), the
+ * object-identity fast path when no configuration matches, inertness against
+ * the DISCOVERED raw-ID set, and collision suppression against reserved
+ * exposed IDs. The seed-pinned equivalence twin lives in
+ * capabilityOverrides.property.test.ts.
  */
 import * as assert from "node:assert";
 import type { CapabilityOverrideOptions } from "../../../provider/catalog/capabilityOverrides";
@@ -12,7 +13,6 @@ import { applyCapabilityOverrides, synthesizeDeclaredModels } from "../../../pro
 import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfiguration";
 import { buildModelInfos } from "../../../provider/catalog/registration";
 import type { LiteLLMModelItem } from "../../../provider/catalog/schemas";
-import type { CapabilityCatalogLookup, CatalogLookupResult } from "../../../shared/config/capabilityResolution";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
 import { ModelResolutionTable } from "../../../shared/config/resolutionTable";
 import { makeModelInfo } from "../../testUtils";
@@ -29,11 +29,6 @@ function options(overrides: Partial<CapabilityOverrideOptions> = {}): Capability
 		log: () => {},
 		...overrides,
 	};
-}
-
-function catalogOf(entries: Record<string, CatalogLookupResult>): CapabilityCatalogLookup {
-	const answer = (id: string): CatalogLookupResult => entries[id] ?? { kind: "not-found" };
-	return { byExactId: answer, byRawModelId: answer };
 }
 
 /** A registered deployment entry for `id`, built through the production registration path. */
@@ -68,6 +63,17 @@ suite("provider/catalog/capabilityOverrides", () => {
 			const out = applyCapabilityOverrides(infos, SERVER, options());
 			assert.strictEqual(out, infos, "an untouched pass must not copy the array");
 			assert.strictEqual(out[0], infos[0], "an untouched model must keep its identity");
+		});
+
+		test("an extras-only configuration keeps the identity fast path: the rebuild reads core fields only", () => {
+			const infos = [registered(DEPLOYMENT)];
+			const out = applyCapabilityOverrides(
+				infos,
+				SERVER,
+				options({ globalCapabilities: { "gpt-test": { mode: "chat", litellm_provider: { name: "openai" } } } })
+			);
+			assert.strictEqual(out, infos, "open extras feed no registered artifact, so nothing rebuilds");
+			assert.strictEqual(out[0], infos[0]);
 		});
 
 		test("a stored copy overridden under an earlier configuration heals once the override is removed", () => {
@@ -215,81 +221,28 @@ suite("provider/catalog/capabilityOverrides", () => {
 			assert.deepStrictEqual(promoted[0]?.configurationSchema, REASONING_EFFORT_SCHEMA, "promotion adds the control");
 		});
 
-		test("server pricing beats catalog pricing; catalog pricing fills models without any", () => {
-			const priced = registered(DEPLOYMENT);
-			assert.strictEqual(priced.inputCost, 3);
-			const catalog = catalogOf({
-				"gpt-test": {
-					kind: "found",
-					id: "gpt-test",
-					fields: {},
-					pricing: { input_cost_per_token: 0.000001, output_cost_per_token: 0.000002 },
-				},
-			});
-			const kept = applyCapabilityOverrides(
-				[priced],
-				SERVER,
-				options({ catalog, globalCapabilities: { "gpt-test": { supports_vision: false } } })
-			);
-			assert.strictEqual(kept[0]?.inputCost, 3, "server pricing is never displaced");
-			assert.strictEqual(kept[0]?.outputCost, 15);
-
+		test("a stale catalog-priced copy is stripped: pricing is no longer catalog-sourced", () => {
+			// Stale-served window copies from before the pricing redesign can still
+			// carry catalog-applied pricing under the catalogPricing marker; the
+			// rebuild strips it instead of letting it read as server pricing.
 			const bare: LiteLLMModelItem = { id: "gpt-test", shape: { kind: "bare" } };
-			const filled = applyCapabilityOverrides([registered(bare)], SERVER, options({ catalog }));
-			assert.strictEqual(filled[0]?.inputCost, 1, "an implicit catalog match prices an unpriced model");
-			assert.strictEqual(filled[0]?.outputCost, 2);
-		});
-
-		test("directive pricing beats the implicit match's pricing", () => {
-			const catalog = catalogOf({
-				"cat/entry": {
-					kind: "found",
-					id: "cat/entry",
-					fields: {},
-					pricing: { input_cost_per_token: 0.00001, output_cost_per_token: 0.00002 },
-				},
-				"gpt-test": {
-					kind: "found",
-					id: "gpt-test",
-					fields: {},
-					pricing: { input_cost_per_token: 0.000001, output_cost_per_token: 0.000002 },
-				},
-			});
-			const bare: LiteLLMModelItem = { id: "gpt-test", shape: { kind: "bare" } };
-			const out = applyCapabilityOverrides(
-				[registered(bare)],
-				SERVER,
-				options({ catalog, globalCapabilities: { "gpt-test": { _openrouter_model: "cat/entry" } } })
-			);
-			assert.strictEqual(out[0]?.inputCost, 10);
-			assert.strictEqual(out[0]?.outputCost, 20);
-		});
-
-		test("catalog-applied pricing never latches: a removed directive strips it on the next pass", () => {
-			// Stale-served window copies re-decorate through this pass; without
-			// the catalogPricing marker the old catalog price would read as
-			// server pricing and survive its directive's removal.
-			const catalog = catalogOf({
-				"cat/entry": {
-					kind: "found",
-					id: "cat/entry",
-					fields: {},
-					pricing: { input_cost_per_token: 0.00001, output_cost_per_token: 0.00002 },
-				},
-			});
-			const bare: LiteLLMModelItem = { id: "gpt-test", shape: { kind: "bare" } };
-			const priced = applyCapabilityOverrides(
-				[registered(bare)],
-				SERVER,
-				options({ catalog, globalCapabilities: { "gpt-test": { _openrouter_model: "cat/entry" } } })
-			);
-			assert.strictEqual(priced[0]?.inputCost, 10);
-			assert.strictEqual(priced[0]?.litellm.catalogPricing, true);
-
-			const stripped = applyCapabilityOverrides(priced, SERVER, options({ catalog }));
-			assert.strictEqual(stripped[0]?.inputCost, undefined, "the directive is gone, so its price must go too");
-			assert.strictEqual(stripped[0]?.priceCategory, undefined);
+			const info = registered(bare);
+			const stale = {
+				...info,
+				inputCost: 10,
+				outputCost: 20,
+				pricing: "$10 in / $20 out per 1M tokens",
+				litellm: { ...info.litellm, catalogPricing: true },
+			};
+			const stripped = applyCapabilityOverrides([stale], SERVER, options());
+			assert.strictEqual(stripped[0]?.inputCost, undefined, "catalog-applied pricing must not survive");
+			assert.strictEqual(stripped[0]?.outputCost, undefined);
+			assert.strictEqual(stripped[0]?.pricing, undefined);
 			assert.strictEqual(stripped[0]?.litellm.catalogPricing, undefined);
+
+			const server = applyCapabilityOverrides([registered(DEPLOYMENT)], SERVER, options());
+			assert.strictEqual(server[0]?.inputCost, 3, "server-reported pricing rides untouched");
+			assert.strictEqual(server[0]?.outputCost, 15);
 		});
 
 		test("record problems log one classification per distinct problem, not one per model", () => {

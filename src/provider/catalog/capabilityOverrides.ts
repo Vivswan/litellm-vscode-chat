@@ -6,7 +6,7 @@
  * dashboard's inspector renders, so the two cannot drift), and
  * synthesizeDeclaredModels builds the entry-declared models discovery did not
  * list. Both rebuild dependent artifacts coherently from the effective fields
- * (token limits, capability flags, the reasoning control, pricing) instead of
+ * (token limits, capability flags, the reasoning control) instead of
  * hand-patching, and both are idempotent: the resolver reads the untouched
  * serverDeclared baseline riding each model, never previously patched values.
  */
@@ -14,11 +14,12 @@
 import type {
 	CapabilityCatalogLookup,
 	CapabilityDiagnostic,
+	CapabilityFieldName,
 	CapabilityLevel,
-	CatalogPricing,
 	EffectiveCapabilities,
 	ModelCapabilitiesRecord,
 } from "../../shared/config/capabilityResolution";
+import { CAPABILITY_FIELDS } from "../../shared/config/capabilityResolution";
 import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
 import type { ServerConfig } from "../../shared/servers";
 import type { PreAttachModelInfo } from "./groupModels";
@@ -26,7 +27,7 @@ import type { ModelRoute } from "./modelCatalog";
 import { buildExposedModelId, rawModelIdFromExposed } from "./modelCatalog";
 import { REASONING_EFFORT_SCHEMA } from "./modelConfiguration";
 import type { ModelPricing } from "./registration";
-import { COMMON_MODEL_FIELDS, pricingFromCosts, serverDisplayContext } from "./registration";
+import { COMMON_MODEL_FIELDS, serverDisplayContext } from "./registration";
 
 /** The configuration one serve pass resolves against; the provider assembles it from its injected seams. */
 export interface CapabilityOverrideOptions {
@@ -85,24 +86,7 @@ function diagnosticLogger(
 	};
 }
 
-/**
- * Whether the registered entry carries SERVER-reported pricing, which catalog
- * pricing never displaces. Pricing a previous pass applied from the catalog
- * (the litellm.catalogPricing marker) does not count: stale-served window
- * copies re-decorate through here, and treating their catalog price as the
- * server's would latch a removed or re-pointed directive's price in place.
- */
-function hasServerPricing(info: PreAttachModelInfo): boolean {
-	return (
-		info.litellm.catalogPricing !== true &&
-		(info.inputCost !== undefined ||
-			info.outputCost !== undefined ||
-			info.cacheCost !== undefined ||
-			info.cacheWriteCost !== undefined)
-	);
-}
-
-/** Every pricing field a rebuild strips before re-deriving catalog pricing (server pricing is never stripped). */
+/** Every pricing field a rebuild strips from a copy an earlier pass priced from the catalog (server pricing is never stripped). */
 function withoutPricing<T extends ModelPricing>(info: T): Omit<T, keyof ModelPricing> {
 	const {
 		inputCost: _inputCost,
@@ -118,32 +102,6 @@ function withoutPricing<T extends ModelPricing>(info: T): Omit<T, keyof ModelPri
 		...rest
 	} = info;
 	return rest;
-}
-
-/**
- * The catalog pricing a model without server pricing may carry, under the
- * settled precedence: an applied `_openrouter_model` directive's pricing
- * first, the implicit exact/suffix match's second. Converted through
- * registration's per-million rules, so a catalog price renders exactly like a
- * server price would.
- */
-function catalogPricingFields(
-	effective: EffectiveCapabilities,
-	catalog: CapabilityCatalogLookup,
-	rawModelId: string
-): ModelPricing | undefined {
-	const directivePricing = effective.directive?.kind === "applied" ? effective.directive.pricing : undefined;
-	const pricing: CatalogPricing | undefined =
-		directivePricing ??
-		(() => {
-			const implicit = catalog.byRawModelId(rawModelId);
-			return implicit.kind === "found" ? implicit.pricing : undefined;
-		})();
-	if (pricing === undefined) {
-		return undefined;
-	}
-	const fields = pricingFromCosts(pricing);
-	return Object.keys(fields).length > 0 ? fields : undefined;
 }
 
 /**
@@ -174,8 +132,10 @@ function advertisesEffective(info: PreAttachModelInfo, effective: EffectiveCapab
  * no copies. A matched model is rebuilt coherently from the effective fields:
  * token limits, the toolCalling/imageInput capabilities, the audio gate, the
  * reasoning configurationSchema (added on promotion, removed on demotion),
- * the outputLimitSource provenance ("user" for any override level), and the
- * pricing precedence server > directive > implicit catalog match.
+ * and the outputLimitSource provenance ("user" for any override level).
+ * Pricing is no longer catalog-sourced: a copy an earlier pass priced from
+ * the catalog (the litellm.catalogPricing marker) is stripped on rebuild;
+ * server pricing rides untouched.
  */
 export function applyCapabilityOverrides(
 	infos: readonly PreAttachModelInfo[],
@@ -194,26 +154,28 @@ export function applyCapabilityOverrides(
 		});
 		logDiagnostics(effective.diagnostics);
 		const fields = effective.fields;
-		const needsRebuild = Object.values(fields).some((field) => LEVEL_TRIGGERS_REBUILD[field.level]);
-		const pricingPatch = hasServerPricing(info) ? undefined : catalogPricingFields(effective, opts.catalog, rawModelId);
+		// The rebuild reads the core fields only, so only they gate the fast
+		// path: an extras-only configuration leaves registered models alone.
+		const needsRebuild = (Object.keys(CAPABILITY_FIELDS) as CapabilityFieldName[]).some(
+			(name) => LEVEL_TRIGGERS_REBUILD[fields[name].level]
+		);
 		if (
 			!needsRebuild &&
 			effective.directive === undefined &&
-			pricingPatch === undefined &&
 			info.litellm.catalogPricing !== true &&
 			advertisesEffective(info, effective)
 		) {
 			// Nothing matched and the entry already says what the walk resolves
 			// (see advertisesEffective for why that is verified, not assumed). A
-			// catalog-priced copy never takes it: its price must re-derive so a
-			// removed directive's price does not survive by identity.
+			// catalog-priced copy never takes it: its stale catalog price must be
+			// stripped by the rebuild.
 			return info;
 		}
 		changed = true;
 		// The schema is removed on demotion by destructuring it away, then
 		// re-added only when the effective flag holds; an entry that already
-		// carried it keeps the same object. Catalog-applied pricing is stripped
-		// and re-derived the same way; server pricing rides `rest` untouched.
+		// carried it keeps the same object. Stale catalog-applied pricing is
+		// stripped the same way; server pricing rides `rest` untouched.
 		const { configurationSchema, ...rest } = info;
 		const base = info.litellm.catalogPricing === true ? withoutPricing(rest) : rest;
 		const { catalogPricing: _catalogPricing, ...litellmBase } = info.litellm;
@@ -229,12 +191,10 @@ export function applyCapabilityOverrides(
 			...(fields.supports_reasoning.value
 				? { configurationSchema: configurationSchema ?? REASONING_EFFORT_SCHEMA }
 				: {}),
-			...(pricingPatch ?? {}),
 			litellm: {
 				...litellmBase,
 				outputLimitSource: effective.outputLimitSource,
 				supportsAudioInput: fields.supports_audio_input.value,
-				...(pricingPatch !== undefined ? { catalogPricing: true } : {}),
 			},
 		} satisfies PreAttachModelInfo;
 	});
@@ -295,9 +255,6 @@ export function synthesizeDeclaredModels(
 		// model to surface through, so this resolve is their one log seam.
 		logDiagnostics(effective.diagnostics);
 		const fields = effective.fields;
-		// No server side exists, so catalog pricing (directive first, implicit
-		// second) is the only candidate.
-		const pricing = catalogPricingFields(effective, opts.catalog, spec.rawId);
 		infos.push({
 			...COMMON_MODEL_FIELDS,
 			detail: display.detail,
@@ -312,14 +269,12 @@ export function synthesizeDeclaredModels(
 				imageInput: fields.supports_vision.value,
 			},
 			...(fields.supports_reasoning.value ? { configurationSchema: REASONING_EFFORT_SCHEMA } : {}),
-			...(pricing ?? {}),
 			litellm: {
 				supportsPromptCaching: false,
 				outputLimitSource: effective.outputLimitSource,
 				supportsAudioInput: fields.supports_audio_input.value,
 				declared: true,
 				serverDeclared: { kind: "declared" },
-				...(pricing !== undefined ? { catalogPricing: true } : {}),
 			},
 		} satisfies PreAttachModelInfo);
 		routes.set(exposedId, { serverId: server.id, rawModelId: spec.rawId, serverLabel: server.label });

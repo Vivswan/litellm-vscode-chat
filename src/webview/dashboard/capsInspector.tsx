@@ -100,7 +100,8 @@ function ShadowedLine({ name, shadow }: { name: CapabilityFieldName; shadow: Sha
 	return (
 		<tr class="param-shadowed">
 			<td />
-			<td class="param-value">{formatValue(name, shadow.value)}</td>
+			{/* Only core fields render here (FieldRow's callers), and every level feeding a core field is kind-validated. */}
+			<td class="param-value">{formatValue(name, shadow.value as number | boolean)}</td>
 			<td>{l10n.t("overridden: {0}", levelName(shadow.level, shadow.key))}</td>
 		</tr>
 	);
@@ -159,7 +160,7 @@ function diagnosticText(diagnostic: CapabilityDiagnostic): string {
 			? l10n.t("server entry key {0}", diagnostic.recordKey)
 			: l10n.t("settings key {0}", diagnostic.recordKey);
 	switch (diagnostic.kind) {
-		case "unknown-key":
+		case "unrecognized-key":
 			return l10n.t('"{0}" is not a known capability field ({1})', diagnostic.key, where);
 		case "invalid-value":
 			return l10n.t('"{0}" has an invalid value and is ignored ({1})', diagnostic.key, where);

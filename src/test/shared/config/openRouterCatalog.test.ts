@@ -31,7 +31,6 @@ suite("shared/config openRouterCatalog mapping", () => {
 				supports_function_calling: true,
 				supports_reasoning: true,
 			},
-			pricing: { input_cost_per_token: 0.000003, output_cost_per_token: 0.000015 },
 		});
 	});
 
@@ -50,20 +49,12 @@ suite("shared/config openRouterCatalog mapping", () => {
 	test("absent lists and absent numbers leave their fields unset", () => {
 		// No architecture and no supported_parameters: every boolean stays
 		// unset so lower precedence levels keep those fields. The numeric
-		// string context_length parses leniently; the unknown pricing key and
-		// the null max_completion_tokens degrade to absent.
+		// string context_length parses leniently; pricing keys and the null
+		// max_completion_tokens are dropped.
 		assert.deepStrictEqual(modelById("mistralai/mistral-tiny"), {
 			id: "mistralai/mistral-tiny",
 			name: "Mistral Tiny",
 			fields: { context_length: 32000 },
-			pricing: { input_cost_per_token: 0.00000025, output_cost_per_token: 0.00000025 },
-		});
-	});
-
-	test("zero pricing means a free model, not an absent cost", () => {
-		assert.deepStrictEqual(modelById("meta-llama/llama-3-8b-instruct").pricing, {
-			input_cost_per_token: 0,
-			output_cost_per_token: 0,
 		});
 	});
 
@@ -125,7 +116,6 @@ suite("shared/config openRouterCatalog lookup", () => {
 		assert.ok(found.kind === "found");
 		assert.strictEqual(found.id, "openai/gpt-4o-mini");
 		assert.strictEqual(found.fields.max_output_tokens, 16384);
-		assert.deepStrictEqual(found.pricing, { input_cost_per_token: 0.00000015, output_cost_per_token: 0.0000006 });
 		assert.deepStrictEqual(lookup.byExactId("gpt-4o-mini"), { kind: "not-found" });
 		assert.deepStrictEqual(lookup.byExactId("nope"), { kind: "not-found" });
 	});
@@ -179,7 +169,6 @@ suite("shared/config openRouterCatalog slimming", () => {
 				id: "a-vendor/model",
 				architecture: { input_modalities: ["image"] },
 				top_provider: { max_completion_tokens: 2048 },
-				pricing: { prompt: "0.000001", completion: "0.000002" },
 			},
 			{
 				id: "z-vendor/model",

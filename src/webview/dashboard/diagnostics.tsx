@@ -275,7 +275,7 @@ function recordDiagnosticText(where: string, diagnostic: RecordDiagnostic): stri
 				diagnostic.recordKey,
 				where
 			);
-		case "unknown-key":
+		case "unrecognized-key":
 			return l10n.t(
 				'"{0}" in record "{1}" is not a known capability field ({2})',
 				diagnostic.key,

@@ -75,7 +75,7 @@ const payloadArb = fc.oneof(
 	{ arbitrary: fc.jsonValue({ maxDepth: 3 }), weight: 1 }
 );
 
-/** Every produced model must be well-formed: non-blank id, vocabulary-typed fields, sane pricing. */
+/** Every produced model must be well-formed: non-blank id, vocabulary-typed fields. */
 function assertWellFormed(models: readonly CatalogModel[]): void {
 	for (const model of models) {
 		assert.ok(model.id.trim() !== "");
@@ -85,11 +85,6 @@ function assertWellFormed(models: readonly CatalogModel[]): void {
 				assert.ok(typeof value === "number" && Number.isInteger(value) && value > 0);
 			} else {
 				assert.strictEqual(typeof value, "boolean");
-			}
-		}
-		for (const cost of [model.pricing?.input_cost_per_token, model.pricing?.output_cost_per_token]) {
-			if (cost !== undefined) {
-				assert.ok(Number.isFinite(cost) && cost >= 0);
 			}
 		}
 	}
