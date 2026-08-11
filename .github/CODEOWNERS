@@ -8,16 +8,3 @@
 # template updates. CODEOWNERS applies the LAST matching pattern, so
 # entries here override the managed defaults above.
 # repo-platform:local-section
-
-# repo-platform:recovery-appendix
-# The recovery re-render (recover=recopy) could not tell this file's
-# repository-local tail apart from its managed content, so the previous
-# copy is preserved in full below. Keep what is repository-local, drop
-# what the content above already covers, then delete this comment.
-
-# Default owners for everything in the repo. Baseline from
-# Vivswan/repo-platform; add repo-specific rules freely -
-# local edits survive template updates via three-way merge.
-
-* @vivswan
-/.github/ @vivswan
