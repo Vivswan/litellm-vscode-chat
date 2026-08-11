@@ -30,8 +30,12 @@ import type {
 	ResolvedParamCell,
 } from "../../extension/dashboard/protocol";
 import {
+	COST_CAPABILITY_FIELDS,
+	capabilityDisplayLabel,
+	formatCostPerMillion,
 	latestCheckedMs,
 	overallStatusText,
+	parameterCountText,
 	serverOutcomeParts,
 	serverOutcomeText,
 } from "../../extension/dashboard/protocol";
@@ -46,7 +50,7 @@ import {
 import { FailureText } from "./failureText";
 import type { FeedbackUrl } from "./feedbackLinks";
 import { FEEDBACK_LINK_FEATURE_REQUEST, FEEDBACK_LINK_RATE, FEEDBACK_LINK_REPOSITORY } from "./feedbackLinks";
-import { DocsLink } from "./help";
+import { DocsLink, HoverTip } from "./help";
 import {
 	IconBook,
 	IconBug,
@@ -544,6 +548,149 @@ function capProvenance(cell: ResolvedCapCell): string {
 	}
 }
 
+/**
+ * One generic capability cell: the friendly label where the consumed
+ * vocabulary has one (the value keeps the monospace register), the raw wire
+ * key in code otherwise (for an open field the key IS the fact), each with
+ * its provenance chip. A labeled cell keeps its wire identity one focusable
+ * tip away - this is a debugging surface, and the wire key is what a reader
+ * writes into a models.capabilities record.
+ */
+function CapabilityCell({ cell }: { cell: ResolvedCapCell }) {
+	const label = capabilityDisplayLabel(cell.name);
+	return (
+		<span class="resolved-cell">
+			{label !== undefined ? (
+				<HoverTip focusable tip={`${cell.name} ${cell.valueText}`}>
+					<span class="resolved-field">
+						{label} <code>{cell.valueText}</code>
+					</span>
+				</HoverTip>
+			) : (
+				<code>
+					{cell.name} {cell.valueText}
+				</code>
+			)}
+			<span class="chip-prov">{capProvenance(cell)}</span>
+		</span>
+	);
+}
+
+/**
+ * The supported-params list as its count, the full list one focusable tip
+ * away (a 27-element JSON array printed inline made the whole table
+ * unscannable). A cell whose value is not the validated string array falls
+ * back to the generic rendering rather than miscounting.
+ */
+function ParamsListCell({ cell }: { cell: ResolvedCapCell }) {
+	let list: readonly string[] | undefined;
+	try {
+		const parsed: unknown = JSON.parse(cell.valueText);
+		if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
+			list = parsed;
+		}
+	} catch {
+		// Fall through to the generic cell: valueText was not JSON.
+	}
+	if (list === undefined) {
+		return <CapabilityCell cell={cell} />;
+	}
+	return (
+		<span class="resolved-cell">
+			<span class="resolved-field">{capabilityDisplayLabel(cell.name) ?? cell.name}</span>
+			{/* The tip carries the wire key and the EXACT wire value (the JSON
+			    array), not a joined rendering: element boundaries must survive
+			    on a debugging surface, and a comma inside one name would make a
+			    join ambiguous. The empty list keeps the tip too - the wire key
+			    must stay reachable on every rendering. */}
+			<HoverTip focusable tip={`${cell.name} ${cell.valueText}`}>
+				<span>{parameterCountText(list.length)}</span>
+			</HoverTip>
+			<span class="chip-prov">{capProvenance(cell)}</span>
+		</span>
+	);
+}
+
+/**
+ * The capability cells of one resolved-model row, grouped for scanning: the
+ * flag and token fields first (friendly labels where the vocabulary knows
+ * them), then the eight cost fields collapsed into one $/M pricing line, then
+ * the supported-params list as its count. Purely presentational regrouping:
+ * every resolved field stays visible with its provenance - the pricing line
+ * LEADS with the DOMINANT source's chip ("default: X, except where noted")
+ * and badges only the parts that differ from it (one chip when uniform,
+ * never eight chips saying the same thing), and its focusable tip keeps the
+ * wire keys, exact per-token values, and per-field sources the $/M rendering
+ * summarizes.
+ */
+function CapabilityCells({ cells }: { cells: readonly ResolvedCapCell[] }) {
+	const pricing = COST_CAPABILITY_FIELDS.flatMap((name) => {
+		const cell = cells.find((candidate) => candidate.name === name);
+		if (cell === undefined) {
+			return [];
+		}
+		// valueText is the JSON rendering of the resolved value, and a consumed
+		// cost field is kind-validated to a finite number, so this parse is
+		// exact; anything else keeps the generic rendering below.
+		const perToken = Number(cell.valueText);
+		return Number.isFinite(perToken) ? [{ cell, perToken }] : [];
+	});
+	const pricingNames = new Set(pricing.map((entry) => entry.cell.name));
+	const params = cells.find((cell) => cell.name === "supported_openai_params");
+	const rest = cells.filter((cell) => !pricingNames.has(cell.name) && cell !== params);
+	// The most frequent provenance phrase wins the line's closing chip (first
+	// seen wins ties); parts from any other source carry their own chip.
+	const provenanceCounts = new Map<string, number>();
+	for (const entry of pricing) {
+		const provenance = capProvenance(entry.cell);
+		provenanceCounts.set(provenance, (provenanceCounts.get(provenance) ?? 0) + 1);
+	}
+	let dominant = "";
+	let dominantCount = -1;
+	for (const [provenance, count] of provenanceCounts) {
+		if (count > dominantCount) {
+			dominant = provenance;
+			dominantCount = count;
+		}
+	}
+	return (
+		<div class="resolved-cells">
+			{rest.map((cell) => (
+				<CapabilityCell key={cell.name} cell={cell} />
+			))}
+			{pricing.length > 0 ? (
+				<span class="resolved-cell">
+					{/* The tip pairs every wire key with its exact per-token value
+					    and its source, so the dominant-chip scheme never asks the
+					    reader to infer a source it cannot see. */}
+					<HoverTip
+						focusable
+						tip={pricing
+							.map((entry) => `${entry.cell.name} ${entry.cell.valueText} (${capProvenance(entry.cell)})`)
+							.join(", ")}
+					>
+						<span class="resolved-field">{l10n.t("Pricing ($/M)")}</span>
+					</HoverTip>
+					{/* The dominant source's chip leads the line ("default: X,
+					    except where noted"), so an unbadged part obviously reads
+					    as the leading chip's source. */}
+					<span class="chip-prov">{dominant}</span>
+					{pricing.map((entry) => {
+						const provenance = capProvenance(entry.cell);
+						return (
+							<span key={entry.cell.name} class="resolved-price-part">
+								{capabilityDisplayLabel(entry.cell.name)} <code>{formatCostPerMillion(entry.perToken)}</code>
+								{provenance === dominant ? null : <span class="chip-prov">{provenance}</span>}
+							</span>
+						);
+					})}
+				</span>
+			) : null}
+			{params !== undefined ? <ParamsListCell cell={params} /> : null}
+		</div>
+	);
+}
+
 function matchesResolvedFilter(row: ResolvedModelRow, needle: string): boolean {
 	return (
 		row.rawId.toLowerCase().includes(needle) ||
@@ -642,7 +789,21 @@ function ResolvedModels({
 									<tbody>
 										{rows.map((row) => (
 											<tr key={`${row.scopeKey}/${row.rawId}`}>
-												<td class="resolved-id">{row.rawId}</td>
+												<td class="resolved-id">
+													{row.rawId}
+													{/* The matcher keys that touched this model, as quiet
+													    chips: they explain why a matcher-key filter (the
+													    input above) keeps the row. */}
+													{row.matchedKeys.length > 0 ? (
+														<span class="resolved-matched">
+															{row.matchedKeys.map((key) => (
+																<code key={key} class="chip-matcher">
+																	{key}
+																</code>
+															))}
+														</span>
+													) : null}
+												</td>
 												<td>{row.serverLabel}</td>
 												<td class="resolved-col">
 													{/* An inner flex div, never display:flex on the td itself:
@@ -664,16 +825,7 @@ function ResolvedModels({
 													</div>
 												</td>
 												<td class="resolved-col">
-													<div class="resolved-cells">
-														{row.capabilities.map((cell) => (
-															<span key={cell.name} class="resolved-cell">
-																<code>
-																	{cell.name} {cell.valueText}
-																</code>
-																<span class="chip-prov">{capProvenance(cell)}</span>
-															</span>
-														))}
-													</div>
+													<CapabilityCells cells={row.capabilities} />
 												</td>
 												<td class="actions">
 													<button

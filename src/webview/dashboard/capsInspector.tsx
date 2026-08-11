@@ -23,7 +23,15 @@ import type {
 	ExtensionToWebviewMessage,
 	ShadowedCapabilityValue,
 } from "../../extension/dashboard/protocol";
-import { capabilityField, FALLBACK_DIRECTIVE } from "../../extension/dashboard/protocol";
+import {
+	COST_CAPABILITY_FIELDS,
+	capabilityDisplayLabel,
+	capabilityField,
+	FALLBACK_DIRECTIVE,
+	formatCostPerMillion,
+	isCostCapabilityField,
+	parameterCountText,
+} from "../../extension/dashboard/protocol";
 import { DOCS_LINK_CAPS_INSPECTOR } from "./docsLinks";
 import { DocsLink, Help, HoverTip } from "./help";
 import { helpCapsInspector } from "./helpText";
@@ -37,8 +45,10 @@ export type ModelCapabilitiesResponse = Extract<ExtensionToWebviewMessage, { typ
 
 /**
  * The core fields in display order: the token trio, then the support flags.
- * Every other field the resolution carries (the vocabulary is open) renders
- * after these, sorted by key.
+ * The consumed booleans follow (CONSUMED_BOOLEAN_ORDER); pricing and the
+ * params list get sections of their own, and every other field the resolution
+ * carries (the vocabulary is open) renders under "Other fields", sorted by
+ * key.
  */
 const FIELD_ORDER: readonly string[] = [
 	"context_length",
@@ -50,17 +60,28 @@ const FIELD_ORDER: readonly string[] = [
 	"supports_audio_input",
 ];
 
-/** The number fields that render as token counts; other numbers (costs, say) render plain. */
+/** The consumed boolean flags beyond the core, in display order after it. */
+const CONSUMED_BOOLEAN_ORDER: readonly string[] = [
+	"supports_prompt_caching",
+	"supports_pdf_input",
+	"supports_response_schema",
+];
+
+/** The number fields that render as token counts; other numbers (costs aside) render plain. */
 const TOKEN_FIELDS: ReadonlySet<string> = new Set(["context_length", "max_input_tokens", "max_output_tokens"]);
 
 /**
- * Where the stylesheet's ellipsis can start clipping a value cell (the
- * .caps-inspector .param-value 36ch max-width). Values that may clip get the
- * focusable HoverTip so keyboards and assistive tech reach the full text -
- * native title tooltips do not reliably render in the webview host (see
- * help.tsx); short values stay plain text outside the Tab order.
+ * Where the stylesheet's ellipsis can start clipping a value cell. The value
+ * column is a FIXED 24% of the slide-over (html.ts), which is 460px wide but
+ * shrinks to 92vw on narrow hosts: ~12ch of its monospace at full width,
+ * ~7.5ch at a degenerate 360px window - the threshold sits at the practical
+ * floor so any value the ellipsis could realistically touch carries the
+ * focusable HoverTip (keyboards and assistive tech must reach the full text;
+ * native title tooltips do not reliably render in the webview host, see
+ * help.tsx). Short values (token counts, $/M prices, yes/no) stay plain text
+ * outside the Tab order.
  */
-const VALUE_CLIP_CH = 36;
+const VALUE_CLIP_CH = 8;
 
 /**
  * An approximate rendered width in ch: code points beyond Latin-1 (CJK,
@@ -92,15 +113,23 @@ function ValueCell({ text }: { text: string }) {
 }
 
 /**
- * One name cell: the core fields' localized labels wrap at their spaces; an
- * open field renders its raw wire key in the monospace register (it IS a
- * settings key), breakable only at its underscores via <wbr> so the fixed
- * slide-over never shatters it into arbitrary fragments.
+ * One name cell: consumed fields render their localized labels
+ * (capabilityDisplayLabel), wrapping at their spaces, with the wire key one
+ * focusable tip away - the label hides the very identifier a
+ * models.capabilities record needs, and cost keys are not guessable the way
+ * supports_vision is. An open field renders its raw wire key in the
+ * monospace register (it IS a settings key), breakable only at its
+ * underscores via <wbr> so the fixed slide-over never shatters it into
+ * arbitrary fragments.
  */
 function FieldName({ name }: { name: string }) {
-	const label = fieldLabel(name);
-	if (label !== name) {
-		return <>{label}</>;
+	const label = capabilityDisplayLabel(name);
+	if (label !== undefined) {
+		return (
+			<HoverTip focusable tip={name}>
+				<span>{label}</span>
+			</HoverTip>
+		);
 	}
 	const parts = name.split(/(?<=_)/);
 	return (
@@ -121,43 +150,29 @@ function FieldName({ name }: { name: string }) {
 }
 
 /**
- * A capability field's display name, resolved at call time (no module-level
- * localized constants). Only the core fields have human labels; every other
- * key is an open wire name and renders as-is, never localized.
- */
-function fieldLabel(name: string): string {
-	switch (name) {
-		case "context_length":
-			return l10n.t("Context length");
-		case "max_input_tokens":
-			return l10n.t("Max input tokens");
-		case "max_output_tokens":
-			return l10n.t("Max output tokens");
-		case "supports_function_calling":
-			return l10n.t("Tool calling");
-		case "supports_vision":
-			return l10n.t("Vision");
-		case "supports_reasoning":
-			return l10n.t("Reasoning");
-		case "supports_audio_input":
-			return l10n.t("Audio input");
-		default:
-			return name;
-	}
-}
-
-/**
  * One capability value as the table shows it: booleans as yes/no, the token
- * trio as token counts, other numbers plain, and everything else (strings,
- * arrays, objects - open fields carry any JSON) as compact JSON, truncated
- * by the stylesheet rather than chopped here.
+ * trio as token counts, the cost fields as dollars per million tokens (their
+ * section header names the unit), the params list as its count plus the list
+ * (the stylesheet clips it, the focusable tip carries the full text), other
+ * numbers plain, and everything else (strings, arrays, objects - open fields
+ * carry any JSON) as compact JSON, truncated by the stylesheet rather than
+ * chopped here.
  */
 function formatValue(name: string, value: CapabilityJsonValue): string {
 	if (typeof value === "boolean") {
 		return value ? l10n.t("yes") : l10n.t("no");
 	}
 	if (typeof value === "number") {
+		if (isCostCapabilityField(name)) {
+			return formatCostPerMillion(value);
+		}
 		return TOKEN_FIELDS.has(name) ? formatTokens(value) : String(value);
+	}
+	if (name === "supported_openai_params" && Array.isArray(value) && value.every((item) => typeof item === "string")) {
+		// The list stays exact JSON, never a joined rendering: element
+		// boundaries must survive (a comma inside one name would make a join
+		// ambiguous), matching the Diagnostics tab's params cell.
+		return `${parameterCountText(value.length)}${value.length > 0 ? `: ${JSON.stringify(value)}` : ""}`;
 	}
 	return JSON.stringify(value) ?? "";
 }
@@ -305,6 +320,43 @@ function outputLimitNote(capabilities: EffectiveCapabilities): string {
 }
 
 /**
+ * One provenance-table section: its own tbody, opened by a small muted header
+ * band when labeled (scope="rowgroup": the header names the rows below it).
+ * Renders nothing when the section has no fields, so headers never dangle
+ * over empty sections.
+ */
+function CapsSection({
+	label,
+	names,
+	fields,
+	onEditField,
+}: {
+	label?: string | undefined;
+	names: readonly string[];
+	fields: EffectiveCapabilities["fields"];
+	onEditField?: ((level: CapabilityLevel, key: string) => void) | undefined;
+}) {
+	if (names.length === 0) {
+		return null;
+	}
+	return (
+		<tbody>
+			{label !== undefined ? (
+				<tr class="caps-section">
+					<th colSpan={3} scope="rowgroup">
+						{label}
+					</th>
+				</tr>
+			) : null}
+			{names.map((name) => {
+				const field = capabilityField(fields, name);
+				return field === undefined ? null : <FieldRow key={name} name={name} field={field} onEditField={onEditField} />;
+			})}
+		</tbody>
+	);
+}
+
+/**
  * The inspector body once the response landed: the provenance table, the
  * directive outcome, and the diagnostics.
  */
@@ -317,14 +369,24 @@ function CapsBody({
 	declared: boolean;
 	onEditField?: ((level: CapabilityLevel, key: string) => void) | undefined;
 }) {
-	// The open fields beyond the core, sorted by wire key (code-unit order -
-	// these are wire identifiers, and locale collation would reorder them per
-	// display language). Object.keys reads own properties only, and the
-	// per-name reads go through capabilityField: a field named "toString" must
-	// read from the bag, never from Object.prototype.
-	const extraNames = Object.keys(capabilities.fields)
-		.filter((name) => !FIELD_ORDER.includes(name))
-		.sort();
+	// The section partition over the resolved bag: the capabilities (core order
+	// plus the consumed booleans), the pricing fields (base tier then
+	// long-context), the params list, and the open extras sorted by wire key
+	// (code-unit order - these are wire identifiers, and locale collation would
+	// reorder them per display language). Object.keys reads own properties
+	// only, and the per-name reads go through capabilityField: a field named
+	// "toString" must read from the bag, never from Object.prototype.
+	const present = new Set(Object.keys(capabilities.fields));
+	const capabilityNames = [...FIELD_ORDER, ...CONSUMED_BOOLEAN_ORDER].filter((name) => present.has(name));
+	const pricingNames = COST_CAPABILITY_FIELDS.filter((name) => present.has(name));
+	const paramsNames = present.has("supported_openai_params") ? ["supported_openai_params"] : [];
+	const sectioned = new Set([...capabilityNames, ...pricingNames, ...paramsNames]);
+	const extraNames = [...present].filter((name) => !sectioned.has(name)).sort();
+	// The capabilities band is labeled only when another section renders beside
+	// it; alone under the column header it would restate the table's own name.
+	const sectionCount = [capabilityNames, pricingNames, paramsNames, extraNames].filter(
+		(names) => names.length > 0
+	).length;
 	const advisories = capabilities.diagnostics.filter((diagnostic) => diagnostic.kind === "unrecognized-key");
 	const problems = capabilities.diagnostics.filter((diagnostic) => diagnostic.kind !== "unrecognized-key");
 	return (
@@ -350,20 +412,37 @@ function CapsBody({
 						<th>{l10n.t("Source")}</th>
 					</tr>
 				</thead>
-				<tbody>
-					{FIELD_ORDER.map((name) => {
-						const field = capabilityField(capabilities.fields, name);
-						return field === undefined ? null : (
-							<FieldRow key={name} name={name} field={field} onEditField={onEditField} />
-						);
+				{sectionCount > 1 ? (
+					<CapsSection
+						label={l10n.t("Capabilities")}
+						names={capabilityNames}
+						fields={capabilities.fields}
+						onEditField={onEditField}
+					/>
+				) : (
+					<CapsSection names={capabilityNames} fields={capabilities.fields} onEditField={onEditField} />
+				)}
+				<CapsSection
+					label={l10n.t({
+						message: "Pricing ($/M tokens)",
+						comment: ["Section header; $/M is US dollars per million tokens"],
 					})}
-					{extraNames.map((name) => {
-						const field = capabilityField(capabilities.fields, name);
-						return field === undefined ? null : (
-							<FieldRow key={name} name={name} field={field} onEditField={onEditField} />
-						);
-					})}
-				</tbody>
+					names={pricingNames}
+					fields={capabilities.fields}
+					onEditField={onEditField}
+				/>
+				<CapsSection
+					label={l10n.t("Supported parameters")}
+					names={paramsNames}
+					fields={capabilities.fields}
+					onEditField={onEditField}
+				/>
+				<CapsSection
+					label={l10n.t("Other fields")}
+					names={extraNames}
+					fields={capabilities.fields}
+					onEditField={onEditField}
+				/>
 			</table>
 			<p class="params-max-tokens">
 				<span class="hint">{outputLimitNote(capabilities)}</span>

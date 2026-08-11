@@ -266,4 +266,170 @@ describe("Resolved models", () => {
 		expect(root.textContent).toContain("No matcher records configured");
 		expect(Array.from(root.querySelectorAll("table.resolved-models tbody tr"))).toHaveLength(2);
 	});
+
+	test("a row's matcher keys render as quiet chips under its model ID", () => {
+		const { root } = mountDiagnostics({});
+		const first = root.querySelector("table.resolved-models tbody tr td.resolved-id");
+		const chips = Array.from(first?.querySelectorAll(".resolved-matched .chip-matcher") ?? []).map(
+			(chip) => chip.textContent
+		);
+		expect(chips).toEqual(["*", "gpt-5*"]);
+	});
+
+	test("cost cells collapse into one $/M pricing line with one badge when the source is uniform", () => {
+		const { root } = mountDiagnostics({
+			view: makeView({
+				rows: [
+					{
+						serverLabel: "prod",
+						rawId: "claude-4",
+						scopeKey: "s0",
+						matchedKeys: [],
+						parameters: [],
+						capabilities: [
+							{ name: "context_length", valueText: "200000", level: "server" },
+							{ name: "input_cost_per_token", valueText: "0.000005", level: "server" },
+							{ name: "output_cost_per_token", valueText: "0.000025", level: "server" },
+							{ name: "cache_read_input_token_cost", valueText: "5e-7", level: "server" },
+						],
+					},
+				],
+			}),
+		});
+		const cells = Array.from(root.querySelectorAll("table.resolved-models .resolved-cell"));
+		const pricing = cells.find((cell) => cell.textContent?.includes("Pricing ($/M)"));
+		expect(pricing).not.toBeUndefined();
+		const text = pricing?.textContent ?? "";
+		expect(text).toContain("Input $5.00");
+		expect(text).toContain("Output $25.00");
+		expect(text).toContain("Cache read $0.50");
+		// Never scientific notation on the rendered line; the exact per-token
+		// wire values stay one focusable tip away, keyed by their wire names.
+		expect(text).not.toMatch(/\$\de[+-]?\d|\$\d*\.?\d+e/);
+		const lineTip = pricing?.querySelector(".tip-wrap");
+		expect(lineTip?.getAttribute("tabindex")).toBe("0");
+		expect(lineTip?.querySelector('[role="tooltip"]')?.textContent).toContain("cache_read_input_token_cost 5e-7");
+		// Uniform source: exactly one provenance chip on the whole line.
+		expect(pricing?.querySelectorAll(".chip-prov").length).toBe(1);
+		expect(pricing?.querySelector(".chip-prov")?.textContent).toBe("server-reported");
+		// The non-cost field keeps its own cell, friendly-labeled, with the
+		// wire key on a focusable tip of its own.
+		const context = cells.find((cell) => cell.textContent?.includes("Context length"));
+		expect(context?.textContent).toContain("200000");
+		const contextTip = context?.querySelector(".tip-wrap");
+		expect(contextTip?.getAttribute("tabindex")).toBe("0");
+		expect(contextTip?.querySelector('[role="tooltip"]')?.textContent).toBe("context_length 200000");
+	});
+
+	test("mixed-source cost cells badge only the parts that differ from the dominant source", () => {
+		const { root } = mountDiagnostics({
+			view: makeView({
+				rows: [
+					{
+						serverLabel: "prod",
+						rawId: "gpt-5.6",
+						scopeKey: "s0",
+						matchedKeys: [],
+						parameters: [],
+						capabilities: [
+							{ name: "input_cost_per_token", valueText: "0.000005", level: "server" },
+							{ name: "output_cost_per_token", valueText: "0.000025", level: "server" },
+							{ name: "cache_creation_input_token_cost", valueText: "0.00000625", level: "entry", key: "gpt-5.6" },
+						],
+					},
+				],
+			}),
+		});
+		const pricing = Array.from(root.querySelectorAll("table.resolved-models .resolved-cell")).find((cell) =>
+			cell.textContent?.includes("Pricing ($/M)")
+		);
+		const parts = Array.from(pricing?.querySelectorAll(".resolved-price-part") ?? []);
+		expect(parts).toHaveLength(3);
+		// The dominant source's chip LEADS the line ("default: X, except where
+		// noted"); dominant parts carry no chip and only the outlier badges
+		// itself.
+		expect(parts[0]?.querySelector(".chip-prov")).toBeNull();
+		expect(parts[1]?.querySelector(".chip-prov")).toBeNull();
+		expect(parts[2]?.querySelector(".chip-prov")?.textContent).toBe("entry gpt-5.6");
+		const chips = Array.from(pricing?.querySelectorAll(".chip-prov") ?? []).map((chip) => chip.textContent);
+		expect(chips).toEqual(["server-reported", "entry gpt-5.6"]);
+	});
+
+	test("a uniform non-server pricing line keeps its source's key on the single chip", () => {
+		const { root } = mountDiagnostics({
+			view: makeView({
+				rows: [
+					{
+						serverLabel: "prod",
+						rawId: "gpt-5.6",
+						scopeKey: "s0",
+						matchedKeys: [],
+						parameters: [],
+						capabilities: [
+							{ name: "input_cost_per_token", valueText: "0.000005", level: "entry", key: "gpt-5.6" },
+							{ name: "output_cost_per_token", valueText: "0.000025", level: "entry", key: "gpt-5.6" },
+						],
+					},
+				],
+			}),
+		});
+		const pricing = Array.from(root.querySelectorAll("table.resolved-models .resolved-cell")).find((cell) =>
+			cell.textContent?.includes("Pricing ($/M)")
+		);
+		const chips = Array.from(pricing?.querySelectorAll(".chip-prov") ?? []).map((chip) => chip.textContent);
+		expect(chips).toEqual(["entry gpt-5.6"]);
+	});
+
+	test("the params list renders as its count with the full list on the focusable tip", () => {
+		const list = ["temperature", "top_p", "tools", "tool_choice", "stream"];
+		const { root } = mountDiagnostics({
+			view: makeView({
+				rows: [
+					{
+						serverLabel: "prod",
+						rawId: "gpt-5.6",
+						scopeKey: "s0",
+						matchedKeys: [],
+						parameters: [],
+						capabilities: [{ name: "supported_openai_params", valueText: JSON.stringify(list), level: "server" }],
+					},
+				],
+			}),
+		});
+		const cell = Array.from(root.querySelectorAll("table.resolved-models .resolved-cell")).find((candidate) =>
+			candidate.textContent?.includes("Supported parameters")
+		);
+		expect(cell?.textContent).toContain("5 parameters");
+		// The tip is focusable and carries the wire key plus the exact wire
+		// value: element boundaries survive.
+		const tip = cell?.querySelector(".tip-wrap");
+		expect(tip?.getAttribute("tabindex")).toBe("0");
+		expect(tip?.querySelector('[role="tooltip"]')?.textContent).toBe(`supported_openai_params ${JSON.stringify(list)}`);
+		expect(cell?.querySelector(".chip-prov")?.textContent).toBe("server-reported");
+		// The visible cell shows only the count; the array lives in the tip.
+		expect(cell?.querySelector(".tip-wrap > span:not(.help-tip)")?.textContent).toBe("5 parameters");
+	});
+
+	test("a cost cell whose value is not a number keeps the generic rendering instead of joining the pricing line", () => {
+		const { root } = mountDiagnostics({
+			view: makeView({
+				rows: [
+					{
+						serverLabel: "prod",
+						rawId: "gpt-5.6",
+						scopeKey: "s0",
+						matchedKeys: [],
+						parameters: [],
+						capabilities: [{ name: "input_cost_per_token", valueText: '"cheap"', level: "server" }],
+					},
+				],
+			}),
+		});
+		expect(root.textContent).not.toContain("Pricing ($/M)");
+		const cell = Array.from(root.querySelectorAll("table.resolved-models .resolved-cell")).find((candidate) =>
+			candidate.textContent?.includes('"cheap"')
+		);
+		expect(cell).not.toBeUndefined();
+		expect(cell?.querySelector(".chip-prov")?.textContent).toBe("server-reported");
+	});
 });

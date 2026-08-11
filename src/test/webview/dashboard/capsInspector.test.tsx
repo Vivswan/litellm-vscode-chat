@@ -152,24 +152,30 @@ test("declared, directive-not-found, inherited fields, and diagnostics all rende
 	expect(text).toContain('"supports_web_search" is not a field this extension knows');
 });
 
-test("the core fields render first in their pinned order; open fields follow sorted by wire key", () => {
+/**
+ * A name cell's VISIBLE text: a labeled field renders its label inside the
+ * wire-key tip (the tooltip text would otherwise concatenate onto
+ * textContent), an open field renders its raw key directly.
+ */
+function nameText(cell: Element | null): string | null {
+	if (cell === null) {
+		return null;
+	}
+	return (cell.querySelector(".tip-wrap > span:not(.help-tip)") ?? cell).textContent;
+}
+
+test("the core fields render first in their pinned order; open fields land under Other fields, sorted by wire key", () => {
 	const root = answeredInPlace(
 		makeCapabilities({
 			fields: {
 				...makeCapabilities().fields,
-				supported_openai_params: {
-					value: ["temperature", "top_p"],
-					level: "server",
-					shadowed: [],
-				},
-				input_cost_per_token: { value: 0.0000025, level: "global", key: "gpt*", shadowed: [] },
+				supports_prompt_caching: { value: true, level: "server", shadowed: [] },
 				supports_web_search: { value: true, level: "entry", key: "gpt-4", shadowed: [] },
+				custom_rank: { value: 3, level: "global", key: "gpt*", shadowed: [] },
 			},
 		})
 	);
-	const names = [...root.querySelectorAll("table.params tbody tr:not(.param-shadowed) td.param-name")].map(
-		(cell) => cell.textContent
-	);
+	const names = [...root.querySelectorAll("table.params tbody tr:not(.param-shadowed) td.param-name")].map(nameText);
 	expect(names).toEqual([
 		"Context length",
 		"Max input tokens",
@@ -178,21 +184,146 @@ test("the core fields render first in their pinned order; open fields follow sor
 		"Vision",
 		"Reasoning",
 		"Audio input",
+		// The consumed booleans follow the core with friendly labels.
+		"Prompt caching",
 		// The open fields, code-unit sorted, labeled by their raw wire keys.
-		"input_cost_per_token",
-		"supported_openai_params",
+		"custom_rank",
 		"supports_web_search",
 	]);
 	const text = root.textContent ?? "";
-	// Open values render as plain numbers or compact JSON, never token-formatted.
-	expect(text).toContain("0.0000025");
-	expect(text).toContain('["temperature","top_p"]');
+	// Open values render as plain numbers, never token-formatted.
+	expect(text).toContain("custom_rank");
 	// An open boolean keeps the yes/no idiom.
 	const webSearchRow = [...root.querySelectorAll("table.params tbody tr")].find((row) =>
 		row.textContent?.includes("supports_web_search")
 	);
 	expect(webSearchRow?.textContent).toContain("yes");
 	expect(webSearchRow?.textContent).toContain("Server entry - gpt-4");
+});
+
+test("a seven-field response renders no section bands; extras open the labeled sections", () => {
+	const root = answeredInPlace(makeCapabilities());
+	expect(root.querySelectorAll("tr.caps-section").length).toBe(0);
+	cleanup();
+	resetPosted();
+	const sectioned = answeredInPlace(
+		makeCapabilities({
+			fields: {
+				...makeCapabilities().fields,
+				input_cost_per_token: { value: 0.000005, level: "server", shadowed: [] },
+				supported_openai_params: { value: ["temperature"], level: "server", shadowed: [] },
+				supports_web_search: { value: true, level: "server", shadowed: [] },
+			},
+		})
+	);
+	const bands = [...sectioned.querySelectorAll("tr.caps-section th")].map((cell) => cell.textContent);
+	expect(bands).toEqual(["Capabilities", "Pricing ($/M tokens)", "Supported parameters", "Other fields"]);
+});
+
+test("cost fields render as $/M under the pricing band, never in scientific notation", () => {
+	const root = answeredInPlace(
+		makeCapabilities({
+			fields: {
+				...makeCapabilities().fields,
+				input_cost_per_token: { value: 0.000005, level: "server", shadowed: [] },
+				output_cost_per_token: { value: 0.000025, level: "server", shadowed: [] },
+				// The regression case: 5e-7 stringifies to "5e-7", and the raw
+				// rendering leaked exactly that into the table.
+				cache_read_input_token_cost: { value: 5e-7, level: "server", shadowed: [] },
+				cache_creation_input_token_cost: {
+					value: 6.25e-6,
+					level: "entry",
+					key: "gpt-4",
+					shadowed: [{ level: "server", value: 3.75e-5 }],
+				},
+			},
+		})
+	);
+	const pricingRows = [...root.querySelectorAll("table.params tbody tr")].filter((row) =>
+		row.querySelector(".param-value")
+	);
+	const values = pricingRows.map((row) => row.querySelector(".param-value")?.textContent ?? "");
+	expect(values).toContain("$5.00");
+	expect(values).toContain("$25.00");
+	expect(values).toContain("$0.50");
+	expect(values).toContain("$6.25");
+	// The shadowed cost formats as $/M too, and nothing renders as 5e-7.
+	expect(root.querySelector("tr.param-shadowed .param-value")?.textContent).toBe("$37.50");
+	for (const value of values) {
+		expect(value).not.toMatch(/\de[+-]?\d/);
+	}
+	// The friendly labels replace the raw wire keys, which stay one focusable
+	// tip away (the label hides the very key a capabilities record needs).
+	const names = pricingRows.map((row) => nameText(row.querySelector(".param-name")));
+	expect(names).toContain("Input");
+	expect(names).toContain("Cache read");
+	expect(names).not.toContain("input_cost_per_token");
+	const inputRow = pricingRows.find((row) => nameText(row.querySelector(".param-name")) === "Input");
+	const nameTip = inputRow?.querySelector(".param-name .tip-wrap");
+	expect(nameTip?.getAttribute("tabindex")).toBe("0");
+	expect(nameTip?.querySelector('[role="tooltip"]')?.textContent).toBe("input_cost_per_token");
+});
+
+test("the params list renders its count with the full list behind it; the empty list counts zero", () => {
+	const long = [
+		"frequency_penalty",
+		"logit_bias",
+		"logprobs",
+		"top_logprobs",
+		"max_tokens",
+		"max_completion_tokens",
+		"modalities",
+		"prediction",
+		"n",
+		"presence_penalty",
+		"seed",
+		"stop",
+		"stream",
+		"stream_options",
+		"temperature",
+		"top_p",
+		"tools",
+		"tool_choice",
+		"function_call",
+		"functions",
+		"parallel_tool_calls",
+		"audio",
+		"web_search_options",
+		"response_format",
+		"user",
+		"reasoning_effort",
+		"thinking",
+	];
+	const root = answeredInPlace(
+		makeCapabilities({
+			fields: {
+				...makeCapabilities().fields,
+				supported_openai_params: { value: long, level: "server", shadowed: [] },
+			},
+		})
+	);
+	const row = [...root.querySelectorAll("table.params tbody tr")].find((candidate) =>
+		candidate.textContent?.includes("27 parameters")
+	);
+	expect(row).not.toBeUndefined();
+	expect(nameText(row?.querySelector(".param-name") ?? null)).toBe("Supported parameters");
+	// The value clips, so the focusable tip carries the count plus the full
+	// list - as exact JSON, so element boundaries survive a comma inside a
+	// name.
+	const tip = row?.querySelector('.param-value [role="tooltip"]')?.textContent ?? "";
+	expect(tip).toContain("27 parameters");
+	expect(tip).toContain(`: ${JSON.stringify(long)}`);
+	cleanup();
+	resetPosted();
+	const empty = answeredInPlace(
+		makeCapabilities({
+			fields: {
+				...makeCapabilities().fields,
+				supported_openai_params: { value: [], level: "server", shadowed: [] },
+			},
+		})
+	);
+	expect(empty.textContent).toContain("0 parameters");
 });
 
 test("prototype-named open fields render from the bag, never from Object.prototype", () => {
@@ -217,7 +348,9 @@ test("a value long enough to clip gets the focusable full-text tip; short values
 		makeCapabilities({
 			fields: {
 				...makeCapabilities().fields,
-				supported_openai_params: { value: long, level: "server", shadowed: [] },
+				// An OPEN field with a long JSON value; the consumed params list
+				// has its own count rendering and is pinned elsewhere.
+				custom_param_list: { value: long, level: "server", shadowed: [] },
 			},
 		})
 	);
@@ -229,7 +362,7 @@ test("a value long enough to clip gets the focusable full-text tip; short values
 	expect(root.querySelectorAll(".param-value .tip-wrap").length).toBe(1);
 });
 
-test("the clip tip's threshold sits exactly at the 36ch box, counting wide glyphs double", () => {
+test("the clip tip's threshold sits exactly at the 8ch box, counting wide glyphs double", () => {
 	const tipCount = (value: string): number => {
 		const root = answeredInPlace(
 			makeCapabilities({
@@ -241,12 +374,12 @@ test("the clip tip's threshold sits exactly at the 36ch box, counting wide glyph
 		resetPosted();
 		return count;
 	};
-	// JSON.stringify adds the two quotes: 34 chars render as exactly 36.
-	expect(tipCount("x".repeat(34))).toBe(0);
-	expect(tipCount("x".repeat(35))).toBe(1);
-	// 18 CJK glyphs plus the quotes approximate 38ch: clipped well before the
-	// code-unit length reaches 36, so the tip must already be there.
-	expect(tipCount("字".repeat(18))).toBe(1);
+	// JSON.stringify adds the two quotes: 6 chars render as exactly 8.
+	expect(tipCount("x".repeat(6))).toBe(0);
+	expect(tipCount("x".repeat(7))).toBe(1);
+	// 4 CJK glyphs plus the quotes approximate 10ch: clipped well before the
+	// code-unit length reaches 8, so the tip must already be there.
+	expect(tipCount("字".repeat(4))).toBe(1);
 });
 
 test("an unrecognized-key diagnostic renders as an informational note, apart from real problems", () => {

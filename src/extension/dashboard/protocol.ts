@@ -12,6 +12,13 @@
  * from workspace configuration; nothing here is persisted anywhere.
  */
 
+export {
+	COST_CAPABILITY_FIELDS,
+	capabilityDisplayLabel,
+	formatCostPerMillion,
+	isCostCapabilityField,
+	parameterCountText,
+} from "../../shared/config/capabilityDisplay";
 // The capability inspector renders the extension-resolved EffectiveCapabilities
 // it receives over the message protocol; only the types (and the small pure
 // vocabulary constants the editor keys its inputs off) cross into the webview

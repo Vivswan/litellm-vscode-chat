@@ -730,8 +730,20 @@ const STYLES = `
 	   values. Open fields carry arbitrary JSON (a supported_openai_params
 	   list, say), so long values truncate with a CSS ellipsis instead of
 	   blowing the table wide - the .caps-text idiom: the clip sits on an
-	   inner span, and the focusable tip beside it carries the full text. */
-	.caps-inspector .param-value { white-space: nowrap; max-width: 36ch; overflow: hidden; text-overflow: ellipsis; }
+	   inner span, and the focusable tip beside it carries the full text.
+	   The table's columns are FIXED percentages of the slide-over (460px,
+	   shrinking to 92vw on narrow hosts): under auto layout a nowrap value
+	   cell's min-content width forced the whole table past the panel's right
+	   edge and pushed the Source column off-screen. The renderer's clip
+	   threshold (capsInspector.tsx VALUE_CLIP_CH) is paired with the value
+	   column's share. */
+	.caps-inspector table.params { table-layout: fixed; }
+	/* Names are the wide content (two-line labels like "Long-context cache
+	   write"); values are short ($/M prices, token counts, yes/no) and clip
+	   with the tip idiom when they are not. */
+	.caps-inspector table.params thead th:nth-child(1) { width: 32%; }
+	.caps-inspector table.params thead th:nth-child(2) { width: 24%; }
+	.caps-inspector .param-value { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.caps-inspector .param-value .tip-wrap { max-width: 100%; }
 	.caps-inspector .param-value .param-value-clip {
 		display: inline-block;
@@ -759,8 +771,31 @@ const STYLES = `
 	   settings keys, so they keep the monospace register), breaking only at
 	   the <wbr> the renderer places after underscores - overflow-wrap:
 	   anywhere would shatter them into arbitrary fragments. */
+	/* Core capability names are localized human labels wrapping at their own
+	   spaces; open rows render their raw wire keys in <code> (they ARE
+	   settings keys, so they keep the monospace register), breaking at the
+	   <wbr> the renderer places after underscores. Under the fixed column
+	   layout, overflow-wrap: anywhere is the last resort for a segment longer
+	   than the column (an underscore-less open key would otherwise overlap
+	   the value column); the <wbr> breaks still win whenever the segments
+	   fit. The Source column gets the same last resort - record keys can be
+	   long unbroken regexes. */
 	.caps-inspector .param-name { font-family: var(--vscode-font-family); overflow-wrap: normal; }
-	.caps-inspector .param-name code { font-family: var(--vscode-editor-font-family, monospace); }
+	.caps-inspector .param-name code { font-family: var(--vscode-editor-font-family, monospace); overflow-wrap: anywhere; }
+	.caps-inspector table.params td:last-child { overflow-wrap: anywhere; }
+	/* The capability inspector's section bands (Capabilities / Pricing /
+	   Supported parameters / Other fields): small muted headers spanning the
+	   one provenance table, so the columns stay aligned across sections. The
+	   hover suppression keeps a band from lighting up like a data row. */
+	.caps-inspector tr.caps-section th {
+		padding-top: 14px;
+		font-size: 0.8em;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--vscode-descriptionForeground);
+	}
+	.caps-inspector tr.caps-section:hover { background: transparent; }
 	.params-inspector .params-replaced ul {
 		list-style: none;
 		margin: 4px 0 8px;
@@ -1261,8 +1296,26 @@ const STYLES = `
 	table.resolved-models td { vertical-align: top; }
 	.resolved-col { min-width: 0; }
 	.resolved-id { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.95em; }
+	/* The matcher keys that touched a model, as quiet chips under its ID: the
+	   same visual register as the provenance chips beside the values. */
+	.resolved-matched { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+	.resolved-matched .chip-matcher {
+		font-size: 0.85em;
+		color: var(--vscode-descriptionForeground);
+		border: 1px solid var(--vscode-editorWidget-border, #555);
+		border-radius: 8px;
+		padding: 0 6px;
+		white-space: nowrap;
+	}
 	.resolved-cells { display: flex; flex-direction: column; gap: 3px; }
 	.resolved-cell { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+	/* Friendly-labeled capability fields and the pricing/params line labels;
+	   the values beside them keep the monospace register via <code>. */
+	.resolved-field { white-space: nowrap; }
+	/* One tier of the collapsed pricing line ("Input $5.00"): label, value,
+	   and its per-source chip hold together, the line wraps between tiers. */
+	.resolved-price-part { display: inline-flex; align-items: baseline; gap: 5px; white-space: nowrap; }
+	.resolved-price-part code { font-family: var(--vscode-editor-font-family, monospace); }
 	.chip-prov {
 		font-size: 0.85em;
 		color: var(--vscode-descriptionForeground);

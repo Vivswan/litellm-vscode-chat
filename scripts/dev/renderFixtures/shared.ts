@@ -206,6 +206,84 @@ export const USAGE: DashboardUsage = {
 	generatedAt: NOW,
 };
 
+/**
+ * A realistic full supported_openai_params report (27 entries, the shape a
+ * LiteLLM /model/info answer carries for an Anthropic-backed route): the
+ * worst case the params-list rendering must stay readable against.
+ */
+export const OPENAI_PARAMS_FULL: readonly string[] = [
+	"frequency_penalty",
+	"logit_bias",
+	"logprobs",
+	"top_logprobs",
+	"max_tokens",
+	"max_completion_tokens",
+	"modalities",
+	"prediction",
+	"n",
+	"presence_penalty",
+	"seed",
+	"stop",
+	"stream",
+	"stream_options",
+	"temperature",
+	"top_p",
+	"tools",
+	"tool_choice",
+	"function_call",
+	"functions",
+	"parallel_tool_calls",
+	"audio",
+	"web_search_options",
+	"response_format",
+	"user",
+	"reasoning_effort",
+	"thinking",
+];
+
+/**
+ * The worst-case effective-capabilities bag both caps-inspector fixtures
+ * render: the core seven, the three consumed booleans, the FULL eight-field
+ * Anthropic-style cost family with sub-micro per-token values (5e-7 and
+ * friends - the scientific-notation regression case), the 27-element params
+ * list, and one unknown extra - with mixed provenance across every level so
+ * the Source column shows its whole vocabulary.
+ */
+export function worstCaseCapabilityFields(): Record<string, unknown> {
+	return {
+		context_length: {
+			value: 272000,
+			level: "global",
+			key: "gpt-5*",
+			shadowed: [{ level: "server", value: 128000 }],
+		},
+		max_input_tokens: { value: 272000, level: "derived", shadowed: [] },
+		max_output_tokens: { value: 16384, level: "server", shadowed: [] },
+		supports_function_calling: { value: true, level: "server", shadowed: [] },
+		supports_vision: { value: true, level: "entry", key: "gpt-5.6", shadowed: [] },
+		supports_reasoning: { value: true, level: "global-fallback", key: "*", shadowed: [] },
+		supports_audio_input: { value: false, level: "floor", shadowed: [] },
+		supports_prompt_caching: { value: true, level: "server", shadowed: [] },
+		supports_pdf_input: { value: true, level: "catalog", key: "anthropic/claude-sonnet-4", shadowed: [] },
+		supports_response_schema: { value: true, level: "directive", key: "anthropic/claude-sonnet-4", shadowed: [] },
+		input_cost_per_token: { value: 0.000005, level: "server", shadowed: [] },
+		output_cost_per_token: { value: 0.000025, level: "server", shadowed: [] },
+		cache_read_input_token_cost: { value: 5e-7, level: "server", shadowed: [] },
+		cache_creation_input_token_cost: {
+			value: 6.25e-6,
+			level: "entry",
+			key: "gpt-5.6",
+			shadowed: [{ level: "server", value: 3.75e-6 }],
+		},
+		long_context_input_cost_per_token: { value: 0.00001, level: "global", key: "gpt-5*", shadowed: [] },
+		long_context_output_cost_per_token: { value: 3.75e-5, level: "server", shadowed: [] },
+		long_context_cache_read_input_token_cost: { value: 1e-6, level: "global-fallback", key: "*", shadowed: [] },
+		long_context_cache_creation_input_token_cost: { value: 1.25e-5, level: "server", shadowed: [] },
+		supported_openai_params: { value: [...OPENAI_PARAMS_FULL], level: "server", shadowed: [] },
+		supports_web_search: { value: true, level: "global", key: "gpt-5*", shadowed: [] },
+	};
+}
+
 export const RESOLVED_VIEW: ResolvedModelsView = {
 	trees: [
 		{
@@ -268,6 +346,26 @@ export const RESOLVED_VIEW: ResolvedModelsView = {
 	rows: [
 		{
 			serverLabel: "prod",
+			rawId: "claude-sonnet-4",
+			scopeKey: "s-prod",
+			matchedKeys: ["*", "claude-sonnet-4"],
+			parameters: [{ name: "temperature", valueText: "1", layer: "global", key: "claude-sonnet-4" }],
+			capabilities: [
+				// A catalog-directive model: the token facts fill from the
+				// _openrouter_model directive while the UNIFORM server pricing
+				// collapses under one source badge.
+				{ name: "context_length", valueText: "200000", level: "directive", key: "anthropic/claude-sonnet-4" },
+				{ name: "max_output_tokens", valueText: "64000", level: "directive", key: "anthropic/claude-sonnet-4" },
+				{ name: "supports_prompt_caching", valueText: "true", level: "server" },
+				{ name: "input_cost_per_token", valueText: "0.000003", level: "server" },
+				{ name: "output_cost_per_token", valueText: "0.000015", level: "server" },
+				{ name: "cache_read_input_token_cost", valueText: "3e-7", level: "server" },
+				{ name: "cache_creation_input_token_cost", valueText: "0.00000375", level: "server" },
+				{ name: "supported_openai_params", valueText: JSON.stringify(OPENAI_PARAMS_FULL), level: "server" },
+			],
+		},
+		{
+			serverLabel: "prod",
 			rawId: "gpt-5.6",
 			scopeKey: "s-prod",
 			matchedKeys: ["*", "gpt-5*"],
@@ -286,6 +384,24 @@ export const RESOLVED_VIEW: ResolvedModelsView = {
 				{ name: "context_length", valueText: "272000", level: "server" },
 				{ name: "max_output_tokens", valueText: "16384", level: "server" },
 				{ name: "supports_reasoning", valueText: "true", level: "global", key: "gpt-5*" },
+				{ name: "supports_pdf_input", valueText: "true", level: "catalog", key: "anthropic/claude-sonnet-4" },
+				{ name: "supports_web_search", valueText: "true", level: "global", key: "gpt-5*" },
+				// The full Anthropic-style cost family with MIXED sources, so the
+				// collapsed pricing line badges each tier separately.
+				{ name: "input_cost_per_token", valueText: "0.000005", level: "server" },
+				{ name: "output_cost_per_token", valueText: "0.000025", level: "server" },
+				{ name: "cache_read_input_token_cost", valueText: "5e-7", level: "server" },
+				{ name: "cache_creation_input_token_cost", valueText: "0.00000625", level: "entry", key: "gpt-5.6" },
+				{ name: "long_context_input_cost_per_token", valueText: "0.00001", level: "global", key: "gpt-5*" },
+				{ name: "long_context_output_cost_per_token", valueText: "0.0000375", level: "server" },
+				{
+					name: "long_context_cache_read_input_token_cost",
+					valueText: "0.000001",
+					level: "global-fallback",
+					key: "*",
+				},
+				{ name: "long_context_cache_creation_input_token_cost", valueText: "0.0000125", level: "server" },
+				{ name: "supported_openai_params", valueText: JSON.stringify(OPENAI_PARAMS_FULL), level: "server" },
 			],
 		},
 		{

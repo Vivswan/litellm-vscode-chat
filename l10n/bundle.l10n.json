@@ -67,6 +67,7 @@
 	"1 model available from {0} servers": "1 model available from {0} servers",
 	"1 model matches no record here": "1 model matches no record here",
 	"1 other server is over an alert threshold": "1 other server is over an alert threshold",
+	"1 parameter": "1 parameter",
 	"1 request in the last 30 days": "1 request in the last 30 days",
 	"1 server": "1 server",
 	"1 server added": "1 server added",
@@ -153,7 +154,19 @@
 	"Budget (USD)": "Budget (USD)",
 	"Built-in default": "Built-in default",
 	"Cache ($/M)": "Cache ($/M)",
+	"Cache read/Pricing row label: cost of cached input tokens": {
+		"message": "Cache read",
+		"comment": [
+			"Pricing row label: cost of cached input tokens"
+		]
+	},
 	"Cache the system prompt on models that advertise support.": "Cache the system prompt on models that advertise support.",
+	"Cache write/Pricing row label: cost of writing the prompt cache": {
+		"message": "Cache write",
+		"comment": [
+			"Pricing row label: cost of writing the prompt cache"
+		]
+	},
 	"Cancel": "Cancel",
 	"Cannot adopt: fix Label": "Cannot adopt: fix Label",
 	"Cannot be forced: provider-owned fields like model and keys starting with _ always stay extension-owned.": "Cannot be forced: provider-owned fields like model and keys starting with _ always stay extension-owned.",
@@ -349,6 +362,12 @@
 	"Inherits": "Inherits",
 	"Inline in the servers setting, so settings.json already shows it; saving it unedited keeps it.": "Inline in the servers setting, so settings.json already shows it; saving it unedited keeps it.",
 	"Input tokens": "Input tokens",
+	"Input/Pricing row label: cost of input tokens": {
+		"message": "Input",
+		"comment": [
+			"Pricing row label: cost of input tokens"
+		]
+	},
 	"Invalid value.": "Invalid value.",
 	"JSON value": "JSON value",
 	"JSON value, e.g. 0.2": "JSON value, e.g. 0.2",
@@ -451,6 +470,30 @@
 	"Loading": "Loading",
 	"Loading stored values...": "Loading stored values...",
 	"Long context ($/M)": "Long context ($/M)",
+	"Long-context cache read/Pricing row label: long-context tier": {
+		"message": "Long-context cache read",
+		"comment": [
+			"Pricing row label: long-context tier"
+		]
+	},
+	"Long-context cache write/Pricing row label: long-context tier": {
+		"message": "Long-context cache write",
+		"comment": [
+			"Pricing row label: long-context tier"
+		]
+	},
+	"Long-context input/Pricing row label: long-context tier": {
+		"message": "Long-context input",
+		"comment": [
+			"Pricing row label: long-context tier"
+		]
+	},
+	"Long-context output/Pricing row label: long-context tier": {
+		"message": "Long-context output",
+		"comment": [
+			"Pricing row label: long-context tier"
+		]
+	},
 	"Manage LiteLLM Provider": "Manage LiteLLM Provider",
 	"Manage server \"{0}\" ({1})": "Manage server \"{0}\" ({1})",
 	"Mark \"{0}\" inheritable": "Mark \"{0}\" inheritable",
@@ -583,13 +626,21 @@
 	"OpenRouter model \"{0}\" was not found in the catalog; its fields fill from the remaining levels.": "OpenRouter model \"{0}\" was not found in the catalog; its fields fill from the remaining levels.",
 	"Opens a GitHub issue pre-filled with version, platform, and recent logs.": "Opens a GitHub issue pre-filled with version, platform, and recent logs.",
 	"Other": "Other",
+	"Other fields": "Other fields",
 	"Other settings from the file were already written; Undo Import restores the pre-import state.": "Other settings from the file were already written; Undo Import restores the pre-import state.",
 	"Output tokens": "Output tokens",
+	"Output/Pricing row label: cost of output tokens": {
+		"message": "Output",
+		"comment": [
+			"Pricing row label: cost of output tokens"
+		]
+	},
 	"Overwrite": "Overwrite",
 	"Overwriting 1 server changes its connection settings; its dashboard row will show the steps to reconnect.": "Overwriting 1 server changes its connection settings; its dashboard row will show the steps to reconnect.",
 	"Overwriting replaces the entry and its stored secrets, and changes its connection settings; the server's dashboard row will show the steps to reconnect.": "Overwriting replaces the entry and its stored secrets, and changes its connection settings; the server's dashboard row will show the steps to reconnect.",
 	"Overwriting replaces the entry and its stored secrets.": "Overwriting replaces the entry and its stored secrets.",
 	"Overwriting {0} servers changes their connection settings; their dashboard rows will show the steps to reconnect.": "Overwriting {0} servers changes their connection settings; their dashboard rows will show the steps to reconnect.",
+	"PDF input": "PDF input",
 	"Parameter": "Parameter",
 	"Parameter, e.g. temperature": "Parameter, e.g. temperature",
 	"Parameters": "Parameters",
@@ -603,6 +654,12 @@
 	"Pick how requests authenticate: a bearer API key, a key in a custom header, or OAuth client credentials. Exactly one form per entry; lower-ranked companions ride inside it.": "Pick how requests authenticate: a bearer API key, a key in a custom header, or OAuth client credentials. Exactly one form per entry; lower-ranked companions ride inside it.",
 	"Picker: reasoning effort": "Picker: reasoning effort",
 	"Point the extension at your LiteLLM server and its models appear in Copilot Chat's model picker.": "Point the extension at your LiteLLM server and its models appear in Copilot Chat's model picker.",
+	"Pricing ($/M tokens)/Section header; $/M is US dollars per million tokens": {
+		"message": "Pricing ($/M tokens)",
+		"comment": [
+			"Section header; $/M is US dollars per million tokens"
+		]
+	},
 	"Pricing ($/M)": "Pricing ($/M)",
 	"Problems the extension found in your settings; each also shows beside what it concerns.": "Problems the extension found in your settings; each also shows beside what it concerns.",
 	"Prompt caching": "Prompt caching",
@@ -650,6 +707,7 @@
 	"Resolving capabilities...": "Resolving capabilities...",
 	"Resolving parameters...": "Resolving parameters...",
 	"Resolving...": "Resolving...",
+	"Response schema": "Response schema",
 	"Reveal File": "Reveal File",
 	"Run Sync models.": "Run Sync models.",
 	"Runtime options": "Runtime options",
@@ -724,6 +782,7 @@
 	"Stored in VS Code secret storage, never in settings files. Leave empty to remove the stored value.": "Stored in VS Code secret storage, never in settings files. Leave empty to remove the stored value.",
 	"Suggest an improvement as a GitHub issue.": "Suggest an improvement as a GitHub issue.",
 	"Suggestions": "Suggestions",
+	"Supported parameters": "Supported parameters",
 	"Sync issue": "Sync issue",
 	"Sync models": "Sync models",
 	"Test Connection": "Test Connection",
@@ -1091,6 +1150,7 @@
 			"price per million output tokens; {0} is a dollar amount"
 		]
 	},
+	"{0} parameters": "{0} parameters",
 	"{0} requests in the last 30 days": "{0} requests in the last 30 days",
 	"{0} server entries cannot be imported and will be skipped.": "{0} server entries cannot be imported and will be skipped.",
 	"{0} servers": "{0} servers",
