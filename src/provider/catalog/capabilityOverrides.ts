@@ -103,7 +103,9 @@ const REGISTRATION_CONSUMED_FIELDS: readonly string[] = [
  * what lets advertisesEffective compare exactly and keeps rebuilds idempotent.
  * zeroPairMeansUndeclared is off because the server's 0/0 stamp never enters
  * the walk (serverCostValues drops it at the baseline): a raw zero pair here
- * can only be user-written configuration and prices as genuinely free.
+ * is user-written on at least one side - all-user, or a user 0 over a server
+ * cost whose other side reported 0 past the baseline guard - and either way
+ * the user said "free", so it prices as genuinely free on purpose.
  */
 export function pricingFieldsFromEffective(fields: EffectiveCapabilityFields): ModelPricing {
 	const costs: { -readonly [K in keyof PerTokenCosts]?: number } = {};
