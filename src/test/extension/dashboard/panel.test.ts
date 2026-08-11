@@ -81,6 +81,8 @@ interface Harness {
 	loggedMessages: [string, unknown][];
 	settingsValues: Record<string, unknown>;
 	serversSetting: unknown[];
+	/** What getSnapshots answers; defaults to one healthy "srv1" server serving "m1". */
+	snapshots: ReturnType<DashboardControllerEnv["getSnapshots"]>;
 	/** The legacy registry's servers, as getLegacyServers reports them. */
 	legacyServers: { baseUrl: string }[];
 	/** What resolveEntryParameters answers per snapshot server ID. */
@@ -125,9 +127,7 @@ function makeHarness(): Harness {
 			panels.push(fake);
 			return fake.panel;
 		},
-		getSnapshots: () => [
-			{ discoveredRawIds: [], status: makeServerStatus(), models: [makeModelInfo({ id: "m1", name: "m1" })] },
-		],
+		getSnapshots: () => harness.snapshots,
 		getDeclaredServers: () => [],
 		getLegacyServers: () => harness.legacyServers,
 		getRemovedGroups: () => ({ tombstones: [], origins: [] }),
@@ -212,6 +212,9 @@ function makeHarness(): Harness {
 		loggedMessages,
 		settingsValues,
 		serversSetting: [],
+		snapshots: [
+			{ discoveredRawIds: [], status: makeServerStatus(), models: [makeModelInfo({ id: "m1", name: "m1" })] },
+		],
 		legacyServers: [],
 		entryResolutions: {},
 		entryCapabilities: {},
@@ -577,6 +580,59 @@ suite("extension/dashboard/panel", () => {
 			}),
 			"pure reads produce no outcome notices"
 		);
+	});
+
+	test("readModelCapabilities filters unrecognized-key hints against the server's observed set", async () => {
+		const harness = makeHarness();
+		harness.settingsValues["models.capabilities"] = { m1: { mystery_flag: true, observed_flag: 1 } };
+		harness.snapshots = [
+			{
+				discoveredRawIds: [],
+				status: makeServerStatus(),
+				models: [makeModelInfo({ id: "m1", name: "m1" })],
+				observedModelInfoKeys: ["observed_flag"],
+			},
+		];
+		harness.controller.open();
+		const fake = harness.panels[0];
+		assert.ok(fake);
+
+		fake.receiveMessage({
+			type: "readModelCapabilities",
+			scopeKey: modelScopeKey("srv1"),
+			rawId: "m1",
+			requestId: "caps-adv",
+		});
+		await settle();
+
+		const answer = fake.posted.find((message) => (message as ExtensionToWebviewMessage).type === "modelCapabilities") as
+			| Extract<ExtensionToWebviewMessage, { type: "modelCapabilities" }>
+			| undefined;
+		assert.deepStrictEqual(
+			answer?.capabilities?.diagnostics,
+			[{ kind: "unrecognized-key", recordKey: "m1", key: "mystery_flag", layer: "global" }],
+			"the observed key's hint drops; the unobserved key's survives"
+		);
+		assert.strictEqual(answer?.capabilities?.fields.mystery_flag?.value, true, "the field itself still applies");
+
+		// The same evidence reaches the state push: the surviving global-record
+		// hint is advisory, and the observed set rides the server row and union.
+		const statePush = fake.posted.filter((message) => (message as ExtensionToWebviewMessage).type === "state").at(-1) as
+			| Extract<ExtensionToWebviewMessage, { type: "state" }>
+			| undefined;
+		assert.ok(statePush !== undefined, "opening pushed a state");
+		const state = statePush.state;
+		assert.deepStrictEqual(state.observedModelInfoKeys, ["observed_flag"]);
+		assert.deepStrictEqual(state.servers[0]?.observedModelInfoKeys, ["observed_flag"]);
+		const recordDiagnostics = state.diagnostics.filter((diagnostic) => diagnostic.kind === "record");
+		assert.deepStrictEqual(recordDiagnostics, [
+			{
+				kind: "record",
+				setting: "models.capabilities",
+				diagnostic: { kind: "unrecognized-key", recordKey: "m1", key: "mystery_flag" },
+				severity: "advisory",
+			},
+		]);
 	});
 
 	test("searchCatalog answers with the bounded result list and echoes the requestId", async () => {

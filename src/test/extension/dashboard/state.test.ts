@@ -29,7 +29,10 @@ import type { DashboardStateInputs, SettingsInspection, SettingsReader } from ".
 import {
 	buildDashboardState,
 	EMPTY_CATALOG_STATUS,
+	filterUnrecognizedKeyDiagnostics,
 	mostSpecificGlobalRecordKey,
+	observedKeysByEntryLabel,
+	observedModelInfoKeysUnion,
 	readDashboardSettings,
 	resolveDashboardModelCapabilities,
 	resolveDashboardModelParameters,
@@ -1607,6 +1610,124 @@ suite("extension/dashboard/state", () => {
 		});
 	});
 
+	suite("observed model_info keys", () => {
+		test("ride the matched declared row and the external row; absent when the snapshot carries no set", () => {
+			const state = buildState(
+				[
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({ serverId: "g1", label: "Prod", baseUrl: "http://prod.test" }),
+						models: [],
+						observedModelInfoKeys: ["max_input_tokens", "mystery_flag"],
+					},
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({ serverId: "g2", label: "External", baseUrl: "http://ext.test" }),
+						models: [],
+						observedModelInfoKeys: ["supports_vision"],
+					},
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({ serverId: "g3", label: "Bare", baseUrl: "http://bare.test" }),
+						models: [],
+					},
+				],
+				makeReader({}),
+				[makeDeclared({ label: "Prod", baseUrl: "http://prod.test" })]
+			);
+			const byLabel = new Map(state.servers.map((server) => [server.label, server.observedModelInfoKeys]));
+			assert.deepStrictEqual(byLabel.get("Prod"), ["max_input_tokens", "mystery_flag"]);
+			assert.deepStrictEqual(byLabel.get("External"), ["supports_vision"]);
+			assert.strictEqual(byLabel.get("Bare"), undefined);
+			assert.deepStrictEqual(
+				state.observedModelInfoKeys,
+				["max_input_tokens", "mystery_flag", "supports_vision"],
+				"the state-level union spans exactly the servers that reported a set, sorted"
+			);
+		});
+
+		test("the state union is absent when no server reported a set, and an unchecked declared row carries none", () => {
+			const state = buildState([], makeReader({}), [makeDeclared()]);
+			assert.ok(!("observedModelInfoKeys" in state), "no set anywhere means no union, not an empty one");
+			assert.strictEqual(state.servers[0]?.observedModelInfoKeys, undefined);
+		});
+
+		test('a server-reported "__proto__" key is carried as data, never applied as an object key', () => {
+			const state = buildState(
+				[
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({ serverId: "g1" }),
+						models: [],
+						observedModelInfoKeys: ["__proto__", "constructor"],
+					},
+				],
+				makeReader({})
+			);
+			assert.deepStrictEqual(state.observedModelInfoKeys, ["__proto__", "constructor"]);
+			// The union is Set-built; had a raw object keyed the accumulation, the
+			// "__proto__" write would have re-pointed the accumulator's prototype
+			// instead of recording the key. Fresh objects must stay pristine.
+			assert.strictEqual(Object.getPrototypeOf({}), Object.prototype);
+		});
+
+		test("observedModelInfoKeysUnion distinguishes no sets (undefined) from empty sets (the empty array)", () => {
+			assert.strictEqual(observedModelInfoKeysUnion([{}]), undefined);
+			assert.deepStrictEqual(observedModelInfoKeysUnion([{ observedModelInfoKeys: [] }]), []);
+			assert.deepStrictEqual(
+				observedModelInfoKeysUnion([{ observedModelInfoKeys: ["b", "a"] }, {}, { observedModelInfoKeys: ["a", "c"] }]),
+				["a", "b", "c"]
+			);
+		});
+
+		test("observedKeysByEntryLabel joins each entry to its serving snapshot's set; setless and unmatched entries stay absent", () => {
+			const byLabel = observedKeysByEntryLabel(
+				[
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({ serverId: "g1", label: "Prod", baseUrl: "http://prod.test" }),
+						models: [],
+						observedModelInfoKeys: ["max_input_tokens"],
+					},
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({ serverId: "g2", label: "Bare", baseUrl: "http://bare.test" }),
+						models: [],
+					},
+				],
+				[
+					makeDeclared({ label: "Prod", baseUrl: "http://prod.test" }),
+					makeDeclared({ label: "Bare", baseUrl: "http://bare.test" }),
+					makeDeclared({ label: "Unseen", baseUrl: "http://unseen.test" }),
+				]
+			);
+			assert.deepStrictEqual([...byLabel.entries()], [["Prod", ["max_input_tokens"]]]);
+		});
+
+		test("filterUnrecognizedKeyDiagnostics drops consumed-vocabulary keys even when the set would keep them", () => {
+			// The backstop rule: the parse never emits unrecognized-key for a
+			// consumed field, but if the vocabulary ever drifted, the filter must
+			// not resurrect hints for keys the extension reads.
+			const kept = filterUnrecognizedKeyDiagnostics(
+				[
+					{ kind: "unrecognized-key", recordKey: "r", key: "supports_vision" },
+					{ kind: "unrecognized-key", recordKey: "r", key: "mystery_flag" },
+				],
+				["some_real_key"]
+			);
+			assert.deepStrictEqual(kept, [{ kind: "unrecognized-key", recordKey: "r", key: "mystery_flag" }]);
+		});
+
+		test("filterUnrecognizedKeyDiagnostics treats an empty set as no evidence, exactly like no set", () => {
+			// A /model/info listing with zero deployments proves nothing about
+			// the server's key vocabulary; hinting against it would flag every
+			// open field at once.
+			const hints = [{ kind: "unrecognized-key" as const, recordKey: "r", key: "mystery_flag" }];
+			assert.deepStrictEqual(filterUnrecognizedKeyDiagnostics(hints, []), []);
+			assert.deepStrictEqual(filterUnrecognizedKeyDiagnostics(hints, undefined), []);
+		});
+	});
+
 	suite("mostSpecificGlobalRecordKey", () => {
 		test("names the most specific matching key of the addressed map, or nothing", () => {
 			const reader = makeReader({
@@ -1765,6 +1886,76 @@ suite("extension/dashboard/state", () => {
 			// A key minted for a server that left the window de-resolves; it can
 			// never re-point at whatever server the snapshot list now holds.
 			assert.strictEqual(resolveDashboardModelCapabilities(query, modelScopeKey("gone"), "gpt-4"), undefined);
+		});
+
+		suite("advisory filtering of unrecognized-key diagnostics", () => {
+			const snapshotWithKeys = (observedModelInfoKeys: readonly string[] | undefined) => [
+				{
+					discoveredRawIds: [],
+					status: makeServerStatus({ serverId: "g1", baseUrl: "http://x.test" }),
+					models: [makeModelInfo({ id: "gpt-4", name: "gpt-4" })],
+					...(observedModelInfoKeys !== undefined ? { observedModelInfoKeys } : {}),
+				},
+			];
+			const resolve = (observed: readonly string[] | undefined) =>
+				resolveDashboardModelCapabilities(
+					{
+						snapshots: snapshotWithKeys(observed),
+						reader: makeReader({ "models.capabilities": { "gpt-4": { mystery_flag: true } } }),
+						resolveEntryCapabilities: () => undefined,
+						catalog: EMPTY_CATALOG_LOOKUP,
+					},
+					modelScopeKey("g1"),
+					"gpt-4"
+				);
+
+			test("with no observed set the hint drops; the field still applies", () => {
+				const capabilities = resolve(undefined);
+				assert.ok(capabilities !== undefined);
+				assert.deepStrictEqual(capabilities.diagnostics, []);
+				assert.strictEqual(capabilities.fields.mystery_flag?.value, true, "filtering touches diagnostics only");
+			});
+
+			test("an unobserved key on a server WITH a set survives; an observed one drops", () => {
+				const unobserved = resolve(["supports_vision"]);
+				assert.deepStrictEqual(unobserved?.diagnostics, [
+					{ kind: "unrecognized-key", recordKey: "gpt-4", key: "mystery_flag", layer: "global" },
+				]);
+				const observed = resolve(["mystery_flag"]);
+				assert.deepStrictEqual(observed?.diagnostics, []);
+			});
+
+			test("other diagnostic kinds pass through whatever the observed set says", () => {
+				const capabilities = resolveDashboardModelCapabilities(
+					{
+						snapshots: snapshotWithKeys(undefined),
+						reader: makeReader({ "models.capabilities": { "gpt-4": { context_length: "big" } } }),
+						resolveEntryCapabilities: () => undefined,
+						catalog: EMPTY_CATALOG_LOOKUP,
+					},
+					modelScopeKey("g1"),
+					"gpt-4"
+				);
+				assert.deepStrictEqual(capabilities?.diagnostics, [
+					{ kind: "invalid-value", recordKey: "gpt-4", key: "context_length", layer: "global" },
+				]);
+			});
+
+			test("entry-layer hints filter against the same server set", () => {
+				const capabilities = resolveDashboardModelCapabilities(
+					{
+						snapshots: snapshotWithKeys(["entry_key"]),
+						reader: makeReader({}),
+						resolveEntryCapabilities: () => ({ "gpt-4": { entry_key: 1, entry_mystery: 2 } }),
+						catalog: EMPTY_CATALOG_LOOKUP,
+					},
+					modelScopeKey("g1"),
+					"gpt-4"
+				);
+				assert.deepStrictEqual(capabilities?.diagnostics, [
+					{ kind: "unrecognized-key", recordKey: "gpt-4", key: "entry_mystery", layer: "entry" },
+				]);
+			});
 		});
 	});
 

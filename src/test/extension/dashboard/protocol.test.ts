@@ -1,6 +1,9 @@
 import * as assert from "node:assert";
-import type { DashboardServer } from "../../../extension/dashboard/protocol";
+import type { CapabilityJsonValue, CapabilityValueKind, DashboardServer } from "../../../extension/dashboard/protocol";
 import {
+	CAPABILITY_FIELDS,
+	CONSUMED_CAPABILITY_FIELDS,
+	capabilityField,
 	classifyOverall,
 	latestCheckedMs,
 	overallStatusText,
@@ -343,6 +346,25 @@ suite("extension/dashboard/protocol renderers", () => {
 
 		test("unparseable timestamps are ignored instead of poisoning the maximum", () => {
 			assert.strictEqual(latestCheckedMs([{ lastChecked: "not a date" }]), undefined);
+		});
+	});
+
+	suite("capability vocabulary re-exports", () => {
+		test("the consumed vocabulary rides the protocol module and contains the registration-typed core", () => {
+			// The webview may import only this module; the record editors key
+			// their inputs and validation hints off these constants.
+			for (const name of Object.keys(CAPABILITY_FIELDS)) {
+				assert.ok(Object.hasOwn(CONSUMED_CAPABILITY_FIELDS, name), `core field ${name} must be consumed`);
+			}
+			const costKind: CapabilityValueKind | undefined = CONSUMED_CAPABILITY_FIELDS.input_cost_per_token;
+			assert.strictEqual(costKind, "cost");
+		});
+
+		test("capabilityField reads own properties only, so prototype-named open fields cannot leak members", () => {
+			const bag: Readonly<Record<string, CapabilityJsonValue | undefined>> = { toString: "own" };
+			assert.strictEqual(capabilityField(bag, "toString"), "own");
+			assert.strictEqual(capabilityField(bag, "constructor"), undefined);
+			assert.strictEqual(capabilityField(bag, "__proto__"), undefined);
 		});
 	});
 });

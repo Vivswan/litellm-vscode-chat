@@ -14,10 +14,11 @@ import type { PreAttachModelInfo } from "../../provider/catalog/groupModels";
 import { modelSupportsPromptCaching } from "../../provider/catalog/groupModels";
 import { rawModelIdFromExposed } from "../../provider/catalog/modelCatalog";
 import type { CapabilityCatalogLookup, EffectiveCapabilities } from "../../shared/config/capabilityResolution";
-import { resolveModelCapabilities } from "../../shared/config/capabilityResolution";
+import { CONSUMED_CAPABILITY_FIELDS, resolveModelCapabilities } from "../../shared/config/capabilityResolution";
 import { matchChain } from "../../shared/config/modelMatcher";
 import type { EffectiveParametersProjection } from "../../shared/config/parameterResolution";
 import { projectResolvedParameters, resolveModelParameters } from "../../shared/config/parameterResolution";
+import type { RecordDiagnostic } from "../../shared/config/recordResolution";
 import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
 import {
 	MODEL_CAPABILITIES_SETTING_KEY,
@@ -139,6 +140,7 @@ function buildServer(
 		adoptHandle: adoptSourceHandle(status.serverId),
 		hideable,
 		...(provenance !== undefined ? { provenance } : {}),
+		...(snapshot.observedModelInfoKeys !== undefined ? { observedModelInfoKeys: snapshot.observedModelInfoKeys } : {}),
 	} as const;
 	return status.state === "ok"
 		? { ...base, state: "ok", modelCount: status.modelCount }
@@ -401,6 +403,9 @@ function buildServers(
 			hasApiKey: matched?.snapshot.status.hasApiKey === true || view.secrets.apiKey !== "none",
 			hasOAuth: view.oauthTokenUrl !== undefined && view.oauthClientId !== undefined,
 			origin: "declared",
+			...(matched?.snapshot.observedModelInfoKeys !== undefined
+				? { observedModelInfoKeys: matched.snapshot.observedModelInfoKeys }
+				: {}),
 			config: {
 				...pickNonSecretOptionalFields(view),
 				secrets: view.secrets,
@@ -718,6 +723,93 @@ export function visibleHiddenGroups(
 		.sort((a, b) => a.label.localeCompare(b.label) || a.baseUrl.localeCompare(b.baseUrl));
 }
 
+/**
+ * The union of the snapshots' observed /model/info keys, across exactly the
+ * snapshots that carry a set (sorted for a stable push). Undefined when none
+ * does - "no server has reported keys" must stay distinguishable from "the
+ * servers reported none", because the advisory-hint filter drops every hint
+ * on the former (no false hints on declared-only entries, expected
+ * modelInfo failures, the /models fallback, or pre-discovery windows).
+ * Observed keys are server-derived strings: the union is Set-built (never
+ * raw object keys - "__proto__" is a legal member) and must never be logged.
+ */
+export function observedModelInfoKeysUnion(
+	snapshots: readonly Pick<ServerModelsSnapshot, "observedModelInfoKeys">[]
+): readonly string[] | undefined {
+	const reported = snapshots.map((snapshot) => snapshot.observedModelInfoKeys).filter((keys) => keys !== undefined);
+	if (reported.length === 0) {
+		return undefined;
+	}
+	const union = new Set<string>();
+	for (const keys of reported) {
+		for (const key of keys) {
+			union.add(key);
+		}
+	}
+	// Code-unit order, matching discovery's own per-server sort: these are
+	// wire identifiers, and locale collation would make the push host-dependent.
+	return [...union].sort();
+}
+
+/**
+ * Each declared entry's observed /model/info key set, keyed by entry label:
+ * the set its serving snapshot carries, joined by the same passes the servers
+ * table renders from (joinDeclared). Entries with no snapshot, or whose
+ * snapshot carries no set, are simply absent - the advisory-hint filter
+ * treats absence as "unknown" and stays silent. Same handling rules as
+ * observedModelInfoKeysUnion (Map-keyed, never logged).
+ */
+export function observedKeysByEntryLabel(
+	snapshots: readonly ServerModelsSnapshot[],
+	declared: readonly DeclaredServerView[]
+): ReadonlyMap<string, readonly string[]> {
+	const { matchedByDeclared } = joinDeclared(labeledSnapshots(snapshots), declared);
+	const byLabel = new Map<string, readonly string[]>();
+	declared.forEach((view, declaredIndex) => {
+		const keys = matchedByDeclared.get(declaredIndex)?.entry.snapshot.observedModelInfoKeys;
+		if (keys !== undefined) {
+			byLabel.set(view.label, keys);
+		}
+	});
+	return byLabel;
+}
+
+/**
+ * The advisory filter over capability-record unrecognized-key diagnostics
+ * (informational by contract: the field APPLIES as-is; the hint only says the
+ * key may be a typo). A hint survives exactly when the relevant observed
+ * /model/info key set is KNOWN, NON-EMPTY, and names neither the key nor a
+ * consumed field: an observed key is real whatever the vocabulary says, and
+ * with no set at all (declared-only entries, expected modelInfo failures, the
+ * /models fallback, pre-discovery) there is no evidence to hint from, so
+ * every hint drops rather than crying wolf. An EMPTY set is treated the same
+ * way: a /model/info listing with zero deployments (or none carrying a
+ * model_info object) says nothing about the server's key vocabulary, and
+ * hinting against it would flag every open field at once. The
+ * consumed-vocabulary check is a backstop - the parse never emits
+ * unrecognized-key for consumed fields - so a vocabulary drift cannot
+ * resurrect hints for keys the extension reads. Every other diagnostic kind
+ * passes through untouched. Membership tests go through a Set: observed keys
+ * are server-derived strings, and "__proto__" is a legal member a raw object
+ * key would misread.
+ */
+export function filterUnrecognizedKeyDiagnostics<T extends RecordDiagnostic>(
+	diagnostics: readonly T[],
+	observedKeys: readonly string[] | undefined
+): readonly T[] {
+	if (!diagnostics.some((diagnostic) => diagnostic.kind === "unrecognized-key")) {
+		return diagnostics;
+	}
+	const observed = observedKeys === undefined || observedKeys.length === 0 ? undefined : new Set(observedKeys);
+	return diagnostics.filter(
+		(diagnostic) =>
+			diagnostic.kind !== "unrecognized-key" ||
+			(observed !== undefined &&
+				!observed.has(diagnostic.key) &&
+				!Object.hasOwn(CONSUMED_CAPABILITY_FIELDS, diagnostic.key))
+	);
+}
+
 export function buildDashboardState(inputs: DashboardStateInputs): DashboardState {
 	const {
 		snapshots,
@@ -737,6 +829,7 @@ export function buildDashboardState(inputs: DashboardStateInputs): DashboardStat
 	// See visibleHiddenGroups for why the line renders from the tombstones
 	// themselves rather than from live snapshots.
 	const hiddenGroups = visibleHiddenGroups(removedGroups, wasGroupObserved);
+	const observedUnion = observedModelInfoKeysUnion(snapshots);
 	return {
 		servers,
 		hiddenGroups,
@@ -749,6 +842,7 @@ export function buildDashboardState(inputs: DashboardStateInputs): DashboardStat
 				)
 			)
 			.sort((a, b) => a.serverLabel.localeCompare(b.serverLabel) || a.name.localeCompare(b.name)),
+		...(observedUnion !== undefined ? { observedModelInfoKeys: observedUnion } : {}),
 		settings: readDashboardSettings(reader, catalog),
 		usage,
 		diagnostics,
@@ -814,9 +908,17 @@ export function resolveDashboardModelCapabilities(
 		// model: the inspector resolves over the same walk registration serves.
 		serverDeclared: info.litellm.serverDeclared,
 	};
-	return query.resolution !== undefined
-		? query.resolution.resolveCapabilities(serverId, rawId, inputs)
-		: resolveModelCapabilities({ rawModelId: rawId, ...inputs });
+	const resolved =
+		query.resolution !== undefined
+			? query.resolution.resolveCapabilities(serverId, rawId, inputs)
+			: resolveModelCapabilities({ rawModelId: rawId, ...inputs });
+	// The advisory filter runs against THIS model's server (both layers: the
+	// inspector shows one model on one server, so the server's own listing is
+	// the evidence for every record that applies here). Surviving
+	// unrecognized-key diagnostics are advisory hints by kind; the other kinds
+	// pass through untouched.
+	const diagnostics = filterUnrecognizedKeyDiagnostics(resolved.diagnostics, snapshot.observedModelInfoKeys);
+	return diagnostics.length === resolved.diagnostics.length ? resolved : { ...resolved, diagnostics };
 }
 
 /** What the readModelParameters responder resolves against; panel.ts supplies the live stores. */

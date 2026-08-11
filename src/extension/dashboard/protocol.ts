@@ -19,13 +19,17 @@
 export type {
 	CapabilityDiagnostic,
 	CapabilityFieldName,
+	CapabilityJsonValue,
 	CapabilityLevel,
+	CapabilityValueKind,
 	EffectiveCapabilities,
 	EffectiveCapabilityField,
 	ShadowedCapabilityValue,
 } from "../../shared/config/capabilityResolution";
 export {
 	CAPABILITY_FIELDS,
+	CONSUMED_CAPABILITY_FIELDS,
+	capabilityField,
 	FALLBACK_DIRECTIVE,
 	OPENROUTER_MODEL_DIRECTIVE,
 } from "../../shared/config/capabilityResolution";
@@ -158,6 +162,17 @@ interface DashboardServerBase {
 	/** Whether the server has credentials configured anywhere; never the credentials themselves. */
 	readonly hasApiKey: boolean;
 	readonly hasOAuth: boolean;
+	/**
+	 * The model_info keys the server's last successful /model/info listing
+	 * reported (ServerModelsSnapshot.observedModelInfoKeys), for the record
+	 * editors' key suggestions. Absent when no set is available (declared-only
+	 * entries, a /models-fallback discovery, pre-discovery) - absence and the
+	 * empty array differ: an empty set is a real answer. Server-derived
+	 * strings: render-only, never logged, never part of issue-report text, and
+	 * membership tests go through Set/Map ("__proto__" is a legal member, so a
+	 * raw object key would hit the prototype).
+	 */
+	readonly observedModelInfoKeys?: readonly string[] | undefined;
 }
 
 /**
@@ -1138,6 +1153,15 @@ export type ConfigDiagnosticView =
 			/** The owning entry's label for entry-layer records; absent for the global settings. */
 			readonly entryLabel?: string | undefined;
 			readonly diagnostic: RecordDiagnostic;
+			/**
+			 * "advisory" marks an informational hint, not a problem: present
+			 * exactly on the surviving unrecognized-key diagnostics (a capability
+			 * field outside the consumed vocabulary that the server's observed
+			 * /model/info listing does not name - the field still APPLIES as-is,
+			 * it just may be a typo). Absent means warning severity, which every
+			 * other diagnostic kind keeps.
+			 */
+			readonly severity?: "advisory" | undefined;
 	  }
 	| {
 			/** One rejected or partially-ignored servers-setting entry; `misconfigured` when the entry is skipped whole. */
@@ -1284,6 +1308,15 @@ export interface DashboardState {
 	 */
 	readonly hiddenGroups: readonly HiddenGroup[];
 	readonly models: readonly DashboardModel[];
+	/**
+	 * The union of the servers' observedModelInfoKeys, across exactly the
+	 * servers that reported a set (sorted; the global capability record
+	 * editor's key suggestions). Absent when no server reported one - absence
+	 * means "unknown", the empty array means "known and empty". Same handling
+	 * rules as the per-server field: server-derived strings, render-only,
+	 * membership through Set/Map.
+	 */
+	readonly observedModelInfoKeys?: readonly string[] | undefined;
 	readonly settings: DashboardSettings;
 	/** The Usage tab's snapshot; see DashboardUsage. */
 	readonly usage: DashboardUsage;

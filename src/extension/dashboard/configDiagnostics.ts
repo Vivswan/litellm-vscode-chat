@@ -8,6 +8,7 @@
  * problems also ride the copyable diagnostics block.
  */
 
+import type { ModelCapabilitiesRecord } from "../../shared/config/capabilityResolution";
 import { lintCapabilityRecords } from "../../shared/config/capabilityResolution";
 import { lintParameterRecords } from "../../shared/config/parameterResolution";
 import type { RecordDiagnostic } from "../../shared/config/recordResolution";
@@ -26,6 +27,7 @@ import {
 import type { DeclaredServerView, ServerEntryReport } from "../servers/serverSync";
 import type { ConfigDiagnosticView, HiddenGroup } from "./protocol";
 import type { SettingsReader } from "./state";
+import { filterUnrecognizedKeyDiagnostics } from "./state";
 
 export interface ConfigDiagnosticsInput {
 	/** The litellm-vscode-chat configuration section; the builder reads the record settings and leftovers itself. */
@@ -40,6 +42,27 @@ export interface ConfigDiagnosticsInput {
 	readonly declared: readonly Pick<DeclaredServerView, "label" | "modelParameters" | "modelCapabilities">[];
 	/** The groups hidden by an explicit removal, as the state builder renders them (visibleHiddenGroups). */
 	readonly hiddenGroups: readonly HiddenGroup[];
+	/**
+	 * Each entry's observed /model/info key set, by entry label (state.ts's
+	 * observedKeysByEntryLabel): the evidence the entry-layer advisory hints
+	 * filter against. An absent entry has no set, so its unrecognized-key
+	 * hints drop (no false hints on declared-only entries, expected modelInfo
+	 * failures, the /models fallback, or pre-discovery). Server-derived
+	 * strings: never logged, membership through the Map only.
+	 */
+	readonly observedKeysByEntry?: ReadonlyMap<string, readonly string[]> | undefined;
+	/**
+	 * The observed-key union across servers that reported a set (state.ts's
+	 * observedModelInfoKeysUnion): the global records' evidence - a global
+	 * record applies to every server, so a key any server observed is real.
+	 * Undefined when no server reported a set; then every global hint drops.
+	 * Known residual: with mixed evidence (one server reported, another - say
+	 * a declared-only entry - did not), a key only the evidence-less server
+	 * knows still hints; the union cannot prove a negative for servers that
+	 * contributed nothing, and the hint stays advisory-severity for exactly
+	 * that reason.
+	 */
+	readonly observedKeysUnion?: readonly string[] | undefined;
 }
 
 function recordDiagnostics(
@@ -52,7 +75,20 @@ function recordDiagnostics(
 		setting,
 		...(entryLabel !== undefined ? { entryLabel } : {}),
 		diagnostic,
+		// A surviving unrecognized-key is advisory by construction: the filter
+		// already dropped everything without evidence, so what remains is "the
+		// server's listing does not name this key" - an info hint, never a
+		// warning. Every other kind keeps the default warning severity.
+		...(diagnostic.kind === "unrecognized-key" ? { severity: "advisory" as const } : {}),
 	}));
+}
+
+/** The capabilities-record lint with the advisory filter applied; see filterUnrecognizedKeyDiagnostics. */
+function capabilityLint(
+	records: ModelCapabilitiesRecord,
+	observedKeys: readonly string[] | undefined
+): readonly RecordDiagnostic[] {
+	return filterUnrecognizedKeyDiagnostics(lintCapabilityRecords(records), observedKeys);
 }
 
 export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDiagnosticView[] {
@@ -62,7 +98,8 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 
 	// The two global records, linted record-level so keys no model matches
 	// still report (invalid matchers, unforceable names, unknown
-	// _inherit_from keys).
+	// _inherit_from keys). Capability unrecognized-key hints filter against
+	// the cross-server observed union: a global record applies everywhere.
 	diagnostics.push(
 		...recordDiagnostics(
 			"models.parameters",
@@ -72,11 +109,12 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 		...recordDiagnostics(
 			"models.capabilities",
 			undefined,
-			lintCapabilityRecords(normalizeModelCapabilities(modelCapabilitiesValue))
+			capabilityLint(normalizeModelCapabilities(modelCapabilitiesValue), input.observedKeysUnion)
 		)
 	);
 
-	// Every entry's own records, attributed to the entry.
+	// Every entry's own records, attributed to the entry; the entry's
+	// capability hints filter against its own server's observed set.
 	for (const view of input.declared) {
 		if (view.modelParameters !== undefined) {
 			diagnostics.push(
@@ -85,7 +123,11 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 		}
 		if (view.modelCapabilities !== undefined) {
 			diagnostics.push(
-				...recordDiagnostics("models.capabilities", view.label, lintCapabilityRecords(view.modelCapabilities))
+				...recordDiagnostics(
+					"models.capabilities",
+					view.label,
+					capabilityLint(view.modelCapabilities, input.observedKeysByEntry?.get(view.label))
+				)
 			);
 		}
 	}

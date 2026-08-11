@@ -74,6 +74,8 @@ import {
 	joinDeclared,
 	labeledSnapshots,
 	mostSpecificGlobalRecordKey,
+	observedKeysByEntryLabel,
+	observedModelInfoKeysUnion,
 	resolveDashboardModelCapabilities,
 	resolveDashboardModelParameters,
 	visibleHiddenGroups,
@@ -382,6 +384,11 @@ export class DashboardController implements vscode.Disposable {
 					declared,
 					// The same list the servers section's hidden-groups line renders.
 					hiddenGroups: visibleHiddenGroups(removedGroups, wasGroupObserved),
+					// The advisory-hint evidence, from the same snapshots the state
+					// renders: per entry its own server's observed set, global records
+					// the cross-server union.
+					observedKeysByEntry: observedKeysByEntryLabel(snapshots, declared),
+					observedKeysUnion: observedModelInfoKeysUnion(snapshots),
 				}),
 			}),
 		});
