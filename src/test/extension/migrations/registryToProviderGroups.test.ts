@@ -239,7 +239,7 @@ suite("extension/migrations/registryToProviderGroups", () => {
 
 		assert.strictEqual(completed, false);
 		assert.deepStrictEqual(host.submissions, [], "no group may be submitted under a session-only salt");
-		assert.strictEqual(registry.getServers().length, 1, "the registry keeps serving the deferred server");
+		assert.strictEqual(registry.getServers().length, 1, "the registry retains the deferred server");
 		assert.strictEqual(storage.mementoStore.get(SEEDED_PROVIDER_GROUPS_KEY), undefined);
 		assert.strictEqual(storage.mementoStore.get(PENDING_GROUP_SUBMISSION_KEY), undefined);
 		assert.strictEqual(storage.mementoStore.get(SKIPPED_MIGRATION_SERVERS_KEY), undefined);
@@ -812,7 +812,7 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		assert.strictEqual(isGroupMigrationComplete(storage.memento), false);
 	});
 
-	test("a server added after a fresh install is still served and migrated later", async () => {
+	test("a server added after a fresh install is still migrated later", async () => {
 		const storage = makeExtensionStorage();
 		const registry = new ServerRegistry(storage.memento, storage.secrets);
 		const { logger } = makeLogger();
@@ -822,7 +822,7 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		assert.strictEqual(
 			isGroupMigrationComplete(storage.memento),
 			false,
-			"the groupless registry gate must stay open after a fresh install"
+			"a fresh install's empty registry must not mark the migration complete"
 		);
 
 		await registry.addServer("Fallback", "http://fallback.test", "");

@@ -6,7 +6,7 @@ import type { ErrorRecorder, Logger } from "../../shared/logger";
 import { publicErrorStack, publicErrorText } from "../../shared/logger";
 import type { SecretFieldId } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
-import type { ServerConfig, ServerStatus } from "../../shared/servers";
+import type { ServerStatus } from "../../shared/servers";
 import { isErrorServerStatus, isHiddenGroupServerStatus } from "../../shared/servers";
 import { GITHUB_DOCS_URL, GITHUB_REPO_URL } from "../../shared/util/links";
 import { openUrl } from "../../shared/util/openUrl";
@@ -93,8 +93,8 @@ let modelSyncRunning = false;
 /**
  * Trigger a non-silent refresh, ask the host to re-resolve every provider
  * group, and report from the connection status all of that left behind. The
- * status, not any returned model list, is the source of truth: the direct
- * refresh covers the registry era, the host round trip covers groups.
+ * status, not any returned model list, is the source of truth: the host owns
+ * the per-group fetches, so the direct refresh alone proves nothing.
  */
 export async function runConnectionTest(
 	provider: ConnectionTestableProvider,
@@ -537,75 +537,17 @@ export function registerHelpAndFeedbackCommand(context: vscode.ExtensionContext)
 
 export function registerTestCommands(
 	context: vscode.ExtensionContext,
-	registry: ServerRegistry,
 	provider: ModelInfoProvider & StatusSnapshotProvider,
 	issueReporter: Pick<IssueReporter, "getRecentLogs" | "getLatestError">,
 	syncEngine: Pick<ServerSyncEngine, "getDeclared" | "resolveGroupArgs">,
 	dashboard: Pick<DashboardController, "injectMessageForTest">,
-	seams: TestEntrySeams,
 	sessionLogs: Pick<SessionLogTee, "readSince">
 ): void {
 	if (context.extensionMode === vscode.ExtensionMode.Production) {
 		return;
 	}
 
-	const refreshModelIds = async (): Promise<string[]> => {
-		return (await refreshModelInfos()).map((info) => info.id);
-	};
-
-	const refreshModelInfos = async (): Promise<vscode.LanguageModelChatInformation[]> => {
-		return provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
-	};
-
-	// Mutations run serialized so a straggler's refresh can never overwrite the
-	// provider state a newer mutation just established. The generation counter
-	// marks a superseded mutation's result as null so its caller (typically a
-	// timed-out test) knows its view is stale.
-	let generation = 0;
-	let queue: Promise<unknown> = Promise.resolve();
-	const mutateAndRefresh = (mutate: () => Promise<void>): Promise<string[] | null> => {
-		const gen = ++generation;
-		const run = async () => {
-			await mutate();
-			const modelIds = await refreshModelIds();
-			return gen === generation ? modelIds : null;
-		};
-		const result = queue.then(run, run);
-		queue = result.then(
-			() => undefined,
-			() => undefined
-		);
-		return result;
-	};
-
 	context.subscriptions.push(
-		vscode.commands.registerCommand("litellm._test.refreshModelIds", refreshModelIds),
-		// The full prepared infos, for suites asserting registration metadata
-		// (e.g. configurationSchema) that vscode.lm.selectChatModels never
-		// exposes. In-process command dispatch returns the objects as-is.
-		vscode.commands.registerCommand("litellm._test.refreshModelInfos", refreshModelInfos),
-		vscode.commands.registerCommand(
-			"litellm._test.addServer",
-			async (label: string, baseUrl: string, apiKey: string) => {
-				let server: ServerConfig | undefined;
-				const modelIds = await mutateAndRefresh(async () => {
-					// Unguarded: the suites must mutate deterministically even while a
-					// background migration pass holds the guard's "migrating" verdict.
-					server = await registry.addServerUnguarded(label, baseUrl, apiKey || "");
-				});
-				return { server, modelIds };
-			}
-		),
-		vscode.commands.registerCommand("litellm._test.clearServers", async () => {
-			return mutateAndRefresh(async () => {
-				for (const s of registry.getServers()) {
-					await registry.removeServerUnguarded(s.id);
-				}
-			});
-		}),
-		vscode.commands.registerCommand("litellm._test.getServers", () => {
-			return registry.getServers();
-		}),
 		// Observability commands. getRecentLogs is the production
 		// classification-only buffer that feeds public issue reports (the
 		// 50-entry rolling window itself). setServerSecret writes a label's
@@ -675,49 +617,8 @@ export function registerTestCommands(
 		// The monkey fuzzer's storage-hygiene probe: every Memento key the
 		// extension holds, checked against shared/config/storageKeys.ts. SecretStorage
 		// has no enumeration API, so secret keys stay out of reach here.
-		vscode.commands.registerCommand("litellm._test.getStorageKeys", () => [...context.globalState.keys()]),
-		// The host-fidelity suite's entry-capabilities seam: entry capability
-		// records live on declared server entries, and the legacy registry has
-		// no entries, so the suite injects a label-keyed record here instead of
-		// standing up the whole servers-setting sync machinery.
-		vscode.commands.registerCommand(
-			"litellm._test.setEntryModelCapabilities",
-			(label: string, record: Record<string, Record<string, unknown>> | undefined) => {
-				if (record === undefined) {
-					seams.capabilities.delete(label);
-				} else {
-					seams.capabilities.set(label, record);
-				}
-			}
-		),
-		// The declared-models twin: discovery.declared lives on declared server
-		// entries only, so registry-path suites inject the ID list by label.
-		vscode.commands.registerCommand(
-			"litellm._test.setEntryDeclared",
-			(label: string, declared: readonly string[] | undefined) => {
-				if (declared === undefined) {
-					seams.declared.delete(label);
-				} else {
-					seams.declared.set(label, [...declared]);
-				}
-			}
-		)
+		vscode.commands.registerCommand("litellm._test.getStorageKeys", () => [...context.globalState.keys()])
 	);
-}
-
-/**
- * The registry path's entry-level test seams: label-keyed capability records
- * and declared-model lists, written by the litellm._test.setEntry* commands.
- * activate() creates them in non-production mode only and composes them into
- * the entry resolvers there, so production resolution never holds test state.
- */
-export interface TestEntrySeams {
-	readonly capabilities: Map<string, Record<string, Record<string, unknown>>>;
-	readonly declared: Map<string, readonly string[]>;
-}
-
-export function createTestEntrySeams(): TestEntrySeams {
-	return { capabilities: new Map(), declared: new Map() };
 }
 
 /**

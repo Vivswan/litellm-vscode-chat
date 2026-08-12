@@ -3,11 +3,15 @@ import * as vscode from "vscode";
 import type { FingerprintSaltSession, FingerprintSaltState } from "../extension/fingerprintSalt";
 import type { MigrationContext } from "../extension/migrations";
 import { ServerRegistry } from "../extension/servers/serverRegistry";
+import type { DiscoveredGroupModels } from "../provider";
 import { LiteLLMChatModelProvider, type LiteLLMChatModelProviderOptions } from "../provider";
-import type { LiteLLMModelInfo } from "../provider/catalog/groupModels";
+import { DiscoveryCache } from "../provider/catalog/discoveryCache";
+import type { GroupServer, LiteLLMModelInfo, PreAttachModelInfo } from "../provider/catalog/groupModels";
+import { attachGroupServer } from "../provider/catalog/groupModels";
 import type { TransportErrorClassification } from "../shared/errorClassification";
 import { Logger, markLogSafe, publicErrorText } from "../shared/logger";
 import type { ServerStatus } from "../shared/servers";
+import { normalizeBaseUrl } from "../shared/util/baseUrl";
 import { CHAT_COMPLETIONS_URL, discoveryHandlers, mswServer, sseTextResponse, TEST_BASE_URL } from "./mocks/handlers";
 import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeLogger, toHeaderMap } from "./pureHelpers";
 
@@ -48,10 +52,26 @@ export async function withConfig<T>(
 }
 
 /**
- * Create a provider wired to a single configured server, or to an empty
- * server list when `baseUrl` is omitted (the "not configured" case).
- * `overrides` merges into the constructor options for tests that need the
- * groupless-registry gate or a custom discovery cache.
+ * The group server makeProvider's injected configuration resolves to: the
+ * label "Default" at TEST_BASE_URL with the default test key, mirroring what
+ * parseGroupConfiguration produces from the injected configuration.
+ */
+export function testGroupServer(apiKey = "test-key"): GroupServer {
+	return { baseUrl: normalizeBaseUrl(TEST_BASE_URL), apiKey, label: "Default" };
+}
+
+/**
+ * Create a provider that serves models the way the host does. With `baseUrl`,
+ * configuration-less discovery calls are rewritten into the host's per-group
+ * call for that server (label "Default"), so suites drive the real group
+ * serve path without spelling the configuration at every call site; the
+ * provider gets a discovery cache that never serves stored results, so every
+ * discovery call in a test observes the handlers installed at that moment
+ * (cache semantics have their own suites, which pass explicit caches and
+ * configurations). Without `baseUrl` the provider is bare: configuration-less
+ * calls exercise the group-agnostic contract (no models), and group suites
+ * pass their own configuration explicitly. `overrides` merges into the
+ * constructor options.
  */
 export function makeProvider(
 	baseUrl?: string,
@@ -60,13 +80,34 @@ export function makeProvider(
 	overrides: Partial<LiteLLMChatModelProviderOptions> = {}
 ): LiteLLMChatModelProvider {
 	const logger = outputChannel ? new Logger(outputChannel) : undefined;
-	const servers = baseUrl === undefined ? [] : [{ id: "srv1", label: "Default", baseUrl, apiKey }];
-	return new LiteLLMChatModelProvider({
+	const uncachedDiscovery =
+		baseUrl === undefined || overrides.discoveryCache !== undefined
+			? {}
+			: {
+					discoveryCache: new (class extends DiscoveryCache<DiscoveredGroupModels> {
+						override lookup(): undefined {
+							return undefined;
+						}
+					})(),
+				};
+	const provider = new LiteLLMChatModelProvider({
 		userAgent: "GitHubCopilotChat/test VSCode/test",
 		logger,
-		getServers: () => Promise.resolve(servers),
+		...uncachedDiscovery,
 		...overrides,
 	});
+	if (baseUrl !== undefined) {
+		const original = provider.provideLanguageModelChatInformation.bind(provider);
+		provider.provideLanguageModelChatInformation = (options, token) => {
+			const opts = options as { silent: boolean; configuration?: unknown };
+			const withConfiguration =
+				opts.configuration !== undefined
+					? options
+					: ({ ...opts, configuration: { baseUrl, apiKey, label: "Default" } } as typeof options);
+			return original(withConfiguration, token);
+		};
+	}
+	return provider;
 }
 
 export function createConfiguredProvider(): LiteLLMChatModelProvider {
@@ -142,8 +183,15 @@ export async function captureRequest(
 				`discovery returned no model with id "${model.id}"`
 			)
 		: undefined;
+	// A hand-built model without its own attached server gets the group server
+	// the injected configuration resolves to, mirroring the host contract:
+	// every served model carries its group's connection, and the request path
+	// routes by nothing else. Models a test attached itself keep their server.
+	const sent =
+		discovered ??
+		(model.litellm?.server !== undefined ? model : attachGroupServer(model as PreAttachModelInfo, testGroupServer()));
 	await provider.provideLanguageModelChatResponse(
-		discovered ?? model,
+		sent,
 		overrides.messages ?? [userMessage("test")],
 		opts as vscode.ProvideLanguageModelChatResponseOptions,
 		{ report: () => {} },

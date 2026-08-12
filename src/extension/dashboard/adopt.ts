@@ -55,10 +55,9 @@ function resolveExternalSnapshot(
  * The identity of the external group a hide intent names: the status label
  * and base URL the removal tombstone is keyed by. Same resolution rules as
  * resolveExternalSnapshot, plus one extra gate: the snapshot must be a
- * provider group (`isGroupSnapshot`). A legacy-registry row has no group the
- * tombstone could silence - the registry sweep would keep serving its models
- * - so "hiding" it would only make the dashboard lie; those servers are
- * removed through the legacy management flow instead.
+ * provider group (`isGroupSnapshot`). A snapshot without a group has no
+ * group the tombstone could silence, so "hiding" it would only make the
+ * dashboard lie.
  */
 export function resolveExternalGroupIdentity(
 	snapshots: readonly ServerModelsSnapshot[],
@@ -81,7 +80,7 @@ export function resolveExternalGroupIdentity(
  * forged or stale intent cannot copy a DECLARED group's secure credential into
  * a settings entry, and cannot re-point a copied credential at another host.
  * Returns undefined when no still-external group at this URL matches or the
- * matching snapshot carries no group connection (a registry server); the
+ * matching snapshot's group aged out of the status window; the
  * caller adopts the plain entry with a caveat in that case.
  */
 export function resolveAdoptableCredentials(
@@ -121,8 +120,8 @@ export function resolveAdoptableCredentials(
  * The webview only ever names the group (by the opaque handle its row carried)
  * and the storage locations; the values come from the provider's in-memory
  * lookup here, extension-side, and only for a group that is still external. A
- * missing lookup (the group refreshed away, became declared, or the row was a
- * registry server) still writes the plain entry and reports the caveat through
+ * missing lookup (the group refreshed away or became declared) still writes
+ * the plain entry and reports the caveat through
  * the returned notice, because the user asked for the entry either way.
  *
  * Failure ordering mirrors applySaveServerSetting's guarded unit: secure

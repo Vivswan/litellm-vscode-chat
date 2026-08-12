@@ -78,8 +78,8 @@ export function isGroupMigrationRunning(): boolean {
 
 /**
  * True once a nonempty registry was fully migrated and emptied. While unset,
- * the registry stays live: the groupless refresh serves it and the migration
- * reruns on every activation that finds servers in it.
+ * the registry's state is retained and the migration reruns on every
+ * activation that finds servers in it.
  */
 export function isGroupMigrationComplete(globalState: vscode.Memento): boolean {
 	return globalState.get<boolean>(GROUP_MIGRATION_COMPLETE_KEY, false) === true;
@@ -386,8 +386,8 @@ export async function migrateServersToProviderGroups(
 		// be unmatchable next session, and a durable record would misread as
 		// "the server changed" and strand it as skipped. Confirmed at decision
 		// time (another window's salt store can supersede this session's salt
-		// after load); the registry keeps serving until the migration
-		// completes, so deferring costs nothing.
+		// after load); the registry's state is retained until the migration
+		// completes, so deferring loses nothing.
 		if ((await fingerprintSalt.confirmDurable()) !== "durable") {
 			logger.log("Deferring the provider-group migration: the fingerprint salt is session-only");
 			return false;

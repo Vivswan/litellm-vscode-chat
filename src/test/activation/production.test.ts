@@ -274,7 +274,7 @@ suite("production activation", () => {
 		assert.deepStrictEqual(captured["Leftover/gpt-4*"], { temperature: 0.25 }, "the original key survives, starred");
 	});
 
-	test("production activation with migration complete disables the groupless registry refresh", async () => {
+	test("a populated legacy registry is never served by the group-agnostic refresh", async () => {
 		assert.strictEqual(registeredVendor, "litellm");
 		const registered = expectDefined(provider, "activation must register the provider");
 
@@ -302,18 +302,19 @@ suite("production activation", () => {
 		assert.deepStrictEqual(
 			registered.getServerSnapshots().map((snapshot) => snapshot.status.label),
 			[],
-			"the groupless refresh must not touch the migrated registry's servers"
+			"the group-agnostic refresh must not touch the migrated registry's servers"
 		);
 		// The discriminating half (a failed discovery would also yield no
-		// models, so the empties above cannot prove the gate alone): the gated
-		// path logs its refusal and never reaches the fetch.
+		// models, so the empties above cannot prove the contract alone): the
+		// group-agnostic path logs its serves-nothing outcome and never
+		// reaches a fetch.
 		assert.ok(
-			channelLines.some((line) => line.includes("serving no models for the group-agnostic refresh")),
-			`expected the migrated-registry refusal in: ${JSON.stringify(channelLines)}`
+			channelLines.some((line) => line.includes("Serving no models for the group-agnostic refresh")),
+			`expected the serves-nothing line in: ${JSON.stringify(channelLines)}`
 		);
 		assert.ok(
-			!channelLines.some((line) => line.includes("Fetching models from servers")),
-			"a broken gate would fetch the seeded registry server"
+			!channelLines.some((line) => line.includes("Fetching models")),
+			"a broken contract would fetch the seeded registry server"
 		);
 	});
 

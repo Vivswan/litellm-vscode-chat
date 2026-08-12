@@ -126,7 +126,7 @@ suite("provider/diagnostics", () => {
 
 		assert.ok(logs.length > 0);
 		assert.ok(logs.some((log) => log.includes("provideLanguageModelChatInformation")));
-		assert.ok(logs.some((log) => log.includes("No") && (log.includes("config") || log.includes("servers"))));
+		assert.ok(logs.some((log) => log.includes("Serving no models for the group-agnostic refresh")));
 	});
 
 	// Stays on withFetch: the assertion needs a known injected error message

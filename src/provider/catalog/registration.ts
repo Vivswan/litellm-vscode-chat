@@ -2,7 +2,7 @@ import type { LanguageModelChatInformation } from "vscode";
 import type { ServerWithKey } from "../../shared/servers";
 import { normalizeCostPerToken } from "../../shared/util/numbers";
 import type { PreAttachModelInfo } from "./groupModels";
-import type { ModelRoute, PerTokenCosts } from "./modelCatalog";
+import type { PerTokenCosts } from "./modelCatalog";
 import {
 	buildExposedModelId,
 	collapseTokenConstraints,
@@ -16,7 +16,6 @@ import { supportsTools } from "./schemas";
 export interface RegistrationResult {
 	/** Pre-attach on purpose: registration output must never carry a group's credentials. */
 	infos: PreAttachModelInfo[];
-	routes: Map<string, ModelRoute>;
 }
 
 /**
@@ -243,16 +242,6 @@ export function buildModelInfos(
 	serverCount: number,
 	log: (message: string) => void
 ): RegistrationResult {
-	const routes = new Map<string, ModelRoute>();
-
-	const registerRoute = (exposedId: string, rawId: string) => {
-		routes.set(exposedId, {
-			serverId: server.id,
-			rawModelId: rawId,
-			serverLabel: server.label,
-		});
-	};
-
 	const { detail, namePrefix, tooltip } = serverDisplayContext(server, serverCount);
 	const common = {
 		detail,
@@ -289,7 +278,6 @@ export function buildModelInfos(
 				const provider = shape.provider;
 				const constraints = deriveTokenConstraints(provider);
 				const exposedId = buildExposedModelId(m.id, server.id, serverCount);
-				registerRoute(exposedId, m.id);
 				return [
 					{
 						...common,
@@ -323,7 +311,6 @@ export function buildModelInfos(
 			case "bare": {
 				const constraints = deriveTokenConstraints(undefined);
 				const exposedId = buildExposedModelId(m.id, server.id, serverCount);
-				registerRoute(exposedId, m.id);
 				return [
 					{
 						...common,
@@ -389,7 +376,6 @@ export function buildModelInfos(
 						...aggregateConfigurationSchema,
 						litellm: aggregateMetadata,
 					} satisfies PreAttachModelInfo);
-					registerRoute(cheapestId, cheapestRaw);
 
 					entries.push({
 						...common,
@@ -403,7 +389,6 @@ export function buildModelInfos(
 						...aggregateConfigurationSchema,
 						litellm: aggregateMetadata,
 					} satisfies PreAttachModelInfo);
-					registerRoute(fastestId, fastestRaw);
 				}
 
 				for (const p of toolProviders) {
@@ -431,7 +416,6 @@ export function buildModelInfos(
 							serverDeclared: baselineFor([p], true, supportsReasoningEffort(p), p),
 						},
 					} satisfies PreAttachModelInfo);
-					registerRoute(exposedId, rawId);
 				}
 
 				if (firstTool === undefined) {
@@ -463,7 +447,6 @@ export function buildModelInfos(
 							serverDeclared: baselineFor(providers, false, providers.every(supportsReasoningEffort)),
 						},
 					} satisfies PreAttachModelInfo);
-					registerRoute(exposedId, m.id);
 				}
 
 				return entries;
@@ -476,5 +459,5 @@ export function buildModelInfos(
 		return entriesForModel(m);
 	});
 
-	return { infos, routes };
+	return { infos };
 }

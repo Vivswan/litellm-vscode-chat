@@ -23,7 +23,7 @@ import { CAPABILITY_FIELDS, CAPABILITY_LEVEL_ORDER, capabilityField } from "../.
 import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
 import type { ServerConfig } from "../../shared/servers";
 import type { PreAttachModelInfo } from "./groupModels";
-import type { ModelRoute, PerTokenCosts } from "./modelCatalog";
+import type { PerTokenCosts } from "./modelCatalog";
 import { buildExposedModelId, rawModelIdFromExposed } from "./modelCatalog";
 import { REASONING_EFFORT_SCHEMA } from "./modelConfiguration";
 import type { ModelPricing } from "./registration";
@@ -324,8 +324,6 @@ export function applyCapabilityOverrides(
 
 export interface DeclaredModelSynthesis {
 	readonly infos: readonly PreAttachModelInfo[];
-	/** Registry-path routes for the declared entries; the provider merges them additively into its route map. */
-	readonly routes: ReadonlyMap<string, ModelRoute>;
 }
 
 /**
@@ -353,7 +351,6 @@ export function synthesizeDeclaredModels(
 	const specs = [...new Set(opts.entryDeclaredModels ?? [])].map((rawId) => ({ rawId, layer: "entry" as const }));
 	const display = serverDisplayContext(server, serverCount);
 	const infos: PreAttachModelInfo[] = [];
-	const routes = new Map<string, ModelRoute>();
 	for (const spec of specs) {
 		if (discoveredRawIds.has(spec.rawId)) {
 			continue;
@@ -402,7 +399,6 @@ export function synthesizeDeclaredModels(
 				serverDeclared: { kind: "declared" },
 			},
 		} satisfies PreAttachModelInfo);
-		routes.set(exposedId, { serverId: server.id, rawModelId: spec.rawId, serverLabel: server.label });
 	}
-	return { infos, routes };
+	return { infos };
 }

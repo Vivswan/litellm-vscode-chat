@@ -168,10 +168,8 @@ export class ServerRegistry {
 	/**
 	 * The machinery's path around the mutation guard, paired with
 	 * removeServerUnguarded below: the migrations mutate while their own lock
-	 * reports "migrating" (and the legacy import may run after retirement),
-	 * and the non-production litellm._test.* seams must stay deterministic
-	 * against a migration pass running concurrently. Every user flow goes
-	 * through the guarded methods.
+	 * reports "migrating" (and the legacy import may run after retirement).
+	 * Every user flow goes through the guarded methods.
 	 */
 	async addServerUnguarded(label: string, baseUrl: string, apiKey: string): Promise<ServerConfig> {
 		this.syncFromStorage();

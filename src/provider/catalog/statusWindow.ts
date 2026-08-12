@@ -45,14 +45,6 @@ export interface ServerModelsSnapshot {
 	readonly observedModelInfoKeys?: readonly string[] | undefined;
 }
 
-/**
- * Where a status-window entry came from. A VS Code provider group carries its
- * resolved connection (the extension layer's one path to a group's
- * credentials); a legacy-registry entry has none, and the union makes a
- * group entry without its GroupServer unrepresentable.
- */
-export type StatusWindowSource = { kind: "registry" } | { kind: "group"; groupServer: GroupServer };
-
 type StatusWindowEntry = {
 	cycle: number;
 	at: number;
@@ -67,7 +59,12 @@ type StatusWindowEntry = {
 	models: readonly PreAttachModelInfo[];
 	discoveredRawIds: readonly string[];
 	observedModelInfoKeys: readonly string[] | undefined;
-} & StatusWindowSource;
+	/**
+	 * The group's resolved connection (the extension layer's one path to a
+	 * group's credentials); every entry is a VS Code provider group.
+	 */
+	groupServer: GroupServer;
+};
 
 /**
  * What one successful discovery observed, recorded beside its status report.
@@ -150,7 +147,7 @@ export class StatusWindow {
 	record(
 		status: ServerStatus,
 		models: readonly PreAttachModelInfo[],
-		source: StatusWindowSource,
+		groupServer: GroupServer,
 		/** What the discovery observed when it succeeded; failure reports carry the previous observations forward. */
 		observations: DiscoveryObservations = {}
 	): void {
@@ -165,7 +162,7 @@ export class StatusWindow {
 				status.state === "ok" ? (observations.discoveredRawIds ?? []) : (previous?.discoveredRawIds ?? []),
 			observedModelInfoKeys:
 				status.state === "ok" ? observations.observedModelInfoKeys : previous?.observedModelInfoKeys,
-			...source,
+			groupServer,
 		});
 	}
 
@@ -185,25 +182,20 @@ export class StatusWindow {
 	 * a group's credentials (the dashboard's adopt action copies them into the
 	 * servers setting; the group keeps its own); the value is handed to the
 	 * caller only and must never be logged or pushed into webview state.
-	 * Registry servers and aged-out groups resolve to undefined.
+	 * Aged-out groups resolve to undefined.
 	 */
 	getGroupServer(serverId: string): GroupServer | undefined {
-		const entry = this.entries.get(serverId);
-		return entry?.kind === "group" ? entry.groupServer : undefined;
+		return this.entries.get(serverId)?.groupServer;
 	}
 
-	/** Every server ID currently in the window, registry and group alike. */
+	/** Every group client ID currently in the window. */
 	serverIds(): string[] {
 		return [...this.entries.keys()];
 	}
 
-	groupClientIds(): string[] {
-		return [...this.entries].flatMap(([serverId, entry]) => (entry.kind === "group" ? [serverId] : []));
-	}
-
 	/** The resolved connections of every group in the window; same handling rules as getGroupServer. */
 	groupServers(): GroupServer[] {
-		return [...this.entries.values()].flatMap((entry) => (entry.kind === "group" ? [entry.groupServer] : []));
+		return [...this.entries.values()].map((entry) => entry.groupServer);
 	}
 
 	/**

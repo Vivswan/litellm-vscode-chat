@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { LiteLLMModelInfo } from "../../../provider/catalog/groupModels";
 import { ChatClient } from "../../../provider/transport/chatClient";
+import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { withFetch } from "../../pureHelpers";
 import { withConfig } from "../../testUtils";
 
@@ -53,7 +54,9 @@ const model = {
 	litellm: {
 		supportsPromptCaching: false,
 		outputLimitSource: "defaults",
-		serverDeclared: { kind: "discovered", values: {}, outputDeclared: false },
+		// The attached group connection, as every served model carries it; the
+		// request path routes by nothing else.
+		server: { baseUrl: normalizeBaseUrl("http://litellm.test"), apiKey: "k", label: "Default" },
 	},
 } satisfies LiteLLMModelInfo;
 
@@ -84,11 +87,7 @@ suite("provider/transport/chatClient", () => {
 				return new Response(body.stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
 			},
 			async () => {
-				const client = new ChatClient({
-					userAgent: "test-agent",
-					getServers: () =>
-						Promise.resolve([{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" }]),
-				});
+				const client = new ChatClient({ userAgent: "test-agent" });
 
 				const a = collector();
 				const b = collector();
@@ -121,11 +120,7 @@ suite("provider/transport/chatClient", () => {
 		await withFetch(
 			async () => new Response(body.stream, { status: 200, headers: { "Content-Type": "text/event-stream" } }),
 			async () => {
-				const client = new ChatClient({
-					userAgent: "test-agent",
-					getServers: () =>
-						Promise.resolve([{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" }]),
-				});
+				const client = new ChatClient({ userAgent: "test-agent" });
 
 				const parts: vscode.LanguageModelResponsePart[] = [];
 				const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
@@ -169,11 +164,7 @@ suite("provider/transport/chatClient", () => {
 				return new Response(stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
 			},
 			async () => {
-				const client = new ChatClient({
-					userAgent: "test-agent",
-					getServers: () =>
-						Promise.resolve([{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" }]),
-				});
+				const client = new ChatClient({ userAgent: "test-agent" });
 
 				const cts = new vscode.CancellationTokenSource();
 				const sendPromise = client.send({
@@ -201,11 +192,7 @@ suite("provider/transport/chatClient", () => {
 				throw new DOMException("The operation timed out.", "TimeoutError");
 			},
 			async () => {
-				const client = new ChatClient({
-					userAgent: "test-agent",
-					getServers: () =>
-						Promise.resolve([{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" }]),
-				});
+				const client = new ChatClient({ userAgent: "test-agent" });
 
 				const token = new vscode.CancellationTokenSource().token;
 				await assert.rejects(
@@ -238,11 +225,7 @@ suite("provider/transport/chatClient", () => {
 			},
 			() =>
 				withConfig({ "chat.timeout": 1000 }, async () => {
-					const client = new ChatClient({
-						userAgent: "test-agent",
-						getServers: () =>
-							Promise.resolve([{ id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" }]),
-					});
+					const client = new ChatClient({ userAgent: "test-agent" });
 
 					const token = new vscode.CancellationTokenSource().token;
 					const startedAt = Date.now();

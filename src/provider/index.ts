@@ -18,8 +18,7 @@ import type { TransportErrorClassification } from "../shared/errorClassification
 import type { Logger, LogSafeErrorText } from "../shared/logger";
 import { MirroredError } from "../shared/mirroredError";
 import type { ExpectedFailureCategory } from "../shared/serverEntry";
-import type { AggregatedStatus, ServerConfig, ServerStatus, ServerWithKey } from "../shared/servers";
-import { isErrorServerStatus } from "../shared/servers";
+import type { AggregatedStatus, ServerConfig, ServerWithKey } from "../shared/servers";
 import { apiRootOf } from "../shared/util/baseUrl";
 import type { CapabilityOverrideOptions, DeclaredModelSynthesis } from "./catalog/capabilityOverrides";
 import { applyCapabilityOverrides, synthesizeDeclaredModels } from "./catalog/capabilityOverrides";
@@ -34,12 +33,9 @@ import {
 	parseGroupConfiguration,
 	parseModelMetadata,
 } from "./catalog/groupModels";
-import type { ModelRoute } from "./catalog/modelCatalog";
 import { buildModelInfos } from "./catalog/registration";
 import type { DiscoveryObservations, ServerModelsSnapshot } from "./catalog/statusWindow";
 import { StatusWindow } from "./catalog/statusWindow";
-import type { ConfigurationPrompt } from "./config";
-import { ensureServers } from "./config";
 import { ChatClient, type ServerConnection } from "./transport/chatClient";
 import { statusErrorTexts, toLanguageModelError } from "./transport/errorMapping";
 
@@ -75,8 +71,6 @@ export interface DiscoveredGroupModels {
 export interface LiteLLMChatModelProviderOptions {
 	userAgent: string;
 	logger?: Logger | undefined;
-	/** Resolves the legacy registry's servers; defaults to an empty list for group-only hosts. */
-	getServers?: (() => Promise<ServerWithKey[]>) | undefined;
 	/** Request-time resolver for a declared entry's per-entry modelParameters; see ChatClientOptions. */
 	getEntryModelParameters?:
 		| ((label: string, baseUrl: string) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined)
@@ -91,9 +85,7 @@ export interface LiteLLMChatModelProviderOptions {
 	/**
 	 * Request- and discovery-time resolver for a declared entry's custom
 	 * headers, matched by label and normalized base URL like
-	 * getEntryModelCapabilities and getExpectedFailures (i.e. it also resolves
-	 * for legacy-registry servers whose label and URL match a declared entry,
-	 * which per-entry PARAMETERS deliberately never do); injected by the
+	 * getEntryModelCapabilities and getExpectedFailures; injected by the
 	 * extension layer (headers live on the entry - there is no global headers
 	 * setting).
 	 */
@@ -132,12 +124,6 @@ export interface LiteLLMChatModelProviderOptions {
 	 */
 	getCatalogLookup?: (() => CapabilityCatalogLookup) | undefined;
 	/**
-	 * Gate for refreshes that arrive without a group configuration: while it
-	 * returns true (the default) they serve the server registry; once the
-	 * registry is migrated to provider groups they serve nothing.
-	 */
-	grouplessRegistryEnabled?: (() => boolean) | undefined;
-	/**
 	 * Whether a provider group was explicitly removed by the user (the
 	 * extension layer's tombstone store, injected here because this layer
 	 * cannot import it). Judged by the group's status label and normalized
@@ -161,24 +147,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	// clear() detaches in-flight loads, so they cannot re-store pre-clear data)
 	// before the host's re-resolution reads through and repopulates it, and
 	// testKnownGroupConnections invalidates each group it probes. The group
-	// server is attached to the stored infos on every read, never cached. The
-	// legacy registry sweep is deliberately uncached: it fetches all servers
-	// at once and aggregates errors, and it only serves pre-migration and
-	// non-production hosts.
+	// server is attached to the stored infos on every read, never cached.
 	private readonly _discoveryCache: DiscoveryCache<DiscoveredGroupModels>;
 	private readonly logger?: Logger | undefined;
 	private _statusCallback?: (status: AggregatedStatus) => void;
-	private readonly _getServers: () => Promise<ServerWithKey[]>;
-	/**
-	 * The last registry sweep's server count and per-server identities, so
-	 * declaredModelsForSnapshot and the dashboard's entry-layer resolution
-	 * compose registry snapshots exactly as that sweep did (ID minting is
-	 * count-dependent, entry resolution label-keyed).
-	 */
-	private _registrySweep: {
-		serverCount: number;
-		servers: ReadonlyMap<string, { label: string; baseUrl: string }>;
-	} = { serverCount: 1, servers: new Map() };
 	private readonly _getEntryModelCapabilities: (label: string, baseUrl: string) => ModelCapabilitiesRecord | undefined;
 	private readonly _getEntryDeclaredModels: (label: string, baseUrl: string) => readonly string[] | undefined;
 	private readonly _getExpectedFailures: (
@@ -192,8 +164,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	 * from, and a serve resolving to a different root must miss.
 	 */
 	private readonly _getEntryApiVersion: (label: string, baseUrl: string) => string | undefined;
-	private _configurationPrompt?: ConfigurationPrompt;
-	private readonly _grouplessRegistryEnabled: () => boolean;
 	private readonly _isGroupSuppressed: (label: string, baseUrl: string) => boolean;
 	private readonly _statusWindow: StatusWindow;
 	// Counts per-group status reports only: the groupless report says nothing
@@ -223,17 +193,14 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 
 	constructor(options: LiteLLMChatModelProviderOptions) {
 		this.logger = options.logger;
-		this._getServers = options.getServers ?? (() => Promise.resolve([]));
 		this._getEntryModelCapabilities = options.getEntryModelCapabilities ?? (() => undefined);
 		this._getEntryDeclaredModels = options.getEntryDeclaredModels ?? (() => undefined);
 		this._getExpectedFailures = options.getExpectedFailures ?? (() => undefined);
 		this._getCatalogLookup = options.getCatalogLookup ?? (() => EMPTY_CATALOG_LOOKUP);
-		this._grouplessRegistryEnabled = options.grouplessRegistryEnabled ?? (() => true);
 		this._isGroupSuppressed = options.isGroupSuppressed ?? (() => false);
 		this._client = new ChatClient({
 			userAgent: options.userAgent,
 			logger: options.logger,
-			getServers: this._getServers,
 			getEntryModelParameters: options.getEntryModelParameters,
 			getEntryHeaders: options.getEntryHeaders,
 			getEntryApiVersion: options.getEntryApiVersion,
@@ -246,10 +213,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 
 	setStatusCallback(callback: (status: AggregatedStatus) => void): void {
 		this._statusCallback = callback;
-	}
-
-	setConfigurationPrompt(prompt: ConfigurationPrompt): void {
-		this._configurationPrompt = prompt;
 	}
 
 	private log(message: string, data?: unknown): void {
@@ -293,9 +256,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	/**
 	 * The capability configuration one serve pass resolves against, assembled
 	 * from the injected seams. `entryLabel` names the declared entry candidate
-	 * (a group's configured label, a registry server's own); the injected
-	 * resolver answers only when label and base URL identify the same declared
-	 * entry, mirroring the request path's entry-parameters match.
+	 * (a group's configured label); the injected resolver answers only when
+	 * label and base URL identify the same declared entry, mirroring the
+	 * request path's entry-parameters match.
 	 */
 	private capabilityOptions(server: ServerConfig, entryLabel: string | undefined): CapabilityOverrideOptions {
 		return {
@@ -325,7 +288,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	private decorateServedModels(
 		discovered: Pick<DiscoveredGroupModels, "infos" | "discoveredRawIds">,
 		server: ServerConfig,
-		serverCount: number,
 		entryLabel: string | undefined
 	): { overridden: readonly PreAttachModelInfo[]; declared: DeclaredModelSynthesis } {
 		const opts = this.capabilityOptions(server, entryLabel);
@@ -334,7 +296,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			new Set(discovered.discoveredRawIds),
 			new Set(overridden.map((info) => info.id)),
 			server,
-			serverCount,
+			1,
 			opts
 		);
 		return { overridden, declared };
@@ -343,16 +305,16 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	/**
 	 * The label+URL identity the serve path resolves entry configuration
 	 * (modelCapabilities, expectedFailures) against for one served server, or
-	 * undefined when no entry can match (an unlabeled group, or a registry
-	 * server no sweep has seen). The dashboard's inspector resolves its entry
-	 * layer through this so it can never diverge from what requests use.
+	 * undefined when no entry can match (an unlabeled group, or a server no
+	 * longer in the status window). The dashboard's inspector resolves its
+	 * entry layer through this so it can never diverge from what requests use.
 	 */
 	capabilityEntryIdentity(serverId: string): { label: string; baseUrl: string } | undefined {
 		const groupServer = this.getGroupServer(serverId);
-		if (groupServer !== undefined) {
-			return groupServer.label !== undefined ? { label: groupServer.label, baseUrl: groupServer.baseUrl } : undefined;
+		if (groupServer !== undefined && groupServer.label !== undefined) {
+			return { label: groupServer.label, baseUrl: groupServer.baseUrl };
 		}
-		return this._registrySweep.servers.get(serverId);
+		return undefined;
 	}
 
 	/**
@@ -361,9 +323,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	 * getServerSnapshots() stays discovered-only (declared models are
 	 * config-rebuilt every serve and never stored), so the dashboard merges
 	 * this projection into each server's model list. The composition mirrors
-	 * the serve paths exactly - groups decorate with count 1 and the group's
-	 * own label, the registry sweep with its recorded count and per-server
-	 * labels (status labels can be display fallbacks) - so the dashboard
+	 * the serve path exactly - the group's own configured label resolves the
+	 * entry layer (status labels can be display fallbacks) - so the dashboard
 	 * shows the same IDs, names, and entry-layer resolution the picker
 	 * serves. Display-only, so record problems and suppressions do not
 	 * re-log on every state push; the serve path already logged them.
@@ -371,7 +332,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	declaredModelsForSnapshot(snapshot: ServerModelsSnapshot): readonly PreAttachModelInfo[] {
 		const { status } = snapshot;
 		const identity = this.capabilityEntryIdentity(status.serverId);
-		const serverCount = this.getGroupServer(status.serverId) !== undefined ? 1 : this._registrySweep.serverCount;
 		const server: ServerConfig = {
 			id: status.serverId,
 			label: identity?.label ?? status.label,
@@ -381,7 +341,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			new Set(snapshot.discoveredRawIds),
 			new Set(snapshot.models.map((info) => info.id)),
 			server,
-			serverCount,
+			1,
 			{ ...this.capabilityOptions(server, identity?.label), log: () => {}, logAdvisory: () => {} }
 		).infos;
 	}
@@ -409,7 +369,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		this._resolution.prune(keep);
 	}
 
-	/** Report the union of the latest registry and group statuses, so one group's fetch never masks the others. */
+	/** Report the union of every live group's latest status, so one group's fetch never masks the others. */
 	private reportMergedStatus(silent: boolean): void {
 		if (!this._statusCallback) {
 			return;
@@ -438,225 +398,16 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			return this.provideGroupModels(options.configuration, options.silent);
 		}
 
+		// The group-agnostic call serves nothing: every model is served through
+		// a per-group refresh, and the host makes those calls itself.
 		this.log("provideLanguageModelChatInformation called", { silent: options.silent });
 		this._statusWindow.beginCycle();
-
-		if (!this._grouplessRegistryEnabled()) {
-			this.log("Registry servers are migrated to provider groups; serving no models for the group-agnostic refresh");
-			this.pruneServerCaches(this._statusWindow.groupClientIds());
-			// The merged report keeps the status bar tracking group removals: once
-			// the last group ages out of the window, this reports empty.
-			this.reportMergedStatus(options.silent);
-			return [];
-		}
-
-		const servers = await ensureServers(options.silent, this._getServers, this._configurationPrompt);
-		if (!servers || servers.length === 0) {
-			this.log("No servers configured, returning empty array");
-			this.pruneServerCaches(this._statusWindow.groupClientIds());
-			this.reportMergedStatus(options.silent);
-			return [];
-		}
-
-		this.log("Fetching models from servers", { count: servers.length, labels: servers.map((s) => s.label) });
-		this.pruneServerCaches([...servers.map((s) => s.id), ...this._statusWindow.groupClientIds()]);
-
-		// Each server's discovery outcome is tagged with its server inside the
-		// map, so the loop below never has to re-pair results with servers by
-		// index. A rejection is caught in place; nothing else here can throw.
-		const results = await Promise.all(
-			servers.map(async (server) => {
-				try {
-					const result = await this._client.fetchModels(
-						// The registry server's own label is its entry candidate, the
-						// same identity this sweep resolves entry capabilities and
-						// expectedFailures with.
-						{ ...server, entryLabel: server.label },
-						this.expectedDiscoveryFailures(server.label, server.baseUrl)
-					);
-					return {
-						server,
-						outcome: {
-							ok: true as const,
-							models: result.models,
-							observedModelInfoKeys: result.observedModelInfoKeys,
-						},
-					};
-				} catch (reason) {
-					return { server, outcome: { ok: false as const, reason } };
-				}
-			})
-		);
-
-		const serverStatuses: ServerStatus[] = [];
-		const allInfos: PreAttachModelInfo[] = [];
-		const allRoutes = new Map<string, ModelRoute>();
-		// Declared-model routes, kept apart so a total outage can still register
-		// them additively (see the applyRegistration call below).
-		const declaredRoutes = new Map<string, ModelRoute>();
-		const modelsByServer = new Map<string, readonly PreAttachModelInfo[]>();
-		const rawIdsByServer = new Map<string, readonly string[]>();
-		const observedKeysByServer = new Map<string, readonly string[]>();
-
-		const successfulCount = results.filter(({ outcome }) => outcome.ok).length;
-		const serverCount = servers.length;
-		// The sweep's composition facts, recorded for declaredModelsForSnapshot:
-		// the projection must mint the same IDs and resolve the same entry
-		// layer as this pass did (status labels can be display fallbacks).
-		this._registrySweep = {
-			serverCount,
-			servers: new Map(servers.map((s) => [s.id, { label: s.label, baseUrl: s.baseUrl }])),
-		};
-		// The original thrown value of the first UNEXPECTED failing server, kept
-		// so the all-failed throw below rethrows it instead of rebuilding an
-		// Error from the display string (which would lose the classification and
-		// leak the body when the caller logs it). Expected failures never set it
-		// but keep their own first original for the all-expected rethrow.
-		let firstFailureReason: unknown;
-		let firstExpectedFailureReason: unknown;
-
-		for (const { server, outcome } of results) {
-			if (!outcome.ok) {
-				const expected = this.expectedFailuresFor(server.label, server.baseUrl).includes("modelListing");
-				// Declared models serve despite the failure, rebuilt from current
-				// configuration (nothing was discovered, so nothing is inert).
-				const { declared } = this.decorateServedModels(
-					{ infos: [], discoveredRawIds: [] },
-					server,
-					serverCount,
-					server.label
-				);
-				if (expected) {
-					if (firstExpectedFailureReason === undefined) {
-						firstExpectedFailureReason = outcome.reason;
-					}
-					// The one boundary log for an expected terminal failure: an info
-					// classification instead of an error, keeping the issue-report
-					// buffer clean of failures the user declared normal.
-					this.log(`Model discovery failed (expected: modelListing) for server "${server.label}"`);
-				} else {
-					if (firstFailureReason === undefined) {
-						firstFailureReason = outcome.reason;
-					}
-					this.logError(`Failed to fetch models from server "${server.label}"`, outcome.reason);
-				}
-				const texts = statusErrorTexts(outcome.reason);
-				serverStatuses.push({
-					serverId: server.id,
-					label: server.label,
-					baseUrl: server.baseUrl,
-					state: "error",
-					...texts,
-					...(expected ? { expected: true } : {}),
-					...(declared.infos.length > 0 ? { declaredModelCount: declared.infos.length } : {}),
-					lastChecked: new Date().toISOString(),
-					hasApiKey: server.apiKey.length > 0,
-				});
-				allInfos.push(...declared.infos);
-				for (const [k, v] of declared.routes) {
-					declaredRoutes.set(k, v);
-				}
-				continue;
-			}
-
-			const { models } = outcome;
-			this.log(`Server "${server.label}" returned ${models.length} models`);
-
-			const reg = buildModelInfos(models, server, serverCount, (msg) => this.log(msg));
-			const discoveredRawIds = models.map((model) => model.id);
-			const { overridden, declared } = this.decorateServedModels(
-				{ infos: reg.infos, discoveredRawIds },
-				server,
-				serverCount,
-				server.label
-			);
-			allInfos.push(...overridden, ...declared.infos);
-			// The window keeps the DISCOVERED models only; declared models are
-			// config-rebuilt on every serve and the dashboard merges them via
-			// declaredModelsForSnapshot.
-			modelsByServer.set(server.id, overridden);
-			rawIdsByServer.set(server.id, discoveredRawIds);
-			if (outcome.observedModelInfoKeys !== undefined) {
-				observedKeysByServer.set(server.id, outcome.observedModelInfoKeys);
-			}
-			for (const [k, v] of reg.routes) {
-				allRoutes.set(k, v);
-			}
-			for (const [k, v] of declared.routes) {
-				declaredRoutes.set(k, v);
-			}
-
-			serverStatuses.push({
-				serverId: server.id,
-				label: server.label,
-				baseUrl: server.baseUrl,
-				state: "ok",
-				modelCount: overridden.length + declared.infos.length,
-				lastChecked: new Date().toISOString(),
-				hasApiKey: server.apiKey.length > 0,
-			});
-		}
-
-		for (const [k, v] of declaredRoutes) {
-			allRoutes.set(k, v);
-		}
-		// Registrations are only replaced after at least one server answered, so
-		// existing routes survive a total outage. Declared routes still land on
-		// a total outage - additively, never replacing valid prior discovery
-		// routes - because they are the only way registry-path chat can route a
-		// declared model (the sole-server fallback cannot serve multi-server
-		// setups).
-		if (successfulCount > 0) {
-			this._client.applyRegistration(allRoutes, true);
-		} else if (declaredRoutes.size > 0) {
-			this._client.applyRegistration(declaredRoutes, false);
-		}
-
-		this.log("Final model count:", allInfos.length);
-
-		for (const status of serverStatuses) {
-			this._statusWindow.record(
-				status,
-				modelsByServer.get(status.serverId) ?? [],
-				{ kind: "registry" },
-				{
-					discoveredRawIds: rawIdsByServer.get(status.serverId) ?? [],
-					observedModelInfoKeys: observedKeysByServer.get(status.serverId),
-				}
-			);
-		}
+		this.log("Serving no models for the group-agnostic refresh; models are served per provider group");
+		this.pruneServerCaches(this._statusWindow.serverIds());
+		// The merged report keeps the status bar tracking group removals: once
+		// the last group ages out of the window, this reports empty.
 		this.reportMergedStatus(options.silent);
-
-		const firstFailure = serverStatuses.find(isErrorServerStatus);
-		if (successfulCount === 0 && firstFailure !== undefined) {
-			if (options.silent) {
-				// The all-failed silent sweep still serves the declared models
-				// (empty when none are declared, as it always was).
-				return allInfos;
-			}
-			if (firstFailureReason === undefined && allInfos.length > 0) {
-				// Every failure was expected and declarations exist: like the group
-				// path's Test Connection rule, serve the declared set instead of
-				// throwing; the statuses above keep the truthful errors.
-				return allInfos;
-			}
-			// Like the group site below: the ORIGINAL error is rethrown so its
-			// classification, kind, and status survive to the caller's log (an
-			// all-expected sweep without declarations rethrows ITS first original
-			// for the same reason). A non-Error reason is rebuilt from ITS OWN
-			// status renderings - not firstFailure's, which can belong to a
-			// different server when an expected failure sorted first - with the
-			// log-safe rendering as the mirror, so the display text (which can
-			// embed response body) never reaches the log path.
-			const reason = firstFailureReason ?? firstExpectedFailureReason;
-			if (reason instanceof Error) {
-				throw reason;
-			}
-			const texts = statusErrorTexts(reason);
-			throw new MirroredError(texts.error, { englishMessage: texts.logSafeError });
-		}
-
-		return allInfos;
+		return [];
 	}
 
 	/**
@@ -756,7 +507,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 				// corrected root, and its store must survive.
 				this._discoveryCache.dropStored(server.id);
 			} else if (cached !== undefined) {
-				const { overridden, declared } = this.decorateServedModels(cached, server, 1, groupServer.label);
+				const { overridden, declared } = this.decorateServedModels(cached, server, groupServer.label);
 				this.log("Serving provider group models from the discovery cache", {
 					baseUrl: server.baseUrl,
 					count: overridden.length + declared.infos.length,
@@ -804,7 +555,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			// very next serve. The status window records the served (overridden)
 			// models; declared models alone are config-rebuilt every serve and
 			// never recorded.
-			const { overridden, declared } = this.decorateServedModels(discovered, server, 1, groupServer.label);
+			const { overridden, declared } = this.decorateServedModels(discovered, server, groupServer.label);
 			this.log(`Provider group at ${server.baseUrl} returned ${discovered.infos.length} models`);
 			this.reportGroupStatus(
 				server,
@@ -822,15 +573,16 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			const expected = expectedFailures.modelListing;
 			if (expected) {
 				// The one boundary log for an expected terminal failure: an info
-				// classification instead of an error (see the registry sweep).
+				// classification instead of an error, keeping the issue-report
+				// buffer clean of failures the user declared normal.
 				this.log(`Model discovery failed (expected: modelListing) for provider group`, {
 					baseUrl: server.baseUrl,
 				});
 			} else {
 				this.logError(`Failed to fetch models for provider group at ${server.baseUrl}`, error);
 			}
-			// Like the registry sweep: both status renderings are constructed at
-			// this boundary (see statusErrorTexts).
+			// Both status renderings are constructed at this boundary (see
+			// statusErrorTexts).
 			const texts = statusErrorTexts(error);
 			// The window's last known models ride along with the error status, so
 			// a group that just failed does not lose its last-served set: a silent
@@ -854,7 +606,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 					? { infos: stale.models, discoveredRawIds: stale.discoveredRawIds }
 					: { infos: [], discoveredRawIds: [] },
 				server,
-				1,
 				groupServer.label
 			);
 			this.reportGroupStatus(
@@ -879,8 +630,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 				return attach(declared.infos);
 			}
 			// A non-Error throw is rebuilt with the status's log-safe rendering as
-			// its mirror (the registry sweep's rule): the display text can embed
-			// response body and must never reach the log path.
+			// its mirror: the display text can embed response body and must never
+			// reach the log path.
 			throw error instanceof Error ? error : new MirroredError(texts.error, { englishMessage: texts.logSafeError });
 		}
 	}
@@ -986,7 +737,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 				...outcome,
 			},
 			models,
-			{ kind: "group", groupServer },
+			groupServer,
 			observations
 		);
 		this.reportMergedStatus(silent);
