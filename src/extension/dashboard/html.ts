@@ -1282,13 +1282,16 @@ const STYLES = `
 	}
 
 	/* === R4 server form (auth selector, headers, declared, budget) === */
+	/* The auth block keeps its fieldset/legend semantics (one labeled radio
+	   group) but sheds the box chrome: every sibling section in the form is a
+	   flat header, and the one boxed section read as a different kind of
+	   thing rather than as emphasis. */
 	fieldset.auth-block {
-		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
-		border-radius: 4px;
-		padding: 4px 12px 10px;
-		margin: 10px 0;
+		border: none;
+		padding: 0;
+		margin: 16px 0;
 	}
-	fieldset.auth-block > legend { display: flex; align-items: center; gap: 6px; font-weight: 600; padding: 0 4px; }
+	fieldset.auth-block > legend { display: flex; align-items: center; gap: 6px; font-weight: 600; padding: 0; }
 	.auth-selector { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 4px 0 8px; }
 	.auth-selector label { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; cursor: pointer; }
 	.stored-auth {
