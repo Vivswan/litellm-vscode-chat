@@ -87,6 +87,13 @@ suite("shared/config modelMatcher parse", () => {
 		assert.ok(matcherMatches(matcher, "anthropic/claude-4"));
 	});
 
+	test("a slash in a regex body matches a literal slash, escaped or raw", () => {
+		// The body runs to the LAST delimiter, so interior slashes never end the key early.
+		assert.ok(matcherMatches(parsed("/anthropic\\/claude.*/"), "anthropic/claude-4"));
+		assert.ok(matcherMatches(parsed("/anthropic/claude.*/"), "anthropic/claude-4"));
+		assert.ok(!matcherMatches(parsed("/anthropic\\/claude.*/"), "anthropic-claude-4"));
+	});
+
 	test("an ID that literally ends in a star needs a regex with the star escaped", () => {
 		const matcher = parsed("/gpt-5\\*/");
 		assert.strictEqual(matcher.kind, "regex");

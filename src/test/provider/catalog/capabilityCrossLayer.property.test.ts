@@ -245,7 +245,7 @@ function keyOf(spec: KeySpec, rawId: string, otherId: string): string {
 		// Regex matchers anchor to the whole ID (parseMatcherKey wraps the body
 		// in ^(?:...)$), so a prefix needs the dot-star to match like a glob;
 		// the flag variant keeps the i-flag parse path alive.
-		const escaped = prefix.replace(/\./g, "\\.");
+		const escaped = prefix.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 		return spec.iflag ? `/${escaped}.*/i` : `/${escaped}.*/`;
 	}
 	return prefix;
