@@ -10,7 +10,7 @@
 
 import type { ConfigDiagnosticView, HiddenGroup } from "../../dashboard/protocol";
 import type { ModelCapabilitiesRecord } from "../../shared/config/capabilityResolution";
-import { lintCapabilityRecords } from "../../shared/config/capabilityResolution";
+import { filterUnrecognizedKeyDiagnostics, lintCapabilityRecords } from "../../shared/config/capabilityResolution";
 import { lintParameterRecords } from "../../shared/config/parameterResolution";
 import type { RecordDiagnostic } from "../../shared/config/recordResolution";
 import {
@@ -27,7 +27,6 @@ import {
 } from "../migrations/settingsRedesign/legacyIds";
 import type { DeclaredServerView, ServerEntryReport } from "../servers/serverSync";
 import type { SettingsReader } from "./state";
-import { filterUnrecognizedKeyDiagnostics } from "./state";
 
 export interface ConfigDiagnosticsInput {
 	/** The litellm-vscode-chat configuration section; the builder reads the record settings and leftovers itself. */

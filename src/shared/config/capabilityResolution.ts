@@ -276,6 +276,67 @@ export function lintCapabilityRecords(records: ModelCapabilitiesRecord): readonl
 	return lintRecordMap(records, (record) => parseCapabilityRecord(record));
 }
 
+/**
+ * The evidence set as the advisory filter reads it: undefined when there is
+ * none - no set at all, or an EMPTY set (a /model/info listing with zero
+ * deployments, or none carrying a model_info object, says nothing about the
+ * server's key vocabulary, and hinting against it would flag every open
+ * field at once). Set-built: observed keys are server-derived strings, and
+ * "__proto__" is a legal member a raw object key would misread.
+ */
+export function observedEvidenceSet(observedKeys: readonly string[] | undefined): ReadonlySet<string> | undefined {
+	return observedKeys === undefined || observedKeys.length === 0 ? undefined : new Set(observedKeys);
+}
+
+/**
+ * Whether one unrecognized-key hint survives its evidence: the set is known
+ * and names neither the key nor a consumed field. The consumed-vocabulary
+ * check is a backstop - the parse never emits unrecognized-key for consumed
+ * fields - so a vocabulary drift cannot resurrect hints for keys the
+ * extension reads.
+ */
+function unrecognizedKeyHintSurvives(key: string, observed: ReadonlySet<string> | undefined): boolean {
+	return observed !== undefined && !observed.has(key) && !Object.hasOwn(CONSUMED_CAPABILITY_FIELDS, key);
+}
+
+/**
+ * The kind-aware core of the advisory filter: unrecognized-key hints are
+ * judged against the evidence the selector picks per diagnostic; every other
+ * kind passes through untouched. Returns the input array itself when there is
+ * nothing to judge, so callers can cheaply detect "unchanged".
+ */
+export function filterUnrecognizedKeys<T extends RecordDiagnostic>(
+	diagnostics: readonly T[],
+	evidenceFor: (diagnostic: T) => ReadonlySet<string> | undefined
+): readonly T[] {
+	if (!diagnostics.some((diagnostic) => diagnostic.kind === "unrecognized-key")) {
+		return diagnostics;
+	}
+	return diagnostics.filter(
+		(diagnostic) =>
+			diagnostic.kind !== "unrecognized-key" || unrecognizedKeyHintSurvives(diagnostic.key, evidenceFor(diagnostic))
+	);
+}
+
+/**
+ * The advisory filter over capability-record unrecognized-key diagnostics
+ * (informational by contract: the field APPLIES as-is; the hint only says the
+ * key may be a typo). A hint survives exactly when the relevant observed
+ * /model/info key set is KNOWN, NON-EMPTY, and names neither the key nor a
+ * consumed field: an observed key is real whatever the vocabulary says, and
+ * with no evidence (declared models, expected modelInfo failures, the
+ * /models fallback, pre-discovery, an empty listing - see
+ * observedEvidenceSet) there is nothing to hint from, so every hint drops
+ * rather than crying wolf.
+ */
+export function filterUnrecognizedKeyDiagnostics<T extends RecordDiagnostic>(
+	diagnostics: readonly T[],
+	observedKeys: readonly string[] | undefined
+): readonly T[] {
+	const observed = observedEvidenceSet(observedKeys);
+	return filterUnrecognizedKeys(diagnostics, () => observed);
+}
+
 /** A catalog answer: capability fields for the matched entry, or why there is none. */
 export type CatalogLookupResult =
 	| {
