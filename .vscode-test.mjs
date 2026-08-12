@@ -101,6 +101,7 @@ export default defineConfig({
 				"out/test/extension/servers/usage/*.test.js",
 				"out/test/extension/settingsTransfer/*.test.js",
 				"out/test/extension/ui/*.test.js",
+				"out/test/extension/wiring/*.test.js",
 			],
 			mocha: {
 				ui: "tdd",

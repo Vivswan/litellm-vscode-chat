@@ -1,8 +1,8 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
-import type { DiscoveredGroupModels } from "../../../provider";
 import { DiscoveryCache } from "../../../provider/catalog/discoveryCache";
+import type { DiscoveredGroupModels } from "../../../provider/catalog/groupDiscovery";
 import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfiguration";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { publicErrorText } from "../../../shared/logger";

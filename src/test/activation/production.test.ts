@@ -6,6 +6,7 @@ import * as vscode from "vscode";
 import { activate } from "../../extension";
 import { applySettingsRedesign, readRedesignSnapshot } from "../../extension/migrations/settingsRedesign/apply";
 import { planSettingsRedesign } from "../../extension/migrations/settingsRedesign/transform";
+import { liveStatusItemSlots } from "../../extension/ui/status";
 import type { LiteLLMChatModelProvider } from "../../provider";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import { MODEL_CAPABILITIES_SETTING_KEY, MODEL_PARAMETERS_SETTING_KEY } from "../../shared/config/settings";
@@ -239,6 +240,21 @@ suite("production activation", () => {
 		// activation must have generated and stored it (this context started
 		// with empty SecretStorage) before anything computed a fingerprint.
 		assert.match(storage.secretStore.get(FINGERPRINT_SALT_SECRET) ?? "", /^[0-9a-f]{64}$/);
+	});
+
+	test("activation claims each status-item slot exactly once", () => {
+		// The real composed wiring path, not the per-module composition the
+		// wiring statusSlots suite drives: after activate(), the slot registry
+		// holds exactly the connection and usage items (the suppressed real
+		// extension created none). A duplicated wiring call or a second
+		// construction path for either slot would self-heal into a replacement,
+		// leaving the count right but this session's log noisy - which is why
+		// the registry's replacement line must be absent too.
+		assert.deepStrictEqual([...liveStatusItemSlots()].sort(), ["connection", "usage"]);
+		assert.ok(
+			!channelLines.some((line) => line.includes("status-item slot replaced")),
+			"activation must not double-claim a status-item slot"
+		);
 	});
 
 	test("activation with hasShownWelcome pre-seeded skips the globalState re-write", () => {

@@ -26,8 +26,8 @@ import type {
 	ResolvedModelsView,
 	ResolvedParamCell,
 } from "../../dashboard/viewModels";
-import type { ServerModelsSnapshot } from "../../provider";
 import { rawModelIdFromExposed } from "../../provider/catalog/modelCatalog";
+import type { ServerModelsSnapshot } from "../../provider/catalog/statusWindow";
 import type {
 	CapabilityCatalogLookup,
 	ModelCapabilitiesRecord,
