@@ -38,7 +38,7 @@ The error text behind an Error or Sync issue state renders selectable in a banne
 
 Add and Edit open the same form in a side panel. It writes the `servers` setting, so edits made here and edits made in settings.json are the same thing; the form's value is that it enforces the entry's shape as you type instead of after you save.
 
-**Identity** - `label` (the picker name) and `baseUrl`. The form reminds you to leave any `/v1` suffix off; the extension appends it itself ([why](servers.md#entry-reference)).
+**Identity** - `label` (the picker name) and `baseUrl`. The extension appends `/v1` unless the URL already ends in a version segment (like `/v1` or `/v2`), which is used as-is; the `apiVersion` field overrides both ([why](servers.md#entry-reference)).
 
 **Authentication** - a selector for the auth form: none, API key, virtual key, or OAuth. The selector *is* the [exactly-one-form rule](servers.md#authentication): where raw JSON asks you to keep the rule by hand, the form makes a second form unreachable. Choosing OAuth reveals its fields plus the optional companions - an `apiKey` or `virtualKey` sent alongside the bearer token, for gateways that check two credentials at once.
 

@@ -29,6 +29,7 @@ import {
 	fireClick,
 	fireFocus,
 	fireInput,
+	fireSelect,
 	inputByLabel,
 	mount,
 	postedMessages,
@@ -345,6 +346,118 @@ test("add-form save round trip: invalid posts nothing, the ack closes the form, 
 	});
 	expect(root.querySelector(".form-card")).toBeNull();
 	expect(root.textContent).toContain("saved, but the group sync failed");
+});
+
+/** The API version disclosure's mode select, and the details element around it. */
+function apiVersionControl(root: HTMLElement): { select: HTMLSelectElement; details: HTMLDetailsElement } {
+	const select = root.querySelector<HTMLSelectElement>("#server-apiVersion-mode");
+	const details = select?.closest("details");
+	if (select === null || details === null || details === undefined) {
+		throw new Error("no API version control in the form");
+	}
+	return { select, details };
+}
+
+test("the API version disclosure defaults to Auto, collapsed, and the save intent carries no key", () => {
+	const root = mountSection([]);
+	fireClick(buttonByText(root, "Add your first server"));
+
+	const { select, details } = apiVersionControl(root);
+	expect(details.open).toBe(false);
+	expect(details.querySelector("summary")?.textContent).toContain("API version (optional)");
+	expect(select.value).toBe("auto");
+
+	fireInput(inputByLabel(root, "Label"), "Prod");
+	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
+	resetPosted();
+	fireClick(buttonByText(root, "Save"));
+	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
+	expect(saved.type).toBe("saveServerSetting");
+	expect("apiVersion" in saved.server).toBe(false);
+});
+
+test("No version saves the empty-string override and the collapsed summary names the choice", () => {
+	const root = mountSection([]);
+	fireClick(buttonByText(root, "Add your first server"));
+	fireInput(inputByLabel(root, "Label"), "Prod");
+	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
+
+	const { select, details } = apiVersionControl(root);
+	fireSelect(select, "none");
+	expect(details.querySelector("summary")?.textContent).toContain("API version: none");
+
+	resetPosted();
+	fireClick(buttonByText(root, "Save"));
+	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
+	expect(saved.server.apiVersion).toBe("");
+});
+
+test("Custom reveals the segment input; the trimmed text rides the save and the connection test", () => {
+	const root = mountSection([]);
+	fireClick(buttonByText(root, "Add your first server"));
+	fireInput(inputByLabel(root, "Label"), "Prod");
+	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
+
+	const { select, details } = apiVersionControl(root);
+	expect(root.querySelector("#server-apiVersion")).toBeNull();
+	fireSelect(select, "custom");
+	fireInput(inputByLabel(root, "Version segment"), " v2 ");
+	expect(details.querySelector("summary")?.textContent).toContain("API version: v2");
+
+	resetPosted();
+	fireClick(buttonByText(root, "Test connection"));
+	const probed = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
+	expect(probed.type).toBe("testServerDraft");
+	expect(probed.server.apiVersion).toBe("v2");
+
+	resetPosted();
+	fireClick(buttonByText(root, "Save"));
+	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
+	expect(saved.server.apiVersion).toBe("v2");
+});
+
+test("Custom with no text blocks Save with the version-segment problem and opens the disclosure over it", () => {
+	const root = mountSection([]);
+	fireClick(buttonByText(root, "Add your first server"));
+	fireInput(inputByLabel(root, "Label"), "Prod");
+	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
+	const { select, details } = apiVersionControl(root);
+	fireSelect(select, "custom");
+	expect(details.open).toBe(false);
+
+	resetPosted();
+	fireClick(buttonByText(root, "Save"));
+	expect(postedMessages).toEqual([]);
+	expect(root.textContent).toContain("Cannot save: fix API version");
+	expect(root.textContent).toContain("Enter the version segment, e.g. v2");
+	expect(details.open).toBe(true);
+});
+
+test("an entry's apiVersion prefills the matching mode with the disclosure open", () => {
+	const secrets = { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } as const;
+
+	// "" prefills None; the override must not hide behind a collapsed fold.
+	const noneRoot = mountSection([makeDeclaredServer({ label: "Bare", config: { secrets, apiVersion: "" } })]);
+	fireClick(buttonByText(noneRoot, "Edit"));
+	const none = apiVersionControl(noneRoot);
+	expect(none.details.open).toBe(true);
+	expect(none.select.value).toBe("none");
+	expect(none.details.querySelector("summary")?.textContent).toContain("API version: none");
+
+	// Text prefills Custom with the input filled.
+	const customRoot = mountSection([makeDeclaredServer({ label: "V2", config: { secrets, apiVersion: "v2" } })]);
+	fireClick(buttonByText(customRoot, "Edit"));
+	const custom = apiVersionControl(customRoot);
+	expect(custom.details.open).toBe(true);
+	expect(custom.select.value).toBe("custom");
+	expect(inputByLabel(customRoot, "Version segment").value).toBe("v2");
+	expect(custom.details.querySelector("summary")?.textContent).toContain("API version: v2");
+
+	// Saving the prefilled entry round-trips the override unchanged.
+	resetPosted();
+	fireClick(buttonByText(customRoot, "Save"));
+	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
+	expect(saved.server.apiVersion).toBe("v2");
 });
 
 test("adopting an external row posts adoptServer carrying exactly the sanctioned keys", () => {

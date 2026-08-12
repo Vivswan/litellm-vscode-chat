@@ -54,6 +54,7 @@
  "litellm.config.servers.description": "以設定方式宣告的 LiteLLM 伺服器。機器範圍: 只存在於您的使用者設定 (工作區無法覆寫, 設定同步也不會帶到其他機器)。每個項目會自動同步為一個 VS Code 語言模型提供者群組, 因此伺服器可在此處或 LiteLLM 儀表板中管理。`label` 是項目的身分: 重新命名會建立新的提供者群組, 而移除項目無法移除其群組 (VS Code 沒有提供這樣的 API; 若要刪除殘留的群組, 請從設定檔 (Profile) 的 `User/chatLanguageModels.json` 中的 JSON 陣列移除其物件, 然後重新載入視窗)。可存為祕密的欄位 (`auth.apiKey`、`auth.oauth.clientSecret`、`auth.virtualKey.value` 以及 OAuth 伴隨認證) 可以內嵌寫在這裡 (會出現在設定檔中), 也可以省略並改存於 VS Code 祕密儲存體, 透過儀表板或「LiteLLM: 設定伺服器祕密」命令設定。內嵌值優先於已儲存的值。",
  "litellm.config.servers.label.description": "伺服器的顯示名稱與身分; 提供者群組會以它命名。",
  "litellm.config.servers.baseUrl.description": "LiteLLM 伺服器 URL, 例如 http://localhost:4000。",
+ "litellm.config.servers.apiVersion.description": "附加到基礎 URL 的路徑段: 未設定則自動偵測 (URL 中已有版本段則保留, 否則附加 /v1); \"\" 表示不附加; \"v2\" 附加 /v2。",
  "litellm.config.servers.auth.description": "此伺服器的驗證方式: `apiKey` (承載權杖, 最常見)、`oauth` (用戶端認證) 或 `virtualKey` (自訂標頭中的金鑰) 三者擇一。不需認證的伺服器可完全省略。`apiKey` 形式可以附帶一個同層的 `virtualKey` 伴隨認證, 用於同時檢查兩個標頭的閘道; 設定多於一種形式會被回報為設定錯誤, 該項目在修復前不會被使用。",
  "litellm.config.servers.auth.apiKey.description": "內嵌的 LiteLLM API 金鑰, 以 Authorization 承載權杖加 X-API-Key 副本傳送。省略可改存於祕密儲存體。",
  "litellm.config.servers.auth.oauth.description": "OAuth2 用戶端認證: 延伸模組用這些認證換取短期承載權杖。可選的 `apiKey` 與 `virtualKey` 伴隨認證用於在承載權杖之外還檢查第二個認證的閘道。",

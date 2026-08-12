@@ -19,6 +19,7 @@ import type { RemovedEntryEvent, ServerSyncEngine, ServerSyncEnv } from "./engin
 import { inlineSecretValues, readServerSecrets, updateServerSecret } from "./secrets";
 import type { EntryModelCapabilities, EntryModelParameters } from "./setting";
 import {
+	entryApiVersionFor,
 	entryDeclaredModelsFor,
 	entryExpectedFailuresFor,
 	entryHeadersFor,
@@ -258,6 +259,16 @@ export function readEntryExpectedFailures(
  */
 export function readEntryHeaders(label: string, baseUrl: string): Readonly<Record<string, string>> | undefined {
 	return entryHeadersFor(readRawServersSetting(), label, baseUrl);
+}
+
+/**
+ * The request and discovery paths' read of one declared entry's apiVersion
+ * override; the same live read and label-plus-URL match as
+ * readEntryModelParameters, injected the same way. "" is a real value
+ * (append nothing), returned as-is; undefined means the entry sets none.
+ */
+export function readEntryApiVersion(label: string, baseUrl: string): string | undefined {
+	return entryApiVersionFor(readRawServersSetting(), label, baseUrl);
 }
 
 /**

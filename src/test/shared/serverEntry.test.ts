@@ -68,6 +68,7 @@ suite("shared/serverEntry: package.json drift guard", () => {
 		assert.deepStrictEqual(Object.keys(items.properties), [
 			"label",
 			"baseUrl",
+			"apiVersion",
 			"auth",
 			"headers",
 			"models",

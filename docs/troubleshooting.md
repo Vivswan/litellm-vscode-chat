@@ -56,7 +56,7 @@ This extension plugs into GitHub Copilot Chat; without it there is no chat view 
 Nothing answered at the base URL.
 
 - Verify the base URL is correct (e.g., `http://localhost:4000`) and your LiteLLM proxy is running.
-- If you pasted a URL ending in `/v1`, remove that suffix: the extension appends `/v1` itself, so a `/v1` base URL requests `/v1/v1/...` and fails.
+- A URL ending in `/v1` is fine: the extension appends `/v1` only when the URL does not already end in a version segment (like `/v1` or `/v2`); the per-server `apiVersion` field overrides both (empty string = append nothing).
 - Check firewall, VPN, or proxy settings between VS Code and the server.
 
 The [entry reference](servers.md#entry-reference) documents the base URL rules.
@@ -85,7 +85,7 @@ Two setup mistakes look like auth failures:
 Something answered at that address, but not a LiteLLM proxy - or not with this model. On a chat request the error shows the headline above with a detail line underneath (`Details: LiteLLM 404 ...`) that quotes what the server said.
 
 - Check what is actually listening there - a web server, another service, or the wrong port (the LiteLLM proxy's default is 4000).
-- The `/v1` trap applies here too: a base URL ending in `/v1` makes the extension request `/v1/v1/...`, which the proxy answers with 404. Remove the suffix; the extension appends `/v1` itself.
+- A base URL ending in a version segment (like `/v1` or `/v2`) is used as-is; otherwise the extension appends `/v1`. A 404 therefore means the address is wrong some other way: a different path prefix, the wrong port, or a server that does not speak the LiteLLM API. The per-server `apiVersion` field forces a specific segment (empty string = append nothing).
 - A 404 on a chat request from a previously working server usually means the model was removed from the proxy: run "LiteLLM: Sync Models Now" to refresh the model list. If every request fails with 404, check the base URL as above.
 
 ### No models appear in the model picker

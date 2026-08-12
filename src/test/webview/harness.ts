@@ -117,6 +117,14 @@ export function fireCheck(element: HTMLInputElement, checked: boolean): void {
 	});
 }
 
+/** Pick a select's option by value and fire the change event preact listens for. */
+export function fireSelect(element: HTMLSelectElement, value: string): void {
+	void act(() => {
+		element.value = value;
+		element.dispatchEvent(new Event("change", { bubbles: true }));
+	});
+}
+
 export function fireKeyDown(element: HTMLElement, key: string): void {
 	void act(() => {
 		element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));

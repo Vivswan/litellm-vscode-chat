@@ -49,6 +49,7 @@ export {
 } from "./setting";
 export {
 	createServerSyncEnv,
+	readEntryApiVersion,
 	readEntryDeclaredModels,
 	readEntryExpectedFailures,
 	readEntryHeaders,

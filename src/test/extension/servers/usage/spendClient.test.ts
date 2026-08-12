@@ -52,9 +52,20 @@ suite("extension/servers/usage spendClient", () => {
 
 	suite("URL helpers", () => {
 		test("state the root-level endpoints the requests really call", () => {
-			assert.strictEqual(keyInfoUrl(TEST_BASE_URL), KEY_INFO_URL);
-			assert.strictEqual(userInfoUrl(TEST_BASE_URL), USER_INFO_URL);
-			assert.strictEqual(dailyActivityUrl(TEST_BASE_URL), DAILY_ACTIVITY_URL);
+			assert.strictEqual(keyInfoUrl(TEST_BASE_URL, undefined), KEY_INFO_URL);
+			assert.strictEqual(userInfoUrl(TEST_BASE_URL, undefined), USER_INFO_URL);
+			assert.strictEqual(dailyActivityUrl(TEST_BASE_URL, undefined), DAILY_ACTIVITY_URL);
+		});
+
+		test("a version segment in the base URL is stripped back to the server root", () => {
+			assert.strictEqual(keyInfoUrl(`${TEST_BASE_URL}/v1`, undefined), KEY_INFO_URL);
+			assert.strictEqual(userInfoUrl(`${TEST_BASE_URL}/v2`, undefined), USER_INFO_URL);
+			assert.strictEqual(dailyActivityUrl(`${TEST_BASE_URL}/v1/`, undefined), DAILY_ACTIVITY_URL);
+		});
+
+		test("an explicit apiVersion means the base URL already is the server root", () => {
+			assert.strictEqual(keyInfoUrl(`${TEST_BASE_URL}/v1`, "v2"), `${TEST_BASE_URL}/v1/key/info`);
+			assert.strictEqual(keyInfoUrl(TEST_BASE_URL, ""), KEY_INFO_URL);
 		});
 	});
 
@@ -387,12 +398,23 @@ suite("extension/servers/usage spendClient", () => {
 			assert.strictEqual(inlineWins.apiKey, "inline-key");
 		});
 
+		test('the entry\'s apiVersion rides the connection, with "" kept distinct from absent', () => {
+			// Pins the ...(entry.apiVersion !== undefined) spread: without it the
+			// usage URLs silently revert to the auto rule and the suite stays green.
+			const custom = usageConnectionFor({ label: "a", baseUrl: TEST_BASE_URL, apiVersion: "v2" }, {});
+			assert.strictEqual(custom.apiVersion, "v2");
+			const none = usageConnectionFor({ label: "a", baseUrl: TEST_BASE_URL, apiVersion: "" }, {});
+			assert.strictEqual(none.apiVersion, "");
+			const auto = usageConnectionFor({ label: "a", baseUrl: TEST_BASE_URL }, {});
+			assert.ok(!("apiVersion" in auto), "auto must omit the key, not carry present-as-undefined");
+		});
+
 		test("normalizes a trailing-slash base URL so endpoint paths cannot double the slash", () => {
 			const resolved = usageConnectionFor({ label: "alpha", baseUrl: `${TEST_BASE_URL}//` }, {});
 			assert.strictEqual(resolved.baseUrl, TEST_BASE_URL);
 			// The URL a fetch would really hit: a double slash here would 404 on
 			// LiteLLM and misclassify the server as usage-unsupported.
-			assert.strictEqual(keyInfoUrl(resolved.baseUrl), KEY_INFO_URL);
+			assert.strictEqual(keyInfoUrl(resolved.baseUrl, undefined), KEY_INFO_URL);
 		});
 
 		test("drops a virtual key whose header or value cannot be sent as an HTTP header", () => {

@@ -189,6 +189,33 @@ suite("provider/catalog/discoveryCache", () => {
 		);
 	});
 
+	test("dropStored() removes the stored entry but leaves an in-flight load storable", async () => {
+		const cache = new DiscoveryCache<string>(makeClock().now);
+		await cache.fetch("k", async () => "stale");
+		let release: (() => void) | undefined;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+
+		const reload = cache.fetch("k", async () => {
+			await gate;
+			return "fresh";
+		});
+		// The corrector's move: discard the stale stored value while the fresh
+		// reload is in flight. Unlike invalidate(), the reload keeps its right
+		// to cache - concurrent correctors must not suppress each other.
+		cache.dropStored("k");
+		assert.strictEqual(cache.lookup("k", Number.MAX_SAFE_INTEGER), undefined, "the stored entry is gone");
+		expectDefined(release)();
+
+		assert.strictEqual(await reload, "fresh");
+		assert.strictEqual(
+			cache.lookup("k", Number.MAX_SAFE_INTEGER),
+			"fresh",
+			"the in-flight reload must still store its result"
+		);
+	});
+
 	test("invalidating one key does not discard another key's concurrent load", async () => {
 		const cache = new DiscoveryCache<string>(makeClock().now);
 		let release: (() => void) | undefined;

@@ -51,6 +51,13 @@ export type EntryModelCapabilities = ModelCapabilitiesRecord;
 export type DeclaredServer = {
 	readonly label: string;
 	readonly baseUrl: string;
+	/**
+	 * What apiRootOf appends to the base URL: absent means auto (keep a
+	 * version segment already in the URL, else /v1), "" means append nothing.
+	 * Read extension-side and resolved into the transport per request, like
+	 * headers; never part of the group configuration.
+	 */
+	readonly apiVersion?: string;
 	/** The entry's custom HTTP headers, sent on every request to this server; auth headers win conflicts. */
 	readonly headers?: Readonly<Record<string, string>>;
 	readonly modelParameters?: EntryModelParameters;
@@ -360,6 +367,7 @@ function acceptEntries(
 		const entry: {
 			label: string;
 			baseUrl: string;
+			apiVersion?: string;
 			headers?: Readonly<Record<string, string>>;
 			modelParameters?: EntryModelParameters;
 			modelCapabilities?: EntryModelCapabilities;
@@ -371,6 +379,17 @@ function acceptEntries(
 			baseUrl,
 			...auth.fields,
 		};
+
+		// "" is a real value (append nothing to the base URL), so this cannot
+		// funnel through usableString, which erases it. Like budget, a malformed
+		// value is a diagnostic and is ignored; the entry stays usable.
+		if (record.apiVersion !== undefined) {
+			if (typeof record.apiVersion !== "string") {
+				report("has an apiVersion that is not a string, ignored");
+			} else {
+				entry.apiVersion = record.apiVersion.trim();
+			}
+		}
 
 		if (record.headers !== undefined) {
 			// Header names are structural configuration (the same class the
@@ -546,6 +565,15 @@ export function entryHeadersFor(
 	baseUrl: string
 ): Readonly<Record<string, string>> | undefined {
 	return matchedEntryFor(raw, label, baseUrl)?.headers;
+}
+
+/**
+ * The request and discovery paths' resolution of one declared entry's
+ * apiVersion override; see matchedEntryFor. Returns "" when the entry sets
+ * the empty override (append nothing), undefined only when absent.
+ */
+export function entryApiVersionFor(raw: unknown, label: string, baseUrl: string): string | undefined {
+	return matchedEntryFor(raw, label, baseUrl)?.apiVersion;
 }
 
 /** The registration path's resolution of one declared entry's discovery.declared list; see matchedEntryFor. */

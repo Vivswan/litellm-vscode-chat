@@ -266,6 +266,40 @@ suite("extension/dashboard/intents", () => {
 			]);
 		});
 
+		test("apiVersion lands in the written entry trimmed: omitted on auto, kept for none and custom", async () => {
+			// The three payload shapes the form's modes assemble to: absent
+			// (auto) writes no key, "" (none) and text (custom) both write it -
+			// "" is a real value, append nothing.
+			const cases: readonly [string | undefined, string | undefined][] = [
+				[undefined, undefined],
+				["", ""],
+				[" v2 ", "v2"],
+			];
+			for (const [payloadValue, written] of cases) {
+				const recorded = makeEnv();
+				await save(recorded, {
+					server: serverPayload({
+						label: "Prod",
+						baseUrl: "http://prod.test",
+						...(payloadValue !== undefined ? { apiVersion: payloadValue } : {}),
+					}),
+				});
+				assert.deepStrictEqual(recorded.serverWrites, [
+					[{ label: "Prod", baseUrl: "http://prod.test", ...(written !== undefined ? { apiVersion: written } : {}) }],
+				]);
+			}
+		});
+
+		test("an edit whose payload omits apiVersion (auto) drops the stored key from the rebuilt entry", async () => {
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://old.test", apiVersion: "v2" }]);
+			await save(recorded, {
+				server: serverPayload({ label: "Prod", baseUrl: "http://old.test" }),
+				replaceLabel: "Prod",
+			});
+
+			assert.deepStrictEqual(recorded.serverWrites, [[{ label: "Prod", baseUrl: "http://old.test" }]]);
+		});
+
 		test("header and budget rules refuse a save before any effect", async () => {
 			// The acceptance matrix for the payload's new fields: names may be
 			// echoed in the message (structural configuration), values never are.

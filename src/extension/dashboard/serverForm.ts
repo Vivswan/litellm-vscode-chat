@@ -55,6 +55,25 @@ export interface SecretFieldDraft {
 export type AuthFormId = "none" | "apiKey" | "virtualKey" | "oauth";
 
 /**
+ * The API version control as the form edits it: the three modes explicit, so
+ * "custom with no text yet" stays representable (and validatable) instead of
+ * collapsing into "none". Maps onto the entry's apiVersion field: auto writes
+ * no key, none writes "" (append nothing), custom writes the trimmed text.
+ */
+export interface ApiVersionDraft {
+	readonly mode: "auto" | "none" | "custom";
+	readonly custom: string;
+}
+
+/** The edit form's prefill from a stored entry's apiVersion: absent is auto, "" is none, anything else is custom. */
+export function apiVersionDraftOf(value: string | undefined): ApiVersionDraft {
+	if (value === undefined) {
+		return { mode: "auto", custom: "" };
+	}
+	return value === "" ? { mode: "none", custom: "" } : { mode: "custom", custom: value };
+}
+
+/**
  * The whole draft, its field set derived from the entry descriptor: label and
  * base URL, the Authentication selector's form pick, the non-secret optional
  * fields as plain text inputs, one SecretFieldDraft per secret field, the
@@ -66,6 +85,7 @@ export type AuthFormId = "none" | "apiKey" | "virtualKey" | "oauth";
 export type ServerFormDraft = {
 	readonly label: string;
 	readonly baseUrl: string;
+	readonly apiVersion: ApiVersionDraft;
 	readonly authForm: AuthFormId;
 	readonly headers: readonly HeaderRow[];
 	readonly declaredModels: string;
@@ -81,6 +101,7 @@ const EMPTY_SECRET: SecretFieldDraft = { value: "", location: "secure", clear: f
 export const EMPTY_SERVER_FORM: ServerFormDraft = {
 	label: "",
 	baseUrl: "",
+	apiVersion: { mode: "auto", custom: "" },
 	authForm: "none",
 	oauthTokenUrl: "",
 	oauthClientId: "",
@@ -103,6 +124,7 @@ export type ServerFormField = keyof ServerFormDraft;
 export const SERVER_FORM_FIELD_ORDER: readonly ServerFormField[] = [
 	"label",
 	"baseUrl",
+	"apiVersion",
 	"authForm",
 	"apiKey",
 	"oauthTokenUrl",
@@ -130,6 +152,8 @@ export function serverFormFieldLabel(field: ServerFormField): string {
 			return l10n.t("Label");
 		case "baseUrl":
 			return l10n.t("Base URL");
+		case "apiVersion":
+			return l10n.t("API version");
 		case "apiKey":
 			return l10n.t("API key");
 		case "oauthTokenUrl":
@@ -333,6 +357,8 @@ interface ServerFormAnalysis {
 	/** The draft's trimmed label, possibly empty or reserved (only the save blocks on that). */
 	readonly label: string;
 	readonly baseUrl: string;
+	/** The entry apiVersion the draft means: undefined for auto, "" for none, the trimmed text for custom. */
+	readonly apiVersion: string | undefined;
 	readonly secrets: Readonly<Record<SecretFieldId, SecretParse>>;
 	readonly groupsParse: ReturnType<typeof parseGroups>;
 	readonly capabilitiesParse: ReturnType<typeof parseCapabilityGroups>;
@@ -381,6 +407,26 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 		problems.baseUrl = l10n.t("Enter the server URL");
 	} else if (!isUsableHttpUrl(baseUrl)) {
 		problems.baseUrl = l10n.t("Must be a usable http(s) URL, e.g. http://localhost:4000");
+	}
+
+	// The apiVersion the saved entry will carry: auto omits the field, none
+	// writes "" (append nothing), custom writes the trimmed text - which must
+	// exist, or a picked "custom" would silently save as "none". Slashes and
+	// inner whitespace are named problems, not silently rewritten: "/v2"
+	// appended verbatim would build http://host//v2, which routers do not
+	// collapse, and every request would 404 with no hint.
+	let apiVersion: string | undefined;
+	if (draft.apiVersion.mode === "none") {
+		apiVersion = "";
+	} else if (draft.apiVersion.mode === "custom") {
+		const custom = draft.apiVersion.custom.trim();
+		if (custom.length === 0) {
+			problems.apiVersion = l10n.t("Enter the version segment, e.g. v2");
+		} else if (custom.includes("/") || /\s/.test(custom)) {
+			problems.apiVersion = l10n.t("Just the segment, no slashes or spaces - e.g. v2");
+		} else {
+			apiVersion = custom;
+		}
 	}
 
 	// OAuth is one unit: the request path drops partial configurations
@@ -485,7 +531,18 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 		}
 	}
 
-	return { problems, label, baseUrl, secrets, groupsParse, capabilitiesParse, headersParse, budget, optionalText };
+	return {
+		problems,
+		label,
+		baseUrl,
+		apiVersion,
+		secrets,
+		groupsParse,
+		capabilitiesParse,
+		headersParse,
+		budget,
+		optionalText,
+	};
 }
 
 /** The intent's secret directives, one per field, straight from the analysis' secret parses. */
@@ -507,8 +564,18 @@ function secretDirectives(
  * and the intentFailed notice.
  */
 export function parseServerForm(draft: ServerFormDraft, context: ServerFormContext = {}): ServerFormParse {
-	const { problems, label, baseUrl, secrets, groupsParse, capabilitiesParse, headersParse, budget, optionalText } =
-		analyzeServerForm(draft, context);
+	const {
+		problems,
+		label,
+		baseUrl,
+		apiVersion,
+		secrets,
+		groupsParse,
+		capabilitiesParse,
+		headersParse,
+		budget,
+		optionalText,
+	} = analyzeServerForm(draft, context);
 	// The parse-failure conditions are redundant with the problems check (a
 	// failed parse set its field's problem); they are spelled out so the ok
 	// branch below narrows to the parsed values.
@@ -534,6 +601,7 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 	const server: SaveServerPayload = {
 		label,
 		baseUrl,
+		...(apiVersion !== undefined ? { apiVersion } : {}),
 		...optionalText,
 		...(Object.keys(groupsParse.value).length > 0 ? { modelParameters: groupsParse.value } : {}),
 		modelCapabilities: capabilitiesParse.value,
@@ -556,7 +624,7 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 
 /**
  * The fields whose edit invalidates a draft-connection test result: the base
- * URL, the auth-form pick, every credential input (value, storage choice, or
+ * URL and its API version override, the auth-form pick, every credential input (value, storage choice, or
  * remove mark), the OAuth text fields, and the custom-header rows (the probe
  * sends them). A stale PASS on edited credentials is worse than no result, so
  * the form clears the result when any of these change; the label and the
@@ -564,6 +632,7 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
  */
 export const CONNECTION_FIELDS: readonly ServerFormField[] = [
 	"baseUrl",
+	"apiVersion",
 	"authForm",
 	"apiKey",
 	"oauthTokenUrl",
@@ -618,6 +687,7 @@ export function parseServerFormForTest(draft: ServerFormDraft, context: ServerFo
 	const server: SaveServerPayload = {
 		label: analysis.label,
 		baseUrl: analysis.baseUrl,
+		...(analysis.apiVersion !== undefined ? { apiVersion: analysis.apiVersion } : {}),
 		...analysis.optionalText,
 		modelCapabilities: capabilitiesParse.ok ? capabilitiesParse.value : {},
 		expectedFailures: draft.expectedFailures,

@@ -14,6 +14,7 @@ import type {
 	UsageServerView,
 } from "../../extension/dashboard/protocol";
 import {
+	DEFAULT_API_VERSION,
 	EXPECTED_FAILURE_CATEGORIES,
 	SECRET_FIELD_IDS,
 	statusErrorDetail,
@@ -27,6 +28,7 @@ import {
 	toHeaderRows,
 } from "../../extension/dashboard/recordDraft";
 import type {
+	ApiVersionDraft,
 	AuthFormId,
 	SecretFieldDraft,
 	ServerFormDraft,
@@ -34,6 +36,7 @@ import type {
 	ServerFormProblems,
 } from "../../extension/dashboard/serverForm";
 import {
+	apiVersionDraftOf,
 	applyInlinePrefill,
 	CONNECTION_FIELDS,
 	deriveAuthForm,
@@ -282,7 +285,7 @@ export interface ServerEditRequest {
 }
 
 /** The form's collapsible sections that can hide a field's problem. */
-type ProblemDisclosureId = "vkCompanion" | "oauthCompanions" | "stored" | "headers" | "params" | "caps";
+type ProblemDisclosureId = "apiVersion" | "vkCompanion" | "oauthCompanions" | "stored" | "headers" | "params" | "caps";
 
 /**
  * Which collapsed disclosures hide the given problems. The membership depends
@@ -293,6 +296,9 @@ type ProblemDisclosureId = "vkCompanion" | "oauthCompanions" | "stored" | "heade
  */
 function disclosuresForProblems(problems: ServerFormProblems, authForm: AuthFormId): readonly ProblemDisclosureId[] {
 	const ids: ProblemDisclosureId[] = [];
+	if (problems.apiVersion !== undefined) {
+		ids.push("apiVersion");
+	}
 	const vkProblem = problems.virtualKeyHeader !== undefined || problems.virtualKeyValue !== undefined;
 	if (authForm === "apiKey" && vkProblem) {
 		ids.push("vkCompanion");
@@ -389,6 +395,22 @@ function expectedFailureLabel(category: ExpectedFailureCategory): string {
 	}
 }
 
+/**
+ * The API version disclosure's summary: the plain optional invitation while
+ * the mode is the auto default, the chosen override otherwise - a collapsed
+ * disclosure must not hide that an edited server carries one.
+ */
+function apiVersionSummaryText(value: ApiVersionDraft): string {
+	if (value.mode === "none") {
+		return l10n.t("API version: none");
+	}
+	if (value.mode === "custom") {
+		const custom = value.custom.trim();
+		return custom.length > 0 ? l10n.t("API version: {0}", custom) : l10n.t("API version: custom");
+	}
+	return l10n.t("API version (optional)");
+}
+
 function draftFor(target: ServerFormTarget): ServerFormDraft {
 	if (target.kind === "add") {
 		return EMPTY_SERVER_FORM;
@@ -397,6 +419,7 @@ function draftFor(target: ServerFormTarget): ServerFormDraft {
 	return {
 		label: original.label,
 		baseUrl: original.baseUrl,
+		apiVersion: apiVersionDraftOf(original.config.apiVersion),
 		authForm: deriveAuthForm(original.config),
 		oauthTokenUrl: original.config.oauthTokenUrl ?? "",
 		oauthClientId: original.config.oauthClientId ?? "",
@@ -463,6 +486,7 @@ function TextField({
 	field: Exclude<
 		ServerFormField,
 		| SecretFieldId
+		| "apiVersion"
 		| "authForm"
 		| "headers"
 		| "declaredModels"
@@ -645,6 +669,12 @@ function fieldHasContent(draft: ServerFormDraft, field: ServerFormField): boolea
 		// The selector always holds a pick and never carries a problem.
 		return false;
 	}
+	if (field === "apiVersion") {
+		// Only a custom mode with text counts: an empty custom surfaces on Save
+		// (which marks every field touched), like the other required-but-empty
+		// inputs.
+		return draft.apiVersion.mode === "custom" && draft.apiVersion.custom.length > 0;
+	}
 	const value = draft[field];
 	return typeof value === "string" ? value.length > 0 : value.value.length > 0;
 }
@@ -812,6 +842,10 @@ function ServerForm({
 				target.original.config.secrets.virtualKeyValue !== "none")
 	);
 	const [storedOpen, setStoredOpen] = useState(false);
+	const [apiVersionOpen, setApiVersionOpen] = useState(
+		// A prefilled override must not hide behind a collapsed disclosure.
+		() => target.kind === "edit" && target.original.config.apiVersion !== undefined
+	);
 	const [headersOpen, setHeadersOpen] = useState(
 		() => target.kind === "edit" && Object.keys(target.original.config.headers ?? {}).length > 0
 	);
@@ -975,6 +1009,7 @@ function ServerForm({
 	const headerRowProblems: readonly (string | undefined)[] = parse.ok ? [] : parse.headerProblems;
 	const firstBlocking = SERVER_FORM_FIELD_ORDER.find((field) => visibleProblems[field] !== undefined);
 	const problemDisclosureSetters: Record<ProblemDisclosureId, (open: boolean) => void> = {
+		apiVersion: setApiVersionOpen,
 		vkCompanion: setVkCompanionOpen,
 		oauthCompanions: setOauthCompanionsOpen,
 		stored: setStoredOpen,
@@ -1227,6 +1262,54 @@ function ServerForm({
 			) : null}
 			{collides ? <p class="hint">{l10n.t("An entry with this label already exists; saving replaces it.")}</p> : null}
 			<TextField field="baseUrl" placeholder={l10n.t("e.g. http://localhost:4000")} props={props} />
+			<details open={apiVersionOpen} onToggle={(event) => setApiVersionOpen(event.currentTarget.open)}>
+				<summary>
+					{apiVersionSummaryText(draft.apiVersion)} <Help text={serverFieldHelp("apiVersion")} />
+				</summary>
+				<div class="field">
+					{/* The summary already names the field; an aria-label keeps the
+					    select accessible without saying "API version" a second time. */}
+					<select
+						id="server-apiVersion-mode"
+						aria-label={serverFormFieldLabel("apiVersion")}
+						value={draft.apiVersion.mode}
+						disabled={saving}
+						onChange={(event) =>
+							props.patch({
+								apiVersion: { ...draft.apiVersion, mode: event.currentTarget.value as ApiVersionDraft["mode"] },
+							})
+						}
+					>
+						<option value="auto">{l10n.t("Auto - detect, default /{0}", DEFAULT_API_VERSION)}</option>
+						<option value="none">{l10n.t("No version - use the URL as-is")}</option>
+						<option value="custom">{l10n.t("Custom...")}</option>
+					</select>
+				</div>
+				{draft.apiVersion.mode === "custom" ? (
+					<div class="field">
+						<label for="server-apiVersion">{l10n.t("Version segment")}</label>
+						<input
+							id="server-apiVersion"
+							type="text"
+							class={visibleProblems.apiVersion !== undefined ? "invalid" : ""}
+							placeholder={l10n.t("e.g. v2")}
+							value={draft.apiVersion.custom}
+							disabled={saving}
+							aria-invalid={visibleProblems.apiVersion !== undefined}
+							aria-describedby={visibleProblems.apiVersion !== undefined ? "server-apiVersion-error" : undefined}
+							onInput={(event) =>
+								props.patch({ apiVersion: { ...draft.apiVersion, custom: event.currentTarget.value } })
+							}
+							onBlur={() => props.touch("apiVersion")}
+						/>
+						{visibleProblems.apiVersion !== undefined ? (
+							<span id="server-apiVersion-error" class="error">
+								{visibleProblems.apiVersion}
+							</span>
+						) : null}
+					</div>
+				) : null}
+			</details>
 			<fieldset class="auth-block">
 				<legend class="label-row">
 					{serverFormFieldLabel("authForm")} <Help text={serverFieldHelp("authForm")} />

@@ -44,6 +44,9 @@ export const secretDirectiveSchema: z.ZodType<SecretDirective> = z.discriminated
 const saveServerSchema = z.strictObject({
 	label: z.string(),
 	baseUrl: z.string(),
+	// Bounded like every other webview-minted token: no honest version
+	// segment needs more.
+	apiVersion: z.string().max(256).optional(),
 	...recordFromKeys(NON_SECRET_OPTIONAL_FIELD_IDS, () => z.string().optional()),
 	modelParameters: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
 	modelCapabilities: z.record(z.string(), z.record(z.string(), z.unknown())),

@@ -359,6 +359,14 @@ export interface FetchModelsRequest {
 	/** Transport for this server, from clients.ts; static auth and headers live there. */
 	client: OpenAI;
 	baseUrl: string;
+	/**
+	 * The entry's apiVersion override the client was built with, so the logged
+	 * endpoint URLs match the client's real API root; "" and undefined follow
+	 * apiRootOf's rules. Requests themselves ride the client's relative paths.
+	 * Required so a caller cannot build the client on an overridden root and
+	 * silently log the auto one.
+	 */
+	apiVersion: string | undefined;
 	/** Pre-validated by settings.getDiscoveryTimeout(); used as-is. */
 	discoveryTimeout: number;
 	/** Failure categories the server's entry declares expected; see ExpectedDiscoveryFailures. */
@@ -399,13 +407,13 @@ function unparseableModelsResponse(endpointUrl: string, reason: string, cause: u
 	)}`;
 	return new RequestError(
 		`${l10n.t(
-			"The server replied, but not with a model list - this address may not be a LiteLLM proxy. Check the base URL: leave off the /v1 suffix (the extension appends it); LiteLLM's default port is 4000."
+			"The server replied, but not with a model list - this address may not be a LiteLLM proxy. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2; LiteLLM's default port is 4000."
 		)}\n${detail}`,
 		"http",
 		{
 			cause,
 			logClassification: UNPARSEABLE_MODELS_RESPONSE_CLASSIFICATION,
-			englishMessage: `The server replied, but not with a model list - this address may not be a LiteLLM proxy. Check the base URL: leave off the /v1 suffix (the extension appends it); LiteLLM's default port is 4000.\n${detail}`,
+			englishMessage: `The server replied, but not with a model list - this address may not be a LiteLLM proxy. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2; LiteLLM's default port is 4000.\n${detail}`,
 		}
 	);
 }
@@ -562,9 +570,9 @@ function narrowModelInfoData(data: unknown[], log: FetchModelsRequest["log"]): N
 }
 
 export async function fetchModels(request: FetchModelsRequest): Promise<FetchModelsResult> {
-	const { client, baseUrl, discoveryTimeout, expected, headers, log } = request;
+	const { client, baseUrl, apiVersion, discoveryTimeout, expected, headers, log } = request;
 
-	log("Fetching from:", modelInfoUrl(baseUrl));
+	log("Fetching from:", modelInfoUrl(baseUrl, apiVersion));
 
 	try {
 		// The per-request timeout keeps the SDK's own 600 s default from
@@ -583,7 +591,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 				}),
 				infoSignal
 			),
-			modelInfoUrl(baseUrl)
+			modelInfoUrl(baseUrl, apiVersion)
 		);
 		if (isRecord(parsedInfo) && Array.isArray(parsedInfo.data)) {
 			const data: unknown[] = parsedInfo.data;
@@ -616,7 +624,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		// is a constant class name (RequestError, or CancellationError on a
 		// pass-through) that says nothing about what failed, while the
 		// classification names the shape - and it is never message text.
-		log(`model/info failed, falling back to ${modelsUrl(baseUrl)}${expectedNote}`, {
+		log(`model/info failed, falling back to ${modelsUrl(baseUrl, apiVersion)}${expectedNote}`, {
 			error: classificationOf(mapped) ?? mapped.name,
 			...(mapped instanceof RequestError
 				? { kind: mapped.kind, ...(mapped.status !== undefined ? { status: mapped.status } : {}) }
@@ -624,7 +632,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		});
 	}
 
-	log("Fetching from:", modelsUrl(baseUrl));
+	log("Fetching from:", modelsUrl(baseUrl, apiVersion));
 	const timeoutSignal = AbortSignal.timeout(discoveryTimeout);
 	const errorContext = { surface: "discovery" as const, baseUrl, timeoutMs: discoveryTimeout };
 	let parsed: unknown;
@@ -639,7 +647,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 				}),
 				timeoutSignal
 			),
-			modelsUrl(baseUrl)
+			modelsUrl(baseUrl, apiVersion)
 		);
 	} catch (error) {
 		if (timeoutSignal.aborted) {
@@ -651,7 +659,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		if (error instanceof SyntaxError) {
 			// The SDK's own response.json() on a malformed application/json body:
 			// same leak shape as coerceJsonPayload, same classification.
-			throw unparseableModelsResponse(modelsUrl(baseUrl), error.message, error);
+			throw unparseableModelsResponse(modelsUrl(baseUrl, apiVersion), error.message, error);
 		}
 		throw mapSdkError(error, errorContext);
 	}

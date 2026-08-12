@@ -148,6 +148,7 @@ suite("provider/discovery expectedFailures retry properties", () => {
 				const call = fetchModels({
 					client,
 					baseUrl: TEST_BASE_URL,
+					apiVersion: undefined,
 					discoveryTimeout: 30000,
 					expected,
 					log: () => {},

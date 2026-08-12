@@ -42,6 +42,12 @@ type SyncErrorClass = "upsertFailed" | "blocked" | "secretsUnreadable";
 export interface DeclaredServerView extends NonSecretOptionalFields {
 	readonly label: string;
 	readonly baseUrl: string;
+	/**
+	 * The entry's apiVersion override (non-secret user configuration); the
+	 * edit form's prefill. "" is a real value (append nothing to the base
+	 * URL), distinct from absent (auto-detect).
+	 */
+	readonly apiVersion?: string | undefined;
 	readonly secrets: Readonly<Record<SecretFieldId, SecretLocation>>;
 	/** The entry's custom HTTP headers (non-secret user configuration); the edit form's prefill. */
 	readonly headers?: Readonly<Record<string, string>> | undefined;
@@ -655,6 +661,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 				label: entry.label,
 				baseUrl: entry.baseUrl,
 				...pickNonSecretOptionalFields(entry),
+				...(entry.apiVersion !== undefined ? { apiVersion: entry.apiVersion } : {}),
 				...(entry.headers !== undefined ? { headers: entry.headers } : {}),
 				...(entry.modelParameters !== undefined ? { modelParameters: entry.modelParameters } : {}),
 				...(entry.modelCapabilities !== undefined ? { modelCapabilities: entry.modelCapabilities } : {}),

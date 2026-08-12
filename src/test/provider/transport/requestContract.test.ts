@@ -636,6 +636,53 @@ suite("provider/request contract", () => {
 			);
 			assert.equal(chatUrl, `${TEST_BASE_URL}/v1/chat/completions`);
 		});
+
+		test("a declared entry's apiVersion re-roots the chat request (and the sole-server fallback resolves it)", async () => {
+			// The resolver is injected like getEntryHeaders, matched by the
+			// connection's entry-candidate label and base URL; "v2" replaces the
+			// auto-appended /v1 on the real request, not just the log line.
+			let chatUrl = "";
+			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
+				getEntryApiVersion: (label, versionBaseUrl) =>
+					label === "Default" && versionBaseUrl === TEST_BASE_URL ? "v2" : undefined,
+			});
+			mswServer.use(
+				http.post(`${TEST_BASE_URL}/v2/chat/completions`, ({ request }) => {
+					chatUrl = request.url;
+					return sseResponse("data: [DONE]\n\n");
+				})
+			);
+			await provider.provideLanguageModelChatResponse(
+				modelInfo,
+				[userMessage("test")],
+				{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
+				{ report: () => {} },
+				new vscode.CancellationTokenSource().token
+			);
+			assert.equal(chatUrl, `${TEST_BASE_URL}/v2/chat/completions`);
+		});
+
+		test('a declared entry\'s apiVersion "" sends the chat request to the bare base URL (append nothing)', async () => {
+			let chatUrl = "";
+			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
+				getEntryApiVersion: (label, versionBaseUrl) =>
+					label === "Default" && versionBaseUrl === TEST_BASE_URL ? "" : undefined,
+			});
+			mswServer.use(
+				http.post(`${TEST_BASE_URL}/chat/completions`, ({ request }) => {
+					chatUrl = request.url;
+					return sseResponse("data: [DONE]\n\n");
+				})
+			);
+			await provider.provideLanguageModelChatResponse(
+				modelInfo,
+				[userMessage("test")],
+				{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
+				{ report: () => {} },
+				new vscode.CancellationTokenSource().token
+			);
+			assert.equal(chatUrl, `${TEST_BASE_URL}/chat/completions`);
+		});
 	});
 
 	suite("model picker configuration", () => {

@@ -67,6 +67,9 @@ export type {
 	SecretLocation,
 } from "../../shared/serverEntry";
 export { EXPECTED_FAILURE_CATEGORIES, NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+// The auto-mode default the form's labels interpolate: derived, never
+// hardcoded, so flipping the constant cannot leave the dashboard lying.
+export { DEFAULT_API_VERSION } from "../../shared/util/baseUrl";
 export { statusErrorDetail, statusErrorHeadline } from "../../shared/util/errorText";
 export type { HeaderScalar } from "../../shared/util/headers";
 export { isValidHeaderName, isValidHeaderValue } from "../../shared/util/headers";
@@ -98,6 +101,8 @@ type EntryModelCapabilitiesPayload = Readonly<Record<string, Readonly<Record<str
 interface DashboardServerConfig extends NonSecretOptionalFields {
 	/** Where each secret currently lives; the values themselves never reach the webview. */
 	readonly secrets: Readonly<Record<SecretFieldId, SecretLocation>>;
+	/** The entry's apiVersion override ("" is a real value: append nothing); the edit form's prefill. */
+	readonly apiVersion?: string | undefined;
 	/** The entry's own modelParameters, when it has any; the edit form's prefill. */
 	readonly modelParameters?: EntryModelParametersPayload | undefined;
 	/** The entry's own modelCapabilities, when it has any; the edit form's prefill. */
@@ -1591,6 +1596,12 @@ export type SecretDirective =
 export interface SaveServerPayload extends NonSecretOptionalFields {
 	readonly label: string;
 	readonly baseUrl: string;
+	/**
+	 * The entry's apiVersion override: absent means auto (the saved entry
+	 * carries no key), "" means append nothing to the base URL, anything else
+	 * is appended verbatim.
+	 */
+	readonly apiVersion?: string | undefined;
 	/** The entry's per-entry modelParameters; absent or empty means the saved entry carries none. */
 	readonly modelParameters?: EntryModelParametersPayload | undefined;
 	/** The entry's per-entry modelCapabilities; empty means the saved entry carries none. */

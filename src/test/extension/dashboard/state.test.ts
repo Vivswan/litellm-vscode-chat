@@ -1454,6 +1454,19 @@ suite("extension/dashboard/state", () => {
 			assert.deepStrictEqual(server.config.expectedFailures, ["modelListing"]);
 		});
 
+		test("the config prefill carries the entry's apiVersion, the empty-string override included", () => {
+			const state = buildState([], makeReader({}), [makeDeclared({ apiVersion: "" })]);
+			const server = state.servers[0];
+			assert.ok(server?.origin === "declared");
+			assert.strictEqual(server.config.apiVersion, "");
+			assert.ok("apiVersion" in server.config, '"" is a real override and must survive into the prefill');
+
+			const absent = buildState([], makeReader({}), [makeDeclared()]);
+			const plain = absent.servers[0];
+			assert.ok(plain?.origin === "declared");
+			assert.ok(!("apiVersion" in plain.config), "an entry without the field prefills the auto default");
+		});
+
 		test("a non-identity join flags capabilities and expected failures inactive, beside the params notice", () => {
 			const state = buildState(
 				[
@@ -2679,6 +2692,28 @@ suite("extension/dashboard/state", () => {
 			assert.deepStrictEqual(recorded.secretOps, []);
 			assert.deepStrictEqual(recorded.updates, []);
 			assert.strictEqual(recorded.syncRequests, 0);
+		});
+
+		test("the draft's apiVersion override rides the probe connection trimmed; auto stays absent", async () => {
+			const custom = makeEnv([]);
+			await draftTest(custom, {
+				server: serverPayload({ label: "Prod", baseUrl: "http://prod.test", apiVersion: " v2 " }),
+			});
+			assert.deepStrictEqual(custom.probes, [
+				{ baseUrl: "http://prod.test", apiVersion: "v2", apiKey: "", expected: NO_EXPECTED },
+			]);
+
+			// "" is a real override (append nothing) and must reach the probe.
+			const none = makeEnv([]);
+			await draftTest(none, {
+				server: serverPayload({ label: "Prod", baseUrl: "http://prod.test", apiVersion: "" }),
+			});
+			assert.strictEqual(none.probes[0]?.apiVersion, "");
+			assert.ok(none.probes[0] !== undefined && "apiVersion" in none.probes[0]);
+
+			const auto = makeEnv([]);
+			await draftTest(auto);
+			assert.ok(auto.probes[0] !== undefined && !("apiVersion" in auto.probes[0]), "auto probes the auto rule");
 		});
 
 		test("the success notice is static classification plus count, singular and plural", async () => {

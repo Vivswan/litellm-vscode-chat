@@ -18,7 +18,7 @@ const TWO_PART_404: DashboardServer = {
 	hasOAuth: false,
 	state: "error",
 	error:
-		"The server replied, but not with a model list - this address may not be a LiteLLM proxy. Check the base URL: leave off the /v1 suffix (the extension appends it); LiteLLM's default port is 4000.\nUnparseable response from https://litellm-eu.example.com/v1/models: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON",
+		"The server replied, but not with a model list - this address may not be a LiteLLM proxy. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2; LiteLLM's default port is 4000.\nUnparseable response from https://litellm-eu.example.com/v1/models: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON",
 	classification: { kind: "http", status: 404, setupHint: "check-base-url" },
 	lastChecked: minutesAgoIso(3),
 	config: { secrets: NO_SECRETS },

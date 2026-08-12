@@ -128,6 +128,83 @@ suite("provider server snapshots", () => {
 		assert.strictEqual(snapshot.models.length, 1);
 	});
 
+	test("an apiVersion edit misses the discovery cache instead of serving the old root's models", async () => {
+		// The cache key (group client ID) deliberately excludes apiVersion, so
+		// the stored entry's apiRoot is what keeps an edit from serving stale
+		// models for the rest of the TTL.
+		let apiVersion: string | undefined;
+		const provider = makeProvider(undefined, "test-key", undefined, {
+			getEntryApiVersion: () => apiVersion,
+		});
+		let versionedHits = 0;
+		let rootHits = 0;
+		mswServer.use(
+			http.get(MODEL_INFO_URL, () => {
+				versionedHits += 1;
+				return HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD);
+			}),
+			http.get(`${TEST_BASE_URL}/model/info`, () => {
+				rootHits += 1;
+				return HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD);
+			})
+		);
+		const configuration = groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "k", label: "prod" });
+
+		await provider.provideLanguageModelChatInformation(configuration, cancellation());
+		await provider.provideLanguageModelChatInformation(configuration, cancellation());
+		assert.strictEqual(versionedHits, 1, "the second same-root refresh must serve from the cache");
+		assert.strictEqual(rootHits, 0);
+
+		apiVersion = "";
+		await provider.provideLanguageModelChatInformation(configuration, cancellation());
+		assert.strictEqual(rootHits, 1, "the new root must be fetched, not the old root's cache served");
+		const snapshot = expectDefined(provider.getServerSnapshots()[0]);
+		assert.strictEqual(snapshot.status.state, "ok");
+		assert.strictEqual(snapshot.models.length, 1);
+	});
+
+	test("a serve that joins an in-flight old-root discovery refetches at the new root", async () => {
+		// Single-flight is keyed by group ID alone: without the post-await root
+		// check, a refresh arriving while the old root's discovery is still in
+		// flight would join it and serve the old root's models once. Two
+		// concurrent joiners pin the dropStored subtlety: the second corrector
+		// must join the first's fresh reload without stripping its right to
+		// cache, so the follow-up serve hits the cache instead of the network.
+		let apiVersion: string | undefined;
+		const provider = makeProvider(undefined, "test-key", undefined, {
+			getEntryApiVersion: () => apiVersion,
+		});
+		let releaseFirst = (): void => {};
+		const gate = new Promise<void>((resolve) => {
+			releaseFirst = resolve;
+		});
+		let rootHits = 0;
+		mswServer.use(
+			http.get(MODEL_INFO_URL, async () => {
+				await gate;
+				return HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD);
+			}),
+			http.get(`${TEST_BASE_URL}/model/info`, () => {
+				rootHits += 1;
+				return HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD);
+			})
+		);
+		const configuration = groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "k", label: "prod" });
+
+		const first = provider.provideLanguageModelChatInformation(configuration, cancellation());
+		await new Promise((resolve) => setTimeout(resolve, 25));
+		apiVersion = "";
+		const joinerA = provider.provideLanguageModelChatInformation(configuration, cancellation());
+		const joinerB = provider.provideLanguageModelChatInformation(configuration, cancellation());
+		await new Promise((resolve) => setTimeout(resolve, 25));
+		releaseFirst();
+		await Promise.all([first, joinerA, joinerB]);
+		assert.strictEqual(rootHits, 1, "the joiners must share one corrected fetch at the new root");
+
+		await provider.provideLanguageModelChatInformation(configuration, cancellation());
+		assert.strictEqual(rootHits, 1, "the corrected result must have been cached for the follow-up serve");
+	});
+
 	test("snapshots carry the discovered raw IDs, carried forward across failure reports", async () => {
 		// The set behind declared-ID inertness (and the dashboard's declared
 		// projection): what discovery RETURNED, not what registration emitted -

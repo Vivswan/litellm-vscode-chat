@@ -7,6 +7,7 @@ import type {
 	ServerFormProblems,
 } from "../../../extension/dashboard/serverForm";
 import {
+	apiVersionDraftOf,
 	applyInlinePrefill,
 	CONNECTION_FIELDS,
 	EMPTY_SERVER_FORM,
@@ -166,6 +167,51 @@ suite("extension/dashboard/serverForm", () => {
 			);
 			assert.ok(parse.ok, "the stale text of a cleared field is not validated");
 			assert.deepStrictEqual(parse.intent.secrets.virtualKeyValue, { action: "clear" });
+		});
+	});
+
+	suite("apiVersion", () => {
+		test("apiVersionDraftOf maps absent to auto, the empty string to none, and text to custom", () => {
+			assert.deepStrictEqual(apiVersionDraftOf(undefined), { mode: "auto", custom: "" });
+			assert.deepStrictEqual(apiVersionDraftOf(""), { mode: "none", custom: "" });
+			assert.deepStrictEqual(apiVersionDraftOf("v2"), { mode: "custom", custom: "v2" });
+		});
+
+		test("auto omits the payload key, none sends the empty string, custom sends the trimmed text", () => {
+			assert.ok(!("apiVersion" in intentOf(draft()).server), "auto writes no key");
+			assert.strictEqual(intentOf(draft({ apiVersion: { mode: "none", custom: "" } })).server.apiVersion, "");
+			assert.strictEqual(intentOf(draft({ apiVersion: { mode: "custom", custom: " v2 " } })).server.apiVersion, "v2");
+		});
+
+		test("custom with no text is a blocking problem instead of silently meaning none", () => {
+			assert.notStrictEqual(problemsOf(draft({ apiVersion: { mode: "custom", custom: "  " } })).apiVersion, undefined);
+		});
+
+		test("a custom segment with slashes or whitespace is a named problem, never appended verbatim", () => {
+			// "/v2" would build http://host//v2 - routers do not collapse the
+			// double slash, so every request would 404 with no hint in the form.
+			assert.notStrictEqual(problemsOf(draft({ apiVersion: { mode: "custom", custom: "/v2" } })).apiVersion, undefined);
+			assert.notStrictEqual(problemsOf(draft({ apiVersion: { mode: "custom", custom: "v2/" } })).apiVersion, undefined);
+			assert.notStrictEqual(problemsOf(draft({ apiVersion: { mode: "custom", custom: "v 2" } })).apiVersion, undefined);
+			assert.strictEqual(
+				intentOf(draft({ apiVersion: { mode: "custom", custom: "v2beta" } })).server.apiVersion,
+				"v2beta"
+			);
+		});
+
+		test("stale custom text never leaks into a none or auto parse", () => {
+			assert.strictEqual(intentOf(draft({ apiVersion: { mode: "none", custom: "v2" } })).server.apiVersion, "");
+			assert.ok(!("apiVersion" in intentOf(draft({ apiVersion: { mode: "auto", custom: "v2" } })).server));
+		});
+
+		test("the probe intent carries the override and blocks on the same custom-empty problem", () => {
+			const noneParse = parseServerFormForTest(draft({ apiVersion: { mode: "none", custom: "" } }));
+			assert.ok(noneParse.ok);
+			assert.strictEqual(noneParse.intent.server.apiVersion, "");
+
+			const blocked = parseServerFormForTest(draft({ apiVersion: { mode: "custom", custom: "" } }));
+			assert.ok(!blocked.ok, "the probe would test a different configuration than the picked custom mode");
+			assert.notStrictEqual(blocked.problems.apiVersion, undefined);
 		});
 	});
 

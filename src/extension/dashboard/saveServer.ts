@@ -202,6 +202,11 @@ export async function applySaveServerSetting(
 		label,
 		baseUrl: intent.server.baseUrl.trim(),
 	};
+	// "" is a real apiVersion (append nothing), so it is written; only absent
+	// (auto) omits the key. Trimmed like the setting parser reads it.
+	if (intent.server.apiVersion !== undefined) {
+		newEntry.apiVersion = intent.server.apiVersion.trim();
+	}
 	const usable = (value: string | undefined): string | undefined => {
 		const trimmed = value?.trim();
 		return trimmed !== undefined && trimmed.length > 0 ? trimmed : undefined;

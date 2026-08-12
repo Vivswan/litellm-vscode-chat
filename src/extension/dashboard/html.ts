@@ -296,6 +296,18 @@ const STYLES = `
 		font-family: inherit;
 		font-size: inherit;
 	}
+
+	/* Every dropdown in the dashboard, wherever it renders: without this a
+	   select falls back to the native light widget inside the dark theme. */
+	select {
+		color: var(--vscode-dropdown-foreground);
+		background: var(--vscode-dropdown-background);
+		border: 1px solid var(--vscode-dropdown-border, transparent);
+		border-radius: 2px;
+		padding: 3px 6px;
+		font-family: inherit;
+		font-size: inherit;
+	}
 	input::placeholder { color: var(--vscode-input-placeholderForeground, var(--vscode-descriptionForeground)); }
 	input:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 	input.invalid { border-color: var(--vscode-inputValidation-errorBorder, #f00); }
@@ -1391,21 +1403,8 @@ const STYLES = `
 	/* Two marks (force/fallback + inheritable) share the row's one flag cell;
 	   wrapping beats overflowing the slide-over's edge. */
 	.row .directive-flag { flex-wrap: wrap; justify-self: start; }
-	.inherit-from select {
-		background: var(--vscode-dropdown-background);
-		color: var(--vscode-dropdown-foreground);
-		border: 1px solid var(--vscode-dropdown-border, transparent);
-		border-radius: 2px;
-		padding: 2px 4px;
-	}
+	.inherit-from select { padding: 2px 4px; }
 	.inherit-from .inherit-keys { width: 14em; }
-	.setting-control select {
-		background: var(--vscode-dropdown-background);
-		color: var(--vscode-dropdown-foreground);
-		border: 1px solid var(--vscode-dropdown-border, transparent);
-		border-radius: 2px;
-		padding: 3px 6px;
-	}
 	.catalog-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
 	/* Disabled buttons must read disabled at a glance: the primary blue at
 	   half opacity still scans as actionable, so disabled drops to the

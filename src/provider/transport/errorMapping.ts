@@ -639,7 +639,7 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		const envelope = errorEnvelopeOf(err);
 		// 404 gets its own guidance per surface: on discovery it almost always
 		// means the base URL points at something that is not a LiteLLM proxy
-		// (wrong port, a /v1 suffix doubling the path); on chat it usually means
+		// (wrong port, a path that is not the API root); on chat it usually means
 		// the proxy dropped the model, so no setupHint - "check the base URL"
 		// would be wrong advice for an otherwise healthy server.
 		if (err.status === 404) {
@@ -653,7 +653,7 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 					envelope?.message !== undefined ? `\nLiteLLM 404${typeSeg}: ${compactText(envelope.message, 240)}` : "";
 				return new RequestError(
 					`${l10n.t(
-						"Failed to fetch LiteLLM models: the server at {0} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: do not include a /v1 suffix (the extension appends it), and note the LiteLLM proxy's default port is 4000.",
+						"Failed to fetch LiteLLM models: the server at {0} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.",
 						ctx.baseUrl
 					)}${detail}`,
 					"http",
@@ -661,13 +661,13 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 						status: 404,
 						cause: err,
 						logClassification: "RequestError(http, status 404, discovery)",
-						englishMessage: `Failed to fetch LiteLLM models: the server at ${ctx.baseUrl} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: do not include a /v1 suffix (the extension appends it), and note the LiteLLM proxy's default port is 4000.${detail}`,
+						englishMessage: `Failed to fetch LiteLLM models: the server at ${ctx.baseUrl} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.${detail}`,
 						setupHint: "check-base-url",
 					}
 				);
 			}
 			// The envelope code outranks the type here, and the non-envelope
-			// recovery keeps the nginx/wrong-server signature of a /v1-doubled
+			// recovery keeps the nginx/wrong-server signature of a mispointed
 			// base URL visible in the detail.
 			const kind =
 				envelope?.code !== undefined && !/^\d+$/.test(envelope.code)
@@ -681,7 +681,7 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 			return new RequestError(
 				chatErrorMessage(
 					l10n.t(
-						'The server did not recognize this request - the model may have been removed from the proxy. Run "{0}" to refresh the model list; if every request fails this way, check the base URL (do not include a /v1 suffix - the extension adds it).',
+						'The server did not recognize this request - the model may have been removed from the proxy. Run "{0}" to refresh the model list; if every request fails this way, check the base URL (the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2).',
 						syncModelsCommandTitle()
 					),
 					detail
@@ -694,7 +694,7 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 					// "LiteLLM: Sync Models Now" is the palette title package.json
 					// contributes (the manageCommandTitle mirror pattern).
 					englishMessage: englishChatErrorMessage(
-						'The server did not recognize this request - the model may have been removed from the proxy. Run "LiteLLM: Sync Models Now" to refresh the model list; if every request fails this way, check the base URL (do not include a /v1 suffix - the extension adds it).',
+						'The server did not recognize this request - the model may have been removed from the proxy. Run "LiteLLM: Sync Models Now" to refresh the model list; if every request fails this way, check the base URL (the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2).',
 						detail
 					),
 				}

@@ -10,7 +10,7 @@
  * tests pin the structure and class contract the stylesheet keys on.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS } from "../../../extension/dashboard/protocol";
+import { BOOLEAN_SETTING_IDS, DEFAULT_API_VERSION, NUMBER_SETTING_IDS } from "../../../extension/dashboard/protocol";
 import { SERVER_FORM_FIELD_ORDER } from "../../../extension/dashboard/serverForm";
 import { App } from "../../../webview/dashboard/app";
 import { Help } from "../../../webview/dashboard/help";
@@ -374,6 +374,13 @@ test("the horizontal clamp keeps the tip's 350px box inside the viewport at both
 	stubBoundingRect(leftWrap, { left: 4, top: 300, bottom: 320 });
 	fireMouseEnter(leftWrap);
 	expect((leftWrap.querySelector(".help-tip") as HTMLElement).style.left).toBe("8px");
+});
+
+// Drift guard for helpText's no-interpolation contract: the apiVersion help
+// spells the auto default as a literal, so flipping DEFAULT_API_VERSION must
+// fail here until the help text (and its translations) name the new default.
+test("the apiVersion help text names the real auto default", () => {
+	expect(serverFieldHelp("apiVersion")).toContain(`Auto adds /${DEFAULT_API_VERSION}`);
 });
 
 test("the below variant pins the tip's top under the trigger and stands the bottom down", () => {

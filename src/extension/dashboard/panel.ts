@@ -667,6 +667,7 @@ export function declaredViewsFromSetting(raw: unknown): DeclaredServerView[] {
 			label: entry.label,
 			baseUrl: entry.baseUrl,
 			...pickNonSecretOptionalFields(entry),
+			...(entry.apiVersion !== undefined ? { apiVersion: entry.apiVersion } : {}),
 			...(entry.headers !== undefined ? { headers: entry.headers } : {}),
 			...(entry.modelParameters !== undefined ? { modelParameters: entry.modelParameters } : {}),
 			...(entry.modelCapabilities !== undefined ? { modelCapabilities: entry.modelCapabilities } : {}),

@@ -19,6 +19,7 @@ import type { Logger, LogSafeErrorText } from "../shared/logger";
 import type { ExpectedFailureCategory } from "../shared/serverEntry";
 import type { AggregatedStatus, ServerConfig, ServerStatus, ServerWithKey } from "../shared/servers";
 import { isErrorServerStatus } from "../shared/servers";
+import { apiRootOf } from "../shared/util/baseUrl";
 import type { CapabilityOverrideOptions, DeclaredModelSynthesis } from "./catalog/capabilityOverrides";
 import { applyCapabilityOverrides, synthesizeDeclaredModels } from "./catalog/capabilityOverrides";
 import type { ExpectedDiscoveryFailures } from "./catalog/discovery";
@@ -58,6 +59,14 @@ function delay(ms: number): Promise<void> {
 export interface DiscoveredGroupModels {
 	readonly infos: readonly PreAttachModelInfo[];
 	readonly discoveredRawIds: readonly string[];
+	/**
+	 * The API root the models were fetched from. The cache key (the group
+	 * client ID) does not cover the entry's apiVersion - it lives outside the
+	 * group configuration - so a serve whose effective root differs treats the
+	 * entry as a miss instead of serving models from the old root for the rest
+	 * of the TTL.
+	 */
+	readonly apiRoot: string;
 	/** See FetchModelsResult.observedModelInfoKeys; rides the cache so cached serves re-report it. */
 	readonly observedModelInfoKeys?: readonly string[];
 }
@@ -88,6 +97,15 @@ export interface LiteLLMChatModelProviderOptions {
 	 * setting).
 	 */
 	getEntryHeaders?: ((label: string, baseUrl: string) => Readonly<Record<string, string>> | undefined) | undefined;
+	/**
+	 * Request- and discovery-time resolver for a declared entry's apiVersion
+	 * override (what apiRootOf appends to the base URL), matched by label and
+	 * normalized base URL exactly like getEntryHeaders. "" is a real value
+	 * (append nothing), distinct from undefined (auto-detect: keep a version
+	 * segment already in the URL, else /v1). Injected by the extension layer
+	 * (the setting lives on its side of the boundary).
+	 */
+	getEntryApiVersion?: ((label: string, baseUrl: string) => string | undefined) | undefined;
 	/**
 	 * Registration-time resolver for a declared entry's discovery.declared
 	 * model IDs, matched like getEntryModelCapabilities. The IDs register
@@ -167,6 +185,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		baseUrl: string
 	) => readonly ExpectedFailureCategory[] | undefined;
 	private readonly _getCatalogLookup: () => CapabilityCatalogLookup;
+	/**
+	 * The same resolver ChatClient consumes, kept here for the discovery
+	 * cache's root check: a cached result carries the API root it was fetched
+	 * from, and a serve resolving to a different root must miss.
+	 */
+	private readonly _getEntryApiVersion: (label: string, baseUrl: string) => string | undefined;
 	private _configurationPrompt?: ConfigurationPrompt;
 	private readonly _grouplessRegistryEnabled: () => boolean;
 	private readonly _isGroupSuppressed: (label: string, baseUrl: string) => boolean;
@@ -211,8 +235,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			getServers: this._getServers,
 			getEntryModelParameters: options.getEntryModelParameters,
 			getEntryHeaders: options.getEntryHeaders,
+			getEntryApiVersion: options.getEntryApiVersion,
 			resolution: this._resolution,
 		});
+		this._getEntryApiVersion = options.getEntryApiVersion ?? (() => undefined);
 		this._discoveryCache = options.discoveryCache ?? new DiscoveryCache();
 		this._statusWindow = new StatusWindow(options.now ?? (() => Date.now()));
 	}
@@ -296,7 +322,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	 * the overridden result; declared models alone stay out of it.
 	 */
 	private decorateServedModels(
-		discovered: DiscoveredGroupModels,
+		discovered: Pick<DiscoveredGroupModels, "infos" | "discoveredRawIds">,
 		server: ServerConfig,
 		serverCount: number,
 		entryLabel: string | undefined
@@ -701,12 +727,26 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			return [];
 		}
 
+		// The effective API root, resolved exactly the way the transport
+		// resolves it (only a labeled group can match an entry). Computed
+		// before the cache read: a cached result from a different root is
+		// stale configuration, not a hit.
+		const effectiveApiRoot = apiRootOf(
+			server.baseUrl,
+			groupServer.label !== undefined ? this._getEntryApiVersion(groupServer.label, server.baseUrl) : undefined
+		);
 		if (bypassCache) {
 			this._discoveryCache.invalidate(server.id);
 		} else {
 			const ttl = getDiscoveryCacheTtl((msg, data) => this.log(msg, data));
 			const cached = this._discoveryCache.lookup(server.id, ttl);
-			if (cached !== undefined) {
+			if (cached !== undefined && cached.apiRoot !== effectiveApiRoot) {
+				// The entry's apiVersion changed under the same group identity;
+				// the stored models came from the old root. dropStored, not
+				// invalidate: a concurrent serve may already be reloading the
+				// corrected root, and its store must survive.
+				this._discoveryCache.dropStored(server.id);
+			} else if (cached !== undefined) {
 				const { overridden, declared } = this.decorateServedModels(cached, server, 1, groupServer.label);
 				this.log("Serving provider group models from the discovery cache", {
 					baseUrl: server.baseUrl,
@@ -730,14 +770,26 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		this.log("Fetching models for provider group", { baseUrl: server.baseUrl, silent });
 		const expectedFailures = this.expectedDiscoveryFailures(groupServer.label, server.baseUrl);
 		try {
-			const discovered = await this._discoveryCache.fetch(server.id, async () => {
+			const load = async (): Promise<DiscoveredGroupModels> => {
 				const { models, observedModelInfoKeys } = await this._client.fetchModels(server, expectedFailures);
 				return {
 					infos: buildModelInfos(models, server, 1, (msg) => this.log(msg)).infos,
 					discoveredRawIds: models.map((model) => model.id),
+					apiRoot: effectiveApiRoot,
 					...(observedModelInfoKeys !== undefined ? { observedModelInfoKeys } : {}),
 				};
-			});
+			};
+			let discovered = await this._discoveryCache.fetch(server.id, load);
+			if (discovered.apiRoot !== effectiveApiRoot) {
+				// Single-flight is keyed by group ID alone, so this serve joined a
+				// load that started before the entry's apiVersion changed. Its
+				// result is the old root's; drop it and load the current root.
+				// dropStored, not invalidate: with several joiners correcting at
+				// once, the first one's fresh reload is already in flight and the
+				// rest must join it WITHOUT stripping its right to cache.
+				this._discoveryCache.dropStored(server.id);
+				discovered = await this._discoveryCache.fetch(server.id, load);
+			}
 			// Overrides and declared models are applied to what is SERVED: the
 			// discovery cache stays configuration-free, so an edit reaches the
 			// very next serve. The status window records the served (overridden)

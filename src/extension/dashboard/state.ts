@@ -408,6 +408,7 @@ function buildServers(
 				: {}),
 			config: {
 				...pickNonSecretOptionalFields(view),
+				...(view.apiVersion !== undefined ? { apiVersion: view.apiVersion } : {}),
 				secrets: view.secrets,
 				...(view.modelParameters !== undefined ? { modelParameters: view.modelParameters } : {}),
 				...(view.modelCapabilities !== undefined ? { modelCapabilities: view.modelCapabilities } : {}),

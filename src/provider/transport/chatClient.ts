@@ -111,6 +111,13 @@ export interface ChatClientOptions {
 	 * send no custom headers.
 	 */
 	getEntryHeaders?: ((label: string, baseUrl: string) => Readonly<Record<string, string>> | undefined) | undefined;
+	/**
+	 * Resolves a declared server entry's apiVersion override (what apiRootOf
+	 * appends to the base URL) at request time, injected like getEntryHeaders.
+	 * "" is a real value (append nothing), distinct from undefined (auto).
+	 * Defaults to none: servers no declared entry matches get the auto rule.
+	 */
+	getEntryApiVersion?: ((label: string, baseUrl: string) => string | undefined) | undefined;
 }
 
 /**
@@ -126,6 +133,7 @@ export class ChatClient {
 		baseUrl: string
 	) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined;
 	private readonly getEntryHeaders: (label: string, baseUrl: string) => Readonly<Record<string, string>> | undefined;
+	private readonly getEntryApiVersion: (label: string, baseUrl: string) => string | undefined;
 	private readonly clients = new ServerClientCache();
 	private readonly oauthTokens = new OAuthTokenSource();
 	private readonly resolution: ModelResolutionTable;
@@ -146,6 +154,7 @@ export class ChatClient {
 		this.getServers = options.getServers ?? (() => Promise.resolve([]));
 		this.getEntryModelParameters = options.getEntryModelParameters ?? (() => undefined);
 		this.getEntryHeaders = options.getEntryHeaders ?? (() => undefined);
+		this.getEntryApiVersion = options.getEntryApiVersion ?? (() => undefined);
 		this.resolution = options.resolution ?? new ModelResolutionTable();
 	}
 
@@ -159,6 +168,16 @@ export class ChatClient {
 	private customHeadersFor(entryLabel: string | undefined, baseUrl: string): Record<string, string> {
 		const headers = entryLabel !== undefined ? this.getEntryHeaders(entryLabel, baseUrl) : undefined;
 		return headers !== undefined ? { ...headers } : {};
+	}
+
+	/**
+	 * The apiVersion override one call to `baseUrl` resolves under: the
+	 * declared entry's `apiVersion` when the entry-candidate label and URL
+	 * identify one, undefined (the auto rule) otherwise. "" carries through
+	 * as a real value.
+	 */
+	private apiVersionFor(entryLabel: string | undefined, baseUrl: string): string | undefined {
+		return entryLabel !== undefined ? this.getEntryApiVersion(entryLabel, baseUrl) : undefined;
 	}
 
 	applyRegistration(routes: Map<string, ModelRoute>, clearFirst: boolean): void {
@@ -179,10 +198,12 @@ export class ChatClient {
 	async fetchModels(server: ServerConnection, expected?: ExpectedDiscoveryFailures): Promise<FetchModelsResult> {
 		this.log("fetchModels called", { baseUrl: server.baseUrl, hasApiKey: !!server.apiKey, hasOAuth: !!server.oauth });
 		const customHeaders = this.customHeadersFor(server.entryLabel, server.baseUrl);
+		const apiVersion = this.apiVersionFor(server.entryLabel, server.baseUrl);
 		const discoveryTimeout = getDiscoveryTimeout(this.log);
 		const client = this.clients.get({
 			serverId: server.id,
 			baseUrl: server.baseUrl,
+			apiVersion,
 			apiKey: server.apiKey,
 			userAgent: this.userAgent,
 			customHeaders,
@@ -192,6 +213,7 @@ export class ChatClient {
 			return await fetchModels({
 				client,
 				baseUrl: server.baseUrl,
+				apiVersion,
 				discoveryTimeout,
 				log: this.log,
 				...(expected !== undefined ? { expected } : {}),
@@ -336,6 +358,7 @@ export class ChatClient {
 
 		const promptCachingEnabled = isPromptCachingEnabled();
 		const customHeaders = this.customHeadersFor(connection.entryLabel, connection.baseUrl);
+		const apiVersion = this.apiVersionFor(connection.entryLabel, connection.baseUrl);
 		const requestTimeout = getRequestTimeout(this.log);
 		// Capability gates for message conversion and token estimation, both
 		// re-narrowed at the host boundary by parseModelMetadata: the registered
@@ -451,13 +474,14 @@ export class ChatClient {
 		const client = this.clients.get({
 			serverId: connection.serverId,
 			baseUrl: connection.baseUrl,
+			apiVersion,
 			apiKey: connection.apiKey,
 			userAgent: this.userAgent,
 			customHeaders,
 		});
 
 		this.log("Sending chat request", {
-			url: chatCompletionsUrl(connection.baseUrl),
+			url: chatCompletionsUrl(connection.baseUrl, apiVersion),
 			modelId: connection.rawModelId,
 			messageCount: messages.length,
 		});

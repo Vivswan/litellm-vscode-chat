@@ -83,6 +83,18 @@ export class DiscoveryCache<T> {
 	}
 
 	/**
+	 * Drop ONLY the stored result for `key`, leaving in-flight loads storable.
+	 * For callers correcting a COMPLETED load whose result turned out to be
+	 * stale configuration (the discovery-root check): unlike invalidate(),
+	 * a sibling's already-started corrected reload keeps its right to cache,
+	 * so concurrent correctors converge on one stored fresh result instead of
+	 * suppressing each other's.
+	 */
+	dropStored(key: string): void {
+		this.entries.delete(key);
+	}
+
+	/**
 	 * Drop every stored result AND detach in-flight loads. Detaching matters
 	 * because clear() is how explicit refreshes (Test Connection, Sync Models
 	 * Now) force a real round trip: a fetch after the clear must start a

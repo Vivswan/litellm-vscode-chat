@@ -33,6 +33,13 @@ import { readKeepSources, resolveKeptSecret } from "./saveServer";
  */
 export interface DraftConnection {
 	readonly baseUrl: string;
+	/**
+	 * The draft's apiVersion override, resolved through the probe's injected
+	 * per-entry seam like headers; "" is a real value (append nothing).
+	 * Absent when the draft leaves the mode on auto: the probe then tests the
+	 * auto rule, exactly what a save without the field would use.
+	 */
+	readonly apiVersion?: string | undefined;
 	/** Empty string for keyless drafts, matching ServerWithKey's convention. */
 	readonly apiKey: string;
 	readonly oauth?: OAuthConfig | undefined;
@@ -158,6 +165,9 @@ export async function applyTestServerDraft(
 
 	const connection: DraftConnection = {
 		baseUrl: intent.server.baseUrl.trim(),
+		// "" is a real override (append nothing) and must ride the probe;
+		// trimmed like the save writes it, so the probe tests the saved shape.
+		...(intent.server.apiVersion !== undefined ? { apiVersion: intent.server.apiVersion.trim() } : {}),
 		apiKey,
 		...(Object.keys(draftHeaders).length > 0 ? { headers: draftHeaders } : {}),
 		...(oauthTokenUrl !== undefined && oauthClientId !== undefined
@@ -242,6 +252,7 @@ export function createDraftConnectionProbe(
 		const client = new ChatClient({
 			userAgent,
 			...(connection.headers !== undefined ? { getEntryHeaders: () => connection.headers } : {}),
+			...(connection.apiVersion !== undefined ? { getEntryApiVersion: () => connection.apiVersion } : {}),
 		});
 		const { models } = await client.fetchModels(
 			{

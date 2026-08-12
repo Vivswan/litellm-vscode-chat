@@ -19,6 +19,7 @@ import { ServerRegistry } from "./extension/servers/serverRegistry";
 import {
 	createServerSyncEnv,
 	parseServersSetting,
+	readEntryApiVersion,
 	readEntryDeclaredModels,
 	readEntryExpectedFailures,
 	readEntryHeaders,
@@ -185,6 +186,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		getEntryModelParameters: readEntryModelParameters,
 		getEntryModelCapabilities,
 		getEntryHeaders: readEntryHeaders,
+		getEntryApiVersion: readEntryApiVersion,
 		getEntryDeclaredModels,
 		getExpectedFailures: readEntryExpectedFailures,
 		getCatalogLookup: () => catalogStore.lookup,

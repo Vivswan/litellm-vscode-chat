@@ -65,6 +65,44 @@ suite("provider/model info and fallback", () => {
 		assert.equal(headers["x-api-key"], "test-key");
 	});
 
+	test("a declared entry's apiVersion re-roots model discovery off /v1", async () => {
+		// The resolver is injected like getEntryHeaders; the client is built on
+		// the overridden API root, so discovery's requests (and its logged
+		// URLs) leave /v1 behind. The default handlers stay unused: hitting
+		// them would fail the unhandled-request guard.
+		mswServer.use(
+			http.get(`${TEST_BASE_URL}/v2/model/info`, () =>
+				HttpResponse.json({
+					data: [{ model_name: "v2-model", model_info: { id: "v2-model", supports_function_calling: true } }],
+				})
+			)
+		);
+
+		const infos = await makeProvider(TEST_BASE_URL, "test-key", undefined, {
+			getEntryApiVersion: (label, versionBaseUrl) =>
+				label === "Default" && versionBaseUrl === TEST_BASE_URL ? "v2" : undefined,
+		}).provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
+
+		assert.ok(infos.some((info) => info.id === "v2-model"));
+	});
+
+	test('a declared entry\'s apiVersion "" roots model discovery at the bare base URL', async () => {
+		mswServer.use(
+			http.get(`${TEST_BASE_URL}/model/info`, () =>
+				HttpResponse.json({
+					data: [{ model_name: "bare-model", model_info: { id: "bare-model", supports_function_calling: true } }],
+				})
+			)
+		);
+
+		const infos = await makeProvider(TEST_BASE_URL, "test-key", undefined, {
+			getEntryApiVersion: (label, versionBaseUrl) =>
+				label === "Default" && versionBaseUrl === TEST_BASE_URL ? "" : undefined,
+		}).provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
+
+		assert.ok(infos.some((info) => info.id === "bare-model"));
+	});
+
 	test("model/info numeric string token limits are parsed and max_output_tokens wins", async () => {
 		mswServer.use(
 			...discoveryHandlers({

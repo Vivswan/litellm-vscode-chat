@@ -54,6 +54,7 @@
  "litellm.config.servers.description": "以设置形式声明的 LiteLLM 服务器。机器作用域: 它只存在于你的用户设置中 (工作区无法覆盖, Settings Sync 也不会带到其他机器)。每个条目会自动同步为一个 VS Code 语言模型提供程序组, 因此既可以在这里管理服务器, 也可以在 LiteLLM 仪表板中管理。`label` 是条目的标识: 重命名会创建新的提供程序组, 而删除条目无法删除其组 (VS Code 未提供相应 API; 要删除遗留的组, 请从配置文件的 `User/chatLanguageModels.json` JSON 数组中删除其对象, 然后重新加载窗口)。可存为密钥的字段 (`auth.apiKey`、`auth.oauth.clientSecret`、`auth.virtualKey.value` 以及 OAuth 伴随凭据) 可以内联写在这里 (在设置文件中可见), 也可以省略并改存于 VS Code 密钥存储中 (通过仪表板或「LiteLLM: 设置服务器密钥」命令)。内联值优先于存储的值。",
  "litellm.config.servers.label.description": "服务器的显示名称和标识; 提供程序组以它命名。",
  "litellm.config.servers.baseUrl.description": "LiteLLM 服务器 URL, 例如 http://localhost:4000。",
+ "litellm.config.servers.apiVersion.description": "追加到基础 URL 的路径段: 不设置则自动检测 (URL 中已有版本段则保留, 否则追加 /v1); \"\" 表示不追加; \"v2\" 追加 /v2。",
  "litellm.config.servers.auth.description": "此服务器的身份验证方式: `apiKey` (承载令牌, 最常见)、`oauth` (客户端凭据) 或 `virtualKey` (自定义标头中的密钥) 三者取其一。不需要凭据的服务器可完全省略。`apiKey` 形式可以附带一个同级的 `virtualKey` 伴随凭据, 用于同时检查两个标头的网关; 配置多于一种形式会被报告为配置错误, 该条目在修复前不会被使用。",
  "litellm.config.servers.auth.apiKey.description": "内联的 LiteLLM API 密钥, 以 Authorization 承载令牌加 X-API-Key 副本发送。省略则改存于密钥存储中。",
  "litellm.config.servers.auth.oauth.description": "OAuth2 客户端凭据身份验证: 扩展用这些凭据换取短期承载令牌。可选的 `apiKey` 和 `virtualKey` 伴随凭据用于在承载令牌之外还检查第二个凭据的网关。",

@@ -255,7 +255,7 @@ suite("provider/discovery fetchModels payload properties", () => {
 			userAgent: "test-agent",
 			customHeaders: {},
 		});
-		return { client, baseUrl: TEST_BASE_URL, discoveryTimeout: 5000, log: noLog };
+		return { client, baseUrl: TEST_BASE_URL, apiVersion: undefined, discoveryTimeout: 5000, log: noLog };
 	}
 
 	test("no usable unblocked model is ever dropped, and blocked-only payloads yield an empty list", async function () {

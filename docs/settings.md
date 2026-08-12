@@ -62,7 +62,8 @@ Each entry of `litellm-vscode-chat.servers` (all optional except `label` and `ba
 | Property | Type | Behavior |
 |---|---|---|
 | `label` | string | The server's display name and identity (with `baseUrl`); unique across entries - a repeated label is skipped and reported, the first entry wins. See [lifecycle](servers.md#lifecycle-renames-removals-hidden-groups) for what renames do |
-| `baseUrl` | string | The server's root URL; the extension appends `/v1` itself - leave any `/v1` suffix off. A path prefix is kept, a trailing slash is stripped |
+| `baseUrl` | string | The server's root URL; the extension appends `/v1` unless the URL already ends in a version segment (like `/v1` or `/v2`), which is used as-is - `apiVersion` overrides both. A path prefix is kept, a trailing slash is stripped |
+| `apiVersion` | string | What to append to the base URL. Unset = auto (`/v1`, or a version already in the URL); `""` = append nothing; `"v2"` = append `/v2` |
 | `auth` | object | Exactly one form of `apiKey`, `oauth`, `virtualKey` - ranked in that order for companions: `oauth` carries optional `apiKey`/`virtualKey` companions, `apiKey` an optional `virtualKey` companion, for gateways that check two headers. An ambiguous shape is reported as misconfigured and the entry is not used until fixed. Omit entirely for servers that need no credentials. Full story: [Servers - Authentication](servers.md#authentication) |
 | `headers` | object | Custom HTTP headers on every request to this server (routing tags, tracing); extension-managed auth headers win conflicts. [Servers - Custom headers](servers.md#custom-headers) |
 | `models.parameters` | record | Request parameters for this server only; same [matcher keys](models.md#model-matching) as the global setting, applied above it field by field |

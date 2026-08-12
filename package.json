@@ -278,6 +278,10 @@
 									"format": "uri",
 									"description": "%litellm.config.servers.baseUrl.description%"
 								},
+								"apiVersion": {
+									"type": "string",
+									"description": "%litellm.config.servers.apiVersion.description%"
+								},
 								"auth": {
 									"type": "object",
 									"additionalProperties": false,

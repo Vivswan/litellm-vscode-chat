@@ -21,11 +21,14 @@ function config(overrides: Partial<ServerClientConfig> = {}): ServerClientConfig
  * outgoing request. The client reads globalThis.fetch per call, so msw's
  * interception applies even to clients constructed before the server started.
  */
-async function captureGet(client: OpenAI): Promise<{ url: string; headers: Record<string, string> }> {
+async function captureGet(
+	client: OpenAI,
+	absoluteUrl: string = MODELS_URL
+): Promise<{ url: string; headers: Record<string, string> }> {
 	let url = "";
 	let headers: Record<string, string> = {};
 	mswServer.use(
-		http.get(MODELS_URL, ({ request }) => {
+		http.get(absoluteUrl, ({ request }) => {
 			url = request.url;
 			headers = toHeaderMap(request.headers);
 			return HttpResponse.json({ data: [] });
@@ -76,6 +79,30 @@ suite("provider/transport/clients", () => {
 			const { url } = await captureGet(client);
 			assert.strictEqual(url, `${TEST_BASE_URL}/v1/models`);
 		});
+
+		test("a version segment already in the base URL is kept, not doubled", async () => {
+			const client = createServerClient(config({ baseUrl: `${TEST_BASE_URL}/v1` }));
+			const { url } = await captureGet(client);
+			assert.strictEqual(url, `${TEST_BASE_URL}/v1/models`);
+		});
+
+		test("a /v2 base URL is honored as the API root", async () => {
+			const client = createServerClient(config({ baseUrl: `${TEST_BASE_URL}/v2` }));
+			const { url } = await captureGet(client, `${TEST_BASE_URL}/v2/models`);
+			assert.strictEqual(url, `${TEST_BASE_URL}/v2/models`);
+		});
+
+		test('apiVersion "" makes the base URL the API root as-is', async () => {
+			const client = createServerClient(config({ apiVersion: "" }));
+			const { url } = await captureGet(client, `${TEST_BASE_URL}/models`);
+			assert.strictEqual(url, `${TEST_BASE_URL}/models`);
+		});
+
+		test("an explicit apiVersion beats a version segment in the URL", async () => {
+			const client = createServerClient(config({ baseUrl: `${TEST_BASE_URL}/v1`, apiVersion: "v3" }));
+			const { url } = await captureGet(client, `${TEST_BASE_URL}/v1/v3/models`);
+			assert.strictEqual(url, `${TEST_BASE_URL}/v1/v3/models`);
+		});
 	});
 
 	suite("ServerClientCache", () => {
@@ -95,6 +122,14 @@ suite("provider/transport/clients", () => {
 			const cache = new ServerClientCache();
 			const first = cache.get(config());
 			assert.notStrictEqual(cache.get(config({ customHeaders: { "X-Custom": "added" } })), first);
+		});
+
+		test('a changed apiVersion produces a new client, and "" is distinct from unset', () => {
+			const cache = new ServerClientCache();
+			const first = cache.get(config());
+			const empty = cache.get(config({ apiVersion: "" }));
+			assert.notStrictEqual(empty, first);
+			assert.notStrictEqual(cache.get(config({ apiVersion: "v2" })), empty);
 		});
 
 		test("different server IDs get independent cache entries", () => {

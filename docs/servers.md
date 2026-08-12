@@ -47,7 +47,8 @@ Every property an entry can carry:
 | Property | Type | What it does |
 |---|---|---|
 | `label` | string, required | Names the server in the model picker; half of the entry's identity |
-| `baseUrl` | string, required | The server's root URL. The extension appends `/v1` itself - leave any `/v1` suffix off; a pasted `.../v1` URL requests `/v1/v1/...` and fails |
+| `baseUrl` | string, required | The server's root URL. The extension appends `/v1` unless the URL already ends in a version segment (like `/v1` or `/v2`), which is used as-is; the `apiVersion` field overrides both |
+| `apiVersion` | string | What to append to the base URL. Unset = auto (`/v1`, or a version already in the URL); `""` = append nothing; `"v2"` = append `/v2` |
 | `auth` | object | Exactly one form of `apiKey`, `oauth`, `virtualKey`, optionally with lower-ranked companions ([below](#authentication)). Omit entirely for servers that need none. An ambiguous shape is reported and the entry is treated as misconfigured |
 | `headers` | object | Custom HTTP headers on every request to this server ([below](#custom-headers)); extension-managed auth headers win conflicts |
 | `models.parameters` | record | Request parameters for this server's models only; same [matcher keys](models.md#model-matching) as the global setting, applied above it field by field ([details](models.md#parameters)) |
@@ -80,7 +81,7 @@ Edge cases the table cannot show:
 
 - Labels are unique across entries: an entry repeating an earlier entry's label is skipped and reported - the first entry wins. To point two entries at the same host, give them different labels; they are then two servers end to end - two picker groups, the models listed under each, and each entry's auth, headers, and `models` records applying only to its own group.
 - An empty or whitespace-only `label` or `baseUrl` makes the entry unusable: skipped and reported. The JavaScript-reserved names `__proto__`, `constructor`, and `prototype` are rejected as labels.
-- The base URL may carry a path (`https://intranet.example.com/litellm`, a gateway mounted under one); `/v1` is appended after it. A trailing slash is harmless - it is stripped before the URL is compared or used.
+- The base URL may carry a path (`https://intranet.example.com/litellm`, a gateway mounted under one); `/v1` is appended after it unless the path already ends in a version segment (like `/v1` or `/v2`), which is used as-is - the `apiVersion` field overrides both (empty string = append nothing). A trailing slash is harmless - it is stripped before the URL is compared or used.
 - Plain `http` works and is the normal choice for a local proxy; over a network it carries your credentials unencrypted, so prefer `https` for anything remote.
 - `budget` must be a number greater than 0 ([Usage - Budgets](usage.md#budgets)).
 - A momentarily malformed entry (a mid-edit settings.json, say) is skipped and reported, but never mistaken for a removal: its provider group is not hidden. [Removal](#lifecycle-renames-removals-hidden-groups) happens only when the label itself disappears from the setting.

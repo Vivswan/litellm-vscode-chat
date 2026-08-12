@@ -1,9 +1,10 @@
 /**
  * The spend client: authenticated GETs to a LiteLLM server's usage endpoints.
- * Unlike discovery these sit at the server ROOT, not under /v1, so the SDK
- * client (rooted at `${baseUrl}/v1`) cannot serve them and the transport is a
- * plain fetch reusing the provider's header precedence (buildDefaultHeaders)
- * plus the OAuth and virtual-key overlays the chat path applies per request.
+ * Unlike discovery these sit at the server ROOT, not under the /v1 API root,
+ * so the SDK client (rooted at apiRootOf) cannot serve them and the transport
+ * is a plain fetch reusing the provider's header precedence
+ * (buildDefaultHeaders) plus the OAuth and virtual-key overlays the chat path
+ * applies per request.
  *
  * Transport conventions match discovery: idempotent GETs retry up to
  * DISCOVERY_MAX_RETRIES on network failures and 5xx, the discovery timeout is
@@ -27,7 +28,7 @@ import { buildDefaultHeaders } from "../../../provider/transport/clients";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
 import { getDiscoveryTimeout } from "../../../shared/config/settings";
-import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
+import { normalizeBaseUrl, serverRootOf } from "../../../shared/util/baseUrl";
 import { isValidHeaderName, isValidHeaderValue } from "../../../shared/util/headers";
 import { isRecord } from "../../../shared/util/json";
 import { sleepUnlessAborted } from "../../../shared/util/timer";
@@ -35,24 +36,28 @@ import type { StoredServerSecrets } from "../serverSync/secrets";
 import { inlineSecretValues } from "../serverSync/secrets";
 import type { DeclaredServer } from "../serverSync/setting";
 
-/** Usage endpoint paths, relative to the server root (NOT the /v1 API root). */
+/**
+ * Usage endpoint paths, relative to the server root (NOT the /v1 API root).
+ * The helpers take the entry's apiVersion so serverRootOf can undo a version
+ * segment the user wrote into the base URL.
+ */
 const KEY_INFO_PATH = "/key/info";
 const USER_INFO_PATH = "/user/info";
 const DAILY_ACTIVITY_PATH = "/user/daily/activity";
 
 /** The absolute own-key info endpoint (no `key` param: the caller's own key). */
-export function keyInfoUrl(baseUrl: string): string {
-	return `${baseUrl}${KEY_INFO_PATH}`;
+export function keyInfoUrl(baseUrl: string, apiVersion: string | undefined): string {
+	return `${serverRootOf(baseUrl, apiVersion)}${KEY_INFO_PATH}`;
 }
 
 /** The absolute user-rollup endpoint; only called when the key carries a user. */
-export function userInfoUrl(baseUrl: string): string {
-	return `${baseUrl}${USER_INFO_PATH}`;
+export function userInfoUrl(baseUrl: string, apiVersion: string | undefined): string {
+	return `${serverRootOf(baseUrl, apiVersion)}${USER_INFO_PATH}`;
 }
 
 /** The absolute daily-activity endpoint; requests carry start_date/end_date. */
-export function dailyActivityUrl(baseUrl: string): string {
-	return `${baseUrl}${DAILY_ACTIVITY_PATH}`;
+export function dailyActivityUrl(baseUrl: string, apiVersion: string | undefined): string {
+	return `${serverRootOf(baseUrl, apiVersion)}${DAILY_ACTIVITY_PATH}`;
 }
 
 /**
@@ -62,6 +67,8 @@ export function dailyActivityUrl(baseUrl: string): string {
 export interface UsageConnection {
 	readonly label: string;
 	readonly baseUrl: string;
+	/** The entry's apiVersion override, forwarded to serverRootOf; see DeclaredServer.apiVersion. */
+	readonly apiVersion?: string | undefined;
 	/** Empty string for keyless servers, matching the transport convention. */
 	readonly apiKey: string;
 	/** The entry's custom headers (there is no global headers setting); auth headers win conflicts. */
@@ -105,6 +112,7 @@ export function usageConnectionFor(entry: DeclaredServer, stored: StoredServerSe
 	return {
 		label: entry.label,
 		baseUrl: normalizeBaseUrl(entry.baseUrl),
+		...(entry.apiVersion !== undefined ? { apiVersion: entry.apiVersion } : {}),
 		apiKey: secret("apiKey") ?? "",
 		headers: entry.headers ?? {},
 		...(oauth !== undefined ? { oauth } : {}),
@@ -365,7 +373,7 @@ export class UsageClient {
 	}
 
 	async fetchKeyInfo(connection: UsageConnection, signal?: AbortSignal): Promise<KeyUsage> {
-		return parseKeyUsage(await this.getJson(connection, keyInfoUrl(connection.baseUrl), signal));
+		return parseKeyUsage(await this.getJson(connection, keyInfoUrl(connection.baseUrl, connection.apiVersion), signal));
 	}
 
 	async fetchDailyActivity(
@@ -373,7 +381,7 @@ export class UsageClient {
 		window: ActivityWindow,
 		signal?: AbortSignal
 	): Promise<DailyUsage> {
-		const url = `${dailyActivityUrl(connection.baseUrl)}?${new URLSearchParams({
+		const url = `${dailyActivityUrl(connection.baseUrl, connection.apiVersion)}?${new URLSearchParams({
 			start_date: window.startDate,
 			end_date: window.endDate,
 		}).toString()}`;
@@ -381,7 +389,9 @@ export class UsageClient {
 	}
 
 	async fetchUserInfo(connection: UsageConnection, signal?: AbortSignal): Promise<UserUsage> {
-		return parseUserUsage(await this.getJson(connection, userInfoUrl(connection.baseUrl), signal));
+		return parseUserUsage(
+			await this.getJson(connection, userInfoUrl(connection.baseUrl, connection.apiVersion), signal)
+		);
 	}
 
 	/**

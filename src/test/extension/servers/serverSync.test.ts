@@ -30,6 +30,7 @@ import {
 	updateServerSecret,
 } from "../../../extension/servers/serverSync";
 import {
+	entryApiVersionFor,
 	entryDeclaredModelsFor,
 	entryHeadersFor,
 	rawDeclaredLabels,
@@ -1946,6 +1947,24 @@ suite("extension/servers/serverSync: the nested entry shape", () => {
 	});
 
 	suite("headers, discovery.declared, and budget", () => {
+		test("apiVersion parses trimmed and KEEPS the empty string (append nothing is a real value)", () => {
+			assert.strictEqual(parseOne({ apiVersion: "v2" }).entries[0]?.apiVersion, "v2");
+			assert.strictEqual(parseOne({ apiVersion: " v2 " }).entries[0]?.apiVersion, "v2");
+			assert.strictEqual(parseOne({ apiVersion: "" }).entries[0]?.apiVersion, "");
+			assert.strictEqual(parseOne({ apiVersion: "  " }).entries[0]?.apiVersion, "");
+			assert.ok(!("apiVersion" in (parseOne({}).entries[0] ?? {})), "absent stays absent");
+		});
+
+		test("a non-string apiVersion is a diagnostic and is ignored; the entry stays usable (it is not auth)", () => {
+			const invalid = parseOne({ apiVersion: 2 });
+			assert.strictEqual(invalid.entries.length, 1);
+			assert.ok(!("apiVersion" in (invalid.entries[0] ?? {})));
+			assert.ok(
+				invalid.problems.some((problem) => problem.includes("apiVersion that is not a string")),
+				`${invalid.problems}`
+			);
+		});
+
 		test("headers parse under the request path's charset rules; case collisions keep the first and report", () => {
 			const { entries, problems } = parseOne({
 				headers: { "X-Env": "prod", "x-env": "stage", "bad header": "v", "x-count": 2 },
@@ -1988,20 +2007,24 @@ suite("extension/servers/serverSync: the nested entry shape", () => {
 				{
 					label: "Prod",
 					baseUrl: "http://prod.test/",
+					apiVersion: "",
 					headers: { "x-env": "prod" },
 					discovery: { declared: ["deepseek-r1"] },
 				},
 			];
 			assert.deepStrictEqual(entryHeadersFor(raw, "Prod", "http://prod.test"), { "x-env": "prod" });
 			assert.deepStrictEqual(entryDeclaredModelsFor(raw, "Prod", "http://prod.test"), ["deepseek-r1"]);
+			assert.strictEqual(entryApiVersionFor(raw, "Prod", "http://prod.test"), "", '"" resolves as a real value');
 			assert.strictEqual(entryHeadersFor(raw, "Prod", "http://other.test"), undefined);
 			assert.strictEqual(entryDeclaredModelsFor(raw, "Nope", "http://prod.test"), undefined);
+			assert.strictEqual(entryApiVersionFor(raw, "Prod", "http://other.test"), undefined);
 		});
 
-		test("none of headers, declaredModels, or budget enter the group args or their fingerprint", () => {
+		test("none of apiVersion, headers, declaredModels, or budget enter the group args or their fingerprint", () => {
 			const bare: DeclaredServer = { label: "Prod", baseUrl: "http://prod.test", apiKey: "sk-1" };
 			const withFields: DeclaredServer = {
 				...bare,
+				apiVersion: "v2",
 				headers: { "x-env": "prod" },
 				declaredModels: ["deepseek-r1"],
 				budget: 50,
@@ -2012,6 +2035,20 @@ suite("extension/servers/serverSync: the nested entry shape", () => {
 				fingerprint(JSON.stringify(buildGroupArgs(withFields, stored))),
 				fingerprint(JSON.stringify(buildGroupArgs(bare, stored)))
 			);
+		});
+
+		test("the engine's view carries apiVersion, the empty override included (the edit form's prefill)", async () => {
+			const recorded = makeSyncEnv([
+				{ label: "A", baseUrl: "http://a.test", apiVersion: "v2" },
+				{ label: "B", baseUrl: "http://b.test", apiVersion: "" },
+				{ label: "C", baseUrl: "http://c.test" },
+			]);
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			const byLabel = new Map(engine.getDeclared().map((view) => [view.label, view]));
+			assert.strictEqual(byLabel.get("A")?.apiVersion, "v2");
+			assert.strictEqual(byLabel.get("B")?.apiVersion, "", '"" must survive the view construction');
+			assert.ok(!("apiVersion" in (byLabel.get("C") ?? {})), "absent stays absent");
 		});
 	});
 

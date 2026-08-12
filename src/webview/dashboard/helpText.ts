@@ -70,6 +70,12 @@ export function serverFieldHelp(field: ServerFormField): string {
 			return l10n.t(
 				"The server's root URL, e.g. http://localhost:4000 - discovery and chat requests are sent relative to it, so no model-specific path."
 			);
+		case "apiVersion":
+			// The "/v1" here is DEFAULT_API_VERSION spelled out (this module bans
+			// interpolation); a webview drift guard fails when the constant moves.
+			return l10n.t(
+				"What to append to the base URL. Auto adds /v1 or keeps a /v1 or /v2 already there; No version uses the URL as-is; Custom appends your segment, e.g. v2."
+			);
 		case "authForm":
 			return l10n.t(
 				"Pick how requests authenticate: a bearer API key, a key in a custom header, or OAuth client credentials. Exactly one form per entry; lower-ranked companions ride inside it."

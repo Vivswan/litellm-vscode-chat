@@ -1,9 +1,16 @@
 import OpenAI from "openai";
+import { apiRootOf } from "../../shared/util/baseUrl";
 import { fingerprint } from "../../shared/util/fingerprint";
 
 export interface ServerClientConfig {
 	serverId: string;
 	baseUrl: string;
+	/**
+	 * The entry's apiVersion override: undefined means auto (keep a version
+	 * segment already in the URL, else append /v1), "" means the base URL is
+	 * the API root as-is. See apiRootOf.
+	 */
+	apiVersion?: string | undefined;
 	/** Empty string for keyless servers. */
 	apiKey: string;
 	userAgent: string;
@@ -19,34 +26,31 @@ export interface ServerClientConfig {
 const KEYLESS_PLACEHOLDER = "keyless";
 
 /**
- * The OpenAI-compatible API root under a server's base URL. The SDK client is
- * constructed on it and the request paths below are relative to it, so the
- * *Url helpers state exactly what the transport calls - required for the log
- * lines that name endpoints, which feed public issue reports and must not
- * drift from the real requests.
+ * SDK request paths, relative to the client's base URL: the OpenAI-compatible
+ * API root apiRootOf builds (the entry's apiVersion override, else a version
+ * segment already in the URL, else /v1). The *Url helpers below state exactly
+ * what the transport calls - required for the log lines that name endpoints,
+ * which feed public issue reports and must not drift from the real requests -
+ * so their apiVersion parameter is required: a caller cannot silently log the
+ * auto root for a client built on an overridden one.
  */
-function apiRoot(baseUrl: string): string {
-	return `${baseUrl}/v1`;
-}
-
-/** SDK request paths, relative to the client's base URL (apiRoot). */
 export const MODEL_INFO_PATH = "/model/info";
 export const MODELS_PATH = "/models";
 export const CHAT_COMPLETIONS_PATH = "/chat/completions";
 
 /** The absolute model-discovery endpoint, for logs; requests go through MODEL_INFO_PATH on the client. */
-export function modelInfoUrl(baseUrl: string): string {
-	return `${apiRoot(baseUrl)}${MODEL_INFO_PATH}`;
+export function modelInfoUrl(baseUrl: string, apiVersion: string | undefined): string {
+	return `${apiRootOf(baseUrl, apiVersion)}${MODEL_INFO_PATH}`;
 }
 
 /** The absolute models-listing endpoint, for logs; requests go through MODELS_PATH on the client. */
-export function modelsUrl(baseUrl: string): string {
-	return `${apiRoot(baseUrl)}${MODELS_PATH}`;
+export function modelsUrl(baseUrl: string, apiVersion: string | undefined): string {
+	return `${apiRootOf(baseUrl, apiVersion)}${MODELS_PATH}`;
 }
 
 /** The absolute chat endpoint, for logs; requests go through CHAT_COMPLETIONS_PATH on the client. */
-export function chatCompletionsUrl(baseUrl: string): string {
-	return `${apiRoot(baseUrl)}${CHAT_COMPLETIONS_PATH}`;
+export function chatCompletionsUrl(baseUrl: string, apiVersion: string | undefined): string {
+	return `${apiRootOf(baseUrl, apiVersion)}${CHAT_COMPLETIONS_PATH}`;
 }
 
 /** Non-secret change detector for a server's client-relevant config; never embeds the API key itself. */
@@ -57,7 +61,12 @@ function fingerprintOf(config: ServerClientConfig): string {
 		.join("\n");
 	// Joined on NUL (spelled as an escape so the file stays text-diffable):
 	// the byte cannot occur inside any of the parts, so the join is unambiguous.
-	return fingerprint([config.baseUrl, config.userAgent, headerPart, fingerprint(config.apiKey)].join("\u0000"));
+	// An unset apiVersion must not collide with the "" override (both would
+	// render as the empty string), so set values carry an "=" prefix.
+	const apiVersionPart = config.apiVersion === undefined ? "" : `=${config.apiVersion}`;
+	return fingerprint(
+		[config.baseUrl, apiVersionPart, config.userAgent, headerPart, fingerprint(config.apiKey)].join("\u0000")
+	);
 }
 
 /**
@@ -93,7 +102,7 @@ export function buildDefaultHeaders(
 
 export function createServerClient(config: ServerClientConfig): OpenAI {
 	return new OpenAI({
-		baseURL: apiRoot(config.baseUrl),
+		baseURL: apiRootOf(config.baseUrl, config.apiVersion),
 		apiKey: config.apiKey || KEYLESS_PLACEHOLDER,
 		// Strict parity with the previous fetch transport: the SDK default of 2
 		// would re-send chat prompts on 5xx. Discovery opts back in per request.

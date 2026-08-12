@@ -18,6 +18,7 @@ import {
 	timeoutRequestError,
 	toLanguageModelError,
 } from "../../../provider/transport/errorMapping";
+import { DEFAULT_API_VERSION } from "../../../shared/util/baseUrl";
 import { assertShows, assertStartsWith } from "../../testUtils";
 
 const chatCtx: MapErrorContext = { surface: "chat", baseUrl: "http://litellm.test", timeoutMs: 5000 };
@@ -254,7 +255,10 @@ suite("provider/transport/errorMapping", () => {
 			assert.strictEqual(mapped.status, 404);
 			assert.strictEqual(mapped.setupHint, "check-base-url");
 			assertShows(mapped.message, "http://litellm.test", "discovery 404 names the base URL");
-			assert.ok(mapped.message.includes("/v1 suffix"), mapped.message);
+			assert.ok(mapped.message.includes("version segment like /v1 or /v2"), mapped.message);
+			// Drift guard: if DEFAULT_API_VERSION ever changes, the guidance must
+			// be reworded to name the new default.
+			assert.ok(mapped.message.includes(`appends /${DEFAULT_API_VERSION}`), mapped.message);
 			assert.ok(mapped.message.includes("default port is 4000"), mapped.message);
 			assert.strictEqual(mapped.logClassification, "RequestError(http, status 404, discovery)");
 			// The envelope's message rides as a compact detail line, never the

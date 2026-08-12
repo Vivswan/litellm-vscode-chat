@@ -37,6 +37,7 @@ function request(log: (message: string, data?: unknown) => void = () => {}) {
 	return {
 		client,
 		baseUrl: TEST_BASE_URL,
+		apiVersion: undefined,
 		discoveryTimeout: 5000,
 		log,
 	};

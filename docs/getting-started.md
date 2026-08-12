@@ -20,7 +20,7 @@ The repository also ships a scriptable local proxy for trying things out; see [D
 2. Run "LiteLLM: Open Dashboard" from the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) and click **Add server**.
 3. Fill in the form:
    - **Label** - the name the model picker will show, e.g. `prod`.
-   - **Base URL** - the server's root URL, e.g. `http://localhost:4000`. Leave any `/v1` suffix off; the extension appends it itself.
+   - **Base URL** - the server's root URL, e.g. `http://localhost:4000`. The extension appends `/v1` unless the URL already ends in a version segment (like `/v1` or `/v2`), which is used as-is.
    - **Auth** - exactly one form: an API key (the common case), OAuth client credentials, or a key in a custom header. For a key, the form's "store securely" option puts it in VS Code [secret storage](servers.md#secrets-and-secret-storage) instead of your settings file - the default, and the right choice for anything you would not commit.
 4. Click **Test connection**. It probes the draft exactly as entered and answers with the model count or the exact error, before anything is saved.
 5. Click **Save**.
