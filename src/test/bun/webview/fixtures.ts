@@ -1,22 +1,22 @@
 /**
  * Protocol-typed builders for the webview suite. Everything here compiles
- * against src/dashboard/protocol.ts, so a wire-shape change breaks
+ * against the src/dashboard endpoint and view-model modules, so a wire-shape
+ * change breaks
  * these fixtures instead of letting the tests drift from the contract. The
  * one deliberate exception is poisonedState, which casts through unknown to
  * smuggle protocol-forbidden value fields; the cast lives here and only here.
  */
+import type { ExtensionToWebviewMessage } from "../../../dashboard/endpoints";
 import type {
 	DashboardModel,
 	DashboardServer,
 	DashboardSettings,
 	DashboardState,
 	DashboardUsage,
-	ExtensionToWebviewMessage,
-	SecretFieldId,
-	SecretLocation,
 	UsageForbiddenServerView,
 	UsageServerView,
-} from "../../../dashboard/protocol";
+} from "../../../dashboard/viewModels";
+import type { SecretFieldId, SecretLocation } from "../../../shared/serverEntry";
 
 type DeclaredServer = Extract<DashboardServer, { origin: "declared" }>;
 type ExternalServer = Extract<DashboardServer, { origin: "external" }>;
@@ -176,7 +176,7 @@ export function makeState(overrides: Partial<DashboardState> = {}): DashboardSta
 
 /** The extension's full state push for the given state. */
 export function statePush(state: DashboardState): ExtensionToWebviewMessage {
-	return { type: "state", state };
+	return { kind: "push", state };
 }
 
 /**
@@ -201,7 +201,7 @@ export function poisonedStatePush(sentinel: string): ExtensionToWebviewMessage {
 		...makeState(),
 		servers: [poisonedServer],
 	};
-	return { type: "state", state } as unknown as ExtensionToWebviewMessage;
+	return { kind: "push", state } as unknown as ExtensionToWebviewMessage;
 }
 
 type MisconfiguredServer = Extract<DashboardServer, { origin: "misconfigured" }>;

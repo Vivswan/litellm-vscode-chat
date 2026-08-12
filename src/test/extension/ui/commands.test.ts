@@ -1517,7 +1517,7 @@ suite("extension/ui/commands", () => {
 		});
 
 		test("dashboardMessage classifies raw payloads through the real message path", async () => {
-			// Schema-rejected junk never acts.
+			// Schema-rejected junk never acts (the retired flat shape included).
 			assert.strictEqual(
 				await vscode.commands.executeCommand("litellm._test.dashboardMessage", { type: "no-such-intent" }),
 				"ignored-malformed"
@@ -1525,15 +1525,21 @@ suite("extension/ui/commands", () => {
 			// Schema-valid but value-invalid: validateNumberSetting refuses, no write lands.
 			assert.strictEqual(
 				await vscode.commands.executeCommand("litellm._test.dashboardMessage", {
-					type: "setNumberSetting",
-					setting: "chat.timeout",
-					value: -1,
+					kind: "request",
+					id: "cmd-1",
+					method: "setNumberSetting",
+					payload: { setting: "chat.timeout", value: -1 },
 				}),
 				"validation-error"
 			);
 			// The harmless handshake completes the whole round trip.
 			assert.strictEqual(
-				await vscode.commands.executeCommand("litellm._test.dashboardMessage", { type: "ready" }),
+				await vscode.commands.executeCommand("litellm._test.dashboardMessage", {
+					kind: "request",
+					id: "cmd-2",
+					method: "ready",
+					payload: null,
+				}),
 				"ok"
 			);
 		});

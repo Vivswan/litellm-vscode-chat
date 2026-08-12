@@ -1,28 +1,26 @@
 /**
  * Property coverage for the dashboard's trust boundary. Every message the
  * webview posts arrives as untrusted JSON, and panel.ts acts on nothing that
- * has not passed webviewMessageSchema.safeParse (handleMessage). A hole in
- * that schema turns hostile webview data directly into extension action:
- * settings writes, SecretStorage writes, command execution. These properties
- * pin that the parse is total, that every documented intent shape is
- * admitted, that near-miss mutants (unknown keys, wrong-typed fields,
- * oversized correlation tokens) are refused, that secretDirectiveSchema
- * admits exactly its documented shapes.
+ * has not passed parseDashboardRequest (enqueueMessage). A hole in that parse
+ * turns hostile webview data directly into extension action: settings writes,
+ * SecretStorage writes, command execution. These properties pin that the
+ * parse is total, that every table method's well-formed request is admitted,
+ * that near-miss mutants (unknown keys, wrong-typed fields, oversized
+ * correlation tokens) are refused, and that secretDirectiveSchema admits
+ * exactly its documented shapes.
  */
 
 import * as assert from "node:assert";
 import * as fc from "fast-check";
+import type { DashboardMethod } from "../../../dashboard/endpoints";
+import { DASHBOARD_COMMAND_IDS, DASHBOARD_ENDPOINTS } from "../../../dashboard/endpoints";
+import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS, REVEALABLE_SETTING_IDS } from "../../../dashboard/viewModels";
+import { parseDashboardRequest, secretDirectiveSchema } from "../../../extension/dashboard/intentSchema";
 import {
-	BOOLEAN_SETTING_IDS,
-	DASHBOARD_COMMAND_IDS,
 	EXPECTED_FAILURE_CATEGORIES,
 	NON_SECRET_OPTIONAL_FIELD_IDS,
-	NUMBER_SETTING_IDS,
-	REVEALABLE_SETTING_IDS,
 	SECRET_FIELD_IDS,
-	type WebviewToExtensionMessage,
-} from "../../../dashboard/protocol";
-import { secretDirectiveSchema, webviewMessageSchema } from "../../../extension/dashboard/intentSchema";
+} from "../../../shared/serverEntry";
 import { isUnsafeRecordKey } from "../../../shared/util/json";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
@@ -83,182 +81,168 @@ const saveServerPayload = fc.record(
 	{ requiredKeys: ["label", "baseUrl", "modelCapabilities", "expectedFailures", "headers", "declaredModels", "budget"] }
 );
 
+const serverDraftPayload = fc.record(
+	{
+		server: saveServerPayload,
+		secrets: secretDirectives,
+		replaceLabel: fc.string(),
+	},
+	{ requiredKeys: ["server", "secrets"] }
+);
+
 /**
- * One well-formed generator per schema discriminant. A Record over the wire
- * union's own "type" field, so a message added to WebviewToExtensionMessage
- * stops compiling until it is covered here.
+ * One well-formed payload generator per table method. A Record over the
+ * endpoint table's own keys, so a method added to DASHBOARD_ENDPOINTS stops
+ * compiling until it is covered here.
  */
-const validMessageArbs: Readonly<Record<WebviewToExtensionMessage["type"], fc.Arbitrary<Record<string, unknown>>>> = {
-	ready: fc.constant({ type: "ready" }),
+const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
+	ready: fc.constant(null),
 	setNumberSetting: fc.record({
-		type: fc.constant("setNumberSetting"),
 		setting: fc.constantFrom(...NUMBER_SETTING_IDS),
 		value: fc.oneof(finiteNumber, fc.constant(null)),
 	}),
 	setBooleanSetting: fc.record({
-		type: fc.constant("setBooleanSetting"),
 		setting: fc.constantFrom(...BOOLEAN_SETTING_IDS),
 		value: fc.boolean(),
 	}),
-	resetSetting: fc.record({
-		type: fc.constant("resetSetting"),
-		setting: fc.constantFrom(...NUMBER_SETTING_IDS, ...BOOLEAN_SETTING_IDS),
-	}),
-	revealSetting: fc.record({
-		type: fc.constant("revealSetting"),
-		setting: fc.constantFrom(...REVEALABLE_SETTING_IDS),
-	}),
+	resetSetting: fc.record({ setting: fc.constantFrom(...NUMBER_SETTING_IDS, ...BOOLEAN_SETTING_IDS) }),
+	revealSetting: fc.record({ setting: fc.constantFrom(...REVEALABLE_SETTING_IDS) }),
 	setModelParameters: fc.record({
-		type: fc.constant("setModelParameters"),
 		value: fc.dictionary(safeRecordKey, fc.dictionary(safeRecordKey, fc.jsonValue(), { maxKeys: 3 }), { maxKeys: 3 }),
-		requestId,
 	}),
 	setModelCapabilities: fc.record({
-		type: fc.constant("setModelCapabilities"),
 		value: fc.dictionary(safeRecordKey, fc.dictionary(safeRecordKey, fc.jsonValue(), { maxKeys: 3 }), { maxKeys: 3 }),
-		requestId,
 	}),
-	refreshCatalog: fc.constant({ type: "refreshCatalog" }),
-	refreshUsage: fc.constant({ type: "refreshUsage" }),
-	setUsageStatusBar: fc.record({
-		type: fc.constant("setUsageStatusBar"),
-		value: fc.constantFrom("always", "alerts-only", "off"),
-	}),
-	setUsageAlertThresholds: fc.record({
-		type: fc.constant("setUsageAlertThresholds"),
-		values: fc.array(finiteNumber, { maxLength: 32 }),
-	}),
-	saveServerSetting: fc.record(
-		{
-			type: fc.constant("saveServerSetting"),
-			server: saveServerPayload,
-			secrets: secretDirectives,
-			replaceLabel: fc.string(),
-			requestId,
-		},
-		{ requiredKeys: ["type", "server", "secrets", "requestId"] }
-	),
-	testServerDraft: fc.record(
-		{
-			type: fc.constant("testServerDraft"),
-			server: saveServerPayload,
-			secrets: secretDirectives,
-			replaceLabel: fc.string(),
-			requestId,
-		},
-		{ requiredKeys: ["type", "server", "secrets", "requestId"] }
-	),
-	removeServerSetting: fc.record({ type: fc.constant("removeServerSetting"), label: fc.string(), requestId }),
-	hideExternalServer: fc.record({
-		type: fc.constant("hideExternalServer"),
-		baseUrl: fc.string(),
-		sourceHandle: requestId,
-		requestId,
-	}),
-	unhideServer: fc.record({
-		type: fc.constant("unhideServer"),
-		label: fc.string(),
-		baseUrl: fc.string(),
-		requestId,
-	}),
-	readInlineSecrets: fc.record({ type: fc.constant("readInlineSecrets"), label: fc.string(), requestId }),
+	refreshCatalog: fc.constant(null),
+	refreshUsage: fc.constant(null),
+	setUsageStatusBar: fc.record({ value: fc.constantFrom("always", "alerts-only", "off") }),
+	setUsageAlertThresholds: fc.record({ values: fc.array(finiteNumber, { maxLength: 32 }) }),
+	saveServerSetting: serverDraftPayload,
+	testServerDraft: serverDraftPayload,
+	removeServerSetting: fc.record({ label: fc.string() }),
+	hideExternalServer: fc.record({ baseUrl: fc.string(), sourceHandle: requestId }),
+	unhideServer: fc.record({ label: fc.string(), baseUrl: fc.string() }),
+	readInlineSecrets: fc.record({ label: fc.string() }),
 	readModelCapabilities: fc.record({
-		type: fc.constant("readModelCapabilities"),
 		scopeKey: fc.string({ minLength: 1, maxLength: REQUEST_ID_MAX_LENGTH }),
 		rawId: fc.string({ minLength: 1, maxLength: 64 }),
-		requestId,
 	}),
 	readModelParameters: fc.record({
-		type: fc.constant("readModelParameters"),
 		scopeKey: fc.string({ minLength: 1, maxLength: REQUEST_ID_MAX_LENGTH }),
 		rawId: fc.string({ minLength: 1, maxLength: 64 }),
-		requestId,
 	}),
-	readResolvedModels: fc.record({ type: fc.constant("readResolvedModels"), requestId }),
-	searchCatalog: fc.record({ type: fc.constant("searchCatalog"), query: fc.string({ maxLength: 200 }), requestId }),
+	readResolvedModels: fc.constant(null),
+	searchCatalog: fc.record({ query: fc.string({ maxLength: 200 }) }),
 	adoptServer: fc.record({
-		type: fc.constant("adoptServer"),
 		label: fc.string(),
 		baseUrl: fc.string(),
 		sourceHandle: requestId,
 		secrets: adoptSecrets,
-		requestId,
 	}),
-	executeCommand: fc.record({
-		type: fc.constant("executeCommand"),
-		command: fc.constantFrom(...DASHBOARD_COMMAND_IDS),
-	}),
+	executeCommand: fc.record({ command: fc.constantFrom(...DASHBOARD_COMMAND_IDS) }),
 };
 
-const MESSAGE_TYPES = Object.keys(validMessageArbs) as readonly WebviewToExtensionMessage["type"][];
+const METHODS = Object.keys(DASHBOARD_ENDPOINTS) as readonly DashboardMethod[];
 
-const validMessage = fc.constantFrom(...MESSAGE_TYPES).chain((type) => validMessageArbs[type]);
+interface RawRequest {
+	readonly kind: "request";
+	readonly id: string;
+	readonly method: DashboardMethod;
+	readonly payload: unknown;
+}
+
+const validRequest: fc.Arbitrary<RawRequest> = fc.constantFrom(...METHODS).chain((method) =>
+	fc.record({
+		kind: fc.constant("request" as const),
+		id: requestId,
+		method: fc.constant(method),
+		payload: payloadArbs[method],
+	})
+);
 
 /**
- * Values invalid for every field the message shapes declare: NaN fails even
+ * Values invalid for every field the payload shapes declare: NaN fails even
  * z.number(); an array fails records, strict objects, and strings; the
  * one-key object fails strict shapes (unknown key, missing required fields),
  * both record fields (its value is neither a record nor a header scalar),
- * and strings.
+ * and strings. All three also fail the parameterless methods' literal null.
  */
 const junkValue: fc.Arbitrary<unknown> = fc.constantFrom(Number.NaN, [], { unexpected: [] });
 
-suite("extension/dashboard/state webview message schema properties", () => {
-	test("safeParse is total over arbitrary values", () => {
+suite("extension/dashboard/state webview request schema properties", () => {
+	test("parseDashboardRequest is total over arbitrary values", () => {
 		fc.assert(
 			fc.property(fc.oneof(fc.jsonValue(), fc.anything()), (input) => {
-				const message = webviewMessageSchema.safeParse(input);
+				const request = parseDashboardRequest(input);
 				const directive = secretDirectiveSchema.safeParse(input);
-				assert.strictEqual(typeof message.success, "boolean");
+				assert.strictEqual(typeof request.success, "boolean");
 				assert.strictEqual(typeof directive.success, "boolean");
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);
 	});
 
-	test("every discriminant's well-formed message parses", () => {
+	test("every method's well-formed request parses, echoing the method and id", () => {
 		fc.assert(
-			fc.property(validMessage, (message) => {
-				const parsed = webviewMessageSchema.safeParse(message);
+			fc.property(validRequest, (request) => {
+				const parsed = parseDashboardRequest(request);
 				if (!parsed.success) {
-					assert.fail(JSON.stringify(parsed.error.issues));
+					assert.fail(JSON.stringify(parsed.issues));
 				}
-				assert.strictEqual(parsed.data.type, message.type);
+				assert.strictEqual(parsed.request.method, request.method);
+				assert.strictEqual(parsed.request.id, request.id);
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);
 	});
 
-	test("a single mutation of a valid message is refused", () => {
+	test("a single mutation of a valid request is refused", () => {
 		fc.assert(
 			fc.property(
-				validMessage,
+				validRequest,
 				fc.constantFrom("unknown-key", "wrong-type", "oversized-token"),
 				fc.string({ minLength: 1, maxLength: 8 }),
 				junkValue,
 				fc.integer({ min: REQUEST_ID_MAX_LENGTH + 1, max: REQUEST_ID_MAX_LENGTH + 64 }),
 				fc.nat(),
-				(message, requestedKind, extraKey, junk, oversize, pick) => {
-					const tokenFields = ["requestId", "sourceHandle"].filter((field) => Object.hasOwn(message, field));
-					// Discriminants without a bounded token get the strictness mutation instead.
-					const kind = requestedKind === "oversized-token" && tokenFields.length === 0 ? "unknown-key" : requestedKind;
-					const mutant: Record<string, unknown> = { ...message };
+				(request, kind, extraKey, junk, oversize, pick) => {
+					const mutant: Record<string, unknown> = { ...request };
+					const payload = request.payload;
 					if (kind === "unknown-key") {
-						// Strict shapes must refuse any key they do not declare. The suffix
-						// keeps the key genuinely unknown (and never a prototype setter).
-						const key = Object.hasOwn(message, extraKey) || isUnsafeRecordKey(extraKey) ? `${extraKey}Extra` : extraKey;
-						mutant[key] = junk;
+						// Strict shapes must refuse any key they do not declare, at the
+						// envelope and inside the payload alike. The suffix keeps the key
+						// genuinely unknown (and never a prototype setter).
+						const target = payload !== null && pick % 2 === 0 ? (payload as Record<string, unknown>) : mutant;
+						const key = Object.hasOwn(target, extraKey) || isUnsafeRecordKey(extraKey) ? `${extraKey}Extra` : extraKey;
+						if (target === mutant) {
+							mutant[key] = junk;
+						} else {
+							mutant.payload = { ...target, [key]: junk };
+						}
 					} else if (kind === "wrong-type") {
-						const keys = Object.keys(message);
-						const key = keys[pick % keys.length] ?? "type";
-						// setUsageAlertThresholds.values legally holds ANY bounded number
-						// array (empty = alerts off), so the array junk is not a wrong
-						// type there; NaN still is.
-						mutant[key] = key === "values" && Array.isArray(junk) ? Number.NaN : junk;
+						if (payload === null) {
+							// The parameterless methods take the literal null and nothing else.
+							mutant.payload = junk;
+						} else {
+							const record = payload as Record<string, unknown>;
+							const keys = Object.keys(record);
+							const key = keys[pick % keys.length] ?? "label";
+							// setUsageAlertThresholds.values legally holds ANY bounded number
+							// array (empty = alerts off), so the array junk is not a wrong
+							// type there; NaN still is.
+							mutant.payload = { ...record, [key]: key === "values" && Array.isArray(junk) ? Number.NaN : junk };
+						}
 					} else {
-						mutant[tokenFields[pick % tokenFields.length] ?? "requestId"] = "x".repeat(oversize);
+						// Every request carries the envelope id; the adopt and hide
+						// payloads carry a second bounded token.
+						const record = payload !== null ? (payload as Record<string, unknown>) : {};
+						if (Object.hasOwn(record, "sourceHandle") && pick % 2 === 0) {
+							mutant.payload = { ...record, sourceHandle: "x".repeat(oversize) };
+						} else {
+							mutant.id = "x".repeat(oversize);
+						}
 					}
-					assert.strictEqual(webviewMessageSchema.safeParse(mutant).success, false, `a ${kind} mutant must be refused`);
+					assert.strictEqual(parseDashboardRequest(mutant).success, false, `a ${kind} mutant must be refused`);
 				}
 			),
 			{ numRuns: NUM_RUNS, seed: SEED }
@@ -266,13 +250,10 @@ suite("extension/dashboard/state webview message schema properties", () => {
 	});
 
 	test("correlation tokens pin their bounds", () => {
-		const base = { type: "removeServerSetting", label: "a", requestId: "r" };
-		assert.ok(webviewMessageSchema.safeParse({ ...base, requestId: "x".repeat(REQUEST_ID_MAX_LENGTH) }).success);
-		assert.strictEqual(
-			webviewMessageSchema.safeParse({ ...base, requestId: "x".repeat(REQUEST_ID_MAX_LENGTH + 1) }).success,
-			false
-		);
-		assert.strictEqual(webviewMessageSchema.safeParse({ ...base, requestId: "" }).success, false);
+		const base = { kind: "request", method: "removeServerSetting", payload: { label: "a" } };
+		assert.ok(parseDashboardRequest({ ...base, id: "x".repeat(REQUEST_ID_MAX_LENGTH) }).success);
+		assert.strictEqual(parseDashboardRequest({ ...base, id: "x".repeat(REQUEST_ID_MAX_LENGTH + 1) }).success, false);
+		assert.strictEqual(parseDashboardRequest({ ...base, id: "" }).success, false);
 	});
 });
 

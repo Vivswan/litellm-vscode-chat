@@ -31,6 +31,13 @@ suite("extension/dashboard/panelIntegration", () => {
 		return vscode.commands.executeCommand<Outcome>("litellm._test.dashboardMessage", raw);
 	}
 
+	/** One request envelope as the webview would post it. */
+	let nextRequestNumber = 0;
+	function request(method: string, payload: unknown, id?: string): unknown {
+		nextRequestNumber += 1;
+		return { kind: "request", id: id ?? `pi-auto-${nextRequestNumber}`, method, payload };
+	}
+
 	interface DeclaredView {
 		label: string;
 		baseUrl: string;
@@ -87,7 +94,7 @@ suite("extension/dashboard/panelIntegration", () => {
 		// Stray host-triggered refreshes of that leftover group are absorbed
 		// by the baseline localhost:49999 handler in mocks/handlers.ts.
 		for (const view of await declared()) {
-			await inject({ type: "removeServerSetting", label: view.label, requestId: `pi-teardown-${view.label}` });
+			await inject(request("removeServerSetting", { label: view.label }, `pi-teardown-${view.label}`));
 		}
 		const config = vscode.workspace.getConfiguration(CONFIG);
 		for (const key of TOUCHED_KEYS) {
@@ -110,7 +117,7 @@ suite("extension/dashboard/panelIntegration", () => {
 		// see is the page actually loading: a wrong bundle filename or CSP
 		// still ships a blank webview (the packaged-file-list check and its
 		// bundle floor cover the filename; rendering stays manual F5).
-		assert.strictEqual(await inject({ type: "ready" }), "ok");
+		assert.strictEqual(await inject(request("ready", null)), "ok");
 		// And the schema boundary still rejects junk after the panel exists.
 		assert.strictEqual(await inject({ type: "no-such-intent" }), "ignored-malformed");
 	});
@@ -137,7 +144,7 @@ suite("extension/dashboard/panelIntegration", () => {
 	});
 
 	test("a setNumberSetting intent lands in real user settings via the resolved update scope", async () => {
-		assert.strictEqual(await inject({ type: "setNumberSetting", setting: "usage.pollInterval", value: 4242 }), "ok");
+		assert.strictEqual(await inject(request("setNumberSetting", { setting: "usage.pollInterval", value: 4242 })), "ok");
 		const inspected = vscode.workspace.getConfiguration(CONFIG).inspect<number>("usage.pollInterval");
 		assert.strictEqual(
 			inspected?.globalValue,
@@ -147,24 +154,28 @@ suite("extension/dashboard/panelIntegration", () => {
 	});
 
 	test("a resetSetting intent removes the configured value with the global fallback", async () => {
-		assert.strictEqual(await inject({ type: "setNumberSetting", setting: "usage.pollInterval", value: 4242 }), "ok");
-		assert.strictEqual(await inject({ type: "resetSetting", setting: "usage.pollInterval" }), "ok");
+		assert.strictEqual(await inject(request("setNumberSetting", { setting: "usage.pollInterval", value: 4242 })), "ok");
+		assert.strictEqual(await inject(request("resetSetting", { setting: "usage.pollInterval" })), "ok");
 		const inspected = vscode.workspace.getConfiguration(CONFIG).inspect<number>("usage.pollInterval");
 		assert.strictEqual(inspected?.globalValue, undefined, "the dashboard claimed a reset; the value must be gone");
 	});
 
 	test("saveServerSetting with a secure-location apiKey keeps the secret out of the settings value", async function () {
 		this.timeout(20000);
-		const outcome = await inject({
-			type: "saveServerSetting",
-			server: serverPayload({ label: "PanelIT", baseUrl: "http://localhost:49999" }),
-			secrets: {
-				apiKey: { action: "set", location: "secure", value: "sk-panel-integration-secret" },
-				oauthClientSecret: noTouch,
-				virtualKeyValue: noTouch,
-			},
-			requestId: "pi-save-1",
-		});
+		const outcome = await inject(
+			request(
+				"saveServerSetting",
+				{
+					server: serverPayload({ label: "PanelIT", baseUrl: "http://localhost:49999" }),
+					secrets: {
+						apiKey: { action: "set", location: "secure", value: "sk-panel-integration-secret" },
+						oauthClientSecret: noTouch,
+						virtualKeyValue: noTouch,
+					},
+				},
+				"pi-save-1"
+			)
+		);
 		assert.strictEqual(outcome, "ok");
 
 		const globalValue = vscode.workspace.getConfiguration(CONFIG).inspect("servers")?.globalValue;
@@ -181,23 +192,31 @@ suite("extension/dashboard/panelIntegration", () => {
 
 	test("renaming a saved entry carries its stored secret to the new label; removing deletes the entry", async function () {
 		this.timeout(30000);
-		await inject({
-			type: "saveServerSetting",
-			server: serverPayload({ label: "PanelIT", baseUrl: "http://localhost:49999" }),
-			secrets: {
-				apiKey: { action: "set", location: "secure", value: "sk-carry-me" },
-				oauthClientSecret: noTouch,
-				virtualKeyValue: noTouch,
-			},
-			requestId: "pi-save-2",
-		});
-		const renamed = await inject({
-			type: "saveServerSetting",
-			server: serverPayload({ label: "PanelIT-Renamed", baseUrl: "http://localhost:49999" }),
-			secrets: { apiKey: noTouch, oauthClientSecret: noTouch, virtualKeyValue: noTouch },
-			replaceLabel: "PanelIT",
-			requestId: "pi-rename-1",
-		});
+		await inject(
+			request(
+				"saveServerSetting",
+				{
+					server: serverPayload({ label: "PanelIT", baseUrl: "http://localhost:49999" }),
+					secrets: {
+						apiKey: { action: "set", location: "secure", value: "sk-carry-me" },
+						oauthClientSecret: noTouch,
+						virtualKeyValue: noTouch,
+					},
+				},
+				"pi-save-2"
+			)
+		);
+		const renamed = await inject(
+			request(
+				"saveServerSetting",
+				{
+					server: serverPayload({ label: "PanelIT-Renamed", baseUrl: "http://localhost:49999" }),
+					secrets: { apiKey: noTouch, oauthClientSecret: noTouch, virtualKeyValue: noTouch },
+					replaceLabel: "PanelIT",
+				},
+				"pi-rename-1"
+			)
+		);
 		assert.strictEqual(renamed, "ok");
 
 		// The location under the NEW label proves copyServerSecrets ran: had the
@@ -209,10 +228,7 @@ suite("extension/dashboard/panelIntegration", () => {
 		);
 		assert.ok(!views.some((view) => view.label === "PanelIT"), "the old label must be replaced, not duplicated");
 
-		assert.strictEqual(
-			await inject({ type: "removeServerSetting", label: "PanelIT-Renamed", requestId: "pi-remove-1" }),
-			"ok"
-		);
+		assert.strictEqual(await inject(request("removeServerSetting", { label: "PanelIT-Renamed" }, "pi-remove-1")), "ok");
 		await declaredEventually((v) => v.length === 0, "the removed entry to sync away");
 		const globalValue = vscode.workspace.getConfiguration(CONFIG).inspect("servers")?.globalValue;
 		assert.ok(!JSON.stringify(globalValue ?? {}).includes("PanelIT"), "the settings entry must be gone");
@@ -224,17 +240,21 @@ suite("extension/dashboard/panelIntegration", () => {
 		// missed anywhere in the chain is silently DELETED on save; this pins
 		// the round trip for both new fields, across an edit-in-place rebuild.
 		const capabilities = { "my-model": { context_length: 128000, supports_vision: true } };
-		const saved = await inject({
-			type: "saveServerSetting",
-			server: serverPayload({
-				label: "PanelIT-Caps",
-				baseUrl: "http://localhost:49999",
-				modelCapabilities: capabilities,
-				expectedFailures: ["modelListing"],
-			}),
-			secrets: { apiKey: noTouch, oauthClientSecret: noTouch, virtualKeyValue: noTouch },
-			requestId: "pi-caps-1",
-		});
+		const saved = await inject(
+			request(
+				"saveServerSetting",
+				{
+					server: serverPayload({
+						label: "PanelIT-Caps",
+						baseUrl: "http://localhost:49999",
+						modelCapabilities: capabilities,
+						expectedFailures: ["modelListing"],
+					}),
+					secrets: { apiKey: noTouch, oauthClientSecret: noTouch, virtualKeyValue: noTouch },
+				},
+				"pi-caps-1"
+			)
+		);
 		assert.strictEqual(saved, "ok");
 
 		const entryAfter = () => {
@@ -250,33 +270,34 @@ suite("extension/dashboard/panelIntegration", () => {
 
 		// The edit-in-place rebuild: the same fields posted again must survive
 		// the whole intent -> schema -> saveServer chain, not silently vanish.
-		const edited = await inject({
-			type: "saveServerSetting",
-			server: serverPayload({
-				label: "PanelIT-Caps",
-				baseUrl: "http://localhost:49999",
-				modelCapabilities: capabilities,
-				expectedFailures: ["modelListing", "modelInfo"],
-			}),
-			secrets: { apiKey: noTouch, oauthClientSecret: noTouch, virtualKeyValue: noTouch },
-			replaceLabel: "PanelIT-Caps",
-			requestId: "pi-caps-2",
-		});
+		const edited = await inject(
+			request(
+				"saveServerSetting",
+				{
+					server: serverPayload({
+						label: "PanelIT-Caps",
+						baseUrl: "http://localhost:49999",
+						modelCapabilities: capabilities,
+						expectedFailures: ["modelListing", "modelInfo"],
+					}),
+					secrets: { apiKey: noTouch, oauthClientSecret: noTouch, virtualKeyValue: noTouch },
+					replaceLabel: "PanelIT-Caps",
+				},
+				"pi-caps-2"
+			)
+		);
 		assert.strictEqual(edited, "ok");
 		assert.deepStrictEqual(entryAfter().models, { capabilities });
 		assert.deepStrictEqual(entryAfter().discovery, { expectedFailures: ["modelListing", "modelInfo"] });
 
-		assert.strictEqual(
-			await inject({ type: "removeServerSetting", label: "PanelIT-Caps", requestId: "pi-caps-rm" }),
-			"ok"
-		);
+		assert.strictEqual(await inject(request("removeServerSetting", { label: "PanelIT-Caps" }, "pi-caps-rm")), "ok");
 	});
 
 	test("an executeCommand intent dispatches through the real vscode.commands bridge", async function () {
 		this.timeout(20000);
 		// syncModels is a real registered command; with nothing declared it
 		// completes without network. A dead bridge would classify as a failure.
-		assert.strictEqual(await inject({ type: "executeCommand", command: "syncModels" }), "ok");
+		assert.strictEqual(await inject(request("executeCommand", { command: "syncModels" })), "ok");
 	});
 
 	test("testServerDraft runs the real probe read-only: an unreachable draft fails the intent and mutates nothing", async function () {
@@ -287,34 +308,44 @@ suite("extension/dashboard/panelIntegration", () => {
 		// is the env wiring end to end: schema, keep-resolution against the real
 		// stores, the probe, and the outcome class - with zero writes.
 		const before = vscode.workspace.getConfiguration(CONFIG).inspect("servers")?.globalValue;
-		const outcome = await inject({
-			type: "testServerDraft",
-			server: serverPayload({ label: "PanelIT-Probe", baseUrl: "http://127.0.0.1:1" }),
-			secrets: { apiKey: noTouch, oauthClientSecret: noTouch, virtualKeyValue: noTouch },
-			requestId: "pi-test-1",
-		});
+		const outcome = await inject(
+			request(
+				"testServerDraft",
+				{
+					server: serverPayload({ label: "PanelIT-Probe", baseUrl: "http://127.0.0.1:1" }),
+					secrets: { apiKey: noTouch, oauthClientSecret: noTouch, virtualKeyValue: noTouch },
+				},
+				"pi-test-1"
+			)
+		);
 		assert.strictEqual(outcome, "validation-error", "an unreachable draft must fail its own intent, not throw");
 		const after = vscode.workspace.getConfiguration(CONFIG).inspect("servers")?.globalValue;
 		assert.deepStrictEqual(after, before, "a probe must never touch the servers setting");
 		assert.deepStrictEqual(await declared(), [], "a probe must never create a declared view");
 
-		// And the schema boundary still refuses a directive-free draft outright.
+		// And the schema boundary still refuses a directive-free draft: the
+		// envelope frame parsed, so the refusal classifies as a refused intent
+		// (a correlated fail envelope answers the page) instead of a drop.
 		assert.strictEqual(
-			await inject({ type: "testServerDraft", server: { label: "P", baseUrl: "http://x" }, requestId: "pi-test-2" }),
-			"ignored-malformed"
+			await inject(request("testServerDraft", { server: { label: "P", baseUrl: "http://x" } }, "pi-test-2")),
+			"validation-error"
 		);
 	});
 
 	test("adoptServer with no matching host group still saves the entry instead of failing the intent", async function () {
 		this.timeout(20000);
-		const outcome = await inject({
-			type: "adoptServer",
-			label: "PanelIT-Adopted",
-			baseUrl: "http://localhost:49999",
-			sourceHandle: "no-such-handle",
-			secrets: { apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "secure" },
-			requestId: "pi-adopt-1",
-		});
+		const outcome = await inject(
+			request(
+				"adoptServer",
+				{
+					label: "PanelIT-Adopted",
+					baseUrl: "http://localhost:49999",
+					sourceHandle: "no-such-handle",
+					secrets: { apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "secure" },
+				},
+				"pi-adopt-1"
+			)
+		);
 		// Degrading instead of throwing is the contract: adoption must stay
 		// usable exactly when the group vanished. The caveat message rides the
 		// unobservable webview ack; what this can prove is the outcome class
@@ -323,10 +354,7 @@ suite("extension/dashboard/panelIntegration", () => {
 		const globalValue = vscode.workspace.getConfiguration(CONFIG).inspect("servers")?.globalValue;
 		assert.ok(JSON.stringify(globalValue ?? {}).includes("PanelIT-Adopted"), "the adopted entry must be saved");
 		// Clean up through the same real path.
-		assert.strictEqual(
-			await inject({ type: "removeServerSetting", label: "PanelIT-Adopted", requestId: "pi-adopt-rm" }),
-			"ok"
-		);
+		assert.strictEqual(await inject(request("removeServerSetting", { label: "PanelIT-Adopted" }, "pi-adopt-rm")), "ok");
 	});
 
 	test("litellm.manage resolves through the legacy path in the test-mode host with the quick pick cancelled", async function () {

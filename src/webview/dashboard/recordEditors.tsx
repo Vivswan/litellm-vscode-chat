@@ -1,22 +1,7 @@
 import * as l10n from "@vscode/l10n";
 import type { ComponentChildren } from "preact";
 import { useEffect, useId, useRef, useState } from "preact/hooks";
-import type {
-	DashboardModel,
-	ExtensionToWebviewMessage,
-	ScopedRecordSetting,
-	SettingScope,
-	TransportErrorClassification,
-} from "../../dashboard/protocol";
-import {
-	CONSUMED_CAPABILITY_FIELDS,
-	FALLBACK_DIRECTIVE,
-	FORCE_DIRECTIVE,
-	INHERIT_FROM_DIRECTIVE,
-	INHERITABLE_DIRECTIVE,
-	OPENROUTER_MODEL_DIRECTIVE,
-	settingScopeLabel,
-} from "../../dashboard/protocol";
+import { settingScopeLabel } from "../../dashboard/presenters";
 import type {
 	CapabilityGroupIssues,
 	FieldDirective,
@@ -41,7 +26,14 @@ import {
 	toGroups,
 	toggleDirectiveField,
 } from "../../dashboard/recordDraft";
-import type { IntentAck } from "./app";
+import type { DashboardModel, ScopedRecordSetting, SettingScope } from "../../dashboard/viewModels";
+import {
+	CONSUMED_CAPABILITY_FIELDS,
+	FALLBACK_DIRECTIVE,
+	OPENROUTER_MODEL_DIRECTIVE,
+} from "../../shared/config/capabilityResolution";
+import { FORCE_DIRECTIVE } from "../../shared/config/parameterResolution";
+import { INHERIT_FROM_DIRECTIVE, INHERITABLE_DIRECTIVE } from "../../shared/config/recordResolution";
 import { DOCS_LINK_MODEL_CAPABILITIES, DOCS_LINK_MODEL_PARAMETERS } from "./docsLinks";
 import { FailureText } from "./failureText";
 import { DocsLink, Help } from "./help";
@@ -61,9 +53,11 @@ import {
 	helpModelParametersSection,
 	helpModelParameterValue,
 } from "./helpText";
+import type { IntentOutcome } from "./hooks";
+import { useIntentOutcome, useRpc } from "./hooks";
 import { IconAdd, IconBraces, IconEdit, IconTrash } from "./icons";
 import { SlideOver } from "./slideOver";
-import { newRequestId, postMessage } from "./vscodeApi";
+import { sendRequest } from "./vscodeApi";
 
 /**
  * The editor's heading, exported so the settings form's filter matches the
@@ -97,7 +91,7 @@ function HeadingRevealButton({
 			type="button"
 			class="quiet reveal-json"
 			aria-label={l10n.t("Open {0} in settings.json", title)}
-			onClick={() => postMessage({ type: "revealSetting", setting: settingId })}
+			onClick={() => sendRequest("revealSetting", { setting: settingId })}
 		>
 			<IconBraces />
 		</button>
@@ -125,19 +119,18 @@ type DraftState<T> =
  * locally, validated on every keystroke, and written back to configuration
  * only through Apply, so the object settings never pass through an invalid
  * intermediate shape. With no draft the store value renders directly; a
- * dirty draft wins until Apply or Discard. Apply posts an intent tagged with
- * a requestId and waits for its own correlated ack: intentSucceeded resolves
- * the phase (the Saved note), intentFailed returns the draft to a dirty,
- * retryable state. An acked draft keeps rendering until the store push that
- * reflects the write arrives (dropping it at the ack would flash the
- * pre-apply value for the one frame before that push); should that push
+ * dirty draft wins until Apply or Discard. Apply posts an intent through the
+ * editor's useIntentOutcome hook and waits for its own correlated outcome:
+ * an ok resolves the phase (the Saved note), a fail returns the draft to a
+ * dirty, retryable state. An acked draft keeps rendering until the store
+ * push that reflects the write arrives (dropping it at the ack would flash
+ * the pre-apply value for the one frame before that push); should that push
  * outrun the ack, the acked draft simply holds its value-equal rows until
  * the next store change.
  */
 function useDraftRows<T>(
 	external: T,
-	ack: IntentAck | undefined,
-	failure: IntentFailure | undefined
+	outcome: IntentOutcome | undefined
 ): {
 	rows: T;
 	dirty: boolean;
@@ -145,7 +138,7 @@ function useDraftRows<T>(
 	/** Whether a draft of any kind is live (dirty, in flight, or acked awaiting the reflecting push). */
 	pinned: boolean;
 	/** The reported failure of THIS draft's own write; a leftover notice from a discarded draft never resurfaces. */
-	failure: IntentFailure | undefined;
+	failure: IntentFailureOutcome | undefined;
 	update: (next: T) => void;
 	apply: (requestId: string) => void;
 	reset: () => void;
@@ -161,9 +154,9 @@ function useDraftRows<T>(
 	// This draft's own ack: the write landed, so the phase resolves. The rows
 	// keep rendering until the store visibly reflects the write, unless they
 	// already match it.
-	const ackRequestId = ack?.requestId;
+	const ackedId = outcome?.result === "ok" ? outcome.id : undefined;
 	useEffect(() => {
-		if (draft?.kind !== "applying" || draft.requestId !== ackRequestId) {
+		if (draft?.kind !== "applying" || draft.requestId !== ackedId) {
 			return;
 		}
 		setSaved(true);
@@ -172,7 +165,7 @@ function useDraftRows<T>(
 				? undefined
 				: { kind: "acked", rows: draft.rows, externalAtAck: externalKey }
 		);
-	}, [draft, ackRequestId, externalKey]);
+	}, [draft, ackedId, externalKey]);
 
 	// The reflecting push: the store moved past its at-ack value, so the fresh
 	// store rows take over from the acked draft.
@@ -189,15 +182,16 @@ function useDraftRows<T>(
 	}, [saved]);
 
 	// This draft's own reported write failure re-opens it for editing.
-	const failureRequestId = failure?.requestId;
+	const failure = outcome?.result === "fail" ? outcome : undefined;
+	const failureId = failure?.id;
 	const failureSeq = failure?.seq;
 	useEffect(() => {
-		if (failureSeq === undefined || draft?.kind !== "applying" || draft.requestId !== failureRequestId) {
+		if (failureSeq === undefined || draft?.kind !== "applying" || draft.requestId !== failureId) {
 			return;
 		}
 		setSaved(false);
 		setDraft({ kind: "dirty", rows: draft.rows });
-	}, [failureSeq, failureRequestId, draft]);
+	}, [failureSeq, failureId, draft]);
 
 	const phase: DraftPhase = draft === undefined || draft.kind === "acked" ? (saved ? "saved" : "idle") : draft.kind;
 	return {
@@ -206,7 +200,7 @@ function useDraftRows<T>(
 		dirty: draft?.kind === "dirty" && JSON.stringify(draft.rows) !== externalKey,
 		phase,
 		pinned: draft !== undefined,
-		failure: failure !== undefined && failure.requestId === appliedRequestId ? failure : undefined,
+		failure: failure !== undefined && failure.id === appliedRequestId ? failure : undefined,
 		update: (next) => {
 			setSaved(false);
 			// Rows edited exactly back onto the store value drop the draft
@@ -249,17 +243,8 @@ export interface ExternalRecordEdit {
 	readonly create: boolean;
 }
 
-/** One reported intent failure; `seq` distinguishes repeated failures with the same text. */
-export interface IntentFailure {
-	readonly seq: number;
-	readonly message: string;
-	/** Whether the intent's durable write committed before the failure; see the protocol's intentFailed notice. */
-	readonly kind: "validation" | "operation";
-	/** The failed intent's correlation ID, when the intent carried one. */
-	readonly requestId?: string | undefined;
-	/** The transport classification behind a failed probe, when the notice carried one; enum ids only, never text. */
-	readonly classification?: TransportErrorClassification | undefined;
-}
+/** The fail arm of a hook outcome: what the editors' failure surfaces render. */
+export type IntentFailureOutcome = Extract<IntentOutcome, { result: "fail" }>;
 
 /**
  * Names the scope this editor writes and the seam between the tab's two save
@@ -277,7 +262,7 @@ function ScopeNote({ scoped }: { scoped: ScopedRecordSetting<unknown> }) {
 	);
 }
 
-function FailureNote({ failure, dirty }: { failure: IntentFailure | undefined; dirty: boolean }) {
+function FailureNote({ failure, dirty }: { failure: IntentFailureOutcome | undefined; dirty: boolean }) {
 	if (failure === undefined || !dirty) {
 		return null;
 	}
@@ -809,9 +794,6 @@ function ParamGroupsFields({
 	);
 }
 
-/** The latest catalogSearchResults response; pickers match it against their own request ID. */
-export type CatalogSearchResponse = Extract<ExtensionToWebviewMessage, { type: "catalogSearchResults" }>;
-
 /**
  * How many server-observed names the suggestion list carries: discovery
  * already caps the observed set at 512 keys per server so a hostile payload
@@ -1098,40 +1080,38 @@ export function CatalogPicker({
 	value,
 	disabled,
 	invalid,
-	results,
 	onValue,
 	debounceMs = CATALOG_SEARCH_DEBOUNCE_MS,
 }: {
 	value: string;
 	disabled: boolean;
 	invalid: boolean;
-	/** The latest catalogSearchResults response App holds; matched against this picker's own requestId. */
-	results: CatalogSearchResponse | undefined;
 	onValue: (next: string) => void;
 	/** The search debounce; a prop only so tests need not wait out the real value. */
 	debounceMs?: number;
 }) {
 	const [open, setOpen] = useState(false);
-	const [requestId, setRequestId] = useState<string | undefined>(undefined);
+	// The picker's own search round trip; a closed or too-short query orphans
+	// any in-flight request, exactly like the fresh-requestId reset it replaces.
+	const catalog = useRpc("searchCatalog");
 	// The keyboard cursor over the result list; -1 means nothing highlighted.
 	const [active, setActive] = useState(-1);
 	const listId = useId();
 	const query = value.trim();
 
+	const { send: searchCatalog, reset: resetCatalog } = catalog;
 	useEffect(() => {
 		if (!open || query.length < 2) {
-			setRequestId(undefined);
+			resetCatalog();
 			return undefined;
 		}
 		const timer = setTimeout(() => {
-			const id = newRequestId();
-			setRequestId(id);
-			postMessage({ type: "searchCatalog", query, requestId: id });
+			searchCatalog({ query });
 		}, debounceMs);
 		return () => clearTimeout(timer);
-	}, [open, query, debounceMs]);
+	}, [open, query, debounceMs, searchCatalog, resetCatalog]);
 
-	const matches = requestId !== undefined && results?.requestId === requestId ? results.results : undefined;
+	const matches = catalog.data?.results;
 	const pick = (id: string) => {
 		onValue(id);
 		setOpen(false);
@@ -1232,7 +1212,6 @@ function CapabilityGroupsFields({
 	groups,
 	issues,
 	disabled,
-	catalogResults,
 	prefixSuggestions,
 	keySuggestions,
 	onChange,
@@ -1241,7 +1220,6 @@ function CapabilityGroupsFields({
 	groups: readonly PrefixGroup[];
 	issues: readonly CapabilityGroupIssues[];
 	disabled?: boolean | undefined;
-	catalogResults: CatalogSearchResponse | undefined;
 	/** Suggestions for the matcher input's listbox; absent, the input stays plain. */
 	prefixSuggestions?: readonly string[] | undefined;
 	/** The capability-name suggestions (capabilityKeySuggestions); absent, the no-evidence static list serves. */
@@ -1396,7 +1374,6 @@ function CapabilityGroupsFields({
 													value={param.valueText}
 													disabled={inert}
 													invalid={issue?.problem?.field === "value"}
-													results={catalogResults}
 													onValue={(next) => patchRow({ valueText: next })}
 												/>
 											) : (
@@ -1812,7 +1789,6 @@ function FieldChipPopover({
 	rowIndex,
 	issue,
 	disabled,
-	catalogResults,
 	align,
 	onChange,
 	onClose,
@@ -1823,7 +1799,6 @@ function FieldChipPopover({
 	rowIndex: number;
 	issue: RowIssueView | undefined;
 	disabled: boolean;
-	catalogResults: CatalogSearchResponse | undefined;
 	align: "start" | "end";
 	onChange: (next: PrefixGroup[]) => void;
 	onClose: () => void;
@@ -1872,13 +1847,7 @@ function FieldChipPopover({
 					{l10n.t("supported")}
 				</label>
 			) : valueKind === "catalog-id" ? (
-				<CatalogPicker
-					value={row.valueText}
-					disabled={disabled}
-					invalid={valueInvalid}
-					results={catalogResults}
-					onValue={patchValue}
-				/>
+				<CatalogPicker value={row.valueText} disabled={disabled} invalid={valueInvalid} onValue={patchValue} />
 			) : (
 				<input
 					type={numberProps !== undefined ? "number" : "text"}
@@ -1977,7 +1946,6 @@ function AddFieldPopover({
 	groups,
 	groupIndex,
 	disabled,
-	catalogResults,
 	keySuggestions,
 	align,
 	onChange,
@@ -1987,7 +1955,6 @@ function AddFieldPopover({
 	groups: readonly PrefixGroup[];
 	groupIndex: number;
 	disabled: boolean;
-	catalogResults: CatalogSearchResponse | undefined;
 	keySuggestions: readonly string[];
 	align: "start" | "end";
 	onChange: (next: PrefixGroup[]) => void;
@@ -2073,13 +2040,7 @@ function AddFieldPopover({
 					{l10n.t("supported")}
 				</label>
 			) : valueKind === "catalog-id" ? (
-				<CatalogPicker
-					value={valueText}
-					disabled={disabled}
-					invalid={false}
-					results={catalogResults}
-					onValue={setValueText}
-				/>
+				<CatalogPicker value={valueText} disabled={disabled} invalid={false} onValue={setValueText} />
 			) : (
 				<input
 					type={numberProps !== undefined ? "number" : "text"}
@@ -2205,7 +2166,6 @@ export function RecordMatcherTable({
 	issues,
 	readOnly,
 	disabled,
-	catalogResults,
 	keySuggestions,
 	onChange,
 	onOpenEditor,
@@ -2216,7 +2176,6 @@ export function RecordMatcherTable({
 	/** Render as a static display: plain chips, no popovers, no add or edit actions (the other-scope records). */
 	readOnly?: boolean;
 	disabled?: boolean;
-	catalogResults?: CatalogSearchResponse | undefined;
 	/** The add popover's field-name suggestions; the capability vocabulary fills in for the caps kind. */
 	keySuggestions?: readonly string[];
 	onChange: (next: PrefixGroup[]) => void;
@@ -2382,7 +2341,6 @@ export function RecordMatcherTable({
 														rowIndex={rowIndex}
 														issue={issue}
 														disabled={disabled === true}
-														catalogResults={catalogResults}
 														align={popover.align}
 														onChange={onChange}
 														onClose={() => setPopover(undefined)}
@@ -2415,7 +2373,6 @@ export function RecordMatcherTable({
 													groups={groups}
 													groupIndex={groupIndex}
 													disabled={disabled === true}
-													catalogResults={catalogResults}
 													keySuggestions={keySuggestions ?? (kind === "caps" ? CAPABILITY_KEY_SUGGESTIONS : [])}
 													align={popover.align}
 													onChange={onChange}
@@ -2466,7 +2423,6 @@ export function RecordMatcherEditorOverlay({
 	prefixHelp,
 	prefixSuggestions,
 	keySuggestions,
-	catalogResults,
 	disabled,
 	fallbackFocusId,
 	note,
@@ -2488,7 +2444,6 @@ export function RecordMatcherEditorOverlay({
 	prefixSuggestions?: readonly string[];
 	/** The field-name suggestions: parameter names (params kind) or capability keys (caps kind). */
 	keySuggestions?: readonly string[];
-	catalogResults?: CatalogSearchResponse | undefined;
 	disabled?: boolean;
 	/** Where focus lands on close when the opening pencil is gone (a removed matcher); the owner's stable control. */
 	fallbackFocusId: string;
@@ -2540,7 +2495,6 @@ export function RecordMatcherEditorOverlay({
 						groups={[group]}
 						issues={groupIssues !== undefined ? [groupIssues] : []}
 						disabled={disabled}
-						catalogResults={catalogResults}
 						prefixSuggestions={prefixSuggestions}
 						keySuggestions={keySuggestions}
 						onChange={onGroupsChange}
@@ -2645,23 +2599,19 @@ function useMatcherEditing(groups: readonly PrefixGroup[]): {
 export function ModelParametersEditor({
 	scoped,
 	models,
-	ack,
-	failure,
 	hidden,
 	external,
 }: {
 	scoped: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
 	/** The discovered models, feeding the prefix input's suggestions. */
 	models: readonly DashboardModel[];
-	/** The latest intentSucceeded notice; the draft matches it against its own requestId. */
-	ack: IntentAck | undefined;
-	failure: IntentFailure | undefined;
 	/** The settings filter's verdict; hides the section without unmounting it, so a dirty draft survives. */
 	hidden?: boolean;
 	/** The inspectors' configure-jump; see ExternalRecordEdit. */
 	external?: ExternalRecordEdit | undefined;
 }) {
-	const draft = useDraftRows(toGroups(scoped.value), ack, failure);
+	const intent = useIntentOutcome("setModelParameters");
+	const draft = useDraftRows(toGroups(scoped.value), intent.outcome);
 	const groups = draft.rows;
 	// One parse per keystroke: the row problems, the Apply gate, and the
 	// assembled record are the same verdict, so a draft that renders clean can
@@ -2699,8 +2649,7 @@ export function ModelParametersEditor({
 		if (!parse.ok || !canApply) {
 			return;
 		}
-		const requestId = newRequestId();
-		postMessage({ type: "setModelParameters", value: parse.value, requestId });
+		const requestId = intent.send({ value: parse.value });
 		draft.apply(requestId);
 		// The applied text becomes the JSON baseline; only edits after it count as discardable again.
 		setJson((current) => (current === undefined ? current : { ...current, base: current.text }));
@@ -2903,9 +2852,6 @@ export function ModelParametersEditor({
 export function ModelCapabilitiesEditor({
 	scoped,
 	models,
-	ack,
-	failure,
-	catalogResults,
 	observedKeys,
 	hidden,
 	external,
@@ -2913,11 +2859,6 @@ export function ModelCapabilitiesEditor({
 	scoped: ScopedRecordSetting<Readonly<Record<string, unknown>>>;
 	/** The discovered models, feeding the matcher input's suggestions. */
 	models: readonly DashboardModel[];
-	/** The latest intentSucceeded notice; the draft matches it against its own requestId. */
-	ack: IntentAck | undefined;
-	failure: IntentFailure | undefined;
-	/** The latest catalogSearchResults response, for the `_openrouter_model` picker. */
-	catalogResults: CatalogSearchResponse | undefined;
 	/**
 	 * The cross-server union of observed /model/info keys
 	 * (DashboardState.observedModelInfoKeys), serving two roles: the
@@ -2934,7 +2875,8 @@ export function ModelCapabilitiesEditor({
 	/** The inspectors' configure-jump; see ExternalRecordEdit. */
 	external?: ExternalRecordEdit | undefined;
 }) {
-	const draft = useDraftRows(toCapabilityGroups(scoped.value), ack, failure);
+	const intent = useIntentOutcome("setModelCapabilities");
+	const draft = useDraftRows(toCapabilityGroups(scoped.value), intent.outcome);
 	const groups = draft.rows;
 	const recognizedKeys = observedKeys === undefined ? undefined : new Set(observedKeys);
 	// The key autocomplete over the same evidence: the consumed vocabulary
@@ -2967,8 +2909,7 @@ export function ModelCapabilitiesEditor({
 		if (!parse.ok || !canApply) {
 			return;
 		}
-		const requestId = newRequestId();
-		postMessage({ type: "setModelCapabilities", value: parse.value, requestId });
+		const requestId = intent.send({ value: parse.value });
 		draft.apply(requestId);
 		setJson((current) => (current === undefined ? current : { ...current, base: current.text }));
 	};
@@ -3053,7 +2994,6 @@ export function ModelCapabilitiesEditor({
 							kind="caps"
 							groups={groups}
 							issues={issueViews}
-							catalogResults={catalogResults}
 							keySuggestions={keySuggestions}
 							onChange={(next) => draft.update(next)}
 							onOpenEditor={openEditor}
@@ -3135,7 +3075,6 @@ export function ModelCapabilitiesEditor({
 					groupIssues={issues[editingIndex]}
 					prefixSuggestions={modelIds}
 					keySuggestions={keySuggestions}
-					catalogResults={catalogResults}
 					fallbackFocusId="caps-add-matcher"
 					note={l10n.t("Changes here edit the draft; Apply in the editor saves them.")}
 					onChange={(next) => {

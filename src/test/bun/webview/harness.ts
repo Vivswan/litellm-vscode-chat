@@ -9,10 +9,16 @@
 import type { ComponentChild } from "preact";
 import { render } from "preact";
 import { act } from "preact/test-utils";
-import type { WebviewToExtensionMessage } from "../../../dashboard/protocol";
+import type {
+	DashboardMethod,
+	ReadMethod,
+	ResponseFor,
+	RpcRequest,
+	RpcRequestType,
+} from "../../../dashboard/endpoints";
 
 /** Every message the page posted to the (stubbed) extension host, in order. */
-export const postedMessages: WebviewToExtensionMessage[] = [];
+export const postedMessages: RpcRequestType[] = [];
 
 export function resetPosted(): void {
 	postedMessages.length = 0;
@@ -22,7 +28,7 @@ export function resetPosted(): void {
 export function installAcquireVsCodeApi(): void {
 	(globalThis as Record<string, unknown>).acquireVsCodeApi = () => ({
 		postMessage(message: unknown): void {
-			postedMessages.push(message as WebviewToExtensionMessage);
+			postedMessages.push(message as RpcRequestType);
 		},
 	});
 }
@@ -55,6 +61,33 @@ export function pushToWebview(message: unknown): void {
 	void act(() => {
 		window.dispatchEvent(new MessageEvent("message", { data: message }));
 	});
+}
+
+/** The posted requests of one method, in order; tests correlate through these instead of minting ids. */
+export function postedRequests<K extends DashboardMethod>(method: K): RpcRequest<K>[] {
+	// The cast rebuilds the method-payload correlation the union filter proves
+	// but TypeScript cannot carry through a generic predicate.
+	return postedMessages.filter((message) => message.method === method) as RpcRequest<K>[];
+}
+
+/** The posted requests reduced to method plus payload; ids are webview-minted and opaque to assertions. */
+export function postedCalls(): { method: DashboardMethod; payload: unknown }[] {
+	return postedMessages.map(({ method, payload }) => ({ method, payload }));
+}
+
+/** The latest posted request of one method; fails the test when none was posted. */
+export function lastRequest<K extends DashboardMethod>(method: K): RpcRequest<K> {
+	const requests = postedRequests(method);
+	const last = requests.at(-1);
+	if (last === undefined) {
+		throw new Error(`no ${method} request was posted`);
+	}
+	return last;
+}
+
+/** Deliver one read's response envelope for the given posted request. */
+export function respondTo<K extends ReadMethod>(request: RpcRequest<K>, payload: ResponseFor<K>): void {
+	pushToWebview({ kind: "response", id: request.id, method: request.method, payload });
 }
 
 /** Set an input's value and fire the input event preact listens for. */

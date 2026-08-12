@@ -5,7 +5,6 @@
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "preact/test-utils";
-import type { WebviewToExtensionMessage } from "../../../../dashboard/protocol";
 import { App } from "../../../../webview/dashboard/app";
 import { makeDeclaredServer, makeState, statePush } from "../fixtures";
 import {
@@ -14,8 +13,8 @@ import {
 	fireClick,
 	fireInput,
 	inputByLabel,
+	lastRequest,
 	mount,
-	postedMessages,
 	pushToWebview,
 	resetPosted,
 } from "../harness";
@@ -36,16 +35,16 @@ test("a save success raises a toast in the polite live region and its own caveat
 	pushToWebview(statePush(makeState()));
 	expect(root.querySelector(".toasts")?.getAttribute("aria-live")).toBe("polite");
 
-	pushToWebview({ type: "intentSucceeded", intentType: "saveServerSetting", requestId: "r1" });
+	pushToWebview({ kind: "ack", id: "r1", method: "saveServerSetting" });
 	expect(toastTexts(root)).toEqual(["Server saved"]);
 
-	pushToWebview({ type: "intentSucceeded", intentType: "removeServerSetting", requestId: "r2" });
+	pushToWebview({ kind: "ack", id: "r2", method: "removeServerSetting" });
 	expect(toastTexts(root)).toEqual(["Server saved", "Server removed"]);
 
 	pushToWebview({
-		type: "intentSucceeded",
-		intentType: "saveServerSetting",
-		requestId: "r3",
+		kind: "ack",
+		id: "r3",
+		method: "saveServerSetting",
 		message: "The old group still exists.",
 	});
 	expect(toastTexts(root)).toContain("Server saved. The old group still exists.");
@@ -54,8 +53,8 @@ test("a save success raises a toast in the polite live region and its own caveat
 test("scalar and record intents stay silent on success; their change is the feedback", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
-	pushToWebview({ type: "intentSucceeded", intentType: "setModelParameters", requestId: "r1" });
-	pushToWebview({ type: "intentSucceeded", intentType: "setNumberSetting", requestId: "r2" });
+	pushToWebview({ kind: "ack", id: "r1", method: "setModelParameters" });
+	pushToWebview({ kind: "ack", id: "r2", method: "setNumberSetting" });
 	expect(toastTexts(root)).toEqual([]);
 });
 
@@ -63,12 +62,12 @@ test("a toast dismisses on click and expires on its own after the configured dur
 	const root = mount(<App toastDurationMs={30} />);
 	pushToWebview(statePush(makeState()));
 
-	pushToWebview({ type: "intentSucceeded", intentType: "removeServerSetting", requestId: "r1" });
+	pushToWebview({ kind: "ack", id: "r1", method: "removeServerSetting" });
 	expect(toastTexts(root)).toEqual(["Server removed"]);
 	fireClick(root.querySelector(".toast button[aria-label='Dismiss notification']") as HTMLElement);
 	expect(toastTexts(root)).toEqual([]);
 
-	pushToWebview({ type: "intentSucceeded", intentType: "removeServerSetting", requestId: "r2" });
+	pushToWebview({ kind: "ack", id: "r2", method: "removeServerSetting" });
 	expect(toastTexts(root)).toEqual(["Server removed"]);
 	await new Promise((resolve) => setTimeout(resolve, 80));
 	await act(() => {});
@@ -79,11 +78,11 @@ test("a failure renders as an alert banner, never a toast, and Dismiss clears it
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()] })));
 	pushToWebview({
-		type: "intentFailed",
-		intentType: "removeServerSetting",
+		kind: "fail",
+		id: "r1",
+		method: "removeServerSetting",
 		message: "the settings write was refused",
-		kind: "validation",
-		requestId: "r1",
+		failureKind: "validation",
 	});
 
 	expect(toastTexts(root)).toEqual([]);
@@ -106,8 +105,7 @@ test("the in-flight Save disables and shows the busy spinner until its ack lands
 	expect(saving.disabled).toBe(true);
 	expect(saving.querySelector(".spinner")).not.toBeNull();
 
-	const posted = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
-	pushToWebview({ type: "intentSucceeded", intentType: "saveServerSetting", requestId: posted.requestId });
+	pushToWebview({ kind: "ack", id: lastRequest("saveServerSetting").id, method: "saveServerSetting" });
 	expect(root.querySelector(".slide-over")).toBeNull();
 	expect(toastTexts(root)).toEqual(["Server saved"]);
 });
@@ -116,7 +114,7 @@ test("the toast stack caps at three, dropping the oldest first", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 	for (const id of ["r1", "r2", "r3", "r4"]) {
-		pushToWebview({ type: "intentSucceeded", intentType: "saveServerSetting", requestId: id });
+		pushToWebview({ kind: "ack", id: id, method: "saveServerSetting" });
 	}
 	// Four successes, three toasts: the first one was dropped.
 	expect(toastTexts(root)).toEqual(["Server saved", "Server saved", "Server saved"]);
@@ -126,6 +124,6 @@ test("the toast stack caps at three, dropping the oldest first", () => {
 test("a late adopt ack still raises its toast with no form open (closing a form mid-adopt relies on this)", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
-	pushToWebview({ type: "intentSucceeded", intentType: "adoptServer", requestId: "after-close-anyway" });
+	pushToWebview({ kind: "ack", id: "after-close-anyway", method: "adoptServer" });
 	expect(toastTexts(root)).toEqual(["Server adopted"]);
 });

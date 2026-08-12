@@ -6,7 +6,7 @@
  * matcher editor overlay so the typed value controls, the hint, and the
  * open-field fallback checkboxes are all on screen.
  */
-import type { DashboardState } from "../../../src/dashboard/protocol.ts";
+import type { DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";
 
@@ -39,8 +39,8 @@ const state: DashboardState = {
 
 const fixture: RenderFixture = {
 	messages: [
-		{ type: "state", state },
-		{ type: "focusSection", section: "settings" },
+		{ kind: "push", state },
+		{ kind: "focusSection", section: "settings" },
 	],
 	steps: [
 		`document.querySelector('button[aria-label=\\'Open the full editor for "gpt-5.6"\\']').click()`,

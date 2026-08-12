@@ -5,12 +5,12 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import type { SecretFieldId } from "../../dashboard/protocol";
-import { SECRET_FIELD_IDS } from "../../dashboard/protocol";
+import type { RequestPayload } from "../../dashboard/endpoints";
+import type { SecretFieldId } from "../../shared/serverEntry";
+import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { recordFromKeys } from "../../shared/util/json";
 import type { DeclaredServer } from "../servers/serverSync";
 import { acceptedEntry, inlineSecretValues } from "../servers/serverSync";
-import type { DashboardIntent } from "./intentSchema";
 import type { IntentEnvironment } from "./intents";
 import { DashboardOperationError, DashboardValidationError, rawServerEntries } from "./intents";
 
@@ -125,7 +125,7 @@ export function resolveKeptSecret(
  * classification and the intent still succeeds.
  */
 export async function applySaveServerSetting(
-	intent: Extract<DashboardIntent, { type: "saveServerSetting" }>,
+	intent: RequestPayload<"saveServerSetting">,
 	env: IntentEnvironment
 ): Promise<void> {
 	const label = intent.server.label.trim();

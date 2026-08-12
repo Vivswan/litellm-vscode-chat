@@ -8,8 +8,8 @@ import { baseState } from "./shared.ts";
 
 const fixture: RenderFixture = {
 	messages: [
-		{ type: "state", state: baseState() },
-		{ type: "focusSection", section: "settings" },
+		{ kind: "push", state: baseState() },
+		{ kind: "focusSection", section: "settings" },
 	],
 	steps: ['document.getElementById("setting-usage.alertThresholds-warning").scrollIntoView({ block: "center" })'],
 	viewport: { width: 1300, height: 700 },

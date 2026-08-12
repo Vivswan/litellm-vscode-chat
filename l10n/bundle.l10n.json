@@ -807,7 +807,6 @@
 	"The adoption failed, and this label's stored secrets could not be restored.": "The adoption failed, and this label's stored secrets could not be restored.",
 	"The change was not applied; see the LiteLLM output log.": "The change was not applied; see the LiteLLM output log.",
 	"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server.": "The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
-	"The connection test failed": "The connection test failed",
 	"The connection to {0} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.": "The connection to {0} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.",
 	"The conversation is too long for this model - trim it, remove attachments, or start a new chat.": "The conversation is too long for this model - trim it, remove attachments, or start a new chat.",
 	"The entry being edited no longer exists in the servers setting; close the form and retry": "The entry being edited no longer exists in the servers setting; close the form and retry",

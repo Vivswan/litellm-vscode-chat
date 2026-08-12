@@ -7,7 +7,7 @@
  * English message.
  */
 import * as l10n from "@vscode/l10n";
-import { isRecord, isUnsafeRecordKey } from "../../dashboard/protocol";
+import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 
 declare global {
 	interface Window {

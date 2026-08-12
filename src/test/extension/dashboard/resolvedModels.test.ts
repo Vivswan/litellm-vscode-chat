@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import type { RecordTreeNode } from "../../../dashboard/protocol";
+import type { RecordTreeNode } from "../../../dashboard/viewModels";
 import { modelScopeKey } from "../../../extension/dashboard/adoptHandle";
 import type { ResolvedModelsQuery } from "../../../extension/dashboard/resolvedModels";
 import { buildResolvedModelsView, resolveModelRecordChains } from "../../../extension/dashboard/resolvedModels";

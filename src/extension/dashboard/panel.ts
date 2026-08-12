@@ -14,14 +14,23 @@ import { randomBytes } from "node:crypto";
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type {
+	AckedMethod,
+	DashboardMethod,
+	ExtensionToWebviewMessage,
+	NotifyingMethod,
+	ReadMethod,
+	RequestPayload,
+	RpcRequest,
+	RpcRequestType,
+	RpcResponseType,
+} from "../../dashboard/endpoints";
+import { DASHBOARD_ENDPOINTS } from "../../dashboard/endpoints";
+import type {
 	CatalogModelSummary,
 	CatalogStatusView,
 	DashboardSectionId,
 	DashboardUsage,
-	ExtensionToWebviewMessage,
-	TransportErrorClassification,
-	WebviewToExtensionMessage,
-} from "../../dashboard/protocol";
+} from "../../dashboard/viewModels";
 import type { LiteLLMChatModelProvider, ServerModelsSnapshot } from "../../provider";
 import type { CapabilityCatalogLookup } from "../../shared/config/capabilityResolution";
 import { CMD } from "../../shared/config/commandIds";
@@ -35,6 +44,7 @@ import {
 	SERVERS_SETTING_KEY,
 } from "../../shared/config/settings";
 import { PARKED_GLOBAL_HEADERS_KEY } from "../../shared/config/storageKeys";
+import type { TransportErrorClassification } from "../../shared/errorClassification";
 import type { Logger } from "../../shared/logger";
 import type { SecretFieldId, SecretLocation } from "../../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
@@ -64,7 +74,7 @@ import { createSettingsAccess } from "../settingsAccess";
 import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "./adopt";
 import { buildConfigDiagnostics } from "./configDiagnostics";
 import { buildDashboardHtml } from "./html";
-import { webviewMessageSchema } from "./intentSchema";
+import { parseDashboardRequest } from "./intentSchema";
 import type { IntentEnvironment } from "./intents";
 import {
 	DashboardOperationError,
@@ -93,22 +103,6 @@ interface DashboardWebview {
 	postMessage(message: unknown): Thenable<boolean>;
 	onDidReceiveMessage: vscode.Event<unknown>;
 }
-
-/**
- * The read-only intents safe to handle off the mutation chain: the
- * draft-connection probe (network-bound) and the pure request/response reads
- * the inspectors, the Resolved-models view, and the catalog picker post - a
- * slow search must not stall a Save queued behind it. Only genuinely
- * non-mutating intents may be listed here; any intent that writes the servers
- * setting or a secret must stay on the chain.
- */
-const CONCURRENT_MESSAGE_TYPES = new Set<WebviewToExtensionMessage["type"]>([
-	"testServerDraft",
-	"readModelCapabilities",
-	"readModelParameters",
-	"readResolvedModels",
-	"searchCatalog",
-]);
 
 /** The slice of vscode.WebviewPanel the controller uses. */
 export interface DashboardPanel {
@@ -187,6 +181,49 @@ function observedIdentityKey(label: string, baseUrl: string): string {
 
 /** How many catalog search results one response may carry; the picker shows a short list, never the catalog. */
 const CATALOG_RESULT_LIMIT = 20;
+
+/** A request whose method the table classifies as a read; see the guards below. */
+type ReadRequest = Extract<RpcRequestType, { method: ReadMethod }>;
+
+/** Everything else: the handshake plus the acked and fire-and-forget intents. */
+type NotifyingRequest = Exclude<RpcRequestType, ReadRequest>;
+
+/** Table-driven outcome routing: the request's method row decides how its answer travels. */
+function isReadRequest(request: RpcRequestType): request is ReadRequest {
+	return DASHBOARD_ENDPOINTS[request.method].outcome === "read";
+}
+
+function isAckedRequest(request: NotifyingRequest): request is Extract<NotifyingRequest, { method: AckedMethod }> {
+	return DASHBOARD_ENDPOINTS[request.method].outcome === "acked";
+}
+
+/** Whether a method's failures notify (everything but the reads); the refusal path keys on it. */
+function isNotifyingMethod(method: DashboardMethod): method is NotifyingMethod {
+	return DASHBOARD_ENDPOINTS[method].outcome !== "read";
+}
+
+/** What a handler can read about the moment its request arrived; only the ready handshake consumes it. */
+interface RequestContext {
+	readonly arrivalGeneration: number;
+}
+
+/**
+ * The panel's handler maps, mapped over the endpoint table so a table method
+ * without a handler fails compilation. Read responders build their own full
+ * response envelope (concrete per entry, so the method-payload correlation
+ * needs no cast); intent runners resolve to the ack's optional caveat
+ * message, which fire-and-forget methods never surface.
+ */
+type ReadResponders = {
+	readonly [K in ReadMethod]: (request: RpcRequest<K>) => RpcResponseType;
+};
+
+type IntentRunners = {
+	readonly [K in Exclude<DashboardMethod, ReadMethod>]: (
+		payload: RequestPayload<K>,
+		context: RequestContext
+	) => Promise<string | undefined>;
+};
 
 export class DashboardController implements vscode.Disposable {
 	private _panel: DashboardPanel | undefined;
@@ -292,39 +329,56 @@ export class DashboardController implements vscode.Disposable {
 	 * The one enqueue path for every message, webview-posted or injected: the
 	 * schema parse happens here, once, so every routing decision below acts on
 	 * validated data - a malformed message resolves ignored-malformed before
-	 * anything routes on it. The parsed outcome joins the serialized chain, and
+	 * anything routes on it. The parsed request joins the serialized chain, and
 	 * the chain's rejection handler (which also marks the outcome promise
 	 * handled for fire-and-forget callers) logs the failure. The page
 	 * generation is captured at arrival, not at handling: the chain may drain a
 	 * message after the page that sent it died, and a late ready must not vouch
 	 * for the next page.
 	 *
-	 * The read-only CONCURRENT_MESSAGE_TYPES intents run OFF the chain: they
-	 * never read-modify-write the servers array (the only reason the chain
-	 * serializes), and the draft-connection probe among them can block on the
-	 * network for a whole discovery timeout, so chaining them would stall
-	 * every later Save behind a slow or abandoned probe. They still take the
-	 * exact same handleMessage dispatch; only their place in the queue
-	 * differs. Their rejection guard mirrors the chain's so a thrown handler
-	 * cannot surface as an unhandled rejection for the fire-and-forget
-	 * webview caller.
+	 * The channel column of the endpoint table routes the queue: "concurrent"
+	 * methods run OFF the chain - they never read-modify-write the servers
+	 * array (the only reason the chain serializes), and the draft-connection
+	 * probe among them can block on the network for a whole discovery timeout,
+	 * so chaining them would stall every later Save behind a slow or abandoned
+	 * probe. They still take the exact same handleRequest dispatch; only their
+	 * place in the queue differs. Their rejection guard mirrors the chain's so
+	 * a thrown handler cannot surface as an unhandled rejection for the
+	 * fire-and-forget webview caller.
 	 */
 	private enqueueMessage(raw: unknown): Promise<DashboardMessageOutcome> {
 		const arrivalGeneration = this._pageGeneration;
-		const parsed = webviewMessageSchema.safeParse(raw);
+		const parsed = parseDashboardRequest(raw);
 		if (!parsed.success) {
-			this.env.log("Ignoring malformed dashboard message", { issues: parsed.error.issues });
+			this.env.log("Ignoring malformed dashboard message", { issues: parsed.issues });
+			// A parse whose envelope frame survived still identifies the caller:
+			// answer a notifying method with a correlated refusal, or an editor
+			// waiting on this id (a save whose payload tripped a size bound)
+			// would stay pending forever with no message. Reads stay silent -
+			// their fail path does not exist on the wire, and their bounds are
+			// unreachable by extension-minted inputs.
+			const frame = parsed.frame;
+			if (frame !== undefined && isNotifyingMethod(frame.method)) {
+				this.postToPanel({
+					kind: "fail",
+					id: frame.id,
+					method: frame.method,
+					message: l10n.t("The change was not applied; see the LiteLLM output log."),
+					failureKind: "validation",
+				});
+				return Promise.resolve("validation-error");
+			}
 			return Promise.resolve("ignored-malformed");
 		}
-		const message = parsed.data;
-		if (CONCURRENT_MESSAGE_TYPES.has(message.type)) {
-			const outcome = this.handleMessage(message, arrivalGeneration);
+		const request = parsed.request;
+		if (DASHBOARD_ENDPOINTS[request.method].channel === "concurrent") {
+			const outcome = this.handleRequest(request, arrivalGeneration);
 			outcome.then(undefined, (error) => {
 				this.env.logError("Dashboard message handling failed", error);
 			});
 			return outcome;
 		}
-		const outcome = this._messageChain.then(() => this.handleMessage(message, arrivalGeneration));
+		const outcome = this._messageChain.then(() => this.handleRequest(request, arrivalGeneration));
 		this._messageChain = outcome.then(
 			() => undefined,
 			(error) => {
@@ -369,7 +423,7 @@ export class DashboardController implements vscode.Disposable {
 		const wasGroupObserved = (label: string, baseUrl: string) =>
 			this._observedGroupIdentities.has(observedIdentityKey(label, baseUrl));
 		this.postToPanel({
-			type: "state",
+			kind: "push",
 			state: buildDashboardState({
 				snapshots,
 				reader,
@@ -406,39 +460,32 @@ export class DashboardController implements vscode.Disposable {
 		}
 		const section = this._pendingFocusSection;
 		this._pendingFocusSection = undefined;
-		this.postToPanel({ type: "focusSection", section });
+		this.postToPanel({ kind: "focusSection", section });
 	}
 
-	private async handleMessage(
-		message: WebviewToExtensionMessage,
-		arrivalGeneration: number
-	): Promise<DashboardMessageOutcome> {
-		if (message.type === "ready") {
-			if (arrivalGeneration === this._pageGeneration) {
-				this._readyGeneration = arrivalGeneration;
-			}
-			this.pushState();
-			this.flushPendingFocus();
-			return "ok";
-		}
-		if (message.type === "readInlineSecrets") {
+	/**
+	 * The read responders: each answers with its own correlated response
+	 * envelope - no state push, no outcome notice, and no logging (the
+	 * readInlineSecrets answer is secret material, so the read arm stays
+	 * log-free). Concrete per entry so the method-payload correlation the
+	 * request union erases is rebuilt without a cast.
+	 */
+	private readonly readResponders: ReadResponders = {
+		readInlineSecrets: (request) => ({
 			// The edit form's on-demand prefill: values only for fields stored
 			// inline in the servers setting (already plaintext there), read at
-			// request time. No state push (the response is the whole answer) and
-			// no logging - the payload is secret material.
-			this.postToPanel({
-				type: "inlineSecrets",
-				requestId: message.requestId,
-				values: readInlineSecretValues(this.env.readServersSetting(), message.label),
-			});
-			return "ok";
-		}
-		if (message.type === "readModelCapabilities") {
+			// request time.
+			kind: "response",
+			id: request.id,
+			method: "readInlineSecrets",
+			payload: { values: readInlineSecretValues(this.env.readServersSetting(), request.payload.label) },
+		}),
+		readModelCapabilities: (request) => {
 			// The capability inspector's read: resolved extension-side by the
-			// same walk registration runs; the response is the whole answer, so
-			// no state push and no outcome notice.
+			// same walk registration runs.
+			const { scopeKey, rawId } = request.payload;
 			const capabilitiesReader = this.env.settingsReader();
-			const capsGlobalKey = mostSpecificGlobalRecordKey(capabilitiesReader, "capabilities", message.rawId);
+			const capsGlobalKey = mostSpecificGlobalRecordKey(capabilitiesReader, "capabilities", rawId);
 			const capsChains = resolveModelRecordChains(
 				{
 					snapshots: this.env.getSnapshots(),
@@ -447,31 +494,34 @@ export class DashboardController implements vscode.Disposable {
 					resolveEntryCapabilities: (serverId) => this.env.serverResolution.resolveEntryCapabilities(serverId),
 				},
 				"capabilities",
-				message.scopeKey,
-				message.rawId
+				scopeKey,
+				rawId
 			);
-			this.postToPanel({
-				type: "modelCapabilities",
-				requestId: message.requestId,
-				capabilities: resolveDashboardModelCapabilities(
-					{
-						snapshots: this.env.getSnapshots(),
-						reader: capabilitiesReader,
-						resolveEntryCapabilities: (serverId) => this.env.serverResolution.resolveEntryCapabilities(serverId),
-						catalog: this.env.getCatalogLookup(),
-						resolution: this.env.serverResolution.getResolutionTable?.(),
-					},
-					message.scopeKey,
-					message.rawId
-				),
-				...(capsGlobalKey !== undefined ? { globalRecordKey: capsGlobalKey } : {}),
-				...(capsChains.length > 0 ? { chains: capsChains } : {}),
-			});
-			return "ok";
-		}
-		if (message.type === "readModelParameters") {
+			return {
+				kind: "response",
+				id: request.id,
+				method: "readModelCapabilities",
+				payload: {
+					capabilities: resolveDashboardModelCapabilities(
+						{
+							snapshots: this.env.getSnapshots(),
+							reader: capabilitiesReader,
+							resolveEntryCapabilities: (serverId) => this.env.serverResolution.resolveEntryCapabilities(serverId),
+							catalog: this.env.getCatalogLookup(),
+							resolution: this.env.serverResolution.getResolutionTable?.(),
+						},
+						scopeKey,
+						rawId
+					),
+					...(capsGlobalKey !== undefined ? { globalRecordKey: capsGlobalKey } : {}),
+					...(capsChains.length > 0 ? { chains: capsChains } : {}),
+				},
+			};
+		},
+		readModelParameters: (request) => {
 			// The params inspector's read: resolved through the provider's shared
 			// flat table (the same cache requests read) and projected extension-side.
+			const { scopeKey, rawId } = request.payload;
 			const parametersReader = this.env.settingsReader();
 			const answer = resolveDashboardModelParameters(
 				{
@@ -480,10 +530,10 @@ export class DashboardController implements vscode.Disposable {
 					resolveEntryParameters: (serverId) => this.env.serverResolution.resolveEntryParameters(serverId),
 					resolution: this.env.serverResolution.getResolutionTable?.(),
 				},
-				message.scopeKey,
-				message.rawId
+				scopeKey,
+				rawId
 			);
-			const paramsGlobalKey = mostSpecificGlobalRecordKey(parametersReader, "parameters", message.rawId);
+			const paramsGlobalKey = mostSpecificGlobalRecordKey(parametersReader, "parameters", rawId);
 			const paramsChains = resolveModelRecordChains(
 				{
 					snapshots: this.env.getSnapshots(),
@@ -492,24 +542,27 @@ export class DashboardController implements vscode.Disposable {
 					resolveEntryCapabilities: (serverId) => this.env.serverResolution.resolveEntryCapabilities(serverId),
 				},
 				"parameters",
-				message.scopeKey,
-				message.rawId
+				scopeKey,
+				rawId
 			);
-			this.postToPanel({
-				type: "modelParameters",
-				requestId: message.requestId,
-				...(answer !== undefined ? { projection: answer } : {}),
-				...(paramsGlobalKey !== undefined ? { globalRecordKey: paramsGlobalKey } : {}),
-				...(paramsChains.length > 0 ? { chains: paramsChains } : {}),
-			});
-			return "ok";
-		}
-		if (message.type === "readResolvedModels") {
+			return {
+				kind: "response",
+				id: request.id,
+				method: "readModelParameters",
+				payload: {
+					...(answer !== undefined ? { projection: answer } : {}),
+					...(paramsGlobalKey !== undefined ? { globalRecordKey: paramsGlobalKey } : {}),
+					...(paramsChains.length > 0 ? { chains: paramsChains } : {}),
+				},
+			};
+		},
+		readResolvedModels: (request) => ({
 			// The Diagnostics tab's Resolved-models view, computed on demand: it
 			// scales with models x fields, so it stays out of state pushes.
-			this.postToPanel({
-				type: "resolvedModels",
-				requestId: message.requestId,
+			kind: "response",
+			id: request.id,
+			method: "readResolvedModels",
+			payload: {
 				view: buildResolvedModelsView({
 					snapshots: this.env.getSnapshots(),
 					reader: this.env.settingsReader(),
@@ -519,35 +572,91 @@ export class DashboardController implements vscode.Disposable {
 					catalog: this.env.getCatalogLookup(),
 					resolution: this.env.serverResolution.getResolutionTable?.(),
 				}),
-			});
-			return "ok";
-		}
-		if (message.type === "searchCatalog") {
+			},
+		}),
+		searchCatalog: (request) => ({
 			// The catalog picker's search; the bound keeps a broad query from
 			// pushing the whole catalog across the webview boundary.
-			this.postToPanel({
-				type: "catalogSearchResults",
-				requestId: message.requestId,
-				results: this.env.searchCatalog(message.query).slice(0, CATALOG_RESULT_LIMIT),
-			});
+			kind: "response",
+			id: request.id,
+			method: "searchCatalog",
+			payload: { results: this.env.searchCatalog(request.payload.query).slice(0, CATALOG_RESULT_LIMIT) },
+		}),
+	};
+
+	/**
+	 * The intent runners: the ready handshake's generation bookkeeping, plus
+	 * one executor call per intent method (concrete per entry, like the read
+	 * responders, so the executor's discriminated union needs no cast).
+	 */
+	private readonly intentRunners: IntentRunners = {
+		ready: (_payload, context) => {
+			// Each handshake is judged against the generation current when it
+			// ARRIVED: one handled late, after its page died, cannot vouch for
+			// the next page.
+			if (context.arrivalGeneration === this._pageGeneration) {
+				this._readyGeneration = context.arrivalGeneration;
+			}
+			return Promise.resolve(undefined);
+		},
+		setNumberSetting: (payload) => executeDashboardIntent({ method: "setNumberSetting", payload }, this.env),
+		setBooleanSetting: (payload) => executeDashboardIntent({ method: "setBooleanSetting", payload }, this.env),
+		resetSetting: (payload) => executeDashboardIntent({ method: "resetSetting", payload }, this.env),
+		revealSetting: (payload) => executeDashboardIntent({ method: "revealSetting", payload }, this.env),
+		setModelParameters: (payload) => executeDashboardIntent({ method: "setModelParameters", payload }, this.env),
+		setModelCapabilities: (payload) => executeDashboardIntent({ method: "setModelCapabilities", payload }, this.env),
+		setUsageStatusBar: (payload) => executeDashboardIntent({ method: "setUsageStatusBar", payload }, this.env),
+		setUsageAlertThresholds: (payload) =>
+			executeDashboardIntent({ method: "setUsageAlertThresholds", payload }, this.env),
+		refreshCatalog: (payload) => executeDashboardIntent({ method: "refreshCatalog", payload }, this.env),
+		refreshUsage: (payload) => executeDashboardIntent({ method: "refreshUsage", payload }, this.env),
+		saveServerSetting: (payload) => executeDashboardIntent({ method: "saveServerSetting", payload }, this.env),
+		testServerDraft: (payload) => executeDashboardIntent({ method: "testServerDraft", payload }, this.env),
+		removeServerSetting: (payload) => executeDashboardIntent({ method: "removeServerSetting", payload }, this.env),
+		adoptServer: (payload) => executeDashboardIntent({ method: "adoptServer", payload }, this.env),
+		hideExternalServer: (payload) => executeDashboardIntent({ method: "hideExternalServer", payload }, this.env),
+		unhideServer: (payload) => executeDashboardIntent({ method: "unhideServer", payload }, this.env),
+		executeCommand: (payload) => executeDashboardIntent({ method: "executeCommand", payload }, this.env),
+	};
+
+	/** Generic so the mapped handler lookup keeps the method-payload correlation the union erases. */
+	private answerRead<K extends ReadMethod>(request: RpcRequest<K>): RpcResponseType {
+		return this.readResponders[request.method](request);
+	}
+
+	private runIntent<K extends Exclude<DashboardMethod, ReadMethod>>(
+		request: RpcRequest<K>,
+		context: RequestContext
+	): Promise<string | undefined> {
+		return this.intentRunners[request.method](request.payload, context);
+	}
+
+	/**
+	 * The single dispatch behind every parsed request, routed by the request
+	 * method's outcome column. Reads answer and stop. Intents run, then post
+	 * their ack (acked outcomes only) and push state - the push doubles as the
+	 * fire-and-forget intents' success signal, since some applied intents (a
+	 * secure-only secret change, a no-op settings write) fire no configuration
+	 * event of their own; the focus flush after it is the ready handshake's
+	 * second half and a guarded no-op for every other method.
+	 */
+	private async handleRequest(request: RpcRequestType, arrivalGeneration: number): Promise<DashboardMessageOutcome> {
+		if (isReadRequest(request)) {
+			this.postToPanel(this.answerRead(request));
 			return "ok";
 		}
-		const intent = message;
-		const requestId = "requestId" in intent ? intent.requestId : undefined;
 		try {
-			const notice = await executeDashboardIntent(intent, this.env);
-			if (requestId !== undefined) {
+			const notice = await this.runIntent(request, { arrivalGeneration });
+			if (isAckedRequest(request)) {
 				this.postToPanel({
-					type: "intentSucceeded",
-					intentType: intent.type,
-					requestId,
+					kind: "ack",
+					id: request.id,
+					method: request.method,
 					...(notice !== undefined ? { message: notice } : {}),
 				});
 			}
-			// The push doubles as the editors' success signal: some applied
-			// intents (a secure-only secret change, a no-op settings write) fire
-			// no configuration event of their own.
 			this.pushState();
+			this.flushPendingFocus();
 			return "ok";
 		} catch (error) {
 			// The write did not land (or only partially landed), so the failure
@@ -558,7 +667,7 @@ export class DashboardController implements vscode.Disposable {
 			// buffer feeds public issue reports, so the log gets classifications
 			// for every failure kind.
 			let message: string;
-			let kind: "validation" | "operation" = "validation";
+			let failureKind: "validation" | "operation" = "validation";
 			let classification: TransportErrorClassification | undefined;
 			if (error instanceof DashboardValidationError) {
 				message = error.message;
@@ -567,32 +676,33 @@ export class DashboardController implements vscode.Disposable {
 				// it also rides the log line for issue-report triage.
 				classification = error.classification;
 				this.env.log("Dashboard intent rejected", {
-					intentType: intent.type,
+					method: request.method,
 					kind: "validation",
 					...(classification !== undefined ? { classification } : {}),
 				});
 			} else if (error instanceof DashboardOperationError) {
 				message = error.message;
-				kind = "operation";
-				this.env.log("Dashboard intent partially applied", { intentType: intent.type, kind: "operation" });
+				failureKind = "operation";
+				this.env.log("Dashboard intent partially applied", { method: request.method, kind: "operation" });
 			} else {
 				message = l10n.t("The change was not applied; see the LiteLLM output log.");
 				this.env.log("Dashboard intent failed", {
-					intentType: intent.type,
+					method: request.method,
 					error: error instanceof Error ? error.name : typeof error,
 				});
 			}
 			this.postToPanel({
-				type: "intentFailed",
-				intentType: intent.type,
+				kind: "fail",
+				id: request.id,
+				method: request.method,
 				message,
-				kind,
-				requestId,
+				failureKind,
 				...(classification !== undefined ? { classification } : {}),
 			});
 			// One class for every refused-or-failed intent: the outcome consumer
 			// (the monkey fuzzer) only needs "did not act as asked", and the
-			// validation/operation split already travels via intentFailed's kind.
+			// validation/operation split already travels via the fail notice's
+			// failureKind.
 			return "validation-error";
 		}
 	}

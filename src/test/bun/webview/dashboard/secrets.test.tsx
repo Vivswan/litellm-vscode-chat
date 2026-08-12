@@ -11,7 +11,7 @@
  * caused it.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import type { WebviewToExtensionMessage } from "../../../../dashboard/protocol";
+import type { RpcRequest, RpcRequestType } from "../../../../dashboard/endpoints";
 import { App } from "../../../../webview/dashboard/app";
 import { declaredWithSecrets, makeState, poisonedStatePush, statePush } from "../fixtures";
 import {
@@ -50,7 +50,7 @@ function expectNowhere(...secrets: string[]): void {
 	}
 }
 
-function lastPosted(): WebviewToExtensionMessage {
+function lastPosted(): RpcRequestType {
 	const message = postedMessages[postedMessages.length - 1];
 	if (message === undefined) {
 		throw new Error("nothing was posted");
@@ -58,12 +58,14 @@ function lastPosted(): WebviewToExtensionMessage {
 	return message;
 }
 
-function readInlineRequest(): Extract<WebviewToExtensionMessage, { type: "readInlineSecrets" }> {
-	const message = postedMessages.find((candidate) => candidate.type === "readInlineSecrets");
+function readInlineRequest(): RpcRequest<"readInlineSecrets"> {
+	const message = postedMessages.find(
+		(candidate): candidate is RpcRequest<"readInlineSecrets"> => candidate.method === "readInlineSecrets"
+	);
 	if (message === undefined) {
 		throw new Error("no readInlineSecrets was posted");
 	}
-	return message as Extract<WebviewToExtensionMessage, { type: "readInlineSecrets" }>;
+	return message;
 }
 
 const apiKeyInput = (root: ParentNode) => inputByLabel(root, "API key");
@@ -95,9 +97,14 @@ test("secure-side values never render, even against a poisoned state carrying fo
 	).toBe(true);
 
 	// Nor may any other message type surface them.
-	pushToWebview({ type: "intentSucceeded", intentType: "saveServerSetting", requestId: "x", message: "ok" });
+	pushToWebview({ kind: "ack", id: "x", method: "saveServerSetting", message: "ok" });
 	expectNowhere(SENTINEL);
-	pushToWebview({ type: "inlineSecrets", requestId: "not-our-request", values: { apiKey: SENTINEL } });
+	pushToWebview({
+		kind: "response",
+		id: "not-our-request",
+		method: "readInlineSecrets",
+		payload: { values: { apiKey: SENTINEL } },
+	});
 	expectNowhere(SENTINEL);
 });
 
@@ -109,7 +116,7 @@ test("a secure-stored field never triggers a prefill request and its untouched s
 	resetPosted();
 	openEdit(root);
 	// No inline-stored field: the form must not ask for values at all.
-	expect(postedMessages.filter((message) => message.type === "readInlineSecrets")).toEqual([]);
+	expect(postedMessages.filter((message) => message.method === "readInlineSecrets")).toEqual([]);
 	const input = apiKeyInput(root);
 	expect(input.value).toBe("");
 	expect(input.type).toBe("password");
@@ -117,9 +124,9 @@ test("a secure-stored field never triggers a prefill request and its untouched s
 
 	// Save is not gated (no prefill pending) and an untouched field keeps.
 	fireClick(buttonByText(root, "Save"));
-	const saved = lastPosted() as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
-	expect(saved.type).toBe("saveServerSetting");
-	expect(saved.secrets.apiKey).toEqual({ action: "keep" });
+	const saved = lastPosted() as RpcRequest<"saveServerSetting">;
+	expect(saved.method).toBe("saveServerSetting");
+	expect(saved.payload.secrets.apiKey).toEqual({ action: "keep" });
 	expectNowhere(SENTINEL);
 });
 
@@ -131,7 +138,7 @@ test("the sanctioned prefill path: masked value lands only in its own input, and
 	resetPosted();
 	openEdit(root);
 	const request = readInlineRequest();
-	expect(request.label).toBe(server.label);
+	expect(request.payload.label).toBe(server.label);
 	expectNowhere(SENTINEL);
 
 	// Save waits for the response: saving now would assemble "keep" and
@@ -139,7 +146,12 @@ test("the sanctioned prefill path: masked value lands only in its own input, and
 	expect(buttonByText(root, "Save").disabled).toBe(true);
 	expect(root.textContent).toContain("Loading stored values...");
 
-	pushToWebview({ type: "inlineSecrets", requestId: request.requestId, values: { apiKey: SENTINEL } });
+	pushToWebview({
+		kind: "response",
+		id: request.id,
+		method: "readInlineSecrets",
+		payload: { values: { apiKey: SENTINEL } },
+	});
 	const input = apiKeyInput(root);
 	expect(input.value).toBe(SENTINEL);
 	expect(input.type).toBe("password");
@@ -153,7 +165,12 @@ test("Show reveals, Hide re-masks, and the revealed state does not survive closi
 	const server = declaredWithSecrets({ apiKey: "settings" });
 	pushToWebview(statePush(makeState({ servers: [server] })));
 	openEdit(root);
-	pushToWebview({ type: "inlineSecrets", requestId: readInlineRequest().requestId, values: { apiKey: SENTINEL } });
+	pushToWebview({
+		kind: "response",
+		id: readInlineRequest().id,
+		method: "readInlineSecrets",
+		payload: { values: { apiKey: SENTINEL } },
+	});
 	expectOnlyInApiKeyInput(SENTINEL);
 
 	// Each toggle re-renders the field; the value must stay in the input's
@@ -179,7 +196,12 @@ test("Show reveals, Hide re-masks, and the revealed state does not survive closi
 	resetPosted();
 	openEdit(root);
 	expectNowhere(SENTINEL);
-	pushToWebview({ type: "inlineSecrets", requestId: readInlineRequest().requestId, values: { apiKey: SENTINEL } });
+	pushToWebview({
+		kind: "response",
+		id: readInlineRequest().id,
+		method: "readInlineSecrets",
+		payload: { values: { apiKey: SENTINEL } },
+	});
 	expect(apiKeyInput(root).type).toBe("password");
 	expectOnlyInApiKeyInput(SENTINEL);
 });
@@ -192,7 +214,12 @@ test("a stale inlineSecrets response never prefills the current form and its sen
 	openEdit(root);
 	readInlineRequest();
 
-	pushToWebview({ type: "inlineSecrets", requestId: "a-previous-forms-request", values: { apiKey: SENTINEL } });
+	pushToWebview({
+		kind: "response",
+		id: "a-previous-forms-request",
+		method: "readInlineSecrets",
+		payload: { values: { apiKey: SENTINEL } },
+	});
 	expect(apiKeyInput(root).value).toBe("");
 	expectNowhere(SENTINEL);
 	// The form is still waiting on its own response, so Save stays gated.
@@ -207,7 +234,12 @@ test("closing the form scrubs the prefill and reopening posts a fresh readInline
 	resetPosted();
 	openEdit(root);
 	const first = readInlineRequest();
-	pushToWebview({ type: "inlineSecrets", requestId: first.requestId, values: { apiKey: SENTINEL } });
+	pushToWebview({
+		kind: "response",
+		id: first.id,
+		method: "readInlineSecrets",
+		payload: { values: { apiKey: SENTINEL } },
+	});
 	expectOnlyInApiKeyInput(SENTINEL);
 
 	fireClick(buttonByText(root, "Cancel"));
@@ -218,7 +250,7 @@ test("closing the form scrubs the prefill and reopening posts a fresh readInline
 	resetPosted();
 	openEdit(root);
 	const second = readInlineRequest();
-	expect(second.requestId).not.toBe(first.requestId);
+	expect(second.id).not.toBe(first.id);
 	expect(apiKeyInput(root).value).toBe("");
 	expectNowhere(SENTINEL);
 });
@@ -230,35 +262,50 @@ test("a typed secret leaves the page only as a directive: set, keep for untouche
 
 	// Untouched prefill saves as keep: an unedited inline value never rewrites storage.
 	openEdit(root);
-	pushToWebview({ type: "inlineSecrets", requestId: readInlineRequest().requestId, values: { apiKey: SENTINEL } });
+	pushToWebview({
+		kind: "response",
+		id: readInlineRequest().id,
+		method: "readInlineSecrets",
+		payload: { values: { apiKey: SENTINEL } },
+	});
 	expectOnlyInApiKeyInput(SENTINEL);
 	resetPosted();
 	fireClick(buttonByText(root, "Save"));
-	const kept = lastPosted() as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
-	expect(kept.secrets.apiKey).toEqual({ action: "keep" });
+	const kept = lastPosted() as RpcRequest<"saveServerSetting">;
+	expect(kept.payload.secrets.apiKey).toEqual({ action: "keep" });
 	// In flight, the value still sits only in its input; the ack-driven close scrubs it.
 	expectOnlyInApiKeyInput(SENTINEL);
-	pushToWebview({ type: "intentSucceeded", intentType: "saveServerSetting", requestId: kept.requestId });
+	pushToWebview({ kind: "ack", id: kept.id, method: "saveServerSetting" });
 	expectNowhere(SENTINEL);
 
 	// A typed value posts a set directive for the chosen location.
 	openEdit(root);
-	pushToWebview({ type: "inlineSecrets", requestId: readInlineRequest().requestId, values: { apiKey: SENTINEL } });
+	pushToWebview({
+		kind: "response",
+		id: readInlineRequest().id,
+		method: "readInlineSecrets",
+		payload: { values: { apiKey: SENTINEL } },
+	});
 	expectOnlyInApiKeyInput(SENTINEL);
 	fireInput(apiKeyInput(root), TYPED);
 	expectNowhere(SENTINEL);
 	expectOnlyInApiKeyInput(TYPED);
 	resetPosted();
 	fireClick(buttonByText(root, "Save"));
-	const set = lastPosted() as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
-	expect(set.secrets.apiKey).toEqual({ action: "set", location: "settings", value: TYPED });
+	const set = lastPosted() as RpcRequest<"saveServerSetting">;
+	expect(set.payload.secrets.apiKey).toEqual({ action: "set", location: "settings", value: TYPED });
 	expectOnlyInApiKeyInput(TYPED);
-	pushToWebview({ type: "intentSucceeded", intentType: "saveServerSetting", requestId: set.requestId });
+	pushToWebview({ kind: "ack", id: set.id, method: "saveServerSetting" });
 	expectNowhere(SENTINEL, TYPED);
 
 	// Ticking remove posts clear, with no value key riding along.
 	openEdit(root);
-	pushToWebview({ type: "inlineSecrets", requestId: readInlineRequest().requestId, values: { apiKey: SENTINEL } });
+	pushToWebview({
+		kind: "response",
+		id: readInlineRequest().id,
+		method: "readInlineSecrets",
+		payload: { values: { apiKey: SENTINEL } },
+	});
 	expectOnlyInApiKeyInput(SENTINEL);
 	// The remove control lives on its own line outside the storage
 	// radiogroup: destructive, not a third storage choice.
@@ -268,11 +315,11 @@ test("a typed secret leaves the page only as a directive: set, keep for untouche
 	expectOnlyInApiKeyInput(SENTINEL);
 	resetPosted();
 	fireClick(buttonByText(root, "Save"));
-	const cleared = lastPosted() as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
-	expect(cleared.secrets.apiKey).toEqual({ action: "clear" });
-	expect(Object.keys(cleared.secrets.apiKey)).toEqual(["action"]);
+	const cleared = lastPosted() as RpcRequest<"saveServerSetting">;
+	expect(cleared.payload.secrets.apiKey).toEqual({ action: "clear" });
+	expect(Object.keys(cleared.payload.secrets.apiKey)).toEqual(["action"]);
 	expectOnlyInApiKeyInput(SENTINEL);
-	pushToWebview({ type: "intentSucceeded", intentType: "saveServerSetting", requestId: cleared.requestId });
+	pushToWebview({ kind: "ack", id: cleared.id, method: "saveServerSetting" });
 	expectNowhere(SENTINEL, TYPED);
 });
 
@@ -281,24 +328,29 @@ test("a draft-connection test carries the typed secret only in its intent; both 
 	const server = declaredWithSecrets({ apiKey: "settings" });
 	pushToWebview(statePush(makeState({ servers: [server] })));
 	openEdit(root);
-	pushToWebview({ type: "inlineSecrets", requestId: readInlineRequest().requestId, values: { apiKey: SENTINEL } });
+	pushToWebview({
+		kind: "response",
+		id: readInlineRequest().id,
+		method: "readInlineSecrets",
+		payload: { values: { apiKey: SENTINEL } },
+	});
 	expectOnlyInApiKeyInput(SENTINEL);
 
 	// An untouched prefill tests as keep: the value goes nowhere, the
 	// extension re-reads it from the setting itself.
 	resetPosted();
 	fireClick(buttonByText(root, "Test connection"));
-	const kept = lastPosted() as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
-	expect(kept.type).toBe("testServerDraft");
-	expect(kept.secrets.apiKey).toEqual({ action: "keep" });
+	const kept = lastPosted() as RpcRequest<"testServerDraft">;
+	expect(kept.method).toBe("testServerDraft");
+	expect(kept.payload.secrets.apiKey).toEqual({ action: "keep" });
 	expectOnlyInApiKeyInput(SENTINEL);
 
 	// The success notice is extension-composed classification text; rendering
 	// it must not surface any secret.
 	pushToWebview({
-		type: "intentSucceeded",
-		intentType: "testServerDraft",
-		requestId: kept.requestId,
+		kind: "ack",
+		id: kept.id,
+		method: "testServerDraft",
 		message: "Connected - 3 models",
 	});
 	expectOnlyInApiKeyInput(SENTINEL);
@@ -309,15 +361,15 @@ test("a draft-connection test carries the typed secret only in its intent; both 
 	expectNowhere(SENTINEL);
 	resetPosted();
 	fireClick(buttonByText(root, "Test connection"));
-	const set = lastPosted() as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
-	expect(set.secrets.apiKey).toEqual({ action: "set", location: "settings", value: TYPED });
+	const set = lastPosted() as RpcRequest<"testServerDraft">;
+	expect(set.payload.secrets.apiKey).toEqual({ action: "set", location: "settings", value: TYPED });
 	expectOnlyInApiKeyInput(TYPED);
 	pushToWebview({
-		type: "intentFailed",
-		intentType: "testServerDraft",
+		kind: "fail",
+		id: set.id,
+		method: "testServerDraft",
 		message: "401 Unauthorized from the server",
-		kind: "validation",
-		requestId: set.requestId,
+		failureKind: "validation",
 	});
 	expect(root.querySelector(".test-result")?.textContent).toContain("401 Unauthorized");
 	expectOnlyInApiKeyInput(TYPED);
@@ -328,7 +380,12 @@ test("relocating an untouched prefill to secure storage posts set with the prefi
 	const server = declaredWithSecrets({ apiKey: "settings" });
 	pushToWebview(statePush(makeState({ servers: [server] })));
 	openEdit(root);
-	pushToWebview({ type: "inlineSecrets", requestId: readInlineRequest().requestId, values: { apiKey: SENTINEL } });
+	pushToWebview({
+		kind: "response",
+		id: readInlineRequest().id,
+		method: "readInlineSecrets",
+		payload: { values: { apiKey: SENTINEL } },
+	});
 	expectOnlyInApiKeyInput(SENTINEL);
 
 	// The user changes only the storage radio: inline -> secure. A regression
@@ -342,10 +399,10 @@ test("relocating an untouched prefill to secure storage posts set with the prefi
 
 	resetPosted();
 	fireClick(buttonByText(root, "Save"));
-	const saved = lastPosted() as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
-	expect(saved.type).toBe("saveServerSetting");
-	expect(saved.secrets.apiKey).toEqual({ action: "set", location: "secure", value: SENTINEL });
+	const saved = lastPosted() as RpcRequest<"saveServerSetting">;
+	expect(saved.method).toBe("saveServerSetting");
+	expect(saved.payload.secrets.apiKey).toEqual({ action: "set", location: "secure", value: SENTINEL });
 	expectOnlyInApiKeyInput(SENTINEL);
-	pushToWebview({ type: "intentSucceeded", intentType: "saveServerSetting", requestId: saved.requestId });
+	pushToWebview({ kind: "ack", id: saved.id, method: "saveServerSetting" });
 	expectNowhere(SENTINEL);
 });

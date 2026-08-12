@@ -6,7 +6,9 @@
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "preact/test-utils";
-import { isBoundViolation, NUMBER_SETTING_IDS, parseNumberDraft } from "../../../../dashboard/protocol";
+import type { RpcRequest } from "../../../../dashboard/endpoints";
+import { isBoundViolation, parseNumberDraft } from "../../../../dashboard/presenters";
+import { NUMBER_SETTING_IDS } from "../../../../dashboard/viewModels";
 import { App } from "../../../../webview/dashboard/app";
 import { SettingsSection } from "../../../../webview/dashboard/settings";
 import { makeSettings, makeState, statePush } from "../fixtures";
@@ -19,6 +21,7 @@ import {
 	fireInput,
 	fireKeyDown,
 	mount,
+	postedCalls,
 	postedMessages,
 	pushToWebview,
 	resetPosted,
@@ -48,7 +51,7 @@ function rowOf(input: HTMLElement): HTMLElement {
 }
 
 test("a below-minimum draft stays calm until blur reveals it; commit posts nothing; a valid draft posts once; unchanged posts nothing", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const input = settingInput(root, "discovery.timeout");
 
 	// Mid-typing, an honest below-minimum draft raises no error yet...
@@ -65,7 +68,9 @@ test("a below-minimum draft stays calm until blur reveals it; commit posts nothi
 	fireInput(input, "20480");
 	expect(rowOf(input).textContent).not.toContain("Must be at least");
 	fireBlur(input);
-	expect(postedMessages).toEqual([{ type: "setNumberSetting", setting: "discovery.timeout", value: 20480 }]);
+	expect(postedCalls()).toEqual([
+		{ method: "setNumberSetting", payload: { setting: "discovery.timeout", value: 20480 } },
+	]);
 
 	// A draft equal to the stored value posts nothing on commit.
 	resetPosted();
@@ -76,7 +81,7 @@ test("a below-minimum draft stays calm until blur reveals it; commit posts nothi
 });
 
 test("Enter reveals a bound error like blur does; parse errors show live per keystroke", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const input = settingInput(root, "chat.timeout");
 
 	fireInput(input, "500");
@@ -146,7 +151,7 @@ test("isBoundViolation classifies exactly parseNumberDraft's minimum-bound rejec
 });
 
 test("aria-invalid and the error's aria-describedby wiring follow the displayed error, not the raw verdict", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const input = settingInput(root, "chat.timeout");
 
 	// While a bound error is held back, assistive tech hears a valid field.
@@ -162,11 +167,13 @@ test("aria-invalid and the error's aria-describedby wiring follow the displayed 
 });
 
 test("Enter commits a valid draft like blur does", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const input = settingInput(root, "discovery.timeout");
 	fireInput(input, "45000");
 	fireKeyDown(input, "Enter");
-	expect(postedMessages).toEqual([{ type: "setNumberSetting", setting: "discovery.timeout", value: 45000 }]);
+	expect(postedCalls()).toEqual([
+		{ method: "setNumberSetting", payload: { setting: "discovery.timeout", value: 45000 } },
+	]);
 });
 
 test("an external state push resyncs a rejected draft and re-arms the calm start, including a scope-only change", () => {
@@ -210,7 +217,7 @@ test("Reset renders only on configured rows, carries the scope-naming accessible
 			booleans: base.configuredScopes.booleans,
 		},
 	});
-	const root = mount(<SettingsSection settings={settings} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={settings} models={[]} />);
 
 	const resets = Array.from(root.querySelectorAll("button.reset"));
 	expect(resets.length).toBe(1);
@@ -219,22 +226,24 @@ test("Reset renders only on configured rows, carries the scope-naming accessible
 	expect(rowOf(settingInput(root, "discovery.timeout")).classList.contains("modified")).toBe(false);
 
 	fireClick(resets[0] as HTMLButtonElement);
-	expect(postedMessages).toEqual([{ type: "resetSetting", setting: "chat.timeout" }]);
+	expect(postedCalls()).toEqual([{ method: "resetSetting", payload: { setting: "chat.timeout" } }]);
 });
 
 test("the boolean checkbox posts setBooleanSetting with the toggled value", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const checkbox = settingInput(root, "ui.maskSecretInputs");
 	expect(checkbox.checked).toBe(true);
 	fireCheck(checkbox, false);
-	expect(postedMessages).toEqual([{ type: "setBooleanSetting", setting: "ui.maskSecretInputs", value: false }]);
+	expect(postedCalls()).toEqual([
+		{ method: "setBooleanSetting", payload: { setting: "ui.maskSecretInputs", value: false } },
+	]);
 });
 
 test("ms equivalence hints: 90000 reads as clock units, the zero-meaning settings read their special zero", () => {
 	const settings = makeSettings({
 		numbers: { ...makeSettings().numbers, "chat.timeout": 90000, "discovery.cacheTtl": 0, "usage.pollInterval": 0 },
 	});
-	const root = mount(<SettingsSection settings={settings} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={settings} models={[]} />);
 
 	expect(rowOf(settingInput(root, "chat.timeout")).querySelector(".setting-equiv")?.textContent).toBe("= 1 min 30 s");
 	expect(rowOf(settingInput(root, "discovery.cacheTtl")).querySelector(".setting-equiv")?.textContent).toBe(
@@ -259,7 +268,7 @@ test("a modified row names its scope in the head; number rows add the default; c
 			booleans: { ...base.configuredScopes.booleans, "ui.maskSecretInputs": "global" },
 		},
 	});
-	const root = mount(<SettingsSection settings={settings} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={settings} models={[]} />);
 
 	const noteOf = (id: string) => rowOf(settingInput(root, id)).querySelector(".setting-modified-note");
 	// The ms default reads in the duration idiom, matching the field's hint.
@@ -274,14 +283,14 @@ test("a modified row names its scope in the head; number rows add the default; c
 });
 
 test("the cache row's label needs no acronym", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	expect(rowOf(settingInput(root, "discovery.cacheTtl")).querySelector(".setting-title")?.textContent).toBe(
 		"Discovery cache lifetime"
 	);
 });
 
 test("settings-row help glyphs are named for their setting, so a button list is not a column of bare Helps", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const glyphOf = (id: string) => rowOf(settingInput(root, id)).querySelector("button.help");
 	expect(glyphOf("chat.timeout")?.getAttribute("aria-label")).toBe("Help: Request timeout");
 	expect(glyphOf("chat.promptCaching")?.getAttribute("aria-label")).toBe("Help: Prompt caching");
@@ -291,7 +300,7 @@ test("settings-row help glyphs are named for their setting, so a button list is 
 });
 
 test("ms fields are text inputs (the duration suffixes need letters)", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	for (const id of ["chat.timeout", "discovery.timeout", "discovery.cacheTtl", "usage.pollInterval"]) {
 		const input = settingInput(root, id);
 		expect(input.getAttribute("type"), id).toBe("text");
@@ -301,7 +310,7 @@ test("ms fields are text inputs (the duration suffixes need letters)", () => {
 });
 
 test("a duration draft commits its millisecond value, with the equivalence hint live while typing", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const input = settingInput(root, "chat.timeout");
 
 	fireInput(input, "5m");
@@ -315,13 +324,13 @@ test("a duration draft commits its millisecond value, with the equivalence hint 
 	fireInput(input, "90s");
 	expect(rowOf(input).querySelector(".setting-equiv")?.textContent).toBe("= 1 min 30 s");
 	fireKeyDown(input, "Enter");
-	expect(postedMessages).toEqual([{ type: "setNumberSetting", setting: "chat.timeout", value: 90000 }]);
+	expect(postedCalls()).toEqual([{ method: "setNumberSetting", payload: { setting: "chat.timeout", value: 90000 } }]);
 
 	// A draft spelling the stored value differently ("90s" over 90000) still
 	// counts as unchanged once committed: same value, no second post.
 	resetPosted();
 	const stored = makeSettings({ numbers: { ...makeSettings().numbers, "chat.timeout": 90000 } });
-	const storedRoot = mount(<SettingsSection settings={stored} models={[]} failures={{}} />);
+	const storedRoot = mount(<SettingsSection settings={stored} models={[]} />);
 	const storedInput = settingInput(storedRoot, "chat.timeout");
 	fireInput(storedInput, "90s");
 	fireBlur(storedInput);
@@ -329,7 +338,7 @@ test("a duration draft commits its millisecond value, with the equivalence hint 
 });
 
 test("a unit typo reads as a live grammar error; a below-bound duration stays calm until blur", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const input = settingInput(root, "discovery.timeout");
 
 	// A suffixed value below the bound is an honest mid-typing state ("500ms"
@@ -349,7 +358,9 @@ test("a unit typo reads as a live grammar error; a below-bound duration stays ca
 
 	fireInput(input, "45s");
 	fireBlur(input);
-	expect(postedMessages).toEqual([{ type: "setNumberSetting", setting: "discovery.timeout", value: 45000 }]);
+	expect(postedCalls()).toEqual([
+		{ method: "setNumberSetting", payload: { setting: "discovery.timeout", value: 45000 } },
+	]);
 });
 
 /** The <section> whose h3 heading starts with the title (the heading also carries its glyphs). */
@@ -364,7 +375,7 @@ function editorSection(root: ParentNode, heading: string): HTMLElement {
 }
 
 test("the filter hides rows by label or description match and collapses emptied groups, all via hidden", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const filter = root.querySelector<HTMLInputElement>(".filterbar input");
 	if (filter === null) {
 		throw new Error("no filter input");
@@ -407,7 +418,7 @@ test("the filter matches the record editor by its key names (nested parameter na
 			effective: { "gpt-4": { temperature: 0.2 } },
 		},
 	});
-	const root = mount(<SettingsSection settings={settings} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={settings} models={[]} />);
 	const filter = root.querySelector<HTMLInputElement>(".filterbar input") as HTMLInputElement;
 
 	// A nested parameter name keeps the parameters editor.
@@ -424,7 +435,7 @@ test("the filter matches the record editor by its key names (nested parameter na
 });
 
 test("zero hits show the no-match line, and a dirty draft survives being filtered away and back", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const filter = root.querySelector<HTMLInputElement>(".filterbar input") as HTMLInputElement;
 	const input = settingInput(root, "chat.timeout");
 
@@ -442,23 +453,23 @@ test("zero hits show the no-match line, and a dirty draft survives being filtere
 });
 
 test("every scalar row carries a settings.json jump that posts revealSetting with its id", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 
 	const jumpOf = (id: string) => rowOf(settingInput(root, id)).querySelector("button.reveal-json");
 	const numberJump = jumpOf("chat.timeout");
 	expect(numberJump?.getAttribute("aria-label")).toBe("Open Request timeout in settings.json");
 	fireClick(numberJump as HTMLButtonElement);
-	expect(postedMessages).toEqual([{ type: "revealSetting", setting: "chat.timeout" }]);
+	expect(postedCalls()).toEqual([{ method: "revealSetting", payload: { setting: "chat.timeout" } }]);
 
 	resetPosted();
 	const booleanJump = jumpOf("chat.promptCaching");
 	expect(booleanJump?.getAttribute("aria-label")).toBe("Open Prompt caching in settings.json");
 	fireClick(booleanJump as HTMLButtonElement);
-	expect(postedMessages).toEqual([{ type: "revealSetting", setting: "chat.promptCaching" }]);
+	expect(postedCalls()).toEqual([{ method: "revealSetting", payload: { setting: "chat.promptCaching" } }]);
 });
 
 test("the capabilities editor renders as a second record editor and applies via setModelCapabilities", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const section = editorSection(root, "Model capabilities");
 
 	// Add matcher opens the full editor overlay; the row is built there.
@@ -472,10 +483,10 @@ test("the capabilities editor renders as a second record editor and applies via 
 	resetPosted();
 	fireClick(buttonByText(section, "Apply"));
 	expect(postedMessages).toHaveLength(1);
-	const posted = postedMessages[0] as { type: string; value: unknown; requestId: unknown };
-	expect(posted.type).toBe("setModelCapabilities");
-	expect(posted.value).toEqual({ "gpt-4*": { context_length: 200000 } });
-	expect(typeof posted.requestId).toBe("string");
+	const posted = postedMessages[0] as RpcRequest<"setModelCapabilities">;
+	expect(posted.method).toBe("setModelCapabilities");
+	expect(posted.payload.value).toEqual({ "gpt-4*": { context_length: 200000 } });
+	expect(typeof posted.id).toBe("string");
 });
 
 test("the catalog row states the snapshot's size and age, and Refresh posts refreshCatalog", () => {
@@ -483,7 +494,7 @@ test("the catalog row states the snapshot's size and age, and Refresh posts refr
 	const settings = makeSettings({
 		catalog: { modelCount: 321, lastSuccessAt: now - 5 * 60 * 1000, refreshing: false },
 	});
-	const root = mount(<SettingsSection settings={settings} models={[]} failures={{}} now={now} />);
+	const root = mount(<SettingsSection settings={settings} models={[]} now={now} />);
 	const row = root.querySelector(".catalog-row") as HTMLElement;
 	expect(row.textContent).toContain("321 catalog models");
 	expect(row.textContent).toContain("updated 5 min ago");
@@ -492,17 +503,17 @@ test("the catalog row states the snapshot's size and age, and Refresh posts refr
 	expect(refresh.disabled).toBe(false);
 	resetPosted();
 	fireClick(refresh);
-	expect(postedMessages).toEqual([{ type: "refreshCatalog" }]);
+	expect(postedCalls()).toEqual([{ method: "refreshCatalog", payload: null }]);
 });
 
 test("the catalog row without a refresh yet names the bundled snapshot; a running refresh disables the button", () => {
 	const bundled = makeSettings({ catalog: { modelCount: 100, lastSuccessAt: undefined, refreshing: false } });
-	const root = mount(<SettingsSection settings={bundled} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={bundled} models={[]} />);
 	expect((root.querySelector(".catalog-row") as HTMLElement).textContent).toContain("bundled snapshot");
 
 	cleanup();
 	const refreshing = makeSettings({ catalog: { modelCount: 100, lastSuccessAt: undefined, refreshing: true } });
-	const busyRoot = mount(<SettingsSection settings={refreshing} models={[]} failures={{}} />);
+	const busyRoot = mount(<SettingsSection settings={refreshing} models={[]} />);
 	const busyRow = busyRoot.querySelector(".catalog-row") as HTMLElement;
 	const busy = Array.from(busyRow.querySelectorAll("button")).find((button) =>
 		(button.textContent ?? "").includes("Refreshing...")
@@ -516,7 +527,7 @@ test("with the catalog setting off the row shows the inert hint instead of the s
 	const settings = makeSettings({
 		booleans: { ...base.booleans, "models.openRouterCatalog": false },
 	});
-	const root = mount(<SettingsSection settings={settings} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={settings} models={[]} />);
 	const row = root.querySelector(".catalog-row") as HTMLElement;
 	expect(row.textContent).toContain("Catalog off:");
 	expect(row.textContent).toContain("_openrouter_model");
@@ -532,14 +543,14 @@ test("a standing catalog failure renders in the row with its classification, nev
 			refreshing: false,
 		},
 	});
-	const root = mount(<SettingsSection settings={settings} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={settings} models={[]} />);
 	const row = root.querySelector(".catalog-row") as HTMLElement;
 	expect(row.querySelector(".error")?.textContent).toBe("Last refresh failed (HTTP 503); serving the cached snapshot.");
 	expect(document.querySelector(".toast")).toBeNull();
 });
 
 test("the record editors live inside the Models group, mirroring the manifest's grouping", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const modelsGroup = Array.from(root.querySelectorAll(".settings-group")).find(
 		(group) => group.querySelector(".settings-group-title")?.textContent === "Models"
 	) as HTMLElement;
@@ -566,7 +577,7 @@ function settingsWithThresholds(alertThresholds: readonly number[]) {
 }
 
 test("the thresholds row renders the stored pair as percents and commits an edited pair sorted on blur", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const { warning, error } = thresholdBoxes(root);
 	expect(warning.value).toBe("80%");
 	expect(error.value).toBe("95%");
@@ -575,7 +586,7 @@ test("the thresholds row renders the stored pair as percents and commits an edit
 	fireInput(warning, "0.9");
 	fireInput(error, "50%");
 	fireBlur(error);
-	expect(postedMessages).toEqual([{ type: "setUsageAlertThresholds", values: [0.5, 0.9] }]);
+	expect(postedCalls()).toEqual([{ method: "setUsageAlertThresholds", payload: { values: [0.5, 0.9] } }]);
 
 	// A draft equal to the stored list posts nothing on commit.
 	resetPosted();
@@ -586,18 +597,18 @@ test("the thresholds row renders the stored pair as percents and commits an edit
 });
 
 test("thresholds accept fractions, percent signs, and bare numbers above 1 as percents", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const { warning, error } = thresholdBoxes(root);
 	fireInput(warning, "75");
 	fireInput(error, "0.9");
 	fireBlur(warning);
-	expect(postedMessages).toEqual([{ type: "setUsageAlertThresholds", values: [0.75, 0.9] }]);
+	expect(postedCalls()).toEqual([{ method: "setUsageAlertThresholds", payload: { values: [0.75, 0.9] } }]);
 });
 
 test("a blur that only moves focus to the sibling box does not commit the half-edited pair", () => {
 	// The two boxes are one draft: committing on the Tab between them would
 	// let the write's own state push resync the pair mid-edit.
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const { warning, error } = thresholdBoxes(root);
 	fireInput(warning, "60%");
 	void act(() => {
@@ -610,11 +621,11 @@ test("a blur that only moves focus to the sibling box does not commit the half-e
 	void act(() => {
 		error.dispatchEvent(new FocusEvent("blur"));
 	});
-	expect(postedMessages).toEqual([{ type: "setUsageAlertThresholds", values: [0.6, 0.9] }]);
+	expect(postedCalls()).toEqual([{ method: "setUsageAlertThresholds", payload: { values: [0.6, 0.9] } }]);
 });
 
 test("one filled box means error-at-that-value: a single-element list plus the inline hint", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const { warning, error } = thresholdBoxes(root);
 
 	// Only Error set.
@@ -622,7 +633,7 @@ test("one filled box means error-at-that-value: a single-element list plus the i
 	fireInput(error, "90%");
 	expect(rowOf(error).textContent).toContain("A single threshold goes straight to the error alert.");
 	fireBlur(error);
-	expect(postedMessages).toEqual([{ type: "setUsageAlertThresholds", values: [0.9] }]);
+	expect(postedCalls()).toEqual([{ method: "setUsageAlertThresholds", payload: { values: [0.9] } }]);
 
 	// Only Warning set: same single-value semantics, same hint.
 	resetPosted();
@@ -630,11 +641,11 @@ test("one filled box means error-at-that-value: a single-element list plus the i
 	fireInput(warning, "60%");
 	expect(rowOf(warning).textContent).toContain("A single threshold goes straight to the error alert.");
 	fireBlur(warning);
-	expect(postedMessages).toEqual([{ type: "setUsageAlertThresholds", values: [0.6] }]);
+	expect(postedCalls()).toEqual([{ method: "setUsageAlertThresholds", payload: { values: [0.6] } }]);
 });
 
 test("a stored single-element list fills the Error box, and equal boxes collapse to one value", () => {
-	const single = mount(<SettingsSection settings={settingsWithThresholds([0.9])} models={[]} failures={{}} />);
+	const single = mount(<SettingsSection settings={settingsWithThresholds([0.9])} models={[]} />);
 	const boxes = thresholdBoxes(single);
 	expect(boxes.warning.value).toBe("");
 	expect(boxes.error.value).toBe("90%");
@@ -642,26 +653,26 @@ test("a stored single-element list fills the Error box, and equal boxes collapse
 
 	cleanup();
 	resetPosted();
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const { warning, error } = thresholdBoxes(root);
 	fireInput(warning, "0.9");
 	fireInput(error, "90%");
 	fireBlur(error);
-	expect(postedMessages).toEqual([{ type: "setUsageAlertThresholds", values: [0.9] }]);
+	expect(postedCalls()).toEqual([{ method: "setUsageAlertThresholds", payload: { values: [0.9] } }]);
 });
 
 test("both boxes emptied turns alerts off: an empty list with the row saying so", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const { warning, error } = thresholdBoxes(root);
 	fireInput(warning, "");
 	fireInput(error, "");
 	expect(rowOf(error).textContent).toContain("Alerts are off.");
 	fireBlur(error);
-	expect(postedMessages).toEqual([{ type: "setUsageAlertThresholds", values: [] }]);
+	expect(postedCalls()).toEqual([{ method: "setUsageAlertThresholds", payload: { values: [] } }]);
 });
 
 test("an invalid threshold shows its error live and never posts: 0, over 100%, and non-numbers reject", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const { warning, error } = thresholdBoxes(root);
 
 	for (const bad of ["0", "150%", "101", "soon"]) {
@@ -685,7 +696,7 @@ test("a hand-written list of 3+ values renders read-only with the values, the hi
 			thresholdsScope: "global",
 		},
 	});
-	const root = mount(<SettingsSection settings={settings} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={settings} models={[]} />);
 	const row = Array.from(root.querySelectorAll(".setting-row")).find((candidate) =>
 		candidate.textContent?.includes("Usage alert thresholds")
 	) as HTMLElement;
@@ -698,7 +709,7 @@ test("a hand-written list of 3+ values renders read-only with the values, the hi
 });
 
 test("the status-bar mode select posts setUsageStatusBar on change", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const select = root.querySelector("#setting-usage\\.statusBar") as HTMLSelectElement;
 	expect(select).not.toBeNull();
 	expect(select.value).toBe("always");
@@ -707,7 +718,7 @@ test("the status-bar mode select posts setUsageStatusBar on change", () => {
 		select.value = "alerts-only";
 		select.dispatchEvent(new Event("change", { bubbles: true }));
 	});
-	expect(postedMessages).toEqual([{ type: "setUsageStatusBar", value: "alerts-only" }]);
+	expect(postedCalls()).toEqual([{ method: "setUsageStatusBar", payload: { value: "alerts-only" } }]);
 });
 
 /** The Import & Export group, addressed as the last settings group (its pinned position). */
@@ -720,7 +731,7 @@ function importExportGroup(root: ParentNode): HTMLElement {
 }
 
 test("the Import & Export group renders last with its hint, and each button posts exactly its command", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const group = importExportGroup(root);
 	expect(group.querySelector(".settings-group-title")?.textContent).toBe("Import & Export");
 	expect(group.querySelector("p.hint")?.textContent).toContain("Export writes your settings to a JSON file");
@@ -733,14 +744,14 @@ test("the Import & Export group renders last with its hint, and each button post
 	}
 
 	fireClick(exportButton);
-	expect(postedMessages).toEqual([{ type: "executeCommand", command: "exportSettings" }]);
+	expect(postedCalls()).toEqual([{ method: "executeCommand", payload: { command: "exportSettings" } }]);
 	resetPosted();
 	fireClick(importButton);
-	expect(postedMessages).toEqual([{ type: "executeCommand", command: "importSettings" }]);
+	expect(postedCalls()).toEqual([{ method: "executeCommand", payload: { command: "importSettings" } }]);
 });
 
 test("the Import & Export group follows the filter: kept by its own words, hidden on a miss, counted by no-match", () => {
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const filter = root.querySelector<HTMLInputElement>(".filterbar input") as HTMLInputElement;
 	const group = importExportGroup(root);
 	expect(group.hidden).toBe(false);

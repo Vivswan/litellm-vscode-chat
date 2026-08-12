@@ -12,7 +12,7 @@ const state = baseState();
 const fixture: RenderFixture = {
 	messages: [
 		{
-			type: "state",
+			kind: "push",
 			state: {
 				...state,
 				settings: {
@@ -21,7 +21,7 @@ const fixture: RenderFixture = {
 				},
 			},
 		},
-		{ type: "focusSection", section: "settings" },
+		{ kind: "focusSection", section: "settings" },
 	],
 	steps: ['document.getElementById("setting-usage.alertThresholds-error-at").scrollIntoView({ block: "center" })'],
 	viewport: { width: 1300, height: 700 },

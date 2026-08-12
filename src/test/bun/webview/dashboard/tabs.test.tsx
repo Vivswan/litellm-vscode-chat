@@ -154,7 +154,7 @@ test("the Usage tab renders the pushed usage snapshot's cards", () => {
 
 test("a focusSection push switches the active tab: the litellm.showDiagnostics deep link", () => {
 	const root = mountApp();
-	pushToWebview({ type: "focusSection", section: "diagnostics" });
+	pushToWebview({ kind: "focusSection", section: "diagnostics" });
 
 	expect(panel(root, "diagnostics").hidden).toBe(false);
 	expect(panel(root, "overview").hidden).toBe(true);
@@ -163,7 +163,7 @@ test("a focusSection push switches the active tab: the litellm.showDiagnostics d
 
 test("a focusSection push naming an unknown section is dropped instead of blanking every panel", () => {
 	const root = mountApp();
-	pushToWebview({ type: "focusSection", section: "definitely-not-a-section" });
+	pushToWebview({ kind: "focusSection", section: "definitely-not-a-section" });
 
 	expect(panel(root, "overview").hidden).toBe(false);
 	expect(tab(root, "Servers & Models").getAttribute("aria-selected")).toBe("true");

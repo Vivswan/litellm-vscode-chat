@@ -2,8 +2,6 @@ import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as l10n from "@vscode/l10n";
 import * as fc from "fast-check";
-import type { HeaderScalar } from "../../../dashboard/protocol";
-import { CONSUMED_CAPABILITY_FIELDS } from "../../../dashboard/protocol";
 import {
 	parseCapabilityGroups,
 	parseGroups,
@@ -12,7 +10,12 @@ import {
 	toGroups,
 	toHeaderRows,
 } from "../../../dashboard/recordDraft";
-import { filterUnrecognizedKeyDiagnostics, lintCapabilityRecords } from "../../../shared/config/capabilityResolution";
+import {
+	CONSUMED_CAPABILITY_FIELDS,
+	filterUnrecognizedKeyDiagnostics,
+	lintCapabilityRecords,
+} from "../../../shared/config/capabilityResolution";
+import type { HeaderScalar } from "../../../shared/util/headers";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;

@@ -8,13 +8,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { render } from "preact";
 import { act } from "preact/test-utils";
-import type { ScopedRecordSetting } from "../../../../dashboard/protocol";
+import type { ScopedRecordSetting } from "../../../../dashboard/viewModels";
 import type { ModelParametersResponse } from "../../../../webview/dashboard/modelInspector";
 import { ModelInspector } from "../../../../webview/dashboard/modelInspector";
 import type { ExternalRecordEdit } from "../../../../webview/dashboard/recordEditors";
 import { ModelParametersEditor } from "../../../../webview/dashboard/recordEditors";
 import { makeModel } from "../fixtures";
-import { buttonByText, cleanup, mount, postedMessages, resetPosted } from "../harness";
+import { buttonByText, cleanup, lastRequest, mount, postedRequests, resetPosted, respondTo } from "../harness";
 
 /** The response's projection payload, named through the message so no resolver module is imported here. */
 type EffectiveParametersProjection = NonNullable<ModelParametersResponse["projection"]>;
@@ -54,7 +54,7 @@ function makeProjection(overrides: Partial<EffectiveParametersProjection> = {}):
 
 /** Render the inspector, answer its readModelParameters post, and return the re-rendered root. */
 function mountAnswered(
-	response: Omit<ModelParametersResponse, "type" | "requestId">,
+	response: ModelParametersResponse,
 	callbacks: {
 		onEditRecord?: (kind: "parameters" | "capabilities", key: string, create: boolean) => void;
 		onEditEntry?: (label: string) => void;
@@ -68,17 +68,8 @@ function mountAnswered(
 		onEditRecord: callbacks.onEditRecord,
 		onEditEntry: callbacks.onEditEntry,
 	};
-	const root = mount(<ModelInspector {...props} paramsResponse={undefined} capsResponse={undefined} />);
-	const read = postedMessages.find((message) => message.type === "readModelParameters") as
-		| { requestId: string }
-		| undefined;
-	if (read === undefined) {
-		throw new Error("the inspector posted no readModelParameters");
-	}
-	const answered = { type: "modelParameters", requestId: read.requestId, ...response } as ModelParametersResponse;
-	void act(() => {
-		render(<ModelInspector {...props} paramsResponse={answered} capsResponse={undefined} />, root);
-	});
+	const root = mount(<ModelInspector {...props} />);
+	respondTo(lastRequest("readModelParameters"), response);
 	return root;
 }
 
@@ -155,21 +146,11 @@ describe("the inspector's capabilities configure-jump", () => {
 			onEditRecord: callbacks.onEditRecord,
 			onEditEntry: callbacks.onEditEntry,
 		};
-		const root = mount(<ModelInspector {...props} paramsResponse={undefined} capsResponse={undefined} />);
-		const read = postedMessages.find((message) => message.type === "readModelCapabilities") as
-			| { requestId: string }
-			| undefined;
-		if (read === undefined) {
-			throw new Error("the inspector posted no readModelCapabilities");
-		}
-		const answered = {
-			type: "modelCapabilities",
-			requestId: read.requestId,
-			...response,
-		} as Parameters<typeof ModelInspector>[0]["capsResponse"];
-		void act(() => {
-			render(<ModelInspector {...props} paramsResponse={undefined} capsResponse={answered} />, root);
-		});
+		const root = mount(<ModelInspector {...props} />);
+		respondTo(
+			lastRequest("readModelCapabilities"),
+			response as Parameters<typeof respondTo<"readModelCapabilities">>[1]
+		);
 		return root;
 	}
 
@@ -240,8 +221,6 @@ describe("the editors' external-edit landing", () => {
 			<ModelParametersEditor
 				scoped={makeScopedRecord({ "gpt-5*": { temperature: 0.3 }, "*": { top_p: 0.9 } })}
 				models={[]}
-				ack={undefined}
-				failure={undefined}
 				external={external}
 			/>
 		);
@@ -287,7 +266,7 @@ describe("the editors' external-edit landing", () => {
 		// The draft group joined the table (sorted view: the exact ID lands
 		// after the glob) but is not applied - drafts only land on Apply.
 		expect(matcherKeys(root)).toEqual(["*", "gpt-5*", "claude-4"]);
-		expect(postedMessages.some((message) => message.type === "setModelParameters")).toBe(false);
+		expect(postedRequests("setModelParameters")).toHaveLength(0);
 	});
 
 	test("a request for a key that vanished (create off) is a no-op", async () => {

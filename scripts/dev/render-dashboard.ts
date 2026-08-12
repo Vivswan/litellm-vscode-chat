@@ -31,7 +31,7 @@ import { RENDER_EPOCH_MS } from "./renderClock.ts";
 
 /** What a fixture module default-exports; `messages` are ExtensionToWebviewMessage objects. */
 export interface RenderFixture {
-	/** Delivered to the page as window "message" events once it posts {type:"ready"}. */
+	/** Delivered to the page as window "message" events once it posts its ready request. */
 	readonly messages: readonly unknown[];
 	/** JS expressions evaluated in the page after the messages settle (awaited when they return promises). */
 	readonly steps?: readonly string[];
@@ -39,10 +39,12 @@ export interface RenderFixture {
 	/** How long to wait after the ready handshake before steps and capture; default 300. */
 	readonly settleMs?: number;
 	/**
-	 * Canned answers for the request/response reads: when the page posts a
-	 * message whose `type` matches a key, the stub dispatches the mapped
-	 * response with the request's `requestId` echoed onto it (the correlation
-	 * the real extension performs). One template per request type.
+	 * Canned answers for posted requests: when the page posts a request whose
+	 * `method` matches a key, the stub dispatches the mapped envelope template
+	 * with the request's `id` and `method` filled in (the correlation the real
+	 * extension performs). A read's template is `{ kind: "response", payload }`;
+	 * an intent outcome's is `{ kind: "ack" | "fail", ... }`. One template per
+	 * method.
 	 */
 	readonly respond?: Readonly<Record<string, unknown>>;
 }
@@ -163,17 +165,20 @@ function stubScript(messages: readonly unknown[], respond: Readonly<Record<strin
 		postMessage(message) {
 			window.__posted = window.__posted || [];
 			window.__posted.push(message);
-			if (message && message.type === "ready") {
+			if (message && message.kind === "request" && message.method === "ready") {
 				for (const data of window.__fixtureMessages) {
 					window.dispatchEvent(new MessageEvent("message", { data }));
 				}
 				window.__ready = true;
 			}
-			// Canned request/response answers: echo the requestId like the
-			// extension's responders, asynchronously so the page's own state
-			// update (the pending requestId) lands first.
-			if (message && message.type && message.requestId && window.__fixtureResponses[message.type]) {
-				const data = Object.assign({}, window.__fixtureResponses[message.type], { requestId: message.requestId });
+			// Canned request answers: fill the request's id and method into the
+			// envelope template, like the extension's responders, asynchronously
+			// so the page's own state update (the pending id) lands first.
+			if (message && message.kind === "request" && message.id && window.__fixtureResponses[message.method]) {
+				const data = Object.assign({}, window.__fixtureResponses[message.method], {
+					id: message.id,
+					method: message.method,
+				});
 				setTimeout(() => window.dispatchEvent(new MessageEvent("message", { data })), 0);
 			}
 		},

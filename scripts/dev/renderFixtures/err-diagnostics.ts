@@ -4,7 +4,7 @@
  * expected two-part error carrying its "(expected)" annotation on the
  * headline line, and a healthy row for contrast.
  */
-import type { DashboardServer, DashboardState } from "../../../src/dashboard/protocol.ts";
+import type { DashboardServer, DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, minutesAgoIso, NO_SECRETS, PROD_SERVER } from "./shared.ts";
 
@@ -45,8 +45,8 @@ const state: DashboardState = baseState({
 
 const fixture: RenderFixture = {
 	messages: [
-		{ type: "state", state },
-		{ type: "focusSection", section: "diagnostics" },
+		{ kind: "push", state },
+		{ kind: "focusSection", section: "diagnostics" },
 	],
 	viewport: { width: 1300, height: 1200 },
 	settleMs: 500,

@@ -171,6 +171,12 @@ const TEMPERATURES = [0.1, 0.25, 0.5, 0.75, 1] as const;
  * declare/redeclare/remove actions already drive the servers setting
  * through its own oracle.
  */
+
+/** One request envelope with a deterministic correlation id (the walks must replay identically). */
+function dashboardRequest(method: string, payload: unknown, id: string): unknown {
+	return { kind: "request", id, method, payload };
+}
+
 function generateDashboardIntent(
 	random: () => number,
 	serial: number
@@ -181,42 +187,58 @@ function generateDashboardIntent(
 		case 0:
 			return {
 				kind: "dashboard-intent",
-				intent: { type: "setNumberSetting", setting: "discovery.cacheTtl", value: 3600000 },
+				intent: dashboardRequest(
+					"setNumberSetting",
+					{ setting: "discovery.cacheTtl", value: 3600000 },
+					`fuzz-${serial}`
+				),
 				expect: "ok",
 			};
 		case 1:
 			return {
 				kind: "dashboard-intent",
-				intent: { type: "setNumberSetting", setting: "discovery.timeout", value: 30000 + (serial % 3) * 2048 },
+				intent: dashboardRequest(
+					"setNumberSetting",
+					{ setting: "discovery.timeout", value: 30000 + (serial % 3) * 2048 },
+					`fuzz-${serial}`
+				),
 				expect: "ok",
 			};
 		case 2:
 			// Below the spec minimum: validateNumberSetting refuses, nothing lands.
 			return {
 				kind: "dashboard-intent",
-				intent: { type: "setNumberSetting", setting: "chat.timeout", value: -1 - serial },
+				intent: dashboardRequest("setNumberSetting", { setting: "chat.timeout", value: -1 - serial }, `fuzz-${serial}`),
 				expect: "validation-error",
 			};
 		case 3:
 			return {
 				kind: "dashboard-intent",
-				intent: { type: "setBooleanSetting", setting: "ui.maskSecretInputs", value: serial % 2 === 0 },
+				intent: dashboardRequest(
+					"setBooleanSetting",
+					{ setting: "ui.maskSecretInputs", value: serial % 2 === 0 },
+					`fuzz-${serial}`
+				),
 				expect: "ok",
 			};
 		case 4:
 			return {
 				kind: "dashboard-intent",
-				intent: { type: "resetSetting", setting: random() < 0.5 ? "discovery.cacheTtl" : "ui.maskSecretInputs" },
+				intent: dashboardRequest(
+					"resetSetting",
+					{ setting: random() < 0.5 ? "discovery.cacheTtl" : "ui.maskSecretInputs" },
+					`fuzz-${serial}`
+				),
 				expect: "ok",
 			};
 		case 5:
 			return {
 				kind: "dashboard-intent",
-				intent: {
-					type: "setModelParameters",
-					value: { [PLAYBACK_MODEL.alias]: { temperature } },
-					requestId: `fuzz-params-${serial}`,
-				},
+				intent: dashboardRequest(
+					"setModelParameters",
+					{ value: { [PLAYBACK_MODEL.alias]: { temperature } } },
+					`fuzz-params-${serial}`
+				),
 				expect: "ok",
 			};
 		case 6:
@@ -225,64 +247,73 @@ function generateDashboardIntent(
 			// action stays JSON-faithful.
 			return {
 				kind: "dashboard-intent",
-				intent: {
-					type: "setModelParameters",
-					value: { constructor: { temperature } },
-					requestId: `fuzz-params-bad-${serial}`,
-				},
+				intent: dashboardRequest(
+					"setModelParameters",
+					{ value: { constructor: { temperature } } },
+					`fuzz-params-bad-${serial}`
+				),
 				expect: "validation-error",
 			};
 		case 7:
 			return {
 				kind: "dashboard-intent",
-				intent: { type: "setNumberSetting", setting: "discovery.cacheTtl", value: 60000 + serial },
+				intent: dashboardRequest(
+					"setNumberSetting",
+					{ setting: "discovery.cacheTtl", value: 60000 + serial },
+					`fuzz-${serial}`
+				),
 				expect: "ok",
 			};
 		case 8:
 			return {
 				kind: "dashboard-intent",
-				intent: { type: "setNumberSetting", setting: "chat.timeout", value: 1 },
+				intent: dashboardRequest("setNumberSetting", { setting: "chat.timeout", value: 1 }, `fuzz-${serial}`),
 				expect: "validation-error",
 			};
 		case 9:
 			return {
 				kind: "dashboard-intent",
-				intent: { type: "executeCommand", command: "syncModels" },
+				intent: dashboardRequest("executeCommand", { command: "syncModels" }, `fuzz-${serial}`),
 				expect: "ok",
 			};
 		case 10:
 			// 0 is the documented polling-off value; larger values just re-arm.
 			return {
 				kind: "dashboard-intent",
-				intent: {
-					type: "setNumberSetting",
-					setting: "usage.pollInterval",
-					value: serial % 2 === 0 ? 0 : 300000 + serial,
-				},
+				intent: dashboardRequest(
+					"setNumberSetting",
+					{ setting: "usage.pollInterval", value: serial % 2 === 0 ? 0 : 300000 + serial },
+					`fuzz-${serial}`
+				),
 				expect: "ok",
 			};
 		case 11:
 			// Below the spec minimum (0): validation refuses, nothing lands.
 			return {
 				kind: "dashboard-intent",
-				intent: { type: "setNumberSetting", setting: "usage.pollInterval", value: -1 - serial },
+				intent: dashboardRequest(
+					"setNumberSetting",
+					{ setting: "usage.pollInterval", value: -1 - serial },
+					`fuzz-${serial}`
+				),
 				expect: "validation-error",
 			};
 		default:
 			return {
 				kind: "dashboard-intent",
-				intent: { type: "removeServerSetting", label: `never-declared-${serial}`, requestId: `monkey-${serial}` },
+				intent: dashboardRequest("removeServerSetting", { label: `never-declared-${serial}` }, `monkey-${serial}`),
 				expect: "validation-error",
 			};
 	}
 }
 
 /**
- * Schema-invalid payloads: every object template carries a wrong-typed or
- * extra field (the strict schemas refuse unknown keys), so nothing here can
- * parse into an intent that acts. The executor still accepts a
- * "validation-error" outcome for junk, because near-valid mutations may
- * legitimately pass the schema and die in value validation instead.
+ * Schema-invalid payloads: junk envelopes, the retired flat message shape,
+ * and near-valid envelopes whose payload carries a wrong-typed or extra field
+ * (the strict schemas refuse unknown keys), so nothing here can parse into a
+ * request that acts. The executor still accepts a "validation-error" outcome
+ * for junk, because near-valid mutations may legitimately pass the schema and
+ * die in value validation instead.
  */
 function generateJunkPayload(random: () => number, serial: number): unknown {
 	const templates: readonly unknown[] = [
@@ -293,15 +324,39 @@ function generateJunkPayload(random: () => number, serial: number): unknown {
 		[serial, "junk"],
 		[],
 		{ type: serial },
-		{ type: "setNumberSetting" },
-		{ type: "setNumberSetting", setting: "chat.timeout", value: `${serial}` },
-		{ type: "ready", extra: serial },
-		{ type: "executeCommand", command: "workbench.action.closeWindow" },
-		{ type: "no-such-intent", value: serial },
-		{ type: { type: "ready" } },
-		{ type: "removeServerSetting", label: serial, requestId: `junk-${serial}` },
-		{ type: "setHeaders", value: { h: { nested: serial } } },
-		{ type: "saveServerSetting", server: { label: `j${serial}` }, secrets: {}, requestId: "" },
+		// The retired flat wire shape must classify as malformed, not act.
+		{ type: "setNumberSetting", setting: "chat.timeout", value: 60000 },
+		{ kind: "request", method: "ready", payload: null },
+		{ kind: "request", id: "", method: "ready", payload: null },
+		{ kind: "request", id: `junk-${serial}`, method: "ready", payload: null, extra: serial },
+		{ kind: "request", id: `junk-${serial}`, method: { method: "ready" }, payload: null },
+		{ kind: "request", id: `junk-${serial}`, method: "no-such-method", payload: { value: serial } },
+		{ kind: "request", id: `junk-${serial}`, method: "setNumberSetting", payload: { setting: "chat.timeout" } },
+		{
+			kind: "request",
+			id: `junk-${serial}`,
+			method: "setNumberSetting",
+			payload: { setting: "chat.timeout", value: `${serial}` },
+		},
+		{
+			kind: "request",
+			id: `junk-${serial}`,
+			method: "executeCommand",
+			payload: { command: "workbench.action.closeWindow" },
+		},
+		{ kind: "request", id: `junk-${serial}`, method: "setHeaders", payload: { value: { h: { nested: serial } } } },
+		{
+			kind: "request",
+			id: `junk-${serial}`,
+			method: "removeServerSetting",
+			payload: { label: serial },
+		},
+		{
+			kind: "request",
+			id: "",
+			method: "saveServerSetting",
+			payload: { server: { label: `j${serial}` }, secrets: {} },
+		},
 	];
 	return structuredClone(templates[Math.floor(random() * templates.length)]);
 }
@@ -1078,17 +1133,17 @@ export class MonkeySession {
 
 	/** Mirror a schema-valid, value-valid dashboard intent's write into the settings oracle. */
 	private recordIntentEffect(intent: unknown): void {
-		const record = intent as { type: string; setting?: string; value?: unknown };
-		switch (record.type) {
+		const request = intent as { method: string; payload?: { setting?: string; value?: unknown } };
+		switch (request.method) {
 			case "setNumberSetting":
 			case "setBooleanSetting":
-				this.expectedSettings.set(expectDefined(record.setting), record.value);
+				this.expectedSettings.set(expectDefined(request.payload?.setting), request.payload?.value);
 				return;
 			case "resetSetting":
-				this.expectedSettings.set(expectDefined(record.setting), UNSET);
+				this.expectedSettings.set(expectDefined(request.payload?.setting), UNSET);
 				return;
 			case "setModelParameters":
-				this.expectedSettings.set(MODEL_PARAMETERS_SETTING_KEY, record.value);
+				this.expectedSettings.set(MODEL_PARAMETERS_SETTING_KEY, request.payload?.value);
 				return;
 			default:
 				return;

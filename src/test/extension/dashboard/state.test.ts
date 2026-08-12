@@ -1,21 +1,18 @@
 import * as assert from "node:assert";
-import type { NumberSettingId } from "../../../dashboard/protocol";
+import type { RequestPayload } from "../../../dashboard/endpoints";
+import { failuresAfterStatePush, isExtensionMessage } from "../../../dashboard/endpoints";
 import {
-	BOOLEAN_SETTING_IDS,
 	draftSyncKey,
 	equivalence,
-	failuresAfterStatePush,
 	formatHeaderValue,
-	isExtensionMessageType,
-	NUMBER_SETTING_IDS,
 	parseHeaderValue,
 	parseJsonValue,
 	parseNumberDraft,
-} from "../../../dashboard/protocol";
+} from "../../../dashboard/presenters";
+import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS } from "../../../dashboard/viewModels";
 import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "../../../extension/dashboard/adopt";
 import { modelScopeKey } from "../../../extension/dashboard/adoptHandle";
-import type { DashboardIntent } from "../../../extension/dashboard/intentSchema";
-import { webviewMessageSchema } from "../../../extension/dashboard/intentSchema";
+import { parseDashboardRequest } from "../../../extension/dashboard/intentSchema";
 import {
 	DashboardValidationError,
 	executeDashboardIntent,
@@ -40,6 +37,7 @@ import type { DeclaredServerView } from "../../../extension/servers/serverSync";
 import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfiguration";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
+import type { NumberSettingId } from "../../../shared/config/settingSpec";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { assertOmits, makeModelInfo } from "../../pureHelpers";
 import { makeServerStatus } from "../../testUtils";
@@ -2190,26 +2188,26 @@ suite("extension/dashboard/state", () => {
 		});
 	});
 
-	suite("webviewMessageSchema", () => {
-		test("accepts every intent shape", () => {
-			const intents: unknown[] = [
-				{ type: "ready" },
-				{ type: "setNumberSetting", setting: "chat.timeout", value: 60000 },
-				{ type: "setBooleanSetting", setting: "chat.promptCaching", value: false },
-				{ type: "resetSetting", setting: "chat.timeout" },
-				{ type: "resetSetting", setting: "ui.maskSecretInputs" },
-				{ type: "revealSetting", setting: "chat.timeout" },
-				{ type: "revealSetting", setting: "chat.promptCaching" },
-				{ type: "revealSetting", setting: "models.parameters" },
-				{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2, stop: ["\n"] } }, requestId: "req-params" },
-				{
-					type: "saveServerSetting",
+	suite("parseDashboardRequest", () => {
+		/** One well-formed request envelope; the payload is the case under test. */
+		const req = (method: string, payload: unknown, id = "req-1"): unknown => ({ kind: "request", id, method, payload });
+
+		test("accepts every request shape", () => {
+			const requests: unknown[] = [
+				req("ready", null),
+				req("setNumberSetting", { setting: "chat.timeout", value: 60000 }),
+				req("setBooleanSetting", { setting: "chat.promptCaching", value: false }),
+				req("resetSetting", { setting: "chat.timeout" }),
+				req("resetSetting", { setting: "ui.maskSecretInputs" }),
+				req("revealSetting", { setting: "chat.timeout" }),
+				req("revealSetting", { setting: "chat.promptCaching" }),
+				req("revealSetting", { setting: "models.parameters" }),
+				req("setModelParameters", { value: { "gpt-4": { temperature: 0.2, stop: ["\n"] } } }),
+				req("saveServerSetting", {
 					server: serverPayload({ label: "Prod", baseUrl: "http://prod.test" }),
 					secrets: KEEP_ALL,
-					requestId: "req-1",
-				},
-				{
-					type: "saveServerSetting",
+				}),
+				req("saveServerSetting", {
 					server: serverPayload({
 						label: "Prod",
 						baseUrl: "http://prod.test",
@@ -2224,88 +2222,82 @@ suite("extension/dashboard/state", () => {
 						virtualKeyValue: { action: "set", location: "settings", value: "vk-1" },
 					},
 					replaceLabel: "Old Prod",
-					requestId: "req-2",
-				},
-				{ type: "removeServerSetting", label: "Prod", requestId: "req-3" },
-				{
-					type: "testServerDraft",
+				}),
+				req("removeServerSetting", { label: "Prod" }),
+				req("testServerDraft", {
 					server: serverPayload({ label: "", baseUrl: "http://prod.test", oauthTokenUrl: "https://idp.test/token" }),
 					secrets: KEEP_ALL,
-					requestId: "req-t",
-				},
-				{
-					type: "testServerDraft",
+				}),
+				req("testServerDraft", {
 					server: serverPayload({ label: "Prod", baseUrl: "http://prod.test" }),
 					secrets: { ...KEEP_ALL, apiKey: { action: "set", location: "secure", value: "sk-1" } },
 					replaceLabel: "Prod",
-					requestId: "req-t2",
-				},
-				{ type: "readInlineSecrets", label: "Prod", requestId: "req-inline" },
-				{
-					type: "adoptServer",
+				}),
+				req("readInlineSecrets", { label: "Prod" }),
+				req("adoptServer", {
 					label: "Adopted",
 					baseUrl: "http://ext.test",
 					sourceHandle: "handle-ext",
 					secrets: { apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "settings" },
-					requestId: "req-4",
-				},
-				{ type: "executeCommand", command: "syncModels" },
+				}),
+				req("executeCommand", { command: "syncModels" }),
 			];
-			for (const intent of intents) {
-				assert.ok(webviewMessageSchema.safeParse(intent).success, `rejected ${JSON.stringify(intent)}`);
+			for (const request of requests) {
+				assert.ok(parseDashboardRequest(request).success, `rejected ${JSON.stringify(request)}`);
 			}
 		});
 
-		test("rejects unknown types, unknown settings, unknown commands, and extra fields", () => {
+		test("rejects junk envelopes, unknown methods, unknown settings, unknown commands, and extra fields", () => {
 			const rejected: unknown[] = [
 				null,
 				"ready",
-				{ type: "detonate" },
-				{ type: "setNumberSetting", setting: "notASetting", value: 1 },
-				{ type: "setNumberSetting", setting: "chat.timeout", value: "1000" },
-				{ type: "setNumberSetting", setting: "chat.timeout", value: Number.POSITIVE_INFINITY },
-				{ type: "setBooleanSetting", setting: "chat.promptCaching", value: "true" },
-				{ type: "resetSetting", setting: "notASetting" },
-				{ type: "resetSetting", setting: "chat.timeout", value: 1 },
+				// The envelope frame itself: only kind "request", a bounded id, and
+				// a table method pass; the old flat message shape is malformed now.
+				{ type: "ready" },
+				{ kind: "ready", id: "r", method: "ready", payload: null },
+				{ kind: "request", method: "ready", payload: null },
+				{ kind: "request", id: "", method: "ready", payload: null },
+				{ kind: "request", id: "x".repeat(129), method: "ready", payload: null },
+				{ kind: "request", id: "r", method: "detonate", payload: null },
+				{ kind: "request", id: "r", method: "ready", payload: null, extra: 1 },
+				{ kind: "request", id: "r", method: "ready" },
+				req("ready", {}),
+				req("detonate", {}),
+				req("setNumberSetting", { setting: "notASetting", value: 1 }),
+				req("setNumberSetting", { setting: "chat.timeout", value: "1000" }),
+				req("setNumberSetting", { setting: "chat.timeout", value: Number.POSITIVE_INFINITY }),
+				req("setBooleanSetting", { setting: "chat.promptCaching", value: "true" }),
+				req("resetSetting", { setting: "notASetting" }),
+				req("resetSetting", { setting: "chat.timeout", value: 1 }),
 				// revealSetting: only classification-listed ids cross - never
 				// arbitrary key text or fully-qualified ids.
-				{ type: "revealSetting", setting: "serverSecrets" },
-				{ type: "revealSetting", setting: "litellm-vscode-chat.chat.timeout" },
-				{ type: "revealSetting" },
-				{ type: "revealSetting", setting: "chat.timeout", extra: 1 },
-				{ type: "setHeaders", value: { "x-bad": { nested: true } } },
-				{ type: "executeCommand", command: "workbench.action.terminal.sendSequence" },
-				{ type: "ready", extra: 1 },
+				req("revealSetting", { setting: "serverSecrets" }),
+				req("revealSetting", { setting: "litellm-vscode-chat.chat.timeout" }),
+				req("revealSetting", {}),
+				req("revealSetting", { setting: "chat.timeout", extra: 1 }),
+				req("setHeaders", { value: { "x-bad": { nested: true } } }),
+				req("executeCommand", { command: "workbench.action.terminal.sendSequence" }),
+				req("ready", { extra: 1 }),
 				// saveServerSetting: strict everywhere, so no field rides along into the setting.
-				{ type: "saveServerSetting", server: { label: "P", baseUrl: "http://x" }, requestId: "r" },
-				{ type: "saveServerSetting", server: { label: "P" }, secrets: KEEP_ALL, requestId: "r" },
-				{ type: "saveServerSetting", server: { baseUrl: "http://x" }, secrets: KEEP_ALL, requestId: "r" },
-				{ type: "saveServerSetting", server: { label: "P", baseUrl: "http://x" }, secrets: KEEP_ALL },
-				{ type: "saveServerSetting", server: { label: "P", baseUrl: "http://x" }, secrets: KEEP_ALL, requestId: "" },
-				{
-					type: "saveServerSetting",
+				req("saveServerSetting", { server: { label: "P", baseUrl: "http://x" } }),
+				req("saveServerSetting", { server: { label: "P" }, secrets: KEEP_ALL }),
+				req("saveServerSetting", { server: { baseUrl: "http://x" }, secrets: KEEP_ALL }),
+				req("saveServerSetting", {
 					server: { label: "P", baseUrl: "http://x", apiKey: "inline-not-allowed-here" },
 					secrets: KEEP_ALL,
-					requestId: "r",
-				},
-				{
-					type: "saveServerSetting",
+				}),
+				req("saveServerSetting", {
 					server: { label: "P", baseUrl: "http://x" },
 					secrets: { ...KEEP_ALL, apiKey: { action: "set", value: "missing-location" } },
-					requestId: "r",
-				},
-				{
-					type: "saveServerSetting",
+				}),
+				req("saveServerSetting", {
 					server: { label: "P", baseUrl: "http://x" },
 					secrets: { ...KEEP_ALL, apiKey: { action: "keep", value: "extra" } },
-					requestId: "r",
-				},
-				{
-					type: "saveServerSetting",
+				}),
+				req("saveServerSetting", {
 					server: { label: "P", baseUrl: "http://x" },
 					secrets: { apiKey: { action: "keep" } },
-					requestId: "r",
-				},
+				}),
 				// The always-sent fields are required: a payload that omits one is
 				// malformed, never a signal to carry stored values forward (a save
 				// rebuilds the whole entry, so an omission-tolerant schema would let
@@ -2314,60 +2306,66 @@ suite("extension/dashboard/state", () => {
 					(omitted) => {
 						const server: Record<string, unknown> = { ...serverPayload({ label: "P", baseUrl: "http://x" }) };
 						delete server[omitted];
-						return { type: "saveServerSetting", server, secrets: KEEP_ALL, requestId: "r" };
+						return req("saveServerSetting", { server, secrets: KEEP_ALL });
 					}
 				),
-				{ type: "removeServerSetting", requestId: "r" },
-				{ type: "removeServerSetting", label: 4, requestId: "r" },
-				{ type: "removeServerSetting", label: "P" },
+				req("removeServerSetting", {}),
+				req("removeServerSetting", { label: 4 }),
+				// The size bounds: no honest value meets them, so anything over is a
+				// hostile page ballooning a settings write.
+				req("removeServerSetting", { label: "x".repeat(1025) }),
+				req("saveServerSetting", {
+					server: serverPayload({ label: "P", baseUrl: `http://x/${"y".repeat(4096)}` }),
+					secrets: KEEP_ALL,
+				}),
+				req("saveServerSetting", {
+					server: serverPayload({ label: "P", baseUrl: "http://x" }),
+					secrets: { ...KEEP_ALL, apiKey: { action: "set", location: "secure", value: "s".repeat(8193) } },
+				}),
+				req("setModelParameters", {
+					value: Object.fromEntries(Array.from({ length: 1025 }, (_, index) => [`m${index}`, {}])),
+				}),
+				req("setModelParameters", { value: { [`m${"x".repeat(512)}`]: {} } }),
+				req("setModelParameters", { value: { "gpt-4": { note: "x".repeat(1024 * 1024) } } }),
+				req("saveServerSetting", {
+					// The closed enum caps the list length: a ballooned duplicate list
+					// must not ride into the setting.
+					server: serverPayload({
+						label: "P",
+						baseUrl: "http://x",
+						expectedFailures: Array.from({ length: 3 }, () => "modelInfo" as const),
+					}),
+					secrets: KEEP_ALL,
+				}),
 				// testServerDraft: the save payload's strictness verbatim - no inline
 				// secret fields on the server object, no unknown fields riding along.
-				{ type: "testServerDraft", server: { label: "P", baseUrl: "http://x" }, requestId: "r" },
-				{ type: "testServerDraft", server: { label: "P", baseUrl: "http://x" }, secrets: KEEP_ALL },
-				{
-					type: "testServerDraft",
+				req("testServerDraft", { server: { label: "P", baseUrl: "http://x" } }),
+				req("testServerDraft", {
 					server: { label: "P", baseUrl: "http://x", apiKey: "inline-not-allowed-here" },
 					secrets: KEEP_ALL,
-					requestId: "r",
-				},
-				{
-					type: "testServerDraft",
+				}),
+				req("testServerDraft", {
 					server: { label: "P", baseUrl: "http://x" },
 					secrets: KEEP_ALL,
-					requestId: "r",
 					extra: 1,
-				},
-				// readInlineSecrets: label and requestId only, nothing rides along.
-				{ type: "readInlineSecrets", requestId: "r" },
-				{ type: "readInlineSecrets", label: "P" },
-				{ type: "readInlineSecrets", label: "P", requestId: "" },
-				{ type: "readInlineSecrets", label: "P", requestId: "r", field: "apiKey" },
+				}),
+				// readInlineSecrets: the label only, nothing rides along.
+				req("readInlineSecrets", {}),
+				req("readInlineSecrets", { label: "P", field: "apiKey" }),
 				// adoptServer: never a credential value, only storage locations.
-				{
-					type: "adoptServer",
-					label: "A",
-					baseUrl: "http://x",
-					sourceHandle: "x",
-					secrets: { apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "secure" },
-				},
-				{
-					type: "adoptServer",
+				req("adoptServer", {
 					label: "A",
 					baseUrl: "http://x",
 					sourceHandle: "x",
 					secrets: { apiKey: "keychain", oauthClientSecret: "secure", virtualKeyValue: "secure" },
-					requestId: "r",
-				},
-				{
-					type: "adoptServer",
+				}),
+				req("adoptServer", {
 					label: "A",
 					baseUrl: "http://x",
 					sourceHandle: "x",
 					secrets: { apiKey: "secure", oauthClientSecret: "secure" },
-					requestId: "r",
-				},
-				{
-					type: "adoptServer",
+				}),
+				req("adoptServer", {
 					label: "A",
 					baseUrl: "http://x",
 					sourceHandle: "x",
@@ -2377,29 +2375,26 @@ suite("extension/dashboard/state", () => {
 						virtualKeyValue: "secure",
 						apiKeyValue: "sk-smuggled",
 					},
-					requestId: "r",
-				},
-				{
-					type: "adoptServer",
+				}),
+				req("adoptServer", {
 					label: "A",
 					baseUrl: "http://x",
 					secrets: { apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "secure" },
-					requestId: "r",
-				},
-				{
-					type: "adoptServer",
+				}),
+				req("adoptServer", {
 					label: "A",
 					baseUrl: "http://x",
 					sourceHandle: "",
 					secrets: { apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "secure" },
-					requestId: "r",
-				},
+				}),
 			];
 			for (const message of rejected) {
+				// The label is truncated: some fixtures are megabytes by design, and
+				// a failure message must stay readable.
 				assert.strictEqual(
-					webviewMessageSchema.safeParse(message).success,
+					parseDashboardRequest(message).success,
 					false,
-					`accepted ${JSON.stringify(message)}`
+					`accepted ${JSON.stringify(message)?.slice(0, 300)}`
 				);
 			}
 		});
@@ -2592,15 +2587,16 @@ suite("extension/dashboard/state", () => {
 		const NO_EXPECTED = { modelInfo: false, modelListing: false };
 		const draftTest = (
 			recorded: RecordedEnv,
-			partial: Partial<Extract<DashboardIntent, { type: "testServerDraft" }>> = {}
+			partial: Partial<RequestPayload<"testServerDraft">> = {}
 		): Promise<string | undefined> =>
 			executeDashboardIntent(
 				{
-					type: "testServerDraft",
-					server: serverPayload({ label: "Prod", baseUrl: "http://prod.test" }),
-					secrets: KEEP_ALL,
-					requestId: "req-t1",
-					...partial,
+					method: "testServerDraft",
+					payload: {
+						server: serverPayload({ label: "Prod", baseUrl: "http://prod.test" }),
+						secrets: KEEP_ALL,
+						...partial,
+					},
 				},
 				recorded.env
 			);
@@ -3163,14 +3159,15 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(failuresAfterStatePush(failures), failures);
 		});
 
-		test("isExtensionMessageType accepts exactly the extension-to-webview discriminants", () => {
-			for (const type of ["state", "inlineSecrets", "intentSucceeded", "intentFailed"]) {
-				assert.ok(isExtensionMessageType(type), type);
+		test("isExtensionMessage accepts exactly the extension-to-webview envelope kinds", () => {
+			for (const kind of ["push", "focusSection", "response", "ack", "fail"]) {
+				assert.ok(isExtensionMessage({ kind }), kind);
 			}
-			assert.ok(!isExtensionMessageType("saveServerSetting"), "webview-to-extension intents are not accepted");
-			assert.ok(!isExtensionMessageType("__proto__"), "inherited names never pass the own-key test");
-			assert.ok(!isExtensionMessageType(undefined));
-			assert.ok(!isExtensionMessageType(42));
+			assert.ok(!isExtensionMessage({ kind: "request" }), "webview-to-extension requests are not accepted");
+			assert.ok(!isExtensionMessage({ kind: "__proto__" }), "inherited names never pass the own-key test");
+			assert.ok(!isExtensionMessage({ type: "state" }), "the retired flat discriminant does not pass");
+			assert.ok(!isExtensionMessage(undefined));
+			assert.ok(!isExtensionMessage(42));
 		});
 
 		test("parseJsonValue is strict JSON with an error for junk and empty input", () => {

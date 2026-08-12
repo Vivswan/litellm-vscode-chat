@@ -5,7 +5,7 @@
  * seam), and the expected-failures banner mixing a two-part and a
  * single-line expected error (the "(expected)" frame carries the headline).
  */
-import type { DashboardServer } from "../../../src/dashboard/protocol.ts";
+import type { DashboardServer } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, minutesAgoIso, NO_SECRETS, PROD_SERVER } from "./shared.ts";
 
@@ -72,7 +72,7 @@ const EXPECTED_SINGLE_LINE: DashboardServer = {
 const fixture: RenderFixture = {
 	messages: [
 		{
-			type: "state",
+			kind: "push",
 			state: baseState({
 				servers: [PROD_SERVER, TWO_PART_404, SINGLE_LINE_REFUSED, EXPECTED_TWO_PART, EXPECTED_SINGLE_LINE],
 			}),

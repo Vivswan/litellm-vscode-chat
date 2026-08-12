@@ -20,7 +20,7 @@ import {
 	FEEDBACK_LINK_REPOSITORY,
 } from "../../../../webview/dashboard/feedbackLinks";
 import { makeDeclaredServer, makeModel, makeState, statePush } from "../fixtures";
-import { buttonByText, cleanup, fireClick, mount, postedMessages, pushToWebview, resetPosted } from "../harness";
+import { buttonByText, cleanup, fireClick, mount, postedCalls, pushToWebview, resetPosted } from "../harness";
 
 beforeEach(() => {
 	resetPosted();
@@ -191,9 +191,10 @@ test("legacy registry leftovers get their line, and a legacy-only world names th
 	expect(panel.textContent).toContain("Servers configured: 0");
 	expect(panel.textContent).toContain("Legacy registry servers: 2");
 	expect(panel.textContent).not.toContain("Not configured");
-	// litellm.testConnection still sweeps the legacy registry, so the button
-	// must not read the legacy-only world as nothing-to-test.
-	expect(buttonByText(root, "Test connection").disabled).toBe(false);
+	// The registry's serving path retires with this release train, so a
+	// registry-only world has nothing durable a connection test could reach;
+	// the button stays disabled.
+	expect(buttonByText(root, "Test connection").disabled).toBe(true);
 });
 
 test("an empty legacy registry earns no legacy line", () => {
@@ -206,7 +207,7 @@ test("Test connection posts its command, and disables with nothing configured", 
 	const root = mountDiagnostics();
 	resetPosted();
 	fireClick(buttonByText(root, "Test connection"));
-	expect(postedMessages).toEqual([{ type: "executeCommand", command: "testConnection" }]);
+	expect(postedCalls()).toEqual([{ method: "executeCommand", payload: { command: "testConnection" } }]);
 
 	cleanup();
 	const empty = mountDiagnostics({});
@@ -235,7 +236,7 @@ test("Open output log posts the openOutput command in place of the old output-ch
 	expect(panel.textContent).not.toContain("Check the LiteLLM output channel");
 	resetPosted();
 	fireClick(buttonByText(root, "Open output log"));
-	expect(postedMessages).toEqual([{ type: "executeCommand", command: "openOutput" }]);
+	expect(postedCalls()).toEqual([{ method: "executeCommand", payload: { command: "openOutput" } }]);
 });
 
 test("Copy diagnostics puts the rendered block on the clipboard as plain text and flashes a check", () => {
@@ -327,7 +328,7 @@ test("Report a bug posts the reportIssue command from the feedback list", () => 
 	);
 	expect(button).toBeDefined();
 	fireClick(button as HTMLButtonElement);
-	expect(postedMessages).toEqual([{ type: "executeCommand", command: "reportIssue" }]);
+	expect(postedCalls()).toEqual([{ method: "executeCommand", payload: { command: "reportIssue" } }]);
 });
 
 test("the external rows link the pinned destinations with decorative glyphs", () => {
@@ -366,7 +367,6 @@ test("an expected failure renders warn-toned with its English (expected) annotat
 			modelCount={2}
 			legacyServerCount={0}
 			diagnostics={[]}
-			resolvedResponse={undefined}
 			active={false}
 			stateSeq={0}
 			onInspect={() => undefined}
@@ -396,7 +396,6 @@ test("an expected failure with nothing declared keeps the Error status but warns
 			modelCount={0}
 			legacyServerCount={0}
 			diagnostics={[]}
-			resolvedResponse={undefined}
 			active={false}
 			stateSeq={0}
 			onInspect={() => undefined}

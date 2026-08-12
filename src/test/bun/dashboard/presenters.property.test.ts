@@ -1,13 +1,8 @@
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import {
-	formatHeaderValue,
-	formatJsonValue,
-	type HeaderScalar,
-	parseHeaderValue,
-	parseJsonValue,
-} from "../../../dashboard/protocol";
+import { formatHeaderValue, formatJsonValue, parseHeaderValue, parseJsonValue } from "../../../dashboard/presenters";
+import type { HeaderScalar } from "../../../shared/util/headers";
 import { isHeaderScalar } from "../../../shared/util/headers";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
@@ -23,7 +18,7 @@ const trimmedString = fc.string({ maxLength: 20 }).map((s) => s.trim());
 
 const headerScalar: fc.Arbitrary<HeaderScalar> = fc.oneof(fc.boolean(), finiteNumber, trimmedString);
 
-describe("dashboard/protocol JSON value properties", () => {
+describe("dashboard/presenters JSON value properties", () => {
 	test("parseJsonValue inverts formatJsonValue over JSON values", () => {
 		fc.assert(
 			fc.property(fc.jsonValue(), (raw) => {
@@ -58,7 +53,7 @@ describe("dashboard/protocol JSON value properties", () => {
 	});
 });
 
-describe("dashboard/protocol header value properties", () => {
+describe("dashboard/presenters header value properties", () => {
 	test("parseHeaderValue inverts formatHeaderValue and preserves the scalar type", () => {
 		fc.assert(
 			fc.property(headerScalar, (value) => {

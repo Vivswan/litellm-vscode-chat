@@ -5,7 +5,7 @@
  * secrets directive.
  */
 
-import type { SaveServerPayload } from "../../../dashboard/protocol";
+import type { SaveServerPayload } from "../../../dashboard/endpoints";
 import type { AdoptableGroupCredentials } from "../../../extension/dashboard/adopt";
 import type { IntentEnvironment } from "../../../extension/dashboard/intents";
 import type { DraftConnection } from "../../../extension/dashboard/testDraftConnection";

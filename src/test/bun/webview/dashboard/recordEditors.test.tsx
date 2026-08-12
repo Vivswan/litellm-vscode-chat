@@ -10,9 +10,8 @@
  * rows block Apply.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { render } from "preact";
 import { act } from "preact/test-utils";
-import { CONSUMED_CAPABILITY_FIELDS } from "../../../../dashboard/protocol";
+import { CONSUMED_CAPABILITY_FIELDS } from "../../../../shared/config/capabilityResolution";
 import { App } from "../../../../webview/dashboard/app";
 import { helpModelParameterPrefix } from "../../../../webview/dashboard/helpText";
 import { CatalogPicker, capabilityKeySuggestions } from "../../../../webview/dashboard/recordEditors";
@@ -25,10 +24,13 @@ import {
 	fireClick,
 	fireInput,
 	fireKeyDown,
+	lastRequest,
 	mount,
+	postedCalls,
 	postedMessages,
 	pushToWebview,
 	resetPosted,
+	respondTo,
 } from "../harness";
 
 beforeEach(() => {
@@ -58,23 +60,22 @@ function settingsWithCaps(value: Record<string, Record<string, unknown>>) {
 	return makeSettings({ modelCapabilities: { editScope: "global", value, otherScopes: [], effective: value } });
 }
 
-/** The posted record writes with their requestIds stripped (each asserted present); Apply mints a fresh ID per post. */
+/** The posted record writes as method+value pairs (each envelope id asserted present); Apply mints a fresh id per post. */
 function postedRecordWrites(): { type: string; value: unknown }[] {
 	return postedMessages.map((message) => {
-		const { requestId, ...rest } = message as { requestId?: unknown; type: string; value: unknown };
-		expect(typeof requestId).toBe("string");
-		return rest;
+		expect(typeof message.id).toBe("string");
+		return { type: message.method, value: (message.payload as { value: unknown }).value };
 	});
 }
 
-/** The last posted write's requestId, for pushing its correlated outcome notice. */
+/** The last posted write's correlation id, for pushing its correlated outcome notice. */
 function lastRequestId(): string {
-	return (postedMessages.at(-1) as { requestId: string }).requestId;
+	return (postedMessages.at(-1) as { id: string }).id;
 }
 
 /** Ack the last posted record write, as the panel does right before its reflecting push. */
-function ackLastWrite(intentType: "setModelParameters" | "setModelCapabilities" = "setModelParameters"): void {
-	pushToWebview({ type: "intentSucceeded", intentType, requestId: lastRequestId() });
+function ackLastWrite(method: "setModelParameters" | "setModelCapabilities" = "setModelParameters"): void {
+	pushToWebview({ kind: "ack", id: lastRequestId(), method });
 }
 
 /** The open matcher editor overlay inside the scope; throws when none is open. */
@@ -708,11 +709,11 @@ test("a failed write's notice never resurfaces on a draft minted after a value-e
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
 	pushToWebview({
-		type: "intentFailed",
-		intentType: "setModelParameters",
+		kind: "fail",
+		id: lastRequestId(),
+		method: "setModelParameters",
 		message: "old refusal.",
-		kind: "validation",
-		requestId: lastRequestId(),
+		failureKind: "validation",
 	});
 	expect(section().textContent).toContain("old refusal.");
 
@@ -1170,11 +1171,11 @@ test("an intentFailed after Apply reopens the draft dirty with the failure note"
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(true);
 
 	pushToWebview({
-		type: "intentFailed",
-		intentType: "setModelParameters",
+		kind: "fail",
+		id: lastRequestId(),
+		method: "setModelParameters",
 		message: "gpt-4: refused by validation.",
-		kind: "validation",
-		requestId: lastRequestId(),
+		failureKind: "validation",
 	});
 	// The draft returns dirty and retryable; a failed write must not render as
 	// applied. Headline and the extension's message render as separate lines.
@@ -1248,11 +1249,11 @@ test("a pristine JSON view follows store pushes; one with local edits is pinned"
 	fireClick(buttonByText(section(), "Apply"));
 	expect(JSON.parse(textarea().value)).toEqual({ mine: { kept: 1 } });
 	pushToWebview({
-		type: "intentFailed",
-		intentType: "setModelParameters",
+		kind: "fail",
+		id: lastRequestId(),
+		method: "setModelParameters",
 		message: "refused.",
-		kind: "validation",
-		requestId: lastRequestId(),
+		failureKind: "validation",
 	});
 	expect(JSON.parse(textarea().value)).toEqual({ mine: { kept: 1 } });
 });
@@ -1347,11 +1348,11 @@ test("Apply feedback: a failure ends the Applying... window along with reopening
 	expect(section().querySelector(".apply-status")?.textContent).toBe("Applying...");
 
 	pushToWebview({
-		type: "intentFailed",
-		intentType: "setModelParameters",
+		kind: "fail",
+		id: lastRequestId(),
+		method: "setModelParameters",
 		message: "refused.",
-		kind: "validation",
-		requestId: lastRequestId(),
+		failureKind: "validation",
 	});
 	expect(section().querySelector(".apply-status")?.textContent).toBe("");
 	expect(section().textContent).toContain("Saving failed - your edits are kept.");
@@ -1371,14 +1372,14 @@ test("a foreign ack or foreign failure leaves an applying draft alone; only its 
 
 	// Another surface's ack (a server save) and a failure with a foreign
 	// requestId must not resolve or reopen this draft.
-	pushToWebview({ type: "intentSucceeded", intentType: "saveServerSetting", requestId: "someone-else" });
+	pushToWebview({ kind: "ack", id: "someone-else", method: "saveServerSetting" });
 	expect(status()).toBe("Applying...");
 	pushToWebview({
-		type: "intentFailed",
-		intentType: "setModelParameters",
+		kind: "fail",
+		id: "someone-else",
+		method: "setModelParameters",
 		message: "not this write.",
-		kind: "validation",
-		requestId: "someone-else",
+		failureKind: "validation",
 	});
 	expect(status()).toBe("Applying...");
 	expect(section().textContent).not.toContain("not this write.");
@@ -1417,11 +1418,11 @@ test("a discarded draft's failure notice never resurfaces on the next edit", () 
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
 	pushToWebview({
-		type: "intentFailed",
-		intentType: "setModelParameters",
+		kind: "fail",
+		id: lastRequestId(),
+		method: "setModelParameters",
 		message: "stale refusal.",
-		kind: "validation",
-		requestId: lastRequestId(),
+		failureKind: "validation",
 	});
 	expect(section().textContent).toContain("stale refusal.");
 
@@ -1597,11 +1598,11 @@ test("each editor heading carries a settings.json jump posting revealSetting wit
 	expect(paramsJump?.getAttribute("aria-label")).toBe("Open Model parameters in settings.json");
 	resetPosted();
 	fireClick(paramsJump as HTMLButtonElement);
-	expect(postedMessages).toEqual([{ type: "revealSetting", setting: "models.parameters" }]);
+	expect(postedCalls()).toEqual([{ method: "revealSetting", payload: { setting: "models.parameters" } }]);
 });
 
 test("the settings filter hides an editor with a dirty draft via hidden, and the draft applies after unhiding", () => {
-	const root = mount(<SettingsSection settings={settingsWithParams({})} models={[]} failures={{}} />);
+	const root = mount(<SettingsSection settings={settingsWithParams({})} models={[]} />);
 	const section = () => sectionByHeading(root, "Model parameters");
 
 	// A half-typed draft (built through the overlay)...
@@ -1644,8 +1645,9 @@ test("the capabilities editor applies via setModelCapabilities through the same 
 // === The catalog picker component ===
 
 test("the catalog picker debounces searchCatalog and picking a result writes the ID", async () => {
+	const picked: string[] = [];
 	const root = mount(
-		<CatalogPicker value="gpt" disabled={false} invalid={false} results={undefined} onValue={() => {}} debounceMs={1} />
+		<CatalogPicker value="gpt" disabled={false} invalid={false} onValue={(next) => picked.push(next)} debounceMs={1} />
 	);
 	const input = root.querySelector("input") as HTMLInputElement;
 	void act(() => {
@@ -1654,29 +1656,11 @@ test("the catalog picker debounces searchCatalog and picking a result writes the
 	// Under the debounce window nothing is posted yet.
 	expect(postedMessages).toEqual([]);
 	await new Promise((resolve) => setTimeout(resolve, 20));
-	const request = postedMessages.at(-1) as unknown as { type: string; query: string; requestId: string };
-	expect(request.type).toBe("searchCatalog");
-	expect(request.query).toBe("gpt");
+	const request = lastRequest("searchCatalog");
+	expect(request.payload.query).toBe("gpt");
 
 	// The correlated response renders the result list; picking writes the ID.
-	const picked: string[] = [];
-	void act(() => {
-		render(
-			<CatalogPicker
-				value="gpt"
-				disabled={false}
-				invalid={false}
-				results={{
-					type: "catalogSearchResults",
-					requestId: request.requestId,
-					results: [{ id: "openai/gpt-4o", name: "GPT-4o" }],
-				}}
-				onValue={(next) => picked.push(next)}
-				debounceMs={1}
-			/>,
-			root
-		);
-	});
+	respondTo(request, { results: [{ id: "openai/gpt-4o", name: "GPT-4o" }] });
 	const option = root.querySelector(".catalog-results button") as HTMLButtonElement;
 	expect(option?.textContent).toContain("openai/gpt-4o");
 	void act(() => {
@@ -1685,17 +1669,19 @@ test("the catalog picker debounces searchCatalog and picking a result writes the
 	expect(picked).toEqual(["openai/gpt-4o"]);
 });
 
-test("a stale catalog response for another request renders no result list", () => {
-	const root = mount(
-		<CatalogPicker
-			value="gpt"
-			disabled={false}
-			invalid={false}
-			results={{ type: "catalogSearchResults", requestId: "stale", results: [{ id: "x", name: "X" }] }}
-			onValue={() => {}}
-			debounceMs={1}
-		/>
-	);
+test("a stale catalog response for another request renders no result list", async () => {
+	const root = mount(<CatalogPicker value="gpt" disabled={false} invalid={false} onValue={() => {}} debounceMs={1} />);
+	const input = root.querySelector("input") as HTMLInputElement;
+	void act(() => {
+		input.dispatchEvent(new Event("focus"));
+	});
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	pushToWebview({
+		kind: "response",
+		id: "stale",
+		method: "searchCatalog",
+		payload: { results: [{ id: "x", name: "X" }] },
+	});
 	expect(root.querySelector(".catalog-results")).toBeNull();
 });
 
@@ -1709,40 +1695,18 @@ test("the catalog picker is keyboard-operable: arrows move the highlight, Enter 
 	};
 	document.addEventListener("keydown", listener);
 	const root = mount(
-		<CatalogPicker
-			value="gpt"
-			disabled={false}
-			invalid={false}
-			results={undefined}
-			onValue={(id) => picked.push(id)}
-			debounceMs={1}
-		/>
+		<CatalogPicker value="gpt" disabled={false} invalid={false} onValue={(id) => picked.push(id)} debounceMs={1} />
 	);
 	const input = root.querySelector("input") as HTMLInputElement;
 	void act(() => {
 		input.dispatchEvent(new Event("focus"));
 	});
 	await new Promise((resolve) => setTimeout(resolve, 20));
-	const request = postedMessages.at(-1) as unknown as { requestId: string };
-	void act(() => {
-		render(
-			<CatalogPicker
-				value="gpt"
-				disabled={false}
-				invalid={false}
-				results={{
-					type: "catalogSearchResults",
-					requestId: request.requestId,
-					results: [
-						{ id: "openai/gpt-4o", name: "GPT-4o" },
-						{ id: "openai/gpt-4o-mini", name: "GPT-4o mini" },
-					],
-				}}
-				onValue={(id) => picked.push(id)}
-				debounceMs={1}
-			/>,
-			root
-		);
+	respondTo(lastRequest("searchCatalog"), {
+		results: [
+			{ id: "openai/gpt-4o", name: "GPT-4o" },
+			{ id: "openai/gpt-4o-mini", name: "GPT-4o mini" },
+		],
 	});
 	try {
 		// An open result list consumes Escape (inside a chip popover or a
@@ -1755,31 +1719,16 @@ test("the catalog picker is keyboard-operable: arrows move the highlight, Enter 
 		expect(escapes).toEqual(["Escape"]);
 
 		// Reopen with a fresh correlated response for the keyboard pick path
-		// (closing cleared the request ID, so the old response went stale).
+		// (closing orphaned the in-flight request, so the old response went stale).
 		void act(() => {
 			input.dispatchEvent(new Event("focus"));
 		});
 		await new Promise((resolve) => setTimeout(resolve, 20));
-		const reopened = postedMessages.at(-1) as unknown as { requestId: string };
-		void act(() => {
-			render(
-				<CatalogPicker
-					value="gpt"
-					disabled={false}
-					invalid={false}
-					results={{
-						type: "catalogSearchResults",
-						requestId: reopened.requestId,
-						results: [
-							{ id: "openai/gpt-4o", name: "GPT-4o" },
-							{ id: "openai/gpt-4o-mini", name: "GPT-4o mini" },
-						],
-					}}
-					onValue={(id) => picked.push(id)}
-					debounceMs={1}
-				/>,
-				root
-			);
+		respondTo(lastRequest("searchCatalog"), {
+			results: [
+				{ id: "openai/gpt-4o", name: "GPT-4o" },
+				{ id: "openai/gpt-4o-mini", name: "GPT-4o mini" },
+			],
 		});
 		fireKeyDown(input, "ArrowDown");
 		fireKeyDown(input, "ArrowDown");

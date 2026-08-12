@@ -3,7 +3,7 @@
  * carries model parameters AND capabilities, so both disclosures open with
  * their compact matcher tables (chips wrap in the narrow panel).
  */
-import type { DashboardServer, DashboardState } from "../../../src/dashboard/protocol.ts";
+import type { DashboardServer, DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, MODELS, PROD_SERVER } from "./shared.ts";
 
@@ -30,7 +30,7 @@ const state: DashboardState = baseState({
 });
 
 const fixture: RenderFixture = {
-	messages: [{ type: "state", state }],
+	messages: [{ kind: "push", state }],
 	steps: [
 		`Array.from(document.querySelectorAll("button")).find((b) => b.textContent.trim() === "Edit").click()`,
 		`(() => {

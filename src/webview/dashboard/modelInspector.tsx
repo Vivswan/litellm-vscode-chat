@@ -27,46 +27,46 @@ import * as l10n from "@vscode/l10n";
 import type { ComponentChildren } from "preact";
 import { Fragment } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
+import type { ResponseFor } from "../../dashboard/endpoints";
+import { formatJsonValue } from "../../dashboard/presenters";
+import type { DashboardModel, RecordChainView } from "../../dashboard/viewModels";
+import {
+	COST_CAPABILITY_FIELDS,
+	capabilityDisplayLabel,
+	formatCostPerMillion,
+	isCostCapabilityField,
+	parameterCountText,
+} from "../../shared/config/capabilityDisplay";
 import type {
 	CapabilityDiagnostic,
 	CapabilityJsonValue,
 	CapabilityLevel,
-	DashboardModel,
 	EffectiveCapabilities,
 	EffectiveCapabilityField,
+	ShadowedCapabilityValue,
+} from "../../shared/config/capabilityResolution";
+import { capabilityField, FALLBACK_DIRECTIVE } from "../../shared/config/capabilityResolution";
+import type {
 	EffectiveParameterRow,
-	ExtensionToWebviewMessage,
 	ParameterDiagnostic,
 	ParameterSourceRef,
 	ProjectedMaxTokens,
-	RecordChainView,
-	ShadowedCapabilityValue,
 	ShadowedParameterValue,
-} from "../../dashboard/protocol";
-import {
-	COST_CAPABILITY_FIELDS,
-	capabilityDisplayLabel,
-	capabilityField,
-	DEFAULT_MAX_TOKENS_CAP,
-	FALLBACK_DIRECTIVE,
-	formatCostPerMillion,
-	formatJsonValue,
-	isCostCapabilityField,
-	parameterCountText,
-} from "../../dashboard/protocol";
+} from "../../shared/config/parameterResolution";
+import { DEFAULT_MAX_TOKENS_CAP } from "../../shared/config/parameterResolution";
 import { DOCS_LINK_CAPS_INSPECTOR, DOCS_LINK_PARAMS_INSPECTOR } from "./docsLinks";
 import { DocsLink, Help, HoverTip } from "./help";
 import { helpCapsInspector, helpParamsInspector } from "./helpText";
+import { useRpc } from "./hooks";
 import { capabilityList, formatTokens } from "./models";
 import { chainsWithStory, RecordChainFigure } from "./recordChain";
 import { SlideOver } from "./slideOver";
-import { newRequestId, postMessage } from "./vscodeApi";
 
-/** The latest modelParameters response; the inspector matches it against its own request ID. */
-export type ModelParametersResponse = Extract<ExtensionToWebviewMessage, { type: "modelParameters" }>;
+/** The readModelParameters answer; the inspector's own useRpc instance correlates it. */
+export type ModelParametersResponse = ResponseFor<"readModelParameters">;
 
-/** The latest modelCapabilities response; the inspector matches it against its own request ID. */
-export type ModelCapabilitiesResponse = Extract<ExtensionToWebviewMessage, { type: "modelCapabilities" }>;
+/** The readModelCapabilities answer; the inspector's own useRpc instance correlates it. */
+export type ModelCapabilitiesResponse = ResponseFor<"readModelCapabilities">;
 
 /** The panel's addressable sections; the Diagnostics table's jump links land on one. */
 export type InspectorSection = "params" | "caps";
@@ -705,8 +705,6 @@ function RecordPathsDetails({
 
 export function ModelInspector({
 	model,
-	paramsResponse,
-	capsResponse,
 	stateSeq,
 	anchor,
 	fallbackFocusId = "models-section",
@@ -715,10 +713,6 @@ export function ModelInspector({
 	onEditEntry,
 }: {
 	model: DashboardModel;
-	/** The latest modelParameters response App holds; matched against this inspector's own requestId. */
-	paramsResponse: ModelParametersResponse | undefined;
-	/** The latest modelCapabilities response App holds; matched against this inspector's own requestId. */
-	capsResponse: ModelCapabilitiesResponse | undefined;
 	/** Bumped on every state push; the inspector re-requests both feeds so an open panel follows configuration edits. */
 	stateSeq: number;
 	/** Which section the panel scrolls to on open (the Diagnostics jump links); absent, it opens at the top. */
@@ -731,8 +725,11 @@ export function ModelInspector({
 	/** Jump into a server entry's edit form (the owner of entry-layer values). */
 	onEditEntry?: ((label: string) => void) | undefined;
 }) {
-	const [paramsRequestId, setParamsRequestId] = useState<string | undefined>(undefined);
-	const [capsRequestId, setCapsRequestId] = useState<string | undefined>(undefined);
+	// The two feeds are two independent hook instances: each holds its own
+	// in-flight id, so a slow capabilities answer never orphans a fast
+	// parameters one.
+	const paramsRpc = useRpc("readModelParameters");
+	const capsRpc = useRpc("readModelCapabilities");
 	// The disclosures' controlled open state (see RecordPathsDetails), one per section.
 	const [paramsPathsOpen, setParamsPathsOpen] = useState(false);
 	const [capsPathsOpen, setCapsPathsOpen] = useState(false);
@@ -740,21 +737,17 @@ export function ModelInspector({
 	// One request pair per inspected model AND per state push: the push means
 	// the stores may have moved (a settings edit, a discovery pass), and an
 	// open inspector must follow instead of showing the pre-edit values. A
-	// stale response is ignored by its requestId.
+	// re-send orphans the stale answer (latest wins inside the hook).
 	const { scopeKey, rawId } = model;
+	const sendParams = paramsRpc.send;
+	const sendCaps = capsRpc.send;
 	useEffect(() => {
-		const paramsId = newRequestId();
-		setParamsRequestId(paramsId);
-		postMessage({ type: "readModelParameters", scopeKey, rawId, requestId: paramsId });
-		const capsId = newRequestId();
-		setCapsRequestId(capsId);
-		postMessage({ type: "readModelCapabilities", scopeKey, rawId, requestId: capsId });
-	}, [scopeKey, rawId, stateSeq]);
+		sendParams({ scopeKey, rawId });
+		sendCaps({ scopeKey, rawId });
+	}, [scopeKey, rawId, stateSeq, sendParams, sendCaps]);
 
-	const answeredParams =
-		paramsRequestId !== undefined && paramsResponse?.requestId === paramsRequestId ? paramsResponse : undefined;
-	const answeredCaps =
-		capsRequestId !== undefined && capsResponse?.requestId === capsRequestId ? capsResponse : undefined;
+	const answeredParams = paramsRpc.data;
+	const answeredCaps = capsRpc.data;
 	const projection = answeredParams?.projection;
 	const caps = answeredCaps?.capabilities;
 

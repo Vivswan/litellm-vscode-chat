@@ -10,18 +10,20 @@ import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, worstCaseCapabilityFields } from "./shared.ts";
 
 const fixture: RenderFixture = {
-	messages: [{ type: "state", state: baseState() }],
+	messages: [{ kind: "push", state: baseState() }],
 	respond: {
 		readModelCapabilities: {
-			type: "modelCapabilities",
-			globalRecordKey: "gpt-5*",
-			capabilities: {
-				fields: worstCaseCapabilityFields(),
-				outputLimitSource: "provider",
-				diagnostics: [
-					{ kind: "unrecognized-key", key: "supports_web_search", layer: "global", recordKey: "gpt-5*" },
-					{ kind: "invalid-value", key: "output_cost_per_token", layer: "global", recordKey: "gpt-5*" },
-				],
+			kind: "response",
+			payload: {
+				globalRecordKey: "gpt-5*",
+				capabilities: {
+					fields: worstCaseCapabilityFields(),
+					outputLimitSource: "provider",
+					diagnostics: [
+						{ kind: "unrecognized-key", key: "supports_web_search", layer: "global", recordKey: "gpt-5*" },
+						{ kind: "invalid-value", key: "output_cost_per_token", layer: "global", recordKey: "gpt-5*" },
+					],
+				},
 			},
 		},
 	},

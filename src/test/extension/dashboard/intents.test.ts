@@ -1,9 +1,9 @@
 import * as assert from "node:assert";
-import { DASHBOARD_COMMAND_IDS } from "../../../dashboard/protocol";
+import type { DashboardIntent, RequestPayload } from "../../../dashboard/endpoints";
+import { DASHBOARD_COMMAND_IDS } from "../../../dashboard/endpoints";
 import type { ServerFormDraft } from "../../../dashboard/serverForm";
 import { applyInlinePrefill, EMPTY_SERVER_FORM, parseServerForm } from "../../../dashboard/serverForm";
 import type { AdoptableGroupCredentials } from "../../../extension/dashboard/adopt";
-import type { DashboardIntent } from "../../../extension/dashboard/intentSchema";
 import {
 	DashboardOperationError,
 	executeDashboardIntent,
@@ -22,7 +22,10 @@ suite("extension/dashboard/intents", () => {
 	suite("executeDashboardIntent", () => {
 		test("setNumberSetting writes the setting key verbatim", async () => {
 			const recorded = makeEnv();
-			await executeDashboardIntent({ type: "setNumberSetting", setting: "chat.timeout", value: 120000 }, recorded.env);
+			await executeDashboardIntent(
+				{ method: "setNumberSetting", payload: { setting: "chat.timeout", value: 120000 } },
+				recorded.env
+			);
 
 			assert.deepStrictEqual(recorded.updates, [["chat.timeout", 120000]]);
 			assert.deepStrictEqual(recorded.commands, []);
@@ -31,7 +34,10 @@ suite("extension/dashboard/intents", () => {
 		test("setNumberSetting refuses values below the minimum without writing", async () => {
 			const recorded = makeEnv();
 			await assert.rejects(
-				executeDashboardIntent({ type: "setNumberSetting", setting: "chat.timeout", value: 1 }, recorded.env)
+				executeDashboardIntent(
+					{ method: "setNumberSetting", payload: { setting: "chat.timeout", value: 1 } },
+					recorded.env
+				)
 			);
 
 			assert.deepStrictEqual(recorded.updates, []);
@@ -40,7 +46,7 @@ suite("extension/dashboard/intents", () => {
 		test("setBooleanSetting writes the dotted key", async () => {
 			const recorded = makeEnv();
 			await executeDashboardIntent(
-				{ type: "setBooleanSetting", setting: "chat.promptCaching", value: false },
+				{ method: "setBooleanSetting", payload: { setting: "chat.promptCaching", value: false } },
 				recorded.env
 			);
 
@@ -49,8 +55,11 @@ suite("extension/dashboard/intents", () => {
 
 		test("resetSetting removes the key through removeSetting, never a value write", async () => {
 			const recorded = makeEnv();
-			await executeDashboardIntent({ type: "resetSetting", setting: "chat.timeout" }, recorded.env);
-			await executeDashboardIntent({ type: "resetSetting", setting: "ui.maskSecretInputs" }, recorded.env);
+			await executeDashboardIntent({ method: "resetSetting", payload: { setting: "chat.timeout" } }, recorded.env);
+			await executeDashboardIntent(
+				{ method: "resetSetting", payload: { setting: "ui.maskSecretInputs" } },
+				recorded.env
+			);
 
 			assert.deepStrictEqual(recorded.removals, ["chat.timeout", "ui.maskSecretInputs"]);
 			assert.deepStrictEqual(recorded.updates, []);
@@ -59,8 +68,11 @@ suite("extension/dashboard/intents", () => {
 
 		test("revealSetting executes the internal open-setting command with the bare key as its argument", async () => {
 			const recorded = makeEnv();
-			await executeDashboardIntent({ type: "revealSetting", setting: "chat.timeout" }, recorded.env);
-			await executeDashboardIntent({ type: "revealSetting", setting: "models.parameters" }, recorded.env);
+			await executeDashboardIntent({ method: "revealSetting", payload: { setting: "chat.timeout" } }, recorded.env);
+			await executeDashboardIntent(
+				{ method: "revealSetting", payload: { setting: "models.parameters" } },
+				recorded.env
+			);
 
 			assert.deepStrictEqual(recorded.commands, [
 				["litellm.openSettingKey", "chat.timeout"],
@@ -75,7 +87,7 @@ suite("extension/dashboard/intents", () => {
 		test("setModelParameters writes the whole record", async () => {
 			const recorded = makeEnv();
 			const params = { "gpt-4": { temperature: 0.2 } };
-			await executeDashboardIntent({ type: "setModelParameters", value: params, requestId: "r-params" }, recorded.env);
+			await executeDashboardIntent({ method: "setModelParameters", payload: { value: params } }, recorded.env);
 
 			assert.deepStrictEqual(recorded.updates, [["models.parameters", params]]);
 		});
@@ -85,9 +97,8 @@ suite("extension/dashboard/intents", () => {
 			await assert.rejects(
 				executeDashboardIntent(
 					{
-						type: "setModelParameters",
-						value: JSON.parse('{"__proto__": {}}') as Record<string, Record<string, unknown>>,
-						requestId: "r-params-bad",
+						method: "setModelParameters",
+						payload: { value: JSON.parse('{"__proto__": {}}') as Record<string, Record<string, unknown>> },
 					},
 					recorded.env
 				)
@@ -101,9 +112,8 @@ suite("extension/dashboard/intents", () => {
 			await assert.rejects(
 				executeDashboardIntent(
 					{
-						type: "setModelCapabilities",
-						value: JSON.parse('{"__proto__": {}}') as Record<string, Record<string, unknown>>,
-						requestId: "r-caps-bad",
+						method: "setModelCapabilities",
+						payload: { value: JSON.parse('{"__proto__": {}}') as Record<string, Record<string, unknown>> },
 					},
 					recorded.env
 				)
@@ -116,31 +126,34 @@ suite("extension/dashboard/intents", () => {
 			const recorded = makeEnv();
 			for (const values of [[0], [1.5], [0.8, -1]]) {
 				await assert.rejects(
-					executeDashboardIntent({ type: "setUsageAlertThresholds", values }, recorded.env),
+					executeDashboardIntent({ method: "setUsageAlertThresholds", payload: { values } }, recorded.env),
 					/allowed range 0 < value <= 1/
 				);
 			}
 			assert.deepStrictEqual(recorded.updates, []);
 
-			await executeDashboardIntent({ type: "setUsageAlertThresholds", values: [0.95, 0.8, 0.95] }, recorded.env);
+			await executeDashboardIntent(
+				{ method: "setUsageAlertThresholds", payload: { values: [0.95, 0.8, 0.95] } },
+				recorded.env
+			);
 			assert.deepStrictEqual(recorded.updates, [["usage.alertThresholds", [0.8, 0.95]]]);
 		});
 
 		test("every command ID maps to an allow-listed command", async () => {
 			const recorded = makeEnv();
 			const intents: DashboardIntent[] = [
-				{ type: "executeCommand", command: "openGroupsFile" },
-				{ type: "executeCommand", command: "syncModels" },
-				{ type: "executeCommand", command: "testConnection" },
-				{ type: "executeCommand", command: "openSettings" },
-				{ type: "executeCommand", command: "reportIssue" },
-				{ type: "executeCommand", command: "openOutput" },
-				{ type: "executeCommand", command: "exportSettings" },
-				{ type: "executeCommand", command: "importSettings" },
+				{ method: "executeCommand", payload: { command: "openGroupsFile" } },
+				{ method: "executeCommand", payload: { command: "syncModels" } },
+				{ method: "executeCommand", payload: { command: "testConnection" } },
+				{ method: "executeCommand", payload: { command: "openSettings" } },
+				{ method: "executeCommand", payload: { command: "reportIssue" } },
+				{ method: "executeCommand", payload: { command: "openOutput" } },
+				{ method: "executeCommand", payload: { command: "exportSettings" } },
+				{ method: "executeCommand", payload: { command: "importSettings" } },
 			];
 			// Completeness guard: a new dashboard command id must join this table.
 			assert.deepStrictEqual(
-				intents.map((intent) => (intent.type === "executeCommand" ? intent.command : undefined)),
+				intents.map((intent) => (intent.method === "executeCommand" ? intent.payload.command : undefined)),
 				[...DASHBOARD_COMMAND_IDS]
 			);
 			for (const intent of intents) {
@@ -163,15 +176,16 @@ suite("extension/dashboard/intents", () => {
 	suite("executeDashboardIntent: the servers setting", () => {
 		const save = (
 			recorded: RecordedEnv,
-			partial: Partial<Extract<DashboardIntent, { type: "saveServerSetting" }>>
+			partial: Partial<RequestPayload<"saveServerSetting">>
 		): Promise<string | undefined> =>
 			executeDashboardIntent(
 				{
-					type: "saveServerSetting",
-					server: serverPayload({ label: "Prod", baseUrl: "http://prod.test" }),
-					secrets: KEEP_ALL,
-					requestId: "req-1",
-					...partial,
+					method: "saveServerSetting",
+					payload: {
+						server: serverPayload({ label: "Prod", baseUrl: "http://prod.test" }),
+						secrets: KEEP_ALL,
+						...partial,
+					},
 				},
 				recorded.env
 			);
@@ -421,7 +435,7 @@ suite("extension/dashboard/intents", () => {
 			assert.strictEqual(prefilled.apiKey.value, "sk-inline", "the form shows the inline value");
 			const assembled = parseClean(prefilled, "Prod");
 			assert.deepStrictEqual(assembled.secrets.apiKey, { action: "keep" }, "untouched prefill assembles as keep");
-			await executeDashboardIntent({ type: "saveServerSetting", ...assembled, requestId: "req-rt" }, recorded.env);
+			await executeDashboardIntent({ method: "saveServerSetting", payload: { ...assembled } }, recorded.env);
 
 			assert.deepStrictEqual(recorded.serverWrites, [[entry]], "the value survives unchanged, storage stays inline");
 			assert.deepStrictEqual(recorded.secretOps, [], "no secure-side traffic for an untouched prefill");
@@ -442,7 +456,7 @@ suite("extension/dashboard/intents", () => {
 			const edited = { ...prefilled, apiKey: { ...prefilled.apiKey, value: "sk-rotated" } };
 			const assembled = parseClean(edited, "Prod");
 			assert.deepStrictEqual(assembled.secrets.apiKey, { action: "set", location: "settings", value: "sk-rotated" });
-			await executeDashboardIntent({ type: "saveServerSetting", ...assembled, requestId: "req-rt2" }, recorded.env);
+			await executeDashboardIntent({ method: "saveServerSetting", payload: { ...assembled } }, recorded.env);
 
 			assert.deepStrictEqual(recorded.serverWrites, [
 				[{ label: "Prod", baseUrl: "http://prod.test", auth: { apiKey: "sk-rotated" } }],
@@ -630,7 +644,7 @@ suite("extension/dashboard/intents", () => {
 			assert.deepStrictEqual(edited.serverWrites, [[{ label: "Prod", baseUrl: "http://prod.test" }]]);
 
 			const removed = makeEnv([{ label: " Prod ", baseUrl: "http://old.test" }]);
-			await executeDashboardIntent({ type: "removeServerSetting", label: "Prod", requestId: "req-9" }, removed.env);
+			await executeDashboardIntent({ method: "removeServerSetting", payload: { label: "Prod" } }, removed.env);
 			assert.deepStrictEqual(removed.serverWrites, [[]]);
 		});
 
@@ -826,7 +840,7 @@ suite("extension/dashboard/intents", () => {
 				"junk",
 				{ label: "B", baseUrl: "http://b.test" },
 			]);
-			await executeDashboardIntent({ type: "removeServerSetting", label: "A", requestId: "req-2" }, recorded.env);
+			await executeDashboardIntent({ method: "removeServerSetting", payload: { label: "A" } }, recorded.env);
 
 			assert.deepStrictEqual(recorded.serverWrites, [["junk", { label: "B", baseUrl: "http://b.test" }]]);
 			assert.deepStrictEqual(recorded.secretOps, []);
@@ -837,7 +851,7 @@ suite("extension/dashboard/intents", () => {
 		test("removing a label the setting does not hold refuses without writing", async () => {
 			const recorded = makeEnv([{ label: "A", baseUrl: "http://a.test" }]);
 			await assert.rejects(
-				executeDashboardIntent({ type: "removeServerSetting", label: "External", requestId: "req-3" }, recorded.env)
+				executeDashboardIntent({ method: "removeServerSetting", payload: { label: "External" } }, recorded.env)
 			);
 
 			assert.deepStrictEqual(recorded.serverWrites, []);
@@ -857,17 +871,18 @@ suite("extension/dashboard/intents", () => {
 
 		const adopt = (
 			recorded: RecordedEnv,
-			partial: Partial<Extract<DashboardIntent, { type: "adoptServer" }>> = {}
+			partial: Partial<RequestPayload<"adoptServer">> = {}
 		): Promise<string | undefined> =>
 			executeDashboardIntent(
 				{
-					type: "adoptServer",
-					label: "Adopted",
-					baseUrl: "http://ext.test",
-					sourceHandle: "handle-ext",
-					secrets: { apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "secure" },
-					requestId: "req-a",
-					...partial,
+					method: "adoptServer",
+					payload: {
+						label: "Adopted",
+						baseUrl: "http://ext.test",
+						sourceHandle: "handle-ext",
+						secrets: { apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "secure" },
+						...partial,
+					},
 				},
 				recorded.env
 			);
@@ -1092,7 +1107,7 @@ suite("extension/dashboard/intents", () => {
 			// what the intent claimed: the handle is the authority.
 			recorded.externalGroup = { label: "Prod", baseUrl: "http://prod.test/" };
 			await executeDashboardIntent(
-				{ type: "hideExternalServer", baseUrl: "http://prod.test", sourceHandle: "handle-1", requestId: "req-1" },
+				{ method: "hideExternalServer", payload: { baseUrl: "http://prod.test", sourceHandle: "handle-1" } },
 				recorded.env
 			);
 
@@ -1104,7 +1119,7 @@ suite("extension/dashboard/intents", () => {
 			const recorded = makeEnv();
 			await assert.rejects(
 				executeDashboardIntent(
-					{ type: "hideExternalServer", baseUrl: "not a url", sourceHandle: "h", requestId: "r" },
+					{ method: "hideExternalServer", payload: { baseUrl: "not a url", sourceHandle: "h" } },
 					recorded.env
 				),
 				/baseUrl/
@@ -1118,7 +1133,7 @@ suite("extension/dashboard/intents", () => {
 			// recorded.externalGroup stays unset: the resolver answers undefined.
 			await assert.rejects(
 				executeDashboardIntent(
-					{ type: "hideExternalServer", baseUrl: "http://prod.test", sourceHandle: "stale", requestId: "r" },
+					{ method: "hideExternalServer", payload: { baseUrl: "http://prod.test", sourceHandle: "stale" } },
 					recorded.env
 				),
 				/no longer matches a hideable server/
@@ -1129,7 +1144,7 @@ suite("extension/dashboard/intents", () => {
 		test("unhideServer echoes the identity verbatim and fails when no tombstone matched", async () => {
 			const recorded = makeEnv();
 			await executeDashboardIntent(
-				{ type: "unhideServer", label: "Prod", baseUrl: "http://prod.test", requestId: "r1" },
+				{ method: "unhideServer", payload: { label: "Prod", baseUrl: "http://prod.test" } },
 				recorded.env
 			);
 			assert.deepStrictEqual(recorded.unhidden, [{ label: "Prod", baseUrl: "http://prod.test" }]);
@@ -1137,7 +1152,7 @@ suite("extension/dashboard/intents", () => {
 			recorded.unhideResult = false;
 			await assert.rejects(
 				executeDashboardIntent(
-					{ type: "unhideServer", label: "Ghost", baseUrl: "http://gone.test", requestId: "r2" },
+					{ method: "unhideServer", payload: { label: "Ghost", baseUrl: "http://gone.test" } },
 					recorded.env
 				),
 				/No hidden group/
@@ -1148,7 +1163,7 @@ suite("extension/dashboard/intents", () => {
 			const recorded = makeEnv();
 			await assert.rejects(
 				executeDashboardIntent(
-					{ type: "unhideServer", label: "  ", baseUrl: "http://prod.test", requestId: "r" },
+					{ method: "unhideServer", payload: { label: "  ", baseUrl: "http://prod.test" } },
 					recorded.env
 				),
 				/label/

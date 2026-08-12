@@ -15,7 +15,7 @@ const workspaceRecords = {
 const fixture: RenderFixture = {
 	messages: [
 		{
-			type: "state",
+			kind: "push",
 			state: {
 				...state,
 				settings: {
@@ -27,7 +27,7 @@ const fixture: RenderFixture = {
 				},
 			},
 		},
-		{ type: "focusSection", section: "settings" },
+		{ kind: "focusSection", section: "settings" },
 	],
 	viewport: { width: 1300, height: 2400 },
 	settleMs: 400,

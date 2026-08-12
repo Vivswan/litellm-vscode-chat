@@ -4,7 +4,7 @@
  * dropped thresholds), and the Resolved-models tree + flat table (answered
  * through the harness's canned respond map).
  */
-import type { DashboardState } from "../../../src/dashboard/protocol.ts";
+import type { DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import {
 	baseState,
@@ -71,11 +71,11 @@ const state: DashboardState = baseState({
 
 const fixture: RenderFixture = {
 	messages: [
-		{ type: "state", state },
-		{ type: "focusSection", section: "diagnostics" },
+		{ kind: "push", state },
+		{ kind: "focusSection", section: "diagnostics" },
 	],
 	respond: {
-		readResolvedModels: { type: "resolvedModels", view: RESOLVED_VIEW },
+		readResolvedModels: { kind: "response", payload: { view: RESOLVED_VIEW } },
 	},
 	viewport: { width: 1300, height: 1600 },
 	settleMs: 500,

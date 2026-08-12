@@ -16,8 +16,8 @@ import {
 	fireInput,
 	fireKeyDown,
 	inputByLabel,
+	lastRequest,
 	mount,
-	postedMessages,
 	pushToWebview,
 	resetPosted,
 } from "../harness";
@@ -191,13 +191,13 @@ test("the adopt ack closes the still-open form and raises the post-adoption noti
 	fireInput(inputByLabel(dialog(root), "Label"), "Adopted");
 	resetPosted();
 	fireClick(buttonByText(dialog(root), "Adopt"));
-	const posted = postedMessages[0] as { requestId: string };
+	const posted = lastRequest("adoptServer");
 
 	// In flight: the inputs disable against a double submit, the form stays up.
 	expect((buttonByText(dialog(root), "Adopting...") as HTMLButtonElement).disabled).toBe(true);
 	expect(root.querySelector(".slide-over")).not.toBeNull();
 
-	pushToWebview({ type: "intentSucceeded", intentType: "adoptServer", requestId: posted.requestId });
+	pushToWebview({ kind: "ack", id: posted.id, method: "adoptServer" });
 	expect(root.querySelector(".slide-over")).toBeNull();
 	// The post-adoption notice survives the close.
 	expect(root.textContent).toContain("Models appear twice");
@@ -240,7 +240,7 @@ test("a pending adopt never traps the user: the form closes freely and the ack s
 	fireInput(inputByLabel(dialog(root), "Label"), "Adopted");
 	resetPosted();
 	fireClick(buttonByText(dialog(root), "Adopt"));
-	const posted = postedMessages[0] as { requestId: string };
+	const posted = lastRequest("adoptServer");
 
 	// Esc on the edited form asks the usual discard question; Discard closes it
 	// with the intent still running extension-side.
@@ -250,7 +250,7 @@ test("a pending adopt never traps the user: the form closes freely and the ack s
 	expect(root.querySelector(".slide-over")).toBeNull();
 
 	// The late ack still raises the post-adoption notice.
-	pushToWebview({ type: "intentSucceeded", intentType: "adoptServer", requestId: posted.requestId });
+	pushToWebview({ kind: "ack", id: posted.id, method: "adoptServer" });
 	expect(root.textContent).toContain("Models appear twice");
 });
 
@@ -267,7 +267,7 @@ test("two adopts in flight resolve independently: the first ack still raises its
 	fireInput(inputByLabel(dialog(root), "Label"), "Adopted Alpha");
 	resetPosted();
 	fireClick(buttonByText(dialog(root), "Adopt"));
-	const alphaRequestId = (postedMessages[0] as { requestId: string }).requestId;
+	const alphaRequestId = lastRequest("adoptServer").id;
 	fireKeyDown(dialog(root), "Escape");
 	fireClick(buttonByText(dialog(root), "Discard"));
 
@@ -276,14 +276,14 @@ test("two adopts in flight resolve independently: the first ack still raises its
 	fireInput(inputByLabel(dialog(root), "Label"), "Adopted Beta");
 	resetPosted();
 	fireClick(buttonByText(dialog(root), "Adopt"));
-	const betaRequestId = (postedMessages[0] as { requestId: string }).requestId;
+	const betaRequestId = lastRequest("adoptServer").id;
 
 	// Alpha's ack raises its notice without touching Beta's open form.
-	pushToWebview({ type: "intentSucceeded", intentType: "adoptServer", requestId: alphaRequestId });
+	pushToWebview({ kind: "ack", id: alphaRequestId, method: "adoptServer" });
 	expect(root.textContent).toContain("Models appear twice");
 	expect(root.querySelector(".slide-over")).not.toBeNull();
 
 	// Beta's own ack closes its form.
-	pushToWebview({ type: "intentSucceeded", intentType: "adoptServer", requestId: betaRequestId });
+	pushToWebview({ kind: "ack", id: betaRequestId, method: "adoptServer" });
 	expect(root.querySelector(".slide-over")).toBeNull();
 });

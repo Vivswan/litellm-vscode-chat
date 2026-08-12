@@ -4,8 +4,8 @@ import { baseState } from "./shared.ts";
 
 const fixture: RenderFixture = {
 	messages: [
-		{ type: "state", state: baseState() },
-		{ type: "focusSection", section: "usage" },
+		{ kind: "push", state: baseState() },
+		{ kind: "focusSection", section: "usage" },
 	],
 	viewport: { width: 1300, height: 1100 },
 };

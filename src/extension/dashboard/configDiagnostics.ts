@@ -8,7 +8,7 @@
  * problems also ride the copyable diagnostics block.
  */
 
-import type { ConfigDiagnosticView, HiddenGroup } from "../../dashboard/protocol";
+import type { ConfigDiagnosticView, HiddenGroup } from "../../dashboard/viewModels";
 import type { ModelCapabilitiesRecord } from "../../shared/config/capabilityResolution";
 import { filterUnrecognizedKeyDiagnostics, lintCapabilityRecords } from "../../shared/config/capabilityResolution";
 import { lintParameterRecords } from "../../shared/config/parameterResolution";

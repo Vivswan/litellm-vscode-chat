@@ -3,10 +3,10 @@
  * refresh-now gate, the empty states, and the bar presentation math.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { UsageServerView } from "../../../../dashboard/protocol";
+import type { UsageServerView } from "../../../../dashboard/viewModels";
 import { barPresentation, formatPercent, formatUsd, UsageSection } from "../../../../webview/dashboard/usage";
 import { makeForbiddenUsageServer, makeUsage, makeUsageServer } from "../fixtures";
-import { buttonByText, cleanup, fireClick, mount, postedMessages, resetPosted, textOf } from "../harness";
+import { buttonByText, cleanup, fireClick, mount, postedCalls, resetPosted, textOf } from "../harness";
 
 const NOW = 1_700_000_000_000;
 
@@ -356,7 +356,7 @@ describe("UsageSection", () => {
 	test("Refresh now posts the intent and disables while a pass is in flight", () => {
 		const root = mount(<UsageSection usage={makeUsage({ servers: [makeUsageServer()] })} serverCount={1} now={NOW} />);
 		fireClick(buttonByText(root, "Refresh now"));
-		expect(postedMessages).toEqual([{ type: "refreshUsage" }]);
+		expect(postedCalls()).toEqual([{ method: "refreshUsage", payload: null }]);
 		cleanup();
 		const busy = mount(
 			<UsageSection usage={makeUsage({ refreshing: true, servers: [makeUsageServer()] })} serverCount={1} now={NOW} />

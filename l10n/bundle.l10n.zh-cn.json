@@ -727,7 +727,6 @@
 	"The adoption failed, and this label's stored secrets could not be restored.": "采用失败, 且无法恢复此标签下存储的密钥。",
 	"The change was not applied; see the LiteLLM output log.": "更改未生效; 请查看 LiteLLM 输出日志。",
 	"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server.": "连接在模型完成回复之前断开, 因此回答可能被截断。请重试; 如果持续出现, 请检查你与服务器之间的代理或负载均衡器。",
-	"The connection test failed": "连接测试失败",
 	"The connection to {0} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.": "获取模型时与 {0} 的连接断开 - 响应始终未完成。请重试; 如果持续出现, 请检查网络以及任何 VPN 或代理。",
 	"The conversation is too long for this model - trim it, remove attachments, or start a new chat.": "对话对于此模型来说过长 - 请精简对话、移除附件, 或开始新的聊天。",
 	"The entry being edited no longer exists in the servers setting; close the form and retry": "正在编辑的条目已不存在于 servers 设置中; 请关闭表单后重试",
