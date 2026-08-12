@@ -15,7 +15,7 @@ async function main(): Promise<void> {
 	// The npm actionlint wasm build lags the upstream binary; drop findings it
 	// raises only because its permission-scope list is stale (CI runs the
 	// current binary via raven-actions/actionlint, which knows these scopes).
-	const staleScopes = /unknown permission scope "attestations"/;
+	const staleScopes = /unknown permission scope "(attestations|vulnerability-alerts)"/;
 
 	for (const file of files) {
 		const input = await fs.readFile(file, "utf8");
