@@ -90,7 +90,8 @@ export function capabilityDisplayLabel(name: string): string | undefined {
 
 /**
  * The localized "N parameters" reading of a supported_openai_params list;
- * both surfaces show the count and keep the full list one hover away.
+ * the Diagnostics table keeps the full list one hover away, and the caps
+ * inspector renders it whole on its own row.
  */
 export function parameterCountText(count: number): string {
 	return count === 1 ? l10n.t("1 parameter") : l10n.t("{0} parameters", count);

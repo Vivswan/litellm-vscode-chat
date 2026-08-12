@@ -72,9 +72,9 @@ const TOKEN_FIELDS: ReadonlySet<string> = new Set(["context_length", "max_input_
 
 /**
  * Where the stylesheet's ellipsis can start clipping a value cell. The value
- * column is a FIXED 24% of the slide-over (html.ts), which is 460px wide but
- * shrinks to 92vw on narrow hosts: ~12ch of its monospace at full width,
- * ~7.5ch at a degenerate 360px window - the threshold sits at the practical
+ * column is a FIXED 24% of the slide-over (html.ts), which is 680px wide but
+ * shrinks to 94vw on narrow hosts: ~20ch of its monospace at full width,
+ * ~9ch at a degenerate 360px window - the threshold sits at the practical
  * floor so any value the ellipsis could realistically touch carries the
  * focusable HoverTip (keyboards and assistive tech must reach the full text;
  * native title tooltips do not reliably render in the webview host, see
@@ -152,10 +152,10 @@ function FieldName({ name }: { name: string }) {
 /**
  * One capability value as the table shows it: booleans as yes/no, the token
  * trio as token counts, the cost fields as dollars per million tokens (their
- * section header names the unit), the params list as its count plus the list
- * (the stylesheet clips it, the focusable tip carries the full text), other
- * numbers plain, and everything else (strings, arrays, objects - open fields
- * carry any JSON) as compact JSON, truncated by the stylesheet rather than
+ * section header names the unit), the params list as its count (the full
+ * list renders whole on its own row, see ParamsSection), other numbers
+ * plain, and everything else (strings, arrays, objects - open fields carry
+ * any JSON) as compact JSON, truncated by the stylesheet rather than
  * chopped here.
  */
 function formatValue(name: string, value: CapabilityJsonValue): string {
@@ -169,10 +169,11 @@ function formatValue(name: string, value: CapabilityJsonValue): string {
 		return TOKEN_FIELDS.has(name) ? formatTokens(value) : String(value);
 	}
 	if (name === "supported_openai_params" && Array.isArray(value) && value.every((item) => typeof item === "string")) {
-		// The list stays exact JSON, never a joined rendering: element
-		// boundaries must survive (a comma inside one name would make a join
-		// ambiguous), matching the Diagnostics tab's params cell.
-		return `${parameterCountText(value.length)}${value.length > 0 ? `: ${JSON.stringify(value)}` : ""}`;
+		// The count alone: the winning list renders in full on its own row
+		// (ParamsSection), one element per name so boundaries survive without
+		// JSON quoting; shadowed lists stay count-only (their record holds the
+		// value).
+		return parameterCountText(value.length);
 	}
 	return JSON.stringify(value) ?? "";
 }
@@ -215,11 +216,14 @@ function FieldRow({
 	name,
 	field,
 	onEditField,
+	plainValue = false,
 }: {
 	name: string;
 	field: EffectiveCapabilityField;
 	/** The per-row jump to the record that owns the value; renders only on record-sourced rows. */
 	onEditField?: ((level: CapabilityLevel, key: string) => void) | undefined;
+	/** Skip the clip-tip on the value cell; the full detail renders elsewhere (the params list row). */
+	plainValue?: boolean;
 }) {
 	const editable =
 		onEditField !== undefined &&
@@ -234,7 +238,11 @@ function FieldRow({
 				<td class="param-name">
 					<FieldName name={name} />
 				</td>
-				<ValueCell text={formatValue(name, field.value)} />
+				{plainValue ? (
+					<td class="param-value param-plain">{formatValue(name, field.value)}</td>
+				) : (
+					<ValueCell text={formatValue(name, field.value)} />
+				)}
 				<td>
 					{levelName(field.level, field.key)}
 					{editable ? (
@@ -357,6 +365,52 @@ function CapsSection({
 }
 
 /**
+ * The Supported parameters section: the standard provenance row carries the
+ * count (plain, no clip-tip), and the winning list renders in full on a row
+ * of its own spanning the table - the panel is the detail surface, so the
+ * list never hides behind a tip. One element per name keeps boundaries
+ * unambiguous without JSON quoting.
+ */
+function ParamsSection({
+	fields,
+	onEditField,
+}: {
+	fields: EffectiveCapabilities["fields"];
+	onEditField?: ((level: CapabilityLevel, key: string) => void) | undefined;
+}) {
+	const field = capabilityField(fields, "supported_openai_params");
+	if (field === undefined) {
+		return null;
+	}
+	const items = Array.isArray(field.value)
+		? field.value.filter((item): item is string => typeof item === "string")
+		: [];
+	return (
+		<tbody>
+			<tr class="caps-section">
+				<th colSpan={3} scope="rowgroup">
+					{l10n.t("Supported parameters")}
+				</th>
+			</tr>
+			<FieldRow name="supported_openai_params" field={field} onEditField={onEditField} plainValue />
+			{items.length > 0 ? (
+				<tr class="caps-params-row">
+					<td colSpan={3}>
+						<ul class="caps-params-list" aria-label={l10n.t("Supported parameters")}>
+							{items.map((item) => (
+								<li key={item}>
+									<code>{item}</code>
+								</li>
+							))}
+						</ul>
+					</td>
+				</tr>
+			) : null}
+		</tbody>
+	);
+}
+
+/**
  * The inspector body once the response landed: the provenance table, the
  * directive outcome, and the diagnostics.
  */
@@ -431,12 +485,7 @@ function CapsBody({
 					fields={capabilities.fields}
 					onEditField={onEditField}
 				/>
-				<CapsSection
-					label={l10n.t("Supported parameters")}
-					names={paramsNames}
-					fields={capabilities.fields}
-					onEditField={onEditField}
-				/>
+				<ParamsSection fields={capabilities.fields} onEditField={onEditField} />
 				<CapsSection
 					label={l10n.t("Other fields")}
 					names={extraNames}

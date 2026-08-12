@@ -784,15 +784,17 @@ test("the pencil opens the full editor; Remove matcher inside it drops the group
 	expect(postedRecordWrites()).toEqual([{ type: "setModelParameters", value: { "*": { top_p: 0.9 } } }]);
 });
 
-test("the overlay opens in the wide slide-over panel variant", () => {
-	// The 680px sizing hangs off the panel's `wide` class; dropping it would
-	// silently cram the one-line field grid into the 460px form width.
+test("the overlay opens in the uniform slide-over panel with no width variant", () => {
+	// Every panel shares one width (html.ts .slide-over); a resurrected
+	// per-panel `wide` class would silently fork the layout again.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
 
 	const editor = openEditorFor(section(), "gpt-4");
-	expect(editor.closest(".slide-over")?.classList.contains("wide")).toBe(true);
+	const panel = editor.closest(".slide-over");
+	expect(panel).not.toBeNull();
+	expect(panel?.className).toBe("slide-over");
 });
 
 test("a group whose rows are all absorbed renders no field column heads", () => {

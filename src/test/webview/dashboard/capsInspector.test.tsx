@@ -298,7 +298,12 @@ test("the params list renders its count with the full list behind it; the empty 
 		makeCapabilities({
 			fields: {
 				...makeCapabilities().fields,
-				supported_openai_params: { value: long, level: "server", shadowed: [] },
+				supported_openai_params: {
+					value: long,
+					level: "global",
+					key: "gpt-5*",
+					shadowed: [{ level: "server", value: ["temperature"] }],
+				},
 			},
 		})
 	);
@@ -307,12 +312,22 @@ test("the params list renders its count with the full list behind it; the empty 
 	);
 	expect(row).not.toBeUndefined();
 	expect(nameText(row?.querySelector(".param-name") ?? null)).toBe("Supported parameters");
-	// The value clips, so the focusable tip carries the count plus the full
-	// list - as exact JSON, so element boundaries survive a comma inside a
-	// name.
-	const tip = row?.querySelector('.param-value [role="tooltip"]')?.textContent ?? "";
-	expect(tip).toContain("27 parameters");
-	expect(tip).toContain(`: ${JSON.stringify(long)}`);
+	// The count renders plain (no clip-tip): the full list follows on its own
+	// row spanning the table, one element per name so boundaries survive a
+	// comma inside a name - the panel is the detail surface, nothing hides
+	// behind a tip.
+	expect(row?.querySelector('.param-value [role="tooltip"]')).toBeNull();
+	const listItems = [...root.querySelectorAll(".caps-params-list li code")].map((item) => item.textContent);
+	expect(listItems).toEqual(long);
+	// The list row spans all three columns, and a shadowed list stays
+	// count-only (its record holds the value; the full row shows the winner).
+	const listCell = root.querySelector(".caps-params-row td");
+	expect(listCell?.getAttribute("colspan")).toBe("3");
+	const shadowedLine = [...root.querySelectorAll("tr.param-shadowed")].find((candidate) =>
+		candidate.textContent?.includes("1 parameter")
+	);
+	expect(shadowedLine).not.toBeUndefined();
+	expect(shadowedLine?.textContent).not.toContain("temperature");
 	cleanup();
 	resetPosted();
 	const empty = answeredInPlace(
@@ -324,6 +339,9 @@ test("the params list renders its count with the full list behind it; the empty 
 		})
 	);
 	expect(empty.textContent).toContain("0 parameters");
+	// An empty list renders no list row at all - a bare pill strip under the
+	// count would read as a rendering bug.
+	expect(empty.querySelector(".caps-params-list")).toBeNull();
 });
 
 test("prototype-named open fields render from the bag, never from Object.prototype", () => {

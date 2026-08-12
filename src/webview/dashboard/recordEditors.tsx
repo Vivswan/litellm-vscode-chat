@@ -2488,7 +2488,6 @@ export function RecordMatcherEditorOverlay({
 			labelledBy={titleId}
 			fallbackFocusId={fallbackFocusId}
 			confirming={false}
-			panelClass="wide"
 			onRequestClose={onClose}
 			onKeepEditing={onClose}
 			onDiscard={onClose}

@@ -731,8 +731,8 @@ const STYLES = `
 	   list, say), so long values truncate with a CSS ellipsis instead of
 	   blowing the table wide - the .caps-text idiom: the clip sits on an
 	   inner span, and the focusable tip beside it carries the full text.
-	   The table's columns are FIXED percentages of the slide-over (460px,
-	   shrinking to 92vw on narrow hosts): under auto layout a nowrap value
+	   The table's columns are FIXED percentages of the slide-over (680px,
+	   shrinking to 94vw on narrow hosts): under auto layout a nowrap value
 	   cell's min-content width forced the whole table past the panel's right
 	   edge and pushed the Source column off-screen. The renderer's clip
 	   threshold (capsInspector.tsx VALUE_CLIP_CH) is paired with the value
@@ -744,6 +744,10 @@ const STYLES = `
 	.caps-inspector table.params thead th:nth-child(1) { width: 32%; }
 	.caps-inspector table.params thead th:nth-child(2) { width: 24%; }
 	.caps-inspector .param-value { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	/* The params count cell renders plain (its full list follows on the next
+	   row), so it wraps instead of clipping - a clipped count with no tip
+	   would be unreadable on narrow hosts. */
+	.caps-inspector td.param-plain { white-space: normal; overflow: visible; text-overflow: clip; }
 	.caps-inspector .param-value .tip-wrap { max-width: 100%; }
 	.caps-inspector .param-value .param-value-clip {
 		display: inline-block;
@@ -796,6 +800,28 @@ const STYLES = `
 		color: var(--vscode-descriptionForeground);
 	}
 	.caps-inspector tr.caps-section:hover { background: transparent; }
+	/* The full supported-parameters list: one quiet pill per name on a row
+	   spanning the table, wrapping freely - the panel is the detail surface,
+	   so the list renders whole instead of clipping behind a tip. The count
+	   row keeps no border against its list (the shadowed-row grouping idiom
+	   above): the two rows read as one entry. */
+	.caps-inspector tr.caps-params-row:hover { background: transparent; }
+	.caps-inspector table.params tr:not(.caps-params-row):has(+ tr.caps-params-row) td { border-bottom: none; }
+	.caps-inspector .caps-params-list {
+		list-style: none;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px;
+		margin: 2px 0 6px;
+		padding: 0;
+	}
+	.caps-inspector .caps-params-list code {
+		font-family: var(--vscode-editor-font-family, monospace);
+		font-size: 0.9em;
+		padding: 1px 6px;
+		border-radius: 8px;
+		background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.14));
+	}
 	.params-inspector .params-replaced ul {
 		list-style: none;
 		margin: 4px 0 8px;
@@ -896,7 +922,11 @@ const STYLES = `
 		right: 0;
 		bottom: 0;
 		z-index: 41;
-		width: min(460px, 92vw);
+		/* One width for every panel (server form, both inspectors, matcher
+		   editors): sized so the matcher editor's field grid renders each
+		   field on one line, and consistent so switching surfaces never
+		   shifts the reading column. */
+		width: min(680px, 94vw);
 		box-sizing: border-box;
 		overflow-y: auto;
 		padding: 12px 20px 20px;
@@ -912,11 +942,18 @@ const STYLES = `
 	}
 	.slide-over .slide-close { position: absolute; top: 12px; right: 12px; }
 	/* Inside the panel the form sheds its card chrome (the panel IS the
-	   surface) and fields stack label-over-control: a 460px panel has no room
-	   for the two-column field grid. */
+	   surface) and fields stack label-over-control; controls fill the row up
+	   to a comfortable reading measure so text and secret inputs align
+	   instead of splitting into short-text-next-to-full-width-password. */
 	.slide-over .form-card { border: none; border-radius: 0; padding: 0; margin: 0; max-width: none; background: transparent; }
 	.slide-over .form-card h3 { font-size: 1.05em; margin: 4px 24px 16px 0; }
-	/* The 460px panel breathes more than the inline card: taller gaps between
+	.slide-over .field input[type="text"], .slide-over .field input[type="password"], .slide-over .field input[type="number"], .slide-over .field select {
+		width: 100%;
+		max-width: 460px;
+		box-sizing: border-box;
+	}
+	.slide-over .field .secret-input { max-width: 460px; }
+	/* The panel breathes more than the inline card: taller gaps between
 	   the stacked fields and the collapsed groups keep the column scannable. */
 	.slide-over .field { grid-template-columns: 1fr; margin: 14px 0; gap: 6px 12px; }
 	.slide-over .field .hint, .slide-over .field .error, .slide-over .field .secret-where, .slide-over .field .secret-remove { grid-column: 1; }
@@ -1187,18 +1224,6 @@ const STYLES = `
 		table.models .col-price { display: none; }
 		table.models .model-name-text { max-width: 12em; }
 	}
-	/* Row grids inside the standard 460px slide-over stack to one column: at
-	   that panel width a real grid would squeeze the inputs into ~90px tracks.
-	   This serves the server form's header rows; the matcher editor overlay
-	   ships its own wider panel and re-grids the rows in its block below. */
-	.slide-over .rows { grid-template-columns: 1fr; }
-	.slide-over .row { grid-template-columns: 1fr; }
-	.slide-over .row input.key, .slide-over .row input.value, .slide-over .row button, .slide-over .row .error {
-		grid-column: 1;
-	}
-	.slide-over .row .cell.key, .slide-over .row .cell.value { grid-column: 1; }
-	.slide-over .row .directive-flag { grid-column: 1; }
-	.slide-over .row > button { grid-row: auto; }
 	@media (max-width: 500px) {
 		.field { grid-template-columns: 1fr; }
 		.field .hint, .field .error, .field .secret-where, .field .secret-remove { grid-column: 1; }
@@ -1457,8 +1482,8 @@ const STYLES = `
 	}
 	.chip-popover.align-end { left: auto; right: 0; }
 	/* Inside a slide-over panel the popover anchors to the fields CELL, not
-	   the chip: a chip-anchored 300px popover fits neither direction in a
-	   460px panel, and content clipped past the panel's left edge is
+	   the chip: a chip-anchored 300px popover can fall past either panel
+	   edge, and content clipped past the panel's left edge is
 	   unreachable (overflow only scrolls rightward). */
 	.slide-over .fields-cell { position: relative; }
 	.slide-over .chip-anchor { position: static; }
@@ -1499,21 +1524,11 @@ const STYLES = `
 	.matcher-editor h3 { margin: 4px 24px 12px 0; }
 	.slide-over .group { border: none; border-radius: 0; padding: 0; margin: 8px 0; background: transparent; }
 	/* A panel stacked over another panel (the matcher editor above the server
-	   form) sits slightly narrower, so the covered form's edge stays visible
-	   as the depth cue - identical widths would read as the form closing. The
-	   heavier shadow separates the layers so the revealed strip's clipped
-	   text reads as background, not noise. */
-	.slide-over .slide-over { width: min(420px, 86vw); box-shadow: -12px 0 24px rgba(0, 0, 0, 0.5); }
-
-	/* === The matcher editor overlay (MATCHER / INHERITS / FIELDS) === */
-	/* The overlay's own panel width: wide enough that each field renders as
-	   one grid line (key and value side by side, flags and remove at the
-	   right edge). It exceeds the 460px server form beneath when nested, so
-	   the nested variant drops 40px from the top: the form's own header strip
-	   stays visible (dimmed under the overlay's scrim) as the parent-context
-	   cue that the form is still there. */
-	.slide-over.wide, .slide-over .slide-over.wide { width: min(680px, 94vw); }
-	.slide-over .slide-over.wide { top: 40px; }
+	   form) shares the uniform width, so it drops 40px from the top instead:
+	   the covered panel's header strip stays visible (dimmed under the
+	   overlay's scrim) as the parent-context cue that it is still there. The
+	   heavier shadow separates the layers. */
+	.slide-over .slide-over { top: 40px; box-shadow: -12px 0 24px rgba(0, 0, 0, 0.5); }
 	/* Small section labels, the settings group-title recipe: one labeling
 	   system across the page. */
 	.editor-label {
@@ -1571,6 +1586,16 @@ const STYLES = `
 	   the panel-column layout and the column heads regroup into one legend
 	   line (the help glyphs must survive the stacking). */
 	@media (max-width: 700px) {
+		/* Below the width where two input tracks stay usable, every panel's
+		   key/value rows stack to one column - the server form's header rows
+		   follow the same threshold as the matcher editor's field rows. */
+		.slide-over .rows, .slide-over .row { grid-template-columns: 1fr; }
+		.slide-over .rows > .row { grid-template-columns: 1fr; }
+		.slide-over .row .cell.key, .slide-over .row .cell.value, .slide-over .row > button, .slide-over .row .error {
+			grid-column: 1;
+			grid-row: auto;
+			justify-self: start;
+		}
 		.matcher-editor .rows, .matcher-editor .row { grid-template-columns: 1fr; }
 		.matcher-editor .rows > .row { grid-template-columns: 1fr; }
 		.matcher-editor .rows-head { display: flex; gap: 16px; align-items: center; grid-column: 1; }
