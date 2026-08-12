@@ -4,6 +4,14 @@
 		"types": [
 			"bun"
 		],
+		// The webview project pins ES2022, but the ported pure suites pull
+		// host-side source (src/shared, src/provider) checked at ES2024 by the
+		// root project; this project spans both worlds, so it takes the union.
+		"lib": [
+			"ES2024",
+			"DOM",
+			"DOM.Iterable"
+		],
 		"jsx": "react-jsx",
 		"jsxImportSource": "preact"
 	},

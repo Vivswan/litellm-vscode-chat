@@ -8,10 +8,11 @@ jsx = "react-jsx"
 jsxImportSource = "preact"
 
 # src/test/bun is the only bun-test surface in this repository: the home for
-# suites that need no extension host, today the happy-dom webview component
-# suites. Every other suite is Mocha tdd inside the extension host. `root` is
-# load-bearing: without it a bare `bun test` discovers the extension-host
-# *.test.ts files, whose suite()/test() globals crash under bun's runner.
+# suites that need no extension host - the pure logic and property suites plus
+# the happy-dom webview component suites. Every other suite is Mocha tdd
+# inside the extension host. `root` is load-bearing: without it a bare
+# `bun test` discovers the extension-host *.test.ts files, whose
+# suite()/test() globals crash under bun's runner.
 [test]
 root = "src/test/bun"
 preload = ["./src/test/bun/preload.ts"]
