@@ -1,6 +1,6 @@
 /**
  * The dashboard webview's HTML shell: a strict CSP, one nonce'd script tag
- * for the bundled Preact app, and a link to the bundled stylesheet. Pure
+ * for the bundled React app, and a link to the bundled stylesheet. Pure
  * string building so the CSP and script wiring are unit-testable; panel.ts
  * supplies the nonce and the webview-translated script and style URIs.
  */

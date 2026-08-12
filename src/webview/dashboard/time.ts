@@ -6,7 +6,7 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useState } from "react";
 
 const MINUTE = 60;
 const HOUR = 3600;

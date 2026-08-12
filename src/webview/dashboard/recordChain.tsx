@@ -33,7 +33,7 @@ export function RecordChainFigure({
 		return null;
 	}
 	return (
-		<div class="record-chains">
+		<div className="record-chains">
 			{shown.map((chain) => {
 				// The jump is gated on the LAYER, never on which callback happens to
 				// exist: an entry key must open the entry's form or nothing - falling
@@ -47,8 +47,8 @@ export function RecordChainFigure({
 				const jumpFor = (key: string) =>
 					chain.layer === "entry" ? jump : onEditRecord === undefined ? undefined : () => onEditRecord(key);
 				return (
-					<p class="record-chain hint" key={chain.layer}>
-						<span class="record-chain-label">
+					<p className="record-chain hint" key={chain.layer}>
+						<span className="record-chain-label">
 							{chain.layer === "entry"
 								? l10n.t('Record path (server entry "{0}"):', chain.entryLabel)
 								: l10n.t("Record path (settings):")}
@@ -59,12 +59,12 @@ export function RecordChainFigure({
 								// One nowrap unit per link - arrow, key, and markers - so a
 								// long chain wraps BETWEEN links, never mid-marker or with an
 								// arrow stranded at a line's end.
-								<span class="record-chain-link" key={link.key}>
-									{index > 0 ? <span class="record-chain-arrow"> {"->"} </span> : null}
+								<span className="record-chain-link" key={link.key}>
+									{index > 0 ? <span className="record-chain-arrow"> {"->"} </span> : null}
 									{onJump !== undefined ? (
 										<button
 											type="button"
-											class="quiet chain-key"
+											className="quiet chain-key"
 											aria-label={
 												chain.layer === "entry"
 													? l10n.t('Edit in server entry "{0}"', chain.entryLabel)
@@ -77,7 +77,7 @@ export function RecordChainFigure({
 									) : (
 										<code>{link.key}</code>
 									)}
-									{link.barrier ? <span class="tree-barrier"> [{l10n.t("inheritance stops here")}]</span> : null}
+									{link.barrier ? <span className="tree-barrier"> [{l10n.t("inheritance stops here")}]</span> : null}
 									{!link.barrier && link.inheritFrom !== undefined ? (
 										<span> [{l10n.t("inherits from: {0}", link.inheritFrom)}]</span>
 									) : null}

@@ -1,8 +1,6 @@
 /**
  * The webview's request-correlation hooks, replacing the hand-rolled
- * requestId bookkeeping the components used to carry. Written against the
- * hooks API surface Preact shares with React (useState/useEffect/useRef/
- * useCallback only), so a later React port is an import rename.
+ * requestId bookkeeping the components used to carry.
  *
  * useRpc drives the read methods: send() posts a request and remembers its
  * id; only the response echoing THAT id lands in `data` (latest wins - a new
@@ -19,7 +17,7 @@
  * fire-and-forget failures.
  */
 
-import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
 	AckedMethod,
 	ExtensionToWebviewMessage,

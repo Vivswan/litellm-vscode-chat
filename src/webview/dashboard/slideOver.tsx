@@ -8,8 +8,8 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import type { ComponentChildren } from "preact";
-import { useEffect, useRef } from "preact/hooks";
+import type { KeyboardEvent, ReactNode } from "react";
+import { useEffect, useRef } from "react";
 import { IconClose } from "./icons";
 
 /** What can take focus inside the panel; disabled controls and tabindex -1 widgets (listbox options) drop out. */
@@ -54,7 +54,7 @@ export function SlideOver({
 	onRequestClose: () => void;
 	onKeepEditing: () => void;
 	onDiscard: () => void;
-	children: ComponentChildren;
+	children: ReactNode;
 }) {
 	const panelRef = useRef<HTMLDivElement>(null);
 
@@ -119,26 +119,26 @@ export function SlideOver({
 			{/* A pointer-only affordance, per the dialog pattern: keyboard users
 			    have Esc and the Close button, so the scrim stays out of the Tab
 			    order and out of the accessibility tree. */}
-			<button type="button" class="scrim" tabIndex={-1} aria-hidden="true" onClick={onRequestClose} />
+			<button type="button" className="scrim" tabIndex={-1} aria-hidden="true" onClick={onRequestClose} />
 			<div
-				class="slide-over"
+				className="slide-over"
 				role="dialog"
 				aria-modal="true"
 				aria-labelledby={labelledBy}
 				ref={panelRef}
 				onKeyDown={onKeyDown}
 			>
-				<button type="button" class="quiet slide-close" aria-label={l10n.t("Close")} onClick={onRequestClose}>
+				<button type="button" className="quiet slide-close" aria-label={l10n.t("Close")} onClick={onRequestClose}>
 					<IconClose />
 				</button>
 				{children}
 				{confirming ? (
-					<div class="discard-confirm" role="alert">
+					<div className="discard-confirm" role="alert">
 						<span>{l10n.t("Discard unsaved changes?")}</span>
 						<button type="button" onClick={onDiscard}>
 							{l10n.t("Discard")}
 						</button>
-						<button type="button" class="secondary" onClick={onKeepEditing}>
+						<button type="button" className="secondary" onClick={onKeepEditing}>
 							{l10n.t("Keep editing")}
 						</button>
 					</div>

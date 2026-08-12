@@ -406,3 +406,55 @@ test("relocating an untouched prefill to secure storage posts set with the prefi
 	pushToWebview({ kind: "ack", id: saved.id, method: "saveServerSetting" });
 	expectNowhere(SENTINEL);
 });
+
+test("the disarmed secret input still round-trips typing, paste, and emptying through controlled state", () => {
+	// The value-attribute disarm is DOM surgery against React's controlled-
+	// input machinery (dirty the property, drop the mounted attribute, shadow
+	// defaultValue), so the machinery it disarms needs proof it still works:
+	// every entry mode must land in controlled state and post from it, while
+	// the attribute never materializes at any step.
+	const root = mount(<App />);
+	const server = declaredWithSecrets({ apiKey: "settings" });
+	pushToWebview(statePush(makeState({ servers: [server] })));
+	openEdit(root);
+	pushToWebview({
+		kind: "response",
+		id: readInlineRequest().id,
+		method: "readInlineSecrets",
+		payload: { values: { apiKey: SENTINEL } },
+	});
+	const input = apiKeyInput(root);
+	const expectValue = (value: string) => {
+		expect(input.value).toBe(value);
+		expect(input.getAttribute("value")).toBeNull();
+	};
+	expectValue(SENTINEL);
+
+	// Keystroke-shaped entry: incremental values through the controlled loop,
+	// each commit re-attempting the mirror the disarm must keep inert.
+	fireInput(input, "sk-a");
+	expectValue("sk-a");
+	fireInput(input, "sk-ab");
+	expectValue("sk-ab");
+	expectNowhere(SENTINEL);
+
+	// Paste-shaped entry: one whole-string replacement.
+	fireInput(input, TYPED);
+	expectValue(TYPED);
+	expectOnlyInApiKeyInput(TYPED);
+
+	// Emptying stays controlled too (an emptied prefill keeps the stored value).
+	fireInput(input, "");
+	expectValue("");
+	expectNowhere(SENTINEL, TYPED);
+
+	// The controlled state is what posts: re-enter a value and save it.
+	fireInput(input, TYPED);
+	resetPosted();
+	fireClick(buttonByText(root, "Save"));
+	const saved2 = lastPosted() as RpcRequest<"saveServerSetting">;
+	expect(saved2.payload.secrets.apiKey).toEqual({ action: "set", location: "settings", value: TYPED });
+	expectOnlyInApiKeyInput(TYPED);
+	pushToWebview({ kind: "ack", id: saved2.id, method: "saveServerSetting" });
+	expectNowhere(SENTINEL, TYPED);
+});

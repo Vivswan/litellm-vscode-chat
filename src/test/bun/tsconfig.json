@@ -13,7 +13,7 @@
 			"DOM.Iterable"
 		],
 		"jsx": "react-jsx",
-		"jsxImportSource": "preact"
+		"jsxImportSource": "react"
 	},
 	"include": [
 		"./**/*",

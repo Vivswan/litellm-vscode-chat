@@ -10,7 +10,7 @@
  * rows block Apply.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { act } from "preact/test-utils";
+import { act } from "react";
 import { CONSUMED_CAPABILITY_FIELDS } from "../../../../shared/config/capabilityResolution";
 import { App } from "../../../../webview/dashboard/app";
 import { helpModelParameterPrefix } from "../../../../webview/dashboard/helpText";
@@ -22,6 +22,7 @@ import {
 	cleanup,
 	fireCheck,
 	fireClick,
+	fireFocus,
 	fireInput,
 	fireKeyDown,
 	lastRequest,
@@ -1650,12 +1651,13 @@ test("the catalog picker debounces searchCatalog and picking a result writes the
 		<CatalogPicker value="gpt" disabled={false} invalid={false} onValue={(next) => picked.push(next)} debounceMs={1} />
 	);
 	const input = root.querySelector("input") as HTMLInputElement;
-	void act(() => {
-		input.dispatchEvent(new Event("focus"));
-	});
+	fireFocus(input);
 	// Under the debounce window nothing is posted yet.
 	expect(postedMessages).toEqual([]);
-	await new Promise((resolve) => setTimeout(resolve, 20));
+	// The debounce timer's state update must land inside act.
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	});
 	const request = lastRequest("searchCatalog");
 	expect(request.payload.query).toBe("gpt");
 
@@ -1672,10 +1674,11 @@ test("the catalog picker debounces searchCatalog and picking a result writes the
 test("a stale catalog response for another request renders no result list", async () => {
 	const root = mount(<CatalogPicker value="gpt" disabled={false} invalid={false} onValue={() => {}} debounceMs={1} />);
 	const input = root.querySelector("input") as HTMLInputElement;
-	void act(() => {
-		input.dispatchEvent(new Event("focus"));
+	fireFocus(input);
+	// The debounce timer's state update must land inside act.
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 20));
 	});
-	await new Promise((resolve) => setTimeout(resolve, 20));
 	pushToWebview({
 		kind: "response",
 		id: "stale",
@@ -1698,10 +1701,11 @@ test("the catalog picker is keyboard-operable: arrows move the highlight, Enter 
 		<CatalogPicker value="gpt" disabled={false} invalid={false} onValue={(id) => picked.push(id)} debounceMs={1} />
 	);
 	const input = root.querySelector("input") as HTMLInputElement;
-	void act(() => {
-		input.dispatchEvent(new Event("focus"));
+	fireFocus(input);
+	// The debounce timer's state update must land inside act.
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 20));
 	});
-	await new Promise((resolve) => setTimeout(resolve, 20));
 	respondTo(lastRequest("searchCatalog"), {
 		results: [
 			{ id: "openai/gpt-4o", name: "GPT-4o" },
@@ -1720,10 +1724,11 @@ test("the catalog picker is keyboard-operable: arrows move the highlight, Enter 
 
 		// Reopen with a fresh correlated response for the keyboard pick path
 		// (closing orphaned the in-flight request, so the old response went stale).
-		void act(() => {
-			input.dispatchEvent(new Event("focus"));
+		fireFocus(input);
+		// The debounce timer's state update must land inside act.
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 20));
 		});
-		await new Promise((resolve) => setTimeout(resolve, 20));
 		respondTo(lastRequest("searchCatalog"), {
 			results: [
 				{ id: "openai/gpt-4o", name: "GPT-4o" },

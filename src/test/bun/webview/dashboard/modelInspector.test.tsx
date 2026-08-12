@@ -19,14 +19,13 @@
  * behind a "Record paths" disclosure at their section's end.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { render } from "preact";
-import { act } from "preact/test-utils";
+import { act } from "react";
 import type { EffectiveCapabilities } from "../../../../shared/config/capabilityResolution";
 import { projectEffectiveParameters } from "../../../../shared/config/parameterResolution";
 import { App } from "../../../../webview/dashboard/app";
 import type { ModelCapabilitiesResponse, ModelParametersResponse } from "../../../../webview/dashboard/modelInspector";
 import { ModelInspector } from "../../../../webview/dashboard/modelInspector";
-import { makeDeclaredServer, makeModel, makeSettings, makeState, statePush } from "../fixtures";
+import { makeDeclaredServer, makeExternalServer, makeModel, makeSettings, makeState, statePush } from "../fixtures";
 import {
 	cleanup,
 	fireClick,
@@ -34,6 +33,7 @@ import {
 	mount,
 	postedRequests,
 	pushToWebview,
+	render,
 	resetPosted,
 	respondTo,
 	textOf,
@@ -279,7 +279,11 @@ test("the record-path figures render collapsed under a Record paths summary at t
 	expect(details.open).toBe(false);
 	expect(details.querySelector("summary")?.textContent).toBe("Record paths");
 	// The existing figure renders unchanged inside and shows once opened.
-	details.open = true;
+	// happy-dom fires the native toggle event on the open flip, and the
+	// controlled disclosure's state update must land inside act.
+	void act(() => {
+		details.open = true;
+	});
 	const chain = details.querySelector(".record-chain");
 	expect(chain).not.toBeNull();
 	expect(chain?.textContent).toContain("Record path (settings):");
@@ -632,13 +636,14 @@ test("a state push that drops the inspected model closes the inspector instead o
 test("two rows sharing an ID and display label still ask about their own snapshot", () => {
 	// The inspected identity includes scopeKey: two snapshots can render the
 	// same raw ID under the same display label, and each Inspect action must
-	// ask about exactly the row it sits on.
+	// ask about exactly the row it sits on. Declared labels are
+	// setting-unique, so the second same-label scope is an external group.
 	const rows = [makeModel({ ...model, scopeKey: "s0" }), makeModel({ ...model, scopeKey: "s1" })];
 	mount(<App />);
 	pushToWebview(
 		statePush(
 			makeState({
-				servers: [makeDeclaredServer(), makeDeclaredServer({ label: "Prod", baseUrl: "http://other:4000" })],
+				servers: [makeDeclaredServer(), makeExternalServer({ label: "Prod", baseUrl: "http://other:4000" })],
 				models: rows,
 			})
 		)

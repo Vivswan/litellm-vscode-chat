@@ -46,7 +46,7 @@ const extensionOptions: BuildOptions = {
 	format: "cjs",
 };
 
-/** The dashboard webview bundle: browser code, Preact via the automatic JSX runtime, everything inlined. */
+/** The dashboard webview bundle: browser code, React via the automatic JSX runtime, everything inlined. */
 const webviewOptions: BuildOptions = {
 	...shared,
 	entryPoints: ["src/webview/dashboard/index.tsx"],
@@ -55,7 +55,7 @@ const webviewOptions: BuildOptions = {
 	target: "es2022",
 	format: "iife",
 	jsx: "automatic",
-	jsxImportSource: "preact",
+	jsxImportSource: "react",
 };
 
 const builds = [extensionOptions, webviewOptions];

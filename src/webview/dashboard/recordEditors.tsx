@@ -1,6 +1,6 @@
 import * as l10n from "@vscode/l10n";
-import type { ComponentChildren } from "preact";
-import { useEffect, useId, useRef, useState } from "preact/hooks";
+import type { FocusEvent, KeyboardEvent, ReactNode } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { settingScopeLabel } from "../../dashboard/presenters";
 import type {
 	CapabilityGroupIssues,
@@ -89,7 +89,7 @@ function HeadingRevealButton({
 	return (
 		<button
 			type="button"
-			class="quiet reveal-json"
+			className="quiet reveal-json"
 			aria-label={l10n.t("Open {0} in settings.json", title)}
 			onClick={() => sendRequest("revealSetting", { setting: settingId })}
 		>
@@ -253,7 +253,7 @@ export type IntentFailureOutcome = Extract<IntentOutcome, { result: "fail" }>;
  */
 function ScopeNote({ scoped }: { scoped: ScopedRecordSetting<unknown> }) {
 	return (
-		<p class="hint">
+		<p className="hint">
 			{l10n.t(
 				"Editing {0} settings. Rows here apply together via the Apply button; the plain settings above save each change on its own.",
 				settingScopeLabel(scoped.editScope)
@@ -271,7 +271,7 @@ function FailureNote({ failure, dirty }: { failure: IntentFailureOutcome | undef
 	// message lacked a trailing period. The message stays webview-only (the
 	// panel boundary logs classification tokens, never this text).
 	return (
-		<div class="error failure-note">
+		<div className="error failure-note">
 			<p>{l10n.t("Saving failed - your edits are kept. Fix the problem below and Apply again.")}</p>
 			<p>
 				<FailureText message={failure.message} />
@@ -287,7 +287,7 @@ function FailureNote({ failure, dirty }: { failure: IntentFailureOutcome | undef
  */
 function ApplyStatus({ phase }: { phase: DraftPhase }) {
 	return (
-		<span class={phase === "saved" ? "apply-status saved" : "apply-status"} role="status">
+		<span className={phase === "saved" ? "apply-status saved" : "apply-status"} role="status">
 			{phase === "applying" ? l10n.t("Applying...") : phase === "saved" ? l10n.t("Saved") : ""}
 		</span>
 	);
@@ -295,7 +295,7 @@ function ApplyStatus({ phase }: { phase: DraftPhase }) {
 
 /** The other-scope records, rendered as the same disabled grid the edit scope uses, never as prose. */
 function OtherScopeNote({ scope }: { scope: SettingScope }) {
-	return <p class="hint">{l10n.t("Set in {0} settings - edit there.", settingScopeLabel(scope))}</p>;
+	return <p className="hint">{l10n.t("Set in {0} settings - edit there.", settingScopeLabel(scope))}</p>;
 }
 
 /**
@@ -333,9 +333,9 @@ function InheritFromControl({
 	const [pendingText, setPendingText] = useState("");
 	if (choice.kind === "unreadable") {
 		return (
-			<span class="inherit-from">
-				<span class="editor-label">{l10n.t("Inherits")}</span>
-				<span class="hint">{l10n.t("Inheritance: edit the _inherit_from row below")}</span>
+			<span className="inherit-from">
+				<span className="editor-label">{l10n.t("Inherits")}</span>
+				<span className="hint">{l10n.t("Inheritance: edit the _inherit_from row below")}</span>
 			</span>
 		);
 	}
@@ -356,12 +356,12 @@ function InheritFromControl({
 		}
 	};
 	return (
-		<span class="inherit-from">
-			<span class="editor-label">
-				<label for={id}>{l10n.t("Inherits")}</label>
+		<span className="inherit-from">
+			<span className="editor-label">
+				<label htmlFor={id}>{l10n.t("Inherits")}</label>
 				<Help text={helpInheritFromControl()} />
 			</span>
-			<span class="inherit-controls">
+			<span className="inherit-controls">
 				<select
 					id={id}
 					disabled={disabled}
@@ -390,15 +390,15 @@ function InheritFromControl({
 				{shownKind === "keys" ? (
 					<input
 						type="text"
-						class="inherit-keys"
+						className="inherit-keys"
 						aria-label={l10n.t("Record keys to inherit from, comma-separated")}
 						placeholder={l10n.t("e.g. gpt-5*, *")}
 						value={keysText}
 						disabled={disabled}
-						onInput={(event) => writeKeys(event.currentTarget.value)}
+						onChange={(event) => writeKeys(event.currentTarget.value)}
 					/>
 				) : null}
-				{hint !== undefined ? <span class="hint">{hint}</span> : null}
+				{hint !== undefined ? <span className="hint">{hint}</span> : null}
 			</span>
 		</span>
 	);
@@ -491,8 +491,8 @@ function useFocusedRow(groups: readonly PrefixGroup[]): {
 		groupIndex: number,
 		rowIndex: number
 	) => {
-		onFocusInCapture: (event: FocusEvent) => void;
-		onFocusOutCapture: (event: FocusEvent) => void;
+		onFocusCapture: (event: FocusEvent) => void;
+		onBlurCapture: (event: FocusEvent) => void;
 	};
 } {
 	const shape = groups.map((group) => group.params.length).join(",");
@@ -508,7 +508,7 @@ function useFocusedRow(groups: readonly PrefixGroup[]): {
 		focused: (groupIndex, rowIndex) =>
 			hold !== undefined && hold.epoch === epoch && hold.group === groupIndex && hold.row === rowIndex,
 		rowFocusProps: (groupIndex, rowIndex) => ({
-			onFocusInCapture: (event: FocusEvent) => {
+			onFocusCapture: (event: FocusEvent) => {
 				if (event.target instanceof HTMLInputElement && event.target.type !== "checkbox") {
 					setHold((current) =>
 						current !== undefined && current.group === groupIndex && current.row === rowIndex && current.epoch === epoch
@@ -517,7 +517,7 @@ function useFocusedRow(groups: readonly PrefixGroup[]): {
 					);
 				}
 			},
-			onFocusOutCapture: (event: FocusEvent) => {
+			onBlurCapture: (event: FocusEvent) => {
 				const next = event.relatedTarget;
 				if (next instanceof Node && event.currentTarget instanceof Node && event.currentTarget.contains(next)) {
 					return;
@@ -605,13 +605,14 @@ function ParamGroupsFields({
 				const anyRowVisible = group.params.some((_, index) => !rowAbsorbed(index));
 				// Rows are positional while being edited; the index is the identity.
 				return (
-					<div class="group" key={groupIndex}>
-						<div class="editor-section">
-							<span class="editor-label">
+					// biome-ignore lint/suspicious/noArrayIndexKey: groups are positional while being edited; the index is the identity
+					<div className="group" key={groupIndex}>
+						<div className="editor-section">
+							<span className="editor-label">
 								{l10n.t("Matcher")}
 								<Help text={prefixHelp} />
 							</span>
-							<div class="matcher-line">
+							<div className="matcher-line">
 								<SuggestInput
 									value={group.prefix}
 									suggestions={prefixSuggestions ?? []}
@@ -625,13 +626,13 @@ function ParamGroupsFields({
 								/>
 							</div>
 							{group.prefix.trim().length > 0 ? (
-								<span class="matcher-kind">{matcherKindLabel(matcherKind(group.prefix))}</span>
+								<span className="matcher-kind">{matcherKindLabel(matcherKind(group.prefix))}</span>
 							) : null}
 							{problems[groupIndex]?.prefix !== undefined ? (
-								<span class="error">{problems[groupIndex]?.prefix}</span>
+								<span className="error">{problems[groupIndex]?.prefix}</span>
 							) : null}
 						</div>
-						<div class="editor-section">
+						<div className="editor-section">
 							<InheritFromControl
 								group={group}
 								disabled={disabled === true}
@@ -643,16 +644,16 @@ function ParamGroupsFields({
 								onChange={(next) => onChange(groups.map((g, i) => (i === groupIndex ? next : g)))}
 							/>
 						</div>
-						<div class="editor-section">
-							<span class="editor-label">{l10n.t("Fields")}</span>
-							<div class="rows">
+						<div className="editor-section">
+							<span className="editor-label">{l10n.t("Fields")}</span>
+							<div className="rows">
 								{anyRowVisible ? (
-									<div class="rows-head">
-										<span class="col-head">
+									<div className="rows-head">
+										<span className="col-head">
 											{l10n.t("Parameter")}
 											<Help text={helpModelParameterName()} />
 										</span>
-										<span class="col-head">
+										<span className="col-head">
 											{l10n.t("Value")}
 											<Help text={helpModelParameterValue()} />
 										</span>
@@ -665,8 +666,9 @@ function ParamGroupsFields({
 									const removeLabel =
 										param.key.trim().length > 0 ? l10n.t('Remove "{0}"', param.key.trim()) : l10n.t("Remove");
 									return (
-										<div class="row" key={paramIndex} {...focusHold.rowFocusProps(groupIndex, paramIndex)}>
-											<span class="cell key">
+										// biome-ignore lint/suspicious/noArrayIndexKey: rows are positional while being edited (see useFocusedRow); the index is the identity
+										<div className="row" key={paramIndex} {...focusHold.rowFocusProps(groupIndex, paramIndex)}>
+											<span className="cell key">
 												<SuggestInput
 													value={param.key}
 													suggestions={paramNameSuggestions ?? []}
@@ -683,16 +685,16 @@ function ParamGroupsFields({
 													onEnter={onEnter}
 												/>
 											</span>
-											<span class="cell value">
+											<span className="cell value">
 												<input
 													type="text"
-													class={`value${problems[groupIndex]?.params[paramIndex]?.field === "value" ? " invalid" : ""}`}
+													className={`value${problems[groupIndex]?.params[paramIndex]?.field === "value" ? " invalid" : ""}`}
 													aria-invalid={problems[groupIndex]?.params[paramIndex]?.field === "value"}
 													aria-label={l10n.t("Value")}
 													placeholder={l10n.t("JSON value, e.g. 0.2")}
 													value={param.valueText}
 													disabled={inert}
-													onInput={(event) =>
+													onChange={(event) =>
 														patchGroup(groupIndex, {
 															params: group.params.map((p, i) =>
 																i === paramIndex ? { ...p, valueText: event.currentTarget.value } : p
@@ -710,7 +712,7 @@ function ParamGroupsFields({
 										    keep the box visible but disabled, with the help naming
 										    why. */}
 											{param.key.trim().startsWith("_") || param.key.trim().length === 0 ? null : (
-												<span class="cell directive-flag">
+												<span className="cell directive-flag">
 													<label>
 														<input
 															type="checkbox"
@@ -758,7 +760,7 @@ function ParamGroupsFields({
 											)}
 											<button
 												type="button"
-												class="quiet"
+												className="quiet"
 												aria-label={removeLabel}
 												title={removeLabel}
 												disabled={disabled}
@@ -769,10 +771,10 @@ function ParamGroupsFields({
 												<IconTrash />
 											</button>
 											{problems[groupIndex]?.params[paramIndex] !== undefined ? (
-												<span class="error">{problems[groupIndex]?.params[paramIndex]?.message}</span>
+												<span className="error">{problems[groupIndex]?.params[paramIndex]?.message}</span>
 											) : null}
 											{hints?.[groupIndex]?.params[paramIndex] !== undefined ? (
-												<span class="hint">{hints[groupIndex]?.params[paramIndex]}</span>
+												<span className="hint">{hints[groupIndex]?.params[paramIndex]}</span>
 											) : null}
 										</div>
 									);
@@ -780,7 +782,7 @@ function ParamGroupsFields({
 							</div>
 							<button
 								type="button"
-								class="secondary"
+								className="secondary"
 								disabled={disabled}
 								onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
 							>
@@ -934,26 +936,26 @@ function SuggestInput({
 	// statically.
 	if (suggestions.length === 0) {
 		return (
-			<span class="suggest-input">
+			<span className="suggest-input">
 				<input
 					type="text"
-					class={invalid ? `${inputClass} invalid` : inputClass}
+					className={invalid ? `${inputClass} invalid` : inputClass}
 					aria-invalid={invalid}
 					aria-label={ariaLabel}
 					placeholder={placeholder}
 					value={value}
 					disabled={disabled}
-					onInput={(event) => onValue(event.currentTarget.value)}
+					onChange={(event) => onValue(event.currentTarget.value)}
 					onKeyDown={onKeyDown}
 				/>
 			</span>
 		);
 	}
 	return (
-		<span class="suggest-input">
+		<span className="suggest-input">
 			<input
 				type="text"
-				class={invalid ? `${inputClass} invalid` : inputClass}
+				className={invalid ? `${inputClass} invalid` : inputClass}
 				role="combobox"
 				aria-invalid={invalid}
 				aria-label={ariaLabel}
@@ -964,7 +966,7 @@ function SuggestInput({
 				placeholder={placeholder}
 				value={value}
 				disabled={disabled}
-				onInput={(event) => {
+				onChange={(event) => {
 					setOpen(true);
 					setActive(-1);
 					onValue(event.currentTarget.value);
@@ -978,7 +980,7 @@ function SuggestInput({
 			/>
 			{expanded ? (
 				<div
-					class="catalog-results suggest-results"
+					className="catalog-results suggest-results"
 					role="listbox"
 					id={listId}
 					ref={listRef}
@@ -992,7 +994,7 @@ function SuggestInput({
 							id={`${listId}-${index}`}
 							aria-selected={index === highlighted}
 							tabIndex={-1}
-							class={index === highlighted ? "quiet active" : "quiet"}
+							className={index === highlighted ? "quiet active" : "quiet"}
 							// mousedown, not click: the input's blur closes the list
 							// before a click could land. The click handler still picks
 							// for activations that never send a mousedown (assistive
@@ -1145,10 +1147,10 @@ export function CatalogPicker({
 		event.preventDefault();
 	};
 	return (
-		<span class="cell value catalog-picker">
+		<span className="cell value catalog-picker">
 			<input
 				type="text"
-				class={invalid ? "value invalid" : "value"}
+				className={invalid ? "value invalid" : "value"}
 				role="combobox"
 				aria-invalid={invalid}
 				aria-expanded={open && matches !== undefined && matches.length > 0}
@@ -1159,7 +1161,7 @@ export function CatalogPicker({
 				placeholder={l10n.t("OpenRouter ID, e.g. openai/gpt-4o")}
 				value={value}
 				disabled={disabled}
-				onInput={(event) => {
+				onChange={(event) => {
 					setOpen(true);
 					setActive(-1);
 					onValue(event.currentTarget.value);
@@ -1173,7 +1175,7 @@ export function CatalogPicker({
 			/>
 			<Help text={helpCatalogPicker()} />
 			{open && matches !== undefined && matches.length > 0 ? (
-				<div class="catalog-results" role="listbox" id={listId} aria-label={l10n.t("Catalog matches")}>
+				<div className="catalog-results" role="listbox" id={listId} aria-label={l10n.t("Catalog matches")}>
 					{matches.map((match, index) => (
 						<button
 							key={match.id}
@@ -1182,7 +1184,7 @@ export function CatalogPicker({
 							id={`${listId}-${index}`}
 							aria-selected={index === active}
 							tabIndex={-1}
-							class={index === active ? "quiet active" : "quiet"}
+							className={index === active ? "quiet active" : "quiet"}
 							// mousedown, not click: the input's blur closes the list
 							// before a click could land.
 							onMouseDown={(event) => {
@@ -1190,7 +1192,7 @@ export function CatalogPicker({
 								pick(match.id);
 							}}
 						>
-							<span class="catalog-id">{match.id}</span> <span class="hint">{match.name}</span>
+							<span className="catalog-id">{match.id}</span> <span className="hint">{match.name}</span>
 						</button>
 					))}
 				</div>
@@ -1269,13 +1271,14 @@ function CapabilityGroupsFields({
 				const anyRowVisible = group.params.some((_, index) => !rowAbsorbed(index));
 				// Rows are positional while being edited; the index is the identity.
 				return (
-					<div class="group" key={groupIndex}>
-						<div class="editor-section">
-							<span class="editor-label">
+					// biome-ignore lint/suspicious/noArrayIndexKey: groups are positional while being edited; the index is the identity
+					<div className="group" key={groupIndex}>
+						<div className="editor-section">
+							<span className="editor-label">
 								{l10n.t("Matcher")}
 								<Help text={helpCapabilityPrefix()} />
 							</span>
-							<div class="matcher-line">
+							<div className="matcher-line">
 								<SuggestInput
 									value={group.prefix}
 									suggestions={prefixSuggestions ?? []}
@@ -1289,13 +1292,13 @@ function CapabilityGroupsFields({
 								/>
 							</div>
 							{group.prefix.trim().length > 0 ? (
-								<span class="matcher-kind">{matcherKindLabel(matcherKind(group.prefix))}</span>
+								<span className="matcher-kind">{matcherKindLabel(matcherKind(group.prefix))}</span>
 							) : null}
 							{issues[groupIndex]?.prefix !== undefined ? (
-								<span class="error">{issues[groupIndex]?.prefix}</span>
+								<span className="error">{issues[groupIndex]?.prefix}</span>
 							) : null}
 						</div>
-						<div class="editor-section">
+						<div className="editor-section">
 							<InheritFromControl
 								group={group}
 								disabled={disabled === true}
@@ -1307,16 +1310,16 @@ function CapabilityGroupsFields({
 								onChange={(next) => onChange(groups.map((g, i) => (i === groupIndex ? next : g)))}
 							/>
 						</div>
-						<div class="editor-section">
-							<span class="editor-label">{l10n.t("Fields")}</span>
-							<div class="rows">
+						<div className="editor-section">
+							<span className="editor-label">{l10n.t("Fields")}</span>
+							<div className="rows">
 								{anyRowVisible ? (
-									<div class="rows-head">
-										<span class="col-head">
+									<div className="rows-head">
+										<span className="col-head">
 											{l10n.t("Capability")}
 											<Help text={helpCapabilityName()} />
 										</span>
-										<span class="col-head">
+										<span className="col-head">
 											{l10n.t("Value")}
 											<Help text={helpCapabilityValue()} />
 										</span>
@@ -1336,8 +1339,9 @@ function CapabilityGroupsFields({
 											params: group.params.map((p, i) => (i === paramIndex ? { ...p, ...patch } : p)),
 										});
 									return (
-										<div class="row" key={paramIndex} {...focusHold.rowFocusProps(groupIndex, paramIndex)}>
-											<span class="cell key">
+										// biome-ignore lint/suspicious/noArrayIndexKey: rows are positional while being edited (see useFocusedRow); the index is the identity
+										<div className="row" key={paramIndex} {...focusHold.rowFocusProps(groupIndex, paramIndex)}>
+											<span className="cell key">
 												<SuggestInput
 													value={param.key}
 													suggestions={keySuggestions ?? CAPABILITY_KEY_SUGGESTIONS}
@@ -1358,7 +1362,7 @@ function CapabilityGroupsFields({
 												/>
 											</span>
 											{kind === "boolean" ? (
-												<label class="cell value capability-flag">
+												<label className="cell value capability-flag">
 													<input
 														type="checkbox"
 														checked={param.valueText.trim() === "true"}
@@ -1377,18 +1381,18 @@ function CapabilityGroupsFields({
 													onValue={(next) => patchRow({ valueText: next })}
 												/>
 											) : (
-												<span class="cell value">
+												<span className="cell value">
 													<input
 														type={numberProps !== undefined ? "number" : "text"}
 														min={numberProps?.min}
 														step={numberProps?.step}
-														class={`value${issue?.problem?.field === "value" ? " invalid" : ""}`}
+														className={`value${issue?.problem?.field === "value" ? " invalid" : ""}`}
 														aria-invalid={issue?.problem?.field === "value"}
 														aria-label={l10n.t("Value")}
 														placeholder={numberProps?.placeholder ?? l10n.t("JSON value")}
 														value={param.valueText}
 														disabled={inert}
-														onInput={(event) => patchRow({ valueText: event.currentTarget.value })}
+														onChange={(event) => patchRow({ valueText: event.currentTarget.value })}
 														onKeyDown={onKeyDown}
 													/>
 												</span>
@@ -1400,7 +1404,7 @@ function CapabilityGroupsFields({
 										    resolver's `_fallback` accepts any field the record sets,
 										    known or not. */}
 											{directiveEligible(FALLBACK_DIRECTIVE, key) ? (
-												<span class="cell directive-flag">
+												<span className="cell directive-flag">
 													<label>
 														<input
 															type="checkbox"
@@ -1434,7 +1438,7 @@ function CapabilityGroupsFields({
 											) : null}
 											<button
 												type="button"
-												class="quiet"
+												className="quiet"
 												aria-label={removeLabel}
 												title={removeLabel}
 												disabled={inert}
@@ -1444,15 +1448,15 @@ function CapabilityGroupsFields({
 											>
 												<IconTrash />
 											</button>
-											{issue?.problem !== undefined ? <span class="error">{issue.problem.message}</span> : null}
-											{issue?.hint !== undefined ? <span class="hint">{issue.hint}</span> : null}
+											{issue?.problem !== undefined ? <span className="error">{issue.problem.message}</span> : null}
+											{issue?.hint !== undefined ? <span className="hint">{issue.hint}</span> : null}
 										</div>
 									);
 								})}
 							</div>
 							<button
 								type="button"
-								class="secondary"
+								className="secondary"
 								disabled={inert}
 								onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
 							>
@@ -1584,7 +1588,7 @@ function InheritsSummary({ group }: { group: PrefixGroup }) {
 	const choice = inheritFromChoice(group);
 	switch (choice.kind) {
 		case "default":
-			return <span class="hint">{l10n.t("default")}</span>;
+			return <span className="hint">{l10n.t("default")}</span>;
 		case "all":
 			return <span>{l10n.t("everything")}</span>;
 		case "none":
@@ -1592,7 +1596,7 @@ function InheritsSummary({ group }: { group: PrefixGroup }) {
 		case "keys":
 			return <code>{choice.keysText}</code>;
 		case "unreadable":
-			return <span class="hint">{l10n.t("custom")}</span>;
+			return <span className="hint">{l10n.t("custom")}</span>;
 	}
 }
 
@@ -1707,7 +1711,7 @@ function PopoverShell({
 	/** Which chip edge the popover hangs from; "end" keeps it on-panel for chips near the right edge. */
 	align: "start" | "end";
 	onClose: () => void;
-	children: ComponentChildren;
+	children: ReactNode;
 }) {
 	const ref = useRef<HTMLDivElement>(null);
 	const closeRef = useRef(onClose);
@@ -1757,7 +1761,7 @@ function PopoverShell({
 	}, []);
 	return (
 		<div
-			class={align === "end" ? "chip-popover align-end" : "chip-popover"}
+			className={align === "end" ? "chip-popover align-end" : "chip-popover"}
 			role="dialog"
 			aria-label={label}
 			ref={ref}
@@ -1835,9 +1839,9 @@ function FieldChipPopover({
 	const fallbackFields = directiveMarkedFields(group, FALLBACK_DIRECTIVE);
 	return (
 		<PopoverShell label={l10n.t('Edit field "{0}"', key)} align={align} onClose={onClose}>
-			<span class="popover-label">{l10n.t("Value")}</span>
+			<span className="popover-label">{l10n.t("Value")}</span>
 			{valueKind === "boolean" ? (
-				<label class="capability-flag">
+				<label className="capability-flag">
 					<input
 						type="checkbox"
 						checked={row.valueText.trim() === "true"}
@@ -1853,18 +1857,18 @@ function FieldChipPopover({
 					type={numberProps !== undefined ? "number" : "text"}
 					min={numberProps?.min}
 					step={numberProps?.step}
-					class={valueInvalid ? "value invalid" : "value"}
+					className={valueInvalid ? "value invalid" : "value"}
 					aria-invalid={valueInvalid}
 					aria-label={l10n.t('Value for "{0}"', key)}
 					placeholder={numberProps?.placeholder ?? l10n.t("JSON value, e.g. 0.2")}
 					value={row.valueText}
 					disabled={disabled}
-					onInput={(event) => patchValue(event.currentTarget.value)}
+					onChange={(event) => patchValue(event.currentTarget.value)}
 					onKeyDown={onValueKeyDown}
 				/>
 			)}
 			{key.length > 0 && !key.startsWith("_") ? (
-				<div class="chip-popover-flags">
+				<div className="chip-popover-flags">
 					{kind === "params" ? (
 						<>
 							<label>
@@ -1923,10 +1927,10 @@ function FieldChipPopover({
 					/>
 				</div>
 			) : null}
-			{issue?.problem !== undefined ? <p class="error">{issue.problem.message}</p> : null}
-			{issue?.hint !== undefined ? <p class="hint">{issue.hint}</p> : null}
-			<div class="chip-popover-actions">
-				<button type="button" class="quiet" disabled={disabled} onClick={removeRow}>
+			{issue?.problem !== undefined ? <p className="error">{issue.problem.message}</p> : null}
+			{issue?.hint !== undefined ? <p className="hint">{issue.hint}</p> : null}
+			<div className="chip-popover-actions">
+				<button type="button" className="quiet" disabled={disabled} onClick={removeRow}>
 					<IconTrash /> {l10n.t("Remove field")}
 				</button>
 			</div>
@@ -2014,7 +2018,7 @@ function AddFieldPopover({
 	};
 	return (
 		<PopoverShell label={l10n.t("Add field")} align={align} onClose={onClose}>
-			<span class="popover-label">{kind === "params" ? l10n.t("Parameter") : l10n.t("Capability")}</span>
+			<span className="popover-label">{kind === "params" ? l10n.t("Parameter") : l10n.t("Capability")}</span>
 			<SuggestInput
 				value={key}
 				suggestions={keySuggestions}
@@ -2028,9 +2032,9 @@ function AddFieldPopover({
 				onValue={setKeyAndSeed}
 				onEnter={commit}
 			/>
-			<span class="popover-label">{l10n.t("Value")}</span>
+			<span className="popover-label">{l10n.t("Value")}</span>
 			{valueKind === "boolean" ? (
-				<label class="capability-flag">
+				<label className="capability-flag">
 					<input
 						type="checkbox"
 						checked={valueText.trim() === "true"}
@@ -2046,12 +2050,12 @@ function AddFieldPopover({
 					type={numberProps !== undefined ? "number" : "text"}
 					min={numberProps?.min}
 					step={numberProps?.step}
-					class="value"
+					className="value"
 					aria-label={l10n.t("New field value")}
 					placeholder={numberProps?.placeholder ?? l10n.t("JSON value, e.g. 0.2")}
 					value={valueText}
 					disabled={disabled}
-					onInput={(event) => setValueText(event.currentTarget.value)}
+					onChange={(event) => setValueText(event.currentTarget.value)}
 					onKeyDown={(event) => {
 						if (event.key === "Enter") {
 							commit();
@@ -2060,7 +2064,7 @@ function AddFieldPopover({
 				/>
 			)}
 			{trimmed.length > 0 && !trimmed.startsWith("_") ? (
-				<div class="chip-popover-flags">
+				<div className="chip-popover-flags">
 					{kind === "params" ? (
 						<>
 							<label>
@@ -2105,8 +2109,8 @@ function AddFieldPopover({
 					<Help text={helpInheritableFlag()} />
 				</div>
 			) : null}
-			{problem !== undefined ? <p class="error">{problem}</p> : null}
-			<div class="chip-popover-actions">
+			{problem !== undefined ? <p className="error">{problem}</p> : null}
+			<div className="chip-popover-actions">
 				<button type="button" disabled={disabled || !canAdd} onClick={commit}>
 					<IconAdd /> {l10n.t("Add field")}
 				</button>
@@ -2208,15 +2212,15 @@ export function RecordMatcherTable({
 	const editable = readOnly !== true;
 	const order = sortedGroupOrder(groups);
 	return (
-		<table class="record-table">
+		<table className="record-table">
 			<thead>
 				<tr>
 					<th>{l10n.t("Matcher")}</th>
 					<th>{l10n.t("Inherits")}</th>
-					<th class="col-fields">{l10n.t("Fields")}</th>
+					<th className="col-fields">{l10n.t("Fields")}</th>
 					{editable ? (
 						<th>
-							<span class="visually-hidden">{l10n.t("Edit")}</span>
+							<span className="visually-hidden">{l10n.t("Edit")}</span>
 						</th>
 					) : null}
 				</tr>
@@ -2247,16 +2251,16 @@ export function RecordMatcherTable({
 						// when a state push reorders the record, dropping an open add
 						// popover's half-typed field with it.
 						<tr key={`${groupKey}#${groupOrdinal}`}>
-							<td class="matcher-cell">
-								<code class="matcher-key">{matcherName}</code>
-								<span class="matcher-kind">{matcherKindLabel(matcherKind(group.prefix))}</span>
-								{issueView?.prefix !== undefined ? <span class="error">{issueView.prefix}</span> : null}
+							<td className="matcher-cell">
+								<code className="matcher-key">{matcherName}</code>
+								<span className="matcher-kind">{matcherKindLabel(matcherKind(group.prefix))}</span>
+								{issueView?.prefix !== undefined ? <span className="error">{issueView.prefix}</span> : null}
 							</td>
-							<td class="inherit-cell">
+							<td className="inherit-cell">
 								<InheritsSummary group={group} />
 							</td>
-							<td class="fields-cell">
-								<span class="chip-list">
+							<td className="fields-cell">
+								<span className="chip-list">
 									{chips.map((rowIndex) => {
 										const row = group.params[rowIndex];
 										if (row === undefined) {
@@ -2286,13 +2290,13 @@ export function RecordMatcherTable({
 										const body = (
 											<>
 												{catalog ? (
-													<span class="chip-key">{l10n.t("catalog")}</span>
+													<span className="chip-key">{l10n.t("catalog")}</span>
 												) : (
-													<code class="chip-key">{key.length > 0 ? key : l10n.t("(unnamed)")}</code>
+													<code className="chip-key">{key.length > 0 ? key : l10n.t("(unnamed)")}</code>
 												)}
-												<span class="chip-value">{row.valueText}</span>
+												<span className="chip-value">{row.valueText}</span>
 												{chipFlags(kind, group, key).map((flag) => (
-													<span class="chip-flag" key={flag}>
+													<span className="chip-flag" key={flag}>
 														{flag}
 													</span>
 												))}
@@ -2302,11 +2306,11 @@ export function RecordMatcherTable({
 											// Chips are keyed by their FIELD KEY so a directive row
 											// inserted or removed by a flag toggle cannot remount an
 											// open popover mid-interaction.
-											<span class="chip-anchor" key={`${row.key}#${ordinal}`}>
+											<span className="chip-anchor" key={`${row.key}#${ordinal}`}>
 												{editable ? (
 													<button
 														type="button"
-														class={chipClass}
+														className={chipClass}
 														aria-expanded={openHere}
 														disabled={disabled}
 														onClick={(event) =>
@@ -2327,11 +2331,11 @@ export function RecordMatcherTable({
 														{/* The action rides a hidden prefix so the accessible
 														    name keeps the chip's visible content - key, value,
 														    and flag badges - instead of masking it. */}
-														<span class="visually-hidden">{l10n.t("Edit field")}</span>
+														<span className="visually-hidden">{l10n.t("Edit field")}</span>
 														{body}
 													</button>
 												) : (
-													<span class={chipClass}>{body}</span>
+													<span className={chipClass}>{body}</span>
 												)}
 												{openHere && popover !== undefined ? (
 													<FieldChipPopover
@@ -2350,10 +2354,10 @@ export function RecordMatcherTable({
 										);
 									})}
 									{editable ? (
-										<span class="chip-anchor">
+										<span className="chip-anchor">
 											<button
 												type="button"
-												class="chip-field chip-add"
+												className="chip-field chip-add"
 												aria-expanded={addOpen}
 												disabled={disabled}
 												aria-label={l10n.t('Add a field to "{0}"', matcherName)}
@@ -2384,10 +2388,10 @@ export function RecordMatcherTable({
 								</span>
 							</td>
 							{editable ? (
-								<td class="edit-cell">
+								<td className="edit-cell">
 									<button
 										type="button"
-										class="quiet"
+										className="quiet"
 										aria-label={l10n.t('Open the full editor for "{0}"', matcherName)}
 										disabled={disabled}
 										onClick={() => onOpenEditor?.(groupIndex)}
@@ -2474,9 +2478,9 @@ export function RecordMatcherEditorOverlay({
 			onKeepEditing={onClose}
 			onDiscard={onClose}
 		>
-			<div class="matcher-editor">
+			<div className="matcher-editor">
 				<h3 id={titleId}>{kind === "params" ? l10n.t("Edit parameter matcher") : l10n.t("Edit capability matcher")}</h3>
-				<p class="hint">{note}</p>
+				<p className="hint">{note}</p>
 				{kind === "params" ? (
 					<ParamGroupsFields
 						groups={[group]}
@@ -2501,11 +2505,11 @@ export function RecordMatcherEditorOverlay({
 						onEnter={onEnter}
 					/>
 				)}
-				<div class="toolbar editor-footer">
+				<div className="toolbar editor-footer">
 					<button type="button" onClick={onClose}>
 						{l10n.t("Done")}
 					</button>
-					<button type="button" class="quiet state-error" disabled={disabled} onClick={onRemove}>
+					<button type="button" className="quiet state-error" disabled={disabled} onClick={onRemove}>
 						<IconTrash /> {l10n.t("Remove matcher")}
 					</button>
 				</div>
@@ -2684,6 +2688,7 @@ export function ModelParametersEditor({
 	// Keyed on the request's seq so repeating the same jump re-opens.
 	const externalSeq = external?.seq;
 	const jsonOpen = json !== undefined;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: deliberately keyed on the request seq alone so repeating the jump re-opens; the draft, groups, and editor are read at fire time
 	useEffect(() => {
 		if (external === undefined || externalSeq === undefined || jsonOpen) {
 			return;
@@ -2701,25 +2706,25 @@ export function ModelParametersEditor({
 	}, [externalSeq]);
 	return (
 		<section hidden={hidden}>
-			<h3 class="head-with-icons">
+			<h3 className="head-with-icons">
 				{modelParametersTitle()} <Help text={helpModelParametersSection()} />
 				<DocsLink href={DOCS_LINK_MODEL_PARAMETERS} label={l10n.t("Open the model parameters guide")} />
 				<HeadingRevealButton title={modelParametersTitle()} settingId="models.parameters" />
 			</h3>
-			<p class="hint">
+			<p className="hint">
 				{l10n.t(
 					'Request parameters sent per matching model (most specific matcher wins). Values are JSON: 0.2, true, "text", ["stop"].'
 				)}
 			</p>
 			<ScopeNote scoped={scoped} />
 			{json !== undefined ? (
-				<div class="record-json">
+				<div className="record-json">
 					<textarea
 						rows={10}
 						aria-label={l10n.t("Model parameters as JSON")}
 						aria-invalid={jsonBlocked}
 						value={json.text}
-						onInput={(event) => {
+						onChange={(event) => {
 							const text = event.currentTarget.value;
 							setJson((current) => (current === undefined ? current : { ...current, text }));
 							const parsed = groupsFromJsonText(text);
@@ -2728,11 +2733,13 @@ export function ModelParametersEditor({
 							}
 						}}
 					/>
-					{jsonParse !== undefined && !jsonParse.ok ? <p class="error">{jsonParse.problem}</p> : null}
+					{jsonParse !== undefined && !jsonParse.ok ? <p className="error">{jsonParse.problem}</p> : null}
 				</div>
 			) : (
 				<>
-					{groups.length === 0 ? <p class="empty">{l10n.t("No model parameters configured in this scope.")}</p> : null}
+					{groups.length === 0 ? (
+						<p className="empty">{l10n.t("No model parameters configured in this scope.")}</p>
+					) : null}
 					{groups.length > 0 ? (
 						<RecordMatcherTable
 							kind="params"
@@ -2746,11 +2753,11 @@ export function ModelParametersEditor({
 				</>
 			)}
 			<FailureNote failure={draft.failure} dirty={draft.dirty} />
-			<div class="toolbar">
+			<div className="toolbar">
 				{json === undefined ? (
 					<button
 						type="button"
-						class="secondary"
+						className="secondary"
 						id="params-add-matcher"
 						onClick={() => {
 							draft.update([...groups, { prefix: "", params: [] }]);
@@ -2767,7 +2774,7 @@ export function ModelParametersEditor({
 				    must not wedge the editor until a reload. */}
 				<button
 					type="button"
-					class="secondary"
+					className="secondary"
 					disabled={!draft.dirty && draft.phase !== "applying" && !(json !== undefined && json.text !== json.base)}
 					aria-label={l10n.t("Discard the unapplied model parameter edits")}
 					onClick={discard}
@@ -2777,7 +2784,7 @@ export function ModelParametersEditor({
 				{json === undefined ? (
 					<button
 						type="button"
-						class="quiet"
+						className="quiet"
 						disabled={!parse.ok}
 						onClick={() => {
 							if (parse.ok) {
@@ -2788,7 +2795,7 @@ export function ModelParametersEditor({
 						{l10n.t("Edit as JSON")}
 					</button>
 				) : (
-					<button type="button" class="quiet" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
+					<button type="button" className="quiet" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
 						{l10n.t("Edit as rows")}
 					</button>
 				)}
@@ -2801,7 +2808,7 @@ export function ModelParametersEditor({
 				const otherGroups = toGroups(other.value);
 				const otherParse = parseGroups(otherGroups);
 				return (
-					<div class="other-scope" key={other.scope}>
+					<div className="other-scope" key={other.scope}>
 						<OtherScopeNote scope={other.scope} />
 						<RecordMatcherTable
 							kind="params"
@@ -2938,6 +2945,7 @@ export function ModelCapabilitiesEditor({
 	// Keyed on the request's seq so repeating the same jump re-opens.
 	const externalSeq = external?.seq;
 	const jsonOpen = json !== undefined;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: deliberately keyed on the request seq alone so repeating the jump re-opens; the draft, groups, and editor are read at fire time
 	useEffect(() => {
 		if (external === undefined || externalSeq === undefined || jsonOpen) {
 			return;
@@ -2955,25 +2963,25 @@ export function ModelCapabilitiesEditor({
 	}, [externalSeq]);
 	return (
 		<section hidden={hidden}>
-			<h3 class="head-with-icons">
+			<h3 className="head-with-icons">
 				{modelCapabilitiesTitle()} <Help text={helpModelCapabilitiesSection()} />
 				<DocsLink href={DOCS_LINK_MODEL_CAPABILITIES} label={l10n.t("Open the model capabilities guide")} />
 				<HeadingRevealButton title={modelCapabilitiesTitle()} settingId="models.capabilities" />
 			</h3>
-			<p class="hint">
+			<p className="hint">
 				{l10n.t(
 					"Capability overrides per matching model, e.g. context_length 128000. Fallback rows fill only what the server leaves unset."
 				)}
 			</p>
 			<ScopeNote scoped={scoped} />
 			{json !== undefined ? (
-				<div class="record-json">
+				<div className="record-json">
 					<textarea
 						rows={10}
 						aria-label={l10n.t("Model capabilities as JSON")}
 						aria-invalid={jsonBlocked}
 						value={json.text}
-						onInput={(event) => {
+						onChange={(event) => {
 							const text = event.currentTarget.value;
 							setJson((current) => (current === undefined ? current : { ...current, text }));
 							const parsed = capabilityGroupsFromJsonText(text);
@@ -2982,12 +2990,12 @@ export function ModelCapabilitiesEditor({
 							}
 						}}
 					/>
-					{jsonParse !== undefined && !jsonParse.ok ? <p class="error">{jsonParse.problem}</p> : null}
+					{jsonParse !== undefined && !jsonParse.ok ? <p className="error">{jsonParse.problem}</p> : null}
 				</div>
 			) : (
 				<>
 					{groups.length === 0 ? (
-						<p class="empty">{l10n.t("No model capabilities configured in this scope.")}</p>
+						<p className="empty">{l10n.t("No model capabilities configured in this scope.")}</p>
 					) : null}
 					{groups.length > 0 ? (
 						<RecordMatcherTable
@@ -3002,11 +3010,11 @@ export function ModelCapabilitiesEditor({
 				</>
 			)}
 			<FailureNote failure={draft.failure} dirty={draft.dirty} />
-			<div class="toolbar">
+			<div className="toolbar">
 				{json === undefined ? (
 					<button
 						type="button"
-						class="secondary"
+						className="secondary"
 						id="caps-add-matcher"
 						onClick={() => {
 							draft.update([...groups, { prefix: "", params: [] }]);
@@ -3023,7 +3031,7 @@ export function ModelCapabilitiesEditor({
 				    must not wedge the editor until a reload. */}
 				<button
 					type="button"
-					class="secondary"
+					className="secondary"
 					disabled={!draft.dirty && draft.phase !== "applying" && !(json !== undefined && json.text !== json.base)}
 					aria-label={l10n.t("Discard the unapplied model capability edits")}
 					onClick={discard}
@@ -3033,7 +3041,7 @@ export function ModelCapabilitiesEditor({
 				{json === undefined ? (
 					<button
 						type="button"
-						class="quiet"
+						className="quiet"
 						disabled={!parse.ok}
 						onClick={() => {
 							if (parse.ok) {
@@ -3044,7 +3052,7 @@ export function ModelCapabilitiesEditor({
 						{l10n.t("Edit as JSON")}
 					</button>
 				) : (
-					<button type="button" class="quiet" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
+					<button type="button" className="quiet" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
 						{l10n.t("Edit as rows")}
 					</button>
 				)}
@@ -3056,7 +3064,7 @@ export function ModelCapabilitiesEditor({
 				const otherGroups = toCapabilityGroups(other.value);
 				const otherParse = parseCapabilityGroups(otherGroups, recognizedKeys);
 				return (
-					<div class="other-scope" key={other.scope}>
+					<div className="other-scope" key={other.scope}>
 						<OtherScopeNote scope={other.scope} />
 						<RecordMatcherTable
 							kind="caps"

@@ -1,5 +1,5 @@
 import * as l10n from "@vscode/l10n";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "react";
 import type { DashboardModel } from "../../dashboard/viewModels";
 import { DOCS_LINK_MODELS } from "./docsLinks";
 import { DocsLink, Help, HoverTip } from "./help";
@@ -170,12 +170,12 @@ function SortHeader({
 	const classes = [numeric === true ? "num" : undefined, colClass].filter((name) => name !== undefined).join(" ");
 	return (
 		<th
-			class={classes.length > 0 ? classes : undefined}
+			className={classes.length > 0 ? classes : undefined}
 			aria-sort={active ? (sort.dir === 1 ? "ascending" : "descending") : undefined}
 		>
-			<button type="button" class="sort" onClick={() => onSort(sortKey)}>
+			<button type="button" className="sort" onClick={() => onSort(sortKey)}>
 				{label}
-				<span class={active ? (sort.dir === 1 ? "sort-arrow" : "sort-arrow desc") : "sort-arrow idle"}>
+				<span className={active ? (sort.dir === 1 ? "sort-arrow" : "sort-arrow desc") : "sort-arrow idle"}>
 					<IconArrowUp />
 				</span>
 			</button>
@@ -241,6 +241,7 @@ export function ModelsSection({
 	// position inherited from the previous server would drop the reader
 	// mid-list (the window clamp keeps it in range, but not at the top).
 	const scopeLabel = scope?.label;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: scopeLabel is the deliberate rewind key (see above), not a read
 	useEffect(() => {
 		if (scrollRef.current !== null) {
 			scrollRef.current.scrollTop = 0;
@@ -300,28 +301,28 @@ export function ModelsSection({
 				<DocsLink href={DOCS_LINK_MODELS} label={l10n.t("Open the models guide")} />
 			</h2>
 			{models.length === 0 ? (
-				<div class="empty-block">
+				<div className="empty-block">
 					<p>{l10n.t("No models discovered yet.")}</p>
-					<p class="hint">
+					<p className="hint">
 						{l10n.t("Models appear here once a server has synced; run Sync models to ask your servers now.")}
 					</p>
 				</div>
 			) : (
 				<>
-					<div class="filterbar">
+					<div className="filterbar">
 						<input
 							type="text"
 							placeholder={l10n.t("Filter by name, family, or server")}
 							aria-label={l10n.t("Filter models")}
 							value={filter}
-							onInput={(event) => setFilter(event.currentTarget.value)}
+							onChange={(event) => setFilter(event.currentTarget.value)}
 						/>
 						{scope !== undefined ? (
-							<span class="chip">
+							<span className="chip">
 								{l10n.t("Server: {0}", scope.label)}
 								<button
 									type="button"
-									class="quiet"
+									className="quiet"
 									aria-label={l10n.t("Clear the server filter")}
 									onClick={scope.onClear}
 								>
@@ -329,7 +330,7 @@ export function ModelsSection({
 								</button>
 							</span>
 						) : null}
-						<span class="hint">{l10n.t("showing {0} of {1}", sorted.length, scoped.length)}</span>
+						<span className="hint">{l10n.t("showing {0} of {1}", sorted.length, scoped.length)}</span>
 					</div>
 					{/* When windowed, the scrollport is a focusable, labelled region so
 					    arrow/PageDown scrolling works from the keyboard, and the table
@@ -337,13 +338,13 @@ export function ModelsSection({
 					    in the DOM. Visiting every row by Tab alone is out of scope:
 					    off-window rows are reachable by scrolling, not by focus. */}
 					<section
-						class={windowed ? "table-scroll windowed" : "table-scroll"}
+						className={windowed ? "table-scroll windowed" : "table-scroll"}
 						ref={scrollRef}
 						aria-label={l10n.t("Models table")}
 						tabIndex={windowed ? 0 : undefined}
 						onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
 					>
-						<table class="models" aria-rowcount={windowed ? sorted.length + 1 : undefined}>
+						<table className="models" aria-rowcount={windowed ? sorted.length + 1 : undefined}>
 							<thead>
 								<tr>
 									<SortHeader label={l10n.t("Model")} sortKey="name" sort={sort} onSort={toggleSort} />
@@ -381,14 +382,14 @@ export function ModelsSection({
 										colClass="col-price"
 										onSort={toggleSort}
 									/>
-									<th class="col-caps">{l10n.t("Capabilities")}</th>
+									<th className="col-caps">{l10n.t("Capabilities")}</th>
 									<th>{/* inspect */}</th>
 								</tr>
 							</thead>
 							<tbody>
 								{start > 0 ? (
 									// biome-ignore lint/a11y/noInteractiveElementToNoninteractiveRole: a spacer row is layout filler with no content; presentation removes it from the accessibility tree, which is the point
-									<tr class="spacer" role="presentation">
+									<tr className="spacer" role="presentation">
 										<td colSpan={columns} style={{ height: `${start * rowHeight}px`, padding: 0, border: "none" }} />
 									</tr>
 								) : null}
@@ -398,12 +399,13 @@ export function ModelsSection({
 									const rowId = `${model.serverLabel}/${model.id}`;
 									const caps = capabilities(model);
 									return (
+										// biome-ignore lint/suspicious/noArrayIndexKey: windowed rows are positional by construction; the absolute index is the identity
 										<tr key={start + index} aria-rowindex={windowed ? start + index + 2 : undefined}>
-											<td class="model-name">
+											<td className="model-name">
 												{/* The span is the stylesheet's ellipsis cap for pathological
 												    names; the full name stays in the DOM (and in the inspector's
 												    heading), only its rendering trims. */}
-												<span class="model-name-text">{model.name}</span>
+												<span className="model-name-text">{model.name}</span>
 												{model.declared === true ? (
 													<HoverTip
 														focusable
@@ -411,7 +413,7 @@ export function ModelsSection({
 															"Declared in the entry's discovery.declared list; the server's discovery does not list it."
 														)}
 													>
-														<span class="badge">{l10n.t("declared")}</span>
+														<span className="badge">{l10n.t("declared")}</span>
 													</HoverTip>
 												) : null}
 												{/* Beside the name because the name is what it copies. The
@@ -419,18 +421,18 @@ export function ModelsSection({
 												    ID is registered through several servers. */}
 												<button
 													type="button"
-													class="quiet icon-action"
+													className="quiet icon-action"
 													aria-label={l10n.t("Copy model ID {0} from {1}", model.id, model.serverLabel)}
 													onClick={() => copyId(model, rowId)}
 												>
 													{copied === rowId ? <IconCheck /> : <IconCopy />}
 												</button>
 											</td>
-											<td class="col-family">{model.family}</td>
+											<td className="col-family">{model.family}</td>
 											{showServerColumn ? <td>{model.serverLabel}</td> : null}
-											<td class="num col-input">{formatTokens(model.maxInputTokens)}</td>
-											<td class="num col-output">{formatTokens(model.maxOutputTokens)}</td>
-											<td class="num col-price">
+											<td className="num col-input">{formatTokens(model.maxInputTokens)}</td>
+											<td className="num col-output">{formatTokens(model.maxOutputTokens)}</td>
+											<td className="num col-price">
 												{/* Cache and long-context tiers exist only here, so the tip
 												    is focus-reachable; native title tooltips do not show in
 												    the webview host. */}
@@ -438,17 +440,17 @@ export function ModelsSection({
 													<span>{formatPricing(model)}</span>
 												</HoverTip>
 											</td>
-											<td class="caps col-caps">
+											<td className="caps col-caps">
 												{/* Truncates with a CSS ellipsis to hold the column budget; the
 													    tip carries the full list, and it is focusable because the
 													    ellipsized tail is invisible without a pointer. */}
 												{caps.length > 0 ? (
 													<HoverTip focusable tip={caps}>
-														<span class="caps-text">{caps}</span>
+														<span className="caps-text">{caps}</span>
 													</HoverTip>
 												) : null}
 											</td>
-											<td class="actions">
+											<td className="actions">
 												{/* One quiet text action, not an icon: "Inspect" says what
 												    opens (the merged parameters-and-capabilities panel), and
 												    the uniform row height survives (no taller chrome). It
@@ -457,7 +459,7 @@ export function ModelsSection({
 												    undiscoverable. */}
 												<button
 													type="button"
-													class="quiet params-action"
+													className="quiet params-action"
 													aria-label={l10n.t("Inspect {0} on {1}", model.name, model.serverLabel)}
 													onClick={() =>
 														onInspect({ scopeKey: model.scopeKey, rawId: model.rawId, serverLabel: model.serverLabel })
@@ -471,7 +473,7 @@ export function ModelsSection({
 								})}
 								{end < sorted.length ? (
 									// biome-ignore lint/a11y/noInteractiveElementToNoninteractiveRole: a spacer row is layout filler with no content; presentation removes it from the accessibility tree, which is the point
-									<tr class="spacer" role="presentation">
+									<tr className="spacer" role="presentation">
 										<td
 											colSpan={columns}
 											style={{ height: `${(sorted.length - end) * rowHeight}px`, padding: 0, border: "none" }}
@@ -481,7 +483,7 @@ export function ModelsSection({
 							</tbody>
 						</table>
 					</section>
-					{sorted.length === 0 ? <p class="empty">{l10n.t("No models match the filter.")}</p> : null}
+					{sorted.length === 0 ? <p className="empty">{l10n.t("No models match the filter.")}</p> : null}
 				</>
 			)}
 		</section>
