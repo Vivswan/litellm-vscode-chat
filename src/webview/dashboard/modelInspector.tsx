@@ -60,6 +60,7 @@ import { useRpc } from "./hooks";
 import { capabilityList, formatTokens } from "./models";
 import { chainsWithStory, RecordChainFigure } from "./recordChain";
 import { SlideOver } from "./slideOver";
+import { Button } from "./ui/button";
 
 /** The readModelParameters answer; the inspector's own useRpc instance correlates it. */
 export type ModelParametersResponse = ResponseFor<"readModelParameters">;
@@ -186,9 +187,9 @@ function ParameterRow({
 				<td>
 					{sourceName(row.source)}
 					{onEditSource !== undefined ? (
-						<button
-							type="button"
-							className="quiet row-edit"
+						<Button
+							variant="quiet"
+							className="row-edit px-0.5 py-0"
 							aria-label={
 								row.source.layer === "entry"
 									? l10n.t('Edit in server entry "{0}"', row.source.entryLabel)
@@ -197,7 +198,7 @@ function ParameterRow({
 							onClick={() => onEditSource(row.source)}
 						>
 							{l10n.t("edit")}
-						</button>
+						</Button>
 					) : null}
 					{row.inheritedFrom !== undefined ? (
 						<span className="param-skip"> ({l10n.t("inherited from {0}", row.inheritedFrom)})</span>
@@ -420,14 +421,14 @@ function FieldRow({
 				<td>
 					{levelName(field.level, field.key)}
 					{editable ? (
-						<button
-							type="button"
-							className="quiet row-edit"
+						<Button
+							variant="quiet"
+							className="row-edit px-0.5 py-0"
 							aria-label={l10n.t('Edit record "{0}"', field.key ?? "")}
 							onClick={() => onEditField?.(field.level, field.key ?? "")}
 						>
 							{l10n.t("edit")}
-						</button>
+						</Button>
 					) : null}
 					{field.inheritedFrom !== undefined ? (
 						<span className="param-skip"> ({l10n.t("inherited from {0}", field.inheritedFrom)})</span>
@@ -876,9 +877,9 @@ export function ModelInspector({
 						docs={<DocsLink href={DOCS_LINK_PARAMS_INSPECTOR} label={l10n.t("Open the effective-parameters guide")} />}
 						action={
 							onEditRecord !== undefined ? (
-								<button
-									type="button"
-									className="quiet section-action"
+								<Button
+									variant="quiet"
+									className="section-action"
 									disabled={answeredParams === undefined}
 									onClick={() => {
 										// Reuse the most specific matching global record when one
@@ -892,7 +893,7 @@ export function ModelInspector({
 									}}
 								>
 									{l10n.t("Configure parameters for this model")}
-								</button>
+								</Button>
 							) : undefined
 						}
 					/>
@@ -989,9 +990,9 @@ export function ModelInspector({
 						docs={<DocsLink href={DOCS_LINK_CAPS_INSPECTOR} label={l10n.t("Open the effective-capabilities guide")} />}
 						action={
 							onEditRecord !== undefined ? (
-								<button
-									type="button"
-									className="quiet section-action"
+								<Button
+									variant="quiet"
+									className="section-action"
 									disabled={answeredCaps === undefined}
 									onClick={() => {
 										// Reuse the most specific matching global record when one
@@ -1005,7 +1006,7 @@ export function ModelInspector({
 									}}
 								>
 									{l10n.t("Configure capabilities for this model")}
-								</button>
+								</Button>
 							) : undefined
 						}
 					/>

@@ -57,6 +57,10 @@ import type { IntentOutcome } from "./hooks";
 import { useIntentOutcome, useRpc } from "./hooks";
 import { IconAdd, IconBraces, IconEdit, IconTrash } from "./icons";
 import { SlideOver } from "./slideOver";
+import { Button } from "./ui/button";
+import { Checkbox } from "./ui/checkbox";
+import { Input } from "./ui/input";
+import { Select } from "./ui/select";
 import { sendRequest } from "./vscodeApi";
 
 /**
@@ -87,14 +91,14 @@ function HeadingRevealButton({
 	settingId: "models.parameters" | "models.capabilities";
 }) {
 	return (
-		<button
-			type="button"
-			className="quiet reveal-json"
+		<Button
+			variant="quiet"
+			className="reveal-json px-1 py-0"
 			aria-label={l10n.t("Open {0} in settings.json", title)}
 			onClick={() => sendRequest("revealSetting", { setting: settingId })}
 		>
 			<IconBraces />
-		</button>
+		</Button>
 	);
 }
 
@@ -362,8 +366,10 @@ function InheritFromControl({
 				<Help text={helpInheritFromControl()} />
 			</span>
 			<span className="inherit-controls">
-				<select
+				<Select
 					id={id}
+					// Compact: the control sits inline in a dense editor row.
+					className="px-1 py-0.5"
 					disabled={disabled}
 					value={shownKind}
 					onChange={(event) => {
@@ -386,9 +392,9 @@ function InheritFromControl({
 					<option value="all">{l10n.t("everything that reaches it")}</option>
 					<option value="none">{l10n.t("nothing - barrier")}</option>
 					<option value="keys">{l10n.t("only listed records")}</option>
-				</select>
+				</Select>
 				{shownKind === "keys" ? (
-					<input
+					<Input
 						type="text"
 						className="inherit-keys"
 						aria-label={l10n.t("Record keys to inherit from, comma-separated")}
@@ -433,8 +439,7 @@ function InheritableFlag({
 	return (
 		<>
 			<label>
-				<input
-					type="checkbox"
+				<Checkbox
 					aria-label={l10n.t('Mark "{0}" inheritable', fieldKey)}
 					checked={marked.has(fieldKey)}
 					disabled={disabled}
@@ -686,9 +691,9 @@ function ParamGroupsFields({
 												/>
 											</span>
 											<span className="cell value">
-												<input
+												<Input
 													type="text"
-													className={`value${problems[groupIndex]?.params[paramIndex]?.field === "value" ? " invalid" : ""}`}
+													className="value"
 													aria-invalid={problems[groupIndex]?.params[paramIndex]?.field === "value"}
 													aria-label={l10n.t("Value")}
 													placeholder={l10n.t("JSON value, e.g. 0.2")}
@@ -714,8 +719,7 @@ function ParamGroupsFields({
 											{param.key.trim().startsWith("_") || param.key.trim().length === 0 ? null : (
 												<span className="cell directive-flag">
 													<label>
-														<input
-															type="checkbox"
+														<Checkbox
 															aria-label={l10n.t('Force "{0}"', param.key.trim())}
 															checked={forcedFields.has(param.key.trim())}
 															disabled={inert || !directiveEligible(FORCE_DIRECTIVE, param.key.trim())}
@@ -758,9 +762,8 @@ function ParamGroupsFields({
 													/>
 												</span>
 											)}
-											<button
-												type="button"
-												className="quiet"
+											<Button
+												variant="quiet"
 												aria-label={removeLabel}
 												title={removeLabel}
 												disabled={disabled}
@@ -769,7 +772,7 @@ function ParamGroupsFields({
 												}
 											>
 												<IconTrash />
-											</button>
+											</Button>
 											{problems[groupIndex]?.params[paramIndex] !== undefined ? (
 												<span className="error">{problems[groupIndex]?.params[paramIndex]?.message}</span>
 											) : null}
@@ -780,14 +783,13 @@ function ParamGroupsFields({
 									);
 								})}
 							</div>
-							<button
-								type="button"
-								className="secondary"
+							<Button
+								variant="secondary"
 								disabled={disabled}
 								onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
 							>
 								<IconAdd /> {l10n.t("Add parameter")}
-							</button>
+							</Button>
 						</div>
 					</div>
 				);
@@ -937,9 +939,9 @@ function SuggestInput({
 	if (suggestions.length === 0) {
 		return (
 			<span className="suggest-input">
-				<input
+				<Input
 					type="text"
-					className={invalid ? `${inputClass} invalid` : inputClass}
+					className={inputClass}
 					aria-invalid={invalid}
 					aria-label={ariaLabel}
 					placeholder={placeholder}
@@ -953,9 +955,9 @@ function SuggestInput({
 	}
 	return (
 		<span className="suggest-input">
-			<input
+			<Input
 				type="text"
-				className={invalid ? `${inputClass} invalid` : inputClass}
+				className={inputClass}
 				role="combobox"
 				aria-invalid={invalid}
 				aria-label={ariaLabel}
@@ -994,7 +996,7 @@ function SuggestInput({
 							id={`${listId}-${index}`}
 							aria-selected={index === highlighted}
 							tabIndex={-1}
-							className={index === highlighted ? "quiet active" : "quiet"}
+							className={index === highlighted ? "active" : undefined}
 							// mousedown, not click: the input's blur closes the list
 							// before a click could land. The click handler still picks
 							// for activations that never send a mousedown (assistive
@@ -1148,9 +1150,9 @@ export function CatalogPicker({
 	};
 	return (
 		<span className="cell value catalog-picker">
-			<input
+			<Input
 				type="text"
-				className={invalid ? "value invalid" : "value"}
+				className="value"
 				role="combobox"
 				aria-invalid={invalid}
 				aria-expanded={open && matches !== undefined && matches.length > 0}
@@ -1184,7 +1186,7 @@ export function CatalogPicker({
 							id={`${listId}-${index}`}
 							aria-selected={index === active}
 							tabIndex={-1}
-							className={index === active ? "quiet active" : "quiet"}
+							className={index === active ? "active" : undefined}
 							// mousedown, not click: the input's blur closes the list
 							// before a click could land.
 							onMouseDown={(event) => {
@@ -1363,8 +1365,7 @@ function CapabilityGroupsFields({
 											</span>
 											{kind === "boolean" ? (
 												<label className="cell value capability-flag">
-													<input
-														type="checkbox"
+													<Checkbox
 														checked={param.valueText.trim() === "true"}
 														disabled={inert}
 														onChange={(event) =>
@@ -1382,11 +1383,11 @@ function CapabilityGroupsFields({
 												/>
 											) : (
 												<span className="cell value">
-													<input
+													<Input
 														type={numberProps !== undefined ? "number" : "text"}
 														min={numberProps?.min}
 														step={numberProps?.step}
-														className={`value${issue?.problem?.field === "value" ? " invalid" : ""}`}
+														className="value"
 														aria-invalid={issue?.problem?.field === "value"}
 														aria-label={l10n.t("Value")}
 														placeholder={numberProps?.placeholder ?? l10n.t("JSON value")}
@@ -1406,8 +1407,7 @@ function CapabilityGroupsFields({
 											{directiveEligible(FALLBACK_DIRECTIVE, key) ? (
 												<span className="cell directive-flag">
 													<label>
-														<input
-															type="checkbox"
+														<Checkbox
 															aria-label={l10n.t('Fall back for "{0}"', key)}
 															checked={fallbackFields.has(key)}
 															disabled={inert}
@@ -1436,9 +1436,8 @@ function CapabilityGroupsFields({
 													/>
 												</span>
 											) : null}
-											<button
-												type="button"
-												className="quiet"
+											<Button
+												variant="quiet"
 												aria-label={removeLabel}
 												title={removeLabel}
 												disabled={inert}
@@ -1447,21 +1446,20 @@ function CapabilityGroupsFields({
 												}
 											>
 												<IconTrash />
-											</button>
+											</Button>
 											{issue?.problem !== undefined ? <span className="error">{issue.problem.message}</span> : null}
 											{issue?.hint !== undefined ? <span className="hint">{issue.hint}</span> : null}
 										</div>
 									);
 								})}
 							</div>
-							<button
-								type="button"
-								className="secondary"
+							<Button
+								variant="secondary"
 								disabled={inert}
 								onClick={() => patchGroup(groupIndex, { params: [...group.params, { key: "", valueText: "" }] })}
 							>
 								<IconAdd /> {l10n.t("Add capability")}
-							</button>
+							</Button>
 						</div>
 					</div>
 				);
@@ -1842,8 +1840,7 @@ function FieldChipPopover({
 			<span className="popover-label">{l10n.t("Value")}</span>
 			{valueKind === "boolean" ? (
 				<label className="capability-flag">
-					<input
-						type="checkbox"
+					<Checkbox
 						checked={row.valueText.trim() === "true"}
 						disabled={disabled}
 						onChange={(event) => patchValue(event.currentTarget.checked ? "true" : "false")}
@@ -1853,11 +1850,11 @@ function FieldChipPopover({
 			) : valueKind === "catalog-id" ? (
 				<CatalogPicker value={row.valueText} disabled={disabled} invalid={valueInvalid} onValue={patchValue} />
 			) : (
-				<input
+				<Input
 					type={numberProps !== undefined ? "number" : "text"}
 					min={numberProps?.min}
 					step={numberProps?.step}
-					className={valueInvalid ? "value invalid" : "value"}
+					className="value"
 					aria-invalid={valueInvalid}
 					aria-label={l10n.t('Value for "{0}"', key)}
 					placeholder={numberProps?.placeholder ?? l10n.t("JSON value, e.g. 0.2")}
@@ -1872,8 +1869,7 @@ function FieldChipPopover({
 					{kind === "params" ? (
 						<>
 							<label>
-								<input
-									type="checkbox"
+								<Checkbox
 									aria-label={l10n.t('Force "{0}"', key)}
 									checked={forcedFields.has(key)}
 									disabled={disabled || !directiveEligible(FORCE_DIRECTIVE, key)}
@@ -1897,8 +1893,7 @@ function FieldChipPopover({
 					{kind === "caps" && directiveEligible(FALLBACK_DIRECTIVE, key) ? (
 						<>
 							<label>
-								<input
-									type="checkbox"
+								<Checkbox
 									aria-label={l10n.t('Fall back for "{0}"', key)}
 									checked={fallbackFields.has(key)}
 									disabled={disabled}
@@ -1930,9 +1925,9 @@ function FieldChipPopover({
 			{issue?.problem !== undefined ? <p className="error">{issue.problem.message}</p> : null}
 			{issue?.hint !== undefined ? <p className="hint">{issue.hint}</p> : null}
 			<div className="chip-popover-actions">
-				<button type="button" className="quiet" disabled={disabled} onClick={removeRow}>
+				<Button variant="quiet" disabled={disabled} onClick={removeRow}>
 					<IconTrash /> {l10n.t("Remove field")}
-				</button>
+				</Button>
 			</div>
 		</PopoverShell>
 	);
@@ -2035,8 +2030,7 @@ function AddFieldPopover({
 			<span className="popover-label">{l10n.t("Value")}</span>
 			{valueKind === "boolean" ? (
 				<label className="capability-flag">
-					<input
-						type="checkbox"
+					<Checkbox
 						checked={valueText.trim() === "true"}
 						disabled={disabled}
 						onChange={(event) => setValueText(event.currentTarget.checked ? "true" : "false")}
@@ -2046,7 +2040,7 @@ function AddFieldPopover({
 			) : valueKind === "catalog-id" ? (
 				<CatalogPicker value={valueText} disabled={disabled} invalid={false} onValue={setValueText} />
 			) : (
-				<input
+				<Input
 					type={numberProps !== undefined ? "number" : "text"}
 					min={numberProps?.min}
 					step={numberProps?.step}
@@ -2068,8 +2062,7 @@ function AddFieldPopover({
 					{kind === "params" ? (
 						<>
 							<label>
-								<input
-									type="checkbox"
+								<Checkbox
 									aria-label={l10n.t('Force "{0}"', trimmed)}
 									checked={flagChecked(FORCE_DIRECTIVE)}
 									disabled={disabled || !directiveEligible(FORCE_DIRECTIVE, trimmed)}
@@ -2084,8 +2077,7 @@ function AddFieldPopover({
 					{kind === "caps" && directiveEligible(FALLBACK_DIRECTIVE, trimmed) ? (
 						<>
 							<label>
-								<input
-									type="checkbox"
+								<Checkbox
 									aria-label={l10n.t('Fall back for "{0}"', trimmed)}
 									checked={flagChecked(FALLBACK_DIRECTIVE)}
 									disabled={disabled}
@@ -2097,8 +2089,7 @@ function AddFieldPopover({
 						</>
 					) : null}
 					<label>
-						<input
-							type="checkbox"
+						<Checkbox
 							aria-label={l10n.t('Mark "{0}" inheritable', trimmed)}
 							checked={flagChecked(INHERITABLE_DIRECTIVE)}
 							disabled={disabled}
@@ -2111,9 +2102,9 @@ function AddFieldPopover({
 			) : null}
 			{problem !== undefined ? <p className="error">{problem}</p> : null}
 			<div className="chip-popover-actions">
-				<button type="button" disabled={disabled || !canAdd} onClick={commit}>
+				<Button disabled={disabled || !canAdd} onClick={commit}>
 					<IconAdd /> {l10n.t("Add field")}
-				</button>
+				</Button>
 			</div>
 		</PopoverShell>
 	);
@@ -2389,15 +2380,14 @@ export function RecordMatcherTable({
 							</td>
 							{editable ? (
 								<td className="edit-cell">
-									<button
-										type="button"
-										className="quiet"
+									<Button
+										variant="quiet"
 										aria-label={l10n.t('Open the full editor for "{0}"', matcherName)}
 										disabled={disabled}
 										onClick={() => onOpenEditor?.(groupIndex)}
 									>
 										<IconEdit />
-									</button>
+									</Button>
 								</td>
 							) : null}
 						</tr>
@@ -2506,12 +2496,10 @@ export function RecordMatcherEditorOverlay({
 					/>
 				)}
 				<div className="toolbar editor-footer">
-					<button type="button" onClick={onClose}>
-						{l10n.t("Done")}
-					</button>
-					<button type="button" className="quiet state-error" disabled={disabled} onClick={onRemove}>
+					<Button onClick={onClose}>{l10n.t("Done")}</Button>
+					<Button variant="quiet" className="text-error hover:text-error" disabled={disabled} onClick={onRemove}>
 						<IconTrash /> {l10n.t("Remove matcher")}
-					</button>
+					</Button>
 				</div>
 			</div>
 		</SlideOver>
@@ -2755,9 +2743,8 @@ export function ModelParametersEditor({
 			<FailureNote failure={draft.failure} dirty={draft.dirty} />
 			<div className="toolbar">
 				{json === undefined ? (
-					<button
-						type="button"
-						className="secondary"
+					<Button
+						variant="secondary"
 						id="params-add-matcher"
 						onClick={() => {
 							draft.update([...groups, { prefix: "", params: [] }]);
@@ -2765,26 +2752,24 @@ export function ModelParametersEditor({
 						}}
 					>
 						<IconAdd /> {l10n.t("Add model matcher")}
-					</button>
+					</Button>
 				) : null}
-				<button type="button" disabled={!canApply} onClick={apply}>
+				<Button disabled={!canApply} onClick={apply}>
 					{l10n.t("Apply")}
-				</button>
+				</Button>
 				{/* Discard stays available while a write is in flight: a lost ack
 				    must not wedge the editor until a reload. */}
-				<button
-					type="button"
-					className="secondary"
+				<Button
+					variant="secondary"
 					disabled={!draft.dirty && draft.phase !== "applying" && !(json !== undefined && json.text !== json.base)}
 					aria-label={l10n.t("Discard the unapplied model parameter edits")}
 					onClick={discard}
 				>
 					{l10n.t("Discard")}
-				</button>
+				</Button>
 				{json === undefined ? (
-					<button
-						type="button"
-						className="quiet"
+					<Button
+						variant="quiet"
 						disabled={!parse.ok}
 						onClick={() => {
 							if (parse.ok) {
@@ -2793,11 +2778,11 @@ export function ModelParametersEditor({
 						}}
 					>
 						{l10n.t("Edit as JSON")}
-					</button>
+					</Button>
 				) : (
-					<button type="button" className="quiet" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
+					<Button variant="quiet" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
 						{l10n.t("Edit as rows")}
-					</button>
+					</Button>
 				)}
 				<ApplyStatus phase={draft.phase} />
 			</div>
@@ -3012,9 +2997,8 @@ export function ModelCapabilitiesEditor({
 			<FailureNote failure={draft.failure} dirty={draft.dirty} />
 			<div className="toolbar">
 				{json === undefined ? (
-					<button
-						type="button"
-						className="secondary"
+					<Button
+						variant="secondary"
 						id="caps-add-matcher"
 						onClick={() => {
 							draft.update([...groups, { prefix: "", params: [] }]);
@@ -3022,26 +3006,24 @@ export function ModelCapabilitiesEditor({
 						}}
 					>
 						<IconAdd /> {l10n.t("Add capability matcher")}
-					</button>
+					</Button>
 				) : null}
-				<button type="button" disabled={!canApply} onClick={apply}>
+				<Button disabled={!canApply} onClick={apply}>
 					{l10n.t("Apply")}
-				</button>
+				</Button>
 				{/* Discard stays available while a write is in flight: a lost ack
 				    must not wedge the editor until a reload. */}
-				<button
-					type="button"
-					className="secondary"
+				<Button
+					variant="secondary"
 					disabled={!draft.dirty && draft.phase !== "applying" && !(json !== undefined && json.text !== json.base)}
 					aria-label={l10n.t("Discard the unapplied model capability edits")}
 					onClick={discard}
 				>
 					{l10n.t("Discard")}
-				</button>
+				</Button>
 				{json === undefined ? (
-					<button
-						type="button"
-						className="quiet"
+					<Button
+						variant="quiet"
 						disabled={!parse.ok}
 						onClick={() => {
 							if (parse.ok) {
@@ -3050,11 +3032,11 @@ export function ModelCapabilitiesEditor({
 						}}
 					>
 						{l10n.t("Edit as JSON")}
-					</button>
+					</Button>
 				) : (
-					<button type="button" className="quiet" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
+					<Button variant="quiet" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
 						{l10n.t("Edit as rows")}
-					</button>
+					</Button>
 				)}
 				<ApplyStatus phase={draft.phase} />
 			</div>

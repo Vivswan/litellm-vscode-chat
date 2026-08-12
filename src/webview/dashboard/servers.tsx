@@ -70,6 +70,11 @@ import {
 } from "./recordEditors";
 import { SlideOver } from "./slideOver";
 import { relativeTime } from "./time";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { Checkbox } from "./ui/checkbox";
+import { Input } from "./ui/input";
+import { Select } from "./ui/select";
 import { barPresentation, formatPercent, formatUsd } from "./usage";
 import { sendRequest } from "./vscodeApi";
 
@@ -532,10 +537,9 @@ function TextField({
 				<label htmlFor={id}>{serverFormFieldLabel(field)}</label>
 				<Help text={serverFieldHelp(field)} />
 			</span>
-			<input
+			<Input
 				id={id}
 				type="text"
-				className={showProblem ? "invalid" : ""}
 				placeholder={placeholder ?? ""}
 				value={props.draft[field]}
 				disabled={props.disabled}
@@ -615,11 +619,13 @@ function SecretField({ field, help, props }: { field: SecretFieldId; help?: stri
 				<Help text={help ?? serverFieldHelp(field)} />
 			</span>
 			<span className="secret-input">
-				<input
+				<Input
 					id={id}
 					ref={disarmValueAttributeMirror}
+					// The reveal button is absolutely positioned over the field's
+					// right edge; the padding keeps the value clear of it.
+					className="min-w-0 flex-1 pr-13"
 					type={revealed ? "text" : "password"}
-					className={showProblem ? "invalid" : ""}
 					value={value.value}
 					disabled={props.disabled || value.clear}
 					aria-invalid={showProblem}
@@ -627,9 +633,8 @@ function SecretField({ field, help, props }: { field: SecretFieldId; help?: stri
 					onChange={(event) => patchSecret({ value: event.currentTarget.value })}
 					onBlur={() => props.touch(field)}
 				/>
-				<button
-					type="button"
-					className="quiet"
+				<Button
+					variant="quiet"
 					aria-pressed={revealed}
 					aria-label={
 						revealed
@@ -640,7 +645,7 @@ function SecretField({ field, help, props }: { field: SecretFieldId; help?: stri
 					onClick={() => setRevealed((current) => !current)}
 				>
 					{revealed ? l10n.t("Hide") : l10n.t("Show")}
-				</button>
+				</Button>
 			</span>
 			<span
 				className="secret-where"
@@ -674,8 +679,7 @@ function SecretField({ field, help, props }: { field: SecretFieldId; help?: stri
 			    tone, never as a third option inside the storage choice. */}
 			{value.existing !== "none" ? (
 				<label className={value.clear ? "secret-remove armed" : "secret-remove"}>
-					<input
-						type="checkbox"
+					<Checkbox
 						checked={value.clear}
 						disabled={props.disabled}
 						onChange={(event) => patchSecret({ clear: event.currentTarget.checked })}
@@ -753,8 +757,7 @@ function StoredSecretRow({ field, props }: { field: SecretFieldId; props: FieldR
 				<span className="hint">{l10n.t("Currently in {0}.", locationName(value.existing))}</span>
 			)}
 			<label className={value.clear ? "secret-remove armed" : "secret-remove"}>
-				<input
-					type="checkbox"
+				<Checkbox
 					checked={value.clear}
 					disabled={props.disabled}
 					onChange={(event) => patchSecret({ clear: event.currentTarget.checked })}
@@ -790,9 +793,9 @@ function HeaderRowsEditor({
 					// biome-ignore lint/suspicious/noArrayIndexKey: header rows are positional while being edited; the index is the identity
 					<div className="row" key={index}>
 						<span className="cell key">
-							<input
+							<Input
 								type="text"
-								className={`key${problems[index] !== undefined ? " invalid" : ""}`}
+								className="key"
 								aria-label={l10n.t("Header name")}
 								aria-invalid={problems[index] !== undefined}
 								placeholder={l10n.t("Header, e.g. x-routing-env")}
@@ -804,9 +807,10 @@ function HeaderRowsEditor({
 							/>
 						</span>
 						<span className="cell value">
-							<input
+							<Input
 								type="text"
-								className={`value${problems[index] !== undefined ? " invalid" : ""}`}
+								className="value"
+								aria-invalid={problems[index] !== undefined}
 								aria-label={l10n.t("Header value")}
 								placeholder={l10n.t("Value, e.g. prod")}
 								value={row.valueText}
@@ -816,26 +820,16 @@ function HeaderRowsEditor({
 								}
 							/>
 						</span>
-						<button
-							type="button"
-							className="quiet"
-							disabled={disabled}
-							onClick={() => onChange(rows.filter((_, i) => i !== index))}
-						>
+						<Button variant="quiet" disabled={disabled} onClick={() => onChange(rows.filter((_, i) => i !== index))}>
 							<IconTrash /> {l10n.t("Remove")}
-						</button>
+						</Button>
 						{problems[index] !== undefined ? <span className="error">{problems[index]}</span> : null}
 					</div>
 				))}
 			</div>
-			<button
-				type="button"
-				className="secondary"
-				disabled={disabled}
-				onClick={() => onChange([...rows, { name: "", valueText: "" }])}
-			>
+			<Button variant="secondary" disabled={disabled} onClick={() => onChange([...rows, { name: "", valueText: "" }])}>
 				<IconAdd /> {l10n.t("Add header")}
-			</button>
+			</Button>
 		</>
 	);
 }
@@ -1315,7 +1309,7 @@ function ServerForm({
 				<div className="field">
 					{/* The summary already names the field; an aria-label keeps the
 					    select accessible without saying "API version" a second time. */}
-					<select
+					<Select
 						id="server-apiVersion-mode"
 						aria-label={serverFormFieldLabel("apiVersion")}
 						value={draft.apiVersion.mode}
@@ -1329,15 +1323,14 @@ function ServerForm({
 						<option value="auto">{l10n.t("Auto - detect, default /{0}", DEFAULT_API_VERSION)}</option>
 						<option value="none">{l10n.t("No version - use the URL as-is")}</option>
 						<option value="custom">{l10n.t("Custom...")}</option>
-					</select>
+					</Select>
 				</div>
 				{draft.apiVersion.mode === "custom" ? (
 					<div className="field">
 						<label htmlFor="server-apiVersion">{l10n.t("Version segment")}</label>
-						<input
+						<Input
 							id="server-apiVersion"
 							type="text"
-							className={visibleProblems.apiVersion !== undefined ? "invalid" : ""}
 							placeholder={l10n.t("e.g. v2")}
 							value={draft.apiVersion.custom}
 							disabled={saving}
@@ -1457,9 +1450,8 @@ function ServerForm({
 						onOpenEditor={(index) => setMatcherEditor({ kind: "params", index })}
 					/>
 				) : null}
-				<button
-					type="button"
-					className="secondary"
+				<Button
+					variant="secondary"
 					id="server-params-add"
 					disabled={saving}
 					onClick={() => {
@@ -1473,7 +1465,7 @@ function ServerForm({
 					}}
 				>
 					<IconAdd /> {l10n.t("Add model matcher")}
-				</button>
+				</Button>
 			</details>
 			<details open={capsOpen} onToggle={(event) => setCapsOpen(event.currentTarget.open)}>
 				<summary>
@@ -1496,9 +1488,8 @@ function ServerForm({
 						onOpenEditor={(index) => setMatcherEditor({ kind: "caps", index })}
 					/>
 				) : null}
-				<button
-					type="button"
-					className="secondary"
+				<Button
+					variant="secondary"
 					id="server-caps-add"
 					disabled={saving}
 					onClick={() => {
@@ -1511,7 +1502,7 @@ function ServerForm({
 					}}
 				>
 					<IconAdd /> {l10n.t("Add capability matcher")}
-				</button>
+				</Button>
 			</details>
 			<details open={discoveryOpen} onToggle={(event) => setDiscoveryOpen(event.currentTarget.open)}>
 				{/* The two controls for what discovery cannot see, side by side:
@@ -1545,8 +1536,7 @@ function ServerForm({
 					</p>
 					{EXPECTED_FAILURE_CATEGORIES.map((category) => (
 						<label key={category} className="setting-check">
-							<input
-								type="checkbox"
+							<Checkbox
 								checked={draft.expectedFailures.includes(category)}
 								disabled={saving}
 								onChange={(event) =>
@@ -1587,7 +1577,7 @@ function ServerForm({
 				)}
 			</p>
 			<div className="toolbar">
-				<button type="button" disabled={phase.phase !== "editing"} onClick={save}>
+				<Button disabled={phase.phase !== "editing"} onClick={save}>
 					{saving ? (
 						<>
 							<span className="spinner" aria-hidden="true" /> {l10n.t("Saving...")}
@@ -1595,16 +1585,15 @@ function ServerForm({
 					) : (
 						l10n.t("Save")
 					)}
-				</button>
-				<button type="button" className="secondary" onClick={onCancel}>
+				</Button>
+				<Button variant="secondary" onClick={onCancel}>
 					{l10n.t("Cancel")}
-				</button>
+				</Button>
 				{/* Probes the draft as typed, saved or not. Disabled only while the
 				    base URL is unusable or a probe/save is in flight; Cancel stays
 				    live throughout - an abandoned probe's outcome is simply ignored. */}
-				<button
-					type="button"
-					className="secondary"
+				<Button
+					variant="secondary"
 					disabled={!isUsableHttpUrl(draft.baseUrl.trim()) || testState.kind === "testing" || saving}
 					onClick={testConnection}
 				>
@@ -1615,7 +1604,7 @@ function ServerForm({
 					) : (
 						l10n.t("Test connection")
 					)}
-				</button>
+				</Button>
 				{phase.phase === "prefill" ? <span className="hint">{l10n.t("Loading stored values...")}</span> : null}
 				{firstBlocking !== undefined ? (
 					<span className="error" role="alert">
@@ -1734,10 +1723,9 @@ function AdoptForm({
 			</p>
 			<div className="field">
 				<label htmlFor="adopt-label">{l10n.t("Label")}</label>
-				<input
+				<Input
 					id="adopt-label"
 					type="text"
-					className={showProblem ? "invalid" : ""}
 					value={label}
 					disabled={saving}
 					aria-invalid={showProblem}
@@ -1811,7 +1799,7 @@ function AdoptForm({
 				)}
 			</p>
 			<div className="toolbar">
-				<button type="button" disabled={saving} onClick={adopt}>
+				<Button disabled={saving} onClick={adopt}>
 					{saving ? (
 						<>
 							<span className="spinner" aria-hidden="true" /> {l10n.t("Adopting...")}
@@ -1819,12 +1807,12 @@ function AdoptForm({
 					) : (
 						l10n.t("Adopt")
 					)}
-				</button>
+				</Button>
 				{/* Cancel routes through the slide-over's discard policy; a pending
 				    adopt never blocks it - the section owns the round trip. */}
-				<button type="button" className="secondary" onClick={onCancel}>
+				<Button variant="secondary" onClick={onCancel}>
 					{l10n.t("Cancel")}
-				</button>
+				</Button>
 				{showProblem ? (
 					<span className="error" role="alert">
 						{l10n.t("Cannot adopt: fix Label")}
@@ -1895,14 +1883,14 @@ function ServerRow({
 				    clicking it scopes the list to this server. A zero stays plain
 				    text, since an empty scoped list has nothing to show. */}
 				{onShowModels !== undefined && server.modelCount > 0 ? (
-					<button
-						type="button"
-						className="quiet count-link"
+					<Button
+						variant="quiet"
+						className="count-link px-1 py-0"
 						aria-label={l10n.t("Show models from {0}", server.label)}
 						onClick={() => onShowModels(server.label)}
 					>
 						{server.modelCount}
-					</button>
+					</Button>
 				) : (
 					server.modelCount
 				)}
@@ -1913,12 +1901,10 @@ function ServerRow({
 			<td>
 				{/* The credential kind is the information, so it is the visible
 				    text; a generic "auth" badge would hide it in a hover tip. */}
-				{server.hasApiKey || server.hasOAuth ? (
-					<span className="badge">{server.hasOAuth ? "OAuth" : l10n.t("API key")}</span>
-				) : null}
+				{server.hasApiKey || server.hasOAuth ? <Badge>{server.hasOAuth ? "OAuth" : l10n.t("API key")}</Badge> : null}
 				{server.origin === "external" ? (
 					<HoverTip focusable tip={externalTip(server)}>
-						<span className="badge">{l10n.t("external")}</span>
+						<Badge>{l10n.t("external")}</Badge>
 					</HoverTip>
 				) : null}
 				{/* Gated on expected: only expected failures fold the declared count
@@ -1932,25 +1918,25 @@ function ServerRow({
 							"Models declared in the entry's discovery.declared list; they keep serving while discovery fails."
 						)}
 					>
-						<span className="badge">
+						<Badge>
 							{(server.declaredModelCount ?? 0) === 1
 								? l10n.t("1 declared model")
 								: l10n.t("{0} declared models", server.declaredModelCount ?? 0)}
-						</span>
+						</Badge>
 					</HoverTip>
 				) : null}
 				{INACTIVE_NOTICES.filter((notice) => server.notices?.includes(notice) === true).map((notice) => (
 					<HoverTip key={notice} tip={INACTIVE_NOTICE_PRESENTATION[notice].tip()}>
-						<span className="badge state-warn">{INACTIVE_NOTICE_PRESENTATION[notice].badge()}</span>
+						<Badge variant="warn">{INACTIVE_NOTICE_PRESENTATION[notice].badge()}</Badge>
 					</HoverTip>
 				))}
 			</td>
 			<td className={armed ? "actions armed" : "actions"}>
 				{armed ? (
 					<>
-						<button
-							type="button"
-							className="quiet state-error"
+						<Button
+							variant="quiet"
+							className="text-error hover:text-error"
 							onClick={() => {
 								// The same two-step confirm for every origin; only the intent
 								// differs (a declared or misconfigured entry is removed from
@@ -1965,10 +1951,10 @@ function ServerRow({
 							}}
 						>
 							{l10n.t("Confirm remove?")}
-						</button>
-						<button type="button" className="quiet" onClick={() => onArmRemove(false)}>
+						</Button>
+						<Button variant="quiet" onClick={() => onArmRemove(false)}>
 							{l10n.t("Cancel")}
-						</button>
+						</Button>
 					</>
 				) : (
 					<>
@@ -1976,24 +1962,20 @@ function ServerRow({
 						    without rewriting what the user typed, so its fix action
 						    reveals the setting instead of opening the form. */}
 						{server.origin === "misconfigured" ? (
-							<button
-								type="button"
-								className="quiet"
-								onClick={() => sendRequest("revealSetting", { setting: "servers" })}
-							>
+							<Button variant="quiet" onClick={() => sendRequest("revealSetting", { setting: "servers" })}>
 								{l10n.t("Fix in settings.json")}
-							</button>
+							</Button>
 						) : (
-							<button type="button" className="quiet" onClick={onEdit}>
+							<Button variant="quiet" onClick={onEdit}>
 								{l10n.t("Edit")}
-							</button>
+							</Button>
 						)}
 						{/* A legacy-registry external row is not hideable (the registry
 						    path would keep serving its models), so it keeps Edit only. */}
 						{server.origin === "declared" || server.origin === "misconfigured" || server.hideable ? (
-							<button type="button" className="quiet" onClick={() => onArmRemove(true)}>
+							<Button variant="quiet" onClick={() => onArmRemove(true)}>
 								{l10n.t("Remove")}
-							</button>
+							</Button>
 						) : null}
 					</>
 				)}
@@ -2017,9 +1999,9 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 		<div className="hidden-groups">
 			<p className="hint">
 				{hidden.length === 1 ? l10n.t("1 hidden group") : l10n.t("{0} hidden groups", hidden.length)} -{" "}
-				<button type="button" className="quiet" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+				<Button variant="quiet" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
 					{expanded ? l10n.t("hide") : l10n.t("show")}
-				</button>
+				</Button>
 			</p>
 			{expanded ? (
 				<ul>
@@ -2027,9 +2009,8 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 						// Keyed by the identity pair the unhideServer intent posts.
 						<li key={`${group.label}:${group.baseUrl}`}>
 							<span className="hidden-label">{group.label}</span> <span className="url">{group.baseUrl}</span>{" "}
-							<button
-								type="button"
-								className="quiet"
+							<Button
+								variant="quiet"
 								onClick={() =>
 									sendRequest("unhideServer", {
 										label: group.label,
@@ -2038,7 +2019,7 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 								}
 							>
 								{l10n.t("Unhide")}
-							</button>
+							</Button>
 						</li>
 					))}
 				</ul>
@@ -2244,9 +2225,9 @@ export function ServersSection({
 			    controls above it would put dead buttons before the guidance. */}
 			{!noServers ? (
 				<div className="toolbar">
-					<button type="button" onClick={() => openForm({ kind: "add" })}>
+					<Button onClick={() => openForm({ kind: "add" })}>
 						<IconAdd /> {l10n.t("Add server")}
-					</button>
+					</Button>
 				</div>
 			) : null}
 			{form !== undefined ? (
@@ -2297,16 +2278,12 @@ export function ServersSection({
 						<li>{l10n.t("Run Sync models.")}</li>
 					</ol>
 					<div className="toolbar">
-						<button
-							type="button"
-							className="secondary"
-							onClick={() => sendRequest("executeCommand", { command: "openGroupsFile" })}
-						>
+						<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "openGroupsFile" })}>
 							{l10n.t("Open models file")}
-						</button>
-						<button type="button" className="quiet" onClick={() => setRemovedNotice(undefined)}>
+						</Button>
+						<Button variant="quiet" onClick={() => setRemovedNotice(undefined)}>
 							{l10n.t("Dismiss")}
-						</button>
+						</Button>
 					</div>
 				</div>
 			) : null}
@@ -2314,16 +2291,12 @@ export function ServersSection({
 				<div className="notice" role="status">
 					<p>{adoptNotice}</p>
 					<div className="toolbar">
-						<button
-							type="button"
-							className="secondary"
-							onClick={() => sendRequest("executeCommand", { command: "openGroupsFile" })}
-						>
+						<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "openGroupsFile" })}>
 							{l10n.t("Open models file")}
-						</button>
-						<button type="button" className="quiet" onClick={() => setAdoptNotice(undefined)}>
+						</Button>
+						<Button variant="quiet" onClick={() => setAdoptNotice(undefined)}>
 							{l10n.t("Dismiss")}
-						</button>
+						</Button>
 					</div>
 				</div>
 			) : null}
@@ -2337,9 +2310,9 @@ export function ServersSection({
 								: { frame: (headline: string) => sectionFailureText(l10n.t("Adopting the server failed:"), headline) })}
 						/>
 					</p>
-					<button type="button" className="quiet" onClick={adoptIntent.reset}>
+					<Button variant="quiet" onClick={adoptIntent.reset}>
 						{l10n.t("Dismiss")}
-					</button>
+					</Button>
 				</div>
 			) : null}
 			{saveFailure !== undefined ? (
@@ -2352,9 +2325,9 @@ export function ServersSection({
 								: { frame: (headline: string) => sectionFailureText(l10n.t("Saving the server failed:"), headline) })}
 						/>
 					</p>
-					<button type="button" className="quiet" onClick={saveIntent.reset}>
+					<Button variant="quiet" onClick={saveIntent.reset}>
 						{l10n.t("Dismiss")}
-					</button>
+					</Button>
 				</div>
 			) : null}
 			{removeFailure !== undefined ? (
@@ -2365,9 +2338,9 @@ export function ServersSection({
 							frame={(headline) => sectionFailureText(l10n.t("Removing failed:"), headline)}
 						/>
 					</p>
-					<button type="button" className="quiet" onClick={removeIntent.reset}>
+					<Button variant="quiet" onClick={removeIntent.reset}>
 						{l10n.t("Dismiss")}
-					</button>
+					</Button>
 				</div>
 			) : null}
 			{hideFailure !== undefined ? (
@@ -2378,9 +2351,9 @@ export function ServersSection({
 							frame={(headline) => sectionFailureText(l10n.t("Hiding the group failed:"), headline)}
 						/>
 					</p>
-					<button type="button" className="quiet" onClick={hideIntent.reset}>
+					<Button variant="quiet" onClick={hideIntent.reset}>
 						{l10n.t("Dismiss")}
-					</button>
+					</Button>
 				</div>
 			) : null}
 			{unhideFailure !== undefined ? (
@@ -2391,9 +2364,9 @@ export function ServersSection({
 							frame={(headline) => sectionFailureText(l10n.t("Unhiding the group failed:"), headline)}
 						/>
 					</p>
-					<button type="button" className="quiet" onClick={unhideIntent.reset}>
+					<Button variant="quiet" onClick={unhideIntent.reset}>
 						{l10n.t("Dismiss")}
-					</button>
+					</Button>
 				</div>
 			) : null}
 			{noServers ? (
@@ -2407,9 +2380,7 @@ export function ServersSection({
 						<li>{l10n.t("Paste its API key if it needs one; it can stay in VS Code's encrypted secret storage.")}</li>
 						<li>{l10n.t("Save. Models sync automatically and show up on this page.")}</li>
 					</ol>
-					<button type="button" onClick={() => openForm({ kind: "add" })}>
-						{l10n.t("Add your first server")}
-					</button>
+					<Button onClick={() => openForm({ kind: "add" })}>{l10n.t("Add your first server")}</Button>
 				</div>
 			) : (
 				<div className="table-scroll">

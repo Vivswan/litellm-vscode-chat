@@ -109,7 +109,7 @@ test("a noticed entry renders the params-inactive badge and the remedy paragraph
 		makeDeclaredServer({ label: "Quiet", baseUrl: "http://quiet.test" }),
 	]);
 
-	const badge = [...root.querySelectorAll("span.badge.state-warn")].find(
+	const badge = [...root.querySelectorAll("span[data-slot='badge'][data-variant='warn']")].find(
 		(el) => el.textContent?.trim() === "params inactive"
 	);
 	expect(badge).toBeDefined();
@@ -130,7 +130,9 @@ test("a noticed entry renders the params-inactive badge and the remedy paragraph
 
 test("without a notice, no params-inactive badge or paragraph renders", () => {
 	const root = mountSection([makeDeclaredServer()]);
-	expect([...root.querySelectorAll("span.badge")].map((el) => el.textContent?.trim())).not.toContain("params inactive");
+	expect([...root.querySelectorAll("span[data-slot='badge']")].map((el) => el.textContent?.trim())).not.toContain(
+		"params inactive"
+	);
 	expect(root.querySelector("p.state-warn")).toBeNull();
 });
 
@@ -605,7 +607,7 @@ test("the external badge tip renders the provenance classification, or the hones
 		makeExternalServer({ label: "Native", baseUrl: "http://c.test", adoptHandle: "handle-native" }),
 	]);
 
-	const tips = [...root.querySelectorAll("span.badge")]
+	const tips = [...root.querySelectorAll("span[data-slot='badge']")]
 		.filter((el) => el.textContent?.trim() === "external")
 		.map((el) => el.closest(".tip-wrap")?.querySelector(".help-tip")?.textContent ?? "");
 	expect(tips.length).toBe(3);
@@ -1326,7 +1328,9 @@ test("an expected failure renders the warn pill, the declared-count badge, and t
 	const pill = [...root.querySelectorAll("td .pill")].find((el) => el.textContent?.includes("Connected"));
 	expect(pill).toBeDefined();
 	expect(pill?.classList.contains("tone-warn")).toBe(true);
-	const badge = [...root.querySelectorAll("span.badge")].find((el) => el.textContent?.includes("2 declared models"));
+	const badge = [...root.querySelectorAll("span[data-slot='badge']")].find((el) =>
+		el.textContent?.includes("2 declared models")
+	);
 	expect(badge).toBeDefined();
 	expect(root.querySelector(".banner-error")).toBeNull();
 	const warn = root.querySelector(".banner-warn");
@@ -1352,7 +1356,9 @@ test("the capabilities-inactive notice renders its own badge and joins the one m
 	const root = mountSection([
 		makeDeclaredServer({ label: "Prod", notices: ["entry-params-inactive", "entry-capabilities-inactive"] }),
 	]);
-	const badges = [...root.querySelectorAll("span.badge.state-warn")].map((el) => el.textContent?.trim());
+	const badges = [...root.querySelectorAll("span[data-slot='badge'][data-variant='warn']")].map((el) =>
+		el.textContent?.trim()
+	);
 	expect(badges).toContain("params inactive");
 	expect(badges).toContain("capabilities inactive");
 	// One banner for every inactive entry-only surface: the surfaces list, then
@@ -1367,7 +1373,9 @@ test("the capabilities-inactive notice renders its own badge and joins the one m
 
 test("the api-version-inactive notice renders its badge and its surface joins the merged banner", () => {
 	const root = mountSection([makeDeclaredServer({ label: "Prod", notices: ["entry-api-version-inactive"] })]);
-	const badges = [...root.querySelectorAll("span.badge.state-warn")].map((el) => el.textContent?.trim());
+	const badges = [...root.querySelectorAll("span[data-slot='badge'][data-variant='warn']")].map((el) =>
+		el.textContent?.trim()
+	);
 	expect(badges).toContain("API version inactive");
 	const banners = [...root.querySelectorAll(".banner-warn")].map((el) => el.textContent ?? "");
 	expect(banners.length).toBe(1);

@@ -27,6 +27,7 @@ import { DOCS_LINK_USAGE } from "./docsLinks";
 import { DocsLink, Help } from "./help";
 import { helpUsageSection } from "./helpText";
 import { relativeTime } from "./time";
+import { Button } from "./ui/button";
 import { sendRequest } from "./vscodeApi";
 
 /** A dollar amount as the panel prints it; two decimals below $1000, whole dollars above. */
@@ -387,9 +388,8 @@ export function UsageSection({
 				<DocsLink href={DOCS_LINK_USAGE} label={l10n.t("Open the usage and budgets guide")} />
 			</h2>
 			<div className="toolbar">
-				<button
-					type="button"
-					className="secondary"
+				<Button
+					variant="secondary"
 					disabled={usage.refreshing || serverCount === 0}
 					onClick={() => sendRequest("refreshUsage", null)}
 				>
@@ -400,7 +400,7 @@ export function UsageSection({
 					) : (
 						l10n.t("Refresh now")
 					)}
-				</button>
+				</Button>
 				{usage.pollIntervalMs === 0 ? (
 					<span className="hint">
 						{l10n.t("Background polling is off (usage.pollInterval 0); refresh fetches on demand.")}

@@ -18,6 +18,7 @@ import { ServersSection } from "./servers";
 import type { EditRecordRequest } from "./settings";
 import { SettingsSection } from "./settings";
 import { relativeTime, useNow } from "./time";
+import { Button } from "./ui/button";
 import { UsageSection } from "./usage";
 import { sendRequest } from "./vscodeApi";
 
@@ -104,14 +105,9 @@ function Toast({
 	return (
 		<div className="toast">
 			<span>{toast.text}</span>
-			<button
-				type="button"
-				className="quiet"
-				aria-label={l10n.t("Dismiss notification")}
-				onClick={() => onDismiss(toast.id)}
-			>
+			<Button variant="quiet" aria-label={l10n.t("Dismiss notification")} onClick={() => onDismiss(toast.id)}>
 				<IconClose />
-			</button>
+			</Button>
 		</div>
 	);
 }
@@ -200,14 +196,13 @@ function StatusHero({ state, now }: { state: DashboardState; now: number }) {
 			</span>
 			{synced !== undefined ? <span className="stat">{l10n.t("last sync {0}", synced)}</span> : null}
 			<span className="spacer" />
-			<button
-				type="button"
-				className="secondary"
+			<Button
+				variant="secondary"
 				disabled={state.servers.length === 0}
 				onClick={() => sendRequest("executeCommand", { command: "syncModels" })}
 			>
 				{l10n.t("Sync models")}
-			</button>
+			</Button>
 		</div>
 	);
 }
@@ -462,13 +457,9 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		<main>
 			<div className="page-head">
 				<h1>{l10n.t("LiteLLM Dashboard")}</h1>
-				<button
-					type="button"
-					className="quiet"
-					onClick={() => sendRequest("executeCommand", { command: "reportIssue" })}
-				>
+				<Button variant="quiet" onClick={() => sendRequest("executeCommand", { command: "reportIssue" })}>
 					<IconBug /> {l10n.t("Report a bug")}
-				</button>
+				</Button>
 			</div>
 			<p className="hint">
 				{l10n.t("Servers, models, and settings in one place; edits land in your VS Code settings.")}

@@ -61,6 +61,8 @@ import {
 } from "./icons";
 import type { InspectorSection } from "./modelInspector";
 import { relativeTime } from "./time";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
 import { sendRequest } from "./vscodeApi";
 
 /** One feedback row: the action (an anchor or a button) with its muted one-liner. */
@@ -750,7 +752,7 @@ function ResolvedModels({
 					) : (
 						<>
 							<div className="filterbar">
-								<input
+								<Input
 									type="text"
 									placeholder={l10n.t("Filter by model ID or matcher key, e.g. gpt-5*")}
 									aria-label={l10n.t("Filter resolved models")}
@@ -812,9 +814,9 @@ function ResolvedModels({
 													<CapabilityCells cells={row.capabilities} />
 												</td>
 												<td className="actions">
-													<button
-														type="button"
-														className="quiet params-action"
+													<Button
+														variant="quiet"
+														className="params-action"
 														aria-label={l10n.t("Inspect {0} on {1}", row.rawId, row.serverLabel)}
 														onClick={() =>
 															onInspect(
@@ -824,7 +826,7 @@ function ResolvedModels({
 														}
 													>
 														{l10n.t("Inspect")}
-													</button>
+													</Button>
 												</td>
 											</tr>
 										))}
@@ -894,9 +896,8 @@ export function DiagnosticsSection({
 				</ul>
 				{servers.length > 0 ? <OutcomeGrid servers={servers} now={now} /> : null}
 				<div className="diag-actions">
-					<button
-						type="button"
-						className="secondary"
+					<Button
+						variant="secondary"
 						// Registry-only installs get no offer to test: the legacy
 						// registry's serving path retires with this release train, so
 						// with no server rows there is nothing this dashboard manages
@@ -905,17 +906,13 @@ export function DiagnosticsSection({
 						onClick={() => sendRequest("executeCommand", { command: "testConnection" })}
 					>
 						<IconPlug /> {l10n.t("Test connection")}
-					</button>
-					<button
-						type="button"
-						className="secondary"
-						onClick={() => sendRequest("executeCommand", { command: "openOutput" })}
-					>
+					</Button>
+					<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "openOutput" })}>
 						<IconOutput /> {l10n.t("Open output log")}
-					</button>
-					<button type="button" className="secondary" onClick={copyDiagnostics}>
+					</Button>
+					<Button variant="secondary" onClick={copyDiagnostics}>
 						{copied ? <IconCheck /> : <IconCopy />} {l10n.t("Copy diagnostics")}
-					</button>
+					</Button>
 				</div>
 			</section>
 			<ConfigDiagnostics diagnostics={diagnostics} />

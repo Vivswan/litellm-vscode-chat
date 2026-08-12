@@ -1,81 +1,51 @@
 import { expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 
-const themeEntry = path.resolve(import.meta.dir, "../../../../../webview/dashboard/styles/theme.css");
-const scannedTrees = [
-	path.resolve(import.meta.dir, "../../../../../webview"),
-	path.resolve(import.meta.dir, "../../../../../dashboard"),
-];
+const stylesDir = path.resolve(import.meta.dir, "../../../../../webview/dashboard/styles");
+const themeEntry = path.join(stylesDir, "theme.css");
+const legacyEntry = path.join(stylesDir, "dashboard.css");
 
 /**
- * The utilities Tailwind's source scan currently mints, every one from an
- * incidental word token (identifiers and UI strings), none consumed by
- * markup - the pixel-identity contract depends on that, and the collision
- * test below asserts it. A new name here means the scan picked something
- * up; update the pin deliberately.
+ * Load-bearing utilities the ui components consume: each one must compile
+ * from the source scan, or the styled primitives silently lose that piece of
+ * their look (Tailwind's @source scan fails silently). A missing name here
+ * means the scan broke or the component stopped using the utility - update
+ * deliberately either way.
  */
-const EXPECTED_UTILITIES = [
-	"absolute",
-	"block",
-	"blur",
-	"border",
-	"collapse",
-	"container",
-	"contents",
-	"filter",
-	"fixed",
-	"flex",
-	"grid",
-	"hidden",
-	"inline",
-	"invisible",
-	"ordinal",
-	"relative",
-	"shadow",
-	"static",
-	"sticky",
-	"table",
-	"transition",
-	"visible",
-];
+const REQUIRED_UTILITIES = [
+	"inline-flex",
+	"cursor-pointer",
+	"rounded-sm",
+	"rounded-xl",
+	"border-button-border",
+	"bg-primary",
+	"text-primary-foreground",
+	"hover:bg-primary-hover",
+	"bg-secondary",
+	"hover:bg-secondary-hover",
+	"hover:bg-ghost-hover",
+	"text-muted-foreground",
+	"border-input",
+	"bg-input-background",
+	"placeholder:text-input-placeholder",
+	"aria-invalid:border-input-invalid",
+	"bg-dropdown-background",
+	"accent-primary",
+	"text-error",
+	"text-warning",
+	"focus-visible:outline-ring",
+	"disabled:opacity-50",
+	"disabled:bg-disabled",
+	"disabled:text-disabled-foreground",
+] as const;
 
-function sourceFiles(dir: string): string[] {
-	return readdirSync(dir, { recursive: true, encoding: "utf8" })
-		.filter((name) => name.endsWith(".ts") || name.endsWith(".tsx"))
-		.map((name) => path.join(dir, name));
+/** A utility name as it appears escaped in a compiled selector. */
+function escapedSelector(utility: string): string {
+	return `.${utility.replace(/[^a-zA-Z0-9-]/g, (char) => `\\${char}`)}`;
 }
 
-/**
- * Every class token the markup can carry: string literals inside class-ish
- * JSX attributes (className, inputClass, ...) including their ternary and
- * template forms, plus string literals in statements that assign class-list
- * variables (the `const chipClass = [...]` builders), split on whitespace.
- */
-function markupClassTokens(): Set<string> {
-	const tokens = new Set<string>();
-	const collect = (segment: string) => {
-		for (const [, literal] of segment.matchAll(/["'`]([^"'`]*)["'`]/g)) {
-			for (const token of (literal ?? "").split(/[\s${}]+/)) {
-				if (token.length > 0) {
-					tokens.add(token);
-				}
-			}
-		}
-	};
-	for (const file of scannedTrees.flatMap(sourceFiles)) {
-		const text = readFileSync(file, "utf8");
-		for (const match of text.matchAll(/[A-Za-z]*[Cc]lass(?:Name)?=(?:"[^"]*"|\{[\s\S]*?\})/g)) {
-			collect(match[0]);
-		}
-		for (const match of text.matchAll(/[A-Za-z]*[Cc]lass(?:es)?\s*=\s*\[[\s\S]*?\]/g)) {
-			collect(match[0]);
-		}
-	}
-	return tokens;
-}
-
-test("the Tailwind scan mints exactly the pinned utility set and none collides with markup", async () => {
+async function compileTheme(): Promise<string> {
 	const proc = Bun.spawn({
 		cmd: [process.execPath, "x", "@tailwindcss/cli", "--input", themeEntry],
 		stdout: "pipe",
@@ -87,20 +57,67 @@ test("the Tailwind scan mints exactly the pinned utility set and none collides w
 		proc.exited,
 	]);
 	expect(exitCode, errors).toBe(0);
-	// Any-depth class selectors: variant utilities (sm:flex, hover:grid)
-	// nest under @media or carry escaped colons, and must not escape the pin.
-	const utilities = [...output.matchAll(/^\s*\.([^\s{]+) \{/gm)].map((match) => match[1] ?? "").sort();
-	// An empty set would mean the @source paths stopped resolving (they fail
-	// silently inside Tailwind), not that the sources went utility-free.
-	expect(utilities).not.toBeEmpty();
-	expect(utilities).toEqual(EXPECTED_UTILITIES);
+	return output;
+}
 
-	// A minted utility matching a class the markup actually carries would
-	// silently restyle shipped elements: exactly what the pixel-identity
-	// contract forbids while no markup consumes utilities on purpose. The
-	// size floor keeps the extraction honest - an extractor that finds no
-	// tokens proves nothing (the audited markup carries roughly 240).
-	const markup = markupClassTokens();
-	expect(markup.size).toBeGreaterThan(100);
-	expect(utilities.filter((utility) => markup.has(utility))).toBeEmpty();
+test("the source scan compiles every utility the ui components depend on", async () => {
+	const output = await compileTheme();
+	// An empty utilities layer would mean the @source paths stopped resolving
+	// (they fail silently inside Tailwind), so check names, not just success.
+	for (const utility of REQUIRED_UTILITIES) {
+		expect(output).toContain(escapedSelector(utility));
+	}
+});
+
+test("the palette and radius resets keep Tailwind's defaults unreachable", async () => {
+	const output = await compileTheme();
+	// Every color in the design system is a var() chain onto host tokens;
+	// Tailwind's own palette is oklch-valued, so one oklch() in the output
+	// means a hardcoded palette color (bg-red-500, say) compiled.
+	expect(output).not.toContain("oklch(");
+	// The radius scale maps onto --radius; Tailwind's default rem-based scale
+	// must stay unreachable so an off-scale rounded-2xl cannot compile.
+	expect(output).not.toMatch(/border-radius:\s*[\d.]+rem/);
+});
+
+test("the cascade puts legacy below components and utilities", async () => {
+	// The order declaration lives in theme.css and the wrap in dashboard.css;
+	// together they are the contract that a utility always beats a legacy rule.
+	expect(readFileSync(themeEntry, "utf8")).toContain("@layer theme, base, legacy, components, utilities;");
+	expect(readFileSync(legacyEntry, "utf8")).toContain("@layer legacy {");
+});
+
+test("no minted utility collides with a class the legacy stylesheet styles", async () => {
+	const output = await compileTheme();
+	// Utilities outrank the legacy layer, so a utility whose name matches a
+	// dashboard.css class would silently restyle every element carrying it
+	// (the scan also mints utilities from incidental word tokens). Compare
+	// against the classes the legacy stylesheet actually styles.
+	const minted = new Set([...output.matchAll(/^\s*\.([A-Za-z][A-Za-z0-9-]*)[\s{,:]/gm)].map((match) => match[1] ?? ""));
+	const legacyClasses = new Set(
+		[...readFileSync(legacyEntry, "utf8").matchAll(/\.([A-Za-z][A-Za-z0-9_-]*)/g)].map((match) => match[1] ?? "")
+	);
+	// The size floors keep both extractions honest; an extractor finding
+	// nothing would prove nothing.
+	expect(minted.size).toBeGreaterThan(REQUIRED_UTILITIES.length);
+	expect(legacyClasses.size).toBeGreaterThan(100);
+	expect([...minted].filter((utility) => legacyClasses.has(utility))).toBeEmpty();
+});
+
+test("the disabled utilities settle after the hover ones", async () => {
+	const output = await compileTheme();
+	// Disabled and hover utilities carry equal specificity, so the disabled
+	// treatment only wins on a hovered disabled control because Tailwind emits
+	// it later. Button relies on exactly that instead of an enabled-gate, which
+	// would raise the variant's specificity above a caller's hover override.
+	const lastHover = Math.max(
+		output.indexOf(`${escapedSelector("hover:bg-primary-hover")}:hover`),
+		output.indexOf(`${escapedSelector("hover:bg-ghost-hover")}:hover`),
+		output.indexOf(`${escapedSelector("hover:text-foreground")}:hover`)
+	);
+	expect(lastHover).toBeGreaterThan(-1);
+	for (const disabled of ["disabled:bg-disabled", "disabled:text-disabled-foreground"]) {
+		const at = output.indexOf(`${escapedSelector(disabled)}:disabled`);
+		expect(at).toBeGreaterThan(lastHover);
+	}
 });

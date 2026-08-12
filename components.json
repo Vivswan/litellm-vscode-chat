@@ -1,0 +1,20 @@
+{
+	"$schema": "https://ui.shadcn.com/schema.json",
+	"style": "new-york",
+	"rsc": false,
+	"tsx": true,
+	"tailwind": {
+		"config": "",
+		"css": "src/webview/dashboard/styles/theme.css",
+		"baseColor": "neutral",
+		"cssVariables": true,
+		"prefix": ""
+	},
+	"aliases": {
+		"components": "src/webview/dashboard/ui",
+		"ui": "src/webview/dashboard/ui",
+		"utils": "src/webview/dashboard/ui/cn",
+		"lib": "src/webview/dashboard/ui",
+		"hooks": "src/webview/dashboard"
+	}
+}

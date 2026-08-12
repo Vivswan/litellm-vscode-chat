@@ -576,9 +576,12 @@
 	},
 	"dependencies": {
 		"@vscode/l10n": "^0.0.18",
+		"class-variance-authority": "^0.7.1",
+		"clsx": "^2.1.1",
 		"openai": "^7.4.0",
 		"react": "^19.2.0",
 		"react-dom": "^19.2.0",
+		"tailwind-merge": "^3.6.0",
 		"zod": "^4.4.3"
 	},
 	"devDependencies": {

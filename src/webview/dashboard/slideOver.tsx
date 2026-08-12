@@ -11,6 +11,7 @@ import * as l10n from "@vscode/l10n";
 import type { KeyboardEvent, ReactNode } from "react";
 import { useEffect, useRef } from "react";
 import { IconClose } from "./icons";
+import { Button } from "./ui/button";
 
 /** What can take focus inside the panel; disabled controls and tabindex -1 widgets (listbox options) drop out. */
 const FOCUSABLE =
@@ -128,19 +129,17 @@ export function SlideOver({
 				ref={panelRef}
 				onKeyDown={onKeyDown}
 			>
-				<button type="button" className="quiet slide-close" aria-label={l10n.t("Close")} onClick={onRequestClose}>
+				<Button variant="quiet" className="slide-close" aria-label={l10n.t("Close")} onClick={onRequestClose}>
 					<IconClose />
-				</button>
+				</Button>
 				{children}
 				{confirming ? (
 					<div className="discard-confirm" role="alert">
 						<span>{l10n.t("Discard unsaved changes?")}</span>
-						<button type="button" onClick={onDiscard}>
-							{l10n.t("Discard")}
-						</button>
-						<button type="button" className="secondary" onClick={onKeepEditing}>
+						<Button onClick={onDiscard}>{l10n.t("Discard")}</Button>
+						<Button variant="secondary" onClick={onKeepEditing}>
 							{l10n.t("Keep editing")}
-						</button>
+						</Button>
 					</div>
 				) : null}
 			</div>
