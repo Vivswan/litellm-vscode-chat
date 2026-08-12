@@ -1,8 +1,9 @@
 /**
- * The Diagnostics tab with an inspector overlay open IN PLACE: the
- * Resolved-models flat table's Parameters action opens the effective-values
- * slide-over without leaving the tab. The respond map answers both the
- * resolved-models read and the inspector's own read (chains included).
+ * The Diagnostics tab with the merged inspector open IN PLACE: the
+ * Resolved-models flat table's Parameters action opens the model panel
+ * without leaving the tab, anchored on its Parameters section. The respond
+ * map answers the resolved-models read and both of the inspector's own reads
+ * (chains included).
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, RESOLVED_VIEW } from "./shared.ts";
@@ -40,13 +41,33 @@ const fixture: RenderFixture = {
 				diagnostics: [],
 			},
 		},
+		readModelCapabilities: {
+			type: "modelCapabilities",
+			globalRecordKey: "gpt-5*",
+			capabilities: {
+				fields: {
+					context_length: { value: 272000, level: "server", shadowed: [] },
+					max_input_tokens: { value: 255616, level: "derived", shadowed: [] },
+					max_output_tokens: { value: 16384, level: "server", shadowed: [] },
+					supports_function_calling: { value: true, level: "server", shadowed: [] },
+					supports_vision: { value: true, level: "server", shadowed: [] },
+					supports_reasoning: { value: true, level: "server", shadowed: [] },
+					supports_audio_input: { value: false, level: "floor", shadowed: [] },
+					input_cost_per_token: { value: 0.00000175, level: "server", shadowed: [] },
+					output_cost_per_token: { value: 0.000012, level: "server", shadowed: [] },
+					supported_openai_params: { value: ["temperature", "top_p", "max_tokens"], level: "server", shadowed: [] },
+				},
+				outputLimitSource: "provider",
+				diagnostics: [],
+			},
+		},
 	},
 	steps: [
 		`[...document.querySelectorAll("table.resolved-models button")]
 			.find((b) => b.textContent.trim() === "Parameters")
 			.click()`,
 	],
-	viewport: { width: 1300, height: 1100 },
+	viewport: { width: 1300, height: 1500 },
 	settleMs: 500,
 };
 

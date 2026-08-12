@@ -149,10 +149,10 @@ test("under the threshold every row renders with no scrollport", () => {
 	expect(root.querySelectorAll("tbody tr.spacer").length).toBe(0);
 });
 
-test("the copy button lives inside the model-name cell; the trailing column holds only the Params action", () => {
+test("the copy button lives inside the model-name cell; the trailing column holds only the Inspect action", () => {
 	// The copy action moved from a trailing actions column into the first
 	// cell, beside the name it copies; the header row and every data row must
-	// agree on the column set, with the quiet Params action as the last column.
+	// agree on the column set, with the quiet Inspect action as the last column.
 	const root = mount(
 		<ModelsSection models={[makeModel({ id: "gpt-4o", name: "Omni" })]} serverCount={1} onInspect={() => {}} />
 	);
@@ -169,15 +169,15 @@ test("the copy button lives inside the model-name cell; the trailing column hold
 	// the full text stays in the DOM.
 	expect(nameCell.querySelector(".model-name-text")?.textContent).toBe("Omni");
 	expect(nameCell.querySelector("button[aria-label='Copy model ID gpt-4o from Prod']")).not.toBeNull();
-	// The last cell carries the Params and Caps actions; copy, Params, and
-	// Caps are the row's only controls.
+	// The last cell carries the ONE Inspect action (the merged panel's only
+	// entry point); copy and Inspect are the row's only controls.
 	const lastCell = cells[cells.length - 1] as HTMLElement;
 	expect(lastCell.classList.contains("actions")).toBe(true);
-	expect(lastCell.querySelectorAll("button.params-action").length).toBe(2);
-	expect(row.querySelectorAll("button").length).toBe(3);
+	expect(lastCell.querySelectorAll("button.params-action").length).toBe(1);
+	expect(row.querySelectorAll("button").length).toBe(2);
 });
 
-test("the hideable columns carry their col- classes on header and cells, and the Params action is not hover-revealed", () => {
+test("the hideable columns carry their col- classes on header and cells, and the Inspect action is not hover-revealed", () => {
 	// The narrow-viewport media queries drop whole columns by these classes;
 	// a th/td that loses its class silently reopens the horizontal-scroll
 	// dead zones. Both the 7- and 8-column layouts (without and with the
@@ -188,7 +188,7 @@ test("the hideable columns carry their col- classes on header and cells, and the
 			expect(root.querySelectorAll(`thead th.${col}`).length).toBe(1);
 			expect(root.querySelectorAll(`tbody td.${col}`).length).toBe(1);
 		}
-		// The Params action is the inspector's only entry point: it must not
+		// The Inspect action is the inspector's only entry point: it must not
 		// ride the hover-revealed icon-action styling the copy button uses.
 		const params = root.querySelector("button.params-action") as HTMLElement;
 		expect(params.classList.contains("icon-action")).toBe(false);

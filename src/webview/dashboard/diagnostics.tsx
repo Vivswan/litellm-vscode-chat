@@ -63,6 +63,7 @@ import {
 	IconRepo,
 	IconStar,
 } from "./icons";
+import type { InspectorSection } from "./modelInspector";
 import { relativeTime } from "./time";
 import { newRequestId, postMessage } from "./vscodeApi";
 
@@ -712,7 +713,8 @@ function ResolvedModels({
 	response: ResolvedModelsResponse | undefined;
 	active: boolean;
 	stateSeq: number;
-	onInspect: (target: { scopeKey: string; rawId: string; serverLabel: string }, view: "params" | "caps") => void;
+	/** Opens the merged model inspector anchored on the named section. */
+	onInspect: (target: { scopeKey: string; rawId: string; serverLabel: string }, section: InspectorSection) => void;
 }) {
 	const [requestId, setRequestId] = useState<string | undefined>(undefined);
 	const [filter, setFilter] = useState("");
@@ -892,8 +894,8 @@ export function DiagnosticsSection({
 	active: boolean;
 	/** Bumped on every state push; the resolved view re-requests on it while visible. */
 	stateSeq: number;
-	/** Open a model's inspector overlay in place; App renders it over the active tab. */
-	onInspect: (target: { scopeKey: string; rawId: string; serverLabel: string }, view: "params" | "caps") => void;
+	/** Open a model's inspector overlay in place; App renders the merged panel over the active tab, scrolled to the section. */
+	onInspect: (target: { scopeKey: string; rawId: string; serverLabel: string }, section: InspectorSection) => void;
 	now: number;
 }) {
 	const [copied, setCopied] = useState(false);

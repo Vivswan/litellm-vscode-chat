@@ -1,5 +1,5 @@
 /**
- * The inspectors' configure-jump into the record editors: the Configure
+ * The inspector's configure-jump into the record editors: the Configure
  * button reuses the most specific matching global record or asks for a fresh
  * exact-ID draft, the per-row edit goes to the record that OWNS the value
  * (server entry included), and the editors' external-edit hook lands the
@@ -9,8 +9,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { render } from "preact";
 import { act } from "preact/test-utils";
 import type { ScopedRecordSetting } from "../../../extension/dashboard/protocol";
-import type { ModelParametersResponse } from "../../../webview/dashboard/paramsInspector";
-import { ParamsInspector } from "../../../webview/dashboard/paramsInspector";
+import type { ModelParametersResponse } from "../../../webview/dashboard/modelInspector";
+import { ModelInspector } from "../../../webview/dashboard/modelInspector";
 import type { ExternalRecordEdit } from "../../../webview/dashboard/recordEditors";
 import { ModelParametersEditor } from "../../../webview/dashboard/recordEditors";
 import { makeModel } from "../fixtures";
@@ -56,7 +56,7 @@ function makeProjection(overrides: Partial<EffectiveParametersProjection> = {}):
 function mountAnswered(
 	response: Omit<ModelParametersResponse, "type" | "requestId">,
 	callbacks: {
-		onEditRecord?: (key: string, create: boolean) => void;
+		onEditRecord?: (kind: "parameters" | "capabilities", key: string, create: boolean) => void;
 		onEditEntry?: (label: string) => void;
 	}
 ): HTMLElement {
@@ -68,7 +68,7 @@ function mountAnswered(
 		onEditRecord: callbacks.onEditRecord,
 		onEditEntry: callbacks.onEditEntry,
 	};
-	const root = mount(<ParamsInspector {...props} response={undefined} />);
+	const root = mount(<ModelInspector {...props} paramsResponse={undefined} capsResponse={undefined} />);
 	const read = postedMessages.find((message) => message.type === "readModelParameters") as
 		| { requestId: string }
 		| undefined;
@@ -77,24 +77,27 @@ function mountAnswered(
 	}
 	const answered = { type: "modelParameters", requestId: read.requestId, ...response } as ModelParametersResponse;
 	void act(() => {
-		render(<ParamsInspector {...props} response={answered} />, root);
+		render(<ModelInspector {...props} paramsResponse={answered} capsResponse={undefined} />, root);
 	});
 	return root;
 }
 
-describe("the params inspector's configure-jump", () => {
+describe("the inspector's parameters configure-jump", () => {
 	test("with a matching global record the button focuses it; per-row edits go to the owning layer", () => {
-		const recordJumps: [string, boolean][] = [];
+		const recordJumps: [string, string, boolean][] = [];
 		const entryJumps: string[] = [];
 		const root = mountAnswered(
 			{ projection: makeProjection(), globalRecordKey: "gpt-5*" },
-			{ onEditRecord: (key, create) => recordJumps.push([key, create]), onEditEntry: (label) => entryJumps.push(label) }
+			{
+				onEditRecord: (kind, key, create) => recordJumps.push([kind, key, create]),
+				onEditEntry: (label) => entryJumps.push(label),
+			}
 		);
 
 		const configure = buttonByText(root, "Configure parameters for this model");
 		expect(configure.disabled).toBe(false);
 		configure.click();
-		expect(recordJumps).toEqual([["gpt-5*", false]]);
+		expect(recordJumps).toEqual([["parameters", "gpt-5*", false]]);
 
 		// The global-sourced row's edit goes to the record that owns the value;
 		// the entry-sourced row's edit opens the server entry's form instead.
@@ -105,30 +108,126 @@ describe("the params inspector's configure-jump", () => {
 		]);
 		rowEdits[0]?.click();
 		expect(recordJumps).toEqual([
-			["gpt-5*", false],
-			["gpt-5*", false],
+			["parameters", "gpt-5*", false],
+			["parameters", "gpt-5*", false],
 		]);
 		rowEdits[1]?.click();
 		expect(entryJumps).toEqual(["Prod"]);
 	});
 
 	test("with no matching record the button asks for a fresh draft keyed by the exact model ID", () => {
-		const recordJumps: [string, boolean][] = [];
+		const recordJumps: [string, string, boolean][] = [];
 		const root = mountAnswered(
 			{ projection: makeProjection({ rows: [] }) },
-			{ onEditRecord: (key, create) => recordJumps.push([key, create]) }
+			{ onEditRecord: (kind, key, create) => recordJumps.push([kind, key, create]) }
 		);
 
 		buttonByText(root, "Configure parameters for this model").click();
-		expect(recordJumps).toEqual([["gpt-5.6", true]]);
+		expect(recordJumps).toEqual([["parameters", "gpt-5.6", true]]);
 	});
 
-	test("without the callback no configure button and no row affordances render", () => {
+	test("without the callback no configure buttons and no row affordances render", () => {
 		const root = mountAnswered({ projection: makeProjection() }, {});
 		expect([...root.querySelectorAll("button")].some((b) => b.textContent?.includes("Configure parameters"))).toBe(
 			false
 		);
+		expect([...root.querySelectorAll("button")].some((b) => b.textContent?.includes("Configure capabilities"))).toBe(
+			false
+		);
 		expect(root.querySelector("button.row-edit")).toBeNull();
+	});
+});
+
+describe("the inspector's capabilities configure-jump", () => {
+	/** Render the inspector, answer its readModelCapabilities post, and return the re-rendered root. */
+	function mountCapsAnswered(
+		response: Record<string, unknown>,
+		callbacks: {
+			onEditRecord?: (kind: "parameters" | "capabilities", key: string, create: boolean) => void;
+			onEditEntry?: (label: string) => void;
+		}
+	): HTMLElement {
+		const model = makeModel({ rawId: "gpt-5.6", name: "GPT-5.6", serverLabel: "Prod" });
+		const props = {
+			model,
+			stateSeq: 0,
+			onClose: () => {},
+			onEditRecord: callbacks.onEditRecord,
+			onEditEntry: callbacks.onEditEntry,
+		};
+		const root = mount(<ModelInspector {...props} paramsResponse={undefined} capsResponse={undefined} />);
+		const read = postedMessages.find((message) => message.type === "readModelCapabilities") as
+			| { requestId: string }
+			| undefined;
+		if (read === undefined) {
+			throw new Error("the inspector posted no readModelCapabilities");
+		}
+		const answered = {
+			type: "modelCapabilities",
+			requestId: read.requestId,
+			...response,
+		} as Parameters<typeof ModelInspector>[0]["capsResponse"];
+		void act(() => {
+			render(<ModelInspector {...props} paramsResponse={undefined} capsResponse={answered} />, root);
+		});
+		return root;
+	}
+
+	test("the Configure button and row edits route to the CAPABILITIES editor; entry rows to the entry form", () => {
+		// The merged callback discriminates by kind: a wrong literal would open
+		// the parameters editor for a capability row, so the caps half is
+		// pinned separately from the params half above.
+		const recordJumps: [string, string, boolean][] = [];
+		const entryJumps: string[] = [];
+		const root = mountCapsAnswered(
+			{
+				globalRecordKey: "gpt-5*",
+				capabilities: {
+					fields: {
+						context_length: { value: 200000, level: "global", key: "gpt-5*", shadowed: [] },
+						max_output_tokens: { value: 16384, level: "entry", key: "*", shadowed: [] },
+					},
+					outputLimitSource: "user",
+					diagnostics: [],
+				},
+			},
+			{
+				onEditRecord: (kind, key, create) => recordJumps.push([kind, key, create]),
+				onEditEntry: (label) => entryJumps.push(label),
+			}
+		);
+
+		const configure = buttonByText(root, "Configure capabilities for this model");
+		expect(configure.disabled).toBe(false);
+		configure.click();
+		expect(recordJumps).toEqual([["capabilities", "gpt-5*", false]]);
+
+		// The global-sourced field's edit goes to the capabilities record that
+		// owns the value; the entry-level field's edit opens the entry's form.
+		const rowEdits = [...root.querySelectorAll<HTMLButtonElement>("button.row-edit")];
+		expect(rowEdits.map((button) => button.getAttribute("aria-label"))).toEqual([
+			'Edit record "gpt-5*"',
+			'Edit record "*"',
+		]);
+		rowEdits[0]?.click();
+		expect(recordJumps).toEqual([
+			["capabilities", "gpt-5*", false],
+			["capabilities", "gpt-5*", false],
+		]);
+		rowEdits[1]?.click();
+		expect(entryJumps).toEqual(["Prod"]);
+	});
+
+	test("with no matching record the button asks for a fresh capabilities draft keyed by the exact model ID", () => {
+		const recordJumps: [string, string, boolean][] = [];
+		const root = mountCapsAnswered(
+			{
+				capabilities: { fields: {}, outputLimitSource: "defaults", diagnostics: [] },
+			},
+			{ onEditRecord: (kind, key, create) => recordJumps.push([kind, key, create]) }
+		);
+		buttonByText(root, "Configure capabilities for this model").click();
+		expect(recordJumps).toEqual([["capabilities", "gpt-5.6", true]]);
 	});
 });
 

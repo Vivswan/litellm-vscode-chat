@@ -153,7 +153,6 @@
 	"Base URL is required": "Base URL is required",
 	"Budget (USD)": "Budget (USD)",
 	"Built-in default": "Built-in default",
-	"Cache ($/M)": "Cache ($/M)",
 	"Cache read/Pricing row label: cost of cached input tokens": {
 		"message": "Cache read",
 		"comment": [
@@ -368,6 +367,8 @@
 			"Pricing row label: cost of input tokens"
 		]
 	},
+	"Inspect": "Inspect",
+	"Inspect {0} on {1}": "Inspect {0} on {1}",
 	"Invalid value.": "Invalid value.",
 	"JSON value": "JSON value",
 	"JSON value, e.g. 0.2": "JSON value, e.g. 0.2",
@@ -469,7 +470,6 @@
 	"LiteLLM: {0}": "LiteLLM: {0}",
 	"Loading": "Loading",
 	"Loading stored values...": "Loading stored values...",
-	"Long context ($/M)": "Long context ($/M)",
 	"Long-context cache read/Pricing row label: long-context tier": {
 		"message": "Long-context cache read",
 		"comment": [
@@ -1053,12 +1053,6 @@
 	"per-server model parameters": "per-server model parameters",
 	"polling off": "polling off",
 	"prefix match": "prefix match",
-	"read {0}/cache read price; {0} is a dollar amount": {
-		"message": "read {0}",
-		"comment": [
-			"cache read price; {0} is a dollar amount"
-		]
-	},
 	"reasoning": "reasoning",
 	"record \"{0}\" inherits from \"{1}\", which does not exist; that name is skipped and the rest still applies ({2})": "record \"{0}\" inherits from \"{1}\", which does not exist; that name is skipped and the rest still applies ({2})",
 	"regex": "regex",
@@ -1108,12 +1102,6 @@
 	"updated {0}": "updated {0}",
 	"usage unavailable": "usage unavailable",
 	"vision": "vision",
-	"write {0}/cache write price; {0} is a dollar amount": {
-		"message": "write {0}",
-		"comment": [
-			"cache write price; {0} is a dollar amount"
-		]
-	},
 	"yes": "yes",
 	"{0} (default, not server-declared)": "{0} (default, not server-declared)",
 	"{0} cache hits": "{0} cache hits",

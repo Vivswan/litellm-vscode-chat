@@ -1,10 +1,10 @@
 /**
- * The caps inspector over an OPEN vocabulary resolution, diagnostics
- * included: the worst-case field bag (the full Anthropic-style cost family
- * with sub-micro values, the three consumed booleans, the 27-element
- * supported_openai_params list, an unknown supports_web_search override,
- * mixed provenance across every level) plus one advisory unrecognized-key
- * note rendered apart from a real invalid-value problem.
+ * The merged model inspector with capability diagnostics: the same worst-case
+ * field bag as inspector-model, plus one advisory unrecognized-key note
+ * rendered apart from a real invalid-value problem (both close the
+ * Capabilities section, before Pricing), while the parameters feed stays
+ * unanswered - the panel's per-feed loading state is part of what this
+ * fixture reviews.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, worstCaseCapabilityFields } from "./shared.ts";
@@ -25,8 +25,8 @@ const fixture: RenderFixture = {
 			},
 		},
 	},
-	steps: ['[...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Capabilities").click()'],
-	viewport: { width: 1300, height: 1500 },
+	steps: ['[...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Inspect").click()'],
+	viewport: { width: 1300, height: 2200 },
 	settleMs: 500,
 };
 

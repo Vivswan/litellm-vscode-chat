@@ -706,9 +706,9 @@ const STYLES = `
 	.record-json textarea:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 	.record-json .error { font-size: 0.9em; margin: 4px 0; }
 
-	/* The effective-parameters inspector (the models table's Params slide-over):
-	   read-only prose and one small table, muted where a value is not sent.
-	   The row's Params action keeps the quiet chrome but stays visible at
+	/* The model inspector (the models table's Inspect slide-over): read-only
+	   prose and small provenance tables, muted where a value is not sent.
+	   The row's Inspect action keeps the quiet chrome but stays visible at
 	   rest: it is the inspector's only entry point, and a hover-revealed
 	   control at the table's right edge is undiscoverable. */
 	.params-inspector h3 { display: flex; align-items: center; gap: 8px; margin: 4px 24px 4px 0; }
@@ -731,18 +731,35 @@ const STYLES = `
 	   list, say), so long values truncate with a CSS ellipsis instead of
 	   blowing the table wide - the .caps-text idiom: the clip sits on an
 	   inner span, and the focusable tip beside it carries the full text.
-	   The table's columns are FIXED percentages of the slide-over (680px,
+	   The table's columns are FIXED shares of the slide-over (680px,
 	   shrinking to 94vw on narrow hosts): under auto layout a nowrap value
 	   cell's min-content width forced the whole table past the panel's right
 	   edge and pushed the Source column off-screen. The renderer's clip
-	   threshold (capsInspector.tsx VALUE_CLIP_CH) is paired with the value
+	   threshold (modelInspector.tsx VALUE_CLIP_CH) is paired with the value
 	   column's share. */
 	.caps-inspector table.params { table-layout: fixed; }
 	/* Names are the wide content (two-line labels like "Long-context cache
 	   write"); values are short ($/M prices, token counts, yes/no) and clip
-	   with the tip idiom when they are not. */
-	.caps-inspector table.params thead th:nth-child(1) { width: 32%; }
-	.caps-inspector table.params thead th:nth-child(2) { width: 24%; }
+	   with the tip idiom when they are not. The shares ride a colgroup
+	   (modelInspector.tsx CapsColumns), not the thead, so the header-less
+	   pricing and supported-params tables keep the same tracks as the headed
+	   capabilities table and every provenance table in the panel aligns - the
+	   parameters table included (fixed too, below), so "temperature" never
+	   shatters mid-word under an auto layout squeezed by a long Source cell. */
+	.params-inspector col.caps-col-name { width: 32%; }
+	.params-inspector col.caps-col-value { width: 24%; }
+	.model-inspector table.params { table-layout: fixed; }
+	/* The parameters table shares the caps tables' last-resort Source-column
+	   wrap under the fixed layout: record keys can be long unbroken regexes,
+	   and without the escape they would overflow the panel instead of
+	   widening the column as the old auto layout did. */
+	.model-inspector table.params td:last-child { overflow-wrap: anywhere; }
+	/* The band-labeled tables' collapsed header row (pricing, supported
+	   params): each is its own table element, so assistive tech needs its own
+	   column headers - the ths shed all box so the row has zero visual
+	   footprint, and the clipped .visually-hidden spans inside carry the
+	   names. */
+	.caps-inspector thead.caps-head-hidden th { padding: 0; border: none; line-height: 0; }
 	.caps-inspector .param-value { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	/* The params count cell renders plain (its full list follows on the next
 	   row), so it wraps instead of clipping - a clipped count with no tip
@@ -772,11 +789,6 @@ const STYLES = `
 	}
 	/* Core capability names are localized human labels wrapping at their own
 	   spaces; open rows render their raw wire keys in <code> (they ARE
-	   settings keys, so they keep the monospace register), breaking only at
-	   the <wbr> the renderer places after underscores - overflow-wrap:
-	   anywhere would shatter them into arbitrary fragments. */
-	/* Core capability names are localized human labels wrapping at their own
-	   spaces; open rows render their raw wire keys in <code> (they ARE
 	   settings keys, so they keep the monospace register), breaking at the
 	   <wbr> the renderer places after underscores. Under the fixed column
 	   layout, overflow-wrap: anywhere is the last resort for a segment longer
@@ -787,10 +799,10 @@ const STYLES = `
 	.caps-inspector .param-name { font-family: var(--vscode-font-family); overflow-wrap: normal; }
 	.caps-inspector .param-name code { font-family: var(--vscode-editor-font-family, monospace); overflow-wrap: anywhere; }
 	.caps-inspector table.params td:last-child { overflow-wrap: anywhere; }
-	/* The capability inspector's section bands (Capabilities / Pricing /
-	   Supported parameters / Other fields): small muted headers spanning the
-	   one provenance table, so the columns stay aligned across sections. The
-	   hover suppression keeps a band from lighting up like a data row. */
+	/* The in-table section bands (Supported parameters / Other fields): small
+	   muted headers spanning one provenance table, so the columns stay
+	   aligned across sections. The hover suppression keeps a band from
+	   lighting up like a data row. */
 	.caps-inspector tr.caps-section th {
 		padding-top: 14px;
 		font-size: 0.8em;
@@ -882,6 +894,32 @@ const STYLES = `
 	.params-inspector .params-caveats div { margin: 4px 0; }
 	.params-inspector .params-caveats dt { display: inline; }
 	.params-inspector .params-caveats dd { display: inline; margin: 0 0 0 8px; }
+	/* The merged inspector's top-level section headers (Parameters /
+	   Capabilities / Pricing): the caps-section band idiom lifted out of the
+	   table, with a rule above so the panel reads as one document of labeled
+	   sections. The first section follows the facts grid directly and needs
+	   no separating rule. */
+	.model-inspector h4.inspector-section {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin: 18px 0 6px;
+		padding-top: 12px;
+		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+		font-size: 0.8em;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--vscode-descriptionForeground);
+		/* The scrollIntoView landings (the Diagnostics jump links) keep clear
+		   of the panel's top padding. */
+		scroll-margin-top: 12px;
+	}
+	.model-inspector section:first-of-type h4.inspector-section {
+		border-top: none;
+		margin-top: 10px;
+		padding-top: 0;
+	}
 
 	.form-card {
 		max-width: 640px;

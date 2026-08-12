@@ -165,18 +165,16 @@ test("a declared model wears the declared badge with its explanatory tip; discov
 	expect(tip?.textContent).toContain("discovery.declared");
 });
 
-test("the Capabilities action reports the clicked row's full identity to the inspector owner", () => {
+test("the Inspect action reports the clicked row's full identity to the inspector owner", () => {
 	const model = makeModel({ id: "gpt-4", rawId: "gpt-4", scopeKey: "s3" });
-	const opened: [{ scopeKey: string; rawId: string; serverLabel: string }, string][] = [];
-	const root = mount(
-		<ModelsSection models={[model]} serverCount={1} onInspect={(target, view) => opened.push([target, view])} />
-	);
-	const caps = root.querySelector("button[aria-label='Show effective capabilities for GPT Test on Prod']");
-	expect(caps).not.toBeNull();
-	expect((caps?.textContent ?? "").trim()).toBe("Capabilities");
-	fireClick(caps as HTMLElement);
+	const opened: { scopeKey: string; rawId: string; serverLabel: string }[] = [];
+	const root = mount(<ModelsSection models={[model]} serverCount={1} onInspect={(target) => opened.push(target)} />);
+	const inspect = root.querySelector("button[aria-label='Inspect GPT Test on Prod']");
+	expect(inspect).not.toBeNull();
+	expect((inspect?.textContent ?? "").trim()).toBe("Inspect");
+	fireClick(inspect as HTMLElement);
 	// The overlay itself is App's (it opens over any tab); the section names
 	// the full row identity - serverLabel included, since one snapshot can
-	// render under several labels - and the view.
-	expect(opened).toEqual([[{ scopeKey: "s3", rawId: "gpt-4", serverLabel: "Prod" }, "caps"]]);
+	// render under several labels.
+	expect(opened).toEqual([{ scopeKey: "s3", rawId: "gpt-4", serverLabel: "Prod" }]);
 });

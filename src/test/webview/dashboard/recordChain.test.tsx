@@ -1,5 +1,5 @@
 /**
- * The inspectors' inheritance chain figure (RecordChainFigure): the response's
+ * The inspector's inheritance chain figures (RecordChainFigure): each feed's
  * per-map chains render as one compact record path each - broadest to winner,
  * keys clickable through the existing edit-jump wiring, barrier and
  * exclusive-list markers worded like the Diagnostics tree - and a single
@@ -9,10 +9,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { render } from "preact";
 import { act } from "preact/test-utils";
 import type { RecordChainView } from "../../../extension/dashboard/protocol";
-import type { ModelCapabilitiesResponse } from "../../../webview/dashboard/capsInspector";
-import { CapsInspector } from "../../../webview/dashboard/capsInspector";
-import type { ModelParametersResponse } from "../../../webview/dashboard/paramsInspector";
-import { ParamsInspector } from "../../../webview/dashboard/paramsInspector";
+import type { ModelCapabilitiesResponse, ModelParametersResponse } from "../../../webview/dashboard/modelInspector";
+import { ModelInspector } from "../../../webview/dashboard/modelInspector";
 import { makeModel } from "../fixtures";
 import { cleanup, fireClick, mount, postedMessages, resetPosted } from "../harness";
 
@@ -27,11 +25,11 @@ const EMPTY_PROJECTION: Projection = {
 	diagnostics: [],
 };
 
-/** Render the params inspector, answer its read with the given chains, and return the root. */
+/** Render the inspector, answer its parameters read with the given chains, and return the root. */
 function mountParamsWithChains(
 	chains: readonly RecordChainView[] | undefined,
 	callbacks: {
-		onEditRecord?: (key: string, create: boolean) => void;
+		onEditRecord?: (kind: "parameters" | "capabilities", key: string, create: boolean) => void;
 		onEditEntry?: (label: string) => void;
 	} = {}
 ): HTMLElement {
@@ -43,7 +41,7 @@ function mountParamsWithChains(
 		onEditRecord: callbacks.onEditRecord,
 		onEditEntry: callbacks.onEditEntry,
 	};
-	const root = mount(<ParamsInspector {...props} response={undefined} />);
+	const root = mount(<ModelInspector {...props} paramsResponse={undefined} capsResponse={undefined} />);
 	const read = postedMessages.find((message) => message.type === "readModelParameters") as { requestId: string };
 	const answered = {
 		type: "modelParameters",
@@ -52,7 +50,7 @@ function mountParamsWithChains(
 		...(chains !== undefined ? { chains } : {}),
 	} as ModelParametersResponse;
 	void act(() => {
-		render(<ParamsInspector {...props} response={answered} />, root);
+		render(<ModelInspector {...props} paramsResponse={answered} capsResponse={undefined} />, root);
 	});
 	return root;
 }
@@ -80,7 +78,7 @@ describe("the params inspector's record path", () => {
 	});
 
 	test("keys jump through the existing wiring: global keys to their record, entry keys to the entry form", () => {
-		const recordJumps: [string, boolean][] = [];
+		const recordJumps: [string, string, boolean][] = [];
 		const entryJumps: string[] = [];
 		const root = mountParamsWithChains(
 			[
@@ -100,7 +98,10 @@ describe("the params inspector's record path", () => {
 					],
 				},
 			],
-			{ onEditRecord: (key, create) => recordJumps.push([key, create]), onEditEntry: (label) => entryJumps.push(label) }
+			{
+				onEditRecord: (kind, key, create) => recordJumps.push([kind, key, create]),
+				onEditEntry: (label) => entryJumps.push(label),
+			}
 		);
 		const chains = Array.from(root.querySelectorAll(".record-chain"));
 		expect(chains).toHaveLength(2);
@@ -113,20 +114,21 @@ describe("the params inspector's record path", () => {
 		fireClick(entryKey);
 		expect(entryJumps).toEqual(["Prod"]);
 
-		// A global key focuses its settings record, never minting a draft.
+		// A global key focuses its settings record, never minting a draft, and
+		// the PARAMS chain routes to the parameters editor.
 		const globalKeys = Array.from(chains[0]?.querySelectorAll("button.chain-key") ?? []);
 		expect(globalKeys.map((b) => b.getAttribute("aria-label"))).toEqual([
 			'Edit record "*" in settings',
 			'Edit record "gpt-5.6" in settings',
 		]);
 		fireClick(globalKeys[1] as HTMLButtonElement);
-		expect(recordJumps).toEqual([["gpt-5.6", false]]);
+		expect(recordJumps).toEqual([["parameters", "gpt-5.6", false]]);
 	});
 
 	test("an entry chain without the entry-form jump renders plain keys, never the global fallback", () => {
 		// The jump gates on the LAYER: with only onEditRecord wired, an entry
 		// key must not route to the global editor its aria-label contradicts.
-		const recordJumps: [string, boolean][] = [];
+		const recordJumps: [string, string, boolean][] = [];
 		const root = mountParamsWithChains(
 			[
 				{
@@ -138,7 +140,7 @@ describe("the params inspector's record path", () => {
 					],
 				},
 			],
-			{ onEditRecord: (key, create) => recordJumps.push([key, create]) }
+			{ onEditRecord: (kind, key, create) => recordJumps.push([kind, key, create]) }
 		);
 		const chain = root.querySelector(".record-chain") as HTMLElement;
 		expect(chain.querySelector("button.chain-key")).toBeNull();
@@ -157,10 +159,10 @@ describe("the params inspector's record path", () => {
 	});
 });
 
-test("the caps inspector renders the same figure from its own response", () => {
+test("the capabilities section renders the same figure from its own response", () => {
 	const model = makeModel({ rawId: "gpt-5.6", name: "GPT-5.6" });
 	const props = { model, stateSeq: 0, onClose: () => {} };
-	const root = mount(<CapsInspector {...props} response={undefined} />);
+	const root = mount(<ModelInspector {...props} paramsResponse={undefined} capsResponse={undefined} />);
 	const read = postedMessages.find((message) => message.type === "readModelCapabilities") as { requestId: string };
 	const answered = {
 		type: "modelCapabilities",
@@ -176,7 +178,7 @@ test("the caps inspector renders the same figure from its own response", () => {
 		] satisfies RecordChainView[],
 	} as ModelCapabilitiesResponse;
 	void act(() => {
-		render(<CapsInspector {...props} response={answered} />, root);
+		render(<ModelInspector {...props} paramsResponse={undefined} capsResponse={answered} />, root);
 	});
 	const chain = root.querySelector(".record-chain") as HTMLElement;
 	const text = (chain.textContent ?? "").replace(/\s+/g, " ").trim();

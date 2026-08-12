@@ -144,8 +144,6 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"headersTitle",
 	"sourceName",
 	"skipReasonText",
-	"cachePricing",
-	"longContextPricing",
 	"maxTokensParts",
 ];
 

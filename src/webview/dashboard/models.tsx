@@ -15,11 +15,11 @@ export function formatTokens(count: number): string {
  * enough to compare models at a glance, and binary-fraction noise never
  * renders.
  */
-export function formatCost(cost: number): string {
+function formatCost(cost: number): string {
 	return `$${Number(cost.toPrecision(3))}`;
 }
 
-export function formatPricing(model: DashboardModel): string {
+function formatPricing(model: DashboardModel): string {
 	if (model.inputCost === undefined && model.outputCost === undefined) {
 		return "-";
 	}
@@ -207,12 +207,12 @@ export function ModelsSection({
 	 */
 	scope?: { readonly label: string; readonly onClear: () => void } | undefined;
 	/**
-	 * Open a model's inspector overlay. App owns the inspectors (they render
-	 * over whatever tab is active - the Diagnostics table opens them in place),
-	 * so this section only names the row and the view. The full row identity
-	 * travels: one snapshot can render under several labels.
+	 * Open a model's inspector overlay. App owns the inspector (it renders
+	 * over whatever tab is active - the Diagnostics table opens it in place),
+	 * so this section only names the row. The full row identity travels: one
+	 * snapshot can render under several labels.
 	 */
-	onInspect: (target: { scopeKey: string; rawId: string; serverLabel: string }, view: "params" | "caps") => void;
+	onInspect: (target: { scopeKey: string; rawId: string; serverLabel: string }) => void;
 }) {
 	const [filter, setFilter] = useState("");
 	const [sort, setSort] = useState<Sort | undefined>(undefined);
@@ -377,7 +377,7 @@ export function ModelsSection({
 										onSort={toggleSort}
 									/>
 									<th class="col-caps">{l10n.t("Capabilities")}</th>
-									<th>{/* params */}</th>
+									<th>{/* inspect */}</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -444,40 +444,21 @@ export function ModelsSection({
 												) : null}
 											</td>
 											<td class="actions">
-												{/* Quiet text actions, not icons: "Parameters" and
-												    "Capabilities" say what opens, and the uniform row height
-												    survives (no taller chrome). They stay visible at rest -
-												    each is its inspector's only entry point, so hover-reveal
-												    would make it undiscoverable. */}
+												{/* One quiet text action, not an icon: "Inspect" says what
+												    opens (the merged parameters-and-capabilities panel), and
+												    the uniform row height survives (no taller chrome). It
+												    stays visible at rest - it is the inspector's only entry
+												    point on this row, so hover-reveal would make it
+												    undiscoverable. */}
 												<button
 													type="button"
 													class="quiet params-action"
-													aria-label={l10n.t("Show effective parameters for {0} on {1}", model.name, model.serverLabel)}
+													aria-label={l10n.t("Inspect {0} on {1}", model.name, model.serverLabel)}
 													onClick={() =>
-														onInspect(
-															{ scopeKey: model.scopeKey, rawId: model.rawId, serverLabel: model.serverLabel },
-															"params"
-														)
+														onInspect({ scopeKey: model.scopeKey, rawId: model.rawId, serverLabel: model.serverLabel })
 													}
 												>
-													{l10n.t("Parameters")}
-												</button>
-												<button
-													type="button"
-													class="quiet params-action"
-													aria-label={l10n.t(
-														"Show effective capabilities for {0} on {1}",
-														model.name,
-														model.serverLabel
-													)}
-													onClick={() =>
-														onInspect(
-															{ scopeKey: model.scopeKey, rawId: model.rawId, serverLabel: model.serverLabel },
-															"caps"
-														)
-													}
-												>
-													{l10n.t("Capabilities")}
+													{l10n.t("Inspect")}
 												</button>
 											</td>
 										</tr>

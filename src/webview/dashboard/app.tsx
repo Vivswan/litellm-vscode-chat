@@ -15,15 +15,13 @@ import {
 	isExtensionMessageType,
 	latestCheckedMs,
 } from "../../extension/dashboard/protocol";
-import type { ModelCapabilitiesResponse } from "./capsInspector";
-import { CapsInspector } from "./capsInspector";
 import type { ResolvedModelsResponse } from "./diagnostics";
 import { DiagnosticsSection } from "./diagnostics";
 import { FailureText } from "./failureText";
 import { IconBug, IconClose } from "./icons";
+import type { InspectorSection, ModelCapabilitiesResponse, ModelParametersResponse } from "./modelInspector";
+import { ModelInspector } from "./modelInspector";
 import { ModelsSection } from "./models";
-import type { ModelParametersResponse } from "./paramsInspector";
-import { ParamsInspector } from "./paramsInspector";
 import type { CatalogSearchResponse, IntentFailure } from "./recordEditors";
 import type { ServerEditRequest } from "./servers";
 import { ServersSection } from "./servers";
@@ -355,10 +353,11 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	// follow the fresh values or close when its row leaves the list. The
 	// serverLabel matters because one snapshot can render under several
 	// labels, giving rows identical (scopeKey, rawId); the inspector must
-	// stay on the exact row whose action was clicked. `view` names which
-	// inspector is open; one row, one slide-over at a time.
+	// stay on the exact row whose action was clicked. `anchor` names which
+	// section the merged panel scrolls to (the Diagnostics jump links); one
+	// row, one slide-over at a time.
 	const [inspecting, setInspecting] = useState<
-		{ scopeKey: string; rawId: string; serverLabel: string; view: "params" | "caps" } | undefined
+		{ scopeKey: string; rawId: string; serverLabel: string; anchor?: InspectorSection | undefined } | undefined
 	>(undefined);
 	// The inspectors' configure-jumps: into the settings record editors, and
 	// into a server entry's edit form (the owner of entry-layer values).
@@ -496,11 +495,15 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		target?.focus({ preventScroll: true });
 	};
 
-	// A model's inspector overlay: opened from the models table or the
-	// Resolved-models table, rendered over the ACTIVE tab (no tab switch - the
-	// Diagnostics reader keeps their place; closing just removes the overlay).
-	const inspectModel = (target: { scopeKey: string; rawId: string; serverLabel: string }, view: "params" | "caps") => {
-		setInspecting({ ...target, view });
+	// A model's inspector overlay: opened from the models table (no anchor) or
+	// the Resolved-models table (anchored on its Parameters/Capabilities
+	// section), rendered over the ACTIVE tab (no tab switch - the Diagnostics
+	// reader keeps their place; closing just removes the overlay).
+	const inspectModel = (
+		target: { scopeKey: string; rawId: string; serverLabel: string },
+		anchor?: InspectorSection
+	) => {
+		setInspecting({ ...target, anchor });
 	};
 
 	// The inspectors' configure-jump: land on the settings tab with the right
@@ -607,36 +610,21 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 				/>
 			</SectionPanel>
 			<ToastHost toasts={toasts} durationMs={toastDurationMs} onDismiss={dismissToast} />
-			{/* The inspector overlays, above the tab panels so they open in place
+			{/* The inspector overlay, above the tab panels so it opens in place
 			    on any tab; the configure-jumps close the overlay first - the
 			    editor they land on is the next surface. */}
-			{inspectedModel !== undefined && inspecting?.view === "params" ? (
-				<ParamsInspector
+			{inspectedModel !== undefined ? (
+				<ModelInspector
 					model={inspectedModel}
-					response={paramsResponse}
+					paramsResponse={paramsResponse}
+					capsResponse={capsResponse}
 					stateSeq={stateSeq}
+					anchor={inspecting?.anchor}
 					fallbackFocusId={`tab-${section}`}
 					onClose={() => setInspecting(undefined)}
-					onEditRecord={(key, create) => {
+					onEditRecord={(kind, key, create) => {
 						setInspecting(undefined);
-						editRecord("parameters", key, create);
-					}}
-					onEditEntry={(label) => {
-						setInspecting(undefined);
-						editEntry(label);
-					}}
-				/>
-			) : null}
-			{inspectedModel !== undefined && inspecting?.view === "caps" ? (
-				<CapsInspector
-					model={inspectedModel}
-					response={capsResponse}
-					stateSeq={stateSeq}
-					fallbackFocusId={`tab-${section}`}
-					onClose={() => setInspecting(undefined)}
-					onEditRecord={(key, create) => {
-						setInspecting(undefined);
-						editRecord("capabilities", key, create);
+						editRecord(kind, key, create);
 					}}
 					onEditEntry={(label) => {
 						setInspecting(undefined);

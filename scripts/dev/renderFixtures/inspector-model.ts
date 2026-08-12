@@ -1,12 +1,18 @@
 /**
- * The params inspector popup with the configure-jump affordances and the
- * inheritance chain figure: the "Configure parameters for this model" button,
- * the per-row "edit" actions (global record and server entry sourced rows),
- * and the record-path lines with a barrier marker. The step opens the
- * inspector from the GPT-5.6 row; the respond map answers its read.
+ * The merged model inspector over the worst-case payloads: the parameters
+ * side with the configure-jump affordances, the inheritance chain figure
+ * (record-path lines with a barrier marker), per-row "edit" actions (global
+ * record and server entry sourced rows), and a not-sent directive row; the
+ * capabilities side with the full field bag - the eight-field Anthropic-style
+ * cost family with sub-micro values, the consumed booleans, the 27-element
+ * supported_openai_params list rendering in the PARAMETERS section, an
+ * unknown extra under Other fields, mixed provenance across every level -
+ * and the Pricing section rendering the panel's one pricing view. The step
+ * opens the inspector from the GPT-5.6 row; the respond map answers both
+ * reads.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
-import { baseState } from "./shared.ts";
+import { baseState, worstCaseCapabilityFields } from "./shared.ts";
 
 const fixture: RenderFixture = {
 	messages: [{ type: "state", state: baseState() }],
@@ -62,9 +68,18 @@ const fixture: RenderFixture = {
 				diagnostics: [],
 			},
 		},
+		readModelCapabilities: {
+			type: "modelCapabilities",
+			globalRecordKey: "gpt-5*",
+			capabilities: {
+				fields: worstCaseCapabilityFields(),
+				outputLimitSource: "provider",
+				diagnostics: [],
+			},
+		},
 	},
-	steps: ['[...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Parameters").click()'],
-	viewport: { width: 1300, height: 1100 },
+	steps: ['[...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Inspect").click()'],
+	viewport: { width: 1300, height: 2600 },
 	settleMs: 500,
 };
 

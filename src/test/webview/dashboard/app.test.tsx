@@ -192,9 +192,12 @@ test("the Diagnostics table's inspector opens in place over the tab and closing 
 	expect(document.querySelector("[role='dialog']")).not.toBeNull();
 	// No tab switch: the overlay rides over the Diagnostics page.
 	expect(diagnosticsTab().getAttribute("aria-selected")).toBe("true");
-	const request = postedMessages.at(-1) as { type: string; scopeKey: string; rawId: string };
-	expect(request.type).toBe("readModelParameters");
-	expect(request.scopeKey).toBe("s0");
+	// The merged panel asks both feeds about exactly the clicked row.
+	for (const type of ["readModelParameters", "readModelCapabilities"]) {
+		const request = [...postedMessages].reverse().find((message) => message.type === type) as { scopeKey: string };
+		expect(request).not.toBeUndefined();
+		expect(request.scopeKey).toBe("s0");
+	}
 
 	fireClick(document.querySelector("[role='dialog'] button[aria-label='Close']") as HTMLButtonElement);
 	expect(document.querySelector("[role='dialog']")).toBeNull();
