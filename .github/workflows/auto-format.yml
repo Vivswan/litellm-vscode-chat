@@ -37,7 +37,7 @@ jobs:
         run: bash scripts/env/setup-env.sh
 
       - name: Format (biome)
-        run: bunx biome check --write .
+        run: bunx biome check --write --max-diagnostics=none .
 
       - name: Commit and push changes
         env:

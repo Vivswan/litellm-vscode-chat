@@ -541,9 +541,9 @@
 		"prepare": "husky",
 		"vscode:prepublish": "tsc -p tsconfig.prod.json && bun scripts/dev/fetch-openrouter-catalog.ts && bun run bundle",
 		"compile": "bun -e \"require('node:fs').rmSync('out',{recursive:true,force:true,maxRetries:5,retryDelay:100})\" && tsc -p ./",
-		"bundle": "bun scripts/dev/esbuild.mts --production && bun scripts/dev/generate-third-party-notices.ts",
-		"bundle:dev": "bun scripts/dev/esbuild.mts",
-		"bundle:watch": "bun scripts/dev/esbuild.mts --watch",
+		"bundle": "bun scripts/dev/bundle.mts --production && bun scripts/dev/generate-third-party-notices.ts",
+		"bundle:dev": "bun scripts/dev/bundle.mts",
+		"bundle:watch": "bun scripts/dev/bundle.mts --watch",
 		"typecheck": "tsc --noEmit -p ./ && tsc --noEmit -p src/webview && tsc --noEmit -p src/test/bun && tsc --noEmit -p tsconfig.scripts.json",
 		"setup-env": "bash scripts/env/setup-env.sh",
 		"setup-env:verify": "bash scripts/env/setup-env.sh --verify",
@@ -556,8 +556,8 @@
 		"lint:actions": "bun scripts/ci/lint-actions.ts",
 		"lint:knip": "knip",
 		"lint:types": "eslint src scripts",
-		"lint": "biome lint .",
-		"format": "biome format --write .",
+		"lint": "biome lint --max-diagnostics=none .",
+		"format": "biome format --write --max-diagnostics=none .",
 		"watch": "tsc -watch -p ./",
 		"docker:up": "bun scripts/stack/compose.ts up -d --wait",
 		"docker:down": "bun scripts/stack/compose.ts down -v",
@@ -596,7 +596,6 @@
 		"@vscode/test-electron": "^3.1.0",
 		"@vscode/vsce": "^3.9.2",
 		"actionlint": "^2.0.6",
-		"esbuild": "^0.28.1",
 		"eslint": "^10.8.0",
 		"fast-check": "^4.9.0",
 		"husky": "^9.1.7",
@@ -606,11 +605,12 @@
 		"msw": "^2.15.0",
 		"pixelmatch": "^7.2.0",
 		"pngjs": "^7.0.0",
+		"rolldown": "^1.2.4",
 		"typescript": "^6.0.3",
 		"typescript-eslint": "8.66.0"
 	},
 	"lint-staged": {
-		"*.{js,mjs,cjs,ts,mts,cts,jsx,tsx,css}": "biome check --write --no-errors-on-unmatched"
+		"*.{js,mjs,cjs,ts,mts,cts,jsx,tsx,css}": "biome check --write --no-errors-on-unmatched --max-diagnostics=none"
 	},
 	"packageManager": "bun@1.3.14"
 }

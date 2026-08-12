@@ -24,7 +24,7 @@
 			},
 			"group": "build",
 			"problemMatcher": {
-				"owner": "esbuild",
+				"owner": "rolldown",
 				"fileLocation": "relative",
 				"pattern": [
 					{

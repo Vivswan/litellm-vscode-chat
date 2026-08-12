@@ -32,7 +32,7 @@ jobs:
   # Step 2: package the released tag and publish it: VSIX to the VS Code
   # Marketplace (MARKETPLACE_TOKEN is an Azure DevOps PAT) and as a draft
   # release asset. vscode:prepublish runs the production typecheck, the
-  # esbuild bundle, and the ThirdPartyNotices generation. If a step fails
+  # Rolldown bundle, and the ThirdPartyNotices generation. If a step fails
   # after the Marketplace publish, the release stays an invisible draft;
   # finish by hand as the header describes.
   update-release:

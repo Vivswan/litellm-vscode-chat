@@ -37,7 +37,7 @@ jobs:
         run: bash scripts/env/setup-env.sh
 
       - name: Check formatting and lint
-        run: bunx biome ci .
+        run: bunx biome ci --max-diagnostics=none .
 
       - name: Type-check helper scripts
         run: bunx tsc --noEmit -p tsconfig.scripts.json
@@ -145,14 +145,13 @@ jobs:
             echo "::error::l10n/bundle.l10n.json is missing from the packaged file list"
             exit 1
           fi
-          # The webview suite renders source .tsx, never the esbuild output, so
+          # The webview suite renders source .tsx, never the bundled output, so
           # a bundler regression could ship a blank dashboard with every test
-          # green. The floor must separate broken from healthy: a blank Preact
-          # render still weighs ~12,355 bytes, the real dashboard ~69,701
-          # (re-measured after combining the servers and models tabs), so
-          # 40000 fails the blank build with headroom on both sides. The grep
-          # is the content half: these strings only survive if the real
-          # dashboard components compiled into the bundle.
+          # green. The real dashboard weighs ~405,936 bytes minified (React 19
+          # inlined; even a blank render carries react-dom), so the 40000
+          # floor guards a truncated or empty emit and the greps are the
+          # content gate: these strings only survive if the real dashboard
+          # components compiled into the bundle.
           webview_size="$(wc -c < dist/webview/dashboard.js | tr -d ' ')"
           if [ "$webview_size" -lt 40000 ]; then
             echo "::error::dist/webview/dashboard.js is only ${webview_size} bytes; the dashboard bundle looks broken"
@@ -164,9 +163,20 @@ jobs:
               exit 1
             fi
           done
+          # The bundle script's NODE_ENV define decides which React build
+          # ships, and the size check above is a floor, so a development
+          # build would pass it silently. The define must have replaced every
+          # process.env.NODE_ENV read, and React's dev-only warning text must
+          # not survive a production bundle.
+          for banned in 'process.env.NODE_ENV' 'Each child in a list'; do
+            if grep -q "$banned" dist/webview/dashboard.js; then
+              echo "::error::dist/webview/dashboard.js contains '${banned}'; the production bundle looks like a development build"
+              exit 1
+            fi
+          done
           # The stylesheet is the same kind of test-invisible build output as
-          # the bundle (the webview suite never loads esbuild's css either):
-          # the real emit weighs ~40,589 bytes minified (~48,225 unminified),
+          # the bundle (the webview suite never loads the bundled css either):
+          # the real emit weighs ~39,995 bytes minified (~47,961 unminified),
           # so 30000 fails a truncated or empty emit with headroom, and the
           # grep pins the theme-token contract - every rule reads the host's
           # var(--vscode-*) tokens.
