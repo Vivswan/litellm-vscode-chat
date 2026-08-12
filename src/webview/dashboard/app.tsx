@@ -1,6 +1,6 @@
 import * as l10n from "@vscode/l10n";
-import type { ComponentChildren } from "preact";
-import { useCallback, useEffect, useState } from "preact/hooks";
+import type { KeyboardEvent, ReactNode } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { AckedMethod, NotifyingMethod } from "../../dashboard/endpoints";
 import { failuresAfterStatePush, isAckedMethod } from "../../dashboard/endpoints";
 import { classifyOverall, latestCheckedMs } from "../../dashboard/presenters";
@@ -102,11 +102,11 @@ function Toast({
 		return () => clearTimeout(timer);
 	}, [toast.id, durationMs, onDismiss]);
 	return (
-		<div class="toast">
+		<div className="toast">
 			<span>{toast.text}</span>
 			<button
 				type="button"
-				class="quiet"
+				className="quiet"
 				aria-label={l10n.t("Dismiss notification")}
 				onClick={() => onDismiss(toast.id)}
 			>
@@ -131,7 +131,7 @@ function ToastHost({
 	onDismiss: (id: number) => void;
 }) {
 	return (
-		<div class="toasts" role="status" aria-live="polite">
+		<div className="toasts" role="status" aria-live="polite">
 			{toasts.map((toast) => (
 				<Toast key={toast.id} toast={toast} durationMs={durationMs} onDismiss={onDismiss} />
 			))}
@@ -181,28 +181,28 @@ function StatusHero({ state, now }: { state: DashboardState; now: number }) {
 	const overall = overallState(state.servers, state.legacyServerCount);
 	const synced = lastSync(state.servers, now);
 	return (
-		<div class="hero">
-			<span class={`pill tone-${overall.tone}`}>
-				<span class="dot" />
+		<div className="hero">
+			<span className={`pill tone-${overall.tone}`}>
+				<span className="dot" />
 				{overall.word}
 			</span>
-			<span class="stat">
+			<span className="stat">
 				<strong>{state.servers.length}</strong>{" "}
 				{state.servers.length === 1
 					? l10n.t({ message: "server", comment: ["singular noun after the count in the hero strip"] })
 					: l10n.t({ message: "servers", comment: ["plural noun after the count in the hero strip"] })}
 			</span>
-			<span class="stat">
+			<span className="stat">
 				<strong>{state.models.length}</strong>{" "}
 				{state.models.length === 1
 					? l10n.t({ message: "model", comment: ["singular noun after the count in the hero strip"] })
 					: l10n.t({ message: "models", comment: ["plural noun after the count in the hero strip"] })}
 			</span>
-			{synced !== undefined ? <span class="stat">{l10n.t("last sync {0}", synced)}</span> : null}
-			<span class="spacer" />
+			{synced !== undefined ? <span className="stat">{l10n.t("last sync {0}", synced)}</span> : null}
+			<span className="spacer" />
 			<button
 				type="button"
-				class="secondary"
+				className="secondary"
 				disabled={state.servers.length === 0}
 				onClick={() => sendRequest("executeCommand", { command: "syncModels" })}
 			>
@@ -216,15 +216,15 @@ function StatusHero({ state, now }: { state: DashboardState; now: number }) {
 function LoadingSkeleton() {
 	return (
 		<main aria-label={l10n.t("Loading")}>
-			<div class="skeleton" style={{ height: "20px", width: "220px", margin: "24px 0 4px" }} />
-			<div class="skeleton" style={{ height: "13px", width: "420px", margin: "8px 0 16px" }} />
-			<div class="skeleton" style={{ height: "38px", margin: "16px 0 24px" }} />
-			<div class="skeleton" style={{ height: "26px", width: "260px", margin: "0 0 24px" }} />
-			<div class="skeleton" style={{ height: "14px", width: "120px", margin: "0 0 12px" }} />
-			<div class="skeleton" style={{ height: "24px", margin: "8px 0" }} />
-			<div class="skeleton" style={{ height: "24px", margin: "8px 0" }} />
-			<div class="skeleton" style={{ height: "24px", margin: "8px 0" }} />
-			<div class="skeleton" style={{ height: "24px", margin: "8px 0" }} />
+			<div className="skeleton" style={{ height: "20px", width: "220px", margin: "24px 0 4px" }} />
+			<div className="skeleton" style={{ height: "13px", width: "420px", margin: "8px 0 16px" }} />
+			<div className="skeleton" style={{ height: "38px", margin: "16px 0 24px" }} />
+			<div className="skeleton" style={{ height: "26px", width: "260px", margin: "0 0 24px" }} />
+			<div className="skeleton" style={{ height: "14px", width: "120px", margin: "0 0 12px" }} />
+			<div className="skeleton" style={{ height: "24px", margin: "8px 0" }} />
+			<div className="skeleton" style={{ height: "24px", margin: "8px 0" }} />
+			<div className="skeleton" style={{ height: "24px", margin: "8px 0" }} />
+			<div className="skeleton" style={{ height: "24px", margin: "8px 0" }} />
 		</main>
 	);
 }
@@ -259,12 +259,12 @@ function SectionTabs({ active, onSelect }: { active: SectionId; onSelect: (secti
 		event.preventDefault();
 	};
 	return (
-		<div class="tabs" role="tablist" aria-label={l10n.t("Dashboard sections")} onKeyDown={onKeyDown}>
+		<div className="tabs" role="tablist" aria-label={l10n.t("Dashboard sections")} onKeyDown={onKeyDown}>
 			{SECTION_IDS.map((section) => (
 				<button
 					key={section}
 					type="button"
-					class="tab"
+					className="tab"
 					role="tab"
 					id={`tab-${section}`}
 					aria-selected={section === active}
@@ -280,15 +280,7 @@ function SectionTabs({ active, onSelect }: { active: SectionId; onSelect: (secti
 }
 
 /** One tab's content, kept mounted while hidden; see SectionTabs. */
-function SectionPanel({
-	section,
-	active,
-	children,
-}: {
-	section: SectionId;
-	active: SectionId;
-	children: ComponentChildren;
-}) {
+function SectionPanel({ section, active, children }: { section: SectionId; active: SectionId; children: ReactNode }) {
 	return (
 		<div role="tabpanel" id={`panel-${section}`} aria-labelledby={`tab-${section}`} hidden={section !== active}>
 			{children}
@@ -468,16 +460,22 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		failures.executeCommand;
 	return (
 		<main>
-			<div class="page-head">
+			<div className="page-head">
 				<h1>{l10n.t("LiteLLM Dashboard")}</h1>
-				<button type="button" class="quiet" onClick={() => sendRequest("executeCommand", { command: "reportIssue" })}>
+				<button
+					type="button"
+					className="quiet"
+					onClick={() => sendRequest("executeCommand", { command: "reportIssue" })}
+				>
 					<IconBug /> {l10n.t("Report a bug")}
 				</button>
 			</div>
-			<p class="hint">{l10n.t("Servers, models, and settings in one place; edits land in your VS Code settings.")}</p>
+			<p className="hint">
+				{l10n.t("Servers, models, and settings in one place; edits land in your VS Code settings.")}
+			</p>
 			<StatusHero state={state} now={now} />
 			{scalarFailure !== undefined ? (
-				<p class="error">
+				<p className="error">
 					<FailureText
 						message={scalarFailure.message}
 						frame={(headline) => l10n.t("The last change did not apply: {0}", headline)}

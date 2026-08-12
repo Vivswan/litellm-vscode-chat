@@ -1,6 +1,5 @@
 import * as l10n from "@vscode/l10n";
-import { Fragment } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { GroupProblems, HeaderRow } from "../../dashboard/recordDraft";
 import { toCapabilityGroups, toGroups, toggleExpectedFailure, toHeaderRows } from "../../dashboard/recordDraft";
 import type {
@@ -142,7 +141,7 @@ function inactiveSurfacesText(server: DashboardServer): string {
  */
 function StatusPill({ server, now }: { server: DashboardServer; now: number }) {
 	const checked = server.lastChecked === undefined ? undefined : relativeTime(server.lastChecked, now);
-	const time = checked === undefined ? null : <span class="pill-time">{checked}</span>;
+	const time = checked === undefined ? null : <span className="pill-time">{checked}</span>;
 	if (server.origin === "misconfigured") {
 		// Origin outranks state: the entry never reaches discovery, so whatever
 		// state rides the row, the verdict is the invalid entry itself.
@@ -153,8 +152,8 @@ function StatusPill({ server, now }: { server: DashboardServer; now: number }) {
 					"This entry in the servers setting is invalid and is not used until fixed; the banner below lists the problems."
 				)}
 			>
-				<span class="pill tone-error">
-					<span class="dot" />
+				<span className="pill tone-error">
+					<span className="dot" />
 					{l10n.t("Misconfigured")}
 					{time}
 				</span>
@@ -168,8 +167,8 @@ function StatusPill({ server, now }: { server: DashboardServer; now: number }) {
 					focusable
 					tip={l10n.t("The server answered, but its last settings sync reported a problem; details below.")}
 				>
-					<span class="pill tone-warn">
-						<span class="dot" />
+					<span className="pill tone-warn">
+						<span className="dot" />
 						{l10n.t("Sync issue")}
 						{time}
 					</span>
@@ -177,8 +176,8 @@ function StatusPill({ server, now }: { server: DashboardServer; now: number }) {
 			);
 		}
 		return (
-			<span class="pill tone-ok">
-				<span class="dot" />
+			<span className="pill tone-ok">
+				<span className="dot" />
 				{l10n.t("Connected")}
 				{time}
 			</span>
@@ -203,8 +202,8 @@ function StatusPill({ server, now }: { server: DashboardServer; now: number }) {
 								)
 					}
 				>
-					<span class="pill tone-warn">
-						<span class="dot" />
+					<span className="pill tone-warn">
+						<span className="dot" />
 						{declared > 0 ? l10n.t("Connected") : l10n.t("Expected failure")}
 						{time}
 					</span>
@@ -212,8 +211,8 @@ function StatusPill({ server, now }: { server: DashboardServer; now: number }) {
 			);
 		}
 		return (
-			<span class="pill tone-error">
-				<span class="dot" />
+			<span className="pill tone-error">
+				<span className="dot" />
 				{l10n.t("Error")}
 				{time}
 			</span>
@@ -224,8 +223,8 @@ function StatusPill({ server, now }: { server: DashboardServer; now: number }) {
 			focusable
 			tip={l10n.t("Declared in settings; no discovery pass has seen it yet. Run Sync models to check it now.")}
 		>
-			<span class="pill tone-muted">
-				<span class="dot" />
+			<span className="pill tone-muted">
+				<span className="dot" />
 				{l10n.t("Not checked")}
 			</span>
 		</HoverTip>
@@ -528,25 +527,25 @@ function TextField({
 	const id = `server-${field}`;
 	const errorId = `${id}-error`;
 	return (
-		<div class="field">
-			<span class="label-row">
-				<label for={id}>{serverFormFieldLabel(field)}</label>
+		<div className="field">
+			<span className="label-row">
+				<label htmlFor={id}>{serverFormFieldLabel(field)}</label>
 				<Help text={serverFieldHelp(field)} />
 			</span>
 			<input
 				id={id}
 				type="text"
-				class={showProblem ? "invalid" : ""}
+				className={showProblem ? "invalid" : ""}
 				placeholder={placeholder ?? ""}
 				value={props.draft[field]}
 				disabled={props.disabled}
 				aria-invalid={showProblem}
 				aria-describedby={showProblem ? errorId : undefined}
-				onInput={(event) => props.patch({ [field]: event.currentTarget.value } as Partial<ServerFormDraft>)}
+				onChange={(event) => props.patch({ [field]: event.currentTarget.value } as Partial<ServerFormDraft>)}
 				onBlur={() => props.touch(field)}
 			/>
 			{showProblem ? (
-				<span id={errorId} class="error">
+				<span id={errorId} className="error">
 					{problem}
 				</span>
 			) : null}
@@ -555,11 +554,41 @@ function TextField({
 }
 
 /**
+ * React mirrors a controlled input's value into the value ATTRIBUTE (via the
+ * defaultValue property, for form-reset semantics), which would put a
+ * secret's plaintext into every DOM serialization - and the mirror is written
+ * again after each input event by React's controlled-state restoration, so a
+ * one-time scrub cannot hold. This mount ref instead makes the mirror inert
+ * for the node's lifetime: it re-writes the value property first (a dirty
+ * input no longer reflects the attribute, so the removal cannot blank a
+ * not-yet-touched field), removes the mounted attribute, and shadows
+ * defaultValue with a no-op instance property so every later mirror write
+ * vanishes. The secret still lives only in the value property, exactly the
+ * one residence the sweep in the tests permits.
+ */
+function disarmValueAttributeMirror(node: HTMLInputElement | null): void {
+	if (node === null) {
+		return;
+	}
+	const current = node.value;
+	node.value = current;
+	node.removeAttribute("value");
+	Object.defineProperty(node, "defaultValue", {
+		configurable: true,
+		get: () => "",
+		set: () => undefined,
+	});
+}
+
+/**
  * One secret field: a password input plus the user's per-field storage
  * choice. Values in secure storage are never shown (they never reach this
  * page); an inline value prefills the input, masked behind a Show toggle,
  * because settings.json already displays it in plain text. Leaving the input
  * empty - or leaving a prefill unedited - keeps the stored value where it is.
+ * Invariant: this is the page's ONLY secret-bearing input. A new secret field
+ * must render through it, because the disarm above is what keeps the value
+ * out of the serialized DOM.
  */
 function SecretField({ field, help, props }: { field: SecretFieldId; help?: string; props: FieldRenderProps }) {
 	const value = props.draft[field];
@@ -580,26 +609,27 @@ function SecretField({ field, help, props }: { field: SecretFieldId; help?: stri
 	const patchSecret = (patch: Partial<SecretFieldDraft>) =>
 		props.patch({ [field]: { ...value, ...patch } } as Partial<ServerFormDraft>);
 	return (
-		<div class="field">
-			<span class="label-row">
-				<label for={id}>{serverFormFieldLabel(field)}</label>
+		<div className="field">
+			<span className="label-row">
+				<label htmlFor={id}>{serverFormFieldLabel(field)}</label>
 				<Help text={help ?? serverFieldHelp(field)} />
 			</span>
-			<span class="secret-input">
+			<span className="secret-input">
 				<input
 					id={id}
+					ref={disarmValueAttributeMirror}
 					type={revealed ? "text" : "password"}
-					class={showProblem ? "invalid" : ""}
+					className={showProblem ? "invalid" : ""}
 					value={value.value}
 					disabled={props.disabled || value.clear}
 					aria-invalid={showProblem}
 					aria-describedby={showProblem ? errorId : undefined}
-					onInput={(event) => patchSecret({ value: event.currentTarget.value })}
+					onChange={(event) => patchSecret({ value: event.currentTarget.value })}
 					onBlur={() => props.touch(field)}
 				/>
 				<button
 					type="button"
-					class="quiet"
+					className="quiet"
 					aria-pressed={revealed}
 					aria-label={
 						revealed
@@ -613,11 +643,11 @@ function SecretField({ field, help, props }: { field: SecretFieldId; help?: stri
 				</button>
 			</span>
 			<span
-				class="secret-where"
+				className="secret-where"
 				role="radiogroup"
 				aria-label={l10n.t("Where to store the {0}", serverFormFieldLabel(field))}
 			>
-				<span class="where-label">{l10n.t("Store in:")}</span>
+				<span className="where-label">{l10n.t("Store in:")}</span>
 				<Help text={helpSecretStorage()} />
 				<label>
 					<input
@@ -643,7 +673,7 @@ function SecretField({ field, help, props }: { field: SecretFieldId; help?: stri
 			{/* Removal is destructive, so it lives on its own line in its own
 			    tone, never as a third option inside the storage choice. */}
 			{value.existing !== "none" ? (
-				<label class={value.clear ? "secret-remove armed" : "secret-remove"}>
+				<label className={value.clear ? "secret-remove armed" : "secret-remove"}>
 					<input
 						type="checkbox"
 						checked={value.clear}
@@ -655,20 +685,20 @@ function SecretField({ field, help, props }: { field: SecretFieldId; help?: stri
 			) : null}
 			{value.prefill !== undefined && !value.clear ? (
 				value.value.trim().length === 0 ? (
-					<span class="hint">{l10n.t("Emptied, but the stored value is kept; use remove to delete it.")}</span>
+					<span className="hint">{l10n.t("Emptied, but the stored value is kept; use remove to delete it.")}</span>
 				) : (
-					<span class="hint">
+					<span className="hint">
 						{l10n.t("Inline in the servers setting, so settings.json already shows it; saving it unedited keeps it.")}
 					</span>
 				)
 			) : value.existing !== "none" && !value.clear ? (
-				<span class="hint">
+				<span className="hint">
 					{l10n.t("Currently in {0}; leave the field empty to keep it.", locationName(value.existing))}
 				</span>
 			) : null}
-			{value.clear ? <span class="hint">{l10n.t("The stored value will be removed on save.")}</span> : null}
+			{value.clear ? <span className="hint">{l10n.t("The stored value will be removed on save.")}</span> : null}
 			{showProblem ? (
-				<span id={errorId} class="error">
+				<span id={errorId} className="error">
 					{problem}
 				</span>
 			) : null}
@@ -717,12 +747,12 @@ function StoredSecretRow({ field, props }: { field: SecretFieldId; props: FieldR
 	const patchSecret = (patch: Partial<SecretFieldDraft>) =>
 		props.patch({ [field]: { ...value, ...patch } } as Partial<ServerFormDraft>);
 	return (
-		<div class="field">
-			<span class="field-label">{serverFormFieldLabel(field)}</span>
+		<div className="field">
+			<span className="field-label">{serverFormFieldLabel(field)}</span>
 			{value.existing === "none" ? null : (
-				<span class="hint">{l10n.t("Currently in {0}.", locationName(value.existing))}</span>
+				<span className="hint">{l10n.t("Currently in {0}.", locationName(value.existing))}</span>
 			)}
-			<label class={value.clear ? "secret-remove armed" : "secret-remove"}>
+			<label className={value.clear ? "secret-remove armed" : "secret-remove"}>
 				<input
 					type="checkbox"
 					checked={value.clear}
@@ -731,8 +761,8 @@ function StoredSecretRow({ field, props }: { field: SecretFieldId; props: FieldR
 				/>
 				{l10n.t("Remove the stored {0} on save", serverFormFieldLabel(field))}
 			</label>
-			{value.clear ? <span class="hint">{l10n.t("The stored value will be removed on save.")}</span> : null}
-			{problem !== undefined ? <span class="error">{problem}</span> : null}
+			{value.clear ? <span className="hint">{l10n.t("The stored value will be removed on save.")}</span> : null}
+			{problem !== undefined ? <span className="error">{problem}</span> : null}
 		</div>
 	);
 }
@@ -755,51 +785,52 @@ function HeaderRowsEditor({
 }) {
 	return (
 		<>
-			<div class="rows">
+			<div className="rows">
 				{rows.map((row, index) => (
-					<div class="row" key={index}>
-						<span class="cell key">
+					// biome-ignore lint/suspicious/noArrayIndexKey: header rows are positional while being edited; the index is the identity
+					<div className="row" key={index}>
+						<span className="cell key">
 							<input
 								type="text"
-								class={`key${problems[index] !== undefined ? " invalid" : ""}`}
+								className={`key${problems[index] !== undefined ? " invalid" : ""}`}
 								aria-label={l10n.t("Header name")}
 								aria-invalid={problems[index] !== undefined}
 								placeholder={l10n.t("Header, e.g. x-routing-env")}
 								value={row.name}
 								disabled={disabled}
-								onInput={(event) =>
+								onChange={(event) =>
 									onChange(rows.map((r, i) => (i === index ? { ...r, name: event.currentTarget.value } : r)))
 								}
 							/>
 						</span>
-						<span class="cell value">
+						<span className="cell value">
 							<input
 								type="text"
-								class={`value${problems[index] !== undefined ? " invalid" : ""}`}
+								className={`value${problems[index] !== undefined ? " invalid" : ""}`}
 								aria-label={l10n.t("Header value")}
 								placeholder={l10n.t("Value, e.g. prod")}
 								value={row.valueText}
 								disabled={disabled}
-								onInput={(event) =>
+								onChange={(event) =>
 									onChange(rows.map((r, i) => (i === index ? { ...r, valueText: event.currentTarget.value } : r)))
 								}
 							/>
 						</span>
 						<button
 							type="button"
-							class="quiet"
+							className="quiet"
 							disabled={disabled}
 							onClick={() => onChange(rows.filter((_, i) => i !== index))}
 						>
 							<IconTrash /> {l10n.t("Remove")}
 						</button>
-						{problems[index] !== undefined ? <span class="error">{problems[index]}</span> : null}
+						{problems[index] !== undefined ? <span className="error">{problems[index]}</span> : null}
 					</div>
 				))}
 			</div>
 			<button
 				type="button"
-				class="secondary"
+				className="secondary"
 				disabled={disabled}
 				onClick={() => onChange([...rows, { name: "", valueText: "" }])}
 			>
@@ -1045,6 +1076,7 @@ function ServerForm({
 	// reopen a disclosure the user deliberately closed.
 	const problemDisclosureKey = disclosuresForProblems(visibleProblems, draft.authForm).join(",");
 	const openedForProblems = useRef<ReadonlySet<ProblemDisclosureId>>(new Set());
+	// biome-ignore lint/correctness/useExhaustiveDependencies: deliberately keyed on the joined disclosure key (see above); openDisclosures is a stable setter wrapper read at fire time
 	useEffect(() => {
 		const current = new Set(
 			problemDisclosureKey.length > 0 ? (problemDisclosureKey.split(",") as ProblemDisclosureId[]) : []
@@ -1243,10 +1275,10 @@ function ServerForm({
 	})();
 
 	return (
-		<div class="form-card">
+		<div className="form-card">
 			{/* The dialog's accessible name is the title span alone, so the
 			    docs anchor's own label never leaks into it. */}
-			<h3 class="head-with-icons">
+			<h3 className="head-with-icons">
 				<span id="server-form-title">
 					{target.kind === "add" ? l10n.t("Add server") : l10n.t("Edit {0}", target.original.label)}
 				</span>
@@ -1254,31 +1286,33 @@ function ServerForm({
 			</h3>
 			<TextField field="label" placeholder={l10n.t("e.g. Production")} props={props} />
 			{renaming && (parse.ok || parse.problems.label === undefined) ? (
-				<p class="hint">
+				<p className="hint">
 					{l10n.t(
 						"Renaming makes VS Code treat this as a new server: the old name keeps serving its models until you delete its object from the models file (the rename notice opens it)."
 					)}
 				</p>
 			) : null}
 			{target.kind === "edit" && !renaming ? (
-				<details class="fine-print">
+				<details className="fine-print">
 					<summary>{l10n.t("Changing the URL or credentials?")}</summary>
-					<p class="hint">
+					<p className="hint">
 						{l10n.t("Saving stores the change, but VS Code keeps using the old connection details until:")}
 					</p>
-					<ol class="notice-steps hint">
+					<ol className="notice-steps hint">
 						<li>{l10n.t("You remove this server's object from the models file (chatLanguageModels.json).")}</li>
 						<li>{l10n.t("You reload the window, then run Sync Models Now.")}</li>
 					</ol>
 				</details>
 			) : null}
-			{collides ? <p class="hint">{l10n.t("An entry with this label already exists; saving replaces it.")}</p> : null}
+			{collides ? (
+				<p className="hint">{l10n.t("An entry with this label already exists; saving replaces it.")}</p>
+			) : null}
 			<TextField field="baseUrl" placeholder={l10n.t("e.g. http://localhost:4000")} props={props} />
 			<details open={apiVersionOpen} onToggle={(event) => setApiVersionOpen(event.currentTarget.open)}>
 				<summary>
 					{apiVersionSummaryText(draft.apiVersion)} <Help text={serverFieldHelp("apiVersion")} />
 				</summary>
-				<div class="field">
+				<div className="field">
 					{/* The summary already names the field; an aria-label keeps the
 					    select accessible without saying "API version" a second time. */}
 					<select
@@ -1298,36 +1332,36 @@ function ServerForm({
 					</select>
 				</div>
 				{draft.apiVersion.mode === "custom" ? (
-					<div class="field">
-						<label for="server-apiVersion">{l10n.t("Version segment")}</label>
+					<div className="field">
+						<label htmlFor="server-apiVersion">{l10n.t("Version segment")}</label>
 						<input
 							id="server-apiVersion"
 							type="text"
-							class={visibleProblems.apiVersion !== undefined ? "invalid" : ""}
+							className={visibleProblems.apiVersion !== undefined ? "invalid" : ""}
 							placeholder={l10n.t("e.g. v2")}
 							value={draft.apiVersion.custom}
 							disabled={saving}
 							aria-invalid={visibleProblems.apiVersion !== undefined}
 							aria-describedby={visibleProblems.apiVersion !== undefined ? "server-apiVersion-error" : undefined}
-							onInput={(event) =>
+							onChange={(event) =>
 								props.patch({ apiVersion: { ...draft.apiVersion, custom: event.currentTarget.value } })
 							}
 							onBlur={() => props.touch("apiVersion")}
 						/>
 						{visibleProblems.apiVersion !== undefined ? (
-							<span id="server-apiVersion-error" class="error">
+							<span id="server-apiVersion-error" className="error">
 								{visibleProblems.apiVersion}
 							</span>
 						) : null}
 					</div>
 				) : null}
 			</details>
-			<fieldset class="auth-block">
-				<legend class="label-row">
+			<fieldset className="auth-block">
+				<legend className="label-row">
 					{serverFormFieldLabel("authForm")} <Help text={serverFieldHelp("authForm")} />
 					<DocsLink href={DOCS_LINK_AUTHENTICATION} label={l10n.t("Open the authentication guide")} />
 				</legend>
-				<div class="auth-selector" role="radiogroup" aria-label={serverFormFieldLabel("authForm")}>
+				<div className="auth-selector" role="radiogroup" aria-label={serverFormFieldLabel("authForm")}>
 					{AUTH_FORM_IDS.map((form) => (
 						<label key={form}>
 							<input
@@ -1346,7 +1380,9 @@ function ServerForm({
 						<SecretField field="apiKey" props={props} />
 						<details open={vkCompanionOpen} onToggle={(event) => setVkCompanionOpen(event.currentTarget.open)}>
 							<summary>{l10n.t("Also send a virtual key header (optional)")}</summary>
-							<p class="hint">{l10n.t("For gateways that check the bearer and a key in a second header at once.")}</p>
+							<p className="hint">
+								{l10n.t("For gateways that check the bearer and a key in a second header at once.")}
+							</p>
 							{virtualKeyPair}
 						</details>
 					</>
@@ -1364,7 +1400,7 @@ function ServerForm({
 						<TextField field="oauthScopes" placeholder={l10n.t("e.g. litellm.read litellm.write")} props={props} />
 						<details open={oauthCompanionsOpen} onToggle={(event) => setOauthCompanionsOpen(event.currentTarget.open)}>
 							<summary>{l10n.t("Companions (optional)")}</summary>
-							<p class="hint">
+							<p className="hint">
 								{l10n.t("Second credentials sent beside the OAuth bearer, for gateways that check two at once.")}
 							</p>
 							<SecretField field="apiKey" help={helpOauthCompanionApiKey()} props={props} />
@@ -1373,21 +1409,21 @@ function ServerForm({
 					</>
 				) : null}
 				{storedApiKeyOrphan || storedVkOrphan || storedOauthSecretOrphan ? (
-					<div class="stored-auth">
+					<div className="stored-auth">
 						{storedApiKeyOrphan ? (
-							<p class="hint state-warn">
+							<p className="hint state-warn">
 								{l10n.t(
 									"A stored API key still activates the bearer on this shape; use its Remove checkbox to stop sending it."
 								)}
 							</p>
 						) : null}
 						{storedVkOrphan ? (
-							<p class="hint state-warn">
+							<p className="hint state-warn">
 								{l10n.t("A stored virtual key value is still attached; remove it below, or pick a form that sends it.")}
 							</p>
 						) : null}
 						{storedOauthSecretOrphan ? (
-							<p class="hint state-warn">
+							<p className="hint state-warn">
 								{l10n.t(
 									"A stored OAuth client secret is still attached; remove it below, or switch the form to OAuth."
 								)}
@@ -1406,7 +1442,7 @@ function ServerForm({
 				<summary>
 					{l10n.t("Model parameters for this server (optional)")} <Help text={serverFieldHelp("modelParameters")} />
 				</summary>
-				<p class="hint">
+				<p className="hint">
 					{l10n.t(
 						"Sent only with requests routed through this entry; overrides the global Model parameters setting for the same keys. Keys match model IDs: gpt-4 exactly, gpt-4* for the family, /regex/ or * for broader sets - the most specific match wins."
 					)}
@@ -1423,7 +1459,7 @@ function ServerForm({
 				) : null}
 				<button
 					type="button"
-					class="secondary"
+					className="secondary"
 					id="server-params-add"
 					disabled={saving}
 					onClick={() => {
@@ -1444,7 +1480,7 @@ function ServerForm({
 					{l10n.t("Model capabilities for this server (optional)")} <Help text={serverFieldHelp("modelCapabilities")} />{" "}
 					<DocsLink href={DOCS_LINK_MODEL_CAPABILITIES} label={l10n.t("Open the model capabilities guide")} />
 				</summary>
-				<p class="hint">
+				<p className="hint">
 					{l10n.t(
 						"Corrects what discovery reports for matching models, e.g. context_length 128000. Your values beat server-reported ones unless marked fallback."
 					)}
@@ -1462,7 +1498,7 @@ function ServerForm({
 				) : null}
 				<button
 					type="button"
-					class="secondary"
+					className="secondary"
 					id="server-caps-add"
 					disabled={saving}
 					onClick={() => {
@@ -1482,9 +1518,9 @@ function ServerForm({
 				    declared IDs plus expected failures are the recipe for a gateway
 				    with no discovery at all. */}
 				<summary>{l10n.t("Discovery (optional)")}</summary>
-				<div class="field">
-					<span class="label-row">
-						<label for="server-declaredModels">{serverFormFieldLabel("declaredModels")}</label>
+				<div className="field">
+					<span className="label-row">
+						<label htmlFor="server-declaredModels">{serverFormFieldLabel("declaredModels")}</label>
 						<Help text={serverFieldHelp("declaredModels")} />
 						<DocsLink href={DOCS_LINK_DECLARED_MODELS} label={l10n.t("Open the declared models guide")} />
 					</span>
@@ -1494,21 +1530,21 @@ function ServerForm({
 						placeholder={l10n.t("One model ID per line, e.g. deepseek-r1")}
 						value={draft.declaredModels}
 						disabled={saving}
-						onInput={(event) => props.patch({ declaredModels: event.currentTarget.value })}
+						onChange={(event) => props.patch({ declaredModels: event.currentTarget.value })}
 					/>
-					<span class="hint">{l10n.t("IDs are exact; a declaration goes inert once discovery lists the ID.")}</span>
+					<span className="hint">{l10n.t("IDs are exact; a declaration goes inert once discovery lists the ID.")}</span>
 				</div>
-				<fieldset class="expected-failures">
-					<legend class="label-row">
+				<fieldset className="expected-failures">
+					<legend className="label-row">
 						{serverFormFieldLabel("expectedFailures")} <Help text={serverFieldHelp("expectedFailures")} />
 					</legend>
-					<p class="hint">
+					<p className="hint">
 						{l10n.t(
 							"Discovery endpoints this server is known to lack: marked failures log quietly, skip retries, and never count as errors."
 						)}
 					</p>
 					{EXPECTED_FAILURE_CATEGORIES.map((category) => (
-						<label key={category} class="setting-check">
+						<label key={category} className="setting-check">
 							<input
 								type="checkbox"
 								checked={draft.expectedFailures.includes(category)}
@@ -1532,7 +1568,7 @@ function ServerForm({
 				<summary>
 					{l10n.t("Custom headers (optional)")} <Help text={serverFieldHelp("headers")} />
 				</summary>
-				<p class="hint">
+				<p className="hint">
 					{l10n.t(
 						"Attached to every request to this server, e.g. routing or tracing tags. The entry's auth headers win conflicts; values sit in plain text in settings.json - credentials belong in Authentication above."
 					)}
@@ -1545,22 +1581,22 @@ function ServerForm({
 				/>
 			</details>
 			<TextField field="budget" placeholder={l10n.t("e.g. 50")} props={props} />
-			<p class="hint">
+			<p className="hint">
 				{l10n.t(
 					"Saved to the litellm-vscode-chat.servers user setting and synced to VS Code automatically. Secrets left empty or unedited keep their current value."
 				)}
 			</p>
-			<div class="toolbar">
+			<div className="toolbar">
 				<button type="button" disabled={phase.phase !== "editing"} onClick={save}>
 					{saving ? (
 						<>
-							<span class="spinner" aria-hidden="true" /> {l10n.t("Saving...")}
+							<span className="spinner" aria-hidden="true" /> {l10n.t("Saving...")}
 						</>
 					) : (
 						l10n.t("Save")
 					)}
 				</button>
-				<button type="button" class="secondary" onClick={onCancel}>
+				<button type="button" className="secondary" onClick={onCancel}>
 					{l10n.t("Cancel")}
 				</button>
 				{/* Probes the draft as typed, saved or not. Disabled only while the
@@ -1568,31 +1604,31 @@ function ServerForm({
 				    live throughout - an abandoned probe's outcome is simply ignored. */}
 				<button
 					type="button"
-					class="secondary"
+					className="secondary"
 					disabled={!isUsableHttpUrl(draft.baseUrl.trim()) || testState.kind === "testing" || saving}
 					onClick={testConnection}
 				>
 					{testState.kind === "testing" ? (
 						<>
-							<span class="spinner" aria-hidden="true" /> {l10n.t("Testing...")}
+							<span className="spinner" aria-hidden="true" /> {l10n.t("Testing...")}
 						</>
 					) : (
 						l10n.t("Test connection")
 					)}
 				</button>
-				{phase.phase === "prefill" ? <span class="hint">{l10n.t("Loading stored values...")}</span> : null}
+				{phase.phase === "prefill" ? <span className="hint">{l10n.t("Loading stored values...")}</span> : null}
 				{firstBlocking !== undefined ? (
-					<span class="error" role="alert">
+					<span className="error" role="alert">
 						{l10n.t("Cannot save: fix {0}", serverFormFieldLabel(firstBlocking))}
 					</span>
 				) : null}
 				{testState.kind === "pass" ? (
-					<span class="test-result state-ok" role="status">
+					<span className="test-result state-ok" role="status">
 						{testState.text}
 					</span>
 				) : null}
 				{testState.kind === "fail" ? (
-					<span class="test-result error" role="alert">
+					<span className="test-result error" role="alert">
 						{testState.text}
 						{testState.classification?.setupHint !== undefined ? (
 							// A classified setup problem: the link to its matching
@@ -1602,7 +1638,7 @@ function ServerForm({
 							// error message.
 							<>
 								{" "}
-								<span class="test-hint">
+								<span className="test-hint">
 									<DocsLink {...troubleshootingLink(testState.classification.setupHint)}>
 										{l10n.t("Troubleshoot")}
 									</DocsLink>
@@ -1689,55 +1725,57 @@ function AdoptForm({
 	];
 
 	return (
-		<div class="form-card">
+		<div className="form-card">
 			<h3 id="server-form-title">{l10n.t("Adopt {0}", server.label)}</h3>
-			<p class="hint">
+			<p className="hint">
 				{l10n.t(
 					"Adopting writes this VS Code-managed group into the litellm-vscode-chat.servers setting, so it becomes editable here. Its credentials are copied inside the extension and never pass through this page."
 				)}
 			</p>
-			<div class="field">
-				<label for="adopt-label">{l10n.t("Label")}</label>
+			<div className="field">
+				<label htmlFor="adopt-label">{l10n.t("Label")}</label>
 				<input
 					id="adopt-label"
 					type="text"
-					class={showProblem ? "invalid" : ""}
+					className={showProblem ? "invalid" : ""}
 					value={label}
 					disabled={saving}
 					aria-invalid={showProblem}
 					aria-describedby={showProblem ? "adopt-label-error" : undefined}
-					onInput={(event) => {
+					onChange={(event) => {
 						onUserEdit();
 						setLabel(event.currentTarget.value);
 					}}
 					onBlur={() => setTouched(true)}
 				/>
-				<span class="hint">
+				<span className="hint">
 					{l10n.t(
 						"Names the new entry and its provider group; usually worth renaming, since a name an existing VS Code group already uses cannot be synced."
 					)}
 				</span>
 				{showProblem ? (
-					<span id="adopt-label-error" class="error">
+					<span id="adopt-label-error" className="error">
 						{problem}
 					</span>
 				) : null}
 			</div>
-			<div class="field">
-				<span class="field-label">{l10n.t("Base URL")}</span>
-				<span class="readonly-value">{server.baseUrl}</span>
-				<span class="hint">{l10n.t("Fixed to the group being adopted; edit the server afterwards to change it.")}</span>
+			<div className="field">
+				<span className="field-label">{l10n.t("Base URL")}</span>
+				<span className="readonly-value">{server.baseUrl}</span>
+				<span className="hint">
+					{l10n.t("Fixed to the group being adopted; edit the server afterwards to change it.")}
+				</span>
 			</div>
 			{secretRows.map(({ field, hint }) => (
-				<div class="field" key={field}>
+				<div className="field" key={field}>
 					<span>{serverFormFieldLabel(field)}</span>
-					<span class="hint">{hint}</span>
+					<span className="hint">{hint}</span>
 					<span
-						class="secret-where"
+						className="secret-where"
 						role="radiogroup"
 						aria-label={l10n.t("Where to store the {0}", serverFormFieldLabel(field))}
 					>
-						<span class="where-label">{l10n.t("Store in:")}</span>
+						<span className="where-label">{l10n.t("Store in:")}</span>
 						<label>
 							<input
 								type="radio"
@@ -1767,16 +1805,16 @@ function AdoptForm({
 					</span>
 				</div>
 			))}
-			<p class="hint">
+			<p className="hint">
 				{l10n.t(
 					"VS Code cannot remove the original group: its models appear twice until its object is deleted from the models file."
 				)}
 			</p>
-			<div class="toolbar">
+			<div className="toolbar">
 				<button type="button" disabled={saving} onClick={adopt}>
 					{saving ? (
 						<>
-							<span class="spinner" aria-hidden="true" /> {l10n.t("Adopting...")}
+							<span className="spinner" aria-hidden="true" /> {l10n.t("Adopting...")}
 						</>
 					) : (
 						l10n.t("Adopt")
@@ -1784,11 +1822,11 @@ function AdoptForm({
 				</button>
 				{/* Cancel routes through the slide-over's discard policy; a pending
 				    adopt never blocks it - the section owns the round trip. */}
-				<button type="button" class="secondary" onClick={onCancel}>
+				<button type="button" className="secondary" onClick={onCancel}>
 					{l10n.t("Cancel")}
 				</button>
 				{showProblem ? (
-					<span class="error" role="alert">
+					<span className="error" role="alert">
 						{l10n.t("Cannot adopt: fix Label")}
 					</span>
 				) : null}
@@ -1809,12 +1847,12 @@ function UsageCell({ usage, thresholds }: { usage: UsageServerView | undefined; 
 	}
 	if (usage.spentFraction !== undefined) {
 		return (
-			<span class={`usage-cell tone-${barPresentation(usage.spentFraction, thresholds).tone}`}>
+			<span className={`usage-cell tone-${barPresentation(usage.spentFraction, thresholds).tone}`}>
 				{formatPercent(usage.spentFraction)}
 			</span>
 		);
 	}
-	return <span class="usage-cell">{formatUsd(usage.spend)}</span>;
+	return <span className="usage-cell">{formatUsd(usage.spend)}</span>;
 }
 
 function ServerRow({
@@ -1848,18 +1886,18 @@ function ServerRow({
 	return (
 		<tr>
 			<td>{server.label}</td>
-			<td class="url">{server.baseUrl}</td>
+			<td className="url">{server.baseUrl}</td>
 			<td data-label={l10n.t("Status")}>
 				<StatusPill server={server} now={now} />
 			</td>
-			<td class="num" data-label={l10n.t("Models")}>
+			<td className="num" data-label={l10n.t("Models")}>
 				{/* The count doubles as the bridge to the models section below:
 				    clicking it scopes the list to this server. A zero stays plain
 				    text, since an empty scoped list has nothing to show. */}
 				{onShowModels !== undefined && server.modelCount > 0 ? (
 					<button
 						type="button"
-						class="quiet count-link"
+						className="quiet count-link"
 						aria-label={l10n.t("Show models from {0}", server.label)}
 						onClick={() => onShowModels(server.label)}
 					>
@@ -1869,18 +1907,18 @@ function ServerRow({
 					server.modelCount
 				)}
 			</td>
-			<td class="num" data-label={l10n.t("Usage")}>
+			<td className="num" data-label={l10n.t("Usage")}>
 				<UsageCell usage={usage} thresholds={usageThresholds} />
 			</td>
 			<td>
 				{/* The credential kind is the information, so it is the visible
 				    text; a generic "auth" badge would hide it in a hover tip. */}
 				{server.hasApiKey || server.hasOAuth ? (
-					<span class="badge">{server.hasOAuth ? "OAuth" : l10n.t("API key")}</span>
+					<span className="badge">{server.hasOAuth ? "OAuth" : l10n.t("API key")}</span>
 				) : null}
 				{server.origin === "external" ? (
 					<HoverTip focusable tip={externalTip(server)}>
-						<span class="badge">{l10n.t("external")}</span>
+						<span className="badge">{l10n.t("external")}</span>
 					</HoverTip>
 				) : null}
 				{/* Gated on expected: only expected failures fold the declared count
@@ -1894,7 +1932,7 @@ function ServerRow({
 							"Models declared in the entry's discovery.declared list; they keep serving while discovery fails."
 						)}
 					>
-						<span class="badge">
+						<span className="badge">
 							{(server.declaredModelCount ?? 0) === 1
 								? l10n.t("1 declared model")
 								: l10n.t("{0} declared models", server.declaredModelCount ?? 0)}
@@ -1903,16 +1941,16 @@ function ServerRow({
 				) : null}
 				{INACTIVE_NOTICES.filter((notice) => server.notices?.includes(notice) === true).map((notice) => (
 					<HoverTip key={notice} tip={INACTIVE_NOTICE_PRESENTATION[notice].tip()}>
-						<span class="badge state-warn">{INACTIVE_NOTICE_PRESENTATION[notice].badge()}</span>
+						<span className="badge state-warn">{INACTIVE_NOTICE_PRESENTATION[notice].badge()}</span>
 					</HoverTip>
 				))}
 			</td>
-			<td class={armed ? "actions armed" : "actions"}>
+			<td className={armed ? "actions armed" : "actions"}>
 				{armed ? (
 					<>
 						<button
 							type="button"
-							class="quiet state-error"
+							className="quiet state-error"
 							onClick={() => {
 								// The same two-step confirm for every origin; only the intent
 								// differs (a declared or misconfigured entry is removed from
@@ -1928,7 +1966,7 @@ function ServerRow({
 						>
 							{l10n.t("Confirm remove?")}
 						</button>
-						<button type="button" class="quiet" onClick={() => onArmRemove(false)}>
+						<button type="button" className="quiet" onClick={() => onArmRemove(false)}>
 							{l10n.t("Cancel")}
 						</button>
 					</>
@@ -1938,18 +1976,22 @@ function ServerRow({
 						    without rewriting what the user typed, so its fix action
 						    reveals the setting instead of opening the form. */}
 						{server.origin === "misconfigured" ? (
-							<button type="button" class="quiet" onClick={() => sendRequest("revealSetting", { setting: "servers" })}>
+							<button
+								type="button"
+								className="quiet"
+								onClick={() => sendRequest("revealSetting", { setting: "servers" })}
+							>
 								{l10n.t("Fix in settings.json")}
 							</button>
 						) : (
-							<button type="button" class="quiet" onClick={onEdit}>
+							<button type="button" className="quiet" onClick={onEdit}>
 								{l10n.t("Edit")}
 							</button>
 						)}
 						{/* A legacy-registry external row is not hideable (the registry
 						    path would keep serving its models), so it keeps Edit only. */}
 						{server.origin === "declared" || server.origin === "misconfigured" || server.hideable ? (
-							<button type="button" class="quiet" onClick={() => onArmRemove(true)}>
+							<button type="button" className="quiet" onClick={() => onArmRemove(true)}>
 								{l10n.t("Remove")}
 							</button>
 						) : null}
@@ -1972,10 +2014,10 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 		return null;
 	}
 	return (
-		<div class="hidden-groups">
-			<p class="hint">
+		<div className="hidden-groups">
+			<p className="hint">
 				{hidden.length === 1 ? l10n.t("1 hidden group") : l10n.t("{0} hidden groups", hidden.length)} -{" "}
-				<button type="button" class="quiet" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+				<button type="button" className="quiet" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
 					{expanded ? l10n.t("hide") : l10n.t("show")}
 				</button>
 			</p>
@@ -1984,10 +2026,10 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 					{hidden.map((group) => (
 						// Keyed by the identity pair the unhideServer intent posts.
 						<li key={`${group.label}:${group.baseUrl}`}>
-							<span class="hidden-label">{group.label}</span> <span class="url">{group.baseUrl}</span>{" "}
+							<span className="hidden-label">{group.label}</span> <span className="url">{group.baseUrl}</span>{" "}
 							<button
 								type="button"
-								class="quiet"
+								className="quiet"
 								onClick={() =>
 									sendRequest("unhideServer", {
 										label: group.label,
@@ -2098,6 +2140,7 @@ export function ServersSection({
 	// (its per-entry records live there). A label that no longer resolves to a
 	// declared row is a no-op; keyed on the seq so repeating the jump re-opens.
 	const editRequestSeq = editRequest?.seq;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: deliberately keyed on the seq alone so repeating the jump re-opens; the request and servers are read at fire time
 	useEffect(() => {
 		if (editRequest === undefined) {
 			return;
@@ -2143,6 +2186,7 @@ export function ServersSection({
 	const adoptOutcome = adoptIntent.outcome;
 	const ackedAdopt =
 		adoptOutcome?.result === "ok" ? pendingAdopts.find((pending) => pending.requestId === adoptOutcome.id) : undefined;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: closeForm is a stable setter bundle; the deps that decide whether the ack applies are listed
 	useEffect(() => {
 		if (ackedAdopt === undefined || adoptOutcome?.result !== "ok") {
 			return;
@@ -2164,6 +2208,7 @@ export function ServersSection({
 	const failedAdopt =
 		adoptFailure !== undefined ? pendingAdopts.find((pending) => pending.requestId === adoptFailure.id) : undefined;
 	const adoptFailureKind = adoptFailure?.failureKind;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: closeForm is a stable setter bundle; the deps that decide whether the failure applies are listed
 	useEffect(() => {
 		if (failedAdopt === undefined) {
 			return;
@@ -2198,7 +2243,7 @@ export function ServersSection({
 			{/* First run shows the guided card alone; a strip of mostly disabled
 			    controls above it would put dead buttons before the guidance. */}
 			{!noServers ? (
-				<div class="toolbar">
+				<div className="toolbar">
 					<button type="button" onClick={() => openForm({ kind: "add" })}>
 						<IconAdd /> {l10n.t("Add server")}
 					</button>
@@ -2239,51 +2284,51 @@ export function ServersSection({
 				</SlideOver>
 			) : null}
 			{removedNotice !== undefined ? (
-				<div class="notice" role="status">
+				<div className="notice" role="status">
 					<p>
 						{l10n.t(
 							'Hid "{0}" and its models. VS Code still keeps a provider group named "{0}". To delete it for good:',
 							removedNotice
 						)}
 					</p>
-					<ol class="notice-steps">
+					<ol className="notice-steps">
 						<li>{l10n.t('Open the models file and remove the "{0}" object from the JSON array.', removedNotice)}</li>
 						<li>{l10n.t('Reload the window (Ctrl+Shift+P, "Developer: Reload Window") or restart VS Code.')}</li>
 						<li>{l10n.t("Run Sync models.")}</li>
 					</ol>
-					<div class="toolbar">
+					<div className="toolbar">
 						<button
 							type="button"
-							class="secondary"
+							className="secondary"
 							onClick={() => sendRequest("executeCommand", { command: "openGroupsFile" })}
 						>
 							{l10n.t("Open models file")}
 						</button>
-						<button type="button" class="quiet" onClick={() => setRemovedNotice(undefined)}>
+						<button type="button" className="quiet" onClick={() => setRemovedNotice(undefined)}>
 							{l10n.t("Dismiss")}
 						</button>
 					</div>
 				</div>
 			) : null}
 			{adoptNotice !== undefined ? (
-				<div class="notice" role="status">
+				<div className="notice" role="status">
 					<p>{adoptNotice}</p>
-					<div class="toolbar">
+					<div className="toolbar">
 						<button
 							type="button"
-							class="secondary"
+							className="secondary"
 							onClick={() => sendRequest("executeCommand", { command: "openGroupsFile" })}
 						>
 							{l10n.t("Open models file")}
 						</button>
-						<button type="button" class="quiet" onClick={() => setAdoptNotice(undefined)}>
+						<button type="button" className="quiet" onClick={() => setAdoptNotice(undefined)}>
 							{l10n.t("Dismiss")}
 						</button>
 					</div>
 				</div>
 			) : null}
 			{adoptFailure !== undefined ? (
-				<div class="banner banner-error" role="alert">
+				<div className="banner banner-error" role="alert">
 					<p>
 						<FailureText
 							message={adoptFailure.message}
@@ -2292,13 +2337,13 @@ export function ServersSection({
 								: { frame: (headline: string) => sectionFailureText(l10n.t("Adopting the server failed:"), headline) })}
 						/>
 					</p>
-					<button type="button" class="quiet" onClick={adoptIntent.reset}>
+					<button type="button" className="quiet" onClick={adoptIntent.reset}>
 						{l10n.t("Dismiss")}
 					</button>
 				</div>
 			) : null}
 			{saveFailure !== undefined ? (
-				<div class="banner banner-error" role="alert">
+				<div className="banner banner-error" role="alert">
 					<p>
 						<FailureText
 							message={saveFailure.message}
@@ -2307,54 +2352,54 @@ export function ServersSection({
 								: { frame: (headline: string) => sectionFailureText(l10n.t("Saving the server failed:"), headline) })}
 						/>
 					</p>
-					<button type="button" class="quiet" onClick={saveIntent.reset}>
+					<button type="button" className="quiet" onClick={saveIntent.reset}>
 						{l10n.t("Dismiss")}
 					</button>
 				</div>
 			) : null}
 			{removeFailure !== undefined ? (
-				<div class="banner banner-error" role="alert">
+				<div className="banner banner-error" role="alert">
 					<p>
 						<FailureText
 							message={removeFailure.message}
 							frame={(headline) => sectionFailureText(l10n.t("Removing failed:"), headline)}
 						/>
 					</p>
-					<button type="button" class="quiet" onClick={removeIntent.reset}>
+					<button type="button" className="quiet" onClick={removeIntent.reset}>
 						{l10n.t("Dismiss")}
 					</button>
 				</div>
 			) : null}
 			{hideFailure !== undefined ? (
-				<div class="banner banner-error" role="alert">
+				<div className="banner banner-error" role="alert">
 					<p>
 						<FailureText
 							message={hideFailure.message}
 							frame={(headline) => sectionFailureText(l10n.t("Hiding the group failed:"), headline)}
 						/>
 					</p>
-					<button type="button" class="quiet" onClick={hideIntent.reset}>
+					<button type="button" className="quiet" onClick={hideIntent.reset}>
 						{l10n.t("Dismiss")}
 					</button>
 				</div>
 			) : null}
 			{unhideFailure !== undefined ? (
-				<div class="banner banner-error" role="alert">
+				<div className="banner banner-error" role="alert">
 					<p>
 						<FailureText
 							message={unhideFailure.message}
 							frame={(headline) => sectionFailureText(l10n.t("Unhiding the group failed:"), headline)}
 						/>
 					</p>
-					<button type="button" class="quiet" onClick={unhideIntent.reset}>
+					<button type="button" className="quiet" onClick={unhideIntent.reset}>
 						{l10n.t("Dismiss")}
 					</button>
 				</div>
 			) : null}
 			{noServers ? (
-				<div class="empty-start">
+				<div className="empty-start">
 					<h3>{l10n.t("Connect LiteLLM to Copilot Chat")}</h3>
-					<p class="hint">
+					<p className="hint">
 						{l10n.t("Point the extension at your LiteLLM server and its models appear in Copilot Chat's model picker.")}
 					</p>
 					<ol>
@@ -2367,17 +2412,17 @@ export function ServersSection({
 					</button>
 				</div>
 			) : (
-				<div class="table-scroll">
-					{/* class="servers": the narrow-viewport stylesheet stacks these rows
+				<div className="table-scroll">
+					{/* className="servers": the narrow-viewport stylesheet stacks these rows
 					    into cards so the row actions stay reachable. */}
-					<table class="servers">
+					<table className="servers">
 						<thead>
 							<tr>
 								<th>{l10n.t("Server")}</th>
 								<th>{l10n.t("Base URL")}</th>
 								<th>{l10n.t("Status")}</th>
-								<th class="num">{l10n.t("Models")}</th>
-								<th class="num">{l10n.t("Usage")}</th>
+								<th className="num">{l10n.t("Models")}</th>
+								<th className="num">{l10n.t("Usage")}</th>
 								<th>{/* badges */}</th>
 								<th>{/* actions */}</th>
 							</tr>
@@ -2420,8 +2465,8 @@ export function ServersSection({
 			)}
 			<HiddenGroupsLine hidden={hidden} />
 			{failingServers.length > 0 ? (
-				<div class="banner banner-error">
-					<p class="error">
+				<div className="banner banner-error">
+					<p className="error">
 						{failingServers.map((server, index) => {
 							// Keyed identity (origin plus the external row's opaque handle
 							// or the declared row's setting-unique label) so reconciliation
@@ -2445,14 +2490,14 @@ export function ServersSection({
 										// onto the error message.
 										<>
 											{" "}
-											<span class="banner-hint">
+											<span className="banner-hint">
 												<DocsLink {...troubleshootingLink(server.classification.setupHint)}>
 													{l10n.t("Troubleshoot")}
 												</DocsLink>
 											</span>
 										</>
 									) : null}
-									{detail !== undefined ? <span class="failure-detail">{detail}</span> : null}
+									{detail !== undefined ? <span className="failure-detail">{detail}</span> : null}
 								</Fragment>
 							);
 						})}
@@ -2460,8 +2505,8 @@ export function ServersSection({
 				</div>
 			) : null}
 			{servers.some((server) => server.origin === "misconfigured") ? (
-				<div class="banner banner-error">
-					<p class="error">
+				<div className="banner banner-error">
+					<p className="error">
 						{servers
 							.filter((server): server is MisconfiguredDashboardServer => server.origin === "misconfigured")
 							.map((server, index) => (
@@ -2477,7 +2522,7 @@ export function ServersSection({
 								</Fragment>
 							))}
 					</p>
-					<p class="hint">
+					<p className="hint">
 						{l10n.t("Keep exactly one auth form per entry; companions of lower rank only.")}{" "}
 						<DocsLink href={DOCS_LINK_AUTHENTICATION} label={l10n.t("Open the authentication guide")}>
 							{l10n.t("Learn more")}
@@ -2486,8 +2531,8 @@ export function ServersSection({
 				</div>
 			) : null}
 			{expectedFailureServers.length > 0 ? (
-				<div class="banner banner-warn">
-					<p class="state-warn">
+				<div className="banner banner-warn">
+					<p className="state-warn">
 						{expectedFailureServers.map((server, index) => {
 							// Warn tone, never the red banner: the entry declared this
 							// category, so the failure is stated with its localized
@@ -2509,8 +2554,8 @@ export function ServersSection({
 				</div>
 			) : null}
 			{servers.some((server) => INACTIVE_NOTICES.some((notice) => server.notices?.includes(notice) === true)) ? (
-				<div class="banner banner-warn">
-					<p class="state-warn">
+				<div className="banner banner-warn">
+					<p className="state-warn">
 						{/* One banner for every inactive entry-only surface: the cause and
 						    the two-step fix are identical, so per-surface twin banners
 						    would only repeat them. */}
@@ -2523,7 +2568,7 @@ export function ServersSection({
 							{l10n.t("Learn more")}
 						</DocsLink>
 					</p>
-					<ol class="notice-steps">
+					<ol className="notice-steps">
 						<li>{l10n.t("Delete the group's object from the models file (chatLanguageModels.json).")}</li>
 						<li>
 							{l10n.t("Reload the window, then run Sync Models Now - or save the entry under a new label instead.")}
@@ -2532,8 +2577,8 @@ export function ServersSection({
 				</div>
 			) : null}
 			{servers.some((server) => server.notices?.includes("expected-failures-nothing-declared") === true) ? (
-				<div class="banner banner-warn">
-					<p class="state-warn">
+				<div className="banner banner-warn">
+					<p className="state-warn">
 						{l10n.t(
 							"{0}: discovery fails in an expected category and nothing is declared, so no models are served. Add IDs to the entry's discovery.declared list to serve models without discovery.",
 							servers

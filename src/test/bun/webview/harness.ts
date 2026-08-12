@@ -2,13 +2,20 @@
  * Shared harness for the bun + happy-dom webview suite. Owns the three
  * process-global concerns so individual tests cannot forget them: the
  * acquireVsCodeApi stub (postMessage capture), act()-wrapped rendering and
- * event dispatch (assertions must never race preact's scheduler), and the
+ * event dispatch (assertions must never race React's scheduler), and the
  * secret-leak sweep. postedMessages is process-global because vscodeApi.ts
  * caches the api at import time; resetPosted() in beforeEach is mandatory.
+ *
+ * Event dispatch goes through React's delegation model: onFocus/onBlur are
+ * focusin/focusout at the root, onMouseEnter derives from mouseover, and
+ * controlled inputs carry a value tracker on the instance that deduplicates
+ * events whose value it already saw - so value/checked writes here go through
+ * the prototype setter, bypassing the tracker, and checkboxes toggle via a
+ * real click.
  */
-import type { ComponentChild } from "preact";
-import { render } from "preact";
-import { act } from "preact/test-utils";
+import type { ReactNode } from "react";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import type {
 	DashboardMethod,
 	ReadMethod,
@@ -33,25 +40,38 @@ export function installAcquireVsCodeApi(): void {
 	});
 }
 
-const containers: HTMLElement[] = [];
+const roots = new Map<HTMLElement, Root>();
 
 /** Render a component tree into a fresh container under document.body. */
-export function mount(vnode: ComponentChild): HTMLElement {
+export function mount(vnode: ReactNode): HTMLElement {
 	const container = document.createElement("div");
 	document.body.appendChild(container);
-	containers.push(container);
+	const root = createRoot(container);
+	roots.set(container, root);
 	void act(() => {
-		render(vnode, container);
+		root.render(vnode);
 	});
 	return container;
 }
 
+/** Re-render into a container mount() returned (controlled-component prop updates). */
+export function render(vnode: ReactNode, container: HTMLElement): void {
+	const root = roots.get(container);
+	if (root === undefined) {
+		throw new Error("render target was not mounted by this harness");
+	}
+	void act(() => {
+		root.render(vnode);
+	});
+}
+
 /** Unmount and remove every container this file mounted; call in afterEach. */
 export function cleanup(): void {
-	for (const container of containers.splice(0)) {
+	for (const [container, root] of Array.from(roots.entries())) {
 		void act(() => {
-			render(null, container);
+			root.unmount();
 		});
+		roots.delete(container);
 		container.remove();
 	}
 }
@@ -90,23 +110,39 @@ export function respondTo<K extends ReadMethod>(request: RpcRequest<K>, payload:
 	pushToWebview({ kind: "response", id: request.id, method: request.method, payload });
 }
 
-/** Set an input's value and fire the input event preact listens for. */
+/**
+ * Write value/checked through the prototype setter. React's value tracker
+ * redefines the property on the instance and records every write it sees; a
+ * write it saw is "no change" to the change plugin, so the event that follows
+ * it would be swallowed. The prototype setter is the original happy-dom one.
+ */
+function setThroughPrototype(element: Element, property: "value" | "checked", next: string | boolean): void {
+	const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), property);
+	if (descriptor?.set === undefined) {
+		throw new Error(`no prototype setter for ${property} on <${element.tagName.toLowerCase()}>`);
+	}
+	descriptor.set.call(element, next);
+}
+
+/** Set an input's value and fire the input event React's onChange listens for. */
 export function fireInput(element: HTMLInputElement | HTMLTextAreaElement, value: string): void {
 	void act(() => {
-		element.value = value;
+		setThroughPrototype(element, "value", value);
 		element.dispatchEvent(new Event("input", { bubbles: true }));
 	});
 }
 
-export function fireBlur(element: HTMLElement): void {
+/** React maps onBlur to the bubbling focusout event and delegates it at the root. */
+export function fireBlur(element: HTMLElement, relatedTarget?: HTMLElement): void {
 	void act(() => {
-		element.dispatchEvent(new Event("blur"));
+		element.dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: relatedTarget ?? null }));
 	});
 }
 
+/** React maps onFocus to the bubbling focusin event and delegates it at the root. */
 export function fireFocus(element: HTMLElement): void {
 	void act(() => {
-		element.dispatchEvent(new Event("focus"));
+		element.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
 	});
 }
 
@@ -130,9 +166,10 @@ export function stubBoundingRect(element: HTMLElement, rect: { left: number; top
 	element.getBoundingClientRect = () => full as DOMRect;
 }
 
+/** React synthesizes onMouseEnter from the bubbling mouseover event. */
 export function fireMouseEnter(element: HTMLElement): void {
 	void act(() => {
-		element.dispatchEvent(new Event("mouseenter"));
+		element.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
 	});
 }
 
@@ -142,18 +179,27 @@ export function fireClick(element: HTMLElement): void {
 	});
 }
 
-/** Tick or untick a checkbox / select a radio and fire its change event. */
+/**
+ * Tick or untick a checkbox / select a radio. React fires a checkbox's
+ * onChange from its click event, and happy-dom's click runs the native
+ * activation behavior (toggling checked internally, unseen by the tracker),
+ * so the click is the whole gesture. A call that asks for the state the box
+ * is already in is a test bug (the click would toggle the wrong way), so it
+ * fails loud instead of guessing.
+ */
 export function fireCheck(element: HTMLInputElement, checked: boolean): void {
+	if (element.checked === checked) {
+		throw new Error(`fireCheck asked for ${String(checked)} but the ${element.type} is already ${String(checked)}`);
+	}
 	void act(() => {
-		element.checked = checked;
-		element.dispatchEvent(new Event("change", { bubbles: true }));
+		element.click();
 	});
 }
 
-/** Pick a select's option by value and fire the change event preact listens for. */
+/** Pick a select's option by value and fire the change event React listens for. */
 export function fireSelect(element: HTMLSelectElement, value: string): void {
 	void act(() => {
-		element.value = value;
+		setThroughPrototype(element, "value", value);
 		element.dispatchEvent(new Event("change", { bubbles: true }));
 	});
 }
@@ -184,7 +230,8 @@ export function findSentinel(sentinel: string): string[] {
 	for (const element of Array.from(document.querySelectorAll("*"))) {
 		for (const attribute of Array.from(element.attributes)) {
 			if (attribute.value.includes(sentinel)) {
-				findings.push(`attribute ${attribute.name} on <${element.tagName.toLowerCase()}>`);
+				const idPart = element.id === "" ? "" : ` id="${element.id}"`;
+				findings.push(`attribute ${attribute.name} on <${element.tagName.toLowerCase()}${idPart}>`);
 			}
 		}
 	}

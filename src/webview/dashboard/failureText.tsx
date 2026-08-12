@@ -23,7 +23,7 @@ export function FailureText({
 	return (
 		<>
 			{frame !== undefined ? frame(headline) : headline}
-			{detail !== undefined ? <span class="failure-detail">{detail}</span> : null}
+			{detail !== undefined ? <span className="failure-detail">{detail}</span> : null}
 		</>
 	);
 }

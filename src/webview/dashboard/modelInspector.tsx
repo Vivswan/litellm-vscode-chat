@@ -24,9 +24,8 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import type { ComponentChildren } from "preact";
-import { Fragment } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import type { ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { ResponseFor } from "../../dashboard/endpoints";
 import { formatJsonValue } from "../../dashboard/presenters";
 import type { DashboardModel, RecordChainView } from "../../dashboard/viewModels";
@@ -163,9 +162,9 @@ function maxTokensParts(maxTokens: ProjectedMaxTokens): { value: number; reason:
 
 function ParamShadowedLine({ shadow }: { shadow: ShadowedParameterValue }) {
 	return (
-		<tr class="param-shadowed">
+		<tr className="param-shadowed">
 			<td />
-			<td class="param-value">{formatJsonValue(shadow.value)}</td>
+			<td className="param-value">{formatJsonValue(shadow.value)}</td>
 			<td>{l10n.t("overridden: {0}", sourceName(shadow))}</td>
 		</tr>
 	);
@@ -181,15 +180,15 @@ function ParameterRow({
 }) {
 	return (
 		<>
-			<tr class={row.sent ? undefined : "param-not-sent"}>
-				<td class="param-name">{row.name}</td>
-				<td class="param-value">{formatJsonValue(row.value)}</td>
+			<tr className={row.sent ? undefined : "param-not-sent"}>
+				<td className="param-name">{row.name}</td>
+				<td className="param-value">{formatJsonValue(row.value)}</td>
 				<td>
 					{sourceName(row.source)}
 					{onEditSource !== undefined ? (
 						<button
 							type="button"
-							class="quiet row-edit"
+							className="quiet row-edit"
 							aria-label={
 								row.source.layer === "entry"
 									? l10n.t('Edit in server entry "{0}"', row.source.entryLabel)
@@ -201,11 +200,13 @@ function ParameterRow({
 						</button>
 					) : null}
 					{row.inheritedFrom !== undefined ? (
-						<span class="param-skip"> ({l10n.t("inherited from {0}", row.inheritedFrom)})</span>
+						<span className="param-skip"> ({l10n.t("inherited from {0}", row.inheritedFrom)})</span>
 					) : null}
-					{row.skipReason !== undefined ? <span class="param-skip"> ({skipReasonText(row.skipReason)})</span> : null}
+					{row.skipReason !== undefined ? (
+						<span className="param-skip"> ({skipReasonText(row.skipReason)})</span>
+					) : null}
 					{row.forced === true ? (
-						<span class="param-skip"> ({l10n.t("forced: overrides runtime options and the picker")})</span>
+						<span className="param-skip"> ({l10n.t("forced: overrides runtime options and the picker")})</span>
 					) : null}
 				</td>
 			</tr>
@@ -273,10 +274,10 @@ function approxWidthCh(text: string): number {
 /** One value cell: plain text while it surely fits, the focusable full-text tip once the ellipsis could clip it. */
 function ValueCell({ text }: { text: string }) {
 	return (
-		<td class="param-value">
+		<td className="param-value">
 			{approxWidthCh(text) > VALUE_CLIP_CH ? (
 				<HoverTip focusable tip={text}>
-					<span class="param-value-clip">{text}</span>
+					<span className="param-value-clip">{text}</span>
 				</HoverTip>
 			) : (
 				text
@@ -311,7 +312,7 @@ function FieldName({ name }: { name: string }) {
 				index === 0 ? (
 					part
 				) : (
-					// Underscore positions are stable within one render; the index is the identity.
+					// biome-ignore lint/suspicious/noArrayIndexKey: underscore positions are stable within one render; the index is the identity
 					<Fragment key={index}>
 						<wbr />
 						{part}
@@ -377,7 +378,7 @@ function levelName(level: CapabilityLevel, key: string | undefined): string {
 
 function CapShadowedLine({ name, shadow }: { name: string; shadow: ShadowedCapabilityValue }) {
 	return (
-		<tr class="param-shadowed">
+		<tr className="param-shadowed">
 			<td />
 			<ValueCell text={formatValue(name, shadow.value)} />
 			<td>{l10n.t("overridden: {0}", levelName(shadow.level, shadow.key))}</td>
@@ -408,11 +409,11 @@ function FieldRow({
 	return (
 		<>
 			<tr>
-				<td class="param-name">
+				<td className="param-name">
 					<FieldName name={name} />
 				</td>
 				{plainValue ? (
-					<td class="param-value param-plain">{formatValue(name, field.value)}</td>
+					<td className="param-value param-plain">{formatValue(name, field.value)}</td>
 				) : (
 					<ValueCell text={formatValue(name, field.value)} />
 				)}
@@ -421,7 +422,7 @@ function FieldRow({
 					{editable ? (
 						<button
 							type="button"
-							class="quiet row-edit"
+							className="quiet row-edit"
 							aria-label={l10n.t('Edit record "{0}"', field.key ?? "")}
 							onClick={() => onEditField?.(field.level, field.key ?? "")}
 						>
@@ -429,7 +430,7 @@ function FieldRow({
 						</button>
 					) : null}
 					{field.inheritedFrom !== undefined ? (
-						<span class="param-skip"> ({l10n.t("inherited from {0}", field.inheritedFrom)})</span>
+						<span className="param-skip"> ({l10n.t("inherited from {0}", field.inheritedFrom)})</span>
 					) : null}
 				</td>
 			</tr>
@@ -509,8 +510,8 @@ function outputLimitNote(capabilities: EffectiveCapabilities): string {
 function CapsColumns() {
 	return (
 		<colgroup>
-			<col class="caps-col-name" />
-			<col class="caps-col-value" />
+			<col className="caps-col-name" />
+			<col className="caps-col-value" />
 			<col />
 		</colgroup>
 	);
@@ -525,16 +526,16 @@ function CapsColumns() {
  */
 function HiddenColumnHeads() {
 	return (
-		<thead class="caps-head-hidden">
+		<thead className="caps-head-hidden">
 			<tr>
 				<th>
-					<span class="visually-hidden">{l10n.t("Capability")}</span>
+					<span className="visually-hidden">{l10n.t("Capability")}</span>
 				</th>
 				<th>
-					<span class="visually-hidden">{l10n.t("Value")}</span>
+					<span className="visually-hidden">{l10n.t("Value")}</span>
 				</th>
 				<th>
-					<span class="visually-hidden">{l10n.t("Source")}</span>
+					<span className="visually-hidden">{l10n.t("Source")}</span>
 				</th>
 			</tr>
 		</thead>
@@ -564,7 +565,7 @@ function CapsSection({
 	return (
 		<tbody>
 			{label !== undefined ? (
-				<tr class="caps-section">
+				<tr className="caps-section">
 					<th colSpan={3} scope="rowgroup">
 						{label}
 					</th>
@@ -605,21 +606,21 @@ function SupportedParamsBlock({
 		Array.isArray(field.value) ? field.value.filter((item): item is string => typeof item === "string") : []
 	).sort();
 	return (
-		<div class="caps-inspector">
-			<table class="params">
+		<div className="caps-inspector">
+			<table className="params">
 				<CapsColumns />
 				<HiddenColumnHeads />
 				<tbody>
-					<tr class="caps-section">
+					<tr className="caps-section">
 						<th colSpan={3} scope="rowgroup">
 							{l10n.t("Supported parameters")}
 						</th>
 					</tr>
 					<FieldRow name="supported_openai_params" field={field} onEditField={onEditField} plainValue />
 					{items.length > 0 ? (
-						<tr class="caps-params-row">
+						<tr className="caps-params-row">
 							<td colSpan={3}>
-								<ul class="caps-params-list" aria-label={l10n.t("Supported parameters")}>
+								<ul className="caps-params-list" aria-label={l10n.t("Supported parameters")}>
 									{items.map((item) => (
 										<li key={item}>
 											<code>{item}</code>
@@ -654,13 +655,13 @@ function SectionTitle({
 	help?: string;
 	/** The help glyph's accessible name ("About effective parameters"), not the bare section word. */
 	helpName?: string | undefined;
-	docs?: ComponentChildren;
+	docs?: ReactNode;
 	/** The band's right-aligned action; outside the h4 so the heading's name stays the section word. */
-	action?: ComponentChildren;
+	action?: ReactNode;
 }) {
 	return (
-		<div class="inspector-section-head">
-			<h4 class="inspector-section" id={id} tabIndex={-1}>
+		<div className="inspector-section-head">
+			<h4 className="inspector-section" id={id} tabIndex={-1}>
 				{label}
 				{help !== undefined && helpName !== undefined ? <Help text={help} name={helpName} /> : null}
 				{docs}
@@ -696,7 +697,7 @@ function RecordPathsDetails({
 		return null;
 	}
 	return (
-		<details class="record-paths" open={open} onToggle={(event) => onToggle(event.currentTarget.open)}>
+		<details className="record-paths" open={open} onToggle={(event) => onToggle(event.currentTarget.open)}>
 			<summary>{l10n.t("Record paths")}</summary>
 			<RecordChainFigure chains={chains} onEditRecord={onEditRecord} onEditEntry={onEditEntry} />
 		</details>
@@ -741,6 +742,7 @@ export function ModelInspector({
 	const { scopeKey, rawId } = model;
 	const sendParams = paramsRpc.send;
 	const sendCaps = capsRpc.send;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: stateSeq is the deliberate re-request key (see above), not a read
 	useEffect(() => {
 		sendParams({ scopeKey, rawId });
 		sendCaps({ scopeKey, rawId });
@@ -838,9 +840,9 @@ export function ModelInspector({
 			onKeepEditing={onClose}
 			onDiscard={onClose}
 		>
-			<div class="params-inspector model-inspector">
+			<div className="params-inspector model-inspector">
 				<h3 id="model-inspector-title">{model.name}</h3>
-				<p class="hint params-identity">
+				<p className="hint params-identity">
 					{l10n.t({
 						message: "{0} on {1}",
 						args: [model.rawId, model.serverLabel],
@@ -849,19 +851,19 @@ export function ModelInspector({
 				</p>
 				{/* The token limits deliberately do NOT repeat here - the
 				    capabilities table below carries them with provenance. */}
-				<dl class="model-orientation">
-					<dt class="params-caveat-label">{l10n.t("Family")}</dt>
+				<dl className="model-orientation">
+					<dt className="params-caveat-label">{l10n.t("Family")}</dt>
 					<dd>{model.family}</dd>
-					<dt class="params-caveat-label">{l10n.t("Capabilities")}</dt>
+					<dt className="params-caveat-label">{l10n.t("Capabilities")}</dt>
 					<dd>
 						{capabilityChips.length > 0 ? (
 							capabilityChips.map((cap) => (
-								<span class="cap-chip" key={cap}>
+								<span className="cap-chip" key={cap}>
 									{cap}
 								</span>
 							))
 						) : (
-							<span class="hint">{l10n.t("none declared")}</span>
+							<span className="hint">{l10n.t("none declared")}</span>
 						)}
 					</dd>
 				</dl>
@@ -876,7 +878,7 @@ export function ModelInspector({
 							onEditRecord !== undefined ? (
 								<button
 									type="button"
-									class="quiet section-action"
+									className="quiet section-action"
 									disabled={answeredParams === undefined}
 									onClick={() => {
 										// Reuse the most specific matching global record when one
@@ -895,15 +897,15 @@ export function ModelInspector({
 						}
 					/>
 					{answeredParams === undefined ? (
-						<p class="hint" role="status">
+						<p className="hint" role="status">
 							{l10n.t("Resolving parameters...")}
 						</p>
 					) : projection === undefined ? (
-						<p class="hint" role="status">
+						<p className="hint" role="status">
 							{l10n.t("The model list changed; close and reopen the inspector.")}
 						</p>
 					) : projection.rows.length > 0 ? (
-						<table class="params">
+						<table className="params">
 							<CapsColumns />
 							<thead>
 								<tr>
@@ -919,11 +921,11 @@ export function ModelInspector({
 							</tbody>
 						</table>
 					) : paramsEmpty ? (
-						<p class="hint params-empty">{l10n.t("No configured parameters match this model.")}</p>
+						<p className="hint params-empty">{l10n.t("No configured parameters match this model.")}</p>
 					) : null}
 					{projection !== undefined && projection.diagnostics.length > 0 ? (
-						<div class="params-replaced">
-							<p class="hint">{l10n.t("Configuration problems in the matched records:")}</p>
+						<div className="params-replaced">
+							<p className="hint">{l10n.t("Configuration problems in the matched records:")}</p>
 							<ul>
 								{projection.diagnostics.map((diagnostic) => (
 									<li key={`${diagnostic.layer}/${diagnostic.recordKey}/${diagnostic.kind}/${diagnostic.key}`}>
@@ -938,23 +940,23 @@ export function ModelInspector({
 					    renders as soon as THAT answer lands. */}
 					{caps !== undefined ? <SupportedParamsBlock fields={caps.fields} onEditField={editCapField} /> : null}
 					{projection !== undefined ? (
-						<p class="params-max-tokens">
+						<p className="params-max-tokens">
 							<code>max_tokens {maxTokensParts(projection.maxTokens).value}</code>
-							<span class="hint"> {maxTokensParts(projection.maxTokens).reason}</span>
+							<span className="hint"> {maxTokensParts(projection.maxTokens).reason}</span>
 						</p>
 					) : null}
-					<div class="params-fixed">
-						<span class="params-caveat-label">{l10n.t("Always sent")}</span>
+					<div className="params-fixed">
+						<span className="params-caveat-label">{l10n.t("Always sent")}</span>
 						{ALWAYS_SENT_FIELDS.map((field) => (
 							<code key={field}>{field}</code>
 						))}
-						<span class="hint">{l10n.t("+ tools, tool_choice with tools; not overridable")}</span>
+						<span className="hint">{l10n.t("+ tools, tool_choice with tools; not overridable")}</span>
 					</div>
 					{projection !== undefined ? (
-						<dl class="params-caveats">
+						<dl className="params-caveats">
 							<div>
-								<dt class="params-caveat-label">{l10n.t("Runtime options")}</dt>
-								<dd class="hint">
+								<dt className="params-caveat-label">{l10n.t("Runtime options")}</dt>
+								<dd className="hint">
 									{projection.rows.some((row) => row.forced === true)
 										? l10n.t("Set per request by the chat client; they override every row above except forced rows.")
 										: l10n.t("Set per request by the chat client; they override every row above.")}
@@ -962,8 +964,8 @@ export function ModelInspector({
 							</div>
 							{model.reasoning ? (
 								<div>
-									<dt class="params-caveat-label">{l10n.t("Picker: reasoning effort")}</dt>
-									<dd class="hint">
+									<dt className="params-caveat-label">{l10n.t("Picker: reasoning effort")}</dt>
+									<dd className="hint">
 										{l10n.t("Chosen in Configure Model and stored by VS Code; overrides reasoning_effort here.")}
 									</dd>
 								</div>
@@ -989,7 +991,7 @@ export function ModelInspector({
 							onEditRecord !== undefined ? (
 								<button
 									type="button"
-									class="quiet section-action"
+									className="quiet section-action"
 									disabled={answeredCaps === undefined}
 									onClick={() => {
 										// Reuse the most specific matching global record when one
@@ -1008,11 +1010,11 @@ export function ModelInspector({
 						}
 					/>
 					{answeredCaps === undefined ? (
-						<p class="hint" role="status">
+						<p className="hint" role="status">
 							{l10n.t("Resolving capabilities...")}
 						</p>
 					) : caps === undefined ? (
-						<p class="hint" role="status">
+						<p className="hint" role="status">
 							{l10n.t("The model list changed; close and reopen the inspector.")}
 						</p>
 					) : (
@@ -1020,12 +1022,12 @@ export function ModelInspector({
 							{/* The declared/directive notes gate how the table reads, so
 							    they stay ahead of it. */}
 							{model.declared === true ? (
-								<p class="hint">
+								<p className="hint">
 									{l10n.t("Declared model: created by the entry's declared list, not discovered on the server.")}
 								</p>
 							) : null}
 							{caps.directive?.kind === "not-found" ? (
-								<p class="state-warn" role="alert">
+								<p className="state-warn" role="alert">
 									{l10n.t(
 										'OpenRouter model "{0}" was not found in the catalog; its fields fill from the remaining levels.',
 										caps.directive.id
@@ -1033,8 +1035,8 @@ export function ModelInspector({
 								</p>
 							) : null}
 							{capabilityNames.length > 0 || extraNames.length > 0 ? (
-								<div class="caps-inspector">
-									<table class="params">
+								<div className="caps-inspector">
+									<table className="params">
 										<CapsColumns />
 										<thead>
 											<tr>
@@ -1055,12 +1057,12 @@ export function ModelInspector({
 									</table>
 								</div>
 							) : null}
-							<p class="params-max-tokens">
-								<span class="hint">{outputLimitNote(caps)}</span>
+							<p className="params-max-tokens">
+								<span className="hint">{outputLimitNote(caps)}</span>
 							</p>
 							{problems.length > 0 ? (
-								<div class="params-replaced">
-									<p class="hint">{l10n.t("Configuration problems in the matched records:")}</p>
+								<div className="params-replaced">
+									<p className="hint">{l10n.t("Configuration problems in the matched records:")}</p>
 									<ul>
 										{problems.map((diagnostic) => (
 											<li key={`${diagnostic.layer}/${diagnostic.recordKey}/${diagnostic.key}`}>
@@ -1071,11 +1073,11 @@ export function ModelInspector({
 								</div>
 							) : null}
 							{advisories.length > 0 ? (
-								<div class="params-replaced params-advisories">
-									<p class="hint">{l10n.t("Notes on the matched records:")}</p>
+								<div className="params-replaced params-advisories">
+									<p className="hint">{l10n.t("Notes on the matched records:")}</p>
 									<ul>
 										{advisories.map((diagnostic) => (
-											<li key={`${diagnostic.layer}/${diagnostic.recordKey}/${diagnostic.key}`} class="hint">
+											<li key={`${diagnostic.layer}/${diagnostic.recordKey}/${diagnostic.key}`} className="hint">
 												{capabilityDiagnosticText(diagnostic)}
 											</li>
 										))}
@@ -1101,8 +1103,8 @@ export function ModelInspector({
 								comment: ["Section header; $/M is US dollars per million tokens"],
 							})}
 						/>
-						<div class="caps-inspector">
-							<table class="params">
+						<div className="caps-inspector">
+							<table className="params">
 								<CapsColumns />
 								<HiddenColumnHeads />
 								<CapsSection names={pricingNames} fields={caps.fields} onEditField={editCapField} />

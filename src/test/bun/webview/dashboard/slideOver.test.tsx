@@ -6,7 +6,7 @@
  * the real wiring in ServersSection, not a synthetic harness.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { act } from "preact/test-utils";
+import { act } from "react";
 import { App } from "../../../../webview/dashboard/app";
 import { makeDeclaredServer, makeExternalServer, makeState, statePush } from "../fixtures";
 import {

@@ -4,7 +4,7 @@
  * spacer arithmetic, and the per-row copy-ID action.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { act } from "preact/test-utils";
+import { act } from "react";
 import type { DashboardModel } from "../../../../dashboard/viewModels";
 import { ModelsSection } from "../../../../webview/dashboard/models";
 import { makeModel } from "../fixtures";

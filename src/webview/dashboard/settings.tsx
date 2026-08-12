@@ -1,6 +1,6 @@
 import * as l10n from "@vscode/l10n";
-import type { ComponentChildren } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import type { FocusEvent, ReactNode } from "react";
+import { useEffect, useState } from "react";
 import {
 	booleanSettingPresentation,
 	defaultDisplay,
@@ -82,17 +82,9 @@ const SETTING_GROUPS: readonly {
  * filter hides rows via the hidden attribute, never by unmounting: a
  * half-typed draft must survive being filtered away and back.
  */
-function SettingRow({
-	modified,
-	hidden,
-	children,
-}: {
-	modified: boolean;
-	hidden: boolean;
-	children: ComponentChildren;
-}) {
+function SettingRow({ modified, hidden, children }: { modified: boolean; hidden: boolean; children: ReactNode }) {
 	return (
-		<div class={modified ? "setting-row modified" : "setting-row"} hidden={hidden}>
+		<div className={modified ? "setting-row modified" : "setting-row"} hidden={hidden}>
 			{children}
 		</div>
 	);
@@ -109,7 +101,7 @@ function RevealButton({ title, settingId }: { title: string; settingId: Revealab
 	return (
 		<button
 			type="button"
-			class="quiet reveal-json"
+			className="quiet reveal-json"
 			aria-label={l10n.t("Open {0} in settings.json", title)}
 			onClick={() => sendRequest("revealSetting", { setting: settingId })}
 		>
@@ -141,7 +133,7 @@ function ResetButton({
 	return (
 		<button
 			type="button"
-			class="quiet reset"
+			className="quiet reset"
 			aria-label={action}
 			onClick={() => sendRequest("resetSetting", { setting: settingId })}
 		>
@@ -161,7 +153,7 @@ function ResetButton({
  */
 function ModifiedNote({ scope, defaultText }: { scope: SettingScope; defaultText?: string }) {
 	return (
-		<span class="setting-modified-note">
+		<span className="setting-modified-note">
 			{defaultText === undefined
 				? l10n.t("Modified in {0} settings", settingScopeLabel(scope))
 				: l10n.t("Modified in {0} settings (default: {1})", settingScopeLabel(scope), defaultText)}
@@ -208,6 +200,7 @@ function NumberField({
 	// value pinned to exactly its default changes only the configured scope,
 	// and a stale rejected draft must resync on that push too.
 	const syncKey = draftSyncKey(value, configuredScope);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: deliberately keyed on syncKey alone (see above); the values are read at sync time, not watched
 	useEffect(() => {
 		setText(value === null ? "" : String(value));
 		setBlurred(false);
@@ -243,29 +236,29 @@ function NumberField({
 	const equiv = parse.kind === "value" ? equivalence(id, parse.value) : undefined;
 	return (
 		<SettingRow modified={configuredScope !== null} hidden={hidden}>
-			<div class="setting-head">
-				<label class="setting-title" for={inputId}>
+			<div className="setting-head">
+				<label className="setting-title" htmlFor={inputId}>
 					{presentation.label}
 				</label>
 				{help !== undefined ? <Help text={help} name={l10n.t("Help: {0}", presentation.label)} /> : null}
 				<RevealButton title={presentation.label} settingId={id} />
 				{configuredScope !== null ? <ModifiedNote scope={configuredScope} defaultText={defaultDisplay(id)} /> : null}
 			</div>
-			<p class="setting-desc">{presentation.description}</p>
-			<div class="setting-control">
+			<p className="setting-desc">{presentation.description}</p>
+			<div className="setting-control">
 				<input
 					id={inputId}
 					type={freeText ? "text" : "number"}
 					// The default text inputmode, stated on purpose: a numeric one
 					// would hide the s/m/h suffix keys the duration grammar needs.
 					inputMode={freeText ? "text" : undefined}
-					spellcheck={freeText ? false : undefined}
+					spellCheck={freeText ? false : undefined}
 					min={freeText ? undefined : NUMBER_SETTING_SPECS[id].minimum}
-					class={error === undefined ? "" : "invalid"}
+					className={error === undefined ? "" : "invalid"}
 					aria-invalid={error !== undefined}
 					aria-describedby={error === undefined ? unitId : `${unitId} ${errorId}`}
 					value={text}
-					onInput={(event) => setText(event.currentTarget.value)}
+					onChange={(event) => setText(event.currentTarget.value)}
 					onBlur={settle}
 					onKeyDown={(event) => {
 						if (event.key === "Enter") {
@@ -273,15 +266,15 @@ function NumberField({
 						}
 					}}
 				/>
-				<span class="setting-unit" id={unitId}>
+				<span className="setting-unit" id={unitId}>
 					{presentation.unit}
 				</span>
 				{error !== undefined ? (
-					<span class="error" id={errorId}>
+					<span className="error" id={errorId}>
 						{error}
 					</span>
 				) : null}
-				{equiv !== undefined ? <span class="setting-equiv">{equiv}</span> : null}
+				{equiv !== undefined ? <span className="setting-equiv">{equiv}</span> : null}
 				{configuredScope !== null ? (
 					<ResetButton title={presentation.label} scope={configuredScope} settingId={id} />
 				) : null}
@@ -307,28 +300,28 @@ function BooleanField({
 	value: boolean;
 	configuredScope: SettingScope | null;
 	hidden: boolean;
-	extra?: ComponentChildren;
+	extra?: ReactNode;
 }) {
 	const presentation = booleanSettingPresentation(id);
 	const inputId = `setting-${id}`;
 	const help = settingRowHelp(id);
 	return (
 		<SettingRow modified={configuredScope !== null} hidden={hidden}>
-			<div class="setting-head">
-				<span class="setting-title">{presentation.label}</span>
+			<div className="setting-head">
+				<span className="setting-title">{presentation.label}</span>
 				{help !== undefined ? <Help text={help} name={l10n.t("Help: {0}", presentation.label)} /> : null}
 				<RevealButton title={presentation.label} settingId={id} />
 				{configuredScope !== null ? <ModifiedNote scope={configuredScope} /> : null}
 			</div>
-			<div class="setting-control">
-				<label class="setting-check" for={inputId}>
+			<div className="setting-control">
+				<label className="setting-check" htmlFor={inputId}>
 					<input
 						id={inputId}
 						type="checkbox"
 						checked={value}
 						onChange={(event) => sendRequest("setBooleanSetting", { setting: id, value: event.currentTarget.checked })}
 					/>
-					<span class="setting-desc">{presentation.description}</span>
+					<span className="setting-desc">{presentation.description}</span>
 				</label>
 				{configuredScope !== null ? (
 					<ResetButton title={presentation.label} scope={configuredScope} settingId={id} />
@@ -351,22 +344,22 @@ function CatalogRow({ catalog, enabled, now }: { catalog: CatalogStatusView; ena
 			? (relativeTime(new Date(catalog.lastSuccessAt).toISOString(), now) ?? l10n.t("just now"))
 			: undefined;
 	return (
-		<div class="catalog-row">
+		<div className="catalog-row">
 			{enabled ? (
 				<>
-					<span class="hint">
+					<span className="hint">
 						{catalog.modelCount === 1 ? l10n.t("1 catalog model") : l10n.t("{0} catalog models", catalog.modelCount)}
 						{updated !== undefined ? ` - ${l10n.t("updated {0}", updated)}` : ` - ${l10n.t("bundled snapshot")}`}
 					</span>
 					<button
 						type="button"
-						class="secondary"
+						className="secondary"
 						disabled={catalog.refreshing}
 						onClick={() => sendRequest("refreshCatalog", null)}
 					>
 						{catalog.refreshing ? (
 							<>
-								<span class="spinner" aria-hidden="true" /> {l10n.t("Refreshing...")}
+								<span className="spinner" aria-hidden="true" /> {l10n.t("Refreshing...")}
 							</>
 						) : (
 							l10n.t("Refresh")
@@ -375,7 +368,7 @@ function CatalogRow({ catalog, enabled, now }: { catalog: CatalogStatusView; ena
 					<Help text={helpCatalogRow()} />
 					<DocsLink href={DOCS_LINK_OPENROUTER_CATALOG} label={l10n.t("Open the OpenRouter catalog guide")} />
 					{catalog.lastFailure !== undefined ? (
-						<span class="error">
+						<span className="error">
 							{/* The classification is a fixed English vocabulary ("HTTP 503",
 							    "network error"), protocol-ish like header names. */}
 							{l10n.t("Last refresh failed ({0}); serving the cached snapshot.", catalog.lastFailure.classification)}
@@ -383,7 +376,7 @@ function CatalogRow({ catalog, enabled, now }: { catalog: CatalogStatusView; ena
 					) : null}
 				</>
 			) : (
-				<span class="hint">
+				<span className="hint">
 					{l10n.t(
 						"Catalog off: no refreshes and no implicit ID matching; explicit _openrouter_model directives keep answering from the cached snapshot."
 					)}
@@ -421,15 +414,17 @@ function UsageStatusBarRow({
 	const title = l10n.t("Usage status bar");
 	return (
 		<SettingRow modified={configuredScope !== null} hidden={hidden}>
-			<div class="setting-head">
-				<label class="setting-title" for={inputId}>
+			<div className="setting-head">
+				<label className="setting-title" htmlFor={inputId}>
 					{title}
 				</label>
 				<RevealButton title={title} settingId="usage.statusBar" />
 				{configuredScope !== null ? <ModifiedNote scope={configuredScope} /> : null}
 			</div>
-			<p class="setting-desc">{l10n.t("When the spend status bar item shows; the worst fresh server's percentage.")}</p>
-			<div class="setting-control">
+			<p className="setting-desc">
+				{l10n.t("When the spend status bar item shows; the worst fresh server's percentage.")}
+			</p>
+			<div className="setting-control">
 				<select
 					id={inputId}
 					value={mode}
@@ -506,19 +501,19 @@ function ThresholdBox({
 }) {
 	return (
 		<>
-			<label class="setting-unit" for={id}>
+			<label className="setting-unit" htmlFor={id}>
 				{label}
 			</label>
 			<input
 				id={id}
 				type="text"
-				spellcheck={false}
-				class={invalid ? "threshold-input invalid" : "threshold-input"}
+				spellCheck={false}
+				className={invalid ? "threshold-input invalid" : "threshold-input"}
 				aria-invalid={invalid}
 				aria-describedby={invalid ? errorId : undefined}
 				placeholder={placeholder}
 				value={text}
-				onInput={(event) => onText(event.currentTarget.value)}
+				onChange={(event) => onText(event.currentTarget.value)}
 				onBlur={(event) => onCommit(event)}
 				onKeyDown={(event) => {
 					if (event.key === "Enter") {
@@ -560,6 +555,7 @@ function UsageThresholdsRow({
 	const [warningText, setWarningText] = useState(externalWarning);
 	const [errorText, setErrorText] = useState(externalError);
 	const syncKey = `${values.join(",")}@${configuredScope ?? "default"}`;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: deliberately keyed on syncKey alone; the external texts are read at sync time, not watched
 	useEffect(() => {
 		setWarningText(externalWarning);
 		setErrorText(externalError);
@@ -612,30 +608,30 @@ function UsageThresholdsRow({
 					: undefined;
 	return (
 		<SettingRow modified={configuredScope !== null} hidden={hidden}>
-			<div class="setting-head">
+			<div className="setting-head">
 				{custom ? (
-					<span class="setting-title">{title}</span>
+					<span className="setting-title">{title}</span>
 				) : (
-					<label class="setting-title" for={warningId}>
+					<label className="setting-title" htmlFor={warningId}>
 						{title}
 					</label>
 				)}
 				<RevealButton title={title} settingId="usage.alertThresholds" />
 				{configuredScope !== null ? <ModifiedNote scope={configuredScope} /> : null}
 			</div>
-			<p class="setting-desc">
+			<p className="setting-desc">
 				{l10n.t("Warning at 80% and error at 95% by default; enter 80% or 0.8. Empty both to turn alerts off.")}
 			</p>
 			{custom ? (
-				<div class="setting-control">
+				<div className="setting-control">
 					<span>{values.map(percentText).join(", ")}</span>
-					<span class="hint">{l10n.t("Custom list - edit in settings.json.")}</span>
+					<span className="hint">{l10n.t("Custom list - edit in settings.json.")}</span>
 					{configuredScope !== null ? (
 						<ResetButton title={title} scope={configuredScope} settingId="usage.alertThresholds" />
 					) : null}
 				</div>
 			) : (
-				<div class="setting-control">
+				<div className="setting-control">
 					<ThresholdBox
 						id={warningId}
 						label={l10n.t("Warning at")}
@@ -657,11 +653,11 @@ function UsageThresholdsRow({
 						onCommit={commit}
 					/>
 					{parsed === undefined ? (
-						<span class="error" id={problemId}>
+						<span className="error" id={problemId}>
 							{l10n.t("Thresholds run from above 0% to 100%: enter 80% or 0.8.")}
 						</span>
 					) : null}
-					{semanticsHint !== undefined ? <span class="hint">{semanticsHint}</span> : null}
+					{semanticsHint !== undefined ? <span className="hint">{semanticsHint}</span> : null}
 					{configuredScope !== null ? (
 						<ResetButton title={title} scope={configuredScope} settingId="usage.alertThresholds" />
 					) : null}
@@ -690,17 +686,17 @@ function SettingGroup({
 	/** The filter's verdict per row; a group whose rows are all hidden collapses whole (heading included). */
 	isVisible: (id: NumberSettingId | BooleanSettingId) => boolean;
 	/** Extra content under specific boolean rows (the catalog row's status line). */
-	booleanExtras?: Partial<Record<BooleanSettingId, ComponentChildren>>;
+	booleanExtras?: Partial<Record<BooleanSettingId, ReactNode>>;
 	/** Rows appended after the scalar rows (the Usage group's enum and list rows). */
-	tail?: ComponentChildren;
+	tail?: ReactNode;
 	/** Whether any tail row survives the filter; keeps the group heading alive for them. */
 	tailVisible?: boolean;
 }) {
 	const empty = numbers.every((id) => !isVisible(id)) && booleans.every((id) => !isVisible(id)) && tailVisible !== true;
 	return (
-		<div class="settings-group" hidden={empty}>
-			<h3 class="settings-group-title">{title()}</h3>
-			{hint !== undefined ? <p class="hint">{hint()}</p> : null}
+		<div className="settings-group" hidden={empty}>
+			<h3 className="settings-group-title">{title()}</h3>
+			{hint !== undefined ? <p className="hint">{hint()}</p> : null}
 			{numbers.map((id) => (
 				<NumberField
 					key={id}
@@ -738,7 +734,7 @@ function ScalarScopeNote({ settings }: { settings: DashboardSettings }) {
 	];
 	const workspaceTouched = scopes.some((scope) => scope === "workspace");
 	return (
-		<p class="hint">
+		<p className="hint">
 			{workspaceTouched
 				? l10n.t("Editing User settings; a value set in Workspace settings is changed there.")
 				: l10n.t("Editing User settings.")}
@@ -834,7 +830,7 @@ export function SettingsSection({
 			(text) => text.toLowerCase().includes(needle)
 		);
 	const nothingMatches = !anyScalarVisible && !paramsVisible && !capsVisible && !importExportVisible;
-	const booleanExtras: Partial<Record<BooleanSettingId, ComponentChildren>> = {
+	const booleanExtras: Partial<Record<BooleanSettingId, ReactNode>> = {
 		"models.openRouterCatalog": (
 			<CatalogRow
 				catalog={settings.catalog}
@@ -849,27 +845,27 @@ export function SettingsSection({
 				{l10n.t("Settings")} <Help text={helpSettingsSection()} />
 				<DocsLink href={DOCS_LINK_SETTINGS} label={l10n.t("Open the settings guide")} />
 			</h2>
-			<div class="toolbar">
+			<div className="toolbar">
 				<button
 					type="button"
-					class="secondary"
+					className="secondary"
 					onClick={() => sendRequest("executeCommand", { command: "openSettings" })}
 				>
 					{l10n.t("Open in Settings editor")}
 				</button>
 			</div>
 			<ScalarScopeNote settings={settings} />
-			<div class="filterbar">
+			<div className="filterbar">
 				<input
 					type="text"
 					placeholder={l10n.t("Filter settings, e.g. timeout")}
 					aria-label={l10n.t("Filter settings")}
 					value={filter}
-					onInput={(event) => setFilter(event.currentTarget.value)}
+					onChange={(event) => setFilter(event.currentTarget.value)}
 				/>
 			</div>
-			{nothingMatches ? <p class="empty">{l10n.t("No settings match the filter.")}</p> : null}
-			<div class="settings-groups">
+			{nothingMatches ? <p className="empty">{l10n.t("No settings match the filter.")}</p> : null}
+			<div className="settings-groups">
 				{SETTING_GROUPS.map((group, index) => {
 					// Two groups carry non-scalar tails: Models gets the two record
 					// editors (mirroring the manifest's grouping - they are model
@@ -887,6 +883,7 @@ export function SettingsSection({
 						"usage.alertthresholds".includes(needle);
 					return (
 						<SettingGroup
+							// biome-ignore lint/suspicious/noArrayIndexKey: the group list is a fixed literal; position is the identity
 							key={index}
 							{...group}
 							settings={settings}
@@ -954,17 +951,17 @@ export function SettingsSection({
 					isVisible={isVisible}
 					tailVisible={importExportVisible}
 					tail={
-						<div class="toolbar">
+						<div className="toolbar">
 							<button
 								type="button"
-								class="secondary"
+								className="secondary"
 								onClick={() => sendRequest("executeCommand", { command: "exportSettings" })}
 							>
 								{l10n.t("Export settings")}
 							</button>
 							<button
 								type="button"
-								class="secondary"
+								className="secondary"
 								onClick={() => sendRequest("executeCommand", { command: "importSettings" })}
 							>
 								{l10n.t("Import settings")}

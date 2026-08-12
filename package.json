@@ -577,7 +577,8 @@
 	"dependencies": {
 		"@vscode/l10n": "^0.0.18",
 		"openai": "^7.4.0",
-		"preact": "^10.29.7",
+		"react": "^19.2.0",
+		"react-dom": "^19.2.0",
 		"zod": "^4.4.3"
 	},
 	"devDependencies": {
@@ -587,6 +588,8 @@
 		"@types/mocha": "^10.0.10",
 		"@types/node": "^26.1.1",
 		"@types/pngjs": "^6.0.5",
+		"@types/react": "^19.2.0",
+		"@types/react-dom": "^19.2.0",
 		"@types/vscode": "^1.125.0",
 		"@vscode/l10n-dev": "^0.0.35",
 		"@vscode/test-cli": "^0.0.15",

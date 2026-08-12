@@ -6,15 +6,14 @@
  * jump - focusing an existing record or creating the draft group.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { render } from "preact";
-import { act } from "preact/test-utils";
+import { act } from "react";
 import type { ScopedRecordSetting } from "../../../../dashboard/viewModels";
 import type { ModelParametersResponse } from "../../../../webview/dashboard/modelInspector";
 import { ModelInspector } from "../../../../webview/dashboard/modelInspector";
 import type { ExternalRecordEdit } from "../../../../webview/dashboard/recordEditors";
 import { ModelParametersEditor } from "../../../../webview/dashboard/recordEditors";
 import { makeModel } from "../fixtures";
-import { buttonByText, cleanup, lastRequest, mount, postedRequests, resetPosted, respondTo } from "../harness";
+import { buttonByText, cleanup, lastRequest, mount, postedRequests, render, resetPosted, respondTo } from "../harness";
 
 /** The response's projection payload, named through the message so no resolver module is imported here. */
 type EffectiveParametersProjection = NonNullable<ModelParametersResponse["projection"]>;

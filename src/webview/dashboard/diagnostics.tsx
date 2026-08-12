@@ -15,9 +15,8 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import type { ComponentChildren } from "preact";
-import { Fragment } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import type { ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { latestCheckedMs, overallStatusText, serverOutcomeParts, serverOutcomeText } from "../../dashboard/presenters";
 import type {
 	ConfigDiagnosticView,
@@ -65,30 +64,20 @@ import { relativeTime } from "./time";
 import { sendRequest } from "./vscodeApi";
 
 /** One feedback row: the action (an anchor or a button) with its muted one-liner. */
-function FeedbackRow({ action, hint }: { action: ComponentChildren; hint: string }) {
+function FeedbackRow({ action, hint }: { action: ReactNode; hint: string }) {
 	return (
 		<li>
 			{action}
-			<span class="hint">{hint}</span>
+			<span className="hint">{hint}</span>
 		</li>
 	);
 }
 
-function ExternalRow({
-	href,
-	icon,
-	label,
-	hint,
-}: {
-	href: FeedbackUrl;
-	icon: ComponentChildren;
-	label: string;
-	hint: string;
-}) {
+function ExternalRow({ href, icon, label, hint }: { href: FeedbackUrl; icon: ReactNode; label: string; hint: string }) {
 	return (
 		<FeedbackRow
 			action={
-				<a class="docs-link" href={href}>
+				<a className="docs-link" href={href}>
 					{icon}
 					{label}
 					<IconLinkExternal />
@@ -173,12 +162,12 @@ function rowChecked(server: DashboardServer, now: number): string {
  */
 function OutcomeGrid({ servers, now }: { servers: readonly DashboardServer[]; now: number }) {
 	return (
-		<table class="diag-grid">
+		<table className="diag-grid">
 			<thead>
 				<tr>
 					<th>{l10n.t("Server")}</th>
 					<th>{l10n.t("Status")}</th>
-					<th class="num">{l10n.t("Models")}</th>
+					<th className="num">{l10n.t("Models")}</th>
 					<th>{l10n.t("Last checked")}</th>
 					<th>{l10n.t("URL")}</th>
 				</tr>
@@ -207,22 +196,23 @@ function OutcomeGrid({ servers, now }: { servers: readonly DashboardServer[]; no
 						<Fragment key={`${server.label} ${server.baseUrl}`}>
 							{/* Rows followed by a note drop their rule so the group reads
 							    as one server; the group's last row draws it. */}
-							<tr class={notes.length > 0 ? "no-rule" : undefined}>
+							<tr className={notes.length > 0 ? "no-rule" : undefined}>
 								<td>{server.label}</td>
 								<td>
-									<span class={`pill ${tone}`}>
-										<span class="dot" />
+									<span className={`pill ${tone}`}>
+										<span className="dot" />
 										{parts.status}
 									</span>
 								</td>
-								<td class="num">{server.modelCount}</td>
+								<td className="num">{server.modelCount}</td>
 								<td>{rowChecked(server, now)}</td>
-								<td class="diag-url">{server.baseUrl}</td>
+								<td className="diag-url">{server.baseUrl}</td>
 							</tr>
 							{notes.map((note, index) => (
 								<tr
+									// biome-ignore lint/suspicious/noArrayIndexKey: notes are positional within their server block; the list rebuilds wholesale on every push
 									key={`${index}-${note.kind}`}
-									class={index < notes.length - 1 ? `diag-note ${note.kind} no-rule` : `diag-note ${note.kind}`}
+									className={index < notes.length - 1 ? `diag-note ${note.kind} no-rule` : `diag-note ${note.kind}`}
 								>
 									<td colSpan={5}>
 										<FailureText message={note.text} />
@@ -378,18 +368,18 @@ function ConfigDiagnostics({ diagnostics }: { diagnostics: readonly ConfigDiagno
 	return (
 		<section aria-labelledby="config-diagnostics-title">
 			<h2 id="config-diagnostics-title">{l10n.t("Configuration diagnostics")}</h2>
-			<p class="hint">
+			<p className="hint">
 				{l10n.t("Problems the extension found in your settings; each also shows beside what it concerns.")}
 			</p>
-			<ul class="config-diagnostics">
+			<ul className="config-diagnostics">
 				{diagnostics.map((diagnostic, index) => {
 					const presentation = diagnosticPresentation(diagnostic);
 					// Advisory rows render muted, warnings keep the warning tone;
 					// the host decides the severity (every variant carries it).
 					const advisory = diagnostic.severity === "advisory";
 					return (
-						// Positional identity: the list rebuilds wholesale on every push.
-						<li key={index} class={advisory ? "hint" : "state-warn"}>
+						// biome-ignore lint/suspicious/noArrayIndexKey: positional identity; the list rebuilds wholesale on every push
+						<li key={index} className={advisory ? "hint" : "state-warn"}>
 							{presentation.text}
 							{presentation.docs !== undefined ? (
 								<>
@@ -433,18 +423,18 @@ function nodeFieldText(field: RecordTreeNode["fields"][number]): string {
 
 function TreeNode({ node }: { node: RecordTreeNode }) {
 	return (
-		<li class="tree-node">
-			<span class="tree-key">
+		<li className="tree-node">
+			<span className="tree-key">
 				<code>{node.key}</code>
 			</span>
 			{node.fields.length > 0 ? (
-				<span class="tree-fields"> {node.fields.map(nodeFieldText).join(", ")}</span>
+				<span className="tree-fields"> {node.fields.map(nodeFieldText).join(", ")}</span>
 			) : (
-				<span class="hint"> {l10n.t("(no own fields)")}</span>
+				<span className="hint"> {l10n.t("(no own fields)")}</span>
 			)}
-			{node.barrier ? <span class="tree-barrier"> [{l10n.t("inheritance stops here")}]</span> : null}
+			{node.barrier ? <span className="tree-barrier"> [{l10n.t("inheritance stops here")}]</span> : null}
 			{!node.barrier && node.inheritFrom !== undefined ? (
-				<span class="hint"> [{l10n.t("inherits from: {0}", node.inheritFrom)}]</span>
+				<span className="hint"> [{l10n.t("inherits from: {0}", node.inheritFrom)}]</span>
 			) : null}
 			{node.children.length > 0 || node.models.length > 0 ? (
 				<ul>
@@ -452,10 +442,10 @@ function TreeNode({ node }: { node: RecordTreeNode }) {
 						<TreeNode key={child.key} node={child} />
 					))}
 					{node.models.map((model) => (
-						<li key={model.id} class="tree-model">
-							<span class="tree-model-id">{model.id}</span>
+						<li key={model.id} className="tree-model">
+							<span className="tree-model-id">{model.id}</span>
 							{model.resolvedText.length > 0 ? (
-								<span class="hint">
+								<span className="hint">
 									{" "}
 									{"->"} {model.resolvedText}
 								</span>
@@ -464,7 +454,7 @@ function TreeNode({ node }: { node: RecordTreeNode }) {
 					))}
 				</ul>
 			) : node.models.length === 0 ? (
-				<span class="hint"> {l10n.t("(matches no current model)")}</span>
+				<span className="hint"> {l10n.t("(matches no current model)")}</span>
 			) : null}
 		</li>
 	);
@@ -482,15 +472,15 @@ function treeTitle(tree: RecordTreeView): string {
 
 function RecordTree({ tree }: { tree: RecordTreeView }) {
 	return (
-		<details class="record-tree" open>
+		<details className="record-tree" open>
 			<summary>{treeTitle(tree)}</summary>
 			<ul>
 				{tree.roots.map((root) => (
 					<TreeNode key={root.key} node={root} />
 				))}
 				{tree.unmatchedModelIds.length > 0 ? (
-					<li class="tree-model">
-						<span class="hint">
+					<li className="tree-model">
+						<span className="hint">
 							{tree.unmatchedModelIds.length === 1
 								? l10n.t("1 model matches no record here")
 								: l10n.t("{0} models match no record here", tree.unmatchedModelIds.length)}
@@ -498,7 +488,7 @@ function RecordTree({ tree }: { tree: RecordTreeView }) {
 					</li>
 				) : null}
 				{tree.invalidKeys.map((key) => (
-					<li key={key} class="tree-model state-warn">
+					<li key={key} className="tree-model state-warn">
 						{l10n.t('"{0}" is not a valid matcher key; it matches nothing', key)}
 					</li>
 				))}
@@ -553,10 +543,10 @@ function capProvenance(cell: ResolvedCapCell): string {
 function CapabilityCell({ cell }: { cell: ResolvedCapCell }) {
 	const label = capabilityDisplayLabel(cell.name);
 	return (
-		<span class="resolved-cell">
+		<span className="resolved-cell">
 			{label !== undefined ? (
 				<HoverTip focusable tip={`${cell.name} ${cell.valueText}`}>
-					<span class="resolved-field">
+					<span className="resolved-field">
 						{label} <code>{cell.valueText}</code>
 					</span>
 				</HoverTip>
@@ -565,7 +555,7 @@ function CapabilityCell({ cell }: { cell: ResolvedCapCell }) {
 					{cell.name} {cell.valueText}
 				</code>
 			)}
-			<span class="chip-prov">{capProvenance(cell)}</span>
+			<span className="chip-prov">{capProvenance(cell)}</span>
 		</span>
 	);
 }
@@ -590,8 +580,8 @@ function ParamsListCell({ cell }: { cell: ResolvedCapCell }) {
 		return <CapabilityCell cell={cell} />;
 	}
 	return (
-		<span class="resolved-cell">
-			<span class="resolved-field">{capabilityDisplayLabel(cell.name) ?? cell.name}</span>
+		<span className="resolved-cell">
+			<span className="resolved-field">{capabilityDisplayLabel(cell.name) ?? cell.name}</span>
 			{/* The tip carries the wire key and the EXACT wire value (the JSON
 			    array), not a joined rendering: element boundaries must survive
 			    on a debugging surface, and a comma inside one name would make a
@@ -600,7 +590,7 @@ function ParamsListCell({ cell }: { cell: ResolvedCapCell }) {
 			<HoverTip focusable tip={`${cell.name} ${cell.valueText}`}>
 				<span>{parameterCountText(list.length)}</span>
 			</HoverTip>
-			<span class="chip-prov">{capProvenance(cell)}</span>
+			<span className="chip-prov">{capProvenance(cell)}</span>
 		</span>
 	);
 }
@@ -648,12 +638,12 @@ function CapabilityCells({ cells }: { cells: readonly ResolvedCapCell[] }) {
 		}
 	}
 	return (
-		<div class="resolved-cells">
+		<div className="resolved-cells">
 			{rest.map((cell) => (
 				<CapabilityCell key={cell.name} cell={cell} />
 			))}
 			{pricing.length > 0 ? (
-				<span class="resolved-cell">
+				<span className="resolved-cell">
 					{/* The tip pairs every wire key with its exact per-token value
 					    and its source, so the dominant-chip scheme never asks the
 					    reader to infer a source it cannot see. */}
@@ -663,18 +653,18 @@ function CapabilityCells({ cells }: { cells: readonly ResolvedCapCell[] }) {
 							.map((entry) => `${entry.cell.name} ${entry.cell.valueText} (${capProvenance(entry.cell)})`)
 							.join(", ")}
 					>
-						<span class="resolved-field">{l10n.t("Pricing ($/M)")}</span>
+						<span className="resolved-field">{l10n.t("Pricing ($/M)")}</span>
 					</HoverTip>
 					{/* The dominant source's chip leads the line ("default: X,
 					    except where noted"), so an unbadged part obviously reads
 					    as the leading chip's source. */}
-					<span class="chip-prov">{dominant}</span>
+					<span className="chip-prov">{dominant}</span>
 					{pricing.map((entry) => {
 						const provenance = capProvenance(entry.cell);
 						return (
-							<span key={entry.cell.name} class="resolved-price-part">
+							<span key={entry.cell.name} className="resolved-price-part">
 								{capabilityDisplayLabel(entry.cell.name)} <code>{formatCostPerMillion(entry.perToken)}</code>
-								{provenance === dominant ? null : <span class="chip-prov">{provenance}</span>}
+								{provenance === dominant ? null : <span className="chip-prov">{provenance}</span>}
 							</span>
 						);
 					})}
@@ -712,6 +702,7 @@ function ResolvedModels({
 	// Request on first show and again on every push while visible: the view
 	// must follow settings edits; hidden tabs stay quiet.
 	const { send } = resolved;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: stateSeq is the deliberate re-request key (see above), not a read
 	useEffect(() => {
 		if (!active) {
 			return;
@@ -733,42 +724,43 @@ function ResolvedModels({
 				{l10n.t("Resolved models")}{" "}
 				<DocsLink href={DOCS_LINK_RESOLVED_MODELS} label={l10n.t("Open the resolved-models guide")} />
 			</h2>
-			<p class="hint">
+			<p className="hint">
 				{l10n.t(
 					"The precomputed resolution behind every request: what each model ends up with and which record set it. Local to this dashboard; never part of issue reports."
 				)}
 			</p>
 			{view === undefined ? (
-				<p class="hint" role="status">
+				<p className="hint" role="status">
 					{l10n.t("Resolving...")}
 				</p>
 			) : (
 				<>
 					{view.recordCount === 0 ? (
-						<p class="hint">
+						<p className="hint">
 							{l10n.t(
 								"No matcher records configured; values come from the servers, the catalog, and the built-in defaults."
 							)}
 						</p>
 					) : (
+						// biome-ignore lint/suspicious/noArrayIndexKey: trees are positional; the view rebuilds wholesale on every response
 						view.trees.map((tree, index) => <RecordTree key={index} tree={tree} />)
 					)}
 					{view.rows.length === 0 ? (
-						<p class="empty">{l10n.t("No models discovered yet; the table fills once a server syncs.")}</p>
+						<p className="empty">{l10n.t("No models discovered yet; the table fills once a server syncs.")}</p>
 					) : (
 						<>
-							<div class="filterbar">
+							<div className="filterbar">
 								<input
 									type="text"
 									placeholder={l10n.t("Filter by model ID or matcher key, e.g. gpt-5*")}
 									aria-label={l10n.t("Filter resolved models")}
 									value={filter}
-									onInput={(event) => setFilter(event.currentTarget.value)}
+									onChange={(event) => setFilter(event.currentTarget.value)}
 								/>
-								<span class="hint">{l10n.t("showing {0} of {1}", rows.length, view.rows.length)}</span>
+								<span className="hint">{l10n.t("showing {0} of {1}", rows.length, view.rows.length)}</span>
 							</div>
-							<div class="table-scroll">
-								<table class="resolved-models">
+							<div className="table-scroll">
+								<table className="resolved-models">
 									<thead>
 										<tr>
 											<th>{l10n.t("Model")}</th>
@@ -781,15 +773,15 @@ function ResolvedModels({
 									<tbody>
 										{rows.map((row) => (
 											<tr key={`${row.scopeKey}/${row.rawId}`}>
-												<td class="resolved-id">
+												<td className="resolved-id">
 													{row.rawId}
 													{/* The matcher keys that touched this model, as quiet
 													    chips: they explain why a matcher-key filter (the
 													    input above) keeps the row. */}
 													{row.matchedKeys.length > 0 ? (
-														<span class="resolved-matched">
+														<span className="resolved-matched">
 															{row.matchedKeys.map((key) => (
-																<code key={key} class="chip-matcher">
+																<code key={key} className="chip-matcher">
 																	{key}
 																</code>
 															))}
@@ -797,32 +789,32 @@ function ResolvedModels({
 													) : null}
 												</td>
 												<td>{row.serverLabel}</td>
-												<td class="resolved-col">
+												<td className="resolved-col">
 													{/* An inner flex div, never display:flex on the td itself:
 													    a flexed td stops being a table cell and the column
 													    layout collapses. */}
-													<div class="resolved-cells">
+													<div className="resolved-cells">
 														{row.parameters.length === 0 ? (
-															<span class="hint">-</span>
+															<span className="hint">-</span>
 														) : (
 															row.parameters.map((cell) => (
-																<span key={cell.name} class="resolved-cell">
+																<span key={cell.name} className="resolved-cell">
 																	<code>
 																		{cell.name} {cell.valueText}
 																	</code>
-																	<span class="chip-prov">{paramProvenance(cell)}</span>
+																	<span className="chip-prov">{paramProvenance(cell)}</span>
 																</span>
 															))
 														)}
 													</div>
 												</td>
-												<td class="resolved-col">
+												<td className="resolved-col">
 													<CapabilityCells cells={row.capabilities} />
 												</td>
-												<td class="actions">
+												<td className="actions">
 													<button
 														type="button"
-														class="quiet params-action"
+														className="quiet params-action"
 														aria-label={l10n.t("Inspect {0} on {1}", row.rawId, row.serverLabel)}
 														onClick={() =>
 															onInspect(
@@ -887,8 +879,8 @@ export function DiagnosticsSection({
 		<>
 			<section aria-labelledby="diagnostics-title">
 				<h2 id="diagnostics-title">{l10n.t("Diagnostics")}</h2>
-				<p class="diag-verdict">{overallStatusText(servers, modelCount, legacyServerCount)}</p>
-				<ul class="diag-facts">
+				<p className="diag-verdict">{overallStatusText(servers, modelCount, legacyServerCount)}</p>
+				<ul className="diag-facts">
 					<li>Servers configured: {servers.length}</li>
 					{/* One literal string, not CSS-spaced fragments, so the line
 					    selects and copies whole. Copy diagnostics emits its own English
@@ -901,10 +893,10 @@ export function DiagnosticsSection({
 					{legacyServerCount > 0 ? <li>Legacy registry servers: {legacyServerCount}</li> : null}
 				</ul>
 				{servers.length > 0 ? <OutcomeGrid servers={servers} now={now} /> : null}
-				<div class="diag-actions">
+				<div className="diag-actions">
 					<button
 						type="button"
-						class="secondary"
+						className="secondary"
 						// Registry-only installs get no offer to test: the legacy
 						// registry's serving path retires with this release train, so
 						// with no server rows there is nothing this dashboard manages
@@ -916,12 +908,12 @@ export function DiagnosticsSection({
 					</button>
 					<button
 						type="button"
-						class="secondary"
+						className="secondary"
 						onClick={() => sendRequest("executeCommand", { command: "openOutput" })}
 					>
 						<IconOutput /> {l10n.t("Open output log")}
 					</button>
-					<button type="button" class="secondary" onClick={copyDiagnostics}>
+					<button type="button" className="secondary" onClick={copyDiagnostics}>
 						{copied ? <IconCheck /> : <IconCopy />} {l10n.t("Copy diagnostics")}
 					</button>
 				</div>
@@ -930,12 +922,12 @@ export function DiagnosticsSection({
 			<ResolvedModels active={active} stateSeq={stateSeq} onInspect={onInspect} />
 			<section aria-labelledby="diagnostics-feedback-title">
 				<h2 id="diagnostics-feedback-title">{l10n.t("Feedback & links")}</h2>
-				<ul class="feedback-links">
+				<ul className="feedback-links">
 					<FeedbackRow
 						action={
 							<button
 								type="button"
-								class="linkish"
+								className="linkish"
 								onClick={() => sendRequest("executeCommand", { command: "reportIssue" })}
 							>
 								<IconBug /> {l10n.t("Report a bug")}

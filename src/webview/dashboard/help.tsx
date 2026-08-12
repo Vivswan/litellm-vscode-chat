@@ -16,8 +16,8 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import type { ComponentChildren, CSSProperties, TargetedEvent } from "preact";
-import { useId, useState } from "preact/hooks";
+import type { CSSProperties, ReactNode, SyntheticEvent } from "react";
+import { useId, useState } from "react";
 import type { DocsUrl } from "./docsLinks";
 import { IconLinkExternal } from "./icons";
 
@@ -33,10 +33,10 @@ import { IconLinkExternal } from "./icons";
  */
 function useTipCoords(below: boolean): {
 	style: CSSProperties | undefined;
-	place: (event: TargetedEvent<HTMLElement>) => void;
+	place: (event: SyntheticEvent<HTMLElement>) => void;
 } {
 	const [style, setStyle] = useState<CSSProperties | undefined>(undefined);
-	const place = (event: TargetedEvent<HTMLElement>) => {
+	const place = (event: SyntheticEvent<HTMLElement>) => {
 		const rect = event.currentTarget.getBoundingClientRect();
 		// Clamp headroom is the tip's full box: 320px max-width plus its 20px
 		// of padding, 2px of border, and an 8px viewport margin.
@@ -64,9 +64,9 @@ function useTipCoords(below: boolean): {
  * involved. Icon-only unless children supply visible text; the aria-label
  * carries the destination either way.
  */
-export function DocsLink({ href, label, children }: { href: DocsUrl; label: string; children?: ComponentChildren }) {
+export function DocsLink({ href, label, children }: { href: DocsUrl; label: string; children?: ReactNode }) {
 	return (
-		<a class="docs-link" href={href} aria-label={label}>
+		<a className="docs-link" href={href} aria-label={label}>
 			{children}
 			<IconLinkExternal />
 		</a>
@@ -81,28 +81,20 @@ export function DocsLink({ href, label, children }: { href: DocsUrl; label: stri
  * the wrapper joins the Tab order and names the tip as its accessible
  * description, so keyboards and assistive tech reach what hover shows.
  */
-export function HoverTip({
-	tip,
-	focusable,
-	children,
-}: {
-	tip: string;
-	focusable?: boolean;
-	children: ComponentChildren;
-}) {
+export function HoverTip({ tip, focusable, children }: { tip: string; focusable?: boolean; children: ReactNode }) {
 	const id = useId();
 	const { style, place } = useTipCoords(false);
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: the handlers only measure for tip placement; the interactivity stays on CSS hover and the focusable content
 		<span
-			class="tip-wrap"
+			className="tip-wrap"
 			tabIndex={focusable === true ? 0 : undefined}
 			aria-describedby={focusable === true ? id : undefined}
 			onMouseEnter={place}
-			onFocusIn={place}
+			onFocus={place}
 		>
 			{children}
-			<span class="help-tip" role="tooltip" id={id} style={style}>
+			<span className="help-tip" role="tooltip" id={id} style={style}>
 				{tip}
 			</span>
 		</span>
@@ -114,11 +106,11 @@ export function Help({ text, name, below }: { text: string; name?: string; below
 	const { style, place } = useTipCoords(below === true);
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: the handlers only measure for tip placement; the interactivity stays on the inner Help button
-		<span class={below === true ? "help-wrap below" : "help-wrap"} onMouseEnter={place} onFocusIn={place}>
-			<button type="button" class="help" aria-label={name ?? l10n.t("Help")} aria-describedby={id}>
+		<span className={below === true ? "help-wrap below" : "help-wrap"} onMouseEnter={place} onFocus={place}>
+			<button type="button" className="help" aria-label={name ?? l10n.t("Help")} aria-describedby={id}>
 				?
 			</button>
-			<span class="help-tip" role="tooltip" id={id} style={style}>
+			<span className="help-tip" role="tooltip" id={id} style={style}>
 				{text}
 			</span>
 		</span>

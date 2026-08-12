@@ -6,7 +6,7 @@
  * combined tab - a server row's model count scoping the models list.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { act } from "preact/test-utils";
+import { act } from "react";
 import { App } from "../../../../webview/dashboard/app";
 import { makeDeclaredServer, makeModel, makeState, makeUsage, makeUsageServer, statePush } from "../fixtures";
 import { cleanup, fireClick, fireInput, fireKeyDown, mount, pushToWebview, resetPosted } from "../harness";

@@ -9,7 +9,7 @@
 
 function Svg({ path }: { path: string }) {
 	return (
-		<svg class="icon" viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
+		<svg className="icon" viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
 			<path d={path} />
 		</svg>
 	);

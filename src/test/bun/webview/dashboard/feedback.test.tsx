@@ -4,7 +4,7 @@
  * their Dismiss wiring, and the busy spinner inside an in-flight Save.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { act } from "preact/test-utils";
+import { act } from "react";
 import { App } from "../../../../webview/dashboard/app";
 import { makeDeclaredServer, makeState, statePush } from "../fixtures";
 import {
@@ -69,8 +69,10 @@ test("a toast dismisses on click and expires on its own after the configured dur
 
 	pushToWebview({ kind: "ack", id: "r2", method: "removeServerSetting" });
 	expect(toastTexts(root)).toEqual(["Server removed"]);
-	await new Promise((resolve) => setTimeout(resolve, 80));
-	await act(() => {});
+	// The expiry timer's state update must land inside act.
+	await act(async () => {
+		await new Promise((resolve) => setTimeout(resolve, 80));
+	});
 	expect(toastTexts(root)).toEqual([]);
 });
 

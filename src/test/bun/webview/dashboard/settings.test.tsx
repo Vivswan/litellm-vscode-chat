@@ -5,7 +5,7 @@
  * equivalence hints.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { act } from "preact/test-utils";
+import { act } from "react";
 import type { RpcRequest } from "../../../../dashboard/endpoints";
 import { isBoundViolation, parseNumberDraft } from "../../../../dashboard/presenters";
 import { NUMBER_SETTING_IDS } from "../../../../dashboard/viewModels";
@@ -611,16 +611,12 @@ test("a blur that only moves focus to the sibling box does not commit the half-e
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const { warning, error } = thresholdBoxes(root);
 	fireInput(warning, "60%");
-	void act(() => {
-		warning.dispatchEvent(new FocusEvent("blur", { relatedTarget: error }));
-	});
+	fireBlur(warning, error);
 	expect(postedMessages).toEqual([]);
 
 	// Leaving the pair commits once, with both edits.
 	fireInput(error, "0.9");
-	void act(() => {
-		error.dispatchEvent(new FocusEvent("blur"));
-	});
+	fireBlur(error);
 	expect(postedCalls()).toEqual([{ method: "setUsageAlertThresholds", payload: { values: [0.6, 0.9] } }]);
 });
 

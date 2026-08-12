@@ -6,11 +6,10 @@
  * unreachable from scratch.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { render } from "preact";
-import { act } from "preact/test-utils";
+import { act } from "react";
 import type { PrefixGroup } from "../../../../dashboard/recordDraft";
 import { RecordMatcherEditorOverlay } from "../../../../webview/dashboard/recordEditors";
-import { cleanup, fireInput, mount, resetPosted } from "../harness";
+import { cleanup, fireInput, mount, render, resetPosted } from "../harness";
 
 beforeEach(resetPosted);
 afterEach(cleanup);

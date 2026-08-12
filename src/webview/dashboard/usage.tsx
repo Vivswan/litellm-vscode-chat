@@ -231,21 +231,21 @@ function ForbiddenUsageCard({ server }: { server: UsageForbiddenServerView }) {
 		forbiddenCardDetail("/user/daily/activity", server.dailyActivity),
 	].filter((detail): detail is string => detail !== undefined);
 	return (
-		<div class="usage-card">
-			<div class="usage-card-head">
-				<span class="usage-label">{server.label}</span>
-				<span class="url">{server.baseUrl}</span>
-				<span class="spacer" />
-				<span class="hint state-warn">{l10n.t("usage unavailable")}</span>
+		<div className="usage-card">
+			<div className="usage-card-head">
+				<span className="usage-label">{server.label}</span>
+				<span className="url">{server.baseUrl}</span>
+				<span className="spacer" />
+				<span className="hint state-warn">{l10n.t("usage unavailable")}</span>
 			</div>
 			<p>{l10n.t("Usage unavailable: this key isn't allowed to read its usage.")}</p>
-			<p class="hint">
+			<p className="hint">
 				{l10n.t(
 					"Ask whoever issued the key to allow reading its own usage, then use Refresh now - the extension won't re-check on its own."
 				)}
 			</p>
 			{details.map((detail) => (
-				<p key={detail} class="hint usage-detail">
+				<p key={detail} className="hint usage-detail">
 					{detail}
 				</p>
 			))}
@@ -258,7 +258,7 @@ function BudgetLine({ server }: { server: UsageServerView }) {
 		// Spend without a budget: no percentage, no bar - there is nothing to
 		// compute a fraction of, and such a server never alerts.
 		return (
-			<p class="hint">
+			<p className="hint">
 				{l10n.t("No budget: neither the entry nor the key sets one, so there is no percentage to show.")}
 			</p>
 		);
@@ -266,11 +266,11 @@ function BudgetLine({ server }: { server: UsageServerView }) {
 	const both =
 		server.budgetSource === "entry" && server.keyBudget !== undefined && server.keyBudget !== server.effectiveBudget;
 	return (
-		<p class="usage-budget-line">
+		<p className="usage-budget-line">
 			{l10n.t("budget {0}", formatUsd(server.effectiveBudget))}
-			{both ? <span class="hint"> {l10n.t("- key reports {0}", formatUsd(server.keyBudget ?? 0))}</span> : null}
+			{both ? <span className="hint"> {l10n.t("- key reports {0}", formatUsd(server.keyBudget ?? 0))}</span> : null}
 			{server.budgetResetAt !== undefined ? (
-				<span class="hint">
+				<span className="hint">
 					{" "}
 					{l10n.t(
 						"- resets {0}",
@@ -308,44 +308,44 @@ function UsageCard({
 		(server.dailyActivity.kind === "error" || server.dailyActivity.kind === "unavailable");
 	const requestsDetail = server.requests === undefined || statsOutdated ? activityDetail(server) : undefined;
 	return (
-		<div class="usage-card">
-			<div class="usage-card-head">
-				<span class="usage-label">{server.label}</span>
-				<span class="url">{server.baseUrl}</span>
-				<span class="spacer" />
-				<span class={server.fresh ? "hint" : "hint state-warn"}>{lastUpdatedText(server, now)}</span>
+		<div className="usage-card">
+			<div className="usage-card-head">
+				<span className="usage-label">{server.label}</span>
+				<span className="url">{server.baseUrl}</span>
+				<span className="spacer" />
+				<span className={server.fresh ? "hint" : "hint state-warn"}>{lastUpdatedText(server, now)}</span>
 			</div>
-			<div class="usage-spend-row">
-				<span class="usage-spend">
+			<div className="usage-spend-row">
+				<span className="usage-spend">
 					{server.spend !== undefined
 						? l10n.t("spent {0}", formatUsd(server.spend))
 						: spendUnknownText(server, pollingOff)}
 				</span>
 				{fraction !== undefined && bar !== undefined ? (
-					<span class={`usage-percent tone-${bar.tone}`}>{formatPercent(fraction)}</span>
+					<span className={`usage-percent tone-${bar.tone}`}>{formatPercent(fraction)}</span>
 				) : null}
 			</div>
-			{spendDetail !== undefined ? <p class="hint usage-detail">{spendDetail}</p> : null}
+			{spendDetail !== undefined ? <p className="hint usage-detail">{spendDetail}</p> : null}
 			{bar !== undefined ? (
 				// A plain div rather than <meter>: the native element paints its own
 				// UA chrome that ignores the theme tokens, so the bar draws itself
 				// and carries the meter semantics via ARIA.
 				// biome-ignore lint/a11y/useSemanticElements: <meter> cannot be themed with the VS Code tokens; the ARIA meter role carries the semantics.
 				<div
-					class="usage-bar"
+					className="usage-bar"
 					role="meter"
 					aria-label={l10n.t("Spend against the effective budget for {0}", server.label)}
 					aria-valuemin={0}
 					aria-valuemax={100}
 					aria-valuenow={Math.round((fraction ?? 0) * 100)}
 				>
-					<div class={`usage-bar-fill tone-${bar.tone}`} style={{ width: `${bar.widthPercent}%` }} />
+					<div className={`usage-bar-fill tone-${bar.tone}`} style={{ width: `${bar.widthPercent}%` }} />
 				</div>
 			) : null}
 			<BudgetLine server={server} />
 			{server.requests !== undefined ? (
 				<>
-					<p class={statsOutdated ? "hint state-warn usage-activity" : "hint usage-activity"}>
+					<p className={statsOutdated ? "hint state-warn usage-activity" : "hint usage-activity"}>
 						{server.requests.total === 1
 							? l10n.t("1 request in the last 30 days")
 							: l10n.t("{0} requests in the last 30 days", server.requests.total.toLocaleString())}
@@ -357,12 +357,12 @@ function UsageCard({
 							: ""}
 						{statsOutdated ? ` - ${l10n.t("may be outdated: the last statistics fetch failed")}` : ""}
 					</p>
-					{requestsDetail !== undefined ? <p class="hint usage-detail">{requestsDetail}</p> : null}
+					{requestsDetail !== undefined ? <p className="hint usage-detail">{requestsDetail}</p> : null}
 				</>
 			) : (
 				<>
-					<p class="hint usage-activity">{requestsMissingText(server)}</p>
-					{requestsDetail !== undefined ? <p class="hint usage-detail">{requestsDetail}</p> : null}
+					<p className="hint usage-activity">{requestsMissingText(server)}</p>
+					{requestsDetail !== undefined ? <p className="hint usage-detail">{requestsDetail}</p> : null}
 				</>
 			)}
 		</div>
@@ -386,23 +386,23 @@ export function UsageSection({
 				{l10n.t("Usage")} <Help text={helpUsageSection()} below />
 				<DocsLink href={DOCS_LINK_USAGE} label={l10n.t("Open the usage and budgets guide")} />
 			</h2>
-			<div class="toolbar">
+			<div className="toolbar">
 				<button
 					type="button"
-					class="secondary"
+					className="secondary"
 					disabled={usage.refreshing || serverCount === 0}
 					onClick={() => sendRequest("refreshUsage", null)}
 				>
 					{usage.refreshing ? (
 						<>
-							<span class="spinner" aria-hidden="true" /> {l10n.t("Refreshing...")}
+							<span className="spinner" aria-hidden="true" /> {l10n.t("Refreshing...")}
 						</>
 					) : (
 						l10n.t("Refresh now")
 					)}
 				</button>
 				{usage.pollIntervalMs === 0 ? (
-					<span class="hint">
+					<span className="hint">
 						{l10n.t("Background polling is off (usage.pollInterval 0); refresh fetches on demand.")}
 					</span>
 				) : null}
@@ -410,19 +410,19 @@ export function UsageSection({
 			{/* The data follows the key, not the entry (docs/usage.md#budgets):
 			    rotating a credential switches the numbers to the new key's spend,
 			    and the panel says so instead of leaving the jump unexplained. */}
-			<p class="hint">
+			<p className="hint">
 				{l10n.t(
 					"Spend is the key's server-side total, e.g. rotating an entry's key switches its numbers to the new key's spend."
 				)}
 			</p>
 			{usage.servers.length === 0 ? (
-				<div class="empty-block">
+				<div className="empty-block">
 					{serverCount === 0 ? (
 						<p>{l10n.t("No servers configured; add one under Servers & Models.")}</p>
 					) : (
 						<>
 							<p>{l10n.t("None of your servers serves usage data.")}</p>
-							<p class="hint">
+							<p className="hint">
 								{l10n.t(
 									"Spend tracking needs a LiteLLM server with a database (the /key/info endpoint); servers without one simply do not appear here."
 								)}
@@ -431,7 +431,7 @@ export function UsageSection({
 					)}
 				</div>
 			) : (
-				<div class="usage-cards">
+				<div className="usage-cards">
 					{usage.servers.map((server) =>
 						server.kind === "forbidden" ? (
 							<ForbiddenUsageCard key={`${server.label} ${server.baseUrl}`} server={server} />

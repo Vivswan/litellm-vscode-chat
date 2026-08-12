@@ -7,7 +7,7 @@
  * the matcher keys, and the parameter names.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { act } from "preact/test-utils";
+import { act } from "react";
 import { App } from "../../../../webview/dashboard/app";
 import { makeModel, makeSettings, makeState, statePush } from "../fixtures";
 import {

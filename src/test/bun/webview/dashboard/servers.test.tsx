@@ -5,8 +5,7 @@
  * into adoptServer must fail here).
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { render } from "preact";
-import { act } from "preact/test-utils";
+import { act } from "react";
 import type { RpcRequest } from "../../../../dashboard/endpoints";
 import type { DashboardServer } from "../../../../dashboard/viewModels";
 import { App } from "../../../../webview/dashboard/app";
@@ -36,6 +35,7 @@ import {
 	postedCalls,
 	postedMessages,
 	pushToWebview,
+	render,
 	resetPosted,
 } from "../harness";
 
@@ -593,14 +593,16 @@ test("the external badge tip renders the provenance classification, or the hones
 		makeExternalServer({
 			label: "Old",
 			baseUrl: "http://a.test",
+			adoptHandle: "handle-old",
 			provenance: { kind: "removed-entry-leftover", removedLabel: "Old" },
 		}),
 		makeExternalServer({
 			label: "Renamed",
 			baseUrl: "http://b.test",
+			adoptHandle: "handle-renamed",
 			provenance: { kind: "rename-leftover", oldLabel: "Renamed", newLabel: "Fresh" },
 		}),
-		makeExternalServer({ label: "Native", baseUrl: "http://c.test" }),
+		makeExternalServer({ label: "Native", baseUrl: "http://c.test", adoptHandle: "handle-native" }),
 	]);
 
 	const tips = [...root.querySelectorAll("span.badge")]
