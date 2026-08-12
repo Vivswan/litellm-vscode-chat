@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.4.7](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.4.6...v0.4.7) (2026-08-12)
+
+
+### Features
+
+* attest the VSIX build provenance on release ([9831dbe](https://github.com/Vivswan/litellm-vscode-chat/commit/9831dbe9201ca10977a0f227150c210ed8731dee))
+* honor cost, caching, and reasoning-parameter capability overrides at registration ([6989aca](https://github.com/Vivswan/litellm-vscode-chat/commit/6989aca6e8ced19957866e32e618c7b44340140b))
+* honor every models.capabilities field as an override and price from LiteLLM only ([#248](https://github.com/Vivswan/litellm-vscode-chat/issues/248), thanks [@jiang-xiche](https://github.com/jiang-xiche)) ([4364d21](https://github.com/Vivswan/litellm-vscode-chat/commit/4364d214ab28774bbf4c4d16d510eff98e2cfbac))
+* merge the parameters and capabilities inspectors into one model panel ([2309a49](https://github.com/Vivswan/litellm-vscode-chat/commit/2309a49269ae57c18d292c1387006324e1dfb4ec))
+* render open capability fields with provenance in the inspector and editors ([bc30c58](https://github.com/Vivswan/litellm-vscode-chat/commit/bc30c58daaff37cf08a0b7b76285eaaf7009465f))
+* stop sourcing model pricing from the OpenRouter catalog ([e3a64d4](https://github.com/Vivswan/litellm-vscode-chat/commit/e3a64d44b39da40eefffccdfa852b16a54d0a824))
+* suggest the server's model-info fields in the capability key autocomplete ([9a77eb2](https://github.com/Vivswan/litellm-vscode-chat/commit/9a77eb2c06a4a52825ac50af2a24e235a0ba16ad))
+* surface open capability overrides and advisory hints in the dashboard state ([647cafd](https://github.com/Vivswan/litellm-vscode-chat/commit/647cafd554596c2f637a3d9c13aae5aeb8cb9d7f))
+
+
+### Bug Fixes
+
+* drop the box around the server form auth section ([3c32e36](https://github.com/Vivswan/litellm-vscode-chat/commit/3c32e36263c308b9ca477df3f5279c97f8d45131))
+* flag an inactive per-server apiVersion override on the dashboard ([8200add](https://github.com/Vivswan/litellm-vscode-chat/commit/8200addd6bc61d06585a51698e25c7454c72c42f))
+* give every dashboard panel one width and render the full parameter list inline ([1be8fa7](https://github.com/Vivswan/litellm-vscode-chat/commit/1be8fa7394fdec286af1bf88ea23725592fa4f0f))
+* group pricing and parameter capabilities into readable sections in the inspectors ([cc5ddc3](https://github.com/Vivswan/litellm-vscode-chat/commit/cc5ddc3c6cf6542e38629a30228187e4aa981b97))
+* honor version-suffixed base URLs ([#252](https://github.com/Vivswan/litellm-vscode-chat/issues/252), thanks [@leovela69](https://github.com/leovela69)) ([23f393e](https://github.com/Vivswan/litellm-vscode-chat/commit/23f393e3dab953eec84224c5a61f915504cad9b7))
+* judge global capability hints against cross-server evidence in the inspector ([5e996d2](https://github.com/Vivswan/litellm-vscode-chat/commit/5e996d2d86ec79d86ae531b0a0e9e02a6c654909))
+* keep advisory capability notes out of the issue-report log budget ([5956bff](https://github.com/Vivswan/litellm-vscode-chat/commit/5956bff5334544ee648a6267d94356238c933dd9))
+* lead the model inspector with answers and tuck the record machinery behind details ([896a005](https://github.com/Vivswan/litellm-vscode-chat/commit/896a0055382227371fdf4449ba76252c953e307b))
+* one Inspect action per resolved-models row ([9d36924](https://github.com/Vivswan/litellm-vscode-chat/commit/9d36924c5e3371767dc108f5acf51193851275f7))
+* sort the supported-parameters list in the caps inspector ([d990fcd](https://github.com/Vivswan/litellm-vscode-chat/commit/d990fcd0bbb3a1c72912514f9a0858378c42c755))
+* tolerate the vulnerability-alerts permission scope in lint:actions ([e830082](https://github.com/Vivswan/litellm-vscode-chat/commit/e830082518c607e6b8d6b8510f4ee1e6fc4fbcac))
+
 ## [0.4.6](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.4.5...v0.4.6) (2026-08-10)
 
 
