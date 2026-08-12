@@ -1397,6 +1397,17 @@ test("the capabilities-inactive notice renders its own badge and joins the one m
 	expect(banner).toContain("are not applied");
 });
 
+test("the api-version-inactive notice renders its badge and its surface joins the merged banner", () => {
+	const root = mountSection([makeDeclaredServer({ label: "Prod", notices: ["entry-api-version-inactive"] })]);
+	const badges = [...root.querySelectorAll("span.badge.state-warn")].map((el) => el.textContent?.trim());
+	expect(badges).toContain("API version inactive");
+	const banners = [...root.querySelectorAll(".banner-warn")].map((el) => el.textContent ?? "");
+	expect(banners.length).toBe(1);
+	const banner = banners[0] ?? "";
+	expect(banner).toContain("Prod: per-server API version overrides");
+	expect(banner).toContain("are not applied");
+});
+
 test("editing a capability row or an expected-failure checkbox clears a standing test result", () => {
 	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
 	fireClick(buttonByText(root, "Edit"));

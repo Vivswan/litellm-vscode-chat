@@ -131,6 +131,42 @@ suite("extension/dashboard/state misconfigured rows", () => {
 		assert.deepStrictEqual(state.servers[0]?.notices, ["entry-headers-inactive"]);
 	});
 
+	test("a non-identity join with a per-entry apiVersion raises the api-version-inactive notice", () => {
+		// The request path resolves apiVersion by label and URL, so a group
+		// joined by URL only silently falls back to the auto rule; the row must
+		// say so. "" is a real override and must raise the notice too.
+		for (const apiVersion of ["v2", ""]) {
+			const state = buildDashboardState({
+				snapshots: [
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({
+							serverId: "group:fp-other:http://x.test",
+							label: "x.test",
+							baseUrl: "http://x.test",
+						}),
+						models: [],
+					},
+				],
+				reader: READER,
+				declared: [
+					makeDeclared({
+						label: "Prod",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:fp-labeled:http://x.test",
+						apiVersion,
+					}),
+				],
+			});
+
+			assert.deepStrictEqual(
+				state.servers[0]?.notices,
+				["entry-api-version-inactive"],
+				`apiVersion ${JSON.stringify(apiVersion)}`
+			);
+		}
+	});
+
 	test("an identity join keeps every entry-only field active: no notices", () => {
 		const state = buildDashboardState({
 			snapshots: [

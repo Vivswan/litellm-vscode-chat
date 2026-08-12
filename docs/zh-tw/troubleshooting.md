@@ -201,7 +201,7 @@ VS Code 的提供者群組 API 可以建立群組, 但永遠無法更新或移�
 
 ## 各伺服器模型參數未生效
 
-當伺服器項目帶有各項目 `models.parameters`, 但服務該伺服器的 VS Code 提供者群組不帶有項目的標籤化身分時, 儀表板顯示「params inactive」徽章 (與點名受影響項目的橫幅)。這發生在群組早於項目標籤, 或重新命名、基底 URL 編輯留下了過時群組時; 經過這種群組的請求只得到全域 `models.parameters` 設定。孿生的「capabilities inactive」徽章對項目的 `models.capabilities`、`discovery.declared` 與 `discovery.expectedFailures` 表示同樣的事, 項目的自訂 `headers` 則有自己的「headers inactive」徽章; 修法全都相同。
+當伺服器項目帶有各項目 `models.parameters`, 但服務該伺服器的 VS Code 提供者群組不帶有項目的標籤化身分時, 儀表板顯示「params inactive」徽章 (與點名受影響項目的橫幅)。這發生在群組早於項目標籤, 或重新命名、基底 URL 編輯留下了過時群組時; 經過這種群組的請求只得到全域 `models.parameters` 設定。孿生的「capabilities inactive」徽章對項目的 `models.capabilities`、`discovery.declared` 與 `discovery.expectedFailures` 表示同樣的事, 項目的自訂 `headers` 則有自己的「headers inactive」徽章, 項目的 `apiVersion` 覆寫則得到「API version inactive」(請求回退到自動規則); 修法全都相同。
 
 兩種修法:
 

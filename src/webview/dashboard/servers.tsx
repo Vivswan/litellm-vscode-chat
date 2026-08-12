@@ -7,6 +7,7 @@ import type {
 	DashboardUsage,
 	ExpectedFailureCategory,
 	HiddenGroup,
+	InactiveEntryNotice,
 	SecretFieldId,
 	SecretLocation,
 	SetupHintKind,
@@ -86,26 +87,62 @@ import { relativeTime } from "./time";
 import { barPresentation, formatPercent, formatUsd } from "./usage";
 import { newRequestId, postMessage } from "./vscodeApi";
 
-/** The entry-only-fields-inactive notice classifications; one merged banner covers all three. */
-const INACTIVE_NOTICES = ["entry-params-inactive", "entry-capabilities-inactive", "entry-headers-inactive"] as const;
+/** The entry-only-fields-inactive notice classifications; one merged banner covers them all. */
+
+/**
+ * Every inactive notice's user-facing pieces in one table: the notice list,
+ * the merged banner's surface phrases, and the row badges all derive from it,
+ * so a new notice cannot ship half-wired (the satisfies clause fails to
+ * compile until the table names it). Zero-arg functions, so the strings
+ * resolve after the l10n bootstrap; surface phrases are plural because the
+ * banner appends "are not applied".
+ */
+const INACTIVE_NOTICE_PRESENTATION = {
+	"entry-params-inactive": {
+		surface: () => l10n.t("per-server model parameters"),
+		badge: () => l10n.t("params inactive"),
+		tip: () =>
+			l10n.t(
+				"Per-server model parameters are not applied: the group serving this entry predates its label or a rename. The banner below has the fix."
+			),
+	},
+	"entry-capabilities-inactive": {
+		surface: () => l10n.t("per-server model capabilities, declared models, and expected failures"),
+		badge: () => l10n.t("capabilities inactive"),
+		tip: () =>
+			l10n.t(
+				"Per-server model capabilities, declared models, and expected failures are not applied: the group serving this entry predates its label or a rename. The banner below has the fix."
+			),
+	},
+	"entry-headers-inactive": {
+		surface: () => l10n.t("per-server custom headers"),
+		badge: () => l10n.t("headers inactive"),
+		tip: () =>
+			l10n.t(
+				"Per-server custom headers are not applied: the group serving this entry predates its label or a rename. The banner below has the fix."
+			),
+	},
+	"entry-api-version-inactive": {
+		surface: () => l10n.t("per-server API version overrides"),
+		badge: () => l10n.t("API version inactive"),
+		tip: () =>
+			l10n.t(
+				"The API version override is not applied, requests use the auto rule: the group serving this entry predates its label or a rename. The banner below has the fix."
+			),
+	},
+} as const satisfies Record<InactiveEntryNotice, { surface: () => string; badge: () => string; tip: () => string }>;
+
+const INACTIVE_NOTICES = Object.keys(INACTIVE_NOTICE_PRESENTATION) as readonly InactiveEntryNotice[];
 
 /**
  * The inactive surfaces one noticed row names, as a short localized phrase
- * ("per-server model parameters, custom headers"). Resolved at call time (no
- * module-level localized constants).
+ * ("per-server model parameters, per-server custom headers"). Resolved at
+ * call time (no module-level localized constants).
  */
 function inactiveSurfacesText(server: DashboardServer): string {
-	const surfaces: string[] = [];
-	if (server.notices?.includes("entry-params-inactive") === true) {
-		surfaces.push(l10n.t("per-server model parameters"));
-	}
-	if (server.notices?.includes("entry-capabilities-inactive") === true) {
-		surfaces.push(l10n.t("per-server model capabilities, declared models, and expected failures"));
-	}
-	if (server.notices?.includes("entry-headers-inactive") === true) {
-		surfaces.push(l10n.t("per-server custom headers"));
-	}
-	return surfaces.join(", ");
+	return INACTIVE_NOTICES.filter((notice) => server.notices?.includes(notice) === true)
+		.map((notice) => INACTIVE_NOTICE_PRESENTATION[notice].surface())
+		.join(", ");
 }
 
 /**
@@ -1893,33 +1930,11 @@ function ServerRow({
 						</span>
 					</HoverTip>
 				) : null}
-				{server.notices?.includes("entry-params-inactive") === true ? (
-					<HoverTip
-						tip={l10n.t(
-							"Per-server model parameters are not applied: the group serving this entry predates its label or a rename. The banner below has the fix."
-						)}
-					>
-						<span class="badge state-warn">{l10n.t("params inactive")}</span>
+				{INACTIVE_NOTICES.filter((notice) => server.notices?.includes(notice) === true).map((notice) => (
+					<HoverTip key={notice} tip={INACTIVE_NOTICE_PRESENTATION[notice].tip()}>
+						<span class="badge state-warn">{INACTIVE_NOTICE_PRESENTATION[notice].badge()}</span>
 					</HoverTip>
-				) : null}
-				{server.notices?.includes("entry-capabilities-inactive") === true ? (
-					<HoverTip
-						tip={l10n.t(
-							"Per-server model capabilities, declared models, and expected failures are not applied: the group serving this entry predates its label or a rename. The banner below has the fix."
-						)}
-					>
-						<span class="badge state-warn">{l10n.t("capabilities inactive")}</span>
-					</HoverTip>
-				) : null}
-				{server.notices?.includes("entry-headers-inactive") === true ? (
-					<HoverTip
-						tip={l10n.t(
-							"Per-server custom headers are not applied: the group serving this entry predates its label or a rename. The banner below has the fix."
-						)}
-					>
-						<span class="badge state-warn">{l10n.t("headers inactive")}</span>
-					</HoverTip>
-				) : null}
+				))}
 			</td>
 			<td class={armed ? "actions armed" : "actions"}>
 				{armed ? (

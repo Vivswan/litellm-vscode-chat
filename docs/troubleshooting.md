@@ -201,7 +201,7 @@ A hidden group returns on its own when you re-add an entry with the same label a
 
 ## Per-server model parameters are inactive
 
-The dashboard shows a "params inactive" badge (and a banner naming the affected entries) when a server entry carries per-entry `models.parameters` but the VS Code provider group serving that server does not carry the entry's labeled identity. That happens when the group predates entry labels, or when a rename or base URL edit left a stale group behind; requests through such a group get only the global `models.parameters` setting. The twin "capabilities inactive" badge means the same thing for an entry's `models.capabilities`, `discovery.declared`, and `discovery.expectedFailures`, and an entry's custom `headers` get their own "headers inactive" badge; all have the same fixes.
+The dashboard shows a "params inactive" badge (and a banner naming the affected entries) when a server entry carries per-entry `models.parameters` but the VS Code provider group serving that server does not carry the entry's labeled identity. That happens when the group predates entry labels, or when a rename or base URL edit left a stale group behind; requests through such a group get only the global `models.parameters` setting. The twin "capabilities inactive" badge means the same thing for an entry's `models.capabilities`, `discovery.declared`, and `discovery.expectedFailures`, an entry's custom `headers` get their own "headers inactive" badge, and an entry's `apiVersion` override gets "API version inactive" (requests fall back to the auto rule); all have the same fixes.
 
 Two ways to fix it:
 

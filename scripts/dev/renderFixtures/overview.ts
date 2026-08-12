@@ -22,7 +22,7 @@ const fixture: RenderFixture = {
 						baseUrl: "https://old.example.com",
 						state: "ok",
 						modelCount: 1,
-						notices: ["entry-params-inactive", "entry-headers-inactive"],
+						notices: ["entry-params-inactive", "entry-headers-inactive", "entry-api-version-inactive"],
 					} as DashboardServer,
 				],
 				hiddenGroups: [{ label: "old-staging", baseUrl: "http://staging.example:4000" }],

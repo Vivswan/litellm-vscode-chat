@@ -390,6 +390,11 @@ function buildServers(
 		if (entryFieldsInactive && view.headers !== undefined) {
 			notices.push("entry-headers-inactive");
 		}
+		// "" is a real override (append nothing), so the !== undefined test is
+		// the right activity check here too.
+		if (entryFieldsInactive && view.apiVersion !== undefined) {
+			notices.push("entry-api-version-inactive");
+		}
 		const outcome = declaredOutcome(matched?.snapshot.status, view.syncError);
 		if (outcome.state === "error" && outcome.expected === true && (outcome.declaredModelCount ?? 0) === 0) {
 			// An expected failure with nothing declared serves nothing; only a

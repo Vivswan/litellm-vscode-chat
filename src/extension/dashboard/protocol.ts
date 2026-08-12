@@ -123,25 +123,29 @@ interface DashboardServerConfig extends NonSecretOptionalFields {
  * is rendered webview-side - the same rule the logs follow (classifications,
  * never free text).
  *
- * "entry-params-inactive" / "entry-capabilities-inactive": the entry declares
- * an entry-only field (per-entry modelParameters; per-entry modelCapabilities
- * or expectedFailures), but the live group serving it did not join by the
- * entry's exact labeled identity - it predates entry labels, predates a
- * rename, or carries someone else's label - so the request path's
- * label-and-URL check does not apply those fields. Recreating the group
- * activates them. One classification per field family so a row can name
- * exactly what is inactive.
+ * The InactiveEntryNotice family: the entry declares an entry-only field
+ * (per-entry modelParameters; modelCapabilities, declaredModels, or
+ * expectedFailures; custom headers; the apiVersion override), but the live
+ * group serving it did not join by the entry's exact labeled identity - it
+ * predates entry labels, predates a rename, or carries someone else's label -
+ * so the request path's label-and-URL check does not apply those fields.
+ * Recreating the group activates them. One classification per field family so
+ * a row can name exactly what is inactive; the webview derives every badge
+ * and banner phrase from this union, so a new member fails compilation until
+ * its presentation exists.
  *
  * "expected-failures-nothing-declared": discovery failed in a category the
  * entry expects, and the entry's discovery.declared list supplies no models -
  * the server is healthy by its own declaration but serves nothing, which only
  * a declared model can fix.
  */
-export type DeclaredServerNotice =
+export type InactiveEntryNotice =
 	| "entry-params-inactive"
 	| "entry-capabilities-inactive"
 	| "entry-headers-inactive"
-	| "expected-failures-nothing-declared";
+	| "entry-api-version-inactive";
+
+export type DeclaredServerNotice = InactiveEntryNotice | "expected-failures-nothing-declared";
 
 /**
  * Where an external provider group came from, when the extension's removal
@@ -423,6 +427,10 @@ const ENTRY_CAPABILITIES_INACTIVE_TEXT =
 const ENTRY_HEADERS_INACTIVE_TEXT =
 	"per-entry custom headers are not applied (the provider group does not carry this entry's labeled identity); delete the group's object from the models file (chatLanguageModels.json), reload the window, and run Sync Models Now, or save the entry under a new label";
 
+/** The apiVersion twin of ENTRY_PARAMS_INACTIVE_TEXT; English by the same issue-report policy. */
+const ENTRY_API_VERSION_INACTIVE_TEXT =
+	"the per-entry API version override is not applied, requests use the auto rule (the provider group does not carry this entry's labeled identity); delete the group's object from the models file (chatLanguageModels.json), reload the window, and run Sync Models Now, or save the entry under a new label";
+
 /** The expected-failure-with-nothing-to-serve line; English by the same issue-report policy. */
 const EXPECTED_FAILURES_NOTHING_DECLARED_TEXT =
 	"discovery fails in an expected category and no models are declared; add IDs to the entry's discovery.declared list to serve models without discovery";
@@ -436,6 +444,8 @@ function noticeText(notice: DeclaredServerNotice): string {
 			return ENTRY_CAPABILITIES_INACTIVE_TEXT;
 		case "entry-headers-inactive":
 			return ENTRY_HEADERS_INACTIVE_TEXT;
+		case "entry-api-version-inactive":
+			return ENTRY_API_VERSION_INACTIVE_TEXT;
 		case "expected-failures-nothing-declared":
 			return EXPECTED_FAILURES_NOTHING_DECLARED_TEXT;
 	}

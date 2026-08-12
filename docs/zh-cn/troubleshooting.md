@@ -201,7 +201,7 @@ VS Code 的提供程序组 API 可以创建组, 但永远无法更新或删除�
 
 ## 每服务器模型参数未生效
 
-当服务器条目携带每条目 `models.parameters`, 但服务该服务器的 VS Code 提供程序组不携带条目的标签化标识时, 仪表板显示「params inactive」徽章 (和点名受影响条目的横幅)。这发生在组早于条目标签, 或重命名、基础 URL 编辑留下了过期组时; 经过这种组的请求只得到全局 `models.parameters` 设置。孪生的「capabilities inactive」徽章对条目的 `models.capabilities`、`discovery.declared` 和 `discovery.expectedFailures` 表示同样的事, 条目的自定义 `headers` 则有自己的「headers inactive」徽章; 修复全都相同。
+当服务器条目携带每条目 `models.parameters`, 但服务该服务器的 VS Code 提供程序组不携带条目的标签化标识时, 仪表板显示「params inactive」徽章 (和点名受影响条目的横幅)。这发生在组早于条目标签, 或重命名、基础 URL 编辑留下了过期组时; 经过这种组的请求只得到全局 `models.parameters` 设置。孪生的「capabilities inactive」徽章对条目的 `models.capabilities`、`discovery.declared` 和 `discovery.expectedFailures` 表示同样的事, 条目的自定义 `headers` 则有自己的「headers inactive」徽章, 条目的 `apiVersion` 覆盖则得到「API version inactive」(请求回退到自动规则); 修复全都相同。
 
 两种修复方式:
 

@@ -248,6 +248,15 @@ suite("extension/dashboard/protocol renderers", () => {
 			assert.ok(line.includes("run Sync Models Now"), line);
 		});
 
+		test("an entry whose group cannot serve its apiVersion override says so on a healthy line", () => {
+			// Same policy as the params notice: healthy row, English diagnostics
+			// prose, and the line must say requests fell back to the auto rule.
+			const line = serverOutcomeText(declaredServer({ modelCount: 2, notices: ["entry-api-version-inactive"] }));
+			assert.ok(line.startsWith("OK (2 models) - the per-entry API version override is not applied"), line);
+			assert.ok(line.includes("requests use the auto rule"), line);
+			assert.ok(line.includes("run Sync Models Now"), line);
+		});
+
 		test("the capabilities twin of the params-inactive line names its own fields", () => {
 			const line = serverOutcomeText(declaredServer({ modelCount: 2, notices: ["entry-capabilities-inactive"] }));
 			assert.ok(
