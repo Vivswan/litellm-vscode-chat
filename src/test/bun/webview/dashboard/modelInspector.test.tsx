@@ -21,12 +21,23 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { render } from "preact";
 import { act } from "preact/test-utils";
-import type { EffectiveCapabilities } from "../../../../dashboard/protocol";
+import type { EffectiveCapabilities } from "../../../../shared/config/capabilityResolution";
 import { projectEffectiveParameters } from "../../../../shared/config/parameterResolution";
 import { App } from "../../../../webview/dashboard/app";
+import type { ModelCapabilitiesResponse, ModelParametersResponse } from "../../../../webview/dashboard/modelInspector";
 import { ModelInspector } from "../../../../webview/dashboard/modelInspector";
 import { makeDeclaredServer, makeModel, makeSettings, makeState, statePush } from "../fixtures";
-import { cleanup, fireClick, mount, postedMessages, pushToWebview, resetPosted, textOf } from "../harness";
+import {
+	cleanup,
+	fireClick,
+	lastRequest,
+	mount,
+	postedRequests,
+	pushToWebview,
+	resetPosted,
+	respondTo,
+	textOf,
+} from "../harness";
 
 beforeEach(() => {
 	resetPosted();
@@ -50,28 +61,15 @@ function mountParamsAnswered(options: {
 	entryParameters?: Record<string, Record<string, unknown>>;
 	entryLabel?: string;
 	modelOverrides?: Parameters<typeof makeModel>[0];
-	chains?: NonNullable<Parameters<typeof ModelInspector>[0]["paramsResponse"]>["chains"];
+	chains?: ModelParametersResponse["chains"];
 	onClose?: () => void;
 }) {
 	const inspected = makeModel({ ...model, ...options.modelOverrides });
 	const onClose = options.onClose ?? (() => {});
-	const container = mount(
-		<ModelInspector
-			model={inspected}
-			paramsResponse={undefined}
-			capsResponse={undefined}
-			stateSeq={0}
-			onClose={onClose}
-		/>
-	);
-	const request = [...postedMessages].reverse().find((message) => message.type === "readModelParameters") as {
-		type: string;
-		requestId: string;
-		scopeKey: string;
-		rawId: string;
-	};
-	expect(request.scopeKey).toBe(inspected.scopeKey);
-	expect(request.rawId).toBe(inspected.rawId);
+	const container = mount(<ModelInspector model={inspected} stateSeq={0} onClose={onClose} />);
+	const request = lastRequest("readModelParameters");
+	expect(request.payload.scopeKey).toBe(inspected.scopeKey);
+	expect(request.payload.rawId).toBe(inspected.rawId);
 	const projection = projectEffectiveParameters({
 		rawModelId: inspected.rawId,
 		globalParameters: options.globalParameters ?? {},
@@ -82,18 +80,7 @@ function mountParamsAnswered(options: {
 		maxOutputTokens: inspected.maxOutputTokens,
 		outputLimitDeclared: inspected.outputLimitDeclared,
 	});
-	void act(() => {
-		render(
-			<ModelInspector
-				model={inspected}
-				paramsResponse={{ type: "modelParameters", requestId: request.requestId, projection, chains: options.chains }}
-				capsResponse={undefined}
-				stateSeq={0}
-				onClose={onClose}
-			/>,
-			container
-		);
-	});
+	respondTo(request, { projection, chains: options.chains });
 	return container;
 }
 
@@ -122,38 +109,14 @@ function makeCapabilities(overrides: Partial<EffectiveCapabilities> = {}): Effec
 function mountCapsAnswered(
 	capabilities: EffectiveCapabilities | undefined,
 	modelOverrides: Parameters<typeof makeModel>[0] = {},
-	chains?: NonNullable<Parameters<typeof ModelInspector>[0]["capsResponse"]>["chains"]
+	chains?: ModelCapabilitiesResponse["chains"]
 ): HTMLElement {
 	const inspected = makeModel(modelOverrides);
-	const container = mount(
-		<ModelInspector
-			model={inspected}
-			paramsResponse={undefined}
-			capsResponse={undefined}
-			stateSeq={0}
-			onClose={() => {}}
-		/>
-	);
-	const request = [...postedMessages].reverse().find((message) => message.type === "readModelCapabilities") as {
-		type: string;
-		requestId: string;
-		scopeKey: string;
-		rawId: string;
-	};
-	expect(request.scopeKey).toBe(inspected.scopeKey);
-	expect(request.rawId).toBe(inspected.rawId);
-	void act(() => {
-		render(
-			<ModelInspector
-				model={inspected}
-				paramsResponse={undefined}
-				capsResponse={{ type: "modelCapabilities", requestId: request.requestId, capabilities, chains }}
-				stateSeq={0}
-				onClose={() => {}}
-			/>,
-			container
-		);
-	});
+	const container = mount(<ModelInspector model={inspected} stateSeq={0} onClose={() => {}} />);
+	const request = lastRequest("readModelCapabilities");
+	expect(request.payload.scopeKey).toBe(inspected.scopeKey);
+	expect(request.payload.rawId).toBe(inspected.rawId);
+	respondTo(request, { capabilities, chains });
 	return container;
 }
 
@@ -173,11 +136,11 @@ test("the models table row carries ONE quiet Inspect action that opens the merge
 	expect(textOf(dialog, "#model-inspector-title")).toContain("Omni");
 	// Opening posts BOTH reads for exactly the clicked row; each section
 	// renders when its own answer lands.
-	for (const type of ["readModelParameters", "readModelCapabilities"]) {
-		const request = postedMessages.find((message) => message.type === type) as { scopeKey: string; rawId: string };
-		expect(request).not.toBeUndefined();
-		expect(request.scopeKey).toBe("s0");
-		expect(request.rawId).toBe("gpt-4o");
+	for (const method of ["readModelParameters", "readModelCapabilities"] as const) {
+		const read = postedRequests(method).at(-1);
+		expect(read).not.toBeUndefined();
+		expect(read?.payload.scopeKey).toBe("s0");
+		expect(read?.payload.rawId).toBe("gpt-4o");
 	}
 	expect(dialog.textContent).toContain("Resolving parameters...");
 	expect(dialog.textContent).toContain("Resolving capabilities...");
@@ -219,55 +182,33 @@ test("the Parameters section leads with the answer: table, supported params, max
 	// table opens the section, the supported-parameters block and the max_tokens
 	// line follow, and the fixed machinery (always-sent chips, caveats) plus the
 	// collapsed record-path figure close it.
-	const container = mount(
-		<ModelInspector model={model} paramsResponse={undefined} capsResponse={undefined} stateSeq={0} onClose={() => {}} />
-	);
-	const paramsRead = [...postedMessages].reverse().find((m) => m.type === "readModelParameters") as {
-		requestId: string;
-	};
-	const capsRead = [...postedMessages].reverse().find((m) => m.type === "readModelCapabilities") as {
-		requestId: string;
-	};
-	void act(() => {
-		render(
-			<ModelInspector
-				model={model}
-				paramsResponse={{
-					type: "modelParameters",
-					requestId: paramsRead.requestId,
-					projection: projectEffectiveParameters({
-						rawModelId: model.rawId,
-						// The invalid matcher key produces a diagnostics block, so the
-						// order pin covers its position too (right after the table).
-						globalParameters: { "gpt-4*": { temperature: 0.2 }, "gpt*4o": { top_p: 0.5 } },
-						maxOutputTokens: model.maxOutputTokens,
-						outputLimitDeclared: model.outputLimitDeclared,
-					}),
-					chains: [
-						{
-							layer: "global",
-							links: [
-								{ key: "*", barrier: false },
-								{ key: "gpt-4*", barrier: false },
-							],
-						},
-					],
-				}}
-				capsResponse={{
-					type: "modelCapabilities",
-					requestId: capsRead.requestId,
-					capabilities: makeCapabilities({
-						fields: {
-							...makeCapabilities().fields,
-							supported_openai_params: { value: ["temperature", "top_p"], level: "server", shadowed: [] },
-						},
-					}),
-				}}
-				stateSeq={0}
-				onClose={() => {}}
-			/>,
-			container
-		);
+	const container = mount(<ModelInspector model={model} stateSeq={0} onClose={() => {}} />);
+	respondTo(lastRequest("readModelParameters"), {
+		projection: projectEffectiveParameters({
+			rawModelId: model.rawId,
+			// The invalid matcher key produces a diagnostics block, so the
+			// order pin covers its position too (right after the table).
+			globalParameters: { "gpt-4*": { temperature: 0.2 }, "gpt*4o": { top_p: 0.5 } },
+			maxOutputTokens: model.maxOutputTokens,
+			outputLimitDeclared: model.outputLimitDeclared,
+		}),
+		chains: [
+			{
+				layer: "global",
+				links: [
+					{ key: "*", barrier: false },
+					{ key: "gpt-4*", barrier: false },
+				],
+			},
+		],
+	});
+	respondTo(lastRequest("readModelCapabilities"), {
+		capabilities: makeCapabilities({
+			fields: {
+				...makeCapabilities().fields,
+				supported_openai_params: { value: ["temperature", "top_p"], level: "server", shadowed: [] },
+			},
+		}),
 	});
 	const section = container.querySelector("#inspector-section-params")?.closest("section") as HTMLElement;
 	expect(section).not.toBeNull();
@@ -309,16 +250,7 @@ test("the Parameters section leads with the answer: table, supported params, max
 });
 
 test("both section header bands carry their Configure action, right-aligned in the band", () => {
-	const root = mount(
-		<ModelInspector
-			model={model}
-			paramsResponse={undefined}
-			capsResponse={undefined}
-			stateSeq={0}
-			onClose={() => {}}
-			onEditRecord={() => {}}
-		/>
-	);
+	const root = mount(<ModelInspector model={model} stateSeq={0} onClose={() => {}} onEditRecord={() => {}} />);
 	const actionText = (anchorId: string): string | undefined => {
 		const head = root.querySelector(`.inspector-section-head:has(#${anchorId})`);
 		return head?.querySelector("button.section-action")?.textContent ?? undefined;
@@ -368,30 +300,19 @@ test("an open Record paths disclosure survives a state push instead of collapsin
 		},
 	];
 	const props = { model, onClose: () => {} };
-	const container = mount(
-		<ModelInspector {...props} paramsResponse={undefined} capsResponse={undefined} stateSeq={0} />
-	);
-	const answers = (seq: number) => {
-		const read = [...postedMessages].reverse().find((m) => m.type === "readModelParameters") as { requestId: string };
-		return {
-			paramsResponse: {
-				type: "modelParameters",
-				requestId: read.requestId,
-				projection: projectEffectiveParameters({
-					rawModelId: model.rawId,
-					globalParameters: { "gpt-4*": { temperature: 0.2 } },
-					maxOutputTokens: model.maxOutputTokens,
-					outputLimitDeclared: model.outputLimitDeclared,
-				}),
-				chains,
-			} as const,
-			capsResponse: undefined,
-			stateSeq: seq,
-		};
+	const container = mount(<ModelInspector {...props} stateSeq={0} />);
+	const answer = () => {
+		respondTo(lastRequest("readModelParameters"), {
+			projection: projectEffectiveParameters({
+				rawModelId: model.rawId,
+				globalParameters: { "gpt-4*": { temperature: 0.2 } },
+				maxOutputTokens: model.maxOutputTokens,
+				outputLimitDeclared: model.outputLimitDeclared,
+			}),
+			chains,
+		});
 	};
-	void act(() => {
-		render(<ModelInspector {...props} {...answers(0)} />, container);
-	});
+	answer();
 	const details = container.querySelector("details.record-paths") as HTMLDetailsElement;
 	expect(details.open).toBe(false);
 	// The reader opens it (the native toggle the summary click produces).
@@ -400,13 +321,12 @@ test("an open Record paths disclosure survives a state push instead of collapsin
 		details.dispatchEvent(new Event("toggle"));
 	});
 
-	// The push: readiness drops (the disclosure may unmount), then fresh answers land.
+	// The push: readiness drops (a re-request orphans the answer, so the
+	// disclosure may unmount), then the fresh answer lands.
 	void act(() => {
-		render(<ModelInspector {...props} paramsResponse={undefined} capsResponse={undefined} stateSeq={1} />, container);
+		render(<ModelInspector {...props} stateSeq={1} />, container);
 	});
-	void act(() => {
-		render(<ModelInspector {...props} {...answers(1)} />, container);
-	});
+	answer();
 	const after = container.querySelector("details.record-paths") as HTMLDetailsElement;
 	expect(after).not.toBeNull();
 	expect(after.open).toBe(true);
@@ -466,45 +386,20 @@ test("the collapsed disclosure joins the focus trap: Tab wraps at the summary, n
 	// real boundary and land Shift+Tab wrapping on an unfocusable control.
 	const inspected = makeModel();
 	const container = mount(
-		<ModelInspector
-			model={inspected}
-			paramsResponse={undefined}
-			capsResponse={undefined}
-			stateSeq={0}
-			onClose={() => {}}
-			onEditRecord={() => {}}
-			onEditEntry={() => {}}
-		/>
+		<ModelInspector model={inspected} stateSeq={0} onClose={() => {}} onEditRecord={() => {}} onEditEntry={() => {}} />
 	);
-	const request = [...postedMessages].reverse().find((message) => message.type === "readModelCapabilities") as {
-		requestId: string;
-	};
-	void act(() => {
-		render(
-			<ModelInspector
-				model={inspected}
-				paramsResponse={undefined}
-				capsResponse={{
-					type: "modelCapabilities",
-					requestId: request.requestId,
-					capabilities: makeCapabilities(),
-					chains: [
-						{
-							layer: "global",
-							links: [
-								{ key: "*", barrier: false },
-								{ key: "gpt-4*", barrier: false },
-							],
-						},
-					],
-				}}
-				stateSeq={0}
-				onClose={() => {}}
-				onEditRecord={() => {}}
-				onEditEntry={() => {}}
-			/>,
-			container
-		);
+	expect(container).not.toBeNull();
+	respondTo(lastRequest("readModelCapabilities"), {
+		capabilities: makeCapabilities(),
+		chains: [
+			{
+				layer: "global",
+				links: [
+					{ key: "*", barrier: false },
+					{ key: "gpt-4*", barrier: false },
+				],
+			},
+		],
 	});
 	const panel = document.querySelector(".slide-over") as HTMLElement;
 	const details = panel.querySelector("details.record-paths") as HTMLDetailsElement;
@@ -525,88 +420,57 @@ test("the collapsed disclosure joins the focus trap: Tab wraps at the summary, n
 });
 
 test("a stateSeq bump re-requests BOTH feeds, so an open inspector follows configuration edits", () => {
-	const container = mount(
-		<ModelInspector model={model} paramsResponse={undefined} capsResponse={undefined} stateSeq={0} onClose={() => {}} />
-	);
-	expect(postedMessages.filter((message) => message.type === "readModelParameters")).toHaveLength(1);
-	expect(postedMessages.filter((message) => message.type === "readModelCapabilities")).toHaveLength(1);
+	const container = mount(<ModelInspector model={model} stateSeq={0} onClose={() => {}} />);
+	expect(postedRequests("readModelParameters")).toHaveLength(1);
+	expect(postedRequests("readModelCapabilities")).toHaveLength(1);
 
 	// The same tree re-rendered with a bumped stateSeq (a state push landed):
 	// the inspector must ask again instead of trusting its pre-edit answers.
 	void act(() => {
-		render(
-			<ModelInspector
-				model={model}
-				paramsResponse={undefined}
-				capsResponse={undefined}
-				stateSeq={1}
-				onClose={() => {}}
-			/>,
-			container
-		);
+		render(<ModelInspector model={model} stateSeq={1} onClose={() => {}} />, container);
 	});
-	for (const type of ["readModelParameters", "readModelCapabilities"]) {
-		const requests = postedMessages.filter((message) => message.type === type);
+	for (const method of ["readModelParameters", "readModelCapabilities"] as const) {
+		const requests = postedRequests(method);
 		expect(requests).toHaveLength(2);
-		// A fresh requestId per request, so the first answer cannot satisfy the second ask.
-		expect((requests[0] as { requestId: string }).requestId).not.toBe((requests[1] as { requestId: string }).requestId);
+		// A fresh correlation id per request, so the first answer cannot satisfy the second ask.
+		expect(requests[0]?.id).not.toBe(requests[1]?.id);
 	}
 });
 
-test("a params response for another requestId is ignored; the loading note stays", () => {
-	const root = mount(
-		<ModelInspector
-			model={model}
-			paramsResponse={{
-				type: "modelParameters",
-				requestId: "someone-elses",
-				projection: projectEffectiveParameters({
-					rawModelId: model.rawId,
-					globalParameters: { "gpt-4*": { temperature: 0.2 } },
-					maxOutputTokens: model.maxOutputTokens,
-					outputLimitDeclared: model.outputLimitDeclared,
-				}),
-			}}
-			capsResponse={undefined}
-			stateSeq={0}
-			onClose={() => {}}
-		/>
-	);
+test("a params response for another request id is ignored; the loading note stays", () => {
+	const root = mount(<ModelInspector model={model} stateSeq={0} onClose={() => {}} />);
+	pushToWebview({
+		kind: "response",
+		id: "someone-elses",
+		method: "readModelParameters",
+		payload: {
+			projection: projectEffectiveParameters({
+				rawModelId: model.rawId,
+				globalParameters: { "gpt-4*": { temperature: 0.2 } },
+				maxOutputTokens: model.maxOutputTokens,
+				outputLimitDeclared: model.outputLimitDeclared,
+			}),
+		},
+	});
 	expect(root.textContent).toContain("Resolving parameters...");
 	expect(root.querySelector("table.params")).toBeNull();
 });
 
-test("a caps response for another requestId is ignored; only the correlated one renders", () => {
-	const root = mount(
-		<ModelInspector
-			model={makeModel()}
-			paramsResponse={undefined}
-			capsResponse={{ type: "modelCapabilities", requestId: "someone-elses", capabilities: makeCapabilities() }}
-			stateSeq={0}
-			onClose={() => {}}
-		/>
-	);
+test("a caps response for another request id is ignored; only the correlated one renders", () => {
+	const root = mount(<ModelInspector model={makeModel()} stateSeq={0} onClose={() => {}} />);
+	pushToWebview({
+		kind: "response",
+		id: "someone-elses",
+		method: "readModelCapabilities",
+		payload: { capabilities: makeCapabilities() },
+	});
 	expect(root.textContent).toContain("Resolving capabilities...");
 	expect(root.querySelector("table.params")).toBeNull();
 });
 
 test("a projection-less params response says the state moved on instead of inventing values", () => {
-	const container = mount(
-		<ModelInspector model={model} paramsResponse={undefined} capsResponse={undefined} stateSeq={0} onClose={() => {}} />
-	);
-	const request = postedMessages.find((message) => message.type === "readModelParameters") as { requestId: string };
-	void act(() => {
-		render(
-			<ModelInspector
-				model={model}
-				paramsResponse={{ type: "modelParameters", requestId: request.requestId }}
-				capsResponse={undefined}
-				stateSeq={0}
-				onClose={() => {}}
-			/>,
-			container
-		);
-	});
+	const container = mount(<ModelInspector model={model} stateSeq={0} onClose={() => {}} />);
+	respondTo(lastRequest("readModelParameters"), {});
 	expect(container.textContent).toContain("The model list changed");
 	expect(container.querySelector("table.params")).toBeNull();
 });
@@ -783,12 +647,9 @@ test("two rows sharing an ID and display label still ask about their own snapsho
 	expect(actions.length).toBe(2);
 	fireClick(actions[1] as HTMLButtonElement);
 	expect(document.querySelector("[role='dialog']")).not.toBeNull();
-	const request = [...postedMessages].reverse().find((message) => message.type === "readModelParameters") as {
-		scopeKey: string;
-		rawId: string;
-	};
-	expect(request.scopeKey).toBe("s1");
-	expect(request.rawId).toBe("gpt-4o");
+	const request = lastRequest("readModelParameters");
+	expect(request.payload.scopeKey).toBe("s1");
+	expect(request.payload.rawId).toBe("gpt-4o");
 });
 
 test("one snapshot rendered under two labels: the inspector stays on the clicked row's label", () => {
@@ -1231,13 +1092,8 @@ test("the Diagnostics jump links open the merged panel scrolled to their section
 
 		// Land on the Diagnostics tab and answer its resolved-models read so the
 		// jump-linked rows exist.
-		pushToWebview({ type: "focusSection", section: "diagnostics" });
-		const request = [...postedMessages].reverse().find((message) => message.type === "readResolvedModels") as {
-			requestId: string;
-		};
-		pushToWebview({
-			type: "resolvedModels",
-			requestId: request.requestId,
+		pushToWebview({ kind: "focusSection", section: "diagnostics" });
+		respondTo(lastRequest("readResolvedModels"), {
 			view: {
 				trees: [],
 				rows: [
@@ -1274,51 +1130,30 @@ test("the anchor stops re-scrolling for good once both feeds have answered", () 
 	};
 	try {
 		const props = { model, anchor: "caps" as const, onClose: () => {} };
-		const container = mount(
-			<ModelInspector {...props} paramsResponse={undefined} capsResponse={undefined} stateSeq={0} />
-		);
+		const container = mount(<ModelInspector {...props} stateSeq={0} />);
 		expect(landings).toContain("inspector-section-caps");
 
-		const answers = (seq: number) => {
-			const paramsRead = [...postedMessages].reverse().find((m) => m.type === "readModelParameters") as {
-				requestId: string;
-			};
-			const capsRead = [...postedMessages].reverse().find((m) => m.type === "readModelCapabilities") as {
-				requestId: string;
-			};
-			return {
-				paramsResponse: {
-					type: "modelParameters",
-					requestId: paramsRead.requestId,
-					projection: projectEffectiveParameters({
-						rawModelId: model.rawId,
-						globalParameters: {},
-						maxOutputTokens: model.maxOutputTokens,
-						outputLimitDeclared: model.outputLimitDeclared,
-					}),
-				} as const,
-				capsResponse: {
-					type: "modelCapabilities",
-					requestId: capsRead.requestId,
-					capabilities: makeCapabilities(),
-				} as const,
-				stateSeq: seq,
-			};
+		const answer = () => {
+			respondTo(lastRequest("readModelParameters"), {
+				projection: projectEffectiveParameters({
+					rawModelId: model.rawId,
+					globalParameters: {},
+					maxOutputTokens: model.maxOutputTokens,
+					outputLimitDeclared: model.outputLimitDeclared,
+				}),
+			});
+			respondTo(lastRequest("readModelCapabilities"), { capabilities: makeCapabilities() });
 		};
 		// Both feeds answer: the anchor may re-scroll against the settled layout.
-		void act(() => {
-			render(<ModelInspector {...props} {...answers(0)} />, container);
-		});
+		answer();
 		landings.length = 0;
 
 		// A state push bumps stateSeq (readiness drops), then fresh answers land:
 		// no further scroll, in either window.
 		void act(() => {
-			render(<ModelInspector {...props} paramsResponse={undefined} capsResponse={undefined} stateSeq={1} />, container);
+			render(<ModelInspector {...props} stateSeq={1} />, container);
 		});
-		void act(() => {
-			render(<ModelInspector {...props} {...answers(1)} />, container);
-		});
+		answer();
 		expect(landings).toEqual([]);
 	} finally {
 		Element.prototype.scrollIntoView = original;

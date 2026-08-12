@@ -22,12 +22,12 @@ import type {
 	UsageEndpointStandingView,
 	UsageForbiddenServerView,
 	UsageServerView,
-} from "../../dashboard/protocol";
+} from "../../dashboard/viewModels";
 import { DOCS_LINK_USAGE } from "./docsLinks";
 import { DocsLink, Help } from "./help";
 import { helpUsageSection } from "./helpText";
 import { relativeTime } from "./time";
-import { postMessage } from "./vscodeApi";
+import { sendRequest } from "./vscodeApi";
 
 /** A dollar amount as the panel prints it; two decimals below $1000, whole dollars above. */
 export function formatUsd(amount: number): string {
@@ -391,7 +391,7 @@ export function UsageSection({
 					type="button"
 					class="secondary"
 					disabled={usage.refreshing || serverCount === 0}
-					onClick={() => postMessage({ type: "refreshUsage" })}
+					onClick={() => sendRequest("refreshUsage", null)}
 				>
 					{usage.refreshing ? (
 						<>

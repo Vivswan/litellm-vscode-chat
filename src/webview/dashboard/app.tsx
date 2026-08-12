@@ -1,37 +1,27 @@
 import * as l10n from "@vscode/l10n";
 import type { ComponentChildren } from "preact";
 import { useCallback, useEffect, useState } from "preact/hooks";
-import type {
-	DashboardIntentType,
-	DashboardSectionId,
-	DashboardServer,
-	DashboardState,
-	ExtensionToWebviewMessage,
-} from "../../dashboard/protocol";
-import {
-	classifyOverall,
-	DASHBOARD_SECTION_IDS,
-	failuresAfterStatePush,
-	isExtensionMessageType,
-	latestCheckedMs,
-} from "../../dashboard/protocol";
-import type { ResolvedModelsResponse } from "./diagnostics";
+import type { AckedMethod, NotifyingMethod } from "../../dashboard/endpoints";
+import { failuresAfterStatePush, isAckedMethod } from "../../dashboard/endpoints";
+import { classifyOverall, latestCheckedMs } from "../../dashboard/presenters";
+import type { DashboardSectionId, DashboardServer, DashboardState } from "../../dashboard/viewModels";
+import { DASHBOARD_SECTION_IDS } from "../../dashboard/viewModels";
 import { DiagnosticsSection } from "./diagnostics";
 import { FailureText } from "./failureText";
+import { asExtensionMessage } from "./hooks";
 import { IconBug, IconClose } from "./icons";
-import type { InspectorSection, ModelCapabilitiesResponse, ModelParametersResponse } from "./modelInspector";
+import type { InspectorSection } from "./modelInspector";
 import { ModelInspector } from "./modelInspector";
 import { ModelsSection } from "./models";
-import type { CatalogSearchResponse, IntentFailure } from "./recordEditors";
 import type { ServerEditRequest } from "./servers";
 import { ServersSection } from "./servers";
 import type { EditRecordRequest } from "./settings";
 import { SettingsSection } from "./settings";
 import { relativeTime, useNow } from "./time";
 import { UsageSection } from "./usage";
-import { postMessage } from "./vscodeApi";
+import { sendRequest } from "./vscodeApi";
 
-/** The section tabs; the ID list lives in the protocol module because focusSection deep-links name them. */
+/** The section tabs; the ID list lives in the view-model module because focusSection deep-links name them. */
 const SECTION_IDS = DASHBOARD_SECTION_IDS;
 type SectionId = DashboardSectionId;
 
@@ -50,36 +40,24 @@ function sectionLabel(section: SectionId): string {
 }
 
 /**
- * Messages arriving on the window come from the extension only (the CSP
- * allows no other frames), so a shape check on the discriminant suffices.
- * The accepted set is derived from the message union in the protocol module,
- * so a new message type cannot be silently dropped here.
+ * One reported intent failure as the standing store holds it; `seq`
+ * distinguishes repeated failures with the same text.
  */
-function asExtensionMessage(data: unknown): ExtensionToWebviewMessage | undefined {
-	if (typeof data !== "object" || data === null) {
-		return undefined;
-	}
-	const type = (data as { type?: unknown }).type;
-	return isExtensionMessageType(type) ? (data as ExtensionToWebviewMessage) : undefined;
+interface IntentFailure {
+	readonly seq: number;
+	readonly message: string;
+	/** Whether the intent's durable write committed before the failure; see the fail envelope's failureKind. */
+	readonly kind: "validation" | "operation";
 }
-
-/** The latest reported intent failures, keyed by the failed intent's type. */
-export type FailuresByIntent = Readonly<Partial<Record<DashboardIntentType, IntentFailure>>>;
 
 /**
- * The latest inlineSecrets response (the edit form's on-demand prefill); the
- * open form matches it against its own requestId. Held outside DashboardState
- * on purpose: state pushes never carry secret material.
+ * The latest reported failures of the fire-and-forget methods, keyed by
+ * method. Acked methods stay out by construction: their outcomes belong to
+ * the useIntentOutcome hooks of the editors that posted them, which is what
+ * lets a state push retire this store wholesale (failuresAfterStatePush) -
+ * for everything in here, the push IS the success signal.
  */
-export type InlineSecretsResponse = Extract<ExtensionToWebviewMessage, { type: "inlineSecrets" }>;
-
-/** The latest intentSucceeded notice; editors match it against their own requestId. */
-export interface IntentAck {
-	readonly seq: number;
-	readonly requestId: string;
-	/** The extension's optional caveat about the success (see intentSucceeded). */
-	readonly message?: string | undefined;
-}
+export type FailuresByMethod = Readonly<Partial<Record<NotifyingMethod, IntentFailure>>>;
 
 /**
  * The server intents whose success gets a transient toast, with static base
@@ -89,8 +67,8 @@ export interface IntentAck {
  * the extension's message in full. Resolved at call time (no module-level
  * localized constants).
  */
-function toastText(intentType: DashboardIntentType): string | undefined {
-	switch (intentType) {
+function toastText(method: AckedMethod): string | undefined {
+	switch (method) {
 		case "saveServerSetting":
 			return l10n.t("Server saved");
 		case "removeServerSetting":
@@ -226,7 +204,7 @@ function StatusHero({ state, now }: { state: DashboardState; now: number }) {
 				type="button"
 				class="secondary"
 				disabled={state.servers.length === 0}
-				onClick={() => postMessage({ type: "executeCommand", command: "syncModels" })}
+				onClick={() => sendRequest("executeCommand", { command: "syncModels" })}
 			>
 				{l10n.t("Sync models")}
 			</button>
@@ -319,30 +297,20 @@ function SectionPanel({
 }
 
 /**
- * The dashboard root: holds the latest pushed state and the latest intent
- * outcomes, nothing else. The extension re-pushes the full state on every
- * store change, so this component never mutates or persists what it renders.
- * A state push retires only the failure notices of intents whose success
- * signal is the push itself (the record and scalar editors); server intents
- * carry a requestId and get correlated outcome notices, so their failures
- * clear on their own success or an explicit dismissal, never on a push - the
- * sync a partially applied save triggers pushes state moments later and must
- * not erase the warning that save raised.
+ * The dashboard root: holds the latest pushed state, the standing-failure
+ * store, and the toasts, nothing else. The extension re-pushes the full state
+ * on every store change, so this component never mutates or persists what it
+ * renders. A state push retires the standing failures - everything in the
+ * store is a fire-and-forget method whose success signal is the push itself
+ * (failuresAfterStatePush keeps exactly the acked methods' notices, and the
+ * store never holds any: the editors' useIntentOutcome hooks own those, so a
+ * partially applied save's warning survives the sync push that follows it).
  */
 export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?: number } = {}) {
 	const [state, setState] = useState<DashboardState | undefined>(undefined);
 	const [section, setSection] = useState<SectionId>("overview");
-	const [ack, setAck] = useState<IntentAck | undefined>(undefined);
-	const [failures, setFailures] = useState<FailuresByIntent>({});
+	const [failures, setFailures] = useState<FailuresByMethod>({});
 	const [toasts, setToasts] = useState<readonly ToastItem[]>([]);
-	const [inlineSecrets, setInlineSecrets] = useState<InlineSecretsResponse | undefined>(undefined);
-	// The latest request/response answers (capability and params inspectors,
-	// catalog search, resolved-models view); each consumer matches them
-	// against its own requestId, like inlineSecrets.
-	const [capsResponse, setCapsResponse] = useState<ModelCapabilitiesResponse | undefined>(undefined);
-	const [paramsResponse, setParamsResponse] = useState<ModelParametersResponse | undefined>(undefined);
-	const [resolvedResponse, setResolvedResponse] = useState<ResolvedModelsResponse | undefined>(undefined);
-	const [catalogResults, setCatalogResults] = useState<CatalogSearchResponse | undefined>(undefined);
 	// Bumped on every state push: the open inspectors and the resolved-models
 	// view re-request on it so they follow configuration edits live.
 	const [stateSeq, setStateSeq] = useState(0);
@@ -381,13 +349,13 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 			if (message === undefined) {
 				return;
 			}
-			if (message.type === "state") {
+			if (message.kind === "push") {
 				setState(message.state);
 				setFailures(failuresAfterStatePush);
 				setStateSeq((current) => current + 1);
 				return;
 			}
-			if (message.type === "focusSection") {
+			if (message.kind === "focusSection") {
 				// The extension's deep link (litellm.showDiagnostics landing on the
 				// Diagnostics tab); the includes check drops a section this page
 				// does not have instead of blanking every panel.
@@ -396,56 +364,31 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 				}
 				return;
 			}
-			if (message.type === "inlineSecrets") {
-				setInlineSecrets(message);
-				return;
-			}
-			if (message.type === "modelCapabilities") {
-				setCapsResponse(message);
-				return;
-			}
-			if (message.type === "modelParameters") {
-				setParamsResponse(message);
-				return;
-			}
-			if (message.type === "resolvedModels") {
-				setResolvedResponse(message);
-				return;
-			}
-			if (message.type === "catalogSearchResults") {
-				setCatalogResults(message);
+			if (message.kind === "response") {
+				// Read responses belong to the useRpc hook instances that posted them.
 				return;
 			}
 			seq += 1;
-			if (message.type === "intentSucceeded") {
-				setAck({ seq, requestId: message.requestId, message: message.message });
-				setFailures((current) => {
-					if (current[message.intentType] === undefined) {
-						return current;
-					}
-					const { [message.intentType]: _dropped, ...rest } = current;
-					return rest;
-				});
-				const base = toastText(message.intentType);
+			if (message.kind === "ack") {
+				const base = toastText(message.method);
 				if (base !== undefined) {
-					const caveat = message.intentType !== "adoptServer" ? message.message : undefined;
+					const caveat = message.method !== "adoptServer" ? message.message : undefined;
 					const text = caveat !== undefined ? `${base}. ${caveat}` : base;
 					// The stack stays readable: at most three, oldest dropped first.
 					setToasts((current) => [...current, { id: seq, text }].slice(-3));
 				}
 				return;
 			}
-			const failure: IntentFailure = {
-				seq,
-				message: message.message,
-				kind: message.kind,
-				requestId: message.requestId,
-				classification: message.classification,
-			};
-			setFailures((current) => ({ ...current, [message.intentType]: failure }));
+			if (isAckedMethod(message.method)) {
+				// An acked intent's failure belongs to the editor hook that posted
+				// it; the standing store holds only push-retired notices.
+				return;
+			}
+			const failure: IntentFailure = { seq, message: message.message, kind: message.failureKind };
+			setFailures((current) => ({ ...current, [message.method]: failure }));
 		};
 		window.addEventListener("message", onMessage);
-		postMessage({ type: "ready" });
+		sendRequest("ready", null);
 		return () => window.removeEventListener("message", onMessage);
 	}, []);
 
@@ -477,13 +420,6 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	if (state === undefined) {
 		return <LoadingSkeleton />;
 	}
-
-	const dismissFailure = (intentType: DashboardIntentType) => {
-		setFailures((current) => {
-			const { [intentType]: _dropped, ...rest } = current;
-			return rest;
-		});
-	};
 
 	const showServerModels = (label: string) => {
 		setServerScope(label);
@@ -534,11 +470,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		<main>
 			<div class="page-head">
 				<h1>{l10n.t("LiteLLM Dashboard")}</h1>
-				<button
-					type="button"
-					class="quiet"
-					onClick={() => postMessage({ type: "executeCommand", command: "reportIssue" })}
-				>
+				<button type="button" class="quiet" onClick={() => sendRequest("executeCommand", { command: "reportIssue" })}>
 					<IconBug /> {l10n.t("Report a bug")}
 				</button>
 			</div>
@@ -559,12 +491,6 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 					hidden={state.hiddenGroups}
 					usage={state.usage}
 					now={now}
-					ack={ack}
-					failures={failures}
-					inlineSecrets={inlineSecrets}
-					catalogResults={catalogResults}
-					onDismissFailure={dismissFailure}
-					onClearInlineSecrets={() => setInlineSecrets(undefined)}
 					onShowModels={showServerModels}
 					editRequest={serverEditRequest}
 				/>
@@ -588,9 +514,6 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 				<SettingsSection
 					settings={state.settings}
 					models={state.models}
-					ack={ack}
-					failures={failures}
-					catalogResults={catalogResults}
 					observedModelInfoKeys={state.observedModelInfoKeys}
 					now={now}
 					editRecordRequest={editRecordRequest}
@@ -602,7 +525,6 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 					modelCount={state.models.length}
 					legacyServerCount={state.legacyServerCount}
 					diagnostics={state.diagnostics}
-					resolvedResponse={resolvedResponse}
 					active={section === "diagnostics"}
 					stateSeq={stateSeq}
 					onInspect={inspectModel}
@@ -616,8 +538,6 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 			{inspectedModel !== undefined ? (
 				<ModelInspector
 					model={inspectedModel}
-					paramsResponse={paramsResponse}
-					capsResponse={capsResponse}
 					stateSeq={stateSeq}
 					anchor={inspecting?.anchor}
 					fallbackFocusId={`tab-${section}`}

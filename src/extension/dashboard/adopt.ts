@@ -6,18 +6,17 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import type { SecretFieldId } from "../../dashboard/protocol";
-import { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../../dashboard/protocol";
+import type { RequestPayload } from "../../dashboard/endpoints";
 import { isUsableHttpUrl } from "../../dashboard/serverForm";
 import type { ServerModelsSnapshot } from "../../provider";
 import type { GroupServer } from "../../provider/catalog/groupModels";
-import type { OptionalEntryFields } from "../../shared/serverEntry";
+import type { OptionalEntryFields, SecretFieldId } from "../../shared/serverEntry";
+import { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { isUnsafeRecordKey } from "../../shared/util/json";
 import type { DeclaredServerView } from "../servers/serverSync";
 import { acceptedEntry } from "../servers/serverSync";
 import { adoptSourceHandle } from "./adoptHandle";
-import type { DashboardIntent } from "./intentSchema";
 import type { IntentEnvironment } from "./intents";
 import { DashboardOperationError, DashboardValidationError, rawServerEntries } from "./intents";
 import { joinDeclared, labeledSnapshots } from "./state";
@@ -131,7 +130,7 @@ export function resolveAdoptableCredentials(
  * because no entry exists under the label yet.
  */
 export async function applyAdoptServer(
-	intent: Extract<DashboardIntent, { type: "adoptServer" }>,
+	intent: RequestPayload<"adoptServer">,
 	env: IntentEnvironment
 ): Promise<string | undefined> {
 	const label = intent.label.trim();

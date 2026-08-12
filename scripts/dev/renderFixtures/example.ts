@@ -9,7 +9,7 @@ import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";
 
 const fixture: RenderFixture = {
-	messages: [{ type: "state", state: baseState() }],
+	messages: [{ kind: "push", state: baseState() }],
 	viewport: { width: 1300, height: 950 },
 };
 

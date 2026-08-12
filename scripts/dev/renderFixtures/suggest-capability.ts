@@ -11,12 +11,12 @@ import { baseState } from "./shared.ts";
 const fixture: RenderFixture = {
 	messages: [
 		{
-			type: "state",
+			kind: "push",
 			state: baseState({
 				observedModelInfoKeys: ["mode", "litellm_provider", "base_model", "context_window", "max_pdf_size_mb"],
 			}),
 		},
-		{ type: "focusSection", section: "settings" },
+		{ kind: "focusSection", section: "settings" },
 	],
 	steps: [
 		// A fresh matcher opens the editor overlay; a fresh row's key input

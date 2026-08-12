@@ -19,7 +19,7 @@ import {
 	fireInput,
 	fireKeyDown,
 	mount,
-	postedMessages,
+	postedRequests,
 	pushToWebview,
 	resetPosted,
 } from "../harness";
@@ -131,7 +131,7 @@ test("arrows move the highlight with wrap-around, Enter accepts, and aria-active
 	// Accepting a support flag seeds its checkbox true (the row-switch rule).
 	expect(section().querySelector<HTMLInputElement>(".capability-flag input")?.checked).toBe(true);
 	// Accepting never posts: the draft still lands only through Apply.
-	expect(postedMessages.filter((message) => message.type === "setModelCapabilities")).toEqual([]);
+	expect(postedRequests("setModelCapabilities")).toEqual([]);
 });
 
 test("ArrowDown reaches every suggestion in a long list and wraps back to the top", () => {
@@ -173,7 +173,7 @@ test("Escape closes the listbox without picking; ArrowDown reopens onto a highli
 	expect(nameInput().getAttribute("aria-activedescendant")).toBe(active?.id ?? "");
 	fireKeyDown(nameInput(), "Enter");
 	expect(nameInput().value).toBe("temperature");
-	expect(postedMessages.filter((message) => message.type === "setModelParameters")).toEqual([]);
+	expect(postedRequests("setModelParameters")).toEqual([]);
 
 	fireBlur(nameInput());
 	expect(nameInput().getAttribute("aria-expanded")).toBe("false");
@@ -226,7 +226,7 @@ test("the parameter-name input offers the common names and Enter-accepts a highl
 	fireKeyDown(nameInput(), "ArrowDown");
 	fireKeyDown(nameInput(), "Enter");
 	expect(nameInput().value).toBe("presence_penalty");
-	expect(postedMessages.filter((message) => message.type === "setModelParameters")).toEqual([]);
+	expect(postedRequests("setModelParameters")).toEqual([]);
 });
 
 test("the capabilities editor Enter-applies a clean draft too, from key and value inputs alike", () => {
@@ -239,9 +239,10 @@ test("the capabilities editor Enter-applies a clean draft too, from key and valu
 
 	resetPosted();
 	fireKeyDown(valueInput(), "Enter");
-	const posted = postedMessages.filter((message) => message.type === "setModelCapabilities");
+	const posted = postedRequests("setModelCapabilities");
 	expect(posted).toHaveLength(1);
-	expect((posted[0] as { value: Record<string, unknown> }).value["gpt-4"]).toEqual({ context_length: 128000 });
+	const value = posted[0]?.payload.value as Record<string, unknown>;
+	expect(value["gpt-4"]).toEqual({ context_length: 128000 });
 });
 
 test("the GLOBAL capability key suggestions extend with the cross-server observed /model/info union", () => {

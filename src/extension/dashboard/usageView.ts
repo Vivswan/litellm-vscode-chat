@@ -12,7 +12,7 @@ import type {
 	UsageForbiddenServerView,
 	UsageServerCardView,
 	UsageServerView,
-} from "../../dashboard/protocol";
+} from "../../dashboard/viewModels";
 import type { ServerUsageState, UsageEndpointState } from "../servers/usage";
 
 export interface UsageViewInput {

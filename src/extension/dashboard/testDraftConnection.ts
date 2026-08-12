@@ -17,13 +17,13 @@
 
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
-import type { SecretFieldId } from "../../dashboard/protocol";
+import type { RequestPayload } from "../../dashboard/endpoints";
 import type { ExpectedDiscoveryFailures } from "../../provider/catalog/discovery";
 import type { OAuthConfig, VirtualKeyConfig } from "../../provider/transport/auth";
 import { ChatClient } from "../../provider/transport/chatClient";
 import { RequestError } from "../../provider/transport/errorMapping";
 import { transportClassificationOf } from "../../shared/errorClassification";
-import type { DashboardIntent } from "./intentSchema";
+import type { SecretFieldId } from "../../shared/serverEntry";
 import type { IntentEnvironment } from "./intents";
 import { DashboardValidationError, rawServerEntries } from "./intents";
 import { readKeepSources, resolveKeptSecret } from "./saveServer";
@@ -100,7 +100,7 @@ function draftDeclaredModelIds(payload: readonly string[]): readonly string[] {
  * never response text.
  */
 export async function applyTestServerDraft(
-	intent: Extract<DashboardIntent, { type: "testServerDraft" }>,
+	intent: RequestPayload<"testServerDraft">,
 	env: IntentEnvironment
 ): Promise<DraftProbeOutcome> {
 	const label = intent.server.label.trim();

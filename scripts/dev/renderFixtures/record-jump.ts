@@ -8,14 +8,16 @@ import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";
 
 const fixture: RenderFixture = {
-	messages: [{ type: "state", state: baseState() }],
+	messages: [{ kind: "push", state: baseState() }],
 	respond: {
 		readModelParameters: {
-			type: "modelParameters",
-			projection: {
-				rows: [],
-				maxTokens: { source: "capped-default", value: 4096 },
-				diagnostics: [],
+			kind: "response",
+			payload: {
+				projection: {
+					rows: [],
+					maxTokens: { source: "capped-default", value: 4096 },
+					diagnostics: [],
+				},
 			},
 		},
 	},

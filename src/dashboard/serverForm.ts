@@ -13,18 +13,13 @@ import * as l10n from "@vscode/l10n";
 import type {
 	ExpectedFailureCategory,
 	NonSecretOptionalFieldId,
-	SaveServerPayload,
-	SecretDirective,
 	SecretFieldId,
 	SecretLocation,
-} from "./protocol";
-import {
-	isUnsafeRecordKey,
-	isValidHeaderName,
-	isValidHeaderValue,
-	NON_SECRET_OPTIONAL_FIELD_IDS,
-	SECRET_FIELD_IDS,
-} from "./protocol";
+} from "../shared/serverEntry";
+import { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../shared/serverEntry";
+import { isValidHeaderName, isValidHeaderValue } from "../shared/util/headers";
+import { isUnsafeRecordKey } from "../shared/util/json";
+import type { SaveServerPayload, SecretDirective } from "./endpoints";
 import type { CapabilityGroupIssues, GroupHints, GroupProblems, HeaderRow, PrefixGroup } from "./recordDraft";
 import { parseCapabilityGroups, parseGroups, parseHeaderRows } from "./recordDraft";
 
@@ -561,7 +556,7 @@ function secretDirectives(
  * problems that block it; there is no separate validation pass to drift from
  * the assembly. The problem messages never repeat an entered value: drafts
  * carry secrets, and the extension surfaces the same messages through logs
- * and the intentFailed notice.
+ * and the fail envelope's notice.
  */
 export function parseServerForm(draft: ServerFormDraft, context: ServerFormContext = {}): ServerFormParse {
 	const {

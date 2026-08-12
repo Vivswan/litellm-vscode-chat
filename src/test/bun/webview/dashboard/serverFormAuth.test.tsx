@@ -7,7 +7,7 @@
  * test-connection result.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import type { WebviewToExtensionMessage } from "../../../../dashboard/protocol";
+import type { RpcRequest } from "../../../../dashboard/endpoints";
 import { App } from "../../../../webview/dashboard/app";
 import { ServersSection } from "../../../../webview/dashboard/servers";
 import { declaredWithSecrets, makeDeclaredServer, makeMisconfiguredServer, makeState, statePush } from "../fixtures";
@@ -19,6 +19,7 @@ import {
 	fireInput,
 	inputByLabel,
 	mount,
+	postedCalls,
 	postedMessages,
 	pushToWebview,
 	resetPosted,
@@ -31,20 +32,8 @@ afterEach(() => {
 	cleanup();
 });
 
-const noop = () => {};
-
 function mountSection(servers: Parameters<typeof ServersSection>[0]["servers"]) {
-	return mount(
-		<ServersSection
-			servers={servers}
-			now={Date.now()}
-			ack={undefined}
-			failures={{}}
-			inlineSecrets={undefined}
-			onDismissFailure={noop}
-			onClearInlineSecrets={noop}
-		/>
-	);
+	return mount(<ServersSection servers={servers} now={Date.now()} />);
 }
 
 /** The auth selector's radio whose visible label text matches exactly. */
@@ -110,9 +99,9 @@ test("editing a keyed entry derives the API-key form; switching to None keeps th
 	resetPosted();
 	fireCheck(remove[0] as HTMLInputElement, true);
 	fireClick(buttonByText(root, "Save"));
-	const posted = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
-	expect(posted.type).toBe("saveServerSetting");
-	expect(posted.secrets.apiKey).toEqual({ action: "clear" });
+	const posted = postedMessages[0] as RpcRequest<"saveServerSetting">;
+	expect(posted.method).toBe("saveServerSetting");
+	expect(posted.payload.secrets.apiKey).toEqual({ action: "clear" });
 });
 
 test("a misconfigured row shows the Misconfigured pill, swaps Edit for Fix in settings.json, and keeps Remove", () => {
@@ -129,7 +118,7 @@ test("a misconfigured row shows the Misconfigured pill, swaps Edit for Fix in se
 
 	resetPosted();
 	fireClick(buttonByText(root, "Fix in settings.json"));
-	expect(postedMessages).toEqual([{ type: "revealSetting", setting: "servers" }]);
+	expect(postedCalls()).toEqual([{ method: "revealSetting", payload: { setting: "servers" } }]);
 
 	// Its problems render in the misconfigured banner, not the generic error
 	// banner (which this state has no member for), with the one-form hint.
@@ -143,9 +132,9 @@ test("a misconfigured row shows the Misconfigured pill, swaps Edit for Fix in se
 	resetPosted();
 	fireClick(buttonByText(root, "Remove"));
 	fireClick(buttonByText(root, "Confirm remove?"));
-	const removed = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "removeServerSetting" }>;
-	expect(removed.type).toBe("removeServerSetting");
-	expect(removed.label).toBe("Broken");
+	const removed = postedMessages[0] as RpcRequest<"removeServerSetting">;
+	expect(removed.method).toBe("removeServerSetting");
+	expect(removed.payload.label).toBe("Broken");
 });
 
 test("the header rows round-trip through the save intent, edits and additions included", () => {
@@ -173,9 +162,9 @@ test("the header rows round-trip through the save intent, edits and additions in
 
 	resetPosted();
 	fireClick(buttonByText(root, "Save"));
-	const posted = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
-	expect(posted.type).toBe("saveServerSetting");
-	expect(posted.server.headers).toEqual({ "x-routing-env": "staging", "x-trace-source": "vscode" });
+	const posted = postedMessages[0] as RpcRequest<"saveServerSetting">;
+	expect(posted.method).toBe("saveServerSetting");
+	expect(posted.payload.server.headers).toEqual({ "x-routing-env": "staging", "x-trace-source": "vscode" });
 });
 
 test("switching the auth form clears a standing test result", () => {
@@ -186,11 +175,11 @@ test("switching the auth form clears a standing test result", () => {
 
 	resetPosted();
 	fireClick(buttonByText(root, "Test connection"));
-	const posted = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
+	const posted = postedMessages[0] as RpcRequest<"testServerDraft">;
 	pushToWebview({
-		type: "intentSucceeded",
-		intentType: "testServerDraft",
-		requestId: posted.requestId,
+		kind: "ack",
+		id: posted.id,
+		method: "testServerDraft",
 		message: "Connected - 3 models",
 	});
 	expect(root.querySelector(".test-result")).not.toBeNull();

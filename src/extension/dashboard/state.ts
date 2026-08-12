@@ -10,7 +10,6 @@
  */
 
 import type {
-	BooleanSettingId,
 	CatalogStatusView,
 	ConfigDiagnosticView,
 	DashboardModel,
@@ -21,12 +20,10 @@ import type {
 	DeclaredServerNotice,
 	ExternalServerProvenance,
 	HiddenGroup,
-	NumberSettingId,
 	ScopedRecordSetting,
 	SettingScope,
-	TransportErrorClassification,
-} from "../../dashboard/protocol";
-import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS, NUMBER_SETTING_SPECS } from "../../dashboard/protocol";
+} from "../../dashboard/viewModels";
+import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS } from "../../dashboard/viewModels";
 import type { ServerModelsSnapshot } from "../../provider";
 import type { PreAttachModelInfo } from "../../provider/catalog/groupModels";
 import { modelSupportsPromptCaching } from "../../provider/catalog/groupModels";
@@ -41,6 +38,8 @@ import { matchChain } from "../../shared/config/modelMatcher";
 import type { EffectiveParametersProjection } from "../../shared/config/parameterResolution";
 import { projectResolvedParameters, resolveModelParameters } from "../../shared/config/parameterResolution";
 import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
+import type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
+import { NUMBER_SETTING_SPECS } from "../../shared/config/settingSpec";
 import {
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
@@ -51,6 +50,7 @@ import {
 	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
 	USAGE_STATUS_BAR_SETTING_KEY,
 } from "../../shared/config/settings";
+import type { TransportErrorClassification } from "../../shared/errorClassification";
 import { pickNonSecretOptionalFields } from "../../shared/serverEntry";
 import type { ServerStatus } from "../../shared/servers";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";

@@ -15,6 +15,7 @@
  * reports.
  */
 
+import { formatJsonValue } from "../../dashboard/presenters";
 import type {
 	RecordChainLink,
 	RecordChainView,
@@ -24,8 +25,7 @@ import type {
 	ResolvedModelRow,
 	ResolvedModelsView,
 	ResolvedParamCell,
-} from "../../dashboard/protocol";
-import { formatJsonValue } from "../../dashboard/protocol";
+} from "../../dashboard/viewModels";
 import type { ServerModelsSnapshot } from "../../provider";
 import { rawModelIdFromExposed } from "../../provider/catalog/modelCatalog";
 import type {

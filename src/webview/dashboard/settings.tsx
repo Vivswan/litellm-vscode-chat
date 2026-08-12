@@ -1,37 +1,34 @@
 import * as l10n from "@vscode/l10n";
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
-import type {
-	BooleanSettingId,
-	CatalogStatusView,
-	DashboardModel,
-	DashboardSettings,
-	NumberSettingId,
-	ResettableSettingId,
-	RevealableSettingId,
-	SettingScope,
-	UsageStatusBarModeSetting,
-} from "../../dashboard/protocol";
 import {
-	BOOLEAN_SETTING_IDS,
 	booleanSettingPresentation,
 	defaultDisplay,
 	draftSyncKey,
 	equivalence,
 	isBoundViolation,
-	NUMBER_SETTING_IDS,
-	NUMBER_SETTING_SPECS,
 	numberSettingPresentation,
 	parseNumberDraft,
 	settingScopeLabel,
 	unitBehavior,
-} from "../../dashboard/protocol";
-import type { FailuresByIntent, IntentAck } from "./app";
+} from "../../dashboard/presenters";
+import type {
+	CatalogStatusView,
+	DashboardModel,
+	DashboardSettings,
+	ResettableSettingId,
+	RevealableSettingId,
+	SettingScope,
+	UsageStatusBarModeSetting,
+} from "../../dashboard/viewModels";
+import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS } from "../../dashboard/viewModels";
+import type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
+import { NUMBER_SETTING_SPECS } from "../../shared/config/settingSpec";
 import { DOCS_LINK_OPENROUTER_CATALOG, DOCS_LINK_SETTINGS } from "./docsLinks";
 import { DocsLink, Help } from "./help";
 import { helpCatalogRow, helpImportExportGroup, helpSettingsSection, settingRowHelp } from "./helpText";
 import { IconBraces } from "./icons";
-import type { CatalogSearchResponse, ExternalRecordEdit } from "./recordEditors";
+import type { ExternalRecordEdit } from "./recordEditors";
 import {
 	ModelCapabilitiesEditor,
 	ModelParametersEditor,
@@ -39,7 +36,7 @@ import {
 	modelParametersTitle,
 } from "./recordEditors";
 import { relativeTime } from "./time";
-import { postMessage } from "./vscodeApi";
+import { sendRequest } from "./vscodeApi";
 
 /**
  * The inspectors' configure-jump into one of this tab's record editors: which
@@ -114,7 +111,7 @@ function RevealButton({ title, settingId }: { title: string; settingId: Revealab
 			type="button"
 			class="quiet reveal-json"
 			aria-label={l10n.t("Open {0} in settings.json", title)}
-			onClick={() => postMessage({ type: "revealSetting", setting: settingId })}
+			onClick={() => sendRequest("revealSetting", { setting: settingId })}
 		>
 			<IconBraces />
 		</button>
@@ -146,7 +143,7 @@ function ResetButton({
 			type="button"
 			class="quiet reset"
 			aria-label={action}
-			onClick={() => postMessage({ type: "resetSetting", setting: settingId })}
+			onClick={() => sendRequest("resetSetting", { setting: settingId })}
 		>
 			{l10n.t("Reset")}
 		</button>
@@ -225,12 +222,12 @@ function NumberField({
 		}
 		if (parse.kind === "clear") {
 			if (value !== null) {
-				postMessage({ type: "setNumberSetting", setting: id, value: null });
+				sendRequest("setNumberSetting", { setting: id, value: null });
 			}
 			return;
 		}
 		if (parse.value !== value) {
-			postMessage({ type: "setNumberSetting", setting: id, value: parse.value });
+			sendRequest("setNumberSetting", { setting: id, value: parse.value });
 		}
 	};
 	// Blur and Enter both mean "done typing": commit a valid draft, and let a
@@ -329,9 +326,7 @@ function BooleanField({
 						id={inputId}
 						type="checkbox"
 						checked={value}
-						onChange={(event) =>
-							postMessage({ type: "setBooleanSetting", setting: id, value: event.currentTarget.checked })
-						}
+						onChange={(event) => sendRequest("setBooleanSetting", { setting: id, value: event.currentTarget.checked })}
 					/>
 					<span class="setting-desc">{presentation.description}</span>
 				</label>
@@ -367,7 +362,7 @@ function CatalogRow({ catalog, enabled, now }: { catalog: CatalogStatusView; ena
 						type="button"
 						class="secondary"
 						disabled={catalog.refreshing}
-						onClick={() => postMessage({ type: "refreshCatalog" })}
+						onClick={() => sendRequest("refreshCatalog", null)}
 					>
 						{catalog.refreshing ? (
 							<>
@@ -439,8 +434,7 @@ function UsageStatusBarRow({
 					id={inputId}
 					value={mode}
 					onChange={(event) =>
-						postMessage({
-							type: "setUsageStatusBar",
+						sendRequest("setUsageStatusBar", {
 							value: event.currentTarget.value as UsageStatusBarModeSetting,
 						})
 					}
@@ -600,7 +594,7 @@ function UsageThresholdsRow({
 			return;
 		}
 		if (parsed.join(",") !== values.join(",")) {
-			postMessage({ type: "setUsageAlertThresholds", values: parsed });
+			sendRequest("setUsageAlertThresholds", { values: parsed });
 		}
 	};
 
@@ -792,20 +786,12 @@ function recordEditorMatches(
 export function SettingsSection({
 	settings,
 	models,
-	ack,
-	failures,
-	catalogResults,
 	observedModelInfoKeys,
 	now,
 	editRecordRequest,
 }: {
 	settings: DashboardSettings;
 	models: readonly DashboardModel[];
-	/** The latest intentSucceeded notice; the record editors match it against their own requestIds. */
-	ack?: IntentAck | undefined;
-	failures: FailuresByIntent;
-	/** The latest catalogSearchResults response, for the capability editor's `_openrouter_model` picker. */
-	catalogResults?: CatalogSearchResponse | undefined;
 	/** The cross-server observed /model/info key union (DashboardState.observedModelInfoKeys), the capability editor's hint evidence. */
 	observedModelInfoKeys?: readonly string[] | undefined;
 	/** The shared clock tick; the catalog row's "updated N ago" reads it. */
@@ -867,7 +853,7 @@ export function SettingsSection({
 				<button
 					type="button"
 					class="secondary"
-					onClick={() => postMessage({ type: "executeCommand", command: "openSettings" })}
+					onClick={() => sendRequest("executeCommand", { command: "openSettings" })}
 				>
 					{l10n.t("Open in Settings editor")}
 				</button>
@@ -916,17 +902,12 @@ export function SettingsSection({
 										<ModelParametersEditor
 											scoped={settings.modelParameters}
 											models={models}
-											ack={ack}
-											failure={failures.setModelParameters}
 											hidden={!paramsVisible}
 											external={editRecordRequest?.kind === "parameters" ? editRecordRequest : undefined}
 										/>
 										<ModelCapabilitiesEditor
 											scoped={settings.modelCapabilities}
 											models={models}
-											ack={ack}
-											failure={failures.setModelCapabilities}
-											catalogResults={catalogResults}
 											observedKeys={observedModelInfoKeys}
 											hidden={!capsVisible}
 											external={editRecordRequest?.kind === "capabilities" ? editRecordRequest : undefined}
@@ -977,14 +958,14 @@ export function SettingsSection({
 							<button
 								type="button"
 								class="secondary"
-								onClick={() => postMessage({ type: "executeCommand", command: "exportSettings" })}
+								onClick={() => sendRequest("executeCommand", { command: "exportSettings" })}
 							>
 								{l10n.t("Export settings")}
 							</button>
 							<button
 								type="button"
 								class="secondary"
-								onClick={() => postMessage({ type: "executeCommand", command: "importSettings" })}
+								onClick={() => sendRequest("executeCommand", { command: "importSettings" })}
 							>
 								{l10n.t("Import settings")}
 							</button>

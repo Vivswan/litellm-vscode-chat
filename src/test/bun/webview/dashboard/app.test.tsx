@@ -1,7 +1,7 @@
 /**
  * App-level behavior: the ready handshake, the message guard, the state fan
- * out, and which failure notices a state push retires (the ACKED_INTENT_TYPES
- * contract documented on App).
+ * out, and which failure notices a state push retires (the acked-method
+ * contract documented on App and the endpoint table).
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { App } from "../../../../webview/dashboard/app";
@@ -10,10 +10,13 @@ import {
 	buttonByText,
 	cleanup,
 	fireClick,
+	lastRequest,
 	mount,
-	postedMessages,
+	postedCalls,
+	postedRequests,
 	pushToWebview,
 	resetPosted,
+	respondTo,
 	textOf,
 } from "../harness";
 
@@ -26,7 +29,7 @@ afterEach(() => {
 
 test("mount posts the ready handshake and renders the loading skeleton until the first state push", () => {
 	const root = mount(<App />);
-	expect(postedMessages).toEqual([{ type: "ready" }]);
+	expect(postedCalls()).toEqual([{ method: "ready", payload: null }]);
 	expect(root.querySelector("main[aria-label='Loading']")).not.toBeNull();
 	expect(root.querySelectorAll(".skeleton").length).toBeGreaterThan(0);
 	expect(root.querySelector("h1")).toBeNull();
@@ -83,10 +86,11 @@ test("a setNumberSetting intentFailed renders the scalar failure line and the ne
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 	pushToWebview({
-		type: "intentFailed",
-		intentType: "setNumberSetting",
+		kind: "fail",
+		id: "req-1",
+		method: "setNumberSetting",
 		message: "the write was refused",
-		kind: "validation",
+		failureKind: "validation",
 	});
 	expect(root.textContent).toContain("The last change did not apply: the write was refused");
 
@@ -94,15 +98,15 @@ test("a setNumberSetting intentFailed renders the scalar failure line and the ne
 	expect(root.textContent).not.toContain("The last change did not apply");
 });
 
-test("a saveServerSetting intentFailed survives a subsequent state push", () => {
+test("a saveServerSetting fail notice survives a subsequent state push", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()] })));
 	pushToWebview({
-		type: "intentFailed",
-		intentType: "saveServerSetting",
+		kind: "fail",
+		id: "req-1",
+		method: "saveServerSetting",
 		message: "the group upsert failed; delete the stale group from the models file",
-		kind: "operation",
-		requestId: "req-1",
+		failureKind: "operation",
 	});
 	expect(root.textContent).toContain("the group upsert failed");
 
@@ -111,7 +115,7 @@ test("a saveServerSetting intentFailed survives a subsequent state push", () => 
 	expect(root.textContent).toContain("the group upsert failed");
 
 	// Its own success is what retires it.
-	pushToWebview({ type: "intentSucceeded", intentType: "saveServerSetting", requestId: "req-2" });
+	pushToWebview({ kind: "ack", id: "req-2", method: "saveServerSetting" });
 	expect(root.textContent).not.toContain("the group upsert failed");
 });
 
@@ -125,7 +129,7 @@ test("Sync models disables with zero servers and posts the executeCommand intent
 	expect(button.disabled).toBe(false);
 	resetPosted();
 	fireClick(button);
-	expect(postedMessages).toEqual([{ type: "executeCommand", command: "syncModels" }]);
+	expect(postedCalls()).toEqual([{ method: "executeCommand", payload: { command: "syncModels" } }]);
 });
 
 test("the page header carries one quiet Report-a-bug action that posts the reportIssue command", () => {
@@ -137,7 +141,7 @@ test("the page header carries one quiet Report-a-bug action that posts the repor
 	expect(button.classList.contains("quiet")).toBe(true);
 	resetPosted();
 	fireClick(button);
-	expect(postedMessages).toEqual([{ type: "executeCommand", command: "reportIssue" }]);
+	expect(postedCalls()).toEqual([{ method: "executeCommand", payload: { command: "reportIssue" } }]);
 });
 
 test("with only legacy-registry servers the hero says so instead of claiming not configured", () => {
@@ -167,10 +171,7 @@ test("the Diagnostics table's inspector opens in place over the tab and closing 
 	expect(diagnosticsTab().getAttribute("aria-selected")).toBe("true");
 
 	// Answer the tab's readResolvedModels with one row for the model.
-	const read = postedMessages.find((message) => message.type === "readResolvedModels") as { requestId: string };
-	pushToWebview({
-		type: "resolvedModels",
-		requestId: read.requestId,
+	respondTo(lastRequest("readResolvedModels"), {
 		view: {
 			trees: [],
 			recordCount: 0,
@@ -193,10 +194,10 @@ test("the Diagnostics table's inspector opens in place over the tab and closing 
 	// No tab switch: the overlay rides over the Diagnostics page.
 	expect(diagnosticsTab().getAttribute("aria-selected")).toBe("true");
 	// The merged panel asks both feeds about exactly the clicked row.
-	for (const type of ["readModelParameters", "readModelCapabilities"]) {
-		const request = [...postedMessages].reverse().find((message) => message.type === type) as { scopeKey: string };
-		expect(request).not.toBeUndefined();
-		expect(request.scopeKey).toBe("s0");
+	for (const method of ["readModelParameters", "readModelCapabilities"] as const) {
+		const read = postedRequests(method).at(-1);
+		expect(read).not.toBeUndefined();
+		expect(read?.payload.scopeKey).toBe("s0");
 	}
 
 	fireClick(document.querySelector("[role='dialog'] button[aria-label='Close']") as HTMLButtonElement);

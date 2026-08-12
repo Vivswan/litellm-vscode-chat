@@ -8,28 +8,23 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import { compareSpecificity, parseMatcherKey } from "../shared/config/modelMatcher";
-import { isRecord } from "../shared/util/json";
-import type { CapabilityFieldName, CapabilityValueKind, ExpectedFailureCategory, HeaderScalar } from "./protocol";
+import type { CapabilityFieldName, CapabilityValueKind } from "../shared/config/capabilityResolution";
 import {
 	CAPABILITY_FIELDS,
 	CONSUMED_CAPABILITY_FIELDS,
-	EXPECTED_FAILURE_CATEGORIES,
 	FALLBACK_DIRECTIVE,
-	FORCE_DIRECTIVE,
-	formatHeaderValue,
-	formatJsonValue,
-	INHERIT_FROM_DIRECTIVE,
-	INHERITABLE_DIRECTIVE,
-	isForceableParameter,
-	isUnsafeRecordKey,
 	isValidConsumedCapabilityValue,
-	isValidHeaderName,
-	isValidHeaderValue,
 	OPENROUTER_MODEL_DIRECTIVE,
-	parseHeaderValue,
-	parseJsonValue,
-} from "./protocol";
+} from "../shared/config/capabilityResolution";
+import { compareSpecificity, parseMatcherKey } from "../shared/config/modelMatcher";
+import { FORCE_DIRECTIVE, isForceableParameter } from "../shared/config/parameterResolution";
+import { INHERIT_FROM_DIRECTIVE, INHERITABLE_DIRECTIVE } from "../shared/config/recordResolution";
+import type { ExpectedFailureCategory } from "../shared/serverEntry";
+import { EXPECTED_FAILURE_CATEGORIES } from "../shared/serverEntry";
+import type { HeaderScalar } from "../shared/util/headers";
+import { isValidHeaderName, isValidHeaderValue } from "../shared/util/headers";
+import { isRecord, isUnsafeRecordKey } from "../shared/util/json";
+import { formatHeaderValue, formatJsonValue, parseHeaderValue, parseJsonValue } from "./presenters";
 
 interface ParamRow {
 	readonly key: string;

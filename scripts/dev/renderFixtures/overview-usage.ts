@@ -3,7 +3,7 @@
  * percentages, a plain no-budget spend, and rows without usage data keeping
  * an empty cell (the external group and the misconfigured entry).
  */
-import type { DashboardServer } from "../../../src/dashboard/protocol.ts";
+import type { DashboardServer } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, EXTERNAL_SERVER, GATEWAY_SERVER, MISCONFIGURED_SERVER, PROD_SERVER } from "./shared.ts";
 
@@ -25,7 +25,7 @@ const SANDBOX_SERVER: DashboardServer = {
 const fixture: RenderFixture = {
 	messages: [
 		{
-			type: "state",
+			kind: "push",
 			state: baseState({
 				servers: [PROD_SERVER, GATEWAY_SERVER, RESEARCH_SERVER, SANDBOX_SERVER, EXTERNAL_SERVER, MISCONFIGURED_SERVER],
 			}),

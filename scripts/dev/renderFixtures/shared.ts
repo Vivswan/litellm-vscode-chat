@@ -9,7 +9,7 @@ import type {
 	DashboardState,
 	DashboardUsage,
 	ResolvedModelsView,
-} from "../../../src/dashboard/protocol.ts";
+} from "../../../src/dashboard/viewModels.ts";
 import { RENDER_EPOCH_MS } from "../renderClock.ts";
 
 // The harness freezes the page's clock to the same instant, so every

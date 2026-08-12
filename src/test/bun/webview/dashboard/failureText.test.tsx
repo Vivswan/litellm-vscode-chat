@@ -19,20 +19,8 @@ import { cleanup, mount, pushToWebview, resetPosted, textOf } from "../harness";
 beforeEach(resetPosted);
 afterEach(cleanup);
 
-const noop = () => {};
-
 function mountServers(servers: readonly ReturnType<typeof makeDeclaredServer>[]) {
-	return mount(
-		<ServersSection
-			servers={servers}
-			now={Date.now()}
-			ack={undefined}
-			failures={{}}
-			inlineSecrets={undefined}
-			onDismissFailure={noop}
-			onClearInlineSecrets={noop}
-		/>
-	);
+	return mount(<ServersSection servers={servers} now={Date.now()} />);
 }
 
 test("FailureText renders headline and detail as separate elements; single-part messages get no detail", () => {
@@ -57,10 +45,11 @@ test("a two-part scalar-setting failure keeps the headline in the sentence and t
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 	pushToWebview({
-		type: "intentFailed",
-		intentType: "setNumberSetting",
+		kind: "fail",
+		id: "req-1",
+		method: "setNumberSetting",
 		message: "The value was rejected.\nchat.timeout: must be a positive integer",
-		kind: "validation",
+		failureKind: "validation",
 	});
 	const line = root.querySelector("p.error");
 	expect(line?.textContent).toContain("The last change did not apply: The value was rejected.");
@@ -71,10 +60,11 @@ test("a setUsageAlertThresholds failure reaches the scalar-failure surface", () 
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 	pushToWebview({
-		type: "intentFailed",
-		intentType: "setUsageAlertThresholds",
+		kind: "fail",
+		id: "req-1",
+		method: "setUsageAlertThresholds",
 		message: "Thresholds were not saved.",
-		kind: "validation",
+		failureKind: "validation",
 	});
 	expect(root.querySelector("p.error")?.textContent).toContain(
 		"The last change did not apply: Thresholds were not saved."
@@ -85,10 +75,11 @@ test("a two-part server failure banner renders the framed headline plus a detail
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()] })));
 	pushToWebview({
-		type: "intentFailed",
-		intentType: "saveServerSetting",
+		kind: "fail",
+		id: "req-1",
+		method: "saveServerSetting",
 		message: "The entry could not be written.\nsettings.json is read-only",
-		kind: "validation",
+		failureKind: "validation",
 	});
 	const banner = root.querySelector(".banner-error");
 	expect(banner?.textContent).toContain("Saving the server failed: The entry could not be written.");
@@ -150,7 +141,6 @@ test("the diagnostics grid splits a two-part server error instead of collapsing 
 			modelCount={0}
 			legacyServerCount={0}
 			diagnostics={[]}
-			resolvedResponse={undefined}
 			active={false}
 			stateSeq={0}
 			onInspect={() => undefined}

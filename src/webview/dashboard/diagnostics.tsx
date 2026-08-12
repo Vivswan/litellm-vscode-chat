@@ -18,27 +18,23 @@ import * as l10n from "@vscode/l10n";
 import type { ComponentChildren } from "preact";
 import { Fragment } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { latestCheckedMs, overallStatusText, serverOutcomeParts, serverOutcomeText } from "../../dashboard/presenters";
 import type {
 	ConfigDiagnosticView,
 	DashboardServer,
-	ExtensionToWebviewMessage,
-	RecordDiagnostic,
 	RecordTreeNode,
 	RecordTreeView,
 	ResolvedCapCell,
 	ResolvedModelRow,
 	ResolvedParamCell,
-} from "../../dashboard/protocol";
+} from "../../dashboard/viewModels";
 import {
 	COST_CAPABILITY_FIELDS,
 	capabilityDisplayLabel,
 	formatCostPerMillion,
-	latestCheckedMs,
-	overallStatusText,
 	parameterCountText,
-	serverOutcomeParts,
-	serverOutcomeText,
-} from "../../dashboard/protocol";
+} from "../../shared/config/capabilityDisplay";
+import type { RecordDiagnostic } from "../../shared/config/recordResolution";
 import type { DocsUrl } from "./docsLinks";
 import {
 	DOCS_LINK_AUTHENTICATION,
@@ -51,6 +47,7 @@ import { FailureText } from "./failureText";
 import type { FeedbackUrl } from "./feedbackLinks";
 import { FEEDBACK_LINK_FEATURE_REQUEST, FEEDBACK_LINK_RATE, FEEDBACK_LINK_REPOSITORY } from "./feedbackLinks";
 import { DocsLink, HoverTip } from "./help";
+import { useRpc } from "./hooks";
 import {
 	IconBook,
 	IconBug,
@@ -65,10 +62,7 @@ import {
 } from "./icons";
 import type { InspectorSection } from "./modelInspector";
 import { relativeTime } from "./time";
-import { newRequestId, postMessage } from "./vscodeApi";
-
-/** The latest resolvedModels response; the view matches it against its own request ID. */
-export type ResolvedModelsResponse = Extract<ExtensionToWebviewMessage, { type: "resolvedModels" }>;
+import { sendRequest } from "./vscodeApi";
 
 /** One feedback row: the action (an anchor or a button) with its muted one-liner. */
 function FeedbackRow({ action, hint }: { action: ComponentChildren; hint: string }) {
@@ -704,31 +698,28 @@ function matchesResolvedFilter(row: ResolvedModelRow, needle: string): boolean {
  * table, both reading the extension's shared resolution (readResolvedModels).
  */
 function ResolvedModels({
-	response,
 	active,
 	stateSeq,
 	onInspect,
 }: {
-	response: ResolvedModelsResponse | undefined;
 	active: boolean;
 	stateSeq: number;
 	/** Opens the merged model inspector anchored on the named section. */
 	onInspect: (target: { scopeKey: string; rawId: string; serverLabel: string }, section: InspectorSection) => void;
 }) {
-	const [requestId, setRequestId] = useState<string | undefined>(undefined);
+	const resolved = useRpc("readResolvedModels");
 	const [filter, setFilter] = useState("");
 	// Request on first show and again on every push while visible: the view
 	// must follow settings edits; hidden tabs stay quiet.
+	const { send } = resolved;
 	useEffect(() => {
 		if (!active) {
 			return;
 		}
-		const id = newRequestId();
-		setRequestId(id);
-		postMessage({ type: "readResolvedModels", requestId: id });
-	}, [active, stateSeq]);
+		send(null);
+	}, [active, stateSeq, send]);
 
-	const view = requestId !== undefined && response?.requestId === requestId ? response.view : undefined;
+	const view = resolved.data?.view;
 	const needle = filter.trim().toLowerCase();
 	const rows =
 		view === undefined
@@ -861,7 +852,6 @@ export function DiagnosticsSection({
 	modelCount,
 	legacyServerCount,
 	diagnostics,
-	resolvedResponse,
 	active,
 	stateSeq,
 	onInspect,
@@ -871,7 +861,6 @@ export function DiagnosticsSection({
 	modelCount: number;
 	legacyServerCount: number;
 	diagnostics: readonly ConfigDiagnosticView[];
-	resolvedResponse: ResolvedModelsResponse | undefined;
 	/** Whether the Diagnostics tab is the visible one; the resolved view requests only while shown. */
 	active: boolean;
 	/** Bumped on every state push; the resolved view re-requests on it while visible. */
@@ -916,17 +905,19 @@ export function DiagnosticsSection({
 					<button
 						type="button"
 						class="secondary"
-						// Legacy-registry servers are testable too: litellm.testConnection
-						// still sweeps the registry until migration completes.
-						disabled={servers.length === 0 && legacyServerCount === 0}
-						onClick={() => postMessage({ type: "executeCommand", command: "testConnection" })}
+						// Registry-only installs get no offer to test: the legacy
+						// registry's serving path retires with this release train, so
+						// with no server rows there is nothing this dashboard manages
+						// that a connection test could durably reach.
+						disabled={servers.length === 0}
+						onClick={() => sendRequest("executeCommand", { command: "testConnection" })}
 					>
 						<IconPlug /> {l10n.t("Test connection")}
 					</button>
 					<button
 						type="button"
 						class="secondary"
-						onClick={() => postMessage({ type: "executeCommand", command: "openOutput" })}
+						onClick={() => sendRequest("executeCommand", { command: "openOutput" })}
 					>
 						<IconOutput /> {l10n.t("Open output log")}
 					</button>
@@ -936,7 +927,7 @@ export function DiagnosticsSection({
 				</div>
 			</section>
 			<ConfigDiagnostics diagnostics={diagnostics} />
-			<ResolvedModels response={resolvedResponse} active={active} stateSeq={stateSeq} onInspect={onInspect} />
+			<ResolvedModels active={active} stateSeq={stateSeq} onInspect={onInspect} />
 			<section aria-labelledby="diagnostics-feedback-title">
 				<h2 id="diagnostics-feedback-title">{l10n.t("Feedback & links")}</h2>
 				<ul class="feedback-links">
@@ -945,7 +936,7 @@ export function DiagnosticsSection({
 							<button
 								type="button"
 								class="linkish"
-								onClick={() => postMessage({ type: "executeCommand", command: "reportIssue" })}
+								onClick={() => sendRequest("executeCommand", { command: "reportIssue" })}
 							>
 								<IconBug /> {l10n.t("Report a bug")}
 							</button>

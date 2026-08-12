@@ -1,26 +1,6 @@
 import * as l10n from "@vscode/l10n";
 import { Fragment } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import type {
-	DashboardIntentType,
-	DashboardServer,
-	DashboardUsage,
-	ExpectedFailureCategory,
-	HiddenGroup,
-	InactiveEntryNotice,
-	SecretFieldId,
-	SecretLocation,
-	SetupHintKind,
-	TransportErrorClassification,
-	UsageServerView,
-} from "../../dashboard/protocol";
-import {
-	DEFAULT_API_VERSION,
-	EXPECTED_FAILURE_CATEGORIES,
-	SECRET_FIELD_IDS,
-	statusErrorDetail,
-	statusErrorHeadline,
-} from "../../dashboard/protocol";
 import type { GroupProblems, HeaderRow } from "../../dashboard/recordDraft";
 import { toCapabilityGroups, toGroups, toggleExpectedFailure, toHeaderRows } from "../../dashboard/recordDraft";
 import type {
@@ -46,7 +26,18 @@ import {
 	serverFormFieldLabel,
 	validateAdoptLabel,
 } from "../../dashboard/serverForm";
-import type { FailuresByIntent, InlineSecretsResponse, IntentAck } from "./app";
+import type {
+	DashboardServer,
+	DashboardUsage,
+	HiddenGroup,
+	InactiveEntryNotice,
+	UsageServerView,
+} from "../../dashboard/viewModels";
+import type { SetupHintKind, TransportErrorClassification } from "../../shared/errorClassification";
+import type { ExpectedFailureCategory, SecretFieldId, SecretLocation } from "../../shared/serverEntry";
+import { EXPECTED_FAILURE_CATEGORIES, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import { DEFAULT_API_VERSION } from "../../shared/util/baseUrl";
+import { statusErrorDetail, statusErrorHeadline } from "../../shared/util/errorText";
 import type { DocsUrl } from "./docsLinks";
 import {
 	DOCS_LINK_AUTHENTICATION,
@@ -68,8 +59,9 @@ import {
 	helpServersSection,
 	serverFieldHelp,
 } from "./helpText";
+import { useIntentOutcome, useRpc } from "./hooks";
 import { IconAdd, IconTrash } from "./icons";
-import type { CatalogSearchResponse, RecordEditorKind } from "./recordEditors";
+import type { RecordEditorKind } from "./recordEditors";
 import {
 	capabilityIssueViews,
 	capabilityKeySuggestions,
@@ -80,7 +72,7 @@ import {
 import { SlideOver } from "./slideOver";
 import { relativeTime } from "./time";
 import { barPresentation, formatPercent, formatUsd } from "./usage";
-import { newRequestId, postMessage } from "./vscodeApi";
+import { sendRequest } from "./vscodeApi";
 
 /** The entry-only-fields-inactive notice classifications; one merged banner covers them all. */
 
@@ -357,12 +349,14 @@ function disclosuresForProblems(problems: ServerFormProblems, authForm: AuthForm
 }
 
 /**
- * Where the form is in its life. The prefill and save round trips each carry
- * their own correlation ID, but the form is only ever in one of them: fields
- * stay editable throughout, and only Save gates on the phase being "editing".
+ * Where the form is in its life. The prefill and save round trips each run
+ * their own correlation (the prefill through its useRpc hook, the save
+ * through the saved requestId below), but the form is only ever in one of
+ * them: fields stay editable throughout, and only Save gates on the phase
+ * being "editing".
  */
 type FormPhase =
-	| { readonly phase: "prefill"; readonly requestId: string }
+	| { readonly phase: "prefill" }
 	| { readonly phase: "editing" }
 	| { readonly phase: "saving"; readonly requestId: string };
 
@@ -816,20 +810,16 @@ function HeaderRowsEditor({
 }
 
 /**
- * The inline Add/Edit form. Saving posts one saveServerSetting intent tagged
- * with a requestId and waits for its own ack: intentSucceeded closes the form
- * (discarding the draft, typed secrets included); a validation-kind
- * intentFailed returns it to a retryable editing state, while an
+ * The inline Add/Edit form. Saving posts one saveServerSetting intent through
+ * the form's own useIntentOutcome hook and waits for its correlated outcome:
+ * an ok closes the form (discarding the draft, typed secrets included); a
+ * validation-kind fail returns it to a retryable editing state, while an
  * operation-kind one closes it too - the save committed, so the draft is
  * stale and the section-level notice carries the recovery path. Unrelated
  * state pushes leave it alone.
  */
 function ServerForm({
 	target,
-	ack,
-	failures,
-	inlineSecrets,
-	catalogResults,
 	declaredLabels,
 	observedModelInfoKeys,
 	onUserEdit,
@@ -837,11 +827,6 @@ function ServerForm({
 	onCancel,
 }: {
 	target: ServerFormTarget;
-	ack: IntentAck | undefined;
-	failures: FailuresByIntent;
-	inlineSecrets: InlineSecretsResponse | undefined;
-	/** The latest catalogSearchResults response, for the capability rows' `_openrouter_model` picker. */
-	catalogResults: CatalogSearchResponse | undefined;
 	declaredLabels: readonly string[];
 	/** The edited entry's LIVE observed /model/info key set (observedKeysForForm); the capability hints' evidence. */
 	observedModelInfoKeys?: readonly string[] | undefined;
@@ -855,6 +840,12 @@ function ServerForm({
 	const [touched, setTouched] = useState<ReadonlySet<ServerFormField>>(new Set());
 	const [phase, setPhase] = useState<FormPhase>({ phase: "editing" });
 	const [testState, setTestState] = useState<TestState>({ kind: "idle" });
+	// The form's own round trips. The inline-secret values live only in this
+	// hook's state and the draft, both of which die with the form instance, so
+	// a closed form leaves no secret value behind in webview memory.
+	const saveIntent = useIntentOutcome("saveServerSetting");
+	const testIntent = useIntentOutcome("testServerDraft");
+	const inlineSecrets = useRpc("readInlineSecrets");
 	// The disclosures open by themselves only for an entry that already
 	// carries content in them; adding to a bare entry is opt-in. The auth
 	// companions follow the same rule under the form the entry derives to.
@@ -918,15 +909,13 @@ function ServerForm({
 	// secure, hit Save). Fields stay editable meanwhile; the response never
 	// clobbers what was typed. The response is one round trip behind the form
 	// opening, so the gate is imperceptible in practice.
-	const failure = failures.saveServerSetting;
-	const failureSeq = failure?.seq;
-	const failureRequestId = failure?.requestId;
-	const failureKind = failure?.kind;
+	const saveOutcome = saveIntent.outcome;
 
 	// Editing a declared entry with inline-stored secrets: ask for their values
 	// once per form instance (the key remounts a fresh form). Secure-side and
 	// absent fields are never requested-for or returned; they keep the empty
 	// placeholder input.
+	const requestInlineSecrets = inlineSecrets.send;
 	useEffect(() => {
 		if (target.kind !== "edit") {
 			return;
@@ -935,51 +924,45 @@ function ServerForm({
 		if (!SECRET_FIELD_IDS.some((field) => config.secrets[field] === "settings")) {
 			return;
 		}
-		const requestId = newRequestId();
-		postMessage({ type: "readInlineSecrets", label: target.original.label, requestId });
-		setPhase({ phase: "prefill", requestId });
-	}, [target]);
+		requestInlineSecrets({ label: target.original.label });
+		setPhase({ phase: "prefill" });
+	}, [target, requestInlineSecrets]);
 
-	// This form's own response prefills the untouched inline fields; a response
-	// for a previous form instance (a stale requestId) is ignored.
+	// This form's own response prefills the untouched inline fields; the hook
+	// answers only the request this form instance posted.
+	const inlineValues = inlineSecrets.data?.values;
 	useEffect(() => {
-		if (phase.phase !== "prefill" || inlineSecrets === undefined || inlineSecrets.requestId !== phase.requestId) {
+		if (phase.phase !== "prefill" || inlineValues === undefined) {
 			return;
 		}
 		setPhase({ phase: "editing" });
-		setDraft((current) => applyInlinePrefill(current, inlineSecrets.values));
-	}, [inlineSecrets, phase]);
+		setDraft((current) => applyInlinePrefill(current, inlineValues));
+	}, [inlineValues, phase]);
 
 	useEffect(() => {
-		if (phase.phase === "saving" && ack?.requestId === phase.requestId) {
+		if (phase.phase === "saving" && saveOutcome?.result === "ok" && saveOutcome.id === phase.requestId) {
 			onClose();
 		}
-	}, [ack, phase, onClose]);
+	}, [saveOutcome, phase, onClose]);
 
 	// This form's own test outcome. Success renders the extension-composed
 	// message verbatim ("Connected - N models"); an outcome for an abandoned
 	// requestId (the state left "testing" on an edit or a retest) is ignored.
+	const testOutcome = testIntent.outcome;
 	useEffect(() => {
-		if (testState.kind === "testing" && ack?.requestId === testState.requestId) {
-			setTestState({ kind: "pass", text: ack.message ?? l10n.t("Connected") });
-		}
-	}, [ack, testState]);
-
-	const testFailure = failures.testServerDraft;
-	const testFailureSeq = testFailure?.seq;
-	const testFailureRequestId = testFailure?.requestId;
-	const testFailureMessage = testFailure?.message;
-	const testFailureClassification = testFailure?.classification;
-	useEffect(() => {
-		if (testState.kind !== "testing" || testFailureSeq === undefined || testFailureRequestId !== testState.requestId) {
+		if (testState.kind !== "testing" || testOutcome === undefined || testOutcome.id !== testState.requestId) {
 			return;
 		}
-		setTestState({
-			kind: "fail",
-			text: testFailureMessage ?? l10n.t("The connection test failed"),
-			classification: testFailureClassification,
-		});
-	}, [testFailureSeq, testFailureRequestId, testFailureMessage, testFailureClassification, testState]);
+		if (testOutcome.result === "ok") {
+			setTestState({ kind: "pass", text: testOutcome.message ?? l10n.t("Connected") });
+		} else {
+			setTestState({
+				kind: "fail",
+				text: testOutcome.message,
+				classification: testOutcome.classification,
+			});
+		}
+	}, [testOutcome, testState]);
 
 	// This form's own failure: a validation-kind one re-opens it for editing
 	// (the draft is still the truth); an operation-kind one means the save
@@ -987,15 +970,15 @@ function ServerForm({
 	// message renders at the section level either way, so it also survives the
 	// closed form.
 	useEffect(() => {
-		if (phase.phase !== "saving" || failureSeq === undefined || failureRequestId !== phase.requestId) {
+		if (phase.phase !== "saving" || saveOutcome?.result !== "fail" || saveOutcome.id !== phase.requestId) {
 			return;
 		}
-		if (saveFailureDisposition(failureKind ?? "validation") === "close") {
+		if (saveFailureDisposition(saveOutcome.failureKind) === "close") {
 			onClose();
 			return;
 		}
 		setPhase({ phase: "editing" });
-	}, [failureSeq, failureRequestId, failureKind, phase, onClose]);
+	}, [saveOutcome, phase, onClose]);
 
 	const originalLabel = target.kind === "edit" ? target.original.label : undefined;
 	// One parse per keystroke: it either carries the intent Save posts or the
@@ -1085,8 +1068,7 @@ function ServerForm({
 			openDisclosures(disclosuresForProblems(parse.problems, draft.authForm));
 			return;
 		}
-		const requestId = newRequestId();
-		postMessage({ type: "saveServerSetting", ...parse.intent, requestId });
+		const requestId = saveIntent.send(parse.intent);
 		setPhase({ phase: "saving", requestId });
 	};
 
@@ -1112,8 +1094,7 @@ function ServerForm({
 			openDisclosures(disclosuresForProblems(testParse.problems, draft.authForm));
 			return;
 		}
-		const requestId = newRequestId();
-		postMessage({ type: "testServerDraft", ...testParse.intent, requestId });
+		const requestId = testIntent.send(testParse.intent);
 		setTestState({ kind: "testing", requestId });
 	};
 
@@ -1242,7 +1223,6 @@ function ServerForm({
 				group={group}
 				groupIssues={modelCapabilityIssues[matcherEditor.index]}
 				keySuggestions={entryCapabilityKeySuggestions}
-				catalogResults={catalogResults}
 				disabled={saving}
 				fallbackFocusId="server-caps-add"
 				note={matcherEditorNote}
@@ -1475,7 +1455,6 @@ function ServerForm({
 						groups={draft.modelCapabilities}
 						issues={entryCapIssueViews}
 						disabled={saving}
-						catalogResults={catalogResults}
 						keySuggestions={entryCapabilityKeySuggestions}
 						onChange={(next) => props.patch({ modelCapabilities: next })}
 						onOpenEditor={(index) => setMatcherEditor({ kind: "caps", index })}
@@ -1685,16 +1664,13 @@ function AdoptForm({
 			setTouched(true);
 			return;
 		}
-		const requestId = newRequestId();
-		postMessage({
-			type: "adoptServer",
+		const requestId = sendRequest("adoptServer", {
 			label: label.trim(),
 			baseUrl: server.baseUrl,
 			// External rows always carry the handle; the FormTarget union
 			// guarantees only external rows reach this form.
 			sourceHandle: server.adoptHandle,
 			secrets: locations,
-			requestId,
 		});
 		onAdoptPosted(requestId);
 	};
@@ -1866,7 +1842,7 @@ function ServerRow({
 	onShowModels: ((label: string) => void) | undefined;
 }) {
 	const confirmRemove = () => {
-		postMessage({ type: "removeServerSetting", label: server.label, requestId: newRequestId() });
+		sendRequest("removeServerSetting", { label: server.label });
 		onArmRemove(false);
 	};
 	return (
@@ -1962,11 +1938,7 @@ function ServerRow({
 						    without rewriting what the user typed, so its fix action
 						    reveals the setting instead of opening the form. */}
 						{server.origin === "misconfigured" ? (
-							<button
-								type="button"
-								class="quiet"
-								onClick={() => postMessage({ type: "revealSetting", setting: "servers" })}
-							>
+							<button type="button" class="quiet" onClick={() => sendRequest("revealSetting", { setting: "servers" })}>
 								{l10n.t("Fix in settings.json")}
 							</button>
 						) : (
@@ -2017,11 +1989,9 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 								type="button"
 								class="quiet"
 								onClick={() =>
-									postMessage({
-										type: "unhideServer",
+									sendRequest("unhideServer", {
 										label: group.label,
 										baseUrl: group.baseUrl,
-										requestId: newRequestId(),
 									})
 								}
 							>
@@ -2040,12 +2010,6 @@ export function ServersSection({
 	hidden = [],
 	usage,
 	now,
-	ack,
-	failures,
-	inlineSecrets,
-	catalogResults,
-	onDismissFailure,
-	onClearInlineSecrets,
 	onShowModels,
 	editRequest,
 }: {
@@ -2056,20 +2020,21 @@ export function ServersSection({
 	usage?: DashboardUsage | undefined;
 	/** The shared clock tick (one useNow in App), so a hidden panel does not run its own interval. */
 	now: number;
-	ack: IntentAck | undefined;
-	failures: FailuresByIntent;
-	inlineSecrets: InlineSecretsResponse | undefined;
-	/** The latest catalogSearchResults response, for the edit form's `_openrouter_model` picker. */
-	catalogResults?: CatalogSearchResponse | undefined;
-	/** Drop the latest failure notice for one intent type (Cancel dismisses a stale save failure). */
-	onDismissFailure: (intentType: DashboardIntentType) => void;
-	/** Drop the held inlineSecrets response; called when the edit form closes so the value leaves webview memory. */
-	onClearInlineSecrets: () => void;
 	/** Scope the models section below to one server; absent, the count cells stay plain text. */
 	onShowModels?: ((label: string) => void) | undefined;
 	/** The inspectors' jump into a declared entry's edit form; see ServerEditRequest. */
 	editRequest?: ServerEditRequest | undefined;
 }) {
+	// The section's own outcome hooks, one per acked method it surfaces: the
+	// failure banners render each hook's latest fail outcome (a later ok
+	// replaces it, so success retires the banner exactly like the old
+	// store-clearing did), and Dismiss is the hook's reset. These are separate
+	// hook instances from the open form's own - both see the same envelopes.
+	const saveIntent = useIntentOutcome("saveServerSetting");
+	const removeIntent = useIntentOutcome("removeServerSetting");
+	const adoptIntent = useIntentOutcome("adoptServer");
+	const hideIntent = useIntentOutcome("hideExternalServer");
+	const unhideIntent = useIntentOutcome("unhideServer");
 	// The form target survives state pushes (editing continues across a
 	// background refresh). Keys come from a never-reused counter: a fresh key
 	// per open forces a clean draft, and pendingAdopt's formKey scoping relies
@@ -2097,22 +2062,22 @@ export function ServersSection({
 	const [removedNotice, setRemovedNotice] = useState<string | undefined>(undefined);
 	const pendingHideRequestId = pendingHide?.requestId;
 	const pendingHideLabel = pendingHide?.label;
+	const hideOutcome = hideIntent.outcome;
 	useEffect(() => {
-		if (pendingHideRequestId !== undefined && ack?.requestId === pendingHideRequestId) {
+		if (pendingHideRequestId !== undefined && hideOutcome?.result === "ok" && hideOutcome.id === pendingHideRequestId) {
 			setRemovedNotice(pendingHideLabel);
 			setPendingHide(undefined);
 		}
-	}, [ack, pendingHideRequestId, pendingHideLabel]);
+	}, [hideOutcome, pendingHideRequestId, pendingHideLabel]);
 	const hideExternal = (server: ExternalDashboardServer) => {
-		const requestId = newRequestId();
-		postMessage({ type: "hideExternalServer", baseUrl: server.baseUrl, sourceHandle: server.adoptHandle, requestId });
+		const requestId = hideIntent.send({ baseUrl: server.baseUrl, sourceHandle: server.adoptHandle });
 		setPendingHide({ requestId, label: server.label });
 	};
-	const saveFailure = failures.saveServerSetting;
-	const removeFailure = failures.removeServerSetting;
-	const adoptFailure = failures.adoptServer;
-	const hideFailure = failures.hideExternalServer;
-	const unhideFailure = failures.unhideServer;
+	const saveFailure = saveIntent.outcome?.result === "fail" ? saveIntent.outcome : undefined;
+	const removeFailure = removeIntent.outcome?.result === "fail" ? removeIntent.outcome : undefined;
+	const adoptFailure = adoptIntent.outcome?.result === "fail" ? adoptIntent.outcome : undefined;
+	const hideFailure = hideIntent.outcome?.result === "fail" ? hideIntent.outcome : undefined;
+	const unhideFailure = unhideIntent.outcome?.result === "fail" ? unhideIntent.outcome : undefined;
 	const noServers = servers.length === 0;
 	// The two aggregate failure banners' entry lists, filtered once so the
 	// separator logic can look at each entry's predecessor.
@@ -2122,10 +2087,6 @@ export function ServersSection({
 	const expectedFailureServers = servers.filter((server) => server.error !== undefined && server.expected === true);
 
 	const openForm = (target: FormTarget) => {
-		// A fresh form must never see the previous entry's response (switching
-		// straight from one Edit to another), and the old value should not
-		// outlive its form in webview memory.
-		onClearInlineSecrets();
 		setFormDirty(false);
 		setConfirmingDiscard(false);
 		const key = nextFormKey.current;
@@ -2153,10 +2114,6 @@ export function ServersSection({
 		setForm(undefined);
 		setFormDirty(false);
 		setConfirmingDiscard(false);
-		onClearInlineSecrets();
-		// A test failure renders only inside the form it belongs to; the closed
-		// form's notice would otherwise sit invisibly in the failures map.
-		onDismissFailure("testServerDraft");
 	};
 
 	// Every way out of an open form funnels through here: the form's Cancel,
@@ -2164,9 +2121,12 @@ export function ServersSection({
 	// toggle the discard confirm (so Esc while it shows means "keep editing" -
 	// only the explicit Discard button destroys edits); otherwise close,
 	// dismissing the form's stale failure notice with it.
-	const cancelIntent: DashboardIntentType = form?.target.kind === "adopt" ? "adoptServer" : "saveServerSetting";
 	const discardForm = () => {
-		onDismissFailure(cancelIntent);
+		if (form?.target.kind === "adopt") {
+			adoptIntent.reset();
+		} else {
+			saveIntent.reset();
+		}
 		closeForm();
 	};
 	const requestCloseForm = () => {
@@ -2180,27 +2140,30 @@ export function ServersSection({
 	// A pending adopt's own ack: compose the post-adoption notice (plus the
 	// extension's optional caveat) and close the posting form when it is still
 	// the one open. A later or already-closed form is left alone.
-	const ackedAdopt = pendingAdopts.find((pending) => pending.requestId === ack?.requestId);
+	const adoptOutcome = adoptIntent.outcome;
+	const ackedAdopt =
+		adoptOutcome?.result === "ok" ? pendingAdopts.find((pending) => pending.requestId === adoptOutcome.id) : undefined;
 	useEffect(() => {
-		if (ackedAdopt === undefined || ack === undefined) {
+		if (ackedAdopt === undefined || adoptOutcome?.result !== "ok") {
 			return;
 		}
 		const base = l10n.t(
 			"Adopted into the servers setting. Models appear twice until the original group's object is deleted: open the models file, remove it, reload the window."
 		);
-		setAdoptNotice(ack.message !== undefined ? `${base} ${ack.message}` : base);
+		setAdoptNotice(adoptOutcome.message !== undefined ? `${base} ${adoptOutcome.message}` : base);
 		setPendingAdopts((current) => current.filter((pending) => pending.requestId !== ackedAdopt.requestId));
 		if (form?.key === ackedAdopt.formKey) {
 			closeForm();
 		}
-	}, [ack, ackedAdopt, form]);
+	}, [adoptOutcome, ackedAdopt, form]);
 
 	// A pending adopt's own failure: a validation-kind one returns the still
 	// open form to editing (removing the pending entry re-enables it); an
 	// operation-kind one committed its write, so the stale form closes and the
 	// section banner carries the recovery path.
-	const failedAdopt = pendingAdopts.find((pending) => pending.requestId === adoptFailure?.requestId);
-	const adoptFailureKind = adoptFailure?.kind;
+	const failedAdopt =
+		adoptFailure !== undefined ? pendingAdopts.find((pending) => pending.requestId === adoptFailure.id) : undefined;
+	const adoptFailureKind = adoptFailure?.failureKind;
 	useEffect(() => {
 		if (failedAdopt === undefined) {
 			return;
@@ -2266,10 +2229,6 @@ export function ServersSection({
 						<ServerForm
 							key={form.key}
 							target={form.target}
-							ack={ack}
-							failures={failures}
-							inlineSecrets={inlineSecrets}
-							catalogResults={catalogResults}
 							declaredLabels={declaredLabels}
 							observedModelInfoKeys={observedKeysForForm(servers, form.target)}
 							onUserEdit={() => setFormDirty(true)}
@@ -2296,7 +2255,7 @@ export function ServersSection({
 						<button
 							type="button"
 							class="secondary"
-							onClick={() => postMessage({ type: "executeCommand", command: "openGroupsFile" })}
+							onClick={() => sendRequest("executeCommand", { command: "openGroupsFile" })}
 						>
 							{l10n.t("Open models file")}
 						</button>
@@ -2313,7 +2272,7 @@ export function ServersSection({
 						<button
 							type="button"
 							class="secondary"
-							onClick={() => postMessage({ type: "executeCommand", command: "openGroupsFile" })}
+							onClick={() => sendRequest("executeCommand", { command: "openGroupsFile" })}
 						>
 							{l10n.t("Open models file")}
 						</button>
@@ -2328,12 +2287,12 @@ export function ServersSection({
 					<p>
 						<FailureText
 							message={adoptFailure.message}
-							{...(adoptFailure.kind === "operation"
+							{...(adoptFailure.failureKind === "operation"
 								? {}
 								: { frame: (headline: string) => sectionFailureText(l10n.t("Adopting the server failed:"), headline) })}
 						/>
 					</p>
-					<button type="button" class="quiet" onClick={() => onDismissFailure("adoptServer")}>
+					<button type="button" class="quiet" onClick={adoptIntent.reset}>
 						{l10n.t("Dismiss")}
 					</button>
 				</div>
@@ -2343,12 +2302,12 @@ export function ServersSection({
 					<p>
 						<FailureText
 							message={saveFailure.message}
-							{...(saveFailure.kind === "operation"
+							{...(saveFailure.failureKind === "operation"
 								? {}
 								: { frame: (headline: string) => sectionFailureText(l10n.t("Saving the server failed:"), headline) })}
 						/>
 					</p>
-					<button type="button" class="quiet" onClick={() => onDismissFailure("saveServerSetting")}>
+					<button type="button" class="quiet" onClick={saveIntent.reset}>
 						{l10n.t("Dismiss")}
 					</button>
 				</div>
@@ -2361,7 +2320,7 @@ export function ServersSection({
 							frame={(headline) => sectionFailureText(l10n.t("Removing failed:"), headline)}
 						/>
 					</p>
-					<button type="button" class="quiet" onClick={() => onDismissFailure("removeServerSetting")}>
+					<button type="button" class="quiet" onClick={removeIntent.reset}>
 						{l10n.t("Dismiss")}
 					</button>
 				</div>
@@ -2374,7 +2333,7 @@ export function ServersSection({
 							frame={(headline) => sectionFailureText(l10n.t("Hiding the group failed:"), headline)}
 						/>
 					</p>
-					<button type="button" class="quiet" onClick={() => onDismissFailure("hideExternalServer")}>
+					<button type="button" class="quiet" onClick={hideIntent.reset}>
 						{l10n.t("Dismiss")}
 					</button>
 				</div>
@@ -2387,7 +2346,7 @@ export function ServersSection({
 							frame={(headline) => sectionFailureText(l10n.t("Unhiding the group failed:"), headline)}
 						/>
 					</p>
-					<button type="button" class="quiet" onClick={() => onDismissFailure("unhideServer")}>
+					<button type="button" class="quiet" onClick={unhideIntent.reset}>
 						{l10n.t("Dismiss")}
 					</button>
 				</div>

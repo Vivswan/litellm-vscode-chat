@@ -7,7 +7,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { render } from "preact";
 import { act } from "preact/test-utils";
-import type { DashboardServer, WebviewToExtensionMessage } from "../../../../dashboard/protocol";
+import type { RpcRequest } from "../../../../dashboard/endpoints";
+import type { DashboardServer } from "../../../../dashboard/viewModels";
 import { App } from "../../../../webview/dashboard/app";
 import { DOCS_LINK_CHECK_BASE_URL, DOCS_LINK_PROXY_NOT_RUNNING } from "../../../../webview/dashboard/docsLinks";
 import { helpEntryModelParameterPrefix } from "../../../../webview/dashboard/helpText";
@@ -32,6 +33,7 @@ import {
 	fireSelect,
 	inputByLabel,
 	mount,
+	postedCalls,
 	postedMessages,
 	pushToWebview,
 	resetPosted,
@@ -44,20 +46,8 @@ afterEach(() => {
 	cleanup();
 });
 
-const noop = () => {};
-
 function mountSection(servers: readonly DashboardServer[]) {
-	return mount(
-		<ServersSection
-			servers={servers}
-			now={Date.now()}
-			ack={undefined}
-			failures={{}}
-			inlineSecrets={undefined}
-			onDismissFailure={noop}
-			onClearInlineSecrets={noop}
-		/>
-	);
+	return mount(<ServersSection servers={servers} now={Date.now()} />);
 }
 
 /** Open the form's full matcher editor overlay for one record through its table pencil. */
@@ -191,10 +181,10 @@ test("the edit form round-trips per-entry model parameters into the save intent"
 	fireInput(valueInput, "0.9");
 	fireClick(buttonByText(root, "Save"));
 	expect(postedMessages.length).toBe(1);
-	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
-	expect(saved.type).toBe("saveServerSetting");
-	expect(saved.replaceLabel).toBe("Prod");
-	expect(saved.server.modelParameters).toEqual({ "gpt-4": { temperature: 0.9 } });
+	const saved = postedMessages[0] as RpcRequest<"saveServerSetting">;
+	expect(saved.method).toBe("saveServerSetting");
+	expect(saved.payload.replaceLabel).toBe("Prod");
+	expect(saved.payload.server.modelParameters).toEqual({ "gpt-4": { temperature: 0.9 } });
 });
 
 test("blur alone paints no problem on an empty field, and blurring content is what makes a touch stick", () => {
@@ -263,17 +253,17 @@ test("remove is two-step: Remove arms the row, Confirm posts removeServerSetting
 	fireClick(buttonByText(root, "Remove"));
 	fireClick(buttonByText(root, "Confirm remove?"));
 	expect(postedMessages.length).toBe(1);
-	const first = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "removeServerSetting" }>;
-	expect(first.type).toBe("removeServerSetting");
-	expect(first.label).toBe("Prod");
-	expect(typeof first.requestId).toBe("string");
-	expect(first.requestId.length).toBeGreaterThan(0);
+	const first = postedMessages[0] as RpcRequest<"removeServerSetting">;
+	expect(first.method).toBe("removeServerSetting");
+	expect(first.payload.label).toBe("Prod");
+	expect(typeof first.id).toBe("string");
+	expect(first.id.length).toBeGreaterThan(0);
 
 	// A second confirmation carries a fresh correlation ID.
 	fireClick(buttonByText(root, "Remove"));
 	fireClick(buttonByText(root, "Confirm remove?"));
-	const second = postedMessages[1] as Extract<WebviewToExtensionMessage, { type: "removeServerSetting" }>;
-	expect(second.requestId).not.toBe(first.requestId);
+	const second = postedMessages[1] as RpcRequest<"removeServerSetting">;
+	expect(second.id).not.toBe(first.id);
 });
 
 test("add-form save round trip: invalid posts nothing, the ack closes the form, failures follow their disposition", () => {
@@ -294,12 +284,12 @@ test("add-form save round trip: invalid posts nothing, the ack closes the form, 
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
 	fireClick(buttonByText(root, "Save"));
 	expect(postedMessages.length).toBe(1);
-	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
-	expect(saved.type).toBe("saveServerSetting");
+	const saved = postedMessages[0] as RpcRequest<"saveServerSetting">;
+	expect(saved.method).toBe("saveServerSetting");
 	// The entry-record fields ride every save, even empty: absent is
 	// reserved for payloads that predate their editors (the save carries the
 	// stored values forward for those instead of deleting them).
-	expect(saved.server).toEqual({
+	expect(saved.payload.server).toEqual({
 		label: "Prod",
 		baseUrl: "http://localhost:4000",
 		modelCapabilities: {},
@@ -310,9 +300,9 @@ test("add-form save round trip: invalid posts nothing, the ack closes the form, 
 	});
 
 	// An ack for some other intent must not close it.
-	pushToWebview({ type: "intentSucceeded", intentType: "saveServerSetting", requestId: "someone-elses" });
+	pushToWebview({ kind: "ack", id: "someone-elses", method: "saveServerSetting" });
 	expect(root.querySelector(".form-card")).not.toBeNull();
-	pushToWebview({ type: "intentSucceeded", intentType: "saveServerSetting", requestId: saved.requestId });
+	pushToWebview({ kind: "ack", id: saved.id, method: "saveServerSetting" });
 	expect(root.querySelector(".form-card")).toBeNull();
 
 	// Validation-kind failure: the draft is still the truth, the form reopens for retry.
@@ -321,13 +311,13 @@ test("add-form save round trip: invalid posts nothing, the ack closes the form, 
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4001");
 	resetPosted();
 	fireClick(buttonByText(root, "Save"));
-	const retry = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
+	const retry = postedMessages[0] as RpcRequest<"saveServerSetting">;
 	pushToWebview({
-		type: "intentFailed",
-		intentType: "saveServerSetting",
+		kind: "fail",
+		id: retry.id,
+		method: "saveServerSetting",
 		message: "label: reserved name",
-		kind: "validation",
-		requestId: retry.requestId,
+		failureKind: "validation",
 	});
 	expect(root.querySelector(".form-card")).not.toBeNull();
 	expect(buttonByText(root, "Save").disabled).toBe(false);
@@ -336,13 +326,13 @@ test("add-form save round trip: invalid posts nothing, the ack closes the form, 
 	// Operation-kind failure: the write committed, the stale draft closes.
 	resetPosted();
 	fireClick(buttonByText(root, "Save"));
-	const committed = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
+	const committed = postedMessages[0] as RpcRequest<"saveServerSetting">;
 	pushToWebview({
-		type: "intentFailed",
-		intentType: "saveServerSetting",
+		kind: "fail",
+		id: committed.id,
+		method: "saveServerSetting",
 		message: "saved, but the group sync failed; run Sync Models Now",
-		kind: "operation",
-		requestId: committed.requestId,
+		failureKind: "operation",
 	});
 	expect(root.querySelector(".form-card")).toBeNull();
 	expect(root.textContent).toContain("saved, but the group sync failed");
@@ -371,9 +361,9 @@ test("the API version disclosure defaults to Auto, collapsed, and the save inten
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
 	resetPosted();
 	fireClick(buttonByText(root, "Save"));
-	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
-	expect(saved.type).toBe("saveServerSetting");
-	expect("apiVersion" in saved.server).toBe(false);
+	const saved = postedMessages[0] as RpcRequest<"saveServerSetting">;
+	expect(saved.method).toBe("saveServerSetting");
+	expect("apiVersion" in saved.payload.server).toBe(false);
 });
 
 test("No version saves the empty-string override and the collapsed summary names the choice", () => {
@@ -388,8 +378,8 @@ test("No version saves the empty-string override and the collapsed summary names
 
 	resetPosted();
 	fireClick(buttonByText(root, "Save"));
-	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
-	expect(saved.server.apiVersion).toBe("");
+	const saved = postedMessages[0] as RpcRequest<"saveServerSetting">;
+	expect(saved.payload.server.apiVersion).toBe("");
 });
 
 test("Custom reveals the segment input; the trimmed text rides the save and the connection test", () => {
@@ -406,14 +396,14 @@ test("Custom reveals the segment input; the trimmed text rides the save and the 
 
 	resetPosted();
 	fireClick(buttonByText(root, "Test connection"));
-	const probed = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
-	expect(probed.type).toBe("testServerDraft");
-	expect(probed.server.apiVersion).toBe("v2");
+	const probed = postedMessages[0] as RpcRequest<"testServerDraft">;
+	expect(probed.method).toBe("testServerDraft");
+	expect(probed.payload.server.apiVersion).toBe("v2");
 
 	resetPosted();
 	fireClick(buttonByText(root, "Save"));
-	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
-	expect(saved.server.apiVersion).toBe("v2");
+	const saved = postedMessages[0] as RpcRequest<"saveServerSetting">;
+	expect(saved.payload.server.apiVersion).toBe("v2");
 });
 
 test("Custom with no text blocks Save with the version-segment problem and opens the disclosure over it", () => {
@@ -456,8 +446,8 @@ test("an entry's apiVersion prefills the matching mode with the disclosure open"
 	// Saving the prefilled entry round-trips the override unchanged.
 	resetPosted();
 	fireClick(buttonByText(customRoot, "Save"));
-	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
-	expect(saved.server.apiVersion).toBe("v2");
+	const saved = postedMessages[0] as RpcRequest<"saveServerSetting">;
+	expect(saved.payload.server.apiVersion).toBe("v2");
 });
 
 test("adopting an external row posts adoptServer carrying exactly the sanctioned keys", () => {
@@ -472,19 +462,20 @@ test("adopting an external row posts adoptServer carrying exactly the sanctioned
 	resetPosted();
 	fireClick(buttonByText(root, "Adopt"));
 	expect(postedMessages.length).toBe(1);
-	const posted = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "adoptServer" }>;
+	const posted = postedMessages[0] as RpcRequest<"adoptServer">;
 
 	// Deep equality of the sorted key set: presence checks would pass if a
 	// sixth, credential-bearing key were ever added to the intent.
-	expect(Object.keys(posted).sort()).toEqual(["baseUrl", "label", "requestId", "secrets", "sourceHandle", "type"]);
-	expect(posted.type).toBe("adoptServer");
-	expect(posted.label).toBe("Adopted Copilot");
-	expect(posted.baseUrl).toBe("http://copilot.example:4000");
-	expect(posted.sourceHandle).toBe(external.adoptHandle);
-	expect(typeof posted.requestId).toBe("string");
+	expect(Object.keys(posted).sort()).toEqual(["id", "kind", "method", "payload"]);
+	expect(Object.keys(posted.payload).sort()).toEqual(["baseUrl", "label", "secrets", "sourceHandle"]);
+	expect(posted.method).toBe("adoptServer");
+	expect(posted.payload.label).toBe("Adopted Copilot");
+	expect(posted.payload.baseUrl).toBe("http://copilot.example:4000");
+	expect(posted.payload.sourceHandle).toBe(external.adoptHandle);
+	expect(typeof posted.id).toBe("string");
 	// The secrets record carries storage locations only, one per secret field.
-	expect(posted.secrets).toEqual({ apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "secure" });
-	expect(Object.keys(posted.secrets).sort()).toEqual(["apiKey", "oauthClientSecret", "virtualKeyValue"]);
+	expect(posted.payload.secrets).toEqual({ apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "secure" });
+	expect(Object.keys(posted.payload.secrets).sort()).toEqual(["apiKey", "oauthClientSecret", "virtualKeyValue"]);
 });
 
 test("removing an external row is two-step and posts hideExternalServer with the row's handle", () => {
@@ -500,14 +491,15 @@ test("removing an external row is two-step and posts hideExternalServer with the
 	fireClick(buttonByText(root, "Remove"));
 	fireClick(buttonByText(root, "Confirm remove?"));
 	expect(postedMessages.length).toBe(1);
-	const posted = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "hideExternalServer" }>;
+	const posted = postedMessages[0] as RpcRequest<"hideExternalServer">;
 	// Exact key set: the intent names the group by its opaque handle and URL,
 	// nothing more.
-	expect(Object.keys(posted).sort()).toEqual(["baseUrl", "requestId", "sourceHandle", "type"]);
-	expect(posted.type).toBe("hideExternalServer");
-	expect(posted.baseUrl).toBe("http://copilot.example:4000");
-	expect(posted.sourceHandle).toBe(external.adoptHandle);
-	expect(typeof posted.requestId).toBe("string");
+	expect(Object.keys(posted).sort()).toEqual(["id", "kind", "method", "payload"]);
+	expect(Object.keys(posted.payload).sort()).toEqual(["baseUrl", "sourceHandle"]);
+	expect(posted.method).toBe("hideExternalServer");
+	expect(posted.payload.baseUrl).toBe("http://copilot.example:4000");
+	expect(posted.payload.sourceHandle).toBe(external.adoptHandle);
+	expect(typeof posted.id).toBe("string");
 });
 
 test("a non-hideable external row (legacy registry) offers Edit only, no Remove", () => {
@@ -524,12 +516,12 @@ test("the hide ack raises the guidance notice naming the group, with the models-
 	resetPosted();
 	fireClick(buttonByText(root, "Remove"));
 	fireClick(buttonByText(root, "Confirm remove?"));
-	const posted = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "hideExternalServer" }>;
+	const posted = postedMessages[0] as RpcRequest<"hideExternalServer">;
 
 	// A foreign ack does nothing; the intent's own ack raises the notice.
-	pushToWebview({ type: "intentSucceeded", intentType: "hideExternalServer", requestId: "someone-elses" });
+	pushToWebview({ kind: "ack", id: "someone-elses", method: "hideExternalServer" });
 	expect(root.querySelector(".notice")).toBeNull();
-	pushToWebview({ type: "intentSucceeded", intentType: "hideExternalServer", requestId: posted.requestId });
+	pushToWebview({ kind: "ack", id: posted.id, method: "hideExternalServer" });
 	const notice = root.querySelector(".notice");
 	expect(notice).not.toBeNull();
 	// The notice names the exact group and gives the file-based steps as a
@@ -545,7 +537,7 @@ test("the hide ack raises the guidance notice naming the group, with the models-
 		(el) => el.textContent?.trim() === "Open models file"
 	);
 	fireClick(openButton as HTMLElement);
-	expect(postedMessages).toEqual([{ type: "executeCommand", command: "openGroupsFile" }]);
+	expect(postedCalls()).toEqual([{ method: "executeCommand", payload: { command: "openGroupsFile" } }]);
 
 	fireClick(buttonByText(root, "Dismiss"));
 	expect(root.querySelector(".notice")).toBeNull();
@@ -560,11 +552,6 @@ test("the hidden-groups line states the count, expands to rows, and Unhide posts
 				{ label: "Gone", baseUrl: "http://gone.test" },
 			]}
 			now={Date.now()}
-			ack={undefined}
-			failures={{}}
-			inlineSecrets={undefined}
-			onDismissFailure={noop}
-			onClearInlineSecrets={noop}
 		/>
 	);
 
@@ -580,12 +567,12 @@ test("the hidden-groups line states the count, expands to rows, and Unhide posts
 	const unhide = [...root.querySelectorAll("button")].find((el) => el.textContent?.trim() === "Unhide");
 	fireClick(unhide as HTMLElement);
 	expect(postedMessages.length).toBe(1);
-	const posted = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "unhideServer" }>;
-	expect(posted.type).toBe("unhideServer");
+	const posted = postedMessages[0] as RpcRequest<"unhideServer">;
+	expect(posted.method).toBe("unhideServer");
 	// The identity is echoed verbatim from the first listed row.
-	expect(posted.label).toBe("Old");
-	expect(posted.baseUrl).toBe("http://old.test");
-	expect(typeof posted.requestId).toBe("string");
+	expect(posted.payload.label).toBe("Old");
+	expect(posted.payload.baseUrl).toBe("http://old.test");
+	expect(typeof posted.id).toBe("string");
 });
 
 test("without hidden groups no hidden-groups line renders; with them it renders even beside the empty start", () => {
@@ -595,16 +582,7 @@ test("without hidden groups no hidden-groups line renders; with them it renders 
 	// Every visible group hidden: the guided start renders, but the unhide
 	// path must stay reachable.
 	const onlyHidden = mount(
-		<ServersSection
-			servers={[]}
-			hidden={[{ label: "Old", baseUrl: "http://old.test" }]}
-			now={Date.now()}
-			ack={undefined}
-			failures={{}}
-			inlineSecrets={undefined}
-			onDismissFailure={noop}
-			onClearInlineSecrets={noop}
-		/>
+		<ServersSection servers={[]} hidden={[{ label: "Old", baseUrl: "http://old.test" }]} now={Date.now()} />
 	);
 	expect(onlyHidden.querySelector(".empty-start")).not.toBeNull();
 	expect(onlyHidden.querySelector(".hidden-groups")?.textContent).toContain("1 hidden group");
@@ -648,11 +626,6 @@ test("the model count is a scope link only when the section is given onShowModel
 		<ServersSection
 			servers={[makeDeclaredServer({ label: "Prod", modelCount: 3 }), makeDeclaredServer({ label: "Empty" })]}
 			now={Date.now()}
-			ack={undefined}
-			failures={{}}
-			inlineSecrets={undefined}
-			onDismissFailure={noop}
-			onClearInlineSecrets={noop}
 			onShowModels={(label) => labels.push(label)}
 		/>
 	);
@@ -675,11 +648,12 @@ test("Test connection gates on the base URL alone, posts the draft's exact keys,
 	resetPosted();
 	fireClick(buttonByText(root, "Test connection"));
 	expect(postedMessages.length).toBe(1);
-	const posted = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
+	const posted = postedMessages[0] as RpcRequest<"testServerDraft">;
 	// Exact key set, like the adopt test: a smuggled extra field must fail here.
-	expect(Object.keys(posted).sort()).toEqual(["requestId", "secrets", "server", "type"]);
-	expect(posted.type).toBe("testServerDraft");
-	expect(posted.server).toEqual({
+	expect(Object.keys(posted).sort()).toEqual(["id", "kind", "method", "payload"]);
+	expect(Object.keys(posted.payload).sort()).toEqual(["secrets", "server"]);
+	expect(posted.method).toBe("testServerDraft");
+	expect(posted.payload.server).toEqual({
 		label: "",
 		baseUrl: "http://localhost:4000",
 		modelCapabilities: {},
@@ -688,12 +662,12 @@ test("Test connection gates on the base URL alone, posts the draft's exact keys,
 		declaredModels: [],
 		budget: null,
 	});
-	expect(posted.secrets).toEqual({
+	expect(posted.payload.secrets).toEqual({
 		apiKey: { action: "keep" },
 		oauthClientSecret: { action: "keep" },
 		virtualKeyValue: { action: "keep" },
 	});
-	expect(typeof posted.requestId).toBe("string");
+	expect(typeof posted.id).toBe("string");
 
 	// In flight: the button goes busy, Save and Cancel stay live.
 	expect(buttonByText(root, "Testing...").disabled).toBe(true);
@@ -703,16 +677,16 @@ test("Test connection gates on the base URL alone, posts the draft's exact keys,
 	// A foreign ack changes nothing; the test's own ack renders the
 	// extension-composed message verbatim, selectable in the footer.
 	pushToWebview({
-		type: "intentSucceeded",
-		intentType: "testServerDraft",
-		requestId: "someone-elses",
+		kind: "ack",
+		id: "someone-elses",
+		method: "testServerDraft",
 		message: "Connected - 9 models",
 	});
 	expect(root.textContent).toContain("Testing...");
 	pushToWebview({
-		type: "intentSucceeded",
-		intentType: "testServerDraft",
-		requestId: posted.requestId,
+		kind: "ack",
+		id: posted.id,
+		method: "testServerDraft",
 		message: "Connected - 3 models",
 	});
 	expect(root.querySelector(".test-result")?.textContent).toBe("Connected - 3 models");
@@ -731,13 +705,13 @@ test("a failed test with a setup hint renders the troubleshooting link inside th
 
 	resetPosted();
 	fireClick(buttonByText(root, "Test connection"));
-	const posted = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
+	const posted = postedMessages[0] as RpcRequest<"testServerDraft">;
 	pushToWebview({
-		type: "intentFailed",
-		intentType: "testServerDraft",
+		kind: "fail",
+		id: posted.id,
+		method: "testServerDraft",
 		message: "the server answered 404",
-		kind: "validation",
-		requestId: posted.requestId,
+		failureKind: "validation",
 		classification: { kind: "http", status: 404, setupHint: "check-base-url" },
 	});
 
@@ -759,13 +733,13 @@ test("a failed test with a setup hint renders the troubleshooting link inside th
 	resetPosted();
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4001");
 	fireClick(buttonByText(root, "Test connection"));
-	const second = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
+	const second = postedMessages[0] as RpcRequest<"testServerDraft">;
 	pushToWebview({
-		type: "intentFailed",
-		intentType: "testServerDraft",
+		kind: "fail",
+		id: second.id,
+		method: "testServerDraft",
 		message: "LiteLLM API error: 500",
-		kind: "validation",
-		requestId: second.requestId,
+		failureKind: "validation",
 		classification: { kind: "http", status: 500 },
 	});
 	expect(root.querySelector(".test-result.error")?.textContent).toContain("LiteLLM API error: 500");
@@ -851,16 +825,16 @@ test("a failed test renders its message inline and the result clears on any cred
 
 	resetPosted();
 	fireClick(buttonByText(root, "Test connection"));
-	const posted = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
+	const posted = postedMessages[0] as RpcRequest<"testServerDraft">;
 	// Editing an entry: the intent addresses "keep" resolution at the original label.
-	expect(posted.replaceLabel).toBe("Prod");
+	expect(posted.payload.replaceLabel).toBe("Prod");
 
 	pushToWebview({
-		type: "intentFailed",
-		intentType: "testServerDraft",
+		kind: "fail",
+		id: posted.id,
+		method: "testServerDraft",
 		message: "Network Error: unable to reach the server",
-		kind: "validation",
-		requestId: posted.requestId,
+		failureKind: "validation",
 	});
 	const result = root.querySelector(".test-result");
 	expect(result?.textContent).toContain("Network Error: unable to reach the server");
@@ -880,11 +854,11 @@ test("a failed test renders its message inline and the result clears on any cred
 	// A credential edit invalidates a fresh result the same way.
 	resetPosted();
 	fireClick(buttonByText(root, "Test connection"));
-	const second = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
+	const second = postedMessages[0] as RpcRequest<"testServerDraft">;
 	pushToWebview({
-		type: "intentSucceeded",
-		intentType: "testServerDraft",
-		requestId: second.requestId,
+		kind: "ack",
+		id: second.id,
+		method: "testServerDraft",
 		message: "Connected - 2 models",
 	});
 	expect(root.querySelector(".test-result")).not.toBeNull();
@@ -894,12 +868,12 @@ test("a failed test renders its message inline and the result clears on any cred
 	// Same for the base URL, from a fresh PASS.
 	resetPosted();
 	fireClick(buttonByText(root, "Test connection"));
-	const third = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
-	expect(third.secrets.apiKey).toEqual({ action: "set", location: "secure", value: "sk-new" });
+	const third = postedMessages[0] as RpcRequest<"testServerDraft">;
+	expect(third.payload.secrets.apiKey).toEqual({ action: "set", location: "secure", value: "sk-new" });
 	pushToWebview({
-		type: "intentSucceeded",
-		intentType: "testServerDraft",
-		requestId: third.requestId,
+		kind: "ack",
+		id: third.id,
+		method: "testServerDraft",
 		message: "Connected - 2 models",
 	});
 	expect(root.querySelector(".test-result")).not.toBeNull();
@@ -915,15 +889,15 @@ test("an in-flight test is abandoned by a connection edit: the stale outcome is 
 
 	resetPosted();
 	fireClick(buttonByText(root, "Test connection"));
-	const posted = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
+	const posted = postedMessages[0] as RpcRequest<"testServerDraft">;
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4001");
 	// The edit returned the button to idle and dropped the pending requestId...
 	expect(root.textContent).not.toContain("Testing...");
 	// ...so the late outcome for the old draft paints nothing.
 	pushToWebview({
-		type: "intentSucceeded",
-		intentType: "testServerDraft",
-		requestId: posted.requestId,
+		kind: "ack",
+		id: posted.id,
+		method: "testServerDraft",
 		message: "Connected - 3 models",
 	});
 	expect(root.querySelector(".test-result")).toBeNull();
@@ -955,7 +929,7 @@ test("a test in flight does not block Cancel; the form closes and the outcome la
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
 	resetPosted();
 	fireClick(buttonByText(root, "Test connection"));
-	const posted = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
+	const posted = postedMessages[0] as RpcRequest<"testServerDraft">;
 
 	// The typed URL made the form dirty, so Cancel raises the discard confirm
 	// (unchanged semantics); Discard closes despite the probe in flight.
@@ -965,11 +939,11 @@ test("a test in flight does not block Cancel; the form closes and the outcome la
 
 	// The abandoned outcome must not throw or resurrect anything.
 	pushToWebview({
-		type: "intentFailed",
-		intentType: "testServerDraft",
+		kind: "fail",
+		id: posted.id,
+		method: "testServerDraft",
 		message: "Network Error: unreachable",
-		kind: "validation",
-		requestId: posted.requestId,
+		failureKind: "validation",
 	});
 	expect(root.querySelector(".test-result")).toBeNull();
 	expect(root.querySelector(".banner-error")).toBeNull();
@@ -1024,9 +998,11 @@ test("the edit form round-trips model capabilities and expected failures into th
 	fireCheck(info?.querySelector("input") as HTMLInputElement, true);
 	fireClick(buttonByText(root, "Save"));
 	expect(postedMessages.length).toBe(1);
-	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
-	expect(saved.server.modelCapabilities).toEqual({ "my-model": { context_length: 200000, supports_vision: true } });
-	expect(saved.server.expectedFailures).toEqual(["modelListing", "modelInfo"]);
+	const saved = postedMessages[0] as RpcRequest<"saveServerSetting">;
+	expect(saved.payload.server.modelCapabilities).toEqual({
+		"my-model": { context_length: 200000, supports_vision: true },
+	});
+	expect(saved.payload.server.expectedFailures).toEqual(["modelListing", "modelInfo"]);
 });
 
 test("an unknown capability key gets a JSON input and no hint without observed evidence; the save still posts", () => {
@@ -1146,22 +1122,12 @@ test("a consumed capability key gets its typed input: costs a decimal number fie
 	).not.toBeUndefined();
 	fireClick(buttonByText(root, "Save"));
 	expect(postedMessages.length).toBe(1);
-	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
-	expect(saved.server.modelCapabilities).toEqual({ "gpt-4": { input_cost_per_token: 0 } });
+	const saved = postedMessages[0] as RpcRequest<"saveServerSetting">;
+	expect(saved.payload.server.modelCapabilities).toEqual({ "gpt-4": { input_cost_per_token: 0 } });
 });
 
 test("a discovery pass finishing under the open form refreshes the unknown-key hint evidence", () => {
-	const sectionWith = (servers: readonly DashboardServer[]) => (
-		<ServersSection
-			servers={servers}
-			now={Date.now()}
-			ack={undefined}
-			failures={{}}
-			inlineSecrets={undefined}
-			onDismissFailure={() => {}}
-			onClearInlineSecrets={() => {}}
-		/>
-	);
+	const sectionWith = (servers: readonly DashboardServer[]) => <ServersSection servers={servers} now={Date.now()} />;
 	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
 	fireClick(buttonByText(root, "Edit"));
 	fireClick(buttonByText(root, "Add capability matcher"));
@@ -1282,8 +1248,8 @@ test("fallback checkbox: marking a capability row through its chip popover saves
 
 	fireClick(buttonByText(root, "Save"));
 	expect(postedMessages.length).toBe(1);
-	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
-	expect(saved.server.modelCapabilities).toEqual({
+	const saved = postedMessages[0] as RpcRequest<"saveServerSetting">;
+	expect(saved.payload.server.modelCapabilities).toEqual({
 		"gpt-4": { context_length: 128000, _fallback: ["context_length"] },
 	});
 });
@@ -1313,8 +1279,8 @@ test("fallback checkbox: a support-flag row carries its own box beside the value
 	fireCheck(fallbackBox, true);
 
 	fireClick(buttonByText(root, "Save"));
-	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
-	expect(saved.server.modelCapabilities).toEqual({
+	const saved = postedMessages[0] as RpcRequest<"saveServerSetting">;
+	expect(saved.payload.server.modelCapabilities).toEqual({
 		"gpt-4": { supports_vision: true, _fallback: ["supports_vision"] },
 	});
 });
@@ -1338,8 +1304,8 @@ test("fallback checkbox: a hand-written _fallback true loads checked and saves u
 
 	// Saving without touching the mark keeps the user's literal true.
 	fireClick(buttonByText(root, "Save"));
-	const saved = postedMessages[0] as Extract<WebviewToExtensionMessage, { type: "saveServerSetting" }>;
-	expect(saved.server.modelCapabilities).toEqual({ "gpt-4": { context_length: 128000, _fallback: true } });
+	const saved = postedMessages[0] as RpcRequest<"saveServerSetting">;
+	expect(saved.payload.server.modelCapabilities).toEqual({ "gpt-4": { context_length: 128000, _fallback: true } });
 });
 
 test("an expected failure renders the warn pill, the declared-count badge, and the warn banner, never the red one", () => {
@@ -1412,8 +1378,8 @@ test("editing a capability row or an expected-failure checkbox clears a standing
 	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
 	fireClick(buttonByText(root, "Edit"));
 	fireClick(buttonByText(root, "Test connection"));
-	const probe = postedMessages.at(-1) as Extract<WebviewToExtensionMessage, { type: "testServerDraft" }>;
-	expect(probe.type).toBe("testServerDraft");
+	const probe = postedMessages.at(-1) as RpcRequest<"testServerDraft">;
+	expect(probe.method).toBe("testServerDraft");
 	// The in-flight state is visible; a capability edit abandons the probe,
 	// because its outcome (declared count, expected downgrade) depends on it.
 	expect(root.textContent).toContain("Testing...");

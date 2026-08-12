@@ -1,16 +1,19 @@
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
-import type { CapabilityJsonValue, CapabilityValueKind, DashboardServer } from "../../../dashboard/protocol";
 import {
-	CAPABILITY_FIELDS,
-	CONSUMED_CAPABILITY_FIELDS,
-	capabilityField,
 	classifyOverall,
 	latestCheckedMs,
 	overallStatusText,
 	serverOutcomeParts,
 	serverOutcomeText,
-} from "../../../dashboard/protocol";
+} from "../../../dashboard/presenters";
+import type { DashboardServer } from "../../../dashboard/viewModels";
+import type { CapabilityJsonValue, CapabilityValueKind } from "../../../shared/config/capabilityResolution";
+import {
+	CAPABILITY_FIELDS,
+	CONSUMED_CAPABILITY_FIELDS,
+	capabilityField,
+} from "../../../shared/config/capabilityResolution";
 
 /**
  * Wording pins for the shared diagnostics renderers. These lines are what
@@ -50,7 +53,7 @@ function misconfiguredServer(problems: readonly string[]): DashboardServer {
 	};
 }
 
-describe("dashboard/protocol renderers", () => {
+describe("dashboard/presenters renderers", () => {
 	describe("overallStatusText", () => {
 		test("nothing configured anywhere reads as not configured", () => {
 			assert.strictEqual(overallStatusText([], 0), "Not configured");
@@ -359,10 +362,10 @@ describe("dashboard/protocol renderers", () => {
 		});
 	});
 
-	describe("capability vocabulary re-exports", () => {
-		test("the consumed vocabulary rides the protocol module and contains the registration-typed core", () => {
-			// The webview may import only the src/dashboard tree; the record editors key
-			// their inputs and validation hints off these constants.
+	describe("capability vocabulary", () => {
+		test("the consumed vocabulary contains the registration-typed core", () => {
+			// The record editors key their inputs and validation hints off these
+			// constants (imported from the shared resolver module directly).
 			for (const name of Object.keys(CAPABILITY_FIELDS)) {
 				assert.ok(Object.hasOwn(CONSUMED_CAPABILITY_FIELDS, name), `core field ${name} must be consumed`);
 			}

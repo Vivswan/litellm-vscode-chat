@@ -18,20 +18,8 @@ afterEach(() => {
 	cleanup();
 });
 
-const noop = () => {};
-
 function mountSection(servers: readonly ReturnType<typeof makeDeclaredServer>[]) {
-	return mount(
-		<ServersSection
-			servers={servers}
-			now={Date.now()}
-			ack={undefined}
-			failures={{}}
-			inlineSecrets={undefined}
-			onDismissFailure={noop}
-			onClearInlineSecrets={noop}
-		/>
-	);
+	return mount(<ServersSection servers={servers} now={Date.now()} />);
 }
 
 test("relativeTime rounds to the coarsest readable unit and tolerates clock drift and garbage", () => {

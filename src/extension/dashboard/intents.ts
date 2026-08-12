@@ -9,29 +9,30 @@
 import * as l10n from "@vscode/l10n";
 import type {
 	DashboardCommandId,
-	NumberSettingId,
+	DashboardIntent,
 	SaveServerPayload,
 	SecretDirective,
-	SecretFieldId,
-	TransportErrorClassification,
-} from "../../dashboard/protocol";
-import { NUMBER_SETTING_SPECS, SECRET_FIELD_IDS, unitBehavior } from "../../dashboard/protocol";
+} from "../../dashboard/endpoints";
+import { unitBehavior } from "../../dashboard/presenters";
 import { isUsableHttpUrl } from "../../dashboard/serverForm";
 import { CMD, INTERNAL_CMD, manageCommandTitle } from "../../shared/config/commandIds";
-import { CONFIG_SECTION } from "../../shared/config/settingSpec";
+import type { NumberSettingId } from "../../shared/config/settingSpec";
+import { CONFIG_SECTION, NUMBER_SETTING_SPECS } from "../../shared/config/settingSpec";
 import {
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
 	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
 	USAGE_STATUS_BAR_SETTING_KEY,
 } from "../../shared/config/settings";
+import type { TransportErrorClassification } from "../../shared/errorClassification";
+import type { SecretFieldId } from "../../shared/serverEntry";
+import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { isValidHeaderName, isValidHeaderValue } from "../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import { EXTENSION_SETTINGS_FILTER } from "../servers/serverManagement";
 import { acceptedEntry, inlineSecretValues } from "../servers/serverSync";
 import type { AdoptableGroupCredentials } from "./adopt";
 import { applyAdoptServer } from "./adopt";
-import type { DashboardIntent } from "./intentSchema";
 import { applySaveServerSetting } from "./saveServer";
 import type { DraftConnection } from "./testDraftConnection";
 import { applyTestServerDraft } from "./testDraftConnection";
@@ -48,7 +49,7 @@ export class DashboardValidationError extends Error {
 	/**
 	 * The transport classification behind the failure, when a probe supplied
 	 * one: enum ids and a status number only, never message text, so it rides
-	 * both the intentFailed protocol message and the boundary's rejection log
+	 * both the fail envelope and the boundary's rejection log
 	 * line.
 	 */
 	readonly classification?: TransportErrorClassification;
@@ -366,17 +367,17 @@ export async function executeDashboardIntent(
 	intent: DashboardIntent,
 	env: IntentEnvironment
 ): Promise<string | undefined> {
-	switch (intent.type) {
+	switch (intent.method) {
 		case "setNumberSetting": {
-			const problem = validateNumberSetting(intent.setting, intent.value);
+			const problem = validateNumberSetting(intent.payload.setting, intent.payload.value);
 			if (problem !== undefined) {
 				throw new DashboardValidationError(problem);
 			}
-			await env.updateSetting(intent.setting, intent.value);
+			await env.updateSetting(intent.payload.setting, intent.payload.value);
 			return undefined;
 		}
 		case "setBooleanSetting":
-			await env.updateSetting(intent.setting, intent.value);
+			await env.updateSetting(intent.payload.setting, intent.payload.value);
 			return undefined;
 		case "resetSetting":
 			// Removes the key from the highest-precedence scope that sets it
@@ -386,42 +387,42 @@ export async function executeDashboardIntent(
 			// scopes. Deliberately not updateSetting's write-scope rule, which
 			// never targets the folder scope and would leave a folder value
 			// standing while removing a hidden lower-scope one.
-			await env.removeSetting(intent.setting);
+			await env.removeSetting(intent.payload.setting);
 			return undefined;
 		case "revealSetting":
 			// The schema already pinned the setting to REVEALABLE_SETTING_IDS
 			// (only known ids cross the boundary); the command resolves the full
 			// "litellm-vscode-chat.<key>" itself and is best-effort by design.
-			await env.executeCommand(INTERNAL_CMD.openSettingKey, intent.setting);
+			await env.executeCommand(INTERNAL_CMD.openSettingKey, intent.payload.setting);
 			return undefined;
 		case "setModelParameters": {
-			const problem = validateModelParametersRecord(intent.value);
+			const problem = validateModelParametersRecord(intent.payload.value);
 			if (problem !== undefined) {
 				throw new DashboardValidationError(problem);
 			}
-			await env.updateSetting(MODEL_PARAMETERS_SETTING_KEY, intent.value);
+			await env.updateSetting(MODEL_PARAMETERS_SETTING_KEY, intent.payload.value);
 			return undefined;
 		}
 		case "setModelCapabilities": {
 			// The same reserved-key gate as the parameters record; the capability
 			// vocabulary itself stays with the resolver's lenient, diagnosing parse.
-			const problem = validateModelParametersRecord(intent.value);
+			const problem = validateModelParametersRecord(intent.payload.value);
 			if (problem !== undefined) {
 				throw new DashboardValidationError(problem);
 			}
-			await env.updateSetting(MODEL_CAPABILITIES_SETTING_KEY, intent.value);
+			await env.updateSetting(MODEL_CAPABILITIES_SETTING_KEY, intent.payload.value);
 			return undefined;
 		}
 		case "setUsageStatusBar":
 			// The schema already pinned the value to the closed mode vocabulary.
-			await env.updateSetting(USAGE_STATUS_BAR_SETTING_KEY, intent.value);
+			await env.updateSetting(USAGE_STATUS_BAR_SETTING_KEY, intent.payload.value);
 			return undefined;
 		case "setUsageAlertThresholds": {
 			// Out-of-range values are refused here rather than silently dropped:
 			// the dashboard's editor validates the same rule, so anything else is
 			// a bypassing caller. Written sorted and deduplicated - the canonical
 			// form normalization would produce anyway.
-			const invalid = intent.values.some((value) => !(value > 0 && value <= 1));
+			const invalid = intent.payload.values.some((value) => !(value > 0 && value <= 1));
 			if (invalid) {
 				throw new DashboardValidationError(
 					`${l10n.t("Alert thresholds must be above 0% and at most 100% - enter values like 80% or 0.8.")}\n${l10n.t(
@@ -431,7 +432,7 @@ export async function executeDashboardIntent(
 					)}`
 				);
 			}
-			const canonical = [...new Set(intent.values)].sort((a, b) => a - b);
+			const canonical = [...new Set(intent.payload.values)].sort((a, b) => a - b);
 			await env.updateSetting(USAGE_ALERT_THRESHOLDS_SETTING_KEY, canonical);
 			return undefined;
 		}
@@ -444,19 +445,19 @@ export async function executeDashboardIntent(
 			env.refreshUsageNow();
 			return undefined;
 		case "saveServerSetting": {
-			const problem = validateSaveServerSetting(intent.server, intent.secrets);
+			const problem = validateSaveServerSetting(intent.payload.server, intent.payload.secrets);
 			if (problem !== undefined) {
 				throw new DashboardValidationError(problem);
 			}
-			await applySaveServerSetting(intent, env);
+			await applySaveServerSetting(intent.payload, env);
 			return undefined;
 		}
 		case "testServerDraft": {
-			const problem = validateTestServerDraft(intent.server, intent.secrets);
+			const problem = validateTestServerDraft(intent.payload.server, intent.payload.secrets);
 			if (problem !== undefined) {
 				throw new DashboardValidationError(problem);
 			}
-			const outcome = await applyTestServerDraft(intent, env);
+			const outcome = await applyTestServerDraft(intent.payload, env);
 			// Static classification plus counts, composed here so the webview
 			// renders it verbatim; never payload or response text.
 			if (outcome.kind === "expected-failure") {
@@ -475,7 +476,7 @@ export async function executeDashboardIntent(
 		}
 		case "removeServerSetting": {
 			const entries = rawServerEntries(env.readServersSetting());
-			const next = entries.filter((entry) => !entryHasLabel(entry, intent.label));
+			const next = entries.filter((entry) => !entryHasLabel(entry, intent.payload.label));
 			if (next.length === entries.length) {
 				throw new DashboardValidationError(
 					l10n.t("No servers setting entry has this label; the server is managed outside the setting")
@@ -489,9 +490,9 @@ export async function executeDashboardIntent(
 			return undefined;
 		}
 		case "adoptServer":
-			return applyAdoptServer(intent, env);
+			return applyAdoptServer(intent.payload, env);
 		case "hideExternalServer": {
-			const baseUrl = intent.baseUrl.trim();
+			const baseUrl = intent.payload.baseUrl.trim();
 			if (baseUrl.length === 0 || !isUsableHttpUrl(baseUrl)) {
 				// The "fieldId:" prefix stays an ASCII identifier outside the
 				// translation: sectionFailureText matches it against the internal
@@ -501,7 +502,7 @@ export async function executeDashboardIntent(
 			// Resolution binds the opaque handle to a group that is external
 			// RIGHT NOW: a stale or forged intent cannot tombstone a declared
 			// group's identity or a group at another host.
-			const identity = env.resolveExternalGroup(baseUrl, intent.sourceHandle);
+			const identity = env.resolveExternalGroup(baseUrl, intent.payload.sourceHandle);
 			if (identity === undefined) {
 				throw new DashboardValidationError(
 					`${l10n.t(
@@ -516,19 +517,19 @@ export async function executeDashboardIntent(
 			return undefined;
 		}
 		case "unhideServer": {
-			if (intent.label.trim().length === 0) {
+			if (intent.payload.label.trim().length === 0) {
 				throw new DashboardValidationError(`label: ${l10n.t("enter a label")}`);
 			}
 			// The identity is echoed back verbatim (no trimming): the webview
 			// sends exactly what the HiddenGroup row carried.
-			const removed = await env.unhideGroup({ label: intent.label, baseUrl: intent.baseUrl });
+			const removed = await env.unhideGroup({ label: intent.payload.label, baseUrl: intent.payload.baseUrl });
 			if (!removed) {
 				throw new DashboardValidationError(l10n.t("No hidden group matches this identity; it may already be visible"));
 			}
 			return undefined;
 		}
 		case "executeCommand": {
-			const { command, args } = COMMANDS_BY_ID[intent.command];
+			const { command, args } = COMMANDS_BY_ID[intent.payload.command];
 			await env.executeCommand(command, ...args);
 			return undefined;
 		}

@@ -51,7 +51,7 @@ const STRIP_SCRIPT = `
 `;
 
 const fixture: RenderFixture = {
-	messages: [{ type: "state", state: baseState() }],
+	messages: [{ kind: "push", state: baseState() }],
 	steps: [STRIP_SCRIPT],
 	viewport: { width: 1300, height: 900 },
 };

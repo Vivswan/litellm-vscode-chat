@@ -4,16 +4,20 @@
  * per-row jump to the inspectors).
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { render } from "preact";
-import { act } from "preact/test-utils";
-import type {
-	ConfigDiagnosticView,
-	ExtensionToWebviewMessage,
-	ResolvedModelsView,
-} from "../../../../dashboard/protocol";
+import type { ConfigDiagnosticView, ResolvedModelsView } from "../../../../dashboard/viewModels";
 import { DiagnosticsSection } from "../../../../webview/dashboard/diagnostics";
 import { makeDeclaredServer } from "../fixtures";
-import { buttonByText, cleanup, fireClick, fireInput, mount, postedMessages, resetPosted } from "../harness";
+import {
+	buttonByText,
+	cleanup,
+	fireClick,
+	fireInput,
+	lastRequest,
+	mount,
+	postedRequests,
+	resetPosted,
+	respondTo,
+} from "../harness";
 
 const NOW = 1_700_000_000_000;
 
@@ -86,23 +90,11 @@ function mountDiagnostics(options: {
 		onInspect: options.onInspect ?? (() => undefined),
 		now: NOW,
 	};
-	// First render posts the readResolvedModels request; re-rendering the SAME
-	// tree with the echoed response (unchanged active/stateSeq, so no new
-	// request fires) delivers it, exactly like the extension answering.
-	const root = mount(<DiagnosticsSection {...props} resolvedResponse={undefined} />);
-	const request = postedMessages.find((message) => message.type === "readResolvedModels");
-	if (request === undefined || request.type !== "readResolvedModels") {
-		throw new Error("no readResolvedModels request posted");
-	}
-	const response: ExtensionToWebviewMessage = {
-		type: "resolvedModels",
-		requestId: request.requestId,
-		view: options.view ?? makeView(),
-	};
-	void act(() => {
-		render(<DiagnosticsSection {...props} resolvedResponse={response} />, root);
-	});
-	return { root, response };
+	// Mounting posts the readResolvedModels request; answering it through the
+	// window delivers the view exactly like the extension would.
+	const root = mount(<DiagnosticsSection {...props} />);
+	respondTo(lastRequest("readResolvedModels"), { view: options.view ?? makeView() });
+	return { root };
 }
 
 describe("Configuration diagnostics", () => {
@@ -113,7 +105,6 @@ describe("Configuration diagnostics", () => {
 				modelCount={0}
 				legacyServerCount={0}
 				diagnostics={[]}
-				resolvedResponse={undefined}
 				active={false}
 				stateSeq={0}
 				onInspect={() => undefined}
@@ -163,7 +154,6 @@ describe("Configuration diagnostics", () => {
 				modelCount={0}
 				legacyServerCount={0}
 				diagnostics={diagnostics}
-				resolvedResponse={undefined}
 				active={false}
 				stateSeq={0}
 				onInspect={() => undefined}
@@ -206,7 +196,6 @@ describe("Configuration diagnostics", () => {
 				modelCount={0}
 				legacyServerCount={0}
 				diagnostics={diagnostics}
-				resolvedResponse={undefined}
 				active={false}
 				stateSeq={0}
 				onInspect={() => undefined}
@@ -231,14 +220,13 @@ describe("Resolved models", () => {
 				modelCount={0}
 				legacyServerCount={0}
 				diagnostics={[]}
-				resolvedResponse={undefined}
 				active={false}
 				stateSeq={0}
 				onInspect={() => undefined}
 				now={NOW}
 			/>
 		);
-		expect(postedMessages.filter((message) => message.type === "readResolvedModels")).toHaveLength(0);
+		expect(postedRequests("readResolvedModels")).toHaveLength(0);
 	});
 
 	test("draws the tree with fields, marks, barriers, leaves, and invalid keys", () => {

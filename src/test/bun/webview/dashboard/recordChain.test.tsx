@@ -6,13 +6,11 @@
  * match renders no figure at all.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { render } from "preact";
-import { act } from "preact/test-utils";
-import type { RecordChainView } from "../../../../dashboard/protocol";
-import type { ModelCapabilitiesResponse, ModelParametersResponse } from "../../../../webview/dashboard/modelInspector";
+import type { RecordChainView } from "../../../../dashboard/viewModels";
+import type { ModelParametersResponse } from "../../../../webview/dashboard/modelInspector";
 import { ModelInspector } from "../../../../webview/dashboard/modelInspector";
 import { makeModel } from "../fixtures";
-import { cleanup, fireClick, mount, postedMessages, resetPosted } from "../harness";
+import { cleanup, fireClick, lastRequest, mount, resetPosted, respondTo } from "../harness";
 
 beforeEach(resetPosted);
 afterEach(cleanup);
@@ -41,16 +39,10 @@ function mountParamsWithChains(
 		onEditRecord: callbacks.onEditRecord,
 		onEditEntry: callbacks.onEditEntry,
 	};
-	const root = mount(<ModelInspector {...props} paramsResponse={undefined} capsResponse={undefined} />);
-	const read = postedMessages.find((message) => message.type === "readModelParameters") as { requestId: string };
-	const answered = {
-		type: "modelParameters",
-		requestId: read.requestId,
+	const root = mount(<ModelInspector {...props} />);
+	respondTo(lastRequest("readModelParameters"), {
 		projection: EMPTY_PROJECTION,
 		...(chains !== undefined ? { chains } : {}),
-	} as ModelParametersResponse;
-	void act(() => {
-		render(<ModelInspector {...props} paramsResponse={answered} capsResponse={undefined} />, root);
 	});
 	return root;
 }
@@ -162,11 +154,8 @@ describe("the params inspector's record path", () => {
 test("the capabilities section renders the same figure from its own response", () => {
 	const model = makeModel({ rawId: "gpt-5.6", name: "GPT-5.6" });
 	const props = { model, stateSeq: 0, onClose: () => {} };
-	const root = mount(<ModelInspector {...props} paramsResponse={undefined} capsResponse={undefined} />);
-	const read = postedMessages.find((message) => message.type === "readModelCapabilities") as { requestId: string };
-	const answered = {
-		type: "modelCapabilities",
-		requestId: read.requestId,
+	const root = mount(<ModelInspector {...props} />);
+	respondTo(lastRequest("readModelCapabilities"), {
 		chains: [
 			{
 				layer: "global",
@@ -176,9 +165,6 @@ test("the capabilities section renders the same figure from its own response", (
 				],
 			},
 		] satisfies RecordChainView[],
-	} as ModelCapabilitiesResponse;
-	void act(() => {
-		render(<ModelInspector {...props} paramsResponse={undefined} capsResponse={answered} />, root);
 	});
 	const chain = root.querySelector(".record-chain") as HTMLElement;
 	const text = (chain.textContent ?? "").replace(/\s+/g, " ").trim();

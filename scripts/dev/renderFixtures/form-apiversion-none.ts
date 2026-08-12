@@ -1,5 +1,5 @@
 /** The server form's API version disclosure: "" (No version) prefill, open with the None choice selected. */
-import type { DashboardServer, DashboardState } from "../../../src/dashboard/protocol.ts";
+import type { DashboardServer, DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, MODELS, PROD_SERVER } from "./shared.ts";
 
@@ -17,7 +17,7 @@ const state: DashboardState = baseState({
 });
 
 const fixture: RenderFixture = {
-	messages: [{ type: "state", state }],
+	messages: [{ kind: "push", state }],
 	steps: [`Array.from(document.querySelectorAll("button")).find((b) => b.textContent.trim() === "Edit").click()`],
 	viewport: { width: 1300, height: 2200 },
 	settleMs: 400,

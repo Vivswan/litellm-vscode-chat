@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { classifyOverall } from "../../../dashboard/protocol";
+import { classifyOverall } from "../../../dashboard/presenters";
 import { detectSetupProblem } from "../../../extension/ui/setupGate";
 import type { StatusItemLike, StatusItemView } from "../../../extension/ui/status";
 import { StatusBarManager } from "../../../extension/ui/status";

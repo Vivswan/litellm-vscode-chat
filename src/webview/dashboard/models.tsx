@@ -1,6 +1,6 @@
 import * as l10n from "@vscode/l10n";
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { DashboardModel } from "../../dashboard/protocol";
+import type { DashboardModel } from "../../dashboard/viewModels";
 import { DOCS_LINK_MODELS } from "./docsLinks";
 import { DocsLink, Help, HoverTip } from "./help";
 import { helpModelsSection } from "./helpText";

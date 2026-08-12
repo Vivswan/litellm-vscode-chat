@@ -12,7 +12,7 @@ const state = baseState();
 const fixture: RenderFixture = {
 	messages: [
 		{
-			type: "state",
+			kind: "push",
 			state: {
 				...state,
 				settings: {
@@ -26,7 +26,7 @@ const fixture: RenderFixture = {
 				},
 			},
 		},
-		{ type: "focusSection", section: "settings" },
+		{ kind: "focusSection", section: "settings" },
 	],
 	steps: [
 		`[...document.querySelectorAll("button")]

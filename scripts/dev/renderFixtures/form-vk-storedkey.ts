@@ -3,7 +3,7 @@
  * stored-apiKey activation rule must be legible (a bearer still goes out on
  * this shape; the hint and the reachable Remove checkbox are the point).
  */
-import type { DashboardServer, DashboardState } from "../../../src/dashboard/protocol.ts";
+import type { DashboardServer, DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, PROD_SERVER } from "./shared.ts";
 
@@ -22,7 +22,7 @@ const state: DashboardState = baseState({
 });
 
 const fixture: RenderFixture = {
-	messages: [{ type: "state", state }],
+	messages: [{ kind: "push", state }],
 	steps: [
 		`Array.from(document.querySelectorAll("button")).find((b) => b.textContent.trim() === "Edit").click()`,
 		// The derived form for header+stored-value is the virtual-key shape? A

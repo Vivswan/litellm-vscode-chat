@@ -9,14 +9,15 @@ import { baseState } from "./shared.ts";
 
 const fixture: RenderFixture = {
 	messages: [
-		{ type: "state", state: baseState() },
-		{ type: "focusSection", section: "settings" },
+		{ kind: "push", state: baseState() },
+		{ kind: "focusSection", section: "settings" },
 		{
-			type: "intentFailed",
-			intentType: "setUsageAlertThresholds",
+			kind: "fail",
+			id: "fixture-thresholds-1",
+			method: "setUsageAlertThresholds",
 			message:
 				"Alert thresholds must be above 0% and at most 100% - enter values like 80% or 0.8.\nsetting litellm-vscode-chat.usage.alertThresholds: allowed range 0 < value <= 1",
-			kind: "validation",
+			failureKind: "validation",
 		},
 	],
 	steps: [

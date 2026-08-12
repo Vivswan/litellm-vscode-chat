@@ -10,8 +10,9 @@
  * tests pin the structure and class contract the stylesheet keys on.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { BOOLEAN_SETTING_IDS, DEFAULT_API_VERSION, NUMBER_SETTING_IDS } from "../../../../dashboard/protocol";
 import { SERVER_FORM_FIELD_ORDER } from "../../../../dashboard/serverForm";
+import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS } from "../../../../dashboard/viewModels";
+import { DEFAULT_API_VERSION } from "../../../../shared/util/baseUrl";
 import { App } from "../../../../webview/dashboard/app";
 import { Help } from "../../../../webview/dashboard/help";
 import * as helpText from "../../../../webview/dashboard/helpText";
