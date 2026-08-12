@@ -382,9 +382,12 @@ function ParamsSection({
 	if (field === undefined) {
 		return null;
 	}
-	const items = Array.isArray(field.value)
-		? field.value.filter((item): item is string => typeof item === "string")
-		: [];
+	// Sorted for scanning: the wire order of supported_openai_params carries
+	// no meaning (it is a set), and 30 pills are findable only alphabetically.
+	// Code-unit sort - these are wire identifiers, not display text.
+	const items = (
+		Array.isArray(field.value) ? field.value.filter((item): item is string => typeof item === "string") : []
+	).sort();
 	return (
 		<tbody>
 			<tr class="caps-section">

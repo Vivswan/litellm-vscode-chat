@@ -318,7 +318,7 @@ test("the params list renders its count with the full list behind it; the empty 
 	// behind a tip.
 	expect(row?.querySelector('.param-value [role="tooltip"]')).toBeNull();
 	const listItems = [...root.querySelectorAll(".caps-params-list li code")].map((item) => item.textContent);
-	expect(listItems).toEqual(long);
+	expect(listItems).toEqual([...long].sort());
 	// The list row spans all three columns, and a shadowed list stays
 	// count-only (its record holds the value; the full row shows the winner).
 	const listCell = root.querySelector(".caps-params-row td");
