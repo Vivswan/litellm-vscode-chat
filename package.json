@@ -575,6 +575,7 @@
 		"test:docker": "bun scripts/docker-test.ts"
 	},
 	"dependencies": {
+		"@radix-ui/react-dialog": "^1.1.23",
 		"@vscode/l10n": "^0.0.18",
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",

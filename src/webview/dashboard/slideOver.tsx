@@ -5,37 +5,33 @@
  * to confirm discarding edits) and renders the confirm bar through the
  * `confirming` props, so the keyboard path, the scrim, the X, and the form's
  * own Cancel all share one policy.
+ *
+ * Radix Dialog supplies the parts that are hard to get right by hand - the
+ * focus trap, the nesting-aware Esc layer stack, and aria-hidden on the rest
+ * of the page - while this file keeps the policy Radix has no opinion about.
+ * Two deliberate departures from the stock recipe, both forced by the webview:
+ *
+ * - No `Dialog.Overlay`. Overlay is the only place Radix mounts
+ *   react-remove-scroll, which injects a <style> element the dashboard's CSP
+ *   (style-src without any inline allowance) refuses. The scrim below is the
+ *   backdrop instead, and scroll lock rides a body class in dashboard.css.
+ * - No `Dialog.Portal`. The panel stays where it renders so it keeps its
+ *   place in the section's DOM; nothing here depends on escaping a stacking
+ *   context.
+ *
+ * `Dialog.Root` gets no `onOpenChange`: the section owns whether the form
+ * exists at all, so Radix's open state is always true and every close travels
+ * through onRequestClose below. Wiring onOpenChange as well would give a
+ * dismissal two routes to the same request, and a doubled request reads as
+ * Esc-then-keep-editing - the discard bar would appear and vanish in one key.
  */
 
+import * as Dialog from "@radix-ui/react-dialog";
 import * as l10n from "@vscode/l10n";
-import type { KeyboardEvent, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
 import { IconClose } from "./icons";
 import { Button } from "./ui/button";
-
-/** What can take focus inside the panel; disabled controls and tabindex -1 widgets (listbox options) drop out. */
-const FOCUSABLE =
-	"a[href], button:not([disabled]):not([tabindex='-1']), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary:not([tabindex='-1']), [tabindex]:not([tabindex='-1'])";
-
-/**
- * The panel's tabbable controls in document order. A collapsed <details> hides
- * its content from the Tab order while its own summary stays reachable, so the
- * selector's matches are filtered: without this, a control inside a closed
- * disclosure (a record-path jump, say) would register as the trap's first or
- * last stop, and Tab at the real boundary would escape the dialog.
- */
-function tabbables(panel: HTMLElement): HTMLElement[] {
-	return Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((element) => {
-		for (let node = element.parentElement; node !== null && node !== panel; node = node.parentElement) {
-			if (node.tagName === "DETAILS" && !(node as HTMLDetailsElement).open) {
-				if (element.tagName !== "SUMMARY" || element.parentElement !== node) {
-					return false;
-				}
-			}
-		}
-		return true;
-	});
-}
 
 export function SlideOver({
 	labelledBy,
@@ -62,14 +58,12 @@ export function SlideOver({
 	// Focus moves into the panel on open (the first field, not the X, so
 	// typing can start immediately) and returns to the opener on close - or,
 	// when the opener left the page with the form (the guided start's CTA
-	// unmounts once a server exists), to the stable fallback element.
+	// unmounts once a server exists), to the stable fallback element. Radix's
+	// own open/close autofocus is declined below so this stays the one policy.
 	useEffect(() => {
 		const opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
 		const panel = panelRef.current;
-		const first =
-			panel?.querySelector<HTMLElement>("input, select, textarea") ??
-			(panel === null ? undefined : tabbables(panel)[0]);
-		first?.focus();
+		panel?.querySelector<HTMLElement>("input, select, textarea")?.focus();
 		return () => {
 			if (opener?.isConnected === true) {
 				opener.focus();
@@ -79,55 +73,44 @@ export function SlideOver({
 		};
 	}, [fallbackFocusId]);
 
-	const onKeyDown = (event: KeyboardEvent) => {
-		if (event.key === "Escape") {
-			event.preventDefault();
-			// Panels can nest (the record editors' matcher overlay opens above
-			// the server form's slide-over); the key must close only the panel
-			// that received it, never the one beneath.
-			event.stopPropagation();
-			onRequestClose();
-			return;
-		}
-		if (event.key !== "Tab") {
-			return;
-		}
-		// Tab cycles inside the dialog: the page behind the scrim must stay
-		// unreachable until the form closes. Stop propagation so an outer
-		// nested panel's trap never re-handles the same keystroke.
-		event.stopPropagation();
-		const panel = panelRef.current;
-		if (panel === null) {
-			return;
-		}
-		const focusables = tabbables(panel);
-		const first = focusables[0];
-		const last = focusables[focusables.length - 1];
-		if (first === undefined || last === undefined) {
-			return;
-		}
-		if (event.shiftKey && document.activeElement === first) {
-			event.preventDefault();
-			last.focus();
-		} else if (!event.shiftKey && document.activeElement === last) {
-			event.preventDefault();
-			first.focus();
-		}
-	};
-
 	return (
-		<>
+		<Dialog.Root open={true} modal={true}>
 			{/* A pointer-only affordance, per the dialog pattern: keyboard users
 			    have Esc and the Close button, so the scrim stays out of the Tab
-			    order and out of the accessibility tree. */}
+			    order and out of the accessibility tree. It carries the close
+			    request itself because Radix's outside-interaction dismissal is
+			    declined below - routing both would fire the request twice and
+			    toggle the discard bar straight back off. */}
 			<button type="button" className="scrim" tabIndex={-1} aria-hidden="true" onClick={onRequestClose} />
-			<div
+			<Dialog.Content
 				className="slide-over"
-				role="dialog"
+				// Radix leans on aria-hidden over the rest of the page rather than
+				// this attribute, but assistive tech that reads one and not the
+				// other should still get the modal semantics.
 				aria-modal="true"
 				aria-labelledby={labelledBy}
+				aria-describedby={undefined}
 				ref={panelRef}
-				onKeyDown={onKeyDown}
+				onOpenAutoFocus={(event) => event.preventDefault()}
+				onCloseAutoFocus={(event) => event.preventDefault()}
+				// Radix hears Esc on a document capture listener, which is too
+				// early for this dashboard: the suggestion listbox inside a form
+				// must swallow its own Esc before the panel sees it, and only a
+				// bubble-phase handler can be overruled that way. So Radix's Esc
+				// is declined outright and the policy lives in onKeyDown below.
+				onEscapeKeyDown={(event) => event.preventDefault()}
+				onInteractOutside={(event) => event.preventDefault()}
+				onKeyDown={(event) => {
+					if (event.key !== "Escape") {
+						return;
+					}
+					event.preventDefault();
+					// Panels can nest (the record editors' matcher overlay opens
+					// above the server form's slide-over); the key must close only
+					// the panel that received it, never the one beneath.
+					event.stopPropagation();
+					onRequestClose();
+				}}
 			>
 				<Button variant="quiet" className="slide-close" aria-label={l10n.t("Close")} onClick={onRequestClose}>
 					<IconClose />
@@ -142,7 +125,7 @@ export function SlideOver({
 						</Button>
 					</div>
 				) : null}
-			</div>
-		</>
+			</Dialog.Content>
+		</Dialog.Root>
 	);
 }
