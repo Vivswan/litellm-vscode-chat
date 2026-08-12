@@ -80,6 +80,13 @@ labels:
   - name: "nightly-fuzz"
     color: "B60205"
     description: Automated nightly fuzz failure
+  # The nightly-CI tracking label (nightly module): the fuzz-issue action
+  # keys its one-open-issue-per-label dedup on it, so it must survive the
+  # label sync. Values match the tuple the nightly starter passes to the
+  # action for label creation.
+  - name: "nightly-failure"
+    color: "D93F0B"
+    description: Automated nightly CI failure
 
 
 # Branch ruleset for the default branch. Admins (RepositoryRole id 5) are in

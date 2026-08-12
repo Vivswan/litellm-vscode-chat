@@ -27,7 +27,7 @@ on:
   # Weekly CodeQL re-scan with refreshed query packs; every other gate job
   # is event-agnostic or skips its work cleanly on non-PR events.
   schedule:
-    - cron: "23 4 * * 1"
+    - cron: "3 8 * * 1"
 
 permissions:
   contents: read
@@ -179,12 +179,12 @@ jobs:
           fi
 
   # Early, visible release gating: fails the release PR while an open issue
-  # carries the fuzz-tracking or release-blocker label, or an open Dependabot
-  # alert reaches the severity threshold. This check can go stale (an issue
-  # opened after the PR turned green re-runs nothing here), so the release
-  # path re-runs the same action as the authoritative pre-flight before
-  # cutting a release. The skip lives on the STEP: all-green treats a
-  # skipped needed job as failure.
+  # carries a tracking-stream label (nightly fuzz/CI) or the release-blocker
+  # label, or an open Dependabot alert reaches the severity threshold. This
+  # check can go stale (an issue opened after the PR turned green re-runs
+  # nothing here), so the release path re-runs the same action as the
+  # authoritative pre-flight before cutting a release. The skip lives on
+  # the STEP: all-green treats a skipped needed job as failure.
   release-health:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -202,7 +202,7 @@ jobs:
         if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--')
         with:
           mode: pull-request
-          fuzz-label: "nightly-fuzz"
+          tracking-labels: "nightly-fuzz,nightly-failure"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

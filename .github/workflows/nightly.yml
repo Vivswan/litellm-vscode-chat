@@ -1,0 +1,95 @@
+# Nightly CI starter. Generated once by Vivswan/repo-platform
+# and never overwritten by template sync, so edit freely. Replace the
+# placeholder step with this repository's own nightly checks (the suites too
+# slow for every PR: full end-to-end runs, docker image builds, live
+# integration tests); the report job below keeps working unchanged - a red
+# night files or updates one label-deduplicated tracking issue, a green
+# night closes it (see repo-platform's docs/nightly.md).
+name: Nightly
+
+on:
+  schedule:
+    # Overnight US-Eastern, off the top of the hour, and offset from the
+    # fuzzer starter; pick your repo's own minute so the fleet's nightlies
+    # do not all land on GitHub at once.
+    - cron: "59 6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+# The checks job needs only the checkout; the report job scopes its own
+# issue and dispatch permissions below.
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      # Set up whatever the nightly checks need here (toolchains, docker,
+      # service containers, caches, ...). Add sibling jobs freely: list
+      # every one in the report job's `needs` and fold its result into the
+      # red/green conditions there.
+
+      - name: Nightly checks
+        run: |
+          # Replace this placeholder with the repository's nightly checks.
+          # Any failing step in this job makes the report job below file
+          # or update the tracking issue. Until then this step is a green
+          # no-op on purpose: an uncustomized starter must not file issues.
+          echo "::warning::nightly starter not customized yet - replace the placeholder step (see repo-platform's docs/nightly.md)"
+
+  # Runs whatever happened to the checks job, and treats a CANCELLED checks
+  # job as red: a job that hits its timeout is cancelled, not failed, and a
+  # hang is exactly what a nightly run exists to catch.
+  report:
+    needs: [checks]
+    if: always()
+    runs-on: ubuntu-latest
+    # A few gh calls behind a bun setup; a hung reporter is the residual
+    # silence window, so keep this tight.
+    timeout-minutes: 5
+    # issues: write lets the fuzz-issue action file/close the tracking issue;
+    # actions: write lets the red path dispatch auto-assign at it.
+    permissions:
+      issues: write
+      actions: write
+    steps:
+      - name: File or update the nightly issue
+        id: file-issue
+        if: needs.checks.result == 'failure' || needs.checks.result == 'cancelled'
+        uses: Vivswan/repo-platform/actions/fuzz-issue@main
+        with:
+          mode: report
+          label: "nightly-failure"
+          title: Nightly CI failures
+          # No artifacts directory is passed: this stream files the generic
+          # nightly-failure report (workflow, commit, run link) rather than
+          # the fuzzer's failure-report contract. The tuple below is used
+          # only when the label has to be created and matches the
+          # settings-sync declaration.
+          label-color: "D93F0B"
+          label-description: Automated nightly CI failure
+
+      # A GITHUB_TOKEN-created issue fires no triggers, so dispatch auto-assign.
+      - name: Trigger auto-assign for the filed issue
+        if: steps.file-issue.outputs.issue-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.file-issue.outputs.issue-number }}
+        run: gh workflow run auto-assign.yml -f "issue=$ISSUE_NUMBER" || echo "::warning::could not dispatch auto-assign.yml"
+
+      - name: Close the nightly issue on a green night
+        if: needs.checks.result == 'success'
+        uses: Vivswan/repo-platform/actions/fuzz-issue@main
+        with:
+          mode: resolve
+          label: "nightly-failure"
+          # The generic close wording; without it the action keeps the fuzz
+          # stream's regression-seed hedging.
+          stream: generic
