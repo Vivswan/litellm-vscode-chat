@@ -1,3 +1,4 @@
+import "./styles/theme.css";
 import "./styles/dashboard.css";
 import { createRoot } from "react-dom/client";
 import { App } from "./app";

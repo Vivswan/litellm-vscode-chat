@@ -18,7 +18,9 @@
 	],
 	"ignoreExportsUsedInFile": false,
 	"ignoreDependencies": [
-		"@vscode/test-electron"
+		"@vscode/test-electron",
+		"@tailwindcss/cli",
+		"tailwindcss"
 	],
 	"ignoreBinaries": [
 		"pwsh",
