@@ -10,6 +10,7 @@
 
 import * as l10n from "@vscode/l10n";
 import type { RecordChainView } from "../../dashboard/viewModels";
+import { Button } from "./ui/button";
 
 /** The chains that tell an inheritance story; a chain of one record renders nothing. */
 export function chainsWithStory(chains: readonly RecordChainView[] | undefined): readonly RecordChainView[] {
@@ -62,9 +63,9 @@ export function RecordChainFigure({
 								<span className="record-chain-link" key={link.key}>
 									{index > 0 ? <span className="record-chain-arrow"> {"->"} </span> : null}
 									{onJump !== undefined ? (
-										<button
-											type="button"
-											className="quiet chain-key"
+										<Button
+											variant="quiet"
+											className="chain-key px-0.5 py-0"
 											aria-label={
 												chain.layer === "entry"
 													? l10n.t('Edit in server entry "{0}"', chain.entryLabel)
@@ -73,7 +74,7 @@ export function RecordChainFigure({
 											onClick={onJump}
 										>
 											<code>{link.key}</code>
-										</button>
+										</Button>
 									) : (
 										<code>{link.key}</code>
 									)}

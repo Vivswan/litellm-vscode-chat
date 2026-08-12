@@ -57,11 +57,11 @@ test("a below-minimum draft stays calm until blur reveals it; commit posts nothi
 	// Mid-typing, an honest below-minimum draft raises no error yet...
 	fireInput(input, "500");
 	expect(rowOf(input).textContent).not.toContain("Must be at least");
-	expect(input.classList.contains("invalid")).toBe(false);
+	expect(input.getAttribute("aria-invalid")).toBe("false");
 	// ...but blur reveals it, and the invalid draft still never commits.
 	fireBlur(input);
 	expect(rowOf(input).textContent).toContain("Must be at least 1000");
-	expect(input.classList.contains("invalid")).toBe(true);
+	expect(input.getAttribute("aria-invalid")).toBe("true");
 	fireKeyDown(input, "Enter");
 	expect(postedMessages).toEqual([]);
 
@@ -736,7 +736,7 @@ test("the Import & Export group renders last with its hint, and each button post
 	const importButton = buttonByText(group, "Import settings");
 	for (const button of [exportButton, importButton]) {
 		expect(button.getAttribute("type")).toBe("button");
-		expect(button.classList.contains("secondary")).toBe(true);
+		expect(button.getAttribute("data-variant")).toBe("secondary");
 	}
 
 	fireClick(exportButton);

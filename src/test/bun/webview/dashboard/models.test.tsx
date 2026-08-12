@@ -158,7 +158,7 @@ test("a declared model wears the declared badge with its explanatory tip; discov
 		/>
 	);
 	const rows = Array.from(root.querySelectorAll("tbody tr"));
-	const badges = rows.map((row) => row.querySelector(".model-name .badge")?.textContent ?? null);
+	const badges = rows.map((row) => row.querySelector(".model-name [data-slot='badge']")?.textContent ?? null);
 	// Unsorted, so the rows keep the given order: Mine first, Found second.
 	expect(badges).toEqual(["declared", null]);
 	const tip = rows[0]?.querySelector(".model-name .tip-wrap .help-tip");

@@ -36,6 +36,10 @@ import {
 	modelParametersTitle,
 } from "./recordEditors";
 import { relativeTime } from "./time";
+import { Button } from "./ui/button";
+import { Checkbox } from "./ui/checkbox";
+import { Input } from "./ui/input";
+import { Select } from "./ui/select";
 import { sendRequest } from "./vscodeApi";
 
 /**
@@ -99,14 +103,14 @@ function SettingRow({ modified, hidden, children }: { modified: boolean; hidden:
  */
 function RevealButton({ title, settingId }: { title: string; settingId: RevealableSettingId }) {
 	return (
-		<button
-			type="button"
-			className="quiet reveal-json"
+		<Button
+			variant="quiet"
+			className="reveal-json px-1 py-0"
 			aria-label={l10n.t("Open {0} in settings.json", title)}
 			onClick={() => sendRequest("revealSetting", { setting: settingId })}
 		>
 			<IconBraces />
-		</button>
+		</Button>
 	);
 }
 
@@ -131,14 +135,14 @@ function ResetButton({
 }) {
 	const action = l10n.t("Remove the {0} value of {1}", settingScopeLabel(scope), title);
 	return (
-		<button
-			type="button"
-			className="quiet reset"
+		<Button
+			variant="quiet"
+			className="reset"
 			aria-label={action}
 			onClick={() => sendRequest("resetSetting", { setting: settingId })}
 		>
 			{l10n.t("Reset")}
-		</button>
+		</Button>
 	);
 }
 
@@ -246,7 +250,7 @@ function NumberField({
 			</div>
 			<p className="setting-desc">{presentation.description}</p>
 			<div className="setting-control">
-				<input
+				<Input
 					id={inputId}
 					type={freeText ? "text" : "number"}
 					// The default text inputmode, stated on purpose: a numeric one
@@ -254,7 +258,6 @@ function NumberField({
 					inputMode={freeText ? "text" : undefined}
 					spellCheck={freeText ? false : undefined}
 					min={freeText ? undefined : NUMBER_SETTING_SPECS[id].minimum}
-					className={error === undefined ? "" : "invalid"}
 					aria-invalid={error !== undefined}
 					aria-describedby={error === undefined ? unitId : `${unitId} ${errorId}`}
 					value={text}
@@ -315,9 +318,8 @@ function BooleanField({
 			</div>
 			<div className="setting-control">
 				<label className="setting-check" htmlFor={inputId}>
-					<input
+					<Checkbox
 						id={inputId}
-						type="checkbox"
 						checked={value}
 						onChange={(event) => sendRequest("setBooleanSetting", { setting: id, value: event.currentTarget.checked })}
 					/>
@@ -351,12 +353,7 @@ function CatalogRow({ catalog, enabled, now }: { catalog: CatalogStatusView; ena
 						{catalog.modelCount === 1 ? l10n.t("1 catalog model") : l10n.t("{0} catalog models", catalog.modelCount)}
 						{updated !== undefined ? ` - ${l10n.t("updated {0}", updated)}` : ` - ${l10n.t("bundled snapshot")}`}
 					</span>
-					<button
-						type="button"
-						className="secondary"
-						disabled={catalog.refreshing}
-						onClick={() => sendRequest("refreshCatalog", null)}
-					>
+					<Button variant="secondary" disabled={catalog.refreshing} onClick={() => sendRequest("refreshCatalog", null)}>
 						{catalog.refreshing ? (
 							<>
 								<span className="spinner" aria-hidden="true" /> {l10n.t("Refreshing...")}
@@ -364,7 +361,7 @@ function CatalogRow({ catalog, enabled, now }: { catalog: CatalogStatusView; ena
 						) : (
 							l10n.t("Refresh")
 						)}
-					</button>
+					</Button>
 					<Help text={helpCatalogRow()} />
 					<DocsLink href={DOCS_LINK_OPENROUTER_CATALOG} label={l10n.t("Open the OpenRouter catalog guide")} />
 					{catalog.lastFailure !== undefined ? (
@@ -425,7 +422,7 @@ function UsageStatusBarRow({
 				{l10n.t("When the spend status bar item shows; the worst fresh server's percentage.")}
 			</p>
 			<div className="setting-control">
-				<select
+				<Select
 					id={inputId}
 					value={mode}
 					onChange={(event) =>
@@ -439,7 +436,7 @@ function UsageStatusBarRow({
 							{statusBarModeLabel(candidate)}
 						</option>
 					))}
-				</select>
+				</Select>
 				{configuredScope !== null ? (
 					<ResetButton title={title} scope={configuredScope} settingId="usage.statusBar" />
 				) : null}
@@ -504,11 +501,11 @@ function ThresholdBox({
 			<label className="setting-unit" htmlFor={id}>
 				{label}
 			</label>
-			<input
+			<Input
 				id={id}
 				type="text"
 				spellCheck={false}
-				className={invalid ? "threshold-input invalid" : "threshold-input"}
+				className="threshold-input"
 				aria-invalid={invalid}
 				aria-describedby={invalid ? errorId : undefined}
 				placeholder={placeholder}
@@ -846,17 +843,13 @@ export function SettingsSection({
 				<DocsLink href={DOCS_LINK_SETTINGS} label={l10n.t("Open the settings guide")} />
 			</h2>
 			<div className="toolbar">
-				<button
-					type="button"
-					className="secondary"
-					onClick={() => sendRequest("executeCommand", { command: "openSettings" })}
-				>
+				<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "openSettings" })}>
 					{l10n.t("Open in Settings editor")}
-				</button>
+				</Button>
 			</div>
 			<ScalarScopeNote settings={settings} />
 			<div className="filterbar">
-				<input
+				<Input
 					type="text"
 					placeholder={l10n.t("Filter settings, e.g. timeout")}
 					aria-label={l10n.t("Filter settings")}
@@ -952,20 +945,12 @@ export function SettingsSection({
 					tailVisible={importExportVisible}
 					tail={
 						<div className="toolbar">
-							<button
-								type="button"
-								className="secondary"
-								onClick={() => sendRequest("executeCommand", { command: "exportSettings" })}
-							>
+							<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "exportSettings" })}>
 								{l10n.t("Export settings")}
-							</button>
-							<button
-								type="button"
-								className="secondary"
-								onClick={() => sendRequest("executeCommand", { command: "importSettings" })}
-							>
+							</Button>
+							<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "importSettings" })}>
 								{l10n.t("Import settings")}
-							</button>
+							</Button>
 						</div>
 					}
 				/>

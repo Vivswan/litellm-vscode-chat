@@ -1468,15 +1468,14 @@ test("an overlay row problem marks only the offending input: bad JSON flags the 
 
 	fireInput(nameInput(), "temperature");
 	fireInput(valueInput(), "not json");
-	expect(valueInput().classList.contains("invalid")).toBe(true);
 	expect(valueInput().getAttribute("aria-invalid")).toBe("true");
-	expect(nameInput().classList.contains("invalid")).toBe(false);
+	expect(nameInput().getAttribute("aria-invalid")).toBe("false");
 
 	fireInput(valueInput(), "0.2");
 	fireInput(nameInput(), "__proto__");
 	expect(editor().textContent).toContain("reserved name");
-	expect(nameInput().classList.contains("invalid")).toBe(true);
-	expect(valueInput().classList.contains("invalid")).toBe(false);
+	expect(nameInput().getAttribute("aria-invalid")).toBe("true");
+	expect(valueInput().getAttribute("aria-invalid")).toBe("false");
 });
 
 test("the global editor's matcher copy points server records at entries (the entry editor's must not)", () => {

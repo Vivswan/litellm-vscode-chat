@@ -5,6 +5,9 @@ import { DOCS_LINK_MODELS } from "./docsLinks";
 import { DocsLink, Help, HoverTip } from "./help";
 import { helpModelsSection } from "./helpText";
 import { IconArrowUp, IconCheck, IconClose, IconCopy } from "./icons";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
 
 export function formatTokens(count: number): string {
 	return count.toLocaleString();
@@ -310,7 +313,7 @@ export function ModelsSection({
 			) : (
 				<>
 					<div className="filterbar">
-						<input
+						<Input
 							type="text"
 							placeholder={l10n.t("Filter by name, family, or server")}
 							aria-label={l10n.t("Filter models")}
@@ -320,14 +323,9 @@ export function ModelsSection({
 						{scope !== undefined ? (
 							<span className="chip">
 								{l10n.t("Server: {0}", scope.label)}
-								<button
-									type="button"
-									className="quiet"
-									aria-label={l10n.t("Clear the server filter")}
-									onClick={scope.onClear}
-								>
+								<Button variant="quiet" aria-label={l10n.t("Clear the server filter")} onClick={scope.onClear}>
 									<IconClose />
-								</button>
+								</Button>
 							</span>
 						) : null}
 						<span className="hint">{l10n.t("showing {0} of {1}", sorted.length, scoped.length)}</span>
@@ -413,20 +411,20 @@ export function ModelsSection({
 															"Declared in the entry's discovery.declared list; the server's discovery does not list it."
 														)}
 													>
-														<span className="badge">{l10n.t("declared")}</span>
+														<Badge className="ml-1.5 align-middle">{l10n.t("declared")}</Badge>
 													</HoverTip>
 												) : null}
 												{/* Beside the name because the name is what it copies. The
 												    server label keeps the accessible name unique when one raw
 												    ID is registered through several servers. */}
-												<button
-													type="button"
-													className="quiet icon-action"
+												<Button
+													variant="quiet"
+													className="icon-action"
 													aria-label={l10n.t("Copy model ID {0} from {1}", model.id, model.serverLabel)}
 													onClick={() => copyId(model, rowId)}
 												>
 													{copied === rowId ? <IconCheck /> : <IconCopy />}
-												</button>
+												</Button>
 											</td>
 											<td className="col-family">{model.family}</td>
 											{showServerColumn ? <td>{model.serverLabel}</td> : null}
@@ -457,16 +455,16 @@ export function ModelsSection({
 												    stays visible at rest - it is the inspector's only entry
 												    point on this row, so hover-reveal would make it
 												    undiscoverable. */}
-												<button
-													type="button"
-													className="quiet params-action"
+												<Button
+													variant="quiet"
+													className="params-action"
 													aria-label={l10n.t("Inspect {0} on {1}", model.name, model.serverLabel)}
 													onClick={() =>
 														onInspect({ scopeKey: model.scopeKey, rawId: model.rawId, serverLabel: model.serverLabel })
 													}
 												>
 													{l10n.t("Inspect")}
-												</button>
+												</Button>
 											</td>
 										</tr>
 									);

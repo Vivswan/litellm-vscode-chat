@@ -39,6 +39,14 @@ export interface RenderFixture {
 	/** How long to wait after the ready handshake before steps and capture; default 300. */
 	readonly settleMs?: number;
 	/**
+	 * The host theme the page emulates: the token set in harness.css plus the
+	 * body class VS Code stamps. "high-contrast" renders the HC token set with
+	 * prefers-contrast raised, so the theme.css contrast overrides show their
+	 * own colors; "forced-colors" adds forced-colors: active on top, the way
+	 * an OS high-contrast mode overrides author colors. Default "dark".
+	 */
+	readonly hostTheme?: "dark" | "high-contrast" | "forced-colors";
+	/**
 	 * Canned answers for posted requests: when the page posts a request whose
 	 * `method` matches a key, the stub dispatches the mapped envelope template
 	 * with the request's `id` and `method` filled in (the correlation the real
@@ -121,6 +129,58 @@ function themeCss(): string {
 	`;
 }
 
+/**
+ * The VS Code Dark High Contrast theme tokens, approximated the same way.
+ * Deliberately sparse where the real theme is: button fills, secondary
+ * backgrounds, and list hover colors are null in HC, so the stylesheet's
+ * fallback chains and the theme.css contrast overrides are what render.
+ */
+function highContrastCss(): string {
+	return `
+	:root {
+		--vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Ubuntu, sans-serif;
+		--vscode-font-size: 13px;
+		--vscode-editor-font-family: Menlo, Monaco, "Courier New", monospace;
+		--vscode-foreground: #ffffff;
+		--vscode-descriptionForeground: #ffffffb3;
+		--vscode-editor-background: #000000;
+		--vscode-panel-background: #000000;
+		--vscode-editorWidget-background: #0c141f;
+		--vscode-widget-border: #6fc3df;
+		--vscode-contrastBorder: #6fc3df;
+		--vscode-contrastActiveBorder: #f38518;
+		--vscode-focusBorder: #f38518;
+		--vscode-errorForeground: #f48771;
+		--vscode-editorWarning-foreground: #ffd700;
+		--vscode-testing-iconPassed: #89d185;
+		--vscode-textLink-foreground: #3794ff;
+		--vscode-textLink-activeForeground: #3794ff;
+		--vscode-textCodeBlock-background: #000000;
+		--vscode-panelTitle-activeForeground: #ffffff;
+		--vscode-panelTitle-inactiveForeground: #ffffff;
+		--vscode-panelTitle-activeBorder: #6fc3df;
+		--vscode-input-background: #000000;
+		--vscode-input-foreground: #ffffff;
+		--vscode-input-border: #6fc3df;
+		--vscode-input-placeholderForeground: #ffffffb3;
+		--vscode-inputValidation-errorBackground: #000000;
+		--vscode-inputValidation-errorBorder: #f48771;
+		--vscode-button-foreground: #ffffff;
+		--vscode-button-border: #6fc3df;
+		--vscode-editorHoverWidget-background: #0c141f;
+		--vscode-editorHoverWidget-foreground: #ffffff;
+		--vscode-editorHoverWidget-border: #6fc3df;
+		--vscode-notifications-background: #000000;
+		--vscode-notifications-foreground: #ffffff;
+		--vscode-notifications-border: #6fc3df;
+		--vscode-dropdown-background: #000000;
+		--vscode-dropdown-foreground: #ffffff;
+		--vscode-dropdown-border: #6fc3df;
+	}
+	body { background: var(--vscode-editor-background); }
+	`;
+}
+
 /** JSON hardened for an inline script body, like html.ts's inlineScriptJson (which is module-private). */
 function inlineJson(value: unknown): string {
 	return JSON.stringify(value)
@@ -139,9 +199,19 @@ function inlineJson(value: unknown): string {
  * The script also freezes the page's clock to RENDER_EPOCH_MS before the
  * bundle loads: relative-time labels and locale date strings otherwise shift
  * with the wall clock, which breaks pixel comparison between renders.
+ *
+ * The page keeps the shell's real Content-Security-Policy, so this script
+ * carries the shell's nonce and doubles as the CSP violation collector: any
+ * violation (an injected style tag, say) lands in window.__cspViolations and
+ * fails the render - a component that only works without the policy must
+ * fail here, not in the webview.
  */
-function stubScript(messages: readonly unknown[], respond: Readonly<Record<string, unknown>>): string {
-	return `<script>
+function stubScript(nonce: string, messages: readonly unknown[], respond: Readonly<Record<string, unknown>>): string {
+	return `<script nonce="${nonce}">
+	window.__cspViolations = [];
+	document.addEventListener("securitypolicyviolation", (event) => {
+		window.__cspViolations.push(event.violatedDirective + " blocked " + (event.blockedURI || "inline"));
+	});
 	{
 		const epoch = ${RENDER_EPOCH_MS};
 		const RealDate = Date;
@@ -372,15 +442,17 @@ const DETERMINISM_CSS =
 	"*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }";
 
 /**
- * The standalone page: the real HTML shell with the CSP meta stripped (its
- * nonce/source model has no meaning on file://), the theme tokens, and the
- * acquireVsCodeApi stub inserted before the bundle tag so it exists when the
- * bundle's module scope calls it.
+ * The standalone page: the real HTML shell - Content-Security-Policy meta
+ * included, with file: as the style source so the policy is enforced exactly
+ * as the webview enforces it - plus the harness.css link (theme tokens and
+ * determinism styles; inline style tags would violate the policy the page
+ * exists to keep) and the acquireVsCodeApi stub inserted before the bundle
+ * tag so it exists when the bundle's module scope calls it.
  */
 function buildPageHtml(
 	messages: readonly unknown[],
 	respond: Readonly<Record<string, unknown>>,
-	withTheme: boolean
+	hostTheme: "dark" | "high-contrast" | "forced-colors"
 ): string {
 	const nonce = "dev-nonce";
 	let html = buildDashboardHtml({
@@ -391,14 +463,17 @@ function buildPageHtml(
 		language: "en",
 		l10nBundle: undefined,
 	});
-	html = html.replace(/<meta http-equiv="Content-Security-Policy"[\s\S]*?>\s*/, "");
-	const headCss = withTheme ? `${themeCss()}\n${DETERMINISM_CSS}` : DETERMINISM_CSS;
-	html = html.replace("</head>", `<style>${headCss}</style>\n</head>`);
+	html = html.replace("</head>", `<link rel="stylesheet" href="./harness.css">\n</head>`);
+	if (hostTheme === "high-contrast" || hostTheme === "forced-colors") {
+		// VS Code stamps the theme kind onto the body; theme.css keys its
+		// contrast overrides off the same class.
+		html = html.replace("<body>", '<body class="vscode-high-contrast">');
+	}
 	const bundleTag = `<script nonce="${nonce}" src="./dashboard.js"></script>`;
 	if (!html.includes(bundleTag)) {
 		throw new Error("Unexpected dashboard HTML shape: the bundle script tag was not found");
 	}
-	return html.replace(bundleTag, `${stubScript(messages, respond)}\n\t${bundleTag}`);
+	return html.replace(bundleTag, `${stubScript(nonce, messages, respond)}\n\t${bundleTag}`);
 }
 
 async function main(): Promise<void> {
@@ -427,11 +502,14 @@ async function main(): Promise<void> {
 	const chromeBin = findChrome();
 	console.log(`chrome: ${chromeBin}`);
 	const { bundlePath, stylesheetPath } = await ensureBundle();
-	const html = buildPageHtml(fixture.messages, fixture.respond ?? {}, values["no-theme"] !== true);
+	const hostTheme = fixture.hostTheme ?? "dark";
+	const html = buildPageHtml(fixture.messages, fixture.respond ?? {}, hostTheme);
 	if (values["html-out"] !== undefined) {
 		await fs.writeFile(path.resolve(values["html-out"]), html);
 		console.log(`wrote page HTML to ${path.resolve(values["html-out"])}`);
 	}
+	const tokensCss = hostTheme === "dark" ? themeCss() : highContrastCss();
+	const harnessCss = values["no-theme"] === true ? DETERMINISM_CSS : `${tokensCss}\n${DETERMINISM_CSS}`;
 
 	const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "render-dashboard-"));
 	const pageDir = path.join(tmpRoot, "page");
@@ -441,6 +519,7 @@ async function main(): Promise<void> {
 	const indexHtml = path.join(pageDir, "index.html");
 	await fs.copyFile(bundlePath, path.join(pageDir, "dashboard.js"));
 	await fs.copyFile(stylesheetPath, path.join(pageDir, DASHBOARD_STYLESHEET_FILENAME));
+	await fs.writeFile(path.join(pageDir, "harness.css"), harnessCss);
 	await fs.writeFile(indexHtml, html);
 	const pageUrl = pathToFileURL(indexHtml).href;
 
@@ -469,6 +548,18 @@ async function main(): Promise<void> {
 	try {
 		const port = await waitForDevtoolsPort(profileDir, READY_TIMEOUT_MS);
 		cdp = await CdpConnection.connect(await findPageTargetUrl(port, pageUrl, READY_TIMEOUT_MS));
+		if (hostTheme !== "dark") {
+			// The media features the theme kind implies: prefers-contrast for
+			// both HC modes, forced-colors only where an OS high-contrast mode
+			// would override author colors.
+			await cdp.send("Emulation.setEmulatedMedia", {
+				features: [
+					...(hostTheme === "forced-colors" ? [{ name: "forced-colors", value: "active" }] : []),
+					{ name: "prefers-contrast", value: "more" },
+					{ name: "prefers-color-scheme", value: "dark" },
+				],
+			});
+		}
 
 		const readyDeadline = Date.now() + READY_TIMEOUT_MS;
 		while ((await evaluate(cdp, "window.__ready === true")) !== true) {
@@ -482,6 +573,28 @@ async function main(): Promise<void> {
 		for (const step of fixture.steps ?? []) {
 			await evaluate(cdp, step, true);
 			await delay(200);
+		}
+
+		// The page runs under the shell's real CSP; a violation means some
+		// code needs what the webview never grants (an injected style tag,
+		// say), so the render fails loudly instead of capturing a page that
+		// only works with the policy off.
+		const violations = (await evaluate(cdp, "window.__cspViolations")) as readonly string[];
+		if (violations.length > 0) {
+			throw new Error(`Content-Security-Policy violations:\n  ${violations.join("\n  ")}`);
+		}
+		// And the policy must not have cost the page its stylesheets: the
+		// Tailwind theme block defines --radius as a literal (--primary and
+		// friends can compute to guaranteed-invalid when a host token is
+		// deliberately null, as in high contrast), the legacy stylesheet
+		// zeroes the body margin - both gone means a css load was blocked.
+		const stylesApplied = (await evaluate(
+			cdp,
+			`getComputedStyle(document.documentElement).getPropertyValue("--radius") !== "" &&
+			 getComputedStyle(document.body).marginTop === "0px"`
+		)) as boolean;
+		if (!stylesApplied) {
+			throw new Error("The dashboard stylesheet did not apply (missing --radius or body margin reset)");
 		}
 
 		const h1 = await evaluate(cdp, 'document.querySelector("main h1")?.textContent ?? null');

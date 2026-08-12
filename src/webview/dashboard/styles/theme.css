@@ -1,14 +1,29 @@
-/* The Tailwind entry: theme and utilities layers only - preflight stays out
-	 deliberately, because the existing dashboard.css rules style the whole
-	 dashboard and a base reset would repaint every pixel. Utilities compile
-	 from the class scan of src/webview and src/dashboard. */
-@layer theme, base, components, utilities;
+/* The Tailwind entry: theme, base, and utilities layers - preflight stays out
+	 deliberately, because the legacy dashboard.css rules still style most of the
+	 dashboard and a base reset would repaint every pixel. dashboard.css sits in
+	 the legacy layer, below components and utilities, so a utility class always
+	 beats a legacy rule regardless of specificity. Utilities compile from the
+	 class scan of src/webview and src/dashboard. */
+@layer theme, base, legacy, components, utilities;
 
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities) source(none);
 
 @source "../..";
 @source "../../../dashboard";
+
+/* Preflight-lite: exactly the inheritance the legacy element rules used to
+	 give every form control. Without preflight a control falls back to the
+	 browser default font, so this stays once dashboard.css is gone. */
+@layer base {
+	button,
+	input,
+	select,
+	textarea {
+		font-family: inherit;
+		font-size: inherit;
+	}
+}
 
 /* shadcn's semantic tokens, mapped onto the host's live theme variables: the
 	 host swaps --vscode-* values on every theme change, so light and dark need
@@ -34,6 +49,26 @@
 	--input: var(--vscode-input-border, var(--vscode-widget-border, var(--vscode-panel-border)));
 	--ring: var(--vscode-focusBorder);
 	--radius: 4px;
+	/* VS Code publishes explicit state and per-control colors that shadcn's
+		 alpha-blended hover conventions cannot derive, so they get their own
+		 semantic tokens instead of opacity tricks on the base ones. */
+	--primary-hover: var(--vscode-button-hoverBackground, var(--vscode-button-background));
+	--secondary-hover: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-secondaryBackground));
+	--ghost-hover: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
+	--button-border: var(--vscode-button-border, transparent);
+	--input-background: var(--vscode-input-background);
+	--input-foreground: var(--vscode-input-foreground);
+	--input-placeholder: var(--vscode-input-placeholderForeground, var(--vscode-descriptionForeground));
+	--input-invalid: var(--vscode-inputValidation-errorBorder, #f00);
+	--dropdown: var(--vscode-dropdown-border, transparent);
+	--dropdown-background: var(--vscode-dropdown-background);
+	--dropdown-foreground: var(--vscode-dropdown-foreground);
+	--warning: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow));
+	--error: var(--vscode-errorForeground);
+	/* Disabled drops every variant to one neutral treatment: the primary blue
+		 at half opacity still scans as actionable. */
+	--disabled: var(--vscode-button-secondaryBackground, rgba(128, 128, 128, 0.25));
+	--disabled-foreground: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
 }
 
 /* High contrast: the host draws every boundary with the contrast border and
@@ -50,6 +85,12 @@ body.vscode-high-contrast-light {
 	--accent: var(--vscode-list-hoverBackground, var(--vscode-editor-background));
 	--secondary: var(--vscode-editor-background);
 	--secondary-foreground: var(--vscode-foreground);
+	--primary-hover: var(--vscode-button-hoverBackground, var(--primary));
+	--secondary-hover: var(--secondary);
+	--ghost-hover: transparent;
+	--button-border: var(--vscode-contrastBorder);
+	--dropdown: var(--vscode-contrastBorder);
+	--disabled: var(--vscode-editor-background);
 }
 
 /* Inline so utilities bake in the var() chains directly; a non-inline theme
@@ -78,6 +119,21 @@ body.vscode-high-contrast-light {
 	--color-border: var(--border);
 	--color-input: var(--input);
 	--color-ring: var(--ring);
+	--color-primary-hover: var(--primary-hover);
+	--color-secondary-hover: var(--secondary-hover);
+	--color-ghost-hover: var(--ghost-hover);
+	--color-button-border: var(--button-border);
+	--color-input-background: var(--input-background);
+	--color-input-foreground: var(--input-foreground);
+	--color-input-placeholder: var(--input-placeholder);
+	--color-input-invalid: var(--input-invalid);
+	--color-dropdown: var(--dropdown);
+	--color-dropdown-background: var(--dropdown-background);
+	--color-dropdown-foreground: var(--dropdown-foreground);
+	--color-warning: var(--warning);
+	--color-error: var(--error);
+	--color-disabled: var(--disabled);
+	--color-disabled-foreground: var(--disabled-foreground);
 	--radius-*: initial;
 	--radius-xs: 1px;
 	--radius-sm: calc(var(--radius) - 2px);
