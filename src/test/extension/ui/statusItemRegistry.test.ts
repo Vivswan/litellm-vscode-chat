@@ -1,6 +1,6 @@
 /**
  * The status-item slot registry's pins (the duplicate-status-item regression
- * class): the single-creation-point source scan, the one-live-item-per-slot
+ * class): the singleton-creation-points source scan, the one-live-item-per-slot
  * lifecycle, and the self-heal on double construction. The lifecycle tests
  * create REAL items on purpose - each ends with every created item disposed,
  * so nothing survives into the shared host's status bar.
@@ -21,8 +21,19 @@ import type { UsageStatusBarOptions } from "../../../extension/ui/usageStatusIte
 import { UsageStatusBar } from "../../../extension/ui/usageStatusItem";
 import { Logger } from "../../../shared/logger";
 
-/** The one file allowed to call vscode.window.createStatusBarItem. */
-const CREATION_POINT = path.join("src", "extension", "ui", "status.ts");
+/**
+ * Each singleton vscode surface and the one file allowed to create it. A
+ * second creation point would silently bypass the surface's ownership: a
+ * status item outside the slot registry escapes the one-live-item-per-slot
+ * invariant, a second output channel splits the log stream the issue-report
+ * buffer taps, and a second webview panel escapes the dashboard controller's
+ * one-panel lifecycle.
+ */
+const SINGLETON_CREATION_POINTS: readonly { readonly api: string; readonly file: string }[] = [
+	{ api: "createStatusBarItem", file: path.join("src", "extension", "ui", "status.ts") },
+	{ api: "createOutputChannel", file: path.join("src", "extension.ts") },
+	{ api: "createWebviewPanel", file: path.join("src", "extension", "dashboard", "panel.ts") },
+];
 
 /** Repo root from the compiled test's location (out/test/extension/ui -> repo). */
 function repoRoot(): string {
@@ -69,16 +80,25 @@ function makeLogger(lines: string[]): Logger {
 }
 
 suite("extension/ui statusItemRegistry", () => {
-	test("vscode.window.createStatusBarItem has exactly one call site in src/", () => {
-		// The registry can only guarantee the slot invariant if every real item
-		// goes through it; a second creation point would bypass it silently.
+	test("every singleton vscode surface has exactly one creation call in src/", () => {
 		const srcDir = path.join(repoRoot(), "src");
 		const testDir = path.join(srcDir, "test");
-		const offenders = sourceFilesUnder(srcDir)
+		const sources = sourceFilesUnder(srcDir)
 			.filter((file) => !file.startsWith(testDir))
-			.filter((file) => fs.readFileSync(file, "utf8").includes("createStatusBarItem"))
-			.map((file) => path.relative(repoRoot(), file));
-		assert.deepStrictEqual(offenders, [CREATION_POINT]);
+			.map((file) => ({ file: path.relative(repoRoot(), file), text: fs.readFileSync(file, "utf8") }));
+		for (const { api, file } of SINGLETON_CREATION_POINTS) {
+			// Match call expressions, not bare names: prose comments may name an
+			// API without calling it.
+			const call = `${api}(`;
+			const callers = sources.filter((source) => source.text.includes(call));
+			assert.deepStrictEqual(
+				callers.map((source) => source.file),
+				[file],
+				api
+			);
+			const occurrences = (callers[0]?.text.split(call).length ?? 1) - 1;
+			assert.strictEqual(occurrences, 1, `${api} must have exactly one call in ${file}`);
+		}
 	});
 
 	test("creating into an occupied slot disposes the previous holder and logs the replacement", () => {

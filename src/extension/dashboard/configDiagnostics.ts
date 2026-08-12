@@ -78,8 +78,8 @@ function recordDiagnostics(
 		// A surviving unrecognized-key is advisory by construction: the filter
 		// already dropped everything without evidence, so what remains is "the
 		// server's listing does not name this key" - an info hint, never a
-		// warning. Every other kind keeps the default warning severity.
-		...(diagnostic.kind === "unrecognized-key" ? { severity: "advisory" as const } : {}),
+		// warning. Every other kind keeps warning severity.
+		severity: diagnostic.kind === "unrecognized-key" ? ("advisory" as const) : ("warning" as const),
 	}));
 }
 
@@ -142,6 +142,7 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 				position: report.index + 1,
 				problems: report.problems,
 				misconfigured: !report.accepted,
+				severity: "warning",
 			});
 		}
 	}
@@ -159,7 +160,13 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 		if (hint.kind === "parked-global-headers" && !input.hasExternalGroups) {
 			continue;
 		}
-		diagnostics.push({ kind: "legacy", hint: hint.kind, oldKey: hint.oldKey, detail: hint.detail });
+		diagnostics.push({
+			kind: "legacy",
+			hint: hint.kind,
+			oldKey: hint.oldKey,
+			detail: hint.detail,
+			severity: "warning",
+		});
 	}
 
 	// Groups hidden by an explicit removal serve no models; the Diagnostics
@@ -167,7 +174,11 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 	// configuration with zero models and no visible cause). Labels are the
 	// same ones the hidden-groups line renders.
 	if (input.hiddenGroups.length > 0) {
-		diagnostics.push({ kind: "hidden-groups", labels: input.hiddenGroups.map((group) => group.label) });
+		diagnostics.push({
+			kind: "hidden-groups",
+			labels: input.hiddenGroups.map((group) => group.label),
+			severity: "warning",
+		});
 	}
 
 	// Out-of-range usage.alertThresholds values are dropped, not clamped
@@ -178,7 +189,7 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 		const distinct = new Set(rawThresholds.map((value) => JSON.stringify(value))).size;
 		const dropped = distinct - kept;
 		if (dropped > 0) {
-			diagnostics.push({ kind: "thresholds", dropped });
+			diagnostics.push({ kind: "thresholds", dropped, severity: "warning" });
 		}
 	}
 

@@ -266,16 +266,43 @@ class VersionedRegion<T> {
  * the picker, and an unhidden group's models return.
  */
 export class GroupRemovalStore {
-	/** Fired after every tombstone mutation; assigned by the activation wiring. */
-	onDidChange: (() => void) | undefined;
-	/** Reports a failed best-effort persist (log-only); assigned by the activation wiring. */
-	onPersistError: ((error: unknown) => void) | undefined;
+	private didChangeListener: (() => void) | undefined;
+	private persistErrorListener: ((error: unknown) => void) | undefined;
+
+	/**
+	 * Fired after every effective tombstone mutation, synchronously between
+	 * commit and persist. Deliberately a single set-once slot rather than a
+	 * listener set: the store has no logger, so it could not isolate multiple
+	 * listeners' failures the way the activation wiring (the one consumer)
+	 * already does when fanning out to the provider re-resolve and the
+	 * dashboard refresh. The setter throws on a second assignment because a
+	 * silent replacement would detach the host re-resolve wiring - hidden
+	 * groups' models would never leave the picker.
+	 */
+	set onDidChange(listener: () => void) {
+		if (this.didChangeListener !== undefined) {
+			throw new Error("GroupRemovalStore.onDidChange is already assigned");
+		}
+		this.didChangeListener = listener;
+	}
+
+	/**
+	 * Reports a failed best-effort persist (log-only). The same set-once slot
+	 * as onDidChange: a silent replacement would swallow the only signal that
+	 * storage is behind memory.
+	 */
+	set onPersistError(listener: (error: unknown) => void) {
+		if (this.persistErrorListener !== undefined) {
+			throw new Error("GroupRemovalStore.onPersistError is already assigned");
+		}
+		this.persistErrorListener = listener;
+	}
 
 	private readonly tombstoneRegion: VersionedRegion<GroupIdentity>;
 	private readonly provenanceRegion: VersionedRegion<OrphanedGroupRecord>;
 
 	constructor(memento: RemovalMemento) {
-		const report = (error: unknown) => this.onPersistError?.(error);
+		const report = (error: unknown) => this.persistErrorListener?.(error);
 		this.tombstoneRegion = new VersionedRegion(memento, REMOVED_GROUP_TOMBSTONES_KEY, parseIdentityList, report);
 		this.provenanceRegion = new VersionedRegion(memento, ORPHANED_GROUP_PROVENANCE_KEY, parseProvenanceList, report);
 	}
@@ -300,7 +327,7 @@ export class GroupRemovalStore {
 		}
 		this.tombstoneRegion.commit([...current, normalized]);
 		try {
-			this.onDidChange?.();
+			this.didChangeListener?.();
 		} finally {
 			// A throwing listener must not skip the persist: the committed state
 			// is the effective one and has to reach storage.
@@ -317,7 +344,7 @@ export class GroupRemovalStore {
 		}
 		this.tombstoneRegion.commit(next);
 		try {
-			this.onDidChange?.();
+			this.didChangeListener?.();
 		} finally {
 			await this.tombstoneRegion.persistCommitted();
 		}
@@ -340,7 +367,7 @@ export class GroupRemovalStore {
 		}
 		this.tombstoneRegion.commit(next);
 		try {
-			this.onDidChange?.();
+			this.didChangeListener?.();
 		} finally {
 			await this.tombstoneRegion.persistCommitted();
 		}

@@ -1303,21 +1303,47 @@ suite("extension/servers/serverSync", () => {
 			recorded.failLabels.add("A");
 			const engine = new ServerSyncEngine(recorded.env);
 			let fired = 0;
-			engine.onDidSync = () => {
+			engine.onDidSync(() => {
 				fired += 1;
-			};
+			});
 			await engine.syncNow();
 
 			assert.strictEqual(fired, 1);
+		});
+
+		test("onDidSync listeners are independent: disposal detaches one, a throw is logged and starves nobody", async () => {
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }]);
+			const engine = new ServerSyncEngine(recorded.env);
+			let first = 0;
+			let second = 0;
+			const subscription = engine.onDidSync(() => {
+				first += 1;
+				throw new Error("listener boom");
+			});
+			engine.onDidSync(() => {
+				second += 1;
+			});
+			await engine.syncNow();
+			assert.strictEqual(first, 1);
+			assert.strictEqual(second, 1, "the throwing listener must not starve the next one");
+			assert.ok(
+				recorded.loggedErrors.some(([message]) => message === "Server sync listener failed"),
+				JSON.stringify(recorded.loggedErrors)
+			);
+
+			subscription.dispose();
+			await engine.syncNow();
+			assert.strictEqual(first, 1, "a disposed listener no longer fires");
+			assert.strictEqual(second, 2);
 		});
 
 		test("requestSync debounces bursts into one pass", async () => {
 			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }]);
 			const engine = new ServerSyncEngine(recorded.env, 5);
 			let passes = 0;
-			engine.onDidSync = () => {
+			engine.onDidSync(() => {
 				passes += 1;
-			};
+			});
 			engine.requestSync();
 			engine.requestSync();
 			engine.requestSync();

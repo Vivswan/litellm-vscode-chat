@@ -48,6 +48,7 @@ suite("extension/dashboard/configDiagnostics", () => {
 				kind: "record",
 				setting: "models.parameters",
 				diagnostic: { kind: "unknown-inherit-key", recordKey: "never-served*", key: "missing-base" },
+				severity: "warning",
 			},
 			{
 				kind: "record",
@@ -179,6 +180,7 @@ suite("extension/dashboard/configDiagnostics", () => {
 					kind: "record",
 					setting: "models.capabilities",
 					diagnostic: { kind: "invalid-value", recordKey: "gpt-4", key: "context_length" },
+					severity: "warning",
 				},
 			]);
 		});
@@ -197,6 +199,7 @@ suite("extension/dashboard/configDiagnostics", () => {
 				setting: "models.parameters",
 				entryLabel: "Prod",
 				diagnostic: { kind: "invalid-matcher", recordKey: "a*b", key: "a*b" },
+				severity: "warning",
 			},
 		]);
 	});
@@ -213,8 +216,15 @@ suite("extension/dashboard/configDiagnostics", () => {
 		);
 
 		assert.deepStrictEqual(diagnostics, [
-			{ kind: "entry", label: "Partial", position: 2, problems: ["ignored piece"], misconfigured: false },
-			{ kind: "entry", position: 3, problems: ["no usable label"], misconfigured: true },
+			{
+				kind: "entry",
+				label: "Partial",
+				position: 2,
+				problems: ["ignored piece"],
+				misconfigured: false,
+				severity: "warning",
+			},
+			{ kind: "entry", position: 3, problems: ["no usable label"], misconfigured: true, severity: "warning" },
 		]);
 	});
 
@@ -235,8 +245,9 @@ suite("extension/dashboard/configDiagnostics", () => {
 					hint: "inert-url-scoped-key",
 					oldKey: "http://old.test/gpt",
 					detail: "models.parameters",
+					severity: "warning",
 				},
-				{ kind: "legacy", hint: "inert-global-headers", oldKey: "headers", detail: "headers" },
+				{ kind: "legacy", hint: "inert-global-headers", oldKey: "headers", detail: "headers", severity: "warning" },
 			]);
 		});
 
@@ -252,7 +263,7 @@ suite("extension/dashboard/configDiagnostics", () => {
 				makeInput({ parkedGlobalHeadersValue: parked, hasExternalGroups: true })
 			);
 			assert.deepStrictEqual(withGroups, [
-				{ kind: "legacy", hint: "parked-global-headers", oldKey: "headers", detail: "x-a, x-b" },
+				{ kind: "legacy", hint: "parked-global-headers", oldKey: "headers", detail: "x-a, x-b", severity: "warning" },
 			]);
 		});
 	});
@@ -261,7 +272,7 @@ suite("extension/dashboard/configDiagnostics", () => {
 		const dropped = buildConfigDiagnostics(
 			makeInput({ reader: makeReader({ "usage.alertThresholds": [0.8, 0, 2, "0.9"] }) })
 		);
-		assert.deepStrictEqual(dropped, [{ kind: "thresholds", dropped: 3 }]);
+		assert.deepStrictEqual(dropped, [{ kind: "thresholds", dropped: 3, severity: "warning" }]);
 
 		const clean = buildConfigDiagnostics(makeInput({ reader: makeReader({ "usage.alertThresholds": [0.8, 0.95] }) }));
 		assert.deepStrictEqual(clean, []);
@@ -282,7 +293,7 @@ suite("extension/dashboard/configDiagnostics", () => {
 				],
 			})
 		);
-		assert.deepStrictEqual(diagnostics, [{ kind: "hidden-groups", labels: ["Prod", "Staging"] }]);
+		assert.deepStrictEqual(diagnostics, [{ kind: "hidden-groups", labels: ["Prod", "Staging"], severity: "warning" }]);
 
 		assert.deepStrictEqual(buildConfigDiagnostics(makeInput({ hiddenGroups: [] })), []);
 	});

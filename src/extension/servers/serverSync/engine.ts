@@ -345,13 +345,23 @@ export class ServerSyncEngine implements vscode.Disposable {
 	private running: Promise<void> | undefined;
 	private queued: { force: boolean; promise: Promise<void>; resolve: () => void } | undefined;
 	private timer: ReturnType<typeof setTimeout> | undefined;
-	/** Called after every completed sync pass; the dashboard refreshes on it. */
-	onDidSync: (() => void) | undefined;
+	/** Listeners on completed sync passes; see onDidSync. */
+	private readonly syncListeners = new Set<() => void>();
 
 	constructor(
 		private readonly env: ServerSyncEnv,
 		private readonly debounceMs = 400
 	) {}
+
+	/**
+	 * Subscribe to the end of every sync pass, successful or failed (the
+	 * dashboard refreshes on it). Listeners run isolated: one throwing is
+	 * logged and cannot starve the others.
+	 */
+	onDidSync(listener: () => void): { dispose(): void } {
+		this.syncListeners.add(listener);
+		return { dispose: () => this.syncListeners.delete(listener) };
+	}
 
 	/** The declared servers as of the last sync pass, for the dashboard state. */
 	getDeclared(): readonly DeclaredServerView[] {
@@ -411,10 +421,12 @@ export class ServerSyncEngine implements vscode.Disposable {
 			// activation and on configuration events.
 			this.env.logError("Server sync failed", error);
 		}
-		try {
-			this.onDidSync?.();
-		} catch (error) {
-			this.env.logError("Server sync listener failed", error);
+		for (const listener of this.syncListeners) {
+			try {
+				listener();
+			} catch (error) {
+				this.env.logError("Server sync listener failed", error);
+			}
 		}
 	}
 

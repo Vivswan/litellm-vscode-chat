@@ -289,7 +289,8 @@ suite("extension/servers/groupRemovals", () => {
 			// The activation wiring re-resolves models synchronously from the
 			// change event, so the in-memory list must already answer with the
 			// mutation when the listener runs.
-			const { store } = makeStore();
+			const storage = makeExtensionStorage({});
+			const store = new GroupRemovalStore(storage.memento);
 			const seen: boolean[] = [];
 			store.onDidChange = () => seen.push(store.isTombstoned("A", "http://host.test"));
 
@@ -297,6 +298,20 @@ suite("extension/servers/groupRemovals", () => {
 			await store.removeTombstone({ label: "A", baseUrl: "http://host.test" });
 
 			assert.deepStrictEqual(seen, [true, false], "each listener call sees the state its mutation produced");
+		});
+
+		test("the callback slots are set-once: a second assignment throws and the first listener stays attached", async () => {
+			const { store, changes } = makeStore();
+			assert.throws(() => {
+				store.onDidChange = () => {};
+			}, /already assigned/);
+			store.onPersistError = () => {};
+			assert.throws(() => {
+				store.onPersistError = () => {};
+			}, /already assigned/);
+
+			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
+			assert.strictEqual(changes.length, 1, "the original listener survives the rejected assignment");
 		});
 
 		test("serialized writes: a covered failure leaves no false dirty state, an uncovered one suspends adoption", async () => {

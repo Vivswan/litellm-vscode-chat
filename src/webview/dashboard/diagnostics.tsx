@@ -390,10 +390,9 @@ function ConfigDiagnostics({ diagnostics }: { diagnostics: readonly ConfigDiagno
 			<ul class="config-diagnostics">
 				{diagnostics.map((diagnostic, index) => {
 					const presentation = diagnosticPresentation(diagnostic);
-					// The host marks surviving unrecognized-key record diagnostics
-					// advisory: informational rows render muted, every other kind
-					// keeps the warning tone.
-					const advisory = diagnostic.kind === "record" && diagnostic.severity === "advisory";
+					// Advisory rows render muted, warnings keep the warning tone;
+					// the host decides the severity (every variant carries it).
+					const advisory = diagnostic.severity === "advisory";
 					return (
 						// Positional identity: the list rebuilds wholesale on every push.
 						<li key={index} class={advisory ? "hint" : "state-warn"}>

@@ -129,6 +129,7 @@ describe("Configuration diagnostics", () => {
 				kind: "record",
 				setting: "models.parameters",
 				diagnostic: { kind: "invalid-matcher", recordKey: "gpt*5", key: "gpt*5" },
+				severity: "warning",
 			},
 			{
 				kind: "entry",
@@ -136,12 +137,25 @@ describe("Configuration diagnostics", () => {
 				position: 1,
 				problems: ['has an unknown auth key "apikey"'],
 				misconfigured: true,
+				severity: "warning",
 			},
-			{ kind: "legacy", hint: "inert-url-scoped-key", oldKey: "https://gw/gpt-4", detail: "models.parameters" },
-			{ kind: "legacy", hint: "parked-global-headers", oldKey: "headers", detail: "x-env, x-trace" },
-			{ kind: "thresholds", dropped: 2 },
-			{ kind: "hidden-groups", labels: ["prod-hidden"] },
-			{ kind: "hidden-groups", labels: ["prod-hidden", "staging-hidden"] },
+			{
+				kind: "legacy",
+				hint: "inert-url-scoped-key",
+				oldKey: "https://gw/gpt-4",
+				detail: "models.parameters",
+				severity: "warning",
+			},
+			{
+				kind: "legacy",
+				hint: "parked-global-headers",
+				oldKey: "headers",
+				detail: "x-env, x-trace",
+				severity: "warning",
+			},
+			{ kind: "thresholds", dropped: 2, severity: "warning" },
+			{ kind: "hidden-groups", labels: ["prod-hidden"], severity: "warning" },
+			{ kind: "hidden-groups", labels: ["prod-hidden", "staging-hidden"], severity: "warning" },
 		];
 		const root = mount(
 			<DiagnosticsSection
@@ -183,6 +197,7 @@ describe("Configuration diagnostics", () => {
 				kind: "record",
 				setting: "models.capabilities",
 				diagnostic: { kind: "invalid-value", recordKey: "gpt-4", key: "context_length" },
+				severity: "warning",
 			},
 		];
 		const root = mount(

@@ -343,7 +343,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		usagePoller,
 		getEntryModelCapabilities
 	);
-	syncEngine.onDidSync = () => dashboard.refresh();
+	context.subscriptions.push(syncEngine.onDidSync(() => dashboard.refresh()));
 	// The usage surfaces over the poller's store: the status bar item beside
 	// the connection item, the budget alert toasts, and the deep link both
 	// click through to the dashboard's Usage section. Constructed here because

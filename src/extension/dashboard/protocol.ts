@@ -1161,6 +1161,14 @@ export interface DashboardUsage {
 type LegacyHintViewKind = "inert-url-scoped-key" | "inert-global-headers" | "parked-global-headers";
 
 /**
+ * How a diagnostic row renders: "warning" is a problem to fix, "advisory" an
+ * informational hint (the row renders muted, the configuration still applies
+ * as written). The same advisory-vs-problem vocabulary as Logger.advisory in
+ * shared/logger.ts, which is the concept's output-channel surface.
+ */
+type ConfigDiagnosticSeverity = "warning" | "advisory";
+
+/**
  * One configuration problem for the Diagnostics tab, each also rendered
  * beside the row or editor it concerns. Sources: the record lints of the two
  * global settings and every entry's records, the servers-setting parser's
@@ -1177,14 +1185,12 @@ export type ConfigDiagnosticView =
 			readonly entryLabel?: string | undefined;
 			readonly diagnostic: RecordDiagnostic;
 			/**
-			 * "advisory" marks an informational hint, not a problem: present
-			 * exactly on the surviving unrecognized-key diagnostics (a capability
-			 * field outside the consumed vocabulary that the server's observed
-			 * /model/info listing does not name - the field still APPLIES as-is,
-			 * it just may be a typo). Absent means warning severity, which every
-			 * other diagnostic kind keeps.
+			 * "advisory" exactly on the surviving unrecognized-key diagnostics (a
+			 * capability field outside the consumed vocabulary that the server's
+			 * observed /model/info listing does not name - the field still APPLIES
+			 * as-is, it just may be a typo); every other record diagnostic warns.
 			 */
-			readonly severity?: "advisory" | undefined;
+			readonly severity: ConfigDiagnosticSeverity;
 	  }
 	| {
 			/** One rejected or partially-ignored servers-setting entry; `misconfigured` when the entry is skipped whole. */
@@ -1194,6 +1200,7 @@ export type ConfigDiagnosticView =
 			readonly position: number;
 			readonly problems: readonly string[];
 			readonly misconfigured: boolean;
+			readonly severity: ConfigDiagnosticSeverity;
 	  }
 	| {
 			readonly kind: "legacy";
@@ -1202,11 +1209,13 @@ export type ConfigDiagnosticView =
 			readonly oldKey: string;
 			/** The setting id the leftover sits in, or the parked header names. */
 			readonly detail: string;
+			readonly severity: ConfigDiagnosticSeverity;
 	  }
 	| {
 			/** usage.alertThresholds entries outside (0, 1], dropped by normalization. */
 			readonly kind: "thresholds";
 			readonly dropped: number;
+			readonly severity: ConfigDiagnosticSeverity;
 	  }
 	| {
 			/**
@@ -1217,6 +1226,7 @@ export type ConfigDiagnosticView =
 			 */
 			readonly kind: "hidden-groups";
 			readonly labels: readonly string[];
+			readonly severity: ConfigDiagnosticSeverity;
 	  };
 
 /**
