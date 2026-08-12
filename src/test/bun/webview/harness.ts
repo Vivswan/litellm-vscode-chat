@@ -205,8 +205,12 @@ export function fireSelect(element: HTMLSelectElement, value: string): void {
 }
 
 export function fireKeyDown(element: HTMLElement, key: string): void {
+	// cancelable, like the real thing: a handler that answers a key with
+	// preventDefault (Radix's dismissal layers read defaultPrevented to decide
+	// whether to act) would otherwise be silently overruled here and nowhere
+	// else.
 	void act(() => {
-		element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+		element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
 	});
 }
 
