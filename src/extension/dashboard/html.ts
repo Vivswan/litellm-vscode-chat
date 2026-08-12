@@ -732,11 +732,10 @@ const STYLES = `
 	}
 	.params-inspector .param-not-sent td { color: var(--vscode-descriptionForeground); }
 	.params-inspector .param-skip { color: var(--vscode-descriptionForeground); }
-	/* The configure-jump: one plain button under the identity line, and a quiet
-	   per-row "edit" beside record-sourced values (the "Parameters"/
-	   "Capabilities" text idiom, revealed as a link only on interaction like
-	   every quiet action). */
-	.params-inspector .params-configure { margin: 4px 0 8px; }
+	/* The configure-jump: a quiet action right-aligned in its section's header
+	   band, and a quiet per-row "edit" beside record-sourced values (the
+	   "Parameters"/"Capabilities" text idiom, revealed as a link only on
+	   interaction like every quiet action). */
 	.params-inspector .row-edit { margin-left: 6px; padding: 0 2px; }
 	/* Capability values never wrap: "128,000" split mid-number reads as two
 	   values. Open fields carry arbitrary JSON (a supported_openai_params
@@ -854,23 +853,43 @@ const STYLES = `
 		font-family: var(--vscode-editor-font-family, monospace);
 		font-size: 0.9em;
 	}
-	/* The always-sent fields render as code chips on one labeled line, and the
-	   caveats as labeled definition pairs: fixed explanations are structure
-	   here, never stacked prose paragraphs. */
-	.params-inspector .model-facts {
-		display: grid;
-		grid-template-columns: max-content 1fr;
-		gap: 3px 12px;
+	/* The header's one orientation line: Family and Capabilities as inline
+	   definition pairs, the capability words in the quiet chip register. */
+	.params-inspector .model-orientation {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px 8px;
+		align-items: baseline;
 		margin: 8px 0 12px;
 	}
-	.params-inspector .model-facts div { display: contents; }
-	.params-inspector .model-facts dd { margin: 0; }
+	.params-inspector .model-orientation dt:not(:first-child) { margin-left: 8px; }
+	.params-inspector .model-orientation dd {
+		display: inline-flex;
+		flex-wrap: wrap;
+		gap: 4px;
+		align-items: baseline;
+		margin: 0;
+	}
+	.params-inspector .model-orientation .cap-chip {
+		font-size: 0.9em;
+		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
+		border-radius: 9px;
+		padding: 0 7px;
+		white-space: nowrap;
+	}
+	/* The always-sent fields render as code chips on one labeled line, and the
+	   caveats as labeled definition pairs: fixed explanations are structure
+	   here, never stacked prose paragraphs. Together they are the section's
+	   closing machinery, set off from the answers above by one rule (on the
+	   chips line - the caveats ride under it without another). */
 	.params-inspector .params-fixed {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 4px 6px;
 		align-items: baseline;
-		margin: 8px 0;
+		margin: 14px 0 4px;
+		padding-top: 10px;
+		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
 	}
 	.params-inspector code {
 		font-family: var(--vscode-editor-font-family, monospace);
@@ -898,40 +917,53 @@ const STYLES = `
 		border-radius: 3px;
 		background: var(--vscode-editorWidget-background, transparent);
 	}
-	.params-inspector .params-caveats {
-		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
-		margin-top: 12px;
-		padding-top: 8px;
-	}
+	.params-inspector .params-caveats { margin-top: 4px; }
 	.params-inspector .params-caveats div { margin: 4px 0; }
 	.params-inspector .params-caveats dt { display: inline; }
 	.params-inspector .params-caveats dd { display: inline; margin: 0 0 0 8px; }
-	/* The merged inspector's top-level section headers (Parameters /
+	/* The merged inspector's top-level section header bands (Parameters /
 	   Capabilities / Pricing): the caps-section band idiom lifted out of the
 	   table, with a rule above so the panel reads as one document of labeled
-	   sections. The first section follows the facts grid directly and needs
-	   no separating rule. */
+	   sections, and the section's one action (the configure-jump) right-aligned
+	   on the same line. The anchor id and the focusable heading stay on the h4;
+	   the band chrome sits on the wrapping head row. The first section follows
+	   the header directly and needs no separating rule. */
+	.model-inspector .inspector-section-head {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
+		margin: 18px 0 6px;
+		padding-top: 12px;
+		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+	}
+	.model-inspector .inspector-section-head .section-action { margin-left: auto; font-size: 0.9em; }
 	.model-inspector h4.inspector-section {
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		margin: 18px 0 6px;
-		padding-top: 12px;
-		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+		margin: 0;
 		font-size: 0.8em;
 		font-weight: 600;
 		letter-spacing: 0.04em;
 		text-transform: uppercase;
 		color: var(--vscode-descriptionForeground);
 		/* The scrollIntoView landings (the Diagnostics jump links) keep clear
-		   of the panel's top padding. */
-		scroll-margin-top: 12px;
+		   of the panel's top padding AND the head band's own rule + padding
+		   above this h4 (12 + 12 + 1). */
+		scroll-margin-top: 25px;
 	}
-	.model-inspector section:first-of-type h4.inspector-section {
+	.model-inspector section:first-of-type .inspector-section-head {
 		border-top: none;
 		margin-top: 10px;
 		padding-top: 0;
 	}
+	/* Each section's record-path figure behind its collapsed disclosure: the
+	   closing fine print, so the summary keeps the muted register and the
+	   figure indents nothing when opened. */
+	.model-inspector details.record-paths { margin: 10px 0 8px; }
+	.model-inspector details.record-paths summary { font-size: 0.9em; }
+	.model-inspector details.record-paths .record-chain { margin: 4px 0; }
 
 	.form-card {
 		max-width: 640px;

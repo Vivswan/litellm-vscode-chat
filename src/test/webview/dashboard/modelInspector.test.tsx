@@ -12,7 +12,11 @@
  * with shadowed values, the directive and declared notes, the diagnostics
  * lists, and the section split: supported parameters render in the
  * Parameters section (next to what we send), pricing renders exactly once in
- * its own section, and the old params-side pricing facts are gone.
+ * its own section, and the old params-side pricing facts are gone. The
+ * hierarchy pins hold the approved reading order - answers first, machinery
+ * last: the header keeps one orientation line without token counts, each
+ * section leads with its table, and the record-path figures sit collapsed
+ * behind a "Record paths" disclosure at their section's end.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { render } from "preact";
@@ -46,6 +50,7 @@ function mountParamsAnswered(options: {
 	entryParameters?: Record<string, Record<string, unknown>>;
 	entryLabel?: string;
 	modelOverrides?: Parameters<typeof makeModel>[0];
+	chains?: NonNullable<Parameters<typeof ModelInspector>[0]["paramsResponse"]>["chains"];
 	onClose?: () => void;
 }) {
 	const inspected = makeModel({ ...model, ...options.modelOverrides });
@@ -81,7 +86,7 @@ function mountParamsAnswered(options: {
 		render(
 			<ModelInspector
 				model={inspected}
-				paramsResponse={{ type: "modelParameters", requestId: request.requestId, projection }}
+				paramsResponse={{ type: "modelParameters", requestId: request.requestId, projection, chains: options.chains }}
 				capsResponse={undefined}
 				stateSeq={0}
 				onClose={onClose}
@@ -116,7 +121,8 @@ function makeCapabilities(overrides: Partial<EffectiveCapabilities> = {}): Effec
  */
 function mountCapsAnswered(
 	capabilities: EffectiveCapabilities | undefined,
-	modelOverrides: Parameters<typeof makeModel>[0] = {}
+	modelOverrides: Parameters<typeof makeModel>[0] = {},
+	chains?: NonNullable<Parameters<typeof ModelInspector>[0]["capsResponse"]>["chains"]
 ): HTMLElement {
 	const inspected = makeModel(modelOverrides);
 	const container = mount(
@@ -141,7 +147,7 @@ function mountCapsAnswered(
 			<ModelInspector
 				model={inspected}
 				paramsResponse={undefined}
-				capsResponse={{ type: "modelCapabilities", requestId: request.requestId, capabilities }}
+				capsResponse={{ type: "modelCapabilities", requestId: request.requestId, capabilities, chains }}
 				stateSeq={0}
 				onClose={() => {}}
 			/>,
@@ -206,6 +212,316 @@ test("without pricing fields the Pricing section does not render at all", () => 
 		(h.firstChild?.textContent ?? "").trim()
 	);
 	expect(headers).toEqual(["Parameters", "Capabilities"]);
+});
+
+test("the Parameters section leads with the answer: table, supported params, max_tokens, machinery, record paths", () => {
+	// The approved hierarchy: answers first, machinery last. The effective-sends
+	// table opens the section, the supported-parameters block and the max_tokens
+	// line follow, and the fixed machinery (always-sent chips, caveats) plus the
+	// collapsed record-path figure close it.
+	const container = mount(
+		<ModelInspector model={model} paramsResponse={undefined} capsResponse={undefined} stateSeq={0} onClose={() => {}} />
+	);
+	const paramsRead = [...postedMessages].reverse().find((m) => m.type === "readModelParameters") as {
+		requestId: string;
+	};
+	const capsRead = [...postedMessages].reverse().find((m) => m.type === "readModelCapabilities") as {
+		requestId: string;
+	};
+	void act(() => {
+		render(
+			<ModelInspector
+				model={model}
+				paramsResponse={{
+					type: "modelParameters",
+					requestId: paramsRead.requestId,
+					projection: projectEffectiveParameters({
+						rawModelId: model.rawId,
+						// The invalid matcher key produces a diagnostics block, so the
+						// order pin covers its position too (right after the table).
+						globalParameters: { "gpt-4*": { temperature: 0.2 }, "gpt*4o": { top_p: 0.5 } },
+						maxOutputTokens: model.maxOutputTokens,
+						outputLimitDeclared: model.outputLimitDeclared,
+					}),
+					chains: [
+						{
+							layer: "global",
+							links: [
+								{ key: "*", barrier: false },
+								{ key: "gpt-4*", barrier: false },
+							],
+						},
+					],
+				}}
+				capsResponse={{
+					type: "modelCapabilities",
+					requestId: capsRead.requestId,
+					capabilities: makeCapabilities({
+						fields: {
+							...makeCapabilities().fields,
+							supported_openai_params: { value: ["temperature", "top_p"], level: "server", shadowed: [] },
+						},
+					}),
+				}}
+				stateSeq={0}
+				onClose={() => {}}
+			/>,
+			container
+		);
+	});
+	const section = container.querySelector("#inspector-section-params")?.closest("section") as HTMLElement;
+	expect(section).not.toBeNull();
+	// querySelectorAll returns document order: classify each major block and
+	// pin the whole reading sequence.
+	const blocks = [
+		...section.querySelectorAll(
+			"table.params, .params-replaced, .params-max-tokens, .params-fixed, .params-caveats, details.record-paths"
+		),
+	].map((element) => {
+		if (element.matches("details.record-paths")) {
+			return "record-paths";
+		}
+		if (element.matches(".params-replaced")) {
+			return "diagnostics";
+		}
+		if (element.matches(".params-max-tokens")) {
+			return "max-tokens";
+		}
+		if (element.matches(".params-fixed")) {
+			return "always-sent";
+		}
+		if (element.matches(".params-caveats")) {
+			return "caveats";
+		}
+		return element.closest(".caps-inspector") !== null ? "supported-params" : "effective-table";
+	});
+	expect(blocks).toEqual([
+		"effective-table",
+		"diagnostics",
+		"supported-params",
+		"max-tokens",
+		"always-sent",
+		"caveats",
+		"record-paths",
+	]);
+	// The Diagnostics jump anchor stays on the h4 inside the head band.
+	expect(section.querySelector(".inspector-section-head h4#inspector-section-params")).not.toBeNull();
+});
+
+test("both section header bands carry their Configure action, right-aligned in the band", () => {
+	const root = mount(
+		<ModelInspector
+			model={model}
+			paramsResponse={undefined}
+			capsResponse={undefined}
+			stateSeq={0}
+			onClose={() => {}}
+			onEditRecord={() => {}}
+		/>
+	);
+	const actionText = (anchorId: string): string | undefined => {
+		const head = root.querySelector(`.inspector-section-head:has(#${anchorId})`);
+		return head?.querySelector("button.section-action")?.textContent ?? undefined;
+	};
+	expect(actionText("inspector-section-params")).toBe("Configure parameters for this model");
+	expect(actionText("inspector-section-caps")).toBe("Configure capabilities for this model");
+});
+
+test("the record-path figures render collapsed under a Record paths summary at their section's end", () => {
+	const root = mountParamsAnswered({
+		globalParameters: { "gpt-4*": { temperature: 0.2 } },
+		chains: [
+			{
+				layer: "global",
+				links: [
+					{ key: "*", barrier: false },
+					{ key: "gpt-4*", barrier: false },
+				],
+			},
+		],
+	});
+	const section = root.querySelector("#inspector-section-params")?.closest("section") as HTMLElement;
+	const details = section.querySelector("details.record-paths") as HTMLDetailsElement;
+	expect(details).not.toBeNull();
+	// Collapsed by default: the figure is the WHY, read on demand.
+	expect(details.open).toBe(false);
+	expect(details.querySelector("summary")?.textContent).toBe("Record paths");
+	// The existing figure renders unchanged inside and shows once opened.
+	details.open = true;
+	const chain = details.querySelector(".record-chain");
+	expect(chain).not.toBeNull();
+	expect(chain?.textContent).toContain("Record path (settings):");
+	expect(chain?.textContent).toContain("gpt-4*");
+});
+
+test("an open Record paths disclosure survives a state push instead of collapsing under the reader", () => {
+	// A state push orphans the answers (fresh requestIds), so the disclosure
+	// unmounts until the new answer lands; the controlled open state must carry
+	// across the remount.
+	const chains = [
+		{
+			layer: "global" as const,
+			links: [
+				{ key: "*", barrier: false },
+				{ key: "gpt-4*", barrier: false },
+			],
+		},
+	];
+	const props = { model, onClose: () => {} };
+	const container = mount(
+		<ModelInspector {...props} paramsResponse={undefined} capsResponse={undefined} stateSeq={0} />
+	);
+	const answers = (seq: number) => {
+		const read = [...postedMessages].reverse().find((m) => m.type === "readModelParameters") as { requestId: string };
+		return {
+			paramsResponse: {
+				type: "modelParameters",
+				requestId: read.requestId,
+				projection: projectEffectiveParameters({
+					rawModelId: model.rawId,
+					globalParameters: { "gpt-4*": { temperature: 0.2 } },
+					maxOutputTokens: model.maxOutputTokens,
+					outputLimitDeclared: model.outputLimitDeclared,
+				}),
+				chains,
+			} as const,
+			capsResponse: undefined,
+			stateSeq: seq,
+		};
+	};
+	void act(() => {
+		render(<ModelInspector {...props} {...answers(0)} />, container);
+	});
+	const details = container.querySelector("details.record-paths") as HTMLDetailsElement;
+	expect(details.open).toBe(false);
+	// The reader opens it (the native toggle the summary click produces).
+	void act(() => {
+		details.open = true;
+		details.dispatchEvent(new Event("toggle"));
+	});
+
+	// The push: readiness drops (the disclosure may unmount), then fresh answers land.
+	void act(() => {
+		render(<ModelInspector {...props} paramsResponse={undefined} capsResponse={undefined} stateSeq={1} />, container);
+	});
+	void act(() => {
+		render(<ModelInspector {...props} {...answers(1)} />, container);
+	});
+	const after = container.querySelector("details.record-paths") as HTMLDetailsElement;
+	expect(after).not.toBeNull();
+	expect(after.open).toBe(true);
+});
+
+test("without a chain story the Parameters section renders no Record paths disclosure", () => {
+	// A single-link chain (or none) tells no inheritance story; an empty
+	// disclosure would promise detail it cannot show. (The caps feed stays
+	// unanswered here; the caps section's own pin is above.)
+	const root = mountParamsAnswered({ globalParameters: { "gpt-4o": { temperature: 0.2 } } });
+	expect(root.querySelector("details.record-paths")).toBeNull();
+});
+
+test("the Capabilities section closes with problems, notes, then its collapsed record-path disclosure", () => {
+	const root = mountCapsAnswered(
+		makeCapabilities({
+			diagnostics: [
+				{ kind: "unrecognized-key", key: "supports_web_search", layer: "global", recordKey: "gpt-4" },
+				{ kind: "invalid-value", key: "context_length", layer: "entry", recordKey: "gpt-4" },
+			],
+		}),
+		{},
+		[
+			{
+				layer: "global",
+				links: [
+					{ key: "*", barrier: false },
+					{ key: "gpt-4*", barrier: false },
+				],
+			},
+		]
+	);
+	const section = root.querySelector("#inspector-section-caps")?.closest("section") as HTMLElement;
+	const details = section.querySelector("details.record-paths") as HTMLDetailsElement;
+	expect(details).not.toBeNull();
+	expect(details.open).toBe(false);
+	// The disclosure is the section's LAST block: the output-limit note, the
+	// problems, and the advisory notes all come before it, in that order.
+	const blocks = [...section.querySelectorAll(".params-max-tokens, .params-replaced, details.record-paths")].map(
+		(element) => {
+			if (element.matches("details.record-paths")) {
+				return "record-paths";
+			}
+			if (element.matches(".params-advisories")) {
+				return "notes";
+			}
+			return element.matches(".params-replaced") ? "problems" : "output-limit";
+		}
+	);
+	expect(blocks).toEqual(["output-limit", "problems", "notes", "record-paths"]);
+});
+
+test("the collapsed disclosure joins the focus trap: Tab wraps at the summary, never at a hidden chain button", () => {
+	// The disclosure is the dialog's last tabbable while collapsed. The trap
+	// must treat the SUMMARY as the boundary: counting the chain-jump buttons
+	// hidden inside the closed details would let Tab escape the dialog at the
+	// real boundary and land Shift+Tab wrapping on an unfocusable control.
+	const inspected = makeModel();
+	const container = mount(
+		<ModelInspector
+			model={inspected}
+			paramsResponse={undefined}
+			capsResponse={undefined}
+			stateSeq={0}
+			onClose={() => {}}
+			onEditRecord={() => {}}
+			onEditEntry={() => {}}
+		/>
+	);
+	const request = [...postedMessages].reverse().find((message) => message.type === "readModelCapabilities") as {
+		requestId: string;
+	};
+	void act(() => {
+		render(
+			<ModelInspector
+				model={inspected}
+				paramsResponse={undefined}
+				capsResponse={{
+					type: "modelCapabilities",
+					requestId: request.requestId,
+					capabilities: makeCapabilities(),
+					chains: [
+						{
+							layer: "global",
+							links: [
+								{ key: "*", barrier: false },
+								{ key: "gpt-4*", barrier: false },
+							],
+						},
+					],
+				}}
+				stateSeq={0}
+				onClose={() => {}}
+				onEditRecord={() => {}}
+				onEditEntry={() => {}}
+			/>,
+			container
+		);
+	});
+	const panel = document.querySelector(".slide-over") as HTMLElement;
+	const details = panel.querySelector("details.record-paths") as HTMLDetailsElement;
+	expect(details.open).toBe(false);
+	// The chain-jump buttons exist inside the closed disclosure.
+	expect(details.querySelectorAll("button.chain-key").length).toBeGreaterThan(0);
+	const summary = details.querySelector("summary") as HTMLElement;
+	const fireTab = (element: HTMLElement, shiftKey: boolean) => {
+		void act(() => {
+			element.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true }));
+		});
+	};
+	summary.focus();
+	fireTab(summary, false);
+	expect((document.activeElement as HTMLElement | null)?.getAttribute("aria-label")).toBe("Close");
+	fireTab(document.activeElement as HTMLElement, true);
+	expect(document.activeElement).toBe(summary);
 });
 
 test("a stateSeq bump re-requests BOTH feeds, so an open inspector follows configuration edits", () => {
@@ -498,11 +814,12 @@ test("one snapshot rendered under two labels: the inspector stays on the clicked
 	expect(textOf(dialog, ".params-identity")).toBe("gpt-4o on B");
 });
 
-test("the facts grid restates the model's table facts WITHOUT pricing: the pricing section owns pricing", () => {
-	// The inspector is self-contained on purpose: limits and capability flags
-	// render here even though the table shows them, so reading a model never
-	// requires closing the panel. Pricing is deliberately absent - it renders
-	// exactly once, in the provenance-aware Pricing section.
+test("the header keeps ONE orientation line - family and capability chips - and repeats no token counts", () => {
+	// The old facts grid duplicated the capabilities table's provenance-aware
+	// Max input/output rows verbatim; the header now orients only (family and
+	// capability chips), and the token limits render exactly once, below, with
+	// their sources. Pricing stays deliberately absent too - it renders exactly
+	// once, in the provenance-aware Pricing section.
 	const root = mountParamsAnswered({
 		modelOverrides: {
 			family: "gpt",
@@ -519,16 +836,28 @@ test("the facts grid restates the model's table facts WITHOUT pricing: the prici
 			reasoning: false,
 		},
 	});
-	const facts = root.querySelector(".model-facts");
-	expect(facts?.textContent).toContain("Family");
-	expect(facts?.textContent).toContain("gpt");
-	expect(facts?.textContent).toContain("tools, vision");
-	expect(facts?.textContent).toContain("128,000");
-	expect(facts?.textContent).toContain("4,096 (default, not server-declared)");
-	expect(facts?.textContent).not.toContain("Pricing ($/M)");
-	expect(facts?.textContent).not.toContain("Cache ($/M)");
-	expect(facts?.textContent).not.toContain("Long context");
-	expect(facts?.textContent).not.toContain("$2.5");
+	const line = root.querySelector(".model-orientation");
+	expect(line).not.toBeNull();
+	expect(line?.textContent).toContain("Family");
+	expect(line?.textContent).toContain("gpt");
+	const chips = [...(line?.querySelectorAll(".cap-chip") ?? [])].map((chip) => chip.textContent);
+	expect(chips).toEqual(["tools", "vision"]);
+	// The facts grid is gone, and no token count renders anywhere in the header.
+	expect(root.querySelector(".model-facts")).toBeNull();
+	expect(line?.textContent).not.toContain("Input tokens");
+	expect(line?.textContent).not.toContain("Output tokens");
+	expect(line?.textContent).not.toContain("128,000");
+	expect(line?.textContent).not.toContain("4,096");
+	expect(line?.textContent).not.toContain("$2.5");
+});
+
+test("a model with no capability flags says none declared instead of an empty chip strip", () => {
+	const root = mountParamsAnswered({
+		modelOverrides: { toolCalling: false, imageInput: false, promptCaching: false, reasoning: false },
+	});
+	const line = root.querySelector(".model-orientation");
+	expect(line?.querySelectorAll(".cap-chip").length).toBe(0);
+	expect(line?.textContent).toContain("none declared");
 });
 
 test("the correlated caps response renders every field with its value and source level", () => {

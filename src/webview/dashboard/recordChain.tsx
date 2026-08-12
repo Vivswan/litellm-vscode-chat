@@ -11,6 +11,11 @@
 import * as l10n from "@vscode/l10n";
 import type { RecordChainView } from "../../extension/dashboard/protocol";
 
+/** The chains that tell an inheritance story; a chain of one record renders nothing. */
+export function chainsWithStory(chains: readonly RecordChainView[] | undefined): readonly RecordChainView[] {
+	return (chains ?? []).filter((chain) => chain.links.length >= 2);
+}
+
 export function RecordChainFigure({
 	chains,
 	onEditRecord,
@@ -23,7 +28,7 @@ export function RecordChainFigure({
 	/** Jump into the server entry's edit form (the owner of entry-layer records). */
 	onEditEntry?: ((label: string) => void) | undefined;
 }) {
-	const shown = (chains ?? []).filter((chain) => chain.links.length >= 2);
+	const shown = chainsWithStory(chains);
 	if (shown.length === 0) {
 		return null;
 	}

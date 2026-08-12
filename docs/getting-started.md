@@ -112,7 +112,7 @@ With the default `usage.alertThresholds` of `[0.8, 0.95]`, you get one notificat
 
 ### See why a value is what it is
 
-When several matcher keys, a server entry, and the picker all have opinions, guessing is the slow way. Open the dashboard's Models tab and expand a model's inspectors: they list every effective parameter and capability with the exact source that set it - which matcher key, which server entry, the server's own report, or the OpenRouter catalog. Details: [Models: the inspectors](models.md#inspectors).
+When several matcher keys, a server entry, and the picker all have opinions, guessing is the slow way. Open the dashboard's Models tab and Inspect a model: the panel lists every effective parameter and capability with the exact source that set it - which matcher key, which server entry, the server's own report, or the OpenRouter catalog. Details: [Models: the inspectors](models.md#inspectors).
 
 ## Commands
 

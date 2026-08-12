@@ -14,7 +14,27 @@ import { IconClose } from "./icons";
 
 /** What can take focus inside the panel; disabled controls and tabindex -1 widgets (listbox options) drop out. */
 const FOCUSABLE =
-	"a[href], button:not([disabled]):not([tabindex='-1']), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
+	"a[href], button:not([disabled]):not([tabindex='-1']), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary:not([tabindex='-1']), [tabindex]:not([tabindex='-1'])";
+
+/**
+ * The panel's tabbable controls in document order. A collapsed <details> hides
+ * its content from the Tab order while its own summary stays reachable, so the
+ * selector's matches are filtered: without this, a control inside a closed
+ * disclosure (a record-path jump, say) would register as the trap's first or
+ * last stop, and Tab at the real boundary would escape the dialog.
+ */
+function tabbables(panel: HTMLElement): HTMLElement[] {
+	return Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((element) => {
+		for (let node = element.parentElement; node !== null && node !== panel; node = node.parentElement) {
+			if (node.tagName === "DETAILS" && !(node as HTMLDetailsElement).open) {
+				if (element.tagName !== "SUMMARY" || element.parentElement !== node) {
+					return false;
+				}
+			}
+		}
+		return true;
+	});
+}
 
 export function SlideOver({
 	labelledBy,
@@ -46,7 +66,8 @@ export function SlideOver({
 		const opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
 		const panel = panelRef.current;
 		const first =
-			panel?.querySelector<HTMLElement>("input, select, textarea") ?? panel?.querySelector<HTMLElement>(FOCUSABLE);
+			panel?.querySelector<HTMLElement>("input, select, textarea") ??
+			(panel === null ? undefined : tabbables(panel)[0]);
 		first?.focus();
 		return () => {
 			if (opener?.isConnected === true) {
@@ -78,7 +99,7 @@ export function SlideOver({
 		if (panel === null) {
 			return;
 		}
-		const focusables = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE));
+		const focusables = tabbables(panel);
 		const first = focusables[0];
 		const last = focusables[focusables.length - 1];
 		if (first === undefined || last === undefined) {

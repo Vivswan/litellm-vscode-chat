@@ -1,6 +1,6 @@
 /**
  * The Diagnostics tab with the merged inspector open IN PLACE: the
- * Resolved-models flat table's Parameters action opens the model panel
+ * Resolved-models flat table's Inspect action opens the model panel
  * without leaving the tab, anchored on its Parameters section. The respond
  * map answers the resolved-models read and both of the inspector's own reads
  * (chains included).
@@ -64,7 +64,7 @@ const fixture: RenderFixture = {
 	},
 	steps: [
 		`[...document.querySelectorAll("table.resolved-models button")]
-			.find((b) => b.textContent.trim() === "Parameters")
+			.find((b) => b.textContent.trim() === "Inspect")
 			.click()`,
 	],
 	viewport: { width: 1300, height: 1500 },

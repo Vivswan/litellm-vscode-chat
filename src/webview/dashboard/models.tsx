@@ -84,8 +84,8 @@ function pricingDetail(model: DashboardModel): string {
 	return parts.join(", ");
 }
 
-/** The capabilities column at fleet scale: dimmed plain text, no chrome per cell. */
-export function capabilities(model: DashboardModel): string {
+/** The capability flags as localized words: chips in the inspector header, a joined column in the table below. */
+export function capabilityList(model: DashboardModel): readonly string[] {
 	const caps: string[] = [];
 	if (model.toolCalling) {
 		caps.push(l10n.t("tools"));
@@ -99,7 +99,12 @@ export function capabilities(model: DashboardModel): string {
 	if (model.reasoning) {
 		caps.push(l10n.t("reasoning"));
 	}
-	return caps.join(", ");
+	return caps;
+}
+
+/** The capabilities column at fleet scale: dimmed plain text, no chrome per cell. */
+function capabilities(model: DashboardModel): string {
+	return capabilityList(model).join(", ");
 }
 
 function matches(model: DashboardModel, needle: string): boolean {

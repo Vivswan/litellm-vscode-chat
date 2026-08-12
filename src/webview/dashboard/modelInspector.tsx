@@ -9,12 +9,18 @@
  * resolver logic and no catalog data live in the webview; the answers are
  * data.
  *
- * Placement decisions worth naming: the supported-parameters list is still a
+ * Placement decisions worth naming: answers first, machinery last - each
+ * section leads with its table (what we send, what the model can do) and
+ * closes with the fixed caveats and the record-path figure behind a collapsed
+ * "Record paths" disclosure, because a reader opens Inspect for the values and
+ * only sometimes for why they won. The supported-parameters list is still a
  * CAPABILITY on the wire (it resolves with the capability walk and its rows
  * jump into capability records), but it renders in the Parameters section -
  * what the model accepts belongs next to what we send. Pricing renders
  * exactly once, in its provenance-aware section; the old params-side pricing
- * fact lines are gone.
+ * fact lines are gone, and the header keeps only the orientation line (family
+ * and capability chips) - the token limits live in the capabilities table
+ * with provenance instead of repeating above it.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -33,6 +39,7 @@ import type {
 	ParameterDiagnostic,
 	ParameterSourceRef,
 	ProjectedMaxTokens,
+	RecordChainView,
 	ShadowedCapabilityValue,
 	ShadowedParameterValue,
 } from "../../extension/dashboard/protocol";
@@ -50,8 +57,8 @@ import {
 import { DOCS_LINK_CAPS_INSPECTOR, DOCS_LINK_PARAMS_INSPECTOR } from "./docsLinks";
 import { DocsLink, Help, HoverTip } from "./help";
 import { helpCapsInspector, helpParamsInspector } from "./helpText";
-import { capabilities, formatTokens } from "./models";
-import { RecordChainFigure } from "./recordChain";
+import { capabilityList, formatTokens } from "./models";
+import { chainsWithStory, RecordChainFigure } from "./recordChain";
 import { SlideOver } from "./slideOver";
 import { newRequestId, postMessage } from "./vscodeApi";
 
@@ -63,16 +70,6 @@ export type ModelCapabilitiesResponse = Extract<ExtensionToWebviewMessage, { typ
 
 /** The panel's addressable sections; the Diagnostics table's jump links land on one. */
 export type InspectorSection = "params" | "caps";
-
-/** One row of the model-facts grid; rows with nothing to say do not render. */
-function Fact({ label, value }: { label: string; value: string }) {
-	return (
-		<div>
-			<dt class="params-caveat-label">{label}</dt>
-			<dd>{value}</dd>
-		</div>
-	);
-}
 
 /** The parameter Source column's naming: the layer that set the value plus its winning record key. */
 function sourceName(ref: ParameterSourceRef): string {
@@ -638,13 +635,19 @@ function SupportedParamsBlock({
 	);
 }
 
-/** One section's band header: the caps-section idiom lifted to the panel level, with its glyphs beside it. */
+/**
+ * One section's header band: the caps-section idiom lifted to the panel level,
+ * with its glyphs beside the label and the section's one action (the
+ * configure-jump) right-aligned on the same line. The anchor id and the
+ * focusable heading stay on the h4 itself - the Diagnostics jump lands there.
+ */
 function SectionTitle({
 	id,
 	label,
 	help,
 	helpName,
 	docs,
+	action,
 }: {
 	id: string;
 	label: string;
@@ -652,13 +655,51 @@ function SectionTitle({
 	/** The help glyph's accessible name ("About effective parameters"), not the bare section word. */
 	helpName?: string | undefined;
 	docs?: ComponentChildren;
+	/** The band's right-aligned action; outside the h4 so the heading's name stays the section word. */
+	action?: ComponentChildren;
 }) {
 	return (
-		<h4 class="inspector-section" id={id} tabIndex={-1}>
-			{label}
-			{help !== undefined && helpName !== undefined ? <Help text={help} name={helpName} /> : null}
-			{docs}
-		</h4>
+		<div class="inspector-section-head">
+			<h4 class="inspector-section" id={id} tabIndex={-1}>
+				{label}
+				{help !== undefined && helpName !== undefined ? <Help text={help} name={helpName} /> : null}
+				{docs}
+			</h4>
+			{action}
+		</div>
+	);
+}
+
+/**
+ * A section's record-path figures behind one collapsed disclosure: they
+ * explain WHY a value won (the machinery), so they close the section instead
+ * of preceding its answers. No chain with a story, no disclosure - an empty
+ * details would promise detail it cannot show. Controlled open state: every
+ * state push orphans the answers and unmounts this element until the fresh
+ * ones land, and an uncontrolled details would remount collapsed under a
+ * reader mid-chain.
+ */
+function RecordPathsDetails({
+	chains,
+	open,
+	onToggle,
+	onEditRecord,
+	onEditEntry,
+}: {
+	chains: readonly RecordChainView[] | undefined;
+	open: boolean;
+	onToggle: (open: boolean) => void;
+	onEditRecord?: ((key: string) => void) | undefined;
+	onEditEntry?: ((label: string) => void) | undefined;
+}) {
+	if (chainsWithStory(chains).length === 0) {
+		return null;
+	}
+	return (
+		<details class="record-paths" open={open} onToggle={(event) => onToggle(event.currentTarget.open)}>
+			<summary>{l10n.t("Record paths")}</summary>
+			<RecordChainFigure chains={chains} onEditRecord={onEditRecord} onEditEntry={onEditEntry} />
+		</details>
 	);
 }
 
@@ -692,6 +733,9 @@ export function ModelInspector({
 }) {
 	const [paramsRequestId, setParamsRequestId] = useState<string | undefined>(undefined);
 	const [capsRequestId, setCapsRequestId] = useState<string | undefined>(undefined);
+	// The disclosures' controlled open state (see RecordPathsDetails), one per section.
+	const [paramsPathsOpen, setParamsPathsOpen] = useState(false);
+	const [capsPathsOpen, setCapsPathsOpen] = useState(false);
 
 	// One request pair per inspected model AND per state push: the push means
 	// the stores may have moved (a settings edit, a discovery pass), and an
@@ -790,6 +834,7 @@ export function ModelInspector({
 	const extraNames = [...present].filter((name) => !sectioned.has(name)).sort();
 	const advisories = caps === undefined ? [] : caps.diagnostics.filter((d) => d.kind === "unrecognized-key");
 	const problems = caps === undefined ? [] : caps.diagnostics.filter((d) => d.kind !== "unrecognized-key");
+	const capabilityChips = capabilityList(model);
 
 	return (
 		<SlideOver
@@ -809,18 +854,23 @@ export function ModelInspector({
 						comment: ["{0} is a model ID, {1} is the server it is served from"],
 					})}
 				</p>
-				<dl class="model-facts">
-					<Fact label={l10n.t("Family")} value={model.family} />
-					<Fact label={l10n.t("Capabilities")} value={capabilities(model) || l10n.t("none declared")} />
-					<Fact label={l10n.t("Input tokens")} value={formatTokens(model.maxInputTokens)} />
-					<Fact
-						label={l10n.t("Output tokens")}
-						value={
-							model.outputLimitDeclared
-								? formatTokens(model.maxOutputTokens)
-								: l10n.t("{0} (default, not server-declared)", formatTokens(model.maxOutputTokens))
-						}
-					/>
+				{/* The token limits deliberately do NOT repeat here - the
+				    capabilities table below carries them with provenance. */}
+				<dl class="model-orientation">
+					<dt class="params-caveat-label">{l10n.t("Family")}</dt>
+					<dd>{model.family}</dd>
+					<dt class="params-caveat-label">{l10n.t("Capabilities")}</dt>
+					<dd>
+						{capabilityChips.length > 0 ? (
+							capabilityChips.map((cap) => (
+								<span class="cap-chip" key={cap}>
+									{cap}
+								</span>
+							))
+						) : (
+							<span class="hint">{l10n.t("none declared")}</span>
+						)}
+					</dd>
 				</dl>
 				<section aria-labelledby="inspector-section-params">
 					<SectionTitle
@@ -829,40 +879,28 @@ export function ModelInspector({
 						help={helpParamsInspector()}
 						helpName={l10n.t("About effective parameters")}
 						docs={<DocsLink href={DOCS_LINK_PARAMS_INSPECTOR} label={l10n.t("Open the effective-parameters guide")} />}
+						action={
+							onEditRecord !== undefined ? (
+								<button
+									type="button"
+									class="quiet section-action"
+									disabled={answeredParams === undefined}
+									onClick={() => {
+										// Reuse the most specific matching global record when one
+										// exists; otherwise a fresh draft keyed by the exact model ID.
+										const key = answeredParams?.globalRecordKey;
+										if (key !== undefined) {
+											onEditRecord("parameters", key, false);
+										} else {
+											onEditRecord("parameters", model.rawId, true);
+										}
+									}}
+								>
+									{l10n.t("Configure parameters for this model")}
+								</button>
+							) : undefined
+						}
 					/>
-					<RecordChainFigure
-						chains={answeredParams?.chains}
-						onEditRecord={onEditRecord === undefined ? undefined : (key) => onEditRecord("parameters", key, false)}
-						onEditEntry={onEditEntry}
-					/>
-					{onEditRecord !== undefined ? (
-						<p class="params-configure">
-							<button
-								type="button"
-								class="secondary"
-								disabled={answeredParams === undefined}
-								onClick={() => {
-									// Reuse the most specific matching global record when one
-									// exists; otherwise a fresh draft keyed by the exact model ID.
-									const key = answeredParams?.globalRecordKey;
-									if (key !== undefined) {
-										onEditRecord("parameters", key, false);
-									} else {
-										onEditRecord("parameters", model.rawId, true);
-									}
-								}}
-							>
-								{l10n.t("Configure parameters for this model")}
-							</button>
-						</p>
-					) : null}
-					<div class="params-fixed">
-						<span class="params-caveat-label">{l10n.t("Always sent")}</span>
-						{ALWAYS_SENT_FIELDS.map((field) => (
-							<code key={field}>{field}</code>
-						))}
-						<span class="hint">{l10n.t("+ tools, tool_choice with tools; not overridable")}</span>
-					</div>
 					{answeredParams === undefined ? (
 						<p class="hint" role="status">
 							{l10n.t("Resolving parameters...")}
@@ -890,48 +928,62 @@ export function ModelInspector({
 					) : paramsEmpty ? (
 						<p class="hint params-empty">{l10n.t("No configured parameters match this model.")}</p>
 					) : null}
+					{projection !== undefined && projection.diagnostics.length > 0 ? (
+						<div class="params-replaced">
+							<p class="hint">{l10n.t("Configuration problems in the matched records:")}</p>
+							<ul>
+								{projection.diagnostics.map((diagnostic) => (
+									<li key={`${diagnostic.layer}/${diagnostic.recordKey}/${diagnostic.kind}/${diagnostic.key}`}>
+										{parameterDiagnosticText(diagnostic)}
+									</li>
+								))}
+							</ul>
+						</div>
+					) : null}
 					{/* What the model accepts, right beside what we send. Still a
 					    capability on the wire, so it rides the capability feed and
 					    renders as soon as THAT answer lands. */}
 					{caps !== undefined ? <SupportedParamsBlock fields={caps.fields} onEditField={editCapField} /> : null}
 					{projection !== undefined ? (
-						<>
-							{projection.diagnostics.length > 0 ? (
-								<div class="params-replaced">
-									<p class="hint">{l10n.t("Configuration problems in the matched records:")}</p>
-									<ul>
-										{projection.diagnostics.map((diagnostic) => (
-											<li key={`${diagnostic.layer}/${diagnostic.recordKey}/${diagnostic.kind}/${diagnostic.key}`}>
-												{parameterDiagnosticText(diagnostic)}
-											</li>
-										))}
-									</ul>
-								</div>
-							) : null}
-							<p class="params-max-tokens">
-								<code>max_tokens {maxTokensParts(projection.maxTokens).value}</code>
-								<span class="hint"> {maxTokensParts(projection.maxTokens).reason}</span>
-							</p>
-							<dl class="params-caveats">
+						<p class="params-max-tokens">
+							<code>max_tokens {maxTokensParts(projection.maxTokens).value}</code>
+							<span class="hint"> {maxTokensParts(projection.maxTokens).reason}</span>
+						</p>
+					) : null}
+					<div class="params-fixed">
+						<span class="params-caveat-label">{l10n.t("Always sent")}</span>
+						{ALWAYS_SENT_FIELDS.map((field) => (
+							<code key={field}>{field}</code>
+						))}
+						<span class="hint">{l10n.t("+ tools, tool_choice with tools; not overridable")}</span>
+					</div>
+					{projection !== undefined ? (
+						<dl class="params-caveats">
+							<div>
+								<dt class="params-caveat-label">{l10n.t("Runtime options")}</dt>
+								<dd class="hint">
+									{projection.rows.some((row) => row.forced === true)
+										? l10n.t("Set per request by the chat client; they override every row above except forced rows.")
+										: l10n.t("Set per request by the chat client; they override every row above.")}
+								</dd>
+							</div>
+							{model.reasoning ? (
 								<div>
-									<dt class="params-caveat-label">{l10n.t("Runtime options")}</dt>
+									<dt class="params-caveat-label">{l10n.t("Picker: reasoning effort")}</dt>
 									<dd class="hint">
-										{projection.rows.some((row) => row.forced === true)
-											? l10n.t("Set per request by the chat client; they override every row above except forced rows.")
-											: l10n.t("Set per request by the chat client; they override every row above.")}
+										{l10n.t("Chosen in Configure Model and stored by VS Code; overrides reasoning_effort here.")}
 									</dd>
 								</div>
-								{model.reasoning ? (
-									<div>
-										<dt class="params-caveat-label">{l10n.t("Picker: reasoning effort")}</dt>
-										<dd class="hint">
-											{l10n.t("Chosen in Configure Model and stored by VS Code; overrides reasoning_effort here.")}
-										</dd>
-									</div>
-								) : null}
-							</dl>
-						</>
+							) : null}
+						</dl>
 					) : null}
+					<RecordPathsDetails
+						chains={answeredParams?.chains}
+						open={paramsPathsOpen}
+						onToggle={setParamsPathsOpen}
+						onEditRecord={onEditRecord === undefined ? undefined : (key) => onEditRecord("parameters", key, false)}
+						onEditEntry={onEditEntry}
+					/>
 				</section>
 				<section aria-labelledby="inspector-section-caps">
 					<SectionTitle
@@ -940,33 +992,28 @@ export function ModelInspector({
 						help={helpCapsInspector()}
 						helpName={l10n.t("About effective capabilities")}
 						docs={<DocsLink href={DOCS_LINK_CAPS_INSPECTOR} label={l10n.t("Open the effective-capabilities guide")} />}
+						action={
+							onEditRecord !== undefined ? (
+								<button
+									type="button"
+									class="quiet section-action"
+									disabled={answeredCaps === undefined}
+									onClick={() => {
+										// Reuse the most specific matching global record when one
+										// exists; otherwise a fresh draft keyed by the exact model ID.
+										const key = answeredCaps?.globalRecordKey;
+										if (key !== undefined) {
+											onEditRecord("capabilities", key, false);
+										} else {
+											onEditRecord("capabilities", model.rawId, true);
+										}
+									}}
+								>
+									{l10n.t("Configure capabilities for this model")}
+								</button>
+							) : undefined
+						}
 					/>
-					<RecordChainFigure
-						chains={answeredCaps?.chains}
-						onEditRecord={onEditRecord === undefined ? undefined : (key) => onEditRecord("capabilities", key, false)}
-						onEditEntry={onEditEntry}
-					/>
-					{onEditRecord !== undefined ? (
-						<p class="params-configure">
-							<button
-								type="button"
-								class="secondary"
-								disabled={answeredCaps === undefined}
-								onClick={() => {
-									// Reuse the most specific matching global record when one
-									// exists; otherwise a fresh draft keyed by the exact model ID.
-									const key = answeredCaps?.globalRecordKey;
-									if (key !== undefined) {
-										onEditRecord("capabilities", key, false);
-									} else {
-										onEditRecord("capabilities", model.rawId, true);
-									}
-								}}
-							>
-								{l10n.t("Configure capabilities for this model")}
-							</button>
-						</p>
-					) : null}
 					{answeredCaps === undefined ? (
 						<p class="hint" role="status">
 							{l10n.t("Resolving capabilities...")}
@@ -977,6 +1024,8 @@ export function ModelInspector({
 						</p>
 					) : (
 						<>
+							{/* The declared/directive notes gate how the table reads, so
+							    they stay ahead of it. */}
 							{model.declared === true ? (
 								<p class="hint">
 									{l10n.t("Declared model: created by the entry's declared list, not discovered on the server.")}
@@ -1042,6 +1091,13 @@ export function ModelInspector({
 							) : null}
 						</>
 					)}
+					<RecordPathsDetails
+						chains={answeredCaps?.chains}
+						open={capsPathsOpen}
+						onToggle={setCapsPathsOpen}
+						onEditRecord={onEditRecord === undefined ? undefined : (key) => onEditRecord("capabilities", key, false)}
+						onEditEntry={onEditEntry}
+					/>
 				</section>
 				{caps !== undefined && pricingNames.length > 0 ? (
 					<section aria-labelledby="inspector-section-pricing">

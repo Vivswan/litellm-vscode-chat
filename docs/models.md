@@ -453,9 +453,9 @@ Beyond plain text, four things can come back in (or about) a reply:
 
 ## Inspectors
 
-Every rule on this page is observable. The [dashboard](dashboard.md)'s models table gives each model two inspectors:
+Every rule on this page is observable. The [dashboard](dashboard.md)'s models table gives each model an Inspect action opening one panel with two provenance sections:
 
 - **Parameters** ([effective parameters](dashboard.md#effective-parameters)): every parameter that would go out, its resolved value, and the source that set it - which record, which matcher key - with shadowed values shown beneath the winner, plus the `max_tokens` the request would carry and why.
 - **Capabilities** ([effective capabilities](dashboard.md#effective-capabilities)): every capability field with its resolved value and source - an entry or global record key, an `_openrouter_model` derivation, the server's report, a `_fallback` fill, a catalog match, or the built-in default - again with the shadowed values beneath.
 
-The inspectors also surface the diagnostics named on this page: invalid matcher keys, invalid values, unknown catalog IDs, and `_force` on unforceable keys - plus the advisory note on capability fields the extension does not know, shown only against real `/model/info` evidence and never blocking the value from applying ([capability fields](#capability-fields)). When a matcher does something surprising, start here - the answer is one Parameters or Capabilities click away.
+The inspector also surfaces the diagnostics named on this page: invalid matcher keys, invalid values, unknown catalog IDs, and `_force` on unforceable keys - plus the advisory note on capability fields the extension does not know, shown only against real `/model/info` evidence and never blocking the value from applying ([capability fields](#capability-fields)). When a matcher does something surprising, start here - the answer is one Inspect click away.
