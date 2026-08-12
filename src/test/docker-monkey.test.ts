@@ -5,7 +5,7 @@ import { SERVERS_SETTING_KEY } from "../shared/config/settings";
 import { STACK_DEFAULTS } from "./envFile";
 import { logFuzzSeed, resolveDockerFuzzSeed } from "./fuzzSeed";
 import { mulberry32 } from "./fuzzStream";
-import { ensureActivated } from "./hostApiHelpers";
+import { catalogOff, ensureActivated } from "./hostApiHelpers";
 import { MONKEY_CORPUS } from "./monkeyCorpus";
 import type { MonkeyAction } from "./monkeyFuzz";
 import { generateWalk, MAX_SHRINK_RUNS, MonkeySession, monkeyFailureReport, shrinkMonkeyFailure } from "./monkeyFuzz";
@@ -54,6 +54,7 @@ suite("Docker LiteLLM monkey fuzzer", () => {
 	suiteSetup(async function () {
 		this.timeout(120000);
 		await ensureActivated();
+		await catalogOff();
 		originalServersSetting = vscode.workspace
 			.getConfiguration(CONFIG_SECTION)
 			.inspect(SERVERS_SETTING_KEY)?.globalValue;

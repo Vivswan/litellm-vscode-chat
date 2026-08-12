@@ -6,6 +6,10 @@
 
 import * as assert from "node:assert";
 import * as vscode from "vscode";
+import { OPENROUTER_MODELS_URL } from "../shared/config/openRouterCatalog";
+import { type BooleanSettingId, CONFIG_SECTION } from "../shared/config/settingSpec";
+
+export const OPENROUTER_CATALOG_SETTING_ID = "models.openRouterCatalog" satisfies BooleanSettingId;
 
 export interface ServerConfig {
 	id: string;
@@ -122,14 +126,44 @@ export async function ensureActivated(): Promise<void> {
 	if (!ext.isActive) {
 		await ext.activate();
 	}
-	// The docker suites pin what the SERVER declares (pricing absence, no
-	// vision), but the fake stack's realistic model names (llama-4-scout,
-	// gpt-5.2) suffix-match real OpenRouter catalog entries whenever a catalog
-	// artifact is present - dist/openrouter-models.json is build-time-fetched
-	// and legitimately differs between checkouts, CI, and the packaged VSIX.
-	// Turning the catalog off makes every docker assertion hermetic; a suite
-	// that wants catalog behavior must opt back in and seed its own snapshot.
+}
+
+/**
+ * Pin this host to catalog-OFF for hermeticity. The docker and host-fidelity
+ * suites assert what the SERVER declares (pricing absence, no vision), but the
+ * fake stack's realistic model names (llama-4-scout, gpt-5.2) suffix-match
+ * real OpenRouter catalog entries whenever a catalog artifact is present -
+ * dist/openrouter-models.json is build-time-fetched and legitimately differs
+ * between checkouts, CI, and the packaged VSIX. Call this from suiteSetup
+ * beside ensureActivated; a suite that wants catalog behavior must opt back
+ * in and seed its own snapshot (docker-resolution does, through
+ * litellm._test.seedOpenRouterCatalog).
+ */
+export async function catalogOff(): Promise<void> {
 	await vscode.workspace
-		.getConfiguration("litellm-vscode-chat")
-		.update("models.openRouterCatalog", false, vscode.ConfigurationTarget.Global);
+		.getConfiguration(CONFIG_SECTION)
+		.update(OPENROUTER_CATALOG_SETTING_ID, false, vscode.ConfigurationTarget.Global);
+}
+
+/**
+ * Block the OpenRouter catalog endpoint for this process and return the
+ * restore handle. The catalog store arms a refresh 60 seconds after
+ * activation and the extension host shares the runner's fetch, so a slow
+ * suite would otherwise race a live openrouter.ai snapshot against its
+ * controlled catalog state. Everything but that URL passes through.
+ */
+export function blockCatalogNetwork(): vscode.Disposable {
+	const realFetch = globalThis.fetch;
+	globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+		const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+		if (url === OPENROUTER_MODELS_URL) {
+			return Promise.resolve(new Response("catalog network is blocked by the test suite", { status: 503 }));
+		}
+		return realFetch(input, init);
+	}) as typeof globalThis.fetch;
+	return {
+		dispose: () => {
+			globalThis.fetch = realFetch;
+		},
+	};
 }

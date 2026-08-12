@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { MODEL_ID as CAPTURE_MODEL_ID, type CaptureServer, createCaptureServer } from "../capture-server";
 import {
 	addServer,
+	catalogOff,
 	clearServers,
 	collectStream,
 	ensureActivated,
@@ -75,6 +76,7 @@ suite("Host-Fidelity Tests (capture)", () => {
 		baseUrl = `http://localhost:${server.port}`;
 
 		await ensureActivated();
+		await catalogOff();
 		await clearServers();
 		const { modelIds } = await addServer("Default", baseUrl, "test-key");
 		assert.ok(modelIds.length > 0, "Expected the capture server to expose at least one model");
@@ -746,6 +748,7 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 		baseUrlB = `http://localhost:${serverB.port}`;
 
 		await ensureActivated();
+		await catalogOff();
 		await setupTwoServers();
 	});
 
@@ -1019,6 +1022,7 @@ suite("Host-Fidelity Tests (declared models)", () => {
 		const baseUrl = `http://localhost:${server.port}`;
 
 		await ensureActivated();
+		await catalogOff();
 		// Declarations are entry-level (the entry's discovery.declared list);
 		// the registry has no declared entries, so the test seams inject the
 		// declared IDs and the capability record by label. The first ID
@@ -1118,6 +1122,7 @@ suite("Host-Fidelity Tests (live)", () => {
 		);
 
 		await ensureActivated();
+		await catalogOff();
 		await clearServers();
 		const { modelIds } = await addServer("Default", REAL_BASE_URL, REAL_API_KEY);
 		assert.ok(modelIds.length > 0, "Expected at least one litellm model from the real server");

@@ -1,6 +1,4 @@
 import * as assert from "node:assert";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import type { CatalogModel, SlimOpenRouterModel } from "../../../shared/config/openRouterCatalog";
 import {
 	createCatalogLookup,
@@ -8,10 +6,9 @@ import {
 	parseCatalogSnapshot,
 	slimCatalogPayload,
 } from "../../../shared/config/openRouterCatalog";
+import { catalogFixtureJson } from "../../catalogFixture";
 
-const repoRoot = path.resolve(__dirname, "..", "..", "..", "..");
-const fixturePath = path.join(repoRoot, "src", "test", "fixtures", "openrouter-models.json");
-const fixture = JSON.parse(fs.readFileSync(fixturePath, "utf8")) as unknown;
+const fixture = catalogFixtureJson();
 
 function modelById(id: string): CatalogModel {
 	const model = parseCatalogSnapshot(fixture).models.find((entry) => entry.id === id);

@@ -9,6 +9,7 @@ import { logFuzzSeed, resolveDockerFuzzSeed } from "./fuzzSeed";
 import { assemble, chunkOf, generateEvents, mulberry32 } from "./fuzzStream";
 import {
 	addServer,
+	catalogOff,
 	clearServers,
 	collectStream,
 	ensureActivated,
@@ -189,6 +190,7 @@ function fuzzSuite(target: FuzzTarget): void {
 		suiteSetup(async function () {
 			this.timeout(90000);
 			await ensureActivated();
+			await catalogOff();
 			await clearServers();
 			await target.prepare?.();
 			await addServer(target.title, target.serverUrl, target.serverKey);

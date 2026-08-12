@@ -8,14 +8,14 @@ import { createOpenRouterCatalogStore } from "../../extension/openRouterCatalog"
 import { OPENROUTER_CATALOG_METADATA_KEY } from "../../shared/config/storageKeys";
 import { Logger } from "../../shared/logger";
 import type { Clock, Timer } from "../../shared/util/timer";
+import { catalogFixtureText } from "../catalogFixture";
 import { makeExtensionStorage, withFetch } from "../testUtils";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MIN_DELAY_MS = 60_000;
 
-const repoRoot = path.resolve(__dirname, "..", "..", "..");
-const fixtureText = fs.readFileSync(path.join(repoRoot, "src", "test", "fixtures", "openrouter-models.json"), "utf8");
+const fixtureText = catalogFixtureText();
 
 /**
  * A payload distinguishable from the fixture, in the live endpoint's shape,

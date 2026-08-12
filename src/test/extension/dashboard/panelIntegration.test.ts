@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { ensureActivated } from "../../hostApiHelpers";
+import { catalogOff, ensureActivated } from "../../hostApiHelpers";
 import { serverPayload } from "./recordedEnv";
 
 /**
@@ -57,6 +57,7 @@ suite("extension/dashboard/panelIntegration", () => {
 	suiteSetup(async function () {
 		this.timeout(30000);
 		await ensureActivated();
+		await catalogOff();
 	});
 
 	suiteTeardown(async function () {

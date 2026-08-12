@@ -1,5 +1,6 @@
 import { HttpResponse, http, type JsonBodyType, type RequestHandler } from "msw";
 import { setupServer } from "msw/node";
+import { OPENROUTER_MODELS_URL } from "../../shared/config/openRouterCatalog";
 
 /** Base URL every unit-test server config points at. */
 export const TEST_BASE_URL = "http://litellm.test";
@@ -10,14 +11,21 @@ export const CHAT_COMPLETIONS_URL = `${TEST_BASE_URL}/v1/chat/completions`;
 /**
  * The shared msw server for all unit suites. Suites opt in with useMsw() and
  * register per-test handlers via mswServer.use(); handlers reset between
- * tests, and unhandled requests fail loudly. The one permanent baseline
- * handler absorbs refreshes of panelIntegration's leftover host provider
- * group (VS Code has no group-removal API), which the host may trigger
- * during any later suite; a null body because discovery GETs retry (see
- * emptyErrorResponse). Initial handlers survive resetHandlers(), and
- * per-test use() handlers still take precedence.
+ * tests, and unhandled requests fail loudly. Two permanent baseline handlers:
+ * one absorbs refreshes of panelIntegration's leftover host provider group
+ * (VS Code has no group-removal API), which the host may trigger during any
+ * later suite (a null body because discovery GETs retry, see
+ * emptyErrorResponse), and one absorbs any OpenRouter catalog refresh that
+ * fires while msw is listening - the unit label's primary guard is the
+ * catalog opt-out in util/fingerprintSalt.ts's mochaGlobalSetup, since msw
+ * intercepts nothing between a file's close() and the next file's listen().
+ * Initial handlers survive resetHandlers(), and per-test use() handlers
+ * still take precedence.
  */
-export const mswServer = setupServer(http.all("http://localhost:49999/*", () => emptyErrorResponse(503)));
+export const mswServer = setupServer(
+	http.all("http://localhost:49999/*", () => emptyErrorResponse(503)),
+	http.get(OPENROUTER_MODELS_URL, () => emptyErrorResponse(503))
+);
 
 let activeSuites = 0;
 

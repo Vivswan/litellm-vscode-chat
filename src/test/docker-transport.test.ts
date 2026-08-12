@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import { CONFIG_SECTION } from "../shared/config/settingSpec";
 import { STACK_DEFAULTS } from "./envFile";
 import { COMMAND_SIGIL } from "./fakeStack/commands";
-import { addServer, clearServers, ensureActivated, extractText, waitForHostModels } from "./hostApiHelpers";
+import { addServer, catalogOff, clearServers, ensureActivated, extractText, waitForHostModels } from "./hostApiHelpers";
 import { expectDefined } from "./testUtils";
 
 /**
@@ -82,6 +82,7 @@ function transportSuite(title: string, directMode: boolean, serverUrl: string, s
 		suiteSetup(async function () {
 			this.timeout(90000);
 			await ensureActivated();
+			await catalogOff();
 			await clearServers();
 			await addServer(title, serverUrl, serverKey);
 			// Single-deployment on purpose: responses cannot vary by routing.
@@ -385,6 +386,7 @@ async function setUpTargetModel(
 	serverKey: string
 ): Promise<vscode.LanguageModelChat> {
 	await ensureActivated();
+	await catalogOff();
 	await clearServers();
 	await addServer(label, serverUrl, serverKey);
 	// Single-deployment on purpose, like the transport suites above.
@@ -499,6 +501,7 @@ function wrongMasterKeySuite(): void {
 		suiteSetup(async function () {
 			this.timeout(60000);
 			await ensureActivated();
+			await catalogOff();
 			await clearServers();
 		});
 

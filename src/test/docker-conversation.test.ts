@@ -6,6 +6,7 @@ import { PLAYBACK_MODEL } from "./fakeStack/models";
 import { logFuzzSeed, resolveDockerFuzzSeed } from "./fuzzSeed";
 import {
 	addServer,
+	catalogOff,
 	clearServers,
 	collectStream,
 	ensureActivated,
@@ -126,6 +127,7 @@ suite("Docker LiteLLM multi-turn conversations", () => {
 	suiteSetup(async function () {
 		this.timeout(90000);
 		await ensureActivated();
+		await catalogOff();
 		await clearServers();
 		await addServer("Docker conversations", BASE_URL, API_KEY);
 		const models = await waitForHostModels(

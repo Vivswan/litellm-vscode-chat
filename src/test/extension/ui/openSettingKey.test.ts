@@ -15,7 +15,7 @@ import {
 	openUserSettingAtKey,
 	resolveUserSettingsUri,
 } from "../../../extension/ui/openSettingKey";
-import { ensureActivated } from "../../hostApiHelpers";
+import { catalogOff, ensureActivated } from "../../hostApiHelpers";
 
 suite("extension/ui/openSettingKey", () => {
 	suite("resolveUserSettingsUri", () => {
@@ -92,6 +92,7 @@ suite("extension/ui/openSettingKey", () => {
 		suiteSetup(async function () {
 			this.timeout(30000);
 			await ensureActivated();
+			await catalogOff();
 		});
 
 		test("is registered on activation", async () => {

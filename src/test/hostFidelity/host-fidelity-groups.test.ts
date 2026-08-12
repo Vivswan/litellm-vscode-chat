@@ -2,7 +2,7 @@ import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { ServerStatus } from "../../shared/servers";
 import { createCaptureServer } from "../capture-server";
-import { ensureActivated } from "../hostApiHelpers";
+import { catalogOff, ensureActivated } from "../hostApiHelpers";
 import { expectDefined } from "../testUtils";
 
 /**
@@ -21,6 +21,7 @@ suite("Host-Fidelity Tests (group label round trip)", () => {
 		await server.start();
 		try {
 			await ensureActivated();
+			await catalogOff();
 			const base = `litellm-label-probe-${process.pid}`;
 			const labels = [`${base}-a`, `${base}-b`] as const;
 			for (const label of labels) {

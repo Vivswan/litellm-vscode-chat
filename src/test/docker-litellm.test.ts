@@ -7,6 +7,7 @@ import { COMMAND_SIGIL, COMMANDS, FALLBACK_TEXT, PNG_SHA256, WAV_SHA256 } from "
 import { PLAYBACK_MODEL } from "./fakeStack/models";
 import {
 	addServer,
+	catalogOff,
 	clearServers,
 	collectStream,
 	ensureActivated,
@@ -134,6 +135,7 @@ suite("Docker LiteLLM stack", () => {
 		this.timeout(90000);
 
 		await ensureActivated();
+		await catalogOff();
 		await clearServers();
 		const { modelIds } = await addServer("Docker", BASE_URL, API_KEY);
 		registeredModelIds = modelIds;

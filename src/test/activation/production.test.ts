@@ -17,6 +17,8 @@ import {
 	PARKED_GLOBAL_HEADERS_KEY,
 	SERVER_REGISTRY_KEY,
 } from "../../shared/config/storageKeys";
+import { catalogFixtureText } from "../catalogFixture";
+import { blockCatalogNetwork } from "../hostApiHelpers";
 import { expectDefined, makeExtensionStorage } from "../testUtils";
 
 /**
@@ -24,24 +26,82 @@ import { expectDefined, makeExtensionStorage } from "../testUtils";
  * .vscode-test.mjs): the compiled activate() is called ONCE with a fake
  * ExtensionContext whose extensionMode is Production, while the real
  * extension stays inactive. Hard limits of this harness: a second activate()
- * throws on duplicate command registration, and executing any contributed
- * litellm.* command would implicitly activate the real extension and collide
- * the same way - so these tests only observe, never dispatch commands.
- * vscode.lm.registerLanguageModelChatProvider is stubbed to capture the
- * provider instance (keeping the host's vendor registry untouched).
+ * throws on duplicate command registration (the artifact-present suite at the
+ * bottom re-activates only after disposing this activation wholesale), and
+ * executing any contributed litellm.* command would implicitly activate the
+ * real extension and collide the same way - so these tests only observe,
+ * never dispatch commands. vscode.lm.registerLanguageModelChatProvider is
+ * stubbed to capture the provider instance (keeping the host's vendor
+ * registry untouched).
+ *
+ * Catalog inputs are controlled, never inherited: the fake context's
+ * extensionUri and globalStorageUri are fresh tmpdirs, so whether
+ * dist/openrouter-models.json exists is this file's choice per activation
+ * (absent here, present in the re-activation suite) instead of whatever
+ * artifact the checkout happens to carry, and the OpenRouter fetch is blocked
+ * so the store's scheduled refresh can never swap a live snapshot in.
  */
 suite("production activation", () => {
 	const infoMessages: string[] = [];
 	const mementoWrites: string[] = [];
 	const channelLines: string[] = [];
+	const tempDirs: string[] = [];
 	let provider: LiteLLMChatModelProvider | undefined;
 	let registeredVendor: string | undefined;
 	let testCommandsBefore: string[] = [];
 	let storage: ReturnType<typeof makeExtensionStorage>;
+	let context: vscode.ExtensionContext | undefined;
+	let catalogNetworkGuard: vscode.Disposable | undefined;
+	// Counted from inside the registration stub, so any event activation
+	// itself owes is observed from the first possible moment; the
+	// artifact-absent test asserts on (and then disposes) this subscription.
+	let modelChangeEventsSinceRegistration = 0;
+	let modelChangeCounter: vscode.Disposable | undefined;
 	// Snapshot taken inside the registration stub: what the modelParameters
 	// setting held at the exact moment the provider registered.
 	let modelParametersAtRegistration: Record<string, unknown> | undefined;
 	let modelParametersBefore: Record<string, unknown> | undefined;
+
+	/** A capturing output channel: the Logger only needs the LogSink half (info/error). */
+	function fakeOutputChannel(lines: string[]): unknown {
+		return {
+			name: "LiteLLM",
+			info: (message: string) => lines.push(message),
+			error: (message: string) => lines.push(message),
+			warn: () => {},
+			debug: () => {},
+			trace: () => {},
+			append: () => {},
+			appendLine: () => {},
+			replace: () => {},
+			clear: () => {},
+			show: () => {},
+			hide: () => {},
+			dispose: () => {},
+		};
+	}
+
+	/** A fake Production-mode ExtensionContext over fresh tmpdirs and the given storage. */
+	async function makeProductionContext(extensionStorage: ReturnType<typeof makeExtensionStorage>, tag: string) {
+		// Fresh tmpdirs per activation: extensionUri decides whether a bundled
+		// dist/openrouter-models.json exists, and globalStorageUri whether a
+		// catalog cache does - both must be this file's choice, never state a
+		// checkout or an earlier run left behind.
+		const extensionDir = await fs.mkdtemp(path.join(os.tmpdir(), `lvt-activation-${tag}-ext-`));
+		const storageDir = await fs.mkdtemp(path.join(os.tmpdir(), `lvt-activation-${tag}-storage-`));
+		tempDirs.push(extensionDir, storageDir);
+		const fakeContext = {
+			subscriptions: [] as vscode.Disposable[],
+			extensionMode: vscode.ExtensionMode.Production,
+			extensionUri: vscode.Uri.file(extensionDir),
+			globalStorageUri: vscode.Uri.file(storageDir),
+			globalState: extensionStorage.memento,
+			secrets: extensionStorage.secrets,
+			// No version field: activation must fall back to "unknown" instead of throwing.
+			extension: { packageJSON: {} },
+		} as unknown as vscode.ExtensionContext;
+		return { context: fakeContext, extensionDir };
+	}
 
 	suiteSetup(async function () {
 		this.timeout(30000);
@@ -54,6 +114,11 @@ suite("production activation", () => {
 		await extension.activate();
 		testCommandsBefore = (await vscode.commands.getCommands(true)).filter((id) => id.startsWith("litellm."));
 		assert.deepStrictEqual(testCommandsBefore, [], "the suppressed real activation must register nothing");
+
+		// The catalog store arms its periodic refresh 60 seconds after
+		// activation; a slow run must never let a live openrouter.ai response
+		// install a snapshot mid-suite.
+		catalogNetworkGuard = blockCatalogNetwork();
 
 		// A label-scoped modelParameters key under the LEGACY id plus the
 		// persisted label map: the pre-registration migrations must rewrite the
@@ -88,37 +153,15 @@ suite("production activation", () => {
 		};
 		(storage.memento as unknown as { keys?: () => readonly string[] }).keys = () => [...storage.mementoStore.keys()];
 
-		const context = {
-			subscriptions: [] as vscode.Disposable[],
-			extensionMode: vscode.ExtensionMode.Production,
-			extensionUri: extension.extensionUri,
-			globalStorageUri: vscode.Uri.file(path.join(os.tmpdir(), `lvt-activation-${process.pid}`)),
-			globalState: storage.memento,
-			secrets: storage.secrets,
-			// No version field: activation must fall back to "unknown" instead of throwing.
-			extension: { packageJSON: {} },
-		} as unknown as vscode.ExtensionContext;
+		// No dist/openrouter-models.json in the fresh extension dir: this
+		// activation is the artifact-ABSENT world.
+		({ context } = await makeProductionContext(storage, "absent"));
 
 		const origInfo = vscode.window.showInformationMessage;
 		const origRegisterProvider = vscode.lm.registerLanguageModelChatProvider;
 		const origCreateChannel = vscode.window.createOutputChannel;
-		// A capturing output channel: the Logger only needs the LogSink half
-		// (info/error), and the refresh test below asserts on logged lines.
-		(vscode.window as Record<string, unknown>).createOutputChannel = () => ({
-			name: "LiteLLM",
-			info: (message: string) => channelLines.push(message),
-			error: (message: string) => channelLines.push(message),
-			warn: () => {},
-			debug: () => {},
-			trace: () => {},
-			append: () => {},
-			appendLine: () => {},
-			replace: () => {},
-			clear: () => {},
-			show: () => {},
-			hide: () => {},
-			dispose: () => {},
-		});
+		// The refresh test below asserts on logged lines.
+		(vscode.window as Record<string, unknown>).createOutputChannel = () => fakeOutputChannel(channelLines);
 		(vscode.window as Record<string, unknown>).showInformationMessage = async (message: string) => {
 			infoMessages.push(message);
 			return undefined;
@@ -129,6 +172,9 @@ suite("production activation", () => {
 		) => {
 			registeredVendor = vendor;
 			provider = registered;
+			modelChangeCounter = registered.onDidChangeLanguageModelChatInformation(() => {
+				modelChangeEventsSinceRegistration += 1;
+			});
 			modelParametersAtRegistration = vscode.workspace
 				.getConfiguration(CONFIG_SECTION)
 				.get<Record<string, unknown>>(MODEL_PARAMETERS_SETTING_KEY);
@@ -144,6 +190,18 @@ suite("production activation", () => {
 	});
 
 	suiteTeardown(async () => {
+		// Dispose whichever activation is still live before touching its
+		// inputs (a no-op when the re-activation suite already spliced): the
+		// catalog store's refresh timer must die before the fetch guard lifts
+		// and the tmpdirs vanish under it.
+		for (const disposable of context?.subscriptions.splice(0) ?? []) {
+			disposable.dispose();
+		}
+		catalogNetworkGuard?.dispose();
+		modelChangeCounter?.dispose();
+		for (const dir of tempDirs.splice(0)) {
+			await fs.rm(dir, { recursive: true, force: true }).then(undefined, () => {});
+		}
 		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 		await config.update(MODEL_PARAMETERS_SETTING_KEY, modelParametersBefore, vscode.ConfigurationTarget.Global);
 		// The legacy seed is consumed by the rename at activation; clear any
@@ -268,33 +326,32 @@ suite("production activation", () => {
 		});
 	}
 
-	/** Resolves once no model-change event has fired for 600ms (bounded at 5s), absorbing activation's own notifies. */
-	async function eventsQuiesced(registered: LiteLLMChatModelProvider): Promise<void> {
-		const deadline = Date.now() + 5000;
-		let lastEvent = Date.now();
-		const subscription = registered.onDidChangeLanguageModelChatInformation(() => {
-			lastEvent = Date.now();
-		});
-		try {
-			while (Date.now() - lastEvent < 600 && Date.now() < deadline) {
-				await new Promise((resolve) => setTimeout(resolve, 100));
-			}
-		} finally {
-			subscription.dispose();
-		}
-	}
+	test("an artifact-absent activation owes no model-change event", async function () {
+		// Runs before the positive listener tests below, whose config edits
+		// would legitimately increment the counter this test consumes.
+		this.timeout(15000);
+		expectDefined(provider, "activation must register the provider");
+		// By construction nothing can fire here: the fake context saw neither
+		// a catalog cache nor a bundled dist/openrouter-models.json (so
+		// initialize() installed nothing), and the other producers - the
+		// config-change debounce and group removals - saw no model-affecting
+		// edit since registration. The settle only makes a regression (an
+		// event scheduled during activation) observable past its 400ms
+		// debounce even on a runner that reaches this test immediately.
+		await new Promise((resolve) => setTimeout(resolve, 600));
+		assert.strictEqual(
+			modelChangeEventsSinceRegistration,
+			0,
+			"activation with no catalog artifact must not fire any model-change event (catalog install is the only producer this controlled world permits)"
+		);
+		modelChangeCounter?.dispose();
+	});
 
 	test("a setting outside the listener's branches fires no model-change event", async function () {
 		// Runs before the positive listener tests below, so no pending debounce
 		// from their config restores can leak into this observation window.
 		this.timeout(15000);
 		const registered = expectDefined(provider, "activation must register the provider");
-		// Activation itself owes one legitimate event this test must not count:
-		// the catalog store's initialize() notifies when a bundled or cached
-		// snapshot installs (a production `bundle` leaves dist/openrouter-models.json
-		// behind, so local runs after one see that notify; artifact-less runs do
-		// not). Absorb it by waiting for the event stream to go quiet first.
-		await eventsQuiesced(registered);
 		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 		const before = config.inspect<boolean>("ui.maskSecretInputs")?.globalValue;
 		let fired = 0;
@@ -546,5 +603,78 @@ suite("production activation", () => {
 					.then(undefined, () => {});
 			}
 		}
+	});
+
+	// Mocha runs a suite's own tests before its nested suites, so this
+	// artifact-PRESENT world runs last: its setup disposes the first
+	// activation wholesale (unregistering every litellm.* command), which is
+	// the only way a second activate() can run in the same host, and which
+	// invalidates the provider every test above observes.
+	suite("re-activation with a bundled catalog artifact", () => {
+		suiteSetup(() => {
+			for (const disposable of expectDefined(context, "the first activation must have run").subscriptions.splice(0)) {
+				disposable.dispose();
+			}
+		});
+
+		test("a bundled dist/openrouter-models.json installs at activation and fires the catalog notify", async function () {
+			this.timeout(30000);
+			const rerunStorage = makeExtensionStorage({
+				[GROUP_MIGRATION_COMPLETE_KEY]: true,
+				[HAS_SHOWN_WELCOME_KEY]: true,
+			});
+			(rerunStorage.memento as unknown as { keys?: () => readonly string[] }).keys = () => [
+				...rerunStorage.mementoStore.keys(),
+			];
+			const { context: rerunContext, extensionDir } = await makeProductionContext(rerunStorage, "present");
+			await fs.mkdir(path.join(extensionDir, "dist"), { recursive: true });
+			await fs.writeFile(path.join(extensionDir, "dist", "openrouter-models.json"), catalogFixtureText());
+
+			const origInfo = vscode.window.showInformationMessage;
+			const origRegisterProvider = vscode.lm.registerLanguageModelChatProvider;
+			const origCreateChannel = vscode.window.createOutputChannel;
+			(vscode.window as Record<string, unknown>).createOutputChannel = () => fakeOutputChannel([]);
+			(vscode.window as Record<string, unknown>).showInformationMessage = async () => undefined;
+			let notified: Promise<void> | undefined;
+			(vscode.lm as Record<string, unknown>).registerLanguageModelChatProvider = (
+				_vendor: string,
+				registered: LiteLLMChatModelProvider
+			) => {
+				// Subscribed inside the stub: initialize() is fire-and-forget, so
+				// its notify races activate()'s return and the listener must exist
+				// before the load can complete.
+				notified = nextModelChangeEvent(registered);
+				return { dispose() {} };
+			};
+			let notifyDeadline: ReturnType<typeof setTimeout> | undefined;
+			try {
+				await activate(rerunContext);
+				// The artifact-present contract: the bundled snapshot installed,
+				// so activation owes the catalog notify. Nothing else can produce
+				// one here (no config edits, no group changes), and the
+				// artifact-absent twin above pins the zero-event side, so the
+				// pair discriminates: an unconditional activation notify fails
+				// there, a missing install notify fails here.
+				await Promise.race([
+					expectDefined(notified, "re-activation must register the provider"),
+					new Promise<never>((_, reject) => {
+						notifyDeadline = setTimeout(
+							() => reject(new Error("the bundled catalog artifact must fire the catalog-install notify")),
+							15000
+						);
+					}),
+				]);
+			} finally {
+				if (notifyDeadline !== undefined) {
+					clearTimeout(notifyDeadline);
+				}
+				(vscode.window as Record<string, unknown>).showInformationMessage = origInfo;
+				(vscode.lm as Record<string, unknown>).registerLanguageModelChatProvider = origRegisterProvider;
+				(vscode.window as Record<string, unknown>).createOutputChannel = origCreateChannel;
+				for (const disposable of rerunContext.subscriptions.splice(0)) {
+					disposable.dispose();
+				}
+			}
+		});
 	});
 });

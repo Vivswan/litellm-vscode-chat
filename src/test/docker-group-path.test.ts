@@ -3,7 +3,14 @@ import * as vscode from "vscode";
 import { STACK_DEFAULTS } from "./envFile";
 import { FALLBACK_TEXT } from "./fakeStack/commands";
 import { PLAYBACK_MODEL } from "./fakeStack/models";
-import { clearServers, collectStream, ensureActivated, extractText, waitForHostModels } from "./hostApiHelpers";
+import {
+	catalogOff,
+	clearServers,
+	collectStream,
+	ensureActivated,
+	extractText,
+	waitForHostModels,
+} from "./hostApiHelpers";
 import { expectDefined } from "./testUtils";
 
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
@@ -32,6 +39,7 @@ suite("Docker provider-group chat path", () => {
 	suiteSetup(async function () {
 		this.timeout(90000);
 		await ensureActivated();
+		await catalogOff();
 		await clearServers();
 		await vscode.commands.executeCommand("lm.addLanguageModelsProviderGroup", {
 			name: "Docker Group Path",

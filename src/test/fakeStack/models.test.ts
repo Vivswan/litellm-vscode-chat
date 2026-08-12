@@ -1,7 +1,6 @@
 import * as assert from "node:assert";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { createCatalogLookup, parseCatalogSnapshot } from "../../shared/config/openRouterCatalog";
+import { catalogFixtureJson } from "../catalogFixture";
 import { FAKE_MODELS } from "./models";
 
 /**
@@ -13,7 +12,7 @@ import { FAKE_MODELS } from "./models";
  * catalog artifact, so docker assertions pinned on "what the SERVER
  * declares" changed with whatever catalog snapshot the checkout happened to
  * carry. The docker and host-fidelity hosts now run catalog-OFF
- * (hostApiHelpers.ensureActivated), which closes the hole against LIVE
+ * (hostApiHelpers.catalogOff), which closes the hole against LIVE
  * artifacts; this canary pins the FIXTURE relationship, so the
  * docker-resolution suite's catalog-ON tests (which seed exactly this
  * fixture) can never have a fake-stack model silently backfilling from it.
@@ -21,8 +20,7 @@ import { FAKE_MODELS } from "./models";
  * unambiguous post-vendor suffix must fail here, loudly, at unit time.
  */
 suite("fake stack models vs the pinned catalog fixture", () => {
-	const fixturePath = path.resolve(__dirname, "..", "..", "..", "src", "test", "fixtures", "openrouter-models.json");
-	const snapshot = parseCatalogSnapshot(JSON.parse(fs.readFileSync(fixturePath, "utf8")));
+	const snapshot = parseCatalogSnapshot(catalogFixtureJson());
 	const lookup = createCatalogLookup(snapshot, { implicitLookup: true });
 
 	test("the fixture parses to a non-trivial catalog", () => {

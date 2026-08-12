@@ -1,26 +1,27 @@
 import * as assert from "node:assert";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import * as vscode from "vscode";
 import { REASONING_EFFORT_SCHEMA } from "../provider/catalog/modelConfiguration";
 import { CMD } from "../shared/config/commandIds";
-import { OPENROUTER_MODELS_URL } from "../shared/config/openRouterCatalog";
 import { CONFIG_SECTION } from "../shared/config/settingSpec";
 import {
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
 	SERVERS_SETTING_KEY,
 } from "../shared/config/settings";
+import { catalogFixtureJson } from "./catalogFixture";
 import { STACK_DEFAULTS } from "./envFile";
 import { COMMAND_SIGIL } from "./fakeStack/commands";
 import { PLAYBACK_MODEL } from "./fakeStack/models";
 import { NO_DISCOVERY_PREFIX } from "./fakeStack/noDiscovery";
 import {
 	addServer,
+	blockCatalogNetwork,
+	catalogOff,
 	clearServers,
 	collectStream,
 	ensureActivated,
 	extractText,
+	OPENROUTER_CATALOG_SETTING_ID,
 	waitForHostModels,
 } from "./hostApiHelpers";
 import { expectDefined } from "./testUtils";
@@ -32,8 +33,9 @@ import { expectDefined } from "./testUtils";
  * Two deliberately separate worlds, one label:
  *
  * 1. The OpenRouter catalog path. Every other docker host runs catalog-OFF
- *    for hermeticity (hostApiHelpers.ensureActivated), so the catalog-ON
- *    behavior documented in docs/models.md#the-openrouter-catalog gets its
+ *    for hermeticity (hostApiHelpers.catalogOff, called in every docker
+ *    suiteSetup), so the catalog-ON behavior documented in
+ *    docs/models.md#the-openrouter-catalog gets its
  *    deterministic coverage HERE: the suite seeds the pinned fixture
  *    (src/test/fixtures/openrouter-models.json) into the catalog store's
  *    globalStorage cache file through the non-production seam
@@ -63,8 +65,6 @@ const BASE_URL = (process.env.LITELLM_DOCKER_BASE_URL || "").replace(/\/+$/, "")
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
 const FAKE_URL = (process.env.LITELLM_DOCKER_FAKE_URL || "").replace(/\/+$/, "");
 const NO_DISCOVERY_URL = `${FAKE_URL}${NO_DISCOVERY_PREFIX}`;
-
-const OPENROUTER_CATALOG_SETTING_ID = "models.openRouterCatalog";
 
 /** The catalog suite's registry server; the declared IDs below are its whole serve. */
 const CATALOG_LABEL = "ResolutionSuite Catalog";
@@ -153,26 +153,19 @@ suite("Docker resolution", () => {
 	}
 
 	let originalServersSetting: unknown;
-	// Initialized at declaration, not in suiteSetup: Mocha runs suiteTeardown
-	// even when suiteSetup throws, and restoring `undefined` there would break
-	// every later HTTP call in the host and bury the original failure.
-	let realFetch = globalThis.fetch;
+	// Torn down even when suiteSetup throws (Mocha runs suiteTeardown anyway);
+	// the optional-chained dispose keeps that path from burying the original
+	// failure.
+	let catalogNetworkGuard: vscode.Disposable | undefined;
 
 	suiteSetup(async function () {
 		this.timeout(90000);
 		await ensureActivated();
-		// Enabling the catalog arms the store's periodic refresh (60s minimum
-		// delay), and the extension host shares this process's fetch: without
-		// this block a slow run could let a REAL openrouter.ai refresh replace
-		// the seeded fixture mid-suite. Everything else passes through.
-		realFetch = globalThis.fetch;
-		globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
-			const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-			if (url === OPENROUTER_MODELS_URL) {
-				return Promise.resolve(new Response("catalog network is blocked in the resolution suite", { status: 503 }));
-			}
-			return realFetch(input, init);
-		}) as typeof globalThis.fetch;
+		await catalogOff();
+		// Enabling the catalog below arms the store's periodic refresh, and a
+		// live response replacing the seeded fixture mid-suite would be
+		// invisible flakiness.
+		catalogNetworkGuard = blockCatalogNetwork();
 		originalServersSetting = config().inspect(SERVERS_SETTING_KEY)?.globalValue;
 		await updateGlobal(SERVERS_SETTING_KEY, []);
 		await clearServers();
@@ -180,11 +173,14 @@ suite("Docker resolution", () => {
 
 	suiteTeardown(async function () {
 		this.timeout(60000);
-		globalThis.fetch = realFetch;
+		// Catalog off BEFORE the network guard lifts: an in-flight refresh
+		// re-checks the setting ahead of every retry, so no attempt can escape
+		// through the restored real fetch.
+		await updateGlobal(OPENROUTER_CATALOG_SETTING_ID, false);
+		catalogNetworkGuard?.dispose();
 		await updateGlobal(SERVERS_SETTING_KEY, originalServersSetting);
 		await updateGlobal(MODEL_PARAMETERS_SETTING_KEY, undefined);
 		await updateGlobal(MODEL_CAPABILITIES_SETTING_KEY, undefined);
-		await updateGlobal(OPENROUTER_CATALOG_SETTING_ID, false);
 	});
 
 	// ── World 1: the OpenRouter catalog path, fixture-seeded, catalog ON ──────
@@ -192,8 +188,7 @@ suite("Docker resolution", () => {
 	suite("catalog backfill (seeded fixture, sequential)", () => {
 		suiteSetup(async function () {
 			this.timeout(120000);
-			const fixturePath = path.resolve(__dirname, "..", "..", "src", "test", "fixtures", "openrouter-models.json");
-			const fixture = JSON.parse(fs.readFileSync(fixturePath, "utf8")) as unknown;
+			const fixture = catalogFixtureJson();
 			const installed = (await vscode.commands.executeCommand(
 				"litellm._test.seedOpenRouterCatalog",
 				fixture
@@ -228,9 +223,9 @@ suite("Docker resolution", () => {
 
 		test("catalog off: implicit backfill stays dead while the explicit directive serves offline", async function () {
 			this.timeout(60000);
-			// ensureActivated turned the catalog off; the fixture is already
-			// seeded. Implicit matches (exact and suffix) must resolve to the
-			// built-in floors, while the `_openrouter_model` directive keeps
+			// The suiteSetup's catalogOff turned the catalog off; the fixture is
+			// already seeded. Implicit matches (exact and suffix) must resolve to
+			// the built-in floors, while the `_openrouter_model` directive keeps
 			// answering byExactId - stated user intent needs no opt-in.
 			const infos = await refreshInfos();
 			for (const id of [EXACT_ID, SUFFIX_ID, AMBIGUOUS_ID]) {

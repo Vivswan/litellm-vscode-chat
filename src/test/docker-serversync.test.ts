@@ -14,6 +14,7 @@ import { NO_DISCOVERY_PREFIX, type NoDiscoveryAttemptCounts } from "./fakeStack/
 import { FAKE_OAUTH_CLIENT_ID, FAKE_OAUTH_CLIENT_SECRET, FAKE_OAUTH_TOKEN_PREFIX } from "./fakeStack/oauth";
 import {
 	addServer,
+	catalogOff,
 	clearServers,
 	collectStream,
 	ensureActivated,
@@ -246,6 +247,7 @@ suite("Docker server sync", () => {
 	suiteSetup(async function () {
 		this.timeout(90000);
 		await ensureActivated();
+		await catalogOff();
 		originalServersSetting = serversConfig().inspect(SERVERS_SETTING_KEY)?.globalValue;
 		originalCapabilitiesSetting = serversConfig().inspect(MODEL_CAPABILITIES_SETTING_KEY)?.globalValue;
 		assert.deepStrictEqual(readServersSetting(), [], "the suite needs a fresh host with no declared servers");
