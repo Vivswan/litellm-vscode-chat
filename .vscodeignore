@@ -26,6 +26,7 @@ node_modules/**
 .dev-profile/**
 logs/**
 coverage/**
+renders/**
 .claude/**
 .codex/**
 .worktrees/**

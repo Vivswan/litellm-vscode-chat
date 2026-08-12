@@ -27,6 +27,7 @@ import {
 	DASHBOARD_STYLESHEET_FILENAME,
 	WEBVIEW_DIST_SEGMENTS,
 } from "../../src/shared/webviewPaths.ts";
+import { RENDER_EPOCH_MS } from "./renderClock.ts";
 
 /** What a fixture module default-exports; `messages` are ExtensionToWebviewMessage objects. */
 export interface RenderFixture {
@@ -132,9 +133,30 @@ function inlineJson(value: unknown): string {
  * listener before posting ready, so synchronous dispatch is safe) and flips
  * window.__ready for the harness's poll. Every post lands in window.__posted
  * so steps can inspect what the page sent.
+ *
+ * The script also freezes the page's clock to RENDER_EPOCH_MS before the
+ * bundle loads: relative-time labels and locale date strings otherwise shift
+ * with the wall clock, which breaks pixel comparison between renders.
  */
 function stubScript(messages: readonly unknown[], respond: Readonly<Record<string, unknown>>): string {
 	return `<script>
+	{
+		const epoch = ${RENDER_EPOCH_MS};
+		const RealDate = Date;
+		// A Proxy rather than a subclass: it stays callable without new
+		// (RealDate() semantics) and keeps Date.name and the statics intact.
+		window.Date = new Proxy(RealDate, {
+			construct(target, args) {
+				return args.length === 0 ? new target(epoch) : new target(...args);
+			},
+			apply() {
+				return new RealDate(epoch).toString();
+			},
+			get(target, key, receiver) {
+				return key === "now" ? () => epoch : Reflect.get(target, key, receiver);
+			},
+		});
+	}
 	window.__fixtureMessages = ${inlineJson(messages)};
 	window.__fixtureResponses = ${inlineJson(respond)};
 	window.acquireVsCodeApi = () => ({
@@ -247,9 +269,22 @@ class CdpConnection {
 			const socket = new WebSocket(url);
 			const connection = new CdpConnection(socket);
 			socket.addEventListener("open", () => resolve(connection));
-			socket.addEventListener("error", () => reject(new Error(`DevTools WebSocket connection to ${url} failed`)));
+			socket.addEventListener("error", () => {
+				reject(new Error(`DevTools WebSocket connection to ${url} failed`));
+				connection.rejectPending(new Error("DevTools WebSocket errored"));
+			});
 			socket.addEventListener("message", (event) => connection.onMessage(String(event.data)));
+			// A Chrome that dies mid-session must fail every in-flight command,
+			// not leave its awaiter hanging forever.
+			socket.addEventListener("close", () => connection.rejectPending(new Error("DevTools WebSocket closed")));
 		});
+	}
+
+	private rejectPending(error: Error): void {
+		for (const waiter of this.pending.values()) {
+			waiter.reject(error);
+		}
+		this.pending.clear();
 	}
 
 	send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
@@ -324,6 +359,14 @@ async function ensureBundle(): Promise<{ bundlePath: string; stylesheetPath: str
 }
 
 /**
+ * Always-on determinism styles: CSS animations, transitions, and the text
+ * caret's blink phase depend on capture timing, so two renders of the same
+ * fixture would differ pixel for pixel. Presentation is otherwise untouched.
+ */
+const DETERMINISM_CSS =
+	"*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }";
+
+/**
  * The standalone page: the real HTML shell with the CSP meta stripped (its
  * nonce/source model has no meaning on file://), the theme tokens, and the
  * acquireVsCodeApi stub inserted before the bundle tag so it exists when the
@@ -344,9 +387,8 @@ function buildPageHtml(
 		l10nBundle: undefined,
 	});
 	html = html.replace(/<meta http-equiv="Content-Security-Policy"[\s\S]*?>\s*/, "");
-	if (withTheme) {
-		html = html.replace("</head>", `<style>${themeCss()}</style>\n</head>`);
-	}
+	const headCss = withTheme ? `${themeCss()}\n${DETERMINISM_CSS}` : DETERMINISM_CSS;
+	html = html.replace("</head>", `<style>${headCss}</style>\n</head>`);
 	const bundleTag = `<script nonce="${nonce}" src="./dashboard.js"></script>`;
 	if (!html.includes(bundleTag)) {
 		throw new Error("Unexpected dashboard HTML shape: the bundle script tag was not found");
@@ -378,6 +420,7 @@ async function main(): Promise<void> {
 	const outPath = path.resolve(values.out);
 
 	const chromeBin = findChrome();
+	console.log(`chrome: ${chromeBin}`);
 	const { bundlePath, stylesheetPath } = await ensureBundle();
 	const html = buildPageHtml(fixture.messages, fixture.respond ?? {}, values["no-theme"] !== true);
 	if (values["html-out"] !== undefined) {
@@ -396,6 +439,11 @@ async function main(): Promise<void> {
 	await fs.writeFile(indexHtml, html);
 	const pageUrl = pathToFileURL(indexHtml).href;
 
+	// TZ and --lang pin the locale-dependent date strings; CHROME_EXTRA_FLAGS
+	// carries environment-specific launch flags (CI passes --no-sandbox: the
+	// ubuntu-24.04 runner image restricts the unprivileged user namespaces the
+	// Chrome sandbox needs).
+	const extraFlags = (process.env.CHROME_EXTRA_FLAGS ?? "").split(" ").filter((flag) => flag.length > 0);
 	const chrome = spawn(
 		chromeBin,
 		[
@@ -404,10 +452,13 @@ async function main(): Promise<void> {
 			`--user-data-dir=${profileDir}`,
 			"--no-first-run",
 			"--hide-scrollbars",
+			"--lang=en-US",
+			"--force-color-profile=srgb",
 			`--window-size=${width},${height}`,
+			...extraFlags,
 			pageUrl,
 		],
-		{ stdio: "ignore" }
+		{ stdio: "ignore", env: { ...process.env, TZ: "UTC", LANG: "en_US.UTF-8" } }
 	);
 	let cdp: CdpConnection | undefined;
 	try {

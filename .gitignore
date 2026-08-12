@@ -50,6 +50,9 @@ docker/.copilot-token/*
 # Live log tees written by `bun run dev` (litellm, fake-openai, extension)
 /logs/
 
+# render:check output: fresh fixture renders and pixel-diff images
+/renders/
+
 # END REPOSITORY LOCAL
 
 # BEGIN REPO-PLATFORM MANAGED

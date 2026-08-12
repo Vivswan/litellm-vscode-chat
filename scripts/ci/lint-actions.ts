@@ -13,9 +13,13 @@ async function main(): Promise<void> {
 	const findings: LintResult[] = [];
 
 	// The npm actionlint wasm build lags the upstream binary; drop findings it
-	// raises only because its permission-scope list is stale (CI runs the
-	// current binary via raven-actions/actionlint, which knows these scopes).
-	const staleScopes = /unknown permission scope "(attestations|vulnerability-alerts)"/;
+	// raises only because its permission-scope or runner-label list is stale
+	// (CI runs the current binary via raven-actions/actionlint, which knows
+	// these scopes and ubuntu-24.04, render-check's pinned runner).
+	const staleFindings = [
+		/unknown permission scope "(attestations|vulnerability-alerts)"/,
+		/label "ubuntu-24\.04" is unknown/,
+	];
 
 	for (const file of files) {
 		const input = await fs.readFile(file, "utf8");
@@ -23,7 +27,7 @@ async function main(): Promise<void> {
 		// across calls until the actionlint wrapper crashes out of bounds.
 		const lint = await createLinter();
 		const results = lint(input, path.relative(process.cwd(), file));
-		findings.push(...results.filter((result) => !staleScopes.test(result.message)));
+		findings.push(...results.filter((result) => !staleFindings.some((pattern) => pattern.test(result.message))));
 	}
 
 	if (findings.length === 0) {

@@ -10,8 +10,11 @@ import type {
 	DashboardUsage,
 	ResolvedModelsView,
 } from "../../../src/dashboard/protocol.ts";
+import { RENDER_EPOCH_MS } from "../renderClock.ts";
 
-const NOW = Date.now();
+// The harness freezes the page's clock to the same instant, so every
+// relative and absolute time label renders identically on every run.
+const NOW = RENDER_EPOCH_MS;
 
 export function minutesAgoIso(minutes: number): string {
 	return new Date(NOW - minutes * 60_000).toISOString();

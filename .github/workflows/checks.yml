@@ -199,6 +199,76 @@ jobs:
       - name: Validate the live OpenRouter catalog payload
         run: bun scripts/dev/fetch-openrouter-catalog.ts --check
 
+  # Pixel-baseline gate for the dashboard render fixtures: every fixture in
+  # scripts/dev/renderFixtures/ renders in headless Chrome and must match its
+  # committed PNG under scripts/dev/renderFixtures/baselines/ within
+  # render-check.mts's tolerance. Ubuntu only, deliberately: font
+  # rasterization is OS-specific, so the baselines are Linux renders and only
+  # a Linux runner can compare against them.
+  #
+  # Baseline lifecycle: bootstrap is the explicit --bootstrap flag below,
+  # never inferred from repository state - while the repository has no
+  # committed baselines yet, the flag turns missing baselines into a loud
+  # warning, and the render-current artifact this job uploads on every run
+  # carries the Linux renders to commit. The follow-up commit that lands the
+  # baselines under scripts/dev/renderFixtures/baselines/ also REMOVES the
+  # flag (a lingering flag fails on its own once any baseline exists); from
+  # then on a fixture missing its baseline fails hard, so a new fixture
+  # lands its baseline in the same change and deleting baselines cannot
+  # silently disable the gate. A mismatched baseline always fails hard, with
+  # the diff images uploaded as render-diffs. Linux contributors regenerate
+  # directly with `bun run render:update`; macOS/Windows contributors
+  # download render-current from their PR's run and commit those PNGs
+  # instead.
+  render-check:
+    # Pinned, not ubuntu-latest: the baselines are rendered by this image's
+    # Chrome and fonts, so an image bump must be a deliberate commit that
+    # regenerates them, never a label rolling under an unrelated PR.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Set up development environment
+        run: bash scripts/env/setup-env.sh
+
+      - name: Report the Chrome the baselines are pinned to
+        run: /usr/bin/google-chrome --version
+
+      - name: Render the fixtures against the pixel baselines
+        env:
+          # Pinned so a chromium appearing on the image's PATH can never
+          # silently swap rendering engines under the baselines.
+          CHROME_BIN: /usr/bin/google-chrome
+          # The runner image ships google-chrome but ubuntu-24.04 restricts
+          # the unprivileged user namespaces its sandbox needs; the page is
+          # our own generated file, so dropping the sandbox is fine here.
+          CHROME_EXTRA_FLAGS: '--no-sandbox'
+        # --bootstrap: remove with the commit that lands the baselines.
+        run: bun run render:check --bootstrap
+
+      - name: Upload the current renders (baseline source for non-Linux contributors)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: render-current
+          path: renders/current/
+          if-no-files-found: warn
+
+      - name: Upload the pixel-diff images
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: render-diffs
+          path: renders/diff/
+          if-no-files-found: ignore
+
   # Biome ci, helper-script typecheck, knip, type-aware promise lint,
   # @types/vscode vs engines.vscode, and the packaged-file-list check.
   format-check:
