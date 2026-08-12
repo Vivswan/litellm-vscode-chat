@@ -170,9 +170,14 @@ suite("IssueReporter", () => {
 		assert.match(stack, /^RequestError\(http, status 422\)\n\s+at /);
 	});
 
-	test("non-http RequestErrors keep their template message in the prefill", () => {
+	test("non-http RequestErrors keep their English mirror in the prefill", () => {
 		const reporter = new IssueReporter();
-		reporter.recordError("Chat request failed", new RequestError("LiteLLM request timed out after 3000ms.", "timeout"));
+		reporter.recordError(
+			"Chat request failed",
+			new RequestError("LiteLLM request timed out after 3000ms.", "timeout", {
+				englishMessage: "LiteLLM request timed out after 3000ms.",
+			})
+		);
 		const body = reporter.buildBody(makeSnapshot({ latestError: reporter.getLatestError() }));
 		assert.ok(body.includes("LiteLLM request timed out after 3000ms."), "template text stays useful in the issue");
 	});

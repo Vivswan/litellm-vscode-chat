@@ -678,6 +678,7 @@ suite("extension/dashboard/panel", () => {
 	test("a failing draft probe's transport classification rides the intentFailed notice", async () => {
 		const harness = makeHarness();
 		harness.probeError = new RequestError("the server answered 404", "http", {
+			englishMessage: "the server answered 404",
 			status: 404,
 			setupHint: "check-base-url",
 		});

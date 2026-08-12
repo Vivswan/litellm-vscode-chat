@@ -8,7 +8,6 @@ import {
 } from "openai";
 import { CancellationError, LanguageModelError } from "vscode";
 import {
-	localizedError,
 	type MapErrorContext,
 	mapSdkError,
 	RequestError,
@@ -18,6 +17,7 @@ import {
 	timeoutRequestError,
 	toLanguageModelError,
 } from "../../../provider/transport/errorMapping";
+import { localizedError, MirroredError } from "../../../shared/mirroredError";
 import { DEFAULT_API_VERSION } from "../../../shared/util/baseUrl";
 import { assertShows, assertStartsWith } from "../../testUtils";
 
@@ -450,7 +450,10 @@ suite("provider/transport/errorMapping", () => {
 		});
 
 		test("an already-classified RequestError passes through even when its message mentions a socket term", () => {
-			const err = new RequestError("upstream said: terminated", "http", { status: 500 });
+			const err = new RequestError("upstream said: terminated", "http", {
+				status: 500,
+				englishMessage: "upstream said: terminated",
+			});
 			assert.strictEqual(mapSdkError(err, chatCtx), err);
 		});
 
@@ -466,6 +469,18 @@ suite("provider/transport/errorMapping", () => {
 			// would double-wrap them.
 			const err = localizedError("display", "english");
 			assert.strictEqual(mapSdkError(err, chatCtx), err);
+		});
+
+		test("a classification-only MirroredError passes through unwrapped too", () => {
+			// The other valid EnglishRendering arm: no englishMessage, only the
+			// terse classification. Re-headlining it would fold its (possibly
+			// localized, body-quoting) display message into the tail's English
+			// mirror and land it on the output channel.
+			const err = new MirroredError("display quoting a response body", {
+				logClassification: "ValidationError(example)",
+			});
+			assert.strictEqual(mapSdkError(err, chatCtx), err);
+			assert.strictEqual(mapSdkError(err, discoveryCtx), err);
 		});
 
 		test("a plain Error merely containing the word terminated is not reclassified as network", () => {
@@ -513,7 +528,7 @@ suite("provider/transport/errorMapping", () => {
 
 		test("RequestError preserves cause, status, kind, and name", () => {
 			const cause = new Error("underlying failure");
-			const err = new RequestError("wrapped", "network", { status: 502, cause });
+			const err = new RequestError("wrapped", "network", { status: 502, cause, englishMessage: "wrapped" });
 			assert.strictEqual(err.cause, cause);
 			assert.strictEqual(err.status, 502);
 			assert.strictEqual(err.kind, "network");
@@ -558,9 +573,18 @@ suite("provider/transport/errorMapping", () => {
 			assert.strictEqual(optedIn.logClassification, "RequestError(http, status 503)");
 			// No opt-in, no classification - regardless of kind: a site with a
 			// template-only message keeps its text useful in issues.
-			assert.strictEqual(new RequestError("template text", "http", { status: 503 }).logClassification, undefined);
-			assert.strictEqual(new RequestError("timed out", "timeout").logClassification, undefined);
-			assert.strictEqual(new RequestError("auth template", "auth", { status: 401 }).logClassification, undefined);
+			assert.strictEqual(
+				new RequestError("template text", "http", { status: 503, englishMessage: "template text" }).logClassification,
+				undefined
+			);
+			assert.strictEqual(
+				new RequestError("timed out", "timeout", { englishMessage: "timed out" }).logClassification,
+				undefined
+			);
+			assert.strictEqual(
+				new RequestError("auth template", "auth", { status: 401, englishMessage: "auth template" }).logClassification,
+				undefined
+			);
 		});
 
 		test("mapSdkError's http mapping opts in with the status, never the body", () => {
@@ -578,11 +602,11 @@ suite("provider/transport/errorMapping", () => {
 	suite("classification for status surfaces", () => {
 		test("statusErrorTexts carries a RequestError's classification, present fields only", () => {
 			const withHint = statusErrorTexts(
-				new RequestError("guidance", "http", { status: 404, setupHint: "check-base-url" })
+				new RequestError("guidance", "http", { status: 404, setupHint: "check-base-url", englishMessage: "guidance" })
 			);
 			assert.deepStrictEqual(withHint.classification, { kind: "http", status: 404, setupHint: "check-base-url" });
 
-			const bare = statusErrorTexts(new RequestError("timed out", "timeout"));
+			const bare = statusErrorTexts(new RequestError("timed out", "timeout", { englishMessage: "timed out" }));
 			assert.deepStrictEqual(bare.classification, { kind: "timeout" });
 			assert.ok(
 				!("status" in (bare.classification ?? {})) && !("setupHint" in (bare.classification ?? {})),
@@ -666,7 +690,7 @@ suite("provider/transport/errorMapping", () => {
 		});
 
 		test("localizedError pairs the display message with its English mirror", () => {
-			const err = localizedError("display text", "english text") as Error & { englishMessage?: string };
+			const err = localizedError("display text", "english text");
 			assert.strictEqual(err.message, "display text");
 			assert.strictEqual(err.englishMessage, "english text");
 		});

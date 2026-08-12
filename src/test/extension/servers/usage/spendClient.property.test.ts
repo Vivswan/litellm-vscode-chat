@@ -442,6 +442,7 @@ suite("extension/servers/usage usageUnavailabilityOf properties", () => {
 				fc.boolean(),
 				(status, kind, oauthTokenEndpoint) => {
 					const error = new RequestError("rejected", kind, {
+						englishMessage: "rejected",
 						...(status !== undefined ? { status } : {}),
 						...(oauthTokenEndpoint ? { oauthTokenEndpoint: true } : {}),
 					});

@@ -12,6 +12,7 @@ import { applyPromptCacheBreakpoints } from "../../shared/conversion/promptCache
 import { estimateMessagesTokens, estimateToolTokens } from "../../shared/conversion/tokenEstimation";
 import { convertTools } from "../../shared/conversion/tools";
 import type { Logger } from "../../shared/logger";
+import { chatErrorMessage, englishChatErrorMessage, localizedError } from "../../shared/mirroredError";
 import type { ServerWithKey } from "../../shared/servers";
 import { isRecord } from "../../shared/util/json";
 import { validateRequest } from "../../shared/validation";
@@ -24,14 +25,7 @@ import { requestParamsFromModelConfiguration } from "../catalog/modelConfigurati
 import { resolveServer } from "../config";
 import { type OAuthConfig, type OAuthErrorSurface, OAuthTokenSource, type VirtualKeyConfig } from "./auth";
 import { CHAT_COMPLETIONS_PATH, chatCompletionsUrl, ServerClientCache } from "./clients";
-import {
-	chatErrorMessage,
-	englishChatErrorMessage,
-	localizedError,
-	mapSdkError,
-	RequestError,
-	timeoutRequestError,
-} from "./errorMapping";
+import { mapSdkError, RequestError, timeoutRequestError } from "./errorMapping";
 import { buildRequestBody, MAX_TOOLS_PER_REQUEST, resolveMaxTokens } from "./request";
 import type { ToolCallIdSource } from "./streaming";
 import { StreamProcessor } from "./streaming";

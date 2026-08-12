@@ -1,8 +1,12 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
+import type { DiscoveredGroupModels } from "../../../provider";
+import { DiscoveryCache } from "../../../provider/catalog/discoveryCache";
 import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfiguration";
 import { RequestError } from "../../../provider/transport/errorMapping";
+import { publicErrorText } from "../../../shared/logger";
+import { MirroredError } from "../../../shared/mirroredError";
 import type { AggregatedStatus } from "../../../shared/servers";
 import {
 	CHAT_COMPLETIONS_URL,
@@ -702,6 +706,33 @@ suite("provider groups", () => {
 				"Test Connection must surface the failure, stale set or not"
 			);
 		});
+	});
+
+	test("a non-Error group failure is rebuilt with the log-safe rendering as its English mirror", async () => {
+		// Rejected from inside the group serve's try without ever being an
+		// Error: the rebuild must keep the display rendering for the UI and the
+		// log-safe rendering for every public log surface.
+		const hostile = {
+			toString: () => "display text with RESPONSE-BODY-MARKER",
+			logClassification: "InjectedFailure(non-Error)",
+		};
+		const failingCache = new DiscoveryCache<DiscoveredGroupModels>();
+		failingCache.fetch = () => Promise.reject(hostile);
+		const provider = makeProvider(undefined, "test-key", undefined, { discoveryCache: failingCache });
+
+		await assert.rejects(
+			provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }, false), cancellation()),
+			(error: unknown) => {
+				assert.ok(error instanceof MirroredError, `expected a MirroredError rebuild, got ${String(error)}`);
+				assert.ok(error.message.includes("RESPONSE-BODY-MARKER"), "the display rendering keeps the text");
+				assert.strictEqual(
+					publicErrorText(error),
+					"InjectedFailure(non-Error)",
+					"the display text must never become the public log rendering"
+				);
+				return true;
+			}
+		);
 	});
 
 	test("the group-agnostic refresh returns no models once the registry gate closes", async () => {

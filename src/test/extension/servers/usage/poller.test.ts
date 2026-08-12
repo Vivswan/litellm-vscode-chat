@@ -101,7 +101,10 @@ class FakeClient implements UsageFetchClient {
 }
 
 function unavailableError(status: number): RequestError {
-	return new RequestError(`status ${status}`, status === 401 || status === 403 ? "auth" : "http", { status });
+	return new RequestError(`status ${status}`, status === 401 || status === 403 ? "auth" : "http", {
+		status,
+		englishMessage: `status ${status}`,
+	});
 }
 
 interface Harness {
@@ -642,7 +645,7 @@ suite("extension/servers/usage poller", () => {
 			],
 		});
 		h.client.keyInfoResult = unavailableError(401);
-		h.client.dailyResult = new RequestError("timed out", "timeout");
+		h.client.dailyResult = new RequestError("timed out", "timeout", { englishMessage: "timed out" });
 
 		const outcome = await h.poller.refreshNow();
 
@@ -681,8 +684,8 @@ suite("extension/servers/usage poller", () => {
 
 		// The whole server goes dark transiently: the forced pass resets the
 		// carried standings, but the card the user is looking at must not vanish.
-		h.client.keyInfoResult = new RequestError("net down", "network");
-		h.client.dailyResult = new RequestError("net down", "network");
+		h.client.keyInfoResult = new RequestError("net down", "network", { englishMessage: "net down" });
+		h.client.dailyResult = new RequestError("net down", "network", { englishMessage: "net down" });
 		await h.poller.refreshNow();
 
 		const state = stateOf(h, "alpha");
@@ -703,8 +706,8 @@ suite("extension/servers/usage poller", () => {
 		// timeout on every poll forever.
 		const interval = 100_000;
 		const h = makeHarness({ intervalMs: interval });
-		h.client.keyInfoResult = new RequestError("timed out", "timeout");
-		h.client.dailyResult = new RequestError("timed out", "timeout");
+		h.client.keyInfoResult = new RequestError("timed out", "timeout", { englishMessage: "timed out" });
+		h.client.dailyResult = new RequestError("timed out", "timeout", { englishMessage: "timed out" });
 		h.poller.start();
 		h.timer.firePending();
 		await settle();
@@ -760,7 +763,7 @@ suite("extension/servers/usage poller", () => {
 	test("backoff is per endpoint: a healthy endpoint keeps the full cadence beside a backed-off one", async () => {
 		const interval = 100_000;
 		const h = makeHarness({ intervalMs: interval });
-		h.client.keyInfoResult = new RequestError("timed out", "timeout");
+		h.client.keyInfoResult = new RequestError("timed out", "timeout", { englishMessage: "timed out" });
 		h.poller.start();
 		h.timer.firePending();
 		await settle();
@@ -804,8 +807,8 @@ suite("extension/servers/usage poller", () => {
 	test("refreshNow resets the backoff and attempts immediately", async () => {
 		const interval = 100_000;
 		const h = makeHarness({ intervalMs: interval });
-		h.client.keyInfoResult = new RequestError("timed out", "timeout");
-		h.client.dailyResult = new RequestError("timed out", "timeout");
+		h.client.keyInfoResult = new RequestError("timed out", "timeout", { englishMessage: "timed out" });
+		h.client.dailyResult = new RequestError("timed out", "timeout", { englishMessage: "timed out" });
 		h.poller.start();
 		h.timer.firePending();
 		await settle();
@@ -823,8 +826,8 @@ suite("extension/servers/usage poller", () => {
 	test("a servers-setting change resets the backoff and re-attempts promptly", async () => {
 		const interval = 100_000;
 		const h = makeHarness({ intervalMs: interval });
-		h.client.keyInfoResult = new RequestError("timed out", "timeout");
-		h.client.dailyResult = new RequestError("timed out", "timeout");
+		h.client.keyInfoResult = new RequestError("timed out", "timeout", { englishMessage: "timed out" });
+		h.client.dailyResult = new RequestError("timed out", "timeout", { englishMessage: "timed out" });
 		h.poller.start();
 		h.timer.firePending();
 		await settle();
@@ -848,7 +851,7 @@ suite("extension/servers/usage poller", () => {
 	test("an unavailable verdict ends the streak and stays sticky: no backoff re-probes it", async () => {
 		const interval = 100_000;
 		const h = makeHarness({ intervalMs: interval });
-		h.client.keyInfoResult = new RequestError("timed out", "timeout");
+		h.client.keyInfoResult = new RequestError("timed out", "timeout", { englishMessage: "timed out" });
 		h.poller.start();
 		h.timer.firePending();
 		await settle();
@@ -880,7 +883,7 @@ suite("extension/servers/usage poller", () => {
 	test("a clock that jumped backwards fails open: the backed-off attempt goes out", async () => {
 		const interval = 100_000;
 		const h = makeHarness({ intervalMs: interval });
-		h.client.keyInfoResult = new RequestError("timed out", "timeout");
+		h.client.keyInfoResult = new RequestError("timed out", "timeout", { englishMessage: "timed out" });
 		h.poller.start();
 		h.timer.firePending();
 		await settle();
@@ -896,7 +899,7 @@ suite("extension/servers/usage poller", () => {
 	test("the backoff window follows a mid-streak interval edit: shrinking the interval shrinks the wait", async () => {
 		const interval = 100_000;
 		const h = makeHarness({ intervalMs: interval });
-		h.client.keyInfoResult = new RequestError("timed out", "timeout");
+		h.client.keyInfoResult = new RequestError("timed out", "timeout", { englishMessage: "timed out" });
 		h.poller.start();
 		h.timer.firePending();
 		await settle();
@@ -916,8 +919,8 @@ suite("extension/servers/usage poller", () => {
 	test("a silently re-pointed entry starts a fresh streak: the old host's backoff does not carry", async () => {
 		const interval = 100_000;
 		const h = makeHarness({ intervalMs: interval });
-		h.client.keyInfoResult = new RequestError("timed out", "timeout");
-		h.client.dailyResult = new RequestError("timed out", "timeout");
+		h.client.keyInfoResult = new RequestError("timed out", "timeout", { englishMessage: "timed out" });
+		h.client.dailyResult = new RequestError("timed out", "timeout", { englishMessage: "timed out" });
 		h.poller.start();
 		h.timer.firePending();
 		await settle();
@@ -942,7 +945,7 @@ suite("extension/servers/usage poller", () => {
 	test("a success racing disposal never logs a recovery: cancellation stays silent", async () => {
 		const interval = 100_000;
 		const h = makeHarness({ intervalMs: interval });
-		h.client.keyInfoResult = new RequestError("timed out", "timeout");
+		h.client.keyInfoResult = new RequestError("timed out", "timeout", { englishMessage: "timed out" });
 		h.poller.start();
 		h.timer.firePending();
 		await settle();

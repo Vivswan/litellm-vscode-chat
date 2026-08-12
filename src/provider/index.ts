@@ -16,6 +16,7 @@ import { getDiscoveryCacheTtl, getModelCapabilitiesConfig } from "../shared/conf
 import { CHARS_PER_TOKEN, estimateMessagesTokens } from "../shared/conversion/tokenEstimation";
 import type { TransportErrorClassification } from "../shared/errorClassification";
 import type { Logger, LogSafeErrorText } from "../shared/logger";
+import { MirroredError } from "../shared/mirroredError";
 import type { ExpectedFailureCategory } from "../shared/serverEntry";
 import type { AggregatedStatus, ServerConfig, ServerStatus, ServerWithKey } from "../shared/servers";
 import { isErrorServerStatus } from "../shared/servers";
@@ -642,9 +643,17 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			// Like the group site below: the ORIGINAL error is rethrown so its
 			// classification, kind, and status survive to the caller's log (an
 			// all-expected sweep without declarations rethrows ITS first original
-			// for the same reason).
+			// for the same reason). A non-Error reason is rebuilt from ITS OWN
+			// status renderings - not firstFailure's, which can belong to a
+			// different server when an expected failure sorted first - with the
+			// log-safe rendering as the mirror, so the display text (which can
+			// embed response body) never reaches the log path.
 			const reason = firstFailureReason ?? firstExpectedFailureReason;
-			throw reason instanceof Error ? reason : new Error(firstFailure.error);
+			if (reason instanceof Error) {
+				throw reason;
+			}
+			const texts = statusErrorTexts(reason);
+			throw new MirroredError(texts.error, { englishMessage: texts.logSafeError });
 		}
 
 		return allInfos;
@@ -869,7 +878,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			if (expected && declared.infos.length > 0) {
 				return attach(declared.infos);
 			}
-			throw error instanceof Error ? error : new Error(texts.error);
+			// A non-Error throw is rebuilt with the status's log-safe rendering as
+			// its mirror (the registry sweep's rule): the display text can embed
+			// response body and must never reach the log path.
+			throw error instanceof Error ? error : new MirroredError(texts.error, { englishMessage: texts.logSafeError });
 		}
 	}
 

@@ -43,10 +43,13 @@ function objectTag(value: unknown): string {
 
 /**
  * Errors whose user-facing message embeds response-derived text offer a
- * classification-only rendering under a `logClassification` property (a
- * RequestError construction site opts in explicitly; see errorMapping.ts).
- * Total against hostile getters. Exported for log sites that want the
- * classification alone (never the message fallback publicErrorText carries).
+ * classification-only rendering under a `logClassification` property. The
+ * canonical producer is MirroredError (shared/mirroredError.ts, RequestError
+ * included), whose constructor demands the field or its englishMessage twin;
+ * the read here stays duck-typed and total against hostile getters, because
+ * anything can be thrown at a logging boundary. Exported for log sites that
+ * want the classification alone (never the message fallback publicErrorText
+ * carries).
  */
 export function classificationOf(error: unknown): string | undefined {
 	try {
@@ -60,11 +63,12 @@ export function classificationOf(error: unknown): string | undefined {
 
 /**
  * The full English mirror of a localized display message, offered under an
- * `englishMessage` property (RequestError and localizedError construction
- * sites set it; see errorMapping.ts). English-by-policy surfaces - the
- * output channel and, absent a classification, the issue-report buffer -
- * render it instead of the message, so a translated display string never
- * lands in logs or public issues. Total against hostile getters.
+ * `englishMessage` property. The canonical producer is MirroredError
+ * (shared/mirroredError.ts; RequestError and the localizedError factory ride
+ * on it). English-by-policy surfaces - the output channel and, absent a
+ * classification, the issue-report buffer - render it instead of the message,
+ * so a translated display string never lands in logs or public issues. The
+ * read stays duck-typed and total against hostile getters.
  */
 function englishMessageOf(error: unknown): string | undefined {
 	try {

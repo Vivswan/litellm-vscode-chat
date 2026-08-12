@@ -4,7 +4,7 @@
  * carry the headline only (VS Code notifications render newlines poorly), and
  * the dashboard renders the parts as separate elements. Only discovery-surface
  * messages reach these helpers - chat-surface messages join their parts with
- * the "Details:" lead-in instead (shared/localizedError.ts) and render solely
+ * the "Details:" lead-in instead (shared/mirroredError.ts) and render solely
  * in the chat UI. Pure string helpers, shared so the host notifier and the
  * webview extract the same parts; total on junk input - a message with no
  * content line passes through unchanged.

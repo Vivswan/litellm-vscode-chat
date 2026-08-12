@@ -5,7 +5,8 @@ import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../../provider";
 import { buildModelInfos } from "../../provider/catalog/registration";
 import { RequestError } from "../../provider/transport/errorMapping";
-import { Logger } from "../../shared/logger";
+import { Logger, publicErrorText } from "../../shared/logger";
+import { MirroredError } from "../../shared/mirroredError";
 import type { AggregatedStatus } from "../../shared/servers";
 import { resolveFuzzSeed } from "../fuzzStream";
 import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
@@ -216,6 +217,41 @@ suite("provider", () => {
 					assert.ok(error instanceof RequestError, `expected the original RequestError, got ${String(error)}`);
 					assert.strictEqual(error.logClassification, "RequestError(http, status 400)");
 					assert.ok(error.message.includes("internal-billing-host-MARKER"), "the display message keeps the body");
+					return true;
+				}
+			);
+		});
+
+		test("a non-Error failure reason is rebuilt with the log-safe rendering as its English mirror", async () => {
+			// Thrown from inside the sweep's per-server try, so it becomes the
+			// failure reason without ever being an Error: the rebuild must keep
+			// the display rendering for the UI and the log-safe rendering for
+			// every public log surface.
+			const hostile = {
+				toString: () => "display text with RESPONSE-BODY-MARKER",
+				logClassification: "InjectedFailure(non-Error)",
+			};
+			let calls = 0;
+			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
+				getExpectedFailures: () => {
+					calls += 1;
+					if (calls === 1) {
+						throw hostile;
+					}
+					return undefined;
+				},
+			});
+
+			await assert.rejects(
+				provider.provideLanguageModelChatInformation({ silent: false }, new vscode.CancellationTokenSource().token),
+				(error: unknown) => {
+					assert.ok(error instanceof MirroredError, `expected a MirroredError rebuild, got ${String(error)}`);
+					assert.ok(error.message.includes("RESPONSE-BODY-MARKER"), "the display rendering keeps the text");
+					assert.strictEqual(
+						publicErrorText(error),
+						"InjectedFailure(non-Error)",
+						"the display text must never become the public log rendering"
+					);
 					return true;
 				}
 			);

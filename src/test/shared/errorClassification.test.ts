@@ -1,7 +1,21 @@
 import * as assert from "node:assert";
+import { RequestError } from "../../provider/transport/errorMapping";
 import { SETUP_HINT_KINDS, TRANSPORT_ERROR_KINDS, transportClassificationOf } from "../../shared/errorClassification";
 
 suite("shared/errorClassification", () => {
+	test("a real RequestError extracts exactly its classification fields", () => {
+		const err = new RequestError("display", "http", {
+			status: 404,
+			setupHint: "check-base-url",
+			logClassification: "RequestError(http, status 404)",
+		});
+		assert.deepStrictEqual(transportClassificationOf(err), {
+			kind: "http",
+			status: 404,
+			setupHint: "check-base-url",
+		});
+	});
+
 	test("a full classification shape extracts kind, status, and setupHint", () => {
 		const extracted = transportClassificationOf({ kind: "http", status: 404, setupHint: "check-base-url" });
 		assert.deepStrictEqual(extracted, { kind: "http", status: 404, setupHint: "check-base-url" });

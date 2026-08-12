@@ -2776,7 +2776,10 @@ suite("extension/dashboard/state", () => {
 
 		test("an expected modelListing failure reports the declared models instead of failing", async () => {
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
-			recorded.probeError = new RequestError("404 page not found", "http", { status: 404 });
+			recorded.probeError = new RequestError("404 page not found", "http", {
+				status: 404,
+				englishMessage: "404 page not found",
+			});
 			const notice = await draftTest(recorded, {
 				server: serverPayload({
 					label: "Prod",
@@ -2797,7 +2800,10 @@ suite("extension/dashboard/state", () => {
 
 		test("an expected modelListing failure with nothing declared still reports the expected outcome", async () => {
 			const recorded = makeEnv([]);
-			recorded.probeError = new RequestError("404 page not found", "http", { status: 404 });
+			recorded.probeError = new RequestError("404 page not found", "http", {
+				status: 404,
+				englishMessage: "404 page not found",
+			});
 			const notice = await draftTest(recorded, {
 				server: serverPayload({ label: "Prod", baseUrl: "http://prod.test", expectedFailures: ["modelListing"] }),
 			});
@@ -2806,7 +2812,10 @@ suite("extension/dashboard/state", () => {
 
 		test("a failure outside the expected categories still fails the intent", async () => {
 			const recorded = makeEnv([]);
-			recorded.probeError = new RequestError("404 page not found", "http", { status: 404 });
+			recorded.probeError = new RequestError("404 page not found", "http", {
+				status: 404,
+				englishMessage: "404 page not found",
+			});
 			await assert.rejects(
 				() =>
 					draftTest(recorded, {
@@ -2934,7 +2943,9 @@ suite("extension/dashboard/state", () => {
 
 		test("a transport RequestError surfaces its user-facing message as a validation failure, unlogged", async () => {
 			const recorded = makeEnv([]);
-			recorded.probeError = new RequestError("Network Error: Unable to reach the LiteLLM server", "network");
+			recorded.probeError = new RequestError("Network Error: Unable to reach the LiteLLM server", "network", {
+				englishMessage: "Network Error: Unable to reach the LiteLLM server",
+			});
 			await assert.rejects(draftTest(recorded), (error: unknown) => {
 				assert.ok(error instanceof Error);
 				assert.strictEqual(error.name, "DashboardValidationError");
@@ -2948,6 +2959,7 @@ suite("extension/dashboard/state", () => {
 		test("a probe RequestError's classification rides the validation error: kind, status, and setup hint", async () => {
 			const recorded = makeEnv([]);
 			recorded.probeError = new RequestError("the server answered 404", "http", {
+				englishMessage: "the server answered 404",
 				status: 404,
 				setupHint: "check-base-url",
 			});

@@ -453,7 +453,11 @@ suite("extension/servers/usage spendClient", () => {
 		});
 
 		test("the verdict reads the structured marker, not the classification text", () => {
-			const marked = new RequestError("rejected", "auth", { status: 401, oauthTokenEndpoint: true });
+			const marked = new RequestError("rejected", "auth", {
+				status: 401,
+				oauthTokenEndpoint: true,
+				englishMessage: "rejected",
+			});
 			assert.strictEqual(usageUnavailabilityOf(marked), undefined);
 
 			const textOnly = new RequestError("rejected", "auth", {

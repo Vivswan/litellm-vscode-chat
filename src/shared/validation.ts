@@ -1,7 +1,7 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { isToolResultPart } from "./conversion/messages";
-import { chatErrorMessage, englishChatErrorMessage, localizedError } from "./localizedError";
+import { chatErrorMessage, englishChatErrorMessage, localizedError } from "./mirroredError";
 
 /**
  * English mirror of the tool-pairing headline. The call IDs in the detail

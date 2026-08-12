@@ -1,12 +1,13 @@
 import { l10n } from "vscode";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
+import { chatErrorMessage, englishChatErrorMessage } from "../../shared/mirroredError";
 import { collapseWhitespace } from "../../shared/util/errorText";
 import { fingerprint } from "../../shared/util/fingerprint";
 import { isValidHeaderValue } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
 import { sleepUnlessAborted } from "../../shared/util/timer";
 import { DISCOVERY_MAX_RETRIES } from "../catalog/discovery";
-import { chatErrorMessage, englishChatErrorMessage, type MapErrorContext, RequestError } from "./errorMapping";
+import { type MapErrorContext, RequestError } from "./errorMapping";
 
 /**
  * OAuth2 client-credentials authentication for gateways behind an identity

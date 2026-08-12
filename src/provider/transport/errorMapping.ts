@@ -4,12 +4,15 @@ import { manageCommandTitle, syncModelsCommandTitle } from "../../shared/config/
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import type { SetupHintKind, TransportErrorClassification, TransportErrorKind } from "../../shared/errorClassification";
 import { transportClassificationOf } from "../../shared/errorClassification";
-import { chatErrorMessage, englishChatErrorMessage } from "../../shared/localizedError";
 import type { LogSafeErrorText } from "../../shared/logger";
 import { errorMessageText, markLogSafe, publicErrorText } from "../../shared/logger";
+import {
+	chatErrorMessage,
+	type EnglishRendering,
+	englishChatErrorMessage,
+	MirroredError,
+} from "../../shared/mirroredError";
 import { collapseWhitespace } from "../../shared/util/errorText";
-
-export { chatErrorMessage, englishChatErrorMessage, localizedError } from "../../shared/localizedError";
 
 /** The kind union lives in shared (status surfaces and the dashboard protocol may not import this layer); the transport keeps its established name. */
 export type RequestErrorKind = TransportErrorKind;
@@ -19,34 +22,24 @@ export type RequestErrorKind = TransportErrorKind;
  * branch without matching on message text; the message itself stays the
  * user-facing string surfaced in the chat UI and the status callback.
  *
- * Two English renderings ride alongside the (possibly localized) message,
- * both explicit PER-CONSTRUCTION-SITE opt-ins, never derived from `kind`:
+ * Extends MirroredError, so every construction site must pass at least one of
+ * the two English renderings (see EnglishRendering in shared/mirroredError.ts)
+ * - the choice stays PER CONSTRUCTION SITE, never derived from `kind`:
  *
- * - `logClassification`: the terse classification-only rendering that PUBLIC
- *   surfaces (the issue-report buffer and the latest-error prefill; see
- *   shared/logger.ts) record instead of the message. A site whose message
- *   embeds response-derived text (an HTTP error body, an IdP's
- *   error_description) must pass one; each site's string should be distinct
- *   enough that maintainers can tell the failure modes apart in an issue
- *   without the body.
- * - `englishMessage`: the full English mirror of a localized display
- *   message, response-derived detail included. The output channel renders it
- *   instead of the message (the channel stays English by policy), and the
- *   public surfaces fall back to it when no classification applies, so a
- *   template-only site keeps its text useful in issues in every locale.
- *   Every site whose message goes through l10n.t must pass one.
+ * - `logClassification` when the message embeds response-derived text (an
+ *   HTTP error body, an IdP's error_description).
+ * - `englishMessage` when the message goes through l10n.t; a template-only
+ *   site keeps its text useful in issues in every locale.
  *
- * `setupHint` is a third per-construction-site opt-in: the id of the setup
+ * `setupHint` is a per-construction-site opt-in: the id of the setup
  * advice UI surfaces may append (see shared/errorClassification.ts). Only a
  * site that knows the advice is right sets one - sites where the same
  * kind/status can mean something else (OAuth endpoints in auth.ts,
  * upstream-auth 401s, chat 404s) must NOT.
  */
-export class RequestError extends Error {
+export class RequestError extends MirroredError {
 	readonly kind: RequestErrorKind;
 	readonly status?: number | undefined;
-	readonly logClassification?: string;
-	readonly englishMessage?: string;
 	readonly setupHint?: SetupHintKind;
 	/**
 	 * Set by auth.ts at the OAuth token-endpoint construction sites: the
@@ -60,29 +53,21 @@ export class RequestError extends Error {
 	constructor(
 		message: string,
 		kind: RequestErrorKind,
-		options?: {
-			status?: number;
-			cause?: unknown;
-			logClassification?: string;
-			englishMessage?: string;
-			setupHint?: SetupHintKind;
-			oauthTokenEndpoint?: true;
+		options: EnglishRendering & {
+			readonly status?: number;
+			readonly cause?: unknown;
+			readonly setupHint?: SetupHintKind;
+			readonly oauthTokenEndpoint?: true;
 		}
 	) {
-		super(message, { cause: options?.cause });
+		super(message, options);
 		this.name = "RequestError";
 		this.kind = kind;
-		this.status = options?.status;
-		if (options?.logClassification !== undefined) {
-			this.logClassification = options.logClassification;
-		}
-		if (options?.englishMessage !== undefined) {
-			this.englishMessage = options.englishMessage;
-		}
-		if (options?.setupHint !== undefined) {
+		this.status = options.status;
+		if (options.setupHint !== undefined) {
 			this.setupHint = options.setupHint;
 		}
-		if (options?.oauthTokenEndpoint !== undefined) {
+		if (options.oauthTokenEndpoint !== undefined) {
 			this.oauthTokenEndpoint = options.oauthTokenEndpoint;
 		}
 	}
@@ -840,11 +825,11 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		});
 	}
 
-	if (err instanceof RequestError || err instanceof CancellationError) {
+	if (err instanceof RequestError || err instanceof MirroredError || err instanceof CancellationError) {
 		return err;
 	}
-	// Errors shaped by a localizedError construction site (chatClient's
-	// pre-flight throws, the stream processor's end-of-stream errors) arrive
+	// Errors shaped elsewhere but carrying the English mirror duck-typed (a
+	// foreign construction, not this process's MirroredError) also arrive
 	// already carrying their display/English pair; re-headlining them would
 	// double-wrap, and a socket term quoted in their text must not reclassify
 	// them, so this pass-through sits before the socket branch. The property
@@ -940,12 +925,10 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		),
 		english: "The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it.",
 	};
-	return Object.assign(
-		new Error(
-			ctx.surface === "chat" ? chatErrorMessage(tailHeadline.display, detail) : `${tailHeadline.display}\n${detail}`,
-			{ cause: err }
-		),
+	return new MirroredError(
+		ctx.surface === "chat" ? chatErrorMessage(tailHeadline.display, detail) : `${tailHeadline.display}\n${detail}`,
 		{
+			cause: err,
 			englishMessage:
 				ctx.surface === "chat"
 					? englishChatErrorMessage(tailHeadline.english, detail)

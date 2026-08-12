@@ -12,8 +12,9 @@ import {
 	logThinkingPartProbeErrorOnce,
 	thinkingPartCtor,
 } from "../../../shared/conversion/thinkingPart";
+import { chatErrorMessage, localizedError } from "../../../shared/mirroredError";
 import { tryParseJSONObject } from "../../../shared/util/json";
-import { chatErrorMessage, localizedError, streamErrorFrame } from "../errorMapping";
+import { streamErrorFrame } from "../errorMapping";
 import type { TextParseResult, TextToolCall } from "../textToolCallParser";
 import { isTruncatedToolCallText, TextToolCallParser } from "../textToolCallParser";
 import type { ChatCompletionChunk, ChunkAudio, ChunkDelta, ChunkSearchResult, ToolCallBuffer } from "../wire";
