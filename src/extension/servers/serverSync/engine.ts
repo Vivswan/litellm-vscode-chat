@@ -22,7 +22,7 @@ import { isUnsafeRecordKey } from "../../../shared/util/json";
 import type { StoredServerSecrets } from "./secrets";
 import { inlineSecretValues } from "./secrets";
 import type { DeclaredServer, EntryModelCapabilities, EntryModelParameters } from "./setting";
-import { parseServersSetting, rawDeclaredLabels } from "./setting";
+import { acceptedEntry, parseServersSetting, rawDeclaredLabels } from "./setting";
 
 /**
  * Which failure class produced a view's syncError. "upsertFailed" means the
@@ -368,6 +368,26 @@ export class ServerSyncEngine implements vscode.Disposable {
 		return this.views;
 	}
 
+	/**
+	 * One declared entry's provider-group configuration, resolved exactly as a
+	 * sync pass would submit it: the same setting parse, the same secrets
+	 * read, the same buildGroupArgs rendering. The returned record carries the
+	 * entry's resolved secrets verbatim (apiKey, OAuth client secret,
+	 * virtual-key value) - like buildGroupArgs's output, it must never be
+	 * logged and never ride a state push. The group serving path is otherwise
+	 * host-invoked only (the host stores a group's configuration and hands it
+	 * back on each refresh), so the litellm._test.refreshEntryModels command
+	 * resolves through this to drive the provider's group path for a declared
+	 * entry directly. Undefined when no accepted entry carries the label.
+	 */
+	async resolveGroupArgs(label: string): Promise<Record<string, string> | undefined> {
+		const match = acceptedEntry(this.env.readServersSetting(), label);
+		if (match === undefined) {
+			return undefined;
+		}
+		return buildGroupArgs(match.entry, await this.env.readSecrets(match.entry.label));
+	}
+
 	requestSync(): void {
 		if (this.timer !== undefined) {
 			clearTimeout(this.timer);
@@ -688,6 +708,33 @@ export class ServerSyncEngine implements vscode.Disposable {
 			});
 		}
 
+		try {
+			await this.finishPass(rawSetting, entries, previous, next, printedByLabel);
+		} finally {
+			// Views publish last, after the pass-end reconciliation: a caller
+			// that observed an entry's view disappear (the dashboard on
+			// onDidSync, a suite polling getDeclaredServers) can rely on the
+			// removal's tombstone already suppressing the group, not merely
+			// being scheduled. In a finally because a throwing finish must not
+			// discard the pass's computed views - the finish's persists are
+			// log-only for the same resilience reason.
+			this.views = views;
+		}
+	}
+
+	/**
+	 * Everything a pass settles after the per-entry loop: removal detection,
+	 * record carries, retry pruning, the fingerprint and ledger persists, and
+	 * the identity reconciliation. syncPass publishes the views in a finally
+	 * around this call.
+	 */
+	private async finishPass(
+		rawSetting: unknown,
+		entries: readonly DeclaredServer[],
+		previous: Readonly<Record<string, string>>,
+		next: Record<string, string>,
+		printedByLabel: ReadonlyMap<string, string>
+	): Promise<void> {
 		const currentLabels = new Set(entries.map((entry) => entry.label));
 		// Removal detection wants "the user removed the entry", not "this pass
 		// could not accept it": a label any raw entry still carries (malformed
@@ -752,7 +799,6 @@ export class ServerSyncEngine implements vscode.Disposable {
 				this.retry.delete(label);
 			}
 		}
-		this.views = views;
 		// In-memory before the persist: session truth must survive a failing
 		// (or later-reverted) storage write. The persist itself is log-only:
 		// the session map has already dropped a removed label, so a throw here

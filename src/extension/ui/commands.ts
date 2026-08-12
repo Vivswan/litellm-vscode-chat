@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import type { LiteLLMModelInfo } from "../../provider/catalog/groupModels";
 import { CMD, INTERNAL_CMD } from "../../shared/config/commandIds";
 import type { ErrorRecorder, Logger } from "../../shared/logger";
 import { publicErrorStack, publicErrorText } from "../../shared/logger";
@@ -33,9 +34,9 @@ const GITHUB_NEW_ISSUE_FEATURE = `${GITHUB_REPO_URL}/issues/new?labels=enhanceme
 
 interface ModelInfoProvider {
 	provideLanguageModelChatInformation(
-		options: { silent: boolean },
+		options: { silent: boolean; configuration?: Record<string, string> },
 		token: vscode.CancellationToken
-	): Promise<vscode.LanguageModelChatInformation[]>;
+	): Promise<LiteLLMModelInfo[]>;
 }
 
 /**
@@ -541,7 +542,7 @@ export function registerTestCommands(
 	registry: ServerRegistry,
 	provider: ModelInfoProvider & StatusSnapshotProvider,
 	issueReporter: Pick<IssueReporter, "getRecentLogs" | "getLatestError">,
-	syncEngine: Pick<ServerSyncEngine, "getDeclared">,
+	syncEngine: Pick<ServerSyncEngine, "getDeclared" | "resolveGroupArgs">,
 	dashboard: Pick<DashboardController, "injectMessageForTest">,
 	seams: TestEntrySeams,
 	sessionLogs: Pick<SessionLogTee, "readSince">
@@ -635,6 +636,29 @@ export function registerTestCommands(
 			}
 		),
 		vscode.commands.registerCommand("litellm._test.getDeclaredServers", () => syncEngine.getDeclared()),
+		// The group serving path is otherwise host-invoked only: nothing but the
+		// host calls the provider with a group configuration. Suites asserting
+		// what a DECLARED entry registers (declared-model synthesis, capability
+		// overrides) drive it here: the entry's configuration resolves through
+		// the sync engine's own parse and secrets read - the args the engine
+		// would build for the group NOW, which can differ from what the
+		// add-only host stored at group creation - and goes down the real group
+		// path, non-silent so discovery failures throw like Test Connection.
+		// The returned infos are the host-facing registration surface only: the
+		// typed destructure strips the litellm attachment, which embeds the
+		// group's resolved credentials, and a rename of that field breaks the
+		// compile here instead of silently leaking.
+		vscode.commands.registerCommand("litellm._test.refreshEntryModels", async (label: string) => {
+			const configuration = await syncEngine.resolveGroupArgs(label);
+			if (configuration === undefined) {
+				throw new Error(`No declared server entry labeled "${label}"`);
+			}
+			const infos = await provider.provideLanguageModelChatInformation(
+				{ silent: false, configuration },
+				new vscode.CancellationTokenSource().token
+			);
+			return infos.map(({ litellm: _litellm, ...registration }) => registration);
+		}),
 		// The status window's statuses, for suites that must observe what the
 		// host's per-group calls delivered (e.g. that a group configuration's
 		// label round-tripped). Statuses only: the snapshots' model lists are

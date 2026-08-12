@@ -12,17 +12,17 @@ import { URL } from "node:url";
 import type { Scenario } from "./scenarios";
 import { BUILTIN_SCENARIOS, playScenario, readBody, sendJson } from "./scenarios";
 
-/** The single model this fixture serves; host-fidelity.test.ts derives its scoped modelParameters keys from it. */
+/** The single model this fixture serves by default; host-fidelity.test.ts derives its scoped modelParameters keys from it. */
 export const MODEL_ID = "openai/gpt-5-mini-flex";
 
-const MODEL_INFO = {
+const modelInfoFor = (modelId: string) => ({
 	data: [
 		{
-			model_name: MODEL_ID,
-			litellm_params: { model: MODEL_ID },
+			model_name: modelId,
+			litellm_params: { model: modelId },
 			model_info: {
-				id: MODEL_ID,
-				key: MODEL_ID,
+				id: modelId,
+				key: modelId,
 				litellm_provider: "openai",
 				max_input_tokens: 128000,
 				max_output_tokens: 16000,
@@ -40,33 +40,39 @@ const MODEL_INFO = {
 			},
 		},
 	],
-};
+});
 
-const MODELS = {
+const modelsFor = (modelId: string) => ({
 	object: "list",
 	data: [
 		{
-			id: MODEL_ID,
+			id: modelId,
 			object: "model",
 			created: 0,
 			owned_by: "openai",
 		},
 	],
-};
+});
 
 export interface CaptureServer {
 	start(): Promise<void>;
 	readonly port: number;
 	setScenario(name: string): void;
 	getLastRequest(): Record<string, unknown> | null;
+	/** Every distinct Authorization header observed past the _test introspection block, verbatim; membership is race-free where a last-write-wins field is not. */
+	getSeenAuthorizations(): readonly string[];
 	addScenario(name: string, config: Scenario): void;
 	close(): Promise<void>;
 }
 
 // ── Factory ──────────────────────────────────────────────────────────────────
 
-export function createCaptureServer(): CaptureServer {
+export function createCaptureServer(options?: { modelId?: string }): CaptureServer {
+	const modelId = options?.modelId ?? MODEL_ID;
+	const modelInfo = modelInfoFor(modelId);
+	const models = modelsFor(modelId);
 	let lastRequest: Record<string, unknown> | null = null;
+	const seenAuthorizations = new Set<string>();
 	let activeScenario = "text-only";
 	const scenarios = new Map<string, Scenario>(Object.entries(BUILTIN_SCENARIOS));
 
@@ -88,17 +94,24 @@ export function createCaptureServer(): CaptureServer {
 			return sendJson(res, 200, { scenario: name });
 		}
 
+		// Recorded for every request past the _test introspection block above
+		// (unmatched paths included), so suites can prove which credential a
+		// discovery or chat request actually carried.
+		if (typeof req.headers.authorization === "string") {
+			seenAuthorizations.add(req.headers.authorization);
+		}
+
 		// ── Standard LiteLLM-compatible endpoints ──
 		if (req.method === "GET" && url.pathname === "/health") {
 			return sendJson(res, 200, { status: "ok" });
 		}
 
 		if (req.method === "GET" && url.pathname === "/v1/model/info") {
-			return sendJson(res, 200, MODEL_INFO);
+			return sendJson(res, 200, modelInfo);
 		}
 
 		if (req.method === "GET" && url.pathname === "/v1/models") {
-			return sendJson(res, 200, MODELS);
+			return sendJson(res, 200, models);
 		}
 
 		if (req.method === "POST" && url.pathname === "/v1/chat/completions") {
@@ -157,6 +170,10 @@ export function createCaptureServer(): CaptureServer {
 
 		getLastRequest() {
 			return lastRequest;
+		},
+
+		getSeenAuthorizations() {
+			return [...seenAuthorizations];
 		},
 
 		addScenario(name: string, config: Scenario) {

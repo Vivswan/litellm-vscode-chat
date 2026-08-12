@@ -12,6 +12,7 @@ import {
 import { IssueReporter } from "../../../extension/ui/issueReporter";
 import { statusErrorHeadline } from "../../../extension/ui/notifier";
 import type { ConnectionStatus } from "../../../extension/ui/status";
+import type { LiteLLMModelInfo } from "../../../provider/catalog/groupModels";
 import { mapSdkError, RequestError, statusErrorTexts } from "../../../provider/transport/errorMapping";
 import { LAST_ISSUE_REPORT_KEY } from "../../../shared/config/storageKeys";
 import type { SetupHintKind } from "../../../shared/errorClassification";
@@ -254,7 +255,7 @@ suite("extension/ui/commands", () => {
 				release = resolve;
 			});
 			const provider = {
-				provideLanguageModelChatInformation: async (): Promise<vscode.LanguageModelChatInformation[]> => {
+				provideLanguageModelChatInformation: async (): Promise<LiteLLMModelInfo[]> => {
 					await blocked;
 					return [];
 				},
@@ -298,7 +299,7 @@ suite("extension/ui/commands", () => {
 		test("a throwing refresh reports the error status it left behind", async () => {
 			const statusBar = makeStatusBar({ state: "not-configured" });
 			const provider = {
-				provideLanguageModelChatInformation: async (): Promise<vscode.LanguageModelChatInformation[]> => {
+				provideLanguageModelChatInformation: async (): Promise<LiteLLMModelInfo[]> => {
 					await statusBar.updateStatusBar({
 						state: "error",
 						error: "ECONNREFUSED",
@@ -353,7 +354,7 @@ suite("extension/ui/commands", () => {
 
 			function providerLeavingError(statusBar: ReturnType<typeof makeStatusBar>, mapped: Error) {
 				return {
-					provideLanguageModelChatInformation: async (): Promise<vscode.LanguageModelChatInformation[]> => {
+					provideLanguageModelChatInformation: async (): Promise<LiteLLMModelInfo[]> => {
 						await statusBar.updateStatusBar({ state: "error", ...statusErrorTexts(mapped) });
 						return [];
 					},
@@ -412,7 +413,7 @@ suite("extension/ui/commands", () => {
 		test("an unclassified error status renders exactly today's toast", async () => {
 			const statusBar = makeStatusBar({ state: "not-configured" });
 			const provider = {
-				provideLanguageModelChatInformation: async (): Promise<vscode.LanguageModelChatInformation[]> => {
+				provideLanguageModelChatInformation: async (): Promise<LiteLLMModelInfo[]> => {
 					await statusBar.updateStatusBar({
 						state: "error",
 						error: "ECONNREFUSED",
@@ -433,7 +434,7 @@ suite("extension/ui/commands", () => {
 		test("a two-part status error toasts the headline line only", async () => {
 			const statusBar = makeStatusBar({ state: "not-configured" });
 			const provider = {
-				provideLanguageModelChatInformation: async (): Promise<vscode.LanguageModelChatInformation[]> => {
+				provideLanguageModelChatInformation: async (): Promise<LiteLLMModelInfo[]> => {
 					await statusBar.updateStatusBar({
 						state: "error",
 						error: "The server could not be reached.\nGET http://litellm.test/v1/models: ECONNREFUSED",
@@ -461,7 +462,7 @@ suite("extension/ui/commands", () => {
 			);
 			const statusBar = makeStatusBar({ state: "not-configured" });
 			const provider = {
-				provideLanguageModelChatInformation: async (): Promise<vscode.LanguageModelChatInformation[]> => {
+				provideLanguageModelChatInformation: async (): Promise<LiteLLMModelInfo[]> => {
 					throw new RequestError("LiteLLM API error: 502\n<html>internal-billing-host-MARKER</html>", "http", {
 						status: 502,
 						logClassification: "RequestError(http, status 502)",
@@ -1516,7 +1517,7 @@ suite("extension/ui/commands", () => {
 				{} as unknown as ServerRegistry,
 				{ provideLanguageModelChatInformation: async () => [], getServerSnapshots: () => [] },
 				{ getRecentLogs: () => [], getLatestError: () => undefined },
-				{ getDeclared: () => [] },
+				{ getDeclared: () => [], resolveGroupArgs: async () => undefined },
 				{ injectMessageForTest: async () => "ok" as const },
 				createTestEntrySeams(),
 				{ readSince: () => ({ next: 0, lines: [], dropped: 0 }) }

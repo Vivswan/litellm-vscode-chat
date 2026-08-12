@@ -346,6 +346,72 @@ suite("extension/servers/serverSync", () => {
 			);
 		});
 
+		test("declared views publish only after removal reconciliation completes", async () => {
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }]);
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			assert.deepStrictEqual(
+				engine.getDeclared().map((view) => view.label),
+				["A"]
+			);
+
+			// Hold the removal pass's reconciliation open: a caller that sees the
+			// view disappear may rely on the removal's tombstone already being
+			// installed (removeServerEntry in the group suites does), so the view
+			// must still show the previous pass's truth while reconciliation runs.
+			let releaseReconcile!: () => void;
+			const gate = new Promise<void>((resolve) => {
+				releaseReconcile = resolve;
+			});
+			let enterReconcile!: () => void;
+			const entered = new Promise<void>((resolve) => {
+				enterReconcile = resolve;
+			});
+			const reconcile = recorded.env.reconcileEntryIdentities;
+			recorded.env.reconcileEntryIdentities = async (declared, events) => {
+				enterReconcile();
+				await gate;
+				return reconcile(declared, events);
+			};
+			recorded.setting = [];
+			const pass = engine.syncNow();
+			await entered;
+			assert.deepStrictEqual(
+				engine.getDeclared().map((view) => view.label),
+				["A"],
+				"the removed entry's view must hold until its reconciliation resolves"
+			);
+			releaseReconcile();
+			await pass;
+			assert.deepStrictEqual(engine.getDeclared(), []);
+			assert.deepStrictEqual(recordedEvents(recorded), [{ kind: "removed", label: "A", baseUrl: "http://a.test" }]);
+		});
+
+		test("resolveGroupArgs renders exactly the entry's group configuration, secrets read included", async () => {
+			const recorded = makeSyncEnv(
+				[
+					{ label: "A", baseUrl: "http://a.test" },
+					{ label: "Broken", baseUrl: "http://broken.test", auth: { oauth: {} } },
+				],
+				{ A: { apiKey: "sk-stored" } }
+			);
+			const engine = new ServerSyncEngine(recorded.env);
+
+			assert.deepStrictEqual(await engine.resolveGroupArgs("A"), {
+				name: "A",
+				vendor: "litellm",
+				baseUrl: "http://a.test",
+				label: "A",
+				apiKey: "sk-stored",
+			});
+			assert.strictEqual(await engine.resolveGroupArgs("Nope"), undefined, "an undeclared label resolves to nothing");
+			assert.strictEqual(
+				await engine.resolveGroupArgs("Broken"),
+				undefined,
+				"a misconfigured entry resolves to nothing, exactly as the sync pass would skip it"
+			);
+		});
+
 		test("a removed label whose base URL a brand-new label now declares reads as a rename", async () => {
 			const recorded = makeSyncEnv([{ label: "Old", baseUrl: "http://host.test/" }]);
 			const engine = new ServerSyncEngine(recorded.env);
