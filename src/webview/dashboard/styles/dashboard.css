@@ -739,14 +739,6 @@
 		margin: 1px 0 0;
 		cursor: pointer;
 	}
-	/* Radios are the one control with no primitive yet, so they keep their
-		 focus ring here; the deleted generic input:focus rule used to draw it,
-		 and Chrome's default outline ignores the host's focus token. Matches
-		 what Checkbox spells as utilities. */
-	input[type="radio"]:focus-visible {
-		outline: 1px solid var(--vscode-focusBorder);
-		outline-offset: 1px;
-	}
 	.setting-check .setting-desc {
 		margin: 0;
 	}

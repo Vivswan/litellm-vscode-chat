@@ -15,6 +15,11 @@ import { cn } from "./cn";
  * tailwind-merge only collapses a caller's override against a variant's when
  * the two carry the same modifier.
  *
+ * Quiet is the exception, and deliberately so: a quiet button has no fill to
+ * begin with, and the legacy rule that gave it one when disabled was the
+ * generic button:disabled reaching further than it meant to. Quiet stays quiet
+ * and reads disabled through the muted text and the opacity alone.
+ *
  * The transition names opacity alongside the colors because the row-hover
  * icon actions fade in on opacity; a bare transition-colors would drop that
  * legacy transition on the floor.
@@ -27,7 +32,7 @@ const buttonVariants = cva(
 				default: "border-button-border bg-primary px-3 py-1 text-primary-foreground hover:bg-primary-hover",
 				secondary: "border-button-border bg-secondary px-3 py-1 text-secondary-foreground hover:bg-secondary-hover",
 				quiet:
-					"border-transparent bg-transparent px-1.5 py-0.5 text-muted-foreground hover:bg-ghost-hover hover:text-foreground",
+					"border-transparent bg-transparent px-1.5 py-0.5 text-muted-foreground hover:bg-ghost-hover hover:text-foreground disabled:bg-transparent",
 			},
 		},
 		defaultVariants: {
