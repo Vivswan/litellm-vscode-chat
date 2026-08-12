@@ -356,8 +356,7 @@ function buildServers(
 	const servers: DashboardServer[] = [];
 	// Hidden externals leave the table AND the models list: the provider
 	// already answers a suppressed group with no models, so this only bridges
-	// the window between the tombstone write and the host's re-resolution
-	// (plus registry-backed rows, which have no group path to suppress).
+	// the window between the tombstone write and the host's re-resolution.
 	const hidden = new Set<LabeledSnapshot>();
 	declared.forEach((view, declaredIndex) => {
 		const match = matchedByDeclared.get(declaredIndex);

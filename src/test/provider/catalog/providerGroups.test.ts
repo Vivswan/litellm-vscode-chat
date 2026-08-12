@@ -728,26 +728,16 @@ suite("provider groups", () => {
 		);
 	});
 
-	test("the group-agnostic refresh returns no models once the registry gate closes", async () => {
-		const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, { grouplessRegistryEnabled: () => false });
+	test("the group-agnostic refresh serves no models", async () => {
+		const provider = makeProvider();
 
 		const infos = await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
 
 		assert.deepStrictEqual(infos, []);
 	});
 
-	test("the group-agnostic refresh keeps serving the registry while the gate allows it", async () => {
-		const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, { grouplessRegistryEnabled: () => true });
-		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
-
-		const infos = await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
-
-		assert.strictEqual(infos.length, 1);
-		assert.strictEqual(expectDefined(infos[0]).id, "test-model");
-	});
-
 	test("one failing group degrades the merged status instead of masking the healthy one", async () => {
-		const provider = makeProvider(undefined, "test-key", undefined, { grouplessRegistryEnabled: () => false });
+		const provider = makeProvider();
 		const statuses: AggregatedStatus[] = [];
 		provider.setStatusCallback((status) => statuses.push(status));
 		mswServer.use(
@@ -770,29 +760,6 @@ suite("provider groups", () => {
 		assert.strictEqual(last.serverStatuses.filter((s) => s.state === "ok").length, 1);
 		assert.strictEqual(last.serverStatuses.filter((s) => s.state === "error").length, 1);
 		assert.strictEqual(last.totalModels, 1, "the healthy group's models must survive the other group's failure");
-	});
-
-	test("a group refresh leaves the registry route map untouched", async () => {
-		const provider = makeProvider(TEST_BASE_URL);
-		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
-		await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
-
-		const internals = provider as unknown as { _client: { _modelRoutes: Map<string, unknown> } };
-		const routesBefore = [...internals._client._modelRoutes.keys()];
-		assert.ok(routesBefore.length > 0, "the registry refresh must have registered routes");
-
-		mswServer.use(
-			...discoveryHandlers({
-				data: [{ model_name: "other-model", model_info: { id: "other-model", supports_function_calling: true } }],
-			})
-		);
-		await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
-
-		assert.deepStrictEqual(
-			[...internals._client._modelRoutes.keys()],
-			routesBefore,
-			"a group refresh must not register or clear routes"
-		);
 	});
 
 	test("the group API key never reaches the log channel", async () => {
@@ -895,7 +862,7 @@ suite("provider groups", () => {
 		// "re-seen within one cycle" and restarted the cycle mid-sweep, evicting
 		// entries the sweep had not re-reached yet; the other group's status
 		// would flicker out of the merged report until its own refresh landed.
-		const provider = makeProvider(undefined, "test-key", undefined, { grouplessRegistryEnabled: () => false });
+		const provider = makeProvider();
 		const statuses: AggregatedStatus[] = [];
 		provider.setStatusCallback((status) => statuses.push(status));
 		mswServer.use(
@@ -930,7 +897,7 @@ suite("provider groups", () => {
 	});
 
 	test("a group that stops reporting survives one groupless-marked cycle and disappears at the next", async () => {
-		const provider = makeProvider(undefined, "test-key", undefined, { grouplessRegistryEnabled: () => false });
+		const provider = makeProvider();
 		const statuses: AggregatedStatus[] = [];
 		provider.setStatusCallback((status) => statuses.push(status));
 		mswServer.use(
@@ -1069,7 +1036,7 @@ suite("provider groups", () => {
 	});
 
 	test("refreshViaHost falls back when the host only makes the group-agnostic call", async () => {
-		const provider = makeProvider(undefined, "test-key", undefined, { grouplessRegistryEnabled: () => false });
+		const provider = makeProvider();
 		let discoveryHits = 0;
 		mswServer.use(
 			http.get(MODEL_INFO_URL, () => {
@@ -1093,7 +1060,7 @@ suite("provider groups", () => {
 	});
 
 	test("refreshViaHost resolves once host-driven reports settle, without a fallback probe", async () => {
-		const provider = makeProvider(undefined, "test-key", undefined, { grouplessRegistryEnabled: () => false });
+		const provider = makeProvider();
 		let discoveryHits = 0;
 		mswServer.use(
 			http.get(MODEL_INFO_URL, () => {

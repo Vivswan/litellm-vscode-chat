@@ -23,21 +23,6 @@ const cancellation = () => new vscode.CancellationTokenSource().token;
 suite("provider server snapshots", () => {
 	useMsw();
 
-	test("a registry sweep records each server's status together with its built models", async () => {
-		const provider = makeProvider(TEST_BASE_URL);
-		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
-
-		await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
-
-		const snapshots = provider.getServerSnapshots();
-		assert.strictEqual(snapshots.length, 1);
-		const snapshot = expectDefined(snapshots[0]);
-		assert.strictEqual(snapshot.status.state, "ok");
-		assert.strictEqual(snapshot.status.modelCount, 1);
-		assert.strictEqual(snapshot.models.length, 1);
-		assert.strictEqual(expectDefined(snapshot.models[0]).id, "test-model");
-	});
-
 	test("a group refresh records the group's models without attaching the server credentials", async () => {
 		const provider = makeProvider();
 		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
@@ -362,60 +347,49 @@ suite("provider server snapshots", () => {
 		assert.strictEqual(provider.getServerSnapshots().length, 0, "a malformed group yields no snapshot");
 	});
 
-	test("the declared projection composes exactly like the registry sweep: same IDs, names, and entry layer", async () => {
-		// A multi-server sweep, so exposed IDs are namespaced and names carry
-		// the server prefix: a projection reverting to serverCount 1 would mint
-		// raw IDs and bare names, and one resolving the entry layer from the
-		// snapshot's display label instead of the sweep's recorded identity
-		// would drop the entry-level declaration. Both must fail here.
-		const SECOND_BASE_URL = "http://second.test";
-		const servers = [
-			{ id: "srv1", label: "Gateway", baseUrl: TEST_BASE_URL, apiKey: "k1" },
-			{ id: "srv2", label: "Other", baseUrl: SECOND_BASE_URL, apiKey: "k2" },
-		];
+	test("the declared projection composes exactly like the group serve: same IDs, names, and entry layer", async () => {
+		// Declarations are entry-level (the entry's discovery.declared list);
+		// both declared models ride the Gateway entry, one with a capability
+		// record beside it. A projection resolving the entry layer from the
+		// snapshot's display label instead of the group's configured label
+		// would drop the entry-level declaration; that must fail here.
 		const provider = makeProvider(undefined, "test-key", undefined, {
-			getServers: () => Promise.resolve(servers),
-			// Declarations are entry-level (the entry's discovery.declared list);
-			// both declared models ride the Gateway entry, one with a capability
-			// record beside it.
 			getEntryDeclaredModels: (label, baseUrl) =>
 				label === "Gateway" && baseUrl === TEST_BASE_URL ? ["entry-model", "declared-model"] : undefined,
 			getEntryModelCapabilities: (label, baseUrl) =>
 				label === "Gateway" && baseUrl === TEST_BASE_URL ? { "declared-model": { context_length: 32000 } } : undefined,
 		});
-		mswServer.use(
-			...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD),
-			http.get(`${SECOND_BASE_URL}/v1/model/info`, () => HttpResponse.json({ data: [] })),
-			http.get(`${SECOND_BASE_URL}/v1/models`, () => HttpResponse.json({ data: [] }))
-		);
+		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
 		const idAndName = (infos: readonly { id: string; name: string }[]) =>
 			infos.map(({ id, name }) => ({ id, name })).sort((a, b) => a.id.localeCompare(b.id));
+		const declaredIds = new Set(["entry-model", "declared-model"]);
 
 		await withConfig({}, async () => {
-			const infos = await provider.provideLanguageModelChatInformation({ silent: true }, cancellation());
-			const served = idAndName(infos.filter((info) => info.litellm.declared === true && info.id.startsWith("srv1/")));
+			const infos = await provider.provideLanguageModelChatInformation(
+				groupOptions({ baseUrl: TEST_BASE_URL, apiKey: "k", label: "Gateway" }),
+				cancellation()
+			);
+			const served = idAndName(infos.filter((info) => declaredIds.has(info.id)));
 			assert.deepStrictEqual(served, [
-				{ id: "srv1/declared-model", name: "[Gateway] declared-model" },
-				{ id: "srv1/entry-model", name: "[Gateway] entry-model" },
+				{ id: "declared-model", name: "declared-model" },
+				{ id: "entry-model", name: "entry-model" },
 			]);
 
-			const snapshot = expectDefined(
-				provider.getServerSnapshots().find((candidate) => candidate.status.serverId === "srv1")
-			);
+			const snapshot = expectDefined(provider.getServerSnapshots()[0]);
 			assert.deepStrictEqual(
 				idAndName(provider.declaredModelsForSnapshot(snapshot)),
 				served,
-				"the dashboard's projection must mint exactly what the sweep served"
+				"the dashboard's projection must mint exactly what the serve handed out"
 			);
 
 			// The snapshot's status label is display-facing; identity comes from
-			// the sweep's record, so a display fallback in the status can drop
-			// neither the name prefix nor the entry-level declaration.
+			// the group's configured label, so a display fallback in the status
+			// can not drop the entry-level declaration.
 			const relabeled = { ...snapshot, status: { ...snapshot.status, label: "Gateway (display)" } };
 			assert.deepStrictEqual(
 				idAndName(provider.declaredModelsForSnapshot(relabeled)),
 				served,
-				"the projection must resolve identity from the sweep record, never the snapshot's display label"
+				"the projection must resolve identity from the group's label, never the snapshot's display label"
 			);
 		});
 	});

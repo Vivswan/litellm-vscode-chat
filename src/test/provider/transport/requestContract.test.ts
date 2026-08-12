@@ -22,11 +22,14 @@ import {
 	createConfiguredProvider,
 	makeProvider,
 	systemMessage,
+	testGroupServer,
 	userMessage,
 	withConfig,
 } from "../../testUtils";
 
 const modelInfo = makeModelInfo();
+/** The same model with its group connection attached, for direct provideLanguageModelChatResponse calls. */
+const attachedModelInfo = attachGroupServer(modelInfo, testGroupServer());
 
 /**
  * The live-configuration read of the configured-parameters merge, exactly as
@@ -628,7 +631,7 @@ suite("provider/request contract", () => {
 
 			await provider.provideLanguageModelChatInformation({ silent: true }, new vscode.CancellationTokenSource().token);
 			await provider.provideLanguageModelChatResponse(
-				modelInfo,
+				attachedModelInfo,
 				[userMessage("test")],
 				{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
 				{ report: () => {} },
@@ -637,7 +640,7 @@ suite("provider/request contract", () => {
 			assert.equal(chatUrl, `${TEST_BASE_URL}/v1/chat/completions`);
 		});
 
-		test("a declared entry's apiVersion re-roots the chat request (and the sole-server fallback resolves it)", async () => {
+		test("a declared entry's apiVersion re-roots the chat request", async () => {
 			// The resolver is injected like getEntryHeaders, matched by the
 			// connection's entry-candidate label and base URL; "v2" replaces the
 			// auto-appended /v1 on the real request, not just the log line.
@@ -653,7 +656,7 @@ suite("provider/request contract", () => {
 				})
 			);
 			await provider.provideLanguageModelChatResponse(
-				modelInfo,
+				attachedModelInfo,
 				[userMessage("test")],
 				{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
 				{ report: () => {} },
@@ -675,7 +678,7 @@ suite("provider/request contract", () => {
 				})
 			);
 			await provider.provideLanguageModelChatResponse(
-				modelInfo,
+				attachedModelInfo,
 				[userMessage("test")],
 				{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
 				{ report: () => {} },
@@ -1200,7 +1203,7 @@ suite("provider/request contract", () => {
 			const requests = trackUnexpectedRequests();
 			await assert.rejects(
 				provider.provideLanguageModelChatResponse(
-					makeModelInfo({ maxInputTokens: 10 }),
+					attachGroupServer(makeModelInfo({ maxInputTokens: 10 }), testGroupServer()),
 					[userMessage("x".repeat(4000))],
 					{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
 					{ report: () => {} },
@@ -1221,7 +1224,7 @@ suite("provider/request contract", () => {
 			const requests = trackUnexpectedRequests();
 			await assert.rejects(
 				provider.provideLanguageModelChatResponse(
-					modelInfo,
+					attachedModelInfo,
 					[userMessage("hi")],
 					{
 						toolMode: vscode.LanguageModelChatToolMode.Auto,
@@ -1266,24 +1269,23 @@ suite("provider/request contract", () => {
 			});
 		}
 
-		test("a route whose server disappeared rejects with the mirrored server-gone message", async () => {
-			const client = new ChatClient({ userAgent: "test", getServers: () => Promise.resolve([]) });
-			client.applyRegistration(
-				new Map([["m1", { serverId: "s1", serverLabel: "Old Server", rawModelId: "m1" }]]),
-				true
-			);
-			await expectMirroredRejection(
-				send(client, makeModelInfo({ id: "m1" })),
-				/^Server "Old Server" is no longer configured$/
-			);
-		});
-
-		test("a model no source resolves rejects with the mirrored not-registered message", async () => {
-			const client = new ChatClient({ userAgent: "test", getServers: () => Promise.resolve([]) });
+		test("a model without an attached server rejects with the mirrored, classified routing error", async () => {
+			const client = new ChatClient({ userAgent: "test" });
 			await expectMirroredRejection(
 				send(client, makeModelInfo({ id: "ghost" })),
 				/^Model "ghost" is not registered with any configured server\. Refresh the model list and try again\.$/
 			);
+			// The invariant behind the route: every served model carries its
+			// group's connection, so a model without one is a boundary break and
+			// must fail as a classified, reportable error - the classification
+			// keeps the model ID out of public logs.
+			await assert.rejects(send(client, makeModelInfo({ id: "ghost" })), (e: unknown) => {
+				assert.strictEqual(
+					(e as Error & { logClassification?: string }).logClassification,
+					"RequestRouting(model without attached server)"
+				);
+				return true;
+			});
 		});
 
 		test("more tools than the cap rejects with the mirrored tools-cap message", async () => {

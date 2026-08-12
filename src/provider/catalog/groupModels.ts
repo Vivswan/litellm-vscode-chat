@@ -317,6 +317,7 @@ export function attachGroupServer(info: PreAttachModelInfo, server: GroupServer)
 			supportsPromptCaching: modelSupportsPromptCaching(info),
 			outputLimitSource: modelOutputLimitSource(info),
 			supportsAudioInput: modelSupportsAudioInput(info),
+			...(info.litellm.declared === true ? { declared: true } : {}),
 			server: { ...server },
 		},
 	};
@@ -354,7 +355,11 @@ export function markStale(infos: readonly AttachedModelInfo[], lastSyncedDisplay
  * of narrowing the model again.
  */
 export interface ParsedModelMetadata {
-	/** The attached group server, or undefined for registry-served models. */
+	/**
+	 * The attached group server, or undefined when the model object carries
+	 * none - a state the provider never serves, which the request path fails
+	 * loudly on (see ChatClient.resolveConnection).
+	 */
 	readonly server: GroupServer | undefined;
 	readonly supportsPromptCaching: boolean;
 	readonly supportsAudioInput: boolean;

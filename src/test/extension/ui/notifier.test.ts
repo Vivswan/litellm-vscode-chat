@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import { APIConnectionError } from "openai";
 import * as vscode from "vscode";
-import { createConfigurationPrompt, Notifier, reconfigureAction } from "../../../extension/ui/notifier";
+import { Notifier, reconfigureAction } from "../../../extension/ui/notifier";
 import { mapSdkError, statusErrorTexts } from "../../../provider/transport/errorMapping";
 import type { TransportErrorClassification } from "../../../shared/errorClassification";
 import { publicErrorText } from "../../../shared/logger";
@@ -517,43 +517,5 @@ suite("extension/ui/notifier", () => {
 			(vscode.commands as Record<string, unknown>).executeCommand = origExecute;
 		}
 		assert.deepStrictEqual(executed, ["litellm.openDashboard"]);
-	});
-
-	suite("createConfigurationPrompt", () => {
-		test("stays silent when servers are configured outside the legacy registry", async () => {
-			const prompt = createConfigurationPrompt(() => true);
-
-			assert.strictEqual(await prompt.promptToConfigure(), false);
-			assert.deepStrictEqual(toasts, [], "a configured provider group must not trigger the not-configured toast");
-		});
-
-		test("toasts when nothing is configured anywhere", async () => {
-			const prompt = createConfigurationPrompt(() => false);
-
-			assert.strictEqual(await prompt.promptToConfigure(), false);
-			assert.strictEqual(toasts.length, 1);
-			const toast = expectDefined(toasts[0]);
-			assert.strictEqual(toast.kind, "error");
-			assert.ok(toast.message.includes("not configured"));
-			assert.deepStrictEqual(toast.buttons, ["Configure Now", "Learn More"]);
-		});
-
-		test("Configure Now opens the dashboard and reports completion", async () => {
-			const executed: string[] = [];
-			const origError = vscode.window.showErrorMessage;
-			const origExecute = vscode.commands.executeCommand;
-			(vscode.window as Record<string, unknown>).showErrorMessage = async () => "Configure Now";
-			(vscode.commands as Record<string, unknown>).executeCommand = async (command: string) => {
-				executed.push(command);
-			};
-			try {
-				const prompt = createConfigurationPrompt(() => false);
-				assert.strictEqual(await prompt.promptToConfigure(), true);
-			} finally {
-				(vscode.window as Record<string, unknown>).showErrorMessage = origError;
-				(vscode.commands as Record<string, unknown>).executeCommand = origExecute;
-			}
-			assert.deepStrictEqual(executed, ["litellm.openDashboard"]);
-		});
 	});
 });

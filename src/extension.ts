@@ -12,7 +12,6 @@ import { registerOpenRouterCatalogTestSeam } from "./extension/openRouterCatalog
 import { GroupRemovalStore } from "./extension/servers/groupRemovals";
 import {
 	type ManagementUiMode,
-	REGISTRY_SERVED_IN_MODE,
 	registerManageCommand,
 	registryMutationVerdict,
 } from "./extension/servers/serverManagement";
@@ -31,7 +30,6 @@ import {
 } from "./extension/servers/serverSync";
 import { createUsagePollerEnv, registerRefreshUsageCommand, UsagePoller } from "./extension/servers/usage";
 import {
-	createTestEntrySeams,
 	registerHelpAndFeedbackCommand,
 	registerOpenGroupsFileCommand,
 	registerReportIssueCommand,
@@ -41,13 +39,7 @@ import {
 	SessionLogTee,
 } from "./extension/ui/commands";
 import { createIssueReporterEnv, IssueReporter } from "./extension/ui/issueReporter";
-import {
-	configureNowLabel,
-	createConfigurationPrompt,
-	Notifier,
-	reconfigureAction,
-	showActionableMessage,
-} from "./extension/ui/notifier";
+import { configureNowLabel, Notifier, reconfigureAction, showActionableMessage } from "./extension/ui/notifier";
 import { registerOpenSettingKeyCommand } from "./extension/ui/openSettingKey";
 import { createSettingsTransferEnv, registerSettingsTransferCommands } from "./extension/ui/settingsTransferCommands";
 import { StatusBarManager, StatusItem } from "./extension/ui/status";
@@ -121,34 +113,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// can compute a fingerprint.
 	const fingerprintSalt = await loadFingerprintSalt(context.secrets, context.globalStorageUri, logger);
 	const registry = new ServerRegistry(context.globalState, context.secrets);
-	// Test mode keeps the registry live for the group-agnostic refresh even
-	// after migration: there is no programmatic way to remove provider groups,
-	// so the host-fidelity suite drives models through the registry.
-	// The litellm._test.setEntry* seams for the registry path (no programmatic
-	// provider-group removal, so the host-fidelity and docker suites exercise
-	// entry records there). The seams exist only in non-production mode, and
-	// the composed resolvers below are the single entry-record read path for
-	// both the provider and the dashboard's capability inspector.
-	const testEntrySeams = testMode ? createTestEntrySeams() : undefined;
-	const getEntryModelCapabilities =
-		testEntrySeams === undefined
-			? readEntryModelCapabilities
-			: (label: string, baseUrl: string) =>
-					testEntrySeams.capabilities.get(label) ?? readEntryModelCapabilities(label, baseUrl);
-	const getEntryDeclaredModels =
-		testEntrySeams === undefined
-			? readEntryDeclaredModels
-			: (label: string, baseUrl: string) =>
-					testEntrySeams.declared.get(label) ?? readEntryDeclaredModels(label, baseUrl);
 	const isMigrated = () => isGroupMigrationComplete(context.globalState);
-	// The management UI mode is also the registry-liveness truth (see
-	// REGISTRY_SERVED_IN_MODE): the dashboard once the registry is migrated
-	// (the quick pick would edit configuration nothing serves anymore) or was
-	// never populated, and always the legacy flows in test mode.
+	// The management UI mode: the dashboard once the registry is migrated or
+	// was never populated, the legacy quick-pick flows while the registry
+	// still holds unmigrated servers (see ManagementUiMode).
 	const getManagementUiMode = (): ManagementUiMode => {
-		if (testMode) {
-			return "legacy";
-		}
 		if (isMigrated()) {
 			return "groupsOnly";
 		}
@@ -156,8 +125,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	};
 	// The registry-side enforcement of the same verdict the prompt flows show
 	// notices for: mutators refuse with typed errors while the migration seeds
-	// groups or after it retired the registry; the migrations and the
-	// litellm._test.* seams mutate through the unguarded methods.
+	// groups or after it retired the registry; the migrations mutate through
+	// the unguarded methods.
 	registry.installMutationGuard(() => registryMutationVerdict(getManagementUiMode));
 	// Groups the user explicitly removed (the host command is add-only, so
 	// removal works by tombstoning): the provider consults the store on every
@@ -183,31 +152,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	const provider = new LiteLLMChatModelProvider({
 		userAgent: ua,
 		logger,
-		getServers: () => registry.getServersWithKeys(),
 		getEntryModelParameters: readEntryModelParameters,
-		getEntryModelCapabilities,
+		getEntryModelCapabilities: readEntryModelCapabilities,
 		getEntryHeaders: readEntryHeaders,
 		getEntryApiVersion: readEntryApiVersion,
-		getEntryDeclaredModels,
+		getEntryDeclaredModels: readEntryDeclaredModels,
 		getExpectedFailures: readEntryExpectedFailures,
 		getCatalogLookup: () => catalogStore.lookup,
-		grouplessRegistryEnabled: () => REGISTRY_SERVED_IN_MODE[getManagementUiMode()],
 		isGroupSuppressed: (label, baseUrl) => groupRemovals.isTombstoned(label, baseUrl),
 	});
 
 	// The setting itself is the truth here, not the sync engine's view: the
-	// prompt and the welcome toast can run before the first sync pass finishes.
+	// welcome toast can run before the first sync pass finishes.
 	const hasDeclaredServers = () =>
 		parseServersSetting(vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY)).entries.length > 0;
-	// The shared not-configured gate: the registry-backed refresh path knows
-	// nothing about the newer stores, so declared servers-setting entries and
+	// The shared not-configured gate: declared servers-setting entries and
 	// live provider groups both mean "configured" before anything toasts.
 	// hasSeenGroupConfiguration is the cold-start-honest signal: the host's
 	// groupless refresh reports an empty window before it re-resolves each
 	// group, so the live snapshot count alone would wrongly read as empty.
+	// Unmigrated registry servers count too: they serve nothing anymore, but
+	// mid-migration they are real configuration, and telling that user "not
+	// configured" while Manage Servers lists their servers would be false.
+	// Only until the migration completes: leftovers it deliberately retains
+	// afterwards are diagnostics material, not configuration.
 	const hasConfiguredServers = () =>
-		provider.getServerSnapshots().length > 0 || provider.hasSeenGroupConfiguration() || hasDeclaredServers();
-	provider.setConfigurationPrompt(createConfigurationPrompt(hasConfiguredServers));
+		provider.getServerSnapshots().length > 0 ||
+		provider.hasSeenGroupConfiguration() ||
+		hasDeclaredServers() ||
+		(!isMigrated() && registry.getServers().length > 0);
 
 	// The provider must not see a half-migrated registry, so pre-registration
 	// migrations complete before registration. Best-effort: a failed migration
@@ -342,7 +315,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		groupRemovals,
 		catalogStore,
 		usagePoller,
-		getEntryModelCapabilities
+		readEntryModelCapabilities
 	);
 	context.subscriptions.push(syncEngine.onDidSync(() => dashboard.refresh()));
 	// The usage surfaces over the poller's store: the status bar item beside
@@ -422,17 +395,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// Test-only commands; registered after the sync engine and the dashboard
 	// exist because the docker-serversync suite reads the engine's declared
 	// views through them and the monkey fuzzer injects dashboard messages.
-	if (testEntrySeams !== undefined && sessionLogTee !== undefined) {
-		registerTestCommands(
-			context,
-			registry,
-			provider,
-			issueReporter,
-			syncEngine,
-			dashboard,
-			testEntrySeams,
-			sessionLogTee
-		);
+	if (sessionLogTee !== undefined) {
+		registerTestCommands(context, provider, issueReporter, syncEngine, dashboard, sessionLogTee);
 	}
 	// The docker-resolution suite's deterministic catalog seeding (inert in
 	// production, like the commands above).

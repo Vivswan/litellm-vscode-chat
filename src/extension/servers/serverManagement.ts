@@ -25,22 +25,35 @@ import {
 } from "./serverRegistry";
 
 /**
+ * Whether the registry is still mutable in each UI mode. Only "groupsOnly"
+ * (the migration emptied the registry) refuses: pre-migration modes stay
+ * mutable because the migration consumes registry edits - renaming a skipped
+ * server is how its skip marker lifts. Exhaustive by construction, so a mode
+ * added to ManagementUiMode does not compile until it takes a side here.
+ */
+const REGISTRY_MUTABLE_IN_MODE: Record<ManagementUiMode, boolean> = {
+	legacy: true,
+	groupsWithRegistry: true,
+	groupsOnly: false,
+};
+
+/**
  * What the registry's mutation guard reports right now. "migrating" while the
  * provider-group migration is seeding groups: a racing edit would be marked
  * skipped for manual review and a racing add would wait a whole activation
  * for its group, so writes are refused with a try-again notice instead.
- * "retired" once the migration emptied the registry (only "groupsOnly" means
- * that; see REGISTRY_SERVED_IN_MODE): a write would edit configuration
- * nothing serves anymore. Activation installs this as the registry's guard,
- * so every mutator enforces it at write time; the flows below also consult it
- * before prompting, as a courtesy, so the user does not type into a flow
- * whose write will be refused.
+ * "retired" once the migration emptied the registry (see
+ * REGISTRY_MUTABLE_IN_MODE): a write would edit legacy state nothing reads
+ * anymore. Activation installs this as the registry's guard, so every
+ * mutator enforces it at write time; the flows below also consult it before
+ * prompting, as a courtesy, so the user does not type into a flow whose
+ * write will be refused.
  */
 export function registryMutationVerdict(getUiMode: () => ManagementUiMode): RegistryMutationVerdict {
 	if (isGroupMigrationRunning()) {
 		return "migrating";
 	}
-	return REGISTRY_SERVED_IN_MODE[getUiMode()] ? "ok" : "retired";
+	return REGISTRY_MUTABLE_IN_MODE[getUiMode()] ? "ok" : "retired";
 }
 
 function showMutationRefusedNotice(verdict: "migrating" | "retired"): void {
@@ -80,19 +93,6 @@ async function runRegistryMutation(mutate: () => Promise<void>): Promise<boolean
 		throw error;
 	}
 }
-
-/**
- * Whether the legacy registry is still served in each UI mode (only
- * "groupsOnly" means migration retired it). The one predicate behind the
- * mutation guard below and the provider's grouplessRegistryEnabled gate, so
- * the two cannot drift; exhaustive by construction, so a mode added to
- * ManagementUiMode does not compile until it takes a side here.
- */
-export const REGISTRY_SERVED_IN_MODE: Record<ManagementUiMode, boolean> = {
-	legacy: true,
-	groupsWithRegistry: true,
-	groupsOnly: false,
-};
 
 /**
  * The three input prompts return their value already trimmed (undefined on
@@ -328,12 +328,12 @@ export const EXTENSION_SETTINGS_FILTER = "@ext:vivswan.litellm-vscode-chat";
 
 /**
  * Which UI the hub's server entry opens. "legacy" is the quick-pick server
- * flow over the registry. The other two open the dashboard's Servers & Models
- * view; the split they encode is whether the legacy registry is served (see
- * REGISTRY_SERVED_IN_MODE). "groupsWithRegistry" means the registry is still
- * live (fresh installs: servers added there are served and migrated later),
- * "groupsOnly" means the migration retired it, so the quick pick would edit
- * dead configuration.
+ * flow over the registry, for a user whose registry still holds unmigrated
+ * servers: editing there feeds the migration (a rename lifts a server's skip
+ * marker), so the flow survives until isGroupMigrationComplete. The other two
+ * open the dashboard's Servers & Models view: "groupsWithRegistry" means the
+ * registry was never populated (fresh installs), "groupsOnly" means the
+ * migration retired it, so the quick pick would edit dead state.
  */
 export type ManagementUiMode = "legacy" | "groupsWithRegistry" | "groupsOnly";
 

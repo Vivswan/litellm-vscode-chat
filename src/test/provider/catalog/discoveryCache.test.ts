@@ -421,7 +421,6 @@ suite("provider group discovery caching", () => {
 	test("a sweep served from the cache keeps every group in the merged status", async () => {
 		const provider = new LiteLLMChatModelProvider({
 			userAgent: "GitHubCopilotChat/test VSCode/test",
-			grouplessRegistryEnabled: () => false,
 		});
 		const statuses: AggregatedStatus[] = [];
 		provider.setStatusCallback((status) => statuses.push(status));
@@ -451,7 +450,6 @@ suite("provider group discovery caching", () => {
 	test("a rotated group key evicts the old credentials' entry once its status ages out", async () => {
 		const provider = new LiteLLMChatModelProvider({
 			userAgent: "GitHubCopilotChat/test VSCode/test",
-			grouplessRegistryEnabled: () => false,
 		});
 		countingHandlers();
 		const oldGroup = { baseUrl: normalizeBaseUrl(TEST_BASE_URL), apiKey: "old-key" };

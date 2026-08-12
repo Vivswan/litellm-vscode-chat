@@ -2,13 +2,7 @@ import * as assert from "node:assert";
 import { APIConnectionError, APIError, AuthenticationError } from "openai";
 import * as vscode from "vscode";
 import { ServerRegistry } from "../../../extension/servers/serverRegistry";
-import {
-	createTestEntrySeams,
-	registerTestCommands,
-	runConnectionTest,
-	runModelSync,
-	runReportIssue,
-} from "../../../extension/ui/commands";
+import { registerTestCommands, runConnectionTest, runModelSync, runReportIssue } from "../../../extension/ui/commands";
 import { IssueReporter } from "../../../extension/ui/issueReporter";
 import { statusErrorHeadline } from "../../../extension/ui/notifier";
 import type { ConnectionStatus } from "../../../extension/ui/status";
@@ -1402,29 +1396,6 @@ suite("extension/ui/commands", () => {
 		});
 	});
 
-	suite("test-only mutation commands", () => {
-		teardown(async () => {
-			await vscode.commands.executeCommand("litellm._test.clearServers");
-		});
-
-		test("mutations are serialized and a superseded mutation returns null", async () => {
-			await vscode.commands.executeCommand("litellm._test.clearServers");
-
-			// Fire both without awaiting: the addServer mutation is enqueued first,
-			// clearServers second, so the final state must be empty and the
-			// superseded addServer must report null instead of model IDs.
-			const addPromise = vscode.commands.executeCommand("litellm._test.addServer", "Racer", "http://127.0.0.1:9", "");
-			const clearPromise = vscode.commands.executeCommand("litellm._test.clearServers");
-			const [addResult, clearResult] = await Promise.all([addPromise, clearPromise]);
-
-			const add = addResult as { server?: { label: string }; modelIds: string[] | null };
-			assert.strictEqual(add.server?.label, "Racer", "The superseded mutation itself must still be applied");
-			assert.strictEqual(add.modelIds, null, "A superseded mutation must report null model IDs");
-			assert.deepStrictEqual(clearResult, [], "The last mutation returns the fresh (empty) model list");
-			assert.deepStrictEqual(await vscode.commands.executeCommand("litellm._test.getServers"), []);
-		});
-	});
-
 	// The docker-serversync harness commands. Their behavior end to end (real
 	// sync passes, real provider groups) belongs to the docker suite; what the
 	// unit host pins is that they register in test mode and return the safe
@@ -1514,12 +1485,10 @@ suite("extension/ui/commands", () => {
 			};
 			registerTestCommands(
 				context as unknown as vscode.ExtensionContext,
-				{} as unknown as ServerRegistry,
 				{ provideLanguageModelChatInformation: async () => [], getServerSnapshots: () => [] },
 				{ getRecentLogs: () => [], getLatestError: () => undefined },
 				{ getDeclared: () => [], resolveGroupArgs: async () => undefined },
 				{ injectMessageForTest: async () => "ok" as const },
-				createTestEntrySeams(),
 				{ readSince: () => ({ next: 0, lines: [], dropped: 0 }) }
 			);
 			assert.strictEqual(context.subscriptions.length, 0, "the production gate must register nothing");

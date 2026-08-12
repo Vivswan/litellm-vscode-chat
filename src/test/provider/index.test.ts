@@ -2,7 +2,9 @@ import * as assert from "node:assert";
 import * as fc from "fast-check";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
-import { LiteLLMChatModelProvider } from "../../provider";
+import type { DiscoveredGroupModels } from "../../provider";
+import { DiscoveryCache } from "../../provider/catalog/discoveryCache";
+import { attachGroupServer } from "../../provider/catalog/groupModels";
 import { buildModelInfos } from "../../provider/catalog/registration";
 import { RequestError } from "../../provider/transport/errorMapping";
 import { Logger, publicErrorText } from "../../shared/logger";
@@ -11,7 +13,7 @@ import type { AggregatedStatus } from "../../shared/servers";
 import { resolveFuzzSeed } from "../fuzzStream";
 import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
 import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeModelInfo, withFetch } from "../pureHelpers";
-import { makeProvider, userMessage, withConfig } from "../testUtils";
+import { makeProvider, testGroupServer, userMessage, withConfig } from "../testUtils";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
 const SEED = resolveFuzzSeed();
@@ -141,7 +143,10 @@ suite("provider", () => {
 				}),
 			async () => {
 				const pending = provider.provideLanguageModelChatResponse(
-					makeModelInfo({ id: "m", name: "m", maxInputTokens: 1000, maxOutputTokens: 1000 }),
+					attachGroupServer(
+						makeModelInfo({ id: "m", name: "m", maxInputTokens: 1000, maxOutputTokens: 1000 }),
+						testGroupServer()
+					),
 					[userMessage("hi")],
 					{} as unknown as vscode.ProvideLanguageModelChatResponseOptions,
 					{ report: () => {} },
@@ -157,15 +162,8 @@ suite("provider", () => {
 		);
 	});
 
-	test("provideLanguageModelChatResponse throws for unregistered model when multiple servers are configured", async () => {
-		const provider = new LiteLLMChatModelProvider({
-			userAgent: "GitHubCopilotChat/test VSCode/test",
-			getServers: () =>
-				Promise.resolve([
-					{ id: "srv1", label: "One", baseUrl: "http://one.test", apiKey: "k1" },
-					{ id: "srv2", label: "Two", baseUrl: "http://two.test", apiKey: "k2" },
-				]),
-		});
+	test("provideLanguageModelChatResponse rejects a model without an attached server before any network call", async () => {
+		const provider = makeProvider();
 
 		let fetchCalled = false;
 		await withFetch(
@@ -184,7 +182,7 @@ suite("provider", () => {
 					),
 					/not registered with any configured server/
 				);
-				assert.strictEqual(fetchCalled, false, "No request may be sent when the model has no route");
+				assert.strictEqual(fetchCalled, false, "No request may be sent when the model has no attached server");
 			}
 		);
 	});
@@ -216,24 +214,16 @@ suite("provider", () => {
 		});
 
 		test("a non-Error failure reason is rebuilt with the log-safe rendering as its English mirror", async () => {
-			// Thrown from inside the sweep's per-server try, so it becomes the
-			// failure reason without ever being an Error: the rebuild must keep
-			// the display rendering for the UI and the log-safe rendering for
-			// every public log surface.
+			// Rejected from inside the group serve's try without ever being an
+			// Error: the rebuild must keep the display rendering for the UI and
+			// the log-safe rendering for every public log surface.
 			const hostile = {
 				toString: () => "display text with RESPONSE-BODY-MARKER",
 				logClassification: "InjectedFailure(non-Error)",
 			};
-			let calls = 0;
-			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
-				getExpectedFailures: () => {
-					calls += 1;
-					if (calls === 1) {
-						throw hostile;
-					}
-					return undefined;
-				},
-			});
+			const failingCache = new DiscoveryCache<DiscoveredGroupModels>();
+			failingCache.fetch = () => Promise.reject(hostile);
+			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, { discoveryCache: failingCache });
 
 			await assert.rejects(
 				provider.provideLanguageModelChatInformation({ silent: false }, new vscode.CancellationTokenSource().token),
@@ -250,7 +240,7 @@ suite("provider", () => {
 			);
 		});
 
-		test("an all-failed silent registry sweep still serves the declared models with their routes", async () => {
+		test("an all-failed silent refresh still serves the declared models", async () => {
 			mswServer.use(
 				http.get(MODEL_INFO_URL, () => HttpResponse.json({ error: "down" }, { status: 400 })),
 				http.get(MODELS_URL, () => HttpResponse.json({ error: "down" }, { status: 400 }))
@@ -269,10 +259,14 @@ suite("provider", () => {
 				["declared-model"],
 				"declarations survive a total outage"
 			);
-			assert.strictEqual(expectDefined(infos[0]).litellm.declared, true);
+			assert.strictEqual(
+				expectDefined(infos[0]).litellm.declared,
+				true,
+				"the declared badge must survive group attachment"
+			);
 		});
 
-		test("an all-expected non-silent registry sweep serves the declared models instead of throwing", async () => {
+		test("an all-expected non-silent refresh serves the declared models instead of throwing", async () => {
 			mswServer.use(
 				http.get(MODEL_INFO_URL, () => HttpResponse.json({ error: "down" }, { status: 400 })),
 				http.get(MODELS_URL, () => HttpResponse.json({ error: "down" }, { status: 400 }))

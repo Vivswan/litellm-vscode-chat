@@ -3,12 +3,6 @@ import { FLOOR_CONTEXT_LENGTH, FLOOR_MAX_OUTPUT_TOKENS } from "../../shared/conf
 import { normalizeCostPerToken, normalizePositiveNumber } from "../../shared/util/numbers";
 import type { LiteLLMProvider, OutputLimitSource } from "./schemas";
 
-export interface ModelRoute {
-	serverId: string;
-	rawModelId: string;
-	serverLabel: string;
-}
-
 export function buildExposedModelId(rawModelId: string, serverId: string, serverCount: number): string {
 	if (serverCount <= 1) {
 		return rawModelId;

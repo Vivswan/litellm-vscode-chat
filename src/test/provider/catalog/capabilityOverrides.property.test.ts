@@ -384,7 +384,6 @@ suite("provider/catalog capabilityOverrides properties", () => {
 					assert.strictEqual(info.litellm.declared, true);
 					assert.deepStrictEqual(info.litellm.serverDeclared, { kind: "declared" });
 					assertAdvertisesEffective(info, effectiveFor(info, s));
-					assert.strictEqual(declared.routes.get(info.id)?.rawModelId, rawId);
 				}
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }

@@ -1,12 +1,11 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
-import type { ConfigurationPrompt } from "../../provider/config";
 import { CMD } from "../../shared/config/commandIds";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
 import type { AggregatedStatus } from "../../shared/servers";
 import { isErrorServerStatus } from "../../shared/servers";
 import { statusErrorHeadline } from "../../shared/util/errorText";
-import { GITHUB_DOCS_URL, SETUP_HINT_DOCS_URLS } from "../../shared/util/links";
+import { SETUP_HINT_DOCS_URLS } from "../../shared/util/links";
 import { openUrl } from "../../shared/util/openUrl";
 import type { Timer } from "../../shared/util/timer";
 import { PendingCall, REAL_TIMER } from "../../shared/util/timer";
@@ -111,37 +110,6 @@ export function dismissAction(): MessageAction {
 	return { label: l10n.t("Dismiss"), run: () => {} };
 }
 
-/**
- * The prompt behind the provider's "nothing to serve" path. The caller only
- * checked the legacy registry, which stays empty on modern installs, so the
- * not-configured toast fires only when `hasConfiguredServers` (declared
- * servers-setting entries or live provider groups) also comes up empty.
- */
-export function createConfigurationPrompt(hasConfiguredServers: () => boolean): ConfigurationPrompt {
-	return {
-		async promptToConfigure(): Promise<boolean> {
-			if (hasConfiguredServers()) {
-				return false;
-			}
-			const configureNow = configureNowLabel();
-			const learnMore = l10n.t("Learn More");
-			const choice = await vscode.window.showErrorMessage(
-				l10n.t("LiteLLM is not configured. Set up your connection to use this provider."),
-				configureNow,
-				learnMore
-			);
-			if (choice === configureNow) {
-				await vscode.commands.executeCommand(CMD.openDashboard);
-				return true;
-			}
-			if (choice === learnMore) {
-				void vscode.env.openExternal(vscode.Uri.parse(GITHUB_DOCS_URL));
-			}
-			return false;
-		},
-	};
-}
-
 interface NotifiableCondition {
 	signature: string;
 	kind: "warning" | "error";
@@ -167,12 +135,11 @@ type NotifierOutcome =
  * again once the host has had time to hand over any groups it manages.
  *
  * The trade-off in this number: a genuinely-unconfigured user sees the setup
- * toast this long after cold start (they still have the welcome toast and the
- * model picker's configuration prompt in the meantime), while a host that is
- * slow to re-resolve groups (loaded machine, remote window, many groups) gets
- * this much room before the wrong toast could fire. If a host is slower
- * still, the mistake self-heals: the first per-group report evaluates as
- * recovered and clears the dedup signature.
+ * toast this long after cold start (they still have the welcome toast in the
+ * meantime), while a host that is slow to re-resolve groups (loaded machine,
+ * remote window, many groups) gets this much room before the wrong toast
+ * could fire. If a host is slower still, the mistake self-heals: the first
+ * per-group report evaluates as recovered and clears the dedup signature.
  */
 const NO_SERVERS_GRACE_MS = 15000;
 
@@ -180,14 +147,14 @@ const NO_SERVERS_GRACE_MS = 15000;
  * Owns all toasts for provider refresh outcomes. Silent (background) refreshes
  * notify with once-per-condition dedup; non-silent refreshes never toast here
  * because the caller (test connection command or the model picker) surfaces
- * the outcome directly. `hasConfiguredServers` is the same gate the
- * configuration prompt uses: an empty status window on a configured install
- * (fresh installs keep the registry-backed refresh path, which reports empty
- * while provider groups serve fine) must not claim "no servers". Because the
- * gate's group latch flips only when a per-group refresh arrives - after the
- * groupless refresh already reported empty - the no-servers claim is never
- * toasted immediately: it is deferred by NO_SERVERS_GRACE_MS and re-gated when
- * the deferral expires, so group-configured users never see it at cold start
+ * the outcome directly. `hasConfiguredServers` is the shared configured gate:
+ * an empty status window on a configured install (the group-agnostic refresh
+ * reports empty while provider groups serve fine) must not claim "no servers".
+ * Because the gate's group latch flips only when a per-group refresh arrives -
+ * after the groupless refresh already reported empty - the no-servers claim is
+ * never toasted immediately: it is deferred by NO_SERVERS_GRACE_MS and
+ * re-gated when the deferral expires, so group-configured users never see it
+ * at cold start
  * while genuinely-unconfigured users still get it moments later.
  */
 export class Notifier implements vscode.Disposable {

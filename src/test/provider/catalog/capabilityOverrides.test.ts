@@ -587,8 +587,8 @@ suite("provider/catalog/capabilityOverrides", () => {
 	});
 
 	suite("synthesizeDeclaredModels", () => {
-		test("a declared ID becomes a model with the badge, its baseline, and a route", () => {
-			const { infos, routes } = synthesizeDeclaredModels(
+		test("a declared ID becomes a model with the badge and its baseline", () => {
+			const { infos } = synthesizeDeclaredModels(
 				new Set(),
 				new Set(),
 				SERVER,
@@ -611,11 +611,6 @@ suite("provider/catalog/capabilityOverrides", () => {
 			assert.strictEqual(declared.litellm.outputLimitSource, "user", "declared limits are user-set");
 			assert.strictEqual(declared.capabilities?.toolCalling, true, "the floor keeps tools on");
 			assert.strictEqual(declared.capabilities?.imageInput, false);
-			assert.deepStrictEqual(routes.get("my-model"), {
-				serverId: SERVER.id,
-				rawModelId: "my-model",
-				serverLabel: SERVER.label,
-			});
 		});
 
 		test("a declared ID discovery listed stays inert, even when only synthetic variants registered", () => {
@@ -662,7 +657,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 		});
 
 		test("multi-server synthesis namespaces the exposed ID like registration", () => {
-			const { infos, routes } = synthesizeDeclaredModels(
+			const { infos } = synthesizeDeclaredModels(
 				new Set(),
 				new Set(),
 				SERVER,
@@ -671,7 +666,6 @@ suite("provider/catalog/capabilityOverrides", () => {
 			);
 			assert.strictEqual(infos[0]?.id, "srv1/my-model");
 			assert.strictEqual(infos[0]?.name, "[Default] my-model");
-			assert.strictEqual(routes.get("srv1/my-model")?.rawModelId, "my-model");
 		});
 
 		test("a leftover global _declare directive creates nothing and stays silent", () => {

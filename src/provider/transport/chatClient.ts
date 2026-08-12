@@ -21,9 +21,7 @@ import type { ExpectedDiscoveryFailures, FetchModelsResult } from "../catalog/di
 import { fetchModels } from "../catalog/discovery";
 import type { GroupServer, LiteLLMModelInfo } from "../catalog/groupModels";
 import { groupClientId, parseModelMetadata } from "../catalog/groupModels";
-import type { ModelRoute } from "../catalog/modelCatalog";
 import { requestParamsFromModelConfiguration } from "../catalog/modelConfiguration";
-import { resolveServer } from "../config";
 import { type OAuthConfig, type OAuthErrorSurface, OAuthTokenSource, type VirtualKeyConfig } from "./auth";
 import { CHAT_COMPLETIONS_PATH, chatCompletionsUrl, ServerClientCache } from "./clients";
 import { mapSdkError, RequestError, timeoutRequestError } from "./errorMapping";
@@ -40,7 +38,7 @@ export interface ChatRequestContext {
 }
 
 /**
- * A server to talk to: the registry fields plus the OAuth and virtual-key
+ * A server to talk to: the connection fields plus the OAuth and virtual-key
  * credentials that only provider-group configurations can carry.
  */
 export interface ServerConnection extends ServerWithKey {
@@ -50,9 +48,9 @@ export interface ServerConnection extends ServerWithKey {
 	 * The label naming the declared entry candidate for per-entry headers,
 	 * when one can match: a group's CONFIGURED label (never the URL-host
 	 * display fallback an unlabeled group renders under, which could collide
-	 * with a real entry label) or a registry server's own label - the same
-	 * identities the discovery side resolves entry capabilities and
-	 * expectedFailures with. Distinct from `label`, which is display text.
+	 * with a real entry label) - the same identity the discovery side resolves
+	 * entry capabilities and expectedFailures with. Distinct from `label`,
+	 * which is display text.
 	 */
 	entryLabel?: string | undefined;
 }
@@ -77,16 +75,13 @@ interface ResolvedConnection {
 export interface ChatClientOptions {
 	userAgent: string;
 	logger?: Logger | undefined;
-	/** Resolves the legacy registry's servers; defaults to none for hosts that only serve provider groups. */
-	getServers?: (() => Promise<ServerWithKey[]>) | undefined;
 	/**
 	 * Resolves a declared server entry's per-entry modelParameters at request
 	 * time, from the entry's label and the attached server's base URL; injected
 	 * by the extension layer (the setting lives on its side of the boundary).
 	 * The resolver returns parameters only when both identify the same declared
 	 * entry. Defaults to none: models without an attached labeled server
-	 * (external groups, registry-path models) get only the global
-	 * modelParameters.
+	 * (external groups) get only the global modelParameters.
 	 */
 	getEntryModelParameters?:
 		| ((label: string, baseUrl: string) => Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined)
@@ -117,12 +112,11 @@ export interface ChatClientOptions {
 
 /**
  * Owns the HTTP-facing side of the provider: model discovery, chat requests,
- * the model route and prompt-caching registries, and tool-call ID generation.
+ * the prompt-caching gate, and tool-call ID generation.
  */
 export class ChatClient {
 	private readonly userAgent: string;
 	private readonly logger?: Logger | undefined;
-	private readonly getServers: () => Promise<ServerWithKey[]>;
 	private readonly getEntryModelParameters: (
 		label: string,
 		baseUrl: string
@@ -132,7 +126,6 @@ export class ChatClient {
 	private readonly clients = new ServerClientCache();
 	private readonly oauthTokens = new OAuthTokenSource();
 	private readonly resolution: ModelResolutionTable;
-	private readonly _modelRoutes = new Map<string, ModelRoute>();
 	private _toolCallIdCounter = 0;
 	// The single owner of tool-call ID generation. next() advances the counter
 	// synchronously at the moment an ID is handed out, so overlapping requests
@@ -146,7 +139,6 @@ export class ChatClient {
 	constructor(options: ChatClientOptions) {
 		this.userAgent = options.userAgent;
 		this.logger = options.logger;
-		this.getServers = options.getServers ?? (() => Promise.resolve([]));
 		this.getEntryModelParameters = options.getEntryModelParameters ?? (() => undefined);
 		this.getEntryHeaders = options.getEntryHeaders ?? (() => undefined);
 		this.getEntryApiVersion = options.getEntryApiVersion ?? (() => undefined);
@@ -173,15 +165,6 @@ export class ChatClient {
 	 */
 	private apiVersionFor(entryLabel: string | undefined, baseUrl: string): string | undefined {
 		return entryLabel !== undefined ? this.getEntryApiVersion(entryLabel, baseUrl) : undefined;
-	}
-
-	applyRegistration(routes: Map<string, ModelRoute>, clearFirst: boolean): void {
-		if (clearFirst) {
-			this._modelRoutes.clear();
-		}
-		for (const [k, v] of routes) {
-			this._modelRoutes.set(k, v);
-		}
 	}
 
 	/** Drop cached SDK clients for any server ID not in `keep`; the provider includes live group-client IDs. */
@@ -279,16 +262,15 @@ export class ChatClient {
 	}
 
 	/**
-	 * Resolve the complete connection for one chat request. Three sources, in
-	 * priority order: the group server attached to the model object, the route
-	 * registered at discovery time, and (for configuration-less hosts with
-	 * exactly one registry server) that sole server. Each branch states every
-	 * ResolvedConnection field, so none can silently drop credentials.
+	 * Resolve the complete connection for one chat request: the group server
+	 * attached to the model object. Every served model carries its group's
+	 * resolved connection (attachGroupServer is the sole constructor), so a
+	 * model without one crossed the host boundary in a state this provider
+	 * never served - most likely a stale model object from before a refresh.
+	 * That case fails loudly with a classified error instead of an undefined
+	 * route; the terse classification keeps the model ID out of public logs.
 	 */
-	private async resolveConnection(
-		model: LiteLLMModelInfo,
-		groupServer: GroupServer | undefined
-	): Promise<ResolvedConnection> {
+	private resolveConnection(model: LiteLLMModelInfo, groupServer: GroupServer | undefined): ResolvedConnection {
 		if (groupServer) {
 			return {
 				serverId: groupClientId(groupServer),
@@ -302,44 +284,13 @@ export class ChatClient {
 				virtualKey: groupServer.virtualKey,
 			};
 		}
-		const route = this._modelRoutes.get(model.id);
-		if (route) {
-			const server = await resolveServer(route.serverId, this.getServers);
-			if (!server) {
-				throw localizedError(
-					l10n.t('Server "{0}" is no longer configured', route.serverLabel),
-					`Server "${route.serverLabel}" is no longer configured`
-				);
-			}
-			return {
-				serverId: server.id,
-				baseUrl: server.baseUrl,
-				apiKey: server.apiKey,
-				rawModelId: route.rawModelId,
-				entryLabel: server.label,
-				oauth: undefined,
-				virtualKey: undefined,
-			};
-		}
-		const servers = await this.getServers();
-		const [soleServer] = servers;
-		if (servers.length === 1 && soleServer !== undefined) {
-			return {
-				serverId: soleServer.id,
-				baseUrl: soleServer.baseUrl,
-				apiKey: soleServer.apiKey,
-				rawModelId: model.id,
-				entryLabel: soleServer.label,
-				oauth: undefined,
-				virtualKey: undefined,
-			};
-		}
 		throw localizedError(
 			l10n.t(
 				'Model "{0}" is not registered with any configured server. Refresh the model list and try again.',
 				model.id
 			),
-			`Model "${model.id}" is not registered with any configured server. Refresh the model list and try again.`
+			`Model "${model.id}" is not registered with any configured server. Refresh the model list and try again.`,
+			"RequestRouting(model without attached server)"
 		);
 	}
 
@@ -349,7 +300,7 @@ export class ChatClient {
 		// The one parse of the model object's LiteLLM metadata; everything below
 		// reads the parsed result instead of re-narrowing the host round trip.
 		const metadata = parseModelMetadata(model, this.log);
-		const connection = await this.resolveConnection(model, metadata.server);
+		const connection = this.resolveConnection(model, metadata.server);
 
 		const promptCachingEnabled = isPromptCachingEnabled();
 		const customHeaders = this.customHeadersFor(connection.entryLabel, connection.baseUrl);
@@ -421,8 +372,7 @@ export class ChatClient {
 		// base URL, so the label tells them apart). The resolver hands back the
 		// entry's per-entry modelParameters only when both match, and they merge
 		// over the global setting's match inside the resolution table; unlabeled
-		// servers (external groups, pre-label groups, registry models)
-		// contribute none. The match is label plus URL, deliberately not
+		// servers (external groups, pre-label groups) contribute none. The match is label plus URL, deliberately not
 		// credentials: any group carrying the entry's label at the entry's URL
 		// resolves, a hand-labeled native group included. What the URL check
 		// excludes is a same-label group at another URL - a stale group
