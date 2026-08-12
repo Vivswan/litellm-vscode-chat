@@ -11,44 +11,6 @@ import { type BooleanSettingId, CONFIG_SECTION } from "../shared/config/settingS
 
 export const OPENROUTER_CATALOG_SETTING_ID = "models.openRouterCatalog" satisfies BooleanSettingId;
 
-export interface ServerConfig {
-	id: string;
-	label: string;
-	baseUrl: string;
-}
-
-/**
- * Registry mutations are deterministic: the litellm._test.* commands resolve
- * only after the provider refresh completes and return the fresh prepared
- * model IDs (or null when superseded by a newer mutation). These wrappers
- * assert the mutation was not superseded and hand back the topology.
- */
-export async function clearServers(): Promise<string[]> {
-	const modelIds = (await vscode.commands.executeCommand("litellm._test.clearServers")) as string[] | null;
-	assert.ok(modelIds !== null, "clearServers was superseded by a concurrent registry mutation");
-	return modelIds;
-}
-
-export async function addServer(
-	label: string,
-	baseUrl: string,
-	apiKey: string
-): Promise<{ server: ServerConfig; modelIds: string[] }> {
-	const result = (await vscode.commands.executeCommand("litellm._test.addServer", label, baseUrl, apiKey)) as {
-		server: ServerConfig;
-		modelIds: string[] | null;
-	};
-	assert.ok(result.modelIds !== null, `addServer(${label}) was superseded by a concurrent registry mutation`);
-	return { server: result.server, modelIds: result.modelIds };
-}
-
-/** True when the host's model list is exactly the expected set of IDs. */
-export function hostMatches(models: vscode.LanguageModelChat[], expectedIds: string[]): boolean {
-	const actual = models.map((model) => model.id).sort();
-	const expected = [...expectedIds].sort();
-	return actual.length === expected.length && actual.every((id, i) => id === expected[i]);
-}
-
 /**
  * Wait for the host to reflect the current model topology. The host ingests
  * refreshed model lists asynchronously and offers no completion signal, so

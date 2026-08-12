@@ -3,7 +3,15 @@ import * as vscode from "vscode";
 import { CONFIG_SECTION } from "../shared/config/settingSpec";
 import { STACK_DEFAULTS } from "./envFile";
 import { COMMAND_SIGIL } from "./fakeStack/commands";
-import { addServer, catalogOff, clearServers, ensureActivated, extractText, waitForHostModels } from "./hostApiHelpers";
+import {
+	assertIdsUnserved,
+	refreshEntryModels,
+	restoreServersSettingAfterRun,
+	uniqueName,
+	waitForGroupStatus,
+	writeServerEntry,
+} from "./groupApiHelpers";
+import { catalogOff, ensureActivated, extractText, waitForHostModels } from "./hostApiHelpers";
 import { expectDefined } from "./pureHelpers";
 
 /**
@@ -68,7 +76,47 @@ const sseEvent = (chunk: unknown): string => `data: ${JSON.stringify(chunk)}\n\n
 const SSE_DONE = "data: [DONE]\n\n";
 const SSE_CONTENT_TYPE = { "Content-Type": "text/event-stream" };
 
-function transportSuite(title: string, directMode: boolean, serverUrl: string, serverKey: string): void {
+/**
+ * One declared entry and resolved model per target (proxy/direct) for the
+ * whole label host, shared deliberately by the transport and error-mapping
+ * suites: the stack's model ids are fixed, so a second same-URL group would
+ * serve indistinguishable twins and a later suite could silently bind to the
+ * first group's model anyway. The memo key IS the target: each target's URL
+ * and key are the module constants, derived here so the memo cannot disagree
+ * with a caller's arguments.
+ */
+const targetModels = new Map<string, Promise<vscode.LanguageModelChat>>();
+function resolveTargetModel(directMode: boolean): Promise<vscode.LanguageModelChat> {
+	const target = directMode ? "direct" : "proxy";
+	let resolved = targetModels.get(target);
+	if (resolved === undefined) {
+		resolved = (async () => {
+			await ensureActivated();
+			await catalogOff();
+			// Single-deployment on purpose: responses cannot vary by routing.
+			const wantedId = directMode ? "fake-mini" : "gpt-5.2-mini";
+			await assertIdsUnserved([wantedId]);
+			await writeServerEntry(
+				{
+					label: uniqueName(`transport-${target}`),
+					baseUrl: directMode ? FAKE_URL : BASE_URL,
+					auth: { apiKey: directMode ? "fake-key" : API_KEY },
+				},
+				60000
+			);
+			const models = await waitForHostModels(
+				60000,
+				(candidates) => candidates.some((m) => m.id === wantedId),
+				`host to expose ${wantedId}`
+			);
+			return expectDefined(models.find((m) => m.id === wantedId));
+		})();
+		targetModels.set(target, resolved);
+	}
+	return resolved;
+}
+
+function transportSuite(title: string, directMode: boolean): void {
 	suite(title, () => {
 		let model: vscode.LanguageModelChat;
 
@@ -81,18 +129,7 @@ function transportSuite(title: string, directMode: boolean, serverUrl: string, s
 
 		suiteSetup(async function () {
 			this.timeout(90000);
-			await ensureActivated();
-			await catalogOff();
-			await clearServers();
-			await addServer(title, serverUrl, serverKey);
-			// Single-deployment on purpose: responses cannot vary by routing.
-			const wantedId = directMode ? "fake-mini" : "gpt-5.2-mini";
-			const models = await waitForHostModels(
-				60000,
-				(candidates) => candidates.some((m) => m.id === wantedId),
-				`host to expose ${wantedId}`
-			);
-			model = expectDefined(models.find((m) => m.id === wantedId));
+			model = await resolveTargetModel(directMode);
 		});
 
 		test(`${COMMAND_SIGIL}abort:3 fails promptly, keeps the streamed text, and leaves the model usable`, async function () {
@@ -378,27 +415,6 @@ const PROXY_FORWARDED_STATUS: Readonly<Record<number, number>> = {
 /** The wrong-key scenario's credential marker; the secrecy assertions grep for its MARKER suffix. */
 const WRONG_MASTER_KEY = "sk-wrong-master-key-MARKER";
 
-/** The shared per-target setup: a clean registry with one server, resolved to the wanted model. */
-async function setUpTargetModel(
-	label: string,
-	directMode: boolean,
-	serverUrl: string,
-	serverKey: string
-): Promise<vscode.LanguageModelChat> {
-	await ensureActivated();
-	await catalogOff();
-	await clearServers();
-	await addServer(label, serverUrl, serverKey);
-	// Single-deployment on purpose, like the transport suites above.
-	const wantedId = directMode ? "fake-mini" : "gpt-5.2-mini";
-	const models = await waitForHostModels(
-		60000,
-		(candidates) => candidates.some((m) => m.id === wantedId),
-		`host to expose ${wantedId}`
-	);
-	return expectDefined(models.find((m) => m.id === wantedId));
-}
-
 /**
  * Every issue-report log line of this session, through the lossless test tee
  * (litellm._test.getSessionLogs): unlike the production buffer's 50-entry
@@ -414,7 +430,7 @@ async function sessionLogLines(): Promise<string[]> {
 	return batch.lines;
 }
 
-function errorMappingSuite(title: string, directMode: boolean, serverUrl: string, serverKey: string): void {
+function errorMappingSuite(title: string, directMode: boolean): void {
 	suite(title, () => {
 		let model: vscode.LanguageModelChat;
 
@@ -427,13 +443,7 @@ function errorMappingSuite(title: string, directMode: boolean, serverUrl: string
 
 		suiteSetup(async function () {
 			this.timeout(90000);
-			model = await setUpTargetModel(title, directMode, serverUrl, serverKey);
-		});
-
-		// Own cleanup rather than relying on the next suite's setup clearing.
-		suiteTeardown(async function () {
-			this.timeout(60000);
-			await clearServers();
+			model = await resolveTargetModel(directMode);
 		});
 
 		suite("deliberate HTTP error statuses", () => {
@@ -498,26 +508,49 @@ function errorMappingSuite(title: string, directMode: boolean, serverUrl: string
 
 function wrongMasterKeySuite(): void {
 	suite("Docker wrong master key (a real rejection from LiteLLM's own gate)", () => {
+		const label = uniqueName("WrongMasterKey");
+
 		suiteSetup(async function () {
 			this.timeout(60000);
 			await ensureActivated();
 			await catalogOff();
-			await clearServers();
 		});
 
-		// The rejected server must not linger into later suites or reruns.
-		suiteTeardown(async function () {
-			this.timeout(60000);
-			await clearServers();
+		test("a declared entry with a rejected key syncs its group into a 401-classified error serving nothing", async function () {
+			this.timeout(90000);
+			// Sampled BEFORE the entry lands: the stack's model ids are fixed, so
+			// the only host-visible proof the rejected group serves nothing is
+			// its arrival leaving the copy count alone.
+			const countProxyCopies = async () =>
+				(await vscode.lm.selectChatModels({ vendor: "litellm" })).filter((m) => m.id === "gpt-5.2-mini").length;
+			const before = await countProxyCopies();
+			// The entry syncs (the group add succeeds; credentials are opaque to
+			// the host), and the group's discovery then fails against the proxy's
+			// master-key gate: the silent per-group refresh resolves EMPTY rather
+			// than throwing, recording the truthful error status.
+			await writeServerEntry({ label, baseUrl: BASE_URL, auth: { apiKey: WRONG_MASTER_KEY } }, 60000);
+			const status = await waitForGroupStatus(label, (candidate) => candidate.state === "error", 30000);
+			assert.ok(status.state === "error", "narrowed by the wait");
+			assert.strictEqual(status.classification?.kind, "auth", "the gate's rejection classifies as auth");
+			assert.strictEqual(status.classification?.status, 401, "a 401 is never re-wrapped as a network error");
+			// Asserted across a settle window: the host ingests model lists
+			// asynchronously, so one clean sample could be a transient. Bounded
+			// above only - a healthy sibling's transient refresh dip must not be
+			// blamed on the rejected group; only GROWTH would prove it served.
+			const settleDeadline = Date.now() + 2500;
+			while (Date.now() < settleDeadline) {
+				assert.ok((await countProxyCopies()) <= before, "a rejected group must never add models");
+				await new Promise((resolve) => setTimeout(resolve, 250));
+			}
 		});
 
-		test("adding a server with a rejected key resolves with an EMPTY model list", async function () {
+		test("a non-silent refresh of the rejected entry throws auth-classified, never network-wrapped", async function () {
 			this.timeout(60000);
-			// The silent-refresh invariant over a real rejection from the proxy's
-			// master-key gate: the add's refresh runs silent, so the discovery
-			// failure surfaces as an empty list, never a throw.
-			const { modelIds } = await addServer("WrongMasterKey", BASE_URL, WRONG_MASTER_KEY);
-			assert.deepStrictEqual(modelIds, [], "a silent refresh over a real key rejection must resolve empty");
+			await assert.rejects(
+				() => refreshEntryModels(label),
+				(error: unknown) => /Authentication failed/.test(String(error)),
+				"the gate's 401 must surface as the auth classification, not a rewrapped network error"
+			);
 		});
 
 		test("the log buffer carries the auth classification and no key material or body text", async () => {
@@ -525,7 +558,7 @@ function wrongMasterKeySuite(): void {
 			// Pinned from observation: THE PINNED LITELLM STACK (v1.93 in its
 			// database flavor, backed by the compose postgres service) rejects an
 			// unknown master key with a proper HTTP 401 on both /v1/model/info
-			// and /v1/models, so the silent refresh's fetch failure logs the
+			// and /v1/models, so the group refresh's fetch failure logs the
 			// AUTH_MESSAGE template (englishMessage; the buffer is English-only).
 			// The DB-LESS v1.93 proxy answered 400 here instead (a
 			// BadRequestError wrapping an auth_error body) - if a stack change
@@ -534,7 +567,7 @@ function wrongMasterKeySuite(): void {
 			assert.ok(
 				logs.some(
 					(line) =>
-						line.includes("Failed to fetch models from server") &&
+						line.includes("Failed to fetch models for provider group") &&
 						line.includes("Authentication failed: Your LiteLLM server requires an API key")
 				),
 				"the gate's 401 must land in the buffer as the English auth template"
@@ -578,10 +611,11 @@ if (!BASE_URL) {
 		test("SKIPPED: LITELLM_DOCKER_BASE_URL not set; run via `bun run test:docker`", () => {});
 	});
 } else {
-	transportSuite("Docker transport failures (proxy)", false, BASE_URL, API_KEY);
-	transportSuite("Docker transport failures (direct)", true, FAKE_URL, "fake-key");
-	errorMappingSuite("Docker error mapping and timeouts (proxy)", false, BASE_URL, API_KEY);
-	errorMappingSuite("Docker error mapping and timeouts (direct)", true, FAKE_URL, "fake-key");
+	restoreServersSettingAfterRun();
+	transportSuite("Docker transport failures (proxy)", false);
+	transportSuite("Docker transport failures (direct)", true);
+	errorMappingSuite("Docker error mapping and timeouts (proxy)", false);
+	errorMappingSuite("Docker error mapping and timeouts (direct)", true);
 	wrongMasterKeySuite();
 	bufferSecrecySuite();
 }

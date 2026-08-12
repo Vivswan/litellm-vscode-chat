@@ -1,19 +1,25 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { MODEL_ID as CAPTURE_MODEL_ID, type CaptureServer, createCaptureServer } from "../capture-server";
+import { CONFIG_SECTION } from "../../shared/config/settingSpec";
+import { type CaptureServer, createCaptureServer } from "../capture-server";
 import {
-	addServer,
+	addGroup,
+	refreshEntryModels,
+	restoreServersSettingAfterRun,
+	scopedExact,
+	uniqueName,
+	waitForGroupStatus,
+	waitForModels,
+	writeServerEntry,
+} from "../groupApiHelpers";
+import {
 	catalogOff,
-	clearServers,
 	collectStream,
 	ensureActivated,
 	extractText,
 	extractThinkingParts,
 	extractToolCalls,
 	getThinkingPartClass,
-	hostMatches,
-	type ServerConfig,
-	waitForHostModels,
 } from "../hostApiHelpers";
 import { expectDefined } from "../pureHelpers";
 import { SLOW_STREAM_CHUNK_COUNT } from "../scenarios";
@@ -23,7 +29,10 @@ import { SLOW_STREAM_CHUNK_COUNT } from "../scenarios";
  *
  * Exercises the extension through the real VS Code LM API
  * (vscode.lm.selectChatModels / model.sendRequest) rather than
- * calling provideLanguageModelChatResponse() directly.
+ * calling provideLanguageModelChatResponse() directly. Every suite stands up
+ * its own VS Code-managed provider group(s): groups are add-only for the
+ * host lifetime, so each suite mints per-group-unique model IDs and scopes
+ * its model-list assertions to that universe (see groupApiHelpers).
  *
  * Two modes:
  *   1. Capture mode (default): backed by a deterministic local capture server.
@@ -43,19 +52,6 @@ const REAL_MODEL_ID = process.env.LITELLM_REAL_MODEL || "";
 const REAL_TIMEOUT = Number(process.env.LITELLM_REAL_TIMEOUT) || 0;
 const IS_LIVE = process.env.LITELLM_REAL_LIVE === "1";
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-/**
- * Find a model whose ID starts with the given server ID prefix.
- * In multi-server mode, IDs are formatted as `serverId/rawModelId`.
- */
-function findModelByServerId(
-	models: vscode.LanguageModelChat[],
-	serverId: string
-): vscode.LanguageModelChat | undefined {
-	return models.find((m) => m.id.startsWith(`${serverId}/`));
-}
-
 // ── Capture-Mode Tests (deterministic) ───────────────────────────────────────
 
 suite("Host-Fidelity Tests (capture)", () => {
@@ -64,29 +60,32 @@ suite("Host-Fidelity Tests (capture)", () => {
 		return;
 	}
 
+	/** Unique to this suite's group: the only way to attribute a host model to the group that serves it. */
+	const modelId = uniqueName("openai/hf-capture");
+
 	let server: CaptureServer;
-	let baseUrl: string;
 	let model: vscode.LanguageModelChat;
 
 	suiteSetup(async function () {
-		this.timeout(20000);
+		this.timeout(60000);
 
-		server = createCaptureServer();
+		server = createCaptureServer({ modelId });
 		await server.start();
-		baseUrl = `http://localhost:${server.port}`;
 
 		await ensureActivated();
 		await catalogOff();
-		await clearServers();
-		const { modelIds } = await addServer("Default", baseUrl, "test-key");
-		assert.ok(modelIds.length > 0, "Expected the capture server to expose at least one model");
-
-		const models = await waitForHostModels(
-			15000,
-			(models) => hostMatches(models, modelIds),
-			`host to expose capture-server models (${modelIds.join(", ")})`
+		const groupName = uniqueName("hf-capture");
+		await addGroup({ name: groupName, baseUrl: `http://localhost:${server.port}`, apiKey: "test-key" });
+		await waitForGroupStatus(groupName, (status) => status.state === "ok", 20000);
+		const models = await waitForModels(
+			scopedExact((candidate) => candidate.id === modelId, [modelId]),
+			20000,
+			`the capture group to expose ${modelId}`
 		);
-		model = expectDefined(models[0], "host returned no models");
+		model = expectDefined(
+			models.find((candidate) => candidate.id === modelId),
+			"host returned no capture model"
+		);
 	});
 
 	suiteTeardown(async () => {
@@ -704,56 +703,54 @@ suite("Host-Fidelity Tests (capture)", () => {
 	});
 });
 
-// ── Multi-Server Tests (capture) ────────────────────────────────────────────
+// ── Multi-Group Tests (capture) ──────────────────────────────────────────────
 
-suite("Host-Fidelity Tests (multi-server)", () => {
+suite("Host-Fidelity Tests (multi-group)", () => {
 	if (IS_LIVE) {
-		test("SKIPPED: running in live mode, multi-server capture tests disabled", () => {});
+		test("SKIPPED: running in live mode, multi-group capture tests disabled", () => {});
 		return;
 	}
+
+	// Per-group-unique model IDs: the host exposes no group identity on the
+	// model object, so a unique ID is the only handle that attributes a model
+	// (and its chat traffic) to the group that serves it.
+	const modelIdA = uniqueName("openai/hf-multi-a");
+	const modelIdB = uniqueName("openai/hf-multi-b");
+	const labelA = uniqueName("hf-multi-a");
+	const labelB = uniqueName("hf-multi-b");
+	const inUniverse = (candidate: vscode.LanguageModelChat) => candidate.id === modelIdA || candidate.id === modelIdB;
 
 	let serverA: CaptureServer;
 	let serverB: CaptureServer;
 	let baseUrlA: string;
-	let baseUrlB: string;
-	let serverIdA: string;
-	let serverIdB: string;
-	let twoServerModelIds: string[] = [];
-
-	async function setupTwoServers() {
-		await clearServers();
-		const resultA = await addServer("ServerA", baseUrlA, "key-a");
-		const resultB = await addServer("ServerB", baseUrlB, "key-b");
-		serverIdA = resultA.server.id;
-		serverIdB = resultB.server.id;
-		twoServerModelIds = resultB.modelIds;
-	}
-
-	async function waitForTwoServerModels(timeoutMs: number): Promise<vscode.LanguageModelChat[]> {
-		return waitForHostModels(
-			timeoutMs,
-			(models) => hostMatches(models, twoServerModelIds),
-			`models from both configured servers (${twoServerModelIds.join(", ")})`
-		);
-	}
+	let modelA: vscode.LanguageModelChat;
+	let modelB: vscode.LanguageModelChat;
 
 	suiteSetup(async function () {
-		this.timeout(20000);
+		this.timeout(90000);
 
-		serverA = createCaptureServer();
-		serverB = createCaptureServer();
+		serverA = createCaptureServer({ modelId: modelIdA });
+		serverB = createCaptureServer({ modelId: modelIdB });
 		await serverA.start();
 		await serverB.start();
 		baseUrlA = `http://localhost:${serverA.port}`;
-		baseUrlB = `http://localhost:${serverB.port}`;
 
 		await ensureActivated();
 		await catalogOff();
-		await setupTwoServers();
+		await addGroup({ name: labelA, baseUrl: baseUrlA, apiKey: "key-a" });
+		await addGroup({ name: labelB, baseUrl: `http://localhost:${serverB.port}`, apiKey: "key-b" });
+		await waitForGroupStatus(labelA, (status) => status.state === "ok", 20000);
+		await waitForGroupStatus(labelB, (status) => status.state === "ok", 20000);
+		const models = await waitForModels(
+			scopedExact(inUniverse, [modelIdA, modelIdB]),
+			20000,
+			`both groups' models (${modelIdA}, ${modelIdB})`
+		);
+		modelA = expectDefined(models.find((candidate) => candidate.id === modelIdA));
+		modelB = expectDefined(models.find((candidate) => candidate.id === modelIdB));
 	});
 
 	suiteTeardown(async () => {
-		await clearServers();
 		if (serverA) {
 			await serverA.close();
 		}
@@ -763,132 +760,39 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 	});
 
 	suite("model aggregation", () => {
-		test("models from both servers are registered", async function () {
-			this.timeout(15000);
-			const models = await waitForTwoServerModels(15000);
-			assert.ok(models.length >= 2, `Expected models from both servers, got ${models.length}`);
-		});
-
-		test("model IDs are distinct when same model comes from two servers", async function () {
-			this.timeout(15000);
-			const models = await waitForTwoServerModels(15000);
-			const ids = models.map((m) => m.id);
-			const uniqueIds = new Set(ids);
-			assert.strictEqual(ids.length, uniqueIds.size, `All model IDs should be unique: ${ids.join(", ")}`);
-		});
-
-		test("multi-server model IDs contain server prefix", async function () {
-			this.timeout(15000);
-			const models = await waitForTwoServerModels(15000);
-			const fromA = findModelByServerId(models, serverIdA);
-			const fromB = findModelByServerId(models, serverIdB);
-			assert.ok(fromA, `Should have a model with server prefix ${serverIdA}`);
-			assert.ok(fromB, `Should have a model with server prefix ${serverIdB}`);
-		});
-
-		test("each model has positive token limits", async function () {
-			this.timeout(15000);
-			const models = await waitForTwoServerModels(15000);
-			for (const m of models) {
+		test("each group serves exactly its own model with positive token limits", () => {
+			// The suiteSetup's scopedExact wait already pinned the exact multiset;
+			// this pins the per-model registration facts.
+			for (const m of [modelA, modelB]) {
 				assert.ok(m.maxInputTokens > 0, `${m.id} maxInputTokens should be positive`);
 			}
 		});
 	});
 
 	suite("request routing", () => {
-		test("request is routed to the correct server", async function () {
+		test("a group model's request reaches its own server carrying the raw model ID", async function () {
 			this.timeout(15000);
 			serverA.setScenario("text-only");
-			serverB.setScenario("text-only");
 
-			const models = await waitForTwoServerModels(15000);
-			const modelFromA = findModelByServerId(models, serverIdA);
-			assert.ok(modelFromA, "Should have a model from ServerA");
-
-			const responseA = await modelFromA.sendRequest(
+			const response = await modelA.sendRequest(
 				[vscode.LanguageModelChatMessage.User("hi")],
 				{},
 				new vscode.CancellationTokenSource().token
 			);
-			const partsA = await collectStream(responseA);
-			const textA = extractText(partsA);
-			assert.ok(textA.length > 0, "Should get response from server A");
+			const parts = await collectStream(response);
+			assert.ok(extractText(parts).length > 0, "Should get response from server A");
 
-			const lastReqA = serverA.getLastRequest();
-			assert.ok(lastReqA, "Server A should have received the request");
-		});
-
-		test("request uses raw model ID in body, not server-prefixed ID", async function () {
-			this.timeout(15000);
-			serverA.setScenario("text-only");
-
-			const models = await waitForTwoServerModels(15000);
-			const modelFromA = findModelByServerId(models, serverIdA);
-			assert.ok(modelFromA, "Should have a model from ServerA");
-
-			const response = await modelFromA.sendRequest(
-				[vscode.LanguageModelChatMessage.User("hi")],
-				{},
-				new vscode.CancellationTokenSource().token
-			);
-			await collectStream(response);
-
-			const body = serverA.getLastRequest() ?? {};
-			const modelInBody = body.model as string;
-			assert.ok(modelInBody, "Request body should have a model field");
-			assert.ok(
-				!modelInBody.startsWith(serverIdA),
-				`Model in body should be raw ID without server prefix, got: ${modelInBody}`
-			);
+			const body = serverA.getLastRequest();
+			assert.ok(body, "Server A should have received the request");
+			assert.strictEqual(body.model, modelIdA, "the wire carries the raw model ID as served");
+			assert.strictEqual(serverB.getLastRequest(), null, "the other group's server must see no chat traffic");
 		});
 	});
 
-	suite("partial failure", () => {
-		test("models load from healthy server when other server is down", async function () {
-			this.timeout(15000);
-
-			await serverB.close();
-
-			try {
-				// One explicit refresh sees the dead server; then wait for the host to catch up.
-				const ids = (await vscode.commands.executeCommand("litellm._test.refreshModelIds")) as string[];
-				assert.ok(
-					ids.some((id) => id.startsWith(`${serverIdA}/`)),
-					`Prepared models should include the healthy server ${serverIdA}, got: ${ids.join(", ")}`
-				);
-				assert.ok(
-					ids.every((id) => !id.startsWith(`${serverIdB}/`)),
-					`Prepared models should exclude the failed server ${serverIdB}, got: ${ids.join(", ")}`
-				);
-
-				const models = await waitForHostModels(
-					15000,
-					(models) => hostMatches(models, ids),
-					`models from healthy server ${serverIdA} only`
-				);
-				assert.ok(models.length > 0, "Should still have models from the healthy server");
-
-				const fromA = models.filter((m) => m.id.startsWith(`${serverIdA}/`));
-				const fromB = models.filter((m) => m.id.startsWith(`${serverIdB}/`));
-				assert.ok(fromA.length > 0, "Should have models from ServerA");
-				assert.strictEqual(fromB.length, 0, "Should have no models from failed ServerB");
-			} finally {
-				serverB = createCaptureServer();
-				await serverB.start();
-				baseUrlB = `http://localhost:${serverB.port}`;
-				await setupTwoServers();
-			}
-		});
-	});
-
-	suite("model matchers apply to registry models", () => {
+	suite("model matchers apply to group models", () => {
 		test("a pre-migration URL-scoped key is inert; the exact matcher applies", async function () {
 			this.timeout(15000);
 			serverA.setScenario("text-only");
-
-			const models = await waitForTwoServerModels(15000);
-			const modelFromA = findModelByServerId(models, serverIdA);
-			assert.ok(modelFromA, "Should have a model from ServerA");
 
 			const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
 			const original = config.inspect<Record<string, Record<string, unknown>>>("models.parameters")?.globalValue;
@@ -896,14 +800,14 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 			await config.update(
 				"models.parameters",
 				{
-					[CAPTURE_MODEL_ID]: { temperature: 0.5 },
-					[`${baseUrlA}/${CAPTURE_MODEL_ID}`]: { temperature: 0.2 },
+					[modelIdA]: { temperature: 0.5 },
+					[`${baseUrlA}/${modelIdA}`]: { temperature: 0.2 },
 				},
 				vscode.ConfigurationTarget.Global
 			);
 
 			try {
-				const response = await modelFromA.sendRequest(
+				const response = await modelA.sendRequest(
 					[vscode.LanguageModelChatMessage.User("hi")],
 					{},
 					new vscode.CancellationTokenSource().token
@@ -925,10 +829,6 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 			this.timeout(15000);
 			serverB.setScenario("text-only");
 
-			const models = await waitForTwoServerModels(15000);
-			const modelFromB = findModelByServerId(models, serverIdB);
-			assert.ok(modelFromB, "Should have a model from ServerB");
-
 			const config = vscode.workspace.getConfiguration("litellm-vscode-chat");
 			const original = config.inspect<Record<string, Record<string, unknown>>>("models.parameters")?.globalValue;
 
@@ -937,14 +837,14 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 				{
 					// The prefix of the ID without the star is exact and no longer
 					// matches; the glob form does.
-					[CAPTURE_MODEL_ID.slice(0, 4)]: { temperature: 0.2 },
-					[`${CAPTURE_MODEL_ID.slice(0, 4)}*`]: { temperature: 0.5 },
+					[modelIdB.slice(0, 10)]: { temperature: 0.2 },
+					[`${modelIdB.slice(0, 10)}*`]: { temperature: 0.5 },
 				},
 				vscode.ConfigurationTarget.Global
 			);
 
 			try {
-				const response = await modelFromB.sendRequest(
+				const response = await modelB.sendRequest(
 					[vscode.LanguageModelChatMessage.User("hi")],
 					{},
 					new vscode.CancellationTokenSource().token
@@ -963,37 +863,51 @@ suite("Host-Fidelity Tests (multi-server)", () => {
 		});
 	});
 
-	suite("single-server fallback", () => {
-		test("with one server, model IDs have no server prefix", async function () {
-			this.timeout(20000);
+	suite("partial failure", () => {
+		// Deliberately the suite's last test: groups cannot be removed, so the
+		// dead group stays dead for the rest of the host's life.
+		test("a dead group's status goes error while the healthy group keeps serving", async function () {
+			this.timeout(60000);
 
+			const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+			const originalTtl = config.inspect("discovery.cacheTtl")?.globalValue;
+			await serverB.close();
+			// The discovery cache would keep answering for the dead group for its
+			// whole TTL; zeroing it makes every poll a real fetch.
+			await config.update("discovery.cacheTtl", 0, vscode.ConfigurationTarget.Global);
 			try {
-				await clearServers();
-				const { server: soloConfig, modelIds } = await addServer("Solo", baseUrlA, "key-a");
-				assert.ok(modelIds.length > 0, "Should have models");
+				const failed = await waitForGroupStatus(labelB, (status) => status.state === "error", 30000);
+				assert.ok(failed.state === "error", "narrowed by the wait");
+				assert.strictEqual(failed.classification?.kind, "connection", "a dead port classifies as connection");
+				// A FRESH healthy refresh, not the setup-time status: the healthy
+				// group's ok must postdate the dead group's observed failure.
+				const failedAt = Date.parse(failed.lastChecked);
+				await waitForGroupStatus(
+					labelA,
+					(status) => status.state === "ok" && Date.parse(status.lastChecked) >= failedAt,
+					20000
+				);
 
-				for (const id of modelIds) {
-					assert.ok(!id.startsWith(`${soloConfig.id}/`), `Single-server model ID should not have server prefix: ${id}`);
-					assert.strictEqual(id, CAPTURE_MODEL_ID, `Single-server model ID should be the raw model ID: ${id}`);
-				}
+				// Both serving contracts on the host list, as an exact multiset: the
+				// healthy group's model stays served, and the dead group's last
+				// known model is served flagged stale (its last successful discovery
+				// is minutes old) instead of vanishing.
+				const models = await waitForModels(
+					scopedExact(inUniverse, [modelIdA, modelIdB]),
+					20000,
+					`the healthy ${modelIdA} and the stale ${modelIdB} to stay served`
+				);
+				const healthy = expectDefined(models.find((candidate) => candidate.id === modelIdA));
+				serverA.setScenario("text-only");
+				const response = await healthy.sendRequest(
+					[vscode.LanguageModelChatMessage.User("hi")],
+					{},
+					new vscode.CancellationTokenSource().token
+				);
+				const text = extractText(await collectStream(response));
+				assert.ok(text.includes("Hello from capture server"), `expected the captured reply, got: "${text}"`);
 			} finally {
-				await setupTwoServers();
-			}
-		});
-	});
-
-	suite("no-config behavior", () => {
-		test("empty registry returns no models", async function () {
-			this.timeout(20000);
-
-			try {
-				const modelIds = await clearServers();
-				assert.deepStrictEqual(modelIds, [], "Empty registry should return no models");
-
-				const servers = (await vscode.commands.executeCommand("litellm._test.getServers")) as ServerConfig[];
-				assert.strictEqual(servers.length, 0, "Registry should be empty after clearServers");
-			} finally {
-				await setupTwoServers();
+				await config.update("discovery.cacheTtl", originalTtl, vscode.ConfigurationTarget.Global);
 			}
 		});
 	});
@@ -1007,56 +921,64 @@ suite("Host-Fidelity Tests (declared models)", () => {
 		return;
 	}
 
-	/** Created only by the declared-list seam below; the capture server never lists it. */
-	const DECLARED_MODEL_ID = "declared-probe-model";
+	/** Named only by the entry's discovery.declared list; the capture server never lists it. */
+	const declaredId = uniqueName("hf-declared-probe");
+	/** The capture server's own (listed) model. */
+	const discoveredId = uniqueName("openai/hf-declared-listed");
+	const label = uniqueName("hf-declared");
 
 	let server: CaptureServer;
 	let declaredModel: vscode.LanguageModelChat;
-	let modelIds: string[] = [];
+	let entryInfos: vscode.LanguageModelChatInformation[] = [];
+
+	// writeServerEntry edits the real machine-scoped servers setting; the
+	// helper's hooks restore it (with the reconciling sync pass) even when a
+	// test dies between the write and the teardown.
+	restoreServersSettingAfterRun();
 
 	suiteSetup(async function () {
-		this.timeout(20000);
+		this.timeout(90000);
 
-		server = createCaptureServer();
+		server = createCaptureServer({ modelId: discoveredId });
 		await server.start();
-		const baseUrl = `http://localhost:${server.port}`;
 
 		await ensureActivated();
 		await catalogOff();
-		// Declarations are entry-level (the entry's discovery.declared list);
-		// the registry has no declared entries, so the test seams inject the
-		// declared IDs and the capability record by label. The first ID
-		// declares a model discovery cannot list; the second names the
-		// DISCOVERED model, so its declaration must stay inert.
-		await vscode.commands.executeCommand("litellm._test.setEntryDeclared", "Declared", [
-			DECLARED_MODEL_ID,
-			CAPTURE_MODEL_ID,
-		]);
-		await vscode.commands.executeCommand("litellm._test.setEntryModelCapabilities", "Declared", {
-			[DECLARED_MODEL_ID]: {
-				max_input_tokens: 150000,
-				max_output_tokens: 8192,
-				supports_vision: true,
+		// A real declared entry: discovery.declared lists a model discovery
+		// cannot list plus the DISCOVERED model (whose declaration must stay
+		// inert), and the entry's capability record patches the declared one.
+		await writeServerEntry({
+			label,
+			baseUrl: `http://localhost:${server.port}`,
+			discovery: { declared: [declaredId, discoveredId] },
+			models: {
+				capabilities: {
+					[declaredId]: {
+						max_input_tokens: 150000,
+						max_output_tokens: 8192,
+						supports_vision: true,
+					},
+				},
 			},
 		});
+		await waitForGroupStatus(label, (status) => status.state === "ok", 20000);
+		entryInfos = await refreshEntryModels(label);
 
-		await clearServers();
-		({ modelIds } = await addServer("Declared", baseUrl, "test-key"));
-		const models = await waitForHostModels(
-			15000,
-			(candidates) => hostMatches(candidates, modelIds),
-			`host to expose the discovered and declared models (${modelIds.join(", ")})`
+		const models = await waitForModels(
+			scopedExact(
+				(candidate) => candidate.id === declaredId || candidate.id === discoveredId,
+				[declaredId, discoveredId]
+			),
+			20000,
+			`the discovered and declared models (${discoveredId}, ${declaredId})`
 		);
 		declaredModel = expectDefined(
-			models.find((m) => m.id === DECLARED_MODEL_ID),
+			models.find((m) => m.id === declaredId),
 			"host returned no declared model"
 		);
 	});
 
 	suiteTeardown(async () => {
-		await vscode.commands.executeCommand("litellm._test.setEntryDeclared", "Declared", undefined);
-		await vscode.commands.executeCommand("litellm._test.setEntryModelCapabilities", "Declared", undefined);
-		await clearServers();
 		if (server) {
 			await server.close();
 		}
@@ -1064,19 +986,16 @@ suite("Host-Fidelity Tests (declared models)", () => {
 
 	test("a declared unlisted ID registers; a declared discovered ID stays inert", () => {
 		assert.deepStrictEqual(
-			[...modelIds].sort(),
-			[CAPTURE_MODEL_ID, DECLARED_MODEL_ID].sort(),
+			entryInfos.map((info) => info.id).sort(),
+			[declaredId, discoveredId].sort(),
 			"exactly the discovered model plus the declared one, no duplicates"
 		);
 	});
 
-	test("the declared model registers with its declared capabilities", async () => {
-		const infos = (await vscode.commands.executeCommand(
-			"litellm._test.refreshModelInfos"
-		)) as vscode.LanguageModelChatInformation[];
+	test("the declared model registers with its declared capabilities", () => {
 		const info = expectDefined(
-			infos.find((candidate) => candidate.id === DECLARED_MODEL_ID),
-			`${DECLARED_MODEL_ID} in refreshModelInfos`
+			entryInfos.find((candidate) => candidate.id === declaredId),
+			`${declaredId} in refreshEntryModels`
 		);
 		assert.strictEqual(info.maxInputTokens, 150000, "the declared max_input_tokens drives registration");
 		assert.strictEqual(info.maxOutputTokens, 8192, "the declared max_output_tokens drives registration");
@@ -1093,7 +1012,7 @@ suite("Host-Fidelity Tests (declared models)", () => {
 		const text = extractText(await collectStream(response));
 		assert.ok(text.includes("Hello from capture server"), `expected the captured reply, got: "${text}"`);
 		const body = server.getLastRequest() ?? {};
-		assert.strictEqual(body.model, DECLARED_MODEL_ID, "the declared raw ID routes to the wire");
+		assert.strictEqual(body.model, declaredId, "the declared raw ID routes to the wire");
 		assert.strictEqual(body.max_tokens, 8192, "a user-declared output limit passes uncapped, not min(4096, ...)");
 	});
 });
@@ -1110,11 +1029,13 @@ suite("Host-Fidelity Tests (live)", () => {
 		return;
 	}
 
+	restoreServersSettingAfterRun();
+
 	let model: vscode.LanguageModelChat;
 	let allModels: vscode.LanguageModelChat[];
 
 	suiteSetup(async function () {
-		this.timeout(REAL_TIMEOUT || 30000);
+		this.timeout(REAL_TIMEOUT || 60000);
 
 		assert.ok(
 			REAL_BASE_URL,
@@ -1123,20 +1044,32 @@ suite("Host-Fidelity Tests (live)", () => {
 
 		await ensureActivated();
 		await catalogOff();
-		await clearServers();
-		const { modelIds } = await addServer("Default", REAL_BASE_URL, REAL_API_KEY);
-		assert.ok(modelIds.length > 0, "Expected at least one litellm model from the real server");
-
+		// The live label's host runs the capture suites as skip stubs, so this
+		// entry's group must be the only litellm group the host resolves; a
+		// leftover group in a recycled user-data directory would be
+		// indistinguishable from it, so fail fast.
+		assert.strictEqual(
+			(await vscode.lm.selectChatModels({ vendor: "litellm" })).length,
+			0,
+			"the live host already serves litellm models (leftover groups from a recycled user-data directory)"
+		);
+		const liveLabel = uniqueName("litellm-live");
+		await writeServerEntry(
+			{ label: liveLabel, baseUrl: REAL_BASE_URL, ...(REAL_API_KEY ? { auth: { apiKey: REAL_API_KEY } } : {}) },
+			30000
+		);
 		// Set equality after dedupe, not containment: wildcard servers list
 		// duplicate IDs (the host deduplicates on registration), and containment
-		// alone could pass on a stale superset mid-propagation.
-		const expectedIds = new Set(modelIds);
-		allModels = await waitForHostModels(
-			15000,
+		// alone could pass on a stale superset mid-propagation. The entry's own
+		// non-silent refresh supplies the expected set.
+		const expectedIds = new Set((await refreshEntryModels(liveLabel)).map((info) => info.id));
+		assert.ok(expectedIds.size > 0, "Expected at least one litellm model from the real server");
+		allModels = await waitForModels(
 			(models) => {
 				const actual = new Set(models.map((m) => m.id));
 				return actual.size === expectedIds.size && [...expectedIds].every((id) => actual.has(id));
 			},
+			15000,
 			"host to expose models from the real server"
 		);
 

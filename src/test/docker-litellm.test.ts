@@ -6,9 +6,15 @@ import { STACK_DEFAULTS } from "./envFile";
 import { COMMAND_SIGIL, COMMANDS, FALLBACK_TEXT, PNG_SHA256, WAV_SHA256 } from "./fakeStack/commands";
 import { PLAYBACK_MODEL } from "./fakeStack/models";
 import {
-	addServer,
+	assertIdsUnserved,
+	refreshEntryModels,
+	restoreServersSettingAfterRun,
+	scopedExact,
+	uniqueName,
+	writeServerEntry,
+} from "./groupApiHelpers";
+import {
 	catalogOff,
-	clearServers,
 	collectStream,
 	ensureActivated,
 	extractText,
@@ -23,13 +29,14 @@ import { assertOmits, assertShows, expectDefined } from "./pureHelpers";
  * Docker-stack test suite.
  *
  * Drives the extension through the real VS Code LM API against the dockerized
- * LiteLLM proxy (docker/docker-compose.yml). The consolidated fake models (realistic
- * aliases over fake- upstreams, src/test/fakeStack/models.ts) are the primary
- * surface: response shapes are selected with the %play command against
- * gpt-5.2-mini, and every other command drives its own behavior.
- * Compared to the in-process capture suite this adds a real proxy hop:
- * LiteLLM re-serializes requests and streams, so these tests pin what
- * survives the trip. Run via `bun run test:docker`.
+ * LiteLLM proxy (docker/docker-compose.yml), served through one declared
+ * provider-group entry. The consolidated fake models (realistic aliases over
+ * fake- upstreams, src/test/fakeStack/models.ts) are the primary surface:
+ * response shapes are selected with the %play command against gpt-5.2-mini,
+ * and every other command drives its own behavior. Compared to the in-process
+ * capture suite this adds a real proxy hop: LiteLLM re-serializes requests
+ * and streams, so these tests pin what survives the trip. Run via
+ * `bun run test:docker`.
  */
 
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
@@ -67,8 +74,13 @@ suite("Docker LiteLLM stack", () => {
 		test("SKIPPED: LITELLM_DOCKER_BASE_URL not set; run via `bun run test:docker`", () => {});
 		return;
 	}
+	restoreServersSettingAfterRun();
 
 	const modelsByName = new Map<string, vscode.LanguageModelChat>();
+	/** The label of this suite's declared entry; the registration-metadata tests refresh through it. */
+	const entryLabel = uniqueName("Docker");
+	/** The blocked model plus the survivors: the ids whose host-list counts the setup pins exactly. */
+	const watchedIds = [...SURVIVOR_IDS, "gpt-4-turbo"];
 	let registeredModelIds: string[] = [];
 
 	function chatModel(name: string): vscode.LanguageModelChat {
@@ -136,36 +148,47 @@ suite("Docker LiteLLM stack", () => {
 
 		await ensureActivated();
 		await catalogOff();
-		await clearServers();
-		const { modelIds } = await addServer("Docker", BASE_URL, API_KEY);
-		registeredModelIds = modelIds;
+		// The stack's ids are fixed and the host exposes no group identity, so
+		// pre-existing copies would be indistinguishable from this entry's;
+		// fail fast instead of testing through a leftover group.
+		await assertIdsUnserved(watchedIds);
+
+		await writeServerEntry({ label: entryLabel, baseUrl: BASE_URL, auth: { apiKey: API_KEY } }, 60000);
+		registeredModelIds = (await refreshEntryModels(entryLabel)).map((info) => info.id);
 		for (const id of SURVIVOR_IDS) {
-			assert.ok(modelIds.includes(id), `LiteLLM did not register ${id}; check the generated proxy config`);
+			assert.ok(registeredModelIds.includes(id), `LiteLLM did not register ${id}; check the generated proxy config`);
 		}
 
+		// Exactly one copy of each survivor and none of the blocked model,
+		// duplicates counted: the multiset wait pins what vscode.lm actually
+		// exposes, not only the provider refresh result.
 		const models = await waitForHostModels(
 			60000,
-			(candidates) => SURVIVOR_IDS.every((id) => candidates.some((m) => m.id === id)),
-			"host to expose the consolidated survivors"
+			scopedExact((candidate) => watchedIds.includes(candidate.id), SURVIVOR_IDS),
+			"host to expose exactly one copy of each consolidated survivor"
 		);
 		for (const model of models) {
-			modelsByName.set(model.id, model);
+			if (!modelsByName.has(model.id)) {
+				modelsByName.set(model.id, model);
+			}
 		}
 	});
 
-	// ── Consolidated registry: the config and the tests share one table ───────
+	// ── Consolidated registration: the config and the tests share one table ───
 
-	suite("consolidated registry", () => {
-		test("the registered models are exactly the six survivors", () => {
+	suite("consolidated registration", () => {
+		test("the entry's group registers exactly the six survivors", () => {
 			// Deterministic because the test orchestrator always generates the
 			// config without real-provider wildcard routes.
 			assert.deepStrictEqual([...registeredModelIds].sort(), SURVIVOR_IDS);
 		});
 
-		test("the HOST model list is exactly the six survivors", () => {
-			// The polled wait accepts supersets; this pins exact equality on what
-			// vscode.lm actually exposes, not only on the provider refresh result.
-			assert.deepStrictEqual([...modelsByName.keys()].sort(), SURVIVOR_IDS);
+		test("every survivor reaches the HOST model list", () => {
+			// The setup's multiset wait already pinned exact counts; this pins
+			// that each survivor's model object is usable from the map.
+			for (const id of SURVIVOR_IDS) {
+				assert.ok(modelsByName.has(id), `${id} must reach the host`);
+			}
 		});
 
 		test("the blocked gpt-4-turbo never registers", () => {
@@ -189,20 +212,18 @@ suite("Docker LiteLLM stack", () => {
 		});
 
 		test("the reasoning-effort picker schema follows supports_reasoning through real discovery", async () => {
-			const infos = (await vscode.commands.executeCommand(
-				"litellm._test.refreshModelInfos"
-			)) as vscode.LanguageModelChatInformation[];
+			const infos = await refreshEntryModels(entryLabel);
 			const byId = new Map(infos.map((info) => [info.id, info]));
 			for (const id of ["claude-opus-4-5", "deepseek-r2", "gpt-5.2-mini"]) {
 				assert.deepStrictEqual(
-					expectDefined(byId.get(id), `${id} in refreshModelInfos`).configurationSchema,
+					expectDefined(byId.get(id), `${id} in refreshEntryModels`).configurationSchema,
 					REASONING_EFFORT_SCHEMA,
 					`${id} advertises reasoning and must surface the picker control`
 				);
 			}
 			for (const id of ["gpt-5.2", "llama-4-scout"]) {
 				assert.ok(
-					!("configurationSchema" in expectDefined(byId.get(id), `${id} in refreshModelInfos`)),
+					!("configurationSchema" in expectDefined(byId.get(id), `${id} in refreshEntryModels`)),
 					`${id} does not advertise reasoning and must not grow the control`
 				);
 			}
@@ -653,9 +674,7 @@ suite("Docker LiteLLM stack", () => {
 
 	suite("pricing through real discovery", () => {
 		test("tier and cache costs surface on the flagship and stay absent on the pair", async () => {
-			const infos = (await vscode.commands.executeCommand(
-				"litellm._test.refreshModelInfos"
-			)) as vscode.LanguageModelChatInformation[];
+			const infos = await refreshEntryModels(entryLabel);
 			const byId = new Map(infos.map((info) => [info.id, info]));
 
 			const opus = expectDefined(byId.get("claude-opus-4-5"));

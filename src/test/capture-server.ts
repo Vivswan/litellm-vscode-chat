@@ -12,8 +12,8 @@ import { URL } from "node:url";
 import type { Scenario } from "./scenarios";
 import { BUILTIN_SCENARIOS, playScenario, readBody, sendJson } from "./scenarios";
 
-/** The single model this fixture serves by default; host-fidelity.test.ts derives its scoped modelParameters keys from it. */
-export const MODEL_ID = "openai/gpt-5-mini-flex";
+/** The single model this fixture serves when the caller mints no per-group-unique ID of its own. */
+const DEFAULT_MODEL_ID = "openai/gpt-5-mini-flex";
 
 const modelInfoFor = (modelId: string) => ({
 	data: [
@@ -68,7 +68,7 @@ export interface CaptureServer {
 // ── Factory ──────────────────────────────────────────────────────────────────
 
 export function createCaptureServer(options?: { modelId?: string }): CaptureServer {
-	const modelId = options?.modelId ?? MODEL_ID;
+	const modelId = options?.modelId ?? DEFAULT_MODEL_ID;
 	const modelInfo = modelInfoFor(modelId);
 	const models = modelsFor(modelId);
 	let lastRequest: Record<string, unknown> | null = null;
