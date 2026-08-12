@@ -8,9 +8,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { z } from "zod";
-
-// Tests run from out/test/util, so the repo root is three levels up.
-const repoRoot = path.resolve(__dirname, "..", "..", "..");
+import { REPO_ROOT } from "./repoRoot";
 
 const nlsSchema = z.record(z.string(), z.string());
 
@@ -18,7 +16,7 @@ let cached: { readonly table: Readonly<Record<string, string>> | null } | undefi
 
 function readNlsTable(): Readonly<Record<string, string>> | null {
 	if (cached === undefined) {
-		const nlsPath = path.join(repoRoot, "package.nls.json");
+		const nlsPath = path.join(REPO_ROOT, "package.nls.json");
 		cached = {
 			table: fs.existsSync(nlsPath) ? nlsSchema.parse(JSON.parse(fs.readFileSync(nlsPath, "utf8"))) : null,
 		};

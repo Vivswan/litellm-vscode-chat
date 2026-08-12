@@ -1,8 +1,8 @@
 /**
  * Preload for the bun test tree (wired via bunfig.toml), loaded before any
  * test module. The tree's rule: suites that need no extension host live here
- * - DOM component tests today, pure logic suites as they move off the host
- * runner; real network machinery (msw) stays host-side in the Mocha suites.
+ * - the pure logic and property suites and the DOM component tests; real
+ * network machinery (msw) stays host-side in the Mocha suites.
  * Three process-global concerns live here so no suite can forget them:
  * happy-dom registration, the fixed fingerprint salt (suites here compute
  * fingerprints without running activation's salt load), and the
