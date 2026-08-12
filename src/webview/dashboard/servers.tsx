@@ -74,6 +74,7 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
 import { Input } from "./ui/input";
+import { Radio } from "./ui/radio";
 import { Select } from "./ui/select";
 import { barPresentation, formatPercent, formatUsd } from "./usage";
 import { sendRequest } from "./vscodeApi";
@@ -655,8 +656,7 @@ function SecretField({ field, help, props }: { field: SecretFieldId; help?: stri
 				<span className="where-label">{l10n.t("Store in:")}</span>
 				<Help text={helpSecretStorage()} />
 				<label>
-					<input
-						type="radio"
+					<Radio
 						name={`${id}-where`}
 						checked={value.location === "secure"}
 						disabled={props.disabled || value.clear}
@@ -665,8 +665,7 @@ function SecretField({ field, help, props }: { field: SecretFieldId; help?: stri
 					{l10n.t("secret storage")}
 				</label>
 				<label>
-					<input
-						type="radio"
+					<Radio
 						name={`${id}-where`}
 						checked={value.location === "settings"}
 						disabled={props.disabled || value.clear}
@@ -1357,8 +1356,7 @@ function ServerForm({
 				<div className="auth-selector" role="radiogroup" aria-label={serverFormFieldLabel("authForm")}>
 					{AUTH_FORM_IDS.map((form) => (
 						<label key={form}>
-							<input
-								type="radio"
+							<Radio
 								name="server-auth-form"
 								checked={draft.authForm === form}
 								disabled={saving}
@@ -1765,8 +1763,7 @@ function AdoptForm({
 					>
 						<span className="where-label">{l10n.t("Store in:")}</span>
 						<label>
-							<input
-								type="radio"
+							<Radio
 								name={`adopt-${field}-where`}
 								checked={locations[field] === "secure"}
 								disabled={saving}
@@ -1778,8 +1775,7 @@ function AdoptForm({
 							{l10n.t("secret storage")}
 						</label>
 						<label>
-							<input
-								type="radio"
+							<Radio
 								name={`adopt-${field}-where`}
 								checked={locations[field] === "settings"}
 								disabled={saving}

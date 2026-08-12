@@ -27,9 +27,21 @@ test("a caller's hover color replaces the variant's instead of stacking with it"
 test("the disabled treatment rides on the component, not on a legacy rule", () => {
 	// dashboard.css's button:disabled sits in the legacy layer, below the
 	// utilities, so the neutral disabled pair has to come from the variants.
-	for (const variant of ["default", "secondary", "quiet"] as const) {
+	for (const variant of ["default", "secondary"] as const) {
 		const classes = classesOf(mount(<Button variant={variant} disabled={true} />));
 		expect(classes).toContain("disabled:bg-disabled");
 		expect(classes).toContain("disabled:text-disabled-foreground");
 	}
+});
+
+test("a disabled quiet button stays quiet: muted text and opacity, never a fill", () => {
+	// The legacy button:disabled painted the secondary fill onto every button
+	// including the quiet ones, which is not a treatment quiet ever wanted. The
+	// variant's own disabled:bg-transparent has to survive tailwind-merge
+	// against the base's disabled:bg-disabled - same group, same modifier, so
+	// exactly one of them may remain.
+	const classes = classesOf(mount(<Button variant="quiet" disabled={true} />));
+	expect(classes.filter((name) => /(^|:)disabled:bg-/.test(name))).toEqual(["disabled:bg-transparent"]);
+	expect(classes).toContain("disabled:text-disabled-foreground");
+	expect(classes).toContain("disabled:opacity-50");
 });

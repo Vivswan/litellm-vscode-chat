@@ -37,6 +37,7 @@ const REQUIRED_UTILITIES = [
 	"focus-visible:outline-ring",
 	"disabled:opacity-50",
 	"disabled:bg-disabled",
+	"disabled:bg-transparent",
 	"disabled:text-disabled-foreground",
 ] as const;
 
