@@ -13,7 +13,8 @@
  * item hides on time between polls.
  */
 
-import * as vscode from "vscode";
+import * as l10n from "@vscode/l10n";
+import type * as vscode from "vscode";
 import type { UsageStatusBarMode } from "../../shared/config/settings";
 import type { Clock, Timer } from "../../shared/util/timer";
 import { PendingCall, REAL_TIMER, SYSTEM_CLOCK } from "../../shared/util/timer";
@@ -53,14 +54,14 @@ function relativeTime(thenMs: number, nowMs: number): string {
 	const elapsed = Math.max(0, nowMs - thenMs);
 	const minutes = Math.floor(elapsed / 60_000);
 	if (minutes < 1) {
-		return vscode.l10n.t("just now");
+		return l10n.t("just now");
 	}
 	if (minutes < 60) {
-		return minutes === 1 ? vscode.l10n.t("1 minute ago") : vscode.l10n.t("{0} minutes ago", minutes);
+		return minutes === 1 ? l10n.t("1 minute ago") : l10n.t("{0} minutes ago", minutes);
 	}
 	const hours = Math.floor(minutes / 60);
 	if (hours < 24) {
-		return hours === 1 ? vscode.l10n.t("1 hour ago") : vscode.l10n.t("{0} hours ago", hours);
+		return hours === 1 ? l10n.t("1 hour ago") : l10n.t("{0} hours ago", hours);
 	}
 	return new Date(thenMs).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
 }
@@ -77,7 +78,7 @@ function serverTooltipLines(state: ServerUsageState, nowMs: number, fresh: boole
 		const percent = percentOf(budget.spentFraction);
 		headline =
 			budget.keyBudget !== undefined && budget.keyBudget !== budget.effectiveBudget
-				? vscode.l10n.t(
+				? l10n.t(
 						"{0}: {1} of {2} ({3}%) - key reports {4}",
 						state.label,
 						money(spend),
@@ -85,14 +86,14 @@ function serverTooltipLines(state: ServerUsageState, nowMs: number, fresh: boole
 						percent,
 						money(budget.keyBudget)
 					)
-				: vscode.l10n.t("{0}: {1} of {2} ({3}%)", state.label, money(spend), money(budget.effectiveBudget), percent);
+				: l10n.t("{0}: {1} of {2} ({3}%)", state.label, money(spend), money(budget.effectiveBudget), percent);
 	} else {
-		headline = vscode.l10n.t("{0}: {1} spent, no budget", state.label, money(spend));
+		headline = l10n.t("{0}: {1} spent, no budget", state.label, money(spend));
 	}
 	const details: string[] = [];
 	if (budget.budgetResetAt !== undefined) {
 		details.push(
-			vscode.l10n.t(
+			l10n.t(
 				"resets {0}",
 				new Date(budget.budgetResetAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })
 			)
@@ -101,8 +102,8 @@ function serverTooltipLines(state: ServerUsageState, nowMs: number, fresh: boole
 	if (state.spendUpdatedAt !== undefined) {
 		details.push(
 			fresh
-				? vscode.l10n.t("updated {0}", relativeTime(state.spendUpdatedAt, nowMs))
-				: vscode.l10n.t("stale - last updated {0}", relativeTime(state.spendUpdatedAt, nowMs))
+				? l10n.t("updated {0}", relativeTime(state.spendUpdatedAt, nowMs))
+				: l10n.t("stale - last updated {0}", relativeTime(state.spendUpdatedAt, nowMs))
 		);
 	}
 	return details.length > 0 ? [headline, `  ${details.join(", ")}`] : [headline];
@@ -156,8 +157,8 @@ export function renderUsageStatus(
 		if (others > 0) {
 			tooltipLines.push(
 				others === 1
-					? vscode.l10n.t("1 other server is over an alert threshold")
-					: vscode.l10n.t("{0} other servers are over an alert threshold", others)
+					? l10n.t("1 other server is over an alert threshold")
+					: l10n.t("{0} other servers are over an alert threshold", others)
 			);
 		}
 	}

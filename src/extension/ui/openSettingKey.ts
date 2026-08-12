@@ -11,6 +11,7 @@
  * active) leaves the plain opened file as the whole answer, never an error.
  */
 
+import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { INTERNAL_CMD } from "../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
@@ -99,7 +100,7 @@ export async function handleOpenSettingKey(
 		await openUserSettingAtKey(key, openSettingsJson);
 	} catch {
 		logger.log("Open user settings.json failed");
-		void vscode.window.showErrorMessage(vscode.l10n.t("LiteLLM: Could not open the user settings.json."));
+		void vscode.window.showErrorMessage(l10n.t("LiteLLM: Could not open the user settings.json."));
 	}
 }
 

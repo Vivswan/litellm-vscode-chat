@@ -1,3 +1,4 @@
+import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type { DataPartCtor } from "../../../shared/conversion/dataPart";
 import {
@@ -711,11 +712,11 @@ export class StreamProcessor {
 			// argument snippets are response text and must never join it.
 			const detail =
 				invalidCount === 1
-					? vscode.l10n.t("1 tool call arrived with arguments that were not valid JSON")
-					: vscode.l10n.t("{0} tool calls arrived with arguments that were not valid JSON", invalidCount);
+					? l10n.t("1 tool call arrived with arguments that were not valid JSON")
+					: l10n.t("{0} tool calls arrived with arguments that were not valid JSON", invalidCount);
 			throw localizedError(
 				chatErrorMessage(
-					vscode.l10n.t(
+					l10n.t(
 						"The model sent a broken tool call, so this response could not be completed. Trying again usually fixes it."
 					),
 					detail

@@ -11,6 +11,7 @@
  */
 
 import { randomBytes } from "node:crypto";
+import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type {
 	CatalogModelSummary,
@@ -575,7 +576,7 @@ export class DashboardController implements vscode.Disposable {
 				kind = "operation";
 				this.env.log("Dashboard intent partially applied", { intentType: intent.type, kind: "operation" });
 			} else {
-				message = vscode.l10n.t("The change was not applied; see the LiteLLM output log.");
+				message = l10n.t("The change was not applied; see the LiteLLM output log.");
 				this.env.log("Dashboard intent failed", {
 					intentType: intent.type,
 					error: error instanceof Error ? error.name : typeof error,

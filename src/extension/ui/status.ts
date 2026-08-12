@@ -1,3 +1,4 @@
+import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { z } from "zod";
 import { LAST_CONNECTION_STATUS_KEY } from "../../shared/config/storageKeys";
@@ -124,22 +125,22 @@ export function zeroModelStatusTexts(serverStatuses: readonly ServerStatus[]): {
 	if (hiddenCount > 0) {
 		sentences.push(
 			hiddenCount === 1
-				? vscode.l10n.t(
+				? l10n.t(
 						"1 server is hidden by an explicit removal and serves no models. Restore it from the dashboard's server list."
 					)
-				: vscode.l10n.t(
+				: l10n.t(
 						"{0} servers are hidden by an explicit removal and serve no models. Restore them from the dashboard's server list.",
 						hiddenCount
 					)
 		);
 		if (answeredCount > 0) {
-			sentences.push(vscode.l10n.t("The remaining servers answered but listed no models."));
+			sentences.push(l10n.t("The remaining servers answered but listed no models."));
 		}
 	} else {
 		sentences.push(
 			answeredCount === 1
-				? vscode.l10n.t("The server answered but listed no models.")
-				: vscode.l10n.t("Your servers answered but listed no models.")
+				? l10n.t("The server answered but listed no models.")
+				: l10n.t("Your servers answered but listed no models.")
 		);
 	}
 	const hiddenDetail =
@@ -560,32 +561,32 @@ export class StatusBarManager {
 		switch (current.state) {
 			case "not-configured":
 				this._statusBarItem.render({
-					text: vscode.l10n.t("$(warning) LiteLLM"),
-					tooltip: vscode.l10n.t("Not configured - click to set up"),
+					text: l10n.t("$(warning) LiteLLM"),
+					tooltip: l10n.t("Not configured - click to set up"),
 					severity: "warning",
 				});
 				break;
 			case "connecting":
 				if (current.attention) {
 					this._statusBarItem.render({
-						text: vscode.l10n.t("$(warning) LiteLLM"),
-						tooltip: vscode.l10n.t(
+						text: l10n.t("$(warning) LiteLLM"),
+						tooltip: l10n.t(
 							"Configured servers have not reported any models\nClick to open the dashboard and check the configuration"
 						),
 						severity: "warning",
 					});
 				} else {
 					this._statusBarItem.render({
-						text: vscode.l10n.t("$(loading~spin) LiteLLM"),
-						tooltip: vscode.l10n.t("Waiting for the configured servers to report..."),
+						text: l10n.t("$(loading~spin) LiteLLM"),
+						tooltip: l10n.t("Waiting for the configured servers to report..."),
 						severity: "plain",
 					});
 				}
 				break;
 			case "loading":
 				this._statusBarItem.render({
-					text: vscode.l10n.t("$(loading~spin) LiteLLM"),
-					tooltip: vscode.l10n.t("Fetching models..."),
+					text: l10n.t("$(loading~spin) LiteLLM"),
+					tooltip: l10n.t("Fetching models..."),
 					severity: "plain",
 				});
 				break;
@@ -597,14 +598,14 @@ export class StatusBarManager {
 				const available =
 					serverCount > 1
 						? count === 1
-							? vscode.l10n.t("1 model available from {0} servers", serverCount)
-							: vscode.l10n.t("{0} models available from {1} servers", count, serverCount)
+							? l10n.t("1 model available from {0} servers", serverCount)
+							: l10n.t("{0} models available from {1} servers", count, serverCount)
 						: count === 1
-							? vscode.l10n.t("1 model available")
-							: vscode.l10n.t("{0} models available", count);
+							? l10n.t("1 model available")
+							: l10n.t("{0} models available", count);
 				this._statusBarItem.render({
-					text: vscode.l10n.t("$(check) LiteLLM"),
-					tooltip: `${available}\n${vscode.l10n.t("Click for diagnostics")}`,
+					text: l10n.t("$(check) LiteLLM"),
+					tooltip: `${available}\n${l10n.t("Click for diagnostics")}`,
 					severity: "plain",
 				});
 				break;
@@ -616,28 +617,25 @@ export class StatusBarManager {
 				const failedCount = current.serverStatuses.filter(
 					(status) => isErrorServerStatus(status) && status.expected !== true
 				).length;
-				const available =
-					count === 1 ? vscode.l10n.t("1 model available") : vscode.l10n.t("{0} models available", count);
+				const available = count === 1 ? l10n.t("1 model available") : l10n.t("{0} models available", count);
 				const unreachable =
-					failedCount === 1
-						? vscode.l10n.t("1 server unreachable")
-						: vscode.l10n.t("{0} servers unreachable", failedCount);
+					failedCount === 1 ? l10n.t("1 server unreachable") : l10n.t("{0} servers unreachable", failedCount);
 				this._statusBarItem.render({
-					text: vscode.l10n.t("$(warning) LiteLLM"),
-					tooltip: `${available}\n${unreachable}\n${vscode.l10n.t("Click for diagnostics")}`,
+					text: l10n.t("$(warning) LiteLLM"),
+					tooltip: `${available}\n${unreachable}\n${l10n.t("Click for diagnostics")}`,
 					severity: "warning",
 				});
 				break;
 			}
 			case "error":
 				this._statusBarItem.render({
-					text: vscode.l10n.t("$(error) LiteLLM"),
+					text: l10n.t("$(error) LiteLLM"),
 					// The synthetic zero-model verdict is not a connection failure:
 					// every server answered (or failed only expectedly), so the
 					// tooltip's first line must not blame the connection.
 					tooltip: isZeroModelVerdict(current)
-						? vscode.l10n.t("No models available\n{0}\nClick for details", current.error)
-						: vscode.l10n.t("Connection failed\n{0}\nClick for details", current.error),
+						? l10n.t("No models available\n{0}\nClick for details", current.error)
+						: l10n.t("Connection failed\n{0}\nClick for details", current.error),
 					severity: "error",
 				});
 				break;

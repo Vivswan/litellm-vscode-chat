@@ -4,7 +4,7 @@
  * intents.ts for its size; executeDashboardIntent is the only caller.
  */
 
-import * as vscode from "vscode";
+import * as l10n from "@vscode/l10n";
 import type { SecretFieldId } from "../../dashboard/protocol";
 import { SECRET_FIELD_IDS } from "../../dashboard/protocol";
 import { recordFromKeys } from "../../shared/util/json";
@@ -147,7 +147,7 @@ export async function applySaveServerSetting(
 	);
 	if (intent.replaceLabel !== undefined && accepted === undefined) {
 		throw new DashboardValidationError(
-			vscode.l10n.t("The entry being edited no longer exists in the servers setting; close the form and retry")
+			l10n.t("The entry being edited no longer exists in the servers setting; close the form and retry")
 		);
 	}
 	const renaming = targetLabel !== label;
@@ -156,7 +156,7 @@ export async function applySaveServerSetting(
 		// internal field names to route the failure onto the right form section,
 		// so it stays an ASCII identifier outside the translation; only the body
 		// localizes. Same rule for every field-prefixed message below.
-		throw new DashboardValidationError(`label: ${vscode.l10n.t("an entry with this label already exists")}`);
+		throw new DashboardValidationError(`label: ${l10n.t("an entry with this label already exists")}`);
 	}
 
 	const mode: SaveMode =
@@ -256,19 +256,19 @@ export async function applySaveServerSetting(
 	// the token URL and client ID pair.
 	const oauthExtras = planResolves(plans.oauthClientSecret) || oauthScopes !== undefined;
 	if ((oauthClientId !== undefined || oauthExtras) && oauthTokenUrl === undefined) {
-		throw new DashboardValidationError(`oauthTokenUrl: ${vscode.l10n.t("OAuth needs the token URL and client ID")}`);
+		throw new DashboardValidationError(`oauthTokenUrl: ${l10n.t("OAuth needs the token URL and client ID")}`);
 	}
 	if ((oauthTokenUrl !== undefined || oauthExtras) && oauthClientId === undefined) {
-		throw new DashboardValidationError(`oauthClientId: ${vscode.l10n.t("OAuth needs the token URL and client ID")}`);
+		throw new DashboardValidationError(`oauthClientId: ${l10n.t("OAuth needs the token URL and client ID")}`);
 	}
 
 	// The virtual key pair is both-or-neither, like the form enforces.
 	const virtualKeyResolves = planResolves(plans.virtualKeyValue);
 	if (virtualKeyHeader !== undefined && !virtualKeyResolves) {
-		throw new DashboardValidationError(`virtualKeyValue: ${vscode.l10n.t("enter the key sent in this header")}`);
+		throw new DashboardValidationError(`virtualKeyValue: ${l10n.t("enter the key sent in this header")}`);
 	}
 	if (virtualKeyHeader === undefined && virtualKeyResolves) {
-		throw new DashboardValidationError(`virtualKeyHeader: ${vscode.l10n.t("name the header that carries the key")}`);
+		throw new DashboardValidationError(`virtualKeyHeader: ${l10n.t("name the header that carries the key")}`);
 	}
 
 	/**
@@ -387,9 +387,9 @@ export async function applySaveServerSetting(
 			});
 			env.requestServerSync();
 			throw new DashboardOperationError(
-				`${vscode.l10n.t(
+				`${l10n.t(
 					"The save failed and a stored secret may have been left changed. Check it with LiteLLM: Set Server Secret, then redo the edit."
-				)}\n${vscode.l10n.t(
+				)}\n${l10n.t(
 					'could not restore {0} for server "{1}"; the settings entry is unchanged (after a rename, the changed values sit under the new label)',
 					restoreFailures.join(", "),
 					label
@@ -439,7 +439,7 @@ export async function applySaveServerSetting(
 	env.requestServerSync();
 	if (clearFailed) {
 		throw new DashboardOperationError(
-			vscode.l10n.t(
+			l10n.t(
 				"The server entry was saved, but removing the stored secret failed. Edit the server and retry, or use LiteLLM: Set Server Secret to remove it."
 			)
 		);

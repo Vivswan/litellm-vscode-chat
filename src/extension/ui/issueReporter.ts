@@ -1,3 +1,4 @@
+import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { LAST_ISSUE_REPORT_KEY } from "../../shared/config/storageKeys";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
@@ -141,7 +142,7 @@ const defaultIssueReporterEnv: IssueReporterEnv = {
 	openExternal: openUrl,
 	showCompactedDiagnosticsMessage: async () => {
 		await vscode.window.showInformationMessage(
-			vscode.l10n.t(
+			l10n.t(
 				"LiteLLM: Full diagnostics were too large to prefill in GitHub and were copied to your clipboard. Please paste them into the issue."
 			)
 		);
@@ -163,13 +164,13 @@ export function createIssueReporterEnv(diagnosticsDirectory: vscode.Uri): IssueR
 			return file;
 		},
 		showCompactedDiagnosticsMessage: async (diagnosticsFile) => {
-			const revealFile = vscode.l10n.t("Reveal File");
+			const revealFile = l10n.t("Reveal File");
 			const choice = await vscode.window.showInformationMessage(
 				diagnosticsFile
-					? vscode.l10n.t(
+					? l10n.t(
 							"LiteLLM: Full diagnostics were saved to a redacted log file and copied to your clipboard. Attach the file to the GitHub issue or paste the contents."
 						)
-					: vscode.l10n.t(
+					: l10n.t(
 							"LiteLLM: Full diagnostics were too large to prefill in GitHub and were copied to your clipboard. Please paste them into the issue."
 						),
 				...(diagnosticsFile ? [revealFile] : [])

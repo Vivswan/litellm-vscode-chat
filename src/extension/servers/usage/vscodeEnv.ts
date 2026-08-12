@@ -4,6 +4,7 @@
  * palette command (the headless twin of the dashboard's later sync button).
  */
 
+import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { CMD } from "../../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
@@ -63,10 +64,7 @@ export function notifyUsageRefreshFailure(outcome: UsageRefreshOutcome | undefin
 		return;
 	}
 	void vscode.window.showWarningMessage(
-		vscode.l10n.t(
-			"LiteLLM: {0}",
-			`${vscode.l10n.t("Usage refresh failed - no server returned usage data.")} ${summary}`
-		)
+		l10n.t("LiteLLM: {0}", `${l10n.t("Usage refresh failed - no server returned usage data.")} ${summary}`)
 	);
 }
 

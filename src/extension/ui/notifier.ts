@@ -1,3 +1,4 @@
+import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type { ConfigurationPrompt } from "../../provider/config";
 import { CMD } from "../../shared/config/commandIds";
@@ -30,7 +31,7 @@ export interface MessageAction {
  * l10n.config and freeze English.
  */
 export function configureNowLabel(): string {
-	return vscode.l10n.t("Configure Now");
+	return l10n.t("Configure Now");
 }
 
 export async function showActionableMessage(
@@ -51,23 +52,23 @@ export async function showActionableMessage(
 	}
 }
 
-export function reconfigureAction(label = vscode.l10n.t("Reconfigure")): MessageAction {
+export function reconfigureAction(label = l10n.t("Reconfigure")): MessageAction {
 	return { label, run: () => void vscode.commands.executeCommand(CMD.openDashboard) };
 }
 
-export function reportIssueAction(label = vscode.l10n.t("Report Issue")): MessageAction {
+export function reportIssueAction(label = l10n.t("Report Issue")): MessageAction {
 	return { label, run: () => void vscode.commands.executeCommand(CMD.reportIssue) };
 }
 
-export function viewOutputAction(channel: vscode.OutputChannel, label = vscode.l10n.t("View Output")): MessageAction {
+export function viewOutputAction(channel: vscode.OutputChannel, label = l10n.t("View Output")): MessageAction {
 	return { label, run: () => channel.show() };
 }
 
-export function testConnectionAction(label = vscode.l10n.t("Test Connection")): MessageAction {
+export function testConnectionAction(label = l10n.t("Test Connection")): MessageAction {
 	return { label, run: () => void vscode.commands.executeCommand(CMD.testConnection) };
 }
 
-export function troubleshootingDocsAction(url: string, label = vscode.l10n.t("Troubleshooting Docs")): MessageAction {
+export function troubleshootingDocsAction(url: string, label = l10n.t("Troubleshooting Docs")): MessageAction {
 	return { label, run: () => openUrl(url) };
 }
 
@@ -98,16 +99,16 @@ export function commandErrorActions(
 	return [viewOutputAction(outputChannel), ...notifierErrorActions(classification)];
 }
 
-export function openChatAction(label = vscode.l10n.t("Open Chat")): MessageAction {
+export function openChatAction(label = l10n.t("Open Chat")): MessageAction {
 	return { label, run: () => void vscode.commands.executeCommand("workbench.action.chat.open") };
 }
 
-export function openSettingsAction(query: string, label = vscode.l10n.t("Open Settings")): MessageAction {
+export function openSettingsAction(query: string, label = l10n.t("Open Settings")): MessageAction {
 	return { label, run: () => void vscode.commands.executeCommand("workbench.action.openSettings", query) };
 }
 
 export function dismissAction(): MessageAction {
-	return { label: vscode.l10n.t("Dismiss"), run: () => {} };
+	return { label: l10n.t("Dismiss"), run: () => {} };
 }
 
 /**
@@ -123,9 +124,9 @@ export function createConfigurationPrompt(hasConfiguredServers: () => boolean): 
 				return false;
 			}
 			const configureNow = configureNowLabel();
-			const learnMore = vscode.l10n.t("Learn More");
+			const learnMore = l10n.t("Learn More");
 			const choice = await vscode.window.showErrorMessage(
-				vscode.l10n.t("LiteLLM is not configured. Set up your connection to use this provider."),
+				l10n.t("LiteLLM is not configured. Set up your connection to use this provider."),
 				configureNow,
 				learnMore
 			);
@@ -280,7 +281,7 @@ export class Notifier implements vscode.Disposable {
 				tag: "no-servers",
 				signature: "no-servers",
 				kind: "warning",
-				message: vscode.l10n.t("LiteLLM: No servers configured. Click to configure."),
+				message: l10n.t("LiteLLM: No servers configured. Click to configure."),
 				actions: [reconfigureAction(configureNowLabel())],
 			};
 		}
@@ -306,7 +307,7 @@ export class Notifier implements vscode.Disposable {
 				// Troubleshooting Docs action.
 				signature: `all-failed:${statusErrorHeadline(firstFailure.error)}:${firstFailure.classification?.setupHint ?? ""}`,
 				kind: "error",
-				message: vscode.l10n.t("LiteLLM: {0}", statusErrorHeadline(firstFailure.error)),
+				message: l10n.t("LiteLLM: {0}", statusErrorHeadline(firstFailure.error)),
 				actions: notifierErrorActions(firstFailure.classification),
 			};
 		}
@@ -319,7 +320,7 @@ export class Notifier implements vscode.Disposable {
 					tag: "no-models",
 					signature: "needs-declare",
 					kind: "warning",
-					message: vscode.l10n.t(
+					message: l10n.t(
 						"LiteLLM: Discovery is declared unavailable and no models are declared. Add IDs to the entry's discovery.declared list."
 					),
 					actions: [reconfigureAction(), reportIssueAction()],
@@ -342,16 +343,16 @@ export class Notifier implements vscode.Disposable {
 					// hiding a second group is the same cause, not a new one.
 					signature: "no-models-hidden",
 					kind: "warning",
-					message: vscode.l10n.t("LiteLLM: {0}", zeroTexts.display),
-					actions: [reconfigureAction(vscode.l10n.t("Open Dashboard")), reportIssueAction()],
+					message: l10n.t("LiteLLM: {0}", zeroTexts.display),
+					actions: [reconfigureAction(l10n.t("Open Dashboard")), reportIssueAction()],
 				};
 			}
 			return {
 				tag: "no-models",
 				signature: "no-models",
 				kind: "warning",
-				message: vscode.l10n.t("LiteLLM: Your servers returned no models. Check your LiteLLM proxy configuration."),
-				actions: [testConnectionAction(vscode.l10n.t("Check Server")), reconfigureAction(), reportIssueAction()],
+				message: l10n.t("LiteLLM: Your servers returned no models. Check your LiteLLM proxy configuration."),
+				actions: [testConnectionAction(l10n.t("Check Server")), reconfigureAction(), reportIssueAction()],
 			};
 		}
 		return { tag: "recovered" };

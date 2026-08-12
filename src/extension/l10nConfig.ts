@@ -1,10 +1,11 @@
 /**
- * Feeds the host-resolved l10n bundle into @vscode/l10n, which src/shared
- * and the src/dashboard tree localize with (they cannot import vscode).
- * This is the one sanctioned host-side @vscode/l10n import; all
- * other extension and provider code uses vscode.l10n.t, and Biome's
- * noRestrictedImports pins both directions. Under English
- * vscode.l10n.bundle is undefined and t() falls back to its inline message.
+ * Feeds the host-resolved l10n bundle into @vscode/l10n, the one l10n API
+ * every runtime localizes with. This runs at the top of activate(), before
+ * any t() call can resolve; the vscode.l10n.bundle read here (and the
+ * dashboard shell's, which forwards the same bundle to the webview) is the
+ * only sanctioned use of vscode's l10n surface - scripts/l10n/check.ts bans
+ * the rest. Under English vscode.l10n.bundle is undefined and t() falls back
+ * to its inline message.
  */
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";

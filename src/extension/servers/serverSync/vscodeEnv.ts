@@ -4,6 +4,7 @@
  * Set Server Secret palette command.
  */
 
+import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { CMD, INTERNAL_CMD } from "../../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
@@ -30,7 +31,7 @@ import {
 
 /** The one button every removal notice carries: it opens the models file, where group deletion actually lives. */
 const openGroupsFileAction = () => ({
-	label: vscode.l10n.t("Open Models File"),
+	label: l10n.t("Open Models File"),
 	run: () => void vscode.commands.executeCommand(INTERNAL_CMD.openGroupsFile),
 });
 
@@ -60,11 +61,11 @@ function notifyRemovalEvents(events: readonly RemovedEntryEvent[]): void {
 		const labels = quoted(hidden);
 		const message =
 			hidden.length === 1
-				? vscode.l10n.t(
+				? l10n.t(
 						"Removed {0} from the servers setting; its models are hidden. VS Code still keeps a provider group named {0}. To delete it: 1) open the models file and remove the {0} object from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now.",
 						labels
 					)
-				: vscode.l10n.t(
+				: l10n.t(
 						"Removed {0} from the servers setting; their models are hidden. VS Code still keeps a provider group for each. To delete them: 1) open the models file and remove the {0} objects from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now.",
 						labels
 					);
@@ -73,7 +74,7 @@ function notifyRemovalEvents(events: readonly RemovedEntryEvent[]): void {
 	for (const event of renamed) {
 		void showActionableMessage(
 			"info",
-			vscode.l10n.t(
+			l10n.t(
 				'Renamed "{0}" to "{1}". VS Code keeps the old group "{0}" and its models. To delete it: 1) open the models file and remove the "{0}" object from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now. A rename made directly in settings.json does not carry the old label\'s stored secrets; set them again for "{1}" (a dashboard rename copies them).',
 				event.oldLabel,
 				event.newLabel
@@ -85,11 +86,11 @@ function notifyRemovalEvents(events: readonly RemovedEntryEvent[]): void {
 		const labels = quoted(untracked);
 		const message =
 			untracked.length === 1
-				? vscode.l10n.t(
+				? l10n.t(
 						"Removed {0} from the servers setting. VS Code keeps the provider group and its models. To delete it: 1) open the models file and remove the {0} object from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now.",
 						labels
 					)
-				: vscode.l10n.t(
+				: l10n.t(
 						"Removed {0} from the servers setting. VS Code keeps their provider groups and models. To delete them: 1) open the models file and remove the {0} objects from the JSON array; 2) reload the window (Developer: Reload Window) or restart VS Code; 3) run Sync Models Now.",
 						labels
 					);
@@ -287,9 +288,9 @@ export function readEntryDeclaredModels(label: string, baseUrl: string): readonl
  */
 function secretPaletteLabel(field: SecretFieldId): string {
 	const labels: Readonly<Record<SecretFieldId, string>> = {
-		apiKey: vscode.l10n.t("API key"),
-		oauthClientSecret: vscode.l10n.t("OAuth client secret"),
-		virtualKeyValue: vscode.l10n.t("Virtual key value"),
+		apiKey: l10n.t("API key"),
+		oauthClientSecret: l10n.t("OAuth client secret"),
+		virtualKeyValue: l10n.t("Virtual key value"),
 	};
 	return labels[field];
 }
@@ -316,7 +317,7 @@ export function registerSetServerSecretCommand(
 			const { entries } = parseServersSetting(readRawServersSetting());
 			if (entries.length === 0) {
 				void vscode.window.showInformationMessage(
-					vscode.l10n.t(
+					l10n.t(
 						"No servers declared in the {0} setting yet. Add one there or in the dashboard first.",
 						`${CONFIG_SECTION}.${SERVERS_SETTING_KEY}`
 					)
@@ -325,7 +326,7 @@ export function registerSetServerSecretCommand(
 			}
 			const entryPick = await vscode.window.showQuickPick(
 				entries.map((entry) => ({ label: entry.label, description: entry.baseUrl, entry })),
-				{ title: vscode.l10n.t("LiteLLM: Set Server Secret"), placeHolder: vscode.l10n.t("Which server?") }
+				{ title: l10n.t("LiteLLM: Set Server Secret"), placeHolder: l10n.t("Which server?") }
 			);
 			if (entryPick === undefined) {
 				return;
@@ -335,14 +336,14 @@ export function registerSetServerSecretCommand(
 				// silently unreachable here; the Record makes a missing label a
 				// compile error.
 				SECRET_FIELD_IDS.map((field) => ({ label: secretPaletteLabel(field), field })),
-				{ title: vscode.l10n.t("LiteLLM: Set Server Secret"), placeHolder: vscode.l10n.t("Which secret?") }
+				{ title: l10n.t("LiteLLM: Set Server Secret"), placeHolder: l10n.t("Which secret?") }
 			);
 			if (fieldPick === undefined) {
 				return;
 			}
 			const value = await vscode.window.showInputBox({
-				title: vscode.l10n.t("{0} for {1}", fieldPick.label, entryPick.label),
-				prompt: vscode.l10n.t(
+				title: l10n.t("{0} for {1}", fieldPick.label, entryPick.label),
+				prompt: l10n.t(
 					"Stored in VS Code secret storage, never in settings files. Leave empty to remove the stored value."
 				),
 				password: true,
@@ -361,7 +362,7 @@ export function registerSetServerSecretCommand(
 				// inlineSecretValues rule buildGroupArgs resolves through), so the
 				// just-stored secret stays dormant until the inline one is removed.
 				void vscode.window.showWarningMessage(
-					vscode.l10n.t(
+					l10n.t(
 						'"{0}" also sets {1} inline in the servers setting, and inline values take precedence. Remove the inline value for the stored secret to take effect.',
 						entryPick.label,
 						fieldPick.field

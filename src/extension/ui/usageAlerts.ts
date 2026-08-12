@@ -9,6 +9,7 @@
  * status bar item.
  */
 
+import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { INTERNAL_CMD } from "../../shared/config/commandIds";
 import type { UsageStore } from "../servers/usage/store";
@@ -18,7 +19,7 @@ import { dismissAction, showActionableMessage } from "./notifier";
 /** The toast's deep link into the dashboard's Usage section. */
 function openUsageAction(): MessageAction {
 	return {
-		label: vscode.l10n.t("Open Usage"),
+		label: l10n.t("Open Usage"),
 		run: () => void vscode.commands.executeCommand(INTERNAL_CMD.openUsage),
 	};
 }
@@ -38,7 +39,7 @@ export class UsageAlerts implements vscode.Disposable {
 			const spentPercent = Math.round((event.state.budget.spentFraction ?? highest) * 100);
 			void this.show(
 				"warning",
-				vscode.l10n.t(
+				l10n.t(
 					'LiteLLM: "{0}" has used {1}% of its budget (alert at {2}%)',
 					event.label,
 					spentPercent,

@@ -15,6 +15,7 @@
  * whose per-instance caches die with the call.
  */
 
+import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type { SecretFieldId } from "../../dashboard/protocol";
 import type { ExpectedDiscoveryFailures } from "../../provider/catalog/discovery";
@@ -113,7 +114,7 @@ export async function applyTestServerDraft(
 		// resolves nothing and the probe would test a different configuration
 		// than the one the form shows.
 		throw new DashboardValidationError(
-			vscode.l10n.t("The entry being edited no longer exists in the servers setting; close the form and retry")
+			l10n.t("The entry being edited no longer exists in the servers setting; close the form and retry")
 		);
 	}
 	const existing = sources.accepted?.entry;
@@ -145,16 +146,16 @@ export async function applyTestServerDraft(
 		// The "fieldId:" prefix stays an ASCII identifier outside the
 		// translation: sectionFailureText matches it against the internal field
 		// names to route the failure onto the right form section.
-		throw new DashboardValidationError(`oauthTokenUrl: ${vscode.l10n.t("OAuth needs the token URL and client ID")}`);
+		throw new DashboardValidationError(`oauthTokenUrl: ${l10n.t("OAuth needs the token URL and client ID")}`);
 	}
 	if ((oauthTokenUrl !== undefined || oauthExtras) && oauthClientId === undefined) {
-		throw new DashboardValidationError(`oauthClientId: ${vscode.l10n.t("OAuth needs the token URL and client ID")}`);
+		throw new DashboardValidationError(`oauthClientId: ${l10n.t("OAuth needs the token URL and client ID")}`);
 	}
 	if (virtualKeyHeader !== undefined && virtualKeyValue === undefined) {
-		throw new DashboardValidationError(`virtualKeyValue: ${vscode.l10n.t("enter the key sent in this header")}`);
+		throw new DashboardValidationError(`virtualKeyValue: ${l10n.t("enter the key sent in this header")}`);
 	}
 	if (virtualKeyHeader === undefined && virtualKeyValue !== undefined) {
-		throw new DashboardValidationError(`virtualKeyHeader: ${vscode.l10n.t("name the header that carries the key")}`);
+		throw new DashboardValidationError(`virtualKeyHeader: ${l10n.t("name the header that carries the key")}`);
 	}
 
 	// The draft's headers, values normalized to strings as the setting parser

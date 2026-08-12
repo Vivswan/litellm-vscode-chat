@@ -20,7 +20,7 @@
  * later reach the dashboard webview).
  */
 
-import { l10n } from "vscode";
+import * as l10n from "@vscode/l10n";
 import { DISCOVERY_MAX_RETRIES } from "../../../provider/catalog/discovery";
 import type { OAuthConfig, VirtualKeyConfig } from "../../../provider/transport/auth";
 import { OAuthTokenSource } from "../../../provider/transport/auth";

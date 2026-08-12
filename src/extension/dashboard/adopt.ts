@@ -5,7 +5,7 @@
  * group and the storage locations, never the values.
  */
 
-import * as vscode from "vscode";
+import * as l10n from "@vscode/l10n";
 import type { SecretFieldId } from "../../dashboard/protocol";
 import { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../../dashboard/protocol";
 import { isUsableHttpUrl } from "../../dashboard/serverForm";
@@ -140,18 +140,18 @@ export async function applyAdoptServer(
 		// The "fieldId:" prefix stays an ASCII identifier outside the
 		// translation: sectionFailureText matches it against the internal field
 		// names to route the failure onto the right form section.
-		throw new DashboardValidationError(`label: ${vscode.l10n.t("enter a label")}`);
+		throw new DashboardValidationError(`label: ${l10n.t("enter a label")}`);
 	}
 	if (isUnsafeRecordKey(label)) {
-		throw new DashboardValidationError(`label: ${vscode.l10n.t("reserved name")}`);
+		throw new DashboardValidationError(`label: ${l10n.t("reserved name")}`);
 	}
 	const baseUrl = intent.baseUrl.trim();
 	if (baseUrl.length === 0 || !isUsableHttpUrl(baseUrl)) {
-		throw new DashboardValidationError(`baseUrl: ${vscode.l10n.t("not a usable http(s) URL")}`);
+		throw new DashboardValidationError(`baseUrl: ${l10n.t("not a usable http(s) URL")}`);
 	}
 	const entries = rawServerEntries(env.readServersSetting());
 	if (acceptedEntry(entries, label) !== undefined) {
-		throw new DashboardValidationError(`label: ${vscode.l10n.t("an entry with this label already exists")}`);
+		throw new DashboardValidationError(`label: ${l10n.t("an entry with this label already exists")}`);
 	}
 
 	const credentials = env.resolveAdoptionCredentials(baseUrl, intent.sourceHandle);
@@ -206,7 +206,7 @@ export async function applyAdoptServer(
 				// only, and this label's entry never landed. Re-adding the label
 				// makes the entry editable, and the edit form's secret fields are
 				// what fix the leftover state.
-				`${vscode.l10n.t("The adoption failed, and this label's stored secrets could not be restored.")}\n${vscode.l10n.t(
+				`${l10n.t("The adoption failed, and this label's stored secrets could not be restored.")}\n${l10n.t(
 					"Re-add a server under this label with the dashboard form, then edit the entry to set or remove the affected secrets."
 				)}`
 			);
@@ -215,6 +215,6 @@ export async function applyAdoptServer(
 	}
 	env.requestServerSync();
 	return credentials === undefined
-		? vscode.l10n.t("The live group's credentials could not be read, so none were copied; edit the server to set them.")
+		? l10n.t("The live group's credentials could not be read, so none were copied; edit the server to set them.")
 		: undefined;
 }

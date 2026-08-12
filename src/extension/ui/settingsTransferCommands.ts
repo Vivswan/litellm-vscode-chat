@@ -12,6 +12,7 @@
  */
 
 import * as os from "node:os";
+import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { CMD } from "../../shared/config/commandIds";
 import { ALL_SETTING_KEYS, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
@@ -120,31 +121,31 @@ function renderImportPreview(summary: ImportPreviewSummary): string {
 		const keys = summary.settingKeys.join(", ") + (summary.settingCount > summary.settingKeys.length ? ", ..." : "");
 		lines.push(
 			summary.settingCount === 1
-				? vscode.l10n.t("1 setting will be written: {0}", keys)
-				: vscode.l10n.t("{0} settings will be written: {1}", summary.settingCount, keys)
+				? l10n.t("1 setting will be written: {0}", keys)
+				: l10n.t("{0} settings will be written: {1}", summary.settingCount, keys)
 		);
 	}
 	if (summary.serverCount > 0) {
 		lines.push(
 			summary.serverCount === 1
-				? vscode.l10n.t("1 server will be imported.")
-				: vscode.l10n.t("{0} servers will be imported.", summary.serverCount)
+				? l10n.t("1 server will be imported.")
+				: l10n.t("{0} servers will be imported.", summary.serverCount)
 		);
 	}
 	if (summary.collisionCount > 0) {
 		lines.push(
 			summary.collisionCount === 1
-				? vscode.l10n.t("1 label already exists; you will choose overwrite, skip, or rename.")
-				: vscode.l10n.t("{0} labels already exist; you will choose overwrite, skip, or rename.", summary.collisionCount)
+				? l10n.t("1 label already exists; you will choose overwrite, skip, or rename.")
+				: l10n.t("{0} labels already exist; you will choose overwrite, skip, or rename.", summary.collisionCount)
 		);
 	}
 	if (summary.connectionChangedCount > 0) {
 		lines.push(
 			summary.connectionChangedCount === 1
-				? vscode.l10n.t(
+				? l10n.t(
 						"Overwriting 1 server changes its connection settings; its dashboard row will show the steps to reconnect."
 					)
-				: vscode.l10n.t(
+				: l10n.t(
 						"Overwriting {0} servers changes their connection settings; their dashboard rows will show the steps to reconnect.",
 						summary.connectionChangedCount
 					)
@@ -153,8 +154,8 @@ function renderImportPreview(summary: ImportPreviewSummary): string {
 	if (summary.secretFieldCount > 0) {
 		lines.push(
 			summary.secretFieldCount === 1
-				? vscode.l10n.t("The file carries 1 secret value; imported secrets are stored in VS Code secret storage.")
-				: vscode.l10n.t(
+				? l10n.t("The file carries 1 secret value; imported secrets are stored in VS Code secret storage.")
+				: l10n.t(
 						"The file carries {0} secret values; imported secrets are stored in VS Code secret storage.",
 						summary.secretFieldCount
 					)
@@ -163,26 +164,26 @@ function renderImportPreview(summary: ImportPreviewSummary): string {
 	if (summary.skippedKeyCount > 0) {
 		lines.push(
 			summary.skippedKeyCount === 1
-				? vscode.l10n.t("1 setting has the wrong type and will be skipped.")
-				: vscode.l10n.t("{0} settings have the wrong type and will be skipped.", summary.skippedKeyCount)
+				? l10n.t("1 setting has the wrong type and will be skipped.")
+				: l10n.t("{0} settings have the wrong type and will be skipped.", summary.skippedKeyCount)
 		);
 	}
 	if (summary.unknownKeyCount > 0) {
 		lines.push(
 			summary.unknownKeyCount === 1
-				? vscode.l10n.t("1 unknown key will be ignored.")
-				: vscode.l10n.t("{0} unknown keys will be ignored.", summary.unknownKeyCount)
+				? l10n.t("1 unknown key will be ignored.")
+				: l10n.t("{0} unknown keys will be ignored.", summary.unknownKeyCount)
 		);
 	}
 	if (summary.skippedServerCount > 0) {
 		lines.push(
 			summary.skippedServerCount === 1
-				? vscode.l10n.t("1 server entry cannot be imported and will be skipped.")
-				: vscode.l10n.t("{0} server entries cannot be imported and will be skipped.", summary.skippedServerCount)
+				? l10n.t("1 server entry cannot be imported and will be skipped.")
+				: l10n.t("{0} server entries cannot be imported and will be skipped.", summary.skippedServerCount)
 		);
 	}
 	if (summary.problemLines.length > 0) {
-		lines.push(vscode.l10n.t("Entry problems:"));
+		lines.push(l10n.t("Entry problems:"));
 		lines.push(...summary.problemLines);
 		if (summary.problemCount > summary.problemLines.length) {
 			lines.push("...");
@@ -195,13 +196,13 @@ function renderImportPreview(summary: ImportPreviewSummary): string {
 function createSettingsTransferPrompts(): SettingsTransferPrompts {
 	return {
 		confirmSecrets: async () => {
-			const include = vscode.l10n.t("Include Secrets");
-			const exclude = vscode.l10n.t("Exclude Secrets");
+			const include = l10n.t("Include Secrets");
+			const exclude = l10n.t("Exclude Secrets");
 			const choice = await vscode.window.showWarningMessage(
-				vscode.l10n.t("Include secret values in the exported file?"),
+				l10n.t("Include secret values in the exported file?"),
 				{
 					modal: true,
-					detail: vscode.l10n.t(
+					detail: l10n.t(
 						"Included secrets (API keys, client secrets, virtual key values) are written into the file in plaintext. Custom header values are exported as plain configuration either way."
 					),
 				},
@@ -211,27 +212,27 @@ function createSettingsTransferPrompts(): SettingsTransferPrompts {
 			return choice === include ? "include" : choice === exclude ? "exclude" : undefined;
 		},
 		confirmImport: async (summary) => {
-			const proceed = vscode.l10n.t("Import");
+			const proceed = l10n.t("Import");
 			const choice = await vscode.window.showInformationMessage(
-				vscode.l10n.t("Import these LiteLLM settings?"),
+				l10n.t("Import these LiteLLM settings?"),
 				{ modal: true, detail: renderImportPreview(summary) },
 				proceed
 			);
 			return choice === proceed;
 		},
 		resolveCollision: async (label, connectionChanged) => {
-			const overwrite = vscode.l10n.t("Overwrite");
-			const skip = vscode.l10n.t("Skip");
-			const rename = vscode.l10n.t("Import Renamed");
+			const overwrite = l10n.t("Overwrite");
+			const skip = l10n.t("Skip");
+			const rename = l10n.t("Import Renamed");
 			const choice = await vscode.window.showWarningMessage(
-				vscode.l10n.t('A server named "{0}" already exists.', label),
+				l10n.t('A server named "{0}" already exists.', label),
 				{
 					modal: true,
 					detail: connectionChanged
-						? vscode.l10n.t(
+						? l10n.t(
 								"Overwriting replaces the entry and its stored secrets, and changes its connection settings; the server's dashboard row will show the steps to reconnect."
 							)
-						: vscode.l10n.t("Overwriting replaces the entry and its stored secrets."),
+						: l10n.t("Overwriting replaces the entry and its stored secrets."),
 				},
 				overwrite,
 				skip,
@@ -241,22 +242,22 @@ function createSettingsTransferPrompts(): SettingsTransferPrompts {
 		},
 		askRenamedLabel: async (suggested, validate) =>
 			vscode.window.showInputBox({
-				title: vscode.l10n.t("Import Server Renamed"),
-				prompt: vscode.l10n.t("A new label for the imported server."),
+				title: l10n.t("Import Server Renamed"),
+				prompt: l10n.t("A new label for the imported server."),
 				value: suggested,
 				validateInput: (candidate) => validate(candidate) ?? null,
 			}),
 		confirmUndo: async (snapshotAt) => {
-			const undo = vscode.l10n.t("Undo Import");
+			const undo = l10n.t("Undo Import");
 			// The recorded ISO instant, shown in the user's locale; an
 			// unparseable timestamp shows as recorded rather than "Invalid Date".
 			const recorded = new Date(snapshotAt);
 			const when = Number.isNaN(recorded.getTime()) ? snapshotAt : recorded.toLocaleString();
 			const choice = await vscode.window.showWarningMessage(
-				vscode.l10n.t("Undo the last settings import?"),
+				l10n.t("Undo the last settings import?"),
 				{
 					modal: true,
-					detail: vscode.l10n.t(
+					detail: l10n.t(
 						"Settings and stored server secrets will be restored to their state from {0}. Changes made to them since then will be lost.",
 						when
 					),
@@ -314,7 +315,7 @@ function errorClass(error: unknown): string {
 
 /** The toast action that runs the undo flow (same env, same behavior as the palette command). */
 function undoImportAction(env: SettingsTransferEnv): MessageAction {
-	return { label: vscode.l10n.t("Undo Import"), run: () => runUndoLastImportFlow(env) };
+	return { label: l10n.t("Undo Import"), run: () => runUndoLastImportFlow(env) };
 }
 
 /** LiteLLM: Export Settings... - secrets modal, save dialog, tab-indented JSON write, counts toast. */
@@ -324,7 +325,7 @@ export async function runExportSettingsFlow(env: SettingsTransferEnv): Promise<v
 		if (!ALL_SETTING_KEYS.some((key) => probe.inspect(key)?.globalValue !== undefined)) {
 			await env.prompts.notify(
 				"info",
-				vscode.l10n.t("LiteLLM: No settings are configured in the user scope, so there is nothing to export.")
+				l10n.t("LiteLLM: No settings are configured in the user scope, so there is nothing to export.")
 			);
 			return;
 		}
@@ -348,25 +349,24 @@ export async function runExportSettingsFlow(env: SettingsTransferEnv): Promise<v
 		});
 		await env.writeFile(target, Buffer.from(`${JSON.stringify(result.envelope, null, "\t")}\n`, "utf8"));
 
-		const settingsPart =
-			result.settingCount === 1 ? vscode.l10n.t("1 setting") : vscode.l10n.t("{0} settings", result.settingCount);
+		const settingsPart = result.settingCount === 1 ? l10n.t("1 setting") : l10n.t("{0} settings", result.settingCount);
 		const notes: string[] = [
 			result.serverCount > 0
-				? vscode.l10n.t(
+				? l10n.t(
 						"LiteLLM: Exported {0} and {1}.",
 						settingsPart,
-						result.serverCount === 1 ? vscode.l10n.t("1 server") : vscode.l10n.t("{0} servers", result.serverCount)
+						result.serverCount === 1 ? l10n.t("1 server") : l10n.t("{0} servers", result.serverCount)
 					)
-				: vscode.l10n.t("LiteLLM: Exported {0}.", settingsPart),
+				: l10n.t("LiteLLM: Exported {0}.", settingsPart),
 		];
 		if (secretsChoice === "include") {
-			notes.push(vscode.l10n.t("The file contains secret values in plaintext; store and share it carefully."));
+			notes.push(l10n.t("The file contains secret values in plaintext; store and share it carefully."));
 		}
 		if (result.unmaterializedSecretCount > 0) {
 			notes.push(
 				result.unmaterializedSecretCount === 1
-					? vscode.l10n.t("1 stored secret had no place in its entry and is not in the file.")
-					: vscode.l10n.t(
+					? l10n.t("1 stored secret had no place in its entry and is not in the file.")
+					: l10n.t(
 							"{0} stored secrets had no place in their entries and are not in the file.",
 							result.unmaterializedSecretCount
 						)
@@ -375,10 +375,8 @@ export async function runExportSettingsFlow(env: SettingsTransferEnv): Promise<v
 		if (result.omittedUnsanitizableCount > 0) {
 			notes.push(
 				result.omittedUnsanitizableCount === 1
-					? vscode.l10n.t(
-							"1 unrecognized part of the servers setting was omitted because it cannot be checked for secrets."
-						)
-					: vscode.l10n.t(
+					? l10n.t("1 unrecognized part of the servers setting was omitted because it cannot be checked for secrets.")
+					: l10n.t(
 							"{0} unrecognized parts of the servers setting were omitted because they cannot be checked for secrets.",
 							result.omittedUnsanitizableCount
 						)
@@ -392,11 +390,11 @@ export async function runExportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			omitted: result.omittedUnsanitizableCount,
 		});
 		await env.prompts.notify("info", notes.join(" "), [
-			{ label: vscode.l10n.t("Reveal File"), run: () => env.revealFile(target) },
+			{ label: l10n.t("Reveal File"), run: () => env.revealFile(target) },
 		]);
 	} catch (error) {
 		env.log("Settings export failed", { error: errorClass(error) });
-		await env.prompts.notify("error", vscode.l10n.t("LiteLLM: The settings export failed; the file was not written."));
+		await env.prompts.notify("error", l10n.t("LiteLLM: The settings export failed; the file was not written."));
 	}
 }
 
@@ -404,15 +402,15 @@ export async function runExportSettingsFlow(env: SettingsTransferEnv): Promise<v
 function parseFailureMessage(reason: "not-json" | "not-an-export" | "newer-version", exportedBy?: string): string {
 	if (reason === "newer-version") {
 		return exportedBy !== undefined
-			? vscode.l10n.t(
+			? l10n.t(
 					"LiteLLM: This file was exported by a newer version of the extension ({0}); update the extension to import it.",
 					exportedBy
 				)
-			: vscode.l10n.t(
+			: l10n.t(
 					"LiteLLM: This file was exported by a newer version of the extension; update the extension to import it."
 				);
 	}
-	return vscode.l10n.t("LiteLLM: This file is not a LiteLLM settings export.");
+	return l10n.t("LiteLLM: This file is not a LiteLLM settings export.");
 }
 
 /**
@@ -466,7 +464,7 @@ async function applyServersUnit(
 			env.requestServerSync();
 			await env.prompts.notify(
 				"error",
-				`${vscode.l10n.t("LiteLLM: The settings import failed, and some stored server secrets could not be restored.")}\n${vscode.l10n.t(
+				`${l10n.t("LiteLLM: The settings import failed, and some stored server secrets could not be restored.")}\n${l10n.t(
 					"Undo Import restores the pre-import state; alternatively, edit each affected server in the dashboard or use the Set Server Secret command."
 				)}`,
 				[undoImportAction(env)]
@@ -477,13 +475,13 @@ async function applyServersUnit(
 			error: errorClass(error),
 		});
 		env.requestServerSync();
-		const message = vscode.l10n.t(
+		const message = l10n.t(
 			"LiteLLM: The settings import failed while writing the servers setting; server secret changes were rolled back."
 		);
 		await env.prompts.notify(
 			"error",
 			settingsLanded
-				? `${message} ${vscode.l10n.t("Other settings from the file were already written; Undo Import restores the pre-import state.")}`
+				? `${message} ${l10n.t("Other settings from the file were already written; Undo Import restores the pre-import state.")}`
 				: message,
 			// With nothing landed there is nothing this run left to undo.
 			settingsLanded ? [undoImportAction(env)] : []
@@ -502,10 +500,7 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 		const size = await env.fileSize(source);
 		if (size > MAX_IMPORT_FILE_BYTES) {
 			env.log("Settings import rejected: file exceeds the size cap", { size });
-			await env.prompts.notify(
-				"error",
-				vscode.l10n.t("LiteLLM: This file is too large to be a settings export (over 5 MB).")
-			);
+			await env.prompts.notify("error", l10n.t("LiteLLM: This file is too large to be a settings export (over 5 MB)."));
 			return;
 		}
 		// The leading byte-order mark an editor may add on a round trip is not
@@ -544,7 +539,7 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 		// or reserved-label entries, and shadowed same-label siblings alike.
 		const unimportableServers = plan.incomingServers.length - importableLabels.size;
 		if (plan.settingsWrites.length === 0 && importableLabels.size === 0) {
-			await env.prompts.notify("info", vscode.l10n.t("LiteLLM: The file contains no importable settings."));
+			await env.prompts.notify("info", l10n.t("LiteLLM: The file contains no importable settings."));
 			return;
 		}
 
@@ -593,13 +588,13 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			const validate = (candidate: string): string | undefined => {
 				const trimmed = candidate.trim();
 				if (trimmed.length === 0) {
-					return vscode.l10n.t("enter a label");
+					return l10n.t("enter a label");
 				}
 				if (isUnsafeRecordKey(trimmed)) {
-					return vscode.l10n.t("reserved name");
+					return l10n.t("reserved name");
 				}
 				if (taken.has(trimmed)) {
-					return vscode.l10n.t("this label is already in use");
+					return l10n.t("this label is already in use");
 				}
 				return undefined;
 			};
@@ -625,7 +620,7 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			env.log("Settings import cancelled: the servers setting changed while the prompts were open");
 			await env.prompts.notify(
 				"warning",
-				vscode.l10n.t(
+				l10n.t(
 					"LiteLLM: The servers setting changed while the import was waiting for confirmation; nothing was changed. Run the import again."
 				)
 			);
@@ -671,9 +666,7 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 				env.log("Settings import cancelled: the undo snapshot could not be saved", { error: errorClass(error) });
 				await env.prompts.notify(
 					"error",
-					vscode.l10n.t(
-						"LiteLLM: The import was cancelled because the undo snapshot could not be saved; nothing was changed."
-					)
+					l10n.t("LiteLLM: The import was cancelled because the undo snapshot could not be saved; nothing was changed.")
 				);
 				return;
 			}
@@ -734,49 +727,39 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 		const { counts } = application;
 		const parts: string[] = [];
 		if (writtenSettings > 0) {
-			parts.push(
-				writtenSettings === 1
-					? vscode.l10n.t("1 setting written")
-					: vscode.l10n.t("{0} settings written", writtenSettings)
-			);
+			parts.push(writtenSettings === 1 ? l10n.t("1 setting written") : l10n.t("{0} settings written", writtenSettings));
 		}
 		if (counts.imported > 0) {
-			parts.push(
-				counts.imported === 1 ? vscode.l10n.t("1 server added") : vscode.l10n.t("{0} servers added", counts.imported)
-			);
+			parts.push(counts.imported === 1 ? l10n.t("1 server added") : l10n.t("{0} servers added", counts.imported));
 		}
 		if (counts.overwritten > 0) {
 			parts.push(
 				counts.overwritten === 1
-					? vscode.l10n.t("1 server overwritten")
-					: vscode.l10n.t("{0} servers overwritten", counts.overwritten)
+					? l10n.t("1 server overwritten")
+					: l10n.t("{0} servers overwritten", counts.overwritten)
 			);
 		}
 		if (counts.renamed > 0) {
-			parts.push(
-				counts.renamed === 1 ? vscode.l10n.t("1 server renamed") : vscode.l10n.t("{0} servers renamed", counts.renamed)
-			);
+			parts.push(counts.renamed === 1 ? l10n.t("1 server renamed") : l10n.t("{0} servers renamed", counts.renamed));
 		}
 		if (counts.skipped > 0) {
-			parts.push(
-				counts.skipped === 1 ? vscode.l10n.t("1 server skipped") : vscode.l10n.t("{0} servers skipped", counts.skipped)
-			);
+			parts.push(counts.skipped === 1 ? l10n.t("1 server skipped") : l10n.t("{0} servers skipped", counts.skipped));
 		}
 		const notes: string[] = [
 			parts.length > 0
-				? vscode.l10n.t("LiteLLM: Settings import complete: {0}.", parts.join(", "))
-				: vscode.l10n.t("LiteLLM: Settings import complete: nothing needed to change."),
+				? l10n.t("LiteLLM: Settings import complete: {0}.", parts.join(", "))
+				: l10n.t("LiteLLM: Settings import complete: nothing needed to change."),
 		];
 		if (failedKeys.length > 0) {
 			notes.push(
 				failedKeys.length === 1
-					? vscode.l10n.t("1 setting could not be written: {0}.", failedKeys.join(", "))
-					: vscode.l10n.t("{0} settings could not be written: {1}.", failedKeys.length, failedKeys.join(", "))
+					? l10n.t("1 setting could not be written: {0}.", failedKeys.join(", "))
+					: l10n.t("{0} settings could not be written: {1}.", failedKeys.length, failedKeys.join(", "))
 			);
 		}
 		if (shadowedKeys.length > 0) {
 			notes.push(
-				vscode.l10n.t(
+				l10n.t(
 					"Workspace settings override {0} in this window; the imported values take effect where no workspace override exists.",
 					shadowedKeys.join(", ")
 				)
@@ -799,7 +782,7 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 		);
 	} catch (error) {
 		env.log("Settings import failed", { error: errorClass(error) });
-		await env.prompts.notify("error", vscode.l10n.t("LiteLLM: The settings import failed."));
+		await env.prompts.notify("error", l10n.t("LiteLLM: The settings import failed."));
 	}
 }
 
@@ -893,10 +876,10 @@ async function notifyKeptSnapshot(env: SettingsTransferEnv, failures: number): P
 	await env.prompts.notify(
 		"warning",
 		failures === 1
-			? vscode.l10n.t(
+			? l10n.t(
 					"LiteLLM: The undo could not restore everything (1 step failed); the snapshot was kept, so you can run Undo Last Settings Import again."
 				)
-			: vscode.l10n.t(
+			: l10n.t(
 					"LiteLLM: The undo could not restore everything ({0} steps failed); the snapshot was kept, so you can run Undo Last Settings Import again.",
 					failures
 				)
@@ -908,7 +891,7 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 	try {
 		const slot = await env.readSnapshotSlot();
 		if (slot === undefined) {
-			await env.prompts.notify("info", vscode.l10n.t("LiteLLM: There is no settings import to undo."));
+			await env.prompts.notify("info", l10n.t("LiteLLM: There is no settings import to undo."));
 			return;
 		}
 		const snapshot = parseSnapshotSlot(slot);
@@ -919,7 +902,7 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 			await env.clearSnapshotSlot();
 			await env.prompts.notify(
 				"error",
-				vscode.l10n.t("LiteLLM: The stored undo snapshot could not be read, so nothing was restored.")
+				l10n.t("LiteLLM: The stored undo snapshot could not be read, so nothing was restored.")
 			);
 			return;
 		}
@@ -1015,14 +998,14 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 			blobRemovals: restore.blobRemovals.length,
 			reconnects: reconnectCount,
 		});
-		const summary = [vscode.l10n.t("LiteLLM: Restored settings to their pre-import state.")];
+		const summary = [l10n.t("LiteLLM: Restored settings to their pre-import state.")];
 		if (reconnectCount > 0) {
 			summary.push(
 				reconnectCount === 1
-					? vscode.l10n.t(
+					? l10n.t(
 							"The undo changed 1 server's connection settings; its dashboard row will show the steps to reconnect."
 						)
-					: vscode.l10n.t(
+					: l10n.t(
 							"The undo changed {0} servers' connection settings; their dashboard rows will show the steps to reconnect.",
 							reconnectCount
 						)
@@ -1031,7 +1014,7 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 		await env.prompts.notify("info", summary.join(" "));
 	} catch (error) {
 		env.log("Undo import failed", { error: errorClass(error) });
-		await env.prompts.notify("error", vscode.l10n.t("LiteLLM: The undo failed; the snapshot was kept."));
+		await env.prompts.notify("error", l10n.t("LiteLLM: The undo failed; the snapshot was kept."));
 	}
 }
 

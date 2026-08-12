@@ -1,5 +1,5 @@
+import * as l10n from "@vscode/l10n";
 import type OpenAI from "openai";
-import { l10n } from "vscode";
 import { classificationOf, errorMessageText } from "../../shared/logger";
 import { collapseWhitespace } from "../../shared/util/errorText";
 import { isRecord } from "../../shared/util/json";

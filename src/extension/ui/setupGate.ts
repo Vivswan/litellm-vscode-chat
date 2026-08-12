@@ -13,6 +13,7 @@
  * showed it.
  */
 
+import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type { SetupHintKind } from "../../shared/errorClassification";
 import { isHiddenGroupServerStatus } from "../../shared/servers";
@@ -77,23 +78,23 @@ export function detectSetupProblem(status: ConnectionStatus): SetupProblem | und
 function gateMessage(problem: SetupProblem): string {
 	switch (problem) {
 		case "not-configured":
-			return vscode.l10n.t(
+			return l10n.t(
 				"LiteLLM: No server is configured yet - the issue reporter is for bugs, and setup help is faster in the dashboard."
 			);
 		case "hidden-groups":
-			return vscode.l10n.t(
+			return l10n.t(
 				"LiteLLM: This looks like a setup state, not a bug (a server hidden by an explicit removal answers with no models). Restoring it from the dashboard's server list is faster than a GitHub issue."
 			);
 		case "proxy-not-running":
-			return vscode.l10n.t(
+			return l10n.t(
 				"LiteLLM: This looks like a setup problem (nothing is answering at the configured address). The troubleshooting guide usually resolves it faster than a GitHub issue."
 			);
 		case "configure-api-key":
-			return vscode.l10n.t(
+			return l10n.t(
 				"LiteLLM: This looks like a setup problem (the server rejected the API key). The troubleshooting guide usually resolves it faster than a GitHub issue."
 			);
 		case "check-base-url":
-			return vscode.l10n.t(
+			return l10n.t(
 				"LiteLLM: This looks like a setup problem (the server answered 404 at the configured base URL). The troubleshooting guide usually resolves it faster than a GitHub issue."
 			);
 	}
@@ -111,13 +112,13 @@ function gateMessage(problem: SetupProblem): string {
  */
 export async function showSetupProblemGate(problem: SetupProblem, reportAnyway: () => Promise<void>): Promise<void> {
 	const reportAnywayAction: MessageAction = {
-		label: vscode.l10n.t("Report Anyway"),
+		label: l10n.t("Report Anyway"),
 		run: async () => {
 			try {
 				await reportAnyway();
 			} catch (error) {
 				const detail = error instanceof Error ? error.message : String(error);
-				void vscode.window.showErrorMessage(vscode.l10n.t("LiteLLM: Could not open the issue report - {0}", detail));
+				void vscode.window.showErrorMessage(l10n.t("LiteLLM: Could not open the issue report - {0}", detail));
 			}
 		},
 	};
@@ -128,7 +129,7 @@ export async function showSetupProblemGate(problem: SetupProblem, reportAnyway: 
 				? // The dashboard's Servers & Models view carries the hidden-groups
 					// line with the Unhide action; there is no docs section or
 					// connection test that fixes a deliberate removal.
-					[reconfigureAction(vscode.l10n.t("Open Dashboard")), reportAnywayAction]
+					[reconfigureAction(l10n.t("Open Dashboard")), reportAnywayAction]
 				: [troubleshootingDocsAction(SETUP_HINT_DOCS_URLS[problem]), testConnectionAction(), reportAnywayAction];
 	await showActionableMessage("warning", gateMessage(problem), actions);
 }

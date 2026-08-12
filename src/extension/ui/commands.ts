@@ -1,3 +1,4 @@
+import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type { LiteLLMModelInfo } from "../../provider/catalog/groupModels";
 import { CMD, INTERNAL_CMD } from "../../shared/config/commandIds";
@@ -72,9 +73,9 @@ function showZeroModelOutcomeToast(
 	outputChannel: vscode.OutputChannel
 ): void {
 	const hidden = statusServerStatuses(status).some(isHiddenGroupServerStatus);
-	void showActionableMessage("error", vscode.l10n.t("LiteLLM: {0}", status.error), [
+	void showActionableMessage("error", l10n.t("LiteLLM: {0}", status.error), [
 		viewOutputAction(outputChannel),
-		hidden ? reconfigureAction(vscode.l10n.t("Open Dashboard")) : reconfigureAction(),
+		hidden ? reconfigureAction(l10n.t("Open Dashboard")) : reconfigureAction(),
 		reportIssueAction(),
 	]);
 }
@@ -137,9 +138,9 @@ export async function runConnectionTest(
 				void showActionableMessage(
 					"info",
 					count === 1
-						? vscode.l10n.t("LiteLLM: Connection successful! Found 1 model.")
-						: vscode.l10n.t("LiteLLM: Connection successful! Found {0} models.", count),
-					[viewOutputAction(outputChannel, vscode.l10n.t("View Models")), openChatAction()]
+						? l10n.t("LiteLLM: Connection successful! Found 1 model.")
+						: l10n.t("LiteLLM: Connection successful! Found {0} models.", count),
+					[viewOutputAction(outputChannel, l10n.t("View Models")), openChatAction()]
 				);
 				break;
 			}
@@ -151,11 +152,11 @@ export async function runConnectionTest(
 					"warning",
 					total === 1
 						? failed === 1
-							? vscode.l10n.t("LiteLLM: Connected with issues - 1 model available, 1 server unreachable.")
-							: vscode.l10n.t("LiteLLM: Connected with issues - 1 model available, {0} servers unreachable.", failed)
+							? l10n.t("LiteLLM: Connected with issues - 1 model available, 1 server unreachable.")
+							: l10n.t("LiteLLM: Connected with issues - 1 model available, {0} servers unreachable.", failed)
 						: failed === 1
-							? vscode.l10n.t("LiteLLM: Connected with issues - {0} models available, 1 server unreachable.", total)
-							: vscode.l10n.t(
+							? l10n.t("LiteLLM: Connected with issues - {0} models available, 1 server unreachable.", total)
+							: l10n.t(
 									"LiteLLM: Connected with issues - {0} models available, {1} servers unreachable.",
 									total,
 									failed
@@ -176,21 +177,21 @@ export async function runConnectionTest(
 				// says what to do); a classified failure only adds the docs action.
 				void showActionableMessage(
 					"error",
-					vscode.l10n.t("LiteLLM: Connection failed - {0}", statusErrorHeadline(status.error)),
+					l10n.t("LiteLLM: Connection failed - {0}", statusErrorHeadline(status.error)),
 					commandErrorActions(status.classification, outputChannel)
 				);
 				break;
 			case "not-configured":
 				void showActionableMessage(
 					"error",
-					vscode.l10n.t("LiteLLM: No servers configured. Add one in the LiteLLM dashboard."),
+					l10n.t("LiteLLM: No servers configured. Add one in the LiteLLM dashboard."),
 					[reconfigureAction(configureNowLabel())]
 				);
 				break;
 			default:
 				void showActionableMessage(
 					"warning",
-					vscode.l10n.t("LiteLLM: Connection status is unavailable; try again in a moment."),
+					l10n.t("LiteLLM: Connection status is unavailable; try again in a moment."),
 					[viewOutputAction(outputChannel)]
 				);
 		}
@@ -254,9 +255,9 @@ export async function runModelSync(
 				void showActionableMessage(
 					"info",
 					count === 1
-						? vscode.l10n.t("LiteLLM: Models synced - found 1 model.")
-						: vscode.l10n.t("LiteLLM: Models synced - found {0} models.", count),
-					[viewOutputAction(outputChannel, vscode.l10n.t("View Models")), openChatAction()]
+						? l10n.t("LiteLLM: Models synced - found 1 model.")
+						: l10n.t("LiteLLM: Models synced - found {0} models.", count),
+					[viewOutputAction(outputChannel, l10n.t("View Models")), openChatAction()]
 				);
 				break;
 			}
@@ -268,14 +269,11 @@ export async function runModelSync(
 					"warning",
 					total === 1
 						? failed === 1
-							? vscode.l10n.t("LiteLLM: Models synced with issues - 1 model available, 1 server unreachable.")
-							: vscode.l10n.t(
-									"LiteLLM: Models synced with issues - 1 model available, {0} servers unreachable.",
-									failed
-								)
+							? l10n.t("LiteLLM: Models synced with issues - 1 model available, 1 server unreachable.")
+							: l10n.t("LiteLLM: Models synced with issues - 1 model available, {0} servers unreachable.", failed)
 						: failed === 1
-							? vscode.l10n.t("LiteLLM: Models synced with issues - {0} models available, 1 server unreachable.", total)
-							: vscode.l10n.t(
+							? l10n.t("LiteLLM: Models synced with issues - {0} models available, 1 server unreachable.", total)
+							: l10n.t(
 									"LiteLLM: Models synced with issues - {0} models available, {1} servers unreachable.",
 									total,
 									failed
@@ -298,7 +296,7 @@ export async function runModelSync(
 				// test's error toast.
 				void showActionableMessage(
 					"error",
-					vscode.l10n.t("LiteLLM: Model sync failed - {0}", statusErrorHeadline(status.error)),
+					l10n.t("LiteLLM: Model sync failed - {0}", statusErrorHeadline(status.error)),
 					commandErrorActions(status.classification, outputChannel)
 				);
 				break;
@@ -306,7 +304,7 @@ export async function runModelSync(
 				logger.log("Model sync found no configured servers");
 				void showActionableMessage(
 					"error",
-					vscode.l10n.t("LiteLLM: No servers configured. Add one in the LiteLLM dashboard."),
+					l10n.t("LiteLLM: No servers configured. Add one in the LiteLLM dashboard."),
 					[reconfigureAction(configureNowLabel())]
 				);
 				break;
@@ -314,7 +312,7 @@ export async function runModelSync(
 				logger.log("Model sync finished without a settled connection status");
 				void showActionableMessage(
 					"warning",
-					vscode.l10n.t("LiteLLM: Connection status is unavailable; try again in a moment."),
+					l10n.t("LiteLLM: Connection status is unavailable; try again in a moment."),
 					[viewOutputAction(outputChannel)]
 				);
 		}
@@ -409,13 +407,13 @@ const GITHUB_OPEN_BUG_ISSUES_URL = `${GITHUB_REPO_URL}/issues?q=${encodeURICompo
 function relativeTimeText(elapsedMs: number): string {
 	const hours = Math.floor(elapsedMs / (60 * 60 * 1000));
 	if (hours < 1) {
-		return vscode.l10n.t("less than an hour ago");
+		return l10n.t("less than an hour ago");
 	}
 	if (hours < 24) {
-		return hours === 1 ? vscode.l10n.t("1 hour ago") : vscode.l10n.t("{0} hours ago", hours);
+		return hours === 1 ? l10n.t("1 hour ago") : l10n.t("{0} hours ago", hours);
 	}
 	const days = Math.floor(hours / 24);
-	return days === 1 ? vscode.l10n.t("1 day ago") : vscode.l10n.t("{0} days ago", days);
+	return days === 1 ? l10n.t("1 day ago") : l10n.t("{0} days ago", days);
 }
 
 /**
@@ -427,10 +425,10 @@ function relativeTimeText(elapsedMs: number): string {
  * failing report must surface here rather than die as an unhandled rejection.
  */
 async function showRepeatReportHint(elapsedMs: number, reportAnyway: () => Promise<void>): Promise<void> {
-	const openExisting = vscode.l10n.t("Open Existing Issues");
-	const reportAnywayLabel = vscode.l10n.t("Report Anyway");
+	const openExisting = l10n.t("Open Existing Issues");
+	const reportAnywayLabel = l10n.t("Report Anyway");
 	const choice = await vscode.window.showInformationMessage(
-		vscode.l10n.t(
+		l10n.t(
 			"LiteLLM: You opened an issue report that looks the same as one from {0}. Adding details to the existing issue helps more than a new report.",
 			relativeTimeText(elapsedMs)
 		),
@@ -443,7 +441,7 @@ async function showRepeatReportHint(elapsedMs: number, reportAnyway: () => Promi
 			await openUrl(GITHUB_OPEN_BUG_ISSUES_URL);
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
-			void vscode.window.showErrorMessage(vscode.l10n.t("LiteLLM: Could not open the issues list - {0}", detail));
+			void vscode.window.showErrorMessage(l10n.t("LiteLLM: Could not open the issues list - {0}", detail));
 		}
 		return;
 	}
@@ -452,7 +450,7 @@ async function showRepeatReportHint(elapsedMs: number, reportAnyway: () => Promi
 			await reportAnyway();
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
-			void vscode.window.showErrorMessage(vscode.l10n.t("LiteLLM: Could not open the issue report - {0}", detail));
+			void vscode.window.showErrorMessage(l10n.t("LiteLLM: Could not open the issue report - {0}", detail));
 		}
 	}
 }
@@ -509,7 +507,7 @@ export function registerOpenGroupsFileCommand(context: vscode.ExtensionContext, 
 			} catch {
 				logger.log("Provider-groups file could not be opened");
 				void vscode.window.showErrorMessage(
-					vscode.l10n.t(
+					l10n.t(
 						"LiteLLM: Could not open the provider groups file (User/{0}). It may not exist yet - VS Code creates it with the first provider group - or it lives on the desktop profile, out of reach of this window.",
 						GROUPS_FILE_NAME
 					)
@@ -526,11 +524,11 @@ export function registerHelpAndFeedbackCommand(context: vscode.ExtensionContext)
 			// without saying what it does.
 			const choice = await vscode.window.showQuickPick(
 				[
-					{ label: vscode.l10n.t("$(bug) Report Bug"), run: () => vscode.commands.executeCommand(CMD.reportIssue) },
-					{ label: vscode.l10n.t("$(lightbulb) Request Feature"), run: () => openUrl(GITHUB_NEW_ISSUE_FEATURE) },
-					{ label: vscode.l10n.t("$(book) Documentation"), run: () => openUrl(GITHUB_DOCS_URL) },
+					{ label: l10n.t("$(bug) Report Bug"), run: () => vscode.commands.executeCommand(CMD.reportIssue) },
+					{ label: l10n.t("$(lightbulb) Request Feature"), run: () => openUrl(GITHUB_NEW_ISSUE_FEATURE) },
+					{ label: l10n.t("$(book) Documentation"), run: () => openUrl(GITHUB_DOCS_URL) },
 				],
-				{ title: vscode.l10n.t("LiteLLM: Help & Feedback"), placeHolder: vscode.l10n.t("What would you like to do?") }
+				{ title: l10n.t("LiteLLM: Help & Feedback"), placeHolder: l10n.t("What would you like to do?") }
 			);
 			await choice?.run();
 		})

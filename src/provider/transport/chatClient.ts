@@ -1,3 +1,4 @@
+import * as l10n from "@vscode/l10n";
 import type { LanguageModelChatRequestMessage, ProvideLanguageModelChatResponseOptions } from "vscode";
 import * as vscode from "vscode";
 import { ModelResolutionTable } from "../../shared/config/resolutionTable";
@@ -306,7 +307,7 @@ export class ChatClient {
 			const server = await resolveServer(route.serverId, this.getServers);
 			if (!server) {
 				throw localizedError(
-					vscode.l10n.t('Server "{0}" is no longer configured', route.serverLabel),
+					l10n.t('Server "{0}" is no longer configured', route.serverLabel),
 					`Server "${route.serverLabel}" is no longer configured`
 				);
 			}
@@ -334,7 +335,7 @@ export class ChatClient {
 			};
 		}
 		throw localizedError(
-			vscode.l10n.t(
+			l10n.t(
 				'Model "{0}" is not registered with any configured server. Refresh the model list and try again.',
 				model.id
 			),
@@ -369,10 +370,10 @@ export class ChatClient {
 		if (options.tools && options.tools.length > MAX_TOOLS_PER_REQUEST) {
 			throw localizedError(
 				chatErrorMessage(
-					vscode.l10n.t(
+					l10n.t(
 						"Too many chat tools are enabled for this request. Disable some in the chat Tools picker, or turn off unused extensions or MCP servers, and try again."
 					),
-					vscode.l10n.t(
+					l10n.t(
 						"{0} tools requested; the limit is {1} (request not sent)",
 						options.tools.length,
 						MAX_TOOLS_PER_REQUEST
@@ -399,10 +400,10 @@ export class ChatClient {
 			// models.capabilities fix).
 			throw localizedError(
 				chatErrorMessage(
-					vscode.l10n.t(
+					l10n.t(
 						"This conversation looks too long for the model - trim messages or attachments, or raise the model's input limit in settings if it is wrong."
 					),
-					vscode.l10n.t(
+					l10n.t(
 						"token limit exceeded before send: local estimate {0} tokens (messages + tools), input limit {1}",
 						inputTokenCount + toolTokenCount,
 						tokenLimit
@@ -516,14 +517,10 @@ export class ChatClient {
 				// cannot reclassify this as a mid-response network death.
 				throw localizedError(
 					chatErrorMessage(
-						vscode.l10n.t(
+						l10n.t(
 							"The server accepted the request but sent nothing back. Try again; if it keeps happening, check any proxy or gateway between VS Code and the LiteLLM server."
 						),
-						vscode.l10n.t(
-							"LiteLLM answered {0} with a missing response body ({1})",
-							response.status,
-							connection.baseUrl
-						)
+						l10n.t("LiteLLM answered {0} with a missing response body ({1})", response.status, connection.baseUrl)
 					),
 					englishChatErrorMessage(
 						"The server accepted the request but sent nothing back. Try again; if it keeps happening, check any proxy or gateway between VS Code and the LiteLLM server.",

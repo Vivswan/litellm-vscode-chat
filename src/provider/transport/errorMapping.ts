@@ -1,5 +1,6 @@
+import * as l10n from "@vscode/l10n";
 import { APIConnectionError, APIConnectionTimeoutError, APIError, APIUserAbortError } from "openai";
-import { CancellationError, LanguageModelError, l10n } from "vscode";
+import { CancellationError, LanguageModelError } from "vscode";
 import { manageCommandTitle, syncModelsCommandTitle } from "../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import type { SetupHintKind, TransportErrorClassification, TransportErrorKind } from "../../shared/errorClassification";

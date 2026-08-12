@@ -1,3 +1,4 @@
+import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { registerDashboardCommand } from "./extension/dashboard/panel";
 import { consumeDevSeed, createDevSeedEnv } from "./extension/devSeed";
@@ -474,10 +475,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// over any provider group, so the group latch cannot contribute yet.
 	const hasShownWelcome = context.globalState.get<boolean>(HAS_SHOWN_WELCOME_KEY, false);
 	if (!hasShownWelcome && registry.getServers().length === 0 && !hasDeclaredServers()) {
-		showActionableMessage("info", vscode.l10n.t("Welcome to LiteLLM! Connect to 100+ LLMs in VS Code."), [
+		showActionableMessage("info", l10n.t("Welcome to LiteLLM! Connect to 100+ LLMs in VS Code."), [
 			reconfigureAction(configureNowLabel()),
 			{
-				label: vscode.l10n.t("Documentation"),
+				label: l10n.t("Documentation"),
 				run: () => void vscode.env.openExternal(vscode.Uri.parse(GITHUB_DOCS_URL)),
 			},
 		]).catch((error) => {

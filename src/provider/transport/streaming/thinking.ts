@@ -1,4 +1,4 @@
-import { l10n } from "vscode";
+import * as l10n from "@vscode/l10n";
 import type { ChunkChoice, ChunkDelta, ThinkingBlock, ThinkingBlockDelta } from "../wire";
 
 export interface ThinkingContent {

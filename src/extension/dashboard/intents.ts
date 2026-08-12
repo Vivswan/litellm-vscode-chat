@@ -6,7 +6,7 @@
  * webview or a real configuration store. panel.ts owns the vscode wiring.
  */
 
-import * as vscode from "vscode";
+import * as l10n from "@vscode/l10n";
 import type {
 	DashboardCommandId,
 	NumberSettingId,
@@ -161,14 +161,14 @@ export function validateNumberSetting(setting: NumberSettingId, value: number | 
 		if (spec.nullable) {
 			return undefined;
 		}
-		return `${vscode.l10n.t("This setting needs a number and cannot be left empty.")}\n${vscode.l10n.t(
+		return `${l10n.t("This setting needs a number and cannot be left empty.")}\n${l10n.t(
 			"setting {0}: no value given; the setting is not clearable",
 			setting
 		)}`;
 	}
 	if (value < spec.minimum) {
 		const minimum = unitBehavior(setting).minimumText(spec.minimum);
-		return `${vscode.l10n.t("Enter a number that is at least {0}.", minimum)}\n${vscode.l10n.t(
+		return `${l10n.t("Enter a number that is at least {0}.", minimum)}\n${l10n.t(
 			"setting {0}, minimum {1}",
 			setting,
 			minimum
@@ -424,7 +424,7 @@ export async function executeDashboardIntent(
 			const invalid = intent.values.some((value) => !(value > 0 && value <= 1));
 			if (invalid) {
 				throw new DashboardValidationError(
-					`${vscode.l10n.t("Alert thresholds must be above 0% and at most 100% - enter values like 80% or 0.8.")}\n${vscode.l10n.t(
+					`${l10n.t("Alert thresholds must be above 0% and at most 100% - enter values like 80% or 0.8.")}\n${l10n.t(
 						"setting {0}: allowed range {1}",
 						`${CONFIG_SECTION}.${USAGE_ALERT_THRESHOLDS_SETTING_KEY}`,
 						"0 < value <= 1"
@@ -461,24 +461,24 @@ export async function executeDashboardIntent(
 			// renders it verbatim; never payload or response text.
 			if (outcome.kind === "expected-failure") {
 				return outcome.declaredCount === 1
-					? vscode.l10n.t("Discovery failed (expected) - serving 1 declared model")
-					: vscode.l10n.t("Discovery failed (expected) - serving {0} declared models", outcome.declaredCount);
+					? l10n.t("Discovery failed (expected) - serving 1 declared model")
+					: l10n.t("Discovery failed (expected) - serving {0} declared models", outcome.declaredCount);
 			}
 			if (outcome.declaredCount > 0) {
 				return outcome.modelCount === 1
-					? vscode.l10n.t("Connected - 1 model (declared)")
-					: vscode.l10n.t("Connected - {0} models ({1} declared)", outcome.modelCount, outcome.declaredCount);
+					? l10n.t("Connected - 1 model (declared)")
+					: l10n.t("Connected - {0} models ({1} declared)", outcome.modelCount, outcome.declaredCount);
 			}
 			return outcome.modelCount === 1
-				? vscode.l10n.t("Connected - 1 model")
-				: vscode.l10n.t("Connected - {0} models", outcome.modelCount);
+				? l10n.t("Connected - 1 model")
+				: l10n.t("Connected - {0} models", outcome.modelCount);
 		}
 		case "removeServerSetting": {
 			const entries = rawServerEntries(env.readServersSetting());
 			const next = entries.filter((entry) => !entryHasLabel(entry, intent.label));
 			if (next.length === entries.length) {
 				throw new DashboardValidationError(
-					vscode.l10n.t("No servers setting entry has this label; the server is managed outside the setting")
+					l10n.t("No servers setting entry has this label; the server is managed outside the setting")
 				);
 			}
 			// The label's secure-side secrets are kept on purpose: re-adding the
@@ -496,7 +496,7 @@ export async function executeDashboardIntent(
 				// The "fieldId:" prefix stays an ASCII identifier outside the
 				// translation: sectionFailureText matches it against the internal
 				// field names to route the failure onto the right form section.
-				throw new DashboardValidationError(`baseUrl: ${vscode.l10n.t("not a usable http(s) URL")}`);
+				throw new DashboardValidationError(`baseUrl: ${l10n.t("not a usable http(s) URL")}`);
 			}
 			// Resolution binds the opaque handle to a group that is external
 			// RIGHT NOW: a stale or forged intent cannot tombstone a declared
@@ -504,9 +504,9 @@ export async function executeDashboardIntent(
 			const identity = env.resolveExternalGroup(baseUrl, intent.sourceHandle);
 			if (identity === undefined) {
 				throw new DashboardValidationError(
-					`${vscode.l10n.t(
+					`${l10n.t(
 						"This row no longer matches a hideable server - it may have just been adopted or removed, or it predates provider groups."
-					)}\n${vscode.l10n.t(
+					)}\n${l10n.t(
 						"The row did not resolve to an external VS Code provider group. Legacy servers are removed with the {0} command instead.",
 						manageCommandTitle()
 					)}`
@@ -517,15 +517,13 @@ export async function executeDashboardIntent(
 		}
 		case "unhideServer": {
 			if (intent.label.trim().length === 0) {
-				throw new DashboardValidationError(`label: ${vscode.l10n.t("enter a label")}`);
+				throw new DashboardValidationError(`label: ${l10n.t("enter a label")}`);
 			}
 			// The identity is echoed back verbatim (no trimming): the webview
 			// sends exactly what the HiddenGroup row carried.
 			const removed = await env.unhideGroup({ label: intent.label, baseUrl: intent.baseUrl });
 			if (!removed) {
-				throw new DashboardValidationError(
-					vscode.l10n.t("No hidden group matches this identity; it may already be visible")
-				);
+				throw new DashboardValidationError(l10n.t("No hidden group matches this identity; it may already be visible"));
 			}
 			return undefined;
 		}

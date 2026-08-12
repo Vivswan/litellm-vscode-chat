@@ -1,8 +1,8 @@
 /**
- * Writes l10n/bundle.l10n.json: every l10n.t()/vscode.l10n.t() literal in
- * src (tests excluded), key-sorted so a rerun or a merge always reproduces
- * the same bytes. `l10n:check` fails the build when this file drifts from
- * the source, so run this after adding or changing localized strings.
+ * Writes l10n/bundle.l10n.json: every l10n.t() literal in src (tests
+ * excluded), key-sorted so a rerun or a merge always reproduces the same
+ * bytes. `l10n:check` fails the build when this file drifts from the
+ * source, so run this after adding or changing localized strings.
  */
 import fs from "node:fs/promises";
 import path from "node:path";
