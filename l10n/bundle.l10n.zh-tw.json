@@ -680,8 +680,6 @@
 	"Settings and stored server secrets will be restored to their state from {0}. Changes made to them since then will be lost.": "設定與儲存的伺服器祕密將還原到 {0} 時的狀態。此後對它們所做的變更將遺失。",
 	"Settings fallback - {0}": "設定後備值 - {0}",
 	"Show": "顯示",
-	"Show effective capabilities for {0} on {1}": "顯示 {1} 上 {0} 的生效能力",
-	"Show effective parameters for {0} on {1}": "顯示 {1} 上 {0} 的有效參數",
 	"Show models from {0}": "顯示來自 {0} 的模型",
 	"Show the {0}": "顯示{0}",
 	"Skip": "略過",

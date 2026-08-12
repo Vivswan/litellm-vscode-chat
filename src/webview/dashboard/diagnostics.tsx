@@ -833,7 +833,7 @@ function ResolvedModels({
 													<button
 														type="button"
 														class="quiet params-action"
-														aria-label={l10n.t("Show effective parameters for {0} on {1}", row.rawId, row.serverLabel)}
+														aria-label={l10n.t("Inspect {0} on {1}", row.rawId, row.serverLabel)}
 														onClick={() =>
 															onInspect(
 																{ scopeKey: row.scopeKey, rawId: row.rawId, serverLabel: row.serverLabel },
@@ -841,24 +841,7 @@ function ResolvedModels({
 															)
 														}
 													>
-														{l10n.t("Parameters")}
-													</button>
-													<button
-														type="button"
-														class="quiet params-action"
-														aria-label={l10n.t(
-															"Show effective capabilities for {0} on {1}",
-															row.rawId,
-															row.serverLabel
-														)}
-														onClick={() =>
-															onInspect(
-																{ scopeKey: row.scopeKey, rawId: row.rawId, serverLabel: row.serverLabel },
-																"caps"
-															)
-														}
-													>
-														{l10n.t("Capabilities")}
+														{l10n.t("Inspect")}
 													</button>
 												</td>
 											</tr>

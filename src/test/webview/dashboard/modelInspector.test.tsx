@@ -918,28 +918,17 @@ test("the Diagnostics jump links open the merged panel scrolled to their section
 			},
 		});
 
-		// The row keeps BOTH jump links; each opens the ONE merged panel
-		// anchored on its own section - scrolled there AND focused there, so
-		// the next Tab continues from the requested section instead of the
-		// panel's first field.
-		const capsLink = document.querySelector(
-			"button[aria-label='Show effective capabilities for gpt-4o on Prod']"
-		) as HTMLButtonElement;
-		expect(capsLink).not.toBeNull();
-		fireClick(capsLink);
+		// The row carries ONE Inspect action opening the merged panel anchored
+		// on its Parameters section - scrolled there AND focused there, so the
+		// next Tab continues from the section instead of the panel's first
+		// field.
+		const inspectLink = document.querySelector("button[aria-label='Inspect gpt-4o on Prod']") as HTMLButtonElement;
+		expect(inspectLink).not.toBeNull();
+		fireClick(inspectLink);
 		expect(document.querySelector("[role='dialog']")).not.toBeNull();
 		expect(textOf(document.body, "#model-inspector-title")).toContain("Omni");
-		expect(landings).toContain("inspector-section-caps");
-		expect((document.activeElement as HTMLElement | null)?.id).toBe("inspector-section-caps");
-
-		fireClick(document.querySelector("button[aria-label='Close']") as HTMLButtonElement);
-		landings.length = 0;
-		const paramsLink = document.querySelector(
-			"button[aria-label='Show effective parameters for gpt-4o on Prod']"
-		) as HTMLButtonElement;
-		expect(paramsLink).not.toBeNull();
-		fireClick(paramsLink);
 		expect(landings).toContain("inspector-section-params");
+		expect((document.activeElement as HTMLElement | null)?.id).toBe("inspector-section-params");
 	} finally {
 		Element.prototype.scrollIntoView = original;
 	}

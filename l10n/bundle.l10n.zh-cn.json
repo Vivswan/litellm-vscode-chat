@@ -680,8 +680,6 @@
 	"Settings and stored server secrets will be restored to their state from {0}. Changes made to them since then will be lost.": "设置和存储的服务器密钥将恢复到 {0} 时的状态。此后对它们所做的更改将丢失。",
 	"Settings fallback - {0}": "设置后备值 - {0}",
 	"Show": "显示",
-	"Show effective capabilities for {0} on {1}": "显示 {1} 上 {0} 的生效能力",
-	"Show effective parameters for {0} on {1}": "显示 {1} 上 {0} 的生效参数",
 	"Show models from {0}": "显示来自 {0} 的模型",
 	"Show the {0}": "显示「{0}」",
 	"Skip": "跳过",

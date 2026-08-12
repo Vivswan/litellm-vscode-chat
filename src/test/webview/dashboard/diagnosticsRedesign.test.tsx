@@ -255,8 +255,8 @@ describe("Resolved models", () => {
 		const rows = Array.from(root.querySelectorAll("table.resolved-models tbody tr"));
 		expect(rows).toHaveLength(1);
 		expect(rows[0]?.textContent).toContain("gpt-5.6");
-		fireClick(buttonByText(rows[0] as HTMLElement, "Capabilities"));
-		expect(jumps).toEqual([["s0", "gpt-5.6", "prod", "caps"]]);
+		fireClick(buttonByText(rows[0] as HTMLElement, "Inspect"));
+		expect(jumps).toEqual([["s0", "gpt-5.6", "prod", "params"]]);
 	});
 
 	test("the zero-record empty state still lists every model", () => {

@@ -760,8 +760,6 @@
 	"Settings and stored server secrets will be restored to their state from {0}. Changes made to them since then will be lost.": "Settings and stored server secrets will be restored to their state from {0}. Changes made to them since then will be lost.",
 	"Settings fallback - {0}": "Settings fallback - {0}",
 	"Show": "Show",
-	"Show effective capabilities for {0} on {1}": "Show effective capabilities for {0} on {1}",
-	"Show effective parameters for {0} on {1}": "Show effective parameters for {0} on {1}",
 	"Show models from {0}": "Show models from {0}",
 	"Show the {0}": "Show the {0}",
 	"Skip": "Skip",

@@ -188,7 +188,7 @@ test("the Diagnostics table's inspector opens in place over the tab and closing 
 	});
 
 	const row = root.querySelector("table.resolved-models tbody tr") as HTMLElement;
-	fireClick(buttonByText(row, "Parameters"));
+	fireClick(buttonByText(row, "Inspect"));
 	expect(document.querySelector("[role='dialog']")).not.toBeNull();
 	// No tab switch: the overlay rides over the Diagnostics page.
 	expect(diagnosticsTab().getAttribute("aria-selected")).toBe("true");
