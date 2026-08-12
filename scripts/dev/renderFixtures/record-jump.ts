@@ -20,7 +20,7 @@ const fixture: RenderFixture = {
 		},
 	},
 	steps: [
-		'[...document.querySelectorAll("button")].filter((b) => b.textContent.trim() === "Parameters").at(-1).click()',
+		`document.querySelector('button[aria-label="Inspect DeepSeek R1 on gateway"]').click()`,
 		'[...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Configure parameters for this model").click()',
 	],
 	viewport: { width: 1300, height: 2100 },
