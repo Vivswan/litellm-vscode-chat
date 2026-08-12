@@ -24,10 +24,10 @@ import type {
 	SettingScope,
 } from "../../dashboard/viewModels";
 import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS } from "../../dashboard/viewModels";
-import type { ServerModelsSnapshot } from "../../provider";
 import type { PreAttachModelInfo } from "../../provider/catalog/groupModels";
 import { modelSupportsPromptCaching } from "../../provider/catalog/groupModels";
 import { rawModelIdFromExposed } from "../../provider/catalog/modelCatalog";
+import type { ServerModelsSnapshot } from "../../provider/catalog/statusWindow";
 import type { CapabilityCatalogLookup, EffectiveCapabilities } from "../../shared/config/capabilityResolution";
 import {
 	filterUnrecognizedKeys,

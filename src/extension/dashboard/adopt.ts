@@ -8,8 +8,8 @@
 import * as l10n from "@vscode/l10n";
 import type { RequestPayload } from "../../dashboard/endpoints";
 import { isUsableHttpUrl } from "../../dashboard/serverForm";
-import type { ServerModelsSnapshot } from "../../provider";
 import type { GroupServer } from "../../provider/catalog/groupModels";
+import type { ServerModelsSnapshot } from "../../provider/catalog/statusWindow";
 import type { OptionalEntryFields, SecretFieldId } from "../../shared/serverEntry";
 import { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";

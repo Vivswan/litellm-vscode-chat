@@ -12,60 +12,25 @@ import { CancellationError, EventEmitter } from "vscode";
 import type { CapabilityCatalogLookup, ModelCapabilitiesRecord } from "../shared/config/capabilityResolution";
 import { EMPTY_CATALOG_LOOKUP } from "../shared/config/capabilityResolution";
 import { ModelResolutionTable } from "../shared/config/resolutionTable";
-import { getDiscoveryCacheTtl, getModelCapabilitiesConfig } from "../shared/config/settings";
 import { CHARS_PER_TOKEN, estimateMessagesTokens } from "../shared/conversion/tokenEstimation";
-import type { TransportErrorClassification } from "../shared/errorClassification";
-import type { Logger, LogSafeErrorText } from "../shared/logger";
-import { MirroredError } from "../shared/mirroredError";
+import type { Logger } from "../shared/logger";
 import type { ExpectedFailureCategory } from "../shared/serverEntry";
-import type { AggregatedStatus, ServerConfig, ServerWithKey } from "../shared/servers";
-import { apiRootOf } from "../shared/util/baseUrl";
-import type { CapabilityOverrideOptions, DeclaredModelSynthesis } from "./catalog/capabilityOverrides";
-import { applyCapabilityOverrides, synthesizeDeclaredModels } from "./catalog/capabilityOverrides";
-import type { ExpectedDiscoveryFailures } from "./catalog/discovery";
+import type { AggregatedStatus } from "../shared/servers";
 import { DiscoveryCache } from "./catalog/discoveryCache";
-import type { AttachedModelInfo, GroupServer, LiteLLMModelInfo, PreAttachModelInfo } from "./catalog/groupModels";
-import {
-	attachGroupServer,
-	groupClientId,
-	groupServerLabel,
-	markStale,
-	parseGroupConfiguration,
-	parseModelMetadata,
-} from "./catalog/groupModels";
-import { buildModelInfos } from "./catalog/registration";
-import type { DiscoveryObservations, ServerModelsSnapshot } from "./catalog/statusWindow";
+import type { DiscoveredGroupModels } from "./catalog/groupDiscovery";
+import { GroupDiscovery } from "./catalog/groupDiscovery";
+import type { GroupServer, LiteLLMModelInfo, PreAttachModelInfo } from "./catalog/groupModels";
+import { groupClientId, parseGroupConfiguration, parseModelMetadata } from "./catalog/groupModels";
+import type { EntryIdentity } from "./catalog/servedModels";
+import { ServedModelDecorator } from "./catalog/servedModels";
+import { GroupStatusReporter } from "./catalog/statusReporting";
+import type { ServerModelsSnapshot } from "./catalog/statusWindow";
 import { StatusWindow } from "./catalog/statusWindow";
-import { ChatClient, type ServerConnection } from "./transport/chatClient";
-import { statusErrorTexts, toLanguageModelError } from "./transport/errorMapping";
-
-export type { ServerModelsSnapshot } from "./catalog/statusWindow";
+import { ChatClient } from "./transport/chatClient";
+import { toLanguageModelError } from "./transport/errorMapping";
 
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * One server's cached discovery result: the registered infos plus the raw
- * model IDs discovery returned. Cache hits need the raw-ID set for declared-ID
- * inertness - the registered infos alone may hold only synthetic variants
- * (`foo:cheapest`) of a discovered `foo`, and a declared `foo` must stay
- * inert. The cache stays configuration-free: overrides and declared models
- * are applied where models are served, never stored.
- */
-export interface DiscoveredGroupModels {
-	readonly infos: readonly PreAttachModelInfo[];
-	readonly discoveredRawIds: readonly string[];
-	/**
-	 * The API root the models were fetched from. The cache key (the group
-	 * client ID) does not cover the entry's apiVersion - it lives outside the
-	 * group configuration - so a serve whose effective root differs treats the
-	 * entry as a miss instead of serving models from the old root for the rest
-	 * of the TTL.
-	 */
-	readonly apiRoot: string;
-	/** See FetchModelsResult.observedModelInfoKeys; rides the cache so cached serves re-report it. */
-	readonly observedModelInfoKeys?: readonly string[];
 }
 
 export interface LiteLLMChatModelProviderOptions {
@@ -139,6 +104,19 @@ export interface LiteLLMChatModelProviderOptions {
 	now?: (() => number) | undefined;
 }
 
+/**
+ * The vscode-facing facade: it implements the LanguageModelChatProvider
+ * surface and composes the focused pieces - GroupDiscovery (the per-group
+ * discovery passes), ServedModelDecorator (model-info preparation), and
+ * GroupStatusReporter (status snapshots) - around the shared ChatClient,
+ * discovery cache, and resolution table.
+ *
+ * Error ownership lives here: transport and discovery modules construct
+ * specific errors and throw without logging, and this facade is the SINGLE
+ * logging boundary - it logs each failure once, and the composed modules log
+ * only through callbacks bound to this class's logger. Cancellation surfaces
+ * as vscode.CancellationError and is never logged.
+ */
 export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteLLMModelInfo> {
 	private readonly _client: ChatClient;
 	// Pre-attach group discovery results, keyed by group client ID. The host
@@ -150,26 +128,10 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	// server is attached to the stored infos on every read, never cached.
 	private readonly _discoveryCache: DiscoveryCache<DiscoveredGroupModels>;
 	private readonly logger?: Logger | undefined;
-	private _statusCallback?: (status: AggregatedStatus) => void;
-	private readonly _getEntryModelCapabilities: (label: string, baseUrl: string) => ModelCapabilitiesRecord | undefined;
-	private readonly _getEntryDeclaredModels: (label: string, baseUrl: string) => readonly string[] | undefined;
-	private readonly _getExpectedFailures: (
-		label: string,
-		baseUrl: string
-	) => readonly ExpectedFailureCategory[] | undefined;
-	private readonly _getCatalogLookup: () => CapabilityCatalogLookup;
-	/**
-	 * The same resolver ChatClient consumes, kept here for the discovery
-	 * cache's root check: a cached result carries the API root it was fetched
-	 * from, and a serve resolving to a different root must miss.
-	 */
-	private readonly _getEntryApiVersion: (label: string, baseUrl: string) => string | undefined;
-	private readonly _isGroupSuppressed: (label: string, baseUrl: string) => boolean;
 	private readonly _statusWindow: StatusWindow;
-	// Counts per-group status reports only: the groupless report says nothing
-	// about whether the host is re-resolving groups, so refreshViaHost's
-	// settle-wait must not be armed by it.
-	private _groupStatusReportCount = 0;
+	private readonly _reporter: GroupStatusReporter;
+	private readonly _decorator: ServedModelDecorator;
+	private readonly _discovery: GroupDiscovery;
 	// Sticky evidence that the host has handed this session at least one provider
 	// group: the host passes each group's configuration at prepare time. Once
 	// seen it never resets, so the "not configured" surfaces stay silent for a
@@ -182,7 +144,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	/**
 	 * The precomputed flat resolution table: one instance shared by the chat
 	 * request path (via ChatClient), the registration decorator
-	 * (capabilityOptions), and the dashboard's inspectors (resolutionTable
+	 * (ServedModelDecorator), and the dashboard's inspectors (resolutionTable
 	 * below), so every consumer reads the same cache. Input-fingerprinted, so
 	 * settings, entry, and discovery changes reach the next lookup without
 	 * event plumbing; pruned with the other per-server caches.
@@ -193,11 +155,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 
 	constructor(options: LiteLLMChatModelProviderOptions) {
 		this.logger = options.logger;
-		this._getEntryModelCapabilities = options.getEntryModelCapabilities ?? (() => undefined);
-		this._getEntryDeclaredModels = options.getEntryDeclaredModels ?? (() => undefined);
-		this._getExpectedFailures = options.getExpectedFailures ?? (() => undefined);
-		this._getCatalogLookup = options.getCatalogLookup ?? (() => EMPTY_CATALOG_LOOKUP);
-		this._isGroupSuppressed = options.isGroupSuppressed ?? (() => false);
 		this._client = new ChatClient({
 			userAgent: options.userAgent,
 			logger: options.logger,
@@ -206,13 +163,33 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			getEntryApiVersion: options.getEntryApiVersion,
 			resolution: this._resolution,
 		});
-		this._getEntryApiVersion = options.getEntryApiVersion ?? (() => undefined);
 		this._discoveryCache = options.discoveryCache ?? new DiscoveryCache();
 		this._statusWindow = new StatusWindow(options.now ?? (() => Date.now()));
+		this._reporter = new GroupStatusReporter(this._statusWindow);
+		this._decorator = new ServedModelDecorator({
+			getEntryModelCapabilities: options.getEntryModelCapabilities ?? (() => undefined),
+			getEntryDeclaredModels: options.getEntryDeclaredModels ?? (() => undefined),
+			getCatalogLookup: options.getCatalogLookup ?? (() => EMPTY_CATALOG_LOOKUP),
+			resolution: this._resolution,
+			log: (message, data) => this.log(message, data),
+			logAdvisory: (message, data) => this.logAdvisory(message, data),
+		});
+		this._discovery = new GroupDiscovery({
+			client: this._client,
+			cache: this._discoveryCache,
+			reporter: this._reporter,
+			window: this._statusWindow,
+			decorator: this._decorator,
+			getEntryApiVersion: options.getEntryApiVersion ?? (() => undefined),
+			getExpectedFailures: options.getExpectedFailures ?? (() => undefined),
+			isGroupSuppressed: options.isGroupSuppressed ?? (() => false),
+			log: (message, data) => this.log(message, data),
+			logError: (message, error) => this.logError(message, error),
+		});
 	}
 
 	setStatusCallback(callback: (status: AggregatedStatus) => void): void {
-		this._statusCallback = callback;
+		this._reporter.setCallback(callback);
 	}
 
 	private log(message: string, data?: unknown): void {
@@ -254,62 +231,13 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	}
 
 	/**
-	 * The capability configuration one serve pass resolves against, assembled
-	 * from the injected seams. `entryLabel` names the declared entry candidate
-	 * (a group's configured label); the injected resolver answers only when
-	 * label and base URL identify the same declared entry, mirroring the
-	 * request path's entry-parameters match.
-	 */
-	private capabilityOptions(server: ServerConfig, entryLabel: string | undefined): CapabilityOverrideOptions {
-		return {
-			globalCapabilities: getModelCapabilitiesConfig(),
-			entryCapabilities:
-				entryLabel !== undefined ? this._getEntryModelCapabilities(entryLabel, server.baseUrl) : undefined,
-			entryDeclaredModels:
-				entryLabel !== undefined ? this._getEntryDeclaredModels(entryLabel, server.baseUrl) : undefined,
-			catalog: this._getCatalogLookup(),
-			resolution: this._resolution,
-			log: (message, data) => this.log(message, data),
-			// Advisory notes bypass the issue-report buffer; see Logger.advisory.
-			logAdvisory: (message, data) => this.logAdvisory(message, data),
-		};
-	}
-
-	/**
-	 * Everything a serve pass hands out, derived from one discovery result and
-	 * the CURRENT configuration: the discovered infos with capability
-	 * overrides applied, and the declared models discovery did not list
-	 * (inert against the discovered raw-ID set, suppressed on collision with a
-	 * registered ID). Applied outside the discovery cache on purpose - a
-	 * configuration edit reaches the next serve without a cache clear, and a
-	 * removed declared ID disappears immediately. The status window records
-	 * the overridden result; declared models alone stay out of it.
-	 */
-	private decorateServedModels(
-		discovered: Pick<DiscoveredGroupModels, "infos" | "discoveredRawIds">,
-		server: ServerConfig,
-		entryLabel: string | undefined
-	): { overridden: readonly PreAttachModelInfo[]; declared: DeclaredModelSynthesis } {
-		const opts = this.capabilityOptions(server, entryLabel);
-		const overridden = applyCapabilityOverrides(discovered.infos, server, opts);
-		const declared = synthesizeDeclaredModels(
-			new Set(discovered.discoveredRawIds),
-			new Set(overridden.map((info) => info.id)),
-			server,
-			1,
-			opts
-		);
-		return { overridden, declared };
-	}
-
-	/**
 	 * The label+URL identity the serve path resolves entry configuration
 	 * (modelCapabilities, expectedFailures) against for one served server, or
 	 * undefined when no entry can match (an unlabeled group, or a server no
 	 * longer in the status window). The dashboard's inspector resolves its
 	 * entry layer through this so it can never diverge from what requests use.
 	 */
-	capabilityEntryIdentity(serverId: string): { label: string; baseUrl: string } | undefined {
+	capabilityEntryIdentity(serverId: string): EntryIdentity | undefined {
 		const groupServer = this.getGroupServer(serverId);
 		if (groupServer !== undefined && groupServer.label !== undefined) {
 			return { label: groupServer.label, baseUrl: groupServer.baseUrl };
@@ -319,42 +247,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 
 	/**
 	 * The declared models the current configuration synthesizes for one
-	 * status-window snapshot, for the dashboard's state builder:
-	 * getServerSnapshots() stays discovered-only (declared models are
-	 * config-rebuilt every serve and never stored), so the dashboard merges
-	 * this projection into each server's model list. The composition mirrors
-	 * the serve path exactly - the group's own configured label resolves the
-	 * entry layer (status labels can be display fallbacks) - so the dashboard
-	 * shows the same IDs, names, and entry-layer resolution the picker
-	 * serves. Display-only, so record problems and suppressions do not
-	 * re-log on every state push; the serve path already logged them.
+	 * status-window snapshot, for the dashboard's state builder; the entry
+	 * layer resolves through capabilityEntryIdentity, the same identity the
+	 * serve path uses. See ServedModelDecorator.declaredModelsForSnapshot.
 	 */
 	declaredModelsForSnapshot(snapshot: ServerModelsSnapshot): readonly PreAttachModelInfo[] {
-		const { status } = snapshot;
-		const identity = this.capabilityEntryIdentity(status.serverId);
-		const server: ServerConfig = {
-			id: status.serverId,
-			label: identity?.label ?? status.label,
-			baseUrl: status.baseUrl,
-		};
-		return synthesizeDeclaredModels(
-			new Set(snapshot.discoveredRawIds),
-			new Set(snapshot.models.map((info) => info.id)),
-			server,
-			1,
-			{ ...this.capabilityOptions(server, identity?.label), log: () => {}, logAdvisory: () => {} }
-		).infos;
-	}
-
-	/** The declared entry's expectedFailures for this server, or none for unlabeled and unmatched servers. */
-	private expectedFailuresFor(entryLabel: string | undefined, baseUrl: string): readonly ExpectedFailureCategory[] {
-		return (entryLabel !== undefined ? this._getExpectedFailures(entryLabel, baseUrl) : undefined) ?? [];
-	}
-
-	/** The entry's categories in discovery's per-endpoint shape; see ExpectedDiscoveryFailures. */
-	private expectedDiscoveryFailures(entryLabel: string | undefined, baseUrl: string): ExpectedDiscoveryFailures {
-		const categories = this.expectedFailuresFor(entryLabel, baseUrl);
-		return { modelInfo: categories.includes("modelInfo"), modelListing: categories.includes("modelListing") };
+		return this._decorator.declaredModelsForSnapshot(snapshot, this.capabilityEntryIdentity(snapshot.status.serverId));
 	}
 
 	/**
@@ -367,22 +265,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		this._client.pruneClients(keep);
 		this._discoveryCache.prune(keep);
 		this._resolution.prune(keep);
-	}
-
-	/** Report the union of every live group's latest status, so one group's fetch never masks the others. */
-	private reportMergedStatus(silent: boolean): void {
-		if (!this._statusCallback) {
-			return;
-		}
-		const serverStatuses = this._statusWindow.snapshots().map((snapshot) => snapshot.status);
-		// Declared models serve through ANY discovery failure (config-rebuilt,
-		// never discovered): the picker lists them, so the aggregate count must
-		// match it whether or not the failure was expected.
-		const totalModels = serverStatuses.reduce(
-			(sum, s) => sum + (s.state === "ok" ? s.modelCount : (s.declaredModelCount ?? 0)),
-			0
-		);
-		this._statusCallback({ serverStatuses, totalModels, silent });
 	}
 
 	async provideLanguageModelChatInformation(
@@ -406,7 +288,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		this.pruneServerCaches(this._statusWindow.serverIds());
 		// The merged report keeps the status bar tracking group removals: once
 		// the last group ages out of the window, this reports empty.
-		this.reportMergedStatus(options.silent);
+		this._reporter.reportMerged(options.silent);
 		return [];
 	}
 
@@ -431,209 +313,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			this.pruneServerCaches([...this._statusWindow.serverIds(), serverId]);
 		}
 
-		return this.fetchGroupModels(groupServer, silent);
-	}
-
-	/**
-	 * Resolve one group's models, preferring the discovery cache: a fresh
-	 * cached result is served without a network call but still reports its
-	 * remembered outcome, so the merged status (and the cycle bookkeeping that
-	 * ages groups out) stays live across cached sweeps. Cache misses go through
-	 * the single-flight fetch, so a burst of host calls for one group costs one
-	 * request; every caller still reports status once, like it always did.
-	 * `bypassCache` (testKnownGroupConnections) drops the stored result first,
-	 * forcing the network, and the fresh result repopulates the cache.
-	 *
-	 * The cache holds pre-attach infos; the group server is attached on every
-	 * read, cached or fetched, so each sweep hands the host fresh objects and
-	 * nothing the host mutates in place (like the group-name detail) can be
-	 * pinned into later sweeps. Attaching the full group server (OAuth and
-	 * virtual-key credentials included) also means cached sweeps route chat
-	 * requests with the current credentials; the cache key is the group client
-	 * ID, which fingerprints those credentials, so rotating any of them lands
-	 * on a fresh cache entry.
-	 */
-	private async fetchGroupModels(
-		groupServer: GroupServer,
-		silent: boolean,
-		bypassCache = false
-	): Promise<LiteLLMModelInfo[]> {
-		const server: ServerConnection = {
-			id: groupClientId(groupServer),
-			label: groupServer.label ?? groupServerLabel(groupServer.baseUrl),
-			baseUrl: groupServer.baseUrl,
-			apiKey: groupServer.apiKey,
-			// The configured label only: an unlabeled group's display fallback
-			// (the URL host) must not accidentally match a declared entry.
-			entryLabel: groupServer.label,
-			...(groupServer.oauth !== undefined ? { oauth: groupServer.oauth } : {}),
-			...(groupServer.virtualKey !== undefined ? { virtualKey: groupServer.virtualKey } : {}),
-		};
-		const attach = (infos: readonly PreAttachModelInfo[]): AttachedModelInfo[] =>
-			infos.map((info) => attachGroupServer(info, groupServer));
-
-		// A group the user explicitly removed answers empty and never touches
-		// the network or the cache. Its status still reports (as healthy with
-		// zero models, flagged hiddenByRemoval so the presentation layers name
-		// the cause) so the status window ages it like any live group and the
-		// dashboard's hidden-groups view sees a coherent snapshot. Unhiding
-		// fires the change event; the host's re-resolution then lands back here
-		// with the predicate answering false.
-		if (this._isGroupSuppressed(server.label, groupServer.baseUrl)) {
-			this.log("Provider group is hidden by an explicit user removal; serving no models", {
-				baseUrl: server.baseUrl,
-			});
-			this.reportGroupStatus(server, groupServer, silent, { state: "ok", modelCount: 0, hiddenByRemoval: true }, []);
-			return [];
-		}
-
-		// The effective API root, resolved exactly the way the transport
-		// resolves it (only a labeled group can match an entry). Computed
-		// before the cache read: a cached result from a different root is
-		// stale configuration, not a hit.
-		const effectiveApiRoot = apiRootOf(
-			server.baseUrl,
-			groupServer.label !== undefined ? this._getEntryApiVersion(groupServer.label, server.baseUrl) : undefined
-		);
-		if (bypassCache) {
-			this._discoveryCache.invalidate(server.id);
-		} else {
-			const ttl = getDiscoveryCacheTtl((msg, data) => this.log(msg, data));
-			const cached = this._discoveryCache.lookup(server.id, ttl);
-			if (cached !== undefined && cached.apiRoot !== effectiveApiRoot) {
-				// The entry's apiVersion changed under the same group identity;
-				// the stored models came from the old root. dropStored, not
-				// invalidate: a concurrent serve may already be reloading the
-				// corrected root, and its store must survive.
-				this._discoveryCache.dropStored(server.id);
-			} else if (cached !== undefined) {
-				const { overridden, declared } = this.decorateServedModels(cached, server, groupServer.label);
-				this.log("Serving provider group models from the discovery cache", {
-					baseUrl: server.baseUrl,
-					count: overridden.length + declared.infos.length,
-				});
-				this.reportGroupStatus(
-					server,
-					groupServer,
-					silent,
-					{ state: "ok", modelCount: overridden.length + declared.infos.length },
-					overridden,
-					{
-						discoveredRawIds: cached.discoveredRawIds,
-						observedModelInfoKeys: cached.observedModelInfoKeys,
-					}
-				);
-				return attach([...overridden, ...declared.infos]);
-			}
-		}
-
-		this.log("Fetching models for provider group", { baseUrl: server.baseUrl, silent });
-		const expectedFailures = this.expectedDiscoveryFailures(groupServer.label, server.baseUrl);
-		try {
-			const load = async (): Promise<DiscoveredGroupModels> => {
-				const { models, observedModelInfoKeys } = await this._client.fetchModels(server, expectedFailures);
-				return {
-					infos: buildModelInfos(models, server, 1, (msg) => this.log(msg)).infos,
-					discoveredRawIds: models.map((model) => model.id),
-					apiRoot: effectiveApiRoot,
-					...(observedModelInfoKeys !== undefined ? { observedModelInfoKeys } : {}),
-				};
-			};
-			let discovered = await this._discoveryCache.fetch(server.id, load);
-			if (discovered.apiRoot !== effectiveApiRoot) {
-				// Single-flight is keyed by group ID alone, so this serve joined a
-				// load that started before the entry's apiVersion changed. Its
-				// result is the old root's; drop it and load the current root.
-				// dropStored, not invalidate: with several joiners correcting at
-				// once, the first one's fresh reload is already in flight and the
-				// rest must join it WITHOUT stripping its right to cache.
-				this._discoveryCache.dropStored(server.id);
-				discovered = await this._discoveryCache.fetch(server.id, load);
-			}
-			// Overrides and declared models are applied to what is SERVED: the
-			// discovery cache stays configuration-free, so an edit reaches the
-			// very next serve. The status window records the served (overridden)
-			// models; declared models alone are config-rebuilt every serve and
-			// never recorded.
-			const { overridden, declared } = this.decorateServedModels(discovered, server, groupServer.label);
-			this.log(`Provider group at ${server.baseUrl} returned ${discovered.infos.length} models`);
-			this.reportGroupStatus(
-				server,
-				groupServer,
-				silent,
-				{ state: "ok", modelCount: overridden.length + declared.infos.length },
-				overridden,
-				{
-					discoveredRawIds: discovered.discoveredRawIds,
-					observedModelInfoKeys: discovered.observedModelInfoKeys,
-				}
-			);
-			return attach([...overridden, ...declared.infos]);
-		} catch (error) {
-			const expected = expectedFailures.modelListing;
-			if (expected) {
-				// The one boundary log for an expected terminal failure: an info
-				// classification instead of an error, keeping the issue-report
-				// buffer clean of failures the user declared normal.
-				this.log(`Model discovery failed (expected: modelListing) for provider group`, {
-					baseUrl: server.baseUrl,
-				});
-			} else {
-				this.logError(`Failed to fetch models for provider group at ${server.baseUrl}`, error);
-			}
-			// Both status renderings are constructed at this boundary (see
-			// statusErrorTexts).
-			const texts = statusErrorTexts(error);
-			// The window's last known models ride along with the error status, so
-			// a group that just failed does not lose its last-served set: a silent
-			// refresh returns those models decorated as stale (warning icon plus
-			// hover banner) instead of making them vanish. Retention is anchored
-			// to the last SUCCESSFUL discovery (see staleServableModels); the
-			// banner names the same success time, so repeated failures cannot
-			// make the data look freshly checked either. Past the window the
-			// failure serves the empty list, as it always did. The window is the
-			// honest source here - it is this session's live state, unlike the
-			// extension layer's persisted status, which can be a stale prior
-			// session's. Declared models are rebuilt from the current
-			// configuration and merged in un-staled (they never depend on the
-			// success anchor and never enter the window); a declared ID the
-			// last discovery listed stays inert against the stale set. Test
-			// Connection (non-silent) still throws, except that an expected
-			// failure with declared models serves the declared set instead.
-			const stale = this._statusWindow.staleServableModels(server.id);
-			const { overridden, declared } = this.decorateServedModels(
-				stale !== undefined
-					? { infos: stale.models, discoveredRawIds: stale.discoveredRawIds }
-					: { infos: [], discoveredRawIds: [] },
-				server,
-				groupServer.label
-			);
-			this.reportGroupStatus(
-				server,
-				groupServer,
-				silent,
-				{
-					state: "error",
-					...texts,
-					...(expected ? { expected: true } : {}),
-					...(declared.infos.length > 0 ? { declaredModelCount: declared.infos.length } : {}),
-				},
-				stale?.models ?? [],
-				{ discoveredRawIds: stale?.discoveredRawIds ?? [] }
-			);
-			if (silent) {
-				const staleServed =
-					stale !== undefined ? markStale(attach(overridden), new Date(stale.lastSuccessAt).toLocaleString()) : [];
-				return [...staleServed, ...attach(declared.infos)];
-			}
-			if (expected && declared.infos.length > 0) {
-				return attach(declared.infos);
-			}
-			// A non-Error throw is rebuilt with the status's log-safe rendering as
-			// its mirror: the display text can embed response body and must never
-			// reach the log path.
-			throw error instanceof Error ? error : new MirroredError(texts.error, { englishMessage: texts.logSafeError });
-		}
+		return this._discovery.fetchGroupModels(groupServer, silent);
 	}
 
 	/**
@@ -662,7 +342,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		// detaches in-flight loads, so they cannot re-store pre-drop data. The
 		// host's re-resolution then reads through the empty cache and repopulates it.
 		this._discoveryCache.clear();
-		const groupReportsBefore = this._groupStatusReportCount;
+		const groupReportsBefore = this._reporter.groupReportCount;
 		this._onDidChangeEmitter.fire();
 
 		const start = Date.now();
@@ -670,8 +350,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		let lastChangeAt = Date.now();
 		while (Date.now() - start < deadlineMs) {
 			await delay(50);
-			if (this._groupStatusReportCount !== lastCount) {
-				lastCount = this._groupStatusReportCount;
+			if (this._reporter.groupReportCount !== lastCount) {
+				lastCount = this._reporter.groupReportCount;
 				lastChangeAt = Date.now();
 			} else if (lastCount > groupReportsBefore && Date.now() - lastChangeAt >= quietMs) {
 				return;
@@ -691,56 +371,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	async testKnownGroupConnections(): Promise<void> {
 		for (const groupServer of this._statusWindow.groupServers()) {
 			try {
-				await this.fetchGroupModels(groupServer, false, true);
+				await this._discovery.fetchGroupModels(groupServer, false, true);
 			} catch {
 				// The failure is already logged and recorded in the merged status;
 				// the remaining group servers still get probed.
 			}
 		}
-	}
-
-	private reportGroupStatus(
-		server: ServerWithKey,
-		groupServer: GroupServer,
-		silent: boolean,
-		outcome:
-			| {
-					state: "ok";
-					modelCount: number;
-					/** See ServerStatusOk: zero models because the user hid the group, never a server outcome. */
-					hiddenByRemoval?: boolean;
-			  }
-			| {
-					state: "error";
-					error: string;
-					logSafeError: LogSafeErrorText;
-					classification?: TransportErrorClassification;
-					/** See ServerStatusError: the truthful error stays; presentation derives the downgrade. */
-					expected?: boolean;
-					declaredModelCount?: number;
-			  },
-		/** Discovered pre-attach infos only; declared models are config-rebuilt every serve and never recorded. */
-		models: readonly PreAttachModelInfo[],
-		/** What this discovery observed (raw IDs, model_info keys); see DiscoveryObservations. */
-		observations: DiscoveryObservations = {}
-	): void {
-		this._groupStatusReportCount += 1;
-		this._statusWindow.record(
-			{
-				serverId: server.id,
-				label: server.label,
-				baseUrl: server.baseUrl,
-				lastChecked: new Date().toISOString(),
-				// Diagnostics reads this as "authentication configured", so OAuth
-				// client credentials count the same as a static key.
-				hasApiKey: groupServer.apiKey.length > 0 || groupServer.oauth !== undefined,
-				...outcome,
-			},
-			models,
-			groupServer,
-			observations
-		);
-		this.reportMergedStatus(silent);
 	}
 
 	async provideLanguageModelChatResponse(

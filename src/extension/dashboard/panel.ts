@@ -31,7 +31,8 @@ import type {
 	DashboardSectionId,
 	DashboardUsage,
 } from "../../dashboard/viewModels";
-import type { LiteLLMChatModelProvider, ServerModelsSnapshot } from "../../provider";
+import type { LiteLLMChatModelProvider } from "../../provider";
+import type { ServerModelsSnapshot } from "../../provider/catalog/statusWindow";
 import type { CapabilityCatalogLookup } from "../../shared/config/capabilityResolution";
 import { CMD } from "../../shared/config/commandIds";
 import { searchCatalogModels } from "../../shared/config/openRouterCatalog";
@@ -817,7 +818,7 @@ export function declaredMergedSnapshots(
  * to the Diagnostics tab; the palette entry and notification actions run it)
  * and keep the panel in sync with the stores: configuration changes re-push
  * directly; provider status changes arrive via the returned controller's
- * refresh(), called from the status fan-out in extension.ts, and server sync
+ * refresh(), called from the status fan-out in wiring/ui.ts, and server sync
  * passes via the engine's onDidSync hook.
  */
 export function registerDashboardCommand(

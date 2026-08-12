@@ -1,9 +1,9 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
-import type { DiscoveredGroupModels } from "../../../provider";
 import { LiteLLMChatModelProvider } from "../../../provider";
 import { DiscoveryCache } from "../../../provider/catalog/discoveryCache";
+import type { DiscoveredGroupModels } from "../../../provider/catalog/groupDiscovery";
 import { groupClientId } from "../../../provider/catalog/groupModels";
 import type { AggregatedStatus } from "../../../shared/servers";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
