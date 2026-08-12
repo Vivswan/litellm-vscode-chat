@@ -61,6 +61,15 @@ jobs:
       - name: Package VSIX
         run: bunx vsce package -o extension.vsix
 
+      # To also attest the VSIX's build provenance, add the two scopes this
+      # job narrows away - id-token: write and attestations: write, both
+      # already granted by the managed ci.yml release ceiling - to the
+      # permissions block above and uncomment. Attestations only work on
+      # public repositories (private needs GitHub Enterprise Cloud).
+      #   - uses: actions/attest-build-provenance@v4
+      #     with:
+      #       subject-path: ./extension.vsix
+
       - name: Publish to VS Code Marketplace
         run: bunx vsce publish --pat "$MARKETPLACE_TOKEN" --packagePath ./extension.vsix
         env:
