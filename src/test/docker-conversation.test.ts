@@ -14,7 +14,7 @@ import {
 	extractToolCalls,
 	waitForHostModels,
 } from "./hostApiHelpers";
-import { expectDefined } from "./testUtils";
+import { expectDefined } from "./pureHelpers";
 
 /**
  * Multi-turn conversation property suite for the docker LiteLLM stack.

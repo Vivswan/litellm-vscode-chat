@@ -11,7 +11,7 @@ import {
 	extractText,
 	waitForHostModels,
 } from "./hostApiHelpers";
-import { expectDefined } from "./testUtils";
+import { expectDefined } from "./pureHelpers";
 
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;

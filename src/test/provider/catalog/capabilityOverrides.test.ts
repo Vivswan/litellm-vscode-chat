@@ -16,7 +16,7 @@ import { buildModelInfos } from "../../../provider/catalog/registration";
 import type { LiteLLMModelItem } from "../../../provider/catalog/schemas";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
 import { ModelResolutionTable } from "../../../shared/config/resolutionTable";
-import { makeModelInfo } from "../../testUtils";
+import { makeModelInfo } from "../../pureHelpers";
 
 const SERVER = { id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" };
 const SCOPE = "http://litellm.test";

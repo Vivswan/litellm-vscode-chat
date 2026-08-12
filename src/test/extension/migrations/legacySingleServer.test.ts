@@ -10,8 +10,9 @@ import {
 	LEGACY_CLEANUP_PENDING_KEY,
 	SERVER_REGISTRY_KEY,
 } from "../../../shared/config/storageKeys";
+import { expectDefined } from "../../pureHelpers";
 import type { FakeExtensionStorage } from "../../testUtils";
-import { expectDefined, failingStorage, makeExtensionStorage, makeMigrationContext } from "../../testUtils";
+import { failingStorage, makeExtensionStorage, makeMigrationContext } from "../../testUtils";
 
 function makeContext(storage: FakeExtensionStorage = makeExtensionStorage()): {
 	ctx: MigrationContext;

@@ -7,7 +7,7 @@ import type { TransportErrorClassification } from "../../../shared/errorClassifi
 import { publicErrorText } from "../../../shared/logger";
 import type { AggregatedStatus, ServerStatus } from "../../../shared/servers";
 import type { Timer } from "../../../shared/util/timer";
-import { expectDefined } from "../../testUtils";
+import { expectDefined } from "../../pureHelpers";
 
 suite("extension/ui/notifier", () => {
 	let toasts: { kind: "info" | "warning" | "error"; message: string; buttons: string[] }[];

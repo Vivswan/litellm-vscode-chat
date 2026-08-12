@@ -19,15 +19,8 @@ import {
 	TEST_BASE_URL,
 	useMsw,
 } from "../../mocks/handlers";
-import {
-	DEFAULT_DISCOVERY_PAYLOAD,
-	expectDefined,
-	makeProvider,
-	systemMessage,
-	toHeaderMap,
-	userMessage,
-	withConfig,
-} from "../../testUtils";
+import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, toHeaderMap } from "../../pureHelpers";
+import { makeProvider, systemMessage, userMessage, withConfig } from "../../testUtils";
 
 /** The host passes the group configuration structurally; stable typings only declare `silent`. */
 function groupOptions(configuration: unknown, silent = true): { silent: boolean } {

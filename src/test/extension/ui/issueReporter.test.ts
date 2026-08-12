@@ -10,7 +10,8 @@ import {
 	reportFingerprint,
 } from "../../../extension/ui/issueReporter";
 import { mapSdkError, RequestError } from "../../../provider/transport/errorMapping";
-import { assertContains, assertOmits, assertStartsWith, expectDefined, makeExtensionStorage } from "../../testUtils";
+import { assertContains, assertOmits, assertStartsWith, expectDefined } from "../../pureHelpers";
+import { makeExtensionStorage } from "../../testUtils";
 
 suite("IssueReporter", () => {
 	const MAX_SAFE_URL_LENGTH = 8000;

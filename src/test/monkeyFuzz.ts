@@ -82,7 +82,7 @@ import { COMMAND_SIGIL } from "./fakeStack/commands";
 import { FAKE_MODELS, PLAYBACK_MODEL } from "./fakeStack/models";
 import { FAKE_OAUTH_CLIENT_ID, FAKE_OAUTH_CLIENT_SECRET } from "./fakeStack/oauth";
 import { collectStream, extractText, waitForHostModels } from "./hostApiHelpers";
-import { expectDefined } from "./testUtils";
+import { expectDefined } from "./pureHelpers";
 
 // -- Action alphabet ----------------------------------------------------------
 

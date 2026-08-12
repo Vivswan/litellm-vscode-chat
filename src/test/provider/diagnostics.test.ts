@@ -3,7 +3,8 @@ import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import type { AggregatedStatus } from "../../shared/servers";
 import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
-import { expectDefined, makeProvider, withFetch } from "../testUtils";
+import { expectDefined, withFetch } from "../pureHelpers";
+import { makeProvider } from "../testUtils";
 
 suite("provider/diagnostics", () => {
 	useMsw();

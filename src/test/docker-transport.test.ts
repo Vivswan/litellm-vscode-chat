@@ -4,7 +4,7 @@ import { CONFIG_SECTION } from "../shared/config/settingSpec";
 import { STACK_DEFAULTS } from "./envFile";
 import { COMMAND_SIGIL } from "./fakeStack/commands";
 import { addServer, catalogOff, clearServers, ensureActivated, extractText, waitForHostModels } from "./hostApiHelpers";
-import { expectDefined } from "./testUtils";
+import { expectDefined } from "./pureHelpers";
 
 /**
  * Transport-failure suite for the docker LiteLLM stack: streams that die

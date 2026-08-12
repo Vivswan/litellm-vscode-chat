@@ -21,7 +21,7 @@ import {
 	extractText,
 	waitForHostModels,
 } from "./hostApiHelpers";
-import { expectDefined } from "./testUtils";
+import { expectDefined } from "./pureHelpers";
 
 /**
  * Docker server-sync suite: the REAL declarative chain, end to end. Every

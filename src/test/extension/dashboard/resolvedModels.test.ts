@@ -5,7 +5,8 @@ import type { ResolvedModelsQuery } from "../../../extension/dashboard/resolvedM
 import { buildResolvedModelsView, resolveModelRecordChains } from "../../../extension/dashboard/resolvedModels";
 import type { SettingsReader } from "../../../extension/dashboard/state";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
-import { makeModelInfo, makeServerStatus } from "../../testUtils";
+import { makeModelInfo } from "../../pureHelpers";
+import { makeServerStatus } from "../../testUtils";
 
 function makeReader(values: Record<string, unknown>): SettingsReader {
 	return {

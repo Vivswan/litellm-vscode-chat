@@ -8,7 +8,8 @@ import { groupClientId } from "../../../provider/catalog/groupModels";
 import type { AggregatedStatus } from "../../../shared/servers";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
-import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeProvider, withConfig } from "../../testUtils";
+import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined } from "../../pureHelpers";
+import { makeProvider, withConfig } from "../../testUtils";
 
 /** A manually advanced clock: the cache's one injectable time seam. */
 function makeClock(start = 0): { now: () => number; advance: (ms: number) => void } {

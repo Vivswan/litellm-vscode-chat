@@ -15,13 +15,8 @@ import {
 	ServerRegistry,
 } from "../../../extension/servers/serverRegistry";
 import { Logger } from "../../../shared/logger";
-import {
-	assertContains,
-	expectDefined,
-	fakeFingerprintSaltSession,
-	makeExtensionStorage,
-	withConfig,
-} from "../../testUtils";
+import { assertContains, expectDefined } from "../../pureHelpers";
+import { fakeFingerprintSaltSession, makeExtensionStorage, withConfig } from "../../testUtils";
 import { resolveNls } from "../../util/nls";
 
 suite("extension/servers/serverManagement", () => {

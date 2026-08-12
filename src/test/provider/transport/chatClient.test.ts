@@ -2,7 +2,8 @@ import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { LiteLLMModelInfo } from "../../../provider/catalog/groupModels";
 import { ChatClient } from "../../../provider/transport/chatClient";
-import { withConfig, withFetch } from "../../testUtils";
+import { withFetch } from "../../pureHelpers";
+import { withConfig } from "../../testUtils";
 
 function controllableStream(): { stream: ReadableStream<Uint8Array>; push(text: string): void; close(): void } {
 	let controller!: ReadableStreamDefaultController<Uint8Array>;

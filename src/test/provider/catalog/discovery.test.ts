@@ -24,7 +24,7 @@ import {
 	TEST_BASE_URL,
 	useMsw,
 } from "../../mocks/handlers";
-import { expectDefined, withFetch } from "../../testUtils";
+import { expectDefined, withFetch } from "../../pureHelpers";
 
 function request(log: (message: string, data?: unknown) => void = () => {}) {
 	const client = createServerClient({

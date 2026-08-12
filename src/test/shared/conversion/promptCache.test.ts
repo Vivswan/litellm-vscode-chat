@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import { applyPromptCacheBreakpoints, type PromptCachedRequest } from "../../../shared/conversion/promptCache";
 import type { OpenAIChatContentBlock, OpenAIChatMessage, OpenAIFunctionToolDef } from "../../../shared/conversion/wire";
-import { expectDefined } from "../../testUtils";
+import { expectDefined } from "../../pureHelpers";
 
 const EPHEMERAL = { type: "ephemeral" } as const;
 

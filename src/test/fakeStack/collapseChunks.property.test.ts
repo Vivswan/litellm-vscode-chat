@@ -9,8 +9,8 @@ import {
 	resolveFuzzSeed,
 	TAIL_EVENT_KINDS,
 } from "../fuzzStream";
+import { expectDefined } from "../pureHelpers";
 import { collapseChunks } from "../scenarios";
-import { expectDefined } from "../testUtils";
 
 /**
  * Property coverage for collapseChunks, the fake stack's own non-streaming

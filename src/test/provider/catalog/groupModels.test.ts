@@ -13,7 +13,7 @@ import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfigur
 import { oauthCredentialFingerprint } from "../../../provider/transport/auth";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { fingerprint } from "../../../shared/util/fingerprint";
-import { expectDefined, makeModelInfo } from "../../testUtils";
+import { expectDefined, makeModelInfo } from "../../pureHelpers";
 
 const OAUTH_FIELDS = {
 	oauthTokenUrl: "http://idp.test/oauth2/token",

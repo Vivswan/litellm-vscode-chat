@@ -8,7 +8,8 @@ import { consumeDevSeed, parseDevSeed } from "../../extension/devSeed";
 import { updateServerSecret } from "../../extension/servers/serverSync";
 import { serverSecretsKey } from "../../shared/config/storageKeys";
 import { DEV_SEED_FILENAME } from "../../shared/devSeed";
-import { makeExtensionStorage, makeLogger } from "../testUtils";
+import { makeLogger } from "../pureHelpers";
+import { makeExtensionStorage } from "../testUtils";
 
 /**
  * A DevSeedEnv over in-memory settings plus the fake SecretStorage, with the

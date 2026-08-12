@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import { errorMessageText, Logger, publicErrorStack, publicErrorText } from "../../shared/logger";
-import { expectDefined } from "../testUtils";
+import { expectDefined } from "../pureHelpers";
 
 function makeSinks() {
 	const infoLines: string[] = [];

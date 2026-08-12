@@ -1,6 +1,6 @@
 import type { ExpectedToolCall, FuzzEvent } from "./fuzzCorpus";
 import { fuzzSeedPrefix } from "./fuzzSeed";
-import { expectDefined } from "./testUtils";
+import { expectDefined } from "./pureHelpers";
 
 /**
  * Shared stream-fuzzing machinery: the event generators, the assembly oracle,

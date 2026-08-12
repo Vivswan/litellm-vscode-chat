@@ -3,7 +3,8 @@ import type { ExtensionMigration, MigrationContext, MigrationOutcome } from "../
 import { MIGRATIONS, runMigrations } from "../../../extension/migrations";
 import { ServerRegistry } from "../../../extension/servers/serverRegistry";
 import { Logger } from "../../../shared/logger";
-import { expectDefined, fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
+import { expectDefined } from "../../pureHelpers";
+import { fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
 
 function makeContext(): { ctx: MigrationContext; lines: string[] } {
 	const storage = makeExtensionStorage();

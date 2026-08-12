@@ -18,7 +18,7 @@ import {
 	extractToolCalls,
 	waitForHostModels,
 } from "./hostApiHelpers";
-import { expectDefined } from "./testUtils";
+import { expectDefined } from "./pureHelpers";
 
 /**
  * Generative stream fuzzer for the docker LiteLLM stack. The event generators

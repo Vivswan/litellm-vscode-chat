@@ -1,16 +1,17 @@
 # Bun's transpiler does not pick up jsx/jsxImportSource from the nested
-# src/test/webview/tsconfig.json (tsc does), so the preact JSX runtime is
-# pinned here for the webview test suite. The same pin exists in
+# src/test/bun/tsconfig.json (tsc does), so the preact JSX runtime is
+# pinned here for the bun test tree. The same pin exists in
 # src/webview/tsconfig.json (typecheck) and scripts/dev/esbuild.mts (bundle);
 # all three must agree. @types/bun tracks the packageManager bun version in
 # package.json - keep them aligned when bumping either.
 jsx = "react-jsx"
 jsxImportSource = "preact"
 
-# The webview suite is the only bun-test surface in this repository; every
-# other suite is Mocha tdd inside the extension host. `root` is load-bearing:
-# without it a bare `bun test` discovers the extension-host *.test.ts files,
-# whose suite()/test() globals crash under bun's runner.
+# src/test/bun is the only bun-test surface in this repository: the home for
+# suites that need no extension host, today the happy-dom webview component
+# suites. Every other suite is Mocha tdd inside the extension host. `root` is
+# load-bearing: without it a bare `bun test` discovers the extension-host
+# *.test.ts files, whose suite()/test() globals crash under bun's runner.
 [test]
-root = "src/test/webview"
-preload = ["./src/test/webview/preload.ts"]
+root = "src/test/bun"
+preload = ["./src/test/bun/preload.ts"]

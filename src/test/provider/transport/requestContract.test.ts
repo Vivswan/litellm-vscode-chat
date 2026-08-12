@@ -15,11 +15,11 @@ import {
 	TEST_BASE_URL,
 	useMsw,
 } from "../../mocks/handlers";
+import { makeModelInfo } from "../../pureHelpers";
 import {
 	captureRequest,
 	captureRequestBody,
 	createConfiguredProvider,
-	makeModelInfo,
 	makeProvider,
 	systemMessage,
 	userMessage,

@@ -18,7 +18,8 @@ import type { SetupHintKind } from "../../../shared/errorClassification";
 import { Logger, markLogSafe } from "../../../shared/logger";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { SETUP_HINT_DOCS_URLS } from "../../../shared/util/links";
-import { expectDefined, makeExtensionStorage, makeServerStatus } from "../../testUtils";
+import { expectDefined } from "../../pureHelpers";
+import { makeExtensionStorage, makeServerStatus } from "../../testUtils";
 
 suite("extension/ui/commands", () => {
 	/** Poll until `condition` holds: the gate flow is deliberately not awaited by the command, so its effects land later. */

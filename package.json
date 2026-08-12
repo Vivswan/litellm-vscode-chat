@@ -544,7 +544,7 @@
 		"bundle": "bun scripts/dev/esbuild.mts --production && bun scripts/dev/generate-third-party-notices.ts",
 		"bundle:dev": "bun scripts/dev/esbuild.mts",
 		"bundle:watch": "bun scripts/dev/esbuild.mts --watch",
-		"typecheck": "tsc --noEmit -p ./ && tsc --noEmit -p src/webview && tsc --noEmit -p src/test/webview && tsc --noEmit -p tsconfig.scripts.json",
+		"typecheck": "tsc --noEmit -p ./ && tsc --noEmit -p src/webview && tsc --noEmit -p src/test/bun && tsc --noEmit -p tsconfig.scripts.json",
 		"setup-env": "bash scripts/env/setup-env.sh",
 		"setup-env:verify": "bash scripts/env/setup-env.sh --verify",
 		"setup-env:full": "bash scripts/env/setup-env.sh --full",
@@ -566,9 +566,10 @@
 		"generate-config": "bun scripts/stack/generate-litellm-config.ts",
 		"copilot-login": "bun scripts/stack/copilot-login.ts",
 		"test": "bun run test:host",
-		"test:host": "bun run test:webview && bun run compile && bun run bundle:dev && vscode-test --label unit --label activation-production --label host-fidelity --label host-fidelity-groups",
-		"test:coverage": "bun run test:host --coverage && bun scripts/ci/check-coverage.ts",
-		"test:webview": "bun test src/test/webview",
+		"test:host": "bun run test:bun && bun run test:vscode",
+		"test:vscode": "bun run compile && bun run bundle:dev && vscode-test --label unit --label activation-production --label host-fidelity --label host-fidelity-groups",
+		"test:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-dir=coverage/bun && bun run test:vscode --coverage && bun scripts/ci/check-coverage.ts",
+		"test:bun": "bun test",
 		"test:docker": "bun scripts/docker-test.ts"
 	},
 	"dependencies": {

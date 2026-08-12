@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import { pbkdf2Sync } from "node:crypto";
 import { fingerprint, initFingerprintSalt } from "../../../shared/util/fingerprint";
-import { FIXED_TEST_SALT } from "../../util/fingerprintSalt";
+import { FIXED_TEST_SALT } from "../../util/testSalt";
 
 /** The same construction fingerprint() pins: PBKDF2-SHA256, one iteration, 32 bytes, hex, truncated. */
 function saltedRendering(text: string, salt: string): string {

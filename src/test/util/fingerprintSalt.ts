@@ -8,8 +8,7 @@
  */
 import { initFingerprintSalt } from "../../shared/util/fingerprint";
 import { catalogOff } from "../hostApiHelpers";
-
-export const FIXED_TEST_SALT = "litellm-vscode-chat unit-test fingerprint salt (fixed, not a secret)";
+import { FIXED_TEST_SALT } from "./testSalt";
 
 initFingerprintSalt(FIXED_TEST_SALT);
 

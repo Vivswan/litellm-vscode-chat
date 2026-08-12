@@ -10,15 +10,8 @@ import { MirroredError } from "../../shared/mirroredError";
 import type { AggregatedStatus } from "../../shared/servers";
 import { resolveFuzzSeed } from "../fuzzStream";
 import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../mocks/handlers";
-import {
-	DEFAULT_DISCOVERY_PAYLOAD,
-	expectDefined,
-	makeModelInfo,
-	makeProvider,
-	userMessage,
-	withConfig,
-	withFetch,
-} from "../testUtils";
+import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeModelInfo, withFetch } from "../pureHelpers";
+import { makeProvider, userMessage, withConfig } from "../testUtils";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
 const SEED = resolveFuzzSeed();

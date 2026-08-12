@@ -41,7 +41,8 @@ import { SERVER_SYNC_FINGERPRINTS_KEY, serverSecretsKey } from "../../../shared/
 import { Logger } from "../../../shared/logger";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { fingerprint } from "../../../shared/util/fingerprint";
-import { expectDefined, fakeFingerprintSaltSession, makeExtensionStorage, withConfig } from "../../testUtils";
+import { expectDefined } from "../../pureHelpers";
+import { fakeFingerprintSaltSession, makeExtensionStorage, withConfig } from "../../testUtils";
 
 function makeSecretStore(initial: Record<string, string> = {}): SecretStore & { values: Map<string, string> } {
 	const values = new Map(Object.entries(initial));

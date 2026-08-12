@@ -19,7 +19,8 @@ import {
 } from "../../shared/config/storageKeys";
 import { catalogFixtureText } from "../catalogFixture";
 import { blockCatalogNetwork } from "../hostApiHelpers";
-import { expectDefined, makeExtensionStorage } from "../testUtils";
+import { expectDefined } from "../pureHelpers";
+import { makeExtensionStorage } from "../testUtils";
 
 /**
  * Production-mode activation, run in its own vscode-test label (see

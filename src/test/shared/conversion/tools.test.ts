@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { convertTools } from "../../../shared/conversion/tools";
-import { expectDefined } from "../../testUtils";
+import { expectDefined } from "../../pureHelpers";
 
 suite("shared/conversion/tools", () => {
 	test("convertTools returns function tool definitions", () => {

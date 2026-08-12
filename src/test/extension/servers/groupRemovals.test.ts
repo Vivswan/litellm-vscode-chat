@@ -1,7 +1,8 @@
 import * as assert from "node:assert";
 import { GroupRemovalStore } from "../../../extension/servers/groupRemovals";
 import { ORPHANED_GROUP_PROVENANCE_KEY, REMOVED_GROUP_TOMBSTONES_KEY } from "../../../shared/config/storageKeys";
-import { expectDefined, makeExtensionStorage } from "../../testUtils";
+import { expectDefined } from "../../pureHelpers";
+import { makeExtensionStorage } from "../../testUtils";
 
 function makeStore(initial: Record<string, unknown> = {}) {
 	const storage = makeExtensionStorage(initial);

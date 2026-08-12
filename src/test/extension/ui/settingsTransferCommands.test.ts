@@ -15,7 +15,7 @@ import {
 } from "../../../extension/ui/settingsTransferCommands";
 import { ALL_SETTING_KEYS, SERVERS_SETTING_KEY } from "../../../shared/config/settingSpec";
 import { serverSecretsKey } from "../../../shared/config/storageKeys";
-import { expectDefined } from "../../testUtils";
+import { expectDefined } from "../../pureHelpers";
 
 /** A recorded toast: kind, message, and the action labels it carried. */
 interface FakeNotification {

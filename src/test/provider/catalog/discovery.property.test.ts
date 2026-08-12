@@ -14,7 +14,7 @@ import { supportsTools } from "../../../provider/catalog/schemas";
 import { createServerClient } from "../../../provider/transport/clients";
 import { resolveFuzzSeed } from "../../fuzzStream";
 import { emptyErrorResponse, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
-import { expectDefined } from "../../testUtils";
+import { expectDefined } from "../../pureHelpers";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 // Pinned by default; FUZZ_SEED overrides so the nightly explores fresh seeds.

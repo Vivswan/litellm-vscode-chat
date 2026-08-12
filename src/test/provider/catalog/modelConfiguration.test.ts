@@ -6,7 +6,7 @@ import {
 	supportsReasoningEffort,
 } from "../../../provider/catalog/modelConfiguration";
 import type { LiteLLMProvider } from "../../../provider/catalog/schemas";
-import { expectDefined } from "../../testUtils";
+import { expectDefined } from "../../pureHelpers";
 
 suite("provider/catalog/modelConfiguration", () => {
 	suite("reasoning-effort schema", () => {

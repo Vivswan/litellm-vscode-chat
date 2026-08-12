@@ -18,7 +18,8 @@ import { EMPTY_CATALOG_STATUS, EMPTY_USAGE_VIEW } from "../../../extension/dashb
 import { entryModelParametersFor } from "../../../extension/servers/serverSync";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
-import { expectDefined, makeModelInfo, makeServerStatus } from "../../testUtils";
+import { expectDefined, makeModelInfo } from "../../pureHelpers";
+import { makeServerStatus } from "../../testUtils";
 import { serverPayload } from "./recordedEnv";
 
 interface FakePanel {

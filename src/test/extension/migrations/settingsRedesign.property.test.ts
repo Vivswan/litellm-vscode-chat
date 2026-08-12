@@ -30,7 +30,7 @@ import { isRecord } from "../../../shared/util/json";
 import { normalizePositiveNumber } from "../../../shared/util/numbers";
 import { MIGRATION_FUZZ_CORPUS } from "../../fuzzCorpus";
 import { resolveFuzzSeed } from "../../fuzzStream";
-import { expectDefined } from "../../testUtils";
+import { expectDefined } from "../../pureHelpers";
 import { resolveOldModelCapabilities } from "./oldWorldResolvers";
 import {
 	acceptedServers,

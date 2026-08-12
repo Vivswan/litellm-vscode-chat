@@ -205,9 +205,9 @@ jobs:
     uses: ./.github/workflows/format-check-reusable.yml
 
   # All four tsconfig projects. The reusable format-check only typechecks
-  # the helper scripts, the pre-commit hook likewise, and the webview suite
+  # the helper scripts, the pre-commit hook likewise, and the bun test tree
   # and bundle are transpile-only - so without this job nothing automated
-  # typechecks src/webview or src/test/webview at all (a broken webview
+  # typechecks src/webview or src/test/bun at all (a broken webview
   # project once reached a merge commit through that gap).
   typecheck:
     runs-on: ubuntu-latest

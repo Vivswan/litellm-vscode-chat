@@ -3,13 +3,56 @@ import path from "node:path";
 
 const DEFAULT_FLOOR = 85;
 
-interface CoverageMetric {
-	total: number;
-	covered: number;
+/** Per-file line-hit sets: line number -> hit at least once. */
+type FileLines = Map<number, boolean>;
+
+/**
+ * The two coverage runs and, for each, a source file only that runner can
+ * load. The sentinels are drift guards: path-form or filter drift in either
+ * report must fail loudly, never silently shrink the floor's denominator to
+ * whichever report still parses (bun alone would pass the floor today).
+ */
+const REPORTS = [
+	{ lcovPath: path.join("coverage", "lcov.info"), sentinel: "src/extension.ts" },
+	{ lcovPath: path.join("coverage", "bun", "lcov.info"), sentinel: "src/webview/dashboard/app.tsx" },
+];
+
+/**
+ * Repo-relative path with forward slashes. Both runners emit repo-relative
+ * lcov today; the absolute branch keeps a reporter that emits absolute paths
+ * (as c8's json-summary did) from slipping past the src/ filter unstripped.
+ * Slashes normalize first so a Windows path in either form strips the same.
+ */
+function normalizePath(file: string): string {
+	const normalized = file.replaceAll("\\", "/");
+	const cwdPrefix = `${process.cwd().replaceAll("\\", "/")}/`;
+	return normalized.startsWith(cwdPrefix) ? normalized.slice(cwdPrefix.length) : normalized;
 }
 
-interface FileSummary {
-	lines?: CoverageMetric;
+/** Minimal lcov reader: only SF/DA/end_of_record matter for a line floor. */
+function parseLcov(text: string): Map<string, FileLines> {
+	const files = new Map<string, FileLines>();
+	let current: FileLines | undefined;
+	for (const rawLine of text.split("\n")) {
+		const line = rawLine.trim();
+		if (line.startsWith("SF:")) {
+			const file = normalizePath(line.slice(3));
+			current = files.get(file);
+			if (!current) {
+				current = new Map();
+				files.set(file, current);
+			}
+		} else if (line.startsWith("DA:") && current) {
+			const [lineNo, hits] = line.slice(3).split(",");
+			const parsedLine = Number(lineNo);
+			if (Number.isInteger(parsedLine) && parsedLine > 0) {
+				current.set(parsedLine, (current.get(parsedLine) ?? false) || Number(hits) > 0);
+			}
+		} else if (line === "end_of_record") {
+			current = undefined;
+		}
+	}
+	return files;
 }
 
 async function main(): Promise<void> {
@@ -21,57 +64,70 @@ async function main(): Promise<void> {
 		return;
 	}
 
-	const summaryPath = path.join(process.cwd(), "coverage", "coverage-summary.json");
-	let raw: string;
-	try {
-		raw = await fs.readFile(summaryPath, "utf8");
-	} catch {
-		console.error(`Missing ${summaryPath}; run \`bun run test:coverage\` to generate it.`);
-		process.exitCode = 1;
-		return;
+	// A line counts as covered when either run hit it. Line-level union is
+	// the only sound merge across runners: two 50% summaries can cover
+	// disjoint halves or the same half, so summaries cannot be combined.
+	const merged = new Map<string, FileLines>();
+	for (const { lcovPath, sentinel } of REPORTS) {
+		let text: string;
+		try {
+			text = await fs.readFile(lcovPath, "utf8");
+		} catch {
+			console.error(`Missing ${lcovPath}; run \`bun run test:coverage\` to generate both lcov files.`);
+			process.exitCode = 1;
+			return;
+		}
+		const files = parseLcov(text);
+		if (!files.has(sentinel)) {
+			console.error(`${lcovPath} does not cover ${sentinel}; its paths or filters have drifted.`);
+			process.exitCode = 1;
+			return;
+		}
+		for (const [file, lines] of files) {
+			const target = merged.get(file) ?? new Map<number, boolean>();
+			merged.set(file, target);
+			for (const [lineNo, hit] of lines) {
+				target.set(lineNo, (target.get(lineNo) ?? false) || hit);
+			}
+		}
 	}
 
-	// The runner's include/exclude filters apply to runtime script paths before
-	// sourcemap remapping, so covering the dist bundle (needed to see the
-	// activation-path files the extension host loads from dist/extension.js)
-	// also drags remapped node_modules sources into the summary. The floor is
-	// therefore computed over the repository's own source files only.
-	const summary = JSON.parse(raw) as Record<string, FileSummary>;
-	const srcPrefix = `${path.join(process.cwd(), "src")}${path.sep}`;
+	// The host runner's include/exclude filters apply to runtime script paths
+	// before sourcemap remapping, so covering the dist bundle also drags
+	// remapped node_modules sources into the report, and the bun run covers
+	// the test harness files themselves. The floor is over the repository's
+	// own non-test source files only.
 	let total = 0;
 	let covered = 0;
 	let fileCount = 0;
-	for (const [file, metrics] of Object.entries(summary)) {
-		if (file === "total" || !file.startsWith(srcPrefix)) {
+	for (const [file, lines] of merged) {
+		if (!file.startsWith("src/") || file.startsWith("src/test/") || lines.size === 0) {
 			continue;
 		}
-		const lines = metrics.lines;
-		if (!lines || !Number.isFinite(lines.total) || !Number.isFinite(lines.covered)) {
-			continue;
+		total += lines.size;
+		for (const hit of lines.values()) {
+			if (hit) {
+				covered++;
+			}
 		}
-		total += lines.total;
-		covered += lines.covered;
 		fileCount++;
 	}
 
 	if (fileCount === 0 || total === 0) {
-		console.error(`No source-file line coverage found in ${summaryPath}.`);
+		console.error("No source-file line coverage found in the lcov reports.");
 		process.exitCode = 1;
 		return;
 	}
 
 	const pct = Math.round((covered / total) * 10000) / 100;
+	const summary = `Merged source line coverage ${pct}% (${covered}/${total} across ${fileCount} files)`;
 	if (pct < floor) {
-		console.error(
-			`Source line coverage ${pct}% (${covered}/${total} across ${fileCount} files) is below the floor of ${floor}%.`
-		);
+		console.error(`${summary} is below the floor of ${floor}%.`);
 		process.exitCode = 1;
 		return;
 	}
 
-	console.log(
-		`Source line coverage ${pct}% (${covered}/${total} across ${fileCount} files) meets the floor of ${floor}%.`
-	);
+	console.log(`${summary} meets the floor of ${floor}%.`);
 }
 
 main().catch((error) => {

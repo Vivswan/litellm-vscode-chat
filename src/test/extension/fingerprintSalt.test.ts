@@ -6,7 +6,8 @@ import * as vscode from "vscode";
 import type { SaltCreationTimings } from "../../extension/fingerprintSalt";
 import { loadFingerprintSalt } from "../../extension/fingerprintSalt";
 import { FINGERPRINT_SALT_SECRET } from "../../shared/config/storageKeys";
-import { failingStorage, makeExtensionStorage, makeLogger } from "../testUtils";
+import { makeLogger } from "../pureHelpers";
+import { failingStorage, makeExtensionStorage } from "../testUtils";
 
 /** Captures what would be installed process-wide; the real installer latches global state. */
 function capture(): { install: (salt: string) => void; installed: string[] } {

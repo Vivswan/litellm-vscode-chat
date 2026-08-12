@@ -19,7 +19,7 @@ import {
 } from "../../../provider/transport/errorMapping";
 import { localizedError, MirroredError } from "../../../shared/mirroredError";
 import { DEFAULT_API_VERSION } from "../../../shared/util/baseUrl";
-import { assertShows, assertStartsWith } from "../../testUtils";
+import { assertShows, assertStartsWith } from "../../pureHelpers";
 
 const chatCtx: MapErrorContext = { surface: "chat", baseUrl: "http://litellm.test", timeoutMs: 5000 };
 const discoveryCtx: MapErrorContext = { surface: "discovery", baseUrl: "http://litellm.test", timeoutMs: 5000 };

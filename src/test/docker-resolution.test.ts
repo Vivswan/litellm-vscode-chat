@@ -24,7 +24,7 @@ import {
 	OPENROUTER_CATALOG_SETTING_ID,
 	waitForHostModels,
 } from "./hostApiHelpers";
-import { expectDefined } from "./testUtils";
+import { expectDefined } from "./pureHelpers";
 
 /**
  * Docker resolution suite: catalog-ON capability backfill and the parameter

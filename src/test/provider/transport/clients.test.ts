@@ -3,7 +3,7 @@ import { HttpResponse, http } from "msw";
 import type OpenAI from "openai";
 import { createServerClient, ServerClientCache, type ServerClientConfig } from "../../../provider/transport/clients";
 import { MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
-import { toHeaderMap } from "../../testUtils";
+import { toHeaderMap } from "../../pureHelpers";
 
 function config(overrides: Partial<ServerClientConfig> = {}): ServerClientConfig {
 	return {

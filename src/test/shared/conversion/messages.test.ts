@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { convertMessages, isToolResultPart } from "../../../shared/conversion/messages";
-import { expectDefined } from "../../testUtils";
+import { expectDefined } from "../../pureHelpers";
 
 interface OpenAIToolCall {
 	id: string;

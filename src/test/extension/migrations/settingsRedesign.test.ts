@@ -19,7 +19,8 @@ import { buildGroupArgs, parseServersSetting } from "../../../extension/servers/
 import { matcherMatches, parseMatcherKey } from "../../../shared/config/modelMatcher";
 import { PARKED_GLOBAL_HEADERS_KEY } from "../../../shared/config/storageKeys";
 import { Logger } from "../../../shared/logger";
-import { assertOmits, expectDefined, fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
+import { assertOmits, expectDefined } from "../../pureHelpers";
+import { fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
 import { applyPlanToSnapshot } from "./settingsRedesignOracle";
 
 // The legacy and new ids, re-declared here on purpose: the migration and its

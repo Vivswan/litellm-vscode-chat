@@ -9,7 +9,8 @@ import { OPENROUTER_CATALOG_METADATA_KEY } from "../../shared/config/storageKeys
 import { Logger } from "../../shared/logger";
 import type { Clock, Timer } from "../../shared/util/timer";
 import { catalogFixtureText } from "../catalogFixture";
-import { makeExtensionStorage, withFetch } from "../testUtils";
+import { withFetch } from "../pureHelpers";
+import { makeExtensionStorage } from "../testUtils";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;

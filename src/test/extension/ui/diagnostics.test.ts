@@ -3,7 +3,8 @@ import { ServerRegistry } from "../../../extension/servers/serverRegistry";
 import { buildDiagnosticsSnapshot } from "../../../extension/ui/diagnostics";
 import { IssueReporter } from "../../../extension/ui/issueReporter";
 import { markLogSafe } from "../../../shared/logger";
-import { expectDefined, makeExtensionStorage, makeServerStatus } from "../../testUtils";
+import { expectDefined } from "../../pureHelpers";
+import { makeExtensionStorage, makeServerStatus } from "../../testUtils";
 
 function createRegistry(): ServerRegistry {
 	const storage = makeExtensionStorage();

@@ -12,7 +12,8 @@ import {
 	TEST_BASE_URL,
 	useMsw,
 } from "../../mocks/handlers";
-import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, makeProvider, toHeaderMap, userMessage } from "../../testUtils";
+import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, toHeaderMap } from "../../pureHelpers";
+import { makeProvider, userMessage } from "../../testUtils";
 
 const TOKEN_URL = "http://idp.test/oauth2/token";
 

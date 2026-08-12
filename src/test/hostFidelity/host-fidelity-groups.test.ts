@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import type { ServerStatus } from "../../shared/servers";
 import { createCaptureServer } from "../capture-server";
 import { catalogOff, ensureActivated } from "../hostApiHelpers";
-import { expectDefined } from "../testUtils";
+import { expectDefined } from "../pureHelpers";
 
 /**
  * Group-configuration label round trip, in its own extension host (the

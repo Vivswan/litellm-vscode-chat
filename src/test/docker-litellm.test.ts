@@ -17,7 +17,7 @@ import {
 	getThinkingPartClass,
 	waitForHostModels,
 } from "./hostApiHelpers";
-import { assertOmits, assertShows, expectDefined } from "./testUtils";
+import { assertOmits, assertShows, expectDefined } from "./pureHelpers";
 
 /**
  * Docker-stack test suite.

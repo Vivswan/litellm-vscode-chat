@@ -42,7 +42,8 @@ import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfigur
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
-import { assertOmits, makeModelInfo, makeServerStatus } from "../../testUtils";
+import { assertOmits, makeModelInfo } from "../../pureHelpers";
+import { makeServerStatus } from "../../testUtils";
 import { KEEP_ALL, makeEnv, type RecordedEnv, serverPayload } from "./recordedEnv";
 
 /** A declared-server view with every secret absent; overrides fill in the specifics. */

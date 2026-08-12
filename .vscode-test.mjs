@@ -67,7 +67,7 @@ export default defineConfig({
 	coverage: {
 		include: ["**/out/**", "**/dist/**"],
 		exclude: ["**/out/test/**", "**/node_modules/**"],
-		reporter: ["text-summary", "json-summary"],
+		reporter: ["text-summary", "json-summary", "lcovonly"],
 		output: "./coverage",
 	},
 	tests: [

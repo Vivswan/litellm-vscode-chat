@@ -14,7 +14,8 @@ import {
 	normalizeCustomHeaders,
 	normalizeModelCapabilities,
 } from "../../../shared/config/settings";
-import { expectDefined, withConfig } from "../../testUtils";
+import { expectDefined } from "../../pureHelpers";
+import { withConfig } from "../../testUtils";
 
 suite("shared/config/settings timeout getters", () => {
 	test("pass valid timeouts through without logging", async () => {

@@ -8,8 +8,8 @@ import type { DataPartCtor } from "../../../shared/conversion/dataPart";
 import { resetDataPartLogOnce } from "../../../shared/conversion/dataPart";
 import type { ThinkingPartCtor } from "../../../shared/conversion/thinkingPart";
 import { resetThinkingPartLogOnce } from "../../../shared/conversion/thinkingPart";
+import { assertContains, assertEndsWith, assertShows, expectDefined } from "../../pureHelpers";
 import { BUILTIN_SCENARIOS } from "../../scenarios";
-import { assertContains, assertEndsWith, assertShows, expectDefined } from "../../testUtils";
 
 /** A standalone tool-call ID source with an observable count, mirroring the ChatClient's. */
 function idSource(): { next(): number; readonly count: number } {

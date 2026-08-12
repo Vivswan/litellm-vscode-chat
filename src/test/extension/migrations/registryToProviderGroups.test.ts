@@ -25,8 +25,9 @@ import {
 } from "../../../shared/config/storageKeys";
 import type { Logger } from "../../../shared/logger";
 import { fingerprint } from "../../../shared/util/fingerprint";
+import { makeLogger } from "../../pureHelpers";
 import type { FakeExtensionStorage } from "../../testUtils";
-import { fakeFingerprintSaltSession, makeExtensionStorage, makeLogger, makeMigrationContext } from "../../testUtils";
+import { fakeFingerprintSaltSession, makeExtensionStorage, makeMigrationContext } from "../../testUtils";
 
 interface GroupSubmission {
 	command: string;

@@ -15,8 +15,8 @@ import {
 	type ServerConfig,
 	waitForHostModels,
 } from "../hostApiHelpers";
+import { expectDefined } from "../pureHelpers";
 import { SLOW_STREAM_CHUNK_COUNT } from "../scenarios";
-import { expectDefined } from "../testUtils";
 
 /**
  * Host-fidelity test suite.

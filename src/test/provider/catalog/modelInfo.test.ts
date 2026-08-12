@@ -3,7 +3,8 @@ import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfiguration";
 import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
-import { expectDefined, makeProvider, toHeaderMap } from "../../testUtils";
+import { expectDefined, toHeaderMap } from "../../pureHelpers";
+import { makeProvider } from "../../testUtils";
 
 suite("provider/model info and fallback", () => {
 	useMsw();
