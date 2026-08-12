@@ -12,15 +12,7 @@ import { COMMAND_SIGIL } from "./fakeStack/commands";
 import { PLAYBACK_MODEL } from "./fakeStack/models";
 import { NO_DISCOVERY_PREFIX, type NoDiscoveryAttemptCounts } from "./fakeStack/noDiscovery";
 import { FAKE_OAUTH_CLIENT_ID, FAKE_OAUTH_CLIENT_SECRET, FAKE_OAUTH_TOKEN_PREFIX } from "./fakeStack/oauth";
-import {
-	addServer,
-	catalogOff,
-	clearServers,
-	collectStream,
-	ensureActivated,
-	extractText,
-	waitForHostModels,
-} from "./hostApiHelpers";
+import { catalogOff, collectStream, ensureActivated, extractText, waitForHostModels } from "./hostApiHelpers";
 import { expectDefined } from "./pureHelpers";
 
 /**
@@ -61,8 +53,8 @@ const LABEL_OAUTH = "SyncSuite OAuth";
 const LABEL_PARAMS_A = "SyncSuite Params A";
 const LABEL_PARAMS_B = "SyncSuite Params B";
 const LABEL_CAPS = "SyncSuite Caps";
-const LABEL_DECLARED_REGISTRY = "SyncSuite Declared Registry";
 const LABEL_EXPECTED = "SyncSuite Expected";
+const LABEL_DECLARED_UNEXPECTED = "SyncSuite Declared Unexpected";
 
 /**
  * Scenario 9's override target: llama-4-scout declares no token limits, so
@@ -72,13 +64,13 @@ const LABEL_EXPECTED = "SyncSuite Expected";
  * the clamp bound rather than one exact guess.
  */
 const CAPS_MODEL = "llama-4-scout";
-/** Scenario 10's registry-path declared model; the ID is not in the fake catalog, only the declared list creates it. */
-const REGISTRY_DECLARED_MODEL = "fake-declared";
-/** Scenario 10's registry server key: its bucket in the fake backend's discovery-attempt counters. */
-const REGISTRY_DECLARED_KEY = "declared-registry-key";
-/** Scenario 11's entry-declared model. */
+/** Scenario 11's declared model; the ID is not in the fake catalog, only the declared list creates it. */
+const UNEXPECTED_DECLARED_MODEL = "fake-declared";
+/** Scenario 11's entry key: its bucket in the fake backend's discovery-attempt counters. */
+const UNEXPECTED_DECLARED_KEY = "declared-unexpected-key";
+/** Scenario 10's entry-declared model. */
 const EXPECTED_DECLARED_MODEL = "fake-expected";
-/** Scenario 11's entry key, unique so its discovery-attempt bucket counts only its own group. */
+/** Scenario 10's entry key, unique so its discovery-attempt bucket counts only its own group. */
 const EXPECTED_FAILURES_KEY = "expected-failures-key";
 
 /** Scenario 3's dormant stored value; scenario 5d scans the log buffer for it. */
@@ -265,7 +257,6 @@ suite("Docker server sync", () => {
 		// prunes the suite labels from the persisted fingerprint map.
 		await setStoredSecret(LABEL_STORED, "apiKey", undefined);
 		await setStoredSecret(LABEL_PRECEDENCE, "apiKey", undefined);
-		await vscode.commands.executeCommand("litellm._test.clearServers");
 		await serversConfig().update(
 			MODEL_CAPABILITIES_SETTING_KEY,
 			originalCapabilitiesSetting,
@@ -604,72 +595,7 @@ suite("Docker server sync", () => {
 		);
 	});
 
-	test("scenario 10: an entry's declared model registers chat-capable on a discovery-less registry server", async function () {
-		this.timeout(120000);
-		// The registry path (litellm._test.addServer) serves the legacy chain;
-		// declarations are entry-level (discovery.declared) and a registry
-		// server has no declared entry, so the label-keyed test seams supply
-		// the declared ID and its capability record. Cleared again in the
-		// finally so scenario 11's group at the same base URL cannot inherit
-		// this declaration.
-		await vscode.commands.executeCommand("litellm._test.setEntryDeclared", LABEL_DECLARED_REGISTRY, [
-			REGISTRY_DECLARED_MODEL,
-		]);
-		await vscode.commands.executeCommand("litellm._test.setEntryModelCapabilities", LABEL_DECLARED_REGISTRY, {
-			[REGISTRY_DECLARED_MODEL]: {
-				max_input_tokens: 123000,
-				max_output_tokens: 9000,
-				supports_vision: true,
-			},
-		});
-		try {
-			// A recycled user-data directory can inherit registry servers from an
-			// earlier run; the exact-equality assertion below needs none.
-			await clearServers();
-			const { modelIds } = await addServer(LABEL_DECLARED_REGISTRY, NO_DISCOVERY_URL, REGISTRY_DECLARED_KEY);
-			assert.deepStrictEqual(
-				modelIds,
-				[REGISTRY_DECLARED_MODEL],
-				"discovery fails on this server, so the declared model is the whole registry serve"
-			);
-			const infos = (await vscode.commands.executeCommand(
-				"litellm._test.refreshModelInfos"
-			)) as vscode.LanguageModelChatInformation[];
-			const info = expectDefined(
-				infos.find((candidate) => candidate.id === REGISTRY_DECLARED_MODEL),
-				`${REGISTRY_DECLARED_MODEL} in refreshModelInfos`
-			);
-			assert.strictEqual(info.maxInputTokens, 123000, "the declared max_input_tokens drives registration");
-			assert.strictEqual(info.maxOutputTokens, 9000, "the declared max_output_tokens drives registration");
-			assert.strictEqual(info.capabilities?.imageInput, true, "the declared supports_vision registers as imageInput");
-			const models = await waitForHostModels(
-				60000,
-				(candidates) => candidates.some((model) => model.id === REGISTRY_DECLARED_MODEL),
-				`the host to expose ${REGISTRY_DECLARED_MODEL}`
-			);
-			const model = expectDefined(models.find((candidate) => candidate.id === REGISTRY_DECLARED_MODEL));
-			const played = await chat(model, `${COMMAND_SIGIL}play:long-text`);
-			assert.ok(
-				played.includes("Blue is the color of the daytime sky"),
-				`the declared model must stream the canned scenario, got: "${played}"`
-			);
-			const params = await chat(model, `${COMMAND_SIGIL}params`);
-			assert.match(params, /max_tokens: `9000`/, "a user-declared output limit reaches the wire uncapped");
-		} finally {
-			await vscode.commands.executeCommand("litellm._test.setEntryDeclared", LABEL_DECLARED_REGISTRY, undefined);
-			await vscode.commands.executeCommand(
-				"litellm._test.setEntryModelCapabilities",
-				LABEL_DECLARED_REGISTRY,
-				undefined
-			);
-			// Without its declaration the registry server would just fail every
-			// later sweep, churning error lines into the log buffer scenario 11
-			// scans; nothing after this test uses the registry.
-			await clearServers();
-		}
-	});
-
-	test("scenario 11: expectedFailures downgrades the discovery failure and takes one attempt per endpoint", async function () {
+	test("scenario 10: expectedFailures downgrades the discovery failure and takes one attempt per endpoint", async function () {
 		this.timeout(180000);
 		await declareServer({
 			label: LABEL_EXPECTED,
@@ -744,5 +670,53 @@ suite("Docker server sync", () => {
 
 		// The declared model stays usable end to end under the expected outage.
 		assert.strictEqual(await chat(model, `${COMMAND_SIGIL}echo:expected declared chat`), "expected declared chat");
+	});
+
+	test("scenario 11: a declared model registers chat-capable when discovery fails UNEXPECTEDLY", async function () {
+		this.timeout(120000);
+		// The contract delta against scenario 10: declaration is active on ANY
+		// discovery failure type, not only an expected one, so this entry
+		// declares no expectedFailures. Runs LAST on purpose: its unexpected
+		// failures log at error level with the no-discovery URL, which scenario
+		// 10's log scan must never see beforehand.
+		await declareServer({
+			label: LABEL_DECLARED_UNEXPECTED,
+			baseUrl: NO_DISCOVERY_URL,
+			auth: { apiKey: UNEXPECTED_DECLARED_KEY },
+			discovery: { declared: [UNEXPECTED_DECLARED_MODEL] },
+			models: {
+				capabilities: {
+					[UNEXPECTED_DECLARED_MODEL]: {
+						max_input_tokens: 123000,
+						max_output_tokens: 9000,
+					},
+				},
+			},
+		});
+		const models = await waitForHostModels(
+			60000,
+			(candidates) => candidates.some((model) => model.id === UNEXPECTED_DECLARED_MODEL),
+			`the host to expose ${UNEXPECTED_DECLARED_MODEL}`
+		);
+		const model = expectDefined(models.find((candidate) => candidate.id === UNEXPECTED_DECLARED_MODEL));
+		assert.strictEqual(model.maxInputTokens, 123000, "the declared max_input_tokens drives registration");
+		const view = await declaredFor(LABEL_DECLARED_UNEXPECTED);
+		assert.strictEqual(view.syncError, undefined, "the group add must succeed");
+		const statuses = (await vscode.commands.executeCommand("litellm._test.getServerStatuses")) as ServerStatus[];
+		const status = expectDefined(
+			statuses.find((candidate) => candidate.label === LABEL_DECLARED_UNEXPECTED),
+			`status for ${LABEL_DECLARED_UNEXPECTED}`
+		);
+		assert.strictEqual(status.state, "error", "the discovery failure stays a truthful error");
+		assert.notStrictEqual(status.expected, true, "nothing marks this failure expected");
+		assert.strictEqual(status.declaredModelCount, 1, "the declared model rides the error status");
+
+		const played = await chat(model, `${COMMAND_SIGIL}play:long-text`);
+		assert.ok(
+			played.includes("Blue is the color of the daytime sky"),
+			`the declared model must stream the canned scenario, got: "${played}"`
+		);
+		const params = await chat(model, `${COMMAND_SIGIL}params`);
+		assert.match(params, /max_tokens: `9000`/, "a user-declared output limit reaches the wire uncapped");
 	});
 });

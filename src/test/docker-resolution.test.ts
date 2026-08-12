@@ -14,10 +14,15 @@ import { COMMAND_SIGIL } from "./fakeStack/commands";
 import { PLAYBACK_MODEL } from "./fakeStack/models";
 import { NO_DISCOVERY_PREFIX } from "./fakeStack/noDiscovery";
 import {
-	addServer,
+	assertIdsUnserved,
+	refreshEntryModels,
+	removeServerEntry,
+	uniqueName,
+	writeServerEntry,
+} from "./groupApiHelpers";
+import {
 	blockCatalogNetwork,
 	catalogOff,
-	clearServers,
 	collectStream,
 	ensureActivated,
 	extractText,
@@ -66,8 +71,8 @@ const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MAS
 const FAKE_URL = (process.env.LITELLM_DOCKER_FAKE_URL || "").replace(/\/+$/, "");
 const NO_DISCOVERY_URL = `${FAKE_URL}${NO_DISCOVERY_PREFIX}`;
 
-/** The catalog suite's registry server; the declared IDs below are its whole serve. */
-const CATALOG_LABEL = "ResolutionSuite Catalog";
+/** The catalog suite's declared entry; the declared IDs below are its whole serve. */
+const CATALOG_LABEL = uniqueName("ResolutionSuite Catalog");
 /** Exact catalog-ID match: the fixture's anthropic/claude-sonnet-4.5 entry. */
 const EXACT_ID = "anthropic/claude-sonnet-4.5";
 /** Unambiguous post-vendor suffix: only openai/gpt-4o-mini carries it. */
@@ -86,7 +91,7 @@ const GPT4O_MINI_MAX_INPUT = 128000 - 16384;
 const CLAUDE_MAX_INPUT = 1000000 - 64000;
 
 /** The directive suite's declared entry; its per-entry record is the entry-beats-global oracle. */
-const ENTRY_LABEL = "ResolutionSuite Entry";
+const ENTRY_LABEL = uniqueName("ResolutionSuite Entry");
 const ALIAS = PLAYBACK_MODEL.alias;
 
 type ServersSettingEntry = Record<string, unknown>;
@@ -126,9 +131,7 @@ suite("Docker resolution", () => {
 	}
 
 	async function refreshInfos(): Promise<Map<string, vscode.LanguageModelChatInformation>> {
-		const infos = (await vscode.commands.executeCommand(
-			"litellm._test.refreshModelInfos"
-		)) as vscode.LanguageModelChatInformation[];
+		const infos = await refreshEntryModels(CATALOG_LABEL);
 		return new Map(infos.map((info) => [info.id, info]));
 	}
 
@@ -136,7 +139,7 @@ suite("Docker resolution", () => {
 		infos: Map<string, vscode.LanguageModelChatInformation>,
 		id: string
 	): vscode.LanguageModelChatInformation {
-		return expectDefined(infos.get(id), `${id} in refreshModelInfos`);
+		return expectDefined(infos.get(id), `${id} in refreshEntryModels`);
 	}
 
 	/** The wire max_tokens the %params report carries. */
@@ -166,9 +169,12 @@ suite("Docker resolution", () => {
 		// live response replacing the seeded fixture mid-suite would be
 		// invisible flakiness.
 		catalogNetworkGuard = blockCatalogNetwork();
+		// The suites below attribute chats and registrations to their own
+		// entries by fixed model ids; a leftover group serving any of them
+		// would be indistinguishable, so fail fast.
+		await assertIdsUnserved([...DECLARED_IDS, ALIAS, "deepseek-r2", "llama-4-scout", "claude-opus-4-5", "gpt-5.2"]);
 		originalServersSetting = config().inspect(SERVERS_SETTING_KEY)?.globalValue;
 		await updateGlobal(SERVERS_SETTING_KEY, []);
-		await clearServers();
 	});
 
 	suiteTeardown(async function () {
@@ -181,6 +187,10 @@ suite("Docker resolution", () => {
 		await updateGlobal(SERVERS_SETTING_KEY, originalServersSetting);
 		await updateGlobal(MODEL_PARAMETERS_SETTING_KEY, undefined);
 		await updateGlobal(MODEL_CAPABILITIES_SETTING_KEY, undefined);
+		// Force the removal reconciliation now: the debounced pass may not run
+		// before host shutdown, and only a completed pass persists the
+		// tombstones that keep this run's groups dark in a recycled directory.
+		await vscode.commands.executeCommand(CMD.syncModels);
 	});
 
 	// ── World 1: the OpenRouter catalog path, fixture-seeded, catalog ON ──────
@@ -199,12 +209,24 @@ suite("Docker resolution", () => {
 			await updateGlobal(MODEL_CAPABILITIES_SETTING_KEY, {
 				[DIRECTIVE_ID]: { _openrouter_model: "openai/gpt-4o-mini" },
 			});
-			await vscode.commands.executeCommand("litellm._test.setEntryDeclared", CATALOG_LABEL, DECLARED_IDS);
-			const { modelIds } = await addServer(CATALOG_LABEL, NO_DISCOVERY_URL, "resolution-catalog-key");
+			// A real declared entry on the no-discovery mirror: discovery fails
+			// there (expectedly, so the non-silent refresh below serves the
+			// declared set instead of throwing), and the declared IDs are the
+			// entry's whole serve.
+			await writeServerEntry(
+				{
+					label: CATALOG_LABEL,
+					baseUrl: NO_DISCOVERY_URL,
+					auth: { apiKey: "resolution-catalog-key" },
+					discovery: { declared: [...DECLARED_IDS], expectedFailures: ["modelListing", "modelInfo"] },
+				},
+				60000
+			);
+			const modelIds = (await refreshEntryModels(CATALOG_LABEL)).map((info) => info.id);
 			assert.deepStrictEqual(
 				[...modelIds].sort(),
 				[...DECLARED_IDS].sort(),
-				"discovery fails on this server, so the declared IDs are the whole serve"
+				"discovery fails on this entry, so the declared IDs are the whole serve"
 			);
 		});
 
@@ -213,12 +235,12 @@ suite("Docker resolution", () => {
 			// Restore the hermetic state: catalog off and the seeded cache file
 			// deleted (a checkout carrying dist/openrouter-models.json falls back
 			// to that bundled artifact, which the opt-out keeps out of implicit
-			// matching anyway), records cleared, the registry server removed.
+			// matching anyway), records cleared, the entry removed (its group is
+			// tombstoned; the host cannot remove it).
 			await updateGlobal(OPENROUTER_CATALOG_SETTING_ID, false);
 			await vscode.commands.executeCommand("litellm._test.seedOpenRouterCatalog", undefined);
-			await vscode.commands.executeCommand("litellm._test.setEntryDeclared", CATALOG_LABEL, undefined);
 			await updateGlobal(MODEL_CAPABILITIES_SETTING_KEY, undefined);
-			await clearServers();
+			await removeServerEntry(CATALOG_LABEL);
 		});
 
 		test("catalog off: implicit backfill stays dead while the explicit directive serves offline", async function () {

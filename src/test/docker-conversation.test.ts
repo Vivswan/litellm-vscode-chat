@@ -4,10 +4,9 @@ import { STACK_DEFAULTS } from "./envFile";
 import { COMMAND_SIGIL } from "./fakeStack/commands";
 import { PLAYBACK_MODEL } from "./fakeStack/models";
 import { logFuzzSeed, resolveDockerFuzzSeed } from "./fuzzSeed";
+import { assertIdsUnserved, restoreServersSettingAfterRun, uniqueName, writeServerEntry } from "./groupApiHelpers";
 import {
-	addServer,
 	catalogOff,
-	clearServers,
 	collectStream,
 	ensureActivated,
 	extractText,
@@ -121,6 +120,7 @@ suite("Docker LiteLLM multi-turn conversations", () => {
 		test("SKIPPED: LITELLM_DOCKER_BASE_URL not set; run via `bun run test:docker`", () => {});
 		return;
 	}
+	restoreServersSettingAfterRun();
 
 	let model: vscode.LanguageModelChat;
 
@@ -128,8 +128,14 @@ suite("Docker LiteLLM multi-turn conversations", () => {
 		this.timeout(90000);
 		await ensureActivated();
 		await catalogOff();
-		await clearServers();
-		await addServer("Docker conversations", BASE_URL, API_KEY);
+		// The stack's ids are fixed, so a pre-existing copy of the playback
+		// model would be indistinguishable from this entry's; fail fast instead
+		// of conversing through a leftover group.
+		await assertIdsUnserved([PLAYBACK_MODEL.alias]);
+		await writeServerEntry(
+			{ label: uniqueName("Docker conversations"), baseUrl: BASE_URL, auth: { apiKey: API_KEY } },
+			60000
+		);
 		const models = await waitForHostModels(
 			60000,
 			(candidates) => candidates.some((m) => m.id === PLAYBACK_MODEL.alias),

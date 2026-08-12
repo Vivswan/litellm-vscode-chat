@@ -1,6 +1,6 @@
 /**
  * Helpers for suites that drive VS Code-managed provider groups: the
- * host-fidelity-groups suite and the group-path ports of the docker suites.
+ * host-fidelity suites and the docker suites.
  *
  * Two host facts shape every helper here:
  *
@@ -15,9 +15,10 @@
  *   pins that a duplicated ID surfaces as indistinguishable twin entries).
  */
 
+import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { DeclaredServerView } from "../extension/servers/serverSync";
-import { VENDOR_ID } from "../shared/config/commandIds";
+import { CMD, VENDOR_ID } from "../shared/config/commandIds";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../shared/config/settingSpec";
 import type { ExpectedFailureCategory } from "../shared/serverEntry";
 import type { ServerStatus } from "../shared/servers";
@@ -138,6 +139,65 @@ export interface ServerSettingEntry {
 		readonly declared?: readonly string[];
 		readonly expectedFailures?: readonly ExpectedFailureCategory[];
 	};
+	readonly models?: {
+		readonly parameters?: Readonly<Record<string, Record<string, unknown>>>;
+		readonly capabilities?: Readonly<Record<string, Record<string, unknown>>>;
+	};
+}
+
+/**
+ * Drive the real group path for one declared entry (discovery, capability
+ * resolution, registration) through the non-silent test seam and return the
+ * host-facing registration surface. Throws like Test Connection on discovery
+ * failure, except that an entry with matching expectedFailures and declared
+ * models returns the declared set.
+ */
+export async function refreshEntryModels(label: string): Promise<vscode.LanguageModelChatInformation[]> {
+	return (await vscode.commands.executeCommand(
+		"litellm._test.refreshEntryModels",
+		label
+	)) as vscode.LanguageModelChatInformation[];
+}
+
+/**
+ * Fail fast when this host already serves any of `ids`. The docker stack's
+ * model ids are fixed and the host exposes no group identity, so a leftover
+ * group from a recycled user-data directory would be indistinguishable from
+ * the suite's own and could silently absorb its waits and chats. A cleanly
+ * torn-down prior run leaves none: restoreServersSettingAfterRun's closing
+ * sync persists the removal tombstones that keep leftover groups dark.
+ */
+export async function assertIdsUnserved(ids: readonly string[]): Promise<void> {
+	const models = await vscode.lm.selectChatModels({ vendor: VENDOR_ID });
+	const collisions = [...new Set(models.map((model) => model.id).filter((id) => ids.includes(id)))];
+	assert.deepStrictEqual(
+		collisions,
+		[],
+		"this extension host already serves the suite's model ids (leftover provider groups from an earlier run in a recycled user-data directory); delete the test user-data directory and rerun"
+	);
+}
+
+/**
+ * Register hooks on the enclosing suite (or the root suite when called at
+ * module top level) that snapshot the machine-scoped servers setting before
+ * the first test and restore it after the last one: entries written by
+ * writeServerEntry carry inline keys and must not outlive the run. The
+ * closing sync pass reconciles the removals, so the persisted tombstones
+ * keep the leftover add-only groups from serving into a recycled user-data
+ * directory.
+ */
+export function restoreServersSettingAfterRun(): void {
+	let original: unknown;
+	suiteSetup(() => {
+		original = vscode.workspace.getConfiguration(CONFIG_SECTION).inspect(SERVERS_SETTING_KEY)?.globalValue;
+	});
+	suiteTeardown(async function () {
+		this.timeout(30000);
+		await vscode.workspace
+			.getConfiguration(CONFIG_SECTION)
+			.update(SERVERS_SETTING_KEY, original, vscode.ConfigurationTarget.Global);
+		await vscode.commands.executeCommand(CMD.syncModels);
+	});
 }
 
 const entryLabelIs = (item: unknown, label: string): boolean =>

@@ -3,14 +3,8 @@ import * as vscode from "vscode";
 import { STACK_DEFAULTS } from "./envFile";
 import { FALLBACK_TEXT } from "./fakeStack/commands";
 import { PLAYBACK_MODEL } from "./fakeStack/models";
-import {
-	catalogOff,
-	clearServers,
-	collectStream,
-	ensureActivated,
-	extractText,
-	waitForHostModels,
-} from "./hostApiHelpers";
+import { assertIdsUnserved, uniqueName } from "./groupApiHelpers";
+import { catalogOff, collectStream, ensureActivated, extractText, waitForHostModels } from "./hostApiHelpers";
 import { expectDefined } from "./pureHelpers";
 
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
@@ -20,15 +14,15 @@ const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MAS
  * Provider-group chat path, in its own extension host (the docker-group-path
  * label): the host's provider-group command is add-only, so the group created
  * here serves models until the host exits, and no other docker suite could
- * share this host. The docker-litellm suite drives the legacy registry
- * transport; this one pins the VS Code-managed provider-group path end to end
- * against a proxy that REQUIRES the master key: group creation through the
- * host command, model resolution through the per-group provider call, and a
- * chat whose credentials ride the model's litellm metadata across the host
- * round trip. The registry is cleared first, so a chat that loses the group
- * credentials anywhere along that path fails here (as a 401 if the key is
- * dropped from the request, or as a routing error if the metadata is
- * stripped) instead of silently falling back.
+ * share this host. This suite pins the VS Code-managed provider-group path
+ * end to end against a proxy that REQUIRES the master key: group creation
+ * through the host command IN THE NATIVE-EDITOR SHAPE (no `label` in the
+ * configuration - every other suite goes through the declarative sync chain,
+ * whose engine stamps one), model resolution through the per-group provider
+ * call, and a chat whose credentials ride the model's litellm metadata across
+ * the host round trip. A chat that loses the group credentials anywhere along
+ * that path fails here (as a 401 if the key is dropped from the request, or
+ * as a routing error if the metadata is stripped).
  */
 suite("Docker provider-group chat path", () => {
 	if (!BASE_URL) {
@@ -40,9 +34,12 @@ suite("Docker provider-group chat path", () => {
 		this.timeout(90000);
 		await ensureActivated();
 		await catalogOff();
-		await clearServers();
+		// The playback alias is a fixed stack id; a leftover group in a recycled
+		// user-data directory would be indistinguishable from this one, so fail
+		// fast before adding the group.
+		await assertIdsUnserved([PLAYBACK_MODEL.alias]);
 		await vscode.commands.executeCommand("lm.addLanguageModelsProviderGroup", {
-			name: "Docker Group Path",
+			name: uniqueName("Docker Group Path"),
 			vendor: "litellm",
 			baseUrl: BASE_URL,
 			apiKey: API_KEY,

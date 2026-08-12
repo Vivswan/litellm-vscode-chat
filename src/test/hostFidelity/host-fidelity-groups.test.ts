@@ -4,6 +4,7 @@ import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/setting
 import { createCaptureServer } from "../capture-server";
 import {
 	addGroup,
+	refreshEntryModels,
 	removeServerEntry,
 	scopedExact,
 	uniqueName,
@@ -138,10 +139,7 @@ suite("Host-Fidelity Tests (provider group semantics)", () => {
 			// resolve an apiKey only through the engine's SecretStorage read.
 			await vscode.commands.executeCommand("litellm._test.setServerSecret", label, "apiKey", secretSentinel);
 
-			const infos = (await vscode.commands.executeCommand(
-				"litellm._test.refreshEntryModels",
-				label
-			)) as vscode.LanguageModelChatInformation[];
+			const infos = await refreshEntryModels(label);
 			const info = infos.find((candidate) => candidate.id === modelId);
 			assert.ok(
 				info,
@@ -173,7 +171,7 @@ suite("Host-Fidelity Tests (provider group semantics)", () => {
 			);
 
 			await assert.rejects(
-				async () => vscode.commands.executeCommand("litellm._test.refreshEntryModels", uniqueName("litellm-absent")),
+				async () => refreshEntryModels(uniqueName("litellm-absent")),
 				/No declared server entry/,
 				"an unknown label must fail loudly, not return an empty list"
 			);

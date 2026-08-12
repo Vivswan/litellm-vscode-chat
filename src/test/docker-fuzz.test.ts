@@ -8,9 +8,14 @@ import { FUZZ_CORPUS } from "./fuzzCorpus";
 import { logFuzzSeed, resolveDockerFuzzSeed } from "./fuzzSeed";
 import { assemble, chunkOf, generateEvents, mulberry32 } from "./fuzzStream";
 import {
-	addServer,
+	assertIdsUnserved,
+	restoreServersSettingAfterRun,
+	type ServerSettingEntry,
+	uniqueName,
+	writeServerEntry,
+} from "./groupApiHelpers";
+import {
 	catalogOff,
-	clearServers,
 	collectStream,
 	ensureActivated,
 	extractText,
@@ -172,15 +177,12 @@ interface FuzzTarget {
 	readonly title: string;
 	/** Direct-mode targets skip the proxy, so the generator adds the shapes LiteLLM would reject. */
 	readonly directMode: boolean;
-	readonly serverUrl: string;
-	readonly serverKey: string;
+	/** The declared servers-setting entry (unique label) whose group carries the fuzzed streams. */
+	readonly entry: ServerSettingEntry;
 	/** The model id every fuzzed stream is sent through. */
 	readonly modelId: string;
 	/** XORed into SEED so each target draws its own event sequences from the shared seed. */
 	readonly seedSalt: number;
-	/** Configuration the target needs before its server is added, and the undo. */
-	readonly prepare?: () => Promise<void>;
-	readonly cleanup?: () => Promise<void>;
 }
 
 function fuzzSuite(target: FuzzTarget): void {
@@ -191,9 +193,11 @@ function fuzzSuite(target: FuzzTarget): void {
 			this.timeout(90000);
 			await ensureActivated();
 			await catalogOff();
-			await clearServers();
-			await target.prepare?.();
-			await addServer(target.title, target.serverUrl, target.serverKey);
+			// The stack's ids are fixed, so a pre-existing copy of the target
+			// model would be indistinguishable from this entry's; fail fast
+			// instead of fuzzing through a leftover group.
+			await assertIdsUnserved([target.modelId]);
+			await writeServerEntry(target.entry, 60000);
 			// Single-deployment targets on purpose: responses cannot vary by routing.
 			const models = await waitForHostModels(
 				60000,
@@ -201,11 +205,6 @@ function fuzzSuite(target: FuzzTarget): void {
 				`host to expose ${target.modelId}`
 			);
 			fuzzModel = expectDefined(models.find((m) => m.id === target.modelId));
-		});
-
-		suiteTeardown(async function () {
-			this.timeout(30000);
-			await target.cleanup?.();
 		});
 
 		test("replays the regression corpus", async function () {
@@ -294,32 +293,16 @@ if (!BASE_URL) {
 		test("SKIPPED: LITELLM_DOCKER_BASE_URL not set; run via `bun run test:docker`", () => {});
 	});
 } else {
-	/** The declared fuzz target's model: created only by the declared-list seam below, never listed by discovery. */
+	restoreServersSettingAfterRun();
+	/** The declared fuzz target's model: created only by its entry's declared list, never listed by discovery. */
 	const DECLARED_FUZZ_MODEL = "fake-declared-fuzz";
-	/** The label the declared fuzz target registers its server under; the seams key on it. */
-	const DECLARED_FUZZ_LABEL = "Docker LiteLLM stream fuzzer (declared)";
-
-	// Reasoning on to match the direct target's fake-mini: the direct-mode
-	// generator emits reasoning deltas. Everything else rides the built-in
-	// floor (tools on), which is exactly what a bare declared ID gives a model.
-	const seedDeclaredFuzzModel = async (): Promise<void> => {
-		await vscode.commands.executeCommand("litellm._test.setEntryDeclared", DECLARED_FUZZ_LABEL, [DECLARED_FUZZ_MODEL]);
-		await vscode.commands.executeCommand("litellm._test.setEntryModelCapabilities", DECLARED_FUZZ_LABEL, {
-			[DECLARED_FUZZ_MODEL]: { supports_reasoning: true },
-		});
-	};
-	const restoreDeclaredFuzzModel = async (): Promise<void> => {
-		await vscode.commands.executeCommand("litellm._test.setEntryDeclared", DECLARED_FUZZ_LABEL, undefined);
-		await vscode.commands.executeCommand("litellm._test.setEntryModelCapabilities", DECLARED_FUZZ_LABEL, undefined);
-	};
 
 	// Through the proxy: LiteLLM re-serializes everything, so only shapes it
 	// forwards faithfully are generated.
 	fuzzSuite({
 		title: "Docker LiteLLM stream fuzzer (proxy)",
 		directMode: false,
-		serverUrl: BASE_URL,
-		serverKey: API_KEY,
+		entry: { label: uniqueName("fuzz-proxy"), baseUrl: BASE_URL, auth: { apiKey: API_KEY } },
 		modelId: "gpt-5.2-mini",
 		seedSalt: 0,
 	});
@@ -329,22 +312,27 @@ if (!BASE_URL) {
 	fuzzSuite({
 		title: "Docker LiteLLM stream fuzzer (direct)",
 		directMode: true,
-		serverUrl: FAKE_URL,
-		serverKey: "fake-key",
+		entry: { label: uniqueName("fuzz-direct"), baseUrl: FAKE_URL, auth: { apiKey: "fake-key" } },
 		modelId: "fake-mini",
 		seedSalt: 0x5f375a86,
 	});
 	// The direct shapes again, but through a declared model on the fake
 	// backend's no-discovery mirror: discovery cannot list anything there, so
 	// every stream rides the declared-model registration and routes.
+	// Reasoning on to match the direct target's fake-mini (the direct-mode
+	// generator emits reasoning deltas); everything else rides the built-in
+	// floor (tools on), which is exactly what a bare declared ID gives a model.
 	fuzzSuite({
-		title: DECLARED_FUZZ_LABEL,
+		title: "Docker LiteLLM stream fuzzer (declared)",
 		directMode: true,
-		serverUrl: `${FAKE_URL}${NO_DISCOVERY_PREFIX}`,
-		serverKey: "fake-key",
+		entry: {
+			label: uniqueName("fuzz-declared"),
+			baseUrl: `${FAKE_URL}${NO_DISCOVERY_PREFIX}`,
+			auth: { apiKey: "fake-key" },
+			discovery: { declared: [DECLARED_FUZZ_MODEL], expectedFailures: ["modelListing", "modelInfo"] },
+			models: { capabilities: { [DECLARED_FUZZ_MODEL]: { supports_reasoning: true } } },
+		},
 		modelId: DECLARED_FUZZ_MODEL,
 		seedSalt: 0x85ebca6b,
-		prepare: seedDeclaredFuzzModel,
-		cleanup: restoreDeclaredFuzzModel,
 	});
 }
