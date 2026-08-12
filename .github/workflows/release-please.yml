@@ -63,7 +63,7 @@ jobs:
           fi
       # Authoritative release gating: the release PR's release-health CI job
       # gives early visible feedback, but it can be stale by merge time (a
-      # fuzz or blocker issue opened after that PR went green re-runs no
+      # tracking or blocker issue opened after that PR went green re-runs no
       # check), so the same action runs again here before release-please
       # acts. In release mode the gate self-scopes to release-cut pushes:
       # it gates only a push that merges a release-please-- PR (reading the
@@ -74,7 +74,7 @@ jobs:
         if: steps.head.outputs.current == 'true'
         with:
           mode: release
-          fuzz-label: "nightly-fuzz"
+          tracking-labels: "nightly-fuzz,nightly-failure"
         env:
           GH_TOKEN: ${{ github.token }}
       - uses: googleapis/release-please-action@v5

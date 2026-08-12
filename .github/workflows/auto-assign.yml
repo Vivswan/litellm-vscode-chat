@@ -21,7 +21,7 @@ on:
     workflows: ["CI"]
     types: [completed]
   schedule:
-    - cron: "23 6 * * 1"
+    - cron: "13 6 * * 1"
 
 # No workflow-level grants: each job below grants its reusable workflow
 # exactly what that capability needs. contents:read is CODEOWNERS
