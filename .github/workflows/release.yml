@@ -70,6 +70,7 @@ jobs:
       # Attestations only work on public repositories (private needs GitHub
       # Enterprise Cloud).
       - name: Attest the VSIX build provenance
+        id: attest
         uses: actions/attest-build-provenance@v4
         with:
           subject-path: ./extension.vsix
@@ -79,11 +80,19 @@ jobs:
         env:
           MARKETPLACE_TOKEN: ${{ secrets.MARKETPLACE_TOKEN }}
 
+      # The Sigstore bundle ships next to the VSIX so it can be verified
+      # against the frozen release without depending on GitHub's attestations
+      # API: `gh attestation verify extension.vsix
+      # -R Vivswan/litellm-vscode-chat --bundle extension.vsix.attestation.jsonl`.
       - name: Attach VSIX to the draft release
-        run: gh release upload "$RELEASE_TAG" extension.vsix --clobber
+        run: |
+          cp "$BUNDLE" extension.vsix.attestation.jsonl
+          gh release upload "$RELEASE_TAG" extension.vsix \
+            extension.vsix.attestation.jsonl --clobber
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
 
   # Step 3: freeze the release. This job stays last.
   publish-release:
