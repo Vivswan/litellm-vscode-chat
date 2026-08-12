@@ -29,7 +29,6 @@ import type { DashboardStateInputs, SettingsInspection, SettingsReader } from ".
 import {
 	buildDashboardState,
 	EMPTY_CATALOG_STATUS,
-	filterUnrecognizedKeyDiagnostics,
 	mostSpecificGlobalRecordKey,
 	observedKeysByEntryLabel,
 	observedModelInfoKeysUnion,
@@ -1716,29 +1715,6 @@ suite("extension/dashboard/state", () => {
 				]
 			);
 			assert.deepStrictEqual([...byLabel.entries()], [["Prod", ["max_input_tokens"]]]);
-		});
-
-		test("filterUnrecognizedKeyDiagnostics drops consumed-vocabulary keys even when the set would keep them", () => {
-			// The backstop rule: the parse never emits unrecognized-key for a
-			// consumed field, but if the vocabulary ever drifted, the filter must
-			// not resurrect hints for keys the extension reads.
-			const kept = filterUnrecognizedKeyDiagnostics(
-				[
-					{ kind: "unrecognized-key", recordKey: "r", key: "supports_vision" },
-					{ kind: "unrecognized-key", recordKey: "r", key: "mystery_flag" },
-				],
-				["some_real_key"]
-			);
-			assert.deepStrictEqual(kept, [{ kind: "unrecognized-key", recordKey: "r", key: "mystery_flag" }]);
-		});
-
-		test("filterUnrecognizedKeyDiagnostics treats an empty set as no evidence, exactly like no set", () => {
-			// A /model/info listing with zero deployments proves nothing about
-			// the server's key vocabulary; hinting against it would flag every
-			// open field at once.
-			const hints = [{ kind: "unrecognized-key" as const, recordKey: "r", key: "mystery_flag" }];
-			assert.deepStrictEqual(filterUnrecognizedKeyDiagnostics(hints, []), []);
-			assert.deepStrictEqual(filterUnrecognizedKeyDiagnostics(hints, undefined), []);
 		});
 	});
 

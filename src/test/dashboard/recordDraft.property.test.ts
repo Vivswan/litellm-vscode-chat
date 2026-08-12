@@ -11,8 +11,7 @@ import {
 	toGroups,
 	toHeaderRows,
 } from "../../dashboard/recordDraft";
-import { filterUnrecognizedKeyDiagnostics } from "../../extension/dashboard/state";
-import { lintCapabilityRecords } from "../../shared/config/capabilityResolution";
+import { filterUnrecognizedKeyDiagnostics, lintCapabilityRecords } from "../../shared/config/capabilityResolution";
 import { resolveFuzzSeed } from "../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
