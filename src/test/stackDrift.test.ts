@@ -470,8 +470,14 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 		["src/test/extension/servers/usage/store.test.ts", "pure today; not yet ported to the bun tree"],
 		["src/test/extension/settingsTransfer/secretSurgery.test.ts", "pure today; not yet ported to the bun tree"],
 		["src/test/extension/settingsTransfer/snapshot.test.ts", "pure today; not yet ported to the bun tree"],
-		["src/test/extension/ui/usageStatusItem.property.test.ts", "pure since the l10n unification; not yet ported to the bun tree"],
-		["src/test/extension/ui/usageStatusItem.test.ts", "pure since the l10n unification; not yet ported to the bun tree"],
+		[
+			"src/test/extension/ui/usageStatusItem.property.test.ts",
+			"pure since the l10n unification; not yet ported to the bun tree",
+		],
+		[
+			"src/test/extension/ui/usageStatusItem.test.ts",
+			"pure since the l10n unification; not yet ported to the bun tree",
+		],
 		["src/test/fakeStack/collapseChunks.property.test.ts", "pure today; not yet ported to the bun tree"],
 		["src/test/provider/catalog/capabilityCrossLayer.property.test.ts", "exercises the vscode-typed registration seam"],
 		["src/test/provider/catalog/capabilityOverrides.property.test.ts", "pure today; not yet ported to the bun tree"],
