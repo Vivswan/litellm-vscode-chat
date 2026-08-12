@@ -75,9 +75,11 @@ jobs:
           # Fuzzer-related: the stream and monkey fuzzers with their corpus
           # and seed plumbing, the fast-check property suites, the canned
           # stream scenarios, the fake stack the fuzzers drive, the streaming
-          # transport whose leniency contract the fuzzer pins, and the
-          # orchestrator plus its label list, which decide what --only runs.
-          pattern='^src/test/(bun/)?(fuzz|monkey|scenarios|fakeStack/|docker-(fuzz|conversation|monkey)\.test\.ts)|^src/provider/transport/streaming/|^scripts/stack/fake-openai-server\.ts$|^scripts/docker-test\.ts$|^src/test/dockerTestLabels\.ts$|\.property\.test\.ts$'
+          # transport whose leniency contract the fuzzer pins, the bun leg's
+          # root and preload, which decide what the ported property suites
+          # run under, and the orchestrator plus its label list, which decide
+          # what --only runs.
+          pattern='^src/test/(bun/)?(fuzz|monkey|scenarios|fakeStack/|docker-(fuzz|conversation|monkey)\.test\.ts)|^src/test/bun/preload\.ts$|^bunfig\.toml$|^src/provider/transport/streaming/|^scripts/stack/fake-openai-server\.ts$|^scripts/docker-test\.ts$|^src/test/dockerTestLabels\.ts$|\.property\.test\.ts$'
           if [ "$EVENT" != "push" ] && [ "$EVENT" != "pull_request" ]; then
             # Scheduled and dispatched gate runs have no diff to inspect.
             echo "hit=false" >> "$GITHUB_OUTPUT"
