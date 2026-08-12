@@ -3,7 +3,7 @@
  * stored-apiKey activation rule must be legible (a bearer still goes out on
  * this shape; the hint and the reachable Remove checkbox are the point).
  */
-import type { DashboardServer, DashboardState } from "../../../src/extension/dashboard/protocol.ts";
+import type { DashboardServer, DashboardState } from "../../../src/dashboard/protocol.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, PROD_SERVER } from "./shared.ts";
 

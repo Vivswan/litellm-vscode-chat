@@ -11,7 +11,7 @@
  * caused it.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import type { WebviewToExtensionMessage } from "../../../extension/dashboard/protocol";
+import type { WebviewToExtensionMessage } from "../../../dashboard/protocol";
 import { App } from "../../../webview/dashboard/app";
 import { declaredWithSecrets, makeState, poisonedStatePush, statePush } from "../fixtures";
 import {

@@ -13,21 +13,16 @@ import type {
 	SetupHintKind,
 	TransportErrorClassification,
 	UsageServerView,
-} from "../../extension/dashboard/protocol";
+} from "../../dashboard/protocol";
 import {
 	DEFAULT_API_VERSION,
 	EXPECTED_FAILURE_CATEGORIES,
 	SECRET_FIELD_IDS,
 	statusErrorDetail,
 	statusErrorHeadline,
-} from "../../extension/dashboard/protocol";
-import type { GroupProblems, HeaderRow } from "../../extension/dashboard/recordDraft";
-import {
-	toCapabilityGroups,
-	toGroups,
-	toggleExpectedFailure,
-	toHeaderRows,
-} from "../../extension/dashboard/recordDraft";
+} from "../../dashboard/protocol";
+import type { GroupProblems, HeaderRow } from "../../dashboard/recordDraft";
+import { toCapabilityGroups, toGroups, toggleExpectedFailure, toHeaderRows } from "../../dashboard/recordDraft";
 import type {
 	ApiVersionDraft,
 	AuthFormId,
@@ -35,7 +30,7 @@ import type {
 	ServerFormDraft,
 	ServerFormField,
 	ServerFormProblems,
-} from "../../extension/dashboard/serverForm";
+} from "../../dashboard/serverForm";
 import {
 	apiVersionDraftOf,
 	applyInlinePrefill,
@@ -50,7 +45,7 @@ import {
 	sectionFailureText,
 	serverFormFieldLabel,
 	validateAdoptLabel,
-} from "../../extension/dashboard/serverForm";
+} from "../../dashboard/serverForm";
 import type { FailuresByIntent, InlineSecretsResponse, IntentAck } from "./app";
 import type { DocsUrl } from "./docsLinks";
 import {

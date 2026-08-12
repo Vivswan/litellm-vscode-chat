@@ -1,8 +1,8 @@
 import * as assert from "node:assert";
 import * as l10n from "@vscode/l10n";
 import * as fc from "fast-check";
-import type { HeaderScalar } from "../../../extension/dashboard/protocol";
-import { CONSUMED_CAPABILITY_FIELDS } from "../../../extension/dashboard/protocol";
+import type { HeaderScalar } from "../../dashboard/protocol";
+import { CONSUMED_CAPABILITY_FIELDS } from "../../dashboard/protocol";
 import {
 	parseCapabilityGroups,
 	parseGroups,
@@ -10,10 +10,10 @@ import {
 	toCapabilityGroups,
 	toGroups,
 	toHeaderRows,
-} from "../../../extension/dashboard/recordDraft";
-import { filterUnrecognizedKeyDiagnostics } from "../../../extension/dashboard/state";
-import { lintCapabilityRecords } from "../../../shared/config/capabilityResolution";
-import { resolveFuzzSeed } from "../../fuzzStream";
+} from "../../dashboard/recordDraft";
+import { filterUnrecognizedKeyDiagnostics } from "../../extension/dashboard/state";
+import { lintCapabilityRecords } from "../../shared/config/capabilityResolution";
+import { resolveFuzzSeed } from "../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
 const SEED = resolveFuzzSeed();
@@ -87,7 +87,7 @@ const hostileGroups = fc.array(
 );
 const hostileRows = fc.array(fc.record({ name: hostileText, valueText: hostileText }), { maxLength: 6 });
 
-suite("extension/dashboard/recordDraft round-trip properties", () => {
+suite("dashboard/recordDraft round-trip properties", () => {
 	test("clean modelParameters records parse clean and reassemble unchanged", () => {
 		fc.assert(
 			fc.property(modelParametersRecord, (raw) => {
@@ -156,7 +156,7 @@ const observedKeySet = fc.option(
 	{ nil: undefined }
 );
 
-suite("extension/dashboard/recordDraft advisory-hint coupling properties", () => {
+suite("dashboard/recordDraft advisory-hint coupling properties", () => {
 	test("the editor's live unknown-key hints equal the host filter's surviving diagnostics, record for record", () => {
 		// The one coupling test over the twice-implemented boundary: the host
 		// path (lintCapabilityRecords -> filterUnrecognizedKeyDiagnostics) and
@@ -197,7 +197,7 @@ suite("extension/dashboard/recordDraft advisory-hint coupling properties", () =>
 	});
 });
 
-suite("extension/dashboard/recordDraft hostile-input properties", () => {
+suite("dashboard/recordDraft hostile-input properties", () => {
 	test("hostile drafts never throw and never touch Object.prototype", () => {
 		fc.assert(
 			fc.property(hostileGroups, hostileRows, (groups, rows) => {

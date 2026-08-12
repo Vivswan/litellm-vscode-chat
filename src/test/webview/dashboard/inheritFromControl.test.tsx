@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { render } from "preact";
 import { act } from "preact/test-utils";
-import type { PrefixGroup } from "../../../extension/dashboard/recordDraft";
+import type { PrefixGroup } from "../../../dashboard/recordDraft";
 import { RecordMatcherEditorOverlay } from "../../../webview/dashboard/recordEditors";
 import { cleanup, fireInput, mount, resetPosted } from "../harness";
 

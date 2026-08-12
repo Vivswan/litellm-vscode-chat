@@ -7,8 +7,8 @@
  */
 
 import * as vscode from "vscode";
+import type { SettingScope } from "../dashboard/protocol";
 import { CONFIG_SECTION } from "../shared/config/settingSpec";
-import type { SettingScope } from "./dashboard/protocol";
 
 /** The per-scope values configuration inspection reports; a seam over WorkspaceConfiguration.inspect. */
 export interface SettingsInspection {

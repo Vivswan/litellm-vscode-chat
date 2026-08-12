@@ -16,6 +16,7 @@
  */
 
 import * as vscode from "vscode";
+import type { SecretFieldId } from "../../dashboard/protocol";
 import type { ExpectedDiscoveryFailures } from "../../provider/catalog/discovery";
 import type { OAuthConfig, VirtualKeyConfig } from "../../provider/transport/auth";
 import { ChatClient } from "../../provider/transport/chatClient";
@@ -24,7 +25,6 @@ import { transportClassificationOf } from "../../shared/errorClassification";
 import type { DashboardIntent } from "./intentSchema";
 import type { IntentEnvironment } from "./intents";
 import { DashboardValidationError, rawServerEntries } from "./intents";
-import type { SecretFieldId } from "./protocol";
 import { readKeepSources, resolveKeptSecret } from "./saveServer";
 
 /**

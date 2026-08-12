@@ -5,14 +5,14 @@
  */
 
 import * as vscode from "vscode";
+import type { SecretFieldId } from "../../dashboard/protocol";
+import { SECRET_FIELD_IDS } from "../../dashboard/protocol";
 import { recordFromKeys } from "../../shared/util/json";
 import type { DeclaredServer } from "../servers/serverSync";
 import { acceptedEntry, inlineSecretValues } from "../servers/serverSync";
 import type { DashboardIntent } from "./intentSchema";
 import type { IntentEnvironment } from "./intents";
 import { DashboardOperationError, DashboardValidationError, rawServerEntries } from "./intents";
-import type { SecretFieldId } from "./protocol";
-import { SECRET_FIELD_IDS } from "./protocol";
 
 /**
  * How one save lands in the servers setting, computed once so the pairing

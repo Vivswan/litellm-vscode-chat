@@ -9,7 +9,7 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import type { RecordChainView } from "../../extension/dashboard/protocol";
+import type { RecordChainView } from "../../dashboard/protocol";
 
 /** The chains that tell an inheritance story; a chain of one record renders nothing. */
 export function chainsWithStory(chains: readonly RecordChainView[] | undefined): readonly RecordChainView[] {

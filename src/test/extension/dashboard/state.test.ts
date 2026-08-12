@@ -1,4 +1,17 @@
 import * as assert from "node:assert";
+import type { NumberSettingId } from "../../../dashboard/protocol";
+import {
+	BOOLEAN_SETTING_IDS,
+	draftSyncKey,
+	equivalence,
+	failuresAfterStatePush,
+	formatHeaderValue,
+	isExtensionMessageType,
+	NUMBER_SETTING_IDS,
+	parseHeaderValue,
+	parseJsonValue,
+	parseNumberDraft,
+} from "../../../dashboard/protocol";
 import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "../../../extension/dashboard/adopt";
 import { modelScopeKey } from "../../../extension/dashboard/adoptHandle";
 import type { DashboardIntent } from "../../../extension/dashboard/intentSchema";
@@ -12,19 +25,6 @@ import {
 	validateSaveServerSetting,
 	validateTestServerDraft,
 } from "../../../extension/dashboard/intents";
-import type { NumberSettingId } from "../../../extension/dashboard/protocol";
-import {
-	BOOLEAN_SETTING_IDS,
-	draftSyncKey,
-	equivalence,
-	failuresAfterStatePush,
-	formatHeaderValue,
-	isExtensionMessageType,
-	NUMBER_SETTING_IDS,
-	parseHeaderValue,
-	parseJsonValue,
-	parseNumberDraft,
-} from "../../../extension/dashboard/protocol";
 import type { DashboardStateInputs, SettingsInspection, SettingsReader } from "../../../extension/dashboard/state";
 import {
 	buildDashboardState,

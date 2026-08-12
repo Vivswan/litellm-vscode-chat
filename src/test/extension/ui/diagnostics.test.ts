@@ -13,7 +13,7 @@ function createRegistry(): ServerRegistry {
 // The interactive diagnostics surface is the dashboard's Diagnostics tab now:
 // the litellm.showDiagnostics deep link is pinned in
 // extension/dashboard/panel.test.ts, the shared line renderers in
-// extension/dashboard/protocol.test.ts, and the tab's rendering in the
+// dashboard/protocol.test.ts, and the tab's rendering in the
 // webview suite. What remains here is the issue reporter's snapshot.
 suite("extension/ui/diagnostics", () => {
 	suite("buildDiagnosticsSnapshot", () => {

@@ -1,5 +1,5 @@
 /** The server form, API-key shape: bearer key + virtual-key companion, headers, discovery, budget. */
-import type { DashboardServer, DashboardState } from "../../../src/extension/dashboard/protocol.ts";
+import type { DashboardServer, DashboardState } from "../../../src/dashboard/protocol.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, MODELS, PROD_SERVER } from "./shared.ts";
 

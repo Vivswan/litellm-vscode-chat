@@ -6,11 +6,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { render } from "preact";
 import { act } from "preact/test-utils";
-import type {
-	ConfigDiagnosticView,
-	ExtensionToWebviewMessage,
-	ResolvedModelsView,
-} from "../../../extension/dashboard/protocol";
+import type { ConfigDiagnosticView, ExtensionToWebviewMessage, ResolvedModelsView } from "../../../dashboard/protocol";
 import { DiagnosticsSection } from "../../../webview/dashboard/diagnostics";
 import { makeDeclaredServer } from "../fixtures";
 import { buttonByText, cleanup, fireClick, fireInput, mount, postedMessages, resetPosted } from "../harness";

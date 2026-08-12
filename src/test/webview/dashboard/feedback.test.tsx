@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "preact/test-utils";
-import type { WebviewToExtensionMessage } from "../../../extension/dashboard/protocol";
+import type { WebviewToExtensionMessage } from "../../../dashboard/protocol";
 import { App } from "../../../webview/dashboard/app";
 import { makeDeclaredServer, makeState, statePush } from "../fixtures";
 import {

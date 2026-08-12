@@ -10,8 +10,6 @@
 	"include": [
 		"./**/*",
 		"../../webview/**/*",
-		"../../extension/dashboard/protocol.ts",
-		"../../extension/dashboard/serverForm.ts",
-		"../../extension/dashboard/recordDraft.ts"
+		"../../dashboard/**/*"
 	]
 }

@@ -15,6 +15,17 @@
  * reports.
  */
 
+import type {
+	RecordChainLink,
+	RecordChainView,
+	RecordTreeNode,
+	RecordTreeView,
+	ResolvedCapCell,
+	ResolvedModelRow,
+	ResolvedModelsView,
+	ResolvedParamCell,
+} from "../../dashboard/protocol";
+import { formatJsonValue } from "../../dashboard/protocol";
 import type { ServerModelsSnapshot } from "../../provider";
 import { rawModelIdFromExposed } from "../../provider/catalog/modelCatalog";
 import type {
@@ -45,17 +56,6 @@ import {
 } from "../../shared/config/settings";
 import type { DeclaredServerView } from "../servers/serverSync";
 import { modelScopeKey } from "./adoptHandle";
-import type {
-	RecordChainLink,
-	RecordChainView,
-	RecordTreeNode,
-	RecordTreeView,
-	ResolvedCapCell,
-	ResolvedModelRow,
-	ResolvedModelsView,
-	ResolvedParamCell,
-} from "./protocol";
-import { formatJsonValue } from "./protocol";
 import type { EntryCapabilitiesRecord, EntryParametersResolution, SettingsReader } from "./state";
 import { labeledSnapshots } from "./state";
 

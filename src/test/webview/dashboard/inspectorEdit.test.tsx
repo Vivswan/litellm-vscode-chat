@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { render } from "preact";
 import { act } from "preact/test-utils";
-import type { ScopedRecordSetting } from "../../../extension/dashboard/protocol";
+import type { ScopedRecordSetting } from "../../../dashboard/protocol";
 import type { ModelParametersResponse } from "../../../webview/dashboard/modelInspector";
 import { ModelInspector } from "../../../webview/dashboard/modelInspector";
 import type { ExternalRecordEdit } from "../../../webview/dashboard/recordEditors";

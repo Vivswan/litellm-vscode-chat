@@ -9,7 +9,7 @@ import type {
 	DashboardState,
 	DashboardUsage,
 	ResolvedModelsView,
-} from "../../../src/extension/dashboard/protocol.ts";
+} from "../../../src/dashboard/protocol.ts";
 
 const NOW = Date.now();
 

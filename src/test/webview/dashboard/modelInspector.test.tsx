@@ -21,7 +21,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { render } from "preact";
 import { act } from "preact/test-utils";
-import type { EffectiveCapabilities } from "../../../extension/dashboard/protocol";
+import type { EffectiveCapabilities } from "../../../dashboard/protocol";
 import { projectEffectiveParameters } from "../../../shared/config/parameterResolution";
 import { App } from "../../../webview/dashboard/app";
 import { ModelInspector } from "../../../webview/dashboard/modelInspector";

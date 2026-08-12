@@ -3,7 +3,7 @@
  * percentages, a plain no-budget spend, and rows without usage data keeping
  * an empty cell (the external group and the misconfigured entry).
  */
-import type { DashboardServer } from "../../../src/extension/dashboard/protocol.ts";
+import type { DashboardServer } from "../../../src/dashboard/protocol.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, EXTERNAL_SERVER, GATEWAY_SERVER, MISCONFIGURED_SERVER, PROD_SERVER } from "./shared.ts";
 

@@ -12,7 +12,6 @@
 
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import { secretDirectiveSchema, webviewMessageSchema } from "../../../extension/dashboard/intentSchema";
 import {
 	BOOLEAN_SETTING_IDS,
 	DASHBOARD_COMMAND_IDS,
@@ -22,7 +21,8 @@ import {
 	REVEALABLE_SETTING_IDS,
 	SECRET_FIELD_IDS,
 	type WebviewToExtensionMessage,
-} from "../../../extension/dashboard/protocol";
+} from "../../../dashboard/protocol";
+import { secretDirectiveSchema, webviewMessageSchema } from "../../../extension/dashboard/intentSchema";
 import { isUnsafeRecordKey } from "../../../shared/util/json";
 import { resolveFuzzSeed } from "../../fuzzStream";
 

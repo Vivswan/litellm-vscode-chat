@@ -42,7 +42,7 @@ import type {
 	RecordChainView,
 	ShadowedCapabilityValue,
 	ShadowedParameterValue,
-} from "../../extension/dashboard/protocol";
+} from "../../dashboard/protocol";
 import {
 	COST_CAPABILITY_FIELDS,
 	capabilityDisplayLabel,
@@ -53,7 +53,7 @@ import {
 	formatJsonValue,
 	isCostCapabilityField,
 	parameterCountText,
-} from "../../extension/dashboard/protocol";
+} from "../../dashboard/protocol";
 import { DOCS_LINK_CAPS_INSPECTOR, DOCS_LINK_PARAMS_INSPECTOR } from "./docsLinks";
 import { DocsLink, Help, HoverTip } from "./help";
 import { helpCapsInspector, helpParamsInspector } from "./helpText";

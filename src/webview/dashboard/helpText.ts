@@ -14,8 +14,8 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import type { BooleanSettingId, NumberSettingId } from "../../extension/dashboard/protocol";
-import type { ServerFormField } from "../../extension/dashboard/serverForm";
+import type { BooleanSettingId, NumberSettingId } from "../../dashboard/protocol";
+import type { ServerFormField } from "../../dashboard/serverForm";
 
 export function helpServersSection(): string {
 	return l10n.t(

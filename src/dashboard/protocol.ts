@@ -4,8 +4,8 @@
  * imported by both sides (the extension host and the browser bundle), so it
  * must stay pure: no vscode, no DOM, no Node. Pure helpers from src/shared
  * and @vscode/l10n (the one l10n API that works in both runtimes) are the
- * allowed dependencies, re-exported here because webview code may
- * import only this module (the Biome override in biome.json enforces that).
+ * allowed dependencies, re-exported here because webview code may import
+ * only the src/dashboard tree (the Biome override in biome.json enforces that).
  *
  * The dashboard is a stateless view over the existing stores. Everything in
  * DashboardState is derived on demand from the provider's status window and
@@ -18,7 +18,7 @@ export {
 	formatCostPerMillion,
 	isCostCapabilityField,
 	parameterCountText,
-} from "../../shared/config/capabilityDisplay";
+} from "../shared/config/capabilityDisplay";
 // The capability inspector renders the extension-resolved EffectiveCapabilities
 // it receives over the message protocol; only the types (and the small pure
 // vocabulary constants the editor keys its inputs off) cross into the webview
@@ -32,7 +32,7 @@ export type {
 	EffectiveCapabilities,
 	EffectiveCapabilityField,
 	ShadowedCapabilityValue,
-} from "../../shared/config/capabilityResolution";
+} from "../shared/config/capabilityResolution";
 export {
 	CAPABILITY_FIELDS,
 	CONSUMED_CAPABILITY_FIELDS,
@@ -40,56 +40,56 @@ export {
 	FALLBACK_DIRECTIVE,
 	isValidConsumedCapabilityValue,
 	OPENROUTER_MODEL_DIRECTIVE,
-} from "../../shared/config/capabilityResolution";
+} from "../shared/config/capabilityResolution";
 // The effective-values inspector renders through the same resolution the
-// request path runs; the webview may import only this module, so the pure
-// functions are re-exported here (the isValidHeaderName precedent).
+// request path runs; the webview may import only the src/dashboard tree, so
+// the pure functions are re-exported here (the isValidHeaderName precedent).
 export type {
 	EffectiveParameterRow,
 	ParameterDiagnostic,
 	ParameterSourceRef,
 	ProjectedMaxTokens,
 	ShadowedParameterValue,
-} from "../../shared/config/parameterResolution";
-export { DEFAULT_MAX_TOKENS_CAP, FORCE_DIRECTIVE, isForceableParameter } from "../../shared/config/parameterResolution";
-export type { RecordDiagnostic } from "../../shared/config/recordResolution";
-export { INHERIT_FROM_DIRECTIVE, INHERITABLE_DIRECTIVE } from "../../shared/config/recordResolution";
-export type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
-export { NUMBER_SETTING_SPECS } from "../../shared/config/settingSpec";
+} from "../shared/config/parameterResolution";
+export { DEFAULT_MAX_TOKENS_CAP, FORCE_DIRECTIVE, isForceableParameter } from "../shared/config/parameterResolution";
+export type { RecordDiagnostic } from "../shared/config/recordResolution";
+export { INHERIT_FROM_DIRECTIVE, INHERITABLE_DIRECTIVE } from "../shared/config/recordResolution";
+export type { BooleanSettingId, NumberSettingId } from "../shared/config/settingSpec";
+export { NUMBER_SETTING_SPECS } from "../shared/config/settingSpec";
 // The intentFailed notice's classification: enum ids and a status number,
 // never message text, so it is safe across the webview boundary (the same
 // rule the logs follow).
-export type { SetupHintKind, TransportErrorClassification } from "../../shared/errorClassification";
+export type { SetupHintKind, TransportErrorClassification } from "../shared/errorClassification";
 export type {
 	ExpectedFailureCategory,
 	NonSecretOptionalFieldId,
 	SecretFieldId,
 	SecretLocation,
-} from "../../shared/serverEntry";
-export { EXPECTED_FAILURE_CATEGORIES, NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+} from "../shared/serverEntry";
+export { EXPECTED_FAILURE_CATEGORIES, NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../shared/serverEntry";
 // The auto-mode default the form's labels interpolate: derived, never
 // hardcoded, so flipping the constant cannot leave the dashboard lying.
-export { DEFAULT_API_VERSION } from "../../shared/util/baseUrl";
-export { statusErrorDetail, statusErrorHeadline } from "../../shared/util/errorText";
-export type { HeaderScalar } from "../../shared/util/headers";
-export { isValidHeaderName, isValidHeaderValue } from "../../shared/util/headers";
-export { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
+export { DEFAULT_API_VERSION } from "../shared/util/baseUrl";
+export { statusErrorDetail, statusErrorHeadline } from "../shared/util/errorText";
+export type { HeaderScalar } from "../shared/util/headers";
+export { isValidHeaderName, isValidHeaderValue } from "../shared/util/headers";
+export { isRecord, isUnsafeRecordKey } from "../shared/util/json";
 
 import * as l10n from "@vscode/l10n";
-import type { CapabilityLevel, EffectiveCapabilities } from "../../shared/config/capabilityResolution";
-import type { EffectiveParametersProjection } from "../../shared/config/parameterResolution";
-import type { RecordDiagnostic } from "../../shared/config/recordResolution";
-import type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
-import { BOOLEAN_SETTING_SPECS, NUMBER_SETTING_SPECS } from "../../shared/config/settingSpec";
-import type { TransportErrorClassification } from "../../shared/errorClassification";
+import type { CapabilityLevel, EffectiveCapabilities } from "../shared/config/capabilityResolution";
+import type { EffectiveParametersProjection } from "../shared/config/parameterResolution";
+import type { RecordDiagnostic } from "../shared/config/recordResolution";
+import type { BooleanSettingId, NumberSettingId } from "../shared/config/settingSpec";
+import { BOOLEAN_SETTING_SPECS, NUMBER_SETTING_SPECS } from "../shared/config/settingSpec";
+import type { TransportErrorClassification } from "../shared/errorClassification";
 import type {
 	ExpectedFailureCategory,
 	NonSecretOptionalFields,
 	SecretFieldId,
 	SecretLocation,
-} from "../../shared/serverEntry";
-import { statusErrorDetail, statusErrorHeadline } from "../../shared/util/errorText";
-import type { HeaderScalar } from "../../shared/util/headers";
+} from "../shared/serverEntry";
+import { statusErrorDetail, statusErrorHeadline } from "../shared/util/errorText";
+import type { HeaderScalar } from "../shared/util/headers";
 
 /** A per-entry modelParameters record: model-ID prefix to request parameters. Non-secret user configuration. */
 type EntryModelParametersPayload = Readonly<Record<string, Readonly<Record<string, unknown>>>>;

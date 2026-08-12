@@ -6,7 +6,7 @@
  * matcher editor overlay so the typed value controls, the hint, and the
  * open-field fallback checkboxes are all on screen.
  */
-import type { DashboardState } from "../../../src/extension/dashboard/protocol.ts";
+import type { DashboardState } from "../../../src/dashboard/protocol.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";
 

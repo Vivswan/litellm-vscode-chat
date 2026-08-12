@@ -7,7 +7,7 @@
  * test-connection result.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import type { WebviewToExtensionMessage } from "../../../extension/dashboard/protocol";
+import type { WebviewToExtensionMessage } from "../../../dashboard/protocol";
 import { App } from "../../../webview/dashboard/app";
 import { ServersSection } from "../../../webview/dashboard/servers";
 import { declaredWithSecrets, makeDeclaredServer, makeMisconfiguredServer, makeState, statePush } from "../fixtures";

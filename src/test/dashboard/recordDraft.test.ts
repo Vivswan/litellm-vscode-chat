@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import type { CapabilityGroupsParse, GroupsParse, HeaderRowsParse } from "../../../extension/dashboard/recordDraft";
+import type { CapabilityGroupsParse, GroupsParse, HeaderRowsParse } from "../../dashboard/recordDraft";
 import {
 	directiveEligible,
 	directiveMarkedFields,
@@ -14,7 +14,7 @@ import {
 	toggleDirectiveField,
 	toggleExpectedFailure,
 	toHeaderRows,
-} from "../../../extension/dashboard/recordDraft";
+} from "../../dashboard/recordDraft";
 
 /** The ok arm's record; fails the test on a parse with problems. */
 function parsedValue<P extends GroupsParse | HeaderRowsParse>(parse: P): Extract<P, { ok: true }>["value"] {
@@ -32,7 +32,7 @@ function parsedProblems<P extends GroupsParse | HeaderRowsParse>(parse: P): Extr
 	return parse.problems;
 }
 
-suite("extension/dashboard/recordDraft", () => {
+suite("dashboard/recordDraft", () => {
 	suite("model parameter groups", () => {
 		test("configured records round-trip through rows and back", () => {
 			const value = { "gpt-4": { temperature: 0.2, stop: ["\n"] }, "http://host:4000/claude": { max_tokens: 100 } };

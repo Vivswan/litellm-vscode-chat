@@ -7,6 +7,16 @@
  */
 
 import * as vscode from "vscode";
+import type {
+	DashboardCommandId,
+	NumberSettingId,
+	SaveServerPayload,
+	SecretDirective,
+	SecretFieldId,
+	TransportErrorClassification,
+} from "../../dashboard/protocol";
+import { NUMBER_SETTING_SPECS, SECRET_FIELD_IDS, unitBehavior } from "../../dashboard/protocol";
+import { isUsableHttpUrl } from "../../dashboard/serverForm";
 import { CMD, INTERNAL_CMD, manageCommandTitle } from "../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import {
@@ -22,17 +32,7 @@ import { acceptedEntry, inlineSecretValues } from "../servers/serverSync";
 import type { AdoptableGroupCredentials } from "./adopt";
 import { applyAdoptServer } from "./adopt";
 import type { DashboardIntent } from "./intentSchema";
-import type {
-	DashboardCommandId,
-	NumberSettingId,
-	SaveServerPayload,
-	SecretDirective,
-	SecretFieldId,
-	TransportErrorClassification,
-} from "./protocol";
-import { NUMBER_SETTING_SPECS, SECRET_FIELD_IDS, unitBehavior } from "./protocol";
 import { applySaveServerSetting } from "./saveServer";
-import { isUsableHttpUrl } from "./serverForm";
 import type { DraftConnection } from "./testDraftConnection";
 import { applyTestServerDraft } from "./testDraftConnection";
 

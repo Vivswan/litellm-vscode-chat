@@ -7,7 +7,7 @@
  * and renders the detail as its own dimmed line beneath.
  */
 
-import { statusErrorDetail, statusErrorHeadline } from "../../extension/dashboard/protocol";
+import { statusErrorDetail, statusErrorHeadline } from "../../dashboard/protocol";
 
 export function FailureText({
 	message,

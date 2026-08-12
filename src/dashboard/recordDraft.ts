@@ -8,8 +8,8 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import { compareSpecificity, parseMatcherKey } from "../../shared/config/modelMatcher";
-import { isRecord } from "../../shared/util/json";
+import { compareSpecificity, parseMatcherKey } from "../shared/config/modelMatcher";
+import { isRecord } from "../shared/util/json";
 import type { CapabilityFieldName, CapabilityValueKind, ExpectedFailureCategory, HeaderScalar } from "./protocol";
 import {
 	CAPABILITY_FIELDS,

@@ -3,7 +3,7 @@
  * refresh-now gate, the empty states, and the bar presentation math.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { UsageServerView } from "../../../extension/dashboard/protocol";
+import type { UsageServerView } from "../../../dashboard/protocol";
 import { barPresentation, formatPercent, formatUsd, UsageSection } from "../../../webview/dashboard/usage";
 import { makeForbiddenUsageServer, makeUsage, makeUsageServer } from "../fixtures";
 import { buttonByText, cleanup, fireClick, mount, postedMessages, resetPosted, textOf } from "../harness";

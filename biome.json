@@ -80,9 +80,11 @@
 								"patterns": [
 									{
 										"group": [
-											"**/extension/**"
+											"**/extension/**",
+											"**/dashboard/**",
+											"**/webview/**"
 										],
-										"message": "The provider layer must not import from src/extension; move shared code to src/shared."
+										"message": "The provider layer may import only src/shared and its own tree; move shared code to src/shared."
 									}
 								]
 							}
@@ -95,10 +97,7 @@
 			"includes": [
 				"src/extension.ts",
 				"src/extension/**",
-				"!src/extension/l10nConfig.ts",
-				"!src/extension/dashboard/protocol.ts",
-				"!src/extension/dashboard/recordDraft.ts",
-				"!src/extension/dashboard/serverForm.ts"
+				"!src/extension/l10nConfig.ts"
 			],
 			"linter": {
 				"rules": {
@@ -107,7 +106,7 @@
 							"level": "error",
 							"options": {
 								"paths": {
-									"@vscode/l10n": "Extension code runs in the host; localize with vscode.l10n.t. Only l10nConfig.ts and the dashboard-shared modules (protocol, recordDraft, serverForm) use @vscode/l10n."
+									"@vscode/l10n": "Extension code runs in the host; localize with vscode.l10n.t. Only l10nConfig.ts and the src/dashboard tree use @vscode/l10n."
 								}
 							}
 						}
@@ -117,9 +116,7 @@
 		},
 		{
 			"includes": [
-				"src/extension/dashboard/protocol.ts",
-				"src/extension/dashboard/recordDraft.ts",
-				"src/extension/dashboard/serverForm.ts"
+				"src/dashboard/**"
 			],
 			"linter": {
 				"rules": {
@@ -128,8 +125,18 @@
 							"level": "error",
 							"options": {
 								"paths": {
-									"vscode": "The dashboard-shared modules also run inside the webview bundle; they stay pure and localize with @vscode/l10n."
-								}
+									"vscode": "The dashboard-shared tree also runs inside the webview bundle; it stays pure and localizes with @vscode/l10n."
+								},
+								"patterns": [
+									{
+										"group": [
+											"**/extension/**",
+											"**/provider/**",
+											"**/webview/**"
+										],
+										"message": "The dashboard-shared tree rides into the webview bundle; it may import only src/shared and its own tree."
+									}
+								]
 							}
 						}
 					}
@@ -150,9 +157,11 @@
 									{
 										"group": [
 											"**/provider/**",
-											"**/extension/**"
+											"**/extension/**",
+											"**/dashboard/**",
+											"**/webview/**"
 										],
-										"message": "The shared layer imports neither the provider nor the extension layer; it is the bottom of the dependency graph."
+										"message": "The shared layer imports no other tree; it is the bottom of the dependency graph."
 									}
 								]
 							}
@@ -179,12 +188,9 @@
 										"group": [
 											"**/provider/**",
 											"**/shared/**",
-											"**/extension/**",
-											"!**/extension/dashboard/protocol",
-											"!**/extension/dashboard/recordDraft",
-											"!**/extension/dashboard/serverForm"
+											"**/extension/**"
 										],
-										"message": "Webview code may import only the dashboard protocol and its pure form/draft modules; extension-side state stays behind the message protocol."
+										"message": "Webview code may import only the src/dashboard tree and its own; extension-side state stays behind the message protocol."
 									}
 								]
 							}

@@ -1,5 +1,5 @@
 /** The server form, OAuth shape with companions (X-API-Key rider + virtual-key header). */
-import type { DashboardServer, DashboardState } from "../../../src/extension/dashboard/protocol.ts";
+import type { DashboardServer, DashboardState } from "../../../src/dashboard/protocol.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, GATEWAY_SERVER } from "./shared.ts";
 

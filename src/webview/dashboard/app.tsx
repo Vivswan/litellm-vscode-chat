@@ -7,14 +7,14 @@ import type {
 	DashboardServer,
 	DashboardState,
 	ExtensionToWebviewMessage,
-} from "../../extension/dashboard/protocol";
+} from "../../dashboard/protocol";
 import {
 	classifyOverall,
 	DASHBOARD_SECTION_IDS,
 	failuresAfterStatePush,
 	isExtensionMessageType,
 	latestCheckedMs,
-} from "../../extension/dashboard/protocol";
+} from "../../dashboard/protocol";
 import type { ResolvedModelsResponse } from "./diagnostics";
 import { DiagnosticsSection } from "./diagnostics";
 import { FailureText } from "./failureText";

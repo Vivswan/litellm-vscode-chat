@@ -6,14 +6,14 @@
  * rule without importing each other.
  */
 
-import type { ServerUsageState, UsageEndpointState } from "../servers/usage";
 import type {
 	DashboardUsage,
 	UsageEndpointStandingView,
 	UsageForbiddenServerView,
 	UsageServerCardView,
 	UsageServerView,
-} from "./protocol";
+} from "../../dashboard/protocol";
+import type { ServerUsageState, UsageEndpointState } from "../servers/usage";
 
 export interface UsageViewInput {
 	readonly states: readonly ServerUsageState[];

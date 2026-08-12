@@ -7,7 +7,7 @@ import type {
 	ScopedRecordSetting,
 	SettingScope,
 	TransportErrorClassification,
-} from "../../extension/dashboard/protocol";
+} from "../../dashboard/protocol";
 import {
 	CONSUMED_CAPABILITY_FIELDS,
 	FALLBACK_DIRECTIVE,
@@ -16,7 +16,7 @@ import {
 	INHERITABLE_DIRECTIVE,
 	OPENROUTER_MODEL_DIRECTIVE,
 	settingScopeLabel,
-} from "../../extension/dashboard/protocol";
+} from "../../dashboard/protocol";
 import type {
 	CapabilityGroupIssues,
 	FieldDirective,
@@ -24,7 +24,7 @@ import type {
 	GroupProblems,
 	MatcherKind,
 	PrefixGroup,
-} from "../../extension/dashboard/recordDraft";
+} from "../../dashboard/recordDraft";
 import {
 	capabilityGroupsFromJsonText,
 	directiveEligible,
@@ -40,7 +40,7 @@ import {
 	toCapabilityGroups,
 	toGroups,
 	toggleDirectiveField,
-} from "../../extension/dashboard/recordDraft";
+} from "../../dashboard/recordDraft";
 import type { IntentAck } from "./app";
 import { DOCS_LINK_MODEL_CAPABILITIES, DOCS_LINK_MODEL_PARAMETERS } from "./docsLinks";
 import { FailureText } from "./failureText";

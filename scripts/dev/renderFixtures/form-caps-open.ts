@@ -6,7 +6,7 @@
  * typed inputs, the applied-as-is hint, and the open-field fallback boxes
  * render inside the form's slide-over.
  */
-import type { DashboardServer, DashboardState } from "../../../src/extension/dashboard/protocol.ts";
+import type { DashboardServer, DashboardState } from "../../../src/dashboard/protocol.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, MODELS, PROD_SERVER } from "./shared.ts";
 

@@ -4,7 +4,7 @@
  * dropped thresholds), and the Resolved-models tree + flat table (answered
  * through the harness's canned respond map).
  */
-import type { DashboardState } from "../../../src/extension/dashboard/protocol.ts";
+import type { DashboardState } from "../../../src/dashboard/protocol.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import {
 	baseState,

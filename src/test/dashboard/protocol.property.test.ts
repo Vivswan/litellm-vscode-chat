@@ -6,9 +6,9 @@ import {
 	type HeaderScalar,
 	parseHeaderValue,
 	parseJsonValue,
-} from "../../../extension/dashboard/protocol";
-import { isHeaderScalar } from "../../../shared/util/headers";
-import { resolveFuzzSeed } from "../../fuzzStream";
+} from "../../dashboard/protocol";
+import { isHeaderScalar } from "../../shared/util/headers";
+import { resolveFuzzSeed } from "../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
 const SEED = resolveFuzzSeed();
@@ -22,7 +22,7 @@ const trimmedString = fc.string({ maxLength: 20 }).map((s) => s.trim());
 
 const headerScalar: fc.Arbitrary<HeaderScalar> = fc.oneof(fc.boolean(), finiteNumber, trimmedString);
 
-suite("extension/dashboard/protocol JSON value properties", () => {
+suite("dashboard/protocol JSON value properties", () => {
 	test("parseJsonValue inverts formatJsonValue over JSON values", () => {
 		fc.assert(
 			fc.property(fc.jsonValue(), (raw) => {
@@ -57,7 +57,7 @@ suite("extension/dashboard/protocol JSON value properties", () => {
 	});
 });
 
-suite("extension/dashboard/protocol header value properties", () => {
+suite("dashboard/protocol header value properties", () => {
 	test("parseHeaderValue inverts formatHeaderValue and preserves the scalar type", () => {
 		fc.assert(
 			fc.property(headerScalar, (value) => {

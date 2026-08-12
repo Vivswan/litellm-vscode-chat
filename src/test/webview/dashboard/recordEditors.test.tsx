@@ -12,7 +12,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { render } from "preact";
 import { act } from "preact/test-utils";
-import { CONSUMED_CAPABILITY_FIELDS } from "../../../extension/dashboard/protocol";
+import { CONSUMED_CAPABILITY_FIELDS } from "../../../dashboard/protocol";
 import { App } from "../../../webview/dashboard/app";
 import { helpModelParameterPrefix } from "../../../webview/dashboard/helpText";
 import { CatalogPicker, capabilityKeySuggestions } from "../../../webview/dashboard/recordEditors";

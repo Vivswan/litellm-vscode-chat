@@ -6,8 +6,7 @@
  */
 
 import { z } from "zod";
-import { recordFromKeys } from "../../shared/util/json";
-import type { DashboardIntentType, SecretDirective, WebviewToExtensionMessage } from "./protocol";
+import type { DashboardIntentType, SecretDirective, WebviewToExtensionMessage } from "../../dashboard/protocol";
 import {
 	BOOLEAN_SETTING_IDS,
 	DASHBOARD_COMMAND_IDS,
@@ -17,7 +16,8 @@ import {
 	RESETTABLE_SETTING_IDS,
 	REVEALABLE_SETTING_IDS,
 	SECRET_FIELD_IDS,
-} from "./protocol";
+} from "../../dashboard/protocol";
+import { recordFromKeys } from "../../shared/util/json";
 
 const asEnum = <T extends string>(values: readonly T[]) => z.enum(values as [T, ...T[]]);
 

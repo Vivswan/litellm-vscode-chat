@@ -12,6 +12,15 @@
 
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
+import type {
+	CatalogModelSummary,
+	CatalogStatusView,
+	DashboardSectionId,
+	DashboardUsage,
+	ExtensionToWebviewMessage,
+	TransportErrorClassification,
+	WebviewToExtensionMessage,
+} from "../../dashboard/protocol";
 import type { LiteLLMChatModelProvider, ServerModelsSnapshot } from "../../provider";
 import type { CapabilityCatalogLookup } from "../../shared/config/capabilityResolution";
 import { CMD } from "../../shared/config/commandIds";
@@ -58,15 +67,6 @@ import {
 	executeDashboardIntent,
 	readInlineSecretValues,
 } from "./intents";
-import type {
-	CatalogModelSummary,
-	CatalogStatusView,
-	DashboardSectionId,
-	DashboardUsage,
-	ExtensionToWebviewMessage,
-	TransportErrorClassification,
-	WebviewToExtensionMessage,
-} from "./protocol";
 import { buildResolvedModelsView, resolveModelRecordChains } from "./resolvedModels";
 import type { EntryCapabilitiesRecord, EntryParametersResolution, RemovedGroupsView, SettingsReader } from "./state";
 import {

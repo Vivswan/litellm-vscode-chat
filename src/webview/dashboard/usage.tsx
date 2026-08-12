@@ -22,7 +22,7 @@ import type {
 	UsageEndpointStandingView,
 	UsageForbiddenServerView,
 	UsageServerView,
-} from "../../extension/dashboard/protocol";
+} from "../../dashboard/protocol";
 import { DOCS_LINK_USAGE } from "./docsLinks";
 import { DocsLink, Help } from "./help";
 import { helpUsageSection } from "./helpText";

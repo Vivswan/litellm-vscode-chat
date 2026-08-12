@@ -5,7 +5,7 @@
  * seam), and the expected-failures banner mixing a two-part and a
  * single-line expected error (the "(expected)" frame carries the headline).
  */
-import type { DashboardServer } from "../../../src/extension/dashboard/protocol.ts";
+import type { DashboardServer } from "../../../src/dashboard/protocol.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, minutesAgoIso, NO_SECRETS, PROD_SERVER } from "./shared.ts";
 

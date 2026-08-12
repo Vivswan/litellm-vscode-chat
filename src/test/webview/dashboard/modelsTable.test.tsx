@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "preact/test-utils";
-import type { DashboardModel } from "../../../extension/dashboard/protocol";
+import type { DashboardModel } from "../../../dashboard/protocol";
 import { ModelsSection } from "../../../webview/dashboard/models";
 import { makeModel } from "../fixtures";
 import { cleanup, fireClick, fireInput, mount, resetPosted } from "../harness";

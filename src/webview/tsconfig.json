@@ -15,5 +15,5 @@
 		"skipLibCheck": true,
 		"types": []
 	},
-	"include": ["./**/*", "../extension/dashboard/protocol.ts"]
+	"include": ["./**/*", "../dashboard/**/*"]
 }

@@ -11,7 +11,7 @@ import type {
 	RevealableSettingId,
 	SettingScope,
 	UsageStatusBarModeSetting,
-} from "../../extension/dashboard/protocol";
+} from "../../dashboard/protocol";
 import {
 	BOOLEAN_SETTING_IDS,
 	booleanSettingPresentation,
@@ -25,7 +25,7 @@ import {
 	parseNumberDraft,
 	settingScopeLabel,
 	unitBehavior,
-} from "../../extension/dashboard/protocol";
+} from "../../dashboard/protocol";
 import type { FailuresByIntent, IntentAck } from "./app";
 import { DOCS_LINK_OPENROUTER_CATALOG, DOCS_LINK_SETTINGS } from "./docsLinks";
 import { DocsLink, Help } from "./help";

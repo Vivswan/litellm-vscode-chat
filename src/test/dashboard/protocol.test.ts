@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import type { CapabilityJsonValue, CapabilityValueKind, DashboardServer } from "../../../extension/dashboard/protocol";
+import type { CapabilityJsonValue, CapabilityValueKind, DashboardServer } from "../../dashboard/protocol";
 import {
 	CAPABILITY_FIELDS,
 	CONSUMED_CAPABILITY_FIELDS,
@@ -9,7 +9,7 @@ import {
 	overallStatusText,
 	serverOutcomeParts,
 	serverOutcomeText,
-} from "../../../extension/dashboard/protocol";
+} from "../../dashboard/protocol";
 
 /**
  * Wording pins for the shared diagnostics renderers. These lines are what
@@ -49,7 +49,7 @@ function misconfiguredServer(problems: readonly string[]): DashboardServer {
 	};
 }
 
-suite("extension/dashboard/protocol renderers", () => {
+suite("dashboard/protocol renderers", () => {
 	suite("overallStatusText", () => {
 		test("nothing configured anywhere reads as not configured", () => {
 			assert.strictEqual(overallStatusText([], 0), "Not configured");
@@ -360,7 +360,7 @@ suite("extension/dashboard/protocol renderers", () => {
 
 	suite("capability vocabulary re-exports", () => {
 		test("the consumed vocabulary rides the protocol module and contains the registration-typed core", () => {
-			// The webview may import only this module; the record editors key
+			// The webview may import only the src/dashboard tree; the record editors key
 			// their inputs and validation hints off these constants.
 			for (const name of Object.keys(CAPABILITY_FIELDS)) {
 				assert.ok(Object.hasOwn(CONSUMED_CAPABILITY_FIELDS, name), `core field ${name} must be consumed`);

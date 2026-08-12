@@ -6,7 +6,7 @@
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "preact/test-utils";
-import { isBoundViolation, NUMBER_SETTING_IDS, parseNumberDraft } from "../../../extension/dashboard/protocol";
+import { isBoundViolation, NUMBER_SETTING_IDS, parseNumberDraft } from "../../../dashboard/protocol";
 import { App } from "../../../webview/dashboard/app";
 import { SettingsSection } from "../../../webview/dashboard/settings";
 import { makeSettings, makeState, statePush } from "../fixtures";

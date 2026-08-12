@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import type { PrefixGroup } from "../../../extension/dashboard/recordDraft";
+import type { PrefixGroup } from "../../dashboard/recordDraft";
 import {
 	capabilityGroupsFromJsonText,
 	directiveEligible,
@@ -8,13 +8,13 @@ import {
 	parseCapabilityGroups,
 	parseGroups,
 	setInheritFromChoice,
-} from "../../../extension/dashboard/recordDraft";
+} from "../../dashboard/recordDraft";
 
 function group(prefix: string, params: readonly [string, string][]): PrefixGroup {
 	return { prefix, params: params.map(([key, valueText]) => ({ key, valueText })) };
 }
 
-suite("extension/dashboard/recordDraft inheritance directives", () => {
+suite("dashboard/recordDraft inheritance directives", () => {
 	suite("the _inheritable row", () => {
 		test("true and a list of own fields parse clean in both editors", () => {
 			const parameters = parseGroups([

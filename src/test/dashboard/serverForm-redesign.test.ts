@@ -7,7 +7,7 @@
  * serverForm.test.ts, which pins the pre-existing per-field rules.
  */
 import * as assert from "node:assert";
-import type { SecretFieldDraft, ServerFormDraft, ServerFormIntent } from "../../../extension/dashboard/serverForm";
+import type { SecretFieldDraft, ServerFormDraft, ServerFormIntent } from "../../dashboard/serverForm";
 import {
 	CONNECTION_FIELDS,
 	deriveAuthForm,
@@ -15,7 +15,7 @@ import {
 	parseDeclaredModelsText,
 	parseServerForm,
 	parseServerFormForTest,
-} from "../../../extension/dashboard/serverForm";
+} from "../../dashboard/serverForm";
 
 function draft(overrides: Partial<ServerFormDraft> = {}): ServerFormDraft {
 	return { ...EMPTY_SERVER_FORM, label: "Prod", baseUrl: "http://localhost:4000", ...overrides };
@@ -36,7 +36,7 @@ function intentOf(formDraft: ServerFormDraft): ServerFormIntent {
 
 const NO_SECRETS = { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } as const;
 
-suite("extension/dashboard/serverForm redesign", () => {
+suite("dashboard/serverForm redesign", () => {
 	suite("deriveAuthForm", () => {
 		test("oauth wins when the token URL and client ID pair is configured", () => {
 			assert.strictEqual(

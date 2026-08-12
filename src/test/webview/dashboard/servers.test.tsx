@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { render } from "preact";
 import { act } from "preact/test-utils";
-import type { DashboardServer, WebviewToExtensionMessage } from "../../../extension/dashboard/protocol";
+import type { DashboardServer, WebviewToExtensionMessage } from "../../../dashboard/protocol";
 import { App } from "../../../webview/dashboard/app";
 import { DOCS_LINK_CHECK_BASE_URL, DOCS_LINK_PROXY_NOT_RUNNING } from "../../../webview/dashboard/docsLinks";
 import { helpEntryModelParameterPrefix } from "../../../webview/dashboard/helpText";

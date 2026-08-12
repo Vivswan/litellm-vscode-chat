@@ -9,7 +9,7 @@
 import type { ComponentChild } from "preact";
 import { render } from "preact";
 import { act } from "preact/test-utils";
-import type { WebviewToExtensionMessage } from "../../extension/dashboard/protocol";
+import type { WebviewToExtensionMessage } from "../../dashboard/protocol";
 
 /** Every message the page posted to the (stubbed) extension host, in order. */
 export const postedMessages: WebviewToExtensionMessage[] = [];

@@ -28,7 +28,7 @@ import type {
 	ResolvedCapCell,
 	ResolvedModelRow,
 	ResolvedParamCell,
-} from "../../extension/dashboard/protocol";
+} from "../../dashboard/protocol";
 import {
 	COST_CAPABILITY_FIELDS,
 	capabilityDisplayLabel,
@@ -38,7 +38,7 @@ import {
 	parameterCountText,
 	serverOutcomeParts,
 	serverOutcomeText,
-} from "../../extension/dashboard/protocol";
+} from "../../dashboard/protocol";
 import type { DocsUrl } from "./docsLinks";
 import {
 	DOCS_LINK_AUTHENTICATION,

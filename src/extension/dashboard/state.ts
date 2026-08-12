@@ -9,6 +9,24 @@
  * execution live in intents.ts.
  */
 
+import type {
+	BooleanSettingId,
+	CatalogStatusView,
+	ConfigDiagnosticView,
+	DashboardModel,
+	DashboardServer,
+	DashboardSettings,
+	DashboardState,
+	DashboardUsage,
+	DeclaredServerNotice,
+	ExternalServerProvenance,
+	HiddenGroup,
+	NumberSettingId,
+	ScopedRecordSetting,
+	SettingScope,
+	TransportErrorClassification,
+} from "../../dashboard/protocol";
+import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS, NUMBER_SETTING_SPECS } from "../../dashboard/protocol";
 import type { ServerModelsSnapshot } from "../../provider";
 import type { PreAttachModelInfo } from "../../provider/catalog/groupModels";
 import { modelSupportsPromptCaching } from "../../provider/catalog/groupModels";
@@ -38,24 +56,6 @@ import type { DeclaredServerView, ServerEntryReport } from "../servers/serverSyn
 import type { SettingsInspection } from "../settingsAccess";
 import { resolveConfiguredScope, resolveUpdateScope } from "../settingsAccess";
 import { adoptSourceHandle, modelScopeKey } from "./adoptHandle";
-import type {
-	BooleanSettingId,
-	CatalogStatusView,
-	ConfigDiagnosticView,
-	DashboardModel,
-	DashboardServer,
-	DashboardSettings,
-	DashboardState,
-	DashboardUsage,
-	DeclaredServerNotice,
-	ExternalServerProvenance,
-	HiddenGroup,
-	NumberSettingId,
-	ScopedRecordSetting,
-	SettingScope,
-	TransportErrorClassification,
-} from "./protocol";
-import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS, NUMBER_SETTING_SPECS } from "./protocol";
 
 /**
  * The removal bookkeeping the state builder folds in, as plain values (the

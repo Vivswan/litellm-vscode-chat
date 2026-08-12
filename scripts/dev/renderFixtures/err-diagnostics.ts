@@ -4,7 +4,7 @@
  * expected two-part error carrying its "(expected)" annotation on the
  * headline line, and a healthy row for contrast.
  */
-import type { DashboardServer, DashboardState } from "../../../src/extension/dashboard/protocol.ts";
+import type { DashboardServer, DashboardState } from "../../../src/dashboard/protocol.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, minutesAgoIso, NO_SECRETS, PROD_SERVER } from "./shared.ts";
 

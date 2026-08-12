@@ -1,6 +1,6 @@
 /**
  * Protocol-typed builders for the webview suite. Everything here compiles
- * against src/extension/dashboard/protocol.ts, so a wire-shape change breaks
+ * against src/dashboard/protocol.ts, so a wire-shape change breaks
  * these fixtures instead of letting the tests drift from the contract. The
  * one deliberate exception is poisonedState, which casts through unknown to
  * smuggle protocol-forbidden value fields; the cast lives here and only here.
@@ -16,7 +16,7 @@ import type {
 	SecretLocation,
 	UsageForbiddenServerView,
 	UsageServerView,
-} from "../../extension/dashboard/protocol";
+} from "../../dashboard/protocol";
 
 type DeclaredServer = Extract<DashboardServer, { origin: "declared" }>;
 type ExternalServer = Extract<DashboardServer, { origin: "external" }>;

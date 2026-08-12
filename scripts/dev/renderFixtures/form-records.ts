@@ -3,7 +3,7 @@
  * carries model parameters AND capabilities, so both disclosures open with
  * their compact matcher tables (chips wrap in the narrow panel).
  */
-import type { DashboardServer, DashboardState } from "../../../src/extension/dashboard/protocol.ts";
+import type { DashboardServer, DashboardState } from "../../../src/dashboard/protocol.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, MODELS, PROD_SERVER } from "./shared.ts";
 

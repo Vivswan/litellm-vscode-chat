@@ -1,4 +1,7 @@
 import * as assert from "node:assert";
+import { DASHBOARD_COMMAND_IDS } from "../../../dashboard/protocol";
+import type { ServerFormDraft } from "../../../dashboard/serverForm";
+import { applyInlinePrefill, EMPTY_SERVER_FORM, parseServerForm } from "../../../dashboard/serverForm";
 import type { AdoptableGroupCredentials } from "../../../extension/dashboard/adopt";
 import type { DashboardIntent } from "../../../extension/dashboard/intentSchema";
 import {
@@ -6,9 +9,6 @@ import {
 	executeDashboardIntent,
 	readInlineSecretValues,
 } from "../../../extension/dashboard/intents";
-import { DASHBOARD_COMMAND_IDS } from "../../../extension/dashboard/protocol";
-import type { ServerFormDraft } from "../../../extension/dashboard/serverForm";
-import { applyInlinePrefill, EMPTY_SERVER_FORM, parseServerForm } from "../../../extension/dashboard/serverForm";
 import { KEEP_ALL, makeEnv, type RecordedEnv, serverPayload } from "./recordedEnv";
 
 /** The intent body a clean draft parses to; fails the test if the draft has problems. */

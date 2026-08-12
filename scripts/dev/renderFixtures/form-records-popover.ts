@@ -3,7 +3,7 @@
  * fields cell so it fits the 460px panel (a chip-anchored popover would clip
  * past the panel's unreachable left edge).
  */
-import type { DashboardServer, DashboardState } from "../../../src/extension/dashboard/protocol.ts";
+import type { DashboardServer, DashboardState } from "../../../src/dashboard/protocol.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, MODELS, PROD_SERVER } from "./shared.ts";
 

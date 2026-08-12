@@ -5,7 +5,7 @@ import type {
 	ServerFormField,
 	ServerFormIntent,
 	ServerFormProblems,
-} from "../../../extension/dashboard/serverForm";
+} from "../../dashboard/serverForm";
 import {
 	apiVersionDraftOf,
 	applyInlinePrefill,
@@ -18,7 +18,7 @@ import {
 	saveFailureDisposition,
 	sectionFailureText,
 	serverFormFieldLabel,
-} from "../../../extension/dashboard/serverForm";
+} from "../../dashboard/serverForm";
 
 /** The fields the OAuth form itself renders; problems on a partial OAuth draft may name only these. */
 const OAUTH_FORM_FIELDS: readonly ServerFormField[] = [
@@ -51,7 +51,7 @@ function intentOf(draft: ServerFormDraft, originalLabel?: string): ServerFormInt
 	return parse.intent;
 }
 
-suite("extension/dashboard/serverForm", () => {
+suite("dashboard/serverForm", () => {
 	suite("isUsableHttpUrl", () => {
 		test("accepts http(s) URLs with a host and refuses everything else", () => {
 			assert.ok(isUsableHttpUrl("http://localhost:4000"));

@@ -2,7 +2,7 @@
  * The overview tab under load: declared, expected-failure, misconfigured, and
  * external rows; notices and banners; the models table with a declared badge.
  */
-import type { DashboardServer } from "../../../src/extension/dashboard/protocol.ts";
+import type { DashboardServer } from "../../../src/dashboard/protocol.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, EXTERNAL_SERVER, GATEWAY_SERVER, MISCONFIGURED_SERVER, PROD_SERVER } from "./shared.ts";
 

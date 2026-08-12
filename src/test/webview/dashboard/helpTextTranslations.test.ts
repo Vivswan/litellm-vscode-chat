@@ -13,8 +13,8 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ServerFormField } from "../../../extension/dashboard/serverForm";
-import { EMPTY_SERVER_FORM } from "../../../extension/dashboard/serverForm";
+import type { ServerFormField } from "../../../dashboard/serverForm";
+import { EMPTY_SERVER_FORM } from "../../../dashboard/serverForm";
 import * as helpText from "../../../webview/dashboard/helpText";
 import { bannedTypography } from "../../util/l10n";
 

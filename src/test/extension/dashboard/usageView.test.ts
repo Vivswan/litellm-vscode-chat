@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import type { UsageServerCardView, UsageServerView } from "../../../extension/dashboard/protocol";
+import type { UsageServerCardView, UsageServerView } from "../../../dashboard/protocol";
 import type { UsageViewInput } from "../../../extension/dashboard/usageView";
 import { buildUsageView } from "../../../extension/dashboard/usageView";
 import type { BudgetStatus, ServerUsageState, UsageTotals } from "../../../extension/servers/usage";

@@ -8,6 +8,7 @@
  * problems also ride the copyable diagnostics block.
  */
 
+import type { ConfigDiagnosticView, HiddenGroup } from "../../dashboard/protocol";
 import type { ModelCapabilitiesRecord } from "../../shared/config/capabilityResolution";
 import { lintCapabilityRecords } from "../../shared/config/capabilityResolution";
 import { lintParameterRecords } from "../../shared/config/parameterResolution";
@@ -25,7 +26,6 @@ import {
 	NEW_MODEL_PARAMETERS_ID,
 } from "../migrations/settingsRedesign/legacyIds";
 import type { DeclaredServerView, ServerEntryReport } from "../servers/serverSync";
-import type { ConfigDiagnosticView, HiddenGroup } from "./protocol";
 import type { SettingsReader } from "./state";
 import { filterUnrecognizedKeyDiagnostics } from "./state";
 

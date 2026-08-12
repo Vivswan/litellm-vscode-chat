@@ -6,6 +6,9 @@
  */
 
 import * as vscode from "vscode";
+import type { SecretFieldId } from "../../dashboard/protocol";
+import { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../../dashboard/protocol";
+import { isUsableHttpUrl } from "../../dashboard/serverForm";
 import type { ServerModelsSnapshot } from "../../provider";
 import type { GroupServer } from "../../provider/catalog/groupModels";
 import type { OptionalEntryFields } from "../../shared/serverEntry";
@@ -17,9 +20,6 @@ import { adoptSourceHandle } from "./adoptHandle";
 import type { DashboardIntent } from "./intentSchema";
 import type { IntentEnvironment } from "./intents";
 import { DashboardOperationError, DashboardValidationError, rawServerEntries } from "./intents";
-import type { SecretFieldId } from "./protocol";
-import { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "./protocol";
-import { isUsableHttpUrl } from "./serverForm";
 import { joinDeclared, labeledSnapshots } from "./state";
 
 /**

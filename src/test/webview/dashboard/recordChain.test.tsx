@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { render } from "preact";
 import { act } from "preact/test-utils";
-import type { RecordChainView } from "../../../extension/dashboard/protocol";
+import type { RecordChainView } from "../../../dashboard/protocol";
 import type { ModelCapabilitiesResponse, ModelParametersResponse } from "../../../webview/dashboard/modelInspector";
 import { ModelInspector } from "../../../webview/dashboard/modelInspector";
 import { makeModel } from "../fixtures";

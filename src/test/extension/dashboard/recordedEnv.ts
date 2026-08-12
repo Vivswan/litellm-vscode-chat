@@ -4,9 +4,10 @@
  * state.test.ts: a recording IntentEnvironment fake plus the keep-everything
  * secrets directive.
  */
+
+import type { SaveServerPayload } from "../../../dashboard/protocol";
 import type { AdoptableGroupCredentials } from "../../../extension/dashboard/adopt";
 import type { IntentEnvironment } from "../../../extension/dashboard/intents";
-import type { SaveServerPayload } from "../../../extension/dashboard/protocol";
 import type { DraftConnection } from "../../../extension/dashboard/testDraftConnection";
 
 export const KEEP_ALL = {

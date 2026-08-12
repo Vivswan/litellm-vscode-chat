@@ -222,7 +222,7 @@ export class Logger {
 	 * channel is still user-pasteable, so the classification-only rule is
 	 * unchanged: keys and classifications, never response-derived text or
 	 * values. The dashboard's ConfigDiagnosticSeverity "advisory"
-	 * (extension/dashboard/protocol.ts) is the same informational-not-problem
+	 * (dashboard/protocol.ts) is the same informational-not-problem
 	 * concept on the diagnostics surface.
 	 */
 	advisory(message: string, data?: unknown): void {

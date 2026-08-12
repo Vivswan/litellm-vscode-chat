@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
+import type { CatalogModelSummary, ExtensionToWebviewMessage } from "../../../dashboard/protocol";
 import { modelScopeKey } from "../../../extension/dashboard/adoptHandle";
 import type { DashboardControllerEnv, DashboardPanel, ServerResolution } from "../../../extension/dashboard/panel";
 import {
@@ -8,7 +9,6 @@ import {
 	declaredViewsFromSetting,
 	entryParametersResolver,
 } from "../../../extension/dashboard/panel";
-import type { CatalogModelSummary, ExtensionToWebviewMessage } from "../../../extension/dashboard/protocol";
 import type {
 	EntryCapabilitiesRecord,
 	EntryParametersResolution,
