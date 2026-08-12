@@ -1,5 +1,6 @@
 /// <reference types="bun" />
 import fs from "node:fs/promises";
+import path from "node:path";
 import type { BuildOptions, Plugin } from "rolldown";
 import { build, watch } from "rolldown";
 import {
@@ -33,11 +34,73 @@ function cssErrorMessage(error: unknown): string {
 }
 
 /**
+ * Package stylesheets compiled into the emitted css (Tailwind's own layer
+ * files, say): they ship inside dashboard.css, so the third-party notices
+ * must see them alongside the JS module graph.
+ */
+const cssModuleIds = new Set<string>();
+
+/**
+ * Compiles a Tailwind entry through the Tailwind CLI: its at-rules (@theme,
+ * @source, the tailwindcss imports) are compiler directives Bun's plain CSS
+ * bundler cannot evaluate. Reruns on every rebuild, so watch mode picks up
+ * class-scan changes from any source edit.
+ */
+async function tailwindCss(id: string, entrySource: string): Promise<string> {
+	let sawPackageImport = false;
+	for (const [, specifier] of entrySource.matchAll(/@import\s+["']([^"']+)["']/g)) {
+		if (specifier !== undefined && !specifier.startsWith(".") && !specifier.includes("://")) {
+			cssModuleIds.add(Bun.resolveSync(specifier, path.dirname(id)));
+			sawPackageImport = true;
+		}
+	}
+	if (!sawPackageImport) {
+		// The notices pipeline credits the packages compiled into the emitted
+		// css through this scan; a Tailwind entry that suddenly yields none
+		// means the scan broke, not that the entry stopped shipping Tailwind.
+		throw new Error(`[CSS_ERROR] No package imports found in Tailwind entry ${id}; the notices scan cannot credit it`);
+	}
+	const proc = Bun.spawn({
+		cmd: [process.execPath, "x", "@tailwindcss/cli", "--input", id, ...(production ? ["--minify"] : [])],
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const [source, errors, exitCode] = await Promise.all([
+		new Response(proc.stdout).text(),
+		new Response(proc.stderr).text(),
+		proc.exited,
+	]);
+	if (exitCode !== 0) {
+		throw new Error(`[CSS_ERROR] Tailwind failed for ${id}\n${errors}`);
+	}
+	return source;
+}
+
+/** Bundles one plain stylesheet through Bun's CSS bundler. */
+async function plainCss(id: string): Promise<string> {
+	let bundled: Awaited<ReturnType<typeof Bun.build>>;
+	try {
+		bundled = await Bun.build({ entrypoints: [id], minify: production });
+	} catch (error) {
+		throw new Error(cssErrorMessage(error));
+	}
+	const stylesheets = bundled.outputs.filter((output) => output.path.endsWith(".css"));
+	return (await Promise.all(stylesheets.map((output) => output.text()))).join("");
+}
+
+async function bundleCssFile(id: string): Promise<string> {
+	const source = await fs.readFile(id, "utf8");
+	return /@import\s+["']tailwindcss/.test(source) ? tailwindCss(id, source) : plainCss(id);
+}
+
+/**
  * Rolldown removed its native CSS bundling (rolldown/rolldown#4271), so the
  * webview's stylesheet imports resolve to empty modules here and the collected
- * files go through Bun's CSS bundler into the sibling stylesheet asset. Bun
- * emits no sourcemap for CSS, so unlike the JS outputs the stylesheet ships
- * without one (no .map ever reaches the VSIX either way).
+ * files are compiled per file - Tailwind entries through the Tailwind CLI,
+ * plain stylesheets through Bun's CSS bundler - into the sibling stylesheet
+ * asset, in import order. Bun emits no sourcemap for CSS, so unlike the JS
+ * outputs the stylesheet ships without one (no .map ever reaches the VSIX
+ * either way).
  */
 function stylesheetPlugin(): Plugin {
 	const cssFiles: string[] = [];
@@ -55,20 +118,37 @@ function stylesheetPlugin(): Plugin {
 			return { code: "", moduleType: "js" };
 		},
 		async generateBundle() {
-			// Filter to the current graph: a css import removed during watch
-			// mode stays in cssFiles (load never reruns for it) but leaves the
-			// module graph, and must leave the emitted stylesheet with it.
-			const graph = new Set(this.getModuleIds());
-			const entrypoints = cssFiles.filter((id) => graph.has(id));
-			let bundled: Awaited<ReturnType<typeof Bun.build>>;
-			try {
-				bundled = await Bun.build({ entrypoints, minify: production });
-			} catch (error) {
-				throw new Error(cssErrorMessage(error));
+			// Emit in entry-DFS import order, not load-callback or getModuleIds
+			// order (neither follows the source): the cascade must match what
+			// the imports declare. A css import removed during watch mode
+			// (whose load never reruns) is absent from the graph walk and so
+			// leaves the emitted stylesheet with it.
+			const collected = new Set(cssFiles);
+			const order: string[] = [];
+			const seen = new Set<string>();
+			const visit = (id: string): void => {
+				if (seen.has(id)) {
+					return;
+				}
+				seen.add(id);
+				if (collected.has(id)) {
+					order.push(id);
+				}
+				const info = this.getModuleInfo(id);
+				for (const imported of info?.importedIds ?? []) {
+					visit(imported);
+				}
+				for (const imported of info?.dynamicallyImportedIds ?? []) {
+					visit(imported);
+				}
+			};
+			for (const id of this.getModuleIds()) {
+				if (this.getModuleInfo(id)?.isEntry) {
+					visit(id);
+				}
 			}
-			const stylesheets = bundled.outputs.filter((output) => output.path.endsWith(".css"));
-			const source = (await Promise.all(stylesheets.map((output) => output.text()))).join("");
-			this.emitFile({ type: "asset", fileName: DASHBOARD_STYLESHEET_FILENAME, source });
+			const pieces = await Promise.all(order.map(bundleCssFile));
+			this.emitFile({ type: "asset", fileName: DASHBOARD_STYLESHEET_FILENAME, source: pieces.join("") });
 		},
 	};
 }
@@ -167,8 +247,9 @@ if (watchMode) {
 	const results = await Promise.all(builds.map((options) => build(options)));
 	if (production) {
 		// One merged module list: the third-party notices generator reads every
-		// package bundled into anything the extension ships, webview included.
-		const moduleIds = new Set<string>();
+		// package bundled into anything the extension ships, webview and
+		// compiled stylesheets included.
+		const moduleIds = new Set<string>(cssModuleIds);
 		for (const result of results) {
 			for (const chunk of result.output) {
 				if (chunk.type === "chunk") {

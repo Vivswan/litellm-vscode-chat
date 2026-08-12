@@ -176,7 +176,8 @@ jobs:
           done
           # The stylesheet is the same kind of test-invisible build output as
           # the bundle (the webview suite never loads the bundled css either):
-          # the real emit weighs ~39,995 bytes minified (~47,961 unminified),
+          # the real emit weighs ~47,070 bytes minified (~56,389 unminified,
+          # Tailwind theme block included),
           # so 30000 fails a truncated or empty emit with headroom, and the
           # grep pins the theme-token contract - every rule reads the host's
           # var(--vscode-*) tokens.
@@ -187,6 +188,13 @@ jobs:
           fi
           if ! grep -q 'var(--vscode-' dist/webview/dashboard.css; then
             echo "::error::dist/webview/dashboard.css lacks the host theme tokens; the real stylesheet did not bundle"
+            exit 1
+          fi
+          # The dashboard rules alone clear the size floor, so the Tailwind
+          # theme block needs its own presence marker: the semantic --primary
+          # token only exists if the Tailwind leg of the bundle ran.
+          if ! grep -q -- '--primary' dist/webview/dashboard.css; then
+            echo "::error::dist/webview/dashboard.css lacks the Tailwind theme block; the Tailwind bundle leg did not run"
             exit 1
           fi
           if ! echo "$listing" | grep -qx 'ThirdPartyNotices.txt'; then

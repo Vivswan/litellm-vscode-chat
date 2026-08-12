@@ -1,0 +1,88 @@
+/* The Tailwind entry: theme and utilities layers only - preflight stays out
+	 deliberately, because the existing dashboard.css rules style the whole
+	 dashboard and a base reset would repaint every pixel. Utilities compile
+	 from the class scan of src/webview and src/dashboard. */
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+
+@source "../..";
+@source "../../../dashboard";
+
+/* shadcn's semantic tokens, mapped onto the host's live theme variables: the
+	 host swaps --vscode-* values on every theme change, so light and dark need
+	 no body-class switching of their own. */
+:root {
+	--background: var(--vscode-editor-background, var(--vscode-panel-background));
+	--foreground: var(--vscode-foreground);
+	--card: var(--vscode-editorWidget-background);
+	--card-foreground: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+	--popover: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background));
+	--popover-foreground: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+	--primary: var(--vscode-button-background);
+	--primary-foreground: var(--vscode-button-foreground);
+	--secondary: var(--vscode-button-secondaryBackground, var(--vscode-toolbar-hoverBackground));
+	--secondary-foreground: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+	--muted: var(--vscode-textBlockQuote-background, var(--vscode-editorWidget-background));
+	--muted-foreground: var(--vscode-descriptionForeground);
+	--accent: var(--vscode-list-hoverBackground);
+	--accent-foreground: var(--vscode-list-hoverForeground, var(--vscode-foreground));
+	--destructive: var(--vscode-statusBarItem-errorBackground);
+	--destructive-foreground: var(--vscode-statusBarItem-errorForeground);
+	--border: var(--vscode-widget-border, var(--vscode-panel-border));
+	--input: var(--vscode-input-border, var(--vscode-widget-border, var(--vscode-panel-border)));
+	--ring: var(--vscode-focusBorder);
+	--radius: 4px;
+}
+
+/* High contrast: the host draws every boundary with the contrast border and
+	 marks the active one, so the semantic border/focus tokens follow suit.
+	 Fills disappear by design in HC (button.secondaryBackground and its
+	 fallback are both null there), so every fill token gains a guaranteed
+	 surface fallback and lets the contrast border carry the shape. */
+body.vscode-high-contrast,
+body.vscode-high-contrast-light {
+	--border: var(--vscode-contrastBorder);
+	--input: var(--vscode-contrastBorder);
+	--ring: var(--vscode-contrastActiveBorder, var(--vscode-focusBorder));
+	--primary: var(--vscode-button-background, var(--vscode-editor-background));
+	--accent: var(--vscode-list-hoverBackground, var(--vscode-editor-background));
+	--secondary: var(--vscode-editor-background);
+	--secondary-foreground: var(--vscode-foreground);
+}
+
+/* Inline so utilities bake in the var() chains directly; a non-inline theme
+	 would emit self-referential custom properties. The palette and radius
+	 resets keep Tailwind's defaults unreachable: a hardcoded bg-red-500 or an
+	 off-scale rounded-2xl must not compile in a host-token design system, and
+	 an incidental word in a scanned source cannot mint a colored rule. */
+@theme inline {
+	--color-*: initial;
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-destructive-foreground: var(--destructive-foreground);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--radius-*: initial;
+	--radius-xs: 1px;
+	--radius-sm: calc(var(--radius) - 2px);
+	--radius-md: var(--radius);
+	--radius-lg: calc(var(--radius) + 2px);
+	--radius-xl: calc(var(--radius) + 4px);
+	--radius-full: calc(infinity * 1px);
+}
