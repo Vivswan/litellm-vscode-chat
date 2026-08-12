@@ -29,6 +29,7 @@ import {
 	fireClick,
 	fireFocus,
 	fireInput,
+	fireKeyDown,
 	fireSelect,
 	inputByLabel,
 	mount,
@@ -1612,4 +1613,32 @@ test("the entry table's compact [+] add popover draws on the same entry-scoped v
 	const listbox = document.getElementById(keyInput.getAttribute("aria-controls") ?? "");
 	const names = Array.from(listbox?.querySelectorAll("[role='option']") ?? []).map((o) => o.textContent ?? "");
 	expect(names).toEqual(["prod_only_key"]);
+});
+
+test("a nested overlay hears Esc alone: it closes, the form beneath survives and keeps focus", () => {
+	// The matcher overlay opens above the server form's slide-over, so two
+	// dialogs are live at once. Radix's layer stack decides which one hears the
+	// key and pauses the outer focus scope; the port depends on that instead of
+	// the stopPropagation the hand-rolled trap used to need, so it is worth
+	// pinning rather than inferring from the two panels rendering.
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Prod",
+			config: {
+				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				modelParameters: { "gpt-4": { temperature: 0.2 } },
+			},
+		}),
+	]);
+	fireClick(buttonByText(root, "Edit"));
+	const overlay = openMatcherEditor(root, "gpt-4");
+	expect(root.querySelectorAll(".slide-over")).toHaveLength(2);
+
+	fireKeyDown(overlay.querySelector("input") as HTMLElement, "Escape");
+
+	// Only the inner one goes; the form beneath is still open and still holds focus.
+	expect(root.querySelector(".matcher-editor")).toBeNull();
+	expect(root.querySelectorAll(".slide-over")).toHaveLength(1);
+	const form = root.querySelector(".slide-over") as HTMLElement;
+	expect(form.contains(document.activeElement)).toBe(true);
 });

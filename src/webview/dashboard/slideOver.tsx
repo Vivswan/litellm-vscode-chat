@@ -14,7 +14,9 @@
  * - No `Dialog.Overlay`. Overlay is the only place Radix mounts
  *   react-remove-scroll, which injects a <style> element the dashboard's CSP
  *   (style-src without any inline allowance) refuses. The scrim below is the
- *   backdrop instead, and scroll lock rides a body class in dashboard.css.
+ *   backdrop instead. The dashboard has never locked body scroll and still
+ *   does not; if it ever should, a body class in dashboard.css buys it
+ *   without reopening the policy.
  * - No `Dialog.Portal`. The panel stays where it renders so it keeps its
  *   place in the section's DOM; nothing here depends on escaping a stacking
  *   context.
@@ -32,6 +34,13 @@ import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
 import { IconClose } from "./icons";
 import { Button } from "./ui/button";
+
+/**
+ * Where initial focus lands when the panel has no field to type into. Radix
+ * owns the Tab trap now, so this only has to name a sensible first stop.
+ */
+const FOCUSABLE =
+	"a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
 export function SlideOver({
 	labelledBy,
@@ -59,11 +68,19 @@ export function SlideOver({
 	// typing can start immediately) and returns to the opener on close - or,
 	// when the opener left the page with the form (the guided start's CTA
 	// unmounts once a server exists), to the stable fallback element. Radix's
-	// own open/close autofocus is declined below so this stays the one policy.
+	// own open/close autofocus is declined below so this stays the one policy,
+	// which makes the fallback load-bearing: a panel with no field at all (the
+	// model inspector) would otherwise strand focus on the opener the dialog
+	// just hid from assistive tech, and Esc - handled on the panel - would
+	// never reach anything.
 	useEffect(() => {
 		const opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
 		const panel = panelRef.current;
-		panel?.querySelector<HTMLElement>("input, select, textarea")?.focus();
+		const target =
+			panel?.querySelector<HTMLElement>("input, select, textarea") ??
+			panel?.querySelector<HTMLElement>(FOCUSABLE) ??
+			panel;
+		target?.focus();
 		return () => {
 			if (opener?.isConnected === true) {
 				opener.focus();
@@ -89,7 +106,6 @@ export function SlideOver({
 				// other should still get the modal semantics.
 				aria-modal="true"
 				aria-labelledby={labelledBy}
-				aria-describedby={undefined}
 				ref={panelRef}
 				onOpenAutoFocus={(event) => event.preventDefault()}
 				onCloseAutoFocus={(event) => event.preventDefault()}

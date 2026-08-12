@@ -30,11 +30,20 @@ initFingerprintSalt(FIXED_TEST_SALT);
  * to ask, so these gaps only surface once the trap is the platform's.
  */
 
+/** A <details>'s disclosure trigger: only its FIRST summary child, as in a browser. */
+function isDisclosureSummary(node: Element): boolean {
+	const parent = node.parentElement;
+	return (
+		node.tagName === "SUMMARY" && parent?.tagName === "DETAILS" && parent.querySelector(":scope > summary") === node
+	);
+}
+
 /**
  * A <details>'s own <summary> is focusable in every browser - it is the
  * element that toggles the disclosure - but happy-dom reports tabIndex -1 for
  * it, so the summary would silently drop out of the trap and Tab would appear
- * to escape the dialog.
+ * to escape the dialog. happy-dom already overrides tabIndex on the button,
+ * input, select, textarea and anchor elements, so summary is the one gap.
  */
 const tabIndexDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "tabIndex");
 if (tabIndexDescriptor?.get !== undefined) {
@@ -42,7 +51,7 @@ if (tabIndexDescriptor?.get !== undefined) {
 	Object.defineProperty(HTMLElement.prototype, "tabIndex", {
 		...tabIndexDescriptor,
 		get(this: HTMLElement): number {
-			if (this.tagName === "SUMMARY" && !this.hasAttribute("tabindex") && this.parentElement?.tagName === "DETAILS") {
+			if (!this.hasAttribute("tabindex") && isDisclosureSummary(this)) {
 				return 0;
 			}
 			return readTabIndex.call(this) as number;
@@ -63,7 +72,7 @@ Element.prototype.checkVisibility = function checkVisibility(this: Element, opti
 	}
 	for (let node: Element | null = this; node !== null; node = node.parentElement) {
 		const parent = node.parentElement;
-		if (parent?.tagName === "DETAILS" && !(parent as HTMLDetailsElement).open && node.tagName !== "SUMMARY") {
+		if (parent?.tagName === "DETAILS" && !(parent as HTMLDetailsElement).open && !isDisclosureSummary(node)) {
 			return false;
 		}
 	}
