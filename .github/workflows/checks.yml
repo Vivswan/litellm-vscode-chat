@@ -250,8 +250,7 @@ jobs:
           # the unprivileged user namespaces its sandbox needs; the page is
           # our own generated file, so dropping the sandbox is fine here.
           CHROME_EXTRA_FLAGS: '--no-sandbox'
-        # --bootstrap: remove with the commit that lands the baselines.
-        run: bun run render:check --bootstrap
+        run: bun run render:check
 
       - name: Upload the current renders (baseline source for non-Linux contributors)
         if: always()
