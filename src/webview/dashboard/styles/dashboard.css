@@ -1389,6 +1389,11 @@
 		border-radius: 0;
 		padding: 0;
 		cursor: default;
+		/* Radix's modal layer zeroes pointer events on <body> and restores them
+			 only on the dialog itself. The scrim is a sibling of that dialog, so
+			 without this it inherits none and click-to-close silently stops
+			 working - synthesized clicks in tests still land, real ones do not. */
+		pointer-events: auto;
 	}
 	.slide-over {
 		position: fixed;

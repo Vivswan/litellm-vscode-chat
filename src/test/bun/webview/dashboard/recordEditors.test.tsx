@@ -20,6 +20,7 @@ import { makeModel, makeSettings, makeState, statePush } from "../fixtures";
 import {
 	buttonByText,
 	cleanup,
+	fireBlur,
 	fireCheck,
 	fireClick,
 	fireFocus,
@@ -992,15 +993,11 @@ test("a directive row typed in the overlay absorbs only on blur, never mid-edit 
 	expect(rowKeys()).toContain("_force");
 
 	// Focus moving between the row's own inputs is not a blur: the hold stands.
-	void act(() => {
-		valueInput().dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: keyInput() }));
-	});
+	fireBlur(valueInput(), keyInput());
 	expect(rowKeys()).toContain("_force");
 
 	// Leaving the row lets it absorb; the checkbox now carries the mark.
-	void act(() => {
-		valueInput().dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: null }));
-	});
+	fireBlur(valueInput());
 	expect(rowKeys()).not.toContain("_force");
 	const box = editor().querySelector<HTMLInputElement>(`.directive-flag input[aria-label='Force "temperature"']`);
 	expect(box?.checked).toBe(true);

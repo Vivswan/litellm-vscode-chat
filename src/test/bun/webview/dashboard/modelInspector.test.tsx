@@ -29,6 +29,7 @@ import { makeDeclaredServer, makeExternalServer, makeModel, makeSettings, makeSt
 import {
 	cleanup,
 	fireClick,
+	fireKeyDown,
 	lastRequest,
 	mount,
 	postedRequests,
@@ -1163,4 +1164,32 @@ test("the anchor stops re-scrolling for good once both feeds have answered", () 
 	} finally {
 		Element.prototype.scrollIntoView = original;
 	}
+});
+
+test("a slide-over with no field still lands focus inside itself, so Esc reaches the panel", () => {
+	// The inspector is the one slide-over with nothing to type into: zero
+	// inputs, selects or textareas anywhere in it. Focus therefore has to fall
+	// back to the panel's first focusable, because Radix's own open-autofocus
+	// is declined and the opener the dialog just hid from assistive tech is
+	// where focus would otherwise sit - taking the panel's Esc handler with it.
+	let closed = 0;
+	const opener = document.createElement("button");
+	document.body.appendChild(opener);
+	opener.focus();
+	const container = mount(
+		<ModelInspector
+			model={model}
+			stateSeq={0}
+			onClose={() => {
+				closed++;
+			}}
+		/>
+	);
+	const panel = container.querySelector(".slide-over") as HTMLElement;
+	expect(panel.contains(document.activeElement)).toBe(true);
+	expect((document.activeElement as HTMLElement).getAttribute("aria-label")).toBe("Close");
+
+	fireKeyDown(document.activeElement as HTMLElement, "Escape");
+	expect(closed).toBe(1);
+	opener.remove();
 });
