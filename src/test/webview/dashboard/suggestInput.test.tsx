@@ -42,13 +42,18 @@ function sectionByHeading(root: ParentNode, heading: string): HTMLElement {
 }
 
 /** Mount App, open a fresh matcher's overlay in the named editor, and add one field row; returns the overlay getter. */
-function mountEditor(heading: string, addButton: string): () => HTMLElement {
+function mountEditor(
+	heading: string,
+	addButton: string,
+	stateOverrides: Parameters<typeof makeState>[0] = {}
+): () => HTMLElement {
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(
 			makeState({
 				models: [makeModel({ id: "gpt-test" }), makeModel({ id: "claude-x", name: "Claude X" })],
 				settings: makeSettings(),
+				...stateOverrides,
 			})
 		)
 	);
@@ -237,4 +242,89 @@ test("the capabilities editor Enter-applies a clean draft too, from key and valu
 	const posted = postedMessages.filter((message) => message.type === "setModelCapabilities");
 	expect(posted).toHaveLength(1);
 	expect((posted[0] as { value: Record<string, unknown> }).value["gpt-4"]).toEqual({ context_length: 128000 });
+});
+
+test("the GLOBAL capability key suggestions extend with the cross-server observed /model/info union", () => {
+	// The state's union rides into the settings-tab capability editor: the
+	// consumed vocabulary stays first, the server-observed names follow
+	// sorted, the directives stay last - and the names render as suggestion
+	// text only.
+	const section = mountEditor("Model capabilities", "Add capability matcher", {
+		observedModelInfoKeys: ["mode", "litellm_provider", "base_model"],
+	});
+	const keyInput = () => section().querySelector("input.key[placeholder^='Capability']") as HTMLInputElement;
+
+	fireFocus(keyInput());
+	const names = optionTexts(keyInput());
+	expect(names).toContain("litellm_provider");
+	expect(names[0]).toBe("context_length");
+	// The observed block sits after the consumed vocabulary, sorted, with the
+	// directives closing the list.
+	const observedStart = names.indexOf("base_model");
+	expect(names.slice(observedStart)).toEqual([
+		"base_model",
+		"litellm_provider",
+		"mode",
+		"_fallback",
+		"_openrouter_model",
+	]);
+
+	// Filtering reaches the server names like any other suggestion.
+	fireInput(keyInput(), "litellm");
+	expect(optionTexts(keyInput())).toEqual(["litellm_provider"]);
+});
+
+test("without an observed union the global capability suggestions stay the static vocabulary", () => {
+	const section = mountEditor("Model capabilities", "Add capability matcher");
+	const keyInput = () => section().querySelector("input.key[placeholder^='Capability']") as HTMLInputElement;
+	fireFocus(keyInput());
+	const names = optionTexts(keyInput());
+	expect(names).toContain("context_length");
+	expect(names).not.toContain("litellm_provider");
+	expect(names.slice(-2)).toEqual(["_fallback", "_openrouter_model"]);
+});
+
+test("the PARAMETERS editor's name suggestions ignore the observed capability vocabulary", () => {
+	// The autocomplete is capability-key only: request parameters are not
+	// model_info fields, so the server vocabulary must not leak into the
+	// parameter-name listbox.
+	const section = mountEditor("Model parameters", "Add model matcher", {
+		observedModelInfoKeys: ["litellm_provider"],
+	});
+	const nameInput = () => section().querySelector("input.key[placeholder^='Parameter']") as HTMLInputElement;
+	fireFocus(nameInput());
+	const names = optionTexts(nameInput());
+	expect(names).toContain("temperature");
+	expect(names).not.toContain("litellm_provider");
+});
+
+test("the table's compact [+] add popover offers the same observed vocabulary as the overlay rows", () => {
+	// The two entry surfaces for a capability key - the matcher table's [+]
+	// chip and the full editor's rows - must draw on one list, or the popover
+	// would deny a key the overlay suggests.
+	mount(<App />);
+	pushToWebview(
+		statePush(
+			makeState({
+				settings: makeSettings({
+					modelCapabilities: {
+						editScope: "global",
+						value: { "gpt-4": { context_length: 128000 } },
+						otherScopes: [],
+						effective: { "gpt-4": { context_length: 128000 } },
+					},
+				}),
+				observedModelInfoKeys: ["litellm_provider"],
+			})
+		)
+	);
+	const addChip = document.querySelector("button[aria-label='Add a field to \"gpt-4\"']") as HTMLButtonElement;
+	expect(addChip).not.toBeNull();
+	fireClick(addChip);
+	const popover = document.querySelector(".chip-popover") as HTMLElement;
+	const keyInput = popover.querySelector("input.key") as HTMLInputElement;
+	fireInput(keyInput, "litellm");
+	const listbox = document.getElementById(keyInput.getAttribute("aria-controls") ?? "");
+	const names = Array.from(listbox?.querySelectorAll("[role='option']") ?? []).map((o) => o.textContent ?? "");
+	expect(names).toEqual(["litellm_provider"]);
 });

@@ -27,6 +27,7 @@ import {
 	fireBlur,
 	fireCheck,
 	fireClick,
+	fireFocus,
 	fireInput,
 	inputByLabel,
 	mount,
@@ -1433,4 +1434,82 @@ test("a forbidden-usage card leaves its server row's usage cell empty", () => {
 	const usageCell = row.querySelectorAll("td")[4] as HTMLElement;
 	expect(usageCell.textContent).toBe("");
 	expect(usageCell.querySelector(".usage-cell")).toBeNull();
+});
+
+/** The entry form's capability key input inside the open matcher editor overlay, with its listbox options. */
+function capabilityKeyOptions(root: HTMLElement): string[] {
+	fireClick(buttonByText(root, "Add capability matcher"));
+	const overlay = root.querySelector<HTMLElement>(".matcher-editor");
+	if (overlay === null) {
+		throw new Error("Add capability matcher did not open the overlay");
+	}
+	fireClick(buttonByText(overlay, "Add capability"));
+	const keyInput = overlay.querySelector<HTMLInputElement>('input[placeholder^="Capability"]');
+	if (keyInput === null) {
+		throw new Error("the capability rows did not render");
+	}
+	fireFocus(keyInput);
+	const listbox = document.getElementById(keyInput.getAttribute("aria-controls") ?? "");
+	return Array.from(listbox?.querySelectorAll("[role='option']") ?? []).map((o) => o.textContent ?? "");
+}
+
+test("the entry form's capability key suggestions carry THAT server's observed vocabulary, never a sibling's", () => {
+	// An entry-scoped record applies to one server only, so its autocomplete
+	// draws on that server's own observed /model/info keys - not the
+	// cross-server union the global editor uses.
+	const root = mountSection([
+		makeDeclaredServer({ label: "Prod", observedModelInfoKeys: ["prod_only_key", "mode"] }),
+		makeDeclaredServer({
+			label: "Other",
+			baseUrl: "http://other.example:4000",
+			observedModelInfoKeys: ["other_only_key"],
+		}),
+	]);
+	const editProd = [...root.querySelectorAll("button")].find(
+		(button) => (button.textContent ?? "").trim() === "Edit"
+	) as HTMLButtonElement;
+	fireClick(editProd);
+	const names = capabilityKeyOptions(root);
+	expect(names).toContain("prod_only_key");
+	expect(names).toContain("mode");
+	expect(names).not.toContain("other_only_key");
+	// The composed order holds here too: consumed first, observed sorted
+	// after, directives last.
+	expect(names[0]).toBe("context_length");
+	expect(names.slice(-2)).toEqual(["_fallback", "_openrouter_model"]);
+});
+
+test("an entry without an observed key set (the add form) keeps the static capability suggestions", () => {
+	const root = mountSection([makeDeclaredServer({ label: "Prod", observedModelInfoKeys: ["prod_only_key"] })]);
+	// The ADD form targets no server yet, so no vocabulary is borrowed - not
+	// even the one existing server's.
+	fireClick(buttonByText(root, "Add server"));
+	const names = capabilityKeyOptions(root);
+	expect(names).toContain("context_length");
+	expect(names).not.toContain("prod_only_key");
+	expect(names.slice(-2)).toEqual(["_fallback", "_openrouter_model"]);
+});
+
+test("the entry table's compact [+] add popover draws on the same entry-scoped vocabulary as the overlay", () => {
+	// The two entry surfaces for a capability key - the table's [+] chip and
+	// the full editor's rows - must share one list.
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Prod",
+			observedModelInfoKeys: ["prod_only_key"],
+			config: {
+				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				modelCapabilities: { "gpt-4": { context_length: 128000 } },
+			},
+		}),
+	]);
+	fireClick(buttonByText(root, "Edit"));
+	const addChip = root.querySelector("button[aria-label='Add a field to \"gpt-4\"']") as HTMLButtonElement;
+	expect(addChip).not.toBeNull();
+	fireClick(addChip);
+	const keyInput = root.querySelector(".chip-popover input.key") as HTMLInputElement;
+	fireInput(keyInput, "prod");
+	const listbox = document.getElementById(keyInput.getAttribute("aria-controls") ?? "");
+	const names = Array.from(listbox?.querySelectorAll("[role='option']") ?? []).map((o) => o.textContent ?? "");
+	expect(names).toEqual(["prod_only_key"]);
 });

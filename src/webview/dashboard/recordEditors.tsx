@@ -813,16 +813,39 @@ function ParamGroupsFields({
 export type CatalogSearchResponse = Extract<ExtensionToWebviewMessage, { type: "catalogSearchResults" }>;
 
 /**
+ * How many server-observed names the suggestion list carries: discovery
+ * already caps the observed set at 512 keys per server so a hostile payload
+ * cannot balloon what rides on it, and the cross-server union gets the same
+ * ceiling here - the list is RENDERED per keystroke, and the catalog
+ * dropdown's host-side cap sets the posture.
+ */
+const OBSERVED_SUGGESTION_LIMIT = 512;
+
+/**
  * The key suggestions the capability rows offer: the consumed vocabulary (the
  * registration-typed core first, then the advisory-typed cost/caching/params
- * keys), with the directives at the end. Suggestions only - the vocabulary is
- * open, and any other key applies as-is.
+ * keys in their curated order), then the server-observed /model/info key
+ * names (deduped, code-unit sorted - wire identifiers), with the directives
+ * at the end. Suggestions only - the vocabulary is open, and any other key
+ * applies as-is. The observed names are server-derived strings: they render
+ * as suggestion TEXT only (SuggestInput), never become object keys (the Set
+ * dedup), and `_`-led names are dropped - a capability record reads such a
+ * key as a directive, never as an override, so suggesting one would suggest
+ * a key the record cannot carry (a server-reported `__proto__` falls out
+ * here too).
  */
-const CAPABILITY_KEY_SUGGESTIONS: readonly string[] = [
-	...Object.keys(CONSUMED_CAPABILITY_FIELDS),
-	FALLBACK_DIRECTIVE,
-	OPENROUTER_MODEL_DIRECTIVE,
-];
+export function capabilityKeySuggestions(observedKeys?: readonly string[]): readonly string[] {
+	const consumed = Object.keys(CONSUMED_CAPABILITY_FIELDS);
+	const known = new Set(consumed);
+	const observed = [...new Set(observedKeys ?? [])]
+		.filter((key) => key.length > 0 && !key.startsWith("_") && !known.has(key))
+		.sort()
+		.slice(0, OBSERVED_SUGGESTION_LIMIT);
+	return [...consumed, ...observed, FALLBACK_DIRECTIVE, OPENROUTER_MODEL_DIRECTIVE];
+}
+
+/** The no-evidence list (consumed fields plus directives), the fallback wherever no observed set is known. */
+const CAPABILITY_KEY_SUGGESTIONS: readonly string[] = capabilityKeySuggestions();
 
 /**
  * A text input with its own suggestion listbox, replacing the native datalist
@@ -1211,6 +1234,7 @@ function CapabilityGroupsFields({
 	disabled,
 	catalogResults,
 	prefixSuggestions,
+	keySuggestions,
 	onChange,
 	onEnter,
 }: {
@@ -1220,6 +1244,8 @@ function CapabilityGroupsFields({
 	catalogResults: CatalogSearchResponse | undefined;
 	/** Suggestions for the matcher input's listbox; absent, the input stays plain. */
 	prefixSuggestions?: readonly string[] | undefined;
+	/** The capability-name suggestions (capabilityKeySuggestions); absent, the no-evidence static list serves. */
+	keySuggestions?: readonly string[] | undefined;
 	onChange: (next: PrefixGroup[]) => void;
 	/** Enter in a row input; the editors apply the draft when it parses clean. */
 	onEnter?: (() => void) | undefined;
@@ -1336,7 +1362,7 @@ function CapabilityGroupsFields({
 											<span class="cell key">
 												<SuggestInput
 													value={param.key}
-													suggestions={CAPABILITY_KEY_SUGGESTIONS}
+													suggestions={keySuggestions ?? CAPABILITY_KEY_SUGGESTIONS}
 													inputClass="key"
 													invalid={issue?.problem?.field === "name"}
 													placeholder={l10n.t("Capability, e.g. context_length")}
@@ -2439,7 +2465,7 @@ export function RecordMatcherEditorOverlay({
 	prefixPlaceholder,
 	prefixHelp,
 	prefixSuggestions,
-	paramNameSuggestions,
+	keySuggestions,
 	catalogResults,
 	disabled,
 	fallbackFocusId,
@@ -2460,7 +2486,8 @@ export function RecordMatcherEditorOverlay({
 	prefixPlaceholder?: string | undefined;
 	prefixHelp?: string | undefined;
 	prefixSuggestions?: readonly string[];
-	paramNameSuggestions?: readonly string[];
+	/** The field-name suggestions: parameter names (params kind) or capability keys (caps kind). */
+	keySuggestions?: readonly string[];
 	catalogResults?: CatalogSearchResponse | undefined;
 	disabled?: boolean;
 	/** Where focus lands on close when the opening pencil is gone (a removed matcher); the owner's stable control. */
@@ -2504,7 +2531,7 @@ export function RecordMatcherEditorOverlay({
 						prefixPlaceholder={prefixPlaceholder ?? l10n.t("Model ID or matcher, e.g. gpt-4 or gpt-4*")}
 						prefixHelp={prefixHelp ?? helpModelParameterPrefix()}
 						prefixSuggestions={prefixSuggestions}
-						paramNameSuggestions={paramNameSuggestions}
+						paramNameSuggestions={keySuggestions}
 						onChange={onGroupsChange}
 						onEnter={onEnter}
 					/>
@@ -2515,6 +2542,7 @@ export function RecordMatcherEditorOverlay({
 						disabled={disabled}
 						catalogResults={catalogResults}
 						prefixSuggestions={prefixSuggestions}
+						keySuggestions={keySuggestions}
 						onChange={onGroupsChange}
 						onEnter={onEnter}
 					/>
@@ -2845,7 +2873,7 @@ export function ModelParametersEditor({
 					prefixPlaceholder={l10n.t("Model ID or matcher, e.g. gpt-4 or gpt-4*")}
 					prefixHelp={helpModelParameterPrefix()}
 					prefixSuggestions={modelIds}
-					paramNameSuggestions={COMMON_PARAMETER_NAMES}
+					keySuggestions={COMMON_PARAMETER_NAMES}
 					fallbackFocusId="params-add-matcher"
 					note={l10n.t("Changes here edit the draft; Apply in the editor saves them.")}
 					onChange={(next) => {
@@ -2892,10 +2920,13 @@ export function ModelCapabilitiesEditor({
 	catalogResults: CatalogSearchResponse | undefined;
 	/**
 	 * The cross-server union of observed /model/info keys
-	 * (DashboardState.observedModelInfoKeys), the unknown-key hints' evidence:
-	 * the global records scope over every server, so the union is the right
-	 * set. Absent or empty means no evidence and every such hint stays
-	 * suppressed (the host's advisory filter, run live as the user types).
+	 * (DashboardState.observedModelInfoKeys), serving two roles: the
+	 * unknown-key hints' evidence, and the server half of the key
+	 * autocomplete (capabilityKeySuggestions). The global records scope over
+	 * every server, so the union is the right set for both. Absent or empty
+	 * means no evidence - every such hint stays suppressed (the host's
+	 * advisory filter, run live as the user types) and the suggestions fall
+	 * back to the static vocabulary.
 	 */
 	observedKeys?: readonly string[] | undefined;
 	/** The settings filter's verdict; hides the section without unmounting it, so a dirty draft survives. */
@@ -2906,6 +2937,9 @@ export function ModelCapabilitiesEditor({
 	const draft = useDraftRows(toCapabilityGroups(scoped.value), ack, failure);
 	const groups = draft.rows;
 	const recognizedKeys = observedKeys === undefined ? undefined : new Set(observedKeys);
+	// The key autocomplete over the same evidence: the consumed vocabulary
+	// extended by what THIS scope's servers actually report.
+	const keySuggestions = capabilityKeySuggestions(observedKeys);
 	// One parse per keystroke, like the parameters editor: the row issues, the
 	// Apply gate, and the assembled record are the same verdict.
 	const parse = parseCapabilityGroups(groups, recognizedKeys);
@@ -3020,6 +3054,7 @@ export function ModelCapabilitiesEditor({
 							groups={groups}
 							issues={issueViews}
 							catalogResults={catalogResults}
+							keySuggestions={keySuggestions}
 							onChange={(next) => draft.update(next)}
 							onOpenEditor={openEditor}
 						/>
@@ -3099,6 +3134,7 @@ export function ModelCapabilitiesEditor({
 					group={groups[editingIndex] as PrefixGroup}
 					groupIssues={issues[editingIndex]}
 					prefixSuggestions={modelIds}
+					keySuggestions={keySuggestions}
 					catalogResults={catalogResults}
 					fallbackFocusId="caps-add-matcher"
 					note={l10n.t("Changes here edit the draft; Apply in the editor saves them.")}

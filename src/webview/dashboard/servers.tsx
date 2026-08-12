@@ -71,7 +71,13 @@ import {
 } from "./helpText";
 import { IconAdd, IconTrash } from "./icons";
 import type { CatalogSearchResponse, RecordEditorKind } from "./recordEditors";
-import { capabilityIssueViews, paramIssueViews, RecordMatcherEditorOverlay, RecordMatcherTable } from "./recordEditors";
+import {
+	capabilityIssueViews,
+	capabilityKeySuggestions,
+	paramIssueViews,
+	RecordMatcherEditorOverlay,
+	RecordMatcherTable,
+} from "./recordEditors";
 import { SlideOver } from "./slideOver";
 import { relativeTime } from "./time";
 import { barPresentation, formatPercent, formatUsd } from "./usage";
@@ -960,6 +966,12 @@ function ServerForm({
 	const modelCapabilityIssues = parse.modelCapabilityIssues;
 	const entryParamIssueViews = paramIssueViews(draft.modelParameters, modelParameterProblems, modelParameterHints);
 	const entryCapIssueViews = capabilityIssueViews(draft.modelCapabilities, modelCapabilityIssues);
+	// The capability-key autocomplete over THIS entry's own observed
+	// /model/info vocabulary (live, like the hint evidence above): an
+	// entry-scoped record applies to this server only, so other servers'
+	// vocabularies never leak in - an add target (no server yet) and a server
+	// without evidence get just the static list.
+	const entryCapabilityKeySuggestions = capabilityKeySuggestions(observedModelInfoKeys);
 	const headerRowProblems: readonly (string | undefined)[] = parse.ok ? [] : parse.headerProblems;
 	const firstBlocking = SERVER_FORM_FIELD_ORDER.find((field) => visibleProblems[field] !== undefined);
 	const problemDisclosureSetters: Record<ProblemDisclosureId, (open: boolean) => void> = {
@@ -1162,6 +1174,7 @@ function ServerForm({
 				kind="caps"
 				group={group}
 				groupIssues={modelCapabilityIssues[matcherEditor.index]}
+				keySuggestions={entryCapabilityKeySuggestions}
 				catalogResults={catalogResults}
 				disabled={saving}
 				fallbackFocusId="server-caps-add"
@@ -1348,6 +1361,7 @@ function ServerForm({
 						issues={entryCapIssueViews}
 						disabled={saving}
 						catalogResults={catalogResults}
+						keySuggestions={entryCapabilityKeySuggestions}
 						onChange={(next) => props.patch({ modelCapabilities: next })}
 						onOpenEditor={(index) => setMatcherEditor({ kind: "caps", index })}
 					/>

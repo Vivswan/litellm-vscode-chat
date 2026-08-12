@@ -12,9 +12,10 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { render } from "preact";
 import { act } from "preact/test-utils";
+import { CONSUMED_CAPABILITY_FIELDS } from "../../../extension/dashboard/protocol";
 import { App } from "../../../webview/dashboard/app";
 import { helpModelParameterPrefix } from "../../../webview/dashboard/helpText";
-import { CatalogPicker } from "../../../webview/dashboard/recordEditors";
+import { CatalogPicker, capabilityKeySuggestions } from "../../../webview/dashboard/recordEditors";
 import { SettingsSection } from "../../../webview/dashboard/settings";
 import { makeModel, makeSettings, makeState, statePush } from "../fixtures";
 import {
@@ -1789,4 +1790,38 @@ test("the catalog picker is keyboard-operable: arrows move the highlight, Enter 
 	} finally {
 		document.removeEventListener("keydown", listener);
 	}
+});
+
+test("capabilityKeySuggestions: consumed vocabulary first in curated order, server keys sorted after, directives last", () => {
+	const staticList = capabilityKeySuggestions();
+	const consumed = Object.keys(CONSUMED_CAPABILITY_FIELDS);
+	// The no-evidence list: exactly the consumed vocabulary plus the directives.
+	expect(staticList).toEqual([...consumed, "_fallback", "_openrouter_model"]);
+	// undefined and an empty set both mean no evidence.
+	expect(capabilityKeySuggestions([])).toEqual(staticList);
+
+	// Server-observed keys slot between the consumed block and the directives,
+	// deduped and code-unit sorted; a key the consumed vocabulary already
+	// carries never repeats, and duplicates collapse.
+	const merged = capabilityKeySuggestions(["mode", "litellm_provider", "mode", "context_length", "base_model"]);
+	expect(merged).toEqual([...consumed, "base_model", "litellm_provider", "mode", "_fallback", "_openrouter_model"]);
+});
+
+test("capabilityKeySuggestions: underscore-led observed keys (a __proto__ report included) stay out, harmlessly", () => {
+	// Observed names are server-derived strings. They only ever become
+	// suggestion TEXT - and `_`-led names are dropped outright: a capability
+	// record reads them as directives, never as overrides, so suggesting one
+	// would suggest a key the record cannot carry. `__proto__` falls out on
+	// the same rule, and building the list never touches Object.prototype.
+	const merged = capabilityKeySuggestions(["__proto__", "_secret", "custom_rank"]);
+	expect(merged).toContain("custom_rank");
+	expect(merged).not.toContain("__proto__");
+	expect(merged).not.toContain("_secret");
+	// The directives at the tail are the extension's own, never observed ones.
+	expect(merged.filter((key) => key.startsWith("_"))).toEqual(["_fallback", "_openrouter_model"]);
+	// Prototype-named keys pass through as ordinary suggestions: the dedup is
+	// a real Set, where a plain-object membership check would misread these.
+	const prototypeNamed = capabilityKeySuggestions(["toString", "constructor", "toString"]);
+	expect(prototypeNamed.filter((key) => key === "toString")).toEqual(["toString"]);
+	expect(prototypeNamed).toContain("constructor");
 });
