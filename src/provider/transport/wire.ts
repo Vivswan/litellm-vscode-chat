@@ -259,6 +259,13 @@ function narrowContent(raw: unknown): string | ChunkContentBlock[] | null | unde
 			text: typeof block.text === "string" ? block.text : undefined,
 		}));
 	}
+	if (typeof raw === "object") {
+		// A non-array object carries no usable text, and String() on one can
+		// itself throw (a non-callable toString property), breaking
+		// parseChunk's never-throws contract; it narrows to absent instead of
+		// leaking "[object Object]" into the streamed output.
+		return undefined;
+	}
 	return typeof raw === "string" ? raw : String(raw);
 }
 

@@ -324,4 +324,15 @@ describe("provider/wire parseChunk totality properties", () => {
 			{ numRuns: NUM_RUNS, seed: SEED }
 		);
 	});
+
+	test("a content object with a non-callable toString narrows to absent instead of throwing", () => {
+		// Fuzz-found at seed 20260726, run 16804: String() on this shape
+		// throws, and the pre-fix coercion would otherwise have streamed
+		// "[object Object]" as output text.
+		const result = parseChunk({ choices: [{ delta: { content: { toString: 0 } } }] });
+		assert.ok(result !== undefined);
+		const delta = result.choices?.[0]?.delta;
+		assert.ok(delta !== undefined, "the chunk keeps its choice; only the junk content drops");
+		assert.strictEqual(delta.content, undefined);
+	});
 });
