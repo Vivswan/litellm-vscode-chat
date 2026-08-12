@@ -10,8 +10,8 @@ function saltedRendering(text: string, salt: string): string {
 }
 
 describe("shared/util/fingerprint", () => {
-	// The fixed salt the unit label's mocha.require bootstrap installed before
-	// any test file loaded (see test/util/fingerprintSalt.ts).
+	// The fixed salt the preload installed before any test file loaded
+	// (see src/test/bun/preload.ts).
 	const testSalt = FIXED_TEST_SALT;
 
 	test("distinguishes inputs that collide under 32-bit FNV-1a", () => {

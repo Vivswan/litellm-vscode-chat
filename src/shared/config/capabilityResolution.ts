@@ -324,7 +324,7 @@ export function filterUnrecognizedKeys<T extends RecordDiagnostic>(
  * key may be a typo). A hint survives exactly when the relevant observed
  * /model/info key set is KNOWN, NON-EMPTY, and names neither the key nor a
  * consumed field: an observed key is real whatever the vocabulary says, and
- * with no evidence (declared models, expected modelInfo failures, the
+ * with no evidence (declared-only entries, expected modelInfo failures, the
  * /models fallback, pre-discovery, an empty listing - see
  * observedEvidenceSet) there is nothing to hint from, so every hint drops
  * rather than crying wolf.

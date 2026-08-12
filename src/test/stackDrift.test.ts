@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
+import ts from "typescript";
 import { DOCKER_SKIP_FLAGS, DOCKER_TEST_LABELS } from "./dockerTestLabels";
 import { parseEnvFile, STACK_DEFAULTS } from "./envFile";
 import { PLAYBACK_MODEL } from "./fakeStack/models";
@@ -438,6 +439,218 @@ suite("stack drift guard: test label coverage", () => {
 				`${file} must run under exactly one label; matched ${
 					hits.length === 0 ? "none" : hits.map((hit) => `${hit.label} (${hit.glob})`).join(", ")
 				}`
+			);
+		}
+	});
+});
+
+suite("stack drift guard: bun-tree purity boundary", () => {
+	/**
+	 * The bun tree (src/test/bun) is the home for suites that need no
+	 * extension host. Neither direction fully self-enforces: a runtime
+	 * vscode import crashes bun's runner at load, but msw resolves and runs
+	 * there just fine, and nothing at all stops a pure suite from landing
+	 * host-side, where it boots a VS Code host for nothing. This guard
+	 * closes both: every unit-label suite must reach vscode or msw through
+	 * its transitive runtime imports or carry an entry below saying why it
+	 * stays, and no bun-tree suite may reach either. Docker, host-fidelity,
+	 * and activation suites are exempt by layout - their host need is the
+	 * stack or the host itself, not an import.
+	 */
+	const HOST_SIDE_PURE_SUITES = new Map<string, string>([
+		["src/test/creditConvention.test.ts", "meta-test: walks the repository's git history"],
+		["src/test/dockerTestLabels.test.ts", "meta-test: imports .vscode-test.mjs, which loads compiled out/ files"],
+		["src/test/envFile.test.ts", "meta-test: pins the docker stack's env-file grammar beside its stack suites"],
+		["src/test/scenarios.test.ts", "meta-test: pins the canned stream shapes the docker suites replay"],
+		["src/test/stackDrift.test.ts", "meta-test: walks out/test and imports .vscode-test.mjs"],
+		["src/test/extension/dashboard/html.test.ts", "pure today; owned by the dashboard HTML work, port separately"],
+		["src/test/extension/dashboard/state.property.test.ts", "pure today; not yet ported to the bun tree"],
+		["src/test/extension/dashboard/usageView.test.ts", "pure today; not yet ported to the bun tree"],
+		["src/test/extension/servers/usage/freshness.test.ts", "pure today; not yet ported to the bun tree"],
+		["src/test/extension/servers/usage/store.test.ts", "pure today; not yet ported to the bun tree"],
+		["src/test/extension/settingsTransfer/secretSurgery.test.ts", "pure today; not yet ported to the bun tree"],
+		["src/test/extension/settingsTransfer/snapshot.test.ts", "pure today; not yet ported to the bun tree"],
+		["src/test/extension/ui/usageStatusItem.property.test.ts", "pure since the l10n unification; not yet ported to the bun tree"],
+		["src/test/extension/ui/usageStatusItem.test.ts", "pure since the l10n unification; not yet ported to the bun tree"],
+		["src/test/fakeStack/collapseChunks.property.test.ts", "pure today; not yet ported to the bun tree"],
+		["src/test/provider/catalog/capabilityCrossLayer.property.test.ts", "exercises the vscode-typed registration seam"],
+		["src/test/provider/catalog/capabilityOverrides.property.test.ts", "pure today; not yet ported to the bun tree"],
+		["src/test/provider/catalog/capabilityOverrides.test.ts", "pure today; not yet ported to the bun tree"],
+		["src/test/provider/catalog/modelConfiguration.test.ts", "pure today; not yet ported to the bun tree"],
+		["src/test/provider/catalog/schemas.test.ts", "pure today; not yet ported to the bun tree"],
+		["src/test/provider/transport/request.property.test.ts", "pure today; not yet ported to the bun tree"],
+		["src/test/shared/conversion/promptCache.test.ts", "pure today; not yet ported to the bun tree"],
+		["src/test/shared/logger.test.ts", "pure today; not yet ported to the bun tree"],
+	]);
+
+	// TypeScript AST scan: only value-position module references count as
+	// runtime edges; import type / export type statements, type-only named
+	// lists, and type-position import("...") nodes are erased by both tsc
+	// and bun, so they never make a suite host-bound.
+	function runtimeImportSpecs(fileName: string, source: string): string[] {
+		const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
+		const specs: string[] = [];
+		const visit = (node: ts.Node): void => {
+			if (ts.isImportDeclaration(node)) {
+				if (!importClauseIsTypeOnly(node.importClause) && ts.isStringLiteral(node.moduleSpecifier)) {
+					specs.push(node.moduleSpecifier.text);
+				}
+			} else if (ts.isExportDeclaration(node)) {
+				const namedTypeOnly =
+					node.exportClause !== undefined &&
+					ts.isNamedExports(node.exportClause) &&
+					node.exportClause.elements.length > 0 &&
+					node.exportClause.elements.every((element) => element.isTypeOnly);
+				if (!node.isTypeOnly && !namedTypeOnly && node.moduleSpecifier !== undefined) {
+					if (ts.isStringLiteral(node.moduleSpecifier)) {
+						specs.push(node.moduleSpecifier.text);
+					}
+				}
+			} else if (ts.isImportEqualsDeclaration(node)) {
+				if (
+					!node.isTypeOnly &&
+					ts.isExternalModuleReference(node.moduleReference) &&
+					ts.isStringLiteral(node.moduleReference.expression)
+				) {
+					specs.push(node.moduleReference.expression.text);
+				}
+			} else if (ts.isCallExpression(node)) {
+				// Dynamic import()/require() in value position; the type-position
+				// import("...") form is an ImportTypeNode, never a CallExpression.
+				const callee = node.expression;
+				const isImportCall = callee.kind === ts.SyntaxKind.ImportKeyword;
+				const isRequireCall = ts.isIdentifier(callee) && callee.text === "require";
+				const argument = node.arguments[0];
+				if ((isImportCall || isRequireCall) && argument !== undefined && ts.isStringLiteralLike(argument)) {
+					specs.push(argument.text);
+				}
+			}
+			ts.forEachChild(node, visit);
+		};
+		visit(sourceFile);
+		return specs;
+	}
+
+	function importClauseIsTypeOnly(clause: ts.ImportClause | undefined): boolean {
+		if (clause === undefined) {
+			return false;
+		}
+		if (clause.isTypeOnly) {
+			return true;
+		}
+		return (
+			clause.name === undefined &&
+			clause.namedBindings !== undefined &&
+			ts.isNamedImports(clause.namedBindings) &&
+			clause.namedBindings.elements.length > 0 &&
+			clause.namedBindings.elements.every((element) => element.isTypeOnly)
+		);
+	}
+
+	function resolveRelative(fromFile: string, spec: string): string | undefined {
+		const base = path.resolve(path.dirname(fromFile), spec);
+		for (const candidate of [base, `${base}.ts`, `${base}.tsx`, path.join(base, "index.ts")]) {
+			if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+				return candidate;
+			}
+		}
+		return undefined;
+	}
+
+	/** Whether the file's transitive runtime imports reach vscode or msw. */
+	function reachesHostMachinery(entryFile: string): boolean {
+		const seen = new Set<string>();
+		const stack = [entryFile];
+		while (stack.length > 0) {
+			const file = stack.pop() as string;
+			if (seen.has(file)) {
+				continue;
+			}
+			seen.add(file);
+			for (const spec of runtimeImportSpecs(file, fs.readFileSync(file, "utf8"))) {
+				if (spec === "vscode" || spec === "msw" || spec.startsWith("msw/")) {
+					return true;
+				}
+				if (spec.startsWith(".")) {
+					const resolved = resolveRelative(file, spec);
+					if (resolved !== undefined) {
+						stack.push(resolved);
+					}
+				}
+			}
+		}
+		return false;
+	}
+
+	test("the scanner counts value edges and erases type-only forms", () => {
+		const specsOf = (source: string): string[] => runtimeImportSpecs("probe.ts", source);
+		assert.deepStrictEqual(specsOf('import { x } from "a"; import "b"; export { y } from "c";'), ["a", "b", "c"]);
+		assert.deepStrictEqual(specsOf('const m = await import("a"); const n = require("b");'), ["a", "b"]);
+		assert.deepStrictEqual(specsOf('import x = require("a"); export * from "b";'), ["a", "b"]);
+		assert.deepStrictEqual(specsOf('import { type X, y } from "a"; import d, { type Z } from "b";'), ["a", "b"]);
+		assert.deepStrictEqual(
+			specsOf('import type { X } from "a"; import { type Y } from "b"; export type { Z } from "c";'),
+			[]
+		);
+		assert.deepStrictEqual(specsOf('type X = import("a").X;'), []);
+	});
+
+	function walkTestFiles(root: string, skipDirs: readonly string[]): string[] {
+		const found: string[] = [];
+		const walk = (dir: string): void => {
+			for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+				const full = path.join(dir, entry.name);
+				const rel = path.relative(repoRoot, full).split(path.sep).join("/");
+				if (entry.isDirectory()) {
+					if (!skipDirs.includes(rel)) {
+						walk(full);
+					}
+				} else if (/\.test\.tsx?$/.test(entry.name)) {
+					found.push(rel);
+				}
+			}
+		};
+		walk(root);
+		return found;
+	}
+
+	test("every host-side unit suite needs the host, or documents why it stays", () => {
+		const hostSuites = walkTestFiles(path.join(repoRoot, "src", "test"), [
+			"src/test/bun",
+			"src/test/hostFidelity",
+			"src/test/activation",
+		]).filter((rel) => !/^src\/test\/docker-[^/]+\.test\.ts$/.test(rel));
+		assert.ok(hostSuites.length > 20, `walking src/test found a real host tree (got ${hostSuites.length} files)`);
+		for (const [listed] of HOST_SIDE_PURE_SUITES) {
+			assert.ok(
+				hostSuites.includes(listed),
+				`${listed} is allow-listed but is no longer a host-side unit suite; drop the stale entry`
+			);
+			assert.ok(
+				!reachesHostMachinery(path.join(repoRoot, listed)),
+				`${listed} now reaches vscode or msw; its allow-list entry is stale, drop it`
+			);
+		}
+		for (const file of hostSuites) {
+			if (HOST_SIDE_PURE_SUITES.has(file)) {
+				continue;
+			}
+			assert.ok(
+				reachesHostMachinery(path.join(repoRoot, file)),
+				`${file} reaches neither vscode nor msw through its runtime imports; move it to src/test/bun/ (mirrored path, bun:test callables) or allow-list it here with a reason`
+			);
+		}
+	});
+
+	test("no bun-tree suite reaches vscode or msw", () => {
+		// vscode fails loudly there (no such package under bun), but msw
+		// resolves and runs; only this walk enforces that half of the rule.
+		const bunSuites = walkTestFiles(path.join(repoRoot, "src", "test", "bun"), []);
+		assert.ok(bunSuites.length > 20, `walking src/test/bun found a real bun tree (got ${bunSuites.length} files)`);
+		for (const file of bunSuites) {
+			assert.ok(
+				!reachesHostMachinery(path.join(repoRoot, file)),
+				`${file} reaches vscode or msw through its runtime imports; it cannot run under bun - move it back to the host tree`
 			);
 		}
 	});
