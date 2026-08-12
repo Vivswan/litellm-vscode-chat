@@ -198,6 +198,18 @@
 					}
 				}
 			}
+		},
+		{
+			"includes": [
+				"src/webview/dashboard/styles/dashboard.css"
+			],
+			"linter": {
+				"rules": {
+					"style": {
+						"noDescendingSpecificity": "off"
+					}
+				}
+			}
 		}
 	]
 }

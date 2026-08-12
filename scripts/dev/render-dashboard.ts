@@ -22,7 +22,11 @@ import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { buildDashboardHtml } from "../../src/extension/dashboard/html.ts";
-import { DASHBOARD_BUNDLE_FILENAME, WEBVIEW_DIST_SEGMENTS } from "../../src/shared/webviewPaths.ts";
+import {
+	DASHBOARD_BUNDLE_FILENAME,
+	DASHBOARD_STYLESHEET_FILENAME,
+	WEBVIEW_DIST_SEGMENTS,
+} from "../../src/shared/webviewPaths.ts";
 
 /** What a fixture module default-exports; `messages` are ExtensionToWebviewMessage objects. */
 export interface RenderFixture {
@@ -305,16 +309,18 @@ async function loadFixture(fixturePath: string): Promise<RenderFixture> {
 	return fixture as RenderFixture;
 }
 
-async function ensureBundle(): Promise<string> {
-	const bundlePath = path.join(REPO_ROOT, ...WEBVIEW_DIST_SEGMENTS, DASHBOARD_BUNDLE_FILENAME);
-	if (!existsSync(bundlePath)) {
-		console.log(`${bundlePath} missing; running bun run bundle:dev`);
+async function ensureBundle(): Promise<{ bundlePath: string; stylesheetPath: string }> {
+	const distDir = path.join(REPO_ROOT, ...WEBVIEW_DIST_SEGMENTS);
+	const bundlePath = path.join(distDir, DASHBOARD_BUNDLE_FILENAME);
+	const stylesheetPath = path.join(distDir, DASHBOARD_STYLESHEET_FILENAME);
+	if (!existsSync(bundlePath) || !existsSync(stylesheetPath)) {
+		console.log(`${bundlePath} or ${stylesheetPath} missing; running bun run bundle:dev`);
 		const build = spawnSync("bun", ["run", "bundle:dev"], { cwd: REPO_ROOT, stdio: "inherit" });
-		if (build.status !== 0 || !existsSync(bundlePath)) {
-			throw new Error("bun run bundle:dev did not produce the dashboard bundle");
+		if (build.status !== 0 || !existsSync(bundlePath) || !existsSync(stylesheetPath)) {
+			throw new Error("bun run bundle:dev did not produce the dashboard bundle and stylesheet");
 		}
 	}
-	return bundlePath;
+	return { bundlePath, stylesheetPath };
 }
 
 /**
@@ -333,6 +339,7 @@ function buildPageHtml(
 		cspSource: "file:",
 		nonce,
 		scriptUri: "./dashboard.js",
+		styleUri: `./${DASHBOARD_STYLESHEET_FILENAME}`,
 		language: "en",
 		l10nBundle: undefined,
 	});
@@ -371,7 +378,7 @@ async function main(): Promise<void> {
 	const outPath = path.resolve(values.out);
 
 	const chromeBin = findChrome();
-	const bundlePath = await ensureBundle();
+	const { bundlePath, stylesheetPath } = await ensureBundle();
 	const html = buildPageHtml(fixture.messages, fixture.respond ?? {}, values["no-theme"] !== true);
 	if (values["html-out"] !== undefined) {
 		await fs.writeFile(path.resolve(values["html-out"]), html);
@@ -385,6 +392,7 @@ async function main(): Promise<void> {
 	await fs.mkdir(profileDir);
 	const indexHtml = path.join(pageDir, "index.html");
 	await fs.copyFile(bundlePath, path.join(pageDir, "dashboard.js"));
+	await fs.copyFile(stylesheetPath, path.join(pageDir, DASHBOARD_STYLESHEET_FILENAME));
 	await fs.writeFile(indexHtml, html);
 	const pageUrl = pathToFileURL(indexHtml).href;
 

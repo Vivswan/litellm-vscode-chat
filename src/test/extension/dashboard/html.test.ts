@@ -6,6 +6,7 @@ suite("extension/dashboard/html", () => {
 		cspSource: "https://webview.test",
 		nonce: "abc123",
 		scriptUri: "https://webview.test/dist/webview/dashboard.js",
+		styleUri: "https://webview.test/dist/webview/dashboard.css",
 		language: "en",
 		l10nBundle: undefined,
 	};
@@ -20,7 +21,8 @@ suite("extension/dashboard/html", () => {
 		assert.ok(csp.includes("form-action 'none'"), csp);
 		assert.ok(csp.includes("base-uri 'none'"), csp);
 		assert.ok(csp.includes(`script-src 'nonce-${options.nonce}'`), csp);
-		assert.ok(csp.includes(`style-src ${options.cspSource} 'unsafe-inline'`), csp);
+		assert.ok(csp.includes(`style-src ${options.cspSource};`), csp);
+		assert.ok(!csp.includes("unsafe-inline"), "the linked stylesheet must not reopen inline styles");
 		assert.ok(!csp.includes("unsafe-eval"), csp);
 	});
 
@@ -30,22 +32,25 @@ suite("extension/dashboard/html", () => {
 		assert.ok(html.includes(`<script nonce="${options.nonce}" src="${options.scriptUri}"></script>`), html);
 	});
 
+	test("the stylesheet rides a link tag in head; no inline style block remains", () => {
+		const html = buildDashboardHtml(options);
+
+		const link = `<link rel="stylesheet" href="${options.styleUri}">`;
+		assert.ok(html.includes(link), html);
+		assert.ok(html.indexOf(link) < html.indexOf("</head>"), "the stylesheet must load from head");
+		assert.ok(!html.includes("<style"), "html.ts owns no styling; the stylesheet is a bundled asset");
+	});
+
 	test("interpolated values are attribute-escaped", () => {
 		const html = buildDashboardHtml({
 			...options,
 			scriptUri: 'https://webview.test/x?a=1&b="2"',
+			styleUri: 'https://webview.test/y?c=3&d="4"',
 		});
 
 		assert.ok(html.includes("a=1&amp;b=&quot;2&quot;"), "special characters must be escaped");
-		assert.ok(!html.includes('b="2"'), "raw quotes must not survive into the attribute");
-	});
-
-	test("styles use theme tokens", () => {
-		const html = buildDashboardHtml(options);
-		const style = html.match(/<style>([\s\S]*)<\/style>/)?.[1] ?? "";
-
-		assert.ok(style.includes("var(--vscode-foreground)"));
-		assert.ok(style.includes("var(--vscode-button-background)"));
+		assert.ok(html.includes("c=3&amp;d=&quot;4&quot;"), "the style URI must be escaped like the script URI");
+		assert.ok(!html.includes('b="2"') && !html.includes('d="4"'), "raw quotes must not survive into the attribute");
 	});
 
 	test("the html element carries the host's display language, attribute-escaped", () => {

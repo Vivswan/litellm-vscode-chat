@@ -38,7 +38,11 @@ import type { Logger } from "../../shared/logger";
 import type { SecretFieldId, SecretLocation } from "../../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
-import { DASHBOARD_BUNDLE_FILENAME, WEBVIEW_DIST_SEGMENTS } from "../../shared/webviewPaths";
+import {
+	DASHBOARD_BUNDLE_FILENAME,
+	DASHBOARD_STYLESHEET_FILENAME,
+	WEBVIEW_DIST_SEGMENTS,
+} from "../../shared/webviewPaths";
 import type { OpenRouterCatalogStore } from "../openRouterCatalog";
 import type { GroupRemovalStore } from "../servers/groupRemovals";
 import type { ServerRegistry } from "../servers/serverRegistry";
@@ -614,6 +618,7 @@ function createRealPanel(extensionUri: vscode.Uri): DashboardPanel {
 		cspSource: panel.webview.cspSource,
 		nonce: createNonce(),
 		scriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(distDir, DASHBOARD_BUNDLE_FILENAME)).toString(),
+		styleUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(distDir, DASHBOARD_STYLESHEET_FILENAME)).toString(),
 		language: vscode.env.language,
 		l10nBundle: vscode.l10n.bundle,
 	});

@@ -5,6 +5,7 @@ out/**
 dist/**
 !dist/extension.js
 !dist/webview/dashboard.js
+!dist/webview/dashboard.css
 !dist/openrouter-models.json
 **/*.ts
 **/*.map

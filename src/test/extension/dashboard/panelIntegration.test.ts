@@ -1,5 +1,11 @@
 import * as assert from "node:assert";
+import * as fs from "node:fs";
 import * as vscode from "vscode";
+import {
+	DASHBOARD_BUNDLE_FILENAME,
+	DASHBOARD_STYLESHEET_FILENAME,
+	WEBVIEW_DIST_SEGMENTS,
+} from "../../../shared/webviewPaths";
 import { catalogOff, ensureActivated } from "../../hostApiHelpers";
 import { serverPayload } from "./recordedEnv";
 
@@ -107,6 +113,27 @@ suite("extension/dashboard/panelIntegration", () => {
 		assert.strictEqual(await inject({ type: "ready" }), "ok");
 		// And the schema boundary still rejects junk after the panel exists.
 		assert.strictEqual(await inject({ type: "no-such-intent" }), "ignored-malformed");
+	});
+
+	test("the bundled stylesheet exists beside the bundle at the exact path createRealPanel resolves", () => {
+		// The webview suite renders source .tsx and never loads the esbuild
+		// output, so a bundler regression that stops emitting the stylesheet
+		// would ship an unstyled dashboard with every test green. This stats
+		// the css through the same constants panel.ts joins into asWebviewUri,
+		// beside the bundle the suite's own build step already produced.
+		const extension = vscode.extensions.getExtension("vivswan.litellm-vscode-chat");
+		assert.ok(extension, "the extension under test must be present");
+		const distDir = vscode.Uri.joinPath(extension.extensionUri, ...WEBVIEW_DIST_SEGMENTS);
+		assert.ok(fs.existsSync(vscode.Uri.joinPath(distDir, DASHBOARD_BUNDLE_FILENAME).fsPath));
+
+		const stylesheetPath = vscode.Uri.joinPath(distDir, DASHBOARD_STYLESHEET_FILENAME).fsPath;
+		assert.ok(fs.existsSync(stylesheetPath), `esbuild must emit ${stylesheetPath} beside the dashboard bundle`);
+		const css = fs.readFileSync(stylesheetPath, "utf8");
+		// The dev emit this suite sees weighs ~48,225 bytes (~40,589 minified),
+		// so 30000 fails a truncated emit, not just an empty one.
+		assert.ok(css.length > 30000, `the stylesheet weighs ${css.length} bytes; the real dashboard styles are missing`);
+		assert.ok(css.includes("var(--vscode-foreground)"), "the stylesheet must read the host's theme tokens");
+		assert.ok(css.includes("var(--vscode-button-background)"), "the stylesheet must read the host's theme tokens");
 	});
 
 	test("a setNumberSetting intent lands in real user settings via the resolved update scope", async () => {

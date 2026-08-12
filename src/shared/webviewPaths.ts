@@ -11,3 +11,9 @@ export const WEBVIEW_DIST_SEGMENTS = ["dist", "webview"] as const;
 
 /** The dashboard bundle's filename inside WEBVIEW_DIST_SEGMENTS. */
 export const DASHBOARD_BUNDLE_FILENAME = "dashboard.js";
+
+/**
+ * The dashboard stylesheet's filename inside WEBVIEW_DIST_SEGMENTS. esbuild
+ * emits it beside the bundle because the webview entry imports the .css file.
+ */
+export const DASHBOARD_STYLESHEET_FILENAME = "dashboard.css";

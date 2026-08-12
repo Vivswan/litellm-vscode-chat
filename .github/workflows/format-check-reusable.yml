@@ -94,7 +94,7 @@ jobs:
           # noticed). Anything new must be added here deliberately, including
           # new asset types and new localization catalogs. POSIX bracket
           # expressions treat \w literally, hence the spelled-out class.
-          allowed='^(package\.json|README\.md|CHANGELOG\.md|LICENSE\.md|ThirdPartyNotices\.txt|dist/extension\.js|dist/webview/dashboard\.js|dist/openrouter-models\.json)$|^assets/.+\.(png|md)$|^package\.nls(\.[A-Za-z0-9_-]+)?\.json$|^l10n/bundle\.l10n(\.[A-Za-z0-9_-]+)?\.json$'
+          allowed='^(package\.json|README\.md|CHANGELOG\.md|LICENSE\.md|ThirdPartyNotices\.txt|dist/extension\.js|dist/webview/dashboard\.js|dist/webview/dashboard\.css|dist/openrouter-models\.json)$|^assets/.+\.(png|md)$|^package\.nls(\.[A-Za-z0-9_-]+)?\.json$|^l10n/bundle\.l10n(\.[A-Za-z0-9_-]+)?\.json$'
           if echo "$listing" | grep -Ev "$allowed"; then
             echo "::error::vsce would package files outside the allowed set (matches above)"
             exit 1
@@ -105,6 +105,10 @@ jobs:
           fi
           if ! echo "$listing" | grep -qx 'dist/webview/dashboard.js'; then
             echo "::error::dist/webview/dashboard.js is missing from the packaged file list"
+            exit 1
+          fi
+          if ! echo "$listing" | grep -qx 'dist/webview/dashboard.css'; then
+            echo "::error::dist/webview/dashboard.css is missing from the packaged file list"
             exit 1
           fi
           # The OpenRouter catalog artifact must ship AND carry a real model
@@ -160,6 +164,21 @@ jobs:
               exit 1
             fi
           done
+          # The stylesheet is the same kind of test-invisible build output as
+          # the bundle (the webview suite never loads esbuild's css either):
+          # the real emit weighs ~40,589 bytes minified (~48,225 unminified),
+          # so 30000 fails a truncated or empty emit with headroom, and the
+          # grep pins the theme-token contract - every rule reads the host's
+          # var(--vscode-*) tokens.
+          stylesheet_size="$(wc -c < dist/webview/dashboard.css | tr -d ' ')"
+          if [ "$stylesheet_size" -lt 30000 ]; then
+            echo "::error::dist/webview/dashboard.css is only ${stylesheet_size} bytes; the dashboard stylesheet looks broken"
+            exit 1
+          fi
+          if ! grep -q 'var(--vscode-' dist/webview/dashboard.css; then
+            echo "::error::dist/webview/dashboard.css lacks the host theme tokens; the real stylesheet did not bundle"
+            exit 1
+          fi
           if ! echo "$listing" | grep -qx 'ThirdPartyNotices.txt'; then
             echo "::error::ThirdPartyNotices.txt is missing from the packaged file list"
             exit 1

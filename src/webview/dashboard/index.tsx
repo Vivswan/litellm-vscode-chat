@@ -1,3 +1,4 @@
+import "./styles/dashboard.css";
 import { render } from "preact";
 import { App } from "./app";
 import { bootstrapL10n } from "./l10nBootstrap";
