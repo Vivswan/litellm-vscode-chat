@@ -1,15 +1,16 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-interface EsbuildMetafile {
-	inputs: Record<string, unknown>;
+interface BundleMeta {
+	moduleIds: string[];
 }
 
-/** Extracts the unique npm package names that esbuild actually bundled, from its metafile inputs. */
-function bundledPackages(metafile: EsbuildMetafile): string[] {
+/** Extracts the unique npm package names that the bundler actually bundled, from its module list. */
+function bundledPackages(meta: BundleMeta): string[] {
 	const packages = new Set<string>();
-	for (const input of Object.keys(metafile.inputs)) {
-		const match = input.match(/(?:^|\/)node_modules\/((?:@[^/]+\/)?[^/]+)\//);
+	for (const id of meta.moduleIds) {
+		// Rolldown module ids are absolute OS paths; normalize Windows separators.
+		const match = id.replaceAll("\\", "/").match(/(?:^|\/)node_modules\/((?:@[^/]+\/)?[^/]+)\//);
 		if (match?.[1]) {
 			packages.add(match[1]);
 		}
@@ -30,14 +31,24 @@ async function readLicenseTexts(depDir: string): Promise<string[]> {
 
 async function main(): Promise<void> {
 	const root = process.cwd();
-	const metafilePath = path.join(root, "out", "esbuild-meta.json");
-	let metafile: EsbuildMetafile;
+	const metaPath = path.join(root, "out", "bundle-meta.json");
+	let meta: BundleMeta;
 	try {
-		metafile = JSON.parse(await fs.readFile(metafilePath, "utf8")) as EsbuildMetafile;
+		meta = JSON.parse(await fs.readFile(metaPath, "utf8")) as BundleMeta;
 	} catch {
-		throw new Error(`Missing or unreadable ${metafilePath}; run the production bundle first (bun run bundle).`);
+		throw new Error(`Missing or unreadable ${metaPath}; run the production bundle first (bun run bundle).`);
 	}
-	const deps = bundledPackages(metafile);
+	const deps = bundledPackages(meta);
+
+	// A silently empty or partial module list would ship a legally wrong
+	// notices file: every runtime dependency must have reached a bundle.
+	const declared = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8")) as {
+		dependencies?: Record<string, string>;
+	};
+	const missing = Object.keys(declared.dependencies ?? {}).filter((name) => !deps.includes(name));
+	if (missing.length > 0) {
+		throw new Error(`Bundle metadata lists no modules from declared dependencies: ${missing.join(", ")}`);
+	}
 
 	const sections: string[] = [
 		"Third-party notices for litellm-vscode-chat",
