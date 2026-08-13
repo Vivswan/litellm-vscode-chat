@@ -18,10 +18,14 @@ afterEach(() => {
 	cleanup();
 });
 
+/** A rail item's label, without the count the item now carries beside it. */
+function labelOf(item: Element): string {
+	const count = item.querySelector(".rail-count")?.textContent ?? "";
+	return (item.textContent ?? "").slice(0, (item.textContent ?? "").length - count.length).trim();
+}
+
 function tab(root: ParentNode, name: string): HTMLButtonElement {
-	const found = Array.from(root.querySelectorAll("[role='tab']")).find(
-		(candidate) => (candidate.textContent ?? "").trim() === name
-	);
+	const found = Array.from(root.querySelectorAll("[role='tab']")).find((candidate) => labelOf(candidate) === name);
 	if (found === undefined) {
 		throw new Error(`no tab named ${name}`);
 	}
@@ -70,20 +74,36 @@ function visibleModelNames(root: ParentNode): string[] {
 	);
 }
 
-test("four tabs render without count badges, the combined view selected by default, and panels wired by aria", () => {
+test("four rail items in reading order, the combined view selected by default, and panels wired by aria", () => {
 	const root = mountApp();
 	const tabs = Array.from(root.querySelectorAll("[role='tab']"));
-	expect(tabs.map((t) => (t.textContent ?? "").trim())).toEqual([
-		"Servers & Models",
-		"Usage",
-		"Settings",
-		"Diagnostics",
-	]);
-	// No count badges on the tabs: the hero directly above carries the server
-	// and model totals, so the tab labels stay plain text.
-	expect(root.querySelectorAll(".tabs .count").length).toBe(0);
-	for (const t of tabs) {
+	// Order is the rail's order: the two you look at, then the one that tells
+	// you something is wrong, then the one you visit on purpose.
+	expect(tabs.map(labelOf)).toEqual(["Servers & Models", "Usage", "Diagnostics", "Settings"]);
+	// A count inside the button would otherwise announce as "Servers & Models
+	// 4" - a number with no noun - and the tabpanel inherits that name too. So
+	// an item carrying a count names itself in words, with the visible label
+	// still inside the accessible name (Label in Name).
+	const named = tabs.filter((t) => t.querySelector(".rail-count") !== null);
+	expect(named.length).toBeGreaterThan(0);
+	for (const t of named) {
+		const label = t.getAttribute("aria-label") ?? "";
+		expect(label).toContain(labelOf(t));
+		expect(label).not.toBe(labelOf(t));
+	}
+	// An item with nothing to count says only its name.
+	for (const t of tabs.filter((t) => t.querySelector(".rail-count") === null)) {
 		expect(t.hasAttribute("aria-label")).toBe(false);
+	}
+	// The rail is vertical and has to say so, or the arrow keys it answers to
+	// are not the ones a screen reader tells the user about.
+	expect(root.querySelector("[role='tablist']")?.getAttribute("aria-orientation")).toBe("vertical");
+	// Each item points at the panel it controls; the panel points back. Only
+	// the second half was pinned before, so a half-wired pair would have passed.
+	for (const t of tabs) {
+		const panelId = t.getAttribute("aria-controls") ?? "";
+		expect(panelId).not.toBe("");
+		expect(root.querySelector(`#${panelId}`)?.getAttribute("aria-labelledby")).toBe(t.id);
 	}
 
 	const overview = tab(root, "Servers & Models");
@@ -170,23 +190,26 @@ test("a focusSection push naming an unknown section is dropped instead of blanki
 });
 
 test("arrow keys move selection with wrap-around; Home and End jump", () => {
+	// Down and Up, not Right and Left: the rail is vertical and says so with
+	// aria-orientation, and the arrow keys have to follow the axis a reader
+	// sees or the roving tabindex contract is a lie.
 	const root = mountApp();
 	const tablist = root.querySelector("[role='tablist']") as HTMLElement;
 
-	fireKeyDown(tablist, "ArrowRight");
+	fireKeyDown(tablist, "ArrowDown");
 	expect(tab(root, "Usage").getAttribute("aria-selected")).toBe("true");
-	fireKeyDown(tablist, "ArrowRight");
+	fireKeyDown(tablist, "ArrowDown");
+	expect(tab(root, "Diagnostics").getAttribute("aria-selected")).toBe("true");
+	fireKeyDown(tablist, "ArrowDown");
 	expect(tab(root, "Settings").getAttribute("aria-selected")).toBe("true");
-	fireKeyDown(tablist, "ArrowRight");
-	expect(tab(root, "Diagnostics").getAttribute("aria-selected")).toBe("true");
-	fireKeyDown(tablist, "ArrowRight");
+	fireKeyDown(tablist, "ArrowDown");
 	expect(tab(root, "Servers & Models").getAttribute("aria-selected")).toBe("true");
-	fireKeyDown(tablist, "ArrowLeft");
-	expect(tab(root, "Diagnostics").getAttribute("aria-selected")).toBe("true");
+	fireKeyDown(tablist, "ArrowUp");
+	expect(tab(root, "Settings").getAttribute("aria-selected")).toBe("true");
 	fireKeyDown(tablist, "Home");
 	expect(tab(root, "Servers & Models").getAttribute("aria-selected")).toBe("true");
 	fireKeyDown(tablist, "End");
-	expect(tab(root, "Diagnostics").getAttribute("aria-selected")).toBe("true");
+	expect(tab(root, "Settings").getAttribute("aria-selected")).toBe("true");
 });
 
 test("section-local state survives a round trip through another tab", () => {
@@ -324,4 +347,23 @@ test("scoping rewinds a deeply scrolled windowed table to the new list's top", (
 	fireClick(root.querySelector("button[aria-label='Show models from Staging']") as HTMLElement);
 	expect(scrollport.scrollTop).toBe(0);
 	expect(visibleModelNames(root)[0]).toBe("B 00");
+});
+
+test("arrow keys move focus with selection, and only the selected item is tabbable", () => {
+	// The roving tabindex is the whole keyboard contract: exactly one stop in
+	// the tab order, and the arrows move focus rather than merely repainting
+	// aria-selected. Asserting selection alone would pass on a rail that leaves
+	// focus stranded on the item you arrowed away from.
+	const root = mountApp();
+	const tablist = root.querySelector("[role='tablist']") as HTMLElement;
+	const tabIndexes = () => Array.from(root.querySelectorAll("[role='tab']")).map((t) => (t as HTMLElement).tabIndex);
+	expect(tabIndexes()).toEqual([0, -1, -1, -1]);
+
+	fireKeyDown(tablist, "ArrowDown");
+	expect(tabIndexes()).toEqual([-1, 0, -1, -1]);
+	expect(document.activeElement).toBe(tab(root, "Usage"));
+
+	fireKeyDown(tablist, "End");
+	expect(tabIndexes()).toEqual([-1, -1, -1, 0]);
+	expect(document.activeElement).toBe(tab(root, "Settings"));
 });

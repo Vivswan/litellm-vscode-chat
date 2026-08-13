@@ -1,25 +1,27 @@
 import * as l10n from "@vscode/l10n";
-import type { KeyboardEvent, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
 import type { AckedMethod, NotifyingMethod } from "../../dashboard/endpoints";
 import { failuresAfterStatePush, isAckedMethod } from "../../dashboard/endpoints";
 import { classifyOverall, latestCheckedMs } from "../../dashboard/presenters";
-import type { DashboardSectionId, DashboardServer, DashboardState } from "../../dashboard/viewModels";
+import type { DashboardSectionId, DashboardServer, DashboardState, DashboardUsage } from "../../dashboard/viewModels";
 import { DASHBOARD_SECTION_IDS } from "../../dashboard/viewModels";
 import { DiagnosticsSection } from "./diagnostics";
 import { FailureText } from "./failureText";
 import { asExtensionMessage } from "./hooks";
-import { IconBug, IconClose } from "./icons";
+import { IconClose } from "./icons";
 import type { InspectorSection } from "./modelInspector";
 import { ModelInspector } from "./modelInspector";
 import { ModelsSection } from "./models";
+import type { Overall, RailSection } from "./rail";
+import { Rail } from "./rail";
 import type { ServerEditRequest } from "./serverEditPage";
 import { ServersSection } from "./servers";
 import type { EditRecordRequest } from "./settings";
 import { SettingsSection } from "./settings";
 import { relativeTime, useNow } from "./time";
 import { Button } from "./ui/button";
-import { UsageSection } from "./usage";
+import { barPresentation, formatPercent, UsageSection } from "./usage";
 import { sendRequest } from "./vscodeApi";
 
 /** The section tabs; the ID list lives in the view-model module because focusSection deep-links name them. */
@@ -140,8 +142,6 @@ function ToastHost({
 	);
 }
 
-type Overall = { tone: "ok" | "error" | "warn" | "muted"; word: string };
-
 /**
  * The hero's overall verdict. The classification is shared with the
  * Diagnostics tab (classifyOverall in the protocol module); this only maps
@@ -177,109 +177,131 @@ function lastSync(servers: readonly DashboardServer[], now: number): string | un
 	return checkedMs === undefined ? undefined : relativeTime(new Date(checkedMs).toISOString(), now);
 }
 
-/** The at-a-glance strip the status bar click promises: overall state, counts, last sync, and Sync. */
-function StatusHero({ state, now }: { state: DashboardState; now: number }) {
-	const overall = overallState(state.servers, state.legacyServerCount);
-	const synced = lastSync(state.servers, now);
-	return (
-		<div className="hero">
-			<span className={`pill tone-${overall.tone}`}>
-				<span className="dot" />
-				{overall.word}
-			</span>
-			<span className="stat">
-				<strong>{state.servers.length}</strong>{" "}
-				{state.servers.length === 1
-					? l10n.t({ message: "server", comment: ["singular noun after the count in the hero strip"] })
-					: l10n.t({ message: "servers", comment: ["plural noun after the count in the hero strip"] })}
-			</span>
-			<span className="stat">
-				<strong>{state.models.length}</strong>{" "}
-				{state.models.length === 1
-					? l10n.t({ message: "model", comment: ["singular noun after the count in the hero strip"] })
-					: l10n.t({ message: "models", comment: ["plural noun after the count in the hero strip"] })}
-			</span>
-			{synced !== undefined ? <span className="stat">{l10n.t("last sync {0}", synced)}</span> : null}
-			<span className="spacer" />
-			<Button
-				variant="secondary"
-				disabled={state.servers.length === 0}
-				onClick={() => sendRequest("executeCommand", { command: "syncModels" })}
-			>
-				{l10n.t("Sync models")}
-			</Button>
-		</div>
-	);
+/**
+ * What each rail item counts. The numbers are the point of the rail - a tab
+ * strip could only say where you are - so each one is the number a reader
+ * would go to that destination to find out.
+ *
+ * Absence is deliberate everywhere: no budget to measure against means no
+ * usage figure rather than a zero, no diagnostics means no badge, and no
+ * servers means no model count, because that destination does not render a
+ * models section at all when there is nothing connected. A count that is
+ * always present stops being information.
+ */
+function railSections(state: DashboardState): readonly RailSection<SectionId>[] {
+	const counts: Readonly<Record<SectionId, { count?: string; countLabel?: string; countTone?: "warn" | "err" }>> = {
+		// No servers means the destination shows a guided start rather than a
+		// models table, so a "0" would count something that is not there.
+		overview:
+			state.servers.length === 0
+				? {}
+				: {
+						count: String(state.models.length),
+						countLabel:
+							state.models.length === 1 ? l10n.t("1 model") : l10n.t("{0} models", String(state.models.length)),
+					},
+		usage: worstBudget(state.usage),
+		// Tinted only when there is something to fix: a diagnostics badge that is
+		// always there is furniture, and one that is always tinted is an alarm.
+		// Advisories are informational - the configuration applies as written -
+		// so they are counted but never tinted. A permanent amber badge for a
+		// typo hint is an alarm nobody can silence or act on.
+		diagnostics: diagnosticsCount(state.diagnostics),
+		settings: {},
+	};
+	return SECTION_IDS.map((id) => ({ id, label: sectionLabel(id), ...counts[id] }));
 }
 
-/** Grey stand-ins shaped like the page (title, hero strip, tab bar, a table); no spinner, no motion. */
+/** Counted whole, tinted only for the ones that are problems to fix. */
+function diagnosticsCount(diagnostics: DashboardState["diagnostics"]): {
+	count?: string;
+	countLabel?: string;
+	countTone?: "warn";
+} {
+	if (diagnostics.length === 0) {
+		return {};
+	}
+	const actionable = diagnostics.some((diagnostic) => diagnostic.severity === "warning");
+	return {
+		count: String(diagnostics.length),
+		countLabel: diagnostics.length === 1 ? l10n.t("1 problem") : l10n.t("{0} problems", String(diagnostics.length)),
+		...(actionable ? { countTone: "warn" as const } : {}),
+	};
+}
+
+/**
+ * The rail's usage figure: the worst FRESH server's spend against its budget,
+ * as a percentage - deliberately not a total.
+ *
+ * Spends cannot be summed. Two entries may authenticate with the same key, in
+ * which case both report that key's spend and a total counts it twice; stale
+ * and never-loaded servers would fold into the sum as though they were current.
+ * The status bar already resolves this the same way, taking a maximum and never
+ * a sum (docs/usage.md), so this reads the same number the status bar does and
+ * the two cannot disagree about the same fleet.
+ *
+ * A server with spend but no budget has nothing to be a percentage of, so it
+ * contributes nothing here; the Usage tab is where its bare spend lives.
+ */
+function worstBudget(usage: DashboardUsage): {
+	count?: string;
+	countLabel?: string;
+	countTone?: "warn" | "err";
+} {
+	const fractions = usage.servers.flatMap((server) =>
+		server.kind === "usage" &&
+		server.fresh &&
+		server.spend !== undefined &&
+		server.effectiveBudget !== undefined &&
+		server.effectiveBudget > 0
+			? [server.spend / server.effectiveBudget]
+			: []
+	);
+	if (fractions.length === 0) {
+		return {};
+	}
+	const worst = Math.max(...fractions);
+	const tone = barPresentation(worst, usage.thresholds).tone;
+	return {
+		count: formatPercent(worst),
+		countLabel: l10n.t("{0} of budget", formatPercent(worst)),
+		...(tone === "error" ? { countTone: "err" as const } : {}),
+		...(tone === "warn" ? { countTone: "warn" as const } : {}),
+	};
+}
+
+/**
+ * Grey stand-ins shaped like the page you are about to get: a rail column and
+ * a pane beside it. It wears the real shell classes rather than a bare <main>,
+ * because the page gutter now belongs to the pane - a skeleton outside the
+ * shell renders flush against both window edges and then jumps 24px when the
+ * first state push lands, which is the first frame of every dashboard open.
+ */
 function LoadingSkeleton() {
 	return (
-		<main aria-label={l10n.t("Loading")}>
-			<div className="skeleton" style={{ height: "20px", width: "220px", margin: "24px 0 4px" }} />
-			<div className="skeleton" style={{ height: "13px", width: "420px", margin: "8px 0 16px" }} />
-			<div className="skeleton" style={{ height: "38px", margin: "16px 0 24px" }} />
-			<div className="skeleton" style={{ height: "26px", width: "260px", margin: "0 0 24px" }} />
-			<div className="skeleton" style={{ height: "14px", width: "120px", margin: "0 0 12px" }} />
-			<div className="skeleton" style={{ height: "24px", margin: "8px 0" }} />
-			<div className="skeleton" style={{ height: "24px", margin: "8px 0" }} />
-			<div className="skeleton" style={{ height: "24px", margin: "8px 0" }} />
-			<div className="skeleton" style={{ height: "24px", margin: "8px 0" }} />
+		<main className="shell" aria-label={l10n.t("Loading")}>
+			<nav className="rail" aria-hidden="true">
+				<div className="rail-inner">
+					<div className="skeleton" style={{ height: "18px", width: "90px", margin: "2px 4px 12px" }} />
+					<div className="skeleton" style={{ height: "24px", margin: "0 0 4px" }} />
+					<div className="skeleton" style={{ height: "24px", margin: "0 0 4px" }} />
+					<div className="skeleton" style={{ height: "24px", margin: "0 0 4px" }} />
+					<div className="skeleton" style={{ height: "24px" }} />
+				</div>
+			</nav>
+			<div className="pane">
+				<div className="skeleton" style={{ height: "20px", width: "220px", margin: "4px 0 16px" }} />
+				<div className="skeleton" style={{ height: "26px", width: "260px", margin: "0 0 16px" }} />
+				<div className="skeleton" style={{ height: "24px", margin: "8px 0" }} />
+				<div className="skeleton" style={{ height: "24px", margin: "8px 0" }} />
+				<div className="skeleton" style={{ height: "24px", margin: "8px 0" }} />
+				<div className="skeleton" style={{ height: "24px", margin: "8px 0" }} />
+			</div>
 		</main>
 	);
 }
 
-/**
- * The section tab bar. Native panel-tab anatomy (underlined active title on
- * the panelTitle theme tokens) with the WAI-ARIA tabs contract: roving
- * tabindex, arrow keys move focus and selection together, Home/End jump. The
- * inactive panels stay mounted below (hidden, not unmounted) so an open form
- * or a half-typed filter survives a visit to another section. The tabs carry
- * no count badges: the hero directly above already shows the server and
- * model totals.
- */
-function SectionTabs({ active, onSelect }: { active: SectionId; onSelect: (section: SectionId) => void }) {
-	const select = (section: SectionId) => {
-		onSelect(section);
-		document.getElementById(`tab-${section}`)?.focus();
-	};
-	const onKeyDown = (event: KeyboardEvent) => {
-		const index = SECTION_IDS.indexOf(active);
-		if (event.key === "ArrowRight") {
-			select(SECTION_IDS[(index + 1) % SECTION_IDS.length] as SectionId);
-		} else if (event.key === "ArrowLeft") {
-			select(SECTION_IDS[(index + SECTION_IDS.length - 1) % SECTION_IDS.length] as SectionId);
-		} else if (event.key === "Home") {
-			select(SECTION_IDS[0] as SectionId);
-		} else if (event.key === "End") {
-			select(SECTION_IDS[SECTION_IDS.length - 1] as SectionId);
-		} else {
-			return;
-		}
-		event.preventDefault();
-	};
-	return (
-		<div className="tabs" role="tablist" aria-label={l10n.t("Dashboard sections")} onKeyDown={onKeyDown}>
-			{SECTION_IDS.map((section) => (
-				<button
-					key={section}
-					type="button"
-					className="tab"
-					role="tab"
-					id={`tab-${section}`}
-					aria-selected={section === active}
-					aria-controls={`panel-${section}`}
-					tabIndex={section === active ? 0 : -1}
-					onClick={() => onSelect(section)}
-				>
-					{sectionLabel(section)}
-				</button>
-			))}
-		</div>
-	);
-}
-
-/** One tab's content, kept mounted while hidden; see SectionTabs. */
+/** One pane's content, kept mounted while hidden; see Rail. */
 function SectionPanel({ section, active, children }: { section: SectionId; active: SectionId; children: ReactNode }) {
 	return (
 		<div role="tabpanel" id={`panel-${section}`} aria-labelledby={`tab-${section}`} hidden={section !== active}>
@@ -474,76 +496,71 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		failures.setUiAccent ??
 		failures.executeCommand;
 	return (
-		<main>
-			<div className="page-head">
-				<h1>{l10n.t("LiteLLM Dashboard")}</h1>
-				<Button
-					variant="secondary"
-					size="compact"
-					onClick={() => sendRequest("executeCommand", { command: "reportIssue" })}
-				>
-					<IconBug /> {l10n.t("Report a bug")}
-				</Button>
-			</div>
-			<p className="hint">
-				{l10n.t("Servers, models, and settings in one place; edits land in your VS Code settings.")}
-			</p>
-			<StatusHero state={state} now={now} />
-			{scalarFailure !== undefined ? (
-				<p className="error">
-					<FailureText
-						message={scalarFailure.message}
-						frame={(headline) => l10n.t("The last change did not apply: {0}", headline)}
-					/>
-				</p>
-			) : null}
-			<SectionTabs active={section} onSelect={setSection} />
-			<SectionPanel section="overview" active={section}>
-				<ServersSection
-					servers={state.servers}
-					hidden={state.hiddenGroups}
-					usage={state.usage}
-					now={now}
-					onShowModels={showServerModels}
-					editRequest={serverEditRequest}
-				/>
-				{/* With zero servers the guided start card is the whole story; a
-				    second empty block under it would dilute it. */}
-				{state.servers.length > 0 ? (
-					<ModelsSection
-						models={state.models}
-						serverCount={state.servers.length}
-						scope={
-							serverScope !== undefined ? { label: serverScope, onClear: () => setServerScope(undefined) } : undefined
-						}
-						onInspect={inspectModel}
-					/>
+		<main className="shell">
+			<Rail
+				sections={railSections(state)}
+				active={section}
+				onSelect={setSection}
+				serverCount={state.servers.length}
+				overall={overallState(state.servers, state.legacyServerCount)}
+				synced={lastSync(state.servers, now)}
+			/>
+			<div className="pane">
+				{scalarFailure !== undefined ? (
+					<p className="error">
+						<FailureText
+							message={scalarFailure.message}
+							frame={(headline) => l10n.t("The last change did not apply: {0}", headline)}
+						/>
+					</p>
 				) : null}
-			</SectionPanel>
-			<SectionPanel section="usage" active={section}>
-				<UsageSection usage={state.usage} serverCount={state.servers.length} now={now} />
-			</SectionPanel>
-			<SectionPanel section="settings" active={section}>
-				<SettingsSection
-					settings={state.settings}
-					models={state.models}
-					observedModelInfoKeys={state.observedModelInfoKeys}
-					now={now}
-					editRecordRequest={editRecordRequest}
-				/>
-			</SectionPanel>
-			<SectionPanel section="diagnostics" active={section}>
-				<DiagnosticsSection
-					servers={state.servers}
-					modelCount={state.models.length}
-					legacyServerCount={state.legacyServerCount}
-					diagnostics={state.diagnostics}
-					active={section === "diagnostics"}
-					stateSeq={stateSeq}
-					onInspect={inspectModel}
-					now={now}
-				/>
-			</SectionPanel>
+				<SectionPanel section="overview" active={section}>
+					<ServersSection
+						servers={state.servers}
+						hidden={state.hiddenGroups}
+						usage={state.usage}
+						now={now}
+						onShowModels={showServerModels}
+						editRequest={serverEditRequest}
+					/>
+					{/* With zero servers the guided start card is the whole story; a
+				    second empty block under it would dilute it. */}
+					{state.servers.length > 0 ? (
+						<ModelsSection
+							models={state.models}
+							serverCount={state.servers.length}
+							scope={
+								serverScope !== undefined ? { label: serverScope, onClear: () => setServerScope(undefined) } : undefined
+							}
+							onInspect={inspectModel}
+						/>
+					) : null}
+				</SectionPanel>
+				<SectionPanel section="usage" active={section}>
+					<UsageSection usage={state.usage} serverCount={state.servers.length} now={now} />
+				</SectionPanel>
+				<SectionPanel section="settings" active={section}>
+					<SettingsSection
+						settings={state.settings}
+						models={state.models}
+						observedModelInfoKeys={state.observedModelInfoKeys}
+						now={now}
+						editRecordRequest={editRecordRequest}
+					/>
+				</SectionPanel>
+				<SectionPanel section="diagnostics" active={section}>
+					<DiagnosticsSection
+						servers={state.servers}
+						modelCount={state.models.length}
+						legacyServerCount={state.legacyServerCount}
+						diagnostics={state.diagnostics}
+						active={section === "diagnostics"}
+						stateSeq={stateSeq}
+						onInspect={inspectModel}
+						now={now}
+					/>
+				</SectionPanel>
+			</div>
 			<ToastHost toasts={toasts} durationMs={toastDurationMs} onDismiss={dismissToast} />
 			{/* The inspector overlay, above the tab panels so it opens in place
 			    on any tab; the configure-jumps close the overlay first - the

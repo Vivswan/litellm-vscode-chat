@@ -782,6 +782,10 @@ export interface DashboardState {
  * message names a tab by ID (litellm.showDiagnostics lands on "diagnostics"),
  * and the webview's tab bar renders exactly this list.
  */
-export const DASHBOARD_SECTION_IDS = ["overview", "usage", "settings", "diagnostics"] as const;
+// Order is the rail's order, top to bottom: the two you look at (what is my
+// fleet doing, what is it costing), then the one that tells you something is
+// wrong, then the one you visit on purpose. Settings last because you go there
+// deliberately; diagnostics above it because it competes for attention.
+export const DASHBOARD_SECTION_IDS = ["overview", "usage", "diagnostics", "settings"] as const;
 
 export type DashboardSectionId = (typeof DASHBOARD_SECTION_IDS)[number];

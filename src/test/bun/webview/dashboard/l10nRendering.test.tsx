@@ -24,10 +24,6 @@ import { buttonByText, cleanup, fireClick, mount, pushToWebview, resetPosted } f
 // key doubles as the localization tracer for the Diagnostics tab: its marker
 // must show in the on-screen grid and never in the copied (English) block.
 const FAKE_BUNDLE: Record<string, string> = {
-	"server/singular noun after the count in the hero strip": "SRV-ONE",
-	"servers/plural noun after the count in the hero strip": "SRV-MANY",
-	"model/singular noun after the count in the hero strip": "MDL-ONE",
-	"models/plural noun after the count in the hero strip": "MDL-MANY",
 	"{0} in/price per million input tokens; {0} is a dollar amount": "IN[{0}]",
 	"{0} out/price per million output tokens; {0} is a dollar amount": "OUT[{0}]",
 	"{0} min ago": "AGO[{0}]",
@@ -46,35 +42,6 @@ beforeEach(() => {
 });
 afterEach(() => {
 	cleanup();
-});
-
-test("the hero picks the translated comment-form plural nouns by count", () => {
-	const root = mount(<App />);
-	pushToWebview(
-		statePush(
-			makeState({
-				servers: [makeDeclaredServer({ label: "A" }), makeDeclaredServer({ label: "B" })],
-				models: [makeModel()],
-			})
-		)
-	);
-
-	const stats = Array.from(root.querySelectorAll(".hero .stat")).map((stat) => stat.textContent?.trim());
-	expect(stats).toContain("2 SRV-MANY");
-	expect(stats).toContain("1 MDL-ONE");
-
-	// The other branch of each pair: singular server, plural models.
-	pushToWebview(
-		statePush(
-			makeState({
-				servers: [makeDeclaredServer({ label: "A" })],
-				models: [makeModel({ id: "a" }), makeModel({ id: "b" }), makeModel({ id: "c" })],
-			})
-		)
-	);
-	const flipped = Array.from(root.querySelectorAll(".hero .stat")).map((stat) => stat.textContent?.trim());
-	expect(flipped).toContain("1 SRV-ONE");
-	expect(flipped).toContain("3 MDL-MANY");
 });
 
 test("the pricing column resolves the composite in/out keys with {0} substituted", () => {

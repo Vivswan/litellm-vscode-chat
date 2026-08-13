@@ -13,14 +13,121 @@
 		font-family: var(--vscode-font-family);
 		font-size: var(--vscode-font-size);
 		margin: 0;
-		padding: 0 24px 48px;
+		padding: 0;
+	}
+
+	/* The shell: a rail flush to the window edge, and a pane that scrolls
+		   beside it. The rail is sticky rather than fixed so it stays part of the
+		   flex row - a fixed rail would need the pane to reserve its width by
+		   hand, and the two would drift apart at the first width change. */
+	.shell {
+		display: flex;
+		align-items: flex-start;
+		gap: 0;
+		max-width: none;
+		margin: 0;
+	}
+	/* Two elements, because one cannot do both jobs: the rail stretches so its
+		   surface runs the whole document height (no bare strip under it at the
+		   bottom of a long page), while the column inside is exactly one viewport
+		   tall and sticks. A single stretched element with position: sticky has
+		   nothing to stick - it is already as tall as its container - which is
+		   how the state footer ended up scrolling away, the one thing the rail
+		   exists to prevent. */
+	.rail {
+		display: flex;
+		flex: 0 0 216px;
+		align-self: stretch;
+		border-right: 1px solid var(--border);
+		background: var(--card);
+	}
+	.rail-inner {
+		position: sticky;
+		top: 0;
+		/* Explicit because there is no preflight: with the default content-box,
+			   height 100vh plus this padding makes a box TALLER than the viewport,
+			   and a sticky element taller than its scrollport pins to its bottom
+			   edge instead of its top - the rail drifted up by exactly the padding
+			   as you scrolled. */
+		box-sizing: border-box;
+		display: flex;
+		flex: 1 1 auto;
+		flex-direction: column;
+		gap: 16px;
+		height: 100vh;
+		padding: 20px 12px 16px;
+		/* A short window, a zoomed font, or a taller footer must not put Sync and
+			 Report a bug out of reach: they are the rail's only actions and there
+			 is no other route to them. */
+		overflow-y: auto;
+	}
+	.rail-brand {
+		margin: 0 4px;
+		font-size: 1.1em;
+		font-weight: 600;
+	}
+	.rail-nav {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+	/* The count sits at the item's trailing edge, tabular so a column of them
+		   lines up digit for digit, and never pushed off by a long label. */
+	.rail-nav button {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+	}
+	.rail-count {
+		margin-left: auto;
+		font-variant-numeric: tabular-nums;
+		font-weight: 400;
+	}
+	/* Pinned to the bottom: the fleet's state is the last thing you should have
+		   to hunt for, and margin-top auto keeps it there without a spacer
+		   element that means nothing to a screen reader. */
+	.rail-state {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 4px;
+		margin-top: auto;
+		padding: 0 4px;
+	}
+	.rail-status {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin: 0;
+		font-weight: 600;
+	}
+	.rail-synced {
+		margin: 0;
+		color: var(--muted-foreground);
+	}
+	/* The content column keeps its generous cap; the pane supplies the page
+		   padding the body used to. */
+	.pane {
+		flex: 1 1 auto;
+		min-width: 0;
+		max-width: 1560px;
+		padding: 20px 24px 48px;
+		/* The column breakpoints below ask about THIS box, not the window. They
+			 used to be viewport media queries on the reasoning that the webview
+			 panel is the viewport - true until the rail took 216px off the front of
+			 it, after which every breakpoint fired 216px too late and the table's
+			 actions went off-screen while the query still called the panel wide.
+			 A container query asks the question the columns actually have, and
+			 keeps being right if the rail's width ever changes. */
+		container-type: inline-size;
+		container-name: pane;
 	}
 	/* The content column runs fluid up to a generous cap so wide windows give
 		   the tables room (the models table's capabilities column and action links
 		   are the width driver); prose surfaces re-cap themselves below where full
 		   measure would hurt (settings rows, usage cards, banners, notices). */
+	/* The pane owns the content cap now; main is only the shell's flex row. */
 	main {
-		max-width: 1560px;
 		margin: 0 auto;
 	}
 	h1 {
@@ -28,9 +135,9 @@
 		font-weight: 600;
 		margin: 24px 0 4px;
 	}
-	/* Section h2s under the tab bar stay for structure (headings anchor the
-		   help glyphs and assistive navigation) but carry no rule of their own:
-		   the tab bar above already draws the divider. */
+	/* Section h2s carry no rule of their own beyond size: headings anchor the
+		   help glyphs and assistive navigation, and the rail beside them already
+		   separates the page's regions. */
 	h2 {
 		font-size: 1.05em;
 		font-weight: 600;
@@ -61,32 +168,8 @@
 		margin: 4px 0 8px;
 	}
 
-	/* Status hero: the at-a-glance layer the status bar click promises. */
-	.hero {
-		display: flex;
-		align-items: center;
-		gap: 16px;
-		flex-wrap: wrap;
-		margin: 16px 0 0;
-		padding: 8px 16px;
-		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
-		border-radius: 4px;
-		background: var(--vscode-editorWidget-background, transparent);
-	}
-	.hero .stat {
-		color: var(--vscode-descriptionForeground);
-		white-space: nowrap;
-	}
-	.hero .stat strong {
-		color: var(--vscode-foreground);
-		font-weight: 600;
-	}
-	.hero .spacer {
-		flex: 1;
-	}
-
 	/* Status pills: tone dot, plain-language verdict, relative time. One
-		   vocabulary for the hero's overall verdict and every server row, so the
+		   vocabulary for the rail's overall verdict and every server row, so the
 		   page's state indicators cannot drift apart visually. */
 	.pill {
 		display: inline-flex;
@@ -122,48 +205,6 @@
 		color: var(--vscode-descriptionForeground);
 	}
 
-	/* The section tab bar: native panel-title anatomy (muted labels, 1px
-		   underline on the active one) on the panelTitle tokens, sticky so the
-		   section switcher survives scrolling a long models table. The negative
-		   margins let the underline run the full panel width while labels keep
-		   the content's left edge. */
-	.tabs {
-		position: sticky;
-		top: 0;
-		z-index: 20;
-		display: flex;
-		gap: 8px;
-		margin: 16px -24px 8px;
-		padding: 4px 24px 0;
-		background: var(--vscode-editor-background, var(--vscode-panel-background));
-		border-bottom: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
-	}
-	button.tab {
-		background: transparent;
-		border: none;
-		border-bottom: 1px solid transparent;
-		border-radius: 0;
-		margin-bottom: -1px;
-		padding: 6px 2px;
-		cursor: pointer;
-		color: var(--vscode-panelTitle-inactiveForeground, var(--vscode-descriptionForeground));
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-	}
-	button.tab:hover {
-		background: transparent;
-		color: var(--vscode-panelTitle-activeForeground, var(--vscode-foreground));
-	}
-	button.tab[aria-selected="true"] {
-		color: var(--vscode-panelTitle-activeForeground, var(--vscode-foreground));
-		border-bottom-color: var(--vscode-panelTitle-activeBorder, var(--vscode-focusBorder));
-	}
-	button.tab:focus-visible {
-		outline: 1px solid var(--vscode-focusBorder);
-		outline-offset: -1px;
-	}
-
 	table {
 		border-collapse: collapse;
 		width: 100%;
@@ -180,16 +221,17 @@
 	}
 	/* Long model lists render windowed inside their own scrollport at the
 		   bottom of the combined page. The cap keeps the whole scrollport on
-		   screen once the page has scrolled the models heading up to the sticky
-		   tab bar: the chrome above and below it (tab bar, heading, filter bar,
-		   page padding) measures a bit over 11em at the default font, and the
-		   em unit keeps the budget honest when the host font or zoom grows it.
+		   screen once the page has scrolled the models heading to the top: the
+		   chrome above and below it (heading, filter bar, pane padding) measures
+		   a bit over 9em at the default font now that the tab bar is gone, and
+		   the em unit keeps the budget honest when the host font or zoom grows
+		   it.
 		   The floor keeps the scrollport usable in short windows. The sticky
 		   header keeps the sort controls reachable mid-list; the fixed row height
 		   that makes the scroll arithmetic exact lives on table.models below,
 		   shared with the non-windowed path. */
 	.table-scroll.windowed {
-		max-height: max(280px, calc(100vh - 13em));
+		max-height: max(280px, calc(100vh - 11em));
 		overflow-y: auto;
 		border-bottom: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
 	}
@@ -447,19 +489,6 @@
 	a.docs-link:hover {
 		color: var(--vscode-textLink-activeForeground);
 		text-decoration: underline;
-	}
-	/* The page header: the title with one quiet Report-a-bug action on its
-		   right, so filing an issue is reachable from anywhere on the page. The
-		   title keeps h1's top margin; align-items end keeps the action on the
-		   title's baseline band rather than floating above it. */
-	.page-head {
-		display: flex;
-		align-items: flex-end;
-		justify-content: space-between;
-		gap: 12px;
-	}
-	.page-head h1 {
-		margin-bottom: 0;
 	}
 	/* The Diagnostics tab's connection block and feedback rows. The facts and
 		   the outcome grid render selectable prose (this tab is where users copy
@@ -1495,15 +1524,15 @@
 	}
 
 	/* Narrow panels drop columns instead of demanding a horizontal scroll
-		   toward off-screen actions. Media queries, not element observation: the
-		   webview panel IS the viewport (the fluid main column only ever shrinks
-		   with it), and the happy-dom suite could not measure widths anyway. Each
-		   breakpoint is the width where the remaining column set stops fitting
-		   the main column (viewport minus the body's 48px padding), from the
-		   ~960px budget above: full set ~945px, then ~670, ~480, ~350. */
+		   toward off-screen actions. Container queries on the pane, not viewport
+		   media queries: the columns care how much room THEY have, and since the
+		   rail took a fixed 216px off the window that is no longer the window's
+		   width. Each breakpoint is the width where the remaining column set
+		   stops fitting the pane's content box, from the ~960px budget above:
+		   full set ~945px, then ~670, ~480, ~350. */
 	/* Wide viewports hand the freed space to the two ellipsis-capped columns
 		   first: the capabilities list uncramps before anything else spreads. */
-	@media (min-width: 1240px) {
+	@container pane (min-width: 1240px) {
 		.model-name-text {
 			max-width: 24em;
 		}
@@ -1511,12 +1540,12 @@
 			max-width: 20em;
 		}
 	}
-	@media (min-width: 1560px) {
+	@container pane (min-width: 1560px) {
 		.caps-text {
 			max-width: 28em;
 		}
 	}
-	@media (max-width: 1000px) {
+	@container pane (max-width: 1000px) {
 		/* The most derivable columns go first: family is an ID prefix and the
 			   token limits are capability detail, while pricing and capabilities
 			   are what the table is scanned for. */
@@ -1526,7 +1555,7 @@
 			display: none;
 		}
 	}
-	@media (max-width: 780px) {
+	@container pane (max-width: 780px) {
 		table.models .model-name-text {
 			max-width: 14em;
 		}
@@ -1567,12 +1596,12 @@
 			color: var(--vscode-descriptionForeground);
 		}
 	}
-	@media (max-width: 670px) {
+	@container pane (max-width: 670px) {
 		table.models .col-caps {
 			display: none;
 		}
 	}
-	@media (max-width: 560px) {
+	@container pane (max-width: 560px) {
 		table.models .col-price {
 			display: none;
 		}
@@ -1983,7 +2012,7 @@
 	/* Below the width where two input tracks stay usable, rows stack back to
 		   the panel-column layout and the column heads regroup into one legend
 		   line (the help glyphs must survive the stacking). */
-	@media (max-width: 700px) {
+	@container pane (max-width: 700px) {
 		/* Below the width where two input tracks stay usable, every panel's
 			   key/value rows stack to one column - the server form's header rows
 			   follow the same threshold as the matcher editor's field rows. */

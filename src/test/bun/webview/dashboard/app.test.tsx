@@ -4,8 +4,9 @@
  * contract documented on App and the endpoint table).
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { act } from "react";
 import { App } from "../../../../webview/dashboard/app";
-import { makeDeclaredServer, makeModel, makeState, statePush } from "../fixtures";
+import { makeDeclaredServer, makeModel, makeState, makeUsage, makeUsageServer, statePush } from "../fixtures";
 import {
 	buttonByText,
 	cleanup,
@@ -19,6 +20,21 @@ import {
 	respondTo,
 	textOf,
 } from "../harness";
+
+/**
+ * Every rail item's label and count. Sliced by length rather than by replacing
+ * the count text: a label that itself contained digits would otherwise have the
+ * first match cut out of the middle of it.
+ */
+function railCounts(root: ParentNode): Record<string, string | undefined> {
+	return Object.fromEntries(
+		Array.from(root.querySelectorAll("[role='tab']")).map((item) => {
+			const text = item.textContent ?? "";
+			const count = item.querySelector(".rail-count")?.textContent ?? "";
+			return [text.slice(0, text.length - count.length).trim(), count === "" ? undefined : count];
+		})
+	);
+}
 
 beforeEach(() => {
 	resetPosted();
@@ -36,10 +52,10 @@ test("mount posts the ready handshake and renders the loading skeleton until the
 
 	pushToWebview(statePush(makeState()));
 	expect(root.querySelector("main[aria-label='Loading']")).toBeNull();
-	expect(textOf(root, "h1")).toBe("LiteLLM Dashboard");
+	expect(textOf(root, "h1")).toBe("LiteLLM");
 });
 
-test("a full state push replaces the skeleton with hero verdict and counts", () => {
+test("a full state push replaces the skeleton with the rail's verdict and counts", () => {
 	const root = mount(<App />);
 	const state = makeState({
 		servers: [
@@ -50,12 +66,16 @@ test("a full state push replaces the skeleton with hero verdict and counts", () 
 	});
 	pushToWebview(statePush(state));
 
-	const overall = root.querySelector(".hero .pill");
+	const overall = root.querySelector(".rail-status");
 	expect(overall?.classList.contains("tone-warn")).toBe(true);
 	expect(overall?.textContent).toContain("Degraded");
-	const stats = Array.from(root.querySelectorAll(".stat")).map((stat) => (stat.textContent ?? "").trim());
-	expect(stats).toContain("2 servers");
-	expect(stats).toContain("3 models");
+	// The counts live ON the rail items now, which is the rail's whole claim
+	// over a tab strip: a strip can only say where you are, a count says
+	// whether it is worth going. Diagnostics carries none here because there is
+	// nothing to fix - an absent badge is a fact, a zero is furniture.
+	const counts = railCounts(root);
+	expect(counts["Servers & Models"]).toBe("3");
+	expect(counts.Diagnostics).toBeUndefined();
 	// The state fanned out to the sections.
 	expect(root.textContent).toContain("Broken");
 	expect(root.textContent).toContain("connect ECONNREFUSED");
@@ -132,11 +152,11 @@ test("Sync models disables with zero servers and posts the executeCommand intent
 	expect(postedCalls()).toEqual([{ method: "executeCommand", payload: { command: "syncModels" } }]);
 });
 
-test("the page header carries one quiet Report-a-bug action that posts the reportIssue command", () => {
+test("the rail carries one quiet Report-a-bug action that posts the reportIssue command", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 
-	const button = root.querySelector(".page-head button") as HTMLButtonElement;
+	const button = buttonByText(root, "Report a bug");
 	expect((button.textContent ?? "").trim()).toBe("Report a bug");
 	// secondary at compact size: what the old "quiet" variant was, now said as
 	// the two things it actually is.
@@ -147,18 +167,18 @@ test("the page header carries one quiet Report-a-bug action that posts the repor
 	expect(postedCalls()).toEqual([{ method: "executeCommand", payload: { command: "reportIssue" } }]);
 });
 
-test("with only legacy-registry servers the hero says so instead of claiming not configured", () => {
+test("with only legacy-registry servers the rail says so instead of claiming not configured", () => {
 	// The Diagnostics tab's verdict treats the legacy registry as real
-	// configuration (overallStatusText); the hero mirrors that rule, so the
-	// strip and the tab can never disagree about the same install.
+	// configuration (overallStatusText); the rail mirrors that rule, so the
+	// rail and the tab can never disagree about the same install.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ legacyServerCount: 2 })));
-	const pill = root.querySelector(".hero .pill");
+	const pill = root.querySelector(".rail-status");
 	expect(pill?.textContent).toContain("Legacy registry only");
 	expect(pill?.classList.contains("tone-muted")).toBe(true);
 
 	pushToWebview(statePush(makeState()));
-	expect(root.querySelector(".hero .pill")?.textContent).toContain("Not configured");
+	expect(root.querySelector(".rail-status")?.textContent).toContain("Not configured");
 });
 
 test("the Diagnostics table's inspector opens in place over the tab and closing stays there", () => {
@@ -207,4 +227,49 @@ test("the Diagnostics table's inspector opens in place over the tab and closing 
 	expect(document.querySelector("[role='dialog']")).toBeNull();
 	expect(diagnosticsTab().getAttribute("aria-selected")).toBe("true");
 	expect(root.querySelector("table.resolved-models")).not.toBeNull();
+});
+
+test("the rail counts what each destination holds, and says nothing when it holds nothing", () => {
+	// Every number here is one a reader would go to that destination to find
+	// out, and every absence is a fact rather than a gap.
+	const root = mount(<App />);
+
+	// An install with no servers: the destination shows a guided start with no
+	// models table, so a "0" would count something that is not rendered.
+	act(() => {
+		pushToWebview(statePush(makeState()));
+	});
+	expect(railCounts(root)["Servers & Models"]).toBeUndefined();
+	expect(railCounts(root).Usage).toBeUndefined();
+	expect(railCounts(root).Diagnostics).toBeUndefined();
+
+	// Spend is reported against a budget on one fresh server and a stale one:
+	// the figure is the worst FRESH budget fraction, never a sum, because two
+	// entries can authenticate with the same key.
+	act(() => {
+		pushToWebview(
+			statePush(
+				makeState({
+					servers: [makeDeclaredServer({ label: "a" })],
+					models: [makeModel({ id: "m1" }), makeModel({ id: "m2" })],
+					usage: makeUsage({
+						thresholds: [0.8, 0.95],
+						servers: [
+							{ ...makeUsageServer({ label: "a" }), spend: 45, effectiveBudget: 100, fresh: true },
+							// A second FRESH server, so a sum and a maximum give different
+							// answers: without it the assertion below cannot tell them apart.
+							{ ...makeUsageServer({ label: "c" }), spend: 30, effectiveBudget: 100, fresh: true },
+							{ ...makeUsageServer({ label: "b" }), spend: 900, effectiveBudget: 100, fresh: false },
+						],
+					}),
+				})
+			)
+		);
+	});
+	const withUsage = railCounts(root);
+	expect(withUsage["Servers & Models"]).toBe("2");
+	// The worst fresh fraction: 45%. A sum would say 75%, and folding the stale
+	// server in would say 975% - two entries can authenticate with the same key,
+	// so spends cannot be added.
+	expect(withUsage.Usage).toBe("45%");
 });

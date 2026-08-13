@@ -61,6 +61,7 @@
 	"1 hour ago": "1 hour ago",
 	"1 label already exists; you will choose overwrite, skip, or rename.": "1 label already exists; you will choose overwrite, skip, or rename.",
 	"1 minute ago": "1 minute ago",
+	"1 model": "1 model",
 	"1 model available": "1 model available",
 	"1 model available from {0} servers": "1 model available from {0} servers",
 	"1 model matches no record here": "1 model matches no record here",
@@ -68,6 +69,7 @@
 	"1 needs attention": "1 needs attention",
 	"1 other server is over an alert threshold": "1 other server is over an alert threshold",
 	"1 parameter": "1 parameter",
+	"1 problem": "1 problem",
 	"1 request": "1 request",
 	"1 server": "1 server",
 	"1 server added": "1 server added",
@@ -233,6 +235,7 @@
 	"Custom headers": "Custom headers",
 	"Custom list - edit in settings.json.": "Custom list - edit in settings.json.",
 	"Custom...": "Custom...",
+	"Dashboard": "Dashboard",
 	"Dashboard sections": "Dashboard sections",
 	"Dashboard theme": "Dashboard theme",
 	"Declared in settings; no discovery pass has seen it yet. Run Sync models to check it now.": "Declared in settings; no discovery pass has seen it yet. Run Sync models to check it now.",
@@ -408,7 +411,6 @@
 	"Leftover of the removed entry \"{0}\". Remove hides its models; deleting its object from the models file erases it.": "Leftover of the removed entry \"{0}\". Remove hides its models; deleting its object from the models file erases it.",
 	"Legacy registry only": "Legacy registry only",
 	"Lets more specific matching records inherit this field, e.g. a * record's temperature reaching gpt-5.6. Unchecked, a more specific record replaces this record wholesale.": "Lets more specific matching records inherit this field, e.g. a * record's temperature reaching gpt-5.6. Unchecked, a more specific record replaces this record wholesale.",
-	"LiteLLM Dashboard": "LiteLLM Dashboard",
 	"LiteLLM answered {0} with a missing response body ({1})": "LiteLLM answered {0} with a missing response body ({1})",
 	"LiteLLM model discovery timed out after {0}ms. Increase the \"{1}.discovery.timeout\" setting if your server needs more time.": "LiteLLM model discovery timed out after {0}ms. Increase the \"{1}.discovery.timeout\" setting if your server needs more time.",
 	"LiteLLM request timed out after {0}ms. Increase the \"{1}.chat.timeout\" setting if your model needs more time.": "LiteLLM request timed out after {0}ms. Increase the \"{1}.chat.timeout\" setting if your model needs more time.",
@@ -778,7 +780,6 @@
 	"Servers": "Servers",
 	"Servers & Models": "Servers & Models",
 	"Servers, API keys, and which models are enabled": "Servers, API keys, and which models are enabled",
-	"Servers, models, and settings in one place; edits land in your VS Code settings.": "Servers, models, and settings in one place; edits land in your VS Code settings.",
 	"Servers, models, and settings in one view": "Servers, models, and settings in one view",
 	"Set in {0} settings - edit there.": "Set in {0} settings - edit there.",
 	"Set per request by the chat client; they override every row above except forced rows.": "Set per request by the chat client; they override every row above except forced rows.",
@@ -1053,18 +1054,6 @@
 			"Abbreviation for minutes (not minimum) in durations like '5 min'."
 		]
 	},
-	"model/singular noun after the count in the hero strip": {
-		"message": "model",
-		"comment": [
-			"singular noun after the count in the hero strip"
-		]
-	},
-	"models/plural noun after the count in the hero strip": {
-		"message": "models",
-		"comment": [
-			"plural noun after the count in the hero strip"
-		]
-	},
 	"ms/Abbreviation for milliseconds; unit suffix after duration inputs.": {
 		"message": "ms",
 		"comment": [
@@ -1117,18 +1106,6 @@
 	"server entry \"{0}\" - {1}": "server entry \"{0}\" - {1}",
 	"server entry key {0}": "server entry key {0}",
 	"server-reported": "server-reported",
-	"server/singular noun after the count in the hero strip": {
-		"message": "server",
-		"comment": [
-			"singular noun after the count in the hero strip"
-		]
-	},
-	"servers/plural noun after the count in the hero strip": {
-		"message": "servers",
-		"comment": [
-			"plural noun after the count in the hero strip"
-		]
-	},
 	"set by {0}": "set by {0}",
 	"set in configuration": "set in configuration",
 	"set on this entry": "set on this entry",
@@ -1176,11 +1153,13 @@
 	"{0} left": "{0} left",
 	"{0} min ago": "{0} min ago",
 	"{0} minutes ago": "{0} minutes ago",
+	"{0} models": "{0} models",
 	"{0} models available": "{0} models available",
 	"{0} models available from {1} servers": "{0} models available from {1} servers",
 	"{0} models match no record here": "{0} models match no record here",
 	"{0} modified": "{0} modified",
 	"{0} need attention": "{0} need attention",
+	"{0} of budget": "{0} of budget",
 	"{0} on {1}/{0} is a model ID, {1} is the server it is served from": {
 		"message": "{0} on {1}",
 		"comment": [
@@ -1195,6 +1174,7 @@
 		]
 	},
 	"{0} parameters": "{0} parameters",
+	"{0} problems": "{0} problems",
 	"{0} requests": "{0} requests",
 	"{0} server entries cannot be imported and will be skipped.": "{0} server entries cannot be imported and will be skipped.",
 	"{0} servers": "{0} servers",
@@ -1218,6 +1198,7 @@
 	"{0} unrecognized parts of the servers setting were omitted because they cannot be checked for secrets.": "{0} unrecognized parts of the servers setting were omitted because they cannot be checked for secrets.",
 	"{0} unsaved changes": "{0} unsaved changes",
 	"{0} usage.alertThresholds values are outside (0, 1] and were dropped.": "{0} usage.alertThresholds values are outside (0, 1] and were dropped.",
+	"{0}, {1}": "{0}, {1}",
 	"{0}: discovery fails in an expected category and nothing is declared, so no models are served. Add IDs to the entry's discovery.declared list to serve models without discovery.": "{0}: discovery fails in an expected category and nothing is declared, so no models are served. Add IDs to the entry's discovery.declared list to serve models without discovery.",
 	"{0}: this entry is invalid and not used until fixed - {1}": "{0}: this entry is invalid and not used until fixed - {1}",
 	"{0}: {1} (expected)": "{0}: {1} (expected)",

@@ -537,6 +537,14 @@ html:where(:not(:has(body.vscode-high-contrast, body.vscode-high-contrast-light)
 body {
 	--accent-soft: color-mix(in srgb, var(--accent-hue) var(--state-mix), transparent);
 	--accent-line: color-mix(in srgb, var(--accent-hue) 45%, transparent);
+	/* The accent AS A PERMANENT LABEL. --accent-hue is tuned to be seen, not
+		 read: on the rail's own surface it measures 3.6:1 for blue and violet,
+		 under AA, and the selected rail item is the most-read text in the shell -
+		 a label that sits there all day, not a control you glance at. Leaned into
+		 the foreground so it moves AWAY from the surface in either polarity, the
+		 same rule the severity text tier uses; worst case across all four accents
+		 in both themes is 5.06:1. */
+	--accent-text: color-mix(in oklab, var(--accent-hue) 70%, var(--foreground));
 	/* The interactive cousin of --err-soft: a destructive control under the
 		 pointer, not a banner sitting on the page. */
 	--err-wash: color-mix(in srgb, var(--err) var(--state-mix), transparent);
@@ -668,6 +676,7 @@ body.vscode-high-contrast-light {
 	--color-warn-chip: var(--warn-chip);
 	--color-warn-chip-foreground: var(--warn-chip-foreground);
 	--color-accent-hue: var(--accent-hue);
+	--color-accent-text: var(--accent-text);
 	/* The four choosable hues, for the settings picker's swatches: it paints
 		 every option, not just the live one. */
 	--color-hue-blue: var(--hue-blue);
