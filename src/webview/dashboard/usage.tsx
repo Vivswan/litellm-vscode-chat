@@ -532,7 +532,7 @@ function UsageRow({
 				// high contrast, where a borderless row stops reading as clickable.
 				// Every column but the label and the percentage may shrink to nothing,
 				// so a narrow editor group truncates the line instead of overflowing it.
-				className="usage-line grid w-full grid-cols-[minmax(5rem,11rem)_minmax(0,9rem)_minmax(0,8rem)_3rem_minmax(0,1fr)_auto] items-center gap-x-4 rounded-sm border border-control-outline px-2.5 py-2 text-left hover:bg-accent focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid"
+				className="usage-line grid w-full grid-cols-[minmax(5rem,11rem)_minmax(0,9rem)_minmax(0,8rem)_3rem_minmax(0,1fr)_auto] items-center gap-x-4 rounded-sm border border-control-outline px-2.5 py-2 text-left hover:bg-accent focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid @max-[620px]/pane:grid-cols-[minmax(0,1fr)_auto_auto] @max-[620px]/pane:items-baseline @max-[620px]/pane:gap-x-3 @max-[620px]/pane:gap-y-0.5"
 				aria-expanded={open}
 				// Only while the panel exists: an aria-controls pointing at an
 				// unmounted id is a dangling reference, and aria-expanded already

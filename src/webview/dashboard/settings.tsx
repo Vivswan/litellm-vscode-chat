@@ -196,6 +196,16 @@ function SettingRow({
 		<div
 			className={cn(
 				"setting-row group/setting -ml-3 grid grid-cols-[10rem_minmax(0,20rem)_minmax(0,1fr)] items-baseline gap-x-4 gap-y-1 rounded-xs border-l-2 py-2 pr-3 pl-2.5 hover:bg-accent",
+				// Narrow: the three tracks become one. A description column twenty
+				// characters wide is not a column, it is a word per line, and the
+				// title's right edge stops meaning anything once nothing lines up
+				// beside it. Stacked, the row reads title, control, description -
+				// the order it is spoken in.
+				// The PANE decides, not the window: this pane can be narrow inside a
+				// wide window whenever the editor is split. 870px is where the third
+				// column stops being usable, measured on this surface rather than
+				// guessed from the row's own arithmetic.
+				"@max-[870px]/pane:grid-cols-1 @max-[870px]/pane:gap-x-0",
 				configuredScope !== null
 					? "modified border-l-[var(--vscode-settings-modifiedItemIndicator,var(--vscode-focusBorder))]"
 					: "border-l-transparent"
@@ -203,9 +213,9 @@ function SettingRow({
 			hidden={hidden}
 		>
 			{titleFor === undefined ? (
-				<span className="setting-title text-right font-semibold">{title}</span>
+				<span className="setting-title text-right font-semibold @max-[870px]/pane:text-left">{title}</span>
 			) : (
-				<label className="setting-title text-right font-semibold" htmlFor={titleFor}>
+				<label className="setting-title text-right font-semibold @max-[870px]/pane:text-left" htmlFor={titleFor}>
 					{title}
 				</label>
 			)}
@@ -444,7 +454,7 @@ function CatalogRow({ catalog, enabled, now }: { catalog: CatalogStatusView; ena
 			? (relativeTime(new Date(catalog.lastSuccessAt).toISOString(), now) ?? l10n.t("just now"))
 			: undefined;
 	return (
-		<div className="catalog-row flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 pb-1 pl-[11rem] text-[0.95em]">
+		<div className="catalog-row flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 pb-1 pl-[11rem] text-[0.95em] @max-[870px]/pane:pl-0">
 			{enabled ? (
 				<>
 					<span className="hint">
@@ -1115,7 +1125,7 @@ export function SettingsSection({
 				<Input
 					id={filterId}
 					type="text"
-					className="w-[22rem] max-w-full"
+					className="w-[22rem] max-w-full @max-[560px]/pane:w-full"
 					placeholder={l10n.t("Filter settings, e.g. timeout")}
 					aria-label={l10n.t("Filter settings")}
 					value={filter}
