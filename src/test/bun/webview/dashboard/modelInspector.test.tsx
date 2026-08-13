@@ -547,20 +547,24 @@ test("a forced row states that it overrides runtime options, and the runtime cav
 	expect(root.querySelector('tbody .res-source [role="tooltip"]')?.textContent).toBe(
 		"Overrides runtime options and the picker configuration."
 	);
-	expect(root.textContent).toContain("they override every row above except forced rows.");
+	expect(root.textContent).toContain("Overrides every table row above except forced rows.");
 });
 
 test("without forced rows the runtime caveat keeps its unconditional wording", () => {
 	const root = mountParamsAnswered({ globalParameters: { "gpt-4*": { temperature: 0.2 } } });
 	expect(root.querySelector("tbody .mark")).toBeNull();
-	expect(root.textContent).toContain("they override every row above.");
+	expect(root.textContent).toContain("Overrides every table row above.");
 });
 
 test("_force diagnostics render like the capability side's: unforceable keys and malformed lists", () => {
 	const root = mountParamsAnswered({
 		globalParameters: { "gpt-4*": { temperature: 0.2, model: "other", _force: ["model", "typo_entry"] } },
 	});
-	expect(root.textContent).toContain("Configuration problems in the matched records:");
+	// The heading is a label now, not a sentence: the items name the key and
+	// the record, and the warning tone says the rest.
+	// A label doing a heading's job is a heading, so assistive tech can jump to
+	// it and the list beneath it has something to belong to.
+	expect(textOf(root, ".record-problems h5")).toBe("Record problems");
 	// The refused provider-owned key names itself and the record that carried it.
 	expect(root.textContent).toContain('"model" cannot be forced and its mark is skipped');
 	// A listed name the record does not set malforms the directive; the copy
@@ -579,14 +583,14 @@ test("an invalid matcher key renders its own diagnostic", () => {
 
 test("clean configuration renders no diagnostics block", () => {
 	const root = mountParamsAnswered({ globalParameters: { "gpt-4*": { temperature: 0.2, _force: ["temperature"] } } });
-	expect(root.textContent).not.toContain("Configuration problems in the matched records:");
+	expect(root.querySelector(".record-problems")).toBeNull();
 });
 
 test("the max_tokens derivation states the configured branch with its attribution", () => {
 	const root = mountParamsAnswered({ globalParameters: { "gpt-4*": { max_tokens: 2222 } } });
 	// The configured branch carries the same badge a row would: scope and key,
 	// no sentence.
-	expect(normOf(root, ".max-tokens")).toBe("max_tokens 2222 settings gpt-4*");
+	expect(normOf(root, ".max-tokens")).toBe("max_tokens 2,222 settings gpt-4*");
 	// A configured max_tokens is the derivation's story, never a table row -
 	// and it is real configuration, so the absence line must not claim nothing
 	// matched.
@@ -598,17 +602,25 @@ test("the max_tokens derivation states the declared and capped-default branches"
 	// Neither derived branch has a record to point at, so neither wears a
 	// badge: they say in words where the number came from.
 	const declared = mountParamsAnswered({ modelOverrides: { maxOutputTokens: 32000, outputLimitDeclared: true } });
-	expect(normOf(declared, ".max-tokens")).toContain("max_tokens 32000 the model's declared output limit");
+	// The derivation line formats its count like the tables do: the same number
+	// in two renderings on one screen reads as two numbers.
+	expect(normOf(declared, ".max-tokens")).toBe("max_tokens 32,000 the model's declared output limit");
 	expect(declared.querySelector(".max-tokens .prov")).toBeNull();
 
 	const capped = mountParamsAnswered({ modelOverrides: { maxOutputTokens: 32000, outputLimitDeclared: false } });
-	expect(normOf(capped, ".max-tokens")).toContain("max_tokens 4096 min(4096, model max)");
+	// One rendering of one number, including inside the formula.
+	expect(normOf(capped, ".max-tokens")).toBe("max_tokens 4,096 min(4,096, model max) - a default, not declared");
 });
 
 test("a forced max_tokens reports the forced derivation with its attribution", () => {
 	const root = mountParamsAnswered({ globalParameters: { "gpt-4*": { max_tokens: 2222, _force: ["max_tokens"] } } });
 	// Badge plus the force mark, whose tip states the rule the sentence used to.
-	expect(normOf(root, ".max-tokens")).toContain("max_tokens 2222 settings gpt-4* force");
+	expect(normOf(root, ".max-tokens")).toContain("max_tokens 2,222 settings gpt-4* force");
+	// A forced max_tokens renders on the derivation line, never as a row - but
+	// runtime options lose to it exactly as they lose to a forced row, so the
+	// caveat below has to make the exception even with no forced row in the
+	// table.
+	expect(root.textContent).toContain("Overrides every table row above except forced rows.");
 	expect(root.querySelector('.max-tokens [role="tooltip"]')?.textContent).toBe(
 		"Overrides runtime options and the picker configuration; never clamped."
 	);
@@ -617,13 +629,13 @@ test("a forced max_tokens reports the forced derivation with its attribution", (
 test("the runtime caveat always renders; the picker caveat only on reasoning models", () => {
 	const plain = mountParamsAnswered({});
 	expect(plain.textContent).toContain("Runtime options");
-	expect(plain.textContent).not.toContain("reasoning effort");
+	expect(plain.textContent).not.toContain("Configure Model pick");
 
 	cleanup();
 	resetPosted();
 	const reasoning = mountParamsAnswered({ modelOverrides: { reasoning: true } });
 	expect(reasoning.textContent).toContain("Runtime options");
-	expect(reasoning.textContent).toContain("stored by VS Code");
+	expect(reasoning.textContent).toContain("Overrides reasoning_effort here.");
 });
 
 test("the zero-config empty state still shows max_tokens and the caveats", () => {
@@ -897,10 +909,17 @@ test("the fixed machinery renders while the projection is still in flight", () =
 	const container = mount(<ModelInspector model={model} stateSeq={0} onClose={() => {}} />);
 	expect(container.textContent).toContain("Resolving parameters...");
 	expect(container.querySelector(".inspector-notes")).not.toBeNull();
-	expect(container.textContent).toContain("Always sent");
+	// The always-sent fields and the tools pair that rides along with them, in
+	// full: three-part markup that no single localized string pins any more.
+	const notes = [...container.querySelectorAll(".inspector-notes dd")].map((dd) =>
+		(dd.textContent ?? "").replace(/\s+/g, " ").trim()
+	);
+	expect(notes[0]).toBe("model messages stream stream_options max_tokens");
+	expect(notes[1]).toBe("tools tool_choice");
+	expect(container.textContent).toContain("Sent with tools");
 	// With no projection to read, the runtime caveat keeps its unconditional
 	// wording rather than claiming there are forced rows.
-	expect(container.textContent).toContain("they override every row above.");
+	expect(container.textContent).toContain("Overrides every table row above.");
 });
 
 test("a configured max_tokens whose layer the projection could not name wears no badge", () => {
@@ -911,7 +930,7 @@ test("a configured max_tokens whose layer the projection could not name wears no
 	respondTo(lastRequest("readModelParameters"), {
 		projection: { rows: [], maxTokens: { source: "configured", value: 2222 }, diagnostics: [] },
 	});
-	expect(normOf(container, ".max-tokens")).toBe("max_tokens 2222 set in configuration");
+	expect(normOf(container, ".max-tokens")).toBe("max_tokens 2,222 set in configuration");
 	expect(container.querySelector(".max-tokens .prov")).toBeNull();
 });
 
@@ -1224,14 +1243,14 @@ test("an unrecognized-key diagnostic renders as an informational note, apart fro
 	);
 	const advisories = root.querySelector(".record-notes");
 	expect(advisories).not.toBeNull();
+	expect(textOf(advisories as HTMLElement, "h5")).toBe("Record notes");
 	expect(advisories?.textContent).toContain("applied as an override as-is");
 	expect(advisories?.querySelector("li")?.className).toBe("hint");
 	// The record diagnostics live at the end of the Capabilities section (near
 	// the records they judge), never dangling after Pricing.
 	expect(advisories?.closest("section")?.id).toBe("inspector-caps-section");
 	// The real problem stays under the problems heading, not among the notes.
-	const text = root.textContent ?? "";
-	expect(text).toContain("Configuration problems in the matched records:");
+	expect(textOf(root, ".record-problems:not(.record-notes) h5")).toBe("Record problems");
 	expect(advisories?.textContent).not.toContain("invalid value");
 });
 
@@ -1242,15 +1261,53 @@ test("the declared badge follows the model's verdict: a discovered model shows n
 	expect(root.textContent).not.toContain("Declared model");
 });
 
-test("the output-limit note follows outputLimitSource", () => {
-	expect(mountCapsAnswered(makeCapabilities({ outputLimitSource: "user" })).textContent).toContain(
-		"user-set; requests send it uncapped"
+test("the output-limit note names the limit's source and nothing the request does", () => {
+	// A label plus a value, in the same idiom as the parameters machinery - not
+	// a sentence restating the label it sits beside. It says only where the
+	// limit came from: what the REQUEST sends is conditional (a configured or
+	// forced max_tokens beats the limit), and the max_tokens line owns that.
+	const user = mountCapsAnswered(makeCapabilities({ outputLimitSource: "user" }));
+	expect(textOf(user, ".output-limit dt")).toBe("Output limit");
+	expect(textOf(user, ".output-limit dd")).toBe("User-set.");
+	// The branch every screenshot renders needs its own pin, not just the two
+	// edge branches.
+	cleanup();
+	resetPosted();
+	expect(textOf(mountCapsAnswered(makeCapabilities({ outputLimitSource: "provider" })), ".output-limit dd")).toBe(
+		"Server-declared."
 	);
 	cleanup();
 	resetPosted();
-	expect(mountCapsAnswered(makeCapabilities({ outputLimitSource: "defaults" })).textContent).toContain(
-		"cap max_tokens at 4096"
+	const defaults = mountCapsAnswered(makeCapabilities({ outputLimitSource: "defaults" }));
+	expect(textOf(defaults, ".output-limit dd")).toBe("A default.");
+	// Never a cap claim: a configured max_tokens beats the limit, and this
+	// section cannot see whether one exists.
+	expect(defaults.textContent).not.toContain("capped at");
+});
+
+test("only numbers right-align in the value column", () => {
+	// D16 is about NUMERICS: the column also carries yes/no and JSON, and
+	// right-aligning a word pushes it away from the name it belongs to.
+	const root = mountCapsAnswered(
+		makeCapabilities({
+			fields: {
+				...makeCapabilities().fields,
+				input_cost_per_token: { value: 0.000005, level: "server", shadowed: [] },
+			},
+		})
 	);
+	const kind = (label: string): string | undefined => {
+		const row = [...root.querySelectorAll("table.resolution tbody tr")].find((candidate) =>
+			(candidate.querySelector(".res-name")?.textContent ?? "").includes(label)
+		);
+		return row?.querySelector(".res-value")?.className;
+	};
+	// `num` is the stylesheet's own name for a right-aligned numeric cell.
+	expect(kind("Context length")).toBe("res-value num");
+	expect(kind("Tool calling")).toBe("res-value");
+	// A whole column of numbers takes its head with it; a mixed one does not.
+	const heads = [...root.querySelectorAll("table.resolution thead th:nth-child(2)")].map((th) => th.className);
+	expect(heads).toEqual(["", "num"]);
 });
 
 test("an empty-capabilities response says the state moved on instead of inventing values", () => {

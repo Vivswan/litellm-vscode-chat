@@ -37,7 +37,7 @@ export function helpUsageSection(): string {
 
 export function helpParamsInspector(): string {
 	return l10n.t(
-		"What one request to this model carries, e.g. temperature 0.2 from your settings. Runtime options from the chat client override the forwarded values, except rows marked forced."
+		"What one request to this model carries, e.g. temperature 0.2 from your settings. Runtime options from the chat client override the forwarded values, except where a record forces one."
 	);
 }
 

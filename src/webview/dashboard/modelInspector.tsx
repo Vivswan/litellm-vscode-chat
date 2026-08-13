@@ -268,14 +268,14 @@ function maxTokensParts(maxTokens: ProjectedMaxTokens): {
 			// "the model's", not "the server's": a user-set capability record and
 			// a _fallback fill both count as declared for this branch, so naming
 			// the server would be a claim the panel cannot back up.
-			return {
-				value: maxTokens.value,
-				reason: l10n.t("the model's declared output limit (nothing configured sets it)"),
-			};
+			// No parenthetical: the branch itself is the statement. A configured
+			// max_tokens takes the "configured" branch and says so with a badge, so
+			// reaching this one already means nothing configured set it.
+			return { value: maxTokens.value, reason: l10n.t("the model's declared output limit") };
 		case "capped-default":
 			return {
 				value: maxTokens.value,
-				reason: l10n.t("min({0}, model max) - the limit is a default, not server-declared", DEFAULT_MAX_TOKENS_CAP),
+				reason: l10n.t("min({0}, model max) - a default, not declared", formatTokens(DEFAULT_MAX_TOKENS_CAP)),
 			};
 	}
 }
@@ -308,7 +308,9 @@ const CONSUMED_BOOLEAN_ORDER: readonly string[] = [
 const TOKEN_FIELDS: ReadonlySet<string> = new Set(["context_length", "max_input_tokens", "max_output_tokens"]);
 
 /**
- * Where the stylesheet's ellipsis can start clipping a value cell. The value
+ * Where the stylesheet's ellipsis can start clipping a value cell. PAIRED WITH
+ * the .res-col-value share in dashboard.css: move one and this moves too, or
+ * values clip with no keyboard-reachable text. The value
  * column is a FIXED share of the slide-over (html.ts), which is 680px wide but
  * shrinks to 94vw on narrow hosts: ~18ch of its monospace at full width, ~9ch
  * at a degenerate 360px window - the threshold sits at the practical floor so
@@ -320,11 +322,18 @@ const TOKEN_FIELDS: ReadonlySet<string> = new Set(["context_length", "max_input_
  */
 const VALUE_CLIP_CH = 8;
 
-/** One value cell: plain text while it surely fits, the focusable full-text tip once the ellipsis could clip it. */
-function ValueCell({ text, struck = false }: { text: string; struck?: boolean }) {
+/**
+ * One value cell: plain text while it surely fits, the focusable full-text tip
+ * once the ellipsis could clip it. `numeric` is what earns right alignment -
+ * the column is mixed (token counts and prices beside yes/no, JSON and prose),
+ * and right-aligning a word only pushes it away from the name it belongs to.
+ */
+function ValueCell({ text, numeric = false, struck = false }: { text: string; numeric?: boolean; struck?: boolean }) {
 	const body = struck ? <del>{text}</del> : text;
 	return (
-		<td className="res-value">
+		// `num` is the stylesheet's existing name for a right-aligned numeric
+		// cell; a second name for one concept is how a vocabulary rots.
+		<td className={numeric ? "res-value num" : "res-value"}>
 			{approxWidthCh(text) > VALUE_CLIP_CH ? (
 				<HoverTip focusable tip={text}>
 					<span className="res-value-clip">{body}</span>
@@ -407,13 +416,29 @@ function formatValue(name: string, value: CapabilityJsonValue): string {
  * a clipped word - a loser must never be announced as a peer of the value that
  * beat it.
  */
-function ShadowedRow({ value, source, mark }: { value: string; source: ProvenanceView; mark?: MarkView | undefined }) {
+function ShadowedRow({
+	value,
+	numeric,
+	source,
+	mark,
+}: {
+	value: string;
+	/**
+	 * This value is a number, so it right-aligns like any other. Read from the
+	 * SHADOW's own type, not the winner's: pass-through values are unvalidated,
+	 * so a string can lose to a number, and it should sit where its own kind
+	 * sits rather than be dragged under a winner it does not match.
+	 */
+	numeric?: boolean;
+	source: ProvenanceView;
+	mark?: MarkView | undefined;
+}) {
 	return (
 		<tr className="res-shadow">
 			<td className="res-name">
 				<span className="visually-hidden">{l10n.t("Overridden value")}</span>
 			</td>
-			<ValueCell text={value} struck />
+			<ValueCell text={value} numeric={numeric === true} struck />
 			<td className="res-source">
 				<Provenance source={source} /> {mark !== undefined ? <Mark mark={mark} /> : null}
 			</td>
@@ -422,7 +447,13 @@ function ShadowedRow({ value, source, mark }: { value: string; source: Provenanc
 }
 
 function ParamShadowedLine({ shadow }: { shadow: ShadowedParameterValue }) {
-	return <ShadowedRow value={formatJsonValue(shadow.value)} source={parameterProvenance(shadow)} />;
+	return (
+		<ShadowedRow
+			value={formatJsonValue(shadow.value)}
+			numeric={typeof shadow.value === "number"}
+			source={parameterProvenance(shadow)}
+		/>
+	);
 }
 
 /**
@@ -457,7 +488,7 @@ function ParameterRow({
 		<>
 			<tr className={row.sent ? undefined : "res-not-sent"}>
 				<td className="res-name">{row.name}</td>
-				<ValueCell text={formatJsonValue(row.value)} />
+				<ValueCell text={formatJsonValue(row.value)} numeric={typeof row.value === "number"} />
 				<td className="res-source">
 					<Provenance source={parameterProvenance(row.source)} />{" "}
 					{row.inheritedFrom !== undefined ? (
@@ -505,7 +536,14 @@ function CapShadowedLine({ name, shadow }: { name: string; shadow: ShadowedCapab
 	// A beaten value keeps its directive too: a fallback fill or a catalog match
 	// that lost still has to say WHY it was in the running at all.
 	const { source, mark } = capabilityProvenance(shadow.level, shadow.key);
-	return <ShadowedRow value={formatValue(name, shadow.value)} source={source} mark={mark} />;
+	return (
+		<ShadowedRow
+			value={formatValue(name, shadow.value)}
+			numeric={typeof shadow.value === "number"}
+			source={source}
+			mark={mark}
+		/>
+	);
 }
 
 function FieldRow({
@@ -535,7 +573,7 @@ function FieldRow({
 				<td className="res-name">
 					<FieldName name={name} />
 				</td>
-				<ValueCell text={formatValue(name, field.value)} />
+				<ValueCell text={formatValue(name, field.value)} numeric={typeof field.value === "number"} />
 				<td className="res-source">
 					<Provenance source={source} /> {mark !== undefined ? <Mark mark={mark} /> : null}{" "}
 					{field.inheritedFrom !== undefined ? (
@@ -608,14 +646,22 @@ function capabilityDiagnosticText(diagnostic: CapabilityDiagnostic): string {
 	}
 }
 
+/**
+ * The output limit as a labelled fact: where the limit came from, and nothing
+ * else. What the REQUEST does about it is conditional - a configured or forced
+ * max_tokens beats the limit entirely - so it belongs on the max_tokens
+ * derivation line, which knows that, and stating it here as well produced a
+ * panel that said "capped at 4,096" directly under a max_tokens line reading
+ * 10,000.
+ */
 function outputLimitNote(capabilities: EffectiveCapabilities): string {
 	switch (capabilities.outputLimitSource) {
 		case "user":
-			return l10n.t("The output limit is user-set; requests send it uncapped.");
+			return l10n.t("User-set.");
 		case "provider":
-			return l10n.t("The output limit is server-declared; requests send it uncapped.");
+			return l10n.t("Server-declared.");
 		case "defaults":
-			return l10n.t("The output limit is a default; requests cap max_tokens at 4096.");
+			return l10n.t("A default.");
 	}
 }
 
@@ -630,10 +676,13 @@ function outputLimitNote(capabilities: EffectiveCapabilities): string {
 function ResolutionTable({
 	nameHead,
 	valueHead,
+	numericValues = false,
 	children,
 }: {
 	nameHead: string;
 	valueHead: string;
+	/** Every value in the column is a number (the pricing table), so its head follows them to the right. */
+	numericValues?: boolean;
 	children: ReactNode;
 }) {
 	return (
@@ -646,7 +695,7 @@ function ResolutionTable({
 			<thead>
 				<tr>
 					<th>{nameHead}</th>
-					<th>{valueHead}</th>
+					<th className={numericValues ? "num" : undefined}>{valueHead}</th>
 					<th>{l10n.t("Source")}</th>
 				</tr>
 			</thead>
@@ -969,7 +1018,7 @@ export function ModelInspector({
 					) : null}
 					{projection !== undefined && projection.diagnostics.length > 0 ? (
 						<div className="record-problems">
-							<p className="hint">{l10n.t("Configuration problems in the matched records:")}</p>
+							<h5 className="hint">{l10n.t("Record problems")}</h5>
 							<ul>
 								{projection.diagnostics.map((diagnostic) => (
 									<li key={`${diagnostic.layer}/${diagnostic.recordKey}/${diagnostic.kind}/${diagnostic.key}`}>
@@ -988,7 +1037,9 @@ export function ModelInspector({
 					{maxTokens !== undefined ? (
 						<p className="max-tokens">
 							<code className="max-tokens-name">max_tokens</code>{" "}
-							<span className="max-tokens-value">{maxTokens.value}</span>{" "}
+							{/* Formatted like every other token count on the panel: the same
+							    number in two renderings on one screen reads as two numbers. */}
+							<span className="max-tokens-value">{formatTokens(maxTokens.value)}</span>{" "}
 							{maxTokens.source !== undefined ? <Provenance source={maxTokens.source} /> : null}{" "}
 							{maxTokens.mark !== undefined ? <Mark mark={maxTokens.mark} /> : null}
 							{maxTokens.reason !== undefined ? <span className="hint">{maxTokens.reason}</span> : null}
@@ -1002,26 +1053,45 @@ export function ModelInspector({
 						<div>
 							<dt>{l10n.t("Always sent")}</dt>
 							<dd>
-								{ALWAYS_SENT_FIELDS.map((field) => (
-									<code key={field}>{field}</code>
+								{/* Separated by real whitespace, not by the margin alone: without
+								    it a screen reader reads one run-together token. */}
+								{ALWAYS_SENT_FIELDS.map((field, index) => (
+									<Fragment key={field}>
+										{index > 0 ? " " : null}
+										<code>{field}</code>
+									</Fragment>
 								))}
-								<span className="hint">{l10n.t("+ tools, tool_choice with tools; not overridable")}</span>
+							</dd>
+						</div>
+						{/* Its own row rather than a qualifier trailing the always-sent
+						    line: "tools" appeared twice on that line, three words apart and
+						    in two registers, leaving the reader to work out which one
+						    qualified which. */}
+						<div>
+							<dt>{l10n.t("Sent with tools")}</dt>
+							<dd>
+								<code>tools</code> <code>tool_choice</code>
 							</dd>
 						</div>
 						<div>
 							<dt>{l10n.t("Runtime options")}</dt>
 							<dd className="hint">
-								{projection?.rows.some((row) => row.forced === true) === true
-									? l10n.t("Set per request by the chat client; they override every row above except forced rows.")
-									: l10n.t("Set per request by the chat client; they override every row above.")}
+								{/* max_tokens is forced from the derivation line, not from a
+								    row, and runtime options lose to it just the same - so the
+								    exception has to count it or this line contradicts the
+								    forced value rendered directly above it. */}
+								{projection !== undefined &&
+								(projection.rows.some((row) => row.forced === true) || projection.maxTokens.source === "forced")
+									? l10n.t("Overrides every table row above except forced rows.")
+									: l10n.t("Overrides every table row above.")}
 							</dd>
 						</div>
 						{model.reasoning ? (
 							<div>
-								<dt>{l10n.t("Picker: reasoning effort")}</dt>
-								<dd className="hint">
-									{l10n.t("Chosen in Configure Model and stored by VS Code; overrides reasoning_effort here.")}
-								</dd>
+								{/* The label names the command that owns the pick, which is the
+								    only pointer to where the value actually lives. */}
+								<dt>{l10n.t("Configure Model pick")}</dt>
+								<dd className="hint">{l10n.t("Overrides reasoning_effort here.")}</dd>
 							</div>
 						) : null}
 					</dl>
@@ -1125,10 +1195,15 @@ export function ModelInspector({
 									) : null}
 								</ResolutionTable>
 							) : null}
-							<p className="output-limit hint">{outputLimitNote(caps)}</p>
+							<dl className="inspector-notes output-limit">
+								<div>
+									<dt>{l10n.t("Output limit")}</dt>
+									<dd className="hint">{outputLimitNote(caps)}</dd>
+								</div>
+							</dl>
 							{problems.length > 0 ? (
 								<div className="record-problems">
-									<p className="hint">{l10n.t("Configuration problems in the matched records:")}</p>
+									<h5 className="hint">{l10n.t("Record problems")}</h5>
 									<ul>
 										{problems.map((diagnostic) => (
 											<li key={`${diagnostic.layer}/${diagnostic.recordKey}/${diagnostic.key}`}>
@@ -1140,7 +1215,7 @@ export function ModelInspector({
 							) : null}
 							{advisories.length > 0 ? (
 								<div className="record-problems record-notes">
-									<p className="hint">{l10n.t("Notes on the matched records:")}</p>
+									<h5 className="hint">{l10n.t("Record notes")}</h5>
 									<ul>
 										{advisories.map((diagnostic) => (
 											<li key={`${diagnostic.layer}/${diagnostic.recordKey}/${diagnostic.key}`} className="hint">
@@ -1179,7 +1254,7 @@ export function ModelInspector({
 							{l10n.t("The model list changed; close and reopen the inspector.")}
 						</p>
 					) : pricingNames.length > 0 ? (
-						<ResolutionTable nameHead={l10n.t("Tokens")} valueHead={l10n.t("Price")}>
+						<ResolutionTable nameHead={l10n.t("Tokens")} valueHead={l10n.t("Price")} numericValues>
 							<tbody>
 								{pricingNames.map((name) => {
 									const field = capabilityField(caps.fields, name);

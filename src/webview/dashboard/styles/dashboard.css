@@ -1123,6 +1123,11 @@
 	.model-inspector col.res-col-name {
 		width: 26%;
 	}
+	/* PAIRED WITH VALUE_CLIP_CH in modelInspector.tsx: the renderer decides
+		 which values get a focusable full-text tip from a width this share has to
+		 back up. Narrowing this track without lowering that threshold silently
+		 produces values that clip with no keyboard-reachable text, which is why
+		 the pairing is named in both places. */
 	.model-inspector col.res-col-value {
 		width: 22%;
 	}
@@ -1166,6 +1171,16 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+	/* Numerics right-align in every tabular context in the dashboard, which is
+		 also what stacks a beaten number under the one that beat it. Only NUMBERS:
+		 the column also carries yes/no, JSON and prose, and right-aligning a word
+		 only pushes it away from the name it belongs to. The selectors carry the
+		 cell's own element, because the rule they override
+		 (table.resolution td, above) does too. */
+	.model-inspector table.resolution td.res-value.num,
+	.model-inspector table.resolution thead th.num {
+		text-align: right;
 	}
 	.model-inspector .res-value .tip-wrap {
 		max-width: 100%;
@@ -1371,10 +1386,6 @@
 	.model-inspector .inspector-notes dd code {
 		margin-right: 8px;
 	}
-	.model-inspector .inspector-notes dd .hint {
-		display: block;
-		margin: 2px 0 0;
-	}
 	.model-inspector .output-limit {
 		margin: 10px 0 0;
 	}
@@ -1384,17 +1395,19 @@
 	.model-inspector .record-problems {
 		margin: 10px 0 0;
 	}
-	.model-inspector .record-problems p {
+	.model-inspector .record-problems h5 {
 		margin: 0;
+		font-size: 1em;
+		font-weight: 400;
 	}
 	/* The one place in the panel where severity is real: a value the reader set
 		   is being ignored. Provenance stays colorless precisely so this can carry
 		   the warning tone; the advisory notes below stay muted, because an
 		   unrecognized key APPLIES and is only possibly a typo. */
-	.model-inspector .record-problems > p {
+	.model-inspector .record-problems > h5 {
 		color: var(--warn-text);
 	}
-	.model-inspector .record-notes > p {
+	.model-inspector .record-notes > h5 {
 		color: var(--muted-foreground);
 	}
 	.model-inspector .record-problems ul {

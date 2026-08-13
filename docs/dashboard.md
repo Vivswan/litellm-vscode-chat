@@ -79,11 +79,11 @@ Every model your servers report, as registered with Copilot Chat, in a sortable 
 
 Each row's quiet Inspect action opens the model inspector, one side panel with a Parameters, a Capabilities, and a Pricing section. The Parameters section answers one question: what would a request to this model actually carry?
 
-- The table lists every configured parameter that matches the model, its value, and which layer and key set it - `Server entry "prod" - key "gpt-5*"` or `Settings - key "*"` - naming the winning [matcher](models.md#model-matching). Where a more specific match or a higher layer overrode another, the losing value shows struck through underneath, so a matcher that fires when you did not expect it is one glance away from its culprit.
+- The table lists every configured parameter that matches the model, its value, and one badge naming where the value came from - `entry gpt-5*` or `settings *`, the winning [matcher](models.md#model-matching). Where a more specific match or a higher layer overrode another, the losing value shows struck through underneath with its own badge, so a matcher that fires when you did not expect it is one glance away from its culprit.
 - Forced fields are marked as forced: they will beat even the chat client's runtime options ([the full precedence](models.md#parameters)).
 - Keys the extension refuses to forward (provider-owned fields, keys starting with `_`) render muted with the reason.
 - A `max_tokens` line is always present, stating the value and where it came from: your configuration, the server's declared output limit, or the capped default.
-- The model's record-matching chain sits behind a collapsed Record paths disclosure at the section's end, each key jumping into the editor that owns it.
+- The model's record-matching chain closes the section in the open, one Record path line per layer, each key jumping into the editor that owns it.
 
 The panel renders from the same resolution code the request path runs, so it cannot drift from real requests. Two things it honestly cannot show: runtime options the chat client sets on each request (they override any *unforced* parameter listed), and a reasoning model's Configure Model pick, which VS Code stores on its side.
 
@@ -91,10 +91,10 @@ The panel renders from the same resolution code the request path runs, so it can
 
 The inspector's Capabilities section answers the other question: what does the extension believe this model can do, and why?
 
-- Every capability field is listed with its resolved value and source - a server entry's or the global `models.capabilities` record (naming the winning matcher key), the server's own report, a fallback-marked field, an OpenRouter catalog entry (explicit `_openrouter_model`, or an implicit match by exact ID or unambiguous post-vendor suffix), the context-minus-output derivation, or the built-in default - with overridden values shown beneath the winner (the full [precedence](models.md#capabilities)).
-- A line under the table states whether the output limit goes out uncapped (user-set or server-declared) or capped at 4096 (a guessed default).
-- Configuration problems in the matched records - invalid values, an invalid regex matcher, an `_openrouter_model` ID the catalog does not know - are called out here, beside the rows they affect. A field name the extension does not consume gets an advisory note instead - the value applies as an override as-is, and the note appears only when the server's own `/model/info` key set is known, non-empty, and does not carry the name ([capability fields](models.md#capability-fields)).
-- This section closes with its own collapsed Record paths disclosure, the capability records' matching chain.
+- Every capability field is listed with its resolved value and a source badge - a server entry's or the global `models.capabilities` record (naming the winning matcher key), the server's own report, an OpenRouter catalog entry (explicit `_openrouter_model`, or an implicit match by exact ID or unambiguous post-vendor suffix), the context-minus-output derivation, or the built-in default - with the directive that did the work as a quiet mark beside it (`fallback`, `matched`) and overridden values shown beneath the winner (the full [precedence](models.md#capabilities)).
+- An Output limit line under the table states whether the limit goes out uncapped (user-set or server-declared) or capped at 4,096 (a guessed default).
+- Record problems - invalid values, an invalid regex matcher, an `_openrouter_model` ID the catalog does not know - are called out here, beside the rows they affect. A field name the extension does not consume gets an advisory note instead - the value applies as an override as-is, and the note appears only when the server's own `/model/info` key set is known, non-empty, and does not carry the name ([capability fields](models.md#capability-fields)).
+- This section closes with its own Record path line, the capability records' matching chain.
 
 It renders from the same resolver the registration path runs, so what it shows is what Copilot Chat was told.
 
