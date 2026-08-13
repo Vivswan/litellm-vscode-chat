@@ -30,7 +30,7 @@
 		 survive being filtered away with its draft intact - so the reset belongs
 		 here, once, rather than as a display:none the next author has to remember
 		 to pair with their layout. `until-found` keeps its find-in-page behavior. */
-	[hidden]:not([hidden="until-found"]) {
+	[hidden]:not([hidden="until-found" i]) {
 		display: none !important;
 	}
 	/* Buttons are typographic now - rank is weight and color, and the fill
@@ -166,6 +166,21 @@
 		 outlines every control there, and a borderless button stops reading as
 		 one, so this is the single token that turns the outline back on. */
 	--control-outline: transparent;
+	/* Status colour AS TEXT. The raw hues are tuned to be seen on a dark
+		 editor, and three of them are unreadable as words on a light one: the
+		 passing green measures 2.0:1 on white, the warning 3.1:1, the error
+		 3.4:1, all under AA - and that is not our palette being wrong, it is
+		 what VS Code's own Light Modern publishes. A meter or a bar can stay
+		 bright, because a shape carries no reading burden; a word cannot.
+
+		 These are ALIASES, so they are declared here on :root alone and never
+		 on body. A plain alias declared on body would match body directly and
+		 beat the forced-theme override, which lives on html - and the forced
+		 light palette is precisely the case this exists for. Only derivations
+		 that read a per-surface input belong in the :root, body block below. */
+	--ok-text: var(--ok);
+	--warn-text: var(--warn);
+	--err-text: var(--err);
 }
 
 /* Everything a LIGHT surface changes, in one block. The host decides whenever
@@ -175,6 +190,32 @@
 html[data-theme="auto"] body.vscode-light,
 body.vscode-high-contrast-light {
 	--state-mix: 8%;
+	/* Darkened toward BLACK rather than toward the foreground: mixing a status
+		 hue into grey costs it its identity - a warning turns brown at the ratio
+		 needed to clear AA - while mixing into black holds chroma, and on a light
+		 surface darkening is what raises contrast anyway. This also reaches high
+		 contrast light, where it only ever increases contrast; HC keeps its hues,
+		 it just states them darker. */
+	--ok-text: color-mix(in oklab, var(--ok) 65%, black);
+	--warn-text: color-mix(in oklab, var(--warn) 65%, black);
+	--err-text: color-mix(in oklab, var(--err) 65%, black);
+	/* The muted tier below is derived and therefore lighter than the body text
+		 these two want to sit beside, so on light they take --foreground instead:
+		 the destructive control at rest fell from 5.93:1 to 4.40:1 when it
+		 followed the tier, and the chip lost a third of its presence. */
+	--err-quiet: color-mix(in srgb, var(--err) 55%, var(--foreground));
+	--chip: color-mix(in srgb, var(--foreground) 14%, transparent);
+	/* Light Modern publishes descriptionForeground IDENTICAL to foreground, so
+		 a light dashboard has no secondary tier at all - every muted label reads
+		 at full strength. Derived from the theme's own two colours rather than
+		 pinned to a literal, so it lands sensibly on any light host instead of
+		 only on ours.
+
+		 The ratio is biased toward legibility rather than separation: this
+		 replaces whatever the host chose, so it has to beat a good host's own
+		 value, not merely differ from body text. At 78% it measures 6.1:1 on
+		 Light Modern and 6.7:1 on a representative off-white host. */
+	--muted-foreground: color-mix(in oklab, var(--foreground) 78%, var(--background));
 	--diag-hairline: rgb(0 0 0 / 7%);
 	--hue-violet: #6b46c1;
 	--hue-teal: #0f766e;
@@ -368,6 +409,12 @@ html:where(:not(:has(body.vscode-high-contrast, body.vscode-high-contrast-light)
 		/* The same list the host-derived rule above sets; the theme test pins the
 			 two against each other so they cannot drift apart. */
 		--state-mix: 8%;
+		--ok-text: color-mix(in oklab, var(--ok) 65%, black);
+		--warn-text: color-mix(in oklab, var(--warn) 65%, black);
+		--err-text: color-mix(in oklab, var(--err) 65%, black);
+		--err-quiet: color-mix(in srgb, var(--err) 55%, var(--foreground));
+		--chip: color-mix(in srgb, var(--foreground) 14%, transparent);
+		--muted-foreground: color-mix(in oklab, var(--foreground) 78%, var(--background));
 		--diag-hairline: rgb(0 0 0 / 7%);
 		--hue-violet: #6b46c1;
 		--hue-teal: #0f766e;
@@ -425,7 +472,7 @@ html:where(:not(:has(body.vscode-high-contrast, body.vscode-high-contrast-light)
 			 green for dark surfaces and lands at about 2:1 on #ffffff, so a forced
 			 light theme used to paint every ok state - status dots, spend meters -
 			 in a green you have to hunt for. */
-		--vscode-testing-iconPassed: #007100 !important;
+		--vscode-testing-iconPassed: #73c991 !important;
 		--vscode-textBlockQuote-background: #f8f8f8 !important;
 		--vscode-textCodeBlock-background: #f8f8f8 !important;
 		--vscode-textLink-activeForeground: #005fb8 !important;
@@ -452,6 +499,18 @@ html:where(:not(:has(body.vscode-high-contrast, body.vscode-high-contrast-light)
 		 #ffffff, so the three hues of our own name their light values. Blue needs
 		 no entry - it follows the button color, and a forced theme now sets that
 		 too. */
+	/* The body twin, and it is not redundancy. --err-quiet and --chip are
+		 DERIVATIONS that read a per-surface input, so they are declared in the
+		 `:root, body` block - which means body declares them directly, and a
+		 direct declaration on body beats an inherited value from html. The block
+		 above sets them on html and loses; this sets them where they win. Under
+		 `auto` the same overrides ride the light rule, which is already a body
+		 selector, so only the forced theme needs the twin. */
+	&[data-theme="light"] body {
+		--err-quiet: color-mix(in srgb, var(--err) 55%, var(--foreground));
+		--chip: color-mix(in srgb, var(--foreground) 14%, transparent);
+	}
+
 	&[data-theme="light"][data-accent="violet"] {
 		--accent-hue: var(--hue-violet);
 		--ring: var(--hue-violet);
@@ -592,9 +651,16 @@ body.vscode-high-contrast-light {
 	/* The theme/accent layer: severity and its per-theme tints, the accent and
 		 the washes derived from it. Advisory tints (-soft) fill whole blocks;
 		 the interactive washes carry hover and selection. */
-	--color-ok: var(--ok);
-	--color-warn: var(--warn);
-	--color-err: var(--err);
+	/* text-ok / text-warn / text-err resolve to the readable tier, so a
+		 severity colour used as a word is AA without anyone having to know. The
+		 raw hues stay reachable for shapes under an explicit -fill name: a meter
+		 or a dot carries no reading burden and wants the bright colour. */
+	--color-ok: var(--ok-text);
+	--color-warn: var(--warn-text);
+	--color-err: var(--err-text);
+	--color-ok-fill: var(--ok);
+	--color-warn-fill: var(--warn);
+	--color-err-fill: var(--err);
 	--color-err-wash: var(--err-wash);
 	--color-err-quiet: var(--err-quiet);
 	--color-err-strong: var(--err-strong);

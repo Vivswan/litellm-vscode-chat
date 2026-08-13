@@ -123,10 +123,17 @@ test("the hidden attribute beats a display utility", async () => {
 	// settings filter and the record editors hide a row without unmounting the
 	// draft inside it. happy-dom runs no cascade, so the component suites cannot
 	// catch this; the stylesheet is the only place it can be pinned.
-	const rule = output.match(/\[hidden\][^{]*\{[^}]*\}/)?.[0] ?? "";
-	expect(rule.replace(/\s+/g, "")).toContain("display:none");
-	expect(rule).toContain("!important");
-	expect(rule).toContain("until-found");
+	// Anchored at the start of a line: an unanchored match begins at the
+	// `[hidden]` inside the explanatory comment above the rule and walks to the
+	// real rule's brace, so the assertions pass off the comment's own words -
+	// deleting the exclusion entirely left this green.
+	const rule = /^\s*\[hidden\][^{]*\{[^}]*\}/m.exec(output)?.[0] ?? "";
+	expect(rule.replace(/\s+/g, "")).toContain("display:none!important");
+	// Case-insensitively, because the user agent matches the value that way:
+	// hidden="UNTIL-FOUND" is until-found to Chrome and must stay findable.
+	expect(rule).toMatch(/until-found"\s*i/);
+	// And the utility it has to beat really compiles.
+	expect(output).toContain("display: grid");
 });
 
 test("the disabled utilities settle after the hover ones", async () => {
@@ -224,7 +231,7 @@ test("high contrast wins: nothing either appearance setting drives escapes the g
 	expect(hostDerived).toHaveLength(1);
 	// An exact count, not a floor: a floor lets one more unguarded rule through,
 	// which is the mistake this test exists to catch. Update it deliberately.
-	expect(forced).toHaveLength(11);
+	expect(forced).toHaveLength(12);
 	expect(forced.filter((selector) => !selector.includes(guard))).toBeEmpty();
 });
 
@@ -268,4 +275,78 @@ test("the two light blocks agree on everything a light surface changes", () => {
 	// finding nothing cannot pass the equality below vacuously.
 	expect(ownTokens(hostDerived).length).toBeGreaterThanOrEqual(4);
 	expect(ownTokens(forcedBlock("light"))).toEqual(ownTokens(hostDerived));
+});
+
+test("severity as text resolves to the readable tier, as fills to the raw hue", async () => {
+	// The raw hues are tuned for a dark editor: on white the passing green
+	// measures 2.0:1, the warning 3.1:1, the error 3.4:1, all under AA - which
+	// is what VS Code's own Light Modern publishes, not a mistake of ours.
+	//
+	// The repair is a TOKEN, not a class, because the two consumers never meet
+	// otherwise: the legacy stylesheet paints pills through .tone-*, while
+	// components use the text-ok/text-warn/text-err utilities compiled from the
+	// theme mapping. A class-only fix repairs the pills and silently leaves
+	// every utility consumer failing, in light only.
+	const output = await compileTheme();
+	const source = readFileSync(themeEntry, "utf8");
+	for (const hue of ["ok", "warn", "err"] as const) {
+		expect(output).toContain(`--${hue}-text: var(--${hue})`);
+		expect(output).toContain(`--${hue}-text: color-mix(in oklab, var(--${hue}) 65%, black)`);
+		// The @theme inline mapping bakes its chain into the utilities rather
+		// than emitting a property, so the mapping itself is read from source
+		// and its effect from the compiled utility below.
+		expect(source).toContain(`--color-${hue}: var(--${hue}-text);`);
+		expect(source).toContain(`--color-${hue}-fill: var(--${hue});`);
+	}
+	// The utilities that exist today are text ones, and they must carry the
+	// readable tier: these are live call sites in the server editor.
+	expect(output).toContain(".text-err {\n    color: var(--err-text);");
+	expect(output).toContain(".text-warn {\n    color: var(--warn-text);");
+	const legacy = readFileSync(legacyEntry, "utf8");
+	expect(/\.tone-ok \{\s*color: var\(--ok-text\);/.test(legacy)).toBe(true);
+	// No status hue may still be painted as text anywhere in the legacy sheet.
+	const rawText = [
+		...legacy.matchAll(
+			/\n\s*color: var\(--vscode-(testing-iconPassed|errorForeground|editorWarning-foreground|notificationsWarningIcon-foreground)/g
+		),
+	];
+	expect(rawText).toBeEmpty();
+});
+
+test("the status text aliases are declared on :root alone, never on body", () => {
+	// A plain alias declared on `body` matches body DIRECTLY, which beats the
+	// forced-theme override on `html` - so the forced light palette kept the raw
+	// hue and the whole fix was dead in the one mode it was written for. Only
+	// derivations that read a per-surface input belong in the `:root, body`
+	// block.
+	const source = readFileSync(themeEntry, "utf8");
+	const rootAndBody = /:root,\nbody \{([\s\S]*?)\n\}/.exec(source)?.[1] ?? "";
+	expect(rootAndBody.length).toBeGreaterThan(0);
+	for (const hue of ["ok", "warn", "err"] as const) {
+		expect(rootAndBody).not.toContain(`--${hue}-text:`);
+	}
+});
+
+test("the forced light palette keeps Light Modern's passing green, low contrast and all", () => {
+	// This value has been wrong once already, in a landed commit, on the belief
+	// that #007100 is the registry's light value. It is the hcLight value. The
+	// registry reads {dark:#73c991, light:#73c991, hcDark:#73c991,
+	// hcLight:#007100} and light_modern.json does not override it, so VS Code's
+	// own light theme really does ship a ~2:1 passing green.
+	//
+	// The palette is documented as faithful to Light Modern, and a palette that
+	// quietly "improves" one value is a palette nobody can trust to describe the
+	// host - the render harness then agrees with the edit and hides it. The
+	// contrast repair belongs to --ok-text, which is measured and tested above.
+	const light = forcedBlock("light");
+	expect(light).toContain("--vscode-testing-iconPassed: #73c991");
+	expect(light).not.toContain("#007100");
+	// The high contrast light emulation is where #007100 legitimately lives.
+	const harness = readFileSync(
+		path.resolve(import.meta.dir, "../../../../../../scripts/dev/render-dashboard.ts"),
+		"utf8"
+	);
+	const lightEmulation = /function lightCss\(\)[\s\S]*?\n\}/.exec(harness)?.[0] ?? "";
+	expect(lightEmulation).toContain("--vscode-testing-iconPassed: #73c991");
+	expect(harness).toContain("--vscode-testing-iconPassed: #007100");
 });

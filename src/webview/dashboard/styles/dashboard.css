@@ -107,14 +107,16 @@
 		color: var(--vscode-descriptionForeground);
 		font-weight: 400;
 	}
+	/* Text, so these read the -text tier: the raw status hues are unreadable as
+		   words on a light surface. The meter fills below stay raw. */
 	.tone-ok {
-		color: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+		color: var(--ok-text);
 	}
 	.tone-error {
-		color: var(--vscode-errorForeground);
+		color: var(--err-text);
 	}
 	.tone-warn {
-		color: var(--vscode-notificationsWarningIcon-foreground, var(--vscode-charts-yellow));
+		color: var(--warn-text);
 	}
 	.tone-muted {
 		color: var(--vscode-descriptionForeground);
@@ -276,9 +278,6 @@
 		font-weight: 600;
 		white-space: nowrap;
 	}
-	table.servers .usage-cell.tone-warn {
-		color: var(--vscode-editorWarning-foreground);
-	}
 	th,
 	td {
 		text-align: left;
@@ -363,7 +362,7 @@
 	}
 
 	.error {
-		color: var(--vscode-errorForeground);
+		color: var(--err-text);
 	}
 
 	/* The "?" help affordance next to section titles and field labels: a
@@ -505,10 +504,10 @@
 		padding: 2px 0 10px 12px;
 	}
 	.diag-grid tr.diag-note.error td {
-		color: var(--vscode-errorForeground);
+		color: var(--err-text);
 	}
 	.diag-grid tr.diag-note.warn td {
-		color: var(--vscode-notificationsWarningIcon-foreground, var(--vscode-charts-yellow));
+		color: var(--warn-text);
 	}
 	.diag-url {
 		font-family: var(--vscode-editor-font-family);
@@ -756,10 +755,10 @@
 		color: var(--vscode-descriptionForeground);
 	}
 	.state-ok {
-		color: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+		color: var(--ok-text);
 	}
 	.state-warn {
-		color: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow));
+		color: var(--warn-text);
 	}
 	.state-muted {
 		color: var(--vscode-descriptionForeground);
@@ -939,7 +938,7 @@
 		font-size: 0.9em;
 	}
 	.apply-status.saved {
-		color: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+		color: var(--ok-text);
 	}
 	/* Another scope's record, rendered with the same row grid but inert. */
 	.other-scope {
@@ -1451,7 +1450,7 @@
 		   this size - so the banner's body stays on the plain foreground. */
 	.banner-error,
 	.banner-error .error {
-		color: var(--vscode-foreground);
+		color: var(--err-text);
 	}
 	.banner-warn {
 		border-color: var(--vscode-inputValidation-warningBorder, var(--vscode-editorWarning-foreground));
@@ -1742,10 +1741,10 @@
 		font-weight: 600;
 	}
 	.usage-percent.tone-warn {
-		color: var(--vscode-editorWarning-foreground);
+		color: var(--warn-text);
 	}
 	.usage-percent.tone-error {
-		color: var(--vscode-errorForeground);
+		color: var(--err-text);
 	}
 	.usage-bar {
 		height: 6px;
@@ -1823,7 +1822,7 @@
 		color: var(--vscode-descriptionForeground);
 	}
 	.tree-barrier {
-		color: var(--vscode-editorWarning-foreground);
+		color: var(--warn-text);
 	}
 	/* The inspectors' record-path figure: one hint-toned line per map, keys as
 		   quiet inline jumps sharing the tree's barrier tone for the markers. Each
