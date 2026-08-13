@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.5.0](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.4.7...v0.5.0) (2026-08-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* port the dashboard webview from Preact to React 19
+* redesign the dashboard message protocol around one endpoint table
+
+### Features
+
+* add Tailwind with a VS Code theme-token design system ([b500be4](https://github.com/Vivswan/litellm-vscode-chat/commit/b500be44ca96bac5060e67fc8d3e10d9b8c678a0))
+* add the Radio primitive and let a disabled quiet button stay quiet ([f1dc661](https://github.com/Vivswan/litellm-vscode-chat/commit/f1dc6613136a952fa9771b37001e1b8f08bb2d24))
+* adopt shadcn primitives on the token theme ([a5c80e7](https://github.com/Vivswan/litellm-vscode-chat/commit/a5c80e730bf5fbe2c924f33eebfdbec11a99d2b6))
+* move the slide-over onto Radix Dialog ([4e2d377](https://github.com/Vivswan/litellm-vscode-chat/commit/4e2d377a352e569f5c35770005b22b6086ed265f))
+
+
+### Bug Fixes
+
+* drop a non-array object content delta instead of coercing it ([e45bfaa](https://github.com/Vivswan/litellm-vscode-chat/commit/e45bfaa91e7d640028ab42826af85aa60252910a))
+* pin diagnostic severity and singleton creation points structurally ([f29c953](https://github.com/Vivswan/litellm-vscode-chat/commit/f29c953d4de85edb5197f96da5b100ad0dbafd98))
+* reopen the record-jump render fixture through the Inspect button ([27b4587](https://github.com/Vivswan/litellm-vscode-chat/commit/27b4587a2230f8e50f5053787fbf198e91e437ba))
+* restore the slide-over's pointer and keyboard dismissal under Radix ([bf1307e](https://github.com/Vivswan/litellm-vscode-chat/commit/bf1307ec6cb00a49e7c02c0d4fceb44a2290b631))
+
+
+### Code Refactoring
+
+* port the dashboard webview from Preact to React 19 ([2cdb37c](https://github.com/Vivswan/litellm-vscode-chat/commit/2cdb37cf917240be3b64af393acd829c91953b78))
+* redesign the dashboard message protocol around one endpoint table ([7892c33](https://github.com/Vivswan/litellm-vscode-chat/commit/7892c336e5a07fbfe91d6d3e1ffd04ea992946f9))
+
 ## [0.4.7](https://github.com/Vivswan/litellm-vscode-chat/compare/v0.4.6...v0.4.7) (2026-08-12)
 
 
