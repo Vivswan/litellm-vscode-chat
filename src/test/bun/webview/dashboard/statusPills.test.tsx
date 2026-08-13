@@ -19,7 +19,15 @@ afterEach(() => {
 });
 
 function mountSection(servers: readonly ReturnType<typeof makeDeclaredServer>[]) {
-	return mount(<ServersSection servers={servers} now={Date.now()} />);
+	return mount(
+		<ServersSection
+			servers={servers}
+			now={Date.now()}
+			onEditServer={() => {}}
+			onAdoptServer={() => {}}
+			onAddServer={() => {}}
+		/>
+	);
 }
 
 test("relativeTime rounds to the coarsest readable unit and tolerates clock drift and garbage", () => {

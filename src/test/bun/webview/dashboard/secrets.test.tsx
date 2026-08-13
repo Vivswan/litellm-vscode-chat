@@ -68,11 +68,21 @@ function readInlineRequest(): RpcRequest<"readInlineSecrets"> {
 	return message;
 }
 
-const apiKeyInput = (root: ParentNode) => inputByLabel(root, "API key");
+/**
+ * Every query in this file is about the edit destination, and the shell around
+ * it has surfaces with controls of the same name (the diagnostics view has its
+ * own Test connection). Scoping here keeps a shell-wide lookup from answering
+ * with someone else's button.
+ */
+function page(root: ParentNode): HTMLElement {
+	return (root.querySelector(".server-edit-page") ?? root) as HTMLElement;
+}
+
+const apiKeyInput = (root: ParentNode) => inputByLabel(page(root), "API key");
 
 /** Open the edit form on the first server row. */
 function openEdit(root: HTMLElement): void {
-	fireClick(buttonByText(root, "Edit"));
+	fireClick(buttonByText(page(root), "Edit"));
 }
 
 test("secure-side values never render, even against a poisoned state carrying forbidden value fields", () => {
@@ -111,7 +121,7 @@ test("secure-side values never render, even against a poisoned state carrying fo
 test("the storage line beside a secret states where the value will land, and claims nothing when nothing is stored", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [declaredWithSecrets({ apiKey: "secure" })] })));
-	fireClick(buttonByText(root, "Add server"));
+	fireClick(buttonByText(page(root), "Add server"));
 	const apiKeyForm = [...root.querySelectorAll(".auth-selector label")].find(
 		(label) => (label.textContent ?? "").trim() === "API key (bearer)"
 	);
@@ -148,7 +158,7 @@ test("a secure-stored field never triggers a prefill request and its untouched s
 	expectNowhere(SENTINEL);
 
 	// Save is not gated (no prefill pending) and an untouched field keeps.
-	fireClick(buttonByText(root, "Save"));
+	fireClick(buttonByText(page(root), "Save"));
 	const saved = lastPosted() as RpcRequest<"saveServerSetting">;
 	expect(saved.method).toBe("saveServerSetting");
 	expect(saved.payload.secrets.apiKey).toEqual({ action: "keep" });
@@ -168,7 +178,7 @@ test("the sanctioned prefill path: masked value lands only in its own input, and
 
 	// Save waits for the response: saving now would assemble "keep" and
 	// silently drop a relocation the user just picked.
-	expect(buttonByText(root, "Save").disabled).toBe(true);
+	expect(buttonByText(page(root), "Save").disabled).toBe(true);
 	expect(root.textContent).toContain("Loading stored values...");
 
 	pushToWebview({
@@ -180,7 +190,7 @@ test("the sanctioned prefill path: masked value lands only in its own input, and
 	const input = apiKeyInput(root);
 	expect(input.value).toBe(SENTINEL);
 	expect(input.type).toBe("password");
-	expect(buttonByText(root, "Save").disabled).toBe(false);
+	expect(buttonByText(page(root), "Save").disabled).toBe(false);
 	// The sentinel appears in exactly one place: that field's value property.
 	expectOnlyInApiKeyInput(SENTINEL);
 });
@@ -203,20 +213,20 @@ test("Show reveals, Hide re-masks, and the revealed state does not survive closi
 	// attribute or visible text).
 	const input = apiKeyInput(root);
 	expect(input.type).toBe("password");
-	fireClick(buttonByText(root, "Show"));
+	fireClick(buttonByText(page(root), "Show"));
 	expect(apiKeyInput(root).type).toBe("text");
 	expectOnlyInApiKeyInput(SENTINEL);
-	fireClick(buttonByText(root, "Hide"));
+	fireClick(buttonByText(page(root), "Hide"));
 	expect(apiKeyInput(root).type).toBe("password");
 	expectOnlyInApiKeyInput(SENTINEL);
 
 	// Reveal again, close, reopen: the next form starts masked (a revealed
 	// input surviving into the next form is a shoulder-surf leak the value
 	// scrub alone does not catch).
-	fireClick(buttonByText(root, "Show"));
+	fireClick(buttonByText(page(root), "Show"));
 	expect(apiKeyInput(root).type).toBe("text");
 	expectOnlyInApiKeyInput(SENTINEL);
-	fireClick(buttonByText(root, "Discard changes"));
+	fireClick(buttonByText(page(root), "Discard changes"));
 	expectNowhere(SENTINEL);
 	resetPosted();
 	openEdit(root);
@@ -248,7 +258,7 @@ test("a stale inlineSecrets response never prefills the current form and its sen
 	expect(apiKeyInput(root).value).toBe("");
 	expectNowhere(SENTINEL);
 	// The form is still waiting on its own response, so Save stays gated.
-	expect(buttonByText(root, "Save").disabled).toBe(true);
+	expect(buttonByText(page(root), "Save").disabled).toBe(true);
 	expectNowhere(SENTINEL);
 });
 
@@ -267,7 +277,7 @@ test("closing the form scrubs the prefill and reopening posts a fresh readInline
 	});
 	expectOnlyInApiKeyInput(SENTINEL);
 
-	fireClick(buttonByText(root, "Discard changes"));
+	fireClick(buttonByText(page(root), "Discard changes"));
 	// Full sweep after close: no input value, attribute, or text retains it.
 	expectNowhere(SENTINEL);
 
@@ -295,7 +305,7 @@ test("a typed secret leaves the page only as a directive: set, keep for untouche
 	});
 	expectOnlyInApiKeyInput(SENTINEL);
 	resetPosted();
-	fireClick(buttonByText(root, "Save"));
+	fireClick(buttonByText(page(root), "Save"));
 	const kept = lastPosted() as RpcRequest<"saveServerSetting">;
 	expect(kept.payload.secrets.apiKey).toEqual({ action: "keep" });
 	// In flight, the value still sits only in its input; the ack-driven close scrubs it.
@@ -316,7 +326,7 @@ test("a typed secret leaves the page only as a directive: set, keep for untouche
 	expectNowhere(SENTINEL);
 	expectOnlyInApiKeyInput(TYPED);
 	resetPosted();
-	fireClick(buttonByText(root, "Save"));
+	fireClick(buttonByText(page(root), "Save"));
 	const set = lastPosted() as RpcRequest<"saveServerSetting">;
 	expect(set.payload.secrets.apiKey).toEqual({ action: "set", location: "settings", value: TYPED });
 	expectOnlyInApiKeyInput(TYPED);
@@ -339,7 +349,7 @@ test("a typed secret leaves the page only as a directive: set, keep for untouche
 	// The disabled input keeps its draft text; ticking must not echo it elsewhere.
 	expectOnlyInApiKeyInput(SENTINEL);
 	resetPosted();
-	fireClick(buttonByText(root, "Save"));
+	fireClick(buttonByText(page(root), "Save"));
 	const cleared = lastPosted() as RpcRequest<"saveServerSetting">;
 	expect(cleared.payload.secrets.apiKey).toEqual({ action: "clear" });
 	expect(Object.keys(cleared.payload.secrets.apiKey)).toEqual(["action"]);
@@ -364,7 +374,7 @@ test("a draft-connection test carries the typed secret only in its intent; both 
 	// An untouched prefill tests as keep: the value goes nowhere, the
 	// extension re-reads it from the setting itself.
 	resetPosted();
-	fireClick(buttonByText(root, "Test connection"));
+	fireClick(buttonByText(page(root), "Test connection"));
 	const kept = lastPosted() as RpcRequest<"testServerDraft">;
 	expect(kept.method).toBe("testServerDraft");
 	expect(kept.payload.secrets.apiKey).toEqual({ action: "keep" });
@@ -385,7 +395,7 @@ test("a draft-connection test carries the typed secret only in its intent; both 
 	fireInput(apiKeyInput(root), TYPED);
 	expectNowhere(SENTINEL);
 	resetPosted();
-	fireClick(buttonByText(root, "Test connection"));
+	fireClick(buttonByText(page(root), "Test connection"));
 	const set = lastPosted() as RpcRequest<"testServerDraft">;
 	expect(set.payload.secrets.apiKey).toEqual({ action: "set", location: "settings", value: TYPED });
 	expectOnlyInApiKeyInput(TYPED);
@@ -423,7 +433,7 @@ test("relocating an untouched prefill to secure storage posts set with the prefi
 	expectOnlyInApiKeyInput(SENTINEL);
 
 	resetPosted();
-	fireClick(buttonByText(root, "Save"));
+	fireClick(buttonByText(page(root), "Save"));
 	const saved = lastPosted() as RpcRequest<"saveServerSetting">;
 	expect(saved.method).toBe("saveServerSetting");
 	expect(saved.payload.secrets.apiKey).toEqual({ action: "set", location: "secure", value: SENTINEL });
@@ -476,7 +486,7 @@ test("the disarmed secret input still round-trips typing, paste, and emptying th
 	// The controlled state is what posts: re-enter a value and save it.
 	fireInput(input, TYPED);
 	resetPosted();
-	fireClick(buttonByText(root, "Save"));
+	fireClick(buttonByText(page(root), "Save"));
 	const saved2 = lastPosted() as RpcRequest<"saveServerSetting">;
 	expect(saved2.payload.secrets.apiKey).toEqual({ action: "set", location: "settings", value: TYPED });
 	expectOnlyInApiKeyInput(TYPED);

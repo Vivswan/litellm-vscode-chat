@@ -1,11 +1,10 @@
 import * as l10n from "@vscode/l10n";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { latestCheckedMs } from "../../dashboard/presenters";
-import { saveFailureDisposition, sectionFailureText } from "../../dashboard/serverForm";
+import { sectionFailureText } from "../../dashboard/serverForm";
 import type {
 	DashboardServer,
 	DashboardUsage,
-	DeclaredDashboardServer,
 	ExternalDashboardServer,
 	HiddenGroup,
 	InactiveEntryNotice,
@@ -19,9 +18,7 @@ import { DocsLink, Help, HoverTip } from "./help";
 import { helpServersSection } from "./helpText";
 import { useIntentOutcome } from "./hooks";
 import { IconAdd } from "./icons";
-import type { FormTarget, ServerEditRequest } from "./serverEditPage";
-import { AdoptForm, observedKeysForForm, ServerForm, troubleshootingLink } from "./serverEditPage";
-import { SlideOver } from "./slideOver";
+import { troubleshootingLink } from "./serverEditPage";
 import { relativeTime } from "./time";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -835,7 +832,9 @@ export function ServersSection({
 	usage,
 	now,
 	onShowModels,
-	editRequest,
+	onEditServer,
+	onAdoptServer,
+	onAddServer,
 }: {
 	servers: readonly DashboardServer[];
 	/** Groups hidden by an explicit removal; rendered as the collapsed hidden-groups line. */
@@ -846,8 +845,11 @@ export function ServersSection({
 	now: number;
 	/** Scope the models section below to one server; absent, the count cells stay plain text. */
 	onShowModels?: ((label: string) => void) | undefined;
-	/** The inspectors' jump into a declared entry's edit form; see ServerEditRequest. */
-	editRequest?: ServerEditRequest | undefined;
+	/** A declared row's Edit; the shell opens the edit destination on it. */
+	onEditServer: (label: string) => void;
+	/** An external row's Edit, which adopts rather than edits; addressed by its opaque handle. */
+	onAdoptServer: (handle: string) => void;
+	onAddServer: () => void;
 }) {
 	// The section's own outcome hooks, one per acked method it surfaces: the
 	// failure banners render each hook's latest fail outcome (a later ok
@@ -859,15 +861,6 @@ export function ServersSection({
 	const adoptIntent = useIntentOutcome("adoptServer");
 	const hideIntent = useIntentOutcome("hideExternalServer");
 	const unhideIntent = useIntentOutcome("unhideServer");
-	// The form target survives state pushes (editing continues across a
-	// background refresh). Keys come from a never-reused counter: a fresh key
-	// per open forces a clean draft, and pendingAdopt's formKey scoping relies
-	// on a closed form's key never coming back.
-	const [form, setForm] = useState<{ target: FormTarget; key: number } | undefined>(undefined);
-	const nextFormKey = useRef(1);
-	// The slide-over's close policy: a dirty form asks before discarding.
-	const [formDirty, setFormDirty] = useState(false);
-	const [confirmingDiscard, setConfirmingDiscard] = useState(false);
 	const [armedRemove, setArmedRemove] = useState<string | undefined>(undefined);
 	// The row whose Retry is in flight, with the fleet's newest check time as it
 	// stood when they pressed it.
@@ -904,13 +897,6 @@ export function ServersSection({
 	// The one-time post-adoption notice: the old host-owned group survives (no
 	// removal API), so the user is told plainly why models now appear twice.
 	const [adoptNotice, setAdoptNotice] = useState<string | undefined>(undefined);
-	// The adopt round trips: each posted intent's requestId plus the posting
-	// form instance's key. A list, not a slot: the form is freely closable
-	// mid-adopt, so a second adopt can be in flight before the first ack lands,
-	// and every ack must still deliver its post-adoption notice. The form key
-	// scopes the follow-up close (and the form's saving state) to the instance
-	// that posted, never a later form.
-	const [pendingAdopts, setPendingAdopts] = useState<readonly { requestId: string; formKey: number }[]>([]);
 	// The hide round trip: the posted intent's requestId plus the row's label,
 	// so the guidance notice below can name the exact group to delete once the
 	// ack lands. Copy is composed here; only the ack crosses the boundary.
@@ -947,102 +933,24 @@ export function ServersSection({
 		)
 	).length;
 
-	const openForm = (target: FormTarget) => {
-		setFormDirty(false);
-		setConfirmingDiscard(false);
-		const key = nextFormKey.current;
-		nextFormKey.current += 1;
-		setForm({ target, key });
-	};
-
-	// The inspectors' entry-jump: open the addressed declared entry's edit form
-	// (its per-entry records live there). A label that no longer resolves to a
-	// declared row is a no-op; keyed on the seq so repeating the jump re-opens.
-	const editRequestSeq = editRequest?.seq;
-	// biome-ignore lint/correctness/useExhaustiveDependencies: deliberately keyed on the seq alone so repeating the jump re-opens; the request and servers are read at fire time
-	useEffect(() => {
-		if (editRequest === undefined) {
-			return;
-		}
-		const target = servers.find(
-			(server): server is DeclaredDashboardServer => server.origin === "declared" && server.label === editRequest.label
-		);
-		if (target !== undefined) {
-			openForm({ kind: "edit", original: target });
-		}
-	}, [editRequestSeq]);
-
-	const closeForm = () => {
-		setForm(undefined);
-		setFormDirty(false);
-		setConfirmingDiscard(false);
-	};
-
-	// Every way out of an open form funnels through here: the form's Cancel,
-	// the slide-over's X, the scrim, and Esc. One policy: on a dirty form,
-	// toggle the discard confirm (so Esc while it shows means "keep editing" -
-	// only the explicit Discard button destroys edits); otherwise close,
-	// dismissing the form's stale failure notice with it.
-	const discardForm = () => {
-		if (form?.target.kind === "adopt") {
-			adoptIntent.reset();
-		} else {
-			saveIntent.reset();
-		}
-		closeForm();
-	};
-	const requestCloseForm = () => {
-		if (formDirty) {
-			setConfirmingDiscard((current) => !current);
-			return;
-		}
-		discardForm();
-	};
-
-	// A pending adopt's own ack: compose the post-adoption notice (plus the
-	// extension's optional caveat) and close the posting form when it is still
-	// the one open. A later or already-closed form is left alone.
+	// The post-adoption notice: the old host-owned group survives (there is no
+	// removal API), so the reader coming back to this list is told plainly why
+	// their models now appear twice. The edit page owns the round trip and
+	// leaves on its own ack; this hook sees the same envelope, which is what
+	// lets the notice belong to the list rather than to the page that left.
 	const adoptOutcome = adoptIntent.outcome;
-	const ackedAdopt =
-		adoptOutcome?.result === "ok" ? pendingAdopts.find((pending) => pending.requestId === adoptOutcome.id) : undefined;
-	// biome-ignore lint/correctness/useExhaustiveDependencies: closeForm is a stable setter bundle; the deps that decide whether the ack applies are listed
+	const adoptedId = adoptOutcome?.result === "ok" ? adoptOutcome.id : undefined;
+	const adoptedCaveat = adoptOutcome?.result === "ok" ? adoptOutcome.message : undefined;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the acked id so one ack raises one notice; the caveat is read at fire time
 	useEffect(() => {
-		if (ackedAdopt === undefined || adoptOutcome?.result !== "ok") {
+		if (adoptedId === undefined) {
 			return;
 		}
 		const base = l10n.t(
 			"Adopted into the servers setting. Models appear twice until the original group's object is deleted: open the models file, remove it, reload the window."
 		);
-		setAdoptNotice(adoptOutcome.message !== undefined ? `${base} ${adoptOutcome.message}` : base);
-		setPendingAdopts((current) => current.filter((pending) => pending.requestId !== ackedAdopt.requestId));
-		if (form?.key === ackedAdopt.formKey) {
-			closeForm();
-		}
-	}, [adoptOutcome, ackedAdopt, form]);
-
-	// A pending adopt's own failure: a validation-kind one returns the still
-	// open form to editing (removing the pending entry re-enables it); an
-	// operation-kind one committed its write, so the stale form closes and the
-	// section banner carries the recovery path.
-	const failedAdopt =
-		adoptFailure !== undefined ? pendingAdopts.find((pending) => pending.requestId === adoptFailure.id) : undefined;
-	const adoptFailureKind = adoptFailure?.failureKind;
-	// biome-ignore lint/correctness/useExhaustiveDependencies: closeForm is a stable setter bundle; the deps that decide whether the failure applies are listed
-	useEffect(() => {
-		if (failedAdopt === undefined) {
-			return;
-		}
-		setPendingAdopts((current) => current.filter((pending) => pending.requestId !== failedAdopt.requestId));
-		if (saveFailureDisposition(adoptFailureKind ?? "validation") === "close" && form?.key === failedAdopt.formKey) {
-			closeForm();
-		}
-	}, [failedAdopt, adoptFailureKind, form]);
-
-	// Misconfigured entries count: they occupy their label in the setting, so
-	// a rename onto one or an adopt under one must be refused like any sibling.
-	const declaredLabels = servers
-		.filter((server) => server.origin === "declared" || server.origin === "misconfigured")
-		.map((server) => server.label);
+		setAdoptNotice(adoptedCaveat !== undefined ? `${base} ${adoptedCaveat}` : base);
+	}, [adoptedId]);
 
 	// Usage is tracked per declared entry and keyed by its label (the usage
 	// store's documented join key back to the server rows), so only declared
@@ -1063,44 +971,10 @@ export function ServersSection({
 			    controls above it would put dead buttons before the guidance. */}
 			{!noServers ? (
 				<div className="toolbar">
-					<Button onClick={() => openForm({ kind: "add" })}>
+					<Button onClick={onAddServer}>
 						<IconAdd /> {l10n.t("Add server")}
 					</Button>
 				</div>
-			) : null}
-			{form !== undefined ? (
-				<SlideOver
-					labelledBy="server-form-title"
-					fallbackFocusId="tab-overview"
-					confirming={confirmingDiscard}
-					onRequestClose={requestCloseForm}
-					onKeepEditing={() => setConfirmingDiscard(false)}
-					onDiscard={discardForm}
-				>
-					{form.target.kind === "adopt" ? (
-						<AdoptForm
-							key={form.key}
-							server={form.target.server}
-							declaredLabels={declaredLabels}
-							saving={pendingAdopts.some((pending) => pending.formKey === form.key)}
-							onUserEdit={() => setFormDirty(true)}
-							onAdoptPosted={(requestId) =>
-								setPendingAdopts((current) => [...current, { requestId, formKey: form.key }])
-							}
-							onCancel={requestCloseForm}
-						/>
-					) : (
-						<ServerForm
-							key={form.key}
-							target={form.target}
-							declaredLabels={declaredLabels}
-							observedModelInfoKeys={observedKeysForForm(servers, form.target)}
-							onUserEdit={() => setFormDirty(true)}
-							onClose={closeForm}
-							onCancel={requestCloseForm}
-						/>
-					)}
-				</SlideOver>
 			) : null}
 			{removedNotice !== undefined ? (
 				<div className="notice" role="status">
@@ -1218,7 +1092,7 @@ export function ServersSection({
 						<li>{l10n.t("Paste its API key if it needs one; it can stay in VS Code's encrypted secret storage.")}</li>
 						<li>{l10n.t("Save. Models sync automatically and show up on this page.")}</li>
 					</ol>
-					<Button onClick={() => openForm({ kind: "add" })}>{l10n.t("Add your first server")}</Button>
+					<Button onClick={onAddServer}>{l10n.t("Add your first server")}</Button>
 				</div>
 			) : (
 				<>
@@ -1270,16 +1144,19 @@ export function ServersSection({
 								now={now}
 								armed={armedRemove === server.label}
 								onEdit={() => {
-									// The one place the form's purpose is decided: a declared
-									// row edits, an external row adopts. A misconfigured row
-									// renders no Edit at all (its shape cannot round-trip the
-									// form); the guard keeps the narrowing honest.
+									// The one place the destination's purpose is decided: a
+									// declared row edits, an external row adopts. A
+									// misconfigured row renders no Edit at all (its shape
+									// cannot round-trip the form); the guard keeps the
+									// narrowing honest.
 									if (server.origin === "misconfigured") {
 										return;
 									}
-									openForm(
-										server.origin === "declared" ? { kind: "edit", original: server } : { kind: "adopt", server }
-									);
+									if (server.origin === "declared") {
+										onEditServer(server.label);
+										return;
+									}
+									onAdoptServer(server.adoptHandle);
 								}}
 								onArmRemove={(armed) => setArmedRemove(armed ? server.label : undefined)}
 								onHideExternal={hideExternal}

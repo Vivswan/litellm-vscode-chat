@@ -16,6 +16,7 @@ import { ModelsSection } from "./models";
 import type { Overall, RailSection } from "./rail";
 import { Rail } from "./rail";
 import type { ServerEditRequest } from "./serverEditPage";
+import { ServerEditPage } from "./serverEditPage";
 import { ServersSection } from "./servers";
 import type { EditRecordRequest } from "./settings";
 import { SettingsSection } from "./settings";
@@ -358,10 +359,29 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	const [inspecting, setInspecting] = useState<
 		{ scopeKey: string; rawId: string; serverLabel: string; anchor?: InspectorSection | undefined } | undefined
 	>(undefined);
-	// The inspectors' configure-jumps: into the settings record editors, and
-	// into a server entry's edit form (the owner of entry-layer values).
+	// The inspectors' configure-jump into the settings record editors.
 	const [editRecordRequest, setEditRecordRequest] = useState<EditRecordRequest | undefined>(undefined);
-	const [serverEditRequest, setServerEditRequest] = useState<ServerEditRequest | undefined>(undefined);
+	// The edit destination: one entry's configuration, filling the pane beside
+	// the rail. It is a destination rather than an overlay because the page it
+	// replaces is the page it came from - opening a door on top of a door is
+	// the thing this shell exists to stop doing. The key remounts a clean
+	// draft per open; a never-reused counter, so a closed page's key cannot
+	// come back and revive its state.
+	const [editing, setEditing] = useState<{ request: ServerEditRequest; key: number } | undefined>(undefined);
+	const nextEditKey = useRef(1);
+	// The page's draft has edits worth asking about, and the answer in flight.
+	const [editDirty, setEditDirty] = useState(false);
+	const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+	// Where the reader was when they opened the page, and where they asked to
+	// go if a rail click is what raised the question. Refs, not state: nothing
+	// renders from them, and a re-render between the click and the answer must
+	// not lose either.
+	const editOpener = useRef<HTMLElement | undefined>(undefined);
+	const leaveIntent = useRef<SectionId | undefined>(undefined);
+	// Where focus goes once the destination has actually left the screen.
+	const pendingLeaveFocus = useRef<{ kind: "opener" } | { kind: "section"; section: SectionId } | undefined>(undefined);
+	// The navigation guard as the one-time message listener can reach it.
+	const selectSectionRef = useRef<(id: SectionId) => void>(() => undefined);
 	// The models list's server scope (a server row's model-count link sets it,
 	// the chip in the models filter bar clears it). Held here rather than in
 	// ModelsSection because the servers table is the other end of the wire.
@@ -392,9 +412,13 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 			if (message.kind === "focusSection") {
 				// The extension's deep link (litellm.showDiagnostics landing on the
 				// Diagnostics tab); the includes check drops a section this page
-				// does not have instead of blanking every panel.
+				// does not have instead of blanking every panel. Routed through
+				// the same guard a rail click takes - through a ref, because this
+				// listener is installed once and the guard closes over state -
+				// so an open draft is asked about instead of the command
+				// appearing to do nothing while the pane it changed is hidden.
 				if (SECTION_IDS.includes(message.section)) {
-					setSection(message.section);
+					selectSectionRef.current(message.section);
 				}
 				return;
 			}
@@ -471,6 +495,28 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		}
 	}, [inspecting, state, inspectedModel]);
 
+	// The other half of leaveEdit: run once the pane has re-rendered with the
+	// sections back on screen.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the destination closing; the target was decided when the reader left
+	useEffect(() => {
+		const pending = pendingLeaveFocus.current;
+		if (editing !== undefined || pending === undefined) {
+			return;
+		}
+		pendingLeaveFocus.current = undefined;
+		if (pending.kind === "section") {
+			document.getElementById(`tab-${pending.section}`)?.focus();
+			return;
+		}
+		const opener = editOpener.current;
+		editOpener.current = undefined;
+		if (opener?.isConnected === true) {
+			opener.focus();
+			return;
+		}
+		document.getElementById(`tab-${section}`)?.focus();
+	}, [editing]);
+
 	if (state === undefined) {
 		return <LoadingSkeleton />;
 	}
@@ -514,11 +560,96 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		setEditRecordRequest((current) => ({ seq: (current?.seq ?? 0) + 1, kind, key, create }));
 	};
 
-	// An entry-owned value's jump: its record lives in the server entry, so the
-	// destination is the entry's edit form on the overview section.
+	// Opening the edit destination, from a server row, the Add button, or an
+	// inspector's jump into the entry that owns a value. Focus is captured
+	// here rather than inside the page: what the reader left is the shell's
+	// business, and the page has no idea it was opened from a row.
+	const openEdit = (request: ServerEditRequest) => {
+		const active = document.activeElement;
+		// The body is not an opener: focusing it later is a no-op that would
+		// skip the rail fallback and leave focus nowhere.
+		editOpener.current = active instanceof HTMLElement && active !== document.body ? active : undefined;
+		leaveIntent.current = undefined;
+		setEditDirty(false);
+		setConfirmingDiscard(false);
+		setEditing({ request, key: nextEditKey.current });
+		nextEditKey.current += 1;
+	};
+
+	// Leaving for real: the pane goes back to its sections and focus returns
+	// to the control that opened the page - or, when a rail click is what
+	// asked, to the destination the reader picked, because that is where they
+	// said they were going. A row that left with a save (a rename mints a new
+	// one) falls back to the section's own rail item rather than nowhere.
+	const leaveEdit = () => {
+		const intent = leaveIntent.current;
+		leaveIntent.current = undefined;
+		setEditing(undefined);
+		setEditDirty(false);
+		setConfirmingDiscard(false);
+		if (intent !== undefined) {
+			setSection(intent);
+		}
+		// Focus lands in the effect below, not here: the sections are still
+		// hidden in this render, and a hidden subtree cannot take focus - the
+		// opener would silently lose it to the body. The rail is outside that
+		// subtree, but both paths go through one place so there is one answer
+		// to "where does focus go when the page closes".
+		pendingLeaveFocus.current = intent === undefined ? { kind: "opener" } : { kind: "section", section: intent };
+	};
+
+	// Every way out funnels through here: the page's own Discard changes, Esc,
+	// and a rail click. A dirty draft gets the question instead of the exit;
+	// Esc while the question stands answers "keep editing", so a reflexive
+	// Esc-Esc never destroys a draft - only the explicit Discard does.
+	const requestLeaveEdit = () => {
+		if (editDirty) {
+			setConfirmingDiscard((current) => {
+				// Toggling the question off IS "keep editing", so the navigation
+				// that raised it is abandoned with it. A surviving intent would
+				// send the reader to a destination they already declined, on
+				// whatever exit came next.
+				if (current) {
+					leaveIntent.current = undefined;
+				}
+				return !current;
+			});
+			return;
+		}
+		leaveEdit();
+	};
+
+	const keepEditing = () => {
+		leaveIntent.current = undefined;
+		setConfirmingDiscard(false);
+	};
+
+	// A rail click while the page is open is a navigation the guard has to see
+	// first; it becomes the destination once the reader has answered.
+	const selectSection = (id: SectionId) => {
+		if (editing === undefined) {
+			setSection(id);
+			return;
+		}
+		leaveIntent.current = id;
+		if (editDirty) {
+			// Asking again, never toggling: a reader who clicks one rail item,
+			// sees the question, and then clicks another has changed their
+			// destination - not answered. Toggling here would dismiss the
+			// question and go nowhere, which reads as the click being ignored.
+			setConfirmingDiscard(true);
+			return;
+		}
+		leaveEdit();
+	};
+
+	selectSectionRef.current = selectSection;
+
+	// An entry-owned value's jump: its record lives in the server entry, so
+	// the destination is that entry's page.
 	const editEntry = (label: string) => {
 		setSection("overview");
-		setServerEditRequest((current) => ({ seq: (current?.seq ?? 0) + 1, label }));
+		openEdit({ kind: "edit", label });
 	};
 
 	// The single-shot setting writes share one failure surface: every one of
@@ -534,11 +665,28 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		failures.setUiAccent ??
 		failures.executeCommand;
 	return (
-		<main className="shell">
+		<main
+			className="shell"
+			onKeyDown={(event) => {
+				// Esc while the destination is open is the shell's, and only what
+				// reaches it: the suggestion listbox and the matcher overlay stop
+				// their own Escape, so a popover closes itself before the page
+				// ever hears about leaving. On the shell rather than the pane
+				// because the rail is a sibling of the pane - a reader who just
+				// clicked a rail item has focus there, and that is exactly when
+				// they are most likely to press it.
+				if (editing === undefined || event.key !== "Escape") {
+					return;
+				}
+				event.preventDefault();
+				event.stopPropagation();
+				requestLeaveEdit();
+			}}
+		>
 			<Rail
 				sections={railSections(state)}
 				active={section}
-				onSelect={setSection}
+				onSelect={selectSection}
 				serverCount={state.servers.length}
 				overall={overallState(state.servers, state.legacyServerCount)}
 				synced={lastSync(state.servers, now)}
@@ -552,15 +700,38 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 						/>
 					</p>
 				) : null}
+				{/* The destination lives INSIDE the Servers panel, because that is
+				    what it is a destination of: the rail still says Servers, and
+				    the panel it controls is what is on screen. The list stays
+				    mounted behind it - hidden, not unmounted - so the row that
+				    opened the page survives to take focus back, with its scroll
+				    position. */}
 				<SectionPanel section="overview" active={section}>
-					<ServersSection
-						servers={state.servers}
-						hidden={state.hiddenGroups}
-						usage={state.usage}
-						now={now}
-						onShowModels={showServerModels}
-						editRequest={serverEditRequest}
-					/>
+					{editing !== undefined ? (
+						<ServerEditPage
+							key={editing.key}
+							request={editing.request}
+							servers={state.servers}
+							confirmingDiscard={confirmingDiscard}
+							onDirtyChange={setEditDirty}
+							onRequestClose={requestLeaveEdit}
+							onKeepEditing={keepEditing}
+							onDiscard={leaveEdit}
+							onSaved={leaveEdit}
+						/>
+					) : null}
+					<div hidden={editing !== undefined}>
+						<ServersSection
+							servers={state.servers}
+							hidden={state.hiddenGroups}
+							usage={state.usage}
+							now={now}
+							onShowModels={showServerModels}
+							onEditServer={(label) => openEdit({ kind: "edit", label })}
+							onAdoptServer={(handle) => openEdit({ kind: "adopt", handle })}
+							onAddServer={() => openEdit({ kind: "add" })}
+						/>
+					</div>
 				</SectionPanel>
 				<SectionPanel section="models" active={section}>
 					<ModelsSection

@@ -19,7 +19,15 @@ beforeEach(resetPosted);
 afterEach(cleanup);
 
 function mountServers(servers: readonly ReturnType<typeof makeDeclaredServer>[]) {
-	return mount(<ServersSection servers={servers} now={Date.now()} />);
+	return mount(
+		<ServersSection
+			servers={servers}
+			now={Date.now()}
+			onEditServer={() => {}}
+			onAdoptServer={() => {}}
+			onAddServer={() => {}}
+		/>
+	);
 }
 
 test("FailureText renders headline and detail as separate elements; single-part messages get no detail", () => {

@@ -14,7 +14,7 @@
  */
 import * as l10n from "@vscode/l10n";
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { GroupProblems, HeaderRow } from "../../dashboard/recordDraft";
 import { toCapabilityGroups, toGroups, toggleExpectedFailure, toHeaderRows } from "../../dashboard/recordDraft";
 import type {
@@ -37,6 +37,7 @@ import {
 	parseServerFormForTest,
 	SERVER_FORM_FIELD_ORDER,
 	saveFailureDisposition,
+	sectionFailureText,
 	serverFormFieldLabel,
 	validateAdoptLabel,
 } from "../../dashboard/serverForm";
@@ -56,6 +57,7 @@ import {
 	DOCS_LINK_PROXY_NOT_RUNNING,
 	DOCS_LINK_SERVER_FORM,
 } from "./docsLinks";
+import { FailureText } from "./failureText";
 import { DocsLink, Help } from "./help";
 import {
 	helpEntryModelParameterPrefix,
@@ -64,7 +66,7 @@ import {
 	serverFieldHelp,
 } from "./helpText";
 import { useIntentOutcome, useRpc } from "./hooks";
-import { IconAdd, IconTrash } from "./icons";
+import { IconAdd, IconArrowLeft, IconPlug, IconTrash } from "./icons";
 import type { RecordEditorKind } from "./recordEditors";
 import {
 	capabilityIssueViews,
@@ -109,7 +111,7 @@ type ServerFormTarget = Extract<FormTarget, { kind: "add" | "edit" }>;
  * unknown-key hints the same way it updates the host-side filter. An add
  * target has no server and so no evidence.
  */
-export function observedKeysForForm(
+function observedKeysForForm(
 	servers: readonly DashboardServer[],
 	target: ServerFormTarget
 ): readonly string[] | undefined {
@@ -121,14 +123,16 @@ export function observedKeysForForm(
 }
 
 /**
- * The inspectors' jump into a declared entry's edit form (the surface owning
- * per-entry records). Minted by App; the seq keys re-delivery so repeating
- * the same jump re-opens.
+ * What the shell asked this page to be, by IDENTITY rather than by object: a
+ * label for a declared entry, an opaque handle for an external group. The page
+ * resolves it against the live state on every render, so an entry that changes
+ * under an open page is followed rather than frozen, and one that disappears
+ * says so instead of editing a ghost.
  */
-export interface ServerEditRequest {
-	readonly seq: number;
-	readonly label: string;
-}
+export type ServerEditRequest =
+	| { readonly kind: "add" }
+	| { readonly kind: "edit"; readonly label: string }
+	| { readonly kind: "adopt"; readonly handle: string };
 
 /**
  * Where the form is in its life. The prefill and save round trips each run
@@ -818,23 +822,308 @@ function HeaderRowsEditor({
  * stale and the section-level notice carries the recovery path. Unrelated
  * state pushes leave it alone.
  */
-export function ServerForm({
+
+/**
+ * The edit destination: one entry's whole configuration, mounted in the
+ * shell's pane rather than floating over the page it came from. The rail
+ * stays on screen beside it, which is the point - the user's rule about doors
+ * opening onto doors applies to a form as much as to a menu.
+ *
+ * The boundary outward is two facts and two events: the draft is dirty, the
+ * reader asked to leave, the save committed. Everything else - which pane is
+ * showing, what a rail click means while a draft is dirty, where focus lands
+ * on the way out - belongs to the shell, and this page knows none of it.
+ *
+ * The target resolves from the live state on every render rather than from an
+ * object captured at open time: a discovery pass landing under an open page
+ * refreshes its evidence, and an entry deleted from another window leaves a
+ * page that says so instead of one editing something that is gone.
+ */
+export function ServerEditPage({
+	request,
+	servers,
+	confirmingDiscard,
+	onDirtyChange,
+	onRequestClose,
+	onKeepEditing,
+	onDiscard,
+	onSaved,
+}: {
+	request: ServerEditRequest;
+	servers: readonly DashboardServer[];
+	confirmingDiscard: boolean;
+	onDirtyChange: (dirty: boolean) => void;
+	onRequestClose: () => void;
+	onKeepEditing: () => void;
+	onDiscard: () => void;
+	onSaved: () => void;
+}) {
+	// The page's own adopt round trip. It lives here rather than in the servers
+	// list because the page is what the outcome decides the fate of: an ok
+	// leaves, a validation failure stays and re-enables the form. The list
+	// keeps its own hook for the notice and the banner - both see the same
+	// envelope, which is the documented shape of these outcomes.
+	const adoptIntent = useIntentOutcome("adoptServer");
+	const saveIntent = useIntentOutcome("saveServerSetting");
+	const [adopting, setAdopting] = useState<string | undefined>(undefined);
+	const [savingId, setSavingId] = useState<string | undefined>(undefined);
+	const adoptOutcome = adoptIntent.outcome;
+	const saveOutcome = saveIntent.outcome;
+	// A validation failure keeps the reader here to fix it, so the message has
+	// to be here too: the servers list carries its own banner, and the list is
+	// behind this page. An operation failure committed its write, so it leaves
+	// with the same disposition a success does and the list's banner takes it.
+	const [failure, setFailure] = useState<{ message: string; frame: "save" | "adopt" } | undefined>(undefined);
+	useEffect(() => {
+		if (adopting === undefined || adoptOutcome?.id !== adopting) {
+			return;
+		}
+		setAdopting(undefined);
+		if (adoptOutcome.result === "ok" || saveFailureDisposition(adoptOutcome.failureKind) === "close") {
+			onSaved();
+			return;
+		}
+		setFailure({ message: adoptOutcome.message, frame: "adopt" });
+	}, [adoptOutcome, adopting, onSaved]);
+	useEffect(() => {
+		if (savingId === undefined || saveOutcome?.id !== savingId) {
+			return;
+		}
+		setSavingId(undefined);
+		if (saveOutcome.result === "ok" || saveFailureDisposition(saveOutcome.failureKind) === "close") {
+			onSaved();
+			return;
+		}
+		setFailure({ message: saveOutcome.message, frame: "save" });
+	}, [saveOutcome, savingId, onSaved]);
+
+	// Arriving here is a navigation, so focus travels with it: to the first
+	// field, or to the page itself when there is nothing to type into. A panel
+	// used to do this by being a focus-trapped dialog; a destination has to do
+	// it deliberately, or Tab would carry on from the row the reader left
+	// behind on a pane that is no longer showing - and a nested overlay
+	// closing would have nowhere inside the page to put focus back.
+
+	// Misconfigured entries count as taken: they occupy their label in the
+	// setting, so a rename onto one must be refused like any sibling.
+	const declaredLabels = servers
+		.filter((server) => server.origin === "declared" || server.origin === "misconfigured")
+		.map((server) => server.label);
+
+	// Memoized so the resolved target is one object for as long as the rows it
+	// came from are: a fresh object per render turns any effect that depends on
+	// it into a render loop, which is exactly what the prefill did.
+	const resolved = useMemo(() => resolveEditTarget(request, servers), [request, servers]);
+	const lastResolved = useRef(resolved);
+	// A commit in flight freezes the target - the whole target, not just the
+	// case where it stops resolving. The save's own write comes back as a
+	// state push: a rename makes the old label resolve to nothing (the form
+	// would unmount and the ack would land on nothing, so a save that worked
+	// reads as a deleted entry), and a secret moving from secure to inline
+	// resolves to a DIFFERENT object that restarts the prefill, drops the form
+	// out of saving, and re-enables Save before the first ack lands. Both are
+	// the same mistake: reading the result of a commit while the commit is
+	// still in flight.
+	const committing = savingId !== undefined || adopting !== undefined;
+	if (resolved !== undefined && !committing) {
+		lastResolved.current = resolved;
+	}
+	const target = committing ? lastResolved.current : resolved;
+	// The entry went away under the page, taking the draft with it: there is
+	// nothing left to save and so nothing to ask about. Without this the
+	// shell's guard keeps answering "this is dirty" to a form that no longer
+	// exists, and every way out raises a question nothing renders.
+	const targetGone = target === undefined;
+	useEffect(() => {
+		if (targetGone) {
+			onDirtyChange(false);
+		}
+	}, [targetGone, onDirtyChange]);
+	const pageRef = useRef<HTMLElement>(null);
+	// Also keyed on the form going away: an entry deleted under an open page
+	// unmounts the field that had focus, and focus would land on the body -
+	// outside the shell that hears Esc, so the reader's keyboard would stop
+	// working on a page that is still on screen.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: targetGone is the trigger, not a value the body reads - the form going away is what leaves focus homeless
+	useEffect(() => {
+		const page = pageRef.current;
+		if (page?.contains(document.activeElement) === true) {
+			return;
+		}
+		const field = page?.querySelector<HTMLElement>("input, select, textarea");
+		(field ?? page)?.focus();
+	}, [targetGone]);
+	// tabIndex -1 so the page can take focus itself when it holds no field;
+	// never in the tab order, like every other programmatic focus target here.
+	const page = (children: ReactNode) => (
+		// A section rather than a dialog: it is where the reader IS, not
+		// something over where they were - and a name needs an element that
+		// takes one, so the heading only labels this because it is a section.
+		<section className="server-edit-page max-w-[860px]" ref={pageRef} tabIndex={-1} aria-labelledby="server-form-title">
+			{children}
+		</section>
+	);
+	if (target === undefined) {
+		return page(
+			<div className="form-card server-form">
+				<h3 id="server-form-title">{l10n.t("This server is gone")}</h3>
+				<p className="hint">
+					{l10n.t("It was removed while you were editing it - by another window, or by an edit to settings.json.")}
+				</p>
+				<div className="toolbar">
+					<Button onClick={onRequestClose}>{l10n.t("Back to servers")}</Button>
+				</div>
+			</div>
+		);
+	}
+
+	const failureNotice =
+		failure === undefined ? null : (
+			<div className="banner banner-error" role="alert">
+				<p>
+					<FailureText
+						message={failure.message}
+						frame={(headline: string) =>
+							sectionFailureText(
+								failure.frame === "save" ? l10n.t("Saving the server failed:") : l10n.t("Adopting the server failed:"),
+								headline
+							)
+						}
+					/>
+				</p>
+				<Button variant="secondary" size="compact" onClick={() => setFailure(undefined)}>
+					{l10n.t("Dismiss")}
+				</Button>
+			</div>
+		);
+	if (target.kind === "adopt") {
+		return page(
+			<>
+				{failureNotice}
+				<AdoptForm
+					server={target.server}
+					declaredLabels={declaredLabels}
+					saving={adopting !== undefined}
+					confirmingDiscard={confirmingDiscard}
+					onDirtyChange={onDirtyChange}
+					onAdoptPosted={(requestId) => {
+						setFailure(undefined);
+						setAdopting(requestId);
+					}}
+					onRequestClose={onRequestClose}
+					onKeepEditing={onKeepEditing}
+					onDiscard={onDiscard}
+				/>
+			</>
+		);
+	}
+	return page(
+		<>
+			{failureNotice}
+			<ServerForm
+				target={target}
+				declaredLabels={declaredLabels}
+				observedModelInfoKeys={observedKeysForForm(servers, target)}
+				confirmingDiscard={confirmingDiscard}
+				onDirtyChange={onDirtyChange}
+				onSavePosted={(requestId) => {
+					// A retry starts clean: the banner belongs to the round trip
+					// that produced it, not to the form.
+					setFailure(undefined);
+					setSavingId(requestId);
+				}}
+				onRequestClose={onRequestClose}
+				onKeepEditing={onKeepEditing}
+				onDiscard={onDiscard}
+			/>
+		</>
+	);
+}
+
+/**
+ * The request read against the live rows: absent when the row it names is
+ * gone, or when it names a row whose shape the form cannot round-trip (a
+ * misconfigured entry, which the list offers no edit for in the first place).
+ */
+function resolveEditTarget(request: ServerEditRequest, servers: readonly DashboardServer[]): FormTarget | undefined {
+	if (request.kind === "add") {
+		return { kind: "add" };
+	}
+	if (request.kind === "edit") {
+		const original = servers.find(
+			(server): server is DeclaredDashboardServer => server.origin === "declared" && server.label === request.label
+		);
+		return original === undefined ? undefined : { kind: "edit", original };
+	}
+	const server = servers.find(
+		(candidate): candidate is ExternalDashboardServer =>
+			candidate.origin === "external" && candidate.adoptHandle === request.handle
+	);
+	return server === undefined ? undefined : { kind: "adopt", server };
+}
+
+/**
+ * The way back, at the top where a reader looks for it. A panel had an X in
+ * its corner; a destination has the trail it came down, and it routes through
+ * the same request the rail and Esc do - so a dirty draft gets the same
+ * question from all three.
+ */
+function BackToServers({ onRequestClose }: { onRequestClose: () => void }) {
+	return (
+		<nav className="page-trail mb-1 text-[12px]" aria-label={l10n.t("Breadcrumb")}>
+			<Button variant="secondary" size="compact" className="-ml-1.5" onClick={onRequestClose}>
+				<IconArrowLeft /> {l10n.t("Servers")}
+			</Button>
+		</nav>
+	);
+}
+
+/**
+ * The question the shell raises when a reader with unsaved edits asks to
+ * leave. It renders in the page's own commit bar rather than over it: the
+ * decision is about Save and Discard, so it belongs beside them, and the
+ * reader's eye is already there when they press Esc. The shell owns WHEN this
+ * appears; the page owns where.
+ */
+function DiscardConfirm({ onKeepEditing, onDiscard }: { onKeepEditing: () => void; onDiscard: () => void }) {
+	return (
+		<div className="discard-confirm flex flex-wrap items-center gap-3" role="alert">
+			<span className="font-semibold">{l10n.t("Discard unsaved changes?")}</span>
+			<Button variant="danger" onClick={onDiscard}>
+				{l10n.t("Discard")}
+			</Button>
+			<Button variant="secondary" onClick={onKeepEditing}>
+				{l10n.t("Keep editing")}
+			</Button>
+		</div>
+	);
+}
+
+function ServerForm({
 	target,
 	declaredLabels,
 	observedModelInfoKeys,
-	onUserEdit,
-	onClose,
-	onCancel,
+	confirmingDiscard,
+	onDirtyChange,
+	onSavePosted,
+	onRequestClose,
+	onKeepEditing,
+	onDiscard,
 }: {
 	target: ServerFormTarget;
 	declaredLabels: readonly string[];
 	/** The edited entry's LIVE observed /model/info key set (observedKeysForForm); the capability hints' evidence. */
 	observedModelInfoKeys?: readonly string[] | undefined;
-	/** Reports the first user edit; the slide-over's close-with-confirm keys on it. */
-	onUserEdit: () => void;
-	onClose: () => void;
-	/** The Cancel button's close request; routed through the slide-over's discard policy. */
-	onCancel: () => void;
+	/** The shell decided the reader is leaving a dirty page and wants an answer; the bar asks it. */
+	confirmingDiscard: boolean;
+	/** Reports that the draft has edits worth asking about; the shell's navigation guard reads it. */
+	onDirtyChange: (dirty: boolean) => void;
+	/** Hands the posted intent's requestId to the page, which owns the round trip. */
+	onSavePosted: (requestId: string) => void;
+	/** The reader asked to leave; the shell owns what that means. */
+	onRequestClose: () => void;
+	onKeepEditing: () => void;
+	onDiscard: () => void;
 }) {
 	const [draft, setDraft] = useState<ServerFormDraft>(() => draftFor(target));
 	// What the form opened with, for the save bar's unsaved count. Re-based
@@ -882,18 +1171,23 @@ export function ServerForm({
 	// once per form instance (the key remounts a fresh form). Secure-side and
 	// absent fields are never requested-for or returned; they keep the empty
 	// placeholder input.
+	//
+	// Keyed on WHICH entry rather than on the target object: the page resolves
+	// that object from the live rows on every render, so an object dependency
+	// re-asks on every render - and asking sets the phase, which renders, which
+	// asks. The label is the identity that decides whether a second request
+	// would even be a different question.
 	const requestInlineSecrets = inlineSecrets.send;
+	const prefillLabel = target.kind === "edit" ? target.original.label : undefined;
+	const hasInlineSecret =
+		target.kind === "edit" && SECRET_FIELD_IDS.some((field) => target.original.config.secrets[field] === "settings");
 	useEffect(() => {
-		if (target.kind !== "edit") {
+		if (prefillLabel === undefined || !hasInlineSecret) {
 			return;
 		}
-		const config = target.original.config;
-		if (!SECRET_FIELD_IDS.some((field) => config.secrets[field] === "settings")) {
-			return;
-		}
-		requestInlineSecrets({ label: target.original.label });
+		requestInlineSecrets({ label: prefillLabel });
 		setPhase({ phase: "prefill" });
-	}, [target, requestInlineSecrets]);
+	}, [prefillLabel, hasInlineSecret, requestInlineSecrets]);
 
 	// This form's own response prefills the untouched inline fields; the hook
 	// answers only the request this form instance posted.
@@ -907,11 +1201,13 @@ export function ServerForm({
 		setBaseline((current) => applyInlinePrefill(current, inlineValues));
 	}, [inlineValues, phase]);
 
+	// The page owns what a save's outcome means for the destination; the form
+	// only needs to stop calling itself busy.
 	useEffect(() => {
-		if (phase.phase === "saving" && saveOutcome?.result === "ok" && saveOutcome.id === phase.requestId) {
-			onClose();
+		if (phase.phase === "saving" && saveOutcome?.id === phase.requestId) {
+			setPhase({ phase: "editing" });
 		}
-	}, [saveOutcome, phase, onClose]);
+	}, [saveOutcome, phase]);
 
 	// This form's own test outcome. Success renders the extension-composed
 	// message verbatim ("Connected - N models"); an outcome for an abandoned
@@ -931,22 +1227,6 @@ export function ServerForm({
 			});
 		}
 	}, [testOutcome, testState]);
-
-	// This form's own failure: a validation-kind one re-opens it for editing
-	// (the draft is still the truth); an operation-kind one means the save
-	// committed and the draft is stale, so the form closes like a success. The
-	// message renders at the section level either way, so it also survives the
-	// closed form.
-	useEffect(() => {
-		if (phase.phase !== "saving" || saveOutcome?.result !== "fail" || saveOutcome.id !== phase.requestId) {
-			return;
-		}
-		if (saveFailureDisposition(saveOutcome.failureKind) === "close") {
-			onClose();
-			return;
-		}
-		setPhase({ phase: "editing" });
-	}, [saveOutcome, phase, onClose]);
 
 	const originalLabel = target.kind === "edit" ? target.original.label : undefined;
 	// One parse per keystroke: it either carries the intent Save posts or the
@@ -1010,6 +1290,7 @@ export function ServerForm({
 			return;
 		}
 		const requestId = saveIntent.send(parse.intent);
+		onSavePosted(requestId);
 		setPhase({ phase: "saving", requestId });
 	};
 
@@ -1043,7 +1324,7 @@ export function ServerForm({
 		visibleProblems,
 		disabled: saving,
 		patch: (patch) => {
-			onUserEdit();
+			onDirtyChange(true);
 			// Any field a probe's outcome depends on makes a standing (or
 			// in-flight) result describe a configuration that no longer exists;
 			// a stale PASS is worse than no result, so it clears. The label
@@ -1102,7 +1383,7 @@ export function ServerForm({
 	// fields): keeping it would strand an invalid empty row in the table.
 	// Both the sweep and the add that minted the group write through setDraft
 	// directly, NOT props.patch: a structural add-then-cancel is a no-op and
-	// must not arm the form's discard confirm (onUserEdit is one-way).
+	// must not arm the form's discard confirm (the dirty report is one-way).
 	const closeMatcherEditor = () => {
 		if (matcherEditor !== undefined) {
 			const list = matcherEditor.kind === "params" ? draft.modelParameters : draft.modelCapabilities;
@@ -1184,8 +1465,9 @@ export function ServerForm({
 
 	return (
 		<div className="form-card server-form">
-			{/* The dialog's accessible name is the title span alone, so the
-			    docs anchor's own label never leaks into it. */}
+			<BackToServers onRequestClose={onRequestClose} />
+			{/* The page's accessible name is the title span alone, so the docs
+			    anchor's own label never leaks into it. */}
 			<h3 className="head-with-icons">
 				<span id="server-form-title">
 					{target.kind === "add" ? l10n.t("Add server") : l10n.t("Edit {0}", target.original.label)}
@@ -1227,7 +1509,12 @@ export function ServerForm({
 				/>
 				{/* The probe belongs to the URL it probes, not to the save bar:
 				    testing is not committing, and the two were read as one action
-				    for as long as they shared a footer. */}
+				    for as long as they shared a footer. It keeps the quiet rank
+				    for the same reason - Save is the page's one accent, and a
+				    second one would make the reader choose between them - and
+				    earns its shape from the icon instead: a glyph is what tells a
+				    control apart from the hint beside it without borrowing rank
+				    from the commit. */}
 				<FieldUnderRow>
 					<Button
 						variant="secondary"
@@ -1239,7 +1526,9 @@ export function ServerForm({
 								<span className="spinner" aria-hidden="true" /> {l10n.t("Testing...")}
 							</>
 						) : (
-							l10n.t("Test connection")
+							<>
+								<IconPlug /> {l10n.t("Test connection")}
+							</>
 						)}
 					</Button>
 					{testState.kind === "pass" ? (
@@ -1598,15 +1887,14 @@ export function ServerForm({
 					props={props}
 				/>
 			</FormSection>
-			{/* The commit bar pins to the panel's bottom edge, and the negative
-			    margins cancel the panel's own 20px padding so the rule spans the
-			    full width - the two numbers must move together with
-			    `.slide-over`'s padding in dashboard.css. The z-index is the house
-			    footer level and MUST NOT climb above it: `.discard-confirm` pins
-			    to the same edge at z-index 2, and a commit bar that outranks it
-			    hides the question Esc just asked. */}
-			<div className="toolbar sticky bottom-[-20px] z-[2] mx-[-20px] mt-6 mb-[-20px] flex flex-wrap items-center gap-4 border-t border-border bg-background px-5 py-3">
-				<Button disabled={phase.phase !== "editing"} onClick={save}>
+			{/* The commit bar sticks to the bottom of the viewport while the page
+			    scrolls, and the negative margins cancel the pane's own gutter so
+			    the rule spans the reading column edge to edge - the numbers move
+			    with `.pane`'s padding in dashboard.css. The z-index is the house
+			    footer level; nothing here may outrank a question raised over it. */}
+			<div className="toolbar sticky bottom-0 z-[2] mx-[-24px] mt-6 mb-[-48px] flex flex-wrap items-center gap-4 border-t border-border bg-background px-6 py-3">
+				{confirmingDiscard ? <DiscardConfirm onKeepEditing={onKeepEditing} onDiscard={onDiscard} /> : null}
+				<Button disabled={phase.phase !== "editing" || confirmingDiscard} onClick={save}>
 					{saving ? (
 						<>
 							<span className="spinner" aria-hidden="true" /> {l10n.t("Saving...")}
@@ -1618,7 +1906,7 @@ export function ServerForm({
 				{/* Named apart from the confirm bar's own Discard: this one REQUESTS
 				    a close (a dirty form still gets asked), and two controls a key
 				    apart must not answer to the same word. */}
-				<Button variant="secondary" onClick={onCancel}>
+				<Button variant="secondary" onClick={onRequestClose}>
 					{l10n.t("Discard changes")}
 				</Button>
 				{firstBlocking !== undefined ? (
@@ -1648,28 +1936,32 @@ export function ServerForm({
  * entry. Credentials exist extension-side only, so instead of secret inputs
  * the form offers one storage choice per secret field; the posted intent
  * carries the label, the source row's identity, and those choices - never a
- * credential value. The round trip lives in ServersSection (pendingAdopt):
- * the section matches the ack or failure by requestId, so the form closes
- * freely while the intent is in flight and the outcome still lands as the
- * section's notice or banner.
+ * credential value. The round trip lives in ServerEditPage, which leaves on
+ * its own ack; the servers list watches the same envelope for its
+ * post-adoption notice, so leaving mid-flight loses nothing.
  */
-export function AdoptForm({
+function AdoptForm({
 	server,
 	declaredLabels,
 	saving,
-	onUserEdit,
+	confirmingDiscard,
+	onDirtyChange,
 	onAdoptPosted,
-	onCancel,
+	onRequestClose,
+	onKeepEditing,
+	onDiscard,
 }: {
 	server: ExternalDashboardServer;
 	declaredLabels: readonly string[];
 	/** Whether this form instance's adopt intent is in flight; disables the inputs against a double submit. */
 	saving: boolean;
-	/** Reports the first user edit; the slide-over's close-with-confirm keys on it. */
-	onUserEdit: () => void;
-	/** Hands the posted intent's requestId to the section, which owns the round trip. */
+	confirmingDiscard: boolean;
+	onDirtyChange: (dirty: boolean) => void;
+	/** Hands the posted intent's requestId to the page, which owns the round trip. */
 	onAdoptPosted: (requestId: string) => void;
-	onCancel: () => void;
+	onRequestClose: () => void;
+	onKeepEditing: () => void;
+	onDiscard: () => void;
 }) {
 	const [label, setLabel] = useState(server.label);
 	const [touched, setTouched] = useState(false);
@@ -1716,6 +2008,7 @@ export function AdoptForm({
 
 	return (
 		<div className="form-card server-form">
+			<BackToServers onRequestClose={onRequestClose} />
 			<h3 id="server-form-title">{l10n.t("Adopt {0}", server.label)}</h3>
 			<FormSection
 				title={l10n.t("Adoption")}
@@ -1741,7 +2034,7 @@ export function AdoptForm({
 						aria-invalid={showProblem}
 						aria-describedby="adopt-label-error"
 						onChange={(event) => {
-							onUserEdit();
+							onDirtyChange(true);
 							setLabel(event.currentTarget.value);
 						}}
 						onBlur={() => setTouched(true)}
@@ -1769,7 +2062,7 @@ export function AdoptForm({
 									checked={locations[field] === "secure"}
 									disabled={saving}
 									onChange={() => {
-										onUserEdit();
+										onDirtyChange(true);
 										setLocations((current) => ({ ...current, [field]: "secure" }));
 									}}
 								/>
@@ -1781,7 +2074,7 @@ export function AdoptForm({
 									checked={locations[field] === "settings"}
 									disabled={saving}
 									onChange={() => {
-										onUserEdit();
+										onDirtyChange(true);
 										setLocations((current) => ({ ...current, [field]: "settings" }));
 									}}
 								/>
@@ -1800,8 +2093,10 @@ export function AdoptForm({
 			</FormSection>
 			{/* Same footer level as the edit page's bar, and for the same reason:
 			    the discard confirm pins to this edge too. */}
-			<div className="toolbar sticky bottom-[-20px] z-[2] mx-[-20px] mt-6 mb-[-20px] flex flex-wrap items-center gap-4 border-t border-border bg-background px-5 py-3">
-				<Button disabled={saving} onClick={adopt}>
+			{/* Same footer as the edit page's, for the same reasons. */}
+			<div className="toolbar sticky bottom-0 z-[2] mx-[-24px] mt-6 mb-[-48px] flex flex-wrap items-center gap-4 border-t border-border bg-background px-6 py-3">
+				{confirmingDiscard ? <DiscardConfirm onKeepEditing={onKeepEditing} onDiscard={onDiscard} /> : null}
+				<Button disabled={saving || confirmingDiscard} onClick={adopt}>
 					{saving ? (
 						<>
 							<span className="spinner" aria-hidden="true" /> {l10n.t("Adopting...")}
@@ -1810,9 +2105,9 @@ export function AdoptForm({
 						l10n.t("Adopt")
 					)}
 				</Button>
-				{/* Cancel routes through the slide-over's discard policy; a pending
-				    adopt never blocks it - the section owns the round trip. */}
-				<Button variant="secondary" onClick={onCancel}>
+				{/* Cancel routes through the shell's discard policy; a pending
+				    adopt never blocks it - the page owns the round trip. */}
+				<Button variant="secondary" onClick={onRequestClose}>
 					{l10n.t("Cancel")}
 				</Button>
 				{showProblem ? (

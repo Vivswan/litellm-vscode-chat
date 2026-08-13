@@ -1409,10 +1409,13 @@
 		margin: 3px 0;
 	}
 
-	/* The server form's slide-over: a scrim over the page and a focus-trapped
-		   panel on the right edge. Elevation is the shadow alone; the one motion
-		   is the panel's 200ms entrance, and it stands down for users who asked
-		   the OS for reduced motion. */
+	/* The slide-over the model inspector and the matcher editors open in: a
+		   scrim over the page and a focus-trapped panel on the right edge.
+		   Elevation is the shadow alone; the one motion is the panel's 200ms
+		   entrance, and it stands down for users who asked the OS for reduced
+		   motion. The server form used to live here and does not any more - it
+		   is a destination in the pane, because a whole entry's configuration is
+		   a place to go rather than a thing to open over the place you were. */
 	/* The scrim dims at a fixed alpha: theme widget-shadow values range from
 		   translucent black to fully opaque accent colors, so keying the scrim to
 		   the token either vanishes or paints a solid wall depending on theme. */

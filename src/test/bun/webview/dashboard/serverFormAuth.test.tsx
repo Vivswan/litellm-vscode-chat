@@ -8,9 +8,11 @@
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { RpcRequest } from "../../../../dashboard/endpoints";
-import { App } from "../../../../webview/dashboard/app";
+import type { DashboardServer } from "../../../../dashboard/viewModels";
+import type { ServerEditRequest } from "../../../../webview/dashboard/serverEditPage";
+import { ServerEditPage } from "../../../../webview/dashboard/serverEditPage";
 import { ServersSection } from "../../../../webview/dashboard/servers";
-import { declaredWithSecrets, makeDeclaredServer, makeMisconfiguredServer, makeState, statePush } from "../fixtures";
+import { declaredWithSecrets, makeDeclaredServer, makeMisconfiguredServer } from "../fixtures";
 import {
 	buttonByText,
 	cleanup,
@@ -32,8 +34,35 @@ afterEach(() => {
 	cleanup();
 });
 
+/** The edit destination on one entry; the auth selector's tests are about the form, not the shell. */
+function mountEditPage(
+	servers: readonly DashboardServer[],
+	request: ServerEditRequest = { kind: "edit", label: servers[0]?.label ?? "" }
+) {
+	return mount(
+		<ServerEditPage
+			request={request}
+			servers={servers}
+			confirmingDiscard={false}
+			onDirtyChange={() => {}}
+			onRequestClose={() => {}}
+			onKeepEditing={() => {}}
+			onDiscard={() => {}}
+			onSaved={() => {}}
+		/>
+	);
+}
+
 function mountSection(servers: Parameters<typeof ServersSection>[0]["servers"]) {
-	return mount(<ServersSection servers={servers} now={Date.now()} />);
+	return mount(
+		<ServersSection
+			servers={servers}
+			now={Date.now()}
+			onEditServer={() => {}}
+			onAdoptServer={() => {}}
+			onAddServer={() => {}}
+		/>
+	);
 }
 
 /** The auth selector's radio whose visible label text matches exactly. */
@@ -49,8 +78,7 @@ function authRadio(root: ParentNode, text: string): HTMLInputElement {
 }
 
 test("the auth selector reveals exactly the picked form's fields", () => {
-	const root = mountSection([makeDeclaredServer()]);
-	fireClick(buttonByText(root, "Add server"));
+	const root = mountEditPage([makeDeclaredServer()], { kind: "add" });
 
 	// A fresh form starts on None: no credential inputs anywhere.
 	expect(authRadio(root, "None").checked).toBe(true);
@@ -84,8 +112,7 @@ test("the auth selector reveals exactly the picked form's fields", () => {
 });
 
 test("editing a keyed entry derives the API-key form; switching to None keeps the stored key visible and removable", () => {
-	const root = mountSection([declaredWithSecrets({ apiKey: "secure" })]);
-	fireClick(buttonByText(root, "Edit"));
+	const root = mountEditPage([declaredWithSecrets({ apiKey: "secure" })]);
 	expect(authRadio(root, "API key (bearer)").checked).toBe(true);
 	expect(root.textContent).not.toContain("still activates the bearer");
 
@@ -144,7 +171,7 @@ test("a misconfigured row shows the Misconfigured pill, swaps Edit for Fix in se
 });
 
 test("the header rows round-trip through the save intent, edits and additions included", () => {
-	const root = mountSection([
+	const root = mountEditPage([
 		makeDeclaredServer({
 			label: "Prod",
 			config: {
@@ -153,7 +180,6 @@ test("the header rows round-trip through the save intent, edits and additions in
 			},
 		}),
 	]);
-	fireClick(buttonByText(root, "Edit"));
 
 	// The entry already carries a header, so the disclosure opens prefilled.
 	const names = () => Array.from(root.querySelectorAll('input[aria-label="Header name"]')) as HTMLInputElement[];
@@ -174,9 +200,7 @@ test("the header rows round-trip through the save intent, edits and additions in
 });
 
 test("switching the auth form clears a standing test result", () => {
-	const root = mount(<App />);
-	pushToWebview(statePush(makeState()));
-	fireClick(buttonByText(root, "Add your first server"));
+	const root = mountEditPage([], { kind: "add" });
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
 
 	resetPosted();

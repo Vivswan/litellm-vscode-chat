@@ -11,6 +11,8 @@ import type { DashboardServer } from "../../../../dashboard/viewModels";
 import { App } from "../../../../webview/dashboard/app";
 import { DOCS_LINK_CHECK_BASE_URL, DOCS_LINK_PROXY_NOT_RUNNING } from "../../../../webview/dashboard/docsLinks";
 import { helpEntryModelParameterPrefix } from "../../../../webview/dashboard/helpText";
+import type { ServerEditRequest } from "../../../../webview/dashboard/serverEditPage";
+import { ServerEditPage } from "../../../../webview/dashboard/serverEditPage";
 import { ServersSection } from "../../../../webview/dashboard/servers";
 import {
 	makeDeclaredServer,
@@ -47,8 +49,65 @@ afterEach(() => {
 	cleanup();
 });
 
+/**
+ * The section alone, with the shell's callbacks stubbed: what the list does
+ * with a row, not where the edit destination opens. Tests that need the
+ * destination mount the real shell through mountShell below, so nothing here
+ * re-implements App's navigation policy and then tests the re-implementation.
+ */
 function mountSection(servers: readonly DashboardServer[]) {
-	return mount(<ServersSection servers={servers} now={Date.now()} />);
+	return mount(
+		<ServersSection
+			servers={servers}
+			now={Date.now()}
+			onEditServer={() => {}}
+			onAdoptServer={() => {}}
+			onAddServer={() => {}}
+		/>
+	);
+}
+
+/**
+ * The edit destination alone, on the entry a test is about. Most form tests
+ * are about the form, not about the shell that hosts it: mounting the whole
+ * dashboard for them makes every query ambiguous (the diagnostics panel has
+ * its own "Test connection", the settings surface its own matcher editors)
+ * and tests the shell's wiring by accident. The tests that ARE about the
+ * shell - the pane swap, the navigation guard, focus on the way out - mount
+ * it through mountShell below.
+ */
+function mountEditPage(
+	servers: readonly DashboardServer[],
+	request: ServerEditRequest = { kind: "edit", label: servers[0]?.label ?? "" },
+	handlers: Partial<{
+		onDirtyChange: (dirty: boolean) => void;
+		onRequestClose: () => void;
+		onSaved: () => void;
+	}> = {}
+): HTMLElement {
+	return mount(
+		<ServerEditPage
+			request={request}
+			servers={servers}
+			confirmingDiscard={false}
+			onDirtyChange={handlers.onDirtyChange ?? (() => {})}
+			onRequestClose={handlers.onRequestClose ?? (() => {})}
+			onKeepEditing={() => {}}
+			onDiscard={() => {}}
+			onSaved={handlers.onSaved ?? (() => {})}
+		/>
+	);
+}
+
+/** The whole shell over one pushed fleet: the route every edit-destination test takes. */
+function mountShell(servers: readonly DashboardServer[]): HTMLElement {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers })));
+	// The shell's own ready handshake is not what any of these tests are
+	// about; clearing it here keeps every posted-message assertion reading as
+	// "what this interaction sent".
+	resetPosted();
+	return root;
 }
 
 /** Open the form's full matcher editor overlay for one record through its table pencil. */
@@ -92,7 +151,7 @@ test("the toolbar renders only once a server exists, and holds only the add entr
 });
 
 test("with no servers the guided start renders and its call to action opens the add form", () => {
-	const root = mountSection([]);
+	const root = mountShell([]);
 	const start = root.querySelector(".empty-start");
 	expect(start).not.toBeNull();
 	expect(start?.querySelector("h3")?.textContent).toBe("Connect LiteLLM to Copilot Chat");
@@ -101,7 +160,7 @@ test("with no servers the guided start renders and its call to action opens the 
 	expect(root.querySelector("table.servers")).toBeNull();
 
 	fireClick(buttonByText(root, "Add your first server"));
-	expect(root.querySelector(".slide-over .form-card")).not.toBeNull();
+	expect(root.querySelector(".form-card")).not.toBeNull();
 });
 
 test("a noticed entry states its inactive surfaces under its own row, not in a shared banner", () => {
@@ -143,7 +202,7 @@ test("without a notice a healthy row carries no diagnostic line at all", () => {
 });
 
 test("the edit form round-trips per-entry model parameters into the save intent", () => {
-	const root = mountSection([
+	const root = mountEditPage([
 		makeDeclaredServer({
 			label: "Prod",
 			config: {
@@ -152,7 +211,6 @@ test("the edit form round-trips per-entry model parameters into the save intent"
 			},
 		}),
 	]);
-	fireClick(buttonByText(root, "Edit"));
 
 	// The entry already carries parameters, so the table summarizes them; the
 	// row inputs live in the record's matcher editor overlay.
@@ -199,8 +257,7 @@ test("blur alone paints no problem on an empty field, and blurring content is wh
 	// The touch guard: brushing focus past a pristine empty field (toward
 	// Cancel, say) must not repaint the form mid-click - an inserted error
 	// line would move the buttons under the pointer.
-	const root = mountSection([]);
-	fireClick(buttonByText(root, "Add your first server"));
+	const root = mountEditPage([], { kind: "add" });
 	const label = inputByLabel(root, "Label");
 
 	fireBlur(label);
@@ -234,8 +291,7 @@ test("blur alone paints no problem on an empty field, and blurring content is wh
 test("Save on the empty form touches every field: both required-field problems surface at once", () => {
 	// Required-but-empty fields stay quiet on blur, so Save is the moment
 	// they all speak up: not just the first blocking field, every one.
-	const root = mountSection([]);
-	fireClick(buttonByText(root, "Add your first server"));
+	const root = mountEditPage([], { kind: "add" });
 
 	fireClick(buttonByText(root, "Save"));
 	expect(postedMessages).toEqual([]);
@@ -356,8 +412,7 @@ function apiVersionControl(root: HTMLElement): { select: HTMLSelectElement } {
 }
 
 test("the API version control is visible from the start on Auto, and the save intent carries no key", () => {
-	const root = mountSection([]);
-	fireClick(buttonByText(root, "Add your first server"));
+	const root = mountEditPage([], { kind: "add" });
 
 	const { select } = apiVersionControl(root);
 	expect(select.value).toBe("auto");
@@ -372,8 +427,7 @@ test("the API version control is visible from the start on Auto, and the save in
 });
 
 test("No version saves the empty-string override", () => {
-	const root = mountSection([]);
-	fireClick(buttonByText(root, "Add your first server"));
+	const root = mountEditPage([], { kind: "add" });
 	fireInput(inputByLabel(root, "Label"), "Prod");
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
 
@@ -387,8 +441,7 @@ test("No version saves the empty-string override", () => {
 });
 
 test("Custom reveals the segment input; the trimmed text rides the save and the connection test", () => {
-	const root = mountSection([]);
-	fireClick(buttonByText(root, "Add your first server"));
+	const root = mountEditPage([], { kind: "add" });
 	fireInput(inputByLabel(root, "Label"), "Prod");
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
 
@@ -410,8 +463,7 @@ test("Custom reveals the segment input; the trimmed text rides the save and the 
 });
 
 test("Custom with no text blocks Save with the version-segment problem, in view without opening anything", () => {
-	const root = mountSection([]);
-	fireClick(buttonByText(root, "Add your first server"));
+	const root = mountEditPage([], { kind: "add" });
 	fireInput(inputByLabel(root, "Label"), "Prod");
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
 	const { select } = apiVersionControl(root);
@@ -431,13 +483,13 @@ test("an entry's apiVersion prefills the matching mode", () => {
 	const secrets = { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } as const;
 
 	// "" prefills None.
-	const noneRoot = mountSection([makeDeclaredServer({ label: "Bare", config: { secrets, apiVersion: "" } })]);
+	const noneRoot = mountShell([makeDeclaredServer({ label: "Bare", config: { secrets, apiVersion: "" } })]);
 	fireClick(buttonByText(noneRoot, "Edit"));
 	const none = apiVersionControl(noneRoot);
 	expect(none.select.value).toBe("none");
 
 	// Text prefills Custom with the input filled.
-	const customRoot = mountSection([makeDeclaredServer({ label: "V2", config: { secrets, apiVersion: "v2" } })]);
+	const customRoot = mountShell([makeDeclaredServer({ label: "V2", config: { secrets, apiVersion: "v2" } })]);
 	fireClick(buttonByText(customRoot, "Edit"));
 	const custom = apiVersionControl(customRoot);
 	expect(custom.select.value).toBe("custom");
@@ -503,7 +555,7 @@ test("removing an external row is two-step and posts hideExternalServer with the
 });
 
 test("a non-hideable external row (legacy registry) offers Edit only, no Remove", () => {
-	const root = mountSection([makeExternalServer({ hideable: false })]);
+	const root = mountShell([makeExternalServer({ hideable: false })]);
 	const actions = [...root.querySelectorAll(".server-actions button")].map((el) => el.textContent?.trim());
 	expect(actions).toEqual(["Edit"]);
 });
@@ -546,6 +598,9 @@ test("the hide ack raises the guidance notice naming the group, with the models-
 test("the hidden-groups line states the count, expands to rows, and Unhide posts the identity verbatim", () => {
 	const root = mount(
 		<ServersSection
+			onEditServer={() => {}}
+			onAdoptServer={() => {}}
+			onAddServer={() => {}}
 			servers={[makeDeclaredServer()]}
 			hidden={[
 				{ label: "Old", baseUrl: "http://old.test" },
@@ -582,7 +637,14 @@ test("without hidden groups no hidden-groups line renders; with them it renders 
 	// Every visible group hidden: the guided start renders, but the unhide
 	// path must stay reachable.
 	const onlyHidden = mount(
-		<ServersSection servers={[]} hidden={[{ label: "Old", baseUrl: "http://old.test" }]} now={Date.now()} />
+		<ServersSection
+			servers={[]}
+			hidden={[{ label: "Old", baseUrl: "http://old.test" }]}
+			now={Date.now()}
+			onEditServer={() => {}}
+			onAdoptServer={() => {}}
+			onAddServer={() => {}}
+		/>
 	);
 	expect(onlyHidden.querySelector(".empty-start")).not.toBeNull();
 	expect(onlyHidden.querySelector(".hidden-groups")?.textContent).toContain("1 hidden group");
@@ -626,6 +688,9 @@ test("the model count is a scope link only when the section is given onShowModel
 	const labels: string[] = [];
 	const root = mount(
 		<ServersSection
+			onEditServer={() => {}}
+			onAdoptServer={() => {}}
+			onAddServer={() => {}}
 			servers={[makeDeclaredServer({ label: "Prod", modelCount: 3 }), makeDeclaredServer({ label: "Empty" })]}
 			now={Date.now()}
 			onShowModels={(label) => labels.push(label)}
@@ -637,9 +702,7 @@ test("the model count is a scope link only when the section is given onShowModel
 });
 
 test("Test connection gates on the base URL alone, posts the draft's exact keys, and its own ack renders the result", () => {
-	const root = mount(<App />);
-	pushToWebview(statePush(makeState()));
-	fireClick(buttonByText(root, "Add your first server"));
+	const root = mountEditPage([], { kind: "add" });
 
 	// Unusable URL: the button is the only thing disabled; a savable label is
 	// deliberately not required to probe.
@@ -700,9 +763,7 @@ test("Test connection gates on the base URL alone, posts the draft's exact keys,
 });
 
 test("a failed test with a setup hint renders the troubleshooting link inside the alert", () => {
-	const root = mount(<App />);
-	pushToWebview(statePush(makeState()));
-	fireClick(buttonByText(root, "Add your first server"));
+	const root = mountEditPage([], { kind: "add" });
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
 
 	resetPosted();
@@ -826,9 +887,7 @@ test("a hintless classification renders no troubleshooting link", () => {
 });
 
 test("a failed test renders its message inline and the result clears on any credential-affecting edit", () => {
-	const root = mount(<App />);
-	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
-	fireClick(buttonByText(root, "Edit"));
+	const root = mountEditPage([makeDeclaredServer({ label: "Prod" })]);
 	// The entry has no credentials, so the form derives to None; the API-key
 	// form is picked up front so the credential-edit steps below have their
 	// input (the pick itself would clear a standing result too).
@@ -896,9 +955,7 @@ test("a failed test renders its message inline and the result clears on any cred
 });
 
 test("an in-flight test is abandoned by a connection edit: the stale outcome is ignored", () => {
-	const root = mount(<App />);
-	pushToWebview(statePush(makeState()));
-	fireClick(buttonByText(root, "Add your first server"));
+	const root = mountEditPage([], { kind: "add" });
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
 
 	resetPosted();
@@ -918,9 +975,7 @@ test("an in-flight test is abandoned by a connection edit: the stale outcome is 
 });
 
 test("Test with a partial OAuth draft posts nothing and surfaces the pairing problem like Save would", () => {
-	const root = mount(<App />);
-	pushToWebview(statePush(makeState()));
-	fireClick(buttonByText(root, "Add your first server"));
+	const root = mountEditPage([], { kind: "add" });
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
 	const oauthOption = [...root.querySelectorAll(".auth-selector label")].find(
 		(el) => (el.textContent ?? "").trim() === "OAuth"
@@ -936,35 +991,28 @@ test("Test with a partial OAuth draft posts nothing and surfaces the pairing pro
 	expect(root.textContent).toContain("OAuth needs the token URL and client ID");
 });
 
-test("a test in flight does not block Cancel; the form closes and the outcome lands nowhere", () => {
-	const root = mount(<App />);
-	pushToWebview(statePush(makeState()));
-	fireClick(buttonByText(root, "Add your first server"));
+test("a test in flight does not block leaving; the request goes up and the outcome lands nowhere", () => {
+	const closes: number[] = [];
+	const root = mountEditPage([], { kind: "add" }, { onRequestClose: () => closes.push(1) });
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
 	resetPosted();
 	fireClick(buttonByText(root, "Test connection"));
 	const posted = postedMessages[0] as RpcRequest<"testServerDraft">;
 
-	// The typed URL made the form dirty, so Cancel raises the discard confirm
-	// (unchanged semantics); Discard closes despite the probe in flight.
+	// A probe in flight gates nothing: the page still reports the reader's
+	// request to leave, and the shell decides what it means.
 	fireClick(buttonByText(root, "Discard changes"));
-	fireClick(buttonByText(root, "Discard"));
-	expect(root.querySelector(".form-card")).toBeNull();
+	expect(closes).toHaveLength(1);
 
 	// The abandoned outcome must not throw or resurrect anything.
-	pushToWebview({
-		kind: "fail",
-		id: posted.id,
-		method: "testServerDraft",
-		message: "Network Error: unreachable",
-		failureKind: "validation",
-	});
-	expect(root.querySelector(".test-result")).toBeNull();
-	expect(root.querySelector(".banner-error")).toBeNull();
+	// What happens to the abandoned outcome once the shell takes the page away
+	// is the shell's test (app.test.tsx); here the page's own contract ends at
+	// reporting the request.
+	expect(posted.method).toBe("testServerDraft");
 });
 
 test("the edit form round-trips model capabilities and expected failures into the save intent", () => {
-	const root = mountSection([
+	const root = mountEditPage([
 		makeDeclaredServer({
 			label: "Prod",
 			config: {
@@ -974,7 +1022,6 @@ test("the edit form round-trips model capabilities and expected failures into th
 			},
 		}),
 	]);
-	fireClick(buttonByText(root, "Edit"));
 
 	// The entry already carries capabilities: the table summarizes them, the
 	// overlay renders the typed controls (number field as a number input, the
@@ -1022,8 +1069,7 @@ test("the edit form round-trips model capabilities and expected failures into th
 test("an unknown capability key gets a JSON input and no hint without observed evidence; the save still posts", () => {
 	// The server never reported a /model/info key set: no evidence, so the
 	// live draft mirrors the host's advisory filter and stays silent.
-	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
-	fireClick(buttonByText(root, "Edit"));
+	const root = mountEditPage([makeDeclaredServer({ label: "Prod" })]);
 	fireClick(buttonByText(root, "Add capability matcher"));
 	const overlay = root.querySelector<HTMLElement>(".matcher-editor");
 	if (overlay === null) {
@@ -1056,10 +1102,9 @@ test("an unknown capability key gets a JSON input and no hint without observed e
 });
 
 test("an unknown capability key hints when the server's observed keys lack it, and the hint says it still applies", () => {
-	const root = mountSection([
+	const root = mountEditPage([
 		makeDeclaredServer({ label: "Prod", observedModelInfoKeys: ["litellm_provider", "mode"] }),
 	]);
-	fireClick(buttonByText(root, "Edit"));
 	fireClick(buttonByText(root, "Add capability matcher"));
 	const overlay = root.querySelector<HTMLElement>(".matcher-editor");
 	if (overlay === null) {
@@ -1091,8 +1136,7 @@ test("an unknown capability key hints when the server's observed keys lack it, a
 });
 
 test("a consumed capability key gets its typed input: costs a decimal number field, caching flags a checkbox", () => {
-	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
-	fireClick(buttonByText(root, "Edit"));
+	const root = mountEditPage([makeDeclaredServer({ label: "Prod" })]);
 	fireClick(buttonByText(root, "Add capability matcher"));
 	const overlay = root.querySelector<HTMLElement>(".matcher-editor");
 	if (overlay === null) {
@@ -1141,9 +1185,19 @@ test("a consumed capability key gets its typed input: costs a decimal number fie
 });
 
 test("a discovery pass finishing under the open form refreshes the unknown-key hint evidence", () => {
-	const sectionWith = (servers: readonly DashboardServer[]) => <ServersSection servers={servers} now={Date.now()} />;
-	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
-	fireClick(buttonByText(root, "Edit"));
+	const pageWith = (servers: readonly DashboardServer[]) => (
+		<ServerEditPage
+			request={{ kind: "edit", label: "Prod" }}
+			servers={servers}
+			confirmingDiscard={false}
+			onDirtyChange={() => {}}
+			onRequestClose={() => {}}
+			onKeepEditing={() => {}}
+			onDiscard={() => {}}
+			onSaved={() => {}}
+		/>
+	);
+	const root = mountEditPage([makeDeclaredServer({ label: "Prod" })]);
 	fireClick(buttonByText(root, "Add capability matcher"));
 	const overlay = root.querySelector<HTMLElement>(".matcher-editor");
 	if (overlay === null) {
@@ -1163,12 +1217,12 @@ test("a discovery pass finishing under the open form refreshes the unknown-key h
 	}
 	fireInput(valueInput, "true");
 	expect(root.textContent).not.toContain("is not a field this extension knows");
-	// The state push that lands the discovery result re-renders the section
-	// with the server's observed keys; the OPEN form's hints must follow the
-	// live evidence, not the open-time snapshot.
+	// The state push that lands the discovery result re-renders the page with
+	// the server's observed keys; the OPEN form's hints must follow the live
+	// evidence, not the open-time snapshot.
 	void act(() => {
 		render(
-			sectionWith([makeDeclaredServer({ label: "Prod", observedModelInfoKeys: ["litellm_provider", "mode"] })]),
+			pageWith([makeDeclaredServer({ label: "Prod", observedModelInfoKeys: ["litellm_provider", "mode"] })]),
 			root
 		);
 	});
@@ -1176,7 +1230,7 @@ test("a discovery pass finishing under the open form refreshes the unknown-key h
 });
 
 test("a preserved invalid consumed value keeps the raw JSON input instead of a typed control that would blank it", () => {
-	const root = mountSection([
+	const root = mountEditPage([
 		makeDeclaredServer({
 			label: "Prod",
 			config: {
@@ -1185,7 +1239,6 @@ test("a preserved invalid consumed value keeps the raw JSON input instead of a t
 			},
 		}),
 	]);
-	fireClick(buttonByText(root, "Edit"));
 	const overlay = openMatcherEditor(root, "gpt-4");
 	// A number input would display the stored "free" as blank and a checkbox
 	// would read the stored 1 as unchecked; the rows keep free-form inputs
@@ -1222,8 +1275,7 @@ test("a preserved invalid consumed value keeps the raw JSON input instead of a t
 });
 
 test("switching a row's key onto a support flag seeds it true and renders the checkbox", () => {
-	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
-	fireClick(buttonByText(root, "Edit"));
+	const root = mountEditPage([makeDeclaredServer({ label: "Prod" })]);
 	fireClick(buttonByText(root, "Add capability matcher"));
 	const overlay = root.querySelector<HTMLElement>(".matcher-editor");
 	if (overlay === null) {
@@ -1240,7 +1292,7 @@ test("switching a row's key onto a support flag seeds it true and renders the ch
 });
 
 test("fallback checkbox: marking a capability row through its chip popover saves the explicit _fallback list", () => {
-	const root = mountSection([
+	const root = mountEditPage([
 		makeDeclaredServer({
 			label: "Prod",
 			config: {
@@ -1249,7 +1301,6 @@ test("fallback checkbox: marking a capability row through its chip popover saves
 			},
 		}),
 	]);
-	fireClick(buttonByText(root, "Edit"));
 
 	fireClick(chipFor(root, "context_length"));
 	const box = root.querySelector<HTMLInputElement>(`.chip-popover input[aria-label='Fall back for "context_length"']`);
@@ -1269,7 +1320,7 @@ test("fallback checkbox: marking a capability row through its chip popover saves
 });
 
 test("fallback checkbox: a support-flag row carries its own box beside the value checkbox in the overlay", () => {
-	const root = mountSection([
+	const root = mountEditPage([
 		makeDeclaredServer({
 			label: "Prod",
 			config: {
@@ -1278,7 +1329,6 @@ test("fallback checkbox: a support-flag row carries its own box beside the value
 			},
 		}),
 	]);
-	fireClick(buttonByText(root, "Edit"));
 	const overlay = openMatcherEditor(root, "gpt-4");
 
 	// The row renders the boolean value control (label.capability-flag); the
@@ -1300,7 +1350,7 @@ test("fallback checkbox: a support-flag row carries its own box beside the value
 });
 
 test("fallback checkbox: a hand-written _fallback true loads checked and saves unrewritten", () => {
-	const root = mountSection([
+	const root = mountEditPage([
 		makeDeclaredServer({
 			label: "Prod",
 			config: {
@@ -1309,7 +1359,6 @@ test("fallback checkbox: a hand-written _fallback true loads checked and saves u
 			},
 		}),
 	]);
-	fireClick(buttonByText(root, "Edit"));
 
 	// The chip badge and the popover checkbox both read the literal true.
 	fireClick(chipFor(root, "context_length"));
@@ -1401,8 +1450,7 @@ test("the api-version-inactive notice names its surface on the row it belongs to
 });
 
 test("editing a capability row or an expected-failure checkbox clears a standing test result", () => {
-	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
-	fireClick(buttonByText(root, "Edit"));
+	const root = mountEditPage([makeDeclaredServer({ label: "Prod" })]);
 	fireClick(buttonByText(root, "Test connection"));
 	const probe = postedMessages.at(-1) as RpcRequest<"testServerDraft">;
 	expect(probe.method).toBe("testServerDraft");
@@ -1419,8 +1467,7 @@ test("editing a capability row or an expected-failure checkbox clears a standing
 });
 
 test("the save bar names where the entry lands and counts what is unsaved", () => {
-	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
-	fireClick(buttonByText(root, "Edit"));
+	const root = mountEditPage([makeDeclaredServer({ label: "Prod" })]);
 
 	// A form that has not been touched has nothing to save and says nothing.
 	const bar = root.querySelector(".form-card .toolbar") as HTMLElement;
@@ -1439,7 +1486,7 @@ test("the save bar names where the entry lands and counts what is unsaved", () =
 });
 
 test("the record rows and the expected-failure checkboxes keep a programmatic group", () => {
-	const root = mountSection([
+	const root = mountEditPage([
 		makeDeclaredServer({
 			label: "Prod",
 			config: {
@@ -1448,7 +1495,6 @@ test("the record rows and the expected-failure checkboxes keep a programmatic gr
 			},
 		}),
 	]);
-	fireClick(buttonByText(root, "Edit"));
 
 	const list = root.querySelector("ul.record-table") as HTMLElement;
 	expect(list.getAttribute("aria-label")).toBe("Model parameter matchers");
@@ -1459,8 +1505,7 @@ test("the record rows and the expected-failure checkboxes keep a programmatic gr
 });
 
 test("every problem is in view without a gesture: the page holds no fold that could hide one", () => {
-	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
-	fireClick(buttonByText(root, "Edit"));
+	const root = mountEditPage([makeDeclaredServer({ label: "Prod" })]);
 
 	// The entry is one scroll: no disclosure anywhere, so no problem can
 	// surface behind something the reader has to find and open first.
@@ -1492,9 +1537,13 @@ test("every problem is in view without a gesture: the page holds no fold that co
 	expect(root.textContent).toContain("Cannot save: fix");
 });
 
-test("add matcher then cancel is a no-op: the pristine sweep leaves the form clean, no discard confirm", () => {
-	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
-	fireClick(buttonByText(root, "Edit"));
+test("add matcher then cancel is a no-op: the pristine sweep leaves the form clean, nothing to ask about", () => {
+	const dirty: boolean[] = [];
+	const closes: number[] = [];
+	const root = mountEditPage([makeDeclaredServer({ label: "Prod" })], undefined, {
+		onDirtyChange: (value) => dirty.push(value),
+		onRequestClose: () => closes.push(1),
+	});
 
 	fireClick(buttonByText(root, "Add model matcher"));
 	const overlay = root.querySelector<HTMLElement>(".matcher-editor");
@@ -1505,9 +1554,11 @@ test("add matcher then cancel is a no-op: the pristine sweep leaves the form cle
 	// The pristine group is swept; nothing counts as a user edit, so Cancel
 	// closes directly instead of raising the discard confirm over a no-op.
 	expect(root.querySelector(".record-table")).toBeNull();
+	// Nothing was reported dirty, so the shell has nothing to ask about: the
+	// request to leave goes up unqualified.
+	expect(dirty).toEqual([]);
 	fireClick(buttonByText(root, "Discard changes"));
-	expect(root.textContent).not.toContain("Discard unsaved changes?");
-	expect(root.querySelector(".form-card")).toBeNull();
+	expect(closes).toHaveLength(1);
 });
 
 test("the usage column shows the spend percentage with the Usage tab's severity tone", () => {
@@ -1614,7 +1665,7 @@ test("the entry form's capability key suggestions carry THAT server's observed v
 	// An entry-scoped record applies to one server only, so its autocomplete
 	// draws on that server's own observed /model/info keys - not the
 	// cross-server union the global editor uses.
-	const root = mountSection([
+	const root = mountEditPage([
 		makeDeclaredServer({ label: "Prod", observedModelInfoKeys: ["prod_only_key", "mode"] }),
 		makeDeclaredServer({
 			label: "Other",
@@ -1622,10 +1673,6 @@ test("the entry form's capability key suggestions carry THAT server's observed v
 			observedModelInfoKeys: ["other_only_key"],
 		}),
 	]);
-	const editProd = [...root.querySelectorAll("button")].find(
-		(button) => (button.textContent ?? "").trim() === "Edit"
-	) as HTMLButtonElement;
-	fireClick(editProd);
 	const names = capabilityKeyOptions(root);
 	expect(names).toContain("prod_only_key");
 	expect(names).toContain("mode");
@@ -1637,7 +1684,7 @@ test("the entry form's capability key suggestions carry THAT server's observed v
 });
 
 test("an entry without an observed key set (the add form) keeps the static capability suggestions", () => {
-	const root = mountSection([makeDeclaredServer({ label: "Prod", observedModelInfoKeys: ["prod_only_key"] })]);
+	const root = mountShell([makeDeclaredServer({ label: "Prod", observedModelInfoKeys: ["prod_only_key"] })]);
 	// The ADD form targets no server yet, so no vocabulary is borrowed - not
 	// even the one existing server's.
 	fireClick(buttonByText(root, "Add server"));
@@ -1650,7 +1697,7 @@ test("an entry without an observed key set (the add form) keeps the static capab
 test("the entry table's compact [+] add popover draws on the same entry-scoped vocabulary as the overlay", () => {
 	// The two entry surfaces for a capability key - the table's [+] chip and
 	// the full editor's rows - must share one list.
-	const root = mountSection([
+	const root = mountEditPage([
 		makeDeclaredServer({
 			label: "Prod",
 			observedModelInfoKeys: ["prod_only_key"],
@@ -1660,7 +1707,6 @@ test("the entry table's compact [+] add popover draws on the same entry-scoped v
 			},
 		}),
 	]);
-	fireClick(buttonByText(root, "Edit"));
 	const addChip = root.querySelector("button[aria-label='Add a field to \"gpt-4\"']") as HTMLButtonElement;
 	expect(addChip).not.toBeNull();
 	fireClick(addChip);
@@ -1672,12 +1718,12 @@ test("the entry table's compact [+] add popover draws on the same entry-scoped v
 });
 
 test("a nested overlay hears Esc alone: it closes, the form beneath survives and keeps focus", () => {
-	// The matcher overlay opens above the server form's slide-over, so two
-	// dialogs are live at once. Radix's layer stack decides which one hears the
-	// key and pauses the outer focus scope; the port depends on that instead of
-	// the stopPropagation the hand-rolled trap used to need, so it is worth
-	// pinning rather than inferring from the two panels rendering.
-	const root = mountSection([
+	// The matcher overlay opens above the edit destination, and its Escape
+	// must close it alone - the page underneath is a place, not a dialog, and
+	// the shell's own leave guard must not hear the same key. Radix's layer
+	// stack plus the overlay's stopPropagation is what makes that true, so it
+	// is worth pinning rather than inferring from the panels rendering.
+	const root = mountEditPage([
 		makeDeclaredServer({
 			label: "Prod",
 			config: {
@@ -1686,16 +1732,19 @@ test("a nested overlay hears Esc alone: it closes, the form beneath survives and
 			},
 		}),
 	]);
-	fireClick(buttonByText(root, "Edit"));
 	const overlay = openMatcherEditor(root, "gpt-4");
-	expect(root.querySelectorAll(".slide-over")).toHaveLength(2);
+	// One dialog, over a page: the destination is not a panel, so the overlay
+	// is the only slide-over on screen.
+	expect(root.querySelectorAll(".slide-over")).toHaveLength(1);
 
 	fireKeyDown(overlay.querySelector("input") as HTMLElement, "Escape");
 
-	// Only the inner one goes; the form beneath is still open and still holds focus.
+	// Only the inner one goes; the page beneath is still open and still holds
+	// focus. The page is a destination rather than a panel now, so the overlay
+	// is the one dialog on screen and it leaves nothing behind.
 	expect(root.querySelector(".matcher-editor")).toBeNull();
-	expect(root.querySelectorAll(".slide-over")).toHaveLength(1);
-	const form = root.querySelector(".slide-over") as HTMLElement;
+	expect(root.querySelectorAll(".slide-over")).toHaveLength(0);
+	const form = root.querySelector(".server-form") as HTMLElement;
 	expect(form.contains(document.activeElement)).toBe(true);
 });
 
