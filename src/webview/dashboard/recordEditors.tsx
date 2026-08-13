@@ -2322,7 +2322,31 @@ export function RecordMatcherTable({
 								{matcherKindLabel(matcherKind(group.prefix))}
 							</span>
 						</span>
-						<span className="chip-list flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-1">
+						{/* min-w-min, not min-w-0: flex-1 with a zero floor let this box
+						    be squeezed narrower than a single chip, and a chip cannot
+						    shrink to match, so the chips overflowed and painted over the
+						    inherit summary and the pencil after them - "force" and
+						    "inherits nothing" ran together into one unreadable word.
+						    Measured at a 540px viewport, the content overran the box by
+						    39 to 223px per row. The floor is one chip's own minimum, so
+						    the ROW wraps its trailing cells instead, which is what its
+						    flex-wrap is for, and the chips still wrap among themselves
+						    inside it.
+
+						    The trade is that painted overflow becomes structural: the row
+						    now has a hard floor of one chip's min-content, which for a long
+						    field name plus a 14em value plus its marks is 350-450px, and
+						    below that the pane scrolls horizontally instead of the text
+						    colliding. That is the better failure - a scrollbar says what
+						    happened and the words stay readable - but it is a floor with no
+						    responsive escape, so a narrow pane cannot get under it.
+
+						    One dormant consequence: `.slide-over .chip-list` in dashboard.css
+						    exists to stop a chip popover clipping at a panel's left edge, and
+						    nothing renders this table inside a slide-over today. If one ever
+						    does, this floor lets the popover's containing block exceed the
+						    panel width and re-opens exactly what that rule prevents. */}
+						<span className="chip-list flex min-w-min flex-1 flex-wrap items-baseline gap-x-2 gap-y-1">
 							{chips.map((rowIndex) => {
 								const row = group.params[rowIndex];
 								if (row === undefined) {
@@ -2456,10 +2480,31 @@ export function RecordMatcherTable({
 						</span>
 						<InheritsSummary group={group} />
 						{editable ? (
+							/* An auto inline-start margin keeps the pencil at the row's end
+							   once the row wraps. It reads like an unconditional alignment
+							   change and is not one: flex-1 on the chip list already consumes
+							   the free space whenever there is room, so the margin has none
+							   left to take - at a 1300px viewport the pencil measures 8px
+							   from the row's end with or without this, byte for byte. It acts
+							   only on a wrapped row, where without it the pencil lands
+							   mid-line: measured 161px and 255px in from the end on two rows
+							   while their unwrapped siblings sat at 8px.
+
+							   The vocabulary it states: a row's action sits at the row's END,
+							   at the same distance, whatever the content does. This is the
+							   only row that wraps, so it is the only one that needs saying in
+							   a margin - the model and usage rows hold their actions in a
+							   fixed final track and cannot wrap at all.
+
+							   ms- rather than ml-: the row is a flex line, so the margin
+							   belongs to the main axis, and a physical left margin points the
+							   wrong way the moment the document is RTL. No RTL bundle ships
+							   today, which is exactly why it is worth spelling correctly now
+							   rather than discovering it later. */
 							<Button
 								variant="secondary"
 								size="compact"
-								className="edit-cell shrink-0"
+								className="edit-cell ms-auto shrink-0"
 								aria-label={l10n.t('Open the full editor for "{0}"', matcherName)}
 								disabled={disabled}
 								onClick={() => onOpenEditor?.(groupIndex)}
