@@ -123,15 +123,60 @@ describe("Configuration diagnostics", () => {
 		return clone.textContent ?? "";
 	}
 
-	test("clean settings keep the section and say so instead of leaving a gap", () => {
+	test("clean settings keep the section and say so in one clause", () => {
 		const root = mountConfig([]);
 		expect(root.querySelector(".config-diagnostics")).toBeNull();
 		// The section itself stays: the destination's shape must not change
 		// under the reader between a clean install and a broken one.
 		expect(root.querySelector("#config-diagnostics-section")).not.toBeNull();
-		expect(root.textContent).toContain("read cleanly");
+		// Pinned exactly, not by substring: the healthy state is a place prose
+		// regrows, and a `toContain` would pass against a paragraph again.
+		expect(root.querySelector("#config-diagnostics-section p.hint")?.textContent).toBe("Your settings read cleanly.");
 		// Nothing to act on means no count beside the title.
 		expect(root.textContent).not.toContain("needs attention");
+	});
+
+	test("two records failing on the same field stay tellable apart", () => {
+		// The record key left five of the seven sentences when they were cut to
+		// one clause; without it as a location chip these rows are byte-identical
+		// and neither names the record the reader has to go find.
+		const root = mountConfig([
+			{
+				kind: "record",
+				setting: "models.parameters",
+				diagnostic: { kind: "invalid-value", recordKey: "gpt-5*", key: "temperature" },
+				severity: "warning",
+			},
+			{
+				kind: "record",
+				setting: "models.parameters",
+				diagnostic: { kind: "invalid-value", recordKey: "claude-*", key: "temperature" },
+				severity: "warning",
+			},
+		]);
+		const rows = Array.from(root.querySelectorAll(".config-diagnostics li"));
+		expect(rows).toHaveLength(2);
+		const chips = rows.map((row) =>
+			Array.from(row.querySelectorAll(".row-diagnostic-where .chip-prov")).map((chip) => chip.textContent)
+		);
+		expect(chips).toEqual([
+			["models.parameters", "gpt-5*"],
+			["models.parameters", "claude-*"],
+		]);
+		expect(rows[0]?.textContent).not.toBe(rows[1]?.textContent);
+	});
+
+	test("a sentence that already names its record does not repeat it as a chip", () => {
+		const root = mountConfig([
+			{
+				kind: "record",
+				setting: "models.parameters",
+				diagnostic: { kind: "invalid-matcher", recordKey: "gpt*5", key: "gpt*5" },
+				severity: "warning",
+			},
+		]);
+		const chips = Array.from(root.querySelectorAll(".row-diagnostic-where .chip-prov")).map((chip) => chip.textContent);
+		expect(chips).toEqual(["models.parameters"]);
 	});
 
 	test("renders one block per diagnostic, worst first, with the offending key", () => {
@@ -184,7 +229,10 @@ describe("Configuration diagnostics", () => {
 		// the thresholds drop stays ahead of the parked headers.
 		expect(text[2]).toContain("2");
 		expect(text[3]).toContain("x-env, x-trace");
-		expect(text[3]).toContain("adopt");
+		// The remedy ("adopt the external group") moved behind Learn more: one
+		// consequence clause is the whole visible budget for a diagnostic.
+		expect(text[3]).not.toContain("adopt");
+		expect(text[3]).toContain("Learn more");
 		expect(text[4]).toContain('"supports_web_search"');
 		// The count beside the title excludes the advisory: the configuration
 		// applies as written, so counting it would call a healthy setup
@@ -204,10 +252,11 @@ describe("Configuration diagnostics", () => {
 			},
 		]);
 		const headline = sightedText(root.querySelector(".config-diagnostics .row-diagnostic-headline"));
-		// A reader who stops after the first clause still knows what is not
-		// being applied; one who reads on still learns why.
-		expect(headline.startsWith('Nothing in record "gpt*5" is ever applied:')).toBe(true);
-		expect(headline).toContain("not a valid matcher key");
+		// One clause: the consequence, then the cause, then stop. The matcher
+		// grammar the sentence used to recite lives behind this row's Learn more.
+		expect(headline).toBe('Nothing in record "gpt*5" is applied: that is not a valid matcher key.');
+		expect(headline).not.toContain("trailing-*");
+		expect(root.querySelector(".row-diagnostic-actions a")?.textContent).toBe("Learn more");
 	});
 
 	test("the location rides neutral badges rather than a trailing parenthetical", () => {
@@ -221,7 +270,9 @@ describe("Configuration diagnostics", () => {
 			},
 		]);
 		const badges = Array.from(root.querySelectorAll(".row-diagnostic-where .chip-prov")).map((el) => el.textContent);
-		expect(badges).toEqual(["models.parameters", "entry prod"]);
+		// Setting, then entry, then the record - a path to the exact object,
+		// all machine text, none of it folded into the sentence.
+		expect(badges).toEqual(["models.parameters", "entry prod", "gpt-4"]);
 		expect(root.querySelector(".row-diagnostic-headline")?.textContent).not.toContain("(models.parameters)");
 	});
 
@@ -463,11 +514,22 @@ describe("Configuration diagnostics", () => {
 		const item = root.querySelector(".config-diagnostics li");
 		expect(item?.className).toBe("row-diagnostic sev-advisory");
 		expect(item?.textContent).toContain('"supports_web_search"');
-		expect(item?.textContent).toContain("applies as an override as-is");
+		expect(item?.textContent).toContain("applies as written");
 	});
 });
 
 describe("Resolved models", () => {
+	test("the resolution view carries no standing paragraph around the tree", () => {
+		// The tree and the table ARE the explanation; a paragraph above them was
+		// read once and scrolled past forever. Pinned so it cannot regrow.
+		const { root } = mountDiagnostics({});
+		const section = root.querySelector("#resolution-section") as HTMLElement;
+		expect(section.textContent).not.toContain("precomputed resolution");
+		expect(section.textContent).not.toContain("never part of issue reports");
+		// The concept still has a home: the header's help affordance.
+		expect(section.querySelector(".section-head .help-tip")?.textContent).toContain("Which record set each value");
+	});
+
 	test("requests only while the tab is active", () => {
 		mount(
 			<DiagnosticsSection

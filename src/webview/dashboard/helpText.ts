@@ -253,7 +253,7 @@ export function helpResolutionSection(): string {
 
 export function helpSupportSection(): string {
 	return l10n.t(
-		"Collect evidence about this install and take it somewhere, e.g. Copy diagnostics before filing an issue. Nothing here changes your settings."
+		"Evidence about this install, e.g. Copy diagnostics puts your connection summary on the clipboard as English text. Report a bug pre-fills a GitHub issue with version, platform, and logs."
 	);
 }
 

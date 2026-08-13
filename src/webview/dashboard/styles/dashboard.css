@@ -711,6 +711,8 @@
 		   one-liner. The connection block that used to sit above them - verdict,
 		   facts list, and a per-server outcome grid - is gone: every fact in it
 		   now renders on the server's own row, where the fix is. */
+	/* One link per line, no gloss: the labels name their destinations, and a
+		   muted sentence beside each was four more lines to skip. */
 	.feedback-links {
 		list-style: none;
 		padding: 0;
@@ -718,9 +720,6 @@
 	}
 	.feedback-links li {
 		margin: 8px 0;
-	}
-	.feedback-links li .hint {
-		margin-left: 8px;
 	}
 	/* Hover tips over non-interactive inline content (badges, status pills):
 		   the same tip element, revealed by hovering the wrapper. Extra detail

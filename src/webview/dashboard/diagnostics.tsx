@@ -224,71 +224,55 @@ function recordSeverity(diagnostic: RecordDiagnostic): DiagnosticSeverity {
 	}
 }
 
-/** One record lint as its consequence-first sentence; classifications and structural keys only, never entered values. */
+/**
+ * One record lint as a single consequence sentence; classifications and
+ * structural keys only, never entered values.
+ *
+ * One sentence is the whole budget. Two things used to pad these and both are
+ * said better elsewhere: the "and the rest still applies" clause, which is
+ * exactly what the degraded tier means, and the matcher-key grammar, which is
+ * reference material the guide holds. A reader scanning nine of these reads
+ * the consequence nine times; they should not also read the manual nine times.
+ */
 function recordProblemText(diagnostic: RecordDiagnostic): string {
 	switch (diagnostic.kind) {
 		case "invalid-matcher":
-			return l10n.t(
-				'Nothing in record "{0}" is ever applied: that is not a valid matcher key, so no model can match it. A key is an exact ID, a trailing-* glob, /regex/, or "*".',
-				diagnostic.recordKey
-			);
+			return l10n.t('Nothing in record "{0}" is applied: that is not a valid matcher key.', diagnostic.recordKey);
 		case "unforceable-key":
-			return l10n.t(
-				'Forcing "{0}" has no effect: provider-owned fields and _ keys stay extension-owned. Everything else in record "{1}" still applies.',
-				diagnostic.key,
-				diagnostic.recordKey
-			);
+			// "_ fields" earns its three words: this lint also fires on
+			// underscore directive names, and blaming only provider-owned fields
+			// would make the sentence wrong for half the cases it covers.
+			return l10n.t('Forcing "{0}" has no effect: provider-owned and _ fields stay extension-owned.', diagnostic.key);
 		case "unknown-inherit-key":
 			return l10n.t(
-				'Record "{0}" inherits nothing from "{1}": no record carries that name, so the name is skipped and the rest still applies.',
+				'Record "{0}" inherits nothing from "{1}": no record has that name.',
 				diagnostic.recordKey,
 				diagnostic.key
 			);
 		case "wrong-record-type":
-			return l10n.t(
-				'"{0}" is ignored: it belongs to the other record type, not in record "{1}".',
-				diagnostic.key,
-				diagnostic.recordKey
-			);
+			return l10n.t('"{0}" is ignored: it belongs to the other record type.', diagnostic.key);
 		case "unrecognized-key":
 			// Informational (the host marks these advisory): the field APPLIES as
 			// written - the open vocabulary keeps it - and the surviving hint only
 			// says the observed /model/info evidence does not name the key.
-			return l10n.t(
-				'"{0}" applies as an override as-is, but this extension does not know the field; check record "{1}" for a typo.',
-				diagnostic.key,
-				diagnostic.recordKey
-			);
+			return l10n.t('"{0}" applies as written, but this extension does not know the field.', diagnostic.key);
 		case "invalid-value":
-			return l10n.t(
-				'"{0}" is ignored: its value in record "{1}" is not valid for that field.',
-				diagnostic.key,
-				diagnostic.recordKey
-			);
+			return l10n.t('"{0}" is ignored: its value is not valid for that field.', diagnostic.key);
 		case "invalid-directive":
-			return l10n.t(
-				'Part of "{0}" is ignored: it carries an invalid directive value in record "{1}".',
-				diagnostic.key,
-				diagnostic.recordKey
-			);
+			return l10n.t('Part of "{0}" is ignored: it carries an invalid directive value.', diagnostic.key);
 	}
 }
 
-/** One legacy leftover's consequence-first sentence. */
+/** One legacy leftover as a single consequence sentence; the remedy lives behind Learn more. */
 function legacyProblemText(diagnostic: Extract<ConfigDiagnosticView, { kind: "legacy" }>): string {
 	switch (diagnostic.hint) {
 		case "inert-url-scoped-key":
-			return l10n.t(
-				'Nothing uses "{0}": it still uses the removed server-scoped key grammar, which can never match a model ID. Move it into that server entry\'s own record.',
-				diagnostic.oldKey
-			);
+			return l10n.t('Nothing uses "{0}": that key grammar was removed and matches no model ID.', diagnostic.oldKey);
 		case "inert-global-headers":
-			return l10n.t(
-				"No server sends these headers: the removed global headers setting still holds values and no server entry received them. Add them to a server entry, then delete the old setting."
-			);
+			return l10n.t("No server sends these headers: the setting that held them was removed.");
 		case "parked-global-headers":
 			return l10n.t(
-				"Provider groups without a server entry no longer receive the removed global headers ({0}); adopt the external group to restore them.",
+				"Provider groups without a server entry no longer get the removed global headers ({0}).",
 				diagnostic.detail
 			);
 	}
@@ -335,19 +319,33 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 			// invalid matcher key IS the record key, so naming it twice would read
 			// as a mistake.
 			const subject = lint.key === lint.recordKey ? lint.recordKey : `${lint.recordKey}/${lint.key}`;
+			// Two of the sentences still name the record ("Nothing in record X",
+			// "Record X inherits nothing"); the other five stopped naming it when
+			// they were cut to one clause. Those get it back as a location chip
+			// rather than as prose - without it, two records failing on the same
+			// field render as identical rows.
+			const namesRecord = lint.kind === "invalid-matcher" || lint.kind === "unknown-inherit-key";
 			return {
 				key: `record:${diagnostic.setting}:${diagnostic.entryLabel ?? ""}:${lint.kind}:${subject}`,
 				severity: cappedSeverity(diagnostic.severity, recordSeverity(lint)),
 				headline: recordProblemText(lint),
-				where:
-					diagnostic.entryLabel !== undefined
-						? [diagnostic.setting, l10n.t("entry {0}", diagnostic.entryLabel)]
-						: [diagnostic.setting],
-				// No Learn more: every record lint points at the model-matching
-				// guide, which is the section header's own docs link. Repeating it
-				// on each row put five identical links down the page and taught the
-				// eye to skip the spot where the guide that DIFFERS shows up.
-				actions: [{ kind: "reveal", setting, subject }],
+				where: [
+					diagnostic.setting,
+					...(diagnostic.entryLabel !== undefined ? [l10n.t("entry {0}", diagnostic.entryLabel)] : []),
+					...(namesRecord ? [] : [lint.recordKey]),
+				],
+				// Learn more on the one lint the shortened sentence cannot fix by
+				// itself. It points at the same guide the section header links, and
+				// N invalid keys still produce N identical links - accepted here
+				// and nowhere else, because for this lint the grammar IS the
+				// remedy, and the sentence stopped reciting it.
+				actions:
+					lint.kind === "invalid-matcher"
+						? [
+								{ kind: "reveal", setting, subject },
+								docsAction(DOCS_LINK_MODEL_MATCHING, l10n.t("the model-matching guide")),
+							]
+						: [{ kind: "reveal", setting, subject }],
 			};
 		}
 		case "entry": {
@@ -403,11 +401,8 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 				severity: cappedSeverity(diagnostic.severity, "degraded"),
 				headline:
 					diagnostic.dropped === 1
-						? l10n.t("1 alert threshold raises no alert and was dropped: a threshold must be inside (0, 1].")
-						: l10n.t(
-								"{0} alert thresholds raise no alerts and were dropped: a threshold must be inside (0, 1].",
-								diagnostic.dropped
-							),
+						? l10n.t("1 alert threshold was dropped: a threshold must be inside (0, 1].")
+						: l10n.t("{0} alert thresholds were dropped: a threshold must be inside (0, 1].", diagnostic.dropped),
 				where: ["usage.alertThresholds"],
 				actions: [
 					{ kind: "reveal", setting: "usage.alertThresholds", subject: "usage.alertThresholds" },
@@ -512,9 +507,10 @@ function ConfigDiagnostics({ diagnostics }: { diagnostics: readonly ConfigDiagno
 			headerClassName="max-w-[64rem]"
 		>
 			{problems.length === 0 ? (
-				<p className="hint mt-0 max-w-[70ch]">
-					{l10n.t("Your matcher records and settings read cleanly. Problems with a server itself show on its row.")}
-				</p>
+				// One clause. Where a server's own problems render is a fact about
+				// the product, not about this moment, so it lives in the header's
+				// help tip rather than in a line every healthy reader re-reads.
+				<p className="hint mt-0">{l10n.t("Your settings read cleanly.")}</p>
 			) : (
 				<ul className="config-diagnostics">
 					{problems.map((problem) => (
@@ -870,11 +866,10 @@ function ResolvedModels({
 			}
 			headerClassName="max-w-[64rem]"
 		>
-			<p className="hint mt-0 mb-3 max-w-[70ch]">
-				{l10n.t(
-					"The precomputed resolution behind every request: what each model ends up with and which record set it. Local to this dashboard; never part of issue reports."
-				)}
-			</p>
+			{/* No standing paragraph: the tree and the table ARE the explanation,
+			    and a reader who wants the concept rather than their own data has
+			    the header's help tip. A paragraph here was read once and then
+			    scrolled past forever. */}
 			{view === undefined ? (
 				<p className="hint" role="status">
 					{l10n.t("Resolving...")}
@@ -882,11 +877,9 @@ function ResolvedModels({
 			) : (
 				<>
 					{view.recordCount === 0 ? (
-						<p className="hint">
-							{l10n.t(
-								"No matcher records configured; values come from the servers, the catalog, and the built-in defaults."
-							)}
-						</p>
+						// The table below shows every value's source per field, so
+						// naming the sources here would restate what it proves.
+						<p className="hint">{l10n.t("No matcher records configured.")}</p>
 					) : (
 						// biome-ignore lint/suspicious/noArrayIndexKey: trees are positional; the view rebuilds wholesale on every response
 						view.trees.map((tree, index) => <RecordTree key={index} tree={tree} />)
@@ -1039,18 +1032,8 @@ function diagnosticsReportText(
 	return lines.join("\n");
 }
 
-/** One reference link with its muted one-liner. */
-function LinkRow({
-	href,
-	icon,
-	label,
-	hint,
-}: {
-	href: FeedbackUrl | DocsUrl;
-	icon: ReactNode;
-	label: string;
-	hint: string;
-}) {
+/** One reference link. The label names the destination, so it carries no gloss. */
+function LinkRow({ href, icon, label }: { href: FeedbackUrl | DocsUrl; icon: ReactNode; label: string }) {
 	return (
 		<li>
 			{/* Both glyphs stay decorative; the visible text is the accessible name. */}
@@ -1059,7 +1042,6 @@ function LinkRow({
 				{label}
 				<IconLinkExternal />
 			</a>
-			<span className="hint">{hint}</span>
 		</li>
 	);
 }
@@ -1127,36 +1109,14 @@ function Support({
 					<IconBug /> {l10n.t("Report a bug")}
 				</Button>
 			</div>
-			<p className="hint max-w-[70ch]">
-				{l10n.t(
-					"Copy diagnostics puts your connection summary on the clipboard as plain English text. Report a bug opens a GitHub issue pre-filled with version, platform, and recent logs."
-				)}
-			</p>
+			{/* No standing paragraph: the buttons name what they do, and what
+			    Copy diagnostics collects is a question for the help tip rather
+			    than a line under every visit. */}
 			<ul className="feedback-links">
-				<LinkRow
-					href={DOCS_LINK_GETTING_STARTED}
-					icon={<IconBook />}
-					label={l10n.t("Documentation")}
-					hint={l10n.t("The getting-started guide, with the rest of the docs one click away.")}
-				/>
-				<LinkRow
-					href={FEEDBACK_LINK_REPOSITORY}
-					icon={<IconRepo />}
-					label={l10n.t("GitHub repository")}
-					hint={l10n.t("Source code, releases, and issues.")}
-				/>
-				<LinkRow
-					href={FEEDBACK_LINK_FEATURE_REQUEST}
-					icon={<IconLightbulb />}
-					label={l10n.t("Request a feature")}
-					hint={l10n.t("Suggest an improvement as a GitHub issue.")}
-				/>
-				<LinkRow
-					href={FEEDBACK_LINK_RATE}
-					icon={<IconStar />}
-					label={l10n.t("Rate this extension")}
-					hint={l10n.t("Leave a review on the Visual Studio Marketplace.")}
-				/>
+				<LinkRow href={DOCS_LINK_GETTING_STARTED} icon={<IconBook />} label={l10n.t("Documentation")} />
+				<LinkRow href={FEEDBACK_LINK_REPOSITORY} icon={<IconRepo />} label={l10n.t("GitHub repository")} />
+				<LinkRow href={FEEDBACK_LINK_FEATURE_REQUEST} icon={<IconLightbulb />} label={l10n.t("Request a feature")} />
+				<LinkRow href={FEEDBACK_LINK_RATE} icon={<IconStar />} label={l10n.t("Rate this extension")} />
 			</ul>
 		</Section>
 	);

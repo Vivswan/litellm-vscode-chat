@@ -259,4 +259,16 @@ test("the external rows link the pinned destinations with decorative glyphs", ()
 		}
 		expect(anchor.querySelectorAll("svg.icon").length, text).toBe(2);
 	}
+	// Label plus icon plus external-link glyph names each destination, so the
+	// muted gloss beside each is gone. Pinned: a link list is where explanatory
+	// one-liners regrow.
+	const support = root.querySelector("#support-section") as HTMLElement;
+	expect(support.querySelectorAll(".feedback-links .hint")).toHaveLength(0);
+	expect(support.textContent).not.toContain("Leave a review");
+	expect(support.textContent).not.toContain("Source code, releases");
+	// The Support section's own standing paragraph went the same way; what
+	// Copy diagnostics collects lives on the header's help affordance. Scoped
+	// to the body, since the help tip legitimately carries that sentence.
+	expect(support.querySelectorAll("p.hint")).toHaveLength(0);
+	expect(support.querySelector(".section-head .help-tip")?.textContent).toContain("Copy diagnostics");
 });
