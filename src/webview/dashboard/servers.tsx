@@ -11,6 +11,7 @@ import type {
 	UsageServerView,
 } from "../../dashboard/viewModels";
 import { statusErrorDetail, statusErrorHeadline } from "../../shared/util/errorText";
+import type { DocsUrl } from "./docsLinks";
 import { DOCS_LINK_AUTHENTICATION, DOCS_LINK_PARAMS_INACTIVE, DOCS_LINK_SERVERS } from "./docsLinks";
 import { FailureText } from "./failureText";
 import { DocsLink, Help, HoverTip } from "./help";
@@ -92,7 +93,7 @@ type DiagnosticAction =
 	 * and stays inside the accessible name, as Label in Name requires.
 	 */
 	| { readonly kind: "button"; readonly label: string; readonly ariaLabel: string; readonly onClick: () => void }
-	| { readonly kind: "docs"; readonly label: string; readonly href: string; readonly ariaLabel: string };
+	| { readonly kind: "docs"; readonly label: string; readonly href: DocsUrl; readonly ariaLabel: string };
 
 interface RowDiagnostic {
 	/** Stable within a row, so React keeps focus on an action button across pushes. */
