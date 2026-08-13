@@ -195,13 +195,13 @@ function headingByTitle(root: ParentNode, title: string): HTMLElement {
 }
 
 /**
- * The container that owns a section's trailing glyphs: the Section primitive
- * hangs them off the header LINE beside the heading, a hand-rolled heading
- * carries them inside itself, and both shapes exist while the surfaces migrate.
+ * The header LINE a section's trailing glyphs hang off, beside the heading
+ * rather than inside it. The Section primitive spells that line `.section-head`
+ * and the hand-rolled headings spell it `.head-with-icons`.
  */
 function headOf(root: ParentNode, title: string): HTMLElement {
 	const heading = headingByTitle(root, title);
-	return (heading.closest(".section-head") as HTMLElement | null) ?? heading;
+	return (heading.closest(".section-head, .head-with-icons") as HTMLElement | null) ?? heading;
 }
 
 test("each section heading links its docs page", () => {
@@ -219,10 +219,13 @@ test("the server form links the entry-fields section of the servers guide", () =
 	pushToWebview(statePush(fullState()));
 	fireClick(buttonByText(root, "Edit"));
 
-	// The id names the title span (the dialog's accessible name); the docs
-	// anchor sits beside it in the heading, outside the label.
-	const heading = document.getElementById("server-form-title")?.closest("h3") ?? null;
-	docsLinkIn(heading, DOCS_LINK_SERVER_FORM, "Open the server fields guide");
+	// The id names the heading itself (the page's accessible name); the docs
+	// anchor is its sibling on the header line, so neither the page's name nor
+	// the heading's carries the anchor's label.
+	const heading = document.getElementById("server-form-title");
+	expect(heading?.tagName).toBe("H3");
+	expect(heading?.querySelector("a.docs-link")).toBeNull();
+	docsLinkIn(heading?.closest(".head-with-icons") ?? null, DOCS_LINK_SERVER_FORM, "Open the server fields guide");
 });
 
 test("the params-inactive line links the troubleshooting remedy", () => {

@@ -680,10 +680,13 @@ test("the record editors live inside the Models group, mirroring the manifest's 
 	) as HTMLElement;
 	expect(modelsGroup).toBeDefined();
 	const headings = Array.from(modelsGroup.querySelectorAll("h3")).map((h) => (h.textContent ?? "").trim());
-	expect(headings.some((h) => h.startsWith("Model parameters"))).toBe(true);
-	expect(headings.some((h) => h.startsWith("Model capabilities"))).toBe(true);
+	// Each heading names its section and nothing else: the help, docs and
+	// settings.json controls are its siblings on the header line, so the
+	// heading's accessible name is not three button labels long.
+	expect(headings).toContain("Model parameters");
+	expect(headings).toContain("Model capabilities");
 	// The editors sit after the catalog row inside the group, and nowhere else.
-	expect(root.querySelectorAll("h3.head-with-icons").length).toBe(2);
+	expect(root.querySelectorAll(".head-with-icons").length).toBe(2);
 });
 
 /** The two threshold boxes, addressed by their stable ids. */

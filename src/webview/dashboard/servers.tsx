@@ -962,12 +962,20 @@ export function ServersSection({
 		(usage?.servers ?? []).flatMap((view) => (view.kind === "usage" ? [[view.label, view] as const] : []))
 	);
 
+	// Named once: the heading shows it and the help glyph's accessible name
+	// repeats it, and two l10n.t calls for one word is a place they can drift.
+	const serversTitle = l10n.t("Servers");
+
 	return (
 		<section>
-			<h2>
-				{l10n.t("Servers")} <Help text={helpServersSection()} below />
+			{/* The glyph and the anchor are the heading's siblings, so the h2's
+			    accessible name is "Servers" and not three button labels. The 8px
+			    below comes from the h2 rule the zeroed heading gives up. */}
+			<div className="head-with-icons mb-2">
+				<h2 className="m-0">{serversTitle}</h2>
+				<Help text={helpServersSection()} name={l10n.t("Help: {0}", serversTitle)} below />
 				<DocsLink href={DOCS_LINK_SERVERS} label={l10n.t("Open the servers guide")} />
-			</h2>
+			</div>
 			{/* First run shows the guided card alone; a strip of mostly disabled
 			    controls above it would put dead buttons before the guidance. */}
 			{!noServers ? (

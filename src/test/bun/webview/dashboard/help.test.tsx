@@ -196,13 +196,15 @@ test("each section heading carries its own help", () => {
 		}
 		return heading as HTMLElement;
 	};
-	// The Section primitive hangs the glyph off the header LINE, as a sibling
-	// of the heading rather than inside it; a hand-rolled heading still carries
-	// its own. Resolve whichever container this section uses, so the contract
-	// reads the same through the migration.
+	// The glyph hangs off the header LINE, as a sibling of the heading rather
+	// than inside it, so a button's accessible name never folds into the
+	// heading's. The Section primitive spells that line `.section-head` and the
+	// hand-rolled headings spell it `.head-with-icons`; resolve whichever this
+	// section uses, and fall back to the heading itself so the contract reads
+	// the same for any that have not moved yet.
 	const headOf = (title: string): HTMLElement => {
 		const heading = headingByTitle(title);
-		return (heading.closest(".section-head") as HTMLElement | null) ?? heading;
+		return (heading.closest(".section-head, .head-with-icons") as HTMLElement | null) ?? heading;
 	};
 	helpIn(headOf("Servers"), helpServersSection());
 	helpIn(headOf("Models"), helpModelsSection());
@@ -419,4 +421,41 @@ test("the below variant pins the tip's top under the trigger and stands the bott
 	// The horizontal rule is the same in both variants.
 	expect(tip.style.left).toBe("192px");
 	expect(tip.style.position).toBe("fixed");
+});
+
+test("no heading anywhere on the page contains an interactive control", () => {
+	// Name-from-contents: a button or link nested inside a heading folds its
+	// own accessible name into the heading's, so "Model parameters" announced
+	// as "Model parameters Help: Model parameters Open the model parameters
+	// guide Open models.parameters in settings.json" - and heading navigation,
+	// which is how a screen-reader user skims a page, is exactly the tool that
+	// reads those names aloud.
+	//
+	// The fix is placement: the controls are the heading's SIBLINGS on a header
+	// line (`.section-head` from the Section primitive, `.head-with-icons` for
+	// the hand-rolled ones). This sweeps the whole rendered page rather than
+	// naming the headings that had the problem, because the next one will be
+	// somewhere else - it found seven of the eleven itself, in a file the sweep
+	// had not set out to touch.
+	//
+	// The inspector is opened as well as the edit page, because a sweep only
+	// sees what the current state renders and an overlay's headings are
+	// otherwise unreachable - which would make them the likeliest place for
+	// this to come back.
+	const root = mount(<App />);
+	pushToWebview(statePush(fullState()));
+	fireClick(buttonByText(root, "Edit"));
+	const headingsWithForm = Array.from(document.querySelectorAll("h1, h2, h3, h4, h5, h6")).length;
+	fireClick(buttonByText(root, "Inspect"));
+
+	const headings = Array.from(document.querySelectorAll("h1, h2, h3, h4, h5, h6"));
+	// Without these the sweep passes on an empty page, which is the one way an
+	// assertion of the form "nothing is wrong" can be wrong itself - and the
+	// second one proves the inspector's own headings actually arrived.
+	expect(headings.length).toBeGreaterThan(8);
+	expect(headings.length).toBeGreaterThan(headingsWithForm);
+	const offenders = headings
+		.filter((heading) => heading.querySelector("button, a, input, select, textarea") !== null)
+		.map((heading) => (heading.textContent ?? "").trim().slice(0, 60));
+	expect(offenders).toEqual([]);
 });

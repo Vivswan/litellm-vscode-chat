@@ -315,17 +315,25 @@ function FormSection({
 }) {
 	return (
 		<div className="form-section mt-6">
-			<h4
-				className={cn(
-					"m-0 mb-0.5 flex items-baseline gap-2 text-[13px] font-semibold",
-					quiet === true ? "text-muted-foreground" : "text-foreground"
-				)}
-			>
-				<span>{title}</span>
-				{aside !== undefined ? <span className="text-[11px] font-normal text-muted-foreground">{aside}</span> : null}
+			{/* The heading holds the title and its aside; the Help glyph and any
+			    trailing action are its SIBLINGS on this line, because a control
+			    nested in a heading folds its own accessible name into the
+			    heading's - "Connection" would announce as "Connection Help:
+			    Connection", once per section, to the heading navigation a screen
+			    reader user skims with. */}
+			<div className="head-with-icons mb-0.5 items-baseline gap-2">
+				<h4
+					className={cn(
+						"m-0 flex items-baseline gap-2 text-[13px] font-semibold",
+						quiet === true ? "text-muted-foreground" : "text-foreground"
+					)}
+				>
+					<span>{title}</span>
+					{aside !== undefined ? <span className="text-[11px] font-normal text-muted-foreground">{aside}</span> : null}
+				</h4>
 				<Help text={help} name={l10n.t("Help: {0}", title)} />
 				{action}
-			</h4>
+			</div>
 			<div className="mt-2 mb-3 h-px bg-border" />
 			{/* Labels are grid children, not wrappers, so every label in the page
 			    shares one right-aligned gutter and the controls line up down the
@@ -1490,14 +1498,17 @@ function ServerForm({
 	return (
 		<div className="form-card server-form">
 			<BackToServers onRequestClose={onRequestClose} />
-			{/* The page's accessible name is the title span alone, so the docs
-			    anchor's own label never leaks into it. */}
-			<h3 className="head-with-icons">
-				<span id="server-form-title">
+			{/* The docs anchor is the heading's sibling, so neither the page's
+			    accessible name nor the heading's own carries the anchor's label.
+			    The margins move to the wrapper with it: they were the h3 rule's
+			    24px/8px, and a heading zeroed inside an unspaced row would slide
+			    up into the breadcrumb above it. */}
+			<div className="head-with-icons mt-6 mb-2">
+				<h3 className="m-0" id="server-form-title">
 					{target.kind === "add" ? l10n.t("Add server") : l10n.t("Edit {0}", target.original.label)}
-				</span>
+				</h3>
 				<DocsLink href={DOCS_LINK_SERVER_FORM} label={l10n.t("Open the server fields guide")} />
-			</h3>
+			</div>
 			<FormSection title={l10n.t("Connection")} help={helpConnectionSection()}>
 				<TextField field="label" placeholder={l10n.t("e.g. Production")} props={props} />
 				{renaming && (parse.ok || parse.problems.label === undefined) ? (

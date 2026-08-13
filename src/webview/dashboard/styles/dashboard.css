@@ -859,9 +859,15 @@
 		margin: 1px 0 0;
 		cursor: pointer;
 	}
-	/* The record editors' headings space their trailing icons (help, docs,
-		   settings.json jump) at the same 8px rhythm the section h2s use. */
-	h3.head-with-icons {
+	/* A heading and the icons that belong beside it (help, docs, settings.json
+		   jump), spaced at the same 8px rhythm the section h2s use. The rule is on
+		   the ROW rather than on the heading because the icons are the heading's
+		   siblings: a button nested inside a heading folds its own accessible name
+		   into the heading's, so "Model parameters" would announce as "Model
+		   parameters Help: Model parameters Open the model parameters guide Open
+		   models.parameters in settings.json". ui/section.tsx arranges the same
+		   pair the same way. */
+	.head-with-icons {
 		display: flex;
 		align-items: center;
 		gap: 8px;

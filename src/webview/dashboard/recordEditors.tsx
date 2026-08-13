@@ -2780,16 +2780,12 @@ export function ModelParametersEditor({
 			    above it: same muted tone, one size down, and no rule of its own.
 			    At the surrounding group's weight and the page's foreground it
 			    out-shouted its own container. */}
-			<h3 className="head-with-icons mt-0 mb-1 font-semibold text-[0.9em] text-muted-foreground">
-				{modelParametersTitle()} <Help text={helpModelParametersSection()} />
+			<div className="head-with-icons mb-1">
+				<h3 className="m-0 font-semibold text-[0.9em] text-muted-foreground">{modelParametersTitle()}</h3>
+				<Help text={helpModelParametersSection()} name={l10n.t("Help: {0}", modelParametersTitle())} />
 				<DocsLink href={DOCS_LINK_MODEL_PARAMETERS} label={l10n.t("Open the model parameters guide")} />
 				<HeadingRevealButton title={modelParametersTitle()} settingId="models.parameters" />
-			</h3>
-			<p className="hint">
-				{l10n.t(
-					'Request parameters sent per matching model (most specific matcher wins). Values are JSON: 0.2, true, "text", ["stop"].'
-				)}
-			</p>
+			</div>
 			<ScopeNote scoped={scoped} />
 			{json !== undefined ? (
 				<div className="record-json">
@@ -3036,16 +3032,12 @@ export function ModelCapabilitiesEditor({
 	return (
 		<section hidden={hidden}>
 			{/* Quieter than its container, like the parameters twin above. */}
-			<h3 className="head-with-icons mt-0 mb-1 font-semibold text-[0.9em] text-muted-foreground">
-				{modelCapabilitiesTitle()} <Help text={helpModelCapabilitiesSection()} />
+			<div className="head-with-icons mb-1">
+				<h3 className="m-0 font-semibold text-[0.9em] text-muted-foreground">{modelCapabilitiesTitle()}</h3>
+				<Help text={helpModelCapabilitiesSection()} name={l10n.t("Help: {0}", modelCapabilitiesTitle())} />
 				<DocsLink href={DOCS_LINK_MODEL_CAPABILITIES} label={l10n.t("Open the model capabilities guide")} />
 				<HeadingRevealButton title={modelCapabilitiesTitle()} settingId="models.capabilities" />
-			</h3>
-			<p className="hint">
-				{l10n.t(
-					"Capability overrides per matching model, e.g. context_length 128000. Fallback rows fill only what the server leaves unset."
-				)}
-			</p>
+			</div>
 			<ScopeNote scoped={scoped} />
 			{json !== undefined ? (
 				<div className="record-json">
