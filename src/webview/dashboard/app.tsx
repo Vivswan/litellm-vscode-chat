@@ -13,7 +13,7 @@ import { IconBug, IconClose } from "./icons";
 import type { InspectorSection } from "./modelInspector";
 import { ModelInspector } from "./modelInspector";
 import { ModelsSection } from "./models";
-import type { ServerEditRequest } from "./servers";
+import type { ServerEditRequest } from "./serverEditPage";
 import { ServersSection } from "./servers";
 import type { EditRecordRequest } from "./settings";
 import { SettingsSection } from "./settings";

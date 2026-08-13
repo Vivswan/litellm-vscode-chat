@@ -245,6 +245,17 @@ export type DashboardServer = DashboardServerBase &
 		  }
 	);
 
+/**
+ * The three shapes of DashboardServer, narrowed by origin. They live here
+ * rather than in a consumer because they are derivations of the union above,
+ * and because two webview modules need them: declaring them in one of those
+ * would make the other import a type across a boundary that carries nothing
+ * else.
+ */
+export type DeclaredDashboardServer = Extract<DashboardServer, { origin: "declared" }>;
+export type ExternalDashboardServer = Extract<DashboardServer, { origin: "external" }>;
+export type MisconfiguredDashboardServer = Extract<DashboardServer, { origin: "misconfigured" }>;
+
 /** One registered model, reduced to display facts. Costs are USD per million tokens, as registration converted them. */
 export interface DashboardModel {
 	readonly id: string;

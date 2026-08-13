@@ -1706,12 +1706,46 @@
 		font-size: 0.9em;
 		white-space: nowrap;
 	}
-	/* Landing target of the servers table's model-count links; the margin
-		   keeps the heading clear of the sticky tab bar, and the programmatic
-		   focus (a container, not a control) draws no ring. */
+	/* Landing target of an in-page jump. The margin keeps the heading clear of
+		   whatever is stuck to the top of the viewport, and the programmatic focus
+		   (a container, not a control) draws no ring. Class-scoped rather than
+		   id-scoped so a section gets this by being a section: the id-scoped rule
+		   this replaces covered exactly one of them, and every other jump target
+		   landed under the sticky bar. */
+	.page-section {
+		scroll-margin-top: 44px;
+		outline: none;
+	}
 	#models-section {
 		scroll-margin-top: 44px;
 		outline: none;
+	}
+
+	/* The section header line. This rule is what makes the header a LINE: the
+		   help glyph, the docs link, the meta text and the actions are siblings of
+		   the heading, not children of it, so without a flex row they stack into
+		   three rows and the header grows instead of shrinking. Baseline
+		   alignment because the parts are text of different sizes. */
+	.section-head {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 8px;
+		margin: 24px 0 8px;
+	}
+	.section-head .section-title {
+		margin: 0;
+	}
+	/* Pushed to the far end, so actions read as the line's trailing edge
+		   however many parts precede them. */
+	.section-head .section-actions {
+		display: flex;
+		align-items: baseline;
+		gap: 12px;
+		margin-left: auto;
+	}
+	.section-head .section-meta {
+		color: var(--muted-foreground);
 	}
 
 	.empty {
