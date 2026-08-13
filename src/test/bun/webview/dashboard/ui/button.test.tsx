@@ -149,6 +149,7 @@ test("secondary's resting underline follows the LABEL, however deeply the label 
 		underlined(
 			mount(
 				<Button variant="secondary">
+					{/* biome-ignore lint/complexity/noUselessFragments: the fragment IS the case - Children.toArray does not flatten it, which is the bug this pins, and unwrapping it here would leave the assertion passing while testing nothing */}
 					<>
 						<Icon /> Test connection
 					</>
@@ -180,6 +181,7 @@ test("secondary's resting underline follows the LABEL, however deeply the label 
 		underlined(
 			mount(
 				<Button variant="secondary">
+					{/* biome-ignore lint/complexity/noUselessFragments: the wrapper is the case again, and this one rules out the naive repair of the fragment bug - "a fragment has children, so call it labelled" - which the positive case above would happily accept */}
 					<>
 						<Icon />
 					</>
