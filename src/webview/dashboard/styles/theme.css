@@ -166,14 +166,11 @@
 	--ok: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
 	--warn: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow));
 	--err: var(--vscode-errorForeground);
-	/* Interactive wash: hover and selection need MORE presence than an advisory
-		 tint, and in light they need more still - so they are separate tokens
-		 rather than one scale reused. */
+	/* Interactive wash: hover and selection need MORE presence in light than in
+		 dark, which is why the strength is a token per theme rather than one
+		 constant. The advisory tints it was once paired against are now fixed
+		 per severity in dashboard.css and take no scale at all. */
 	--state-mix: 16%;
-	/* Dark surfaces separate by fill alone; light ones need a hairline to read
-		 as a distinct block, and a saturated rule to carry the severity. */
-	--diag-hairline: transparent;
-	--diag-rule-width: 2px;
 	/* Controls carry no box in the ordinary themes - rank is weight and color,
 		 and the fill belongs to hover. High contrast is the exception: the host
 		 outlines every control there, and a borderless button stops reading as
@@ -246,7 +243,6 @@ body.vscode-high-contrast-light {
 		 value, not merely differ from body text. At 78% it measures 6.1:1 on
 		 Light Modern and 6.7:1 on a representative off-white host. */
 	--muted-foreground: color-mix(in oklab, var(--foreground) 78%, var(--background));
-	--diag-hairline: rgb(0 0 0 / 7%);
 	--hue-violet: #6b46c1;
 	--hue-teal: #0f766e;
 	--hue-amber: #a15c00;
@@ -448,7 +444,6 @@ html:where(:not(:has(body.vscode-high-contrast, body.vscode-high-contrast-light)
 		--err-quiet: color-mix(in srgb, var(--err) 55%, var(--foreground));
 		--chip: color-mix(in srgb, var(--foreground) 14%, transparent);
 		--muted-foreground: color-mix(in oklab, var(--foreground) 78%, var(--background));
-		--diag-hairline: rgb(0 0 0 / 7%);
 		--hue-violet: #6b46c1;
 		--hue-teal: #0f766e;
 		--hue-amber: #a15c00;
@@ -564,8 +559,8 @@ html:where(:not(:has(body.vscode-high-contrast, body.vscode-high-contrast-light)
 	 keep it - body inheriting the finished color cannot re-derive. Under
 	 `auto` the light scale lands on body (that is where VS Code stamps its
 	 theme class), so without this line a light host would get the light
-	 hairline and the dark-strength tint together: exactly the combination the
-	 per-theme scale exists to prevent. */
+	 --state-mix and a tint derived at the dark strength together: exactly the
+	 combination a per-theme scale exists to prevent. */
 :root,
 body {
 	--accent-soft: color-mix(in srgb, var(--accent-hue) var(--state-mix), transparent);
@@ -578,8 +573,8 @@ body {
 		 same rule the severity text tier uses; worst case across all four accents
 		 in both themes is 5.06:1. */
 	--accent-text: color-mix(in oklab, var(--accent-hue) 70%, var(--foreground));
-	/* The interactive cousin of --err-soft: a destructive control under the
-		 pointer, not a banner sitting on the page. */
+	/* The destructive control under the pointer, as against a banner sitting on
+		 the page: it takes the interactive wash strength, not an advisory one. */
 	--err-wash: color-mix(in srgb, var(--err) var(--state-mix), transparent);
 	/* Destructive AT REST. A row can carry a Remove beside an Edit and, on the
 		 broken row, beside a Fix - so the destructive one has to be tellable
@@ -721,7 +716,6 @@ body.vscode-high-contrast-light {
 	--color-accent-on: var(--accent-on);
 	--color-accent-soft: var(--accent-soft);
 	--color-accent-line: var(--accent-line);
-	--color-diag-hairline: var(--diag-hairline);
 	--color-control-outline: var(--control-outline);
 	--color-disabled: var(--disabled);
 	--color-disabled-foreground: var(--disabled-foreground);
