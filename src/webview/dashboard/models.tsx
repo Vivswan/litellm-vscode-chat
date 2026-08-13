@@ -697,20 +697,26 @@ export function ModelsSection({
 															compactTokens(model.maxOutputTokens)
 														)}
 													</span>
-													{" - "}
-													{priced ? (
-														<>
-															<span className="model-price">{formatPricing(model)}</span> {l10n.t("per M")}
-														</>
-													) : (
-														l10n.t("price unknown")
-													)}
+													{/* A real separator element, not a CSS ::after: it is text a
+													    screen reader should hear, and it has to disappear WITH the
+													    segment it follows when a narrow pane drops one, which an
+													    adjacent-sibling rule does and a dangling dash does not. */}
+													<span className="model-sep"> - </span>
+													<span className="model-cost">
+														{priced ? (
+															<>
+																<span className="model-price">{formatPricing(model)}</span> {l10n.t("per M")}
+															</>
+														) : (
+															l10n.t("price unknown")
+														)}
+													</span>
 													{/* Only what the model CAN do. The negative answer is one
 													    click away in the detail rather than a second clause
 													    every row carries forever. */}
 													{caps.length > 0 ? (
 														<>
-															{" - "}
+															<span className="model-sep"> - </span>
 															<span className="model-caps">{caps.join(", ")}</span>
 														</>
 													) : null}

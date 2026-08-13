@@ -134,6 +134,42 @@ test("an undeclared output limit says so where the number is read", () => {
 	expect(maxOutput?.querySelector("dd")?.textContent).toBe(`${(4096).toLocaleString()} (assumed)`);
 });
 
+test("each spec segment owns the separator that follows it, so a dropped segment takes its dash with it", () => {
+	// A narrow pane hides the token limits (the most derivable segment, and
+	// frequently identical down the whole list) so that price and capabilities
+	// - what the list is actually scanned for - stay on screen instead of being
+	// clipped away. happy-dom runs no cascade, so what is pinned here is the
+	// STRUCTURE that rule needs: every separator is a real element following
+	// its segment, never a text node stranded between two spans and never a CSS
+	// ::after a screen reader might not read.
+	const priced = makeModel({ id: "priced", inputCost: 3, outputCost: 15, imageInput: true });
+	const root = mount(<ModelsSection models={[priced]} serverCount={1} onInspect={() => {}} />);
+	const line2 = root.querySelector(".model-line-2") as HTMLElement;
+
+	// The children alternate segment, separator, segment, separator, segment,
+	// and the separators carry real text.
+	const classes = Array.from(line2.children).map((child) => child.className);
+	expect(classes).toEqual(["model-limits", "model-sep", "model-cost", "model-sep", "model-caps"]);
+	expect(Array.from(line2.querySelectorAll(".model-sep")).map((sep) => sep.textContent)).toEqual([" - ", " - "]);
+
+	// The separator the narrow rule hides is the one immediately after the
+	// limits, which is what makes `.model-limits + .model-sep` reach it.
+	const limits = line2.querySelector(".model-limits") as HTMLElement;
+	expect(limits.nextElementSibling?.className).toBe("model-sep");
+
+	// A model with no capabilities has no trailing separator to dangle.
+	const bare = makeModel({ id: "bare", toolCalling: false, inputCost: 1, outputCost: 2 });
+	cleanup();
+	const bareRoot = mount(<ModelsSection models={[bare]} serverCount={1} onInspect={() => {}} />);
+	const bareLine = bareRoot.querySelector(".model-line-2") as HTMLElement;
+	expect(Array.from(bareLine.children).map((child) => child.className)).toEqual([
+		"model-limits",
+		"model-sep",
+		"model-cost",
+	]);
+	expect(bareLine.lastElementChild?.className).toBe("model-cost");
+});
+
 test("filter narrows rows by name, id, family, and server label and updates 'showing N of M'", () => {
 	const models = [
 		makeModel({ id: "gpt-4o", name: "Omni", family: "gpt", serverLabel: "Prod" }),

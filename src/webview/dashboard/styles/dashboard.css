@@ -337,7 +337,11 @@
 	}
 	/* The specs as one quiet sentence. Machine-shaped values (token counts and
 		   prices) keep the mono face and tabular figures so they line up down the
-		   list even without columns to align them. */
+		   list even without columns to align them.
+		   Separators are their own elements, each one FOLLOWING the segment it
+		   belongs to, so a narrow pane can drop a segment and its dash together
+		   (see the container query below) and the line still reads
+		   "$3 in / $15 out per M - tools, vision" with no dangling punctuation. */
 	.model-line-2 {
 		font-size: 0.92em;
 		color: var(--muted-foreground);
@@ -1860,6 +1864,22 @@
 	/* The row's second line is the first thing to run out of room, so a narrow
 		   pane lets the model's detail carry what no longer fits on it: the actions
 		   stay put and the sentence clips from its tail. */
+	@container pane (max-width: 620px) {
+		/* What a narrow row must NOT do is clip from the tail until every row
+			   reads the same. Price and capabilities are what the list is scanned
+			   for and they differ per model; the token limits are the most derivable
+			   field and are frequently identical down the whole list, so they are
+			   what goes. Dropped, not shrunk to a door behind a door - the figures
+			   are still one click away in the row's own detail, and nothing here is
+			   reachable only by pointing.
+			   This costs the row no height, which the windowing arithmetic needs:
+			   every row stays exactly one line-height, so the measured row height
+			   remains uniform at every width. */
+		.model-line-2 .model-limits,
+		.model-line-2 .model-limits + .model-sep {
+			display: none;
+		}
+	}
 	@container pane (max-width: 560px) {
 		.model-row-actions button.icon-action {
 			opacity: 1;
