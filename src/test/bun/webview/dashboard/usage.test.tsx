@@ -112,6 +112,14 @@ describe("UsageSection", () => {
 			],
 		});
 		const root = mount(<UsageSection usage={usage} serverCount={1} now={NOW} />);
+		// A budgeted row carries the axis marking its 100% extent, and the fill
+		// carries the forced-colors colour that keeps it from vanishing under a
+		// full-width axis. The no-budget test below asserts the axis is absent;
+		// without this one, deleting the axis outright would leave both green.
+		const meter = root.querySelector(".usage-meter");
+		expect(meter?.classList.contains("border-axis")).toBe(true);
+		expect(meter?.classList.contains("border-b")).toBe(true);
+		expect(root.querySelector(".usage-meter-fill")?.classList.contains("forced-colors:bg-[Highlight]")).toBe(true);
 		const line = root.querySelector(".usage-line") as HTMLButtonElement;
 		expect(line.getAttribute("aria-expanded")).toBe("false");
 		expect(root.querySelector(".usage-panel")).toBeNull();

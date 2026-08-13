@@ -26,6 +26,12 @@ const REQUIRED_UTILITIES = [
 	"hover:text-err-strong",
 	"hover:bg-ghost-hover",
 	"text-muted-foreground",
+	// The spend meter's two halves. The axis is the only thing marking the
+	// 100% extent, and the forced-colors fill is the only thing keeping a
+	// meter from reading as 100% when backgrounds flatten to Canvas - both
+	// vanish silently if the scan stops emitting them.
+	"border-axis",
+	"forced-colors:bg-[Highlight]",
 	// Secondary's resting affordance. It is the only thing that says a
 	// secondary button is a button before the pointer arrives, and the
 	// component suites run without a cascade, so they can only assert that the
@@ -329,7 +335,7 @@ test("severity as text resolves to the readable tier, as fills to the raw hue", 
 test("status fills darken on light too, because a meter is the reading", async () => {
 	// The text tier exempted fills on the grounds that a shape carries no
 	// reading burden. True of a dot beside a word; false of a 3px meter, which
-	// measured 1.88:1 against its own light track - a healthy bar nobody can
+	// measured 2.0:1 on the light page - a healthy bar nobody can
 	// see. Fills need 3:1 rather than 4.5, so they darken more gently and keep
 	// more of the bright character the meter wants.
 	const output = await compileTheme();

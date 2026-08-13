@@ -101,13 +101,12 @@
 	   background rather than carried as an alpha - because a semi-transparent
 	   axis recomposites over the row's hover wash and loses contrast at exactly
 	   the moment someone is reading it (measured 2.95:1 hovered against 3.06 at
-	   rest, in light). Mixed at 65% it holds 3.9:1 in both themes, hovered or
-	   not: it never drops below 3.5:1 in any state (3.95 at rest and 3.53
-	   hovered in light, 5.10 and 4.29 in dark).
-	   Not --border, which is a widget rule and measures 1.26:1 here, and not
-	   --muted-foreground, which the diagnostics hairline chose for the same
-	   3:1 problem: at 6.1:1 the scale line would out-shout the smallest datum
-	   it exists to measure (a healthy fill is 3.8:1 in light). */
+	   rest, in light). Mixed at 65% it never drops below 3.5:1 in any state:
+	   3.95 at rest and 3.53 hovered in light, 5.10 and 4.29 in dark.
+	   Not --border, which is a widget rule and measures 1.26:1 here. Nor a
+	   description-strength rule, which is what the advisory diagnostic uses for
+	   its own 3:1 problem: at 6.1:1 and up, a scale line out-shouts the smallest
+	   datum it exists to measure (a healthy fill is 3.8:1 in light). */
 	--axis: color-mix(in srgb, var(--foreground) 65%, var(--background));
 	--muted-foreground: var(--vscode-descriptionForeground);
 	--accent: var(--vscode-list-hoverBackground);
@@ -166,9 +165,9 @@
 	--ok: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
 	--warn: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow));
 	--err: var(--vscode-errorForeground);
-	/* Interactive wash: hover and selection need MORE presence in light than in
-		 dark, which is why the strength is a token per theme rather than one
-		 constant. The advisory tints it was once paired against are now fixed
+	/* Interactive wash: a tint that reads as a quiet panel on a dark surface
+		 shouts on a light one, so the strength halves in light rather than being
+		 one constant. The advisory tints it was once paired against are now fixed
 		 per severity in dashboard.css and take no scale at all. */
 	--state-mix: 16%;
 	/* Controls carry no box in the ordinary themes - rank is weight and color,
@@ -193,8 +192,8 @@
 	--err-text: var(--err);
 	/* Status colour AS A SHAPE. The earlier tier exempted fills on the grounds
 		 that a shape carries no reading burden, which is true of a dot beside a
-		 word and false of a 3px meter that IS the reading: on its light track the
-		 healthy fill measured 1.88:1, a bar you cannot see. It needs less than
+		 word and false of a 3px meter that IS the reading: the healthy fill
+		 measured 2.0:1 on the light page, a bar you cannot see. It needs less than
 		 text does - 3:1 for a graphical object, not 4.5 - so it darkens more
 		 gently and keeps more of the bright character the meter wants.
 		 Aliases, so :root alone: see the note above. */

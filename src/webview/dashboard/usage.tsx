@@ -78,8 +78,8 @@ const TONE_TEXT: Readonly<Record<"ok" | "warn" | "error", string>> = {
  * The meter's fill takes the fill tier, not the text tier: a bar is a shape, so
  * 3:1 carries it, while the same colour as a word has to clear AA and darkens
  * further for it. Both tiers move only on light surfaces, where the raw hues
- * were tuned for a dark editor - the healthy green measured 1.88:1 against the
- * light page before that correction. The `-fill` names are the explicit ones on purpose: `bg-ok` still
+ * were tuned for a dark editor - the healthy green measured 2.0:1 on the light
+ * page before that correction. The `-fill` names are the explicit ones on purpose: `bg-ok` still
  * compiles and would paint the meter in the text colour.
  */
 const TONE_FILL: Readonly<Record<"ok" | "warn" | "error", string>> = {
@@ -563,11 +563,13 @@ function UsageRow({
 				    blank, and the tail says why. */}
 				{/* A baseline, not a track. The unfilled remainder used to be a
 				    background the fill sat ON, and that made the two contrasts
-				    fight: every step that lifted the track off the page pushed the
-				    fill toward it. Measured on Light Modern at rest, the ladder is
-				    monotonic - a track at foreground/55 reaches 3.06:1 against the
-				    page and leaves the HEALTHY fill, the weakest of the three
-				    there, at 1.24:1 against it. No opacity tested cleared both.
+				    fight: lifting the track off the page pushes the fill toward it.
+				    Measured on Light Modern at rest, a track at foreground/55
+				    reaches 3.06:1 against the page and leaves the HEALTHY fill -
+				    the weakest of the three there - at 1.24:1 against it. The
+				    fill's curve is not monotonic across the whole range (it dips
+				    near 70% and climbs again toward opaque), but nowhere on it do
+				    both relationships clear 3:1 at once.
 
 				    Decoupled, both are free. The extent is a 1px axis under the
 				    bar; the fill sits on the page above it and keeps its saturated
@@ -583,11 +585,14 @@ function UsageRow({
 				    border is a 4px meter with a 3px fill area, and the fill's
 				    h-full is that 3px.
 
-				    The fill needs its forced-colors colour at the CALL SITE: a
-				    utility outranks any rule the stylesheet could write for it, and
-				    without one the background flattens to Canvas while the axis
-				    survives as CanvasText - a full-width rule under nothing, which
-				    reads as 100% rather than as an absent meter. */}
+				    The fill carries its forced-colors colour at the CALL SITE, beside
+				    the tone it overrides, rather than in the stylesheet's unlayered
+				    forced-colors block - which could have won this too, being
+				    unlayered, so this is a placement choice and not a necessity.
+				    Some rule has to exist: backgrounds flatten to Canvas there while
+				    border-color forces to CanvasText, so an unhandled fill leaves a
+				    full-width axis under nothing, reading as 100% rather than as an
+				    absent meter. */}
 				<span
 					className={cn(
 						"usage-meter h-[3px] overflow-hidden rounded-xs",
