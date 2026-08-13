@@ -101,6 +101,15 @@ const fixture: RenderFixture = {
 	respond: {
 		readResolvedModels: { kind: "response", payload: { view: RESOLVED_VIEW } },
 	},
+	// The focusSection message above is the real deep link and is what the
+	// product uses; this click is belt-and-braces for the HARNESS only. The
+	// harness dispatches every fixture message synchronously in one tick, so
+	// React has not committed the first state render when focusSection
+	// arrives - and app.tsx routes that message through a ref that is only
+	// assigned after the state render, past its `state === undefined`
+	// skeleton return. A real webview delivers the two posts as separate
+	// tasks, so the deep link works there (tabs.test.tsx pins it).
+	steps: [`document.getElementById("tab-diagnostics")?.click()`],
 	viewport: { width: 1300, height: 1600 },
 	settleMs: 500,
 };
