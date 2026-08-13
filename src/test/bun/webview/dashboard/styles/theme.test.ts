@@ -296,7 +296,9 @@ test("severity as text resolves to the readable tier, as fills to the raw hue", 
 		// than emitting a property, so the mapping itself is read from source
 		// and its effect from the compiled utility below.
 		expect(source).toContain(`--color-${hue}: var(--${hue}-text);`);
-		expect(source).toContain(`--color-${hue}-fill: var(--${hue});`);
+		// ...and the shape-shaped one reads the fill tier, which on light is a
+		// darkened value of its own; see the fill-tier test below.
+		expect(source).toContain(`--color-${hue}-fill: var(--${hue}-fill);`);
 	}
 	// The utilities that exist today are text ones, and they must carry the
 	// readable tier: these are live call sites in the server editor.
@@ -313,6 +315,23 @@ test("severity as text resolves to the readable tier, as fills to the raw hue", 
 	expect(rawText).toBeEmpty();
 });
 
+test("status fills darken on light too, because a meter is the reading", async () => {
+	// The text tier exempted fills on the grounds that a shape carries no
+	// reading burden. True of a dot beside a word; false of a 3px meter, which
+	// measured 1.88:1 against its own light track - a healthy bar nobody can
+	// see. Fills need 3:1 rather than 4.5, so they darken more gently and keep
+	// more of the bright character the meter wants.
+	const output = await compileTheme();
+	const source = readFileSync(themeEntry, "utf8");
+	for (const hue of ["ok", "warn", "err"] as const) {
+		expect(output).toContain(`--${hue}-fill: var(--${hue})`);
+		expect(output).toContain(`--${hue}-fill: color-mix(in oklab, var(--${hue}) 78%, black)`);
+		// The utility the meter actually paints with has to read the tier, not
+		// the raw hue - that indirection is the whole fix.
+		expect(source).toContain(`--color-${hue}-fill: var(--${hue}-fill);`);
+	}
+});
+
 test("the status text aliases are declared on :root alone, never on body", () => {
 	// A plain alias declared on `body` matches body DIRECTLY, which beats the
 	// forced-theme override on `html` - so the forced light palette kept the raw
@@ -324,6 +343,7 @@ test("the status text aliases are declared on :root alone, never on body", () =>
 	expect(rootAndBody.length).toBeGreaterThan(0);
 	for (const hue of ["ok", "warn", "err"] as const) {
 		expect(rootAndBody).not.toContain(`--${hue}-text:`);
+		expect(rootAndBody).not.toContain(`--${hue}-fill:`);
 	}
 });
 

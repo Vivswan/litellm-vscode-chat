@@ -75,10 +75,12 @@ const TONE_TEXT: Readonly<Record<"ok" | "warn" | "error", string>> = {
 };
 
 /**
- * The meter's fill takes the RAW hue, not the readable text tier: a bar is a
- * shape, so 3:1 carries it, while the same colour as a word has to clear AA
- * and is darkened for it. The `-fill` names are the explicit ones on purpose -
- * `bg-ok` still compiles and would paint the meter in the text colour.
+ * The meter's fill takes the fill tier, not the text tier: a bar is a shape, so
+ * 3:1 carries it, while the same colour as a word has to clear AA and darkens
+ * further for it. Both tiers move only on light surfaces, where the raw hues
+ * were tuned for a dark editor - the healthy green measured 1.88:1 on this
+ * track. The `-fill` names are the explicit ones on purpose: `bg-ok` still
+ * compiles and would paint the meter in the text colour.
  */
 const TONE_FILL: Readonly<Record<"ok" | "warn" | "error", string>> = {
 	ok: "bg-ok-fill",

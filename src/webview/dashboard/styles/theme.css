@@ -181,6 +181,16 @@
 	--ok-text: var(--ok);
 	--warn-text: var(--warn);
 	--err-text: var(--err);
+	/* Status colour AS A SHAPE. The earlier tier exempted fills on the grounds
+		 that a shape carries no reading burden, which is true of a dot beside a
+		 word and false of a 3px meter that IS the reading: on its light track the
+		 healthy fill measured 1.88:1, a bar you cannot see. It needs less than
+		 text does - 3:1 for a graphical object, not 4.5 - so it darkens more
+		 gently and keeps more of the bright character the meter wants.
+		 Aliases, so :root alone: see the note above. */
+	--ok-fill: var(--ok);
+	--warn-fill: var(--warn);
+	--err-fill: var(--err);
 }
 
 /* Everything a LIGHT surface changes, in one block. The host decides whenever
@@ -199,6 +209,13 @@ body.vscode-high-contrast-light {
 	--ok-text: color-mix(in oklab, var(--ok) 65%, black);
 	--warn-text: color-mix(in oklab, var(--warn) 65%, black);
 	--err-text: color-mix(in oklab, var(--err) 65%, black);
+	/* A darker track cannot do this job: raising contrast for the pale healthy
+		 green would sink the warning and the error against it, since they are
+		 already darker than any track a light surface would want. So the fills
+		 move, and only on light. */
+	--ok-fill: color-mix(in oklab, var(--ok) 78%, black);
+	--warn-fill: color-mix(in oklab, var(--warn) 78%, black);
+	--err-fill: color-mix(in oklab, var(--err) 78%, black);
 	/* The muted tier below is derived and therefore lighter than the body text
 		 these two want to sit beside, so on light they take --foreground instead:
 		 the destructive control at rest fell from 5.93:1 to 4.40:1 when it
@@ -412,6 +429,9 @@ html:where(:not(:has(body.vscode-high-contrast, body.vscode-high-contrast-light)
 		--ok-text: color-mix(in oklab, var(--ok) 65%, black);
 		--warn-text: color-mix(in oklab, var(--warn) 65%, black);
 		--err-text: color-mix(in oklab, var(--err) 65%, black);
+		--ok-fill: color-mix(in oklab, var(--ok) 78%, black);
+		--warn-fill: color-mix(in oklab, var(--warn) 78%, black);
+		--err-fill: color-mix(in oklab, var(--err) 78%, black);
 		--err-quiet: color-mix(in srgb, var(--err) 55%, var(--foreground));
 		--chip: color-mix(in srgb, var(--foreground) 14%, transparent);
 		--muted-foreground: color-mix(in oklab, var(--foreground) 78%, var(--background));
@@ -666,9 +686,9 @@ body.vscode-high-contrast-light {
 	--color-ok: var(--ok-text);
 	--color-warn: var(--warn-text);
 	--color-err: var(--err-text);
-	--color-ok-fill: var(--ok);
-	--color-warn-fill: var(--warn);
-	--color-err-fill: var(--err);
+	--color-ok-fill: var(--ok-fill);
+	--color-warn-fill: var(--warn-fill);
+	--color-err-fill: var(--err-fill);
 	--color-err-wash: var(--err-wash);
 	--color-err-quiet: var(--err-quiet);
 	--color-err-strong: var(--err-strong);
