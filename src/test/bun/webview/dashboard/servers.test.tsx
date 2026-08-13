@@ -1333,8 +1333,7 @@ test("an expected failure serving declared models reads Connected, and states th
 			modelCount: 2,
 		}),
 	]);
-	// Serving declared models reads Connected (one state, one name across
-	// tabs), in the warn tone that says the connection is not what it seems.
+	// Serving declared models reads Connected: one state, one name across tabs.
 	const pill = [...root.querySelectorAll(".server-row .pill")].find((el) => el.textContent?.includes("Connected"));
 	expect(pill).toBeDefined();
 	// The dot follows the row's WORST diagnostic, and this row's worst is
@@ -1698,4 +1697,129 @@ test("a nested overlay hears Esc alone: it closes, the form beneath survives and
 	expect(root.querySelectorAll(".slide-over")).toHaveLength(1);
 	const form = root.querySelector(".slide-over") as HTMLElement;
 	expect(form.contains(document.activeElement)).toBe(true);
+});
+
+test("Retry says it is working, and only a NEWER check releases it - not merely the next push", () => {
+	// A discovery pass can run for tens of seconds - the timeouts are per request
+	// and they sum - so a button that looked identical before and after the click
+	// invited the double-click-until-something-happens trap.
+	//
+	// The arrival of a push is NOT completion, however much it looks like one: a
+	// sync reconciles the provider groups first and that reconciliation pushes
+	// immediately, before the network discovery it exists to trigger has begun.
+	// What moves when discovery actually finishes is lastChecked.
+	// Fixed instants, not offsets from now: two calls to a now-relative helper
+	// differ by the milliseconds between them, which would make the "unchanged"
+	// push look newer and pass this test for the wrong reason.
+	const BEFORE = new Date(Date.now() - 10 * 60_000).toISOString();
+	const AFTER = new Date(Date.now() - 60_000).toISOString();
+	const failing = (lastChecked: string) =>
+		makeDeclaredServer({ label: "Prod", state: "error", error: "refused", lastChecked });
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [failing(BEFORE)] })));
+
+	resetPosted();
+	fireClick(buttonByText(root, "Retry"));
+	expect(postedCalls()).toEqual([{ method: "executeCommand", payload: { command: "syncModels" } }]);
+
+	const pending = buttonByText(root, "Checking...");
+	// aria-disabled, not the disabled attribute: the control has to REFUSE the
+	// click while staying in the tab order, because `disabled` drops focus to the
+	// body and takes the announcement with it.
+	expect(pending.getAttribute("aria-disabled")).toBe("true");
+	expect(pending.disabled).toBe(false);
+	expect(pending.getAttribute("aria-label")).toContain("Prod");
+	// A second click while it is in flight posts nothing.
+	resetPosted();
+	fireClick(pending);
+	expect(postedCalls()).toEqual([]);
+
+	// A push carrying the SAME check time is the group reconciliation, not the
+	// answer. Clearing here would drop "Checking..." seconds into a minute-long
+	// pass, which is the bug this test exists to prevent.
+	pushToWebview(statePush(makeState({ servers: [failing(BEFORE)] })));
+	expect(buttonByText(root, "Checking...").getAttribute("aria-disabled")).toBe("true");
+
+	// A newer check time is discovery having actually run.
+	pushToWebview(statePush(makeState({ servers: [failing(AFTER)] })));
+	expect(buttonByText(root, "Retry").getAttribute("aria-disabled")).toBe("false");
+});
+
+test("a fleet-wide sync disables every row's Retry, not just the one clicked", () => {
+	// The command refreshes every provider group, so leaving the other rows live
+	// would let one impatient reader queue several complete passes from different
+	// rows - and executeCommand is serialized, so the second runs after the first
+	// rather than being rejected.
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(
+			makeState({
+				servers: [
+					makeDeclaredServer({ label: "Prod", state: "error", error: "a" }),
+					makeDeclaredServer({ label: "Beta", baseUrl: "http://b", state: "error", error: "b" }),
+				],
+			})
+		)
+	);
+	const retries = () => [...root.querySelectorAll("button")].filter((b) => /Retry|Checking/.test(b.textContent ?? ""));
+	expect(retries().length).toBe(2);
+
+	fireClick(retries()[0] as HTMLButtonElement);
+	// Only the row that asked SAYS it is checking; both refuse a click.
+	expect(retries().map((b) => b.textContent?.trim())).toEqual(["Checking...", "Retry"]);
+	expect(retries().every((b) => b.getAttribute("aria-disabled") === "true")).toBe(true);
+	resetPosted();
+	fireClick(retries()[1] as HTMLButtonElement);
+	expect(postedCalls()).toEqual([]);
+});
+
+test("pressing Retry keeps the reader's focus on the button", () => {
+	// The label changes from "Retry" to "Checking...", and keying the control by
+	// its text destroyed and rebuilt the node exactly when it held focus - so the
+	// keyboard user who pressed it was thrown back to the top of the document,
+	// and heard nothing, because the announcement rides the focused element.
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod", state: "error", error: "refused" })] }))
+	);
+	const button = buttonByText(root, "Retry");
+	button.focus();
+	expect(document.activeElement).toBe(button);
+	fireClick(button);
+	// Same node, new wording - not a replacement.
+	expect(document.activeElement).toBe(button);
+	expect(button.textContent?.trim()).toBe("Checking...");
+});
+
+test("the list carries one polite live region, so a sync's outcome is announced", () => {
+	// The retired banners carried role="alert". Without a replacement a screen
+	// reader user got nothing at all when a sync landed and the rows changed
+	// underneath them - a regression hidden inside a redesign.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod", state: "error", error: "x" })] })));
+
+	const regions = [...root.querySelectorAll("[aria-live]")].filter((el) => el.closest("#panel-overview") !== null);
+	// One region for the page, not one per row: five rows announcing themselves
+	// on every push is noise, not news.
+	expect(regions.length).toBe(1);
+	const region = regions[0] as HTMLElement;
+	expect(region.getAttribute("role")).toBe("status");
+	expect(region.getAttribute("aria-live")).toBe("polite");
+	expect(region.textContent).toContain("1 server needs attention");
+
+	// It states the good outcome too, or recovery would announce silence - but
+	// only once something has actually been checked. A fleet nobody has looked at
+	// gets no clean bill of health.
+	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Fresh", state: "unchecked" })] })));
+	expect(region.textContent).toContain("No servers have been checked yet");
+	pushToWebview(
+		statePush(
+			makeState({
+				servers: [makeDeclaredServer({ label: "Prod", state: "ok", lastChecked: new Date().toISOString() })],
+			})
+		)
+	);
+	expect(region.textContent).toContain("All servers are healthy");
+	// And the visible summary stays absent when there is nothing to report.
+	expect(root.querySelector(".server-summary")).toBeNull();
 });

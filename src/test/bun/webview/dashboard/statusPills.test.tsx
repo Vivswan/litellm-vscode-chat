@@ -117,6 +117,36 @@ test("the pill's tone follows the row's worst diagnostic, so the dot and the lin
 			server: makeDeclaredServer({ label: "Down", baseUrl: "http://d", state: "error", error: "refused" }),
 			tone: "tone-error",
 		},
+		// SEVERAL problems at once: the dot must take the worst, not the first
+		// found or the last written. This row carries an inactive-entry notice
+		// (degraded) alongside a failure that serves nothing (blocking).
+		{
+			server: makeDeclaredServer({
+				label: "Both",
+				baseUrl: "http://e",
+				state: "error",
+				error: "refused",
+				notices: ["entry-params-inactive"],
+			}),
+			tone: "tone-error",
+		},
+		// An expected failure with NOTHING declared serves no models, so it is
+		// blocking and the dot is red - it used to be amber, and that change had
+		// no test holding it.
+		{
+			server: makeDeclaredServer({
+				label: "Nothing",
+				baseUrl: "http://f",
+				state: "error",
+				error: "404",
+				expected: true,
+			}),
+			tone: "tone-error",
+		},
+		// The one branch that bypasses the severity entirely: nothing has looked
+		// at this row yet, so it carries no diagnostic, and "no diagnostic" must
+		// not read as health.
+		{ server: makeDeclaredServer({ label: "Fresh", baseUrl: "http://g", state: "unchecked" }), tone: "tone-muted" },
 	];
 	const severityToTone: Readonly<Record<string, string>> = {
 		"sev-blocking": "tone-error",

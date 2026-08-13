@@ -29,9 +29,13 @@ import { cn } from "./cn";
  * transparent everywhere and the contrast border in HC. And disabled keeps no
  * fill: when nothing is filled at rest, a disabled fill would be the loudest
  * thing on the row, so disabled reads through muted text and opacity alone.
+ * aria-disabled paints identically, for the case where a control must refuse a
+ * click WITHOUT leaving the tab order: the `disabled` attribute drops focus to
+ * the body, which throws away the keyboard user's place at the moment they act
+ * and takes the announcement with it, since that rides the focused element.
  */
 const buttonVariants = cva(
-	"inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-sm border border-control-outline transition-[color,background-color,border-color,outline-color,opacity] duration-[120ms] ease-out focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid disabled:cursor-default disabled:bg-transparent disabled:text-disabled-foreground disabled:opacity-60",
+	"inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-sm border border-control-outline transition-[color,background-color,border-color,outline-color,opacity] duration-[120ms] ease-out focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid disabled:cursor-default disabled:bg-transparent disabled:text-disabled-foreground disabled:opacity-60 aria-disabled:cursor-default aria-disabled:bg-transparent aria-disabled:text-disabled-foreground aria-disabled:opacity-60",
 	{
 		variants: {
 			variant: {

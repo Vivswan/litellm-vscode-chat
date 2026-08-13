@@ -1,5 +1,6 @@
 import * as l10n from "@vscode/l10n";
 import { useEffect, useRef, useState } from "react";
+import { latestCheckedMs } from "../../dashboard/presenters";
 import { saveFailureDisposition, sectionFailureText } from "../../dashboard/serverForm";
 import type {
 	DashboardServer,
@@ -59,6 +60,13 @@ const INACTIVE_NOTICE_PRESENTATION = {
 const INACTIVE_NOTICES = Object.keys(INACTIVE_NOTICE_PRESENTATION) as readonly InactiveEntryNotice[];
 
 /**
+ * How long a Retry may sit in its checking state before the row gives up
+ * waiting. This is a recovery net for a command that failed before it reached
+ * discovery, never the completion signal - see the note where it is used.
+ */
+const RETRY_ABANDON_MS = 120_000;
+
+/**
  * How much a problem costs the reader, which is the only thing that should
  * decide how loud it looks.
  *
@@ -92,8 +100,28 @@ type DiagnosticAction =
 	 * with nothing to tell them apart. The visible label stays the short verb
 	 * and stays inside the accessible name, as Label in Name requires.
 	 */
-	| { readonly kind: "button"; readonly label: string; readonly ariaLabel: string; readonly onClick: () => void }
-	| { readonly kind: "docs"; readonly label: string; readonly href: DocsUrl; readonly ariaLabel: string };
+	| {
+			readonly kind: "button";
+			/**
+			 * Stable across renders and independent of the label. React keys are
+			 * identity, and keying these by their text destroyed and rebuilt the
+			 * node the instant its wording changed - which is precisely when the
+			 * reader was holding it, so pressing Retry threw away their own focus.
+			 */
+			readonly id: string;
+			readonly label: string;
+			readonly ariaLabel: string;
+			/** In flight: the control states that it is working and refuses a second click. */
+			readonly disabled?: boolean | undefined;
+			readonly onClick: () => void;
+	  }
+	| {
+			readonly kind: "docs";
+			readonly id: string;
+			readonly label: string;
+			readonly href: DocsUrl;
+			readonly ariaLabel: string;
+	  };
 
 interface RowDiagnostic {
 	/** Stable within a row, so React keeps focus on an action button across pushes. */
@@ -122,7 +150,14 @@ interface RowDiagnostic {
  */
 function serverDiagnostics(
 	server: DashboardServer,
-	actions: { readonly onEdit: () => void; readonly onRetry: () => void }
+	actions: {
+		readonly onEdit: () => void;
+		readonly onRetry: () => void;
+		/** This row is the one that asked for the sync, so it reports the state. */
+		readonly retrying?: boolean;
+		/** A sync is in flight somewhere, so no row may start a second one. */
+		readonly syncBusy?: boolean;
+	}
 ): readonly RowDiagnostic[] {
 	const found: RowDiagnostic[] = [];
 	if (server.origin === "misconfigured") {
@@ -137,12 +172,14 @@ function serverDiagnostics(
 			actions: [
 				{
 					kind: "button",
+					id: "fix-settings",
 					label: l10n.t("Fix in settings.json"),
 					ariaLabel: l10n.t("Fix {0} in settings.json", server.label),
 					onClick: () => sendRequest("revealSetting", { setting: "servers" }),
 				},
 				{
 					kind: "docs",
+					id: "learn-more",
 					label: l10n.t("Learn more"),
 					href: DOCS_LINK_AUTHENTICATION,
 					ariaLabel: l10n.t("Open the authentication guide"),
@@ -170,14 +207,30 @@ function serverDiagnostics(
 				actions: [
 					{
 						kind: "button",
-						label: l10n.t("Retry"),
-						ariaLabel: l10n.t("Retry discovery for {0}", server.label),
+						id: "retry",
+						// A discovery pass can take tens of seconds - the timeouts are
+						// per request and they sum - so a button that looked identical
+						// before and after the click invited the double-click-until-
+						// something-happens trap.
+						label: actions.retrying === true ? l10n.t("Checking...") : l10n.t("Retry"),
+						ariaLabel:
+							actions.retrying === true
+								? l10n.t("Checking {0}", server.label)
+								: l10n.t("Retry discovery for {0}", server.label),
+						// Only the row that asked SAYS it is checking, because that is
+						// where the reader is looking - but every Retry is disabled while
+						// a pass runs, because the command is fleet-wide. Leaving the
+						// others live would let one impatient reader queue several full
+						// passes from different rows, each one costing every server a
+						// round trip.
+						disabled: actions.retrying === true || actions.syncBusy === true,
 						onClick: actions.onRetry,
 					},
 					...(server.origin === "declared"
 						? [
 								{
 									kind: "button" as const,
+									id: "open-entry",
 									label: l10n.t("Open entry"),
 									ariaLabel: l10n.t("Open the entry for {0}", server.label),
 									onClick: actions.onEdit,
@@ -188,6 +241,7 @@ function serverDiagnostics(
 						? [
 								{
 									kind: "docs" as const,
+									id: "troubleshoot",
 									// The helper's `label` is the accessible name (it names the
 									// specific guide); the visible text is the short verb. Do
 									// not spread the helper over these - it carries its own
@@ -237,6 +291,7 @@ function serverDiagnostics(
 						? [
 								{
 									kind: "button" as const,
+									id: "declare-models",
 									label: l10n.t("Declare models"),
 									ariaLabel: l10n.t("Declare models for {0}", server.label),
 									onClick: actions.onEdit,
@@ -245,8 +300,23 @@ function serverDiagnostics(
 						: []),
 					{
 						kind: "button",
-						label: l10n.t("Retry"),
-						ariaLabel: l10n.t("Retry discovery for {0}", server.label),
+						id: "retry",
+						// A discovery pass can take tens of seconds - the timeouts are
+						// per request and they sum - so a button that looked identical
+						// before and after the click invited the double-click-until-
+						// something-happens trap.
+						label: actions.retrying === true ? l10n.t("Checking...") : l10n.t("Retry"),
+						ariaLabel:
+							actions.retrying === true
+								? l10n.t("Checking {0}", server.label)
+								: l10n.t("Retry discovery for {0}", server.label),
+						// Only the row that asked SAYS it is checking, because that is
+						// where the reader is looking - but every Retry is disabled while
+						// a pass runs, because the command is fleet-wide. Leaving the
+						// others live would let one impatient reader queue several full
+						// passes from different rows, each one costing every server a
+						// round trip.
+						disabled: actions.retrying === true || actions.syncBusy === true,
 						onClick: actions.onRetry,
 					},
 				],
@@ -280,12 +350,14 @@ function serverDiagnostics(
 			actions: [
 				{
 					kind: "button",
+					id: "open-models-file",
 					label: l10n.t("Open models file"),
 					ariaLabel: l10n.t("Open the models file to fix {0}", server.label),
 					onClick: () => sendRequest("executeCommand", { command: "openGroupsFile" }),
 				},
 				{
 					kind: "docs",
+					id: "learn-more",
 					label: l10n.t("Learn more"),
 					href: DOCS_LINK_PARAMS_INACTIVE,
 					ariaLabel: l10n.t("Learn more in the troubleshooting guide"),
@@ -314,16 +386,29 @@ function ServerDiagnosticLine({ diagnostic }: { diagnostic: RowDiagnostic }) {
 					{diagnostic.actions.map((action) =>
 						action.kind === "button" ? (
 							<Button
-								key={action.label}
+								key={action.id}
 								variant="secondary"
 								size="compact"
 								aria-label={action.ariaLabel}
-								onClick={action.onClick}
+								// aria-disabled, not disabled: the `disabled` attribute drops
+								// focus to the body, so pressing Retry threw the keyboard
+								// user back to the top of the document at the exact moment
+								// they acted - and took the announcement with them, since a
+								// changed accessible name is announced on the FOCUSED
+								// element. This keeps the node focused, keeps it in the tab
+								// order, and lets "Checking Prod" be spoken; the handler
+								// refuses the click instead of the attribute doing it.
+								aria-disabled={action.disabled === true}
+								onClick={() => {
+									if (action.disabled !== true) {
+										action.onClick();
+									}
+								}}
 							>
 								{action.label}
 							</Button>
 						) : (
-							<DocsLink key={action.label} href={action.href} label={action.ariaLabel}>
+							<DocsLink key={action.id} href={action.href} label={action.ariaLabel}>
 								{action.label}
 							</DocsLink>
 						)
@@ -345,14 +430,6 @@ function inactiveSurfacesText(server: DashboardServer): string {
 		.join(", ");
 }
 
-/**
- * The row's status pill: tone dot, plain-language verdict, and how long ago
- * discovery last looked. An "ok" row that still carries an error (a live
- * group kept serving while its sync failed) shows the warn tone, as does an
- * expected discovery failure (the entry declared it, so red would be a lie);
- * the error text itself renders in the section's banner, where it is
- * selectable.
- */
 /**
  * The dot's tone, derived from the row's WORST diagnostic rather than computed
  * a second time from the same inputs.
@@ -554,6 +631,9 @@ function ServerRow({
 	onArmRemove,
 	onHideExternal,
 	onShowModels,
+	retrying,
+	syncBusy,
+	onRetry,
 }: {
 	server: DashboardServer;
 	/** The server's usage snapshot entry, when its proxy serves usage data. */
@@ -567,15 +647,17 @@ function ServerRow({
 	/** Posts the hideExternalServer intent for this row; the section owns the requestId and the follow-up notice. */
 	onHideExternal: (server: ExternalDashboardServer) => void;
 	onShowModels: ((label: string) => void) | undefined;
+	/** A sync this row asked for is in flight; the section clears it on the next push. */
+	retrying: boolean;
+	/** A sync is in flight for some row; the command is fleet-wide, so none may start another. */
+	syncBusy: boolean;
+	onRetry: () => void;
 }) {
 	const confirmRemove = () => {
 		sendRequest("removeServerSetting", { label: server.label });
 		onArmRemove(false);
 	};
-	const diagnostics = serverDiagnostics(server, {
-		onEdit,
-		onRetry: () => sendRequest("executeCommand", { command: "syncModels" }),
-	});
+	const diagnostics = serverDiagnostics(server, { onEdit, onRetry, retrying, syncBusy });
 	return (
 		// One line per server, its problems indented underneath. The actions are
 		// revealed by hover AND focus-within: hover alone would put Remove out of
@@ -787,6 +869,38 @@ export function ServersSection({
 	const [formDirty, setFormDirty] = useState(false);
 	const [confirmingDiscard, setConfirmingDiscard] = useState(false);
 	const [armedRemove, setArmedRemove] = useState<string | undefined>(undefined);
+	// The row whose Retry is in flight, with the fleet's newest check time as it
+	// stood when they pressed it.
+	//
+	// The arrival of a state push is NOT the completion signal, however much it
+	// looks like one. A sync reconciles the provider groups first and that
+	// reconciliation pushes state immediately, while the network discovery it
+	// exists to trigger has not started - so "checking" would clear seconds into
+	// a pass that runs for a minute. Usage, catalog and status pushes arrive on
+	// their own schedule and would clear it too.
+	//
+	// What actually moves when discovery finishes is lastChecked, so that is the
+	// signal: the pass is done when the fleet's newest check is newer than the
+	// one the reader clicked on.
+	const [retrying, setRetrying] = useState<{ readonly label: string; readonly since: number } | undefined>(undefined);
+	const newestCheck = latestCheckedMs(servers) ?? 0;
+	useEffect(() => {
+		if (retrying !== undefined && newestCheck > retrying.since) {
+			setRetrying(undefined);
+		}
+	}, [newestCheck, retrying]);
+	// A net, not a signal. `executeCommand` is fire-and-forget, so a command that
+	// fails before it ever reaches discovery sends nothing back and would strand
+	// the control disabled for the life of the panel. Generous enough that it
+	// does not pre-empt a slow pass - the per-request timeouts sum - and finite
+	// so the page always recovers on its own.
+	useEffect(() => {
+		if (retrying === undefined) {
+			return;
+		}
+		const timer = setTimeout(() => setRetrying(undefined), RETRY_ABANDON_MS);
+		return () => clearTimeout(timer);
+	}, [retrying]);
 	// The one-time post-adoption notice: the old host-owned group survives (no
 	// removal API), so the user is told plainly why models now appear twice.
 	const [adoptNotice, setAdoptNotice] = useState<string | undefined>(undefined);
@@ -1112,8 +1226,29 @@ export function ServersSection({
 					    competing with the rows that say WHAT is wrong. Absent when
 					    nothing needs attention, because a permanent "0 problems" is
 					    furniture that trains the eye to skip the spot. */}
+					{/* The verdict for the whole list, and the only live region on it.
+					    The retired banners carried role="alert", so without this a
+					    screen-reader user got no announcement at all when a sync
+					    landed and rows changed underneath them. Polite, not assertive:
+					    it reports a result the reader asked for, it does not interrupt.
+					    One region for the page rather than one per row, because five
+					    rows announcing themselves on every push is noise, not news. */}
+					<p className="visually-hidden" role="status" aria-live="polite">
+						{attentionCount > 0
+							? attentionCount === 1
+								? l10n.t("1 server needs attention")
+								: l10n.t("{0} servers need attention", attentionCount)
+							: newestCheck > 0
+								? l10n.t("All servers are healthy")
+								: // Nothing has been checked yet, so there is no verdict to
+									// give. "All servers are healthy" here would be the page
+									// asserting a clean bill of health it has never taken -
+									// which is exactly the reassurance a first-run reader
+									// would act on.
+									l10n.t("No servers have been checked yet")}
+					</p>
 					{attentionCount > 0 ? (
-						<p className="server-summary">
+						<p className="server-summary" aria-hidden="true">
 							{attentionCount === 1
 								? l10n.t("1 server needs attention")
 								: l10n.t("{0} servers need attention", attentionCount)}
@@ -1149,6 +1284,12 @@ export function ServersSection({
 								onArmRemove={(armed) => setArmedRemove(armed ? server.label : undefined)}
 								onHideExternal={hideExternal}
 								onShowModels={onShowModels}
+								retrying={retrying?.label === server.label}
+								syncBusy={retrying !== undefined}
+								onRetry={() => {
+									setRetrying({ label: server.label, since: newestCheck });
+									sendRequest("executeCommand", { command: "syncModels" });
+								}}
 							/>
 						))}
 					</ul>
