@@ -39,7 +39,7 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { buildDashboardHtml } from "../../src/extension/dashboard/html.ts";
 import type { UiAccent, UiTheme } from "../../src/shared/config/settingSpec.ts";
-import { UI_ACCENTS, UI_THEMES } from "../../src/shared/config/settingSpec.ts";
+import { DEFAULT_UI_ACCENT, DEFAULT_UI_THEME, UI_ACCENTS, UI_THEMES } from "../../src/shared/config/settingSpec.ts";
 import {
 	DASHBOARD_BUNDLE_FILENAME,
 	DASHBOARD_STYLESHEET_FILENAME,
@@ -724,24 +724,57 @@ const DETERMINISM_CSS =
  * tag so it exists when the bundle's module scope calls it.
  */
 /**
- * The flags decide the appearance, not the fixture. The webview restamps the
- * root element from every state push - that is how a setting change reaches an
- * open dashboard - so a fixture's own appearance values would overwrite the
+ * The flags decide the appearance VALUES, not the fixture. The webview restamps
+ * the root element from every state push - that is how a setting change reaches
+ * an open dashboard - so a fixture's own theme and accent would overwrite the
  * shell's stamp and quietly render every --app-theme and --accent as the
  * default. The host never disagrees with itself this way: it stamps and pushes
  * the same two values, and so does this.
+ *
+ * The two SCOPES ride through instead, because nothing stamps them: they say
+ * whether a scope configures the row, which is what draws its modified gutter
+ * marker and offers its Reset. Overwriting them with null - as this did - made
+ * those two states unrenderable by any fixture, so an appearance row could only
+ * ever be photographed clean.
+ *
+ * Riding through is not quite passing through, because the flags and the scopes
+ * can contradict each other in a way the host never can. A forced value that is
+ * not the built-in default only exists BECAUSE some scope wrote it, so
+ * `--app-theme dark` over a fixture's `themeScope: null` would photograph a dark
+ * dashboard claiming nothing configures its theme - a state the extension cannot
+ * produce and a reviewer would read as a bug in the row. A forced value that IS
+ * the default stays the fixture's call: unconfigured and explicitly-set-to-the-
+ * default are both real, and telling them apart is the point of the marker.
  */
 function withAppearance(messages: readonly unknown[], theme: AppTheme, accent: Accent): readonly unknown[] {
+	// The scope a forced non-default value implies. "global" because the flags
+	// speak for the user's own settings, which is where the dashboard writes.
+	// Both arms normalize to null rather than passing a missing scope through:
+	// a push whose settings carry no appearance at all would otherwise hand the
+	// row `undefined`, and the row tests `!== null`, so an absent scope would
+	// render as configured and ask settingScopeLabel to name it.
+	const forcedScope = (value: string, fallback: string, scope: unknown): unknown =>
+		value === fallback ? (scope ?? null) : (scope ?? "global");
 	return messages.map((message) => {
-		const push = message as { kind?: unknown; state?: { settings?: { appearance?: unknown } } };
+		const push = message as { kind?: unknown; state?: { settings?: { appearance?: Record<string, unknown> } } };
 		if (push.kind !== "push" || push.state?.settings === undefined) {
 			return message;
 		}
+		const appearance = push.state.settings.appearance ?? {};
 		return {
 			...push,
 			state: {
 				...push.state,
-				settings: { ...push.state.settings, appearance: { theme, themeScope: null, accent, accentScope: null } },
+				settings: {
+					...push.state.settings,
+					appearance: {
+						...appearance,
+						theme,
+						accent,
+						themeScope: forcedScope(theme, DEFAULT_UI_THEME, appearance.themeScope),
+						accentScope: forcedScope(accent, DEFAULT_UI_ACCENT, appearance.accentScope),
+					},
+				},
 			},
 		};
 	});
