@@ -34,7 +34,6 @@ import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
 import { IconClose } from "./icons";
 import { Button } from "./ui/button";
-import { cn } from "./ui/cn";
 
 /**
  * Where initial focus lands when the panel has no field to type into. Radix
@@ -47,7 +46,6 @@ export function SlideOver({
 	labelledBy,
 	fallbackFocusId,
 	confirming,
-	className,
 	onRequestClose,
 	onKeepEditing,
 	onDiscard,
@@ -55,8 +53,6 @@ export function SlideOver({
 }: {
 	/** The id of the heading naming this dialog (the form's own h3). */
 	labelledBy: string;
-	/** Panel overrides for a surface that needs more room than the shared width (the flat edit page's three columns). */
-	className?: string;
 	/** Where focus lands on close when the opener no longer exists (e.g. the guided start's CTA after the first save). */
 	fallbackFocusId: string;
 	/** Render the discard-confirm bar; Esc got a dirty form and the owner wants a decision. */
@@ -104,7 +100,7 @@ export function SlideOver({
 			    toggle the discard bar straight back off. */}
 			<button type="button" className="scrim" tabIndex={-1} aria-hidden="true" onClick={onRequestClose} />
 			<Dialog.Content
-				className={cn("slide-over", className)}
+				className="slide-over"
 				// Radix leans on aria-hidden over the rest of the page rather than
 				// this attribute, but assistive tech that reads one and not the
 				// other should still get the modal semantics.
