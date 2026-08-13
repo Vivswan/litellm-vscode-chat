@@ -392,7 +392,7 @@ describe("Configuration diagnostics", () => {
 		}
 	});
 
-	test("an accepted and a rejected entry sharing a label keep separate keys", () => {
+	test("an accepted and a rejected entry sharing a label keep separate keys and button names", () => {
 		// A reject can reuse a label an accepted entry already owns, and the two
 		// diagnostics must not collapse onto one React key - that would drop a
 		// problem from the page and move focus to the wrong block on a push.
@@ -420,6 +420,35 @@ describe("Configuration diagnostics", () => {
 			(el) => el.textContent
 		);
 		expect(details).toEqual(["duplicate label", "dropped an unknown discovery key"]);
+		const names = Array.from(root.querySelectorAll(".row-diagnostic-actions button")).map((button) =>
+			button.getAttribute("aria-label")
+		);
+		expect(new Set(names).size).toBe(2);
+	});
+
+	test("one leftover key in both record settings renders as two blocks, not one", () => {
+		// collectLegacyHints emits an inert-url-scoped-key hint per setting with
+		// the same oldKey, differing only in `detail`; a key without it collides
+		// and React drops a block.
+		const root = mountConfig([
+			{
+				kind: "legacy",
+				hint: "inert-url-scoped-key",
+				oldKey: "https://gw/gpt-4",
+				detail: "models.parameters",
+				severity: "warning",
+			},
+			{
+				kind: "legacy",
+				hint: "inert-url-scoped-key",
+				oldKey: "https://gw/gpt-4",
+				detail: "models.capabilities",
+				severity: "warning",
+			},
+		]);
+		expect(Array.from(root.querySelectorAll(".config-diagnostics li"))).toHaveLength(2);
+		const badges = Array.from(root.querySelectorAll(".row-diagnostic-where .chip-prov")).map((el) => el.textContent);
+		expect(badges).toEqual(["models.parameters", "models.capabilities"]);
 	});
 
 	test("an advisory keeps the applied-as-is wording and the quiet tier", () => {

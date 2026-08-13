@@ -357,7 +357,8 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 			return {
 				// The position, not the label: a rejected entry can reuse a label
 				// an accepted one already owns, and that is exactly the case whose
-				// two diagnostics must not collapse onto one key.
+				// two diagnostics must not collapse onto one key - or one button
+				// name, which is why the position rides the subject too.
 				key: `entry:${diagnostic.position}`,
 				severity: cappedSeverity(diagnostic.severity, diagnostic.misconfigured ? "blocking" : "degraded"),
 				headline: diagnostic.misconfigured
@@ -367,14 +368,17 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 				// The parser's structural reports stay English by policy.
 				detail: diagnostic.problems.join("; "),
 				actions: [
-					{ kind: "reveal", setting: "servers", subject: name },
+					{ kind: "reveal", setting: "servers", subject: `${name} #${diagnostic.position}` },
 					docsAction(DOCS_LINK_AUTHENTICATION, l10n.t("the authentication guide")),
 				],
 			};
 		}
 		case "legacy":
 			return {
-				key: `legacy:${diagnostic.hint}:${diagnostic.oldKey}`,
+				// The same leftover key can sit in BOTH record settings, and the
+				// two hints differ only in which one; without `detail` they share a
+				// key and React drops one of the blocks.
+				key: `legacy:${diagnostic.hint}:${diagnostic.oldKey}:${diagnostic.detail}`,
 				// A parked-headers leftover still has a live route back: the headers
 				// are held, and adopting the external group delivers them. The other
 				// two hold values that reach nothing and have nowhere to go.

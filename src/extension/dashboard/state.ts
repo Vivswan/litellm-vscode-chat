@@ -293,37 +293,6 @@ function declaredOutcome(
 		: { state: "unchecked", modelCount: 0 };
 }
 
-/**
- * The servers section merges two sources: entries declared in the servers
- * setting (with their secret locations, for the edit form) and the live
- * provider groups the status window saw (reachability, model counts). A
- * declared entry the status window has not seen yet renders as "unchecked",
- * and a live group with no settings entry renders as external, managed
- * outside the setting.
- *
- * Provider-group snapshots are labeled by URL host (the host never hands the
- * group name to the extension), so the join cannot require a label match; see
- * joinDeclared for the pairing passes. `snapshotLabels` maps each snapshot to
- * the labels its models render under: every claiming entry's label when
- * joined (a shared snapshot is one group's report, but the host registers
- * those models once per group, so the models table lists them under each
- * claimant to match the picker), the snapshot's own label otherwise. The one
- * exclusion is a claimant whose sync failed as upsertFailed - its add failed
- * outright, so the host has no group for it and a copy would be phantom;
- * blocked claimants keep their copy (the duplicate refusal proves a group
- * with that name exists and registers models). The snapshot still renders at
- * least once (the reporting group exists and serves), under the first
- * claimant when every claimant is excluded. Known residual divergences: a
- * native group removal the engine has not re-discovered still overcounts,
- * and an external unlabeled group sharing a connection with a pre-label
- * entry collapses into it (pre-existing under-report); exact host
- * cardinality is not recoverable from declarations alone.
- *
- * Removal bookkeeping (removedGroups) applies to external rows only: a
- * tombstoned external snapshot leaves the table (the hidden-groups line
- * states it instead) and contributes no models, and the remaining external
- * rows carry their recorded provenance classification when one exists.
- */
 /** A rejected entry that has the identity a row needs: both fields narrowed, so no call site defaults them. */
 export type DrawableReject = ServerEntryReport & { readonly label: string; readonly baseUrl: string };
 
@@ -364,6 +333,37 @@ export function rejectsWithOwnRow(
 	return rows;
 }
 
+/**
+ * The servers section merges two sources: entries declared in the servers
+ * setting (with their secret locations, for the edit form) and the live
+ * provider groups the status window saw (reachability, model counts). A
+ * declared entry the status window has not seen yet renders as "unchecked",
+ * and a live group with no settings entry renders as external, managed
+ * outside the setting.
+ *
+ * Provider-group snapshots are labeled by URL host (the host never hands the
+ * group name to the extension), so the join cannot require a label match; see
+ * joinDeclared for the pairing passes. `snapshotLabels` maps each snapshot to
+ * the labels its models render under: every claiming entry's label when
+ * joined (a shared snapshot is one group's report, but the host registers
+ * those models once per group, so the models table lists them under each
+ * claimant to match the picker), the snapshot's own label otherwise. The one
+ * exclusion is a claimant whose sync failed as upsertFailed - its add failed
+ * outright, so the host has no group for it and a copy would be phantom;
+ * blocked claimants keep their copy (the duplicate refusal proves a group
+ * with that name exists and registers models). The snapshot still renders at
+ * least once (the reporting group exists and serves), under the first
+ * claimant when every claimant is excluded. Known residual divergences: a
+ * native group removal the engine has not re-discovered still overcounts,
+ * and an external unlabeled group sharing a connection with a pre-label
+ * entry collapses into it (pre-existing under-report); exact host
+ * cardinality is not recoverable from declarations alone.
+ *
+ * Removal bookkeeping (removedGroups) applies to external rows only: a
+ * tombstoned external snapshot leaves the table (the hidden-groups line
+ * states it instead) and contributes no models, and the remaining external
+ * rows carry their recorded provenance classification when one exists.
+ */
 function buildServers(
 	labeled: readonly LabeledSnapshot[],
 	declared: readonly DeclaredServerView[],
