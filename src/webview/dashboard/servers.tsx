@@ -57,13 +57,6 @@ const INACTIVE_NOTICE_PRESENTATION = {
 const INACTIVE_NOTICES = Object.keys(INACTIVE_NOTICE_PRESENTATION) as readonly InactiveEntryNotice[];
 
 /**
- * How long a Retry may sit in its checking state before the row gives up
- * waiting. This is a recovery net for a command that failed before it reached
- * discovery, never the completion signal - see the note where it is used.
- */
-const RETRY_ABANDON_MS = 120_000;
-
-/**
  * How much a problem costs the reader, which is the only thing that should
  * decide how loud it looks.
  *
@@ -862,38 +855,46 @@ export function ServersSection({
 	const hideIntent = useIntentOutcome("hideExternalServer");
 	const unhideIntent = useIntentOutcome("unhideServer");
 	const [armedRemove, setArmedRemove] = useState<string | undefined>(undefined);
-	// The row whose Retry is in flight, with the fleet's newest check time as it
-	// stood when they pressed it.
+	// The row whose Retry is in flight, and the request that will answer it.
 	//
-	// The arrival of a state push is NOT the completion signal, however much it
-	// looks like one. A sync reconciles the provider groups first and that
-	// reconciliation pushes state immediately, while the network discovery it
-	// exists to trigger has not started - so "checking" would clear seconds into
-	// a pass that runs for a minute. Usage, catalog and status pushes arrive on
-	// their own schedule and would clear it too.
+	// The sync answers for itself now: syncModels is an acked method, so the
+	// round trip that started the work is the one that reports it over. Nothing
+	// here watches the page for evidence.
 	//
-	// What actually moves when discovery finishes is lastChecked, so that is the
-	// signal: the pass is done when the fleet's newest check is newer than the
-	// one the reader clicked on.
-	const [retrying, setRetrying] = useState<{ readonly label: string; readonly since: number } | undefined>(undefined);
+	// The id is held, not just the label. useIntentOutcome hands a consumer the
+	// latest envelope for the METHOD whoever posted it, and the rail's Sync
+	// button posts the same method - so clearing on presence alone would let
+	// the rail's sync switch off a row's spinner while that row's own pass is
+	// still running.
+	//
+	// It used to infer completion instead, and the inference was subtle enough
+	// to be worth remembering. A state push is not the signal, however much it
+	// looks like one: a sync reconciles the provider groups first and that
+	// reconciliation pushes immediately, while the discovery it exists to
+	// trigger has not started, so "checking" cleared seconds into a pass that
+	// runs for a minute. The workaround watched the fleet's newest lastChecked
+	// instead and cleared when it advanced - which meant an unrelated
+	// background refresh could clear the reader's spinner, and a sync that
+	// failed before reaching discovery moved nothing and stranded it until a
+	// two-minute timer gave up. Both of those are gone with the observation.
+	const [retrying, setRetrying] = useState<{ readonly label: string; readonly requestId: string } | undefined>(
+		undefined
+	);
+	// A different question from "is a sync running": whether the fleet has ever
+	// been checked at all, which the live region below needs so a first-run page
+	// does not announce a clean bill of health it never took.
 	const newestCheck = latestCheckedMs(servers) ?? 0;
+	const syncIntent = useIntentOutcome("syncModels");
+	const syncOutcome = syncIntent.outcome;
+	// Clear on either answer to THIS row's request. A failed sync is still a
+	// finished one as far as the control is concerned, and its failure is
+	// deliberately not rendered here: runModelSync reports every outcome of its
+	// own as a VS Code toast, and App drops acked-method failures on purpose
+	// (they belong to the hook that posted them), so a second notice beside the
+	// row would say the same thing twice.
 	useEffect(() => {
-		if (retrying !== undefined && newestCheck > retrying.since) {
-			setRetrying(undefined);
-		}
-	}, [newestCheck, retrying]);
-	// A net, not a signal. `executeCommand` is fire-and-forget, so a command that
-	// fails before it ever reaches discovery sends nothing back and would strand
-	// the control disabled for the life of the panel. Generous enough that it
-	// does not pre-empt a slow pass - the per-request timeouts sum - and finite
-	// so the page always recovers on its own.
-	useEffect(() => {
-		if (retrying === undefined) {
-			return;
-		}
-		const timer = setTimeout(() => setRetrying(undefined), RETRY_ABANDON_MS);
-		return () => clearTimeout(timer);
-	}, [retrying]);
+		setRetrying((current) => (current !== undefined && syncOutcome?.id === current.requestId ? undefined : current));
+	}, [syncOutcome]);
 	// The one-time post-adoption notice: the old host-owned group survives (no
 	// removal API), so the user is told plainly why models now appear twice.
 	const [adoptNotice, setAdoptNotice] = useState<string | undefined>(undefined);
@@ -1164,8 +1165,7 @@ export function ServersSection({
 								retrying={retrying?.label === server.label}
 								syncBusy={retrying !== undefined}
 								onRetry={() => {
-									setRetrying({ label: server.label, since: newestCheck });
-									sendRequest("executeCommand", { command: "syncModels" });
+									setRetrying({ label: server.label, requestId: syncIntent.send(null) });
 								}}
 							/>
 						))}

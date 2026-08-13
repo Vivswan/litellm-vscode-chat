@@ -322,6 +322,24 @@ suite("extension/dashboard/panelIntegration", () => {
 		assert.strictEqual(await inject(request("executeCommand", { command: "syncModels" })), "ok");
 	});
 
+	test("a syncModels intent runs the real command and answers only once it has settled", async function () {
+		this.timeout(20000);
+		// The whole reason this method exists apart from executeCommand: its
+		// answer is a completion signal, so the outcome must not resolve until
+		// the command's own promise has. Same real registered command and the
+		// same bridge as the test above - what is pinned here is the awaiting.
+		let settled = false;
+		const outcome = inject(request("syncModels", null, "pi-sync-acked"));
+		void Promise.resolve(outcome).then(() => {
+			settled = true;
+		});
+		// Not answered synchronously: a handler that forgot to await would have
+		// resolved within this turn.
+		await Promise.resolve();
+		assert.strictEqual(settled, false, "syncModels answered before the command could have run");
+		assert.strictEqual(await outcome, "ok");
+	});
+
 	test("testServerDraft runs the real probe read-only: an unreachable draft fails the intent and mutates nothing", async function () {
 		this.timeout(20000);
 		// Port 1 on loopback refuses immediately, so the real discovery path

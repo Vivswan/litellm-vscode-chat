@@ -88,7 +88,19 @@ interface StatusBarLike {
 // A second invocation while one test is mid-flight would capture "loading" as
 // the pre-test status and misreport; it is refused instead.
 let connectionTestRunning = false;
-let modelSyncRunning = false;
+/**
+ * The sync in flight, if any - the PROMISE, not a boolean.
+ *
+ * A second invocation mid-run must not start a second pass: it would clear the
+ * provider's discovery cache under the refresh already running and report a
+ * half-settled status. It used to return immediately instead, which was fine
+ * while every caller was fire-and-forget and wrong the moment one of them
+ * started waiting on the answer: the dashboard's Retry would ack in
+ * milliseconds, having done nothing, and the row would report a sync it never
+ * ran. Handing the second caller the first caller's promise refuses the
+ * duplicate pass and still tells the truth about when the work finished.
+ */
+let modelSyncInFlight: Promise<void> | undefined;
 
 /**
  * Trigger a non-silent refresh, ask the host to re-resolve every provider
@@ -230,15 +242,30 @@ export async function runModelSync(
 	outputChannel: vscode.OutputChannel,
 	logger: Logger
 ): Promise<void> {
-	// A second invocation mid-run would clear the provider's discovery cache
-	// under the refresh already in flight and report a half-settled status; it
-	// is refused instead.
-	if (modelSyncRunning) {
-		logger.log("A model sync is already running");
-		return;
+	// Already running: join it rather than starting a second pass, so this
+	// caller's answer still means "a sync finished".
+	const running = modelSyncInFlight;
+	if (running !== undefined) {
+		logger.log("A model sync is already running; joining it");
+		return running;
 	}
-	modelSyncRunning = true;
+	const pass = runModelSyncPass(provider, statusBar, outputChannel, logger);
+	modelSyncInFlight = pass;
 	try {
+		await pass;
+	} finally {
+		modelSyncInFlight = undefined;
+	}
+}
+
+/** One sync pass, without the re-entrancy guard: every caller reaches it through runModelSync. */
+async function runModelSyncPass(
+	provider: HostRefreshableProvider,
+	statusBar: StatusBarLike,
+	outputChannel: vscode.OutputChannel,
+	logger: Logger
+): Promise<void> {
+	{
 		logger.log("Syncing models: refreshing every provider group over the network");
 		try {
 			await provider.refreshViaHost();
@@ -316,8 +343,6 @@ export async function runModelSync(
 					[viewOutputAction(outputChannel)]
 				);
 		}
-	} finally {
-		modelSyncRunning = false;
 	}
 }
 

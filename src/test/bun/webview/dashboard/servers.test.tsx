@@ -34,6 +34,7 @@ import {
 	fireKeyDown,
 	fireSelect,
 	inputByLabel,
+	lastRequest,
 	mount,
 	postedCalls,
 	postedMessages,
@@ -1748,18 +1749,21 @@ test("a nested overlay hears Esc alone: it closes, the form beneath survives and
 	expect(form.contains(document.activeElement)).toBe(true);
 });
 
-test("Retry says it is working, and only a NEWER check releases it - not merely the next push", () => {
+test("Retry says it is working, and only its own ack releases it - no push, of any age, does", () => {
 	// A discovery pass can run for tens of seconds - the timeouts are per request
 	// and they sum - so a button that looked identical before and after the click
 	// invited the double-click-until-something-happens trap.
 	//
-	// The arrival of a push is NOT completion, however much it looks like one: a
-	// sync reconciles the provider groups first and that reconciliation pushes
+	// The sync is an acked method now, so the round trip that started the work is
+	// the one that reports it finished. That replaced an inference, and the
+	// inference is what this test used to pin: no push means completion, because
+	// a sync reconciles the provider groups first and that reconciliation pushes
 	// immediately, before the network discovery it exists to trigger has begun.
-	// What moves when discovery actually finishes is lastChecked.
+	// The old workaround watched lastChecked instead, which let an unrelated
+	// background refresh clear the reader's spinner. Neither push below releases
+	// it now, whatever check time it carries.
 	// Fixed instants, not offsets from now: two calls to a now-relative helper
-	// differ by the milliseconds between them, which would make the "unchanged"
-	// push look newer and pass this test for the wrong reason.
+	// differ by the milliseconds between them.
 	const BEFORE = new Date(Date.now() - 10 * 60_000).toISOString();
 	const AFTER = new Date(Date.now() - 60_000).toISOString();
 	const failing = (lastChecked: string) =>
@@ -1769,7 +1773,9 @@ test("Retry says it is working, and only a NEWER check releases it - not merely 
 
 	resetPosted();
 	fireClick(buttonByText(root, "Retry"));
-	expect(postedCalls()).toEqual([{ method: "executeCommand", payload: { command: "syncModels" } }]);
+	// The acked wire method, not the fire-and-forget command post.
+	expect(postedCalls()).toEqual([{ method: "syncModels", payload: null }]);
+	const syncId = lastRequest("syncModels").id;
 
 	const pending = buttonByText(root, "Checking...");
 	// aria-disabled, not the disabled attribute: the control has to REFUSE the
@@ -1783,14 +1789,47 @@ test("Retry says it is working, and only a NEWER check releases it - not merely 
 	fireClick(pending);
 	expect(postedCalls()).toEqual([]);
 
-	// A push carrying the SAME check time is the group reconciliation, not the
-	// answer. Clearing here would drop "Checking..." seconds into a minute-long
-	// pass, which is the bug this test exists to prevent.
+	// The reconciliation push, carrying the same check time.
 	pushToWebview(statePush(makeState({ servers: [failing(BEFORE)] })));
 	expect(buttonByText(root, "Checking...").getAttribute("aria-disabled")).toBe("true");
 
-	// A newer check time is discovery having actually run.
+	// A NEWER check time used to be the release signal, and must not be one now:
+	// an unrelated background refresh moves it without this reader's sync having
+	// finished, and clearing here would be the same lie in the other direction.
 	pushToWebview(statePush(makeState({ servers: [failing(AFTER)] })));
+	expect(buttonByText(root, "Checking...").getAttribute("aria-disabled")).toBe("true");
+
+	// An ack for a DIFFERENT syncModels request does not release it either. The
+	// rail's Sync button posts the same method, and useIntentOutcome hands over
+	// the latest envelope for the method whoever posted it, so presence alone
+	// would let the rail switch off a row's spinner mid-pass.
+	pushToWebview({ kind: "ack", id: `${syncId}-other`, method: "syncModels" });
+	expect(buttonByText(root, "Checking...").getAttribute("aria-disabled")).toBe("true");
+
+	// Only the ack for this row's own request releases it.
+	pushToWebview({ kind: "ack", id: syncId, method: "syncModels" });
+	expect(buttonByText(root, "Retry").getAttribute("aria-disabled")).toBe("false");
+});
+
+test("a sync that fails still releases the Retry control", () => {
+	// A failed sync is a finished one as far as the button is concerned. Leaving
+	// it disabled would strand the row for the life of the panel, which is the
+	// failure mode the old abandon timer existed to paper over.
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod", state: "error", error: "refused" })] }))
+	);
+	resetPosted();
+	fireClick(buttonByText(root, "Retry"));
+	expect(buttonByText(root, "Checking...").getAttribute("aria-disabled")).toBe("true");
+
+	pushToWebview({
+		kind: "fail",
+		id: lastRequest("syncModels").id,
+		method: "syncModels",
+		message: "sync failed",
+		failureKind: "operation",
+	});
 	expect(buttonByText(root, "Retry").getAttribute("aria-disabled")).toBe("false");
 });
 

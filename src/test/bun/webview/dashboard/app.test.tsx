@@ -140,7 +140,7 @@ test("a saveServerSetting fail notice survives a subsequent state push", () => {
 	expect(root.textContent).not.toContain("the group upsert failed");
 });
 
-test("Sync models disables with zero servers and posts the executeCommand intent when enabled", () => {
+test("Sync models disables with zero servers and posts the acked syncModels intent when enabled", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 	expect(buttonByText(root, "Sync models").disabled).toBe(true);
@@ -150,7 +150,10 @@ test("Sync models disables with zero servers and posts the executeCommand intent
 	expect(button.disabled).toBe(false);
 	resetPosted();
 	fireClick(button);
-	expect(postedCalls()).toEqual([{ method: "executeCommand", payload: { command: "syncModels" } }]);
+	// The acked method rather than the fire-and-forget command post: on the
+	// command route this rode the chained channel and held every later
+	// dashboard message for the whole pass.
+	expect(postedCalls()).toEqual([{ method: "syncModels", payload: null }]);
 });
 
 test("the rail carries one quiet Report-a-bug action that posts the reportIssue command", () => {

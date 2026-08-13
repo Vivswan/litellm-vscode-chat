@@ -194,6 +194,29 @@ export const DASHBOARD_ENDPOINTS = {
 	adoptServer: { outcome: "acked", channel: "chained" },
 	hideExternalServer: { outcome: "acked", channel: "chained" },
 	unhideServer: { outcome: "acked", channel: "chained" },
+	/**
+	 * Run a full model sync now and answer when the pass is over. Acked rather
+	 * than fire-and-forget because the answer IS the point: a caller that
+	 * disables a control while the pass runs needs to know when it ended, and
+	 * without an ack the only observable is state pushes - which a sync emits
+	 * long before discovery starts, when it reconciles provider groups.
+	 *
+	 * What the ack proves, precisely: the sync command settled. That is a
+	 * bounded wait rather than a promise that every server answered - the
+	 * host-refresh step gives up on quiet after a few seconds and on the whole
+	 * wait after eight - so a slow fleet can still have discovery in flight
+	 * when this lands. It is the right signal for releasing a control, and the
+	 * wrong one for concluding the fleet is fully described.
+	 *
+	 * Concurrent for the same reason testServerDraft is: the pass blocks on the
+	 * network, and on the chained channel that would hold up every message
+	 * queued behind it - a settings edit made mid-sync would appear to do
+	 * nothing until the pass ended. Nothing about a sync needs serializing
+	 * against the mutating intents: it never writes the servers setting (the
+	 * only reason that chain exists), and the sync engine already collapses
+	 * overlapping passes of its own.
+	 */
+	syncModels: { outcome: "acked", channel: "concurrent" },
 	/** The edit form's on-demand prefill of inline-stored secret fields; see the response payload. */
 	readInlineSecrets: { outcome: "read", channel: "chained" },
 	readModelCapabilities: { outcome: "read", channel: "concurrent" },
@@ -358,6 +381,8 @@ interface DashboardEndpointIO {
 		response: { readonly results: readonly CatalogModelSummary[] };
 	};
 	executeCommand: { request: { readonly command: DashboardCommandId } };
+	/** No parameters: the sync is fleet-wide, exactly as the command palette runs it. */
+	syncModels: { request: null };
 }
 
 /** One method's request payload; errors here mean a table method is missing its DashboardEndpointIO row. */

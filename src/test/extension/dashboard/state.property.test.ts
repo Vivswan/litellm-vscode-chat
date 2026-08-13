@@ -103,6 +103,7 @@ const serverDraftPayload = fc.record(
  */
 const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 	ready: fc.constant(null),
+	syncModels: fc.constant(null),
 	setNumberSetting: fc.record({
 		setting: fc.constantFrom(...NUMBER_SETTING_IDS),
 		value: fc.oneof(finiteNumber, fc.constant(null)),

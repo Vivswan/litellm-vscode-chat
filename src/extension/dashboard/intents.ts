@@ -548,5 +548,16 @@ export async function executeDashboardIntent(
 			await env.executeCommand(command, ...args);
 			return undefined;
 		}
+		case "syncModels": {
+			// The same command the palette and the rail run, through the same
+			// table, so there is one definition of what a sync is. The await is
+			// the whole point of this method existing separately from
+			// executeCommand: settling is what the ack reports, and a second
+			// caller arriving mid-pass joins the running one rather than being
+			// waved through, so the answer always describes a pass that ran.
+			const { command, args } = COMMANDS_BY_ID.syncModels;
+			await env.executeCommand(command, ...args);
+			return undefined;
+		}
 	}
 }

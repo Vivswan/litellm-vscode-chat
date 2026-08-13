@@ -176,6 +176,7 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 	// hostile page cannot balloon the message.
 	searchCatalog: z.strictObject({ query: z.string().max(200) }),
 	executeCommand: z.strictObject({ command: asEnum(DASHBOARD_COMMAND_IDS) }),
+	syncModels: z.null(),
 };
 
 /**
@@ -225,6 +226,7 @@ const requestSchemas: { readonly [K in DashboardMethod]: z.ZodType<RpcRequest<K>
 	readResolvedModels: requestSchema("readResolvedModels"),
 	searchCatalog: requestSchema("searchCatalog"),
 	executeCommand: requestSchema("executeCommand"),
+	syncModels: requestSchema("syncModels"),
 };
 
 /** The envelope's method-bearing frame, parsed first to pick the method's own full schema. */

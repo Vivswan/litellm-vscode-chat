@@ -622,6 +622,7 @@ export class DashboardController implements vscode.Disposable {
 		hideExternalServer: (payload) => executeDashboardIntent({ method: "hideExternalServer", payload }, this.env),
 		unhideServer: (payload) => executeDashboardIntent({ method: "unhideServer", payload }, this.env),
 		executeCommand: (payload) => executeDashboardIntent({ method: "executeCommand", payload }, this.env),
+		syncModels: (payload) => executeDashboardIntent({ method: "syncModels", payload }, this.env),
 	};
 
 	/** Generic so the mapped handler lookup keeps the method-payload correlation the union erases. */

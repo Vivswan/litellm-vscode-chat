@@ -493,6 +493,49 @@ suite("extension/ui/commands", () => {
 	});
 
 	suite("runModelSync", () => {
+		test("a second call mid-pass joins the running one instead of answering immediately", async () => {
+			// The re-entrancy guard refuses a duplicate pass, which is right - a
+			// second refresh would clear the discovery cache under the first. What
+			// it must NOT do is hand the second caller an instant answer: the
+			// dashboard's Retry waits on this promise to decide the sync is over,
+			// and an early return would switch the control off having run nothing.
+			const lines: string[] = [];
+			const logger = new Logger({ info: (line: string) => lines.push(line), error: () => {} });
+			const statusBar = makeStatusBar({
+				state: "connected",
+				totalModels: 1,
+				serverStatuses: [makeServerStatus({ modelCount: 1 })],
+			});
+			let releaseRefresh: (() => void) | undefined;
+			const provider = {
+				refreshViaHost: () =>
+					new Promise<void>((resolve) => {
+						releaseRefresh = resolve;
+					}),
+			};
+
+			await withToasts(async () => {
+				const first = runModelSync(provider, statusBar, outputChannel, logger);
+				let secondSettled = false;
+				const second = runModelSync(provider, statusBar, outputChannel, logger).then(() => {
+					secondSettled = true;
+				});
+				// The first pass is parked inside refreshViaHost; neither caller
+				// may have an answer yet.
+				await Promise.resolve();
+				assert.strictEqual(secondSettled, false, "the second call answered while the first pass was still running");
+
+				expectDefined(releaseRefresh)();
+				await Promise.all([first, second]);
+				assert.strictEqual(secondSettled, true);
+			});
+
+			assert.ok(
+				lines.some((line) => line.includes("already running")),
+				`Expected the joined-pass log line. Lines: ${lines.join(" | ")}`
+			);
+		});
+
 		test("the zero-model verdict is not framed as a failed sync; answered-empty keeps the plain Reconfigure", async () => {
 			const lines: string[] = [];
 			const bufferLogger = new Logger({ info: (line: string) => lines.push(line), error: () => {} });

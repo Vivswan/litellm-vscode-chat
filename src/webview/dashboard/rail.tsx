@@ -152,11 +152,17 @@ export function Rail<Id extends string>({
 						{overall.word}
 					</p>
 					{synced !== undefined ? <p className="rail-synced">{l10n.t("last sync {0}", synced)}</p> : null}
+					{/* The acked method, not the fire-and-forget command post: this is the
+					    page's most prominent sync, and on the command route it rode the
+					    chained channel and held every later dashboard message for the whole
+					    pass. Nothing here waits on the ack - the command reports its own
+					    outcome as a toast - but the row-level Retry correlates by request
+					    id, so this sync cannot clear that row's spinner. */}
 					<Button
 						variant="secondary"
 						size="compact"
 						disabled={serverCount === 0}
-						onClick={() => sendRequest("executeCommand", { command: "syncModels" })}
+						onClick={() => sendRequest("syncModels", null)}
 					>
 						{l10n.t("Sync models")}
 					</Button>
