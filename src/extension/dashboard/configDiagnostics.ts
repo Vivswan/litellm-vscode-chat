@@ -27,6 +27,7 @@ import {
 } from "../migrations/settingsRedesign/legacyIds";
 import type { DeclaredServerView, ServerEntryReport } from "../servers/serverSync";
 import type { SettingsReader } from "./state";
+import { rejectsWithOwnRow } from "./state";
 
 export interface ConfigDiagnosticsInput {
 	/** The litellm-vscode-chat configuration section; the builder reads the record settings and leftovers itself. */
@@ -132,7 +133,12 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 	}
 
 	// The servers-setting parser's per-entry reports: misconfigured entries
-	// (skipped whole) and accepted entries with ignored pieces alike.
+	// (skipped whole) and accepted entries with ignored pieces alike. Each
+	// carries whether a server row was drawn for it, read from the same
+	// rejectsWithOwnRow rule buildServers draws by, so the Diagnostics
+	// destination can drop exactly the problems a row already states without
+	// spelling that rule a second time.
+	const drawnRows = new Set(rejectsWithOwnRow(input.entryReports, input.declared));
 	for (const report of input.entryReports) {
 		if (report.problems.length > 0) {
 			diagnostics.push({
@@ -141,6 +147,7 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 				position: report.index + 1,
 				problems: report.problems,
 				misconfigured: !report.accepted,
+				rowOwned: drawnRows.has(report),
 				severity: "warning",
 			});
 		}

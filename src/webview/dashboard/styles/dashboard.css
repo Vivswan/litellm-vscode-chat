@@ -707,65 +707,10 @@
 		color: var(--vscode-textLink-activeForeground);
 		text-decoration: underline;
 	}
-	/* The Diagnostics tab's connection block and feedback rows. The facts and
-		   the outcome grid render selectable prose (this tab is where users copy
-		   state from when asking for help); each feedback row is one action plus
-		   its muted one-liner. */
-	.diag-verdict {
-		margin: 0 0 12px;
-	}
-	.diag-facts {
-		list-style: none;
-		padding: 0;
-		margin: 8px 0 16px;
-	}
-	.diag-facts li {
-		margin: 5px 0;
-	}
-	/* The outcome grid: one compact row per server, hugging its content
-		   instead of the generic full-width table rule, with 6px of vertical
-		   padding (over the 3px base) so each server scans as its own band. A
-		   row's error or params-inactive warning spans beneath it as its own
-		   line; rows followed by such a note drop their rule (.no-rule) so each
-		   server group reads as one block. No hover band: the grid is prose to
-		   read and copy, not a control surface. */
-	table.diag-grid {
-		width: auto;
-	}
-	.diag-grid th,
-	.diag-grid td {
-		padding: 6px 20px 6px 0;
-	}
-	.diag-grid th:last-child,
-	.diag-grid td:last-child {
-		padding-right: 0;
-	}
-	.diag-grid tbody tr:hover {
-		background: transparent;
-	}
-	.diag-grid tr.no-rule td {
-		border-bottom: none;
-	}
-	.diag-grid tr.diag-note td {
-		padding: 2px 0 10px 12px;
-	}
-	.diag-grid tr.diag-note.error td {
-		color: var(--err-text);
-	}
-	.diag-grid tr.diag-note.warn td {
-		color: var(--warn-text);
-	}
-	.diag-url {
-		font-family: var(--vscode-editor-font-family);
-		font-size: 0.95em;
-		word-break: break-all;
-	}
-	.diag-actions {
-		display: flex;
-		gap: 8px;
-		flex-wrap: wrap;
-		margin: 16px 0 8px;
-	}
+	/* The Diagnostics destination's reference links: one action plus its muted
+		   one-liner. The connection block that used to sit above them - verdict,
+		   facts list, and a per-server outcome grid - is gone: every fact in it
+		   now renders on the server's own row, where the fix is. */
 	.feedback-links {
 		list-style: none;
 		padding: 0;
@@ -776,25 +721,6 @@
 	}
 	.feedback-links li .hint {
 		margin-left: 8px;
-	}
-	/* A button that reads like the anchors beside it (Report a bug posts an
-		   intent, so it cannot be an anchor); still a real button for focus and
-		   keyboard activation. */
-	button.linkish {
-		display: inline-flex;
-		align-items: center;
-		gap: 3px;
-		padding: 0;
-		border: none;
-		background: none;
-		cursor: pointer;
-		color: var(--vscode-textLink-foreground);
-		font-size: inherit;
-	}
-	button.linkish:hover {
-		color: var(--vscode-textLink-activeForeground);
-		text-decoration: underline;
-		background: none;
 	}
 	/* Hover tips over non-interactive inline content (badges, status pills):
 		   the same tip element, revealed by hovering the wrapper. Extra detail
@@ -1826,24 +1752,42 @@
 		font-size: 0.9em;
 		margin-top: 2px;
 	}
+	/* The configuration problems, one severity-ruled block each. Bullets are
+		   gone with the flat list they marked: the rule already says where a
+		   problem starts, and a bullet beside it was a second, weaker claim about
+		   the same boundary. The blocks carry .row-diagnostic, the server rows'
+		   own class, so the three tiers cannot drift into two vocabularies. */
 	.config-diagnostics {
-		margin: 8px 0 16px;
-		padding-left: 18px;
+		list-style: none;
+		margin: 8px 0 0;
+		padding-left: 0;
+		/* The page's measure, matching the section header line. A tint running
+			 240px past the longest sentence in it reads as a coloured page rather
+			 than as a marked block. */
+		max-width: 64rem;
 	}
 	.config-diagnostics li {
-		margin: 4px 0;
+		margin: 0 0 8px;
 	}
-	/* Advisory rows (informational, the applied-as-is capability notes) render
-		   muted where real problems keep the warning tone. */
-	.config-diagnostics li.hint {
-		color: var(--vscode-descriptionForeground);
+	/* Where a problem lives, as neutral outline badges rather than a trailing
+		   "(models.parameters)" that read as an afterthought on every line. Never
+		   severity-toned: the rule beside them already carries the rank, and a
+		   coloured location would compete with it. */
+	.row-diagnostic-where {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px;
+		margin: 4px 0 0;
 	}
 	.record-tree {
 		margin: 8px 0;
 	}
-	.record-tree > summary {
-		cursor: pointer;
-		font-weight: 600;
+	/* One map's heading. It used to be a <details> summary, which spent a
+		   disclosure triangle and a pointer cursor advertising a collapse nobody
+		   wants on the figure that explains the whole record model. */
+	.record-tree-title {
+		margin: 0 0 2px;
+		font-size: 1em;
 	}
 	.record-tree ul {
 		list-style: none;
@@ -1894,22 +1838,16 @@
 	.resolved-id {
 		font-family: var(--vscode-editor-font-family, monospace);
 		font-size: 0.95em;
+		font-variant-numeric: tabular-nums;
 	}
 	/* The matcher keys that touched a model, as quiet chips under its ID: the
-		   same visual register as the provenance chips beside the values. */
+		   same visual register as the provenance chips beside the values, which
+		   is why both read from one rule below. */
 	.resolved-matched {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 3px;
 		margin-top: 3px;
-	}
-	.resolved-matched .chip-matcher {
-		font-size: 0.85em;
-		color: var(--vscode-descriptionForeground);
-		border: 1px solid var(--vscode-editorWidget-border, #555);
-		border-radius: 8px;
-		padding: 0 6px;
-		white-space: nowrap;
 	}
 	.resolved-cells {
 		display: flex;
@@ -1938,13 +1876,26 @@
 	.resolved-price-part code {
 		font-family: var(--vscode-editor-font-family, monospace);
 	}
-	.chip-prov {
+	/* Machine text sits in the machine's register. A provenance badge names a
+		   record key, a setting id, or a wire field - things a reader retypes into
+		   a settings file - so it reads mono and its digits line up column to
+		   column. Neutral by construction: outline and description foreground,
+		   never a severity colour, because provenance says where a value came
+		   from and never whether that is a problem. */
+	.chip-prov,
+	.resolved-matched .chip-matcher {
+		font-family: var(--vscode-editor-font-family, monospace);
+		font-variant-numeric: tabular-nums;
 		font-size: 0.85em;
 		color: var(--vscode-descriptionForeground);
 		border: 1px solid var(--vscode-editorWidget-border, #555);
 		border-radius: 8px;
 		padding: 0 6px;
 		white-space: nowrap;
+	}
+	.resolved-cell code,
+	.resolved-price-part code {
+		font-variant-numeric: tabular-nums;
 	}
 	.inherit-from {
 		display: inline-flex;

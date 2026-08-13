@@ -324,6 +324,43 @@ function declaredOutcome(
  * states it instead) and contributes no models, and the remaining external
  * rows carry their recorded provenance classification when one exists.
  */
+/**
+ * The rejected servers-setting entries that earn a row of their own, in
+ * setting order.
+ *
+ * A reject sits in the setting, so a silently missing row would read as a
+ * removal - but a row needs an honest identity to draw. Four causes leave a
+ * reject without one: no label, no base URL, a label a declared entry already
+ * owns, and a label an earlier reject already drew. Those stay in
+ * Configuration diagnostics ONLY, which is why this rule is a named export
+ * rather than a loop body: the Diagnostics destination drops the entry
+ * problems a server row already states, and it must drop exactly the ones a
+ * row was actually drawn for. Two spellings of "drawable" would silently
+ * erase a user's broken entry from both surfaces at once.
+ */
+export function rejectsWithOwnRow(
+	entryReports: readonly ServerEntryReport[],
+	declared: readonly Pick<DeclaredServerView, "label">[]
+): readonly ServerEntryReport[] {
+	const declaredLabels = new Set(declared.map((view) => view.label));
+	const drawn = new Set<string>();
+	const rows: ServerEntryReport[] = [];
+	for (const report of entryReports) {
+		if (
+			report.accepted ||
+			report.label === undefined ||
+			report.baseUrl === undefined ||
+			declaredLabels.has(report.label) ||
+			drawn.has(report.label)
+		) {
+			continue;
+		}
+		drawn.add(report.label);
+		rows.push(report);
+	}
+	return rows;
+}
+
 function buildServers(
 	labeled: readonly LabeledSnapshot[],
 	declared: readonly DeclaredServerView[],
@@ -450,26 +487,14 @@ function buildServers(
 	}
 	// Entries the parser refused whole (a misconfigured auth shape) still
 	// render as rows: they sit in the setting, and a silently missing row
-	// would read as a removal. Only rejects with a usable, non-duplicate
-	// identity qualify - the remaining reject causes (no label or URL, a
-	// reserved label, a duplicate, a label another reject already drew) have
-	// no honest row to draw and stay in Configuration diagnostics only.
-	const declaredLabels = new Set(declared.map((view) => view.label));
-	const drawnRejectLabels = new Set<string>();
-	for (const report of entryReports) {
-		if (
-			report.accepted ||
-			report.label === undefined ||
-			report.baseUrl === undefined ||
-			declaredLabels.has(report.label) ||
-			drawnRejectLabels.has(report.label)
-		) {
-			continue;
-		}
-		drawnRejectLabels.add(report.label);
+	// would read as a removal. Which rejects earn a row is decided by
+	// rejectsWithOwnRow, the one place that rule lives - the Configuration
+	// diagnostics read the same function to know which of their entry
+	// problems a row already states, and which they are the only report of.
+	for (const report of rejectsWithOwnRow(entryReports, declared)) {
 		servers.push({
-			label: report.label,
-			baseUrl: report.baseUrl,
+			label: report.label ?? "",
+			baseUrl: report.baseUrl ?? "",
 			modelCount: 0,
 			hasApiKey: false,
 			hasOAuth: false,

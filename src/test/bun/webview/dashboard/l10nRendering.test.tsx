@@ -52,7 +52,7 @@ test("the pricing column resolves the composite in/out keys with {0} substituted
 	expect(pricing).toBe("IN[$2.5] / OUT[$10.1]");
 });
 
-test("Copy diagnostics stays English under a configured bundle while the grid renders the translated relative time", () => {
+test("Copy diagnostics stays English under a configured bundle while the server row renders the translated relative time", () => {
 	const written: string[] = [];
 	const clipboard = {
 		writeText: (text: string) => {
@@ -72,14 +72,17 @@ test("Copy diagnostics stays English under a configured bundle while the grid re
 			})
 		)
 	);
+
+	// On screen, the server row's status pill resolves the translated marker.
+	// That reading used to sit in the Diagnostics outcome grid too; the grid is
+	// gone, and the row that owns the server is the one place it renders now.
+	const pill = root.querySelector("#panel-overview .pill .pill-time") as HTMLElement;
+	expect(pill.textContent).toContain("AGO[5]");
+
 	const diagnosticsTab = Array.from(root.querySelectorAll("[role='tab']")).find(
 		(candidate) => (candidate.textContent ?? "").trim() === "Diagnostics"
 	) as HTMLElement;
 	fireClick(diagnosticsTab);
-
-	// On screen, the grid's last-checked cell resolves the translated marker.
-	const grid = root.querySelector("#panel-diagnostics table.diag-grid") as HTMLTableElement;
-	expect(grid.textContent).toContain("AGO[5]");
 
 	// The copied block is fully English by policy: the plain ISO instant, no
 	// localized relative echo anywhere in the text.

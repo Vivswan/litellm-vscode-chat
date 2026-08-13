@@ -575,7 +575,7 @@ type LegacyHintViewKind = "inert-url-scoped-key" | "inert-global-headers" | "par
  * as written). The same advisory-vs-problem vocabulary as Logger.advisory in
  * shared/logger.ts, which is the concept's output-channel surface.
  */
-type ConfigDiagnosticSeverity = "warning" | "advisory";
+export type ConfigDiagnosticSeverity = "warning" | "advisory";
 
 /**
  * One configuration problem for the Diagnostics tab, each also rendered
@@ -609,6 +609,15 @@ export type ConfigDiagnosticView =
 			readonly position: number;
 			readonly problems: readonly string[];
 			readonly misconfigured: boolean;
+			/**
+			 * Whether a server row was drawn for this entry (see
+			 * rejectsWithOwnRow). A rejected entry with a drawable identity has
+			 * its problems on that row, beside the control that fixes them, so
+			 * the Diagnostics destination does not repeat them; a reject without
+			 * one has no row at all, and this list is its only report. Always
+			 * false for an accepted entry, whose ignored pieces no row states.
+			 */
+			readonly rowOwned: boolean;
 			readonly severity: ConfigDiagnosticSeverity;
 	  }
 	| {

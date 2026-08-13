@@ -1,13 +1,23 @@
 /**
- * The Diagnostics tab: the connection summary, the Configuration diagnostics
- * the extension found in the settings, the Resolved-models view over the
- * precomputed resolution, and the feedback surfaces; litellm.showDiagnostics
- * deep-links here through the panel's focusSection message.
+ * The Diagnostics destination: what is wrong with the configuration, how the
+ * record model resolved, and the ways out. litellm.showDiagnostics deep-links
+ * here through the panel's focusSection message.
  *
- * The connection summary renders the protocol module's shared diagnostics
- * renderers (overallStatusText, serverOutcomeParts) over the same pushed
- * state the overview hero reads, so the tab and the hero cannot drift; Copy
- * diagnostics puts the same facts on the clipboard as plain English text.
+ * Three always-open sections, ordered by what the reader can act on. The page
+ * used to open with a per-server outcome grid - server, status, model count,
+ * last checked, URL, with the error and the inactive-surface notices spanning
+ * beneath each row. Every one of those facts now renders on the server's own
+ * row on the Servers destination, which is where the fix lives, so the grid
+ * said everything twice and said it further from the thing it was about. What
+ * remains here is what has no row of its own: the configuration diagnostics,
+ * the resolution the records produce, and the support tools.
+ *
+ * The connection facts survive in the one place they are still the only
+ * source for: Copy diagnostics, whose plain-text block is composed from pushed
+ * state (which carries no secret values by construction; see the storage
+ * invariants) and stays English by policy, because it is destined for public
+ * issue reports.
+ *
  * The Resolved-models view is request/response-fed (readResolvedModels): it
  * scales with models x fields, re-requests on every state push while the tab
  * is visible, and is local to the dashboard by design - never part of issue
@@ -16,9 +26,10 @@
 
 import * as l10n from "@vscode/l10n";
 import type { ReactNode } from "react";
-import { Fragment, useEffect, useRef, useState } from "react";
-import { latestCheckedMs, overallStatusText, serverOutcomeParts, serverOutcomeText } from "../../dashboard/presenters";
+import { Fragment, useEffect, useState } from "react";
+import { latestCheckedMs, overallStatusText, serverOutcomeText } from "../../dashboard/presenters";
 import type {
+	ConfigDiagnosticSeverity,
 	ConfigDiagnosticView,
 	DashboardServer,
 	RecordTreeNode,
@@ -26,6 +37,7 @@ import type {
 	ResolvedCapCell,
 	ResolvedModelRow,
 	ResolvedParamCell,
+	RevealableSettingId,
 } from "../../dashboard/viewModels";
 import {
 	COST_CAPABILITY_FIELDS,
@@ -41,11 +53,12 @@ import {
 	DOCS_LINK_MODEL_MATCHING,
 	DOCS_LINK_RESOLVED_MODELS,
 	DOCS_LINK_SETTINGS_MIGRATION,
+	DOCS_LINK_USAGE,
 } from "./docsLinks";
-import { FailureText } from "./failureText";
 import type { FeedbackUrl } from "./feedbackLinks";
 import { FEEDBACK_LINK_FEATURE_REQUEST, FEEDBACK_LINK_RATE, FEEDBACK_LINK_REPOSITORY } from "./feedbackLinks";
 import { DocsLink, HoverTip } from "./help";
+import { helpConfigDiagnosticsSection, helpResolutionSection, helpSupportSection } from "./helpText";
 import { useRpc } from "./hooks";
 import {
 	IconBook,
@@ -60,342 +73,444 @@ import {
 	IconStar,
 } from "./icons";
 import type { InspectorSection } from "./modelInspector";
-import { relativeTime } from "./time";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
+import { Section } from "./ui/section";
 import { sendRequest } from "./vscodeApi";
 
-/** One feedback row: the action (an anchor or a button) with its muted one-liner. */
-function FeedbackRow({ action, hint }: { action: ReactNode; hint: string }) {
+/**
+ * How much a problem costs the reader, which is the only thing that should
+ * decide how loud it looks. The same three tiers the server rows rank their
+ * problems by, read against this page's subject - configuration rather than
+ * connections - through the same question: does someone have to act, and how
+ * much of what they wrote is being lost?
+ *
+ * "blocking" means this piece of configuration is wholly inert: it was
+ * written, and it does nothing at all until someone changes it. "degraded"
+ * means part of it is ignored and the rest still applies. "advisory" means
+ * nothing is wrong - the value applies exactly as written and we are only
+ * naming something that may have been a typo - and these must stay quiet, or
+ * they train the reader to ignore the loud ones.
+ *
+ * Nothing here can be worse than blocking: a server that serves nothing is a
+ * server-row problem, and the row that owns it says so.
+ */
+type DiagnosticSeverity = "blocking" | "degraded" | "advisory";
+
+/** Loudest first: the list is read top to bottom in the order it costs you something. */
+const SEVERITY_ORDER: Readonly<Record<DiagnosticSeverity, number>> = { blocking: 0, degraded: 1, advisory: 2 };
+
+/**
+ * The tier said in words, for assistive technology.
+ *
+ * The three tiers are the page's whole organizing principle, and on screen
+ * they ride hue, a wash, and the rule's weight and style - none of which a
+ * screen reader can report. Without this, eight structurally identical list
+ * items announce identically and the ranking the sort performs is invisible
+ * to the one reader who cannot see the sort. Visually hidden rather than
+ * printed: the sibling server rows carry no tier word either, and adding one
+ * to only this surface would split the vocabulary the redesign just unified.
+ */
+function severityLabel(severity: DiagnosticSeverity): string {
+	switch (severity) {
+		case "blocking":
+			return l10n.t("Not applied at all:");
+		case "degraded":
+			return l10n.t("Partly ignored:");
+		case "advisory":
+			return l10n.t("Note:");
+	}
+}
+
+/**
+ * The host's severity as a ceiling on the tier this page assigns.
+ *
+ * Capability validation is advisory BY CONTRACT - an unrecognized field
+ * applies as an override as-is, because it is the user's server - so an
+ * advisory stamp must be able to quiet any kind, never the reverse. Applied
+ * to every variant rather than to record lints alone: a diagnostic the rail
+ * badge leaves untinted must not render as an actionable row underneath it.
+ */
+function cappedSeverity(hostSeverity: ConfigDiagnosticSeverity, tier: DiagnosticSeverity): DiagnosticSeverity {
+	return hostSeverity === "advisory" ? "advisory" : tier;
+}
+
+/**
+ * One action offered beside a problem. Every one of them REVEALS the place a
+ * human fixes it - the setting, the guide - and none rewrites configuration on
+ * the reader's behalf: this is their settings file, and a button that silently
+ * edited it would be a worse bug than the one it fixed.
+ */
+type DiagnosticAction =
+	/**
+	 * `subject` distinguishes repeats: several problems can reveal the same
+	 * setting, so the setting id alone would give three buttons one accessible
+	 * name. The visible label stays the short verb phrase and stays inside the
+	 * accessible name, as Label in Name requires.
+	 */
+	| { readonly kind: "reveal"; readonly setting: RevealableSettingId; readonly subject: string }
+	| { readonly kind: "docs"; readonly label: string; readonly href: DocsUrl; readonly ariaLabel: string };
+
+/** The kinds of diagnostic this destination renders; see pageConfigDiagnostics for what it drops and why. */
+type PageConfigDiagnostic = Exclude<ConfigDiagnosticView, { kind: "hidden-groups" }>;
+
+interface ConfigProblem {
+	/** Derived from the diagnostic's own identity, so React keeps focus on an action button across pushes. */
+	readonly key: string;
+	readonly severity: DiagnosticSeverity;
+	/**
+	 * What it costs, leading with the consequence and keeping the cause: a
+	 * reader who stops after the first clause should still know what is not
+	 * being applied, and one who reads on should know why.
+	 */
+	readonly headline: string;
+	/** Where it lives, as machine text: setting ids and entry labels, never prose. */
+	readonly where: readonly string[];
+	/** The parser's structural report, when there is one. English by policy - it also rides the copyable block. */
+	readonly detail?: string | undefined;
+	readonly actions: readonly DiagnosticAction[];
+}
+
+/**
+ * The diagnostics this page renders, which is not every diagnostic the host
+ * builds.
+ *
+ * Two kinds are dropped because a row on the Servers destination reports
+ * exactly the same fact, beside the control that fixes it: a rejected servers
+ * entry THAT WAS DRAWN A ROW (the row says "<label> is switched off until this
+ * entry is fixed" and lists the same parser problems), and hidden provider
+ * groups (the hidden-groups line under the server list names them and offers
+ * Unhide). Restating either here would be the second half of the duplication
+ * the outcome grid's removal ended.
+ *
+ * `rowOwned` is the host's own answer, not a rule respelled here. A reject
+ * with no drawable identity - no label, no base URL, or a label a declared
+ * entry or an earlier reject already owns - gets NO row, and this list is then
+ * the only place its problems appear. Deciding that from `misconfigured` alone
+ * would erase the user's broken entry from both surfaces at once.
+ *
+ * Exported because the rail's badge counts what this page shows. Two
+ * definitions of "how many problems" would drift, and a badge reading 8 above
+ * a list of 6 is the same bug in a smaller font. The return type narrows away
+ * the hidden-groups kind so the renderer below cannot carry a branch for a
+ * case that can never reach it.
+ */
+export function pageConfigDiagnostics(diagnostics: readonly ConfigDiagnosticView[]): readonly PageConfigDiagnostic[] {
+	return diagnostics.filter(
+		(diagnostic): diagnostic is PageConfigDiagnostic =>
+			!(diagnostic.kind === "entry" && diagnostic.misconfigured && diagnostic.rowOwned) &&
+			diagnostic.kind !== "hidden-groups"
+	);
+}
+
+/**
+ * A record lint's tier. `unrecognized-key` is named explicitly rather than
+ * left to the host's advisory stamp: capability validation is advisory by
+ * invariant, and encoding that here makes the contract local instead of a
+ * property this file happens to inherit.
+ */
+function recordSeverity(diagnostic: RecordDiagnostic): DiagnosticSeverity {
+	switch (diagnostic.kind) {
+		// The one record lint that costs the WHOLE record: no model can ever
+		// match the key, so nothing inside it is ever applied.
+		case "invalid-matcher":
+			return "blocking";
+		// The field applies as an override as-is; we are only naming a possible
+		// typo.
+		case "unrecognized-key":
+			return "advisory";
+		default:
+			return "degraded";
+	}
+}
+
+/** One record lint as its consequence-first sentence; classifications and structural keys only, never entered values. */
+function recordProblemText(diagnostic: RecordDiagnostic): string {
+	switch (diagnostic.kind) {
+		case "invalid-matcher":
+			return l10n.t(
+				'Nothing in record "{0}" is ever applied: that is not a valid matcher key, so no model can match it. A key is an exact ID, a trailing-* glob, /regex/, or "*".',
+				diagnostic.recordKey
+			);
+		case "unforceable-key":
+			return l10n.t(
+				'Forcing "{0}" has no effect: provider-owned fields and _ keys stay extension-owned. Everything else in record "{1}" still applies.',
+				diagnostic.key,
+				diagnostic.recordKey
+			);
+		case "unknown-inherit-key":
+			return l10n.t(
+				'Record "{0}" inherits nothing from "{1}": no record carries that name, so the name is skipped and the rest still applies.',
+				diagnostic.recordKey,
+				diagnostic.key
+			);
+		case "wrong-record-type":
+			return l10n.t(
+				'"{0}" is ignored: it belongs to the other record type, not in record "{1}".',
+				diagnostic.key,
+				diagnostic.recordKey
+			);
+		case "unrecognized-key":
+			// Informational (the host marks these advisory): the field APPLIES as
+			// written - the open vocabulary keeps it - and the surviving hint only
+			// says the observed /model/info evidence does not name the key.
+			return l10n.t(
+				'"{0}" applies as an override as-is, but this extension does not know the field; check record "{1}" for a typo.',
+				diagnostic.key,
+				diagnostic.recordKey
+			);
+		case "invalid-value":
+			return l10n.t(
+				'"{0}" is ignored: its value in record "{1}" is not valid for that field.',
+				diagnostic.key,
+				diagnostic.recordKey
+			);
+		case "invalid-directive":
+			return l10n.t(
+				'Part of "{0}" is ignored: it carries an invalid directive value in record "{1}".',
+				diagnostic.key,
+				diagnostic.recordKey
+			);
+	}
+}
+
+/** One legacy leftover's consequence-first sentence. */
+function legacyProblemText(diagnostic: Extract<ConfigDiagnosticView, { kind: "legacy" }>): string {
+	switch (diagnostic.hint) {
+		case "inert-url-scoped-key":
+			return l10n.t(
+				'Nothing uses "{0}": it still uses the removed server-scoped key grammar, which can never match a model ID. Move it into that server entry\'s own record.',
+				diagnostic.oldKey
+			);
+		case "inert-global-headers":
+			return l10n.t(
+				"No server sends these headers: the removed global headers setting still holds values and no server entry received them. Add them to a server entry, then delete the old setting."
+			);
+		case "parked-global-headers":
+			return l10n.t(
+				"Provider groups without a server entry no longer receive the removed global headers ({0}); adopt the external group to restore them.",
+				diagnostic.detail
+			);
+	}
+}
+
+/**
+ * The legacy record-key hint names the setting its leftover sits in; only the
+ * two record settings can carry one, and narrowing here keeps the assumption
+ * in one place with its reason instead of casting at the call site.
+ */
+function revealTarget(setting: string): RevealableSettingId {
+	return setting === "models.capabilities" ? "models.capabilities" : "models.parameters";
+}
+
+/** The guide a problem's Learn more opens. The visible text rides the accessible name, as Label in Name requires. */
+function docsAction(href: DocsUrl, subject: string): DiagnosticAction {
+	return { kind: "docs", label: l10n.t("Learn more"), href, ariaLabel: l10n.t("Learn more: {0}", subject) };
+}
+
+/**
+ * One configuration diagnostic, ranked and worded for this page. The `where`
+ * strings are machine text (setting ids, record layers), so they render as
+ * neutral outline badges rather than being folded into the sentence, where a
+ * trailing "(models.parameters)" read as an afterthought on every line.
+ *
+ * Keys come from the diagnostic's own identity, never its list position: an
+ * earlier problem appearing on the next push would otherwise slide every key
+ * down one and move the user's focus to a different problem's button.
+ *
+ * The reveal action's `subject` is what makes its accessible name unique.
+ * Several problems can name the same setting, and a screen-reader user
+ * listing controls would otherwise hear "Show models.parameters in
+ * settings.json" three times with nothing to choose between them.
+ */
+function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
+	switch (diagnostic.kind) {
+		case "record": {
+			// An entry-layer record lives inside the servers setting, so that is
+			// the place to reveal; a global one lives in its own setting.
+			const setting: RevealableSettingId = diagnostic.entryLabel !== undefined ? "servers" : diagnostic.setting;
+			const lint = diagnostic.diagnostic;
+			return {
+				key: `record:${diagnostic.setting}:${diagnostic.entryLabel ?? ""}:${lint.kind}:${lint.recordKey}:${lint.key}`,
+				severity: cappedSeverity(diagnostic.severity, recordSeverity(lint)),
+				headline: recordProblemText(lint),
+				where:
+					diagnostic.entryLabel !== undefined
+						? [diagnostic.setting, l10n.t("entry {0}", diagnostic.entryLabel)]
+						: [diagnostic.setting],
+				// No Learn more: every record lint points at the model-matching
+				// guide, which is the section header's own docs link. Repeating it
+				// on each row put five identical links down the page and taught the
+				// eye to skip the spot where the guide that DIFFERS shows up.
+				actions: [{ kind: "reveal", setting, subject: lint.recordKey }],
+			};
+		}
+		case "entry": {
+			// Only entries whose problems no server row states reach this page: a
+			// reject that was drawn a row has them there, beside its own controls.
+			const name = diagnostic.label !== undefined ? `"${diagnostic.label}"` : `#${diagnostic.position}`;
+			return {
+				key: `entry:${diagnostic.label ?? diagnostic.position}`,
+				severity: cappedSeverity(diagnostic.severity, diagnostic.misconfigured ? "blocking" : "degraded"),
+				headline: diagnostic.misconfigured
+					? l10n.t("Server entry {0} is switched off until it is fixed.", name)
+					: l10n.t("Server entry {0} runs without part of its configuration.", name),
+				where: ["servers"],
+				// The parser's structural reports stay English by policy.
+				detail: diagnostic.problems.join("; "),
+				actions: [
+					{ kind: "reveal", setting: "servers", subject: name },
+					docsAction(DOCS_LINK_AUTHENTICATION, l10n.t("the authentication guide")),
+				],
+			};
+		}
+		case "legacy":
+			return {
+				key: `legacy:${diagnostic.hint}:${diagnostic.oldKey}`,
+				// A parked-headers leftover still has a live route back: the headers
+				// are held, and adopting the external group delivers them. The other
+				// two hold values that reach nothing and have nowhere to go.
+				severity: cappedSeverity(
+					diagnostic.severity,
+					diagnostic.hint === "parked-global-headers" ? "degraded" : "blocking"
+				),
+				headline: legacyProblemText(diagnostic),
+				where: diagnostic.hint === "inert-url-scoped-key" ? [diagnostic.detail] : [diagnostic.oldKey],
+				actions: [
+					{
+						kind: "reveal",
+						setting: diagnostic.hint === "inert-url-scoped-key" ? revealTarget(diagnostic.detail) : "servers",
+						subject: diagnostic.oldKey,
+					},
+					docsAction(DOCS_LINK_SETTINGS_MIGRATION, l10n.t("the settings-migration guide")),
+				],
+			};
+		case "thresholds":
+			return {
+				key: "thresholds",
+				severity: cappedSeverity(diagnostic.severity, "degraded"),
+				headline:
+					diagnostic.dropped === 1
+						? l10n.t("1 alert threshold raises no alert and was dropped: a threshold must be inside (0, 1].")
+						: l10n.t(
+								"{0} alert thresholds raise no alerts and were dropped: a threshold must be inside (0, 1].",
+								diagnostic.dropped
+							),
+				where: ["usage.alertThresholds"],
+				actions: [
+					{ kind: "reveal", setting: "usage.alertThresholds", subject: "usage.alertThresholds" },
+					docsAction(DOCS_LINK_USAGE, l10n.t("the usage and budgets guide")),
+				],
+			};
+	}
+}
+
+/**
+ * One problem, behind a severity rule.
+ *
+ * The class names are the server rows' own, deliberately: severity is one
+ * vocabulary across the dashboard, and two stylesheets spelling the same three
+ * tiers would drift the moment either changed. Severity rides three channels
+ * there - hue, wash, and the rule's weight and style - so blocking and
+ * degraded stay apart for a reader who cannot separate red from amber, and all
+ * three stay ranked under forced colours, where every colour collapses to one.
+ */
+function ConfigProblemLine({ problem }: { problem: ConfigProblem }) {
 	return (
-		<li>
-			{action}
-			<span className="hint">{hint}</span>
+		<li className={`row-diagnostic sev-${problem.severity}`}>
+			<p className="row-diagnostic-headline">
+				<span className="visually-hidden">{severityLabel(problem.severity)} </span>
+				{problem.headline}
+			</p>
+			{problem.where.length > 0 ? (
+				<p className="row-diagnostic-where">
+					{problem.where.map((where, index) => (
+						<Fragment key={where}>
+							{/* The badges are separated only by a 4px gap and a hairline
+							    outline, so to a screen reader they would run together as
+							    "models.parametersentry prod" without this. */}
+							{index > 0 ? <span className="visually-hidden">, </span> : null}
+							<span className="chip-prov">{where}</span>
+						</Fragment>
+					))}
+				</p>
+			) : null}
+			{problem.detail !== undefined ? <p className="row-diagnostic-detail">{problem.detail}</p> : null}
+			{problem.actions.length > 0 ? (
+				<div className="row-diagnostic-actions">
+					{problem.actions.map((action) =>
+						action.kind === "reveal" ? (
+							// The verb is REVEAL, never rewrite: it opens the file at the
+							// setting and leaves the editing to the person who owns it.
+							<Button
+								key={action.subject}
+								variant="secondary"
+								size="compact"
+								aria-label={l10n.t("Show in settings.json: {0} in {1}", action.subject, action.setting)}
+								onClick={() => sendRequest("revealSetting", { setting: action.setting })}
+							>
+								{l10n.t("Show in settings.json")}
+							</Button>
+						) : (
+							<DocsLink key={action.href} href={action.href} label={action.ariaLabel}>
+								{action.label}
+							</DocsLink>
+						)
+					)}
+				</div>
+			) : null}
 		</li>
 	);
 }
 
-function ExternalRow({ href, icon, label, hint }: { href: FeedbackUrl; icon: ReactNode; label: string; hint: string }) {
-	return (
-		<FeedbackRow
-			action={
-				<a className="docs-link" href={href}>
-					{icon}
-					{label}
-					<IconLinkExternal />
-				</a>
-			}
-			hint={hint}
-		/>
-	);
-}
-
-/** The overall last-checked reading: the absolute time with its relative echo, as the facts list renders it. */
-function lastCheckedText(servers: readonly DashboardServer[], now: number): string {
-	const checkedMs = latestCheckedMs(servers);
-	if (checkedMs === undefined) {
-		return l10n.t("Never");
-	}
-	const absolute = new Date(checkedMs).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
-	const ago = relativeTime(new Date(checkedMs).toISOString(), now);
-	return ago === undefined ? absolute : `${absolute} (${ago})`;
-}
-
 /**
- * The whole connection block as plain text, for the Copy diagnostics action:
- * the verdict, the facts list, and one outcome line per server - exactly the
- * facts the tab renders, composed from pushed state only (which carries no
- * secret values by construction; see the storage invariants). Per-server
- * lines go through serverOutcomeText, the same shared renderer the grid
- * decomposes, so the copied wording cannot drift from the rendered one -
- * except that a row carrying an English error mirror (errorEnglish, the
- * transport error's log-safe rendering) substitutes it here: the copied
- * block is destined for public issue reports, which stay English by policy,
- * while the on-screen grid keeps the localized error.
+ * The configuration problems, worst first. Always present as a section - the
+ * page's sections do not appear and disappear under the reader - with the
+ * clean state saying so in a sentence rather than leaving a gap where a
+ * heading was.
  */
-function withEnglishError(server: DashboardServer): DashboardServer {
-	if (server.state !== "unchecked" && server.errorEnglish !== undefined) {
-		return { ...server, error: server.errorEnglish };
-	}
-	return server;
-}
-
-/**
- * The copied block is fully English, timestamp included: where the on-screen
- * facts list renders the localized absolute-plus-relative reading, the copy
- * path emits "Never" or the plain ISO instant, so a pasted issue report never
- * carries translated text or a locale-shaped date.
- */
-function diagnosticsReportText(
-	servers: readonly DashboardServer[],
-	modelCount: number,
-	legacyServerCount: number
-): string {
-	const copyServers = servers.map(withEnglishError);
-	const checkedMs = latestCheckedMs(copyServers);
-	const lines = [
-		overallStatusText(copyServers, modelCount, legacyServerCount),
-		`Servers configured: ${copyServers.length}`,
-		`Last checked: ${checkedMs === undefined ? "Never" : new Date(checkedMs).toISOString()}`,
-	];
-	if (legacyServerCount > 0) {
-		lines.push(`Legacy registry servers: ${legacyServerCount}`);
-	}
-	for (const server of copyServers) {
-		lines.push(`${server.label} (${server.baseUrl}): ${serverOutcomeText(server)}`);
-	}
-	return lines.join("\n");
-}
-
-/** A row's last-checked cell: relative ("is this fresh?"); the facts list above carries the precise overall time. */
-function rowChecked(server: DashboardServer, now: number): string {
-	if (server.lastChecked === undefined) {
-		return l10n.t("Never");
-	}
-	return relativeTime(server.lastChecked, now) ?? "-";
-}
-
-/**
- * The per-server outcome grid. Each server is one compact row; a row's error
- * and its params-inactive warning span beneath it as their own lines, so the
- * columns stay scannable while the details stay selectable. Wording comes
- * from serverOutcomeParts, the decomposition serverOutcomeText itself
- * composes; only the layout lives here.
- */
-function OutcomeGrid({ servers, now }: { servers: readonly DashboardServer[]; now: number }) {
-	return (
-		<table className="diag-grid">
-			<thead>
-				<tr>
-					<th>{l10n.t("Server")}</th>
-					<th>{l10n.t("Status")}</th>
-					<th className="num">{l10n.t("Models")}</th>
-					<th>{l10n.t("Last checked")}</th>
-					<th>{l10n.t("URL")}</th>
-				</tr>
-			</thead>
-			<tbody>
-				{servers.map((server) => {
-					const parts = serverOutcomeParts(server);
-					const tone =
-						parts.status === "Error" || parts.status === "Misconfigured"
-							? server.expected === true
-								? "tone-warn"
-								: "tone-error"
-							: parts.status === "OK"
-								? "tone-ok"
-								: "tone-muted";
-					const notes: { kind: "error" | "warn"; text: string }[] = [];
-					if (parts.error !== undefined) {
-						// An expected failure already carries its English "(expected)"
-						// annotation from serverOutcomeParts; the warn tone matches it.
-						notes.push({ kind: server.expected === true ? "warn" : "error", text: parts.error });
-					}
-					for (const text of parts.notice) {
-						notes.push({ kind: "warn", text });
-					}
-					return (
-						<Fragment key={`${server.label} ${server.baseUrl}`}>
-							{/* Rows followed by a note drop their rule so the group reads
-							    as one server; the group's last row draws it. */}
-							<tr className={notes.length > 0 ? "no-rule" : undefined}>
-								<td>{server.label}</td>
-								<td>
-									<span className={`pill ${tone}`}>
-										<span className="dot" />
-										{parts.status}
-									</span>
-								</td>
-								<td className="num">{server.modelCount}</td>
-								<td>{rowChecked(server, now)}</td>
-								<td className="diag-url">{server.baseUrl}</td>
-							</tr>
-							{notes.map((note, index) => (
-								<tr
-									// biome-ignore lint/suspicious/noArrayIndexKey: notes are positional within their server block; the list rebuilds wholesale on every push
-									key={`${index}-${note.kind}`}
-									className={index < notes.length - 1 ? `diag-note ${note.kind} no-rule` : `diag-note ${note.kind}`}
-								>
-									<td colSpan={5}>
-										<FailureText message={note.text} />
-									</td>
-								</tr>
-							))}
-						</Fragment>
-					);
-				})}
-			</tbody>
-		</table>
-	);
-}
-
-/** Where a record diagnostic sits, as one phrase: the setting, with the owning entry when it is entry-scoped. */
-function recordWhere(diagnostic: Extract<ConfigDiagnosticView, { kind: "record" }>): string {
-	return diagnostic.entryLabel !== undefined
-		? l10n.t('server entry "{0}" - {1}', diagnostic.entryLabel, diagnostic.setting)
-		: diagnostic.setting;
-}
-
-/** One record diagnostic's sentence; classifications and structural keys only, never entered values. */
-function recordDiagnosticText(where: string, diagnostic: RecordDiagnostic): string {
-	switch (diagnostic.kind) {
-		case "invalid-matcher":
-			return l10n.t(
-				'"{0}" is not a valid matcher key and never matches: use an exact ID, a trailing-* glob, /regex/, or "*" ({1})',
-				diagnostic.recordKey,
-				where
-			);
-		case "unforceable-key":
-			return l10n.t(
-				'"{0}" in record "{1}" cannot be forced: provider-owned fields and _ keys stay extension-owned ({2})',
-				diagnostic.key,
-				diagnostic.recordKey,
-				where
-			);
-		case "unknown-inherit-key":
-			return l10n.t(
-				'record "{0}" inherits from "{1}", which does not exist; that name is skipped and the rest still applies ({2})',
-				diagnostic.recordKey,
-				diagnostic.key,
-				where
-			);
-		case "wrong-record-type":
-			return l10n.t(
-				'"{0}" in record "{1}" belongs to the other record type and is ignored ({2})',
-				diagnostic.key,
-				diagnostic.recordKey,
-				where
-			);
-		case "unrecognized-key":
-			// Informational (the host marks these advisory): the field APPLIES
-			// as-is - the open vocabulary keeps it - and the surviving hint only
-			// says the observed /model/info evidence does not name the key.
-			return l10n.t(
-				'"{0}" in record "{1}" is not a field this extension knows; it is applied as an override as-is ({2})',
-				diagnostic.key,
-				diagnostic.recordKey,
-				where
-			);
-		case "invalid-value":
-			return l10n.t(
-				'"{0}" in record "{1}" has an invalid value and is ignored ({2})',
-				diagnostic.key,
-				diagnostic.recordKey,
-				where
-			);
-		case "invalid-directive":
-			return l10n.t(
-				'"{0}" in record "{1}" carries an invalid directive value; offending entries are ignored ({2})',
-				diagnostic.key,
-				diagnostic.recordKey,
-				where
-			);
-	}
-}
-
-/** One configuration diagnostic as its sentence plus the fix's docs link. */
-function diagnosticPresentation(diagnostic: ConfigDiagnosticView): { text: string; docs?: DocsUrl | undefined } {
-	switch (diagnostic.kind) {
-		case "record":
-			return {
-				text: recordDiagnosticText(recordWhere(diagnostic), diagnostic.diagnostic),
-				docs: DOCS_LINK_MODEL_MATCHING,
-			};
-		case "entry": {
-			const name = diagnostic.label !== undefined ? `"${diagnostic.label}"` : `#${diagnostic.position}`;
-			return {
-				text: diagnostic.misconfigured
-					? l10n.t("Server entry {0} is misconfigured and not used: {1}", name, diagnostic.problems.join("; "))
-					: l10n.t("Server entry {0}: {1}", name, diagnostic.problems.join("; ")),
-				docs: diagnostic.misconfigured ? DOCS_LINK_AUTHENTICATION : undefined,
-			};
-		}
-		case "legacy":
-			switch (diagnostic.hint) {
-				case "inert-url-scoped-key":
-					return {
-						text: l10n.t(
-							'"{0}" in {1} still uses the removed server-scoped key grammar; it can never match a model ID. Move it into that server entry\'s own record.',
-							diagnostic.oldKey,
-							diagnostic.detail
-						),
-						docs: DOCS_LINK_SETTINGS_MIGRATION,
-					};
-				case "inert-global-headers":
-					return {
-						text: l10n.t(
-							"The removed global headers setting still holds values and no server entry received them; add the headers to a server entry, then delete the old setting."
-						),
-						docs: DOCS_LINK_SETTINGS_MIGRATION,
-					};
-				case "parked-global-headers":
-					return {
-						text: l10n.t(
-							"The removed global headers ({0}) no longer reach provider groups without a server entry; adopt the external group to restore them.",
-							diagnostic.detail
-						),
-						docs: DOCS_LINK_SETTINGS_MIGRATION,
-					};
-			}
-			break;
-		case "thresholds":
-			return {
-				text:
-					diagnostic.dropped === 1
-						? l10n.t("1 usage.alertThresholds value is outside (0, 1] and was dropped.")
-						: l10n.t("{0} usage.alertThresholds values are outside (0, 1] and were dropped.", diagnostic.dropped),
-			};
-		case "hidden-groups":
-			return {
-				text:
-					diagnostic.labels.length === 1
-						? l10n.t(
-								'"{0}" is hidden by an explicit removal and serves no models. Unhide it from the hidden-groups line under Servers.',
-								diagnostic.labels[0] ?? ""
-							)
-						: l10n.t(
-								"{0} groups are hidden by an explicit removal and serve no models ({1}). Unhide them from the hidden-groups line under Servers.",
-								diagnostic.labels.length,
-								diagnostic.labels.join(", ")
-							),
-			};
-	}
-}
-
-/** The Configuration diagnostics list; absent entirely when the settings are clean. */
 function ConfigDiagnostics({ diagnostics }: { diagnostics: readonly ConfigDiagnosticView[] }) {
-	if (diagnostics.length === 0) {
-		return null;
-	}
+	const problems = pageConfigDiagnostics(diagnostics)
+		.map(configProblem)
+		.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
+	// Advisories are excluded from the count for the reason the server summary
+	// excludes them: the configuration applies as written, so counting them
+	// would call a healthy setup unhealthy. The total rides along when the two
+	// numbers differ - the rail badge counts the whole list, and "7" beside a
+	// list of 8 is a question the reader should not have to answer.
+	const actionable = problems.filter((problem) => problem.severity !== "advisory").length;
 	return (
-		<section aria-labelledby="config-diagnostics-title">
-			<h2 id="config-diagnostics-title">{l10n.t("Configuration diagnostics")}</h2>
-			<p className="hint">
-				{l10n.t("Problems the extension found in your settings; each also shows beside what it concerns.")}
-			</p>
-			<ul className="config-diagnostics">
-				{diagnostics.map((diagnostic, index) => {
-					const presentation = diagnosticPresentation(diagnostic);
-					// Advisory rows render muted, warnings keep the warning tone;
-					// the host decides the severity (every variant carries it).
-					const advisory = diagnostic.severity === "advisory";
-					return (
-						// biome-ignore lint/suspicious/noArrayIndexKey: positional identity; the list rebuilds wholesale on every push
-						<li key={index} className={advisory ? "hint" : "state-warn"}>
-							{presentation.text}
-							{presentation.docs !== undefined ? (
-								<>
-									{" "}
-									<DocsLink href={presentation.docs} label={l10n.t("Open the matching guide section")}>
-										{l10n.t("Learn more")}
-									</DocsLink>
-								</>
-							) : null}
-						</li>
-					);
-				})}
-			</ul>
-		</section>
+		<Section
+			id="config-diagnostics"
+			title={l10n.t("Configuration")}
+			help={helpConfigDiagnosticsSection()}
+			// The trigger sits near the top of the document, where a tip placed
+			// above it clips.
+			helpBelow
+			docs={{ href: DOCS_LINK_MODEL_MATCHING, label: l10n.t("Open the model-matching guide") }}
+			meta={
+				actionable === 0
+					? undefined
+					: actionable === problems.length
+						? actionable === 1
+							? l10n.t("1 needs attention")
+							: l10n.t("{0} need attention", actionable)
+						: l10n.t("{0} of {1} need attention", actionable, problems.length)
+			}
+			headerClassName="max-w-[64rem]"
+		>
+			{problems.length === 0 ? (
+				<p className="hint mt-0 max-w-[70ch]">
+					{l10n.t("Your matcher records and settings read cleanly. Problems with a server itself show on its row.")}
+				</p>
+			) : (
+				<ul className="config-diagnostics">
+					{problems.map((problem) => (
+						<ConfigProblemLine key={problem.key} problem={problem} />
+					))}
+				</ul>
+			)}
+		</Section>
 	);
 }
 
@@ -472,10 +587,16 @@ function treeTitle(tree: RecordTreeView): string {
 	return tree.kind === "parameters" ? l10n.t("Parameters - Settings") : l10n.t("Capabilities - Settings");
 }
 
+/**
+ * One record map as its inheritance tree. Open, with a plain heading: it used
+ * to be a <details open>, which spent a disclosure triangle and a pointer
+ * cursor advertising a collapse nobody wants on the one figure that explains
+ * the whole record model.
+ */
 function RecordTree({ tree }: { tree: RecordTreeView }) {
 	return (
-		<details className="record-tree" open>
-			<summary>{treeTitle(tree)}</summary>
+		<div className="record-tree">
+			<h3 className="record-tree-title">{treeTitle(tree)}</h3>
 			<ul>
 				{tree.roots.map((root) => (
 					<TreeNode key={root.key} node={root} />
@@ -495,7 +616,7 @@ function RecordTree({ tree }: { tree: RecordTreeView }) {
 					</li>
 				))}
 			</ul>
-		</details>
+		</div>
 	);
 }
 
@@ -686,8 +807,10 @@ function matchesResolvedFilter(row: ResolvedModelRow, needle: string): boolean {
 }
 
 /**
- * The Resolved-models view: the inheritance trees and the flat provenance
- * table, both reading the extension's shared resolution (readResolvedModels).
+ * The Resolution view: the inheritance trees and the flat provenance table,
+ * both reading the extension's shared resolution (readResolvedModels). This is
+ * the clearest explanation of the record model anywhere in the product, which
+ * is why it is a destination section rather than an appendix.
  */
 function ResolvedModels({
 	active,
@@ -721,12 +844,21 @@ function ResolvedModels({
 				? view.rows
 				: view.rows.filter((row) => matchesResolvedFilter(row, needle));
 	return (
-		<section aria-labelledby="resolved-models-title">
-			<h2 id="resolved-models-title">
-				{l10n.t("Resolved models")}{" "}
-				<DocsLink href={DOCS_LINK_RESOLVED_MODELS} label={l10n.t("Open the resolved-models guide")} />
-			</h2>
-			<p className="hint">
+		<Section
+			id="resolution"
+			title={l10n.t("Resolution")}
+			help={helpResolutionSection()}
+			docs={{ href: DOCS_LINK_RESOLVED_MODELS, label: l10n.t("Open the resolved-models guide") }}
+			// The count belongs to the title, not to a line of its own beside the
+			// filter input, where it read as part of the control.
+			meta={
+				view === undefined || view.rows.length === 0
+					? undefined
+					: l10n.t("showing {0} of {1}", rows.length, view.rows.length)
+			}
+			headerClassName="max-w-[64rem]"
+		>
+			<p className="hint mt-0 mb-3 max-w-[70ch]">
 				{l10n.t(
 					"The precomputed resolution behind every request: what each model ends up with and which record set it. Local to this dashboard; never part of issue reports."
 				)}
@@ -759,7 +891,6 @@ function ResolvedModels({
 									value={filter}
 									onChange={(event) => setFilter(event.currentTarget.value)}
 								/>
-								<span className="hint">{l10n.t("showing {0} of {1}", rows.length, view.rows.length)}</span>
 							</div>
 							<div className="table-scroll">
 								<table className="resolved-models">
@@ -773,6 +904,16 @@ function ResolvedModels({
 										</tr>
 									</thead>
 									<tbody>
+										{rows.length === 0 ? (
+											<tr>
+												{/* A filter that matches nothing used to leave the column
+												    headers floating over an empty body, with the only
+												    feedback being a count in the section header. */}
+												<td colSpan={5} className="empty">
+													{l10n.t("No model matches that filter.")}
+												</td>
+											</tr>
+										) : null}
 										{rows.map((row) => (
 											<tr key={`${row.scopeKey}/${row.rawId}`}>
 												<td className="resolved-id">
@@ -838,7 +979,174 @@ function ResolvedModels({
 					)}
 				</>
 			)}
-		</section>
+		</Section>
+	);
+}
+
+/**
+ * A row's English error mirror substituted for the localized one: the copied
+ * block is destined for public issue reports, which stay English by policy,
+ * while the server rows keep the localized error the chat UI showed.
+ */
+function withEnglishError(server: DashboardServer): DashboardServer {
+	if (server.state !== "unchecked" && server.errorEnglish !== undefined) {
+		return { ...server, error: server.errorEnglish };
+	}
+	return server;
+}
+
+/**
+ * The whole connection block as plain text, for the Copy diagnostics action:
+ * the verdict, the facts, and one outcome line per server - composed from
+ * pushed state only (which carries no secret values by construction; see the
+ * storage invariants). Per-server lines go through serverOutcomeText, the
+ * shared renderer, so the copied wording cannot drift from the classification
+ * the server rows render.
+ *
+ * Fully English, timestamp included: a plain ISO instant rather than a
+ * locale-shaped date, so a pasted issue report never carries translated text.
+ */
+function diagnosticsReportText(
+	servers: readonly DashboardServer[],
+	modelCount: number,
+	legacyServerCount: number
+): string {
+	const copyServers = servers.map(withEnglishError);
+	const checkedMs = latestCheckedMs(copyServers);
+	const lines = [
+		overallStatusText(copyServers, modelCount, legacyServerCount),
+		`Servers configured: ${copyServers.length}`,
+		`Last checked: ${checkedMs === undefined ? "Never" : new Date(checkedMs).toISOString()}`,
+	];
+	if (legacyServerCount > 0) {
+		lines.push(`Legacy registry servers: ${legacyServerCount}`);
+	}
+	for (const server of copyServers) {
+		lines.push(`${server.label} (${server.baseUrl}): ${serverOutcomeText(server)}`);
+	}
+	return lines.join("\n");
+}
+
+/** One reference link with its muted one-liner. */
+function LinkRow({
+	href,
+	icon,
+	label,
+	hint,
+}: {
+	href: FeedbackUrl | DocsUrl;
+	icon: ReactNode;
+	label: string;
+	hint: string;
+}) {
+	return (
+		<li>
+			{/* Both glyphs stay decorative; the visible text is the accessible name. */}
+			<a className="docs-link" href={href}>
+				{icon}
+				{label}
+				<IconLinkExternal />
+			</a>
+			<span className="hint">{hint}</span>
+		</li>
+	);
+}
+
+/**
+ * The ways out: the tools that collect evidence about this installation, then
+ * the places to take it. Copy diagnostics is the only surviving reader of the
+ * connection facts this page used to draw as a grid.
+ */
+function Support({
+	servers,
+	modelCount,
+	legacyServerCount,
+}: {
+	servers: readonly DashboardServer[];
+	modelCount: number;
+	legacyServerCount: number;
+}) {
+	// A nonce, not a boolean: clicking Copy again while the check mark is
+	// showing must restart the flash. Setting `copied` to true when it is
+	// already true is a no-op, so the effect would not re-run and the second
+	// click's confirmation could vanish mid-gesture.
+	const [copiedAt, setCopiedAt] = useState(0);
+	useEffect(() => {
+		if (copiedAt === 0) {
+			return;
+		}
+		// The check mark is the only feedback a fire-and-forget clipboard write
+		// gets. The timer is cleaned up on unmount, so a flash interrupted by a
+		// navigation cannot set state on a component that is gone.
+		const timer = setTimeout(() => setCopiedAt(0), 1500);
+		return () => clearTimeout(timer);
+	}, [copiedAt]);
+	const copyDiagnostics = () => {
+		navigator.clipboard?.writeText(diagnosticsReportText(servers, modelCount, legacyServerCount)).catch(() => {});
+		setCopiedAt((current) => current + 1);
+	};
+	const copied = copiedAt > 0;
+	return (
+		<Section
+			id="support"
+			title={l10n.t("Support")}
+			help={helpSupportSection()}
+			docs={{ href: DOCS_LINK_GETTING_STARTED, label: l10n.t("Open the getting-started guide") }}
+			headerClassName="max-w-[64rem]"
+		>
+			<div className="toolbar">
+				<Button
+					variant="secondary"
+					// Registry-only installs get no offer to test: the legacy registry's
+					// serving path retires with this release train, so with no server
+					// rows there is nothing a connection test could durably reach.
+					disabled={servers.length === 0}
+					onClick={() => sendRequest("executeCommand", { command: "testConnection" })}
+				>
+					<IconPlug /> {l10n.t("Test connection")}
+				</Button>
+				<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "openOutput" })}>
+					<IconOutput /> {l10n.t("Open output log")}
+				</Button>
+				<Button variant="secondary" onClick={copyDiagnostics}>
+					{copied ? <IconCheck /> : <IconCopy />} {l10n.t("Copy diagnostics")}
+				</Button>
+				<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "reportIssue" })}>
+					<IconBug /> {l10n.t("Report a bug")}
+				</Button>
+			</div>
+			<p className="hint max-w-[70ch]">
+				{l10n.t(
+					"Copy diagnostics puts your connection summary on the clipboard as plain English text. Report a bug opens a GitHub issue pre-filled with version, platform, and recent logs."
+				)}
+			</p>
+			<ul className="feedback-links">
+				<LinkRow
+					href={DOCS_LINK_GETTING_STARTED}
+					icon={<IconBook />}
+					label={l10n.t("Documentation")}
+					hint={l10n.t("The getting-started guide, with the rest of the docs one click away.")}
+				/>
+				<LinkRow
+					href={FEEDBACK_LINK_REPOSITORY}
+					icon={<IconRepo />}
+					label={l10n.t("GitHub repository")}
+					hint={l10n.t("Source code, releases, and issues.")}
+				/>
+				<LinkRow
+					href={FEEDBACK_LINK_FEATURE_REQUEST}
+					icon={<IconLightbulb />}
+					label={l10n.t("Request a feature")}
+					hint={l10n.t("Suggest an improvement as a GitHub issue.")}
+				/>
+				<LinkRow
+					href={FEEDBACK_LINK_RATE}
+					icon={<IconStar />}
+					label={l10n.t("Rate this extension")}
+					hint={l10n.t("Leave a review on the Visual Studio Marketplace.")}
+				/>
+			</ul>
+		</Section>
 	);
 }
 
@@ -850,7 +1158,6 @@ export function DiagnosticsSection({
 	active,
 	stateSeq,
 	onInspect,
-	now,
 }: {
 	servers: readonly DashboardServer[];
 	modelCount: number;
@@ -862,105 +1169,14 @@ export function DiagnosticsSection({
 	stateSeq: number;
 	/** Open a model's inspector overlay in place; App renders the merged panel over the active tab, scrolled to the section. */
 	onInspect: (target: { scopeKey: string; rawId: string; serverLabel: string }, section: InspectorSection) => void;
-	now: number;
 }) {
-	const [copied, setCopied] = useState(false);
-	const copySeq = useRef(0);
-	const copyDiagnostics = () => {
-		// Clipboard write is fire-and-forget; the check mark is the only
-		// feedback (the models table's copy action sets the precedent).
-		navigator.clipboard?.writeText(diagnosticsReportText(servers, modelCount, legacyServerCount)).catch(() => {});
-		setCopied(true);
-		const seq = ++copySeq.current;
-		setTimeout(() => {
-			if (copySeq.current === seq) {
-				setCopied(false);
-			}
-		}, 1500);
-	};
+	// Ordered by what the reader can act on: what is wrong, then how the
+	// records resolved, then the ways to get help.
 	return (
 		<>
-			<section aria-labelledby="diagnostics-title">
-				<h2 id="diagnostics-title">{l10n.t("Diagnostics")}</h2>
-				<p className="diag-verdict">{overallStatusText(servers, modelCount, legacyServerCount)}</p>
-				<ul className="diag-facts">
-					<li>Servers configured: {servers.length}</li>
-					{/* One literal string, not CSS-spaced fragments, so the line
-					    selects and copies whole. Copy diagnostics emits its own English
-					    rendering of the same fact (ISO timestamp, no relative echo);
-					    only this on-screen line is localized. */}
-					<li>Last checked: {lastCheckedText(servers, now)}</li>
-					{/* The legacy registry (pre-migration installs and test mode)
-					    holds servers no row lists; the count keeps the copyable block
-					    honest about them. */}
-					{legacyServerCount > 0 ? <li>Legacy registry servers: {legacyServerCount}</li> : null}
-				</ul>
-				{servers.length > 0 ? <OutcomeGrid servers={servers} now={now} /> : null}
-				<div className="diag-actions">
-					<Button
-						variant="secondary"
-						// Registry-only installs get no offer to test: the legacy
-						// registry's serving path retires with this release train, so
-						// with no server rows there is nothing this dashboard manages
-						// that a connection test could durably reach.
-						disabled={servers.length === 0}
-						onClick={() => sendRequest("executeCommand", { command: "testConnection" })}
-					>
-						<IconPlug /> {l10n.t("Test connection")}
-					</Button>
-					<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "openOutput" })}>
-						<IconOutput /> {l10n.t("Open output log")}
-					</Button>
-					<Button variant="secondary" onClick={copyDiagnostics}>
-						{copied ? <IconCheck /> : <IconCopy />} {l10n.t("Copy diagnostics")}
-					</Button>
-				</div>
-			</section>
 			<ConfigDiagnostics diagnostics={diagnostics} />
 			<ResolvedModels active={active} stateSeq={stateSeq} onInspect={onInspect} />
-			<section aria-labelledby="diagnostics-feedback-title">
-				<h2 id="diagnostics-feedback-title">{l10n.t("Feedback & links")}</h2>
-				<ul className="feedback-links">
-					<FeedbackRow
-						action={
-							<button
-								type="button"
-								className="linkish"
-								onClick={() => sendRequest("executeCommand", { command: "reportIssue" })}
-							>
-								<IconBug /> {l10n.t("Report a bug")}
-							</button>
-						}
-						hint={l10n.t("Opens a GitHub issue pre-filled with version, platform, and recent logs.")}
-					/>
-					<ExternalRow
-						href={FEEDBACK_LINK_FEATURE_REQUEST}
-						icon={<IconLightbulb />}
-						label={l10n.t("Request a feature")}
-						hint={l10n.t("Suggest an improvement as a GitHub issue.")}
-					/>
-					<ExternalRow
-						href={FEEDBACK_LINK_RATE}
-						icon={<IconStar />}
-						label={l10n.t("Rate this extension")}
-						hint={l10n.t("Leave a review on the Visual Studio Marketplace.")}
-					/>
-					<FeedbackRow
-						action={
-							<DocsLink href={DOCS_LINK_GETTING_STARTED} label={l10n.t("Documentation - the getting-started guide")}>
-								<IconBook /> {l10n.t("Documentation")}
-							</DocsLink>
-						}
-						hint={l10n.t("The getting-started guide, with the rest of the docs one click away.")}
-					/>
-					<ExternalRow
-						href={FEEDBACK_LINK_REPOSITORY}
-						icon={<IconRepo />}
-						label={l10n.t("GitHub repository")}
-						hint={l10n.t("Source code, releases, and issues.")}
-					/>
-				</ul>
-			</section>
+			<Support servers={servers} modelCount={modelCount} legacyServerCount={legacyServerCount} />
 		</>
 	);
 }

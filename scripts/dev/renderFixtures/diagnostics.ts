@@ -1,8 +1,13 @@
 /**
- * The Diagnostics tab: connection summary with a misconfigured row,
- * Configuration diagnostics (record lints, entry problems, legacy hints,
- * dropped thresholds), and the Resolved-models tree + flat table (answered
- * through the harness's canned respond map).
+ * The Diagnostics destination: the Configuration section ranking record lints,
+ * legacy leftovers, an accepted entry's ignored pieces and a dropped
+ * threshold across the three severity tiers, the Resolution tree + flat table
+ * (answered through the harness's canned respond map), and the support tools.
+ *
+ * Two diagnostics here are deliberately NOT rendered: the misconfigured entry
+ * and the hidden groups, both of which a row on the Servers destination now
+ * reports beside the control that fixes them. They stay in the fixture so a
+ * render shows that the page refuses to repeat them.
  */
 import type { DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
@@ -49,8 +54,27 @@ const state: DashboardState = baseState({
 			position: 3,
 			problems: ["sets another auth form beside oauth; companions belong inside the oauth object"],
 			misconfigured: true,
+			rowOwned: true,
 			severity: "warning",
 		},
+		{
+			kind: "entry",
+			position: 5,
+			problems: ["no usable label"],
+			misconfigured: true,
+			rowOwned: false,
+			severity: "warning",
+		},
+		{
+			kind: "entry",
+			label: "gateway",
+			position: 2,
+			problems: ["dropped an unknown discovery key"],
+			misconfigured: false,
+			rowOwned: false,
+			severity: "warning",
+		},
+		{ kind: "hidden-groups", labels: ["retired-eu"], severity: "warning" },
 		{
 			kind: "legacy",
 			hint: "inert-url-scoped-key",

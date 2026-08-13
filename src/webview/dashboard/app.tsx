@@ -6,7 +6,7 @@ import { failuresAfterStatePush, isAckedMethod } from "../../dashboard/endpoints
 import { classifyOverall, latestCheckedMs } from "../../dashboard/presenters";
 import type { DashboardSectionId, DashboardServer, DashboardState, DashboardUsage } from "../../dashboard/viewModels";
 import { DASHBOARD_SECTION_IDS } from "../../dashboard/viewModels";
-import { DiagnosticsSection } from "./diagnostics";
+import { DiagnosticsSection, pageConfigDiagnostics } from "./diagnostics";
 import { FailureText } from "./failureText";
 import { asExtensionMessage } from "./hooks";
 import { IconClose } from "./icons";
@@ -218,13 +218,18 @@ function railSections(state: DashboardState): readonly RailSection<SectionId>[] 
 		// Advisories are informational - the configuration applies as written -
 		// so they are counted but never tinted. A permanent amber badge for a
 		// typo hint is an alarm nobody can silence or act on.
-		diagnostics: diagnosticsCount(state.diagnostics),
+		diagnostics: diagnosticsCount(pageConfigDiagnostics(state.diagnostics)),
 		settings: {},
 	};
 	return SECTION_IDS.map((id) => ({ id, label: sectionLabel(id), ...counts[id] }));
 }
 
-/** Counted whole, tinted only for the ones that are problems to fix. */
+/**
+ * Counted whole, tinted only for the ones that are problems to fix. Counts the
+ * diagnostics the destination actually renders (pageConfigDiagnostics drops
+ * the ones a server row now owns), so the badge and the list can never
+ * disagree about how many problems there are.
+ */
 function diagnosticsCount(diagnostics: DashboardState["diagnostics"]): {
 	count?: string;
 	countLabel?: string;
@@ -588,7 +593,6 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 						active={section === "diagnostics"}
 						stateSeq={stateSeq}
 						onInspect={inspectModel}
-						now={now}
 					/>
 				</SectionPanel>
 			</div>

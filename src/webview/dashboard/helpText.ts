@@ -239,6 +239,24 @@ export function helpCapsInspector(): string {
 	);
 }
 
+export function helpConfigDiagnosticsSection(): string {
+	return l10n.t(
+		"Settings this extension could not use as written, e.g. a matcher key no model can match. Problems with a server itself show on that server's row."
+	);
+}
+
+export function helpResolutionSection(): string {
+	return l10n.t(
+		"Which record set each value on each model, e.g. temperature 0.3 from your gpt-5* record. Read-only, and it never leaves this dashboard."
+	);
+}
+
+export function helpSupportSection(): string {
+	return l10n.t(
+		"Collect evidence about this install and take it somewhere, e.g. Copy diagnostics before filing an issue. Nothing here changes your settings."
+	);
+}
+
 /**
  * The settings rows that carry a "?", in row order. Deliberately sparse:
  * rows already render their one-line descriptions, so help appears only

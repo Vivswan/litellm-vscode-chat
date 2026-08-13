@@ -1,11 +1,12 @@
 /**
- * The Diagnostics tab's redesign surfaces: Configuration diagnostics rows and
- * the Resolved-models view (tree + flat provenance table + filter + the
- * per-row jump to the inspectors).
+ * The Diagnostics destination's Configuration section (which diagnostics it
+ * shows, how it ranks them, and what it refuses to repeat) and the Resolution
+ * view (tree + flat provenance table + filter + the per-row jump to the
+ * inspectors).
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ConfigDiagnosticView, ResolvedModelsView } from "../../../../dashboard/viewModels";
-import { DiagnosticsSection } from "../../../../webview/dashboard/diagnostics";
+import { DiagnosticsSection, pageConfigDiagnostics } from "../../../../webview/dashboard/diagnostics";
 import { makeDeclaredServer } from "../fixtures";
 import {
 	buttonByText,
@@ -14,12 +15,11 @@ import {
 	fireInput,
 	lastRequest,
 	mount,
+	postedCalls,
 	postedRequests,
 	resetPosted,
 	respondTo,
 } from "../harness";
-
-const NOW = 1_700_000_000_000;
 
 beforeEach(resetPosted);
 afterEach(cleanup);
@@ -88,7 +88,6 @@ function mountDiagnostics(options: {
 		active: true,
 		stateSeq: 0,
 		onInspect: options.onInspect ?? (() => undefined),
-		now: NOW,
 	};
 	// Mounting posts the readResolvedModels request; answering it through the
 	// window delivers the view exactly like the extension would.
@@ -98,36 +97,56 @@ function mountDiagnostics(options: {
 }
 
 describe("Configuration diagnostics", () => {
-	test("renders nothing when the settings are clean", () => {
-		const root = mount(
+	function mountConfig(diagnostics: readonly ConfigDiagnosticView[]) {
+		return mount(
 			<DiagnosticsSection
 				servers={[]}
 				modelCount={0}
 				legacyServerCount={0}
-				diagnostics={[]}
+				diagnostics={diagnostics}
 				active={false}
 				stateSeq={0}
 				onInspect={() => undefined}
-				now={NOW}
 			/>
 		);
+	}
+
+	/** What a sighted reader sees: the node's text minus the screen-reader-only parts. */
+	function sightedText(element: Element | null | undefined): string {
+		if (element === null || element === undefined) {
+			return "";
+		}
+		const clone = element.cloneNode(true) as Element;
+		for (const hidden of Array.from(clone.querySelectorAll(".visually-hidden"))) {
+			hidden.remove();
+		}
+		return clone.textContent ?? "";
+	}
+
+	test("clean settings keep the section and say so instead of leaving a gap", () => {
+		const root = mountConfig([]);
 		expect(root.querySelector(".config-diagnostics")).toBeNull();
+		// The section itself stays: the destination's shape must not change
+		// under the reader between a clean install and a broken one.
+		expect(root.querySelector("#config-diagnostics-section")).not.toBeNull();
+		expect(root.textContent).toContain("read cleanly");
+		// Nothing to act on means no count beside the title.
+		expect(root.textContent).not.toContain("needs attention");
 	});
 
-	test("renders one row per diagnostic with the offending key", () => {
+	test("renders one block per diagnostic, worst first, with the offending key", () => {
 		const diagnostics: ConfigDiagnosticView[] = [
+			{
+				kind: "record",
+				setting: "models.capabilities",
+				diagnostic: { kind: "unrecognized-key", recordKey: "gpt-4", key: "supports_web_search" },
+				severity: "advisory",
+			},
+			{ kind: "thresholds", dropped: 2, severity: "warning" },
 			{
 				kind: "record",
 				setting: "models.parameters",
 				diagnostic: { kind: "invalid-matcher", recordKey: "gpt*5", key: "gpt*5" },
-				severity: "warning",
-			},
-			{
-				kind: "entry",
-				label: "prod",
-				position: 1,
-				problems: ['has an unknown auth key "apikey"'],
-				misconfigured: true,
 				severity: "warning",
 			},
 			{
@@ -144,71 +163,240 @@ describe("Configuration diagnostics", () => {
 				detail: "x-env, x-trace",
 				severity: "warning",
 			},
-			{ kind: "thresholds", dropped: 2, severity: "warning" },
-			{ kind: "hidden-groups", labels: ["prod-hidden"], severity: "warning" },
-			{ kind: "hidden-groups", labels: ["prod-hidden", "staging-hidden"], severity: "warning" },
 		];
-		const root = mount(
-			<DiagnosticsSection
-				servers={[]}
-				modelCount={0}
-				legacyServerCount={0}
-				diagnostics={diagnostics}
-				active={false}
-				stateSeq={0}
-				onInspect={() => undefined}
-				now={NOW}
-			/>
-		);
-		const items = Array.from(root.querySelectorAll(".config-diagnostics li")).map((li) => li.textContent ?? "");
-		expect(items).toHaveLength(7);
-		expect(items[0]).toContain('"gpt*5"');
-		expect(items[1]).toContain('"prod"');
-		expect(items[1]).toContain("misconfigured");
-		expect(items[2]).toContain("https://gw/gpt-4");
-		expect(items[3]).toContain("x-env, x-trace");
-		expect(items[3]).toContain("adopt");
-		expect(items[4]).toContain("2");
-		expect(items[5]).toContain('"prod-hidden"');
-		expect(items[5]).toContain("hidden by an explicit removal");
-		expect(items[6]).toContain("2 groups are hidden");
-		expect(items[6]).toContain("prod-hidden, staging-hidden");
+		const root = mountConfig(diagnostics);
+		const items = Array.from(root.querySelectorAll(".config-diagnostics li"));
+		expect(items).toHaveLength(5);
+		// Ranked by what it costs, not by the order the host emitted them: the
+		// two wholly inert pieces of configuration first, then the partly
+		// ignored ones, then the field that applies as written.
+		expect(items.map((li) => li.className)).toEqual([
+			"row-diagnostic sev-blocking",
+			"row-diagnostic sev-blocking",
+			"row-diagnostic sev-degraded",
+			"row-diagnostic sev-degraded",
+			"row-diagnostic sev-advisory",
+		]);
+		const text = items.map((li) => li.textContent ?? "");
+		expect(text[0]).toContain('"gpt*5"');
+		expect(text[1]).toContain("https://gw/gpt-4");
+		// Within a tier the host's emission order survives (a stable sort), so
+		// the thresholds drop stays ahead of the parked headers.
+		expect(text[2]).toContain("2");
+		expect(text[3]).toContain("x-env, x-trace");
+		expect(text[3]).toContain("adopt");
+		expect(text[4]).toContain('"supports_web_search"');
+		// The count beside the title excludes the advisory: the configuration
+		// applies as written, so counting it would call a healthy setup
+		// unhealthy. The total rides along because the rail badge counts the
+		// whole list, and "4" beside a list of 5 is a question the reader
+		// should not have to answer.
+		expect(root.querySelector(".section-meta")?.textContent).toBe("4 of 5 need attention");
 	});
 
-	test("advisory rows render muted with the applied-as-is wording; warnings keep the warning tone", () => {
-		const diagnostics: ConfigDiagnosticView[] = [
+	test("consequence-first copy leads with what is lost and keeps the cause", () => {
+		const root = mountConfig([
 			{
 				kind: "record",
-				setting: "models.capabilities",
-				diagnostic: { kind: "unrecognized-key", recordKey: "gpt-4", key: "supports_web_search" },
-				severity: "advisory",
+				setting: "models.parameters",
+				diagnostic: { kind: "invalid-matcher", recordKey: "gpt*5", key: "gpt*5" },
+				severity: "warning",
 			},
+		]);
+		const headline = sightedText(root.querySelector(".config-diagnostics .row-diagnostic-headline"));
+		// A reader who stops after the first clause still knows what is not
+		// being applied; one who reads on still learns why.
+		expect(headline.startsWith('Nothing in record "gpt*5" is ever applied:')).toBe(true);
+		expect(headline).toContain("not a valid matcher key");
+	});
+
+	test("the location rides neutral badges rather than a trailing parenthetical", () => {
+		const root = mountConfig([
+			{
+				kind: "record",
+				setting: "models.parameters",
+				entryLabel: "prod",
+				diagnostic: { kind: "invalid-value", recordKey: "gpt-4", key: "context_length" },
+				severity: "warning",
+			},
+		]);
+		const badges = Array.from(root.querySelectorAll(".row-diagnostic-where .chip-prov")).map((el) => el.textContent);
+		expect(badges).toEqual(["models.parameters", "entry prod"]);
+		expect(root.querySelector(".row-diagnostic-headline")?.textContent).not.toContain("(models.parameters)");
+	});
+
+	test("the action reveals the setting and never rewrites it", () => {
+		const root = mountConfig([
 			{
 				kind: "record",
 				setting: "models.capabilities",
 				diagnostic: { kind: "invalid-value", recordKey: "gpt-4", key: "context_length" },
 				severity: "warning",
 			},
+		]);
+		resetPosted();
+		fireClick(buttonByText(root, "Show in settings.json"));
+		expect(postedCalls()).toEqual([{ method: "revealSetting", payload: { setting: "models.capabilities" } }]);
+	});
+
+	test("an entry-layer record reveals the servers setting, where that record lives", () => {
+		const root = mountConfig([
+			{
+				kind: "record",
+				setting: "models.parameters",
+				entryLabel: "prod",
+				diagnostic: { kind: "invalid-value", recordKey: "gpt-4", key: "temperature" },
+				severity: "warning",
+			},
+		]);
+		resetPosted();
+		fireClick(buttonByText(root, "Show in settings.json"));
+		expect(postedCalls()).toEqual([{ method: "revealSetting", payload: { setting: "servers" } }]);
+	});
+
+	test("a rejected entry the Servers page drew a row for is not repeated here", () => {
+		const diagnostics: ConfigDiagnosticView[] = [
+			{
+				kind: "entry",
+				label: "prod",
+				position: 1,
+				problems: ['has an unknown auth key "apikey"'],
+				misconfigured: true,
+				rowOwned: true,
+				severity: "warning",
+			},
+			{ kind: "hidden-groups", labels: ["prod-hidden", "staging-hidden"], severity: "warning" },
 		];
-		const root = mount(
-			<DiagnosticsSection
-				servers={[]}
-				modelCount={0}
-				legacyServerCount={0}
-				diagnostics={diagnostics}
-				active={false}
-				stateSeq={0}
-				onInspect={() => undefined}
-				now={NOW}
-			/>
+		// The filter is shared with the rail's badge, so the count above the
+		// destination can never disagree with the list inside it.
+		expect(pageConfigDiagnostics(diagnostics)).toEqual([]);
+		const root = mountConfig(diagnostics);
+		expect(root.querySelector(".config-diagnostics")).toBeNull();
+		expect(root.textContent).not.toContain("prod-hidden");
+		expect(root.textContent).not.toContain("apikey");
+	});
+
+	test("a rejected entry with NO row of its own still reports here: nothing else states it", () => {
+		// The host refuses a row to rejects without a drawable identity (no
+		// label, no base URL, or a label a declared entry or an earlier reject
+		// already owns) and leaves them to this list. Keying the filter on
+		// `misconfigured` alone would erase the user's broken entry from both
+		// surfaces at once.
+		const diagnostics: ConfigDiagnosticView[] = [
+			{
+				kind: "entry",
+				position: 1,
+				problems: ["no usable label"],
+				misconfigured: true,
+				rowOwned: false,
+				severity: "warning",
+			},
+		];
+		expect(pageConfigDiagnostics(diagnostics)).toHaveLength(1);
+		const root = mountConfig(diagnostics);
+		const item = root.querySelector(".config-diagnostics li");
+		// Switched off entirely, so it ranks with the wholly inert configuration.
+		expect(item?.className).toBe("row-diagnostic sev-blocking");
+		expect(item?.querySelector(".row-diagnostic-headline")?.textContent).toContain(
+			"Server entry #1 is switched off until it is fixed."
 		);
-		const items = Array.from(root.querySelectorAll(".config-diagnostics li"));
-		expect(items).toHaveLength(2);
-		expect(items[0]?.className).toBe("hint");
-		expect(items[0]?.textContent).toContain('"supports_web_search"');
-		expect(items[0]?.textContent).toContain("applied as an override as-is");
-		expect(items[1]?.className).toBe("state-warn");
-		expect(items[1]?.textContent).toContain("invalid value");
+		expect(item?.querySelector(".row-diagnostic-detail")?.textContent).toBe("no usable label");
+	});
+
+	test("an ACCEPTED entry's ignored pieces still report here: no row says it", () => {
+		const diagnostics: ConfigDiagnosticView[] = [
+			{
+				kind: "entry",
+				label: "prod",
+				position: 1,
+				problems: ["dropped an unknown discovery key"],
+				misconfigured: false,
+				rowOwned: false,
+				severity: "warning",
+			},
+		];
+		expect(pageConfigDiagnostics(diagnostics)).toHaveLength(1);
+		const root = mountConfig(diagnostics);
+		const item = root.querySelector(".config-diagnostics li");
+		expect(item?.className).toBe("row-diagnostic sev-degraded");
+		expect(item?.querySelector(".row-diagnostic-headline")?.textContent).toContain(
+			'Server entry "prod" runs without part of its configuration.'
+		);
+		// The parser's structural report stays English by policy and rides its
+		// own line rather than being spliced into the sentence.
+		expect(item?.querySelector(".row-diagnostic-detail")?.textContent).toBe("dropped an unknown discovery key");
+	});
+
+	test("every tier says its rank in words for assistive technology", () => {
+		const root = mountConfig([
+			{
+				kind: "record",
+				setting: "models.parameters",
+				diagnostic: { kind: "invalid-matcher", recordKey: "gpt*5", key: "gpt*5" },
+				severity: "warning",
+			},
+			{ kind: "thresholds", dropped: 1, severity: "warning" },
+			{
+				kind: "record",
+				setting: "models.capabilities",
+				diagnostic: { kind: "unrecognized-key", recordKey: "gpt-4", key: "supports_web_search" },
+				severity: "advisory",
+			},
+		]);
+		// Severity rides hue, a wash, and the rule's weight on screen - none of
+		// which a screen reader can report. Without the hidden word the three
+		// tiers announce identically and the sort is invisible.
+		const spoken = Array.from(root.querySelectorAll(".row-diagnostic-headline .visually-hidden")).map(
+			(el) => el.textContent
+		);
+		expect(spoken).toEqual(["Not applied at all: ", "Partly ignored: ", "Note: "]);
+	});
+
+	test("the host's advisory stamp caps every kind, not just record lints", () => {
+		const root = mountConfig([{ kind: "thresholds", dropped: 1, severity: "advisory" }]);
+		// A diagnostic the rail badge leaves untinted must not render as an
+		// actionable row underneath it.
+		expect(root.querySelector(".config-diagnostics li")?.className).toBe("row-diagnostic sev-advisory");
+	});
+
+	test("repeated reveal buttons get accessible names that tell them apart", () => {
+		const root = mountConfig([
+			{
+				kind: "record",
+				setting: "models.parameters",
+				diagnostic: { kind: "invalid-value", recordKey: "gpt-4", key: "temperature" },
+				severity: "warning",
+			},
+			{
+				kind: "record",
+				setting: "models.parameters",
+				diagnostic: { kind: "invalid-value", recordKey: "claude-*", key: "top_p" },
+				severity: "warning",
+			},
+		]);
+		const names = Array.from(root.querySelectorAll(".row-diagnostic-actions button")).map((button) =>
+			button.getAttribute("aria-label")
+		);
+		expect(new Set(names).size).toBe(2);
+		// The visible label stays inside the accessible name (Label in Name).
+		for (const name of names) {
+			expect(name).toContain("Show in settings.json");
+		}
+	});
+
+	test("an advisory keeps the applied-as-is wording and the quiet tier", () => {
+		const root = mountConfig([
+			{
+				kind: "record",
+				setting: "models.capabilities",
+				diagnostic: { kind: "unrecognized-key", recordKey: "gpt-4", key: "supports_web_search" },
+				severity: "advisory",
+			},
+		]);
+		const item = root.querySelector(".config-diagnostics li");
+		expect(item?.className).toBe("row-diagnostic sev-advisory");
+		expect(item?.textContent).toContain('"supports_web_search"');
+		expect(item?.textContent).toContain("applies as an override as-is");
 	});
 });
 
@@ -223,7 +411,6 @@ describe("Resolved models", () => {
 				active={false}
 				stateSeq={0}
 				onInspect={() => undefined}
-				now={NOW}
 			/>
 		);
 		expect(postedRequests("readResolvedModels")).toHaveLength(0);

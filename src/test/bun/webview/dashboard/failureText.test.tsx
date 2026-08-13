@@ -10,7 +10,6 @@
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { App } from "../../../../webview/dashboard/app";
-import { DiagnosticsSection } from "../../../../webview/dashboard/diagnostics";
 import { FailureText } from "../../../../webview/dashboard/failureText";
 import { ServersSection } from "../../../../webview/dashboard/servers";
 import { makeDeclaredServer, makeState, statePush } from "../fixtures";
@@ -131,28 +130,4 @@ test("an expected two-part failure keeps its detail beneath its own headline", (
 	expect(lines[0]?.querySelector(".row-diagnostic-detail")?.textContent).toBe("GET http://alpha.test/v1/models: 404");
 	expect(root.textContent).not.toContain("; Beta");
 	expect(lines[1]?.textContent).toContain("quiet");
-});
-
-test("the diagnostics grid splits a two-part server error instead of collapsing it", () => {
-	const root = mount(
-		<DiagnosticsSection
-			servers={[
-				makeDeclaredServer({
-					label: "Gateway",
-					state: "error",
-					error: "The server could not be reached.\nGET http://gw.test/v1/models: ECONNREFUSED",
-				}),
-			]}
-			modelCount={0}
-			legacyServerCount={0}
-			diagnostics={[]}
-			active={false}
-			stateSeq={0}
-			onInspect={() => undefined}
-			now={Date.now()}
-		/>
-	);
-	const note = root.querySelector("tr.diag-note td");
-	expect(note?.textContent).toContain("The server could not be reached.");
-	expect(note?.querySelector(".failure-detail")?.textContent).toBe("GET http://gw.test/v1/models: ECONNREFUSED");
 });

@@ -211,6 +211,7 @@ suite("extension/dashboard/configDiagnostics", () => {
 					{ index: 0, label: "Fine", baseUrl: "http://a.test", problems: [], accepted: true },
 					{ index: 1, label: "Partial", baseUrl: "http://b.test", problems: ["ignored piece"], accepted: true },
 					{ index: 2, baseUrl: "http://c.test", problems: ["no usable label"], accepted: false },
+					{ index: 3, label: "Drawn", baseUrl: "http://d.test", problems: ["bad auth shape"], accepted: false },
 				],
 			})
 		);
@@ -222,9 +223,32 @@ suite("extension/dashboard/configDiagnostics", () => {
 				position: 2,
 				problems: ["ignored piece"],
 				misconfigured: false,
+				// An accepted entry never gets a misconfigured row, so its ignored
+				// pieces are always this list's alone to report.
+				rowOwned: false,
 				severity: "warning",
 			},
-			{ kind: "entry", position: 3, problems: ["no usable label"], misconfigured: true, severity: "warning" },
+			{
+				kind: "entry",
+				position: 3,
+				problems: ["no usable label"],
+				misconfigured: true,
+				// No label, so buildServers draws it no row: the Diagnostics
+				// destination is the only place these problems appear, and it must
+				// not filter them away as a duplicate of a row that does not exist.
+				rowOwned: false,
+				severity: "warning",
+			},
+			{
+				kind: "entry",
+				label: "Drawn",
+				position: 4,
+				problems: ["bad auth shape"],
+				misconfigured: true,
+				// A usable, non-duplicate identity, so this one does get a row.
+				rowOwned: true,
+				severity: "warning",
+			},
 		]);
 	});
 
