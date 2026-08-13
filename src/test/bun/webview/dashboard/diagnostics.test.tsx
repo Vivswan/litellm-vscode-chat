@@ -78,10 +78,10 @@ function mountDiagnostics(overrides?: Parameters<typeof makeState>[0]) {
 			)
 		)
 	);
-	const diagnosticsTab = Array.from(root.querySelectorAll("[role='tab']")).find(
-		(candidate) => (candidate.textContent ?? "").trim() === "Diagnostics"
-	) as HTMLElement;
-	fireClick(diagnosticsTab);
+	// By id, not by text: a rail item's text includes its badge count, so
+	// matching "Diagnostics" exactly finds nothing the moment the state under
+	// test carries a diagnostic.
+	fireClick(root.querySelector("#tab-diagnostics") as HTMLElement);
 	return root;
 }
 
@@ -157,10 +157,10 @@ test("Copy diagnostics puts the connection block on the clipboard as plain text 
 	const iconPath = () => button.querySelector("svg path")?.getAttribute("d") ?? "";
 	const copyIconPath = iconPath();
 
-	// The exact plain-text format: the verdict, the facts, and one line per
-	// server through serverOutcomeText - nothing beyond them. Fully English by
-	// policy, timestamp included: a plain ISO instant, never a locale-shaped
-	// date or a relative echo.
+	// The exact plain-text format: the verdict, the facts, one line per server
+	// through serverOutcomeText, then the configuration diagnostics - nothing
+	// beyond them. Fully English by policy, timestamp included: a plain ISO
+	// instant, never a locale-shaped date or a relative echo.
 	expect(copyDiagnostics(root)).toBe(
 		[
 			"Degraded (2 models, some servers failed)",
@@ -169,9 +169,60 @@ test("Copy diagnostics puts the connection block on the clipboard as plain text 
 			"Legacy registry servers: 1",
 			"Prod (http://localhost:4000): OK (2 models)",
 			"Broken (http://localhost:4001): Error: connect ECONNREFUSED",
+			"Configuration diagnostics: 0",
 		].join("\n")
 	);
 	expect(iconPath()).not.toBe(copyIconPath);
+});
+
+test("Copy diagnostics carries the configuration diagnostics, worst first, in English", () => {
+	// The page's subject is configuration, and for as long as this action
+	// existed the copy carried only connections - so an issue about an inert
+	// matcher key pasted a report that never mentioned it.
+	const root = mountDiagnostics({
+		servers: [makeDeclaredServer({ label: "Prod", modelCount: 1 })],
+		models: [makeModel()],
+		diagnostics: [
+			{
+				kind: "record",
+				setting: "models.capabilities",
+				diagnostic: { kind: "unrecognized-key", recordKey: "gpt-4", key: "supports_web_search" },
+				severity: "advisory",
+			},
+			{ kind: "thresholds", dropped: 2, severity: "warning" },
+			{
+				kind: "record",
+				setting: "models.parameters",
+				entryLabel: "prod",
+				diagnostic: { kind: "invalid-matcher", recordKey: "gpt*5", key: "gpt*5" },
+				severity: "warning",
+			},
+			// Dropped, exactly as on screen: a reject with a row of its own has
+			// its problems on that row.
+			{
+				kind: "entry",
+				label: "broken",
+				position: 2,
+				problems: ["bad auth shape"],
+				misconfigured: true,
+				rowOwned: true,
+				severity: "warning",
+			},
+		],
+	});
+	const copied = copyDiagnostics(root);
+	expect(copied).toContain(
+		[
+			"Configuration diagnostics: 3",
+			'  blocking models.parameters (entry "prod") invalid-matcher "gpt*5"',
+			"  degraded usage.alertThresholds: 2 dropped",
+			'  advisory models.capabilities unrecognized-key "gpt-4" / "supports_web_search"',
+		].join("\n")
+	);
+	// Composed from classifications and structural keys, never translated from
+	// the on-screen sentences, so a Chinese UI copies this same block.
+	expect(copied).not.toContain("Nothing in record");
+	expect(copied).not.toContain("bad auth shape");
 });
 
 test("the copied block says Never with nothing checked yet, and drops the legacy line with an empty registry", () => {
@@ -232,6 +283,87 @@ test("Open output log posts the openOutput command in place of the old output-ch
 	resetPosted();
 	fireClick(buttonByText(root, "Open output log"));
 	expect(postedCalls()).toEqual([{ method: "executeCommand", payload: { command: "openOutput" } }]);
+});
+
+test("Copy diagnostics never pastes a base URL: legacy leftovers and URL-scoped record keys are redacted", () => {
+	// migrations/settingsRedesign/hints.ts states outright that base URLs and
+	// header names "must never reach logs or issue reports". A URL-scoped key
+	// IS a base URL, and a base URL can carry credentials in its userinfo, so
+	// the copied block keeps the classification and the setting and drops the
+	// value. The on-screen rendering still shows it - that is local.
+	const root = mountDiagnostics({
+		servers: [makeDeclaredServer({ label: "Prod", modelCount: 1 })],
+		models: [makeModel()],
+		diagnostics: [
+			{
+				kind: "legacy",
+				hint: "inert-url-scoped-key",
+				oldKey: "https://admin:hunter2@litellm.internal/gpt-4",
+				detail: "models.parameters",
+				severity: "warning",
+			},
+			{
+				kind: "legacy",
+				hint: "parked-global-headers",
+				oldKey: "headers",
+				detail: "x-tenant-id, x-internal-route",
+				severity: "warning",
+			},
+			// A record key can be URL-shaped too - that is exactly what the
+			// legacy leftover IS - so the redaction cannot live only on the
+			// legacy arm.
+			{
+				kind: "record",
+				setting: "models.parameters",
+				diagnostic: {
+					kind: "invalid-value",
+					recordKey: "https://admin:hunter2@litellm.internal/gpt-4",
+					key: "temperature",
+				},
+				severity: "warning",
+			},
+		],
+	});
+	const copied = copyDiagnostics(root);
+	expect(copied).not.toContain("hunter2");
+	expect(copied).not.toContain("litellm.internal");
+	expect(copied).not.toContain("x-tenant-id");
+	expect(copied).not.toContain("x-internal-route");
+	// The classification and the setting survive, which is what makes the line
+	// worth pasting at all.
+	expect(copied).toContain("blocking inert-url-scoped-key (models.parameters)");
+	expect(copied).toContain("degraded parked-global-headers (headers)");
+	expect(copied).toContain('degraded models.parameters invalid-value <url-scoped key> / "temperature"');
+	// The page itself still shows the real key: local is not a public issue.
+	const panel = root.querySelector("#panel-diagnostics") as HTMLElement;
+	expect(panel.textContent).toContain("litellm.internal");
+});
+
+test("Copy diagnostics reports an entry whose problems no server row states, and the hidden-group count", () => {
+	// The entry branch splices the parser's free-form English problems, and
+	// hidden groups contribute no server row at all - a hidden-only install
+	// would otherwise paste "Configuration diagnostics: 0" over a screen that
+	// says a group is serving nothing.
+	const root = mountDiagnostics({
+		servers: [makeDeclaredServer({ label: "Prod", modelCount: 1 })],
+		models: [makeModel()],
+		diagnostics: [
+			{
+				kind: "entry",
+				position: 3,
+				problems: ["no usable label", "no base URL"],
+				misconfigured: true,
+				rowOwned: false,
+				severity: "warning",
+			},
+			{ kind: "hidden-groups", labels: ["retired-eu", "retired-us"], severity: "warning" },
+		],
+	});
+	const copied = copyDiagnostics(root);
+	expect(copied).toContain("blocking servers entry #3: no usable label; no base URL");
+	// Count only: the labels are user text.
+	expect(copied).toContain("Hidden provider groups: 2");
+	expect(copied).not.toContain("retired-eu");
 });
 
 test("Report a bug posts the reportIssue command from the support tools", () => {

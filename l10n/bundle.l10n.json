@@ -318,7 +318,7 @@
 	"Error": "Error",
 	"Error at": "Error at",
 	"Every model your servers report, as registered with Copilot Chat. Lists are cached; run Sync models to ask the servers again now.": "Every model your servers report, as registered with Copilot Chat. Lists are cached; run Sync models to ask the servers again now.",
-	"Evidence about this install, e.g. Copy diagnostics puts your connection summary on the clipboard as English text. Report a bug pre-fills a GitHub issue with version, platform, and logs.": "Evidence about this install, e.g. Copy diagnostics puts your connection summary on the clipboard as English text. Report a bug pre-fills a GitHub issue with version, platform, and logs.",
+	"Evidence about this install, e.g. Copy diagnostics puts your connections and configuration problems on the clipboard as English text. Report a bug pre-fills a GitHub issue.": "Evidence about this install, e.g. Copy diagnostics puts your connections and configuration problems on the clipboard as English text. Report a bug pre-fills a GitHub issue.",
 	"Exact model IDs to register even when discovery cannot list them, e.g. deepseek-r1. A declaration goes inert once the server lists the ID.": "Exact model IDs to register even when discovery cannot list them, e.g. deepseek-r1. A declaration goes inert once the server lists the ID.",
 	"Exactly one form per entry. Companions belong inside the form you choose.": "Exactly one form per entry. Companions belong inside the form you choose.",
 	"Exclude Secrets": "Exclude Secrets",

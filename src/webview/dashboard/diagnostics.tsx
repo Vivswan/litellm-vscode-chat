@@ -248,6 +248,96 @@ function recordSeverity(diagnostic: RecordDiagnostic): DiagnosticSeverity {
 }
 
 /**
+ * One diagnostic's tier, independent of how it is worded.
+ *
+ * Split out of configProblem because the copied report needs the ranking
+ * without the localized sentence beside it: the block is English by policy,
+ * and reading the tier off a rendered ConfigProblem would have meant building
+ * translated text to throw it away.
+ */
+function problemSeverity(diagnostic: PageConfigDiagnostic): DiagnosticSeverity {
+	switch (diagnostic.kind) {
+		case "record":
+			return cappedSeverity(diagnostic.severity, recordSeverity(diagnostic.diagnostic));
+		case "entry":
+			return cappedSeverity(diagnostic.severity, diagnostic.misconfigured ? "blocking" : "degraded");
+		case "legacy":
+			// A parked-headers leftover still has a live route back: the headers
+			// are held, and adopting the external group delivers them. The other
+			// two hold values that reach nothing and have nowhere to go.
+			return cappedSeverity(diagnostic.severity, diagnostic.hint === "parked-global-headers" ? "degraded" : "blocking");
+		case "thresholds":
+			return cappedSeverity(diagnostic.severity, "degraded");
+	}
+}
+
+/**
+ * One diagnostic as a line for the copied report: the tier, where it lives,
+ * and the structural keys, in that order.
+ *
+ * English by construction rather than by translation - every part is a
+ * classification (the tier ids, the lint kind) or a structural key the user
+ * typed (setting ids, record keys, field names, the parser's own problem
+ * strings). Nothing here goes through l10n, so the block stays English under
+ * a Chinese UI without needing an English mirror for each sentence, and it
+ * carries no server-derived text into a public issue report.
+ */
+/**
+ * A record key or field name as the COPIED report may carry it.
+ *
+ * A matcher key is normally a model ID the user typed, which is exactly what
+ * makes the copied block worth pasting. A key containing "://" is a different
+ * animal: that is the removed server-scoped grammar (the same rule
+ * migrations/settingsRedesign/records.ts calls isUrlScopedKey), so the key IS
+ * a base URL, and a base URL can carry credentials in its userinfo. The legacy
+ * hints module documents these as local-dashboard-only and says they must
+ * never reach logs or issue reports; this block is destined for a public
+ * GitHub issue, so it redacts rather than trusting that no user ever put a
+ * password in a URL.
+ *
+ * Repeated rather than imported because the webview tree cannot reach
+ * src/extension; it is one substring test, and the canonical definition is
+ * named above so the two can be compared.
+ */
+function copySafeKey(key: string): string {
+	return key.includes("://") ? "<url-scoped key>" : `"${key}"`;
+}
+
+function englishDiagnosticLine(diagnostic: PageConfigDiagnostic): string {
+	const tier = problemSeverity(diagnostic);
+	switch (diagnostic.kind) {
+		case "record": {
+			const lint = diagnostic.diagnostic;
+			const where =
+				diagnostic.entryLabel !== undefined
+					? `${diagnostic.setting} (entry "${diagnostic.entryLabel}")`
+					: diagnostic.setting;
+			const keys =
+				lint.key === lint.recordKey
+					? copySafeKey(lint.recordKey)
+					: `${copySafeKey(lint.recordKey)} / ${copySafeKey(lint.key)}`;
+			return `${tier} ${where} ${lint.kind} ${keys}`;
+		}
+		case "entry": {
+			const name = diagnostic.label !== undefined ? `"${diagnostic.label}"` : `#${diagnostic.position}`;
+			return `${tier} servers entry ${name}: ${diagnostic.problems.join("; ")}`;
+		}
+		case "legacy":
+			// The classification and the setting it sits in, and nothing else.
+			// `oldKey` on a URL-scoped hint IS a base URL, and `detail` on a
+			// parked-headers hint is the user's own header names - both are the
+			// user text hints.ts documents as local-dashboard-only. For a
+			// URL-scoped hint the setting is `detail`; for the two headers hints
+			// it is `oldKey`. Every branch yields a setting id, never user text.
+			return `${tier} ${diagnostic.hint} (${
+				diagnostic.hint === "inert-url-scoped-key" ? diagnostic.detail : diagnostic.oldKey
+			})`;
+		case "thresholds":
+			return `${tier} usage.alertThresholds: ${diagnostic.dropped} dropped`;
+	}
+}
+
+/**
  * One record lint as a single consequence sentence; classifications and
  * structural keys only, never entered values.
  *
@@ -350,7 +440,7 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 			const namesRecord = lint.kind === "invalid-matcher" || lint.kind === "unknown-inherit-key";
 			return {
 				key: `record:${diagnostic.setting}:${diagnostic.entryLabel ?? ""}:${lint.kind}:${subject}`,
-				severity: cappedSeverity(diagnostic.severity, recordSeverity(lint)),
+				severity: problemSeverity(diagnostic),
 				headline: recordProblemText(lint),
 				where: [
 					diagnostic.setting,
@@ -381,7 +471,7 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 				// two diagnostics must not collapse onto one key - or one button
 				// name, which is why the position rides the subject too.
 				key: `entry:${diagnostic.position}`,
-				severity: cappedSeverity(diagnostic.severity, diagnostic.misconfigured ? "blocking" : "degraded"),
+				severity: problemSeverity(diagnostic),
 				headline: diagnostic.misconfigured
 					? l10n.t("Server entry {0} is switched off until it is fixed.", name)
 					: l10n.t("Server entry {0} runs without part of its configuration.", name),
@@ -403,10 +493,7 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 				// A parked-headers leftover still has a live route back: the headers
 				// are held, and adopting the external group delivers them. The other
 				// two hold values that reach nothing and have nowhere to go.
-				severity: cappedSeverity(
-					diagnostic.severity,
-					diagnostic.hint === "parked-global-headers" ? "degraded" : "blocking"
-				),
+				severity: problemSeverity(diagnostic),
 				headline: legacyProblemText(diagnostic),
 				where: diagnostic.hint === "inert-url-scoped-key" ? [diagnostic.detail] : [diagnostic.oldKey],
 				actions: [
@@ -421,7 +508,7 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 		case "thresholds":
 			return {
 				key: "thresholds",
-				severity: cappedSeverity(diagnostic.severity, "degraded"),
+				severity: problemSeverity(diagnostic),
 				headline:
 					diagnostic.dropped === 1
 						? l10n.t("1 alert threshold was dropped: a threshold must be inside (0, 1].")
@@ -1024,20 +1111,31 @@ function withEnglishError(server: DashboardServer): DashboardServer {
 }
 
 /**
- * The whole connection block as plain text, for the Copy diagnostics action:
- * the verdict, the facts, and one outcome line per server - composed from
- * pushed state only (which carries no secret values by construction; see the
- * storage invariants). Per-server lines go through serverOutcomeText, the
- * shared renderer, so the copied wording cannot drift from the classification
- * the server rows render.
+ * The whole report as plain text, for the Copy diagnostics action: the
+ * connection verdict, the facts, one outcome line per server, then the
+ * configuration diagnostics this destination shows - composed from pushed
+ * state only (which carries no secret values by construction; see the storage
+ * invariants). Per-server lines go through serverOutcomeText, the shared
+ * renderer, so the copied wording cannot drift from the classification the
+ * server rows render.
+ *
+ * The configuration block was missing for as long as this action existed:
+ * the page's subject is configuration, and the copy carried only connections,
+ * so someone filing an issue about an inert matcher key pasted a report that
+ * never mentioned it. It is the resolution view that stays out of issue
+ * reports, not the diagnostics.
  *
  * Fully English, timestamp included: a plain ISO instant rather than a
- * locale-shaped date, so a pasted issue report never carries translated text.
+ * locale-shaped date, and the diagnostic lines are composed from
+ * classifications and structural keys rather than translated from the
+ * on-screen sentences, so a Chinese UI copies the same block an English one
+ * does.
  */
 function diagnosticsReportText(
 	servers: readonly DashboardServer[],
 	modelCount: number,
-	legacyServerCount: number
+	legacyServerCount: number,
+	diagnostics: readonly ConfigDiagnosticView[]
 ): string {
 	const copyServers = servers.map(withEnglishError);
 	const checkedMs = latestCheckedMs(copyServers);
@@ -1051,6 +1149,28 @@ function diagnosticsReportText(
 	}
 	for (const server of copyServers) {
 		lines.push(`${server.label} (${server.baseUrl}): ${serverOutcomeText(server)}`);
+	}
+	// Worst first, the order the page renders them in, so the paste reads the
+	// way the reader's screen did.
+	const problems = [...pageConfigDiagnostics(diagnostics)].sort(
+		(a, b) => SEVERITY_ORDER[problemSeverity(a)] - SEVERITY_ORDER[problemSeverity(b)]
+	);
+	lines.push(`Configuration diagnostics: ${problems.length}`);
+	for (const problem of problems) {
+		lines.push(`  ${englishDiagnosticLine(problem)}`);
+	}
+	// Hidden groups are the one dropped kind with no other route into the
+	// paste: they contribute no server row, so a hidden-only install would
+	// otherwise report "Not configured / Configuration diagnostics: 0" and
+	// assert a clean setup while the reader's screen says a group is serving
+	// nothing. A count, never the labels - those are user text, and the count
+	// is what makes the zero above honest.
+	const hidden = diagnostics.reduce(
+		(total, diagnostic) => (diagnostic.kind === "hidden-groups" ? total + diagnostic.labels.length : total),
+		0
+	);
+	if (hidden > 0) {
+		lines.push(`Hidden provider groups: ${hidden}`);
 	}
 	return lines.join("\n");
 }
@@ -1078,10 +1198,13 @@ function Support({
 	servers,
 	modelCount,
 	legacyServerCount,
+	diagnostics,
 }: {
 	servers: readonly DashboardServer[];
 	modelCount: number;
 	legacyServerCount: number;
+	/** Copied alongside the connection facts; the page's subject rides its own report. */
+	diagnostics: readonly ConfigDiagnosticView[];
 }) {
 	// A nonce, not a boolean: clicking Copy again while the check mark is
 	// showing must restart the flash. Setting `copied` to true when it is
@@ -1099,7 +1222,9 @@ function Support({
 		return () => clearTimeout(timer);
 	}, [copiedAt]);
 	const copyDiagnostics = () => {
-		navigator.clipboard?.writeText(diagnosticsReportText(servers, modelCount, legacyServerCount)).catch(() => {});
+		navigator.clipboard
+			?.writeText(diagnosticsReportText(servers, modelCount, legacyServerCount, diagnostics))
+			.catch(() => {});
 		setCopiedAt((current) => current + 1);
 	};
 	const copied = copiedAt > 0;
@@ -1171,7 +1296,12 @@ export function DiagnosticsSection({
 		<>
 			<ConfigDiagnostics diagnostics={diagnostics} />
 			<ResolvedModels active={active} stateSeq={stateSeq} onInspect={onInspect} />
-			<Support servers={servers} modelCount={modelCount} legacyServerCount={legacyServerCount} />
+			<Support
+				servers={servers}
+				modelCount={modelCount}
+				legacyServerCount={legacyServerCount}
+				diagnostics={diagnostics}
+			/>
 		</>
 	);
 }

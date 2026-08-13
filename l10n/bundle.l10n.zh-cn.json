@@ -293,7 +293,7 @@
 	"Error": "错误",
 	"Error at": "错误阈值",
 	"Every model your servers report, as registered with Copilot Chat. Lists are cached; run Sync models to ask the servers again now.": "你的服务器报告的全部模型, 即注册到 Copilot Chat 的模型。列表有缓存; 运行「同步模型」可立即重新询问服务器。",
-	"Evidence about this install, e.g. Copy diagnostics puts your connection summary on the clipboard as English text. Report a bug pre-fills a GitHub issue with version, platform, and logs.": "关于本次安装的信息, 例如复制诊断信息会把连接摘要以英文放入剪贴板。报告缺陷会预填一个 GitHub 问题, 含版本、平台和日志。",
+	"Evidence about this install, e.g. Copy diagnostics puts your connections and configuration problems on the clipboard as English text. Report a bug pre-fills a GitHub issue.": "关于本次安装的信息, 例如复制诊断信息会把连接和配置问题以英文放入剪贴板。报告缺陷会预填一个 GitHub 问题。",
 	"Exact model IDs to register even when discovery cannot list them, e.g. deepseek-r1. A declaration goes inert once the server lists the ID.": "即使发现无法列出也要注册的精确模型 ID, 例如 deepseek-r1。一旦服务器列出该 ID, 该声明即不再起作用。",
 	"Exactly one form per entry. Companions belong inside the form you choose.": "每个条目只有一种形式。附带凭据属于你所选的那种形式。",
 	"Exclude Secrets": "不含密钥",

@@ -27,6 +27,10 @@ const FAKE_BUNDLE: Record<string, string> = {
 	"{0} in/price per million input tokens; {0} is a dollar amount": "IN[{0}]",
 	"{0} out/price per million output tokens; {0} is a dollar amount": "OUT[{0}]",
 	"{0} min ago": "AGO[{0}]",
+	// The tracer for the configuration lines: the on-screen sentence IS
+	// translated, so a copy path that read the rendered text (or reused
+	// recordProblemText) would paste MATCHER[...] into a public issue.
+	'Nothing in record "{0}" is applied: that is not a valid matcher key.': "MATCHER[{0}]",
 };
 
 beforeAll(() => {
@@ -69,6 +73,14 @@ test("Copy diagnostics stays English under a configured bundle while the server 
 			makeState({
 				servers: [makeDeclaredServer({ label: "Prod", modelCount: 1, lastChecked })],
 				models: [makeModel()],
+				diagnostics: [
+					{
+						kind: "record",
+						setting: "models.parameters",
+						diagnostic: { kind: "invalid-matcher", recordKey: "gpt*5", key: "gpt*5" },
+						severity: "warning",
+					},
+				],
 			})
 		)
 	);
@@ -79,14 +91,17 @@ test("Copy diagnostics stays English under a configured bundle while the server 
 	const pill = root.querySelector("#panel-overview .pill .pill-time") as HTMLElement;
 	expect(pill.textContent).toContain("AGO[5]");
 
-	const diagnosticsTab = Array.from(root.querySelectorAll("[role='tab']")).find(
-		(candidate) => (candidate.textContent ?? "").trim() === "Diagnostics"
-	) as HTMLElement;
-	fireClick(diagnosticsTab);
+	fireClick(root.querySelector("#tab-diagnostics") as HTMLElement);
 
 	// The copied block is fully English by policy: the plain ISO instant, no
 	// localized relative echo anywhere in the text.
 	fireClick(buttonByText(root, "Copy diagnostics"));
 	expect(written[0]).toContain(`Last checked: ${new Date(lastChecked).toISOString()}`);
 	expect(written[0]).not.toContain("AGO[");
+	// And the configuration lines are composed from classifications and
+	// structural keys rather than translated from the on-screen sentence: the
+	// page shows the translated marker, the paste does not.
+	expect((root.querySelector("#panel-diagnostics") as HTMLElement).textContent).toContain("MATCHER[gpt*5]");
+	expect(written[0]).not.toContain("MATCHER[");
+	expect(written[0]).toContain('blocking models.parameters invalid-matcher "gpt*5"');
 });
