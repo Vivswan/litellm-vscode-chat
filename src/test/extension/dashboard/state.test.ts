@@ -2240,7 +2240,7 @@ suite("extension/dashboard/state", () => {
 					sourceHandle: "handle-ext",
 					secrets: { apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "settings" },
 				}),
-				req("executeCommand", { command: "syncModels" }),
+				req("executeCommand", { command: "openOutput" }),
 			];
 			for (const request of requests) {
 				assert.ok(parseDashboardRequest(request).success, `rejected ${JSON.stringify(request)}`);
@@ -2277,6 +2277,9 @@ suite("extension/dashboard/state", () => {
 				req("revealSetting", { setting: "chat.timeout", extra: 1 }),
 				req("setHeaders", { value: { "x-bad": { nested: true } } }),
 				req("executeCommand", { command: "workbench.action.terminal.sendSequence" }),
+				// Syncing left the postable command set when the acked syncModels
+				// wire method took over; the old id must not quietly come back.
+				req("executeCommand", { command: "syncModels" }),
 				req("ready", { extra: 1 }),
 				// saveServerSetting: strict everywhere, so no field rides along into the setting.
 				req("saveServerSetting", { server: { label: "P", baseUrl: "http://x" } }),

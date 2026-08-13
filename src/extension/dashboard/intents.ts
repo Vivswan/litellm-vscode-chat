@@ -144,7 +144,6 @@ export interface IntentEnvironment {
 
 const COMMANDS_BY_ID: Record<DashboardCommandId, { command: string; args: readonly unknown[] }> = {
 	openGroupsFile: { command: INTERNAL_CMD.openGroupsFile, args: [] },
-	syncModels: { command: CMD.syncModels, args: [] },
 	testConnection: { command: CMD.testConnection, args: [] },
 	openSettings: { command: "workbench.action.openSettings", args: [EXTENSION_SETTINGS_FILTER] },
 	reportIssue: { command: CMD.reportIssue, args: [] },
@@ -549,14 +548,15 @@ export async function executeDashboardIntent(
 			return undefined;
 		}
 		case "syncModels": {
-			// The same command the palette and the rail run, through the same
-			// table, so there is one definition of what a sync is. The await is
-			// the whole point of this method existing separately from
-			// executeCommand: settling is what the ack reports, and a second
-			// caller arriving mid-pass joins the running one rather than being
-			// waved through, so the answer always describes a pass that ran.
-			const { command, args } = COMMANDS_BY_ID.syncModels;
-			await env.executeCommand(command, ...args);
+			// The same registered command the palette and the status bar run,
+			// read from the shared command declarations, so there is one
+			// definition of what a sync is. What sets this method apart from
+			// executeCommand is its outcome class: executeCommand is
+			// fire-and-forget, while this ack answers only once the pass has
+			// settled - and a second caller arriving mid-pass joins the running
+			// one rather than being waved through, so the answer always
+			// describes a pass that ran.
+			await env.executeCommand(CMD.syncModels);
 			return undefined;
 		}
 	}

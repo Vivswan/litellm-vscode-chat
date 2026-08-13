@@ -317,17 +317,22 @@ suite("extension/dashboard/panelIntegration", () => {
 
 	test("an executeCommand intent dispatches through the real vscode.commands bridge", async function () {
 		this.timeout(20000);
-		// syncModels is a real registered command; with nothing declared it
-		// completes without network. A dead bridge would classify as a failure.
-		assert.strictEqual(await inject(request("executeCommand", { command: "syncModels" })), "ok");
+		// openOutput is a real registered command that shows the output channel:
+		// no network, no dialogs, and it stays dashboard-postable (syncing left
+		// the postable set when the acked syncModels wire method took over).
+		// Revealing the Output panel does steal focus in the shared host - the
+		// mildest side effect any postable command has; every alternative opens
+		// an editor, a dialog, or a quick-pick. What this proves is the bridge,
+		// not the command - a dead bridge would classify as a failure.
+		assert.strictEqual(await inject(request("executeCommand", { command: "openOutput" })), "ok");
 	});
 
 	test("a syncModels intent runs the real command and answers only once it has settled", async function () {
 		this.timeout(20000);
 		// The whole reason this method exists apart from executeCommand: its
 		// answer is a completion signal, so the outcome must not resolve until
-		// the command's own promise has. Same real registered command and the
-		// same bridge as the test above - what is pinned here is the awaiting.
+		// the command's own promise has. The real registered litellm.syncModels
+		// through the real bridge - what is pinned here is the awaiting.
 		let settled = false;
 		const outcome = inject(request("syncModels", null, "pi-sync-acked"));
 		void Promise.resolve(outcome).then(() => {

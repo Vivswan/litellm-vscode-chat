@@ -164,10 +164,10 @@ const TEMPERATURES = [0.1, 0.25, 0.5, 0.75, 1] as const;
 
 /**
  * Dashboard intents with known outcomes, valid and value-invalid. Only
- * intents that cannot wedge the host are generated: executeCommand is
- * limited to syncModels (manageServers and openSettings open UI surfaces
- * that await user input, and testConnection/showDiagnostics are covered
- * elsewhere), and saveServerSetting/adoptServer stay out because the
+ * intents that cannot wedge the host are generated: syncing rides the acked
+ * syncModels wire method rather than executeCommand (the postable command
+ * ids all open UI surfaces that await user input, or are covered by suites
+ * of their own), and saveServerSetting/adoptServer stay out because the
  * declare/redeclare/remove actions already drive the servers setting
  * through its own oracle.
  */
@@ -271,9 +271,11 @@ function generateDashboardIntent(
 				expect: "validation-error",
 			};
 		case 9:
+			// The acked wire method, which is how the webview drives a sync now
+			// (syncing is no longer an executeCommand-postable id).
 			return {
 				kind: "dashboard-intent",
-				intent: dashboardRequest("executeCommand", { command: "syncModels" }, `fuzz-${serial}`),
+				intent: dashboardRequest("syncModels", null, `fuzz-${serial}`),
 				expect: "ok",
 			};
 		case 10:
