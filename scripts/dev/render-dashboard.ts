@@ -8,7 +8,12 @@
  *
  * Usage:
  *   bun scripts/dev/render-dashboard.ts --fixture scripts/dev/renderFixtures/example.ts --out /tmp/shot.png
- *     [--width 1300] [--height 950] [--clip-viewport] [--html-out /tmp/page.html] [--no-theme]
+ *     [--width 1300] [--height 950] [--theme dark|light|high-contrast|forced-colors]
+ *     [--clip-viewport] [--html-out /tmp/page.html] [--no-theme]
+ *
+ * --theme overrides the fixture's own hostTheme, so any fixture can be shot in
+ * light and dark without a second fixture file; the dashboard has to read well
+ * in both.
  *
  * CHROME_BIN overrides Chrome discovery. Exit code 0 only when the PNG was
  * written and is larger than 10 KB.
@@ -40,12 +45,14 @@ export interface RenderFixture {
 	readonly settleMs?: number;
 	/**
 	 * The host theme the page emulates: the token set in harness.css plus the
-	 * body class VS Code stamps. "high-contrast" renders the HC token set with
-	 * prefers-contrast raised, so the theme.css contrast overrides show their
-	 * own colors; "forced-colors" adds forced-colors: active on top, the way
-	 * an OS high-contrast mode overrides author colors. Default "dark".
+	 * body class VS Code stamps. "light" and "dark" are the two ordinary
+	 * themes and the dashboard must read well in both; "high-contrast" renders
+	 * the HC token set with prefers-contrast raised, so the theme.css contrast
+	 * overrides show their own colors; "forced-colors" adds forced-colors:
+	 * active on top, the way an OS high-contrast mode overrides author colors.
+	 * Default "dark".
 	 */
-	readonly hostTheme?: "dark" | "high-contrast" | "forced-colors";
+	readonly hostTheme?: "dark" | "light" | "high-contrast" | "forced-colors";
 	/**
 	 * Canned answers for posted requests: when the page posts a request whose
 	 * `method` matches a key, the stub dispatches the mapped envelope template
@@ -64,7 +71,8 @@ const MIN_PNG_BYTES = 10 * 1024;
 function usage(): never {
 	console.error(
 		"usage: bun scripts/dev/render-dashboard.ts --fixture <fixture.ts> --out <shot.png>" +
-			" [--width N] [--height N] [--clip-viewport] [--html-out <page.html>] [--no-theme]"
+			" [--width N] [--height N] [--theme dark|light|high-contrast|forced-colors]" +
+			" [--clip-viewport] [--html-out <page.html>] [--no-theme]"
 	);
 	process.exit(1);
 }
@@ -81,7 +89,7 @@ function themeCss(): string {
 		--vscode-font-size: 13px;
 		--vscode-editor-font-family: Menlo, Monaco, "Courier New", monospace;
 		--vscode-foreground: #cccccc;
-		--vscode-descriptionForeground: #ccccccb3;
+		--vscode-descriptionForeground: #9d9d9d;
 		--vscode-editor-background: #1f1f1f;
 		--vscode-panel-background: #181818;
 		--vscode-editorWidget-background: #202020;
@@ -112,7 +120,7 @@ function themeCss(): string {
 		--vscode-inputValidation-warningBorder: #b89500;
 		--vscode-button-background: #0078d4;
 		--vscode-button-foreground: #ffffff;
-		--vscode-button-border: transparent;
+		--vscode-button-border: #ffffff1a;
 		--vscode-button-hoverBackground: #026ec1;
 		--vscode-button-secondaryBackground: #313131;
 		--vscode-button-secondaryForeground: #cccccc;
@@ -123,6 +131,93 @@ function themeCss(): string {
 		--vscode-notifications-background: #1f1f1f;
 		--vscode-notifications-foreground: #cccccc;
 		--vscode-notifications-border: #313131;
+		--vscode-charts-red: #f14c4c;
+		--vscode-disabledForeground: #cccccc80;
+		--vscode-editorWidget-border: #454545;
+		--vscode-editorWidget-foreground: #cccccc;
+		--vscode-list-hoverForeground: #cccccc;
+		--vscode-panel-border: #2b2b2b;
+		--vscode-progressBar-background: #0078d4;
+		--vscode-statusBarItem-errorBackground: #c72e0f;
+		--vscode-statusBarItem-errorForeground: #ffffff;
+		--vscode-textBlockQuote-background: #2b2b2b;
+		--vscode-dropdown-background: #313131;
+		--vscode-dropdown-foreground: #cccccc;
+		--vscode-dropdown-border: #3c3c3c;
+		--vscode-settings-modifiedItemIndicator: #bb800966;
+	}
+	body { background: var(--vscode-editor-background); }
+	`;
+}
+
+/**
+ * The VS Code Light Modern theme tokens, approximated the same way, over the
+ * same key set as the dark tokens above - a token one theme defines and the
+ * other omits would show up as a design difference when it is really a gap in
+ * this file.
+ */
+function lightCss(): string {
+	return `
+	:root {
+		--vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Ubuntu, sans-serif;
+		--vscode-font-size: 13px;
+		--vscode-editor-font-family: Menlo, Monaco, "Courier New", monospace;
+		--vscode-foreground: #3b3b3b;
+		--vscode-descriptionForeground: #3b3b3b;
+		--vscode-editor-background: #ffffff;
+		--vscode-panel-background: #f8f8f8;
+		--vscode-editorWidget-background: #f8f8f8;
+		--vscode-widget-border: #e5e5e5;
+		--vscode-widget-shadow: rgba(0, 0, 0, 0.16);
+		--vscode-focusBorder: #005fb8;
+		--vscode-errorForeground: #f85149;
+		--vscode-editorWarning-foreground: #bf8803;
+		--vscode-notificationsWarningIcon-foreground: #bf8803;
+		--vscode-testing-iconPassed: #388a34;
+		--vscode-charts-green: #388a34;
+		--vscode-charts-yellow: #bf8803;
+		--vscode-list-hoverBackground: #f2f2f2;
+		--vscode-toolbar-hoverBackground: #b8b8b850;
+		--vscode-textLink-foreground: #005fb8;
+		--vscode-textLink-activeForeground: #005fb8;
+		--vscode-textCodeBlock-background: #f8f8f8;
+		--vscode-panelTitle-activeForeground: #3b3b3b;
+		--vscode-panelTitle-inactiveForeground: #3b3b3b;
+		--vscode-panelTitle-activeBorder: #005fb8;
+		--vscode-input-background: #ffffff;
+		--vscode-input-foreground: #3b3b3b;
+		--vscode-input-border: #cecece;
+		--vscode-input-placeholderForeground: #767676;
+		--vscode-inputValidation-errorBackground: #f2dede;
+		--vscode-inputValidation-errorBorder: #e51400;
+		--vscode-inputValidation-warningBackground: #f6f5d2;
+		--vscode-inputValidation-warningBorder: #bf8803;
+		--vscode-button-background: #005fb8;
+		--vscode-button-foreground: #ffffff;
+		--vscode-button-border: #0000001a;
+		--vscode-button-hoverBackground: #0258a8;
+		--vscode-button-secondaryBackground: #e5e5e5;
+		--vscode-button-secondaryForeground: #3b3b3b;
+		--vscode-button-secondaryHoverBackground: #cccccc;
+		--vscode-editorHoverWidget-background: #f8f8f8;
+		--vscode-editorHoverWidget-foreground: #3b3b3b;
+		--vscode-editorHoverWidget-border: #c8c8c8;
+		--vscode-notifications-background: #ffffff;
+		--vscode-notifications-foreground: #3b3b3b;
+		--vscode-notifications-border: #e5e5e5;
+		--vscode-charts-red: #e51400;
+		--vscode-disabledForeground: #61616180;
+		--vscode-editorWidget-border: #c8c8c8;
+		--vscode-editorWidget-foreground: #3b3b3b;
+		--vscode-list-hoverForeground: #3b3b3b;
+		--vscode-panel-border: #e5e5e5;
+		--vscode-progressBar-background: #005fb8;
+		--vscode-statusBarItem-errorBackground: #c72e0f;
+		--vscode-statusBarItem-errorForeground: #ffffff;
+		--vscode-textBlockQuote-background: #f8f8f8;
+		--vscode-dropdown-background: #ffffff;
+		--vscode-dropdown-foreground: #3b3b3b;
+		--vscode-dropdown-border: #cecece;
 		--vscode-settings-modifiedItemIndicator: #bb800966;
 	}
 	body { background: var(--vscode-editor-background); }
@@ -179,6 +274,38 @@ function highContrastCss(): string {
 	}
 	body { background: var(--vscode-editor-background); }
 	`;
+}
+
+/**
+ * Every --vscode-* token the stylesheet reads must be defined by the ORDINARY
+ * themes. VS Code hands the real webview a full token set, so a token this
+ * file omits does not fall back the way it would in the host - it falls back
+ * to whatever literal the stylesheet carries, and those literals were written
+ * against dark. Invisible in a dark render, actively misleading in a light
+ * one, which is the review this harness exists to serve.
+ *
+ * High contrast is exempt on purpose, not by oversight: the real HC themes
+ * leave button fills, secondary backgrounds and hover colors genuinely null,
+ * so its sparseness IS the fidelity - the fallback chains and theme.css's
+ * contrast overrides are what an HC render is meant to exercise. Holding it to
+ * this invariant would make those renders less faithful, not more.
+ *
+ * Contrast-only tokens are exempt everywhere for the mirror reason: the
+ * ordinary themes do not define them and the stylesheet reads them behind a
+ * fallback for exactly that.
+ */
+const CONTRAST_ONLY_TOKENS = new Set(["--vscode-contrastBorder", "--vscode-contrastActiveBorder"]);
+
+function assertThemeCoversStylesheet(stylesheet: string, tokensCss: string, hostTheme: string): void {
+	const referenced = new Set([...stylesheet.matchAll(/var\((--vscode-[A-Za-z0-9-]+)/g)].map((match) => match[1]));
+	const defined = new Set([...tokensCss.matchAll(/(--vscode-[A-Za-z0-9-]+)\s*:/g)].map((match) => match[1]));
+	const missing = [...referenced].filter((token) => !defined.has(token) && !CONTRAST_ONLY_TOKENS.has(token)).sort();
+	if (missing.length > 0) {
+		throw new Error(
+			`The ${hostTheme} token set omits ${missing.length} token(s) the stylesheet reads, so the render would` +
+				` show the stylesheet's own fallbacks instead of the theme: ${missing.join(", ")}`
+		);
+	}
 }
 
 /** JSON hardened for an inline script body, like html.ts's inlineScriptJson (which is module-private). */
@@ -452,7 +579,7 @@ const DETERMINISM_CSS =
 function buildPageHtml(
 	messages: readonly unknown[],
 	respond: Readonly<Record<string, unknown>>,
-	hostTheme: "dark" | "high-contrast" | "forced-colors"
+	hostTheme: "dark" | "light" | "high-contrast" | "forced-colors"
 ): string {
 	const nonce = "dev-nonce";
 	let html = buildDashboardHtml({
@@ -464,11 +591,20 @@ function buildPageHtml(
 		l10nBundle: undefined,
 	});
 	html = html.replace("</head>", `<link rel="stylesheet" href="./harness.css">\n</head>`);
-	if (hostTheme === "high-contrast" || hostTheme === "forced-colors") {
-		// VS Code stamps the theme kind onto the body; theme.css keys its
-		// contrast overrides off the same class.
-		html = html.replace("<body>", '<body class="vscode-high-contrast">');
+	// VS Code stamps the theme kind onto the body, and theme.css keys its
+	// contrast overrides off that class. The ordinary themes carry their class
+	// too: nothing keys off them today, but the page should be what the host
+	// would actually hand the webview.
+	const bodyClass = {
+		dark: "vscode-dark",
+		light: "vscode-light",
+		"high-contrast": "vscode-high-contrast",
+		"forced-colors": "vscode-high-contrast",
+	}[hostTheme];
+	if (!html.includes("<body>")) {
+		throw new Error("Unexpected dashboard HTML shape: no bare <body> to stamp the theme class onto");
 	}
+	html = html.replace("<body>", `<body class="${bodyClass}">`);
 	const bundleTag = `<script nonce="${nonce}" src="./dashboard.js"></script>`;
 	if (!html.includes(bundleTag)) {
 		throw new Error("Unexpected dashboard HTML shape: the bundle script tag was not found");
@@ -486,6 +622,7 @@ async function main(): Promise<void> {
 			"html-out": { type: "string" },
 			"clip-viewport": { type: "boolean", default: false },
 			"no-theme": { type: "boolean", default: false },
+			theme: { type: "string" },
 		},
 	});
 	if (values.fixture === undefined || values.out === undefined) {
@@ -502,13 +639,22 @@ async function main(): Promise<void> {
 	const chromeBin = findChrome();
 	console.log(`chrome: ${chromeBin}`);
 	const { bundlePath, stylesheetPath } = await ensureBundle();
-	const hostTheme = fixture.hostTheme ?? "dark";
+	const themeNames = ["dark", "light", "high-contrast", "forced-colors"] as const;
+	type HostTheme = (typeof themeNames)[number];
+	const isHostTheme = (value: string): value is HostTheme => (themeNames as readonly string[]).includes(value);
+	if (values.theme !== undefined && !isHostTheme(values.theme)) {
+		throw new Error(`--theme must be one of ${themeNames.join(", ")}; got ${values.theme}`);
+	}
+	const hostTheme: HostTheme = values.theme ?? fixture.hostTheme ?? "dark";
 	const html = buildPageHtml(fixture.messages, fixture.respond ?? {}, hostTheme);
 	if (values["html-out"] !== undefined) {
 		await fs.writeFile(path.resolve(values["html-out"]), html);
 		console.log(`wrote page HTML to ${path.resolve(values["html-out"])}`);
 	}
-	const tokensCss = hostTheme === "dark" ? themeCss() : highContrastCss();
+	const tokensCss = hostTheme === "dark" ? themeCss() : hostTheme === "light" ? lightCss() : highContrastCss();
+	if (hostTheme === "dark" || hostTheme === "light") {
+		assertThemeCoversStylesheet(await fs.readFile(stylesheetPath, "utf8"), tokensCss, hostTheme);
+	}
 	const harnessCss = values["no-theme"] === true ? DETERMINISM_CSS : `${tokensCss}\n${DETERMINISM_CSS}`;
 
 	const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "render-dashboard-"));
@@ -548,18 +694,19 @@ async function main(): Promise<void> {
 	try {
 		const port = await waitForDevtoolsPort(profileDir, READY_TIMEOUT_MS);
 		cdp = await CdpConnection.connect(await findPageTargetUrl(port, pageUrl, READY_TIMEOUT_MS));
-		if (hostTheme !== "dark") {
-			// The media features the theme kind implies: prefers-contrast for
-			// both HC modes, forced-colors only where an OS high-contrast mode
-			// would override author colors.
-			await cdp.send("Emulation.setEmulatedMedia", {
-				features: [
-					...(hostTheme === "forced-colors" ? [{ name: "forced-colors", value: "active" }] : []),
-					{ name: "prefers-contrast", value: "more" },
-					{ name: "prefers-color-scheme", value: "dark" },
-				],
-			});
-		}
+		// Emulated for every theme, dark included: skipping it left dark renders
+		// on whatever Chrome's host preferred, so the one theme that never
+		// declared its scheme was the default one. prefers-contrast rises only
+		// for the HC modes, and forced-colors only where an OS high-contrast
+		// mode would override author colors.
+		const light = hostTheme === "light";
+		await cdp.send("Emulation.setEmulatedMedia", {
+			features: [
+				...(hostTheme === "forced-colors" ? [{ name: "forced-colors", value: "active" }] : []),
+				{ name: "prefers-contrast", value: hostTheme === "dark" || light ? "no-preference" : "more" },
+				{ name: "prefers-color-scheme", value: light ? "light" : "dark" },
+			],
+		});
 
 		const readyDeadline = Date.now() + READY_TIMEOUT_MS;
 		while ((await evaluate(cdp, "window.__ready === true")) !== true) {
