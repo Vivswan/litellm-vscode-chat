@@ -119,9 +119,7 @@ test("editing a keyed entry derives the API-key form; switching to None keeps th
 	fireCheck(authRadio(root, "None"), true);
 	// The shape rule: a stored key still activates the bearer, so the form
 	// says so and keeps the Remove checkbox reachable.
-	expect(root.textContent).toContain(
-		"A stored API key still activates the bearer on this shape; use its Remove checkbox to stop sending it."
-	);
+	expect(root.textContent).toContain("A stored API key still activates the bearer here.");
 	const remove = Array.from(root.querySelectorAll(".secret-remove input[type=checkbox]"));
 	expect(remove.length).toBe(1);
 

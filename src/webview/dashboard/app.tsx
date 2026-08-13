@@ -369,8 +369,17 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	// come back and revive its state.
 	const [editing, setEditing] = useState<{ request: ServerEditRequest; key: number } | undefined>(undefined);
 	const nextEditKey = useRef(1);
-	// The page's draft has edits worth asking about, and the answer in flight.
-	const [editDirty, setEditDirty] = useState(false);
+	// The page's draft has edits worth asking about. A ref, not state: nothing
+	// renders from it, and the page clears it from an effect of its own (an
+	// entry deleted under the reader) that runs BEFORE this component's
+	// effects in the same commit - state read from a closure would still say
+	// "dirty" and raise a question about a draft that no longer exists.
+	const editDirty = useRef(false);
+	// The child lists this in an effect's deps, so a fresh arrow per parent
+	// render would re-run that effect on every render of the shell.
+	const noteEditDirty = useCallback((dirty: boolean) => {
+		editDirty.current = dirty;
+	}, []);
 	const [confirmingDiscard, setConfirmingDiscard] = useState(false);
 	// Where the reader was when they opened the page, and where they asked to
 	// go if a rail click is what raised the question. Refs, not state: nothing
@@ -380,8 +389,18 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	const leaveIntent = useRef<SectionId | undefined>(undefined);
 	// Where focus goes once the destination has actually left the screen.
 	const pendingLeaveFocus = useRef<{ kind: "opener" } | { kind: "section"; section: SectionId } | undefined>(undefined);
-	// The navigation guard as the one-time message listener can reach it.
+	// The navigation guard as the one-time message listener can reach it. It is
+	// only ever read from the effect below, which runs after a committed state
+	// render - by which point the assignment past the loading return has run.
 	const selectSectionRef = useRef<(id: SectionId) => void>(() => undefined);
+	// A deep link's target, held until there is a page to apply it to. The
+	// handler cannot apply it itself: the guard it has to route through is
+	// assigned during a render that has not happened yet while the dashboard is
+	// still loading, and the extension delivers the state push and the focus
+	// request back to back (panel.ts open()), so whether a commit lands between
+	// them is the browser's business, not a contract. Recording the intent and
+	// applying it on the next commit takes the timing out of it entirely.
+	const [pendingFocusSection, setPendingFocusSection] = useState<SectionId | undefined>(undefined);
 	// The models list's server scope (a server row's model-count link sets it,
 	// the chip in the models filter bar clears it). Held here rather than in
 	// ModelsSection because the servers table is the other end of the wire.
@@ -412,13 +431,13 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 			if (message.kind === "focusSection") {
 				// The extension's deep link (litellm.showDiagnostics landing on the
 				// Diagnostics tab); the includes check drops a section this page
-				// does not have instead of blanking every panel. Routed through
-				// the same guard a rail click takes - through a ref, because this
-				// listener is installed once and the guard closes over state -
-				// so an open draft is asked about instead of the command
-				// appearing to do nothing while the pane it changed is hidden.
+				// does not have instead of blanking every panel. Recorded rather
+				// than applied here, and applied through the same guard a rail
+				// click takes, so an open draft is asked about instead of the
+				// command appearing to do nothing while the pane it changed is
+				// hidden behind the edit page.
 				if (SECTION_IDS.includes(message.section)) {
-					selectSectionRef.current(message.section);
+					setPendingFocusSection(message.section);
 				}
 				return;
 			}
@@ -457,6 +476,18 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 			setServerScope(undefined);
 		}
 	}, [serverScope, state]);
+
+	// Deep links arrive before the first state push as often as after it, so
+	// this records the request and applies it once state exists, through the
+	// ref rather than the render closure: the guard has to see the current
+	// editing state, not the one this render was built from.
+	useEffect(() => {
+		if (pendingFocusSection === undefined || state === undefined) {
+			return;
+		}
+		setPendingFocusSection(undefined);
+		selectSectionRef.current(pendingFocusSection);
+	}, [pendingFocusSection, state]);
 
 	useEffect(() => {
 		if (pendingModelsFocus.current && section === "models") {
@@ -570,7 +601,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		// skip the rail fallback and leave focus nowhere.
 		editOpener.current = active instanceof HTMLElement && active !== document.body ? active : undefined;
 		leaveIntent.current = undefined;
-		setEditDirty(false);
+		editDirty.current = false;
 		setConfirmingDiscard(false);
 		setEditing({ request, key: nextEditKey.current });
 		nextEditKey.current += 1;
@@ -585,7 +616,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		const intent = leaveIntent.current;
 		leaveIntent.current = undefined;
 		setEditing(undefined);
-		setEditDirty(false);
+		editDirty.current = false;
 		setConfirmingDiscard(false);
 		if (intent !== undefined) {
 			setSection(intent);
@@ -603,7 +634,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	// Esc while the question stands answers "keep editing", so a reflexive
 	// Esc-Esc never destroys a draft - only the explicit Discard does.
 	const requestLeaveEdit = () => {
-		if (editDirty) {
+		if (editDirty.current) {
 			setConfirmingDiscard((current) => {
 				// Toggling the question off IS "keep editing", so the navigation
 				// that raised it is abandoned with it. A surviving intent would
@@ -632,7 +663,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 			return;
 		}
 		leaveIntent.current = id;
-		if (editDirty) {
+		if (editDirty.current) {
 			// Asking again, never toggling: a reader who clicks one rail item,
 			// sees the question, and then clicks another has changed their
 			// destination - not answered. Toggling here would dismiss the
@@ -656,6 +687,13 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	// these rows (numbers, booleans, resets, command kicks, and the usage
 	// alert-thresholds editor) commits on its own without a draft to reopen,
 	// so the last failed write reports here.
+	// The section actually on screen. A deep link recorded on the way in shows
+	// immediately rather than after the effect below has run, so the command
+	// does not paint the Servers page for a frame first; while the edit
+	// destination is open it defers, because leaving that page is a question
+	// rather than a move.
+	const activeSection = pendingFocusSection !== undefined && editing === undefined ? pendingFocusSection : section;
+
 	const scalarFailure =
 		failures.setNumberSetting ??
 		failures.setBooleanSetting ??
@@ -685,7 +723,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		>
 			<Rail
 				sections={railSections(state)}
-				active={section}
+				active={activeSection}
 				onSelect={selectSection}
 				serverCount={state.servers.length}
 				overall={overallState(state.servers, state.legacyServerCount)}
@@ -706,14 +744,14 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 				    mounted behind it - hidden, not unmounted - so the row that
 				    opened the page survives to take focus back, with its scroll
 				    position. */}
-				<SectionPanel section="overview" active={section}>
+				<SectionPanel section="overview" active={activeSection}>
 					{editing !== undefined ? (
 						<ServerEditPage
 							key={editing.key}
 							request={editing.request}
 							servers={state.servers}
 							confirmingDiscard={confirmingDiscard}
-							onDirtyChange={setEditDirty}
+							onDirtyChange={noteEditDirty}
 							onRequestClose={requestLeaveEdit}
 							onKeepEditing={keepEditing}
 							onDiscard={leaveEdit}
@@ -733,7 +771,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 						/>
 					</div>
 				</SectionPanel>
-				<SectionPanel section="models" active={section}>
+				<SectionPanel section="models" active={activeSection}>
 					<ModelsSection
 						models={state.models}
 						serverCount={state.servers.length}
@@ -743,10 +781,10 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 						onInspect={inspectModel}
 					/>
 				</SectionPanel>
-				<SectionPanel section="usage" active={section}>
+				<SectionPanel section="usage" active={activeSection}>
 					<UsageSection usage={state.usage} serverCount={state.servers.length} now={now} />
 				</SectionPanel>
-				<SectionPanel section="settings" active={section}>
+				<SectionPanel section="settings" active={activeSection}>
 					<SettingsSection
 						settings={state.settings}
 						models={state.models}
@@ -755,7 +793,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 						editRecordRequest={editRecordRequest}
 					/>
 				</SectionPanel>
-				<SectionPanel section="diagnostics" active={section}>
+				<SectionPanel section="diagnostics" active={activeSection}>
 					<DiagnosticsSection
 						servers={state.servers}
 						modelCount={state.models.length}

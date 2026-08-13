@@ -521,3 +521,73 @@ test("a commit freezes the entry it is committing, so its own push cannot re-arm
 	pushToWebview({ kind: "ack", id: posted.id, method: "saveServerSetting" });
 	expect(root.querySelector(".server-edit-page")).toBeNull();
 });
+
+test("a deep link that arrives in the same tick as the first state still lands on its destination", () => {
+	// panel.ts open() does reveal(), pushState(), flushPendingFocus() back to
+	// back, so whether React commits between the push and the focus request is
+	// the browser's business rather than a contract - and the render harness
+	// dispatches a fixture's messages in one synchronous loop, which is why
+	// every deep-linked fixture was shooting the Servers page instead of the
+	// one it asked for. Delivering both inside one act reproduces that
+	// ordering exactly.
+	const root = mount(<App />);
+	void act(() => {
+		window.dispatchEvent(new MessageEvent("message", { data: statePush(makeState()) }));
+		window.dispatchEvent(new MessageEvent("message", { data: { kind: "focusSection", section: "diagnostics" } }));
+	});
+
+	expect(document.getElementById("tab-diagnostics")?.getAttribute("aria-selected")).toBe("true");
+	expect((document.getElementById("panel-diagnostics") as HTMLElement).hidden).toBe(false);
+	expect(root.querySelector(".server-edit-page")).toBeNull();
+});
+
+test("a deep link still asks a dirty page before taking the reader off it", () => {
+	// The hardening must not cost the guard: recording the intent and applying
+	// it on the next commit still routes through the same question a rail
+	// click raises.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
+	fireClick(buttonByText(root, "Edit"));
+	fireInput(inputByLabel(page(root), "Base URL"), "http://localhost:9999");
+
+	pushToWebview({ kind: "focusSection", section: "usage" });
+	expect(root.querySelector(".server-edit-page")).not.toBeNull();
+	expect(root.querySelector(".discard-confirm")).not.toBeNull();
+	fireClick(buttonByText(page(root), "Discard"));
+	expect(document.getElementById("tab-usage")?.getAttribute("aria-selected")).toBe("true");
+});
+
+test("a deep link that beats the first state push is remembered, not dropped", () => {
+	// The order a real webview is most likely to take, and the one the old ref
+	// read could not survive at all: the request arrives while the dashboard
+	// is still the loading skeleton, so there is no guard to route it through
+	// yet and nothing to apply it to.
+	const root = mount(<App />);
+	pushToWebview({ kind: "focusSection", section: "usage" });
+	expect(root.querySelector(".rail")).not.toBeNull();
+
+	pushToWebview(statePush(makeState()));
+	expect(document.getElementById("tab-usage")?.getAttribute("aria-selected")).toBe("true");
+	expect((document.getElementById("panel-usage") as HTMLElement).hidden).toBe(false);
+});
+
+test("a deep link that arrives with the push that deleted the entry lands where it asked", () => {
+	// The nastiest ordering of the three: the reader is editing with unsaved
+	// changes, one tick brings both the push that removes the entry and a deep
+	// link elsewhere. The draft died with the entry, so there is nothing to
+	// ask about - and the shell must know that before it decides, which it
+	// only does if the page's report is current rather than a render behind.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
+	fireClick(buttonByText(root, "Edit"));
+	fireInput(inputByLabel(page(root), "Base URL"), "http://localhost:9999");
+
+	void act(() => {
+		window.dispatchEvent(new MessageEvent("message", { data: statePush(makeState({ servers: [] })) }));
+		window.dispatchEvent(new MessageEvent("message", { data: { kind: "focusSection", section: "usage" } }));
+	});
+
+	expect(root.querySelector(".server-edit-page")).toBeNull();
+	expect(root.querySelector(".discard-confirm")).toBeNull();
+	expect(document.getElementById("tab-usage")?.getAttribute("aria-selected")).toBe("true");
+});

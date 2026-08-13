@@ -219,55 +219,68 @@ test("each section heading carries its own help", () => {
 	}
 });
 
-test("every server form field label has its help glyph beside it, and the storage choice its own", () => {
+test("every server form field carries its help glyph, trailing and named for the field it explains", () => {
+	// Two things at once, because one without the other is not the contract:
+	// the glyph exists for every field, and it sits AFTER the hint rather than
+	// beside the label. Its accessible name is what identifies it now that
+	// proximity does not.
 	const root = mount(<App />);
 	pushToWebview(statePush(fullState()));
 	fireClick(buttonByText(root, "Edit"));
 
-	const rowsByLabel = () =>
-		new Map(
-			Array.from(root.querySelectorAll(".form-card .label-row")).map((row) => [
-				(row.querySelector("label")?.textContent ?? "").trim(),
-				row,
-			])
+	const glyphFor = (field: Parameters<typeof serverFieldHelp>[0], label: string): HTMLElement => {
+		const button = Array.from(root.querySelectorAll<HTMLElement>("button.help")).find(
+			(candidate) => candidate.getAttribute("aria-label") === `Help: ${label}`
 		);
-	const fieldGlyph = (byLabel: Map<string, Element>, field: Parameters<typeof serverFieldHelp>[0], label: string) => {
-		const row = byLabel.get(label) ?? null;
-		if (row === null) {
-			throw new Error(`no label row for ${label}`);
+		if (button === undefined) {
+			throw new Error(`no help glyph for ${label}`);
 		}
-		helpIn(row, serverFieldHelp(field));
+		expect(button.parentElement?.querySelector(".help-tip")?.textContent).toBe(serverFieldHelp(field));
+		return button;
+	};
+	const trailing = (field: Parameters<typeof serverFieldHelp>[0], label: string, id: string) => {
+		const button = glyphFor(field, label);
+		// In the hint's cell, and NOT in the label's: the position is the point.
+		const hintCell = document.getElementById(`server-${id}-error`)?.parentElement;
+		expect(hintCell?.contains(button)).toBe(true);
+		const labelRow = document.querySelector(`label[for="server-${id}"]`)?.parentElement;
+		expect(labelRow?.querySelector("button.help")).toBeNull();
 	};
 
 	// The stored key derives the API-key form: identity, the key, and its
 	// virtual-key companion pair render, each with its glyph.
-	let byLabel = rowsByLabel();
-	fieldGlyph(byLabel, "label", "Label");
-	fieldGlyph(byLabel, "baseUrl", "Base URL");
-	fieldGlyph(byLabel, "apiKey", "API key");
-	fieldGlyph(byLabel, "virtualKeyHeader", "Virtual key header");
-	fieldGlyph(byLabel, "virtualKeyValue", "Virtual key value");
-	// Each visible secret field's storage radiogroup explains inline vs secure once.
-	let whereGroups = Array.from(root.querySelectorAll(".form-card .secret-where[role='radiogroup']"));
-	expect(whereGroups.length).toBe(2);
-	for (const group of whereGroups) {
-		helpIn(group, helpSecretStorage());
+	trailing("label", "Label", "label");
+	trailing("baseUrl", "Base URL", "baseUrl");
+	trailing("apiKey", "API key", "apiKey");
+	trailing("virtualKeyHeader", "Virtual key header", "virtualKeyHeader");
+	trailing("virtualKeyValue", "Virtual key value", "virtualKeyValue");
+	trailing("budget", "Budget (USD)", "budget");
+	glyphFor("apiVersion", "API version");
+	glyphFor("declaredModels", "Declared models");
+	glyphFor("expectedFailures", "Expected failures");
+
+	// Two secrets on this shape, each with its own storage choice and glyph.
+	expect(root.querySelectorAll(".secret-where").length).toBe(2);
+	for (const tip of root.querySelectorAll(".secret-where .help-tip")) {
+		expect(tip.textContent).toBe(helpSecretStorage());
 	}
 
-	// Under OAuth, its four fields carry their glyphs and the companion key
-	// explains its X-API-Key-only wire behavior instead of the bearer text.
-	const oauthOption = Array.from(root.querySelectorAll(".auth-selector label")).find(
-		(el) => (el.textContent ?? "").trim() === "OAuth"
+	// OAuth swaps in four fields of its own, plus a companion API key that
+	// explains itself differently from the API-key form's own.
+	const oauth = Array.from(root.querySelectorAll(".auth-selector label")).find(
+		(label) => (label.textContent ?? "").trim() === "OAuth"
 	);
-	fireCheck(oauthOption?.querySelector("input") as HTMLInputElement, true);
-	byLabel = rowsByLabel();
-	fieldGlyph(byLabel, "oauthTokenUrl", "OAuth token URL");
-	fieldGlyph(byLabel, "oauthClientId", "OAuth client ID");
-	fieldGlyph(byLabel, "oauthClientSecret", "OAuth client secret");
-	fieldGlyph(byLabel, "oauthScopes", "OAuth scopes");
-	helpIn(byLabel.get("API key") ?? null, helpOauthCompanionApiKey());
-	whereGroups = Array.from(root.querySelectorAll(".form-card .secret-where[role='radiogroup']"));
-	expect(whereGroups.length).toBe(3);
+	fireCheck(oauth?.querySelector("input") as HTMLInputElement, true);
+	trailing("oauthTokenUrl", "OAuth token URL", "oauthTokenUrl");
+	trailing("oauthClientId", "OAuth client ID", "oauthClientId");
+	trailing("oauthClientSecret", "OAuth client secret", "oauthClientSecret");
+	trailing("oauthScopes", "OAuth scopes", "oauthScopes");
+	const companionTip = Array.from(root.querySelectorAll<HTMLElement>("button.help"))
+		.find((candidate) => candidate.getAttribute("aria-label") === "Help: API key")
+		?.parentElement?.querySelector(".help-tip");
+	expect(companionTip?.textContent).toBe(helpOauthCompanionApiKey());
+	// Three secrets under OAuth: the client secret plus both companions.
+	expect(root.querySelectorAll(".secret-where").length).toBe(3);
 });
 
 test("the model-parameters editor explains prefix, parameter name, and JSON value on their inputs", () => {

@@ -118,7 +118,7 @@ test("secure-side values never render, even against a poisoned state carrying fo
 	expectNowhere(SENTINEL);
 });
 
-test("the storage line beside a secret states where the value will land, and claims nothing when nothing is stored", () => {
+test("the storage line says the one thing the reader cannot see, and stays quiet otherwise", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [declaredWithSecrets({ apiKey: "secure" })] })));
 	fireClick(buttonByText(page(root), "Add server"));
@@ -129,16 +129,21 @@ test("the storage line beside a secret states where the value will land, and cla
 
 	// Nothing stored and nothing typed: there is no current value to keep, so
 	// the field says nothing rather than promising one.
+	// Read as the whole cell, not the leading text node: the help glyph is a
+	// SIBLING of the description span, and a change that moved it back inside
+	// would put "Help: API key" into what the field announces about itself.
+	// Reading the text node in front of it would hide exactly that.
 	const hintOf = () => document.getElementById("server-apiKey-error")?.textContent ?? "";
 	expect(hintOf()).toBe("");
 
-	// A typed value names its destination, and the plain-text destination
-	// says so in the warning tone at the moment the radio is picked.
+	// A typed value bound for secret storage is the ordinary case and says
+	// nothing; the plain-text destination is a consequence, so it speaks up
+	// in the warning tone at the moment the radio is picked.
 	fireInput(apiKeyInput(root), TYPED);
-	expect(hintOf()).toBe("This will be written to secret storage on save.");
+	expect(hintOf()).toBe("");
 	const settings = [...root.querySelectorAll<HTMLInputElement>("input[name='server-apiKey-where']")][1];
 	fireCheck(settings as HTMLInputElement, true);
-	expect(hintOf()).toBe("This will be written to settings.json in plain text.");
+	expect(hintOf()).toBe("Saved as plain text in settings.json.");
 	expect(document.getElementById("server-apiKey-error")?.className).toContain("state-warn");
 	expectNowhere(SENTINEL);
 });
@@ -492,4 +497,70 @@ test("the disarmed secret input still round-trips typing, paste, and emptying th
 	expectOnlyInApiKeyInput(TYPED);
 	pushToWebview({ kind: "ack", id: saved2.id, method: "saveServerSetting" });
 	expectNowhere(SENTINEL, TYPED);
+});
+
+test("the storage line is right in every state it renders in, not just the common ones", () => {
+	// One sentence covering several states is how a shortened line goes wrong
+	// for the states it did not mean: an inline value that has sat in
+	// settings.json for months must not be told it is about to be written
+	// there. The matrix is the test.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [declaredWithSecrets({ apiKey: "settings" })] })));
+	openEdit(root);
+	const hintOf = () => document.getElementById("server-apiKey-error")?.textContent ?? "";
+	const toneOf = () => document.getElementById("server-apiKey-error")?.className ?? "";
+
+	// Stored inline, prefill not yet delivered: where it lives, and how to
+	// keep it.
+	expect(hintOf()).toBe("In settings. Leave empty to keep it.");
+	pushToWebview({
+		kind: "response",
+		id: readInlineRequest().id,
+		method: "readInlineSecrets",
+		payload: { values: { apiKey: TYPED } },
+	});
+
+	// The prefill arrives unchanged: a fact about where it already is, stated
+	// plainly - no warning tone, because nothing is about to happen.
+	expect(hintOf()).toBe("In settings.json, in plain text.");
+	expect(toneOf()).not.toContain("state-warn");
+
+	// Typing over it makes it a value about to be written, which is a
+	// consequence and says so.
+	fireInput(apiKeyInput(root), `${TYPED}-edited`);
+	expect(hintOf()).toBe("Saved as plain text in settings.json.");
+	expect(toneOf()).toContain("state-warn");
+
+	// Emptying keeps the stored value; removing takes it away.
+	fireInput(apiKeyInput(root), "");
+	expect(hintOf()).toBe("Emptied; the stored value is kept.");
+	const remove = page(root).querySelector<HTMLInputElement>(".secret-remove input[type=checkbox]");
+	fireCheck(remove as HTMLInputElement, true);
+	expect(hintOf()).toBe("Removed on save.");
+	expectNowhere(SENTINEL);
+});
+
+test("a stored secret whose form is not selected states the same two things the selected one does", () => {
+	// The orphan row is the state the matrix above cannot reach: no input, so
+	// it renders through a different component that had kept its own longer
+	// wording for the same two facts. One state, one sentence, whichever
+	// component draws it.
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(makeState({ servers: [declaredWithSecrets({ apiKey: "secure", oauthClientSecret: "secure" })] }))
+	);
+	openEdit(root);
+	// The orphan row has no input, so it has no described-by id either; its
+	// hint is the grid cell after the one holding the remove control.
+	const removeLabel = () =>
+		[...page(root).querySelectorAll<HTMLLabelElement>(".secret-remove")].find((label) =>
+			(label.textContent ?? "").includes("OAuth client secret")
+		);
+	const hintOf = () => removeLabel()?.parentElement?.nextElementSibling?.textContent ?? "";
+
+	// The API-key form is selected, so the OAuth secret has no input of its
+	// own - only where it lives and the gesture that takes it away.
+	expect(hintOf()).toBe("In secret storage.");
+	fireCheck(removeLabel()?.querySelector("input") as HTMLInputElement, true);
+	expect(hintOf()).toBe("Removed on save.");
 });

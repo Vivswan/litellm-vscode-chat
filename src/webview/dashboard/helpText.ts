@@ -53,6 +53,27 @@ export function helpImportExportGroup(): string {
 	);
 }
 
+/** The Connection section's "?": what the section as a whole establishes, which neither field glyph below it covers. */
+export function helpConnectionSection(): string {
+	return l10n.t(
+		"Names one proxy and points at it, e.g. Production at http://localhost:4000. The name is what the model picker shows, and every model here comes from that one URL."
+	);
+}
+
+/** The Discovery section's "?": the one fact that decides whether a reader needs the section at all. */
+export function helpDiscoverySection(): string {
+	return l10n.t(
+		"Only needed when the proxy cannot list its own models, or cannot report their info. Declared IDs register anyway; marked failures log quietly and skip retries."
+	);
+}
+
+/** The Adoption section's "?": what adopting writes, and where the credentials do NOT go. */
+export function helpAdoptionSection(): string {
+	return l10n.t(
+		"Writes this VS Code-managed group into the litellm-vscode-chat.servers setting so it becomes editable here. Its credentials are copied inside the extension and never pass through this page."
+	);
+}
+
 export function helpModelParametersSection(): string {
 	return l10n.t(
 		"Request parameters sent to matching models, e.g. temperature 0.2 for every gpt-4 model. Only parameters you set are sent; runtime options win over these unless a field is forced with _force."
@@ -68,17 +89,17 @@ export function serverFieldHelp(field: ServerFormField): string {
 			);
 		case "baseUrl":
 			return l10n.t(
-				"The server's root URL, e.g. http://localhost:4000 - discovery and chat requests are sent relative to it, so no model-specific path."
+				"The server's root URL, e.g. http://localhost:4000 - discovery and chat requests are sent relative to it, so no model-specific path. Trailing slashes are normalized."
 			);
 		case "apiVersion":
 			// The "/v1" here is DEFAULT_API_VERSION spelled out (this module bans
 			// interpolation); a webview drift guard fails when the constant moves.
 			return l10n.t(
-				"What to append to the base URL. Auto adds /v1 or keeps a /v1 or /v2 already there; No version uses the URL as-is; Custom appends your segment, e.g. v2."
+				"What to append to the base URL; leave on Auto unless your proxy pins a version. Auto adds /v1 or keeps a /v1 or /v2 already there; No version uses the URL as-is; Custom appends your segment, e.g. v2."
 			);
 		case "authForm":
 			return l10n.t(
-				"Pick how requests authenticate: a bearer API key, a key in a custom header, or OAuth client credentials. Exactly one form per entry; lower-ranked companions ride inside it."
+				"Pick how requests authenticate, e.g. a bearer API key. Exactly one form per entry; a gateway that checks a second credential takes it as a companion inside that form."
 			);
 		case "apiKey":
 			return l10n.t(
