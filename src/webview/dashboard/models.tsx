@@ -1,5 +1,5 @@
 import * as l10n from "@vscode/l10n";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { DashboardModel } from "../../dashboard/viewModels";
 import { DOCS_LINK_MODELS } from "./docsLinks";
 import { DocsLink, Help, HoverTip } from "./help";
@@ -239,6 +239,50 @@ export function ModelsSection({
 			setRowHeight(measured);
 		}
 	});
+
+	// Publish this scrollport's own distance from the top of the page, which is
+	// what its height budget is made of. The stylesheet used to guess that
+	// distance with a hand-tuned em value; a guess is wrong the moment anything
+	// above the table changes, and it had already been inherited unchanged from
+	// a page this table no longer lives on.
+	//
+	// Document-relative, not viewport-relative. The two agree only at the top of
+	// the page, and the difference is not cosmetic: a viewport-relative top
+	// shrinks as the reader scrolls, which raises the cap, which lengthens the
+	// page, which allows more scroll. Republished on the next render that value
+	// climbs again, and keeps climbing. Adding the scroll offset back names the
+	// same distance at every scroll position, so the budget has a fixed point to
+	// settle on - the height at which the page exactly fits and stops scrolling.
+	//
+	// Measured before paint so no frame renders at the fallback, and re-measured
+	// whenever this element's own box changes. That one observer covers the
+	// three things that move it: the first real layout, the container
+	// breakpoints above it reflowing, and the panel it sits in going from hidden
+	// to shown - every tab panel stays mounted, so this runs while the models
+	// destination is not on screen. An unrendered element measures as a zero box
+	// and is skipped rather than published as a top of zero, which would cap the
+	// scrollport at nearly the whole viewport for a frame.
+	useLayoutEffect(() => {
+		const element = scrollRef.current;
+		if (element === null) {
+			return;
+		}
+		const publish = () => {
+			const rect = element.getBoundingClientRect();
+			if (rect.width === 0 && rect.height === 0) {
+				return;
+			}
+			element.style.setProperty("--models-scroll-top", `${Math.round(rect.top + window.scrollY)}px`);
+		};
+		publish();
+		const observer = new ResizeObserver(publish);
+		observer.observe(element);
+		window.addEventListener("resize", publish, { passive: true });
+		return () => {
+			observer.disconnect();
+			window.removeEventListener("resize", publish);
+		};
+	}, []);
 
 	// A new scope means a new list, so the scrollport rewinds: a scroll
 	// position inherited from the previous server would drop the reader

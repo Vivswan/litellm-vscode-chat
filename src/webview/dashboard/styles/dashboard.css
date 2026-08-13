@@ -106,12 +106,16 @@
 		color: var(--muted-foreground);
 	}
 	/* The content column keeps its generous cap; the pane supplies the page
-		   padding the body used to. */
+		   padding the body used to. The bottom gutter is a custom property because
+		   it has a second reader: anything sizing itself against the fold has to
+		   leave exactly this much room below, and a copy of the number would drift
+		   the first time one of the two changed. */
 	.pane {
+		--pane-gutter-bottom: 48px;
 		flex: 1 1 auto;
 		min-width: 0;
 		max-width: 1560px;
-		padding: 20px 24px 48px;
+		padding: 20px 24px var(--pane-gutter-bottom);
 		/* The column breakpoints below ask about THIS box, not the window. They
 			 used to be viewport media queries on the reasoning that the webview
 			 panel is the viewport - true until the rail took 216px off the front of
@@ -219,17 +223,26 @@
 	section.table-scroll {
 		margin-top: 0;
 	}
-	/* Long model lists render windowed inside their own scrollport. The
-		   windowing needs a scrollport to measure, so the cap stays; on the
-		   models destination the only chrome above it is the heading and the
-		   filter bar, which is what the budget below allows for, and the em unit
-		   keeps that honest when the host font or zoom grows them.
-		   The floor keeps the scrollport usable in short windows. The sticky
-		   header keeps the sort controls reachable mid-list; the fixed row height
-		   that makes the scroll arithmetic exact lives on table.models below,
-		   shared with the non-windowed path. */
+	/* Long model lists render windowed inside their own scrollport, which the
+		   windowing needs in order to measure and to receive scroll events.
+		   The cap used to be `calc(100vh - 11em)`: a guess at how much chrome sat
+		   above this element, hand-tuned against the page it happened to share and
+		   silently wrong every time that page changed - it was tuned for the
+		   bottom of the old combined view, and inherited unchanged when models
+		   became a destination of its own.
+		   It measures now. --models-scroll-top carries this element's own distance
+		   from the top of the page, written by the component that knows it and
+		   re-measured whenever its box moves, so the budget is a fact rather than
+		   an estimate and cannot drift when the chrome above changes again. Below
+		   it sits the pane's bottom gutter, read from the pane rather than copied,
+		   because leaving any less there puts the page back over the fold and
+		   restores the second scrollbar this rule exists to avoid. border-box so
+		   the element's own border counts inside the cap instead of adding a pixel
+		   outside it. The floor keeps the scrollport usable in short windows, and
+		   it also carries the first paint if the measurement never lands. */
 	.table-scroll.windowed {
-		max-height: max(280px, calc(100vh - 11em));
+		box-sizing: border-box;
+		max-height: max(280px, calc(100vh - var(--models-scroll-top, 0px) - var(--pane-gutter-bottom, 48px)));
 		overflow-y: auto;
 		border-bottom: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
 	}

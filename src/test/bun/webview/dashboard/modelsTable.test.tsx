@@ -252,3 +252,44 @@ test("one raw model ID on two servers renders two rows with distinct accessible 
 	const iconPath = (server: string) => button(server).querySelector("svg path")?.getAttribute("d") ?? "";
 	expect(iconPath("Prod")).not.toBe(iconPath("Staging"));
 });
+
+test("the windowed scrollport publishes its own page offset, re-measured, so its height is never guessed", () => {
+	// The cap used to be calc(100vh - 11em): a guess at how much chrome sat above
+	// this element, tuned against the page it shared and inherited unchanged when
+	// models became a destination of its own. The stylesheet reads a custom
+	// property now, and this pins the half that JavaScript owns.
+	const root = mount(<ModelsSection models={manyModels(60)} serverCount={1} onInspect={() => {}} />);
+	const scrollport = root.querySelector(".table-scroll.windowed") as HTMLElement;
+	expect(scrollport).not.toBeNull();
+
+	// happy-dom reports every rect as zero, which is exactly the shape an
+	// element that is not rendered has - every tab panel stays mounted while
+	// hidden, so a zero box means "no answer yet", not "the top of the page".
+	// Publishing it would cap the scrollport at nearly the whole viewport until
+	// something re-measured.
+	expect(scrollport.style.getPropertyValue("--models-scroll-top")).toBe("");
+
+	const scrollYDescriptor = Object.getOwnPropertyDescriptor(window, "scrollY");
+	try {
+		scrollport.getBoundingClientRect = () => ({ top: 90, width: 800, height: 500 }) as DOMRect;
+		Object.defineProperty(window, "scrollY", { value: 22, configurable: true });
+		window.dispatchEvent(new Event("resize"));
+
+		// 90 + 22: the published distance adds the scroll offset back, so it names
+		// the same distance at every scroll position. A viewport-relative top
+		// would shrink as the page scrolls, raising the cap, lengthening the page
+		// and allowing more scroll - a number that climbs on every republish
+		// instead of settling on the height at which the page stops scrolling.
+		expect(scrollport.style.getPropertyValue("--models-scroll-top")).toBe("112px");
+
+		// And it keeps following: the chrome above this element reflows at the
+		// container breakpoints, so a value measured once would go stale.
+		scrollport.getBoundingClientRect = () => ({ top: 40, width: 800, height: 500 }) as DOMRect;
+		window.dispatchEvent(new Event("resize"));
+		expect(scrollport.style.getPropertyValue("--models-scroll-top")).toBe("62px");
+	} finally {
+		if (scrollYDescriptor !== undefined) {
+			Object.defineProperty(window, "scrollY", scrollYDescriptor);
+		}
+	}
+});
