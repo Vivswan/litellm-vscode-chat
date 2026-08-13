@@ -2722,7 +2722,11 @@ export function ModelParametersEditor({
 	}, [externalSeq]);
 	return (
 		<section hidden={hidden}>
-			<h3 className="head-with-icons">
+			{/* A contained heading sits a step quieter than the group heading
+			    above it: same muted tone, one size down, and no rule of its own.
+			    At the surrounding group's weight and the page's foreground it
+			    out-shouted its own container. */}
+			<h3 className="head-with-icons mt-0 mb-1 font-semibold text-[0.9em] text-muted-foreground">
 				{modelParametersTitle()} <Help text={helpModelParametersSection()} />
 				<DocsLink href={DOCS_LINK_MODEL_PARAMETERS} label={l10n.t("Open the model parameters guide")} />
 				<HeadingRevealButton title={modelParametersTitle()} settingId="models.parameters" />
@@ -2977,7 +2981,8 @@ export function ModelCapabilitiesEditor({
 	}, [externalSeq]);
 	return (
 		<section hidden={hidden}>
-			<h3 className="head-with-icons">
+			{/* Quieter than its container, like the parameters twin above. */}
+			<h3 className="head-with-icons mt-0 mb-1 font-semibold text-[0.9em] text-muted-foreground">
 				{modelCapabilitiesTitle()} <Help text={helpModelCapabilitiesSection()} />
 				<DocsLink href={DOCS_LINK_MODEL_CAPABILITIES} label={l10n.t("Open the model capabilities guide")} />
 				<HeadingRevealButton title={modelCapabilitiesTitle()} settingId="models.capabilities" />
