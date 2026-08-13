@@ -335,18 +335,29 @@ function FormSection({
 				{action}
 			</div>
 			<div className="mt-2 mb-3 h-px bg-border" />
-			{/* Labels are grid children, not wrappers, so every label in the page
-			    shares one right-aligned gutter and the controls line up down the
-			    scroll. The hint column is what keeps a row one line tall: an error
-			    takes the hint's place instead of pushing the rows below it down. */}
+			{/* The section owns the tracks and every row adopts them through
+			    subgrid, so one gutter and one set of control edges run down the
+			    whole scroll. Rows cannot each own a grid instead: the last track
+			    is content-sized, and a row carrying a docs link beside its "?"
+			    then sizes it wider than its neighbours and drags the fr tracks
+			    with it - the Declared models row ran its textarea 250px past
+			    every other control that way. Nor can the cells be direct children
+			    of one grid: the glyph has to change track per breakpoint, that
+			    needs a pinned row, and a pinned row number stacks every row's
+			    glyph into the section's first row. Subgrid is what gives shared
+			    sizing AND per-row placement.
+
+			    The breakpoint measures the PANE, not the viewport: this form
+			    narrows when the rail is there, when the panel is docked, and when
+			    the window is split, none of which the viewport width describes.
+			    Below it the rows stack, because the gutter stops being worth what
+			    it costs the fields - at 500px of pane the 150px gutter left a
+			    Base URL input too narrow to show its own value. */}
 			<div
 				className={cn(
-					"grid grid-cols-[150px_minmax(0,1.35fr)_minmax(0,1fr)] items-center gap-x-4 gap-y-2.5",
-					// A narrow host (a webview docked beside the editor) drops to
-					// two tracks and the hint slides under its control; three
-					// columns in 400px would starve all three.
-					"max-[760px]:grid-cols-[120px_minmax(0,1fr)]",
-					quiet === true && "[&>.label-row]:text-muted-foreground"
+					"grid grid-cols-[150px_minmax(0,1.35fr)_minmax(0,1fr)_auto] gap-x-4 gap-y-2.5",
+					"@max-[700px]/pane:grid-cols-[auto_minmax(0,1fr)] @max-[700px]/pane:gap-x-1.5 @max-[700px]/pane:gap-y-1",
+					quiet === true && "[&_.label-row]:text-muted-foreground"
 				)}
 			>
 				{children}
@@ -391,11 +402,26 @@ function FieldRow({
 	children: ReactNode;
 }) {
 	const showProblem = problem !== undefined;
+	// One row of the section's tracks, adopted through subgrid. Wide: gutter,
+	// control, hint, glyph. Stacked: label and glyph on line one, control and
+	// then hint at full width below. 700px of PANE is the threshold
+	// dashboard.css already stacks key/value rows at, and the matcher editor
+	// inside this very page turns at it, so the page changes idiom once.
+	const GRID = cn(
+		"col-span-4 grid grid-cols-subgrid items-center",
+		// Only the column axis is subgridded, so the parent's row gap does not
+		// reach between a stacked row's three lines: without this the hint sits
+		// flush against the bottom of the input it explains.
+		"@max-[700px]/pane:col-span-2 @max-[700px]/pane:items-start @max-[700px]/pane:gap-y-1"
+	);
 	return (
-		<>
+		<div className={GRID}>
 			<span
 				className={cn(
-					"label-row flex items-baseline justify-end text-right text-[12.5px]",
+					"label-row col-start-1 flex items-baseline justify-end text-right text-[12.5px]",
+					// Stacked, the label sits above its control, so right-aligning it
+					// would push it away from the thing it names.
+					"@max-[700px]/pane:justify-start @max-[700px]/pane:pt-1.5 @max-[700px]/pane:text-left",
 					wide === true && "self-start pt-1"
 				)}
 			>
@@ -403,17 +429,14 @@ function FieldRow({
 			</span>
 			<div
 				className={cn(
-					"flex min-w-0 items-center gap-2",
-					wide === true && "col-span-2 flex-col items-stretch gap-1 max-[760px]:col-span-1"
+					"col-start-2 row-start-1 flex min-w-0 items-center gap-2",
+					// Stacked, the control takes both tracks on its own line: the
+					// second track exists for the glyph beside the label.
+					"@max-[700px]/pane:col-start-1 @max-[700px]/pane:col-span-2 @max-[700px]/pane:row-start-2",
+					wide === true && "col-span-2 flex-col items-stretch gap-1"
 				)}
 			>
 				{children}
-				{wide === true && (help !== undefined || action !== undefined) ? (
-					<span className="flex items-baseline gap-1.5 self-start">
-						{help}
-						{action}
-					</span>
-				) : null}
 			</div>
 			{wide === true ? null : (
 				// The hint carries the field's id whether it reads as a hint or as
@@ -423,7 +446,12 @@ function FieldRow({
 				// The description is the TEXT, and only the text: an id that covers
 				// the help button too makes every field announce "Help: Base URL"
 				// as part of its own description, and puts a control inside one.
-				<span className="flex items-baseline gap-1.5 text-[11.5px] max-[760px]:col-start-2">
+				<span
+					className={cn(
+						"col-start-3 row-start-1 flex items-baseline gap-1.5 text-[11.5px]",
+						"@max-[700px]/pane:col-start-1 @max-[700px]/pane:col-span-2 @max-[700px]/pane:row-start-3"
+					)}
+				>
 					<span
 						id={errorId}
 						className={cn(
@@ -433,17 +461,33 @@ function FieldRow({
 					>
 						{showProblem ? problem : hint}
 					</span>
-					{help}
-					{action}
 				</span>
 			)}
-		</>
+			{/* Last in the DOM, so Tab reaches a field's control before its help
+			    rather than stopping at the "?" on the way in. Which track it
+			    lands in is the container query's business: the end of a wide row,
+			    and up beside the label once stacked, where "after the hint" would
+			    be a mark alone on a line under an input for the five rows that
+			    have no hint. */}
+			<span
+				className={cn(
+					"col-start-4 flex items-baseline gap-1.5 self-center",
+					"@max-[700px]/pane:col-start-2 @max-[700px]/pane:row-start-1 @max-[700px]/pane:justify-self-start @max-[700px]/pane:pt-1.5",
+					// A wide row's control is tall (a textarea), and centring against
+					// it drops the glyph a line below the label it belongs to.
+					wide === true && "self-start pt-1"
+				)}
+			>
+				{help}
+				{action}
+			</span>
+		</div>
 	);
 }
 
 /** A note or control that belongs to the section but not to one field; spans the whole grid. */
 function FieldSpan({ children, className }: { children: ReactNode; className?: string }) {
-	return <div className={cn("col-span-3 min-w-0 max-[760px]:col-span-2", className)}>{children}</div>;
+	return <div className={cn("col-span-4 min-w-0 @max-[700px]/pane:col-span-2", className)}>{children}</div>;
 }
 
 /**
@@ -467,15 +511,23 @@ function matcherCountAside(count: number): string {
 	return count === 1 ? l10n.t("optional - 1 matcher") : l10n.t("optional - {0} matchers", count);
 }
 
-/** A control that belongs under the row above it: the label gutter stays empty, the cell takes the rest. */
+/** A control that belongs under the row above it: it clears the label gutter, and takes the full width once the rows stack. */
 function FieldUnderRow({ children, className }: { children: ReactNode; className?: string }) {
 	return (
-		<>
-			<span />
-			<div className={cn("col-span-2 flex min-w-0 flex-wrap items-center gap-3 max-[760px]:col-span-1", className)}>
+		// Placed in the grid rather than padded past the gutter by hand: a
+		// literal offset is the track width plus the gap restated, and the two
+		// drift the moment either changes.
+		<div className="col-span-4 grid grid-cols-subgrid @max-[700px]/pane:col-span-2">
+			<div
+				className={cn(
+					"col-start-2 col-span-3 flex min-w-0 flex-wrap items-center gap-3",
+					"@max-[700px]/pane:col-start-1 @max-[700px]/pane:col-span-2",
+					className
+				)}
+			>
 				{children}
 			</div>
-		</>
+		</div>
 	);
 }
 
@@ -670,8 +722,17 @@ function SecretField({ field, help, props }: { field: SecretFieldId; help?: stri
 					role="radiogroup"
 					aria-label={l10n.t("Where to store the {0}", serverFormFieldLabel(field))}
 				>
-					<span className="where-label">{l10n.t("Store in:")}</span>
-					<Help text={helpSecretStorage()} name={l10n.t("Help: where to store the {0}", serverFormFieldLabel(field))} />
+					{/* Stacked, the two options wrapped apart - one beside this label,
+					    one under it - so the pair a reader is choosing between lost its
+					    shared left edge. The label and its glyph take the line
+					    together and the options share the next one. */}
+					<span className="flex items-center gap-1.5 @max-[700px]/pane:basis-full">
+						<span className="where-label">{l10n.t("Store in:")}</span>
+						<Help
+							text={helpSecretStorage()}
+							name={l10n.t("Help: where to store the {0}", serverFormFieldLabel(field))}
+						/>
+					</span>
 					<label className="flex items-center gap-1.5">
 						<Radio
 							name={`${id}-where`}
@@ -761,6 +822,10 @@ function StoredSecretRow({ field, props }: { field: SecretFieldId; props: FieldR
 						: l10n.t("In {0}.", locationName(value.existing))
 			}
 			problem={problem}
+			// The same id the field's input-bearing row uses. The two never
+			// render together - this row exists only while that form is
+			// unselected - so the id stays unique.
+			errorId={`server-${field}-error`}
 		>
 			<label className={cn("secret-remove flex items-center gap-1.5 text-[12px]", value.clear && "armed text-err")}>
 				<Checkbox
@@ -1643,9 +1708,17 @@ function ServerForm({
 				help={serverFieldHelp("authForm")}
 				action={<DocsLink href={DOCS_LINK_AUTHENTICATION} label={l10n.t("Open the authentication guide")} />}
 			>
-				<FieldRow label={l10n.t("Method")}>
+				<FieldRow label={l10n.t("Method")} wide={true}>
+					{/* One per line rather than an inline flow. The four labels are
+					    very unequal - "None" against "Virtual key in a custom
+					    header" - so a wrapping row lands differently at every pane
+					    width: an orphaned "OAuth" on its own second line here, a
+					    ragged 2x2 with three different left edges there. Mutually
+					    exclusive options are read by scanning down the choices, and
+					    a column is the only layout that lets that happen at every
+					    width. The cost is one row's height, paid once. */}
 					<span
-						className="auth-selector flex flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px]"
+						className="auth-selector flex flex-col items-start gap-y-1 text-[12.5px]"
 						role="radiogroup"
 						aria-label={serverFormFieldLabel("authForm")}
 					>
@@ -2032,7 +2105,7 @@ function AdoptForm({
 							role="radiogroup"
 							aria-label={l10n.t("Where to store the {0}", serverFormFieldLabel(field))}
 						>
-							<span className="where-label">{l10n.t("Store in:")}</span>
+							<span className="where-label @max-[700px]/pane:basis-full">{l10n.t("Store in:")}</span>
 							<label className="flex items-center gap-1.5">
 								<Radio
 									name={`adopt-${field}-where`}

@@ -550,13 +550,11 @@ test("a stored secret whose form is not selected states the same two things the 
 		statePush(makeState({ servers: [declaredWithSecrets({ apiKey: "secure", oauthClientSecret: "secure" })] }))
 	);
 	openEdit(root);
-	// The orphan row has no input, so it has no described-by id either; its
-	// hint is the grid cell after the one holding the remove control.
+	const hintOf = () => document.getElementById("server-oauthClientSecret-error")?.textContent ?? "";
 	const removeLabel = () =>
 		[...page(root).querySelectorAll<HTMLLabelElement>(".secret-remove")].find((label) =>
 			(label.textContent ?? "").includes("OAuth client secret")
 		);
-	const hintOf = () => removeLabel()?.parentElement?.nextElementSibling?.textContent ?? "";
 
 	// The API-key form is selected, so the OAuth secret has no input of its
 	// own - only where it lives and the gesture that takes it away.

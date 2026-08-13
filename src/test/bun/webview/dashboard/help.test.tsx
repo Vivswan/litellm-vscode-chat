@@ -242,11 +242,31 @@ test("every server form field carries its help glyph, trailing and named for the
 	};
 	const trailing = (field: Parameters<typeof serverFieldHelp>[0], label: string, id: string) => {
 		const button = glyphFor(field, label);
-		// In the hint's cell, and NOT in the label's: the position is the point.
-		const hintCell = document.getElementById(`server-${id}-error`)?.parentElement;
-		expect(hintCell?.contains(button)).toBe(true);
-		const labelRow = document.querySelector(`label[for="server-${id}"]`)?.parentElement;
-		expect(labelRow?.querySelector("button.help")).toBeNull();
+		// The glyph is its own cell of the section's subgrid, so ONE node serves
+		// every layout and only its track changes. Three things pin it. It is
+		// not inside the field's description - an id covering the button makes
+		// the field announce "Help: Base URL" as part of its own description,
+		// and puts a control inside one. It is not inside the label's cell
+		// either, so the label stays text. And it comes last in the row, so Tab
+		// reaches the control before the "?" instead of stopping at it on the
+		// way in.
+		const description = document.getElementById(`server-${id}-error`);
+		expect(description?.contains(button)).toBe(false);
+		const labelCell = document.querySelector(`label[for="server-${id}"]`)?.parentElement;
+		expect(labelCell?.contains(button)).toBe(false);
+		expect(description?.parentElement?.nextElementSibling?.contains(button)).toBe(true);
+		afterItsControl(document.getElementById(`server-${id}`), button, label);
+	};
+	// The tab-order pin, and the one assertion that has to hold for a row with
+	// no hint cell to follow: a reader tabbing into a field reaches the thing
+	// they came to type into before the "?" beside it. DOCUMENT_POSITION_FOLLOWING
+	// says the glyph comes after the control in document order, which is what
+	// Tab follows.
+	const afterItsControl = (control: Element | null, button: HTMLElement, label: string) => {
+		if (control === null) {
+			throw new Error(`no control for ${label}`);
+		}
+		expect(control.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeGreaterThan(0);
 	};
 
 	// The stored key derives the API-key form: identity, the key, and its
@@ -258,8 +278,19 @@ test("every server form field carries its help glyph, trailing and named for the
 	trailing("virtualKeyValue", "Virtual key value", "virtualKeyValue");
 	trailing("budget", "Budget (USD)", "budget");
 	glyphFor("apiVersion", "API version");
-	glyphFor("declaredModels", "Declared models");
-	glyphFor("expectedFailures", "Expected failures");
+	// Wide rows have no hint cell, so they cannot go through trailing() - but
+	// they are exactly where the glyph used to sit inside the control, ahead of
+	// it in the DOM. The textarea and the checkbox group carry their own pin.
+	afterItsControl(
+		document.getElementById("server-declaredModels"),
+		glyphFor("declaredModels", "Declared models"),
+		"Declared models"
+	);
+	afterItsControl(
+		root.querySelector("fieldset.expected-failures"),
+		glyphFor("expectedFailures", "Expected failures"),
+		"Expected failures"
+	);
 
 	// Two secrets on this shape, each with its own storage choice and glyph.
 	expect(root.querySelectorAll(".secret-where").length).toBe(2);
