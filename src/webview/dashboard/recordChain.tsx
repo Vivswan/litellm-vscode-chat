@@ -64,7 +64,8 @@ export function RecordChainFigure({
 									{index > 0 ? <span className="record-chain-arrow"> {"->"} </span> : null}
 									{onJump !== undefined ? (
 										<Button
-											variant="quiet"
+											variant="secondary"
+											size="compact"
 											className="chain-key px-0.5 py-0"
 											aria-label={
 												chain.layer === "entry"

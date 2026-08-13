@@ -106,7 +106,8 @@ function SettingRow({ modified, hidden, children }: { modified: boolean; hidden:
 function RevealButton({ title, settingId }: { title: string; settingId: RevealableSettingId }) {
 	return (
 		<Button
-			variant="quiet"
+			variant="secondary"
+			size="compact"
 			className="reveal-json px-1 py-0"
 			aria-label={l10n.t("Open {0} in settings.json", title)}
 			onClick={() => sendRequest("revealSetting", { setting: settingId })}
@@ -138,7 +139,8 @@ function ResetButton({
 	const action = l10n.t("Remove the {0} value of {1}", settingScopeLabel(scope), title);
 	return (
 		<Button
-			variant="quiet"
+			variant="secondary"
+			size="compact"
 			className="reset"
 			aria-label={action}
 			onClick={() => sendRequest("resetSetting", { setting: settingId })}

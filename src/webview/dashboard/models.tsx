@@ -323,7 +323,12 @@ export function ModelsSection({
 						{scope !== undefined ? (
 							<span className="chip">
 								{l10n.t("Server: {0}", scope.label)}
-								<Button variant="quiet" aria-label={l10n.t("Clear the server filter")} onClick={scope.onClear}>
+								<Button
+									variant="secondary"
+									size="compact"
+									aria-label={l10n.t("Clear the server filter")}
+									onClick={scope.onClear}
+								>
 									<IconClose />
 								</Button>
 							</span>
@@ -418,7 +423,8 @@ export function ModelsSection({
 												    server label keeps the accessible name unique when one raw
 												    ID is registered through several servers. */}
 												<Button
-													variant="quiet"
+													variant="secondary"
+													size="compact"
 													className="icon-action"
 													aria-label={l10n.t("Copy model ID {0} from {1}", model.id, model.serverLabel)}
 													onClick={() => copyId(model, rowId)}
@@ -456,7 +462,8 @@ export function ModelsSection({
 												    point on this row, so hover-reveal would make it
 												    undiscoverable. */}
 												<Button
-													variant="quiet"
+													variant="secondary"
+													size="compact"
 													className="params-action"
 													aria-label={l10n.t("Inspect {0} on {1}", model.name, model.serverLabel)}
 													onClick={() =>

@@ -92,7 +92,8 @@ function HeadingRevealButton({
 }) {
 	return (
 		<Button
-			variant="quiet"
+			variant="secondary"
+			size="compact"
 			className="reveal-json px-1 py-0"
 			aria-label={l10n.t("Open {0} in settings.json", title)}
 			onClick={() => sendRequest("revealSetting", { setting: settingId })}
@@ -763,7 +764,8 @@ function ParamGroupsFields({
 												</span>
 											)}
 											<Button
-												variant="quiet"
+												variant="danger"
+												size="compact"
 												aria-label={removeLabel}
 												title={removeLabel}
 												disabled={disabled}
@@ -1437,7 +1439,8 @@ function CapabilityGroupsFields({
 												</span>
 											) : null}
 											<Button
-												variant="quiet"
+												variant="danger"
+												size="compact"
 												aria-label={removeLabel}
 												title={removeLabel}
 												disabled={inert}
@@ -1925,7 +1928,7 @@ function FieldChipPopover({
 			{issue?.problem !== undefined ? <p className="error">{issue.problem.message}</p> : null}
 			{issue?.hint !== undefined ? <p className="hint">{issue.hint}</p> : null}
 			<div className="chip-popover-actions">
-				<Button variant="quiet" disabled={disabled} onClick={removeRow}>
+				<Button variant="danger" size="compact" disabled={disabled} onClick={removeRow}>
 					<IconTrash /> {l10n.t("Remove field")}
 				</Button>
 			</div>
@@ -2381,7 +2384,8 @@ export function RecordMatcherTable({
 							{editable ? (
 								<td className="edit-cell">
 									<Button
-										variant="quiet"
+										variant="secondary"
+										size="compact"
 										aria-label={l10n.t('Open the full editor for "{0}"', matcherName)}
 										disabled={disabled}
 										onClick={() => onOpenEditor?.(groupIndex)}
@@ -2760,7 +2764,7 @@ export function ModelParametersEditor({
 				{/* Discard stays available while a write is in flight: a lost ack
 				    must not wedge the editor until a reload. */}
 				<Button
-					variant="secondary"
+					variant="danger"
 					disabled={!draft.dirty && draft.phase !== "applying" && !(json !== undefined && json.text !== json.base)}
 					aria-label={l10n.t("Discard the unapplied model parameter edits")}
 					onClick={discard}
@@ -2769,7 +2773,8 @@ export function ModelParametersEditor({
 				</Button>
 				{json === undefined ? (
 					<Button
-						variant="quiet"
+						variant="secondary"
+						size="compact"
 						disabled={!parse.ok}
 						onClick={() => {
 							if (parse.ok) {
@@ -2780,7 +2785,7 @@ export function ModelParametersEditor({
 						{l10n.t("Edit as JSON")}
 					</Button>
 				) : (
-					<Button variant="quiet" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
+					<Button variant="secondary" size="compact" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
 						{l10n.t("Edit as rows")}
 					</Button>
 				)}
@@ -3014,7 +3019,7 @@ export function ModelCapabilitiesEditor({
 				{/* Discard stays available while a write is in flight: a lost ack
 				    must not wedge the editor until a reload. */}
 				<Button
-					variant="secondary"
+					variant="danger"
 					disabled={!draft.dirty && draft.phase !== "applying" && !(json !== undefined && json.text !== json.base)}
 					aria-label={l10n.t("Discard the unapplied model capability edits")}
 					onClick={discard}
@@ -3023,7 +3028,8 @@ export function ModelCapabilitiesEditor({
 				</Button>
 				{json === undefined ? (
 					<Button
-						variant="quiet"
+						variant="secondary"
+						size="compact"
 						disabled={!parse.ok}
 						onClick={() => {
 							if (parse.ok) {
@@ -3034,7 +3040,7 @@ export function ModelCapabilitiesEditor({
 						{l10n.t("Edit as JSON")}
 					</Button>
 				) : (
-					<Button variant="quiet" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
+					<Button variant="secondary" size="compact" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
 						{l10n.t("Edit as rows")}
 					</Button>
 				)}

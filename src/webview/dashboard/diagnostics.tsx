@@ -815,7 +815,8 @@ function ResolvedModels({
 												</td>
 												<td className="actions">
 													<Button
-														variant="quiet"
+														variant="secondary"
+														size="compact"
 														className="params-action"
 														aria-label={l10n.t("Inspect {0} on {1}", row.rawId, row.serverLabel)}
 														onClick={() =>

@@ -128,16 +128,26 @@ export function SlideOver({
 					onRequestClose();
 				}}
 			>
-				<Button variant="quiet" className="slide-close" aria-label={l10n.t("Close")} onClick={onRequestClose}>
+				<Button
+					variant="secondary"
+					size="compact"
+					className="slide-close"
+					aria-label={l10n.t("Close")}
+					onClick={onRequestClose}
+				>
 					<IconClose />
 				</Button>
 				{children}
 				{confirming ? (
 					<div className="discard-confirm" role="alert">
 						<span>{l10n.t("Discard unsaved changes?")}</span>
-						<Button onClick={onDiscard}>{l10n.t("Discard")}</Button>
-						<Button variant="secondary" onClick={onKeepEditing}>
-							{l10n.t("Keep editing")}
+						{/* Keep editing is the default rank and Discard the danger one:
+						    this is the one place the user is asked to choose between
+						    losing work and not, so the safe answer cannot be the
+						    quieter of the two. */}
+						<Button onClick={onKeepEditing}>{l10n.t("Keep editing")}</Button>
+						<Button variant="danger" onClick={onDiscard}>
+							{l10n.t("Discard")}
 						</Button>
 					</div>
 				) : null}

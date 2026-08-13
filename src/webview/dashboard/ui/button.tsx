@@ -3,8 +3,15 @@ import type { ComponentProps } from "react";
 import { cn } from "./cn";
 
 /**
- * The dashboard's button. Rank is carried by weight and color rather than by
- * boxes: at rest every button is text, and the fill arrives under the cursor,
+ * The dashboard's button. Two independent axes: `variant` is RANK - what kind
+ * of action this is - and `size` is geometry. They were tangled before: a
+ * "quiet" variant carried the muted color AND a smaller box, which meant an
+ * icon-only destructive action had to choose between reading as destructive
+ * and fitting its row. It also made two of the four variants identical in
+ * color, so a Remove and an Edit were the same button with different labels.
+ * Quiet was never a rank; it was `secondary` at `compact`, and says so now.
+ *
+ * Rank is carried by weight and color rather than by boxes: at rest every button is text, and the fill arrives under the cursor,
  * which is the one moment a text button has to prove it is a button. The
  * default rank takes the accent; danger takes a red wash instead of a red
  * word, so it warns as you reach for it rather than sitting in the layout as
@@ -28,14 +35,18 @@ const buttonVariants = cva(
 	{
 		variants: {
 			variant: {
-				default: "-mx-2.5 px-2.5 py-1 font-semibold text-accent-hue hover:bg-accent-soft",
-				secondary: "-mx-2.5 px-2.5 py-1 text-muted-foreground hover:bg-ghost-hover hover:text-foreground",
-				danger: "-mx-2.5 px-2.5 py-1 text-muted-foreground hover:bg-err-wash hover:text-err",
-				quiet: "px-1.5 py-0.5 text-muted-foreground hover:bg-ghost-hover hover:text-foreground",
+				default: "font-semibold text-accent-hue hover:bg-accent-soft",
+				secondary: "text-muted-foreground hover:bg-ghost-hover hover:text-foreground",
+				danger: "text-err-quiet hover:bg-err-wash hover:text-err-strong",
+			},
+			size: {
+				default: "-mx-2.5 px-2.5 py-1",
+				compact: "px-1.5 py-0.5",
 			},
 		},
 		defaultVariants: {
 			variant: "default",
+			size: "default",
 		},
 	}
 );
@@ -43,6 +54,7 @@ const buttonVariants = cva(
 export function Button({
 	className,
 	variant,
+	size,
 	type,
 	...props
 }: ComponentProps<"button"> & VariantProps<typeof buttonVariants>) {
@@ -53,7 +65,7 @@ export function Button({
 			type={type ?? "button"}
 			data-slot="button"
 			data-variant={variant ?? "default"}
-			className={cn(buttonVariants({ variant }), className)}
+			className={cn(buttonVariants({ variant, size }), className)}
 			{...props}
 		/>
 	);

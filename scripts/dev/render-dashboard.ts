@@ -9,7 +9,7 @@
  * Usage:
  *   bun scripts/dev/render-dashboard.ts --fixture scripts/dev/renderFixtures/example.ts --out /tmp/shot.png
  *     [--width 1300] [--height 950] [--theme <host theme>]
- *     [--clip-viewport] [--html-out /tmp/page.html] [--no-theme]
+ *     [--hover <css selector>] [--clip-viewport] [--html-out /tmp/page.html] [--no-theme]
  *
  * --theme overrides the fixture's own hostTheme, so any fixture can be shot in
  * light and dark without a second fixture file; the dashboard has to read well
@@ -17,6 +17,17 @@
  *
  * CHROME_BIN overrides Chrome discovery. Exit code 0 only when the PNG was
  * written and is larger than 10 KB.
+ *
+ * One rule governs every change to this file: when the harness and the editor
+ * disagree about how the page is assembled, fix the harness FIRST, watch it
+ * reproduce the failure, and only then fix the product. This is not a
+ * preference. A harness that models the host wrongly does not merely miss bugs,
+ * it certifies their absence - a forced-theme mechanism that could never work
+ * in a real webview measured as working here for as long as this file served
+ * the host's tokens as a stylesheet rule instead of the inline style VS Code
+ * actually writes. Anything this file emulates (token delivery, body classes,
+ * the CSP, the default styles) is a claim about the editor, and a wrong claim
+ * is worse than no claim.
  */
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -91,7 +102,7 @@ function usage(): never {
 		"usage: bun scripts/dev/render-dashboard.ts --fixture <fixture.ts> --out <shot.png>" +
 			" [--width N] [--height N] [--theme <host theme>]" +
 			" [--accent blue|violet|teal|amber] [--app-theme auto|light|dark]" +
-			" [--clip-viewport] [--html-out <page.html>] [--no-theme]"
+			" [--hover <css selector>] [--clip-viewport] [--html-out <page.html>] [--no-theme]"
 	);
 	process.exit(1);
 }
@@ -754,6 +765,7 @@ async function main(): Promise<void> {
 			height: { type: "string" },
 			"html-out": { type: "string" },
 			"clip-viewport": { type: "boolean", default: false },
+			hover: { type: "string" },
 			"no-theme": { type: "boolean", default: false },
 			theme: { type: "string" },
 			accent: { type: "string" },
@@ -951,6 +963,82 @@ async function main(): Promise<void> {
 				throw new Error(`Scroll offset survived the pre-capture pin (${stray}); the render would not be reproducible`);
 			}
 		}
+		// Hover last, because it is the one state that a later scroll destroys.
+		// This vocabulary puts a button's whole fill and half its meaning on
+		// hover, so a review that can only see resting states reviews half the
+		// work - but :hover answers to the real input pipeline alone, tracks
+		// VIEWPORT coordinates, and Chrome re-runs hit-testing after a scroll.
+		// Dispatching before the full-page path's scroll pin produced a PNG
+		// byte-identical to the unhovered one while the page still reported the
+		// element hovered: the harness certifying a state its own artifact did
+		// not contain, which is the failure this file's header forbids.
+		if (values.hover !== undefined) {
+			const target = (await evaluate(
+				cdp,
+				`(() => {
+					const node = document.querySelector(${JSON.stringify(values.hover)});
+					if (!node) { return null; }
+					const rect = node.getBoundingClientRect();
+					return {
+						x: Math.round(rect.left + rect.width / 2),
+						y: Math.round(rect.top + rect.height / 2),
+						width: Math.round(rect.width),
+						height: Math.round(rect.height),
+						viewport: { width: window.innerWidth, height: window.innerHeight },
+					};
+				})()`
+			)) as {
+				readonly x: number;
+				readonly y: number;
+				readonly width: number;
+				readonly height: number;
+				readonly viewport: { readonly width: number; readonly height: number };
+			} | null;
+			if (target === null) {
+				throw new Error(`--hover matched no element: ${values.hover}`);
+			}
+			// A collapsed or display:none target hovers the document at (0, 0)
+			// and reports success, which is the same lie in a smaller costume.
+			if (target.width === 0 || target.height === 0) {
+				throw new Error(`--hover matched a zero-sized element (${values.hover}); nothing would be hovered`);
+			}
+			// A full-page capture photographs the whole document but the pointer
+			// only reaches the viewport, so an element below the fold cannot be
+			// hovered at all. Say so rather than write an unhovered PNG.
+			const offscreen =
+				target.x < 0 || target.y < 0 || target.x > target.viewport.width || target.y > target.viewport.height;
+			if (offscreen) {
+				throw new Error(
+					`--hover target ${values.hover} sits outside the viewport at capture time (${target.x}, ${target.y});` +
+						" a pointer cannot reach it. Use --clip-viewport, or a taller --height."
+				);
+			}
+			await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y, buttons: 0 });
+			await delay(150);
+			// A fixture's steps run before this, so the h1 channel can only ever
+			// report the resting state - which would leave the hovered colours
+			// visible in the PNG and measurable nowhere. Report them here, and
+			// confirm from the page that :hover actually matched rather than
+			// trusting that the coordinates were good.
+			const hovered = await evaluate(
+				cdp,
+				`(() => {
+					const node = document.querySelector(${JSON.stringify(values.hover)});
+					const style = getComputedStyle(node);
+					return JSON.stringify({
+						matches: node.matches(":hover"),
+						color: style.color,
+						background: style.backgroundColor,
+						borderColor: style.borderTopColor,
+					});
+				})()`
+			);
+			console.log(`hovered ${values.hover}: ${hovered}`);
+			if (typeof hovered === "string" && hovered.includes('"matches":false')) {
+				throw new Error(`--hover dispatched at (${target.x}, ${target.y}) but ${values.hover} never matched :hover`);
+			}
+		}
+
 		const shot = (await cdp.send("Page.captureScreenshot", {
 			format: "png",
 			captureBeyondViewport,

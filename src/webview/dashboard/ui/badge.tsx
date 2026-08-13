@@ -12,8 +12,8 @@ import { cn } from "./cn";
 const badgeVariants = cva("inline-block whitespace-nowrap rounded-xl px-1.5 text-[0.85em]", {
 	variants: {
 		variant: {
-			default: "bg-muted text-muted-foreground",
-			warn: "bg-warn-soft text-warn",
+			default: "bg-chip text-muted-foreground",
+			warn: "bg-warn-chip text-warn-chip-foreground",
 		},
 	},
 	defaultVariants: {

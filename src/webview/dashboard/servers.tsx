@@ -635,7 +635,8 @@ function SecretField({ field, help, props }: { field: SecretFieldId; help?: stri
 					onBlur={() => props.touch(field)}
 				/>
 				<Button
-					variant="quiet"
+					variant="secondary"
+					size="compact"
 					aria-pressed={revealed}
 					aria-label={
 						revealed
@@ -819,7 +820,12 @@ function HeaderRowsEditor({
 								}
 							/>
 						</span>
-						<Button variant="quiet" disabled={disabled} onClick={() => onChange(rows.filter((_, i) => i !== index))}>
+						<Button
+							variant="danger"
+							size="compact"
+							disabled={disabled}
+							onClick={() => onChange(rows.filter((_, i) => i !== index))}
+						>
 							<IconTrash /> {l10n.t("Remove")}
 						</Button>
 						{problems[index] !== undefined ? <span className="error">{problems[index]}</span> : null}
@@ -1880,7 +1886,8 @@ function ServerRow({
 				    text, since an empty scoped list has nothing to show. */}
 				{onShowModels !== undefined && server.modelCount > 0 ? (
 					<Button
-						variant="quiet"
+						variant="secondary"
+						size="compact"
 						className="count-link px-1 py-0"
 						aria-label={l10n.t("Show models from {0}", server.label)}
 						onClick={() => onShowModels(server.label)}
@@ -1947,7 +1954,7 @@ function ServerRow({
 						>
 							{l10n.t("Confirm remove?")}
 						</Button>
-						<Button variant="quiet" onClick={() => onArmRemove(false)}>
+						<Button variant="secondary" size="compact" onClick={() => onArmRemove(false)}>
 							{l10n.t("Cancel")}
 						</Button>
 					</>
@@ -1957,18 +1964,22 @@ function ServerRow({
 						    without rewriting what the user typed, so its fix action
 						    reveals the setting instead of opening the form. */}
 						{server.origin === "misconfigured" ? (
-							<Button variant="quiet" onClick={() => sendRequest("revealSetting", { setting: "servers" })}>
+							<Button
+								variant="secondary"
+								size="compact"
+								onClick={() => sendRequest("revealSetting", { setting: "servers" })}
+							>
 								{l10n.t("Fix in settings.json")}
 							</Button>
 						) : (
-							<Button variant="quiet" onClick={onEdit}>
+							<Button variant="secondary" size="compact" onClick={onEdit}>
 								{l10n.t("Edit")}
 							</Button>
 						)}
 						{/* A legacy-registry external row is not hideable (the registry
 						    path would keep serving its models), so it keeps Edit only. */}
 						{server.origin === "declared" || server.origin === "misconfigured" || server.hideable ? (
-							<Button variant="quiet" onClick={() => onArmRemove(true)}>
+							<Button variant="danger" onClick={() => onArmRemove(true)}>
 								{l10n.t("Remove")}
 							</Button>
 						) : null}
@@ -1994,7 +2005,12 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 		<div className="hidden-groups">
 			<p className="hint">
 				{hidden.length === 1 ? l10n.t("1 hidden group") : l10n.t("{0} hidden groups", hidden.length)} -{" "}
-				<Button variant="quiet" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+				<Button
+					variant="secondary"
+					size="compact"
+					aria-expanded={expanded}
+					onClick={() => setExpanded((value) => !value)}
+				>
 					{expanded ? l10n.t("hide") : l10n.t("show")}
 				</Button>
 			</p>
@@ -2005,7 +2021,8 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 						<li key={`${group.label}:${group.baseUrl}`}>
 							<span className="hidden-label">{group.label}</span> <span className="url">{group.baseUrl}</span>{" "}
 							<Button
-								variant="quiet"
+								variant="secondary"
+								size="compact"
 								onClick={() =>
 									sendRequest("unhideServer", {
 										label: group.label,
@@ -2276,7 +2293,7 @@ export function ServersSection({
 						<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "openGroupsFile" })}>
 							{l10n.t("Open models file")}
 						</Button>
-						<Button variant="quiet" onClick={() => setRemovedNotice(undefined)}>
+						<Button variant="secondary" size="compact" onClick={() => setRemovedNotice(undefined)}>
 							{l10n.t("Dismiss")}
 						</Button>
 					</div>
@@ -2289,7 +2306,7 @@ export function ServersSection({
 						<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "openGroupsFile" })}>
 							{l10n.t("Open models file")}
 						</Button>
-						<Button variant="quiet" onClick={() => setAdoptNotice(undefined)}>
+						<Button variant="secondary" size="compact" onClick={() => setAdoptNotice(undefined)}>
 							{l10n.t("Dismiss")}
 						</Button>
 					</div>
@@ -2305,7 +2322,7 @@ export function ServersSection({
 								: { frame: (headline: string) => sectionFailureText(l10n.t("Adopting the server failed:"), headline) })}
 						/>
 					</p>
-					<Button variant="quiet" onClick={adoptIntent.reset}>
+					<Button variant="secondary" size="compact" onClick={adoptIntent.reset}>
 						{l10n.t("Dismiss")}
 					</Button>
 				</div>
@@ -2320,7 +2337,7 @@ export function ServersSection({
 								: { frame: (headline: string) => sectionFailureText(l10n.t("Saving the server failed:"), headline) })}
 						/>
 					</p>
-					<Button variant="quiet" onClick={saveIntent.reset}>
+					<Button variant="secondary" size="compact" onClick={saveIntent.reset}>
 						{l10n.t("Dismiss")}
 					</Button>
 				</div>
@@ -2333,7 +2350,7 @@ export function ServersSection({
 							frame={(headline) => sectionFailureText(l10n.t("Removing failed:"), headline)}
 						/>
 					</p>
-					<Button variant="quiet" onClick={removeIntent.reset}>
+					<Button variant="secondary" size="compact" onClick={removeIntent.reset}>
 						{l10n.t("Dismiss")}
 					</Button>
 				</div>
@@ -2346,7 +2363,7 @@ export function ServersSection({
 							frame={(headline) => sectionFailureText(l10n.t("Hiding the group failed:"), headline)}
 						/>
 					</p>
-					<Button variant="quiet" onClick={hideIntent.reset}>
+					<Button variant="secondary" size="compact" onClick={hideIntent.reset}>
 						{l10n.t("Dismiss")}
 					</Button>
 				</div>
@@ -2359,7 +2376,7 @@ export function ServersSection({
 							frame={(headline) => sectionFailureText(l10n.t("Unhiding the group failed:"), headline)}
 						/>
 					</p>
-					<Button variant="quiet" onClick={unhideIntent.reset}>
+					<Button variant="secondary" size="compact" onClick={unhideIntent.reset}>
 						{l10n.t("Dismiss")}
 					</Button>
 				</div>

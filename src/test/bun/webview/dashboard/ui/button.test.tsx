@@ -12,7 +12,7 @@ import { cleanup, mount } from "../../harness";
 
 afterEach(cleanup);
 
-const VARIANTS = ["default", "secondary", "danger", "quiet"] as const;
+const VARIANTS = ["default", "secondary", "danger"] as const;
 
 function classesOf(node: HTMLElement): readonly string[] {
 	return [...(node.querySelector("button")?.classList ?? [])];
@@ -58,9 +58,44 @@ test("danger is a variant, not a colour a caller paints on", () => {
 	// dependency entirely.
 	const classes = classesOf(mount(<Button variant="danger" />));
 	expect(classes).toContain("hover:bg-err-wash");
-	expect(classes).toContain("hover:text-err");
-	// At rest it is an ordinary muted label: the warning arrives on approach.
-	expect(classes).toContain("text-muted-foreground");
+	// The hovered colour is deliberately NOT --err: a red loses contrast on its
+	// own wash, so hover strengthens away from the surface instead of toward
+	// the hue.
+	expect(classes).toContain("hover:text-err-strong");
+	// And distinct AT REST, which is the part that matters: a Remove sits beside
+	// an Edit, and on a broken row beside a Fix, so it has to be tellable apart
+	// before the pointer arrives. It used to rest on text-muted-foreground -
+	// exactly the secondary and quiet variants' resting colour - which made the
+	// destructive action a sibling of the two harmless ones next to it.
+	expect(classes).toContain("text-err-quiet");
+	expect(classes).not.toContain("text-muted-foreground");
+});
+
+test("no variant rests on the same colour as another, so rank is legible before hover", () => {
+	// The vocabulary is typographic: rank is weight and colour, and the fill
+	// belongs to hover. That only works if the resting colours differ - three
+	// variants sharing one resting colour is three variants nobody can tell
+	// apart until they aim at them.
+	const restingColour = (variant: (typeof VARIANTS)[number]): string => {
+		const colour = classesOf(mount(<Button variant={variant} />)).find(
+			(name) => name.startsWith("text-") && !name.includes(":")
+		);
+		if (colour === undefined) {
+			throw new Error(`variant ${variant} rests on no colour at all`);
+		}
+		return colour;
+	};
+	const byColour = new Map<string, string[]>();
+	for (const variant of VARIANTS) {
+		const colour = restingColour(variant);
+		byColour.set(colour, [...(byColour.get(colour) ?? []), variant]);
+	}
+	// Every rank has a colour of its own now: "quiet" used to be a fourth
+	// variant that was secondary's colour at a smaller size, which is a size,
+	// not a rank - and it made Remove and Edit the same button.
+	for (const variant of VARIANTS) {
+		expect(byColour.get(restingColour(variant)), variant).toEqual([variant]);
+	}
 });
 
 test("high contrast can still see the button: the outline token is on every variant", () => {

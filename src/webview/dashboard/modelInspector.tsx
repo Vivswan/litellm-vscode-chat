@@ -188,7 +188,8 @@ function ParameterRow({
 					{sourceName(row.source)}
 					{onEditSource !== undefined ? (
 						<Button
-							variant="quiet"
+							variant="secondary"
+							size="compact"
 							className="row-edit px-0.5 py-0"
 							aria-label={
 								row.source.layer === "entry"
@@ -422,7 +423,8 @@ function FieldRow({
 					{levelName(field.level, field.key)}
 					{editable ? (
 						<Button
-							variant="quiet"
+							variant="secondary"
+							size="compact"
 							className="row-edit px-0.5 py-0"
 							aria-label={l10n.t('Edit record "{0}"', field.key ?? "")}
 							onClick={() => onEditField?.(field.level, field.key ?? "")}
@@ -878,7 +880,8 @@ export function ModelInspector({
 						action={
 							onEditRecord !== undefined ? (
 								<Button
-									variant="quiet"
+									variant="secondary"
+									size="compact"
 									className="section-action"
 									disabled={answeredParams === undefined}
 									onClick={() => {
@@ -991,7 +994,8 @@ export function ModelInspector({
 						action={
 							onEditRecord !== undefined ? (
 								<Button
-									variant="quiet"
+									variant="secondary"
+									size="compact"
 									className="section-action"
 									disabled={answeredCaps === undefined}
 									onClick={() => {

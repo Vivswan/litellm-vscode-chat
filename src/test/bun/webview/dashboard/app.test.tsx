@@ -138,7 +138,10 @@ test("the page header carries one quiet Report-a-bug action that posts the repor
 
 	const button = root.querySelector(".page-head button") as HTMLButtonElement;
 	expect((button.textContent ?? "").trim()).toBe("Report a bug");
-	expect(button.getAttribute("data-variant")).toBe("quiet");
+	// secondary at compact size: what the old "quiet" variant was, now said as
+	// the two things it actually is.
+	expect(button.getAttribute("data-variant")).toBe("secondary");
+	expect(button.className).toContain("px-1.5");
 	resetPosted();
 	fireClick(button);
 	expect(postedCalls()).toEqual([{ method: "executeCommand", payload: { command: "reportIssue" } }]);

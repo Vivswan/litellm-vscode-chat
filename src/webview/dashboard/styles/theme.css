@@ -42,15 +42,32 @@
 	body {
 		background-color: var(--background);
 	}
-	/* An OS forced-colors mode repaints every author color, which is right for
-		 text and wrong for the two places color IS the content or the boundary.
-		 The accent swatches opt out entirely - a color sample the system repaints
-		 black shows four identical circles - and the badges get their outline
-		 back, having traded it for a fill the system flattens into the page. */
-	@media (forced-colors: active) {
-		[data-slot="badge"] {
-			border: 1px solid;
-		}
+}
+
+/* Deliberately OUTSIDE every cascade layer. An unlayered rule outranks a
+ layered one whatever its specificity, and these have to beat the Tailwind
+ utilities: the button's own `border` utility sets a 1px width, so a layered
+ override of it silently loses - measured, not assumed. Everything else in
+ this file is layered; this block is the exception because forced colors is
+ the one context where the design has to overrule its own utilities. */
+/* An OS forced-colors mode repaints every author color, which is right for
+ text and wrong for the two places color IS the content or the boundary.
+ The accent swatches opt out entirely - a color sample the system repaints
+ black shows four identical circles - and the badges get their outline
+ back, having traded it for a fill the system flattens into the page. */
+@media (forced-colors: active) {
+	[data-slot="badge"] {
+		border: 1px solid;
+	}
+	/* Rank is carried by colour, and forced colours repaint all of it: every
+	 variant computes to the same system text, so Remove reads as Edit
+	 again - in the mode whose readers have the least bandwidth to spare.
+	 A border is no help either, because the system paints one onto every
+	 button here. Weight and border thickness are the two channels it
+	 leaves alone, so the destructive rank takes both. */
+	[data-slot="button"][data-variant="danger"] {
+		border-width: 2px;
+		font-weight: 700;
 	}
 }
 
@@ -126,8 +143,6 @@
 	--ok: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
 	--warn: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow));
 	--err: var(--vscode-errorForeground);
-	/* Advisory tint: a whole banner or row is filled with it, so it stays faint. */
-	--sev-mix: 13%;
 	/* Interactive wash: hover and selection need MORE presence than an advisory
 		 tint, and in light they need more still - so they are separate tokens
 		 rather than one scale reused. */
@@ -149,7 +164,6 @@
 	 theme test pins the two against each other. */
 html[data-theme="auto"] body.vscode-light,
 body.vscode-high-contrast-light {
-	--sev-mix: 4%;
 	--state-mix: 8%;
 	--diag-hairline: rgb(0 0 0 / 7%);
 	--hue-violet: #6b46c1;
@@ -341,9 +355,8 @@ html:where(:not(:has(body.vscode-high-contrast, body.vscode-high-contrast-light)
 
 	&[data-theme="light"] {
 		color-scheme: light;
-		/* The same three the host-derived rule above sets; the theme test pins
-			 the two against each other so they cannot drift apart. */
-		--sev-mix: 4%;
+		/* The same list the host-derived rule above sets; the theme test pins the
+			 two against each other so they cannot drift apart. */
 		--state-mix: 8%;
 		--diag-hairline: rgb(0 0 0 / 7%);
 		--hue-violet: #6b46c1;
@@ -451,12 +464,40 @@ html:where(:not(:has(body.vscode-high-contrast, body.vscode-high-contrast-light)
 body {
 	--accent-soft: color-mix(in srgb, var(--accent-hue) var(--state-mix), transparent);
 	--accent-line: color-mix(in srgb, var(--accent-hue) 45%, transparent);
-	--ok-soft: color-mix(in srgb, var(--ok) var(--sev-mix), transparent);
-	--warn-soft: color-mix(in srgb, var(--warn) var(--sev-mix), transparent);
-	--err-soft: color-mix(in srgb, var(--err) var(--sev-mix), transparent);
 	/* The interactive cousin of --err-soft: a destructive control under the
 		 pointer, not a banner sitting on the page. */
 	--err-wash: color-mix(in srgb, var(--err) var(--state-mix), transparent);
+	/* Destructive AT REST. A row can carry a Remove beside an Edit and, on the
+		 broken row, beside a Fix - so the destructive one has to be tellable
+		 apart before the pointer arrives, or a mis-aim costs a server entry. Full
+		 --err would put a column of alarm down a calm table, so this leans the
+		 muted foreground toward the error hue: different in kind at a glance,
+		 quiet enough to ignore, and it deepens to the real --err on hover. */
+	--err-quiet: color-mix(in srgb, var(--err) 55%, var(--muted-foreground));
+	/* Destructive UNDER THE POINTER. Not --err itself, which is the trap: --err
+		 is a bright red tuned to be read on the page, and the hover wash puts a
+		 reddened surface behind it, so "deepening to --err" measured 4.0:1 on
+		 dark and 3.0:1 on light - losing contrast at the exact instant a
+		 destructive control is being aimed at. There is no red that gains
+		 contrast on its own wash, so this strengthens AWAY from the surface
+		 instead of toward the hue: leaning the error color into the foreground
+		 lightens it on a dark page and darkens it on a light one, which is the
+		 direction legibility lives in either way. Measures 5.7:1 and 6.1:1. */
+	--err-strong: color-mix(in srgb, var(--err) 45%, var(--foreground));
+	/* Chip fills, mixed from the chip's OWN text colour rather than from a
+		 surface token. Two reasons. Mixing the foreground is self-correcting in
+		 both polarities - it lifts on a dark page and drops on a light one - where
+		 --muted is a fixed host colour that happened to sit 12 points off the dark
+		 background and 7 off the light one, so the same chip read as a chip in one
+		 theme and as loose words in the other. And a chip is small: the severity
+		 scale is sized for banners, and a percentage that reads as a calm wash
+		 across a paragraph disappears behind six characters. */
+	--chip: color-mix(in srgb, var(--muted-foreground) 14%, transparent);
+	--warn-chip: color-mix(in srgb, var(--warn) 12%, transparent);
+	/* The warn chip's own text, leaned into the foreground for the same reason
+		 --err-strong is: --warn is a mid-tone amber that a light page cannot
+		 carry at chip size, and the fill it sits on only makes that worse. */
+	--warn-chip-foreground: color-mix(in srgb, var(--warn) 55%, var(--foreground));
 }
 
 /* High contrast: the host draws every boundary with the contrast border and
@@ -540,10 +581,12 @@ body.vscode-high-contrast-light {
 	--color-ok: var(--ok);
 	--color-warn: var(--warn);
 	--color-err: var(--err);
-	--color-ok-soft: var(--ok-soft);
-	--color-warn-soft: var(--warn-soft);
-	--color-err-soft: var(--err-soft);
 	--color-err-wash: var(--err-wash);
+	--color-err-quiet: var(--err-quiet);
+	--color-err-strong: var(--err-strong);
+	--color-chip: var(--chip);
+	--color-warn-chip: var(--warn-chip);
+	--color-warn-chip-foreground: var(--warn-chip-foreground);
 	--color-accent-hue: var(--accent-hue);
 	/* The four choosable hues, for the settings picker's swatches: it paints
 		 every option, not just the live one. */

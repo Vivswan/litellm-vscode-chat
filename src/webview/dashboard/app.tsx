@@ -105,7 +105,12 @@ function Toast({
 	return (
 		<div className="toast">
 			<span>{toast.text}</span>
-			<Button variant="quiet" aria-label={l10n.t("Dismiss notification")} onClick={() => onDismiss(toast.id)}>
+			<Button
+				variant="secondary"
+				size="compact"
+				aria-label={l10n.t("Dismiss notification")}
+				onClick={() => onDismiss(toast.id)}
+			>
 				<IconClose />
 			</Button>
 		</div>
@@ -472,7 +477,11 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		<main>
 			<div className="page-head">
 				<h1>{l10n.t("LiteLLM Dashboard")}</h1>
-				<Button variant="quiet" onClick={() => sendRequest("executeCommand", { command: "reportIssue" })}>
+				<Button
+					variant="secondary"
+					size="compact"
+					onClick={() => sendRequest("executeCommand", { command: "reportIssue" })}
+				>
 					<IconBug /> {l10n.t("Report a bug")}
 				</Button>
 			</div>

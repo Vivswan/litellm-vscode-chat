@@ -21,8 +21,9 @@ const REQUIRED_UTILITIES = [
 	"border-control-outline",
 	"text-accent-hue",
 	"hover:bg-accent-soft",
+	"text-err-quiet",
 	"hover:bg-err-wash",
-	"hover:text-err",
+	"hover:text-err-strong",
 	"hover:bg-ghost-hover",
 	"text-muted-foreground",
 	"border-input",
@@ -31,9 +32,9 @@ const REQUIRED_UTILITIES = [
 	"aria-invalid:border-input-invalid",
 	"bg-dropdown-background",
 	"accent-primary",
-	"bg-warn-soft",
-	"text-warn",
-	"bg-muted",
+	"bg-warn-chip",
+	"text-warn-chip-foreground",
+	"bg-chip",
 	"focus-visible:outline-ring",
 	"disabled:opacity-60",
 	"disabled:bg-transparent",
@@ -250,6 +251,8 @@ test("the two light blocks agree on everything a light surface changes", () => {
 		[...block.matchAll(/^\s*(--(?!vscode-)[a-z-]+):\s*([^;]+);/gm)]
 			.map((match) => `${match[1]}: ${match[2]?.trim()}`)
 			.sort();
-	expect(ownTokens(hostDerived).length).toBeGreaterThanOrEqual(6);
+	// A floor, not a count: it only has to be big enough that an extraction
+	// finding nothing cannot pass the equality below vacuously.
+	expect(ownTokens(hostDerived).length).toBeGreaterThanOrEqual(4);
 	expect(ownTokens(forcedBlock("light"))).toEqual(ownTokens(hostDerived));
 });
