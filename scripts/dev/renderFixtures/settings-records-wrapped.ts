@@ -17,12 +17,17 @@
  * The width is chosen to survive the rail, which is the part worth explaining.
  * Today the rail is a fixed 216px, so this viewport leaves a 264px pane;
  * wp-narrow's held work collapses it to 48px below a 1000px window, which would
- * leave 432px. The rows wrap in both, measured both ways - a record row's floor
- * is one chip's own min-content, so it keeps wrapping until the pane clears
- * roughly 500px, and under the collapsed rail the wrapping only stops somewhere
- * between a 560px and a 640px viewport. A width that only worked under today's
- * rail would have been a fixture with a known expiry, quietly photographing the
- * unwrapped case the moment the rail landed and still passing.
+ * leave 432px. The rows wrap in both, and 480 is the width where ALL SIX wrap
+ * under either - which is what this fixture's subject requires. Measured under
+ * the collapsed rail: six of six rows wrap at 480, four of six at 560, one of
+ * six at 640. The band matters because the middle of it is the trap - a width
+ * that leaves some rows wrapped and some not photographs a muddle, and a
+ * reviewer cannot tell a bug from a row that simply had less to say.
+ *
+ * A record row's floor is one chip's own min-content, which is why the rail
+ * collapse does not lift the rows out of wrapping the way a naive reading
+ * suggests: 432px of pane is still under several rows' unwrapped width. Re-measure
+ * rather than reason if the row's contents or the rail change again.
  *
  * Expect the PNG to come out wider than the viewport. That same min-content
  * floor means a long field name plus its value overflows the pane horizontally
