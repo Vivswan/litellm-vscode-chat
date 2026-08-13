@@ -22,16 +22,15 @@ import {
 } from "../harness";
 
 /**
- * Every rail item's label and count. Sliced by length rather than by replacing
- * the count text: a label that itself contained digits would otherwise have the
- * first match cut out of the middle of it.
+ * Every rail item's label and count, each read from the element that holds it:
+ * the button's text run also carries the tip the collapsed rail shows, so it is
+ * not a label by itself.
  */
 function railCounts(root: ParentNode): Record<string, string | undefined> {
 	return Object.fromEntries(
 		Array.from(root.querySelectorAll("[role='tab']")).map((item) => {
-			const text = item.textContent ?? "";
 			const count = item.querySelector(".rail-count")?.textContent ?? "";
-			return [text.slice(0, text.length - count.length).trim(), count === "" ? undefined : count];
+			return [(item.querySelector(".rail-label")?.textContent ?? "").trim(), count === "" ? undefined : count];
 		})
 	);
 }
@@ -140,14 +139,25 @@ test("a saveServerSetting fail notice survives a subsequent state push", () => {
 	expect(root.textContent).not.toContain("the group upsert failed");
 });
 
-test("Sync models disables with zero servers and posts the acked syncModels intent when enabled", () => {
+test("Sync models refuses with zero servers and posts the acked syncModels intent when enabled", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
-	expect(buttonByText(root, "Sync models").disabled).toBe(true);
+	// aria-disabled rather than the attribute, and the handler refuses: the
+	// `disabled` attribute takes the control out of the tab order and stops
+	// every pointer event on it, which on the collapsed rail leaves an
+	// icon-only button that cannot be focused and whose label - drawn on
+	// hover or focus - can never be shown at all. A first run has no servers,
+	// so that state is the one a new reader meets first.
+	const idle = buttonByText(root, "Sync models");
+	expect(idle.getAttribute("aria-disabled")).toBe("true");
+	expect(idle.disabled).toBe(false);
+	resetPosted();
+	fireClick(idle);
+	expect(postedCalls()).toEqual([]);
 
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()] })));
 	const button = buttonByText(root, "Sync models");
-	expect(button.disabled).toBe(false);
+	expect(button.getAttribute("aria-disabled")).toBe("false");
 	resetPosted();
 	fireClick(button);
 	// The acked method rather than the fire-and-forget command post: on the

@@ -7,11 +7,103 @@
  * accessible name.
  */
 
+import type { ReactNode } from "react";
+
 function Svg({ path }: { path: string }) {
 	return (
 		<svg className="icon" viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
 			<path d={path} />
 		</svg>
+	);
+}
+
+/**
+ * The line-art sibling, for the rail's destination icons.
+ *
+ * Those five are the only icons on the page seen as a SET, side by side and
+ * carrying navigation on their own once the rail collapses, so they are drawn
+ * at one stroke weight rather than as filled silhouettes: at 18px a filled
+ * glyph reads as a blob, and a blob is a poor destination.
+ */
+function StrokeSvg({ children }: { children: ReactNode }) {
+	return (
+		<svg
+			className="icon"
+			viewBox="0 0 16 16"
+			width="14"
+			height="14"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth={1.1}
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			aria-hidden="true"
+		>
+			{children}
+		</svg>
+	);
+}
+
+/** Two stacked units: the Servers destination. */
+export function IconServers() {
+	return (
+		<StrokeSvg>
+			<rect x="2.2" y="3.2" width="11.6" height="4.2" rx="1.2" />
+			<rect x="2.2" y="8.8" width="11.6" height="4.2" rx="1.2" />
+			<path d="M4.6 5.3h1.8M4.6 10.9h1.8" />
+		</StrokeSvg>
+	);
+}
+
+/** A stack of plates: the Models catalogue. */
+export function IconModels() {
+	return (
+		<StrokeSvg>
+			<path d="M8 1.9l5.9 2.9L8 7.7 2.1 4.8 8 1.9z" />
+			<path d="M2.1 8l5.9 2.9L13.9 8" />
+			<path d="M2.1 11.2l5.9 2.9 5.9-2.9" />
+		</StrokeSvg>
+	);
+}
+
+/** Axes and a trend line: the Usage destination. */
+export function IconUsage() {
+	return (
+		<StrokeSvg>
+			<path d="M2.6 2.2v11.2h11.2" />
+			<path d="M4.8 10.8l2.7-3.3 2.2 2 3.3-4.3" />
+		</StrokeSvg>
+	);
+}
+
+/** A pulse trace: the Diagnostics destination. */
+export function IconPulse() {
+	return (
+		<StrokeSvg>
+			<path d="M1.6 8.4h3l1.7-4.3 2.5 7.7 1.5-3.4h4.1" />
+		</StrokeSvg>
+	);
+}
+
+/** A gear: the Settings destination. */
+export function IconGear() {
+	return (
+		<StrokeSvg>
+			<circle cx="8" cy="8" r="2.9" />
+			<path d="M11.7 8h1.6M8 11.7v1.6M4.3 8H2.7M8 4.3V2.7M10.6 10.6l1.1 1.1M5.4 10.6l-1.1 1.1M5.4 5.4L4.3 4.3M10.6 5.4l1.1-1.1" />
+		</StrokeSvg>
+	);
+}
+
+/** Circular arrows: the rail's Sync models action. */
+export function IconSync() {
+	return (
+		<StrokeSvg>
+			<path d="M3.2 8a4.8 4.8 0 0 1 8.2-3.4" />
+			<path d="M11.4 4.6H8.9M11.4 4.6V2.1" />
+			<path d="M12.8 8a4.8 4.8 0 0 1-8.2 3.4" />
+			<path d="M4.6 11.4h2.5M4.6 11.4v2.5" />
+		</StrokeSvg>
 	);
 }
 

@@ -19,11 +19,33 @@ afterEach(() => {
 	cleanup();
 });
 
-/** A rail item's label, without the count the item now carries beside it. */
+/** A rail item's label: the item's own label element, not its whole text run -
+ *  the button also carries a count and, for the collapsed rail, a tip. */
 function labelOf(item: Element): string {
-	const count = item.querySelector(".rail-count")?.textContent ?? "";
-	return (item.textContent ?? "").slice(0, (item.textContent ?? "").length - count.length).trim();
+	return (item.querySelector(".rail-label")?.textContent ?? "").trim();
 }
+
+test("every rail item carries its label in a .rail-label element, and its own tip text", () => {
+	// Both halves of the collapsed rail's contract, and neither is visible to a
+	// layout-free DOM any other way. The label element is what keeps the
+	// accessible name once the rail paints icons only - and it is what these
+	// suites read a label from, so a rename would leave them reading "" and
+	// still passing. The tip is generated content from data-tip, deliberately
+	// not an element, so the label is never a second copy of itself in the
+	// page's text; nothing but this attribute proves it is there at all.
+	const root = mountApp();
+	const items = Array.from(root.querySelectorAll("[role='tab']"));
+	expect(items.length).toBeGreaterThan(0);
+	for (const item of items) {
+		const label = item.querySelector(".rail-label")?.textContent ?? "";
+		expect(label.length).toBeGreaterThan(0);
+		const tip = item.querySelector(".rail-icon")?.getAttribute("data-tip") ?? "";
+		expect(tip).toContain(label);
+		// The name a screen reader hears already carries the label, so the tip
+		// must not be added to it.
+		expect(item.querySelector(".rail-icon")?.getAttribute("aria-hidden")).toBe("true");
+	}
+});
 
 function tab(root: ParentNode, name: string): HTMLButtonElement {
 	const found = Array.from(root.querySelectorAll("[role='tab']")).find((candidate) => labelOf(candidate) === name);

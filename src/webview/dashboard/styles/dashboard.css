@@ -83,26 +83,51 @@
 		font-variant-numeric: tabular-nums;
 		font-weight: 400;
 	}
-	/* Pinned to the bottom: the fleet's state is the last thing you should have
-		   to hunt for, and margin-top auto keeps it there without a spacer
-		   element that means nothing to a screen reader. */
+	/* The destination icons only paint once the rail collapses; at full width
+		 the label is the item and an icon beside it would be decoration. */
+	.rail-icon {
+		display: none;
+	}
+	/* Pinned to the bottom, and read as a COLUMN rather than four things that
+		 happen to be stacked. Its four lines are one rank - the fleet's state and
+		 the two things you can do about it - so they share one glyph column and
+		 one text column: the verdict's dot and the two action icons all hang at
+		 the same x, and the verdict word, both labels and the sync time all start
+		 at the same x. They did not before, and the four indents (a dot at 4, a
+		 time at 4, a word at 18, a label at 30) were the whole reason the footer
+		 looked ragged.
+		 The two numbers do the aligning, because the parts are not siblings in one
+		 grid - a button owns its own icon and label - so the pill matches the
+		 compact button's inline padding, and the dot sits in a box the width of an
+		 icon. */
 	.rail-state {
+		--rail-glyph: 14px;
+		--rail-gap: 6px;
+		--rail-inset: 6px;
 		display: flex;
 		flex-direction: column;
 		align-items: flex-start;
-		gap: 4px;
+		gap: 6px;
 		margin-top: auto;
 		padding: 0 4px;
 	}
 	.rail-status {
 		display: flex;
 		align-items: center;
-		gap: 6px;
+		gap: var(--rail-gap);
 		margin: 0;
+		padding-left: var(--rail-inset);
 		font-weight: 600;
 	}
+	/* Centred in the glyph column: the dot is smaller than an icon and would
+		 otherwise start the same line 3px to the left of every other one. */
+	.rail-state .rail-status .dot {
+		margin-inline: calc((var(--rail-glyph) - 8px) / 2);
+	}
+	/* No glyph of its own, so it starts where the words start. */
 	.rail-synced {
 		margin: 0;
+		padding-left: calc(var(--rail-inset) + var(--rail-glyph) + var(--rail-gap));
 		color: var(--muted-foreground);
 	}
 	/* The content column keeps its generous cap; the pane supplies the page
@@ -189,6 +214,25 @@
 		border-radius: 50%;
 		background: currentColor;
 		flex: none;
+	}
+	@media (forced-colors: active) {
+		.pill .dot {
+			background: CanvasText;
+			box-sizing: border-box;
+		}
+		.pill.tone-warn .dot {
+			border-radius: 0;
+			clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+			width: 10px;
+			height: 9px;
+		}
+		.pill.tone-error .dot {
+			border-radius: 2px;
+		}
+		.pill.tone-muted .dot {
+			background: Canvas;
+			border: 1.5px solid CanvasText;
+		}
 	}
 	.pill .pill-time {
 		color: var(--vscode-descriptionForeground);
@@ -1900,6 +1944,198 @@
 		}
 	}
 
+	@media (width < 1000px) {
+		/* Nothing is dropped from the document, only from the paint: every label,
+			 the brand (the page's only h1) and the fleet's verdict stay readable to
+			 assistive tech, so the accessible name of every control is the same at
+			 500px as at 1500px. */
+		.rail-brand,
+		.rail-label,
+		.rail-synced,
+		.rail-word,
+		.rail-action-label {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			margin: -1px;
+			padding: 0;
+			overflow: hidden;
+			clip: rect(0 0 0 0);
+			white-space: nowrap;
+			border: 0;
+		}
+		.rail {
+			flex: 0 0 48px;
+		}
+		.rail-inner {
+			gap: 14px;
+			padding: 12px 4px 14px;
+			align-items: center;
+		}
+		.rail-nav {
+			align-self: stretch;
+			gap: 4px;
+		}
+		.rail-nav .rail-tab {
+			position: relative;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			gap: 1px;
+			min-height: 38px;
+		}
+		.rail-icon {
+			display: flex;
+		}
+		.rail-icon .icon {
+			width: 18px;
+			height: 18px;
+		}
+		/* The two footer actions are icons here too, and they are read as part of
+			 the same column as the destinations above them: one glyph size for the
+			 whole rail, or the rail looks like two rails. */
+		.rail-action .icon {
+			width: 17px;
+			height: 17px;
+		}
+		/* The count survives the collapse - it is the rail's claim over a tab
+			 strip - as a small figure under its icon rather than a badge over it:
+			 a badge would need a fill of its own, and a tinted number cannot be
+			 read against an arbitrary badge colour. */
+		.rail-tab .rail-count {
+			margin-left: 0;
+			font-size: 0.8em;
+			line-height: 1.1;
+		}
+		/* The active mark moves to the rail's edge, where the activity bar puts
+			 it: with no label to carry weight, a soft fill alone is a weak signal at
+			 a glance. */
+		.rail-nav .rail-tab[aria-selected="true"]::before {
+			content: "";
+			position: absolute;
+			top: 4px;
+			bottom: 4px;
+			left: -4px;
+			width: 2px;
+			border-radius: 0 2px 2px 0;
+			background: var(--accent-hue);
+		}
+		.rail-state {
+			align-items: center;
+			gap: 8px;
+			padding: 0;
+		}
+		/* The footer's two columns collapse with everything else: with no words
+			 to line the glyphs up against, the insets that align them would only
+			 push the dot off the rail's centre. */
+		.rail-status {
+			justify-content: center;
+			padding-left: 0;
+			/* Stretched so the box the tip measures from is the rail's column and
+				 not the 11px dot: measured from the dot, the verdict's tip landed
+				 20px left of every other one, over the rail's own border. */
+			align-self: stretch;
+		}
+		.rail-state .rail-status .dot {
+			margin-inline: 0;
+		}
+		/* With the word hidden, the dot is the whole verdict, so it stops relying
+			 on hue alone: one shape per tone. Forced colours discard every colour
+			 here and would otherwise leave four states looking like one. */
+		.rail-status .dot {
+			width: 11px;
+			height: 11px;
+			box-sizing: border-box;
+		}
+		.rail-status.tone-warn .dot {
+			border-radius: 0;
+			clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+		}
+		.rail-status.tone-error .dot {
+			border-radius: 2px;
+		}
+		.rail-status.tone-muted .dot {
+			background: transparent;
+			border: 1.5px solid currentColor;
+		}
+		/* The slide-over stops at the rail instead of halfway across it. Its own
+			 width rule (94vw) leaves a 30px sliver of a 48px rail: half an icon and
+			 half a count badge, cut down the middle, which reads as a positioning
+			 fault rather than as a panel. Landing on the rail's edge keeps the rail
+			 whole and legible; it is not a way out, since the scrim covers it while
+			 the panel is modal, and that is deliberate - the way out is Esc or the
+			 panel's own close. */
+		.slide-over {
+			/* Joins the panel's own cap rather than replacing it: written as a bare
+				 calc this took over from 723px up, where the base rule had already
+				 settled at 680, and a 980px window got a 931px panel that snapped
+				 back to 680 thirty pixels later.
+				 49 and not 48: the rail's box is its 48px basis PLUS its 1px right
+				 border - nothing here is border-box, there is no preflight - so 48
+				 put the panel over that border column. */
+			width: min(680px, calc(100% - 49px));
+		}
+		/* Forced colours discard author backgrounds, which is where both of the
+			 collapsed rail's marks live: the active item's edge bar and the verdict
+			 dot itself. At full width neither loss shows - the selected item still
+			 reads as text and the verdict is a word - but here they are the only
+			 copy, so both are redrawn in system colours. The tones stay apart by
+			 shape, which is what that channel is for. */
+		@media (forced-colors: active) {
+			.rail-nav .rail-tab[aria-selected="true"]::before {
+				background: Highlight;
+			}
+			/* currentColor is not a system colour, so forced colours replace the
+				 dot's fill with the canvas and it disappears into its own
+				 background. Named through the footer to keep the rail's verdict
+				 independent of the shared pill rule above. */
+			.rail-state .rail-status .dot {
+				background: CanvasText;
+			}
+			.rail-state .rail-status.tone-muted .dot {
+				background: Canvas;
+				border-color: CanvasText;
+			}
+		}
+		/* Each control names itself on hover or keyboard focus, beside the rail
+			 rather than over it: the rail is a column against the window's edge, so
+			 a tip above a control would cover its neighbour.
+			 Generated content, not an element, so the label is not also a second
+			 copy of itself in the page's text; fixed, because the rail's column
+			 scrolls in a short window and an absolute tip would be clipped at that
+			 overflow box; and placed from the two variables the control measured
+			 for itself, which are inert at every other width.
+			 The chrome is the help tip's, deliberately: one tooltip look for the
+			 page, whether it comes from an element or from a pseudo-element. */
+		.rail-tab:hover .rail-icon::after,
+		.rail-tab:focus-visible .rail-icon::after,
+		.rail-action:hover .rail-action-icon::after,
+		.rail-action:focus-visible .rail-action-icon::after,
+		.rail-status:hover .dot::after,
+		.rail-status:focus-visible .dot::after {
+			content: attr(data-tip);
+			position: fixed;
+			left: var(--rail-tip-left);
+			top: var(--rail-tip-top);
+			transform: translateY(-50%);
+			z-index: 100;
+			width: max-content;
+			max-width: min(240px, calc(100vw - 72px));
+			padding: 5px 9px;
+			background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background));
+			color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+			border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
+			border-radius: 3px;
+			box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.35));
+			font-family: var(--vscode-font-family);
+			font-size: var(--vscode-font-size);
+			font-weight: 400;
+			line-height: 1.5;
+			text-align: left;
+			white-space: normal;
+			pointer-events: none;
+		}
+	}
 	/* === R4 diagnostics, records === */
 	.failure-note p {
 		margin: 2px 0;

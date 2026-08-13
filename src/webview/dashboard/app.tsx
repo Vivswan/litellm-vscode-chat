@@ -9,7 +9,7 @@ import { DASHBOARD_SECTION_IDS } from "../../dashboard/viewModels";
 import { DiagnosticsSection, pageConfigDiagnostics } from "./diagnostics";
 import { FailureText } from "./failureText";
 import { asExtensionMessage } from "./hooks";
-import { IconClose } from "./icons";
+import { IconClose, IconGear, IconModels, IconPulse, IconServers, IconUsage } from "./icons";
 import type { InspectorSection } from "./modelInspector";
 import { ModelInspector } from "./modelInspector";
 import { ModelsSection } from "./models";
@@ -42,6 +42,26 @@ function sectionLabel(section: SectionId): string {
 			return l10n.t("Settings");
 		case "diagnostics":
 			return l10n.t("Diagnostics");
+	}
+}
+
+/**
+ * What each destination looks like once the rail collapses to icons. The same
+ * exhaustive switch the labels use, so a new destination cannot ship with a
+ * name and no icon - at narrow widths the icon IS the name.
+ */
+function sectionIcon(section: SectionId): ReactNode {
+	switch (section) {
+		case "overview":
+			return <IconServers />;
+		case "models":
+			return <IconModels />;
+		case "usage":
+			return <IconUsage />;
+		case "settings":
+			return <IconGear />;
+		case "diagnostics":
+			return <IconPulse />;
 	}
 }
 
@@ -222,7 +242,7 @@ function railSections(state: DashboardState): readonly RailSection<SectionId>[] 
 		diagnostics: diagnosticsCount(pageConfigDiagnostics(state.diagnostics)),
 		settings: {},
 	};
-	return SECTION_IDS.map((id) => ({ id, label: sectionLabel(id), ...counts[id] }));
+	return SECTION_IDS.map((id) => ({ id, label: sectionLabel(id), icon: sectionIcon(id), ...counts[id] }));
 }
 
 /**
