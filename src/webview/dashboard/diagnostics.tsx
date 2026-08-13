@@ -172,8 +172,8 @@ interface ConfigProblem {
 }
 
 /**
- * The diagnostics this page renders, which is not every diagnostic the host
- * builds.
+ * Whether one diagnostic belongs on this page, as an exhaustive classification
+ * rather than a filter predicate.
  *
  * Two kinds are dropped because a row on the Servers destination reports
  * exactly the same fact, beside the control that fixes it: a rejected servers
@@ -189,18 +189,41 @@ interface ConfigProblem {
  * the only place its problems appear. Deciding that from `misconfigured` alone
  * would erase the user's broken entry from both surfaces at once.
  *
+ * A switch with no default and an annotated return type, deliberately: a
+ * boolean predicate would have let a NEW diagnostic kind reach the page
+ * unclassified, and the `is PageConfigDiagnostic` assertion that came with it
+ * was unchecked - deleting the hidden-groups clause compiled fine and then
+ * failed at runtime. Here a new union member does not typecheck until someone
+ * decides which side it is on: `noImplicitReturns` (src/webview/tsconfig.json)
+ * is what turns the unhandled case into TS7030, with the downstream
+ * PageConfigDiagnostic switches giving TS2366 as a second net.
+ */
+function pageDiagnostic(diagnostic: ConfigDiagnosticView): PageConfigDiagnostic | undefined {
+	switch (diagnostic.kind) {
+		case "record":
+		case "legacy":
+		case "thresholds":
+			return diagnostic;
+		case "entry":
+			return diagnostic.misconfigured && diagnostic.rowOwned ? undefined : diagnostic;
+		case "hidden-groups":
+			return undefined;
+	}
+}
+
+/**
+ * The diagnostics this page renders, which is not every diagnostic the host
+ * builds; see pageDiagnostic for which are dropped and why.
+ *
  * Exported because the rail's badge counts what this page shows. Two
  * definitions of "how many problems" would drift, and a badge reading 8 above
- * a list of 6 is the same bug in a smaller font. The return type narrows away
- * the hidden-groups kind so the renderer below cannot carry a branch for a
- * case that can never reach it.
+ * a list of 6 is the same bug in a smaller font.
  */
 export function pageConfigDiagnostics(diagnostics: readonly ConfigDiagnosticView[]): readonly PageConfigDiagnostic[] {
-	return diagnostics.filter(
-		(diagnostic): diagnostic is PageConfigDiagnostic =>
-			!(diagnostic.kind === "entry" && diagnostic.misconfigured && diagnostic.rowOwned) &&
-			diagnostic.kind !== "hidden-groups"
-	);
+	return diagnostics.flatMap((diagnostic) => {
+		const kept = pageDiagnostic(diagnostic);
+		return kept === undefined ? [] : [kept];
+	});
 }
 
 /**
