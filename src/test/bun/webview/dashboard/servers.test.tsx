@@ -68,6 +68,33 @@ function mountSection(servers: readonly DashboardServer[]) {
 	);
 }
 
+test("a row's URL keeps its exact configured text, with only the https scheme marked for hiding", () => {
+	// The narrow row stops PAINTING "https://" so the ellipsis cannot eat the
+	// host, and the way it does that has to leave the row's text alone: what a
+	// screen reader announces, what a copy of the line yields and what a
+	// find-in-page matches must all still be the URL the setting holds. So the
+	// scheme is a marked span rather than a removed substring - and http:// is
+	// never marked, because plaintext to a proxy holding an API key is worth a
+	// reader's attention at every width.
+	const root = mountSection([
+		makeDeclaredServer({ label: "Secure", baseUrl: "https://litellm.example.com" }),
+		makeDeclaredServer({ label: "Plain", baseUrl: "http://localhost:4000" }),
+		makeDeclaredServer({ label: "Half-typed", baseUrl: "https://" }),
+	]);
+	const urls = Array.from(root.querySelectorAll(".server-url"));
+	expect(urls.map((url) => (url.textContent ?? "").trim())).toEqual([
+		"https://litellm.example.com",
+		"http://localhost:4000",
+		"https://",
+	]);
+	expect(urls[0]?.querySelector(".url-scheme.quiet")?.textContent).toBe("https://");
+	expect(urls[1]?.querySelector(".url-scheme")).toBe(null);
+	// A scheme with nothing after it is the whole value, so it stays painted:
+	// marked quiet it would render as an empty space at narrow, which is the
+	// width at which being told the entry is half-typed matters most.
+	expect(urls[2]?.querySelector(".url-scheme.quiet")).toBe(null);
+});
+
 /**
  * The edit destination alone, on the entry a test is about. Most form tests
  * are about the form, not about the shell that hosts it: mounting the whole
@@ -613,11 +640,14 @@ test("the hidden-groups line states the count, expands to rows, and Unhide posts
 
 	const line = root.querySelector(".hidden-groups");
 	expect(line).not.toBeNull();
-	expect(line?.textContent).toContain("2 hidden groups");
+	// One control saying the whole thing, rather than a count sentence with a
+	// lowercase "show" fragment three words behind its own object.
+	expect(line?.textContent).toContain("Show 2 hidden groups");
 	// Collapsed by default: no Unhide until shown.
 	expect(line?.textContent).not.toContain("Unhide");
 
-	fireClick(buttonByText(root, "show"));
+	fireClick(buttonByText(root, "Show 2 hidden groups"));
+	expect(buttonByText(root, "Hide 2 hidden groups")).not.toBeNull();
 	expect(line?.textContent).toContain("Old");
 	expect(line?.textContent).toContain("http://old.test");
 	const unhide = [...root.querySelectorAll("button")].find((el) => el.textContent?.trim() === "Unhide");
@@ -648,7 +678,7 @@ test("without hidden groups no hidden-groups line renders; with them it renders 
 		/>
 	);
 	expect(onlyHidden.querySelector(".empty-start")).not.toBeNull();
-	expect(onlyHidden.querySelector(".hidden-groups")?.textContent).toContain("1 hidden group");
+	expect(onlyHidden.querySelector(".hidden-groups")?.textContent).toContain("Show 1 hidden group");
 });
 
 test("the external badge tip renders the provenance classification, or the honest default", () => {

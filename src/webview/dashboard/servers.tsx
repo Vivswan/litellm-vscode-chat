@@ -611,6 +611,34 @@ function UsageCell({ usage, thresholds }: { usage: UsageServerView | undefined; 
 	);
 }
 
+/**
+ * The row's URL, split so a narrow pane can stop PAINTING the part every reader
+ * already assumes without ever dropping it from the row.
+ *
+ * Eight characters of "https://" is a quarter of the line the URL gets in a
+ * narrow pane, and it is spent at the FRONT, so the ellipsis eats the host -
+ * the part that says which server this is. At narrow the scheme goes
+ * visually-hidden rather than away: the text stays in the DOM, so the accessible
+ * name, a copy of the line and a find-in-page all still carry the exact URL the
+ * setting holds, and only the paint changes. An http:// URL keeps its scheme
+ * visible at every width for the opposite reason - plaintext to a proxy holding
+ * an API key is worth a reader's attention.
+ */
+function urlParts(baseUrl: string): { readonly scheme: string; readonly rest: string; readonly quiet: boolean } {
+	const secure = "https://";
+	// Case-insensitively, because a URL's scheme is: "HTTPS://host" is the same
+	// address, and a case-sensitive test would have kept its scheme painted at
+	// narrow while its neighbours dropped theirs.
+	const marked = baseUrl.slice(0, secure.length).toLowerCase() === secure;
+	const rest = marked ? baseUrl.slice(secure.length) : baseUrl;
+	// A scheme with nothing after it stays visible: "https://" alone is a value
+	// someone has to fix, and hiding it at narrow would render the row's URL as
+	// an empty space - blank at exactly the width where being told is useful.
+	return marked && rest.length > 0
+		? { scheme: secure, rest, quiet: true }
+		: { scheme: marked ? baseUrl : "", rest: marked ? "" : baseUrl, quiet: false };
+}
+
 function ServerRow({
 	server,
 	usage,
@@ -648,6 +676,7 @@ function ServerRow({
 		onArmRemove(false);
 	};
 	const diagnostics = serverDiagnostics(server, { onEdit, onRetry, retrying, syncBusy });
+	const url = urlParts(server.baseUrl);
 	return (
 		// One line per server, its problems indented underneath. The actions are
 		// revealed by hover AND focus-within: hover alone would put Remove out of
@@ -656,47 +685,66 @@ function ServerRow({
 		<li className="server-item">
 			<div className="server-row">
 				<span className="server-name">
-					{server.label}
+					<span className="server-label-text">{server.label}</span>
 					{server.origin === "misconfigured" ? <span className="server-tag">{l10n.t("not in use")}</span> : null}
 				</span>
-				<span className="server-url">{server.baseUrl}</span>
-				<StatusPill server={server} worst={diagnostics[0]?.severity} now={now} />
-				<span className="server-count">
-					{/* The count carries its own noun, so the row needs no column header
+				<span className="server-status">
+					<StatusPill server={server} worst={diagnostics[0]?.severity} now={now} />
+				</span>
+				{/* The row's second line once the pane is narrow, and nothing at all
+				    while it is wide: `display: contents` hands these five straight to
+				    the row's grid, so one markup carries both shapes. Their order here
+				    is the order they are wanted in - what it holds, then what it
+				    costs, then how it authenticates - and the columns they land in
+				    are named by the stylesheet, not by this order. */}
+				<span className="server-meta">
+					<span className="server-url">
+						{/* One text run, two treatments: the scheme is its own element so a
+						    narrow pane can hide it from the paint alone. */}
+						{url.scheme.length > 0 ? (
+							<span className={url.quiet ? "url-scheme quiet" : "url-scheme"}>{url.scheme}</span>
+						) : null}
+						{url.rest}
+					</span>
+					<span className="server-count">
+						{/* The count carries its own noun, so the row needs no column header
 					    to say what the number is. The whole phrase is the link, not just
 					    the digit: a bare "models" fragment beside a number cannot be
 					    translated (measure words and word order move), and one word is a
 					    poor click target. Clicking opens the Models destination scoped to
 					    this server; a zero stays plain text, since an empty scoped list
 					    has nothing to show. */}
-					{onShowModels !== undefined && server.modelCount > 0 ? (
-						<Button
-							variant="secondary"
-							size="compact"
-							className="count-link px-1 py-0"
-							aria-label={l10n.t("Show models from {0}", server.label)}
-							onClick={() => onShowModels(server.label)}
-						>
-							{server.modelCount === 1 ? l10n.t("1 model") : l10n.t("{0} models", server.modelCount)}
-						</Button>
-					) : (
-						<span className="count-plain">
-							{server.modelCount === 1 ? l10n.t("1 model") : l10n.t("{0} models", server.modelCount)}
-						</span>
-					)}
-				</span>
-				<span className="server-usage">
-					<UsageCell usage={usage} thresholds={usageThresholds} />
-				</span>
-				<span className="server-badges">
-					{/* The credential kind is the information, so it is the visible
+						{onShowModels !== undefined && server.modelCount > 0 ? (
+							<Button
+								variant="secondary"
+								size="compact"
+								className="count-link px-1 py-0"
+								aria-label={l10n.t("Show models from {0}", server.label)}
+								onClick={() => onShowModels(server.label)}
+							>
+								{server.modelCount === 1 ? l10n.t("1 model") : l10n.t("{0} models", server.modelCount)}
+							</Button>
+						) : (
+							<span className="count-plain">
+								{server.modelCount === 1 ? l10n.t("1 model") : l10n.t("{0} models", server.modelCount)}
+							</span>
+						)}
+					</span>
+					<span className="server-usage">
+						<UsageCell usage={usage} thresholds={usageThresholds} />
+					</span>
+					<span className="server-badges">
+						{/* The credential kind is the information, so it is the visible
 					    text; a generic "auth" badge would hide it in a hover tip. */}
-					{server.hasApiKey || server.hasOAuth ? <Badge>{server.hasOAuth ? "OAuth" : l10n.t("API key")}</Badge> : null}
-					{server.origin === "external" ? (
-						<HoverTip focusable tip={externalTip(server)}>
-							<Badge>{l10n.t("external")}</Badge>
-						</HoverTip>
-					) : null}
+						{server.hasApiKey || server.hasOAuth ? (
+							<Badge>{server.hasOAuth ? "OAuth" : l10n.t("API key")}</Badge>
+						) : null}
+						{server.origin === "external" ? (
+							<HoverTip focusable tip={externalTip(server)}>
+								<Badge>{l10n.t("external")}</Badge>
+							</HoverTip>
+						) : null}
+					</span>
 				</span>
 				<span className={armed ? "server-actions armed" : "server-actions"}>
 					{armed ? (
@@ -725,18 +773,17 @@ function ServerRow({
 						</>
 					) : (
 						<>
-							{/* A misconfigured entry cannot round-trip through the edit form
-							    without rewriting what the user typed, so its fix action
-							    reveals the setting instead of opening the form. */}
-							{server.origin === "misconfigured" ? (
-								<Button
-									variant="secondary"
-									size="compact"
-									onClick={() => sendRequest("revealSetting", { setting: "servers" })}
-								>
-									{l10n.t("Fix in settings.json")}
-								</Button>
-							) : (
+							{/* A misconfigured entry has no Edit here: it cannot round-trip
+							    through the form without rewriting what the user typed, and its
+							    fix action - reveal the setting - is already the first action of
+							    the blocking line directly beneath this row. Two copies of one
+							    button, and the row's copy was the expensive one: it is the
+							    widest label the column ever holds, so in a narrow pane it wrapped
+							    the cluster onto a second line and pushed the row's own facts down
+							    past the hole that left. The line below offers the fix AND says
+							    why it is needed, which is the better of the two places to keep
+							    it. */}
+							{server.origin === "misconfigured" ? null : (
 								<Button
 									variant="secondary"
 									size="compact"
@@ -780,19 +827,29 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 	if (hidden.length === 0) {
 		return null;
 	}
+	// One control that states the whole thing, rather than a sentence with an
+	// action embedded in it. "1 hidden group -  show" left a dangling separator
+	// and a lowercase fragment whose object was three words behind it; a reader
+	// had to assemble the two halves to learn what "show" would show. Saying it
+	// once is also fewer words on the page, which is the direction the whole
+	// surface is moving.
+	const label = expanded
+		? hidden.length === 1
+			? l10n.t("Hide 1 hidden group")
+			: l10n.t("Hide {0} hidden groups", hidden.length)
+		: hidden.length === 1
+			? l10n.t("Show 1 hidden group")
+			: l10n.t("Show {0} hidden groups", hidden.length);
 	return (
 		<div className="hidden-groups">
-			<p className="hint">
-				{hidden.length === 1 ? l10n.t("1 hidden group") : l10n.t("{0} hidden groups", hidden.length)} -{" "}
-				<Button
-					variant="secondary"
-					size="compact"
-					aria-expanded={expanded}
-					onClick={() => setExpanded((value) => !value)}
-				>
-					{expanded ? l10n.t("hide") : l10n.t("show")}
-				</Button>
-			</p>
+			<Button
+				variant="secondary"
+				size="compact"
+				aria-expanded={expanded}
+				onClick={() => setExpanded((value) => !value)}
+			>
+				{label}
+			</Button>
 			{expanded ? (
 				<ul>
 					{hidden.map((group) => (

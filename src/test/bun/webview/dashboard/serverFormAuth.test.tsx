@@ -131,17 +131,27 @@ test("editing a keyed entry derives the API-key form; switching to None keeps th
 	expect(posted.payload.secrets.apiKey).toEqual({ action: "clear" });
 });
 
-test("a misconfigured row shows the Misconfigured pill, swaps Edit for Fix in settings.json, and keeps Remove", () => {
+test("a misconfigured row shows the Misconfigured pill, drops Edit, and leaves the fix to its blocking line", () => {
 	const broken = makeMisconfiguredServer({ label: "Broken" });
 	const root = mountSection([broken, makeDeclaredServer({ label: "Fine" })]);
 
 	const pills = Array.from(root.querySelectorAll(".pill")).map((el) => (el.textContent ?? "").trim());
 	expect(pills).toContain("Misconfigured");
 
+	// Remove alone. The entry has no Edit (the form cannot round-trip what the
+	// user typed), and its fix - reveal the setting - is the first action of the
+	// blocking line under the row, where the reason for it also lives. The row
+	// carried a second copy before, which was the widest label the actions
+	// column ever held and folded the whole cluster onto a second line in a
+	// narrow pane.
 	const firstRowActions = Array.from(
 		root.querySelectorAll(".server-item")[0]?.querySelectorAll(".server-actions button") ?? []
 	).map((el) => (el.textContent ?? "").trim());
-	expect(firstRowActions).toEqual(["Fix in settings.json", "Remove"]);
+	expect(firstRowActions).toEqual(["Remove"]);
+	const fixActions = Array.from(root.querySelectorAll(".row-diagnostic button")).map((el) =>
+		(el.textContent ?? "").trim()
+	);
+	expect(fixActions).toContain("Fix in settings.json");
 
 	resetPosted();
 	fireClick(buttonByText(root, "Fix in settings.json"));
