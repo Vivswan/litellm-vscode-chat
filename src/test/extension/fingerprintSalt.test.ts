@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import { existsSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
@@ -15,9 +15,18 @@ function capture(): { install: (salt: string) => void; installed: string[] } {
 	return { install: (salt) => installed.push(salt), installed };
 }
 
+/** Every tmpdir this file creates, removed in one teardown: mkdtemp cleans up nothing on its own, and these once accumulated in $TMPDIR indefinitely. */
+const createdTmpDirs: string[] = [];
+
+function makeTmpDir(): string {
+	const dir = mkdtempSync(path.join(os.tmpdir(), "lvt-salt-"));
+	createdTmpDirs.push(dir);
+	return dir;
+}
+
 /** A fresh globalStorage stand-in per test; the creation lock lives inside it. */
 function tmpStorage(): { uri: vscode.Uri; lockPath: string } {
-	const dir = mkdtempSync(path.join(os.tmpdir(), "lvt-salt-"));
+	const dir = makeTmpDir();
 	return { uri: vscode.Uri.file(dir), lockPath: path.join(dir, "fingerprint-salt.lock") };
 }
 
@@ -28,6 +37,18 @@ function sleep(ms: number): Promise<void> {
 }
 
 suite("extension/fingerprintSalt", () => {
+	suiteTeardown(() => {
+		for (const dir of createdTmpDirs) {
+			// Cleanup must never read as a test failure: a transient EPERM/EBUSY
+			// on removal loses to the run's verdict (same rule as .vscode-test.mjs).
+			try {
+				rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+			} catch {
+				// A directory that will not delete is a leak, not a failure.
+			}
+		}
+	});
+
 	test("first run: generates a 256-bit hex salt, stores it, and reports durable", async () => {
 		const storage = makeExtensionStorage();
 		const { uri, lockPath } = tmpStorage();
@@ -115,7 +136,7 @@ suite("extension/fingerprintSalt", () => {
 			reads += 1;
 			return original(key);
 		};
-		const blocker = path.join(mkdtempSync(path.join(os.tmpdir(), "lvt-salt-")), "blocker");
+		const blocker = path.join(makeTmpDir(), "blocker");
 		writeFileSync(blocker, "");
 		const uri = vscode.Uri.file(path.join(blocker, "storage"));
 		const { install, installed } = capture();
