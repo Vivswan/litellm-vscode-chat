@@ -1,6 +1,6 @@
 import * as l10n from "@vscode/l10n";
 import type { FocusEvent, KeyboardEvent, ReactNode } from "react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { settingScopeLabel } from "../../dashboard/presenters";
 import type {
 	CapabilityGroupIssues,
@@ -1717,12 +1717,16 @@ function candidateProblem(
 	return parse.issues[groupIndex]?.rows.at(-1)?.problem?.message;
 }
 
+/** The offset `.chip-popover` leaves between itself and its anchor, on whichever side it hangs from (dashboard.css). */
+const POPOVER_GAP_PX = 4;
+
 /**
  * The chip popovers' shared shell: hover-widget chrome anchored under its
  * chip, focus moved to the first control on open and returned to the opener
  * on close, Escape and any press outside the chip's anchor closing. Escape
  * stops propagating so a popover inside the matcher editor overlay (or the
- * server form's slide-over) closes only itself.
+ * server form's slide-over) closes only itself. It flips above its anchor
+ * rather than hang past the viewport's bottom edge.
  */
 function PopoverShell({
 	label,
@@ -1739,6 +1743,56 @@ function PopoverShell({
 	const ref = useRef<HTMLDivElement>(null);
 	const closeRef = useRef(onClose);
 	closeRef.current = onClose;
+	// Whether the popover hangs above its anchor instead of below it. Decided
+	// by measurement, not at click time: its height is not known until it
+	// renders, and both it and the room under it change while open - a flag
+	// row appears, an invalid value adds an error line, the reader scrolls -
+	// so a popover that opened on-screen can end up over the edge with
+	// nothing to scroll it back.
+	const [above, setAbove] = useState(false);
+	useLayoutEffect(() => {
+		const popover = ref.current;
+		if (popover === null) {
+			return;
+		}
+		const measure = () => {
+			// The box the CSS positions against (the chip anchor, or the row's
+			// field list inside a slide-over): flipping moves the popover to
+			// exactly this box's top edge, so the room above and below is its
+			// own. Read per measurement rather than once: under happy-dom
+			// there is no offsetParent and no layout to reason about, which is
+			// a reason to measure nothing, not to stop watching.
+			const host = popover.offsetParent;
+			if (!(host instanceof HTMLElement)) {
+				return;
+			}
+			const hostRect = host.getBoundingClientRect();
+			const rect = popover.getBoundingClientRect();
+			// Where it WOULD end up hanging below, not where it sits now: a
+			// flipped popover no longer overflows, so measuring its current
+			// bottom would clear the flip the instant it worked and leave the
+			// popover flicking over the edge and back on every change.
+			const bottomIfBelow = hostRect.bottom + POPOVER_GAP_PX + rect.height;
+			// And only when there is more room the other way: flipping
+			// something that overflows both edges just moves the clipped part.
+			setAbove(bottomIfBelow > window.innerHeight && hostRect.top > window.innerHeight - hostRect.bottom);
+		};
+		measure();
+		// Three things move the popover relative to the edge and none of them
+		// implies the others: its own content resizing, the reader scrolling
+		// it down there (capture, because the server form's panel is its own
+		// scrollport and its scroll does not bubble), and the window resizing
+		// under all of it.
+		const observer = new ResizeObserver(measure);
+		observer.observe(popover);
+		window.addEventListener("scroll", measure, { capture: true, passive: true });
+		window.addEventListener("resize", measure, { passive: true });
+		return () => {
+			observer.disconnect();
+			window.removeEventListener("scroll", measure, { capture: true });
+			window.removeEventListener("resize", measure);
+		};
+	}, []);
 	useEffect(() => {
 		const opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
 		// Captured now for the close path: Remove field deletes the opening
@@ -1784,7 +1838,7 @@ function PopoverShell({
 	}, []);
 	return (
 		<div
-			className={align === "end" ? "chip-popover align-end" : "chip-popover"}
+			className={cn("chip-popover", align === "end" && "align-end", above && "align-above")}
 			role="dialog"
 			aria-label={label}
 			ref={ref}

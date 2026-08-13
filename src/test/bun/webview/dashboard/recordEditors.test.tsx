@@ -282,6 +282,76 @@ test("a row's inheritance mark reads everything, nothing, the listed keys, or cu
 	]);
 });
 
+test("the popover's edge flip measures where it would hang, so a flip holds instead of oscillating", () => {
+	// The flip itself needs layout, which this runtime does not have - the
+	// render fixtures record-popover-flip and form-popover-flip are what
+	// prove it in a real viewport. What IS provable here is the decision: the
+	// popover watches its own box while open, stops when it closes, and -
+	// measured against where it WOULD hang rather than where it sits - stays
+	// flipped through a second measurement instead of flicking back over the
+	// edge on every keystroke.
+	const observed: string[] = [];
+	let disconnects = 0;
+	let fire: (() => void) | undefined;
+	const observerDescriptor = Object.getOwnPropertyDescriptor(globalThis, "ResizeObserver");
+	const heightDescriptor = Object.getOwnPropertyDescriptor(window, "innerHeight");
+	globalThis.ResizeObserver = class {
+		constructor(callback: () => void) {
+			fire = callback;
+		}
+		observe(target: Element) {
+			observed.push(target.className);
+		}
+		disconnect() {
+			disconnects += 1;
+		}
+		unobserve() {
+			// The shell never unobserves; disconnect covers teardown.
+		}
+	} as unknown as typeof ResizeObserver;
+	try {
+		const root = mount(<App />);
+		pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4*": { temperature: 0.2 } }) })));
+		const section = sectionByHeading(root, "Model parameters");
+		fireClick(chipFor(section, "temperature"));
+		const popover = popoverOf(section);
+		// Resting position until something measures otherwise.
+		expect(popover.className).not.toContain("align-above");
+		expect(observed).toEqual(["chip-popover"]);
+		expect(disconnects).toBe(0);
+
+		// A viewport where hanging below would overflow and there is more room
+		// above: a 40px anchor at y=500 in a 600px viewport, under a 120px
+		// popover. Both boxes are stubbed because this runtime lays nothing
+		// out; these rects are what the effect reads.
+		const host = popover.parentElement as HTMLElement;
+		Object.defineProperty(popover, "offsetParent", { configurable: true, get: () => host });
+		Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
+		host.getBoundingClientRect = () => ({ top: 500, bottom: 540, height: 40 }) as DOMRect;
+		const belowRect = { top: 544, bottom: 664, height: 120 } as DOMRect;
+		const aboveRect = { top: 376, bottom: 496, height: 120 } as DOMRect;
+		popover.getBoundingClientRect = () => (popover.className.includes("align-above") ? aboveRect : belowRect);
+
+		act(() => fire?.());
+		expect(popoverOf(section).className).toContain("align-above");
+		// The flip HOLDS. Measuring the popover's CURRENT bottom instead would
+		// read the flipped position as having room, clear the flip, and drop
+		// it back over the edge - one alternation per content change.
+		act(() => fire?.());
+		expect(popoverOf(section).className).toContain("align-above");
+
+		fireClick(chipFor(section, "temperature"));
+		expect(disconnects).toBe(1);
+	} finally {
+		if (observerDescriptor !== undefined) {
+			Object.defineProperty(globalThis, "ResizeObserver", observerDescriptor);
+		}
+		if (heightDescriptor !== undefined) {
+			Object.defineProperty(window, "innerHeight", heightDescriptor);
+		}
+	}
+});
+
 test("the catalog directive renders as a distinct catalog chip with its ID as the value", () => {
 	const root = mount(<App />);
 	pushToWebview(

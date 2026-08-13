@@ -1813,6 +1813,21 @@
 		left: auto;
 		right: 0;
 	}
+	/* Flipped above its anchor, for a chip low enough that hanging below
+		   would put the popover past the viewport's bottom edge - where a
+		   scrollport only reaches it by scrolling the thing it is anchored to
+		   out from under it. PopoverShell measures and sets the class; the
+		   offset mirrors the resting one, and POPOVER_GAP_PX mirrors both. */
+	.chip-popover.align-above {
+		top: auto;
+		bottom: calc(100% + 4px);
+	}
+	/* The suggestion and catalog lists inside a popover are NOT carried by
+		   that flip: absolutely positioned, they leave the popover's box, so
+		   its measurement cannot see them and they can still hang past the
+		   edge. Putting them in flow was tried and reverted - the popover then
+		   outgrew both edges and was clipped bodily instead, which is worse
+		   than a floating list. They need their own bound, not this one. */
 	/* Inside a slide-over panel the popover anchors to the fields CELL, not
 		   the chip: a chip-anchored 300px popover can fall past either panel
 		   edge, and content clipped past the panel's left edge is

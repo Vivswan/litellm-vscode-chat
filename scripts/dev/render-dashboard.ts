@@ -30,7 +30,7 @@
  * is worse than no claim.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -69,6 +69,15 @@ export interface RenderFixture {
 	/** JS expressions evaluated in the page after the messages settle (awaited when they return promises). */
 	readonly steps?: readonly string[];
 	readonly viewport?: { readonly width: number; readonly height: number };
+	/**
+	 * Capture the viewport alone, as `--clip-viewport` does. For a fixture
+	 * whose subject IS the viewport's edge - anything that measures against
+	 * it, or flips away from it - a full-page capture expands the viewport
+	 * until the edge is not there and photographs a page that proves nothing.
+	 * The fixture states its own requirement rather than a comment asking the
+	 * operator to remember a flag.
+	 */
+	readonly clipViewport?: boolean;
 	/** How long to wait after the ready handshake before steps and capture; default 300. */
 	readonly settleMs?: number;
 	/**
@@ -650,12 +659,46 @@ async function loadFixture(fixturePath: string): Promise<RenderFixture> {
 	return fixture as RenderFixture;
 }
 
+/**
+ * Whether the built bundle predates any source it is built from. A render is
+ * evidence about the code, and a stale bundle makes it evidence about the
+ * code as it was - silently, with byte-identical output across a real change,
+ * which is the worst way to be wrong.
+ *
+ * The roots are the bundle's own inputs: the webview tree, the dashboard
+ * contract it imports, and the shared modules both reach into. Directories
+ * count too, because a deletion touches the parent and nothing else.
+ */
+function bundleIsStale(bundlePath: string, stylesheetPath: string): boolean {
+	const built = Math.min(mtimeOf(bundlePath), mtimeOf(stylesheetPath));
+	const roots = ["webview", "dashboard", "shared"].map((tree) => path.join(REPO_ROOT, "src", tree));
+	return roots.some((root) => existsSync(root) && newestMtime(root) > built);
+}
+
+/** A path's mtime, or 0 for one that vanished under the walk (its parent directory carries the change). */
+function mtimeOf(target: string): number {
+	try {
+		return statSync(target).mtimeMs;
+	} catch {
+		return 0;
+	}
+}
+
+function newestMtime(dir: string): number {
+	let latest = mtimeOf(dir);
+	for (const entry of readdirSync(dir, { withFileTypes: true })) {
+		const full = path.join(dir, entry.name);
+		latest = Math.max(latest, entry.isDirectory() ? newestMtime(full) : mtimeOf(full));
+	}
+	return latest;
+}
+
 async function ensureBundle(): Promise<{ bundlePath: string; stylesheetPath: string }> {
 	const distDir = path.join(REPO_ROOT, ...WEBVIEW_DIST_SEGMENTS);
 	const bundlePath = path.join(distDir, DASHBOARD_BUNDLE_FILENAME);
 	const stylesheetPath = path.join(distDir, DASHBOARD_STYLESHEET_FILENAME);
-	if (!existsSync(bundlePath) || !existsSync(stylesheetPath)) {
-		console.log(`${bundlePath} or ${stylesheetPath} missing; running bun run bundle:dev`);
+	if (!existsSync(bundlePath) || !existsSync(stylesheetPath) || bundleIsStale(bundlePath, stylesheetPath)) {
+		console.log(`${bundlePath} or ${stylesheetPath} missing or stale; running bun run bundle:dev`);
 		const build = spawnSync("bun", ["run", "bundle:dev"], { cwd: REPO_ROOT, stdio: "inherit" });
 		if (build.status !== 0 || !existsSync(bundlePath) || !existsSync(stylesheetPath)) {
 			throw new Error("bun run bundle:dev did not produce the dashboard bundle and stylesheet");
@@ -929,7 +972,7 @@ async function main(): Promise<void> {
 			console.warn("warning: no <main> h1 found; the page is likely still on the loading skeleton");
 		}
 
-		const captureBeyondViewport = values["clip-viewport"] !== true;
+		const captureBeyondViewport = values["clip-viewport"] !== true && fixture.clipViewport !== true;
 		await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
 		if (captureBeyondViewport) {
 			// Pin the scroll offset, then let two frames settle under the final
