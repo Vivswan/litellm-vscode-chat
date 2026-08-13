@@ -23,6 +23,16 @@
 		font-family: inherit;
 		font-size: inherit;
 	}
+	/* [hidden] is a USER-AGENT rule, and the user agent loses to any author
+		 declaration: an element carrying a display utility (grid, flex, block)
+		 stays on screen with the attribute set. The dashboard hides by attribute
+		 all over - the settings filter, the record editors, every row that must
+		 survive being filtered away with its draft intact - so the reset belongs
+		 here, once, rather than as a display:none the next author has to remember
+		 to pair with their layout. `until-found` keeps its find-in-page behavior. */
+	[hidden]:not([hidden="until-found"]) {
+		display: none !important;
+	}
 	/* Buttons are typographic now - rank is weight and color, and the fill
 		 belongs to hover - which means nothing sets a resting background any
 		 more. Without a reset that exposes the UA's buttonface (a flat #efefef

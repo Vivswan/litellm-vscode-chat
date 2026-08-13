@@ -116,6 +116,19 @@ test("no minted utility collides with a class the legacy stylesheet styles", asy
 	expect([...minted].filter((utility) => legacyClasses.has(utility))).toBeEmpty();
 });
 
+test("the hidden attribute beats a display utility", async () => {
+	const output = await compileTheme();
+	// [hidden] is a user-agent rule, so an element carrying `grid` or `flex`
+	// stays visible with the attribute set - and hiding by attribute is how the
+	// settings filter and the record editors hide a row without unmounting the
+	// draft inside it. happy-dom runs no cascade, so the component suites cannot
+	// catch this; the stylesheet is the only place it can be pinned.
+	const rule = output.match(/\[hidden\][^{]*\{[^}]*\}/)?.[0] ?? "";
+	expect(rule.replace(/\s+/g, "")).toContain("display:none");
+	expect(rule).toContain("!important");
+	expect(rule).toContain("until-found");
+});
+
 test("the disabled utilities settle after the hover ones", async () => {
 	const output = await compileTheme();
 	// Disabled and hover utilities carry equal specificity, so a hovered
