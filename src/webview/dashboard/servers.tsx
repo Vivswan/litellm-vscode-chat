@@ -1931,8 +1931,7 @@ function ServerRow({
 				{armed ? (
 					<>
 						<Button
-							variant="quiet"
-							className="text-error hover:text-error"
+							variant="danger"
 							onClick={() => {
 								// The same two-step confirm for every origin; only the intent
 								// differs (a declared or misconfigured entry is removed from

@@ -23,6 +23,15 @@
 		font-family: inherit;
 		font-size: inherit;
 	}
+	/* Buttons are typographic now - rank is weight and color, and the fill
+		 belongs to hover - which means nothing sets a resting background any
+		 more. Without a reset that exposes the UA's buttonface (a flat #efefef
+		 in Chrome), so every button wore a gray pill the design never asked for.
+		 Preflight would have covered this; we take only the part we need. */
+	button {
+		background-color: transparent;
+		color: inherit;
+	}
 }
 
 /* shadcn's semantic tokens, mapped onto the host's live theme variables: the
@@ -102,6 +111,11 @@
 		 as a distinct block, and a saturated rule to carry the severity. */
 	--diag-hairline: transparent;
 	--diag-rule-width: 2px;
+	/* Controls carry no box in the ordinary themes - rank is weight and color,
+		 and the fill belongs to hover. High contrast is the exception: the host
+		 outlines every control there, and a borderless button stops reading as
+		 one, so this is the single token that turns the outline back on. */
+	--control-outline: transparent;
 }
 
 /* Under `auto`, the host's own light themes take the light scale. Scoped to
@@ -244,6 +258,7 @@ body.vscode-high-contrast-light {
 	--button-border: var(--vscode-contrastBorder);
 	--dropdown: var(--vscode-contrastBorder);
 	--disabled: var(--vscode-editor-background);
+	--control-outline: var(--vscode-contrastBorder);
 }
 
 /* Inline so utilities bake in the var() chains directly; a non-inline theme
@@ -300,6 +315,7 @@ body.vscode-high-contrast-light {
 	--color-accent-soft: var(--accent-soft);
 	--color-accent-line: var(--accent-line);
 	--color-diag-hairline: var(--diag-hairline);
+	--color-control-outline: var(--control-outline);
 	--color-disabled: var(--disabled);
 	--color-disabled-foreground: var(--disabled-foreground);
 	--radius-*: initial;

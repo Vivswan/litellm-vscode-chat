@@ -18,12 +18,11 @@ const REQUIRED_UTILITIES = [
 	"cursor-pointer",
 	"rounded-sm",
 	"rounded-xl",
-	"border-button-border",
-	"bg-primary",
-	"text-primary-foreground",
-	"hover:bg-primary-hover",
-	"bg-secondary",
-	"hover:bg-secondary-hover",
+	"border-control-outline",
+	"text-accent-hue",
+	"hover:bg-accent-soft",
+	"hover:bg-err-wash",
+	"hover:text-err",
 	"hover:bg-ghost-hover",
 	"text-muted-foreground",
 	"border-input",
@@ -32,11 +31,9 @@ const REQUIRED_UTILITIES = [
 	"aria-invalid:border-input-invalid",
 	"bg-dropdown-background",
 	"accent-primary",
-	"text-error",
 	"text-warning",
 	"focus-visible:outline-ring",
-	"disabled:opacity-50",
-	"disabled:bg-disabled",
+	"disabled:opacity-60",
 	"disabled:bg-transparent",
 	"disabled:text-disabled-foreground",
 ] as const;
@@ -107,19 +104,18 @@ test("no minted utility collides with a class the legacy stylesheet styles", asy
 
 test("the disabled utilities settle after the hover ones", async () => {
 	const output = await compileTheme();
-	// Disabled and hover utilities carry equal specificity, so the disabled
-	// treatment only wins on a hovered disabled control because Tailwind emits
-	// it later. Button relies on exactly that instead of an enabled-gate, which
-	// would raise the variant's specificity above a caller's hover override.
+	// Disabled and hover utilities carry equal specificity, so a hovered
+	// disabled control only reads as disabled because Tailwind emits the
+	// disabled variants later. The vocabulary leans on that: every variant
+	// answers hover with a fill, and disabled has to overrule all of them.
 	const lastHover = Math.max(
-		output.indexOf(`${escapedSelector("hover:bg-primary-hover")}:hover`),
+		output.indexOf(`${escapedSelector("hover:bg-accent-soft")}:hover`),
 		output.indexOf(`${escapedSelector("hover:bg-ghost-hover")}:hover`),
-		output.indexOf(`${escapedSelector("hover:text-foreground")}:hover`)
+		output.indexOf(`${escapedSelector("hover:bg-err-wash")}:hover`)
 	);
 	expect(lastHover).toBeGreaterThan(-1);
-	for (const disabled of ["disabled:bg-disabled", "disabled:text-disabled-foreground"]) {
-		const at = output.indexOf(`${escapedSelector(disabled)}:disabled`);
-		expect(at).toBeGreaterThan(lastHover);
+	for (const disabled of ["disabled:bg-transparent", "disabled:text-disabled-foreground"]) {
+		expect(output.indexOf(`${escapedSelector(disabled)}:disabled`)).toBeGreaterThan(lastHover);
 	}
 });
 

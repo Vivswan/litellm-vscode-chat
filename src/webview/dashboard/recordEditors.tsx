@@ -2497,7 +2497,7 @@ export function RecordMatcherEditorOverlay({
 				)}
 				<div className="toolbar editor-footer">
 					<Button onClick={onClose}>{l10n.t("Done")}</Button>
-					<Button variant="quiet" className="text-error hover:text-error" disabled={disabled} onClick={onRemove}>
+					<Button variant="danger" disabled={disabled} onClick={onRemove}>
 						<IconTrash /> {l10n.t("Remove matcher")}
 					</Button>
 				</div>
