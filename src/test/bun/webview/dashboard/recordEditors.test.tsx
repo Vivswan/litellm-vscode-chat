@@ -241,7 +241,7 @@ test("directives the controls cannot fully represent keep a raw chip instead of 
 	expect(chipKeys(section)).toContain("_inheritable");
 });
 
-test("the Inherits column reads default, everything, barrier, the listed keys, or custom", () => {
+test("a row's inheritance mark reads everything, nothing, the listed keys, or custom, and default reads as no mark", () => {
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(
@@ -257,13 +257,24 @@ test("the Inherits column reads default, everything, barrier, the listed keys, o
 		)
 	);
 	const section = sectionByHeading(root, "Model parameters");
-	const inherits = Array.from(section.querySelectorAll(".inherit-cell")).map((cell) => cell.textContent);
+	// Row by row, so the default's blank is pinned to the row that takes it
+	// rather than inferred from a shorter list.
+	const inherits = Array.from(section.querySelectorAll(".record-row")).map((row) => [
+		row.querySelector(".matcher-key")?.textContent,
+		row.querySelector(".inherit-cell")?.textContent ?? null,
+	]);
 	// Display order: *, gpt-4*, gpt-5*, gpt-5-mini*, claude-4.
-	expect(inherits).toEqual(["default", "everything", "barrier", "*", "custom"]);
+	expect(inherits).toEqual([
+		["*", null],
+		["gpt-4*", "inherits everything"],
+		["gpt-5*", "inherits nothing"],
+		["gpt-5-mini*", "inherits *"],
+		["claude-4", "inherits custom"],
+	]);
 	// The comma-containing key the Inherits control cannot round-trip keeps
 	// its raw chip; the readable list is absorbed into the column.
 	expect(chipKeys(section)).toContain("_inherit_from");
-	const gpt5MiniRow = Array.from(section.querySelectorAll(".record-table tbody tr")).find((row) =>
+	const gpt5MiniRow = Array.from(section.querySelectorAll(".record-table .record-row")).find((row) =>
 		row.querySelector(".matcher-key")?.textContent?.includes("gpt-5-mini")
 	);
 	expect(Array.from(gpt5MiniRow?.querySelectorAll(".chip-key") ?? []).map((el) => el.textContent)).toEqual([
@@ -909,7 +920,7 @@ test("the Inherits select in the overlay writes the barrier without a raw row an
 		(input) => (input as HTMLInputElement).value
 	);
 	expect(rowKeys).not.toContain("_inherit_from");
-	expect(section().querySelector(".inherit-cell")?.textContent).toBe("barrier");
+	expect(section().querySelector(".inherit-cell")?.textContent).toBe("inherits nothing");
 	resetPosted();
 	fireClick(buttonByText(section(), "Apply"));
 	expect(postedRecordWrites()).toEqual([
@@ -1054,7 +1065,7 @@ test("absorbed directives round-trip: a popover value edit preserves their exact
 	// in the Inherits column, no directive chips.
 	expect(chipKeys(section())).toEqual(["temperature"]);
 	expect(chipFlagsOf(section(), "temperature")).toEqual(["force", "inheritable"]);
-	expect(section().querySelector(".inherit-cell")?.textContent).toBe("barrier");
+	expect(section().querySelector(".inherit-cell")?.textContent).toBe("inherits nothing");
 
 	// Edit only the value: _inheritable stays the literal true (never exploded
 	// into a field list), _force keeps its list shape, the barrier survives.

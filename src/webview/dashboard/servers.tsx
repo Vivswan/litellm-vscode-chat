@@ -637,6 +637,10 @@ export function ServersSection({
 				<SlideOver
 					labelledBy="server-form-title"
 					fallbackFocusId="tab-overview"
+					// The edit page is three columns wide - label gutter, control,
+					// hint - and at the shared panel width the hint column wraps
+					// every line it holds. The panel is the page here.
+					className="w-[min(860px,96vw)]"
 					confirming={confirmingDiscard}
 					onRequestClose={requestCloseForm}
 					onKeepEditing={() => setConfirmingDiscard(false)}

@@ -13,7 +13,8 @@
  * affordance or a discard bar exists around it is the caller's business.
  */
 import * as l10n from "@vscode/l10n";
-import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
 import type { GroupProblems, HeaderRow } from "../../dashboard/recordDraft";
 import { toCapabilityGroups, toGroups, toggleExpectedFailure, toHeaderRows } from "../../dashboard/recordDraft";
 import type {
@@ -28,6 +29,7 @@ import {
 	apiVersionDraftOf,
 	applyInlinePrefill,
 	CONNECTION_FIELDS,
+	changedServerFormFields,
 	deriveAuthForm,
 	EMPTY_SERVER_FORM,
 	isUsableHttpUrl,
@@ -39,6 +41,7 @@ import {
 	validateAdoptLabel,
 } from "../../dashboard/serverForm";
 import type { DashboardServer, DeclaredDashboardServer, ExternalDashboardServer } from "../../dashboard/viewModels";
+import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import type { SetupHintKind, TransportErrorClassification } from "../../shared/errorClassification";
 import type { ExpectedFailureCategory, SecretFieldId, SecretLocation } from "../../shared/serverEntry";
 import { EXPECTED_FAILURE_CATEGORIES, SECRET_FIELD_IDS } from "../../shared/serverEntry";
@@ -72,10 +75,18 @@ import {
 } from "./recordEditors";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
+import { cn } from "./ui/cn";
 import { Input } from "./ui/input";
 import { Radio } from "./ui/radio";
 import { Select } from "./ui/select";
 import { sendRequest } from "./vscodeApi";
+
+/**
+ * Where a saved entry lands. A setting ID is a protocol term, so it stays
+ * English and can be a module constant; the save bar shows it because a page
+ * that writes a user's settings file should say so before it does.
+ */
+const SERVERS_SETTING_ID = `${CONFIG_SECTION}.${SERVERS_SETTING_KEY}`;
 
 /**
  * What the open form is for, decided once where it opens (a row's Edit or the
@@ -117,46 +128,6 @@ export function observedKeysForForm(
 export interface ServerEditRequest {
 	readonly seq: number;
 	readonly label: string;
-}
-
-/** The form's collapsible sections that can hide a field's problem. */
-type ProblemDisclosureId = "apiVersion" | "vkCompanion" | "oauthCompanions" | "stored" | "headers" | "params" | "caps";
-
-/**
- * Which collapsed disclosures hide the given problems. The membership depends
- * on the selected auth form: the virtual key pair sits in the API-key form's
- * companion disclosure, in OAuth's companions area, or (as a kept stored
- * value) in the stored-credentials fold; a kept stored client secret sits
- * there too whenever OAuth is not the form.
- */
-function disclosuresForProblems(problems: ServerFormProblems, authForm: AuthFormId): readonly ProblemDisclosureId[] {
-	const ids: ProblemDisclosureId[] = [];
-	if (problems.apiVersion !== undefined) {
-		ids.push("apiVersion");
-	}
-	const vkProblem = problems.virtualKeyHeader !== undefined || problems.virtualKeyValue !== undefined;
-	if (authForm === "apiKey" && vkProblem) {
-		ids.push("vkCompanion");
-	}
-	if (authForm === "oauth" && (vkProblem || problems.apiKey !== undefined)) {
-		ids.push("oauthCompanions");
-	}
-	if (
-		(authForm !== "oauth" && problems.oauthClientSecret !== undefined) ||
-		(authForm === "none" && problems.virtualKeyValue !== undefined)
-	) {
-		ids.push("stored");
-	}
-	if (problems.headers !== undefined) {
-		ids.push("headers");
-	}
-	if (problems.modelParameters !== undefined) {
-		ids.push("params");
-	}
-	if (problems.modelCapabilities !== undefined) {
-		ids.push("caps");
-	}
-	return ids;
 }
 
 /**
@@ -232,22 +203,6 @@ function expectedFailureLabel(category: ExpectedFailureCategory): string {
 	}
 }
 
-/**
- * The API version disclosure's summary: the plain optional invitation while
- * the mode is the auto default, the chosen override otherwise - a collapsed
- * disclosure must not hide that an edited server carries one.
- */
-function apiVersionSummaryText(value: ApiVersionDraft): string {
-	if (value.mode === "none") {
-		return l10n.t("API version: none");
-	}
-	if (value.mode === "custom") {
-		const custom = value.custom.trim();
-		return custom.length > 0 ? l10n.t("API version: {0}", custom) : l10n.t("API version: custom");
-	}
-	return l10n.t("API version (optional)");
-}
-
 function draftFor(target: ServerFormTarget): ServerFormDraft {
 	if (target.kind === "add") {
 		return EMPTY_SERVER_FORM;
@@ -306,8 +261,8 @@ interface FieldRenderProps {
 	/**
 	 * The problems the form shows right now, computed once per render in
 	 * ServerForm (a problem is visible once its field was touched or holds
-	 * content). Fields render these directly, so the field decorations, the
-	 * OAuth disclosure, and the save summary cannot disagree.
+	 * content). Fields render these directly, so the field decorations and the
+	 * save summary cannot disagree.
 	 */
 	readonly visibleProblems: ServerFormProblems;
 	readonly disabled: boolean;
@@ -315,9 +270,191 @@ interface FieldRenderProps {
 	readonly touch: (field: ServerFormField) => void;
 }
 
+/**
+ * One section of the flat page. The entry is ONE scroll: every section is a
+ * heading in the flow with its fields under it, and there is no collapsed
+ * state to open - so a section either belongs to the required path or reads
+ * as an aside, which is the whole of what `quiet` says. Quiet dims the
+ * heading and the label column together; the fields themselves stay at full
+ * strength, because a value the user typed is never the quiet part.
+ */
+function FormSection({
+	title,
+	aside,
+	description,
+	action,
+	quiet,
+	children,
+}: {
+	title: string;
+	/** The heading's trailing note: "optional", plus a count where the section holds rows. */
+	aside?: string;
+	description: string;
+	/** Help glyphs and docs anchors for the section as a whole. */
+	action?: ReactNode;
+	quiet?: boolean;
+	children: ReactNode;
+}) {
+	return (
+		<div className="form-section mt-6">
+			<h4
+				className={cn(
+					"m-0 mb-0.5 flex items-baseline gap-2 text-[13px] font-semibold",
+					quiet === true ? "text-muted-foreground" : "text-foreground"
+				)}
+			>
+				<span>{title}</span>
+				{aside !== undefined ? <span className="text-[11px] font-normal text-muted-foreground">{aside}</span> : null}
+				{action}
+			</h4>
+			<p className="m-0 max-w-[76ch] text-[12px] text-muted-foreground">{description}</p>
+			<div className="mt-2.5 mb-3 h-px bg-border" />
+			{/* Labels are grid children, not wrappers, so every label in the page
+			    shares one right-aligned gutter and the controls line up down the
+			    scroll. The hint column is what keeps a row one line tall: an error
+			    takes the hint's place instead of pushing the rows below it down. */}
+			<div
+				className={cn(
+					"grid grid-cols-[150px_minmax(0,1.35fr)_minmax(0,1fr)] items-center gap-x-4 gap-y-2.5",
+					// A narrow host (a webview docked beside the editor) drops to
+					// two tracks and the hint slides under its control; three
+					// columns in 400px would starve all three.
+					"max-[760px]:grid-cols-[120px_minmax(0,1fr)]",
+					quiet === true && "[&>.label-row]:text-muted-foreground"
+				)}
+			>
+				{children}
+			</div>
+		</div>
+	);
+}
+
+/**
+ * One row of the section grid: the label in the gutter, the control, and the
+ * hint beside it - or, when the field has a problem, the error in the hint's
+ * place. A `wide` control (record tables, header rows, a textarea) takes the
+ * hint column too and carries its own hint underneath.
+ *
+ * A fragment, not a wrapper: the three cells are direct children of the
+ * section's grid, which is what makes the gutter shared rather than
+ * per-field.
+ */
+function FieldRow({
+	htmlFor,
+	label,
+	help,
+	action,
+	hint,
+	hintTone,
+	problem,
+	errorId,
+	wide,
+	children,
+}: {
+	/** The control's id; absent for rows whose control is a group rather than one input. */
+	htmlFor?: string;
+	label: string;
+	help?: ReactNode;
+	action?: ReactNode;
+	hint?: ReactNode;
+	/** A hint that names a consequence rather than a fact (a secret about to land in plain text). */
+	hintTone?: "warn";
+	problem?: string | undefined;
+	errorId?: string;
+	wide?: boolean;
+	children: ReactNode;
+}) {
+	const showProblem = problem !== undefined;
+	return (
+		<>
+			{/* The glyph column is reserved whether or not this row has one, so a
+			    row without help does not push its label further right than its
+			    neighbours: a gutter that only sometimes aligns is not a gutter. */}
+			<span
+				className={cn(
+					"label-row grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-1.5 text-right text-[12.5px]",
+					wide === true && "self-start pt-1"
+				)}
+			>
+				{htmlFor !== undefined ? <label htmlFor={htmlFor}>{label}</label> : <span>{label}</span>}
+				<span className="flex min-w-4 items-baseline gap-1.5">
+					{help}
+					{action}
+				</span>
+			</span>
+			<div
+				className={cn(
+					"flex min-w-0 items-center gap-2",
+					wide === true && "col-span-2 flex-col items-stretch gap-1 max-[760px]:col-span-1"
+				)}
+			>
+				{children}
+			</div>
+			{wide === true ? null : (
+				// The hint carries the field's id whether it reads as a hint or as
+				// the error that replaced it: a description that only exists while
+				// something is wrong leaves the storage advice - the most
+				// consequential line on the page - unannounced.
+				<span
+					id={errorId}
+					className={cn(
+						"text-[11.5px] max-[760px]:col-start-2",
+						showProblem ? "error" : "text-muted-foreground",
+						hintTone === "warn" && !showProblem && "state-warn"
+					)}
+				>
+					{showProblem ? problem : hint}
+				</span>
+			)}
+		</>
+	);
+}
+
+/** A note or control that belongs to the section but not to one field; spans the whole grid. */
+function FieldSpan({ children, className }: { children: ReactNode; className?: string }) {
+	return <div className={cn("col-span-3 min-w-0 max-[760px]:col-span-2", className)}>{children}</div>;
+}
+
+/**
+ * The line introducing an auth form's companions. Companions are second
+ * credentials sent beside the chosen form's own, so they read as a note inside
+ * that form rather than as a fold of their own - there is nothing to open.
+ */
+function CompanionNote({ text }: { text: string }) {
+	return (
+		<FieldSpan className="mt-2">
+			<p className="m-0 text-[11.5px] font-semibold text-muted-foreground">{l10n.t("Companions (optional)")}</p>
+			<p className="m-0 text-[11.5px] text-muted-foreground">{text}</p>
+		</FieldSpan>
+	);
+}
+
+/** A record section's heading note: optional always, plus how many matchers the entry carries. */
+function matcherCountAside(count: number): string {
+	if (count === 0) {
+		return l10n.t("optional");
+	}
+	return count === 1 ? l10n.t("optional - 1 matcher") : l10n.t("optional - {0} matchers", count);
+}
+
+/** A control that belongs under the row above it: the label gutter stays empty, the cell takes the rest. */
+function FieldUnderRow({ children, className }: { children: ReactNode; className?: string }) {
+	return (
+		<>
+			<span />
+			<div className={cn("col-span-2 flex min-w-0 flex-wrap items-center gap-3 max-[760px]:col-span-1", className)}>
+				{children}
+			</div>
+		</>
+	);
+}
+
 function TextField({
 	field,
 	placeholder,
+	hint,
+	mono,
+	narrow,
 	props,
 }: {
 	field: Exclude<
@@ -332,6 +469,12 @@ function TextField({
 		| "expectedFailures"
 	>;
 	placeholder?: string;
+	/** The line beside the field; the field's problem takes its place while one stands. */
+	hint?: string;
+	/** Machine text (URLs, header names, scopes) reads in the mono face. */
+	mono?: boolean;
+	/** A field whose values are short (a budget): the input stops at its own measure. */
+	narrow?: boolean;
 	props: FieldRenderProps;
 }) {
 	const problem = props.visibleProblems[field];
@@ -339,28 +482,31 @@ function TextField({
 	const id = `server-${field}`;
 	const errorId = `${id}-error`;
 	return (
-		<div className="field">
-			<span className="label-row">
-				<label htmlFor={id}>{serverFormFieldLabel(field)}</label>
-				<Help text={serverFieldHelp(field)} />
-			</span>
+		<FieldRow
+			htmlFor={id}
+			label={serverFormFieldLabel(field)}
+			help={<Help text={serverFieldHelp(field)} />}
+			{...(hint !== undefined ? { hint } : {})}
+			problem={problem}
+			errorId={errorId}
+		>
 			<Input
 				id={id}
 				type="text"
+				className={cn(
+					"min-w-0 flex-1",
+					mono === true && "font-mono text-[12px]",
+					narrow === true && "max-w-[9em] flex-none tabular-nums"
+				)}
 				placeholder={placeholder ?? ""}
 				value={props.draft[field]}
 				disabled={props.disabled}
 				aria-invalid={showProblem}
-				aria-describedby={showProblem ? errorId : undefined}
+				aria-describedby={errorId}
 				onChange={(event) => props.patch({ [field]: event.currentTarget.value } as Partial<ServerFormDraft>)}
 				onBlur={() => props.touch(field)}
 			/>
-			{showProblem ? (
-				<span id={errorId} className="error">
-					{problem}
-				</span>
-			) : null}
-		</div>
+		</FieldRow>
 	);
 }
 
@@ -419,100 +565,112 @@ function SecretField({ field, help, props }: { field: SecretFieldId; help?: stri
 	const errorId = `${id}-error`;
 	const patchSecret = (patch: Partial<SecretFieldDraft>) =>
 		props.patch({ [field]: { ...value, ...patch } } as Partial<ServerFormDraft>);
+	// The line beside the field says where the value lives and what leaving the
+	// input alone will do; a problem takes its place, so the row is one line
+	// tall in every state.
+	const storageHint = value.clear
+		? l10n.t("The stored value will be removed on save.")
+		: value.prefill !== undefined
+			? value.value.trim().length === 0
+				? l10n.t("Emptied, but the stored value is kept; use remove to delete it.")
+				: l10n.t("Inline in the servers setting, so settings.json already shows it; saving it unedited keeps it.")
+			: !empty
+				? value.location === "settings"
+					? l10n.t("This will be written to settings.json in plain text.")
+					: l10n.t("This will be written to secret storage on save.")
+				: value.existing !== "none"
+					? l10n.t("Currently in {0}; leave the field empty to keep it.", locationName(value.existing))
+					: undefined;
+	// Two states earn a tone of their own: a value on its way into plain text,
+	// and a stored value on its way out. Both are consequences the reader is
+	// one Save away from, and both are stated where the choice is made.
+	const hintTone = value.clear || (!empty && value.location === "settings") ? ("warn" as const) : undefined;
 	return (
-		<div className="field">
-			<span className="label-row">
-				<label htmlFor={id}>{serverFormFieldLabel(field)}</label>
-				<Help text={help ?? serverFieldHelp(field)} />
-			</span>
-			<span className="secret-input">
-				<Input
-					id={id}
-					ref={disarmValueAttributeMirror}
-					// The reveal button is absolutely positioned over the field's
-					// right edge; the padding keeps the value clear of it.
-					className="min-w-0 flex-1 pr-13"
-					type={revealed ? "text" : "password"}
-					value={value.value}
-					disabled={props.disabled || value.clear}
-					aria-invalid={showProblem}
-					aria-describedby={showProblem ? errorId : undefined}
-					onChange={(event) => patchSecret({ value: event.currentTarget.value })}
-					onBlur={() => props.touch(field)}
-				/>
-				<Button
-					variant="secondary"
-					size="compact"
-					aria-pressed={revealed}
-					aria-label={
-						revealed
-							? l10n.t("Hide the {0}", serverFormFieldLabel(field))
-							: l10n.t("Show the {0}", serverFormFieldLabel(field))
-					}
-					disabled={props.disabled || value.clear || empty}
-					onClick={() => setRevealed((current) => !current)}
-				>
-					{revealed ? l10n.t("Hide") : l10n.t("Show")}
-				</Button>
-			</span>
-			<span
-				className="secret-where"
-				role="radiogroup"
-				aria-label={l10n.t("Where to store the {0}", serverFormFieldLabel(field))}
+		<>
+			<FieldRow
+				htmlFor={id}
+				label={serverFormFieldLabel(field)}
+				help={<Help text={help ?? serverFieldHelp(field)} />}
+				{...(storageHint !== undefined ? { hint: storageHint } : {})}
+				{...(hintTone !== undefined ? { hintTone } : {})}
+				problem={problem}
+				errorId={errorId}
 			>
-				<span className="where-label">{l10n.t("Store in:")}</span>
-				<Help text={helpSecretStorage()} />
-				<label>
-					<Radio
-						name={`${id}-where`}
-						checked={value.location === "secure"}
+				<span className="secret-input relative flex min-w-0 flex-1 items-center">
+					<Input
+						id={id}
+						ref={disarmValueAttributeMirror}
+						// The reveal button is absolutely positioned over the field's
+						// right edge; the padding keeps the value clear of it.
+						className="min-w-0 flex-1 pr-13"
+						type={revealed ? "text" : "password"}
+						value={value.value}
 						disabled={props.disabled || value.clear}
-						onChange={() => patchSecret({ location: "secure" })}
+						aria-invalid={showProblem}
+						aria-describedby={errorId}
+						onChange={(event) => patchSecret({ value: event.currentTarget.value })}
+						onBlur={() => props.touch(field)}
 					/>
-					{l10n.t("secret storage")}
-				</label>
-				<label>
-					<Radio
-						name={`${id}-where`}
-						checked={value.location === "settings"}
-						disabled={props.disabled || value.clear}
-						onChange={() => patchSecret({ location: "settings" })}
-					/>
-					{l10n.t("settings (visible)")}
-				</label>
-			</span>
-			{/* Removal is destructive, so it lives on its own line in its own
-			    tone, never as a third option inside the storage choice. */}
+					<Button
+						variant="secondary"
+						size="compact"
+						className="absolute top-1/2 right-1 -translate-y-1/2"
+						aria-pressed={revealed}
+						aria-label={
+							revealed
+								? l10n.t("Hide the {0}", serverFormFieldLabel(field))
+								: l10n.t("Show the {0}", serverFormFieldLabel(field))
+						}
+						disabled={props.disabled || value.clear || empty}
+						onClick={() => setRevealed((current) => !current)}
+					>
+						{revealed ? l10n.t("Hide") : l10n.t("Show")}
+					</Button>
+				</span>
+			</FieldRow>
+			<FieldUnderRow className="text-[11.5px] text-muted-foreground">
+				<span
+					className="secret-where flex flex-wrap items-center gap-x-3 gap-y-1"
+					role="radiogroup"
+					aria-label={l10n.t("Where to store the {0}", serverFormFieldLabel(field))}
+				>
+					<span className="where-label">{l10n.t("Store in:")}</span>
+					<Help text={helpSecretStorage()} />
+					<label className="flex items-center gap-1.5">
+						<Radio
+							name={`${id}-where`}
+							checked={value.location === "secure"}
+							disabled={props.disabled || value.clear}
+							onChange={() => patchSecret({ location: "secure" })}
+						/>
+						{l10n.t("secret storage")}
+					</label>
+					<label className="flex items-center gap-1.5">
+						<Radio
+							name={`${id}-where`}
+							checked={value.location === "settings"}
+							disabled={props.disabled || value.clear}
+							onChange={() => patchSecret({ location: "settings" })}
+						/>
+						{l10n.t("settings (visible)")}
+					</label>
+				</span>
+			</FieldUnderRow>
+			{/* Removal is destructive, so it takes a line of its own: beside the
+			    storage radios it read as a third place to put the value. */}
 			{value.existing !== "none" ? (
-				<label className={value.clear ? "secret-remove armed" : "secret-remove"}>
-					<Checkbox
-						checked={value.clear}
-						disabled={props.disabled}
-						onChange={(event) => patchSecret({ clear: event.currentTarget.checked })}
-					/>
-					{l10n.t("Remove the stored {0} on save", serverFormFieldLabel(field))}
-				</label>
+				<FieldUnderRow>
+					<label className={cn("secret-remove flex items-center gap-1.5 text-[12px]", value.clear && "armed text-err")}>
+						<Checkbox
+							checked={value.clear}
+							disabled={props.disabled}
+							onChange={(event) => patchSecret({ clear: event.currentTarget.checked })}
+						/>
+						{l10n.t("Remove the stored {0} on save", serverFormFieldLabel(field))}
+					</label>
+				</FieldUnderRow>
 			) : null}
-			{value.prefill !== undefined && !value.clear ? (
-				value.value.trim().length === 0 ? (
-					<span className="hint">{l10n.t("Emptied, but the stored value is kept; use remove to delete it.")}</span>
-				) : (
-					<span className="hint">
-						{l10n.t("Inline in the servers setting, so settings.json already shows it; saving it unedited keeps it.")}
-					</span>
-				)
-			) : value.existing !== "none" && !value.clear ? (
-				<span className="hint">
-					{l10n.t("Currently in {0}; leave the field empty to keep it.", locationName(value.existing))}
-				</span>
-			) : null}
-			{value.clear ? <span className="hint">{l10n.t("The stored value will be removed on save.")}</span> : null}
-			{showProblem ? (
-				<span id={errorId} className="error">
-					{problem}
-				</span>
-			) : null}
-		</div>
+		</>
 	);
 }
 
@@ -557,12 +715,18 @@ function StoredSecretRow({ field, props }: { field: SecretFieldId; props: FieldR
 	const patchSecret = (patch: Partial<SecretFieldDraft>) =>
 		props.patch({ [field]: { ...value, ...patch } } as Partial<ServerFormDraft>);
 	return (
-		<div className="field">
-			<span className="field-label">{serverFormFieldLabel(field)}</span>
-			{value.existing === "none" ? null : (
-				<span className="hint">{l10n.t("Currently in {0}.", locationName(value.existing))}</span>
-			)}
-			<label className={value.clear ? "secret-remove armed" : "secret-remove"}>
+		<FieldRow
+			label={serverFormFieldLabel(field)}
+			hint={
+				value.clear
+					? l10n.t("The stored value will be removed on save.")
+					: value.existing === "none"
+						? undefined
+						: l10n.t("Currently in {0}.", locationName(value.existing))
+			}
+			problem={problem}
+		>
+			<label className={cn("secret-remove flex items-center gap-1.5 text-[12px]", value.clear && "armed text-err")}>
 				<Checkbox
 					checked={value.clear}
 					disabled={props.disabled}
@@ -570,9 +734,7 @@ function StoredSecretRow({ field, props }: { field: SecretFieldId; props: FieldR
 				/>
 				{l10n.t("Remove the stored {0} on save", serverFormFieldLabel(field))}
 			</label>
-			{value.clear ? <span className="hint">{l10n.t("The stored value will be removed on save.")}</span> : null}
-			{problem !== undefined ? <span className="error">{problem}</span> : null}
-		</div>
+		</FieldRow>
 	);
 }
 
@@ -594,53 +756,55 @@ function HeaderRowsEditor({
 }) {
 	return (
 		<>
-			<div className="rows">
-				{rows.map((row, index) => (
-					// biome-ignore lint/suspicious/noArrayIndexKey: header rows are positional while being edited; the index is the identity
-					<div className="row" key={index}>
-						<span className="cell key">
-							<Input
-								type="text"
-								className="key"
-								aria-label={l10n.t("Header name")}
-								aria-invalid={problems[index] !== undefined}
-								placeholder={l10n.t("Header, e.g. x-routing-env")}
-								value={row.name}
-								disabled={disabled}
-								onChange={(event) =>
-									onChange(rows.map((r, i) => (i === index ? { ...r, name: event.currentTarget.value } : r)))
-								}
-							/>
-						</span>
-						<span className="cell value">
-							<Input
-								type="text"
-								className="value"
-								aria-invalid={problems[index] !== undefined}
-								aria-label={l10n.t("Header value")}
-								placeholder={l10n.t("Value, e.g. prod")}
-								value={row.valueText}
-								disabled={disabled}
-								onChange={(event) =>
-									onChange(rows.map((r, i) => (i === index ? { ...r, valueText: event.currentTarget.value } : r)))
-								}
-							/>
-						</span>
-						<Button
-							variant="danger"
-							size="compact"
-							disabled={disabled}
-							onClick={() => onChange(rows.filter((_, i) => i !== index))}
-						>
-							<IconTrash /> {l10n.t("Remove")}
-						</Button>
-						{problems[index] !== undefined ? <span className="error">{problems[index]}</span> : null}
-					</div>
-				))}
+			{rows.map((row, index) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: header rows are positional while being edited; the index is the identity
+				<div className="row flex flex-wrap items-center gap-2" key={index}>
+					<Input
+						type="text"
+						className="key w-[190px] font-mono text-[12px]"
+						aria-label={l10n.t("Header name")}
+						aria-invalid={problems[index] !== undefined}
+						placeholder={l10n.t("Header, e.g. x-routing-env")}
+						value={row.name}
+						disabled={disabled}
+						onChange={(event) =>
+							onChange(rows.map((r, i) => (i === index ? { ...r, name: event.currentTarget.value } : r)))
+						}
+					/>
+					<Input
+						type="text"
+						className="value min-w-0 flex-1 font-mono text-[12px]"
+						aria-invalid={problems[index] !== undefined}
+						aria-label={l10n.t("Header value")}
+						placeholder={l10n.t("Value, e.g. prod")}
+						value={row.valueText}
+						disabled={disabled}
+						onChange={(event) =>
+							onChange(rows.map((r, i) => (i === index ? { ...r, valueText: event.currentTarget.value } : r)))
+						}
+					/>
+					<Button
+						variant="danger"
+						size="compact"
+						disabled={disabled}
+						onClick={() => onChange(rows.filter((_, i) => i !== index))}
+					>
+						<IconTrash /> {l10n.t("Remove")}
+					</Button>
+					{problems[index] !== undefined ? (
+						<span className="error basis-full text-[11.5px]">{problems[index]}</span>
+					) : null}
+				</div>
+			))}
+			<div>
+				<Button
+					variant="secondary"
+					disabled={disabled}
+					onClick={() => onChange([...rows, { name: "", valueText: "" }])}
+				>
+					<IconAdd /> {l10n.t("Add header")}
+				</Button>
 			</div>
-			<Button variant="secondary" disabled={disabled} onClick={() => onChange([...rows, { name: "", valueText: "" }])}>
-				<IconAdd /> {l10n.t("Add header")}
-			</Button>
 		</>
 	);
 }
@@ -673,6 +837,11 @@ export function ServerForm({
 	onCancel: () => void;
 }) {
 	const [draft, setDraft] = useState<ServerFormDraft>(() => draftFor(target));
+	// What the form opened with, for the save bar's unsaved count. Re-based
+	// when the inline prefill lands (the same transform runs over both), so a
+	// value the form filled in for the user never reads as an edit the user
+	// made.
+	const [baseline, setBaseline] = useState<ServerFormDraft>(() => draftFor(target));
 	const [touched, setTouched] = useState<ReadonlySet<ServerFormField>>(new Set());
 	const [phase, setPhase] = useState<FormPhase>({ phase: "editing" });
 	const [testState, setTestState] = useState<TestState>({ kind: "idle" });
@@ -682,44 +851,6 @@ export function ServerForm({
 	const saveIntent = useIntentOutcome("saveServerSetting");
 	const testIntent = useIntentOutcome("testServerDraft");
 	const inlineSecrets = useRpc("readInlineSecrets");
-	// The disclosures open by themselves only for an entry that already
-	// carries content in them; adding to a bare entry is opt-in. The auth
-	// companions follow the same rule under the form the entry derives to.
-	const [vkCompanionOpen, setVkCompanionOpen] = useState(
-		() =>
-			target.kind === "edit" &&
-			deriveAuthForm(target.original.config) === "apiKey" &&
-			((target.original.config.virtualKeyHeader ?? "").length > 0 ||
-				target.original.config.secrets.virtualKeyValue !== "none")
-	);
-	const [oauthCompanionsOpen, setOauthCompanionsOpen] = useState(
-		() =>
-			target.kind === "edit" &&
-			deriveAuthForm(target.original.config) === "oauth" &&
-			(target.original.config.secrets.apiKey !== "none" ||
-				(target.original.config.virtualKeyHeader ?? "").length > 0 ||
-				target.original.config.secrets.virtualKeyValue !== "none")
-	);
-	const [storedOpen, setStoredOpen] = useState(false);
-	const [apiVersionOpen, setApiVersionOpen] = useState(
-		// A prefilled override must not hide behind a collapsed disclosure.
-		() => target.kind === "edit" && target.original.config.apiVersion !== undefined
-	);
-	const [headersOpen, setHeadersOpen] = useState(
-		() => target.kind === "edit" && Object.keys(target.original.config.headers ?? {}).length > 0
-	);
-	const [discoveryOpen, setDiscoveryOpen] = useState(
-		() =>
-			target.kind === "edit" &&
-			((target.original.config.declaredModels ?? []).length > 0 ||
-				(target.original.config.expectedFailures ?? []).length > 0)
-	);
-	const [paramsOpen, setParamsOpen] = useState(
-		() => target.kind === "edit" && Object.keys(target.original.config.modelParameters ?? {}).length > 0
-	);
-	const [capsOpen, setCapsOpen] = useState(
-		() => target.kind === "edit" && Object.keys(target.original.config.modelCapabilities ?? {}).length > 0
-	);
 	// The full matcher editor overlay over this form, by record kind and DRAFT
 	// index (the tables' sorted order is a view; the draft array is the
 	// identity space). Index identity is safe HERE, unlike the settings
@@ -773,6 +904,7 @@ export function ServerForm({
 		}
 		setPhase({ phase: "editing" });
 		setDraft((current) => applyInlinePrefill(current, inlineValues));
+		setBaseline((current) => applyInlinePrefill(current, inlineValues));
 	}, [inlineValues, phase]);
 
 	useEffect(() => {
@@ -832,8 +964,7 @@ export function ServerForm({
 
 	// A problem is visible once its field was touched or holds content
 	// (fieldHasContent); computed once here and passed through the render
-	// props, so the fields, the disclosures, and the save summary all show the
-	// same problems.
+	// props, so the fields and the save summary always show the same problems.
 	const visibleProblems: ServerFormProblems = {};
 	if (!parse.ok) {
 		for (const field of SERVER_FORM_FIELD_ORDER) {
@@ -859,39 +990,13 @@ export function ServerForm({
 	const entryCapabilityKeySuggestions = capabilityKeySuggestions(observedModelInfoKeys);
 	const headerRowProblems: readonly (string | undefined)[] = parse.ok ? [] : parse.headerProblems;
 	const firstBlocking = SERVER_FORM_FIELD_ORDER.find((field) => visibleProblems[field] !== undefined);
-	const problemDisclosureSetters: Record<ProblemDisclosureId, (open: boolean) => void> = {
-		apiVersion: setApiVersionOpen,
-		vkCompanion: setVkCompanionOpen,
-		oauthCompanions: setOauthCompanionsOpen,
-		stored: setStoredOpen,
-		headers: setHeadersOpen,
-		params: setParamsOpen,
-		caps: setCapsOpen,
-	};
-	const openDisclosures = (ids: readonly ProblemDisclosureId[]) => {
-		for (const id of ids) {
-			problemDisclosureSetters[id](true);
-		}
-	};
-	// A problem surfacing inside a collapsed disclosure opens it once
-	// (otherwise Save would refuse over an error the user cannot see); beyond
-	// that the element is the user's: closing it again sticks, and it does not
-	// snap shut when the problems clear. The ref remembers the previous set so
-	// only ids that just APPEARED open - a set change elsewhere must not
-	// reopen a disclosure the user deliberately closed.
-	const problemDisclosureKey = disclosuresForProblems(visibleProblems, draft.authForm).join(",");
-	const openedForProblems = useRef<ReadonlySet<ProblemDisclosureId>>(new Set());
-	// biome-ignore lint/correctness/useExhaustiveDependencies: deliberately keyed on the joined disclosure key (see above); openDisclosures is a stable setter wrapper read at fire time
-	useEffect(() => {
-		const current = new Set(
-			problemDisclosureKey.length > 0 ? (problemDisclosureKey.split(",") as ProblemDisclosureId[]) : []
-		);
-		const appeared = [...current].filter((id) => !openedForProblems.current.has(id));
-		openedForProblems.current = current;
-		if (appeared.length > 0) {
-			openDisclosures(appeared);
-		}
-	}, [problemDisclosureKey]);
+	// Every field of the entry is in the same scroll, so a problem is always
+	// reachable: nothing has to be opened before Save can point at it.
+	const changedFields = changedServerFormFields(draft, baseline);
+	const unsavedCount = changedFields.length;
+	// The models-file caveat is about a connection the host already resolved,
+	// so it belongs to an edit that actually moves one - not to every open.
+	const connectionEdited = changedFields.some((field) => (CONNECTION_FIELDS as readonly string[]).includes(field));
 
 	const save = () => {
 		if (phase.phase !== "editing") {
@@ -902,7 +1007,6 @@ export function ServerForm({
 		if (!parse.ok) {
 			// Surface every problem instead of refusing silently.
 			setTouched(new Set(SERVER_FORM_FIELD_ORDER));
-			openDisclosures(disclosuresForProblems(parse.problems, draft.authForm));
 			return;
 		}
 		const requestId = saveIntent.send(parse.intent);
@@ -928,7 +1032,6 @@ export function ServerForm({
 				}
 				return next;
 			});
-			openDisclosures(disclosuresForProblems(testParse.problems, draft.authForm));
 			return;
 		}
 		const requestId = testIntent.send(testParse.intent);
@@ -1080,7 +1183,7 @@ export function ServerForm({
 	})();
 
 	return (
-		<div className="form-card">
+		<div className="form-card server-form">
 			{/* The dialog's accessible name is the title span alone, so the
 			    docs anchor's own label never leaks into it. */}
 			<h3 className="head-with-icons">
@@ -1089,39 +1192,100 @@ export function ServerForm({
 				</span>
 				<DocsLink href={DOCS_LINK_SERVER_FORM} label={l10n.t("Open the server fields guide")} />
 			</h3>
-			<TextField field="label" placeholder={l10n.t("e.g. Production")} props={props} />
-			{renaming && (parse.ok || parse.problems.label === undefined) ? (
-				<p className="hint">
-					{l10n.t(
-						"Renaming makes VS Code treat this as a new server: the old name keeps serving its models until you delete its object from the models file (the rename notice opens it)."
-					)}
-				</p>
-			) : null}
-			{target.kind === "edit" && !renaming ? (
-				<details className="fine-print">
-					<summary>{l10n.t("Changing the URL or credentials?")}</summary>
-					<p className="hint">
-						{l10n.t("Saving stores the change, but VS Code keeps using the old connection details until:")}
-					</p>
-					<ol className="notice-steps hint">
-						<li>{l10n.t("You remove this server's object from the models file (chatLanguageModels.json).")}</li>
-						<li>{l10n.t("You reload the window, then run Sync Models Now.")}</li>
-					</ol>
-				</details>
-			) : null}
-			{collides ? (
-				<p className="hint">{l10n.t("An entry with this label already exists; saving replaces it.")}</p>
-			) : null}
-			<TextField field="baseUrl" placeholder={l10n.t("e.g. http://localhost:4000")} props={props} />
-			<details open={apiVersionOpen} onToggle={(event) => setApiVersionOpen(event.currentTarget.open)}>
-				<summary>
-					{apiVersionSummaryText(draft.apiVersion)} <Help text={serverFieldHelp("apiVersion")} />
-				</summary>
-				<div className="field">
-					{/* The summary already names the field; an aria-label keeps the
-					    select accessible without saying "API version" a second time. */}
+			<FormSection
+				title={l10n.t("Connection")}
+				description={l10n.t("Where requests go and how this entry identifies itself.")}
+			>
+				<TextField
+					field="label"
+					placeholder={l10n.t("e.g. Production")}
+					hint={l10n.t("Shown in the model picker.")}
+					props={props}
+				/>
+				{renaming && (parse.ok || parse.problems.label === undefined) ? (
+					<FieldUnderRow>
+						<p className="hint m-0 text-[11.5px]">
+							{l10n.t(
+								"Renaming makes VS Code treat this as a new server: the old name keeps serving its models until you delete its object from the models file (the rename notice opens it)."
+							)}
+						</p>
+					</FieldUnderRow>
+				) : null}
+				{collides ? (
+					<FieldUnderRow>
+						<p className="hint m-0 text-[11.5px]">
+							{l10n.t("An entry with this label already exists; saving replaces it.")}
+						</p>
+					</FieldUnderRow>
+				) : null}
+				<TextField
+					field="baseUrl"
+					mono={true}
+					placeholder={l10n.t("e.g. http://localhost:4000")}
+					hint={l10n.t("Trailing slashes are normalized.")}
+					props={props}
+				/>
+				{/* The probe belongs to the URL it probes, not to the save bar:
+				    testing is not committing, and the two were read as one action
+				    for as long as they shared a footer. */}
+				<FieldUnderRow>
+					<Button
+						variant="secondary"
+						disabled={!isUsableHttpUrl(draft.baseUrl.trim()) || testState.kind === "testing" || saving}
+						onClick={testConnection}
+					>
+						{testState.kind === "testing" ? (
+							<>
+								<span className="spinner" aria-hidden="true" /> {l10n.t("Testing...")}
+							</>
+						) : (
+							l10n.t("Test connection")
+						)}
+					</Button>
+					{testState.kind === "pass" ? (
+						<span className="test-result state-ok text-[11.5px]" role="status">
+							{testState.text}
+						</span>
+					) : null}
+					{testState.kind === "fail" ? (
+						<span className="test-result error text-[11.5px]" role="alert">
+							{testState.text}
+							{testState.classification?.setupHint !== undefined ? (
+								// A classified setup problem: the link to its matching
+								// troubleshooting-guide section rides inside the alert so one
+								// announcement carries the failure and the way out. The leading
+								// space keeps copied text from gluing the link label onto the
+								// error message.
+								<>
+									{" "}
+									<span className="test-hint">
+										<DocsLink {...troubleshootingLink(testState.classification.setupHint)}>
+											{l10n.t("Troubleshoot")}
+										</DocsLink>
+									</span>
+								</>
+							) : null}
+						</span>
+					) : null}
+				</FieldUnderRow>
+				{target.kind === "edit" && !renaming && connectionEdited ? (
+					<FieldUnderRow>
+						<p className="hint state-warn m-0 text-[11.5px]">
+							{l10n.t(
+								"A changed URL or credential saves here, but VS Code keeps the old connection until you remove this server's object from the models file, reload the window, and run Sync Models Now."
+							)}
+						</p>
+					</FieldUnderRow>
+				) : null}
+				<FieldRow
+					htmlFor="server-apiVersion-mode"
+					label={serverFormFieldLabel("apiVersion")}
+					help={<Help text={serverFieldHelp("apiVersion")} />}
+					hint={l10n.t("Leave on auto unless your proxy pins a version.")}
+				>
 					<Select
 						id="server-apiVersion-mode"
+						className="min-w-0 flex-1"
 						aria-label={serverFormFieldLabel("apiVersion")}
 						value={draft.apiVersion.mode}
 						disabled={saving}
@@ -1135,59 +1299,66 @@ export function ServerForm({
 						<option value="none">{l10n.t("No version - use the URL as-is")}</option>
 						<option value="custom">{l10n.t("Custom...")}</option>
 					</Select>
-				</div>
+				</FieldRow>
 				{draft.apiVersion.mode === "custom" ? (
-					<div className="field">
-						<label htmlFor="server-apiVersion">{l10n.t("Version segment")}</label>
+					<FieldRow
+						htmlFor="server-apiVersion"
+						label={l10n.t("Version segment")}
+						problem={visibleProblems.apiVersion}
+						errorId="server-apiVersion-error"
+						hint={l10n.t("Just the segment, no slashes.")}
+					>
 						<Input
 							id="server-apiVersion"
 							type="text"
+							className="min-w-0 flex-1 font-mono text-[12px]"
 							placeholder={l10n.t("e.g. v2")}
 							value={draft.apiVersion.custom}
 							disabled={saving}
 							aria-invalid={visibleProblems.apiVersion !== undefined}
-							aria-describedby={visibleProblems.apiVersion !== undefined ? "server-apiVersion-error" : undefined}
+							aria-describedby="server-apiVersion-error"
 							onChange={(event) =>
 								props.patch({ apiVersion: { ...draft.apiVersion, custom: event.currentTarget.value } })
 							}
 							onBlur={() => props.touch("apiVersion")}
 						/>
-						{visibleProblems.apiVersion !== undefined ? (
-							<span id="server-apiVersion-error" className="error">
-								{visibleProblems.apiVersion}
-							</span>
-						) : null}
-					</div>
+					</FieldRow>
 				) : null}
-			</details>
-			<fieldset className="auth-block">
-				<legend className="label-row">
-					{serverFormFieldLabel("authForm")} <Help text={serverFieldHelp("authForm")} />
-					<DocsLink href={DOCS_LINK_AUTHENTICATION} label={l10n.t("Open the authentication guide")} />
-				</legend>
-				<div className="auth-selector" role="radiogroup" aria-label={serverFormFieldLabel("authForm")}>
-					{AUTH_FORM_IDS.map((form) => (
-						<label key={form}>
-							<Radio
-								name="server-auth-form"
-								checked={draft.authForm === form}
-								disabled={saving}
-								onChange={() => props.patch({ authForm: form })}
-							/>
-							{authFormName(form)}
-						</label>
-					))}
-				</div>
+			</FormSection>
+			<FormSection
+				title={serverFormFieldLabel("authForm")}
+				description={l10n.t("Exactly one form per entry. Companions belong inside the form you choose.")}
+				action={
+					<>
+						<Help text={serverFieldHelp("authForm")} />
+						<DocsLink href={DOCS_LINK_AUTHENTICATION} label={l10n.t("Open the authentication guide")} />
+					</>
+				}
+			>
+				<FieldRow label={l10n.t("Method")}>
+					<span
+						className="auth-selector flex flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px]"
+						role="radiogroup"
+						aria-label={serverFormFieldLabel("authForm")}
+					>
+						{AUTH_FORM_IDS.map((form) => (
+							<label key={form} className="flex items-center gap-1.5">
+								<Radio
+									name="server-auth-form"
+									checked={draft.authForm === form}
+									disabled={saving}
+									onChange={() => props.patch({ authForm: form })}
+								/>
+								{authFormName(form)}
+							</label>
+						))}
+					</span>
+				</FieldRow>
 				{draft.authForm === "apiKey" ? (
 					<>
 						<SecretField field="apiKey" props={props} />
-						<details open={vkCompanionOpen} onToggle={(event) => setVkCompanionOpen(event.currentTarget.open)}>
-							<summary>{l10n.t("Also send a virtual key header (optional)")}</summary>
-							<p className="hint">
-								{l10n.t("For gateways that check the bearer and a key in a second header at once.")}
-							</p>
-							{virtualKeyPair}
-						</details>
+						<CompanionNote text={l10n.t("For gateways that check the bearer and a key in a second header at once.")} />
+						{virtualKeyPair}
 					</>
 				) : null}
 				{draft.authForm === "virtualKey" ? virtualKeyPair : null}
@@ -1195,198 +1366,246 @@ export function ServerForm({
 					<>
 						<TextField
 							field="oauthTokenUrl"
+							mono={true}
 							placeholder={l10n.t("e.g. https://idp.example.com/oauth2/token")}
 							props={props}
 						/>
-						<TextField field="oauthClientId" placeholder={l10n.t("e.g. litellm-vscode")} props={props} />
+						<TextField field="oauthClientId" mono={true} placeholder={l10n.t("e.g. litellm-vscode")} props={props} />
 						<SecretField field="oauthClientSecret" props={props} />
-						<TextField field="oauthScopes" placeholder={l10n.t("e.g. litellm.read litellm.write")} props={props} />
-						<details open={oauthCompanionsOpen} onToggle={(event) => setOauthCompanionsOpen(event.currentTarget.open)}>
-							<summary>{l10n.t("Companions (optional)")}</summary>
-							<p className="hint">
-								{l10n.t("Second credentials sent beside the OAuth bearer, for gateways that check two at once.")}
-							</p>
-							<SecretField field="apiKey" help={helpOauthCompanionApiKey()} props={props} />
-							{virtualKeyPair}
-						</details>
+						<TextField
+							field="oauthScopes"
+							mono={true}
+							placeholder={l10n.t("e.g. litellm.read litellm.write")}
+							props={props}
+						/>
+						<CompanionNote
+							text={l10n.t("Second credentials sent beside the OAuth bearer, for gateways that check two at once.")}
+						/>
+						<SecretField field="apiKey" help={helpOauthCompanionApiKey()} props={props} />
+						{virtualKeyPair}
 					</>
 				) : null}
 				{storedApiKeyOrphan || storedVkOrphan || storedOauthSecretOrphan ? (
-					<div className="stored-auth">
-						{storedApiKeyOrphan ? (
-							<p className="hint state-warn">
-								{l10n.t(
-									"A stored API key still activates the bearer on this shape; use its Remove checkbox to stop sending it."
-								)}
-							</p>
-						) : null}
-						{storedVkOrphan ? (
-							<p className="hint state-warn">
-								{l10n.t("A stored virtual key value is still attached; remove it below, or pick a form that sends it.")}
-							</p>
-						) : null}
-						{storedOauthSecretOrphan ? (
-							<p className="hint state-warn">
-								{l10n.t(
-									"A stored OAuth client secret is still attached; remove it below, or switch the form to OAuth."
-								)}
-							</p>
-						) : null}
-						<details open={storedOpen} onToggle={(event) => setStoredOpen(event.currentTarget.open)}>
-							<summary>{l10n.t("Stored credentials")}</summary>
-							{storedApiKeyOrphan ? <StoredSecretRow field="apiKey" props={props} /> : null}
-							{storedVkOrphan ? <StoredSecretRow field="virtualKeyValue" props={props} /> : null}
-							{storedOauthSecretOrphan ? <StoredSecretRow field="oauthClientSecret" props={props} /> : null}
-						</details>
+					<>
+						<FieldSpan className="mt-2">
+							<p className="m-0 text-[11.5px] font-semibold text-warn">{l10n.t("Stored credentials")}</p>
+							{storedApiKeyOrphan ? (
+								<p className="hint state-warn m-0 text-[11.5px]">
+									{l10n.t(
+										"A stored API key still activates the bearer on this shape; use its Remove checkbox to stop sending it."
+									)}
+								</p>
+							) : null}
+							{storedVkOrphan ? (
+								<p className="hint state-warn m-0 text-[11.5px]">
+									{l10n.t(
+										"A stored virtual key value is still attached; remove it below, or pick a form that sends it."
+									)}
+								</p>
+							) : null}
+							{storedOauthSecretOrphan ? (
+								<p className="hint state-warn m-0 text-[11.5px]">
+									{l10n.t(
+										"A stored OAuth client secret is still attached; remove it below, or switch the form to OAuth."
+									)}
+								</p>
+							) : null}
+						</FieldSpan>
+						{storedApiKeyOrphan ? <StoredSecretRow field="apiKey" props={props} /> : null}
+						{storedVkOrphan ? <StoredSecretRow field="virtualKeyValue" props={props} /> : null}
+						{storedOauthSecretOrphan ? <StoredSecretRow field="oauthClientSecret" props={props} /> : null}
+					</>
+				) : null}
+			</FormSection>
+			<FormSection
+				quiet={true}
+				title={serverFormFieldLabel("modelParameters")}
+				aside={matcherCountAside(draft.modelParameters.length)}
+				action={<Help text={serverFieldHelp("modelParameters")} />}
+				description={l10n.t(
+					"Sent only with requests routed through this entry; beats the global Model parameters setting field by field. Keys match model IDs: gpt-4 exactly, gpt-4* for the family, /regex/ or * for broader sets - the most specific match wins."
+				)}
+			>
+				<FieldRow label={l10n.t("Matchers")} wide={true}>
+					{draft.modelParameters.length > 0 ? (
+						<RecordMatcherTable
+							kind="params"
+							groups={draft.modelParameters}
+							issues={entryParamIssueViews}
+							disabled={saving}
+							onChange={(next) => props.patch({ modelParameters: next })}
+							onOpenEditor={(index) => setMatcherEditor({ kind: "params", index })}
+						/>
+					) : (
+						<p className="m-0 text-[12px] text-muted-foreground">
+							{l10n.t("No per-server parameters. This entry sends whatever the global setting resolves.")}
+						</p>
+					)}
+					<div>
+						<Button
+							variant="secondary"
+							id="server-params-add"
+							disabled={saving}
+							onClick={() => {
+								// setDraft, not patch: appending the empty group is structural,
+								// and the pristine sweep undoes it without arming the confirm.
+								setDraft((current) => ({
+									...current,
+									modelParameters: [...current.modelParameters, { prefix: "", params: [] }],
+								}));
+								setMatcherEditor({ kind: "params", index: draft.modelParameters.length });
+							}}
+						>
+							<IconAdd /> {l10n.t("Add model matcher")}
+						</Button>
 					</div>
-				) : null}
-			</fieldset>
-			<details open={paramsOpen} onToggle={(event) => setParamsOpen(event.currentTarget.open)}>
-				<summary>
-					{l10n.t("Model parameters for this server (optional)")} <Help text={serverFieldHelp("modelParameters")} />
-				</summary>
-				<p className="hint">
-					{l10n.t(
-						"Sent only with requests routed through this entry; overrides the global Model parameters setting for the same keys. Keys match model IDs: gpt-4 exactly, gpt-4* for the family, /regex/ or * for broader sets - the most specific match wins."
+				</FieldRow>
+			</FormSection>
+			<FormSection
+				quiet={true}
+				title={serverFormFieldLabel("modelCapabilities")}
+				aside={matcherCountAside(draft.modelCapabilities.length)}
+				action={
+					<>
+						<Help text={serverFieldHelp("modelCapabilities")} />
+						<DocsLink href={DOCS_LINK_MODEL_CAPABILITIES} label={l10n.t("Open the model capabilities guide")} />
+					</>
+				}
+				description={l10n.t(
+					"Corrects what discovery reports for matching models, e.g. context_length 128000. Your values beat server-reported ones unless marked fallback."
+				)}
+			>
+				<FieldRow label={l10n.t("Matchers")} wide={true}>
+					{draft.modelCapabilities.length > 0 ? (
+						<RecordMatcherTable
+							kind="caps"
+							groups={draft.modelCapabilities}
+							issues={entryCapIssueViews}
+							disabled={saving}
+							keySuggestions={entryCapabilityKeySuggestions}
+							onChange={(next) => props.patch({ modelCapabilities: next })}
+							onOpenEditor={(index) => setMatcherEditor({ kind: "caps", index })}
+						/>
+					) : (
+						<p className="m-0 text-[12px] text-muted-foreground">
+							{l10n.t("No corrections. This entry registers models exactly as discovery reports them.")}
+						</p>
 					)}
-				</p>
-				{draft.modelParameters.length > 0 ? (
-					<RecordMatcherTable
-						kind="params"
-						groups={draft.modelParameters}
-						issues={entryParamIssueViews}
-						disabled={saving}
-						onChange={(next) => props.patch({ modelParameters: next })}
-						onOpenEditor={(index) => setMatcherEditor({ kind: "params", index })}
-					/>
-				) : null}
-				<Button
-					variant="secondary"
-					id="server-params-add"
-					disabled={saving}
-					onClick={() => {
-						// setDraft, not patch: appending the empty group is structural,
-						// and the pristine sweep undoes it without arming the confirm.
-						setDraft((current) => ({
-							...current,
-							modelParameters: [...current.modelParameters, { prefix: "", params: [] }],
-						}));
-						setMatcherEditor({ kind: "params", index: draft.modelParameters.length });
-					}}
+					<div>
+						<Button
+							variant="secondary"
+							id="server-caps-add"
+							disabled={saving}
+							onClick={() => {
+								// setDraft, not patch: see the parameters twin above.
+								setDraft((current) => ({
+									...current,
+									modelCapabilities: [...current.modelCapabilities, { prefix: "", params: [] }],
+								}));
+								setMatcherEditor({ kind: "caps", index: draft.modelCapabilities.length });
+							}}
+						>
+							<IconAdd /> {l10n.t("Add capability matcher")}
+						</Button>
+					</div>
+				</FieldRow>
+			</FormSection>
+			<FormSection
+				quiet={true}
+				title={l10n.t("Discovery")}
+				aside={l10n.t("optional")}
+				description={l10n.t("Only needed when the proxy cannot list its own models, or cannot report their info.")}
+			>
+				<FieldRow
+					htmlFor="server-declaredModels"
+					label={serverFormFieldLabel("declaredModels")}
+					help={<Help text={serverFieldHelp("declaredModels")} />}
+					action={<DocsLink href={DOCS_LINK_DECLARED_MODELS} label={l10n.t("Open the declared models guide")} />}
+					wide={true}
 				>
-					<IconAdd /> {l10n.t("Add model matcher")}
-				</Button>
-			</details>
-			<details open={capsOpen} onToggle={(event) => setCapsOpen(event.currentTarget.open)}>
-				<summary>
-					{l10n.t("Model capabilities for this server (optional)")} <Help text={serverFieldHelp("modelCapabilities")} />{" "}
-					<DocsLink href={DOCS_LINK_MODEL_CAPABILITIES} label={l10n.t("Open the model capabilities guide")} />
-				</summary>
-				<p className="hint">
-					{l10n.t(
-						"Corrects what discovery reports for matching models, e.g. context_length 128000. Your values beat server-reported ones unless marked fallback."
-					)}
-				</p>
-				{draft.modelCapabilities.length > 0 ? (
-					<RecordMatcherTable
-						kind="caps"
-						groups={draft.modelCapabilities}
-						issues={entryCapIssueViews}
-						disabled={saving}
-						keySuggestions={entryCapabilityKeySuggestions}
-						onChange={(next) => props.patch({ modelCapabilities: next })}
-						onOpenEditor={(index) => setMatcherEditor({ kind: "caps", index })}
-					/>
-				) : null}
-				<Button
-					variant="secondary"
-					id="server-caps-add"
-					disabled={saving}
-					onClick={() => {
-						// setDraft, not patch: see the parameters twin above.
-						setDraft((current) => ({
-							...current,
-							modelCapabilities: [...current.modelCapabilities, { prefix: "", params: [] }],
-						}));
-						setMatcherEditor({ kind: "caps", index: draft.modelCapabilities.length });
-					}}
-				>
-					<IconAdd /> {l10n.t("Add capability matcher")}
-				</Button>
-			</details>
-			<details open={discoveryOpen} onToggle={(event) => setDiscoveryOpen(event.currentTarget.open)}>
-				{/* The two controls for what discovery cannot see, side by side:
-				    declared IDs plus expected failures are the recipe for a gateway
-				    with no discovery at all. */}
-				<summary>{l10n.t("Discovery (optional)")}</summary>
-				<div className="field">
-					<span className="label-row">
-						<label htmlFor="server-declaredModels">{serverFormFieldLabel("declaredModels")}</label>
-						<Help text={serverFieldHelp("declaredModels")} />
-						<DocsLink href={DOCS_LINK_DECLARED_MODELS} label={l10n.t("Open the declared models guide")} />
-					</span>
 					<textarea
 						id="server-declaredModels"
+						className="w-full rounded-sm border border-input bg-input-background px-1.5 py-[3px] font-mono text-[12px] text-input-foreground placeholder:text-input-placeholder focus:outline-1 focus:-outline-offset-1 focus:outline-ring focus:outline-solid"
 						rows={3}
 						placeholder={l10n.t("One model ID per line, e.g. deepseek-r1")}
 						value={draft.declaredModels}
 						disabled={saving}
 						onChange={(event) => props.patch({ declaredModels: event.currentTarget.value })}
 					/>
-					<span className="hint">{l10n.t("IDs are exact; a declaration goes inert once discovery lists the ID.")}</span>
-				</div>
-				<fieldset className="expected-failures">
-					<legend className="label-row">
-						{serverFormFieldLabel("expectedFailures")} <Help text={serverFieldHelp("expectedFailures")} />
-					</legend>
-					<p className="hint">
+					<span className="text-[11.5px] text-muted-foreground">
+						{l10n.t("IDs are exact; a declaration goes inert once discovery lists the ID.")}
+					</span>
+				</FieldRow>
+				<FieldRow
+					label={serverFormFieldLabel("expectedFailures")}
+					help={<Help text={serverFieldHelp("expectedFailures")} />}
+					wide={true}
+				>
+					{/* A real fieldset, not a role: the checkbox set is a group with a
+					    name, and the flat page has no box chrome for it to inherit. */}
+					<fieldset
+						className="expected-failures m-0 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 border-0 p-0 text-[12.5px]"
+						aria-label={serverFormFieldLabel("expectedFailures")}
+					>
+						{EXPECTED_FAILURE_CATEGORIES.map((category) => (
+							<label key={category} className="setting-check flex items-center gap-1.5">
+								<Checkbox
+									checked={draft.expectedFailures.includes(category)}
+									disabled={saving}
+									onChange={(event) =>
+										props.patch({
+											expectedFailures: toggleExpectedFailure(
+												draft.expectedFailures,
+												category,
+												event.currentTarget.checked
+											),
+										})
+									}
+								/>
+								{expectedFailureLabel(category)}
+							</label>
+						))}
+					</fieldset>
+					<span className="text-[11.5px] text-muted-foreground">
 						{l10n.t(
 							"Discovery endpoints this server is known to lack: marked failures log quietly, skip retries, and never count as errors."
 						)}
-					</p>
-					{EXPECTED_FAILURE_CATEGORIES.map((category) => (
-						<label key={category} className="setting-check">
-							<Checkbox
-								checked={draft.expectedFailures.includes(category)}
-								disabled={saving}
-								onChange={(event) =>
-									props.patch({
-										expectedFailures: toggleExpectedFailure(
-											draft.expectedFailures,
-											category,
-											event.currentTarget.checked
-										),
-									})
-								}
-							/>
-							{expectedFailureLabel(category)}
-						</label>
-					))}
-				</fieldset>
-			</details>
-			<details open={headersOpen} onToggle={(event) => setHeadersOpen(event.currentTarget.open)}>
-				<summary>
-					{l10n.t("Custom headers (optional)")} <Help text={serverFieldHelp("headers")} />
-				</summary>
-				<p className="hint">
-					{l10n.t(
-						"Attached to every request to this server, e.g. routing or tracing tags. The entry's auth headers win conflicts; values sit in plain text in settings.json - credentials belong in Authentication above."
-					)}
-				</p>
-				<HeaderRowsEditor
-					rows={draft.headers}
-					problems={headerRowProblems}
-					disabled={saving}
-					onChange={(next) => props.patch({ headers: next })}
-				/>
-			</details>
-			<TextField field="budget" placeholder={l10n.t("e.g. 50")} props={props} />
-			<p className="hint">
-				{l10n.t(
-					"Saved to the litellm-vscode-chat.servers user setting and synced to VS Code automatically. Secrets left empty or unedited keep their current value."
+					</span>
+				</FieldRow>
+			</FormSection>
+			<FormSection
+				quiet={true}
+				title={l10n.t("Headers and budget")}
+				aside={l10n.t("optional")}
+				action={<Help text={serverFieldHelp("headers")} />}
+				description={l10n.t(
+					"Headers ride on every request to this server; the entry's auth headers win conflicts and values sit in plain text in settings.json. Budget drives the dashboard's spend percentage and its alerts."
 				)}
-			</p>
-			<div className="toolbar">
+			>
+				<FieldRow label={serverFormFieldLabel("headers")} wide={true}>
+					<HeaderRowsEditor
+						rows={draft.headers}
+						problems={headerRowProblems}
+						disabled={saving}
+						onChange={(next) => props.patch({ headers: next })}
+					/>
+				</FieldRow>
+				<TextField
+					field="budget"
+					narrow={true}
+					placeholder={l10n.t("e.g. 50")}
+					hint={l10n.t("Overrides the key's own budget for alerts and the percentage.")}
+					props={props}
+				/>
+			</FormSection>
+			{/* The commit bar pins to the panel's bottom edge, and the negative
+			    margins cancel the panel's own 20px padding so the rule spans the
+			    full width - the two numbers must move together with
+			    `.slide-over`'s padding in dashboard.css. The z-index is the house
+			    footer level and MUST NOT climb above it: `.discard-confirm` pins
+			    to the same edge at z-index 2, and a commit bar that outranks it
+			    hides the question Esc just asked. */}
+			<div className="toolbar sticky bottom-[-20px] z-[2] mx-[-20px] mt-6 mb-[-20px] flex flex-wrap items-center gap-4 border-t border-border bg-background px-5 py-3">
 				<Button disabled={phase.phase !== "editing"} onClick={save}>
 					{saving ? (
 						<>
@@ -1396,56 +1615,28 @@ export function ServerForm({
 						l10n.t("Save")
 					)}
 				</Button>
+				{/* Named apart from the confirm bar's own Discard: this one REQUESTS
+				    a close (a dirty form still gets asked), and two controls a key
+				    apart must not answer to the same word. */}
 				<Button variant="secondary" onClick={onCancel}>
-					{l10n.t("Cancel")}
+					{l10n.t("Discard changes")}
 				</Button>
-				{/* Probes the draft as typed, saved or not. Disabled only while the
-				    base URL is unusable or a probe/save is in flight; Cancel stays
-				    live throughout - an abandoned probe's outcome is simply ignored. */}
-				<Button
-					variant="secondary"
-					disabled={!isUsableHttpUrl(draft.baseUrl.trim()) || testState.kind === "testing" || saving}
-					onClick={testConnection}
-				>
-					{testState.kind === "testing" ? (
-						<>
-							<span className="spinner" aria-hidden="true" /> {l10n.t("Testing...")}
-						</>
-					) : (
-						l10n.t("Test connection")
-					)}
-				</Button>
-				{phase.phase === "prefill" ? <span className="hint">{l10n.t("Loading stored values...")}</span> : null}
 				{firstBlocking !== undefined ? (
-					<span className="error" role="alert">
+					<span className="error text-[11.5px]" role="alert">
 						{l10n.t("Cannot save: fix {0}", serverFormFieldLabel(firstBlocking))}
 					</span>
 				) : null}
-				{testState.kind === "pass" ? (
-					<span className="test-result state-ok" role="status">
-						{testState.text}
-					</span>
+				{phase.phase === "prefill" ? (
+					<span className="hint m-0 text-[11.5px]">{l10n.t("Loading stored values...")}</span>
 				) : null}
-				{testState.kind === "fail" ? (
-					<span className="test-result error" role="alert">
-						{testState.text}
-						{testState.classification?.setupHint !== undefined ? (
-							// A classified setup problem: the link to its matching
-							// troubleshooting-guide section rides inside the alert so one
-							// announcement carries the failure and the way out. The leading
-							// space keeps copied text from gluing the link label onto the
-							// error message.
-							<>
-								{" "}
-								<span className="test-hint">
-									<DocsLink {...troubleshootingLink(testState.classification.setupHint)}>
-										{l10n.t("Troubleshoot")}
-									</DocsLink>
-								</span>
-							</>
-						) : null}
-					</span>
-				) : null}
+				<span className="ml-auto text-right text-[11.5px] text-muted-foreground">
+					<span className="save-target">{l10n.t("Saved to {0}", SERVERS_SETTING_ID)}</span>
+					{unsavedCount > 0 ? (
+						<span className="unsaved-count block tabular-nums">
+							{unsavedCount === 1 ? l10n.t("1 unsaved change") : l10n.t("{0} unsaved changes", unsavedCount)}
+						</span>
+					) : null}
+				</span>
 			</div>
 			{matcherEditorView}
 		</div>
@@ -1524,89 +1715,92 @@ export function AdoptForm({
 	];
 
 	return (
-		<div className="form-card">
+		<div className="form-card server-form">
 			<h3 id="server-form-title">{l10n.t("Adopt {0}", server.label)}</h3>
-			<p className="hint">
-				{l10n.t(
+			<FormSection
+				title={l10n.t("Adoption")}
+				description={l10n.t(
 					"Adopting writes this VS Code-managed group into the litellm-vscode-chat.servers setting, so it becomes editable here. Its credentials are copied inside the extension and never pass through this page."
 				)}
-			</p>
-			<div className="field">
-				<label htmlFor="adopt-label">{l10n.t("Label")}</label>
-				<Input
-					id="adopt-label"
-					type="text"
-					value={label}
-					disabled={saving}
-					aria-invalid={showProblem}
-					aria-describedby={showProblem ? "adopt-label-error" : undefined}
-					onChange={(event) => {
-						onUserEdit();
-						setLabel(event.currentTarget.value);
-					}}
-					onBlur={() => setTouched(true)}
-				/>
-				<span className="hint">
-					{l10n.t(
-						"Names the new entry and its provider group; usually worth renaming, since a name an existing VS Code group already uses cannot be synced."
+			>
+				<FieldRow
+					htmlFor="adopt-label"
+					label={l10n.t("Label")}
+					hint={l10n.t(
+						"Names the new entry and its provider group; rename it if a VS Code group already uses the name."
 					)}
-				</span>
-				{showProblem ? (
-					<span id="adopt-label-error" className="error">
-						{problem}
-					</span>
-				) : null}
-			</div>
-			<div className="field">
-				<span className="field-label">{l10n.t("Base URL")}</span>
-				<span className="readonly-value">{server.baseUrl}</span>
-				<span className="hint">
-					{l10n.t("Fixed to the group being adopted; edit the server afterwards to change it.")}
-				</span>
-			</div>
-			{secretRows.map(({ field, hint }) => (
-				<div className="field" key={field}>
-					<span>{serverFormFieldLabel(field)}</span>
-					<span className="hint">{hint}</span>
-					<span
-						className="secret-where"
-						role="radiogroup"
-						aria-label={l10n.t("Where to store the {0}", serverFormFieldLabel(field))}
-					>
-						<span className="where-label">{l10n.t("Store in:")}</span>
-						<label>
-							<Radio
-								name={`adopt-${field}-where`}
-								checked={locations[field] === "secure"}
-								disabled={saving}
-								onChange={() => {
-									onUserEdit();
-									setLocations((current) => ({ ...current, [field]: "secure" }));
-								}}
-							/>
-							{l10n.t("secret storage")}
-						</label>
-						<label>
-							<Radio
-								name={`adopt-${field}-where`}
-								checked={locations[field] === "settings"}
-								disabled={saving}
-								onChange={() => {
-									onUserEdit();
-									setLocations((current) => ({ ...current, [field]: "settings" }));
-								}}
-							/>
-							{l10n.t("settings (visible)")}
-						</label>
-					</span>
-				</div>
-			))}
-			<p className="hint">
-				{l10n.t(
-					"VS Code cannot remove the original group: its models appear twice until its object is deleted from the models file."
-				)}
-			</p>
-			<div className="toolbar">
+					problem={showProblem ? problem : undefined}
+					errorId="adopt-label-error"
+				>
+					<Input
+						id="adopt-label"
+						type="text"
+						className="min-w-0 flex-1"
+						value={label}
+						disabled={saving}
+						aria-invalid={showProblem}
+						aria-describedby="adopt-label-error"
+						onChange={(event) => {
+							onUserEdit();
+							setLabel(event.currentTarget.value);
+						}}
+						onBlur={() => setTouched(true)}
+					/>
+				</FieldRow>
+				<FieldRow
+					label={l10n.t("Base URL")}
+					hint={l10n.t("Fixed to the group being adopted; edit the server afterwards to change it.")}
+				>
+					{/* Plain dimmed text, never a disabled input: a value that cannot
+					    be edited here must not look like one that merely refused. */}
+					<span className="readonly-value font-mono text-[12px] break-all text-muted-foreground">{server.baseUrl}</span>
+				</FieldRow>
+				{secretRows.map(({ field, hint }) => (
+					<FieldRow label={serverFormFieldLabel(field)} hint={hint} key={field}>
+						<span
+							className="secret-where flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-muted-foreground"
+							role="radiogroup"
+							aria-label={l10n.t("Where to store the {0}", serverFormFieldLabel(field))}
+						>
+							<span className="where-label">{l10n.t("Store in:")}</span>
+							<label className="flex items-center gap-1.5">
+								<Radio
+									name={`adopt-${field}-where`}
+									checked={locations[field] === "secure"}
+									disabled={saving}
+									onChange={() => {
+										onUserEdit();
+										setLocations((current) => ({ ...current, [field]: "secure" }));
+									}}
+								/>
+								{l10n.t("secret storage")}
+							</label>
+							<label className="flex items-center gap-1.5">
+								<Radio
+									name={`adopt-${field}-where`}
+									checked={locations[field] === "settings"}
+									disabled={saving}
+									onChange={() => {
+										onUserEdit();
+										setLocations((current) => ({ ...current, [field]: "settings" }));
+									}}
+								/>
+								{l10n.t("settings (visible)")}
+							</label>
+						</span>
+					</FieldRow>
+				))}
+				<FieldSpan>
+					<p className="hint m-0 text-[11.5px]">
+						{l10n.t(
+							"VS Code cannot remove the original group: its models appear twice until its object is deleted from the models file."
+						)}
+					</p>
+				</FieldSpan>
+			</FormSection>
+			{/* Same footer level as the edit page's bar, and for the same reason:
+			    the discard confirm pins to this edge too. */}
+			<div className="toolbar sticky bottom-[-20px] z-[2] mx-[-20px] mt-6 mb-[-20px] flex flex-wrap items-center gap-4 border-t border-border bg-background px-5 py-3">
 				<Button disabled={saving} onClick={adopt}>
 					{saving ? (
 						<>
@@ -1622,7 +1816,7 @@ export function AdoptForm({
 					{l10n.t("Cancel")}
 				</Button>
 				{showProblem ? (
-					<span className="error" role="alert">
+					<span className="error text-[11.5px]" role="alert">
 						{l10n.t("Cannot adopt: fix Label")}
 					</span>
 				) : null}

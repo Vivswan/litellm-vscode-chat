@@ -183,6 +183,60 @@ export function serverFormFieldLabel(field: ServerFormField): string {
 /** Problems keyed by the field they belong to; an empty record means the draft is savable. */
 export type ServerFormProblems = Partial<Record<ServerFormField, string>>;
 
+/**
+ * Which fields the draft has moved away from the baseline it opened with; the
+ * flat edit page's save bar counts them, so the reader can see there is
+ * something to save without hunting the scroll for it.
+ *
+ * A secret field compares on what the user can actually change - the typed
+ * value, the storage pick, the remove mark - and never on `existing` or
+ * `prefill`, which describe where the value already lives. That makes the
+ * inline prefill invisible here only because the caller re-baselines with the
+ * same values; a field the prefill filled while the baseline stayed empty is a
+ * real difference and counts, which is the honest reading of "unsaved".
+ */
+export function changedServerFormFields(draft: ServerFormDraft, baseline: ServerFormDraft): readonly ServerFormField[] {
+	return SERVER_FORM_FIELD_ORDER.filter((field) => {
+		if (field === "apiKey" || field === "oauthClientSecret" || field === "virtualKeyValue") {
+			return secretEdited(draft[field], baseline[field]);
+		}
+		if (field === "expectedFailures") {
+			// A set, not a list: the checkbox toggle canonicalizes the order
+			// while a stored entry keeps its author's, so comparing sequences
+			// would report a change for a check-then-uncheck round trip.
+			const now = new Set(draft.expectedFailures);
+			return (
+				now.size !== baseline.expectedFailures.length ||
+				baseline.expectedFailures.some((category) => !now.has(category))
+			);
+		}
+		const now = draft[field];
+		const was = baseline[field];
+		if (typeof now === "string" || typeof was === "string") {
+			return now !== was;
+		}
+		// The structured fields (the API version pair, the record groups, the
+		// header rows) are small, JSON-safe drafts, so their serialization IS
+		// their identity - no field-by-field walk that a new sub-field could
+		// silently fall out of.
+		return JSON.stringify(now) !== JSON.stringify(was);
+	});
+}
+
+/**
+ * Whether a secret field would write anything different. It reads the same
+ * rule parseSecret does, so the count promises exactly what Save performs: an
+ * empty field's storage pick reaches no directive at all (the parse returns
+ * "keep" whatever the radio says), so flipping it is not an edit however it
+ * looks.
+ */
+function secretEdited(now: SecretFieldDraft, was: SecretFieldDraft): boolean {
+	if (now.clear !== was.clear || now.value !== was.value) {
+		return true;
+	}
+	return now.value.trim().length > 0 && now.location !== was.location;
+}
+
 /** Whether the text parses as an http(s) URL with a host; the form's and the intent's shared rule. */
 export function isUsableHttpUrl(text: string): boolean {
 	let parsed: URL;

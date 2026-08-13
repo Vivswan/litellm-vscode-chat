@@ -36,7 +36,7 @@ The error text behind an Error or Sync issue state renders selectable in a banne
 
 ## The server form
 
-Add and Edit open the same form in a side panel. It writes the `servers` setting, so edits made here and edits made in settings.json are the same thing; the form's value is that it enforces the entry's shape as you type instead of after you save.
+Add and Edit open the same form in a side panel: one flat page, every part of the entry in the same scroll under an in-flow heading - Connection, Authentication, Model parameters, Model capabilities, Discovery, Headers and budget - with nothing folded away behind a disclosure. It writes the `servers` setting, so edits made here and edits made in settings.json are the same thing; the form's value is that it enforces the entry's shape as you type instead of after you save. Each field carries its hint beside it, an error takes the hint's place (so nothing shifts as you type), and the sticky bar at the bottom names the setting the entry lands in and counts what is still unsaved.
 
 **Identity** - `label` (the picker name) and `baseUrl`. The extension appends `/v1` unless the URL already ends in a version segment (like `/v1` or `/v2`), which is used as-is; the `apiVersion` field overrides both ([why](servers.md#entry-reference)).
 
@@ -50,10 +50,10 @@ Add and Edit open the same form in a side panel. It writes the `servers` setting
 
 **Per-server model configuration** - the form carries the entry's [`models` object](servers.md#per-server-model-configuration) as two sections:
 
-- *Model parameters for this server*: a compact table, one row per [matcher](models.md#model-matching), fields as chips (`temperature: 0.2`) with a `[+]` chip to add one. Clicking a chip opens a small editor - the JSON value, a **force** toggle (a forced field beats the chat client's runtime options and the model picker's configuration, [parameters](models.md#parameters); disabled with the reason on provider-owned keys), an **inheritable** toggle, and Remove field. The pencil opens the full matcher editor.
-- *Model capabilities for this server*: the same table for capability overrides. Field names are free-form (the vocabulary is open, [capabilities](models.md#capability-fields)); a name the extension does not consume gets a non-blocking possible-typo hint as you type - only when the server's observed `/model/info` key set is known, non-empty, and does not carry the name - and is applied as-is either way. Capability chips carry a **fallback** toggle - a fallback field applies *below* what the server reports instead of above it - and the `_openrouter_model` directive renders as a catalog chip whose editor is the OpenRouter catalog picker ([capabilities](models.md#capabilities)).
+- *Model parameters for this server*: one line per [matcher](models.md#model-matching) - the matcher key, what it matches, and its fields as quiet text (`temperature 0.2`) that turn into controls under the pointer or under focus, with a `[+]` to add one. Clicking a chip opens a small editor - the JSON value, a **force** toggle (a forced field beats the chat client's runtime options and the model picker's configuration, [parameters](models.md#parameters); disabled with the reason on provider-owned keys), an **inheritable** toggle, and Remove field. The pencil opens the full matcher editor.
+- *Model capabilities for this server*: the same rows for capability overrides. Field names are free-form (the vocabulary is open, [capabilities](models.md#capability-fields)); a name the extension does not consume gets a non-blocking possible-typo hint as you type - only when the server's observed `/model/info` key set is known, non-empty, and does not carry the name - and is applied as-is either way. Capability chips carry a **fallback** toggle - a fallback field applies *below* what the server reports instead of above it - and the `_openrouter_model` directive renders as a catalog chip whose editor is the OpenRouter catalog picker ([capabilities](models.md#capabilities)).
 
-**Discovery** - the two controls for what discovery cannot see, side by side because they combine ([the discovery-less-gateway recipe](servers.md#discovery-and-expected-failures)):
+**Discovery** - the two controls for what discovery cannot see, in one section because they combine ([the discovery-less-gateway recipe](servers.md#discovery-and-expected-failures)):
 
 - *Declared models* (`discovery.declared`): a plain list of exact model IDs to register even when discovery cannot list them ([declared models](servers.md#declared-models)). In older versions declaration was a "declare this model" toggle on a capabilities row; the migration moved those into this list.
 - *Expected failures*: checkboxes for the endpoints this server is known not to serve (`modelListing`, `modelInfo`).
@@ -62,7 +62,7 @@ Add and Edit open the same form in a side panel. It writes the `servers` setting
 
 **Budget** - a manual USD budget that drives [usage alerts](usage.md#budgets).
 
-**Test connection**, beside Save, probes the draft before you commit it - one discovery call with the URL and credentials as currently entered, answering "Connected - 12 models" or the exact error, and saving nothing. The probe honors the draft's expected failures and declared models, so a discovery-less gateway reports what it would serve instead of a hard failure. Failures the extension recognizes as setup problems (a wrong base URL, an unreachable proxy, a rejected key) add a link to the matching section of the [troubleshooting guide](troubleshooting.md#common-issues) under the message.
+**Test connection**, beside the Base URL it probes, tries the draft before you commit it - one discovery call with the URL and credentials as currently entered, answering "Connected - 12 models" or the exact error, and saving nothing. The probe honors the draft's expected failures and declared models, so a discovery-less gateway reports what it would serve instead of a hard failure. Failures the extension recognizes as setup problems (a wrong base URL, an unreachable proxy, a rejected key) add a link to the matching section of the [troubleshooting guide](troubleshooting.md#common-issues) under the message.
 
 Edit on an external row is the adopt action; see [Servers](servers.md#external-servers-and-adoption).
 

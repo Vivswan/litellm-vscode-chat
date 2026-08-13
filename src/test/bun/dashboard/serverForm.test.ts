@@ -11,6 +11,7 @@ import {
 	apiVersionDraftOf,
 	applyInlinePrefill,
 	CONNECTION_FIELDS,
+	changedServerFormFields,
 	EMPTY_SERVER_FORM,
 	isUsableHttpUrl,
 	parseServerForm,
@@ -680,6 +681,82 @@ describe("dashboard/serverForm", () => {
 				sectionFailureText("Adopting the server failed:", "baseUrl: 不是可用的位址"),
 				"Base URL: 不是可用的位址"
 			);
+		});
+	});
+
+	describe("changedServerFormFields", () => {
+		test("a draft that has not moved reports nothing, however it was built", () => {
+			assert.deepStrictEqual(changedServerFormFields(draft(), draft()), []);
+			const rich = draft({
+				headers: [{ name: "x-env", valueText: "prod" }],
+				modelParameters: [{ prefix: "gpt-5*", params: [{ key: "temperature", valueText: "0.2" }] }],
+				expectedFailures: ["modelInfo"],
+				apiVersion: apiVersionDraftOf("v2"),
+			});
+			assert.deepStrictEqual(changedServerFormFields(rich, { ...rich }), []);
+		});
+
+		test("scalar, structured, and secret edits each count once, in field order", () => {
+			const baseline = draft({ apiKey: secret({ existing: "secure" }) });
+			const changed = {
+				...baseline,
+				label: "Staging",
+				apiVersion: apiVersionDraftOf(""),
+				apiKey: secret({ existing: "secure", value: "sk-new" }),
+				headers: [{ name: "x-env", valueText: "prod" }],
+			};
+			assert.deepStrictEqual(changedServerFormFields(changed, baseline), ["label", "apiVersion", "apiKey", "headers"]);
+		});
+
+		test("a secret compares on what the user can change, never on where the value already lives", () => {
+			const baseline = draft({ apiKey: secret({ existing: "settings", prefill: "sk-stored", value: "sk-stored" }) });
+			// Same value, different provenance metadata: not an edit.
+			const rebadged = {
+				...baseline,
+				apiKey: secret({ existing: "secure", prefill: undefined, value: "sk-stored" }),
+			};
+			assert.deepStrictEqual(changedServerFormFields(rebadged, baseline), []);
+			// The three things the user CAN change each count (the storage pick
+			// on a field that actually holds a value; see the next test).
+			for (const patch of [{ value: "sk-other" }, { location: "settings" as const }, { clear: true }]) {
+				const edited = { ...baseline, apiKey: { ...baseline.apiKey, ...patch } };
+				assert.deepStrictEqual(changedServerFormFields(edited, baseline), ["apiKey"]);
+			}
+		});
+
+		test("what the save would not write does not count: an empty field's storage pick, a reordered failure list", () => {
+			// parseSecret returns "keep" for an empty field whatever the radio
+			// says, so flipping it writes nothing and must not read as unsaved.
+			const empty = draft({ apiKey: secret({ existing: "secure" }) });
+			const flipped = { ...empty, apiKey: secret({ existing: "secure", location: "settings" }) };
+			assert.deepStrictEqual(changedServerFormFields(flipped, empty), []);
+			// The same flip on a TYPED value does change where it lands.
+			const typed = draft({ apiKey: secret({ value: "sk-new" }) });
+			const relocated = { ...typed, apiKey: secret({ value: "sk-new", location: "settings" }) };
+			assert.deepStrictEqual(changedServerFormFields(relocated, typed), ["apiKey"]);
+			// The checkbox set canonicalizes its order; the stored entry keeps
+			// the author's. Same set, nothing to save.
+			const stored = draft({ expectedFailures: ["modelInfo", "modelListing"] });
+			const toggled = draft({ expectedFailures: ["modelListing", "modelInfo"] });
+			assert.deepStrictEqual(changedServerFormFields(toggled, stored), []);
+			assert.deepStrictEqual(changedServerFormFields(draft({ expectedFailures: ["modelInfo"] }), stored), [
+				"expectedFailures",
+			]);
+		});
+
+		test("an inline prefill applied to draft and baseline alike counts as nothing to save", () => {
+			// What the form does when the readInlineSecrets response lands: the
+			// same transform runs over both, so a value the form filled in for
+			// the user is not an edit the user made.
+			const opened = draft({ apiKey: secret({ existing: "settings" }) });
+			const values = { apiKey: "sk-inline" } as const;
+			assert.deepStrictEqual(
+				changedServerFormFields(applyInlinePrefill(opened, values), applyInlinePrefill(opened, values)),
+				[]
+			);
+			// A prefill that reached only the draft is a real difference, and
+			// says so rather than hiding a pending write.
+			assert.deepStrictEqual(changedServerFormFields(applyInlinePrefill(opened, values), opened), ["apiKey"]);
 		});
 	});
 });

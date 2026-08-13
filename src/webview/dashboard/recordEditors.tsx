@@ -59,6 +59,7 @@ import { IconAdd, IconBraces, IconEdit, IconTrash } from "./icons";
 import { SlideOver } from "./slideOver";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
+import { cn } from "./ui/cn";
 import { Input } from "./ui/input";
 import { Select } from "./ui/select";
 import { sendRequest } from "./vscodeApi";
@@ -1568,7 +1569,12 @@ export function capabilityIssueViews(
 	}));
 }
 
-/** The matcher kind annotation under each table key, resolved at render time. */
+/** The row list's accessible name; the rows carry no header row to name them any more. */
+function recordListLabel(kind: RecordEditorKind): string {
+	return kind === "params" ? l10n.t("Model parameter matchers") : l10n.t("Model capability matchers");
+}
+
+/** The matcher kind annotation beside each row's key, resolved at render time. */
 function matcherKindLabel(kind: MatcherKind): string {
 	switch (kind) {
 		case "catch-all":
@@ -1584,20 +1590,36 @@ function matcherKindLabel(kind: MatcherKind): string {
 	}
 }
 
-/** The Inherits column's short reading of a group's `_inherit_from` state. */
+/**
+ * A row's short reading of its `_inherit_from` state, or nothing at all where
+ * the group takes the default. The default is what a record does when nobody
+ * said otherwise, so printing it on every row would be one noisy word per
+ * line saying "nothing to see"; the mark appears exactly where a choice was
+ * made.
+ */
 function InheritsSummary({ group }: { group: PrefixGroup }) {
 	const choice = inheritFromChoice(group);
 	switch (choice.kind) {
 		case "default":
-			return <span className="hint">{l10n.t("default")}</span>;
+			return null;
 		case "all":
-			return <span>{l10n.t("everything")}</span>;
+			return (
+				<span className="inherit-cell shrink-0 text-[11px] text-muted-foreground">{l10n.t("inherits everything")}</span>
+			);
 		case "none":
-			return <span>{l10n.t("barrier")}</span>;
+			return (
+				<span className="inherit-cell shrink-0 text-[11px] text-muted-foreground">{l10n.t("inherits nothing")}</span>
+			);
 		case "keys":
-			return <code>{choice.keysText}</code>;
+			return (
+				<span className="inherit-cell shrink-0 text-[11px] text-muted-foreground">
+					{l10n.t("inherits")} <code>{choice.keysText}</code>
+				</span>
+			);
 		case "unreadable":
-			return <span className="hint">{l10n.t("custom")}</span>;
+			return (
+				<span className="inherit-cell shrink-0 text-[11px] text-muted-foreground">{l10n.t("inherits custom")}</span>
+			);
 	}
 }
 
@@ -2206,199 +2228,201 @@ export function RecordMatcherTable({
 	const editable = readOnly !== true;
 	const order = sortedGroupOrder(groups);
 	return (
-		<table className="record-table">
-			<thead>
-				<tr>
-					<th>{l10n.t("Matcher")}</th>
-					<th>{l10n.t("Inherits")}</th>
-					<th className="col-fields">{l10n.t("Fields")}</th>
-					{editable ? (
-						<th>
-							<span className="visually-hidden">{l10n.t("Edit")}</span>
-						</th>
-					) : null}
-				</tr>
-			</thead>
-			<tbody>
-				{order.map((groupIndex) => {
-					const group = groups[groupIndex];
-					if (group === undefined) {
-						return null;
-					}
-					const issueView = issues[groupIndex];
-					// Identity is the RAW key (reorder-stable where trimmed identity
-					// is not) plus the occurrence ordinal for exact duplicates, which
-					// block the parse but stay representable.
-					const groupKey = group.prefix;
-					const groupOrdinal = groups.slice(0, groupIndex).filter((candidate) => candidate.prefix === groupKey).length;
-					const groupHere = (target: ChipPopoverTarget | undefined): boolean =>
-						target !== undefined && target.groupKey === groupKey && target.groupOrdinal === groupOrdinal;
-					const pinnedKey = popover?.kind === "field" && groupHere(popover) ? popover.fieldKey : undefined;
-					const chips = chipRowIndices(kind, group, issueView?.rows ?? [], pinnedKey);
-					const addOpen = popover?.kind === "add" && groupHere(popover);
-					// The visible cell's fallback doubles as the accessible name for
-					// the row's actions: a fresh matcher must not announce as "".
-					const matcherName = group.prefix.trim().length > 0 ? group.prefix : l10n.t("(no matcher)");
-					return (
-						// Rows are keyed by their MATCHER KEY plus occurrence (index
-						// only for the empty edge): an index key would remount the row
-						// when a state push reorders the record, dropping an open add
-						// popover's half-typed field with it.
-						<tr key={`${groupKey}#${groupOrdinal}`}>
-							<td className="matcher-cell">
-								<code className="matcher-key">{matcherName}</code>
-								<span className="matcher-kind">{matcherKindLabel(matcherKind(group.prefix))}</span>
-								{issueView?.prefix !== undefined ? <span className="error">{issueView.prefix}</span> : null}
-							</td>
-							<td className="inherit-cell">
-								<InheritsSummary group={group} />
-							</td>
-							<td className="fields-cell">
-								<span className="chip-list">
-									{chips.map((rowIndex) => {
-										const row = group.params[rowIndex];
-										if (row === undefined) {
-											return null;
-										}
-										const key = row.key.trim();
-										const issue = issueView?.rows[rowIndex];
-										const catalog = kind === "caps" && key === OPENROUTER_MODEL_DIRECTIVE;
-										// Chip identity mirrors the group's: the RAW key plus the
-										// occurrence ordinal among exact duplicates, so each
-										// duplicate answers its OWN popover and Remove field can
-										// never aim at a sibling row.
-										const ordinal = group.params.slice(0, rowIndex).filter((param) => param.key === row.key).length;
-										const openHere =
-											popover?.kind === "field" &&
-											groupHere(popover) &&
-											popover.fieldKey === row.key &&
-											popover.ordinal === ordinal;
-										const chipClass = [
-											"chip-field",
-											catalog ? "chip-catalog" : "",
-											issue?.problem !== undefined ? "invalid" : "",
-											issue?.hint !== undefined ? "hinted" : "",
-										]
-											.filter((part) => part.length > 0)
-											.join(" ");
-										const body = (
-											<>
-												{catalog ? (
-													<span className="chip-key">{l10n.t("catalog")}</span>
-												) : (
-													<code className="chip-key">{key.length > 0 ? key : l10n.t("(unnamed)")}</code>
-												)}
-												<span className="chip-value">{row.valueText}</span>
-												{chipFlags(kind, group, key).map((flag) => (
-													<span className="chip-flag" key={flag}>
-														{flag}
-													</span>
-												))}
-											</>
-										);
-										return (
-											// Chips are keyed by their FIELD KEY so a directive row
-											// inserted or removed by a flag toggle cannot remount an
-											// open popover mid-interaction.
-											<span className="chip-anchor" key={`${row.key}#${ordinal}`}>
-												{editable ? (
-													<button
-														type="button"
-														className={chipClass}
-														aria-expanded={openHere}
-														disabled={disabled}
-														onClick={(event) =>
-															setPopover(
-																openHere
-																	? undefined
-																	: {
-																			kind: "field",
-																			groupKey,
-																			groupOrdinal,
-																			fieldKey: row.key,
-																			ordinal,
-																			align: popoverAlign(event.currentTarget),
-																		}
-															)
-														}
-													>
-														{/* The action rides a hidden prefix so the accessible
-														    name keeps the chip's visible content - key, value,
-														    and flag badges - instead of masking it. */}
-														<span className="visually-hidden">{l10n.t("Edit field")}</span>
-														{body}
-													</button>
-												) : (
-													<span className={chipClass}>{body}</span>
-												)}
-												{openHere && popover !== undefined ? (
-													<FieldChipPopover
-														kind={kind}
-														groups={groups}
-														groupIndex={groupIndex}
-														rowIndex={rowIndex}
-														issue={issue}
-														disabled={disabled === true}
-														align={popover.align}
-														onChange={onChange}
-														onClose={() => setPopover(undefined)}
-													/>
-												) : null}
+		// A list, not a table: a record reads as one line of prose - matcher,
+		// then its fields as text - and only turns into controls as the pointer
+		// or focus arrives. The grid it used to be spent three header cells
+		// naming what the line already says.
+		<ul className="record-table m-0 list-none p-0" aria-label={recordListLabel(kind)}>
+			{order.map((groupIndex) => {
+				const group = groups[groupIndex];
+				if (group === undefined) {
+					return null;
+				}
+				const issueView = issues[groupIndex];
+				// Identity is the RAW key (reorder-stable where trimmed identity
+				// is not) plus the occurrence ordinal for exact duplicates, which
+				// block the parse but stay representable.
+				const groupKey = group.prefix;
+				const groupOrdinal = groups.slice(0, groupIndex).filter((candidate) => candidate.prefix === groupKey).length;
+				const groupHere = (target: ChipPopoverTarget | undefined): boolean =>
+					target !== undefined && target.groupKey === groupKey && target.groupOrdinal === groupOrdinal;
+				const pinnedKey = popover?.kind === "field" && groupHere(popover) ? popover.fieldKey : undefined;
+				const chips = chipRowIndices(kind, group, issueView?.rows ?? [], pinnedKey);
+				const addOpen = popover?.kind === "add" && groupHere(popover);
+				// The visible cell's fallback doubles as the accessible name for
+				// the row's actions: a fresh matcher must not announce as "".
+				const matcherName = group.prefix.trim().length > 0 ? group.prefix : l10n.t("(no matcher)");
+				const rowProblem = (issueView?.rows ?? []).find((row) => row?.problem !== undefined)?.problem?.message;
+				return (
+					// Rows are keyed by their MATCHER KEY plus occurrence (index
+					// only for the empty edge): an index key would remount the row
+					// when a state push reorders the record, dropping an open add
+					// popover's half-typed field with it.
+					<li
+						className="record-row group/row -mx-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-md px-2 py-1.5 hover:bg-accent-soft focus-within:bg-accent-soft"
+						key={`${groupKey}#${groupOrdinal}`}
+					>
+						<span className="matcher-cell flex min-w-[104px] shrink-0 items-baseline gap-2">
+							<code className="matcher-key font-mono text-[12px] text-foreground">{matcherName}</code>
+							<span className="matcher-kind text-[11px] text-muted-foreground">
+								{matcherKindLabel(matcherKind(group.prefix))}
+							</span>
+						</span>
+						<span className="chip-list flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-1">
+							{chips.map((rowIndex) => {
+								const row = group.params[rowIndex];
+								if (row === undefined) {
+									return null;
+								}
+								const key = row.key.trim();
+								const issue = issueView?.rows[rowIndex];
+								const catalog = kind === "caps" && key === OPENROUTER_MODEL_DIRECTIVE;
+								// Chip identity mirrors the group's: the RAW key plus the
+								// occurrence ordinal among exact duplicates, so each
+								// duplicate answers its OWN popover and Remove field can
+								// never aim at a sibling row.
+								const ordinal = group.params.slice(0, rowIndex).filter((param) => param.key === row.key).length;
+								const openHere =
+									popover?.kind === "field" &&
+									groupHere(popover) &&
+									popover.fieldKey === row.key &&
+									popover.ordinal === ordinal;
+								const chipClass = cn(
+									"chip-field inline-flex items-baseline gap-1.5 rounded-sm border border-transparent px-1 font-mono text-[12px] text-muted-foreground",
+									// Quiet at rest, a field on approach: the hairline and
+									// the fill arrive with the pointer or with focus, which
+									// is the moment the row has to prove it is editable.
+									editable &&
+										"cursor-pointer group-hover/row:border-border group-hover/row:bg-input-background group-focus-within/row:border-border group-focus-within/row:bg-input-background hover:text-foreground focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid",
+									issue?.problem !== undefined && "invalid border-input-invalid text-err",
+									issue?.hint !== undefined && "hinted border-warn",
+									catalog && "chip-catalog",
+									openHere && "border-border bg-input-background text-foreground"
+								);
+								const body = (
+									<>
+										{catalog ? (
+											<span className="chip-key text-muted-foreground">{l10n.t("catalog")}</span>
+										) : (
+											<code className="chip-key text-muted-foreground">
+												{key.length > 0 ? key : l10n.t("(unnamed)")}
+											</code>
+										)}
+										<span className="chip-value max-w-[14em] truncate text-foreground">{row.valueText}</span>
+										{chipFlags(kind, group, key).map((flag) => (
+											<span className="chip-flag text-[11px] text-accent-hue" key={flag}>
+												{flag}
 											</span>
-										);
-									})}
-									{editable ? (
-										<span className="chip-anchor">
+										))}
+									</>
+								);
+								return (
+									// Chips are keyed by their FIELD KEY so a directive row
+									// inserted or removed by a flag toggle cannot remount an
+									// open popover mid-interaction.
+									<span className="chip-anchor" key={`${row.key}#${ordinal}`}>
+										{editable ? (
 											<button
 												type="button"
-												className="chip-field chip-add"
-												aria-expanded={addOpen}
+												className={chipClass}
+												aria-expanded={openHere}
 												disabled={disabled}
-												aria-label={l10n.t('Add a field to "{0}"', matcherName)}
 												onClick={(event) =>
 													setPopover(
-														addOpen
+														openHere
 															? undefined
-															: { kind: "add", groupKey, groupOrdinal, align: popoverAlign(event.currentTarget) }
+															: {
+																	kind: "field",
+																	groupKey,
+																	groupOrdinal,
+																	fieldKey: row.key,
+																	ordinal,
+																	align: popoverAlign(event.currentTarget),
+																}
 													)
 												}
 											>
-												<IconAdd />
+												{/* The action rides a hidden prefix so the accessible
+												    name keeps the chip's visible content - key, value,
+												    and flag badges - instead of masking it. */}
+												<span className="visually-hidden">{l10n.t("Edit field")}</span>
+												{body}
 											</button>
-											{addOpen && popover !== undefined ? (
-												<AddFieldPopover
-													kind={kind}
-													groups={groups}
-													groupIndex={groupIndex}
-													disabled={disabled === true}
-													keySuggestions={keySuggestions ?? (kind === "caps" ? CAPABILITY_KEY_SUGGESTIONS : [])}
-													align={popover.align}
-													onChange={onChange}
-													onClose={() => setPopover(undefined)}
-												/>
-											) : null}
-										</span>
+										) : (
+											<span className={chipClass}>{body}</span>
+										)}
+										{openHere && popover !== undefined ? (
+											<FieldChipPopover
+												kind={kind}
+												groups={groups}
+												groupIndex={groupIndex}
+												rowIndex={rowIndex}
+												issue={issue}
+												disabled={disabled === true}
+												align={popover.align}
+												onChange={onChange}
+												onClose={() => setPopover(undefined)}
+											/>
+										) : null}
+									</span>
+								);
+							})}
+							{editable ? (
+								<span className="chip-anchor">
+									<button
+										type="button"
+										className="chip-field chip-add rounded-sm border border-transparent px-1 text-muted-foreground group-hover/row:border-border group-focus-within/row:border-border hover:text-foreground focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid"
+										aria-expanded={addOpen}
+										disabled={disabled}
+										aria-label={l10n.t('Add a field to "{0}"', matcherName)}
+										onClick={(event) =>
+											setPopover(
+												addOpen
+													? undefined
+													: { kind: "add", groupKey, groupOrdinal, align: popoverAlign(event.currentTarget) }
+											)
+										}
+									>
+										<IconAdd />
+									</button>
+									{addOpen && popover !== undefined ? (
+										<AddFieldPopover
+											kind={kind}
+											groups={groups}
+											groupIndex={groupIndex}
+											disabled={disabled === true}
+											keySuggestions={keySuggestions ?? (kind === "caps" ? CAPABILITY_KEY_SUGGESTIONS : [])}
+											align={popover.align}
+											onChange={onChange}
+											onClose={() => setPopover(undefined)}
+										/>
 									) : null}
 								</span>
-							</td>
-							{editable ? (
-								<td className="edit-cell">
-									<Button
-										variant="secondary"
-										size="compact"
-										aria-label={l10n.t('Open the full editor for "{0}"', matcherName)}
-										disabled={disabled}
-										onClick={() => onOpenEditor?.(groupIndex)}
-									>
-										<IconEdit />
-									</Button>
-								</td>
 							) : null}
-						</tr>
-					);
-				})}
-			</tbody>
-		</table>
+						</span>
+						<InheritsSummary group={group} />
+						{editable ? (
+							<Button
+								variant="secondary"
+								size="compact"
+								className="edit-cell shrink-0"
+								aria-label={l10n.t('Open the full editor for "{0}"', matcherName)}
+								disabled={disabled}
+								onClick={() => onOpenEditor?.(groupIndex)}
+							>
+								<IconEdit />
+							</Button>
+						) : null}
+						{issueView?.prefix !== undefined ? (
+							<span className="error basis-full text-[11.5px]">{issueView.prefix}</span>
+						) : null}
+						{/* The first field-level problem in the row, as words. The
+						    chip's own red border says WHERE; only this says what. */}
+						{rowProblem !== undefined ? <span className="error basis-full text-[11.5px]">{rowProblem}</span> : null}
+					</li>
+				);
+			})}
+		</ul>
 	);
 }
 

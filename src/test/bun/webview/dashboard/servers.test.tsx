@@ -341,23 +341,20 @@ test("add-form save round trip: invalid posts nothing, the ack closes the form, 
 	expect(root.textContent).toContain("saved, but the group sync failed");
 });
 
-/** The API version disclosure's mode select, and the details element around it. */
-function apiVersionControl(root: HTMLElement): { select: HTMLSelectElement; details: HTMLDetailsElement } {
+/** The API version mode select; the flat page has no fold around it to open. */
+function apiVersionControl(root: HTMLElement): { select: HTMLSelectElement } {
 	const select = root.querySelector<HTMLSelectElement>("#server-apiVersion-mode");
-	const details = select?.closest("details");
-	if (select === null || details === null || details === undefined) {
+	if (select === null) {
 		throw new Error("no API version control in the form");
 	}
-	return { select, details };
+	return { select };
 }
 
-test("the API version disclosure defaults to Auto, collapsed, and the save intent carries no key", () => {
+test("the API version control is visible from the start on Auto, and the save intent carries no key", () => {
 	const root = mountSection([]);
 	fireClick(buttonByText(root, "Add your first server"));
 
-	const { select, details } = apiVersionControl(root);
-	expect(details.open).toBe(false);
-	expect(details.querySelector("summary")?.textContent).toContain("API version (optional)");
+	const { select } = apiVersionControl(root);
 	expect(select.value).toBe("auto");
 
 	fireInput(inputByLabel(root, "Label"), "Prod");
@@ -369,15 +366,14 @@ test("the API version disclosure defaults to Auto, collapsed, and the save inten
 	expect("apiVersion" in saved.payload.server).toBe(false);
 });
 
-test("No version saves the empty-string override and the collapsed summary names the choice", () => {
+test("No version saves the empty-string override", () => {
 	const root = mountSection([]);
 	fireClick(buttonByText(root, "Add your first server"));
 	fireInput(inputByLabel(root, "Label"), "Prod");
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
 
-	const { select, details } = apiVersionControl(root);
+	const { select } = apiVersionControl(root);
 	fireSelect(select, "none");
-	expect(details.querySelector("summary")?.textContent).toContain("API version: none");
 
 	resetPosted();
 	fireClick(buttonByText(root, "Save"));
@@ -391,11 +387,10 @@ test("Custom reveals the segment input; the trimmed text rides the save and the 
 	fireInput(inputByLabel(root, "Label"), "Prod");
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
 
-	const { select, details } = apiVersionControl(root);
+	const { select } = apiVersionControl(root);
 	expect(root.querySelector("#server-apiVersion")).toBeNull();
 	fireSelect(select, "custom");
 	fireInput(inputByLabel(root, "Version segment"), " v2 ");
-	expect(details.querySelector("summary")?.textContent).toContain("API version: v2");
 
 	resetPosted();
 	fireClick(buttonByText(root, "Test connection"));
@@ -409,42 +404,39 @@ test("Custom reveals the segment input; the trimmed text rides the save and the 
 	expect(saved.payload.server.apiVersion).toBe("v2");
 });
 
-test("Custom with no text blocks Save with the version-segment problem and opens the disclosure over it", () => {
+test("Custom with no text blocks Save with the version-segment problem, in view without opening anything", () => {
 	const root = mountSection([]);
 	fireClick(buttonByText(root, "Add your first server"));
 	fireInput(inputByLabel(root, "Label"), "Prod");
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
-	const { select, details } = apiVersionControl(root);
+	const { select } = apiVersionControl(root);
 	fireSelect(select, "custom");
-	expect(details.open).toBe(false);
 
 	resetPosted();
 	fireClick(buttonByText(root, "Save"));
 	expect(postedMessages).toEqual([]);
 	expect(root.textContent).toContain("Cannot save: fix API version");
-	expect(root.textContent).toContain("Enter the version segment, e.g. v2");
-	expect(details.open).toBe(true);
+	// The problem renders in the row's own hint column, reachable with no
+	// gesture at all: the page has nothing that can hide a field.
+	expect(root.querySelector("#server-apiVersion-error")?.textContent).toBe("Enter the version segment, e.g. v2");
+	expect(root.querySelectorAll("details").length).toBe(0);
 });
 
-test("an entry's apiVersion prefills the matching mode with the disclosure open", () => {
+test("an entry's apiVersion prefills the matching mode", () => {
 	const secrets = { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } as const;
 
-	// "" prefills None; the override must not hide behind a collapsed fold.
+	// "" prefills None.
 	const noneRoot = mountSection([makeDeclaredServer({ label: "Bare", config: { secrets, apiVersion: "" } })]);
 	fireClick(buttonByText(noneRoot, "Edit"));
 	const none = apiVersionControl(noneRoot);
-	expect(none.details.open).toBe(true);
 	expect(none.select.value).toBe("none");
-	expect(none.details.querySelector("summary")?.textContent).toContain("API version: none");
 
 	// Text prefills Custom with the input filled.
 	const customRoot = mountSection([makeDeclaredServer({ label: "V2", config: { secrets, apiVersion: "v2" } })]);
 	fireClick(buttonByText(customRoot, "Edit"));
 	const custom = apiVersionControl(customRoot);
-	expect(custom.details.open).toBe(true);
 	expect(custom.select.value).toBe("custom");
 	expect(inputByLabel(customRoot, "Version segment").value).toBe("v2");
-	expect(custom.details.querySelector("summary")?.textContent).toContain("API version: v2");
 
 	// Saving the prefilled entry round-trips the override unchanged.
 	resetPosted();
@@ -677,7 +669,7 @@ test("Test connection gates on the base URL alone, posts the draft's exact keys,
 	// In flight: the button goes busy, Save and Cancel stay live.
 	expect(buttonByText(root, "Testing...").disabled).toBe(true);
 	expect(buttonByText(root, "Save").disabled).toBe(false);
-	expect(buttonByText(root, "Cancel").disabled).toBe(false);
+	expect(buttonByText(root, "Discard changes").disabled).toBe(false);
 
 	// A foreign ack changes nothing; the test's own ack renders the
 	// extension-composed message verbatim, selectable in the footer.
@@ -938,7 +930,7 @@ test("a test in flight does not block Cancel; the form closes and the outcome la
 
 	// The typed URL made the form dirty, so Cancel raises the discard confirm
 	// (unchanged semantics); Discard closes despite the probe in flight.
-	fireClick(buttonByText(root, "Cancel"));
+	fireClick(buttonByText(root, "Discard changes"));
 	fireClick(buttonByText(root, "Discard"));
 	expect(root.querySelector(".form-card")).toBeNull();
 
@@ -1403,33 +1395,61 @@ test("editing a capability row or an expected-failure checkbox clears a standing
 	expect(root.textContent).not.toContain("Testing...");
 });
 
-test("a problem opens its collapsed disclosure once; re-closing sticks even as other problems come and go", () => {
+test("the save bar names where the entry lands and counts what is unsaved", () => {
 	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
 	fireClick(buttonByText(root, "Edit"));
-	const detailsBySummary = (text: string) =>
-		[...root.querySelectorAll("details")].find((candidate) =>
-			candidate.querySelector("summary")?.textContent?.includes(text)
-		) as HTMLDetailsElement;
-	const collapse = (details: HTMLDetailsElement) => {
-		void act(() => {
-			details.open = false;
-			details.dispatchEvent(new Event("toggle"));
-		});
-	};
 
-	// A header problem surfaces inside the collapsed headers disclosure: it
-	// opens once so Save cannot refuse over an invisible error.
+	// A form that has not been touched has nothing to save and says nothing.
+	const bar = root.querySelector(".form-card .toolbar") as HTMLElement;
+	expect(bar.textContent).toContain("Saved to litellm-vscode-chat.servers");
+	expect(bar.querySelector(".unsaved-count")).toBeNull();
+
+	fireInput(inputByLabel(root, "Label"), "Prod 2");
+	expect(root.querySelector(".unsaved-count")?.textContent).toBe("1 unsaved change");
+	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4001");
+	expect(root.querySelector(".unsaved-count")?.textContent).toBe("2 unsaved changes");
+
+	// Typing a field back to what it was retires its count: the bar reports
+	// the difference from the entry, not the number of keystrokes.
+	fireInput(inputByLabel(root, "Label"), "Prod");
+	expect(root.querySelector(".unsaved-count")?.textContent).toBe("1 unsaved change");
+});
+
+test("the record rows and the expected-failure checkboxes keep a programmatic group", () => {
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Prod",
+			config: {
+				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				modelParameters: { "gpt-4": { temperature: 0.2 } },
+			},
+		}),
+	]);
+	fireClick(buttonByText(root, "Edit"));
+
+	const list = root.querySelector("ul.record-table") as HTMLElement;
+	expect(list.getAttribute("aria-label")).toBe("Model parameter matchers");
+	expect(list.querySelectorAll("li.record-row").length).toBe(1);
+
+	const failures = root.querySelector("fieldset.expected-failures") as HTMLElement;
+	expect(failures.getAttribute("aria-label")).toBe("Expected failures");
+});
+
+test("every problem is in view without a gesture: the page holds no fold that could hide one", () => {
+	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
+	fireClick(buttonByText(root, "Edit"));
+
+	// The entry is one scroll: no disclosure anywhere, so no problem can
+	// surface behind something the reader has to find and open first.
+	expect(root.querySelectorAll(".form-card details").length).toBe(0);
+
+	// A header problem renders under its own row the moment it exists.
 	fireClick(buttonByText(root, "Add header"));
 	fireInput(root.querySelector("input[aria-label='Header name']") as HTMLInputElement, "bad name");
-	expect(detailsBySummary("Custom headers").open).toBe(true);
+	expect(root.textContent).toContain("Not a valid HTTP header name");
 
-	// The user closes it again; that sticks.
-	collapse(detailsBySummary("Custom headers"));
-	expect(detailsBySummary("Custom headers").open).toBe(false);
-
-	// A NEW problem elsewhere opens only its own disclosure; the deliberately
-	// closed one must not snap back open just because the problem set changed.
-	// The matcher rows are built in the overlay the add action opens.
+	// So does a matcher problem raised in the overlay, which lands on the row
+	// the flat page shows in the Model parameters section.
 	fireClick(buttonByText(root, "Add model matcher"));
 	const overlay = root.querySelector<HTMLElement>(".matcher-editor");
 	if (overlay === null) {
@@ -1439,8 +1459,14 @@ test("a problem opens its collapsed disclosure once; re-closing sticks even as o
 	fireClick(buttonByText(overlay, "Add parameter"));
 	fireInput([...overlay.querySelectorAll("input.key")].at(-1) as HTMLInputElement, "temperature");
 	fireInput(overlay.querySelector("input.value") as HTMLInputElement, "not json");
-	expect(detailsBySummary("Model parameters for this server").open).toBe(true);
-	expect(detailsBySummary("Custom headers").open).toBe(false);
+	fireClick(buttonByText(overlay, "Done"));
+	expect(root.querySelector(".record-table .chip-field.invalid")).not.toBeNull();
+
+	// Save refuses and names the first offender; both problems are on screen.
+	resetPosted();
+	fireClick(buttonByText(root, "Save"));
+	expect(postedMessages).toEqual([]);
+	expect(root.textContent).toContain("Cannot save: fix");
 });
 
 test("add matcher then cancel is a no-op: the pristine sweep leaves the form clean, no discard confirm", () => {
@@ -1456,7 +1482,7 @@ test("add matcher then cancel is a no-op: the pristine sweep leaves the form cle
 	// The pristine group is swept; nothing counts as a user edit, so Cancel
 	// closes directly instead of raising the discard confirm over a no-op.
 	expect(root.querySelector(".record-table")).toBeNull();
-	fireClick(buttonByText(root, "Cancel"));
+	fireClick(buttonByText(root, "Discard changes"));
 	expect(root.textContent).not.toContain("Discard unsaved changes?");
 	expect(root.querySelector(".form-card")).toBeNull();
 });

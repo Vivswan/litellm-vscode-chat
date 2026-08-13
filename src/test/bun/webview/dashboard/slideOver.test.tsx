@@ -113,7 +113,7 @@ test("Esc on a dirty form asks before discarding, and Esc never destroys: only t
 	expect(root.querySelector(".discard-confirm")).toBeNull();
 	expect(inputByLabel(dialog(root), "Label").value).toBe("Prod");
 
-	fireClick(buttonByText(dialog(root), "Cancel"));
+	fireClick(buttonByText(dialog(root), "Discard changes"));
 	fireClick(buttonByText(dialog(root), "Keep editing"));
 	expect(root.querySelector(".discard-confirm")).toBeNull();
 	expect(inputByLabel(dialog(root), "Label").value).toBe("Prod");
@@ -171,13 +171,13 @@ test("the Discard button closes the dirty form; the scrim and the X route throug
 	expect(root.querySelector(".slide-over")).toBeNull();
 });
 
-test("the form's own Cancel button routes through the discard confirm when dirty", () => {
+test("the form's own Discard changes button routes through the discard confirm when dirty", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 	openAddForm(root);
 	fireInput(inputByLabel(dialog(root), "Label"), "Half-typed");
 
-	fireClick(buttonByText(dialog(root), "Cancel"));
+	fireClick(buttonByText(dialog(root), "Discard changes"));
 	expect(root.querySelector(".slide-over")).not.toBeNull();
 	fireClick(buttonByText(dialog(root), "Discard"));
 	expect(root.querySelector(".slide-over")).toBeNull();
@@ -214,7 +214,7 @@ test("focus falls back to the combined tab when the opener unmounted with the fo
 
 	// A background sync lands a server: the guided card (and the opener) unmounts.
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()] })));
-	expect(buttonByText(root, "Cancel")).toBeDefined();
+	expect(buttonByText(root, "Discard changes")).toBeDefined();
 	fireKeyDown(dialog(root), "Escape");
 	expect(root.querySelector(".slide-over")).toBeNull();
 	expect(document.activeElement?.id).toBe("tab-overview");

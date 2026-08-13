@@ -362,45 +362,6 @@
 		outline-offset: 1px;
 	}
 
-	.field {
-		display: grid;
-		grid-template-columns: 220px minmax(200px, 320px);
-		gap: 4px 12px;
-		align-items: center;
-		margin: 8px 0;
-	}
-	.field label,
-	.field .field-label {
-		color: var(--vscode-foreground);
-	}
-	/* A label with its help glyph as one grid cell, so the glyph sits on the
-		   label's baseline instead of taking a grid track of its own. */
-	.field .label-row {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		min-width: 0;
-	}
-	/* A fixed, non-editable value (the adopt form's base URL): plain dimmed
-		   text, so it cannot be mistaken for an input that merely looks disabled. */
-	.field .readonly-value {
-		color: var(--vscode-descriptionForeground);
-		padding: 3px 0;
-		overflow-wrap: anywhere;
-	}
-	.field .hint,
-	.field .error,
-	.field .secret-where {
-		grid-column: 2;
-		margin: 0;
-		font-size: 0.9em;
-	}
-	/* Hints may run wider than the 320px control column so they wrap at the
-		   same measure as the storage-choice row above them, not visibly narrower. */
-	.field .hint {
-		width: max-content;
-		max-width: 420px;
-	}
 	.error {
 		color: var(--vscode-errorForeground);
 	}
@@ -965,26 +926,6 @@
 		right: auto;
 		font-weight: normal;
 	}
-	/* The expected-failures checkbox set inside the capabilities disclosure. */
-	.expected-failures {
-		border: none;
-		margin: 12px 0 0;
-		padding: 0;
-	}
-	.expected-failures legend {
-		padding: 0;
-		font-weight: 600;
-	}
-	.expected-failures .setting-check {
-		display: flex;
-		gap: 6px;
-		align-items: center;
-		margin: 4px 0;
-	}
-	.expected-failures > .hint {
-		margin: 2px 0 6px;
-		font-size: 0.9em;
-	}
 	.group {
 		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
 		border-radius: 4px;
@@ -1359,20 +1300,6 @@
 		margin: 4px 0;
 	}
 
-	.form-card {
-		max-width: 640px;
-		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
-		border-radius: 4px;
-		padding: 8px 16px 16px;
-		margin: 8px 0;
-		background: var(--vscode-editorWidget-background, transparent);
-	}
-	.form-card h3 {
-		font-size: 1em;
-		font-weight: 600;
-		margin: 8px 0;
-	}
-
 	/* The server form's slide-over: a scrim over the page and a focus-trapped
 		   panel on the right edge. Elevation is the shadow alone; the one motion
 		   is the panel's 200ms entrance, and it stands down for users who asked
@@ -1401,10 +1328,12 @@
 		right: 0;
 		bottom: 0;
 		z-index: 41;
-		/* One width for every panel (server form, both inspectors, matcher
+		/* The default width for every panel (both inspectors, the matcher
 			   editors): sized so the matcher editor's field grid renders each
 			   field on one line, and consistent so switching surfaces never
-			   shifts the reading column. */
+			   shifts the reading column. The server edit page is the one
+			   exception and says so at its own call site: it is a three-column
+			   page rather than a stack, and it overrides this width. */
 		width: min(680px, 94vw);
 		box-sizing: border-box;
 		overflow-y: auto;
@@ -1428,67 +1357,6 @@
 		position: absolute;
 		top: 12px;
 		right: 12px;
-	}
-	/* Inside the panel the form sheds its card chrome (the panel IS the
-		   surface) and fields stack label-over-control; controls fill the row up
-		   to a comfortable reading measure so text and secret inputs align
-		   instead of splitting into short-text-next-to-full-width-password. */
-	.slide-over .form-card {
-		border: none;
-		border-radius: 0;
-		padding: 0;
-		margin: 0;
-		max-width: none;
-		background: transparent;
-	}
-	.slide-over .form-card h3 {
-		font-size: 1.05em;
-		margin: 4px 24px 16px 0;
-	}
-	.slide-over .field input[type="text"],
-	.slide-over .field input[type="password"],
-	.slide-over .field input[type="number"],
-	.slide-over .field select {
-		width: 100%;
-		max-width: 460px;
-		box-sizing: border-box;
-	}
-	.slide-over .field .secret-input {
-		max-width: 460px;
-	}
-	/* The panel breathes more than the inline card: taller gaps between
-		   the stacked fields and the collapsed groups keep the column scannable. */
-	.slide-over .field {
-		grid-template-columns: 1fr;
-		margin: 14px 0;
-		gap: 6px 12px;
-	}
-	.slide-over .field .hint,
-	.slide-over .field .error,
-	.slide-over .field .secret-where,
-	.slide-over .field .secret-remove {
-		grid-column: 1;
-	}
-	.slide-over .field .hint {
-		width: auto;
-		max-width: none;
-	}
-	.slide-over details {
-		margin: 16px 0;
-	}
-	.slide-over .secret-where {
-		flex-wrap: wrap;
-		white-space: normal;
-	}
-	/* The form's Save/Cancel row pins to the panel's bottom edge, so the
-		   commit action never scrolls out of a long form. */
-	.slide-over .form-card > .toolbar {
-		position: sticky;
-		bottom: -20px;
-		margin: 16px -20px -20px;
-		padding: 12px 20px;
-		background: var(--vscode-editor-background, var(--vscode-panel-background));
-		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
 	}
 	/* The draft-connection test's inline outcome, in the same footer row as
 		   the buttons that produced it; explicitly selectable so an error message
@@ -1623,65 +1491,6 @@
 	}
 	details[open] summary {
 		margin-bottom: 4px;
-	}
-	details.fine-print {
-		margin: 4px 0 8px;
-	}
-	details.fine-print summary {
-		font-size: 0.9em;
-	}
-	details.fine-print p {
-		margin: 4px 0 0;
-		font-size: 0.9em;
-	}
-	.secret-where {
-		display: flex;
-		gap: 12px;
-		align-items: center;
-		color: var(--vscode-descriptionForeground);
-		font-size: 0.9em;
-		white-space: nowrap;
-	}
-	.secret-where label {
-		display: flex;
-		gap: 4px;
-		align-items: center;
-	}
-	.secret-where .where-label {
-		color: var(--vscode-foreground);
-	}
-	/* A secret input with its Show/Hide toggle riding inside the field's
-		   right edge, so the input's border lines up flush with every other
-		   field in the form. */
-	.secret-input {
-		position: relative;
-		display: flex;
-	}
-	.secret-input button {
-		position: absolute;
-		right: 2px;
-		top: 50%;
-		transform: translateY(-50%);
-	}
-	/* The remove choice is destructive, not a third storage location: its own
-		   line under the storage radios, reading in the error tone once armed. */
-	.secret-remove {
-		display: flex;
-		gap: 6px;
-		align-items: center;
-		font-size: 0.9em;
-		color: var(--vscode-descriptionForeground);
-		grid-column: 2;
-		cursor: pointer;
-		width: max-content;
-	}
-	.secret-remove input[type="checkbox"] {
-		flex: none;
-		margin: 0;
-		cursor: pointer;
-	}
-	.secret-remove.armed {
-		color: var(--vscode-errorForeground);
 	}
 
 	.filterbar {
@@ -1895,83 +1704,6 @@
 		table.models .model-name-text {
 			max-width: 12em;
 		}
-	}
-	@media (max-width: 500px) {
-		.field {
-			grid-template-columns: 1fr;
-		}
-		.field .hint,
-		.field .error,
-		.field .secret-where,
-		.field .secret-remove {
-			grid-column: 1;
-		}
-		.field .hint {
-			width: auto;
-			max-width: none;
-		}
-		.secret-where {
-			flex-wrap: wrap;
-			white-space: normal;
-		}
-	}
-
-	/* === R4 server form (auth selector, headers, declared, budget) === */
-	/* The auth block keeps its fieldset/legend semantics (one labeled radio
-		   group) but sheds the box chrome: every sibling section in the form is a
-		   flat header, and the one boxed section read as a different kind of
-		   thing rather than as emphasis. */
-	fieldset.auth-block {
-		border: none;
-		padding: 0;
-		margin: 16px 0;
-	}
-	fieldset.auth-block > legend {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		font-weight: 600;
-		padding: 0;
-	}
-	.auth-selector {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 4px 14px;
-		margin: 4px 0 8px;
-	}
-	.auth-selector label {
-		display: inline-flex;
-		align-items: center;
-		gap: 5px;
-		white-space: nowrap;
-		cursor: pointer;
-	}
-	.stored-auth {
-		margin-top: 10px;
-		padding-top: 6px;
-		border-top: 1px dashed var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
-	}
-	.stored-auth .field-label {
-		font-weight: 600;
-	}
-	#server-declaredModels {
-		width: 100%;
-		box-sizing: border-box;
-		resize: vertical;
-		font-family: var(--vscode-editor-font-family, monospace);
-		font-size: 12px;
-		color: var(--vscode-input-foreground);
-		background: var(--vscode-input-background);
-		border: 1px solid var(--vscode-input-border, transparent);
-		border-radius: 2px;
-		padding: 4px 6px;
-	}
-	#server-declaredModels:focus {
-		outline: 1px solid var(--vscode-focusBorder);
-		outline-offset: -1px;
-	}
-	#server-budget {
-		max-width: 9em;
 	}
 
 	/* === R4 usage, diagnostics, records === */
@@ -2219,134 +1951,12 @@
 		white-space: nowrap;
 		border: 0;
 	}
-	/* One row per matcher, cascade-ordered. No .table-scroll wrapper: the
-		   chips wrap instead, and a scrollport would clip the chip popovers. */
-	table.record-table {
-		margin: 8px 0;
-		width: 100%;
-	}
-	.record-table th,
-	.record-table td {
-		vertical-align: top;
-		padding-top: 5px;
-		padding-bottom: 5px;
-	}
-	/* The key gets its natural width up to a cap: the fields column claims
-		   only the slack majority, so a matcher like /deepseek.*[/]i stays on one
-		   line while space remains; overflow-wrap still bounds pathological keys. */
-	.record-table .matcher-cell {
-		min-width: 8em;
-		max-width: 26em;
-	}
-	.record-table .matcher-key {
-		font-family: var(--vscode-editor-font-family, monospace);
-		overflow-wrap: anywhere;
-	}
-	.record-table .matcher-kind {
-		display: block;
-		font-size: 0.85em;
-		color: var(--vscode-descriptionForeground);
-	}
-	.record-table .matcher-cell .error {
-		display: block;
-		font-size: 0.9em;
-		margin: 2px 0 0;
-	}
-	.record-table .inherit-cell {
-		color: var(--vscode-descriptionForeground);
-	}
-	.record-table .inherit-cell code {
-		font-family: var(--vscode-editor-font-family, monospace);
-		font-size: 0.95em;
-	}
-	/* The fields column takes most of the slack without starving the matcher
-		   column of its content width. */
-	.record-table .col-fields,
-	.record-table .fields-cell {
-		width: 60%;
-	}
-	.record-table .edit-cell {
-		white-space: nowrap;
-	}
-	.chip-list {
-		display: inline-flex;
-		flex-wrap: wrap;
-		gap: 4px;
-		align-items: center;
-		max-width: 100%;
-	}
 	/* The anchor wraps a chip and its popover, so outside-press detection and
 		   the popover's position share one element. */
 	.chip-anchor {
 		position: relative;
 		display: inline-flex;
 		max-width: 100%;
-	}
-	/* One field as a combined chip: key, value preview, and flag badges. A
-		   button where editable (opens the popover), a span in the read-only
-		   scope grids; both share the quiet chip chrome. */
-	.chip-field {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		max-width: 100%;
-		padding: 1px 8px;
-		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
-		border-radius: 9px;
-		background: transparent;
-		color: var(--vscode-foreground);
-		cursor: pointer;
-		font-size: 0.9em;
-	}
-	button.chip-field:hover {
-		background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12));
-	}
-	button.chip-field:disabled {
-		background: transparent;
-	}
-	.chip-field .chip-key {
-		font-family: var(--vscode-editor-font-family, monospace);
-	}
-	.chip-field .chip-key::after {
-		content: ":";
-	}
-	.chip-field .chip-value {
-		color: var(--vscode-descriptionForeground);
-		max-width: 14em;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.chip-field.invalid {
-		border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
-	}
-	.chip-field.hinted {
-		border-color: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow));
-	}
-	/* The catalog chip (_openrouter_model): dashed, with a plain-language key
-		   instead of the directive name. */
-	.chip-field.chip-catalog {
-		border-style: dashed;
-	}
-	.chip-field.chip-catalog .chip-key {
-		font-family: var(--vscode-font-family);
-		color: var(--vscode-descriptionForeground);
-	}
-	/* The force/fallback/inheritable marks as micro-badges on the chip: a
-		   notch larger and brighter than the badge idiom, or they read as noise
-		   next to the value text. */
-	.chip-flag {
-		font-size: 0.9em;
-		padding: 0 5px;
-		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
-		border-radius: 8px;
-		color: var(--vscode-foreground);
-		white-space: nowrap;
-	}
-	button.chip-add {
-		color: var(--vscode-descriptionForeground);
-		border-style: dashed;
-		padding: 1px 6px;
 	}
 	/* The chip popover: hover-widget chrome under its chip; align-end flips it
 		   leftwards for chips near the panel's right edge. */
@@ -2378,7 +1988,7 @@
 		   the chip: a chip-anchored 300px popover can fall past either panel
 		   edge, and content clipped past the panel's left edge is
 		   unreachable (overflow only scrolls rightward). */
-	.slide-over .fields-cell {
+	.slide-over .chip-list {
 		position: relative;
 	}
 	.slide-over .chip-anchor {

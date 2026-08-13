@@ -108,6 +108,31 @@ test("secure-side values never render, even against a poisoned state carrying fo
 	expectNowhere(SENTINEL);
 });
 
+test("the storage line beside a secret states where the value will land, and claims nothing when nothing is stored", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [declaredWithSecrets({ apiKey: "secure" })] })));
+	fireClick(buttonByText(root, "Add server"));
+	const apiKeyForm = [...root.querySelectorAll(".auth-selector label")].find(
+		(label) => (label.textContent ?? "").trim() === "API key (bearer)"
+	);
+	fireCheck(apiKeyForm?.querySelector("input") as HTMLInputElement, true);
+
+	// Nothing stored and nothing typed: there is no current value to keep, so
+	// the field says nothing rather than promising one.
+	const hintOf = () => document.getElementById("server-apiKey-error")?.textContent ?? "";
+	expect(hintOf()).toBe("");
+
+	// A typed value names its destination, and the plain-text destination
+	// says so in the warning tone at the moment the radio is picked.
+	fireInput(apiKeyInput(root), TYPED);
+	expect(hintOf()).toBe("This will be written to secret storage on save.");
+	const settings = [...root.querySelectorAll<HTMLInputElement>("input[name='server-apiKey-where']")][1];
+	fireCheck(settings as HTMLInputElement, true);
+	expect(hintOf()).toBe("This will be written to settings.json in plain text.");
+	expect(document.getElementById("server-apiKey-error")?.className).toContain("state-warn");
+	expectNowhere(SENTINEL);
+});
+
 test("a secure-stored field never triggers a prefill request and its untouched save posts keep", () => {
 	const root = mount(<App />);
 	const server = declaredWithSecrets({ apiKey: "secure" });
@@ -191,7 +216,7 @@ test("Show reveals, Hide re-masks, and the revealed state does not survive closi
 	fireClick(buttonByText(root, "Show"));
 	expect(apiKeyInput(root).type).toBe("text");
 	expectOnlyInApiKeyInput(SENTINEL);
-	fireClick(buttonByText(root, "Cancel"));
+	fireClick(buttonByText(root, "Discard changes"));
 	expectNowhere(SENTINEL);
 	resetPosted();
 	openEdit(root);
@@ -242,7 +267,7 @@ test("closing the form scrubs the prefill and reopening posts a fresh readInline
 	});
 	expectOnlyInApiKeyInput(SENTINEL);
 
-	fireClick(buttonByText(root, "Cancel"));
+	fireClick(buttonByText(root, "Discard changes"));
 	// Full sweep after close: no input value, attribute, or text retains it.
 	expectNowhere(SENTINEL);
 

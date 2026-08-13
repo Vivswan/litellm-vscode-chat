@@ -58,11 +58,13 @@ test("the auth selector reveals exactly the picked form's fields", () => {
 	expect(root.querySelector("#server-oauthTokenUrl")).toBeNull();
 	expect(root.querySelector("#server-virtualKeyHeader")).toBeNull();
 
-	// API key: the key input plus the virtual-key companion disclosure.
+	// API key: the key input plus the virtual-key companion, in the same
+	// scroll as the form that carries it - nothing to open.
 	fireCheck(authRadio(root, "API key (bearer)"), true);
 	expect(root.querySelector("#server-apiKey")).not.toBeNull();
 	expect(root.querySelector("#server-oauthTokenUrl")).toBeNull();
-	expect(root.textContent).toContain("Also send a virtual key header (optional)");
+	expect(root.textContent).toContain("Companions (optional)");
+	expect(root.querySelector("#server-virtualKeyHeader")).not.toBeNull();
 
 	// Virtual key header: the pair alone.
 	fireCheck(authRadio(root, "Virtual key in a custom header"), true);
@@ -93,7 +95,7 @@ test("editing a keyed entry derives the API-key form; switching to None keeps th
 	expect(root.textContent).toContain(
 		"A stored API key still activates the bearer on this shape; use its Remove checkbox to stop sending it."
 	);
-	const remove = Array.from(root.querySelectorAll(".stored-auth input[type=checkbox]"));
+	const remove = Array.from(root.querySelectorAll(".secret-remove input[type=checkbox]"));
 	expect(remove.length).toBe(1);
 
 	resetPosted();
