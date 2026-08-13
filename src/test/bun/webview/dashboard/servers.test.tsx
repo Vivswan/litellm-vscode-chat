@@ -1337,7 +1337,11 @@ test("an expected failure serving declared models reads Connected, and states th
 	// tabs), in the warn tone that says the connection is not what it seems.
 	const pill = [...root.querySelectorAll(".server-row .pill")].find((el) => el.textContent?.includes("Connected"));
 	expect(pill).toBeDefined();
-	expect(pill?.classList.contains("tone-warn")).toBe(true);
+	// The dot follows the row's WORST diagnostic, and this row's worst is
+	// advisory - the entry declared this failure category and is serving through
+	// it, so nothing is wrong. An amber dot over a grey advisory line was the
+	// pill and the sentence beneath it disagreeing in public.
+	expect(pill?.classList.contains("tone-ok")).toBe(true);
 	// The declared count is stated by the row's own line rather than by a badge
 	// beside it: the badge and the banner were the same fact twice.
 	const line = root.querySelector(".row-diagnostic");

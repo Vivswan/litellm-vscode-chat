@@ -85,3 +85,54 @@ test("an ok row still carrying a sync error shows the warn tone, matching its ow
 	expect(diagnostic?.textContent).toContain("the group upsert failed");
 	expect(diagnostic?.textContent).toContain("Prod");
 });
+
+test("the pill's tone follows the row's worst diagnostic, so the dot and the line never disagree", () => {
+	// One classifier, one output. The pill used to work the row out for itself,
+	// which put two verdicts on one server and let them contradict each other in
+	// public: an entry serving declared models through an expected failure wore
+	// an amber dot over the quiet grey tier, and an entry whose parameters were
+	// being ignored wore a green dot over an amber one.
+	const cases: readonly { readonly server: ReturnType<typeof makeDeclaredServer>; readonly tone: string }[] = [
+		// Nothing wrong at all.
+		{ server: makeDeclaredServer({ label: "Healthy", state: "ok" }), tone: "tone-ok" },
+		// Advisory: the entry declared this failure and is serving through it.
+		{
+			server: makeDeclaredServer({
+				label: "Declared",
+				baseUrl: "http://b",
+				state: "error",
+				error: "404 on /models",
+				expected: true,
+				declaredModelCount: 2,
+			}),
+			tone: "tone-ok",
+		},
+		// Degraded: it answers, but without settings its owner wrote.
+		{
+			server: makeDeclaredServer({ label: "Ignored", baseUrl: "http://c", notices: ["entry-params-inactive"] }),
+			tone: "tone-warn",
+		},
+		// Blocking: it serves nothing.
+		{
+			server: makeDeclaredServer({ label: "Down", baseUrl: "http://d", state: "error", error: "refused" }),
+			tone: "tone-error",
+		},
+	];
+	const severityToTone: Readonly<Record<string, string>> = {
+		"sev-blocking": "tone-error",
+		"sev-degraded": "tone-warn",
+		"sev-advisory": "tone-ok",
+	};
+	for (const { server, tone } of cases) {
+		const root = mountSection([server]);
+		const pill = root.querySelector(".server-row .pill");
+		expect(pill?.classList.contains(tone), `${server.label} pill`).toBe(true);
+		// And the line beneath it, where there is one, ranks the row identically.
+		const line = root.querySelector(".row-diagnostic");
+		if (line !== null) {
+			const severity = [...line.classList].find((name) => name.startsWith("sev-")) ?? "";
+			expect(severityToTone[severity], `${server.label} line ${severity}`).toBe(tone);
+		}
+		cleanup();
+	}
+});

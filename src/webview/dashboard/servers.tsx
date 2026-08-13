@@ -353,96 +353,124 @@ function inactiveSurfacesText(server: DashboardServer): string {
  * the error text itself renders in the section's banner, where it is
  * selectable.
  */
-function StatusPill({ server, now }: { server: DashboardServer; now: number }) {
-	const checked = server.lastChecked === undefined ? undefined : relativeTime(server.lastChecked, now);
-	const time = checked === undefined ? null : <span className="pill-time">{checked}</span>;
+/**
+ * The dot's tone, derived from the row's WORST diagnostic rather than computed
+ * a second time from the same inputs.
+ *
+ * The pill used to classify the row itself, which meant two classifiers over
+ * one server, and they disagreed in public: an entry serving its declared
+ * models through an expected failure wore an amber dot beside the word
+ * "Connected" while the line under it was the quiet grey tier, and an entry
+ * whose parameters were being ignored wore a green dot over an amber one. The
+ * loudest mark on the row contradicted the sentence beneath it. One classifier,
+ * one output: whatever the diagnostics say the row costs you, the dot says the
+ * same.
+ *
+ * A row with nothing wrong, and a row whose only note is advisory, are both
+ * plain "ok" - an advisory means nothing is wrong, so tinting the dot for one
+ * would be the same false alarm the tier itself refuses.
+ */
+function pillTone(server: DashboardServer, worst: DiagnosticSeverity | undefined): "ok" | "warn" | "error" | "muted" {
+	if (server.origin !== "misconfigured" && server.state === "unchecked") {
+		// Nothing has looked at it yet, so there is no verdict to tone - and no
+		// diagnostic either, which would otherwise read as health.
+		return "muted";
+	}
+	switch (worst) {
+		case "blocking":
+			return "error";
+		case "degraded":
+			return "warn";
+		default:
+			return "ok";
+	}
+}
+
+/** The row's plain-language verdict and the tip that expands it; the tone comes from pillTone. */
+function pillVerdict(server: DashboardServer): { readonly word: string; readonly tip?: string | undefined } {
 	if (server.origin === "misconfigured") {
 		// Origin outranks state: the entry never reaches discovery, so whatever
 		// state rides the row, the verdict is the invalid entry itself.
-		return (
-			<HoverTip
-				focusable
-				tip={l10n.t(
-					"This entry in the servers setting is invalid and is not used until fixed; the line under this row lists the problems."
-				)}
-			>
-				<span className="pill tone-error">
-					<span className="dot" />
-					{l10n.t("Misconfigured")}
-					{time}
-				</span>
-			</HoverTip>
-		);
+		return {
+			word: l10n.t("Misconfigured"),
+			tip: l10n.t(
+				"This entry in the servers setting is invalid and is not used until fixed; the line under this row lists the problems."
+			),
+		};
 	}
 	if (server.state === "ok") {
 		if (server.error !== undefined) {
-			return (
-				<HoverTip
-					focusable
-					tip={l10n.t(
-						"The server answered, but its last settings sync reported a problem; the line under this row has the details."
-					)}
-				>
-					<span className="pill tone-warn">
-						<span className="dot" />
-						{l10n.t("Sync issue")}
-						{time}
-					</span>
-				</HoverTip>
-			);
+			return {
+				word: l10n.t("Sync issue"),
+				tip: l10n.t(
+					"The server answered, but its last settings sync reported a problem; the line under this row has the details."
+				),
+			};
 		}
-		return (
-			<span className="pill tone-ok">
-				<span className="dot" />
-				{l10n.t("Connected")}
-				{time}
-			</span>
-		);
+		return { word: l10n.t("Connected") };
 	}
 	if (server.state === "error") {
 		if (server.expected === true) {
 			const declared = server.declaredModelCount ?? 0;
-			// One state, one name across tabs: a row still serving declared
-			// models reads Connected here exactly as the Diagnostics grid reads
-			// it OK, with the warn tone and tip carrying the expected failure.
-			return (
-				<HoverTip
-					focusable
-					tip={
-						declared > 0
-							? l10n.t(
-									"Discovery failed in a category this entry expects; its declared models keep serving. The line under this row has the details."
-								)
-							: l10n.t(
-									"Discovery failed in a category this entry expects. Nothing is declared, so no models are served; add IDs to the entry's discovery.declared."
-								)
+			// One state, one name across tabs: a row still serving declared models
+			// reads Connected here exactly as the Diagnostics grid reads it OK.
+			return declared > 0
+				? {
+						word: l10n.t("Connected"),
+						tip: l10n.t(
+							"Discovery failed in a category this entry expects; its declared models keep serving. The line under this row has the details."
+						),
 					}
-				>
-					<span className="pill tone-warn">
-						<span className="dot" />
-						{declared > 0 ? l10n.t("Connected") : l10n.t("Expected failure")}
-						{time}
-					</span>
-				</HoverTip>
-			);
+				: {
+						word: l10n.t("Expected failure"),
+						tip: l10n.t(
+							"Discovery failed in a category this entry expects. Nothing is declared, so no models are served; add IDs to the entry's discovery.declared."
+						),
+					};
 		}
-		return (
-			<span className="pill tone-error">
-				<span className="dot" />
-				{l10n.t("Error")}
-				{time}
-			</span>
-		);
+		return { word: l10n.t("Error") };
 	}
-	return (
-		<HoverTip
-			focusable
-			tip={l10n.t("Declared in settings; no discovery pass has seen it yet. Run Sync models to check it now.")}
-		>
-			<span className="pill tone-muted">
-				<span className="dot" />
-				{l10n.t("Not checked")}
-			</span>
+	return {
+		word: l10n.t("Not checked"),
+		tip: l10n.t("Declared in settings; no discovery pass has seen it yet. Run Sync models to check it now."),
+	};
+}
+
+/**
+ * The row's status pill: tone dot, plain-language verdict, and how long ago
+ * discovery last looked. The word says what state the row is in; the tone says
+ * what that state costs, and comes from the row's diagnostics so the two can
+ * never drift apart.
+ */
+function StatusPill({
+	server,
+	worst,
+	now,
+}: {
+	server: DashboardServer;
+	/** The row's worst diagnostic severity; absent when the row has no problems. */
+	worst: DiagnosticSeverity | undefined;
+	now: number;
+}) {
+	const checked = server.lastChecked === undefined ? undefined : relativeTime(server.lastChecked, now);
+	// An unchecked row has no time to show, and "just now" would be a lie.
+	const time =
+		checked === undefined || server.state === "unchecked" ? null : <span className="pill-time">{checked}</span>;
+	const { word, tip } = pillVerdict(server);
+	const pill = (
+		<span className={`pill tone-${pillTone(server, worst)}`}>
+			<span className="dot" />
+			{word}
+			{time}
+		</span>
+	);
+	// Native title attributes do not render in the webview host, so anything the
+	// pill wants to add rides the hover tip instead.
+	return tip === undefined ? (
+		pill
+	) : (
+		<HoverTip focusable tip={tip}>
+			{pill}
 		</HoverTip>
 	);
 }
@@ -560,7 +588,7 @@ function ServerRow({
 					{server.origin === "misconfigured" ? <span className="server-tag">{l10n.t("not in use")}</span> : null}
 				</span>
 				<span className="server-url">{server.baseUrl}</span>
-				<StatusPill server={server} now={now} />
+				<StatusPill server={server} worst={diagnostics[0]?.severity} now={now} />
 				<span className="server-count">
 					{/* The count carries its own noun, so the row needs no column header
 					    to say what the number is. The whole phrase is the link, not just
