@@ -14,7 +14,7 @@ Two equivalent ways to edit everything:
 | Fact | Detail |
 |---|---|
 | Scope | `servers` is machine-scoped: user settings only, never overridable by a workspace, never carried by Settings Sync. A `servers` value in a workspace's `.vscode/settings.json` is ignored by VS Code itself (the Settings editor says it can apply in user settings only). Every other setting behaves like a normal user/workspace setting and syncs normally. |
-| Effect | Changes apply immediately - no reload. Model-affecting changes refresh the model list; usage changes rewire the poller; timeout changes apply to the next request. |
+| Effect | Changes apply immediately - no reload. Model-affecting changes refresh the model list; usage changes rewire the poller; timeout changes apply to the next request. The two appearance settings are the exception for now: `ui.theme` and `ui.accent` are read when the dashboard opens, so an open dashboard keeps the look it started with until you reopen it. |
 | Migration | Settings from older versions are renamed and restructured automatically on upgrade; see the [rename table](#renamed-and-removed-settings). Nothing needs re-entering. When a new-name setting already holds a value (say, Settings Sync delivered it from an upgraded machine first), the migration keeps it and just drops the old key - with one caveat for server-URL-scoped keys ([scope notes](#renamed-and-removed-settings)). |
 | Unknown keys | A `litellm-vscode-chat.*` key the extension does not declare (a typo, say `chat.timout`) is ignored, and VS Code's settings editor marks it as an unknown setting in settings.json. The same goes for old names once [renamed](#renamed-and-removed-settings). |
 
@@ -52,6 +52,8 @@ The file is a versioned envelope (setting keys inside it drop the `litellm-vscod
 | `litellm-vscode-chat.usage.alertThresholds` | `[0.8, 0.95]` | Budget fractions that trigger a one-time alert each; every value in (0, 1]; empty list = alerts off. Full story: [Usage - Alerts](usage.md#alerts) |
 | `litellm-vscode-chat.usage.statusBar` | `"always"` | The usage status bar item: `"always"`, `"alerts-only"`, `"off"`. Full story: [Usage - The status bar](usage.md#the-status-bar) |
 | `litellm-vscode-chat.ui.maskSecretInputs` | `true` | Mask credential values while typing them into input-box prompts. The dashboard's secret fields always mask, each behind its own Show toggle, regardless of this setting |
+| `litellm-vscode-chat.ui.theme` | `"auto"` | How the dashboard colors itself: `"auto"` follows your VS Code theme, `"light"` and `"dark"` hold still while the editor changes around them. [Appearance notes below](#appearance) |
+| `litellm-vscode-chat.ui.accent` | `"blue"` | The dashboard's accent hue: `"blue"`, `"violet"`, `"teal"`, `"amber"`. It marks primary actions, selection, focus and links, and nothing else - status colors stay green, yellow and red. [Appearance notes below](#appearance) |
 
 There is deliberately no global headers setting: custom HTTP headers describe how to talk to one server, so they live on the server entry ([`headers`](servers.md#custom-headers)) - machine-scoped and out of Settings Sync's reach, unlike a global setting.
 
@@ -96,6 +98,15 @@ Inside a `models.parameters` or `models.capabilities` record (global or per-entr
   "gpt-5*": { "temperature": 0.2, "_force": ["temperature"] }          // even chat tools cannot raise it
 }
 ```
+
+## Appearance
+
+`ui.theme` and `ui.accent` decide how the dashboard looks. Two things are worth knowing:
+
+- **High contrast always wins.** Under a VS Code high contrast theme, both settings go inert and the dashboard follows the editor exactly as `auto` does. A high contrast theme is an accessibility choice, and an appearance preference does not get to overrule it.
+- **`auto` follows any theme; forcing one uses ours.** Under `auto` the dashboard reads your editor's own colors, so it belongs inside Solarized, Monokai or anything hand-rolled. Forcing `light` or `dark` swaps in our palette (VS Code's own Light Modern and Dark Modern), which is what makes the dashboard hold still while the editor changes.
+
+Under `blue`, the accent follows your theme's button color, so an untouched install looks exactly as it always did. The other three are fixed hues, tuned per theme so they carry on a light surface as well as a dark one.
 
 ## Prompt caching
 

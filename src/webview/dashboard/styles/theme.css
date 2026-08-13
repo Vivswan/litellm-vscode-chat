@@ -32,6 +32,16 @@
 		background-color: transparent;
 		color: inherit;
 	}
+	/* The dashboard paints its own surface. VS Code's webview default styles set
+		 `body { background-color: transparent }` and let the editor area show
+		 through, which is right until the reader forces a theme: the forced
+		 palette then reaches every pixel the dashboard draws and none of the page
+		 behind them. Under `auto` this is the same color that was showing
+		 through, with one edge: a theme whose editor.background is deliberately
+		 translucent now composites it twice. */
+	body {
+		background-color: var(--background);
+	}
 }
 
 /* shadcn's semantic tokens, mapped onto the host's live theme variables: the
@@ -94,6 +104,13 @@
 	 quiet panel on #1f1f1f becomes a shout on #ffffff, so the percentages are
 	 per-theme, and under `auto` we read the host's own kind off the class VS
 	 Code stamps on <body> rather than guessing from a color.
+
+	 HIGH CONTRAST WINS. Under either HC body class the whole theme/accent layer
+	 goes inert and the dashboard behaves exactly as `auto` does. A reader who
+	 turned high contrast on chose it for legibility, and no aesthetic preference
+	 of ours gets to overrule that. It is also the only version of this that is
+	 maintainable: the alternative is re-fighting the HC block token by token,
+	 forever, one battle per token anybody ever adds.
    --------------------------------------------------------------------------- */
 
 :root {
@@ -118,112 +135,300 @@
 	--control-outline: transparent;
 }
 
-/* Under `auto`, the host's own light themes take the light scale. Scoped to
-	 auto so a forced theme is never overruled by the editor's kind. */
+/* Everything a LIGHT surface changes, in one block. The host decides whenever
+	 the setting does not: under `auto`, and under high contrast of either kind,
+	 where the setting is inert. The forced light block repeats this list and the
+	 theme test pins the two against each other. */
 html[data-theme="auto"] body.vscode-light,
-html[data-theme="light"] {
+body.vscode-high-contrast-light {
 	--sev-mix: 4%;
 	--state-mix: 8%;
 	--diag-hairline: rgb(0 0 0 / 7%);
+	--hue-violet: #6b46c1;
+	--hue-teal: #0f766e;
+	--hue-amber: #a15c00;
 }
 
-/* Forced themes: our own palette replaces the host mapping. Values are the
-	 Dark Modern / Light Modern families, so a forced theme still looks native
-	 rather than like a second product. */
-html[data-theme="dark"] {
-	color-scheme: dark;
-	--background: #1f1f1f;
-	--foreground: #cccccc;
-	--card: #202020;
-	--card-foreground: #cccccc;
-	--popover: #202020;
-	--popover-foreground: #cccccc;
-	--secondary: #313131;
-	--secondary-foreground: #cccccc;
-	--secondary-hover: #3c3c3c;
-	--muted: #2b2b2b;
-	--muted-foreground: #9d9d9d;
-	--border: #2e2e2e;
-	--input: #3c3c3c;
-	--input-background: #313131;
-	--input-foreground: #cccccc;
-	--input-placeholder: #989898;
-	--dropdown-background: #313131;
-	--dropdown-foreground: #cccccc;
-	--dropdown: #3c3c3c;
-	--ghost-hover: rgb(90 93 94 / 31%);
-	--disabled: #313131;
-	--disabled-foreground: #cccccc80;
-	--ok: #3fb950;
-	--warn: #cca700;
-	--err: #f85149;
+/* The accent hues, each defined exactly once. The choosable hue and the hue in
+	 use are different things - the settings picker paints all four as swatches
+	 while only one is live - and a literal written twice is a literal that
+	 drifts, so the rules below and the swatches read the same tokens.
+
+	 Blue is the host's own button color, which is why an untouched install looks
+	 exactly as it always did, and why it needs no light value of its own: the
+	 theme already supplies one. The other three are ours, and a hue that carries
+	 on #1f1f1f is too pale on #ffffff, so a light surface re-declares them (see
+	 the light block above). The token itself carries the per-surface value
+	 rather than a second "-light" name, so the picker's swatch paints the hue
+	 you would actually get. */
+:root {
+	--hue-blue: var(--vscode-button-background, #0078d4);
+	--hue-violet: #7c5cf0;
+	--hue-teal: #0d9488;
+	--hue-amber: #b97e2a;
 }
 
-html[data-theme="light"] {
-	color-scheme: light;
-	--background: #ffffff;
-	--foreground: #3b3b3b;
-	--card: #f8f8f8;
-	--card-foreground: #3b3b3b;
-	--popover: #ffffff;
-	--popover-foreground: #3b3b3b;
-	--secondary: #e5e5e5;
-	--secondary-foreground: #3b3b3b;
-	--secondary-hover: #cccccc;
-	--muted: #f8f8f8;
-	--muted-foreground: #616161;
-	--border: #e5e5e5;
-	--input: #cecece;
-	--input-background: #ffffff;
-	--input-foreground: #3b3b3b;
-	--input-placeholder: #767676;
-	--dropdown-background: #ffffff;
-	--dropdown-foreground: #3b3b3b;
-	--dropdown: #cecece;
-	--ghost-hover: rgb(184 184 184 / 31%);
-	--disabled: #e5e5e5;
-	--disabled-foreground: #61616180;
-	--ok: #1a7f37;
-	--warn: #8f6b00;
-	--err: #cd3131;
-}
-
-/* Accent: one hue per theme pair, tuned so it carries on both surfaces. It
-	 deploys on primary actions, selection, focus and links ONLY - never on
-	 status, never as decoration, or it stops meaning "you can act here". The
-	 default follows the host's own button color, so an untouched install looks
-	 exactly as it did. */
-:root,
-html[data-accent="blue"] {
-	--accent-hue: var(--vscode-button-background, #0078d4);
+/* The accent deploys on primary actions, selection, focus and links ONLY -
+	 never on status, never as decoration, or it stops meaning "you can act
+	 here". Focus is on that list, so a chosen accent takes --ring with it; blue
+	 deliberately does not, because blue means "my theme's own colors" and the
+	 theme published a focus color of its own. */
+:root {
+	--accent-hue: var(--hue-blue);
 	--accent-on: var(--vscode-button-foreground, #ffffff);
 }
-html[data-theme="dark"][data-accent="blue"] {
-	--accent-hue: #0078d4;
-}
-html[data-theme="light"][data-accent="blue"] {
-	--accent-hue: #005fb8;
-}
-html[data-accent="violet"] {
-	--accent-hue: #7c5cf0;
-	--accent-on: #ffffff;
-}
-html[data-theme="light"][data-accent="violet"] {
-	--accent-hue: #6b46c1;
-}
-html[data-accent="teal"] {
-	--accent-hue: #0d9488;
-	--accent-on: #ffffff;
-}
-html[data-theme="light"][data-accent="teal"] {
-	--accent-hue: #0f766e;
-}
-html[data-accent="amber"] {
-	--accent-hue: #b97e2a;
-	--accent-on: #ffffff;
-}
-html[data-theme="light"][data-accent="amber"] {
-	--accent-hue: #a15c00;
+
+/* Every rule either setting drives hangs off this one guard, so "high contrast
+	 wins" is a property of the structure rather than a discipline to remember: a
+	 palette or hue added inside is covered, and there is no outside to add one
+	 to. The one thing outside is the `:root` default above, which has to have a
+	 value under high contrast too - and because its chain reads the host's
+	 button color, which high contrast paints black, the HC block below claims
+	 the accent explicitly. That single override is the whole of the token-by-
+	 token discipline that remains.
+
+	 `:where()` zeroes the guard's own weight, so every rule below keeps exactly
+	 the specificity it reads as. */
+html:where(:not(:has(body.vscode-high-contrast, body.vscode-high-contrast-light))) {
+	/* The chosen accent. Blue sets nothing: it means "my theme's own colors",
+		 and the `:root` default already reads them - including --ring, which the
+		 other three take with them because focus is on the accent's list. */
+	&[data-accent="violet"] {
+		--accent-hue: var(--hue-violet);
+		--accent-on: #ffffff;
+		--ring: var(--hue-violet);
+	}
+	&[data-accent="teal"] {
+		--accent-hue: var(--hue-teal);
+		--accent-on: #ffffff;
+		--ring: var(--hue-teal);
+	}
+	&[data-accent="amber"] {
+		--accent-hue: var(--hue-amber);
+		--accent-on: #ffffff;
+		--ring: var(--hue-amber);
+	}
+
+	/* A light host under `auto` takes the light hues, for the reason the wash
+		 scale does. Declared on body because that is where the host stamps its
+		 kind, and because a custom property substitutes against the element it is
+		 declared on: a derivation on html would bake html's dark hue in. */
+	&[data-accent="violet"] body.vscode-light {
+		--accent-hue: var(--hue-violet);
+		--ring: var(--hue-violet);
+	}
+	&[data-accent="teal"] body.vscode-light {
+		--accent-hue: var(--hue-teal);
+		--ring: var(--hue-teal);
+	}
+	&[data-accent="amber"] body.vscode-light {
+		--accent-hue: var(--hue-amber);
+		--ring: var(--hue-amber);
+	}
+
+	/* Forced themes replace the HOST's variables, not our semantic tokens. Every
+		 consumer already reads those chains - the semantic mapping above, the
+		 legacy stylesheet's 180-odd direct reads, the shadcn utilities - so one
+		 palette moves the whole page, and a rule added to either stylesheet
+		 tomorrow follows a forced theme for free. Overriding our semantic names
+		 instead was the alternative, and it renders as a light page with one
+		 black input: correct where a semantic token happened to exist,
+		 untouched everywhere else.
+
+		 !important is not a shortcut here, it is the only way in. VS Code does
+		 not ship --vscode-* in a stylesheet: applyStyles writes each one onto
+		 the document element's INLINE style, and an inline declaration outranks
+		 every author rule on that same element. Without !important these rules
+		 lose in the editor while appearing to work anywhere the tokens arrive as
+		 CSS - which is exactly what happened, and why the render harness now
+		 delivers them inline too. Only the host tokens carry it: our own tokens
+		 are shadowed by nothing.
+
+		 Values are Dark Modern and Light Modern resolved over the workbench color
+		 registry's defaults, so a forced theme still looks native rather than
+		 like a second product. Where the registry computes rather than states a
+		 value, the derivation is named so it can be rechecked:
+		 editorWidget/editorHoverWidget border is editorWidget.foreground at 20%
+		 alpha, and dark statusBarItem.errorBackground is darken(errorForeground,
+		 0.4) - both themes set errorForeground to #f85149, which is why the dark
+		 value is not the red the registry's own default errorForeground yields.
+		 The two contrast-only tokens stay undefined on purpose: an ordinary theme does not define them
+		 either, and the fallback chains that read them are written for exactly
+		 that. theme.test.ts pins both palettes against the tokens the
+		 stylesheets actually read, and pins the !important, so neither a new
+		 read nor a new declaration can quietly go unforced. */
+	&[data-theme="dark"] {
+		color-scheme: dark;
+		--vscode-button-background: #0078d4 !important;
+		--vscode-button-border: #ffffff1a !important;
+		--vscode-button-foreground: #ffffff !important;
+		--vscode-button-hoverBackground: #026ec1 !important;
+		--vscode-button-secondaryBackground: #00000000 !important;
+		--vscode-button-secondaryForeground: #cccccc !important;
+		--vscode-button-secondaryHoverBackground: #2b2b2b !important;
+		--vscode-charts-green: #89d185 !important;
+		--vscode-charts-red: #f14c4c !important;
+		--vscode-charts-yellow: #cca700 !important;
+		--vscode-descriptionForeground: #9d9d9d !important;
+		--vscode-disabledForeground: #cccccc80 !important;
+		--vscode-dropdown-background: #313131 !important;
+		--vscode-dropdown-border: #3c3c3c !important;
+		--vscode-dropdown-foreground: #cccccc !important;
+		--vscode-editor-background: #1f1f1f !important;
+		--vscode-editorHoverWidget-background: #202020 !important;
+		--vscode-editorHoverWidget-border: #cccccc33 !important;
+		--vscode-editorHoverWidget-foreground: #cccccc !important;
+		--vscode-editorWarning-foreground: #cca700 !important;
+		--vscode-editorWidget-background: #202020 !important;
+		--vscode-editorWidget-border: #cccccc33 !important;
+		--vscode-editorWidget-foreground: #cccccc !important;
+		--vscode-errorForeground: #f85149 !important;
+		--vscode-focusBorder: #0078d4 !important;
+		--vscode-foreground: #cccccc !important;
+		--vscode-input-background: #313131 !important;
+		--vscode-input-border: #3c3c3c !important;
+		--vscode-input-foreground: #cccccc !important;
+		--vscode-input-placeholderForeground: #989898 !important;
+		--vscode-inputValidation-errorBackground: #5a1d1d !important;
+		--vscode-inputValidation-errorBorder: #be1100 !important;
+		--vscode-inputValidation-warningBackground: #352a05 !important;
+		--vscode-inputValidation-warningBorder: #b89500 !important;
+		--vscode-list-hoverBackground: #2a2d2e !important;
+		--vscode-list-hoverForeground: #cccccc !important;
+		--vscode-notifications-background: #1f1f1f !important;
+		--vscode-notifications-border: #2b2b2b !important;
+		--vscode-notifications-foreground: #cccccc !important;
+		--vscode-notificationsWarningIcon-foreground: #cca700 !important;
+		--vscode-panel-background: #181818 !important;
+		--vscode-panel-border: #2b2b2b !important;
+		--vscode-panelTitle-activeBorder: #0078d4 !important;
+		--vscode-panelTitle-activeForeground: #cccccc !important;
+		--vscode-panelTitle-inactiveForeground: #9d9d9d !important;
+		--vscode-progressBar-background: #0078d4 !important;
+		--vscode-settings-modifiedItemIndicator: #bb800966 !important;
+		--vscode-statusBarItem-errorBackground: #b90f07 !important;
+		--vscode-statusBarItem-errorForeground: #ffffff !important;
+		--vscode-testing-iconPassed: #73c991 !important;
+		--vscode-textBlockQuote-background: #2b2b2b !important;
+		--vscode-textCodeBlock-background: #2b2b2b !important;
+		--vscode-textLink-activeForeground: #4daafc !important;
+		--vscode-textLink-foreground: #4daafc !important;
+		--vscode-toolbar-hoverBackground: #5a5d5e50 !important;
+		--vscode-widget-border: #313131 !important;
+		--vscode-widget-shadow: rgba(0, 0, 0, 0.36) !important;
+		/* Not read by either stylesheet: these eight are what the WEBVIEW's own
+			 chrome reads - the scrollbar, the find widget's highlights, the <code>
+			 chrome and the body color it sets before ours does. They are in the
+			 palette because a forced theme has to move them too, and nothing else
+			 would. */
+		--vscode-editor-foreground: #cccccc !important;
+		--vscode-textPreformat-foreground: #d0d0d0 !important;
+		--vscode-textPreformat-background: #3c3c3c !important;
+		--vscode-scrollbarSlider-background: #79797966 !important;
+		--vscode-scrollbarSlider-hoverBackground: #646464b3 !important;
+		--vscode-scrollbarSlider-activeBackground: #bfbfbf66 !important;
+		--vscode-editor-findMatchBackground: #9e6a03 !important;
+		--vscode-editor-findMatchHighlightBackground: #ea5c0055 !important;
+	}
+
+	&[data-theme="light"] {
+		color-scheme: light;
+		/* The same three the host-derived rule above sets; the theme test pins
+			 the two against each other so they cannot drift apart. */
+		--sev-mix: 4%;
+		--state-mix: 8%;
+		--diag-hairline: rgb(0 0 0 / 7%);
+		--hue-violet: #6b46c1;
+		--hue-teal: #0f766e;
+		--hue-amber: #a15c00;
+		--vscode-button-background: #005fb8 !important;
+		--vscode-button-border: #0000001a !important;
+		--vscode-button-foreground: #ffffff !important;
+		--vscode-button-hoverBackground: #0258a8 !important;
+		--vscode-button-secondaryBackground: #e5e5e5 !important;
+		--vscode-button-secondaryForeground: #3b3b3b !important;
+		--vscode-button-secondaryHoverBackground: #cccccc !important;
+		--vscode-charts-green: #388a34 !important;
+		--vscode-charts-red: #e51400 !important;
+		--vscode-charts-yellow: #bf8803 !important;
+		--vscode-descriptionForeground: #3b3b3b !important;
+		--vscode-disabledForeground: #61616180 !important;
+		--vscode-dropdown-background: #ffffff !important;
+		--vscode-dropdown-border: #cecece !important;
+		--vscode-dropdown-foreground: #3b3b3b !important;
+		--vscode-editor-background: #ffffff !important;
+		--vscode-editorHoverWidget-background: #f8f8f8 !important;
+		--vscode-editorHoverWidget-border: #3b3b3b33 !important;
+		--vscode-editorHoverWidget-foreground: #3b3b3b !important;
+		--vscode-editorWarning-foreground: #bf8803 !important;
+		--vscode-editorWidget-background: #f8f8f8 !important;
+		--vscode-editorWidget-border: #3b3b3b33 !important;
+		--vscode-editorWidget-foreground: #3b3b3b !important;
+		--vscode-errorForeground: #f85149 !important;
+		--vscode-focusBorder: #005fb8 !important;
+		--vscode-foreground: #3b3b3b !important;
+		--vscode-input-background: #ffffff !important;
+		--vscode-input-border: #cecece !important;
+		--vscode-input-foreground: #3b3b3b !important;
+		--vscode-input-placeholderForeground: #767676 !important;
+		--vscode-inputValidation-errorBackground: #f2dede !important;
+		--vscode-inputValidation-errorBorder: #be1100 !important;
+		--vscode-inputValidation-warningBackground: #f6f5d2 !important;
+		--vscode-inputValidation-warningBorder: #b89500 !important;
+		--vscode-list-hoverBackground: #f2f2f2 !important;
+		--vscode-list-hoverForeground: #3b3b3b !important;
+		--vscode-notifications-background: #ffffff !important;
+		--vscode-notifications-border: #e5e5e5 !important;
+		--vscode-notifications-foreground: #3b3b3b !important;
+		--vscode-notificationsWarningIcon-foreground: #bf8803 !important;
+		--vscode-panel-background: #f8f8f8 !important;
+		--vscode-panel-border: #e5e5e5 !important;
+		--vscode-panelTitle-activeBorder: #005fb8 !important;
+		--vscode-panelTitle-activeForeground: #3b3b3b !important;
+		--vscode-panelTitle-inactiveForeground: #3b3b3b !important;
+		--vscode-progressBar-background: #005fb8 !important;
+		--vscode-settings-modifiedItemIndicator: #bb800966 !important;
+		--vscode-statusBarItem-errorBackground: #c72e0f !important;
+		--vscode-statusBarItem-errorForeground: #ffffff !important;
+		--vscode-testing-iconPassed: #73c991 !important;
+		--vscode-textBlockQuote-background: #f8f8f8 !important;
+		--vscode-textCodeBlock-background: #f8f8f8 !important;
+		--vscode-textLink-activeForeground: #005fb8 !important;
+		--vscode-textLink-foreground: #005fb8 !important;
+		--vscode-toolbar-hoverBackground: #b8b8b850 !important;
+		--vscode-widget-border: #e5e5e5 !important;
+		--vscode-widget-shadow: rgba(0, 0, 0, 0.16) !important;
+		/* Not read by either stylesheet: these eight are what the WEBVIEW's own
+			 chrome reads - the scrollbar, the find widget's highlights, the <code>
+			 chrome and the body color it sets before ours does. They are in the
+			 palette because a forced theme has to move them too, and nothing else
+			 would. */
+		--vscode-editor-foreground: #3b3b3b !important;
+		--vscode-textPreformat-foreground: #3b3b3b !important;
+		--vscode-textPreformat-background: #0000001f !important;
+		--vscode-scrollbarSlider-background: #64646466 !important;
+		--vscode-scrollbarSlider-hoverBackground: #646464b3 !important;
+		--vscode-scrollbarSlider-activeBackground: #00000099 !important;
+		--vscode-editor-findMatchBackground: #a8ac94 !important;
+		--vscode-editor-findMatchHighlightBackground: #ea5c0055 !important;
+	}
+
+	/* Per-theme accent tuning: a hue that carries on #1f1f1f is too pale on
+		 #ffffff, so the three hues of our own name their light values. Blue needs
+		 no entry - it follows the button color, and a forced theme now sets that
+		 too. */
+	&[data-theme="light"][data-accent="violet"] {
+		--accent-hue: var(--hue-violet);
+		--ring: var(--hue-violet);
+	}
+	&[data-theme="light"][data-accent="teal"] {
+		--accent-hue: var(--hue-teal);
+		--ring: var(--hue-teal);
+	}
+	&[data-theme="light"][data-accent="amber"] {
+		--accent-hue: var(--hue-amber);
+		--ring: var(--hue-amber);
+	}
 }
 
 /* Derived on BOTH root and body, which is not redundancy. A custom property
@@ -250,7 +455,16 @@ body {
 	 marks the active one, so the semantic border/focus tokens follow suit.
 	 Fills disappear by design in HC (button.secondaryBackground and its
 	 fallback are both null there), so every fill token gains a guaranteed
-	 surface fallback and lets the contrast border carry the shape. */
+	 surface fallback and lets the contrast border carry the shape.
+
+	 This block is also where the accent comes home. The guard above already
+	 makes the forced palettes inert; the accent needs an actual value, and it
+	 cannot be the usual one: HC does define button.background, as #000000 in HC
+	 dark, so the ordinary chain would paint the accent black on a black page.
+	 The host's link color is the hue an HC theme guarantees is both actionable
+	 and legible against its own background, which is exactly the job. Declaring
+	 it on body beats the html-level data-accent rules for body and everything
+	 under it, so the reader's accent choice goes inert with the rest. */
 body.vscode-high-contrast,
 body.vscode-high-contrast-light {
 	--border: var(--vscode-contrastBorder);
@@ -267,6 +481,8 @@ body.vscode-high-contrast-light {
 	--dropdown: var(--vscode-contrastBorder);
 	--disabled: var(--vscode-editor-background);
 	--control-outline: var(--vscode-contrastBorder);
+	--accent-hue: var(--vscode-textLink-foreground, var(--vscode-contrastActiveBorder, var(--vscode-focusBorder)));
+	--accent-on: var(--vscode-editor-background);
 }
 
 /* Inline so utilities bake in the var() chains directly; a non-inline theme
@@ -319,6 +535,12 @@ body.vscode-high-contrast-light {
 	--color-err-soft: var(--err-soft);
 	--color-err-wash: var(--err-wash);
 	--color-accent-hue: var(--accent-hue);
+	/* The four choosable hues, for the settings picker's swatches: it paints
+		 every option, not just the live one. */
+	--color-hue-blue: var(--hue-blue);
+	--color-hue-violet: var(--hue-violet);
+	--color-hue-teal: var(--hue-teal);
+	--color-hue-amber: var(--hue-amber);
 	--color-accent-on: var(--accent-on);
 	--color-accent-soft: var(--accent-soft);
 	--color-accent-line: var(--accent-line);

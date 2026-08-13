@@ -131,3 +131,112 @@ test("the scrim re-enables pointer events Radix takes away", () => {
 	expect(scrimRule).toBeDefined();
 	expect(scrimRule).toContain("pointer-events: auto");
 });
+
+/**
+ * Tokens a forced palette deliberately leaves alone. The font trio is the
+ * reader's editor setting rather than a theme, and the two contrast tokens are
+ * undefined in every ordinary theme - the chains that read them are written
+ * for exactly that absence, and a forced theme is never high contrast.
+ */
+const UNFORCED_HOST_TOKENS = new Set([
+	"--vscode-font-family",
+	"--vscode-font-size",
+	"--vscode-editor-font-family",
+	"--vscode-contrastBorder",
+	"--vscode-contrastActiveBorder",
+]);
+
+/** The declarations inside one `&[data-theme="..."]` block of theme.css. */
+function forcedBlock(theme: "dark" | "light"): string {
+	const source = readFileSync(themeEntry, "utf8");
+	const block = new RegExp(`&\\[data-theme="${theme}"\\] \\{([\\s\\S]*?)\\n\\t\\}`).exec(source)?.[1];
+	expect(block, `theme.css has no &[data-theme="${theme}"] block`).toBeDefined();
+	return block ?? "";
+}
+
+test("a forced theme redefines every host token the stylesheets read", () => {
+	// Forcing a theme means replacing the HOST's variables, because that is what
+	// every consumer reads: the semantic mapping, the legacy stylesheet's direct
+	// reads, and the utilities alike. A token the palettes miss keeps its value
+	// from the editor's theme, which is how a forced dark dashboard ends up a
+	// light page with one black input.
+	const read = new Set<string>();
+	for (const entry of [themeEntry, legacyEntry]) {
+		for (const match of readFileSync(entry, "utf8").matchAll(/var\((--vscode-[A-Za-z0-9-]+)/g)) {
+			if (!UNFORCED_HOST_TOKENS.has(match[1] ?? "")) {
+				read.add(match[1] ?? "");
+			}
+		}
+	}
+	expect(read.size).toBeGreaterThan(40);
+	for (const theme of ["dark", "light"] as const) {
+		const defined = new Set(
+			[...forcedBlock(theme).matchAll(/^\s*(--vscode-[A-Za-z0-9-]+):/gm)].map((match) => match[1] ?? "")
+		);
+		expect([...read].filter((token) => !defined.has(token)).sort()).toBeEmpty();
+	}
+});
+
+test("high contrast wins: nothing either appearance setting drives escapes the guard", async () => {
+	// The rule is structural rather than remembered - a palette or hue added
+	// inside the guarded block is covered and there is no outside to add one to
+	// - so the test is that no rule keyed on either setting's attribute compiles
+	// without the guard on it. Both attributes, because the accent is a
+	// preference exactly as much as the theme is.
+	const output = await compileTheme();
+	const guard = ":not(:has(body.vscode-high-contrast, body.vscode-high-contrast-light))";
+	const keyed = [...output.matchAll(/^([^\n{]*\[data-(?:theme|accent)=[^\n{]*)\{/gm)].map((match) => match[1] ?? "");
+	// `auto` is the one value that means "no choice was made", so its rule is
+	// the host-derived path and belongs outside: that is how a high contrast
+	// host keeps reaching it. Exactly one, so a second unguarded shape shows up
+	// here rather than passing as another exemption.
+	const [hostDerived, forced] = [
+		keyed.filter((selector) => selector.includes('[data-theme="auto"]')),
+		keyed.filter((selector) => !selector.includes('[data-theme="auto"]')),
+	];
+	expect(hostDerived).toHaveLength(1);
+	// An exact count, not a floor: a floor lets one more unguarded rule through,
+	// which is the mistake this test exists to catch. Update it deliberately.
+	expect(forced).toHaveLength(11);
+	expect(forced.filter((selector) => !selector.includes(guard))).toBeEmpty();
+});
+
+test("every forced host token carries !important, because inline styles are what it is fighting", async () => {
+	// VS Code writes --vscode-* onto the document element's inline style, and an
+	// inline declaration outranks every author rule on that element. A forced
+	// palette without !important loses in the editor while looking correct in
+	// any render that delivers the tokens as CSS. This is the whole mechanism,
+	// so it is pinned per declaration rather than trusted.
+	for (const theme of ["dark", "light"] as const) {
+		const declarations = [...forcedBlock(theme).matchAll(/^\s*(--vscode-[A-Za-z0-9-]+):\s*([^;]+);/gm)];
+		expect(declarations.length).toBeGreaterThan(50);
+		expect(
+			declarations.filter((match) => !(match[2] ?? "").endsWith("!important")).map((match) => match[1])
+		).toBeEmpty();
+	}
+	// And the tokens we own carry none: nothing shadows them, and !important
+	// there would only make them harder to override later.
+	const ours = [...forcedBlock("light").matchAll(/^\s*(--(?!vscode-)[a-z-]+):\s*([^;]+);/gm)];
+	expect(ours.length).toBeGreaterThan(0);
+	expect(ours.filter((match) => (match[2] ?? "").includes("!important")).map((match) => match[1])).toBeEmpty();
+});
+
+test("the two light blocks agree on everything a light surface changes", () => {
+	// One surface reached two ways: the host-derived rule (auto, and high
+	// contrast of either kind) and the forced light block. They are separate
+	// rules because they match on different things, so only a test keeps them
+	// saying the same thing - and it compares the whole list rather than the
+	// three tokens that happen to be there today, so a light-only token added
+	// to one block has to reach the other.
+	const source = readFileSync(themeEntry, "utf8");
+	const hostDerived = /body\.vscode-high-contrast-light \{([\s\S]*?)\n\}/.exec(source)?.[1] ?? "";
+	// The forced block additionally carries the host palette (--vscode-*) and
+	// its color-scheme; those are what forcing a theme means, not what being
+	// light means.
+	const ownTokens = (block: string): string[] =>
+		[...block.matchAll(/^\s*(--(?!vscode-)[a-z-]+):\s*([^;]+);/gm)]
+			.map((match) => `${match[1]}: ${match[2]?.trim()}`)
+			.sort();
+	expect(ownTokens(hostDerived).length).toBeGreaterThanOrEqual(6);
+	expect(ownTokens(forcedBlock("light"))).toEqual(ownTokens(hostDerived));
+});

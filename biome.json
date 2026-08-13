@@ -66,6 +66,18 @@
 	"overrides": [
 		{
 			"includes": [
+				"src/webview/dashboard/styles/theme.css"
+			],
+			"linter": {
+				"rules": {
+					"complexity": {
+						"noImportantStyles": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": [
 				"src/**",
 				"!src/test/**"
 			],
