@@ -330,8 +330,13 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 			// the place to reveal; a global one lives in its own setting.
 			const setting: RevealableSettingId = diagnostic.entryLabel !== undefined ? "servers" : diagnostic.setting;
 			const lint = diagnostic.diagnostic;
+			// Identifiers joined by a slash, never a localized phrase: the pair is
+			// machine text a reader retypes, and it needs no translation. An
+			// invalid matcher key IS the record key, so naming it twice would read
+			// as a mistake.
+			const subject = lint.key === lint.recordKey ? lint.recordKey : `${lint.recordKey}/${lint.key}`;
 			return {
-				key: `record:${diagnostic.setting}:${diagnostic.entryLabel ?? ""}:${lint.kind}:${lint.recordKey}:${lint.key}`,
+				key: `record:${diagnostic.setting}:${diagnostic.entryLabel ?? ""}:${lint.kind}:${subject}`,
 				severity: cappedSeverity(diagnostic.severity, recordSeverity(lint)),
 				headline: recordProblemText(lint),
 				where:
@@ -342,7 +347,7 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 				// guide, which is the section header's own docs link. Repeating it
 				// on each row put five identical links down the page and taught the
 				// eye to skip the spot where the guide that DIFFERS shows up.
-				actions: [{ kind: "reveal", setting, subject: lint.recordKey }],
+				actions: [{ kind: "reveal", setting, subject }],
 			};
 		}
 		case "entry": {
@@ -350,7 +355,10 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 			// reject that was drawn a row has them there, beside its own controls.
 			const name = diagnostic.label !== undefined ? `"${diagnostic.label}"` : `#${diagnostic.position}`;
 			return {
-				key: `entry:${diagnostic.label ?? diagnostic.position}`,
+				// The position, not the label: a rejected entry can reuse a label
+				// an accepted one already owns, and that is exactly the case whose
+				// two diagnostics must not collapse onto one key.
+				key: `entry:${diagnostic.position}`,
 				severity: cappedSeverity(diagnostic.severity, diagnostic.misconfigured ? "blocking" : "degraded"),
 				headline: diagnostic.misconfigured
 					? l10n.t("Server entry {0} is switched off until it is fixed.", name)

@@ -373,15 +373,53 @@ describe("Configuration diagnostics", () => {
 				diagnostic: { kind: "invalid-value", recordKey: "claude-*", key: "top_p" },
 				severity: "warning",
 			},
+			// Two lints inside ONE record: the record key alone would name both
+			// buttons identically, so the offending field has to ride along.
+			{
+				kind: "record",
+				setting: "models.parameters",
+				diagnostic: { kind: "invalid-value", recordKey: "gpt-4", key: "top_k" },
+				severity: "warning",
+			},
 		]);
-		const names = Array.from(root.querySelectorAll(".row-diagnostic-actions button")).map((button) =>
-			button.getAttribute("aria-label")
-		);
-		expect(new Set(names).size).toBe(2);
+		const buttons = Array.from(root.querySelectorAll(".row-diagnostic-actions button"));
+		const names = buttons.map((button) => button.getAttribute("aria-label"));
+		expect(names).toHaveLength(3);
+		expect(new Set(names).size).toBe(3);
 		// The visible label stays inside the accessible name (Label in Name).
 		for (const name of names) {
 			expect(name).toContain("Show in settings.json");
 		}
+	});
+
+	test("an accepted and a rejected entry sharing a label keep separate keys", () => {
+		// A reject can reuse a label an accepted entry already owns, and the two
+		// diagnostics must not collapse onto one React key - that would drop a
+		// problem from the page and move focus to the wrong block on a push.
+		const root = mountConfig([
+			{
+				kind: "entry",
+				label: "prod",
+				position: 1,
+				problems: ["dropped an unknown discovery key"],
+				misconfigured: false,
+				rowOwned: false,
+				severity: "warning",
+			},
+			{
+				kind: "entry",
+				label: "prod",
+				position: 2,
+				problems: ["duplicate label"],
+				misconfigured: true,
+				rowOwned: false,
+				severity: "warning",
+			},
+		]);
+		const details = Array.from(root.querySelectorAll(".config-diagnostics .row-diagnostic-detail")).map(
+			(el) => el.textContent
+		);
+		expect(details).toEqual(["duplicate label", "dropped an unknown discovery key"]);
 	});
 
 	test("an advisory keeps the applied-as-is wording and the quiet tier", () => {
