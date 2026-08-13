@@ -321,7 +321,18 @@ export type RevealableSettingId =
 	| "ui.theme"
 	| "ui.accent";
 
-export const REVEALABLE_SETTING_IDS: readonly RevealableSettingId[] = [
+/**
+ * A readonly list, typechecked as naming every member of T. A union member
+ * the list omits makes the argument unsatisfiable, so extending one of the
+ * setting-id unions below fails to compile here instead of shipping an intent
+ * the panel accepts and the list never offers.
+ */
+const everyId =
+	<T extends string>() =>
+	<L extends readonly T[]>(ids: Exclude<T, L[number]> extends never ? L : never): readonly T[] =>
+		ids;
+
+export const REVEALABLE_SETTING_IDS: readonly RevealableSettingId[] = everyId<RevealableSettingId>()([
 	...NUMBER_SETTING_IDS,
 	...BOOLEAN_SETTING_IDS,
 	"models.parameters",
@@ -331,7 +342,7 @@ export const REVEALABLE_SETTING_IDS: readonly RevealableSettingId[] = [
 	"usage.statusBar",
 	"ui.theme",
 	"ui.accent",
-];
+]);
 
 /** The settings the resetSetting intent may name: the scalar rows plus the non-scalar usage and appearance rows. */
 export type ResettableSettingId =
@@ -342,14 +353,22 @@ export type ResettableSettingId =
 	| "ui.theme"
 	| "ui.accent";
 
-export const RESETTABLE_SETTING_IDS: readonly ResettableSettingId[] = [
+export const RESETTABLE_SETTING_IDS: readonly ResettableSettingId[] = everyId<ResettableSettingId>()([
 	...NUMBER_SETTING_IDS,
 	...BOOLEAN_SETTING_IDS,
 	"usage.statusBar",
 	"usage.alertThresholds",
 	"ui.theme",
 	"ui.accent",
-];
+]);
+
+/**
+ * The settings the Settings tab renders a row for. Every such row offers both
+ * gestures - jump to its settings.json line, remove the scope that sets it -
+ * so the row type is exactly the overlap, and a setting that is only
+ * revealable (the record settings, `servers`) cannot reach a row by mistake.
+ */
+export type SettingRowId = ResettableSettingId & RevealableSettingId;
 
 /** The configuration scopes a setting value can live in, in ascending precedence. */
 export type SettingScope = "global" | "workspace" | "workspaceFolder";
