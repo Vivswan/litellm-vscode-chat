@@ -1,10 +1,10 @@
 /* The Tailwind entry: theme, base, and utilities layers - preflight stays out
-	 deliberately, because the legacy dashboard.css rules still style most of the
+	 deliberately, because the dashboard.css rules still style most of the
 	 dashboard and a base reset would repaint every pixel. dashboard.css sits in
-	 the legacy layer, below components and utilities, so a utility class always
-	 beats a legacy rule regardless of specificity. Utilities compile from the
+	 the components layer, below utilities, so a utility class always beats a
+	 stylesheet rule regardless of specificity. Utilities compile from the
 	 class scan of src/webview and src/dashboard. */
-@layer theme, base, legacy, components, utilities;
+@layer theme, base, components, utilities;
 
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities) source(none);
@@ -12,9 +12,10 @@
 @source "../..";
 @source "../../../dashboard";
 
-/* Preflight-lite: exactly the inheritance the legacy element rules used to
-	 give every form control. Without preflight a control falls back to the
-	 browser default font, so this stays once dashboard.css is gone. */
+/* Preflight-lite: exactly the inheritance dashboard.css's element rules give
+	 every form control. Without preflight a control falls back to the browser
+	 default font, so the base layer says it too and keeps saying it if those
+	 element rules ever go. */
 @layer base {
 	button,
 	input,
@@ -326,7 +327,7 @@ html:where(:not(:has(body.vscode-high-contrast, body.vscode-high-contrast-light)
 
 	/* Forced themes replace the HOST's variables, not our semantic tokens. Every
 		 consumer already reads those chains - the semantic mapping above, the
-		 legacy stylesheet's 180-odd direct reads, the shadcn utilities - so one
+		 dashboard stylesheet's 180-odd direct reads, the shadcn utilities - so one
 		 palette moves the whole page, and a rule added to either stylesheet
 		 tomorrow follows a forced theme for free. Overriding our semantic names
 		 instead was the alternative, and it renders as a light page with one

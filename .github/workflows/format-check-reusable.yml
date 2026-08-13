@@ -147,11 +147,18 @@ jobs:
           fi
           # The webview suite renders source .tsx, never the bundled output, so
           # a bundler regression could ship a blank dashboard with every test
-          # green. The real dashboard weighs ~405,936 bytes minified (React 19
-          # inlined; even a blank render carries react-dom), so the 40000
-          # floor guards a truncated or empty emit and the greps are the
-          # content gate: these strings only survive if the real dashboard
-          # components compiled into the bundle.
+          # green. The real dashboard weighed 487,104 bytes minified when these
+          # bounds were set (2026-08-13, production `bun run bundle`; React 19
+          # inlined - even a blank render carries react-dom). The floor guards
+          # a truncated or empty emit, the CEILING guards the webview graph
+          # against a heavy dependency landing in it (the bundle quadrupled
+          # once when zod rode in; a floor alone waved that through), and the
+          # greps are the content gate: these strings only survive if the real
+          # dashboard components compiled into the bundle. Print the size so a
+          # bounds rebase can read CI's own number from the log. When comparing
+          # locally, measure after a fresh production `bun run bundle`: the
+          # test entry points rebuild dist as an unminified development bundle
+          # (~1.6 MB), which these bounds are not written for.
           #
           # Markers are WIRE METHOD NAMES from src/dashboard/endpoints.ts, never
           # UI copy. A copy marker fails the moment the interface is redesigned,
@@ -162,8 +169,13 @@ jobs:
           # detecting. Keep them spread across surfaces (server save, secret
           # prefill, usage settings) so one dead tree cannot pass the gate.
           webview_size="$(wc -c < dist/webview/dashboard.js | tr -d ' ')"
-          if [ "$webview_size" -lt 40000 ]; then
+          echo "dist/webview/dashboard.js: ${webview_size} bytes"
+          if [ "$webview_size" -lt 350000 ]; then
             echo "::error::dist/webview/dashboard.js is only ${webview_size} bytes; the dashboard bundle looks broken"
+            exit 1
+          fi
+          if [ "$webview_size" -gt 700000 ]; then
+            echo "::error::dist/webview/dashboard.js is ${webview_size} bytes; a heavy dependency has landed in the webview graph"
             exit 1
           fi
           for marker in 'setUsageAlertThresholds' 'readInlineSecrets' 'saveServerSetting'; do
@@ -185,21 +197,27 @@ jobs:
           done
           # The stylesheet is the same kind of test-invisible build output as
           # the bundle (the webview suite never loads the bundled css either):
-          # the real emit weighs ~47,070 bytes minified (~56,389 unminified,
-          # Tailwind theme block included),
-          # so 30000 fails a truncated or empty emit with headroom, and the
-          # grep pins the theme-token contract - every rule reads the host's
-          # var(--vscode-*) tokens.
+          # the real emit weighed 80,769 bytes when these bounds were set
+          # (2026-08-13, dashboard rules and Tailwind theme block together).
+          # The floor fails a truncated emit or a silently missing bundle leg,
+          # the ceiling catches a runaway emit (a plugin or a scan gone wide),
+          # and the grep pins the theme-token contract - every rule reads the
+          # host's var(--vscode-*) tokens.
           stylesheet_size="$(wc -c < dist/webview/dashboard.css | tr -d ' ')"
-          if [ "$stylesheet_size" -lt 30000 ]; then
+          echo "dist/webview/dashboard.css: ${stylesheet_size} bytes"
+          if [ "$stylesheet_size" -lt 55000 ]; then
             echo "::error::dist/webview/dashboard.css is only ${stylesheet_size} bytes; the dashboard stylesheet looks broken"
+            exit 1
+          fi
+          if [ "$stylesheet_size" -gt 120000 ]; then
+            echo "::error::dist/webview/dashboard.css is ${stylesheet_size} bytes; the stylesheet emit has run away"
             exit 1
           fi
           if ! grep -q 'var(--vscode-' dist/webview/dashboard.css; then
             echo "::error::dist/webview/dashboard.css lacks the host theme tokens; the real stylesheet did not bundle"
             exit 1
           fi
-          # The dashboard rules alone clear the size floor, so the Tailwind
+          # The size bounds cannot prove WHICH leg emitted, so the Tailwind
           # theme block needs its own presence marker: the semantic --primary
           # token only exists if the Tailwind leg of the bundle ran.
           if ! grep -q -- '--primary' dist/webview/dashboard.css; then

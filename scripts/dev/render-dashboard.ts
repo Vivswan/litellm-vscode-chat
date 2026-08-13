@@ -1012,7 +1012,7 @@ async function main(): Promise<void> {
 		// And the policy must not have cost the page its stylesheets: the
 		// Tailwind theme block defines --radius as a literal (--primary and
 		// friends can compute to guaranteed-invalid when a host token is
-		// deliberately null, as in high contrast), the legacy stylesheet
+		// deliberately null, as in high contrast), the dashboard stylesheet
 		// zeroes the body margin - both gone means a css load was blocked.
 		const stylesApplied = (await evaluate(
 			cdp,

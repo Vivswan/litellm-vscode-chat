@@ -213,10 +213,40 @@ test("a row is a disclosure plus its two controls, and the Inspect action is not
 	expect(actions.querySelectorAll("button.params-action").length).toBe(1);
 	expect(row.querySelectorAll("button").length).toBe(3);
 
-	// The Inspect action is the inspector's only entry point: it must not ride
-	// the hover-revealed icon-action styling the copy button uses.
+	// The copy action's hover-reveal lives on a WRAPPER around the Button,
+	// never on the Button itself: Button's base carries disabled:opacity-60/
+	// aria-disabled:opacity-60, whose emitted selectors outrank a bare
+	// opacity-0 on specificity - on one element the disabled states win
+	// deterministically, and a disabled copy button would paint at 60% in a
+	// resting row instead of staying hidden. On the wrapper the two opacities
+	// multiply instead of competing. The row is the reveal's container.
+	const copy = actions.querySelector("button[aria-label='Copy model ID gpt-4o from Prod']") as HTMLElement;
+	const wrapper = copy.parentElement as HTMLElement;
+	expect(row.classList.contains("group/row")).toBe(true);
+	expect(wrapper.classList.contains("opacity-0")).toBe(true);
+	expect(wrapper.classList.contains("group-hover/row:opacity-100")).toBe(true);
+	expect(wrapper.classList.contains("group-focus-within/row:opacity-100")).toBe(true);
+	// Always painted where hover does not exist (touch, narrow panes).
+	expect(wrapper.classList.contains("@max-[560px]/pane:opacity-100")).toBe(true);
+	// The reveal's own fade: Button's transition cannot animate a property
+	// that changes on its parent, so the wrapper carries one, and it stands
+	// down for users who asked the OS for reduced motion.
+	expect(wrapper.classList.contains("transition-opacity")).toBe(true);
+	expect(wrapper.classList.contains("motion-reduce:transition-none")).toBe(true);
+	// TRIPWIRE for future button.tsx changes: Button retains its transition
+	// utility naming opacity. It guards Button's OWN state fades (disabled,
+	// hover colour), NOT the reveal above - the wrapper's transition-opacity
+	// carries that - but a rewrite that drops it would un-animate every
+	// same-element opacity state Button has or grows.
+	expect([...copy.classList].some((name) => name.startsWith("transition-") && name.includes("opacity"))).toBe(true);
+	expect(copy.classList.contains("opacity-0")).toBe(false);
+
+	// The Inspect action is the inspector's only entry point: it stays a
+	// direct child of the actions cell, outside the reveal wrapper, and
+	// carries no reveal state of its own - it must read at rest.
 	const params = row.querySelector("button.params-action") as HTMLElement;
-	expect(params.classList.contains("icon-action")).toBe(false);
+	expect(params.parentElement).toBe(actions);
+	expect(params.classList.contains("opacity-0")).toBe(false);
 });
 
 test("one row opens at a time, and its detail is wired to the disclosure that opened it", () => {

@@ -143,7 +143,6 @@ suite("extension/dashboard/intents", () => {
 			const recorded = makeEnv();
 			const intents: DashboardIntent[] = [
 				{ method: "executeCommand", payload: { command: "openGroupsFile" } },
-				{ method: "executeCommand", payload: { command: "syncModels" } },
 				{ method: "executeCommand", payload: { command: "testConnection" } },
 				{ method: "executeCommand", payload: { command: "openSettings" } },
 				{ method: "executeCommand", payload: { command: "reportIssue" } },
@@ -162,7 +161,6 @@ suite("extension/dashboard/intents", () => {
 
 			assert.deepStrictEqual(recorded.commands, [
 				["litellm.openGroupsFile"],
-				["litellm.syncModels"],
 				["litellm.testConnection"],
 				["workbench.action.openSettings", "@ext:vivswan.litellm-vscode-chat"],
 				["litellm.reportIssue"],

@@ -42,10 +42,11 @@ import type {
 	UsageStatusBarModeSetting,
 } from "./viewModels";
 
-/** Actions the webview can trigger; the extension maps each ID to the command it already registers. */
+/** Actions the webview can trigger; the extension maps each ID to the command it already registers.
+ * Model syncing is deliberately NOT here: it goes through the acked `syncModels` wire method, whose
+ * answer reports the pass settling rather than the command merely dispatching. */
 export const DASHBOARD_COMMAND_IDS = [
 	"openGroupsFile",
-	"syncModels",
 	"testConnection",
 	"openSettings",
 	"reportIssue",

@@ -512,10 +512,10 @@ suite("extension/dashboard/panel", () => {
 		const fake = harness.panels[0];
 		assert.ok(fake);
 
-		fake.receiveMessage(request("executeCommand", { command: "syncModels" }));
+		fake.receiveMessage(request("executeCommand", { command: "openOutput" }));
 		await settle();
 
-		assert.deepStrictEqual(harness.commands, [["litellm.syncModels"]]);
+		assert.deepStrictEqual(harness.commands, [["litellm.openOutput"]]);
 	});
 
 	test("a slow draft-connection probe runs off the mutation chain: a later Save lands before the probe resolves", async () => {
