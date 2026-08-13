@@ -7,11 +7,19 @@ import type { BooleanSettingId, NumberSettingId } from "./settingSpec";
 import {
 	BOOLEAN_SETTING_SPECS,
 	CONFIG_SECTION,
+	DEFAULT_UI_ACCENT,
+	DEFAULT_UI_THEME,
 	MIN_TIMEOUT_MS,
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
 	NUMBER_SETTING_SPECS,
 	SERVERS_SETTING_KEY,
+	UI_ACCENT_SETTING_KEY,
+	UI_ACCENTS,
+	UI_THEME_SETTING_KEY,
+	UI_THEMES,
+	type UiAccent,
+	type UiTheme,
 	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
 	USAGE_STATUS_BAR_SETTING_KEY,
 } from "./settingSpec";
@@ -162,6 +170,22 @@ export function normalizeUsageStatusBarMode(raw: unknown): UsageStatusBarMode {
 
 export function getUsageStatusBarMode(): UsageStatusBarMode {
 	return normalizeUsageStatusBarMode(getConfig().get<unknown>(USAGE_STATUS_BAR_SETTING_KEY));
+}
+
+/** The dashboard theme the reader picked; anything outside the vocabulary reads as the default. */
+export function getUiTheme(): UiTheme {
+	const raw = getConfig().get<unknown>(UI_THEME_SETTING_KEY);
+	return typeof raw === "string" && (UI_THEMES as readonly string[]).includes(raw)
+		? (raw as UiTheme)
+		: DEFAULT_UI_THEME;
+}
+
+/** The accent hue the reader picked; anything outside the vocabulary reads as the default. */
+export function getUiAccent(): UiAccent {
+	const raw = getConfig().get<unknown>(UI_ACCENT_SETTING_KEY);
+	return typeof raw === "string" && (UI_ACCENTS as readonly string[]).includes(raw)
+		? (raw as UiAccent)
+		: DEFAULT_UI_ACCENT;
 }
 
 /** Top-level shape shared by the record settings (headers, models.parameters): a plain object, keyed by string. */

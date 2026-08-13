@@ -1,3 +1,5 @@
+import type { UiAccent, UiTheme } from "../../shared/config/settingSpec";
+
 /**
  * The dashboard webview's HTML shell: a strict CSP, one nonce'd script tag
  * for the bundled React app, and a link to the bundled stylesheet. Pure
@@ -18,6 +20,15 @@ export interface DashboardHtmlOptions {
 	readonly language: string;
 	/** The host-resolved l10n bundle (vscode.l10n.bundle) injected for @vscode/l10n; undefined under English. */
 	readonly l10nBundle: Readonly<Record<string, string>> | undefined;
+	/**
+	 * The reader's theme choice. "auto" leaves every semantic token mapped onto
+	 * the host's --vscode-* variables, so the dashboard follows whatever theme
+	 * the editor is wearing - including high contrast, and including themes we
+	 * have never seen. "light" and "dark" pin our own palette instead.
+	 */
+	readonly theme: UiTheme;
+	/** The accent hue, deployed on primary actions, selection, focus and links. */
+	readonly accent: UiAccent;
 }
 
 /** Minimal HTML attribute/text escaping for the interpolated values. */
@@ -49,8 +60,13 @@ export function buildDashboardHtml(options: DashboardHtmlOptions): string {
 		options.l10nBundle !== undefined
 			? `<script nonce="${nonce}">window.__l10nBundle = ${inlineScriptJson(options.l10nBundle)};</script>\n\t`
 			: "";
+	// The theme and accent ride the root element so the stylesheet can key its
+	// palettes off them without the bundle having to run first: a reader who
+	// pinned light never sees a dark frame while React boots.
+	const theme = escapeHtml(options.theme);
+	const accent = escapeHtml(options.accent);
 	return `<!DOCTYPE html>
-<html lang="${language}">
+<html lang="${language}" data-theme="${theme}" data-accent="${accent}">
 <head>
 	<meta charset="UTF-8">
 	<meta http-equiv="Content-Security-Policy"

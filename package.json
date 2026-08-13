@@ -532,6 +532,32 @@
 						"type": "boolean",
 						"default": true,
 						"description": "%litellm.config.ui.maskSecretInputs.description%"
+					},
+					"litellm-vscode-chat.ui.theme": {
+						"type": "string",
+						"enum": [
+							"auto",
+							"light",
+							"dark"
+						],
+						"default": "auto",
+						"enumDescriptions": [
+							"%litellm.config.ui.theme.auto%",
+							"%litellm.config.ui.theme.light%",
+							"%litellm.config.ui.theme.dark%"
+						],
+						"description": "%litellm.config.ui.theme.description%"
+					},
+					"litellm-vscode-chat.ui.accent": {
+						"type": "string",
+						"enum": [
+							"blue",
+							"violet",
+							"teal",
+							"amber"
+						],
+						"default": "blue",
+						"description": "%litellm.config.ui.accent.description%"
 					}
 				}
 			}

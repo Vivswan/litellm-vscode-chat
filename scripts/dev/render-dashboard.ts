@@ -72,6 +72,7 @@ function usage(): never {
 	console.error(
 		"usage: bun scripts/dev/render-dashboard.ts --fixture <fixture.ts> --out <shot.png>" +
 			" [--width N] [--height N] [--theme dark|light|high-contrast|forced-colors]" +
+			" [--accent blue|violet|teal|amber]" +
 			" [--clip-viewport] [--html-out <page.html>] [--no-theme]"
 	);
 	process.exit(1);
@@ -579,7 +580,9 @@ const DETERMINISM_CSS =
 function buildPageHtml(
 	messages: readonly unknown[],
 	respond: Readonly<Record<string, unknown>>,
-	hostTheme: "dark" | "light" | "high-contrast" | "forced-colors"
+	hostTheme: "dark" | "light" | "high-contrast" | "forced-colors",
+	forcedTheme: "auto" | "light" | "dark",
+	accent: "blue" | "violet" | "teal" | "amber"
 ): string {
 	const nonce = "dev-nonce";
 	let html = buildDashboardHtml({
@@ -589,6 +592,8 @@ function buildPageHtml(
 		styleUri: `./${DASHBOARD_STYLESHEET_FILENAME}`,
 		language: "en",
 		l10nBundle: undefined,
+		theme: forcedTheme,
+		accent,
 	});
 	html = html.replace("</head>", `<link rel="stylesheet" href="./harness.css">\n</head>`);
 	// VS Code stamps the theme kind onto the body, and theme.css keys its
@@ -623,6 +628,7 @@ async function main(): Promise<void> {
 			"clip-viewport": { type: "boolean", default: false },
 			"no-theme": { type: "boolean", default: false },
 			theme: { type: "string" },
+			accent: { type: "string" },
 		},
 	});
 	if (values.fixture === undefined || values.out === undefined) {
@@ -646,7 +652,19 @@ async function main(): Promise<void> {
 		throw new Error(`--theme must be one of ${themeNames.join(", ")}; got ${values.theme}`);
 	}
 	const hostTheme: HostTheme = values.theme ?? fixture.hostTheme ?? "dark";
-	const html = buildPageHtml(fixture.messages, fixture.respond ?? {}, hostTheme);
+	const accentNames = ["blue", "violet", "teal", "amber"] as const;
+	type Accent = (typeof accentNames)[number];
+	const isAccent = (value: string): value is Accent => (accentNames as readonly string[]).includes(value);
+	if (values.accent !== undefined && !isAccent(values.accent)) {
+		throw new Error(`--accent must be one of ${accentNames.join(", ")}; got ${values.accent}`);
+	}
+	const accent: Accent = values.accent ?? "blue";
+	// The forced-theme attribute the shell stamps: --theme names the HOST theme
+	// the page is emulating, so the ordinary two map onto the reader's own
+	// setting and the contrast modes stay on "auto", where the tokens follow
+	// the host exactly as high contrast requires.
+	const forcedTheme = hostTheme === "light" || hostTheme === "dark" ? hostTheme : "auto";
+	const html = buildPageHtml(fixture.messages, fixture.respond ?? {}, hostTheme, forcedTheme, accent);
 	if (values["html-out"] !== undefined) {
 		await fs.writeFile(path.resolve(values["html-out"]), html);
 		console.log(`wrote page HTML to ${path.resolve(values["html-out"])}`);

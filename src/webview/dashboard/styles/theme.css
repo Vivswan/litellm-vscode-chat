@@ -71,6 +71,159 @@
 	--disabled-foreground: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
 }
 
+/* ---------------------------------------------------------------------------
+	 Theme and accent.
+
+	 `auto` (the default) keeps every semantic token mapped onto the host's
+	 --vscode-* variables, which is what makes the dashboard belong inside ANY
+	 VS Code theme - Solarized, Monokai, a hand-rolled one - and what keeps high
+	 contrast working without a palette of its own. Forcing `light` or `dark`
+	 replaces that mapping with our own palette, for readers who want the
+	 dashboard to hold still while the editor changes around it.
+
+	 The wash scale is the part that cannot be shared. A tint that reads as a
+	 quiet panel on #1f1f1f becomes a shout on #ffffff, so the percentages are
+	 per-theme, and under `auto` we read the host's own kind off the class VS
+	 Code stamps on <body> rather than guessing from a color.
+   --------------------------------------------------------------------------- */
+
+:root {
+	/* Severity, sourced from the host so `auto` inherits the editor's palette. */
+	--ok: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+	--warn: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow));
+	--err: var(--vscode-errorForeground);
+	/* Advisory tint: a whole banner or row is filled with it, so it stays faint. */
+	--sev-mix: 13%;
+	/* Interactive wash: hover and selection need MORE presence than an advisory
+		 tint, and in light they need more still - so they are separate tokens
+		 rather than one scale reused. */
+	--state-mix: 16%;
+	/* Dark surfaces separate by fill alone; light ones need a hairline to read
+		 as a distinct block, and a saturated rule to carry the severity. */
+	--diag-hairline: transparent;
+	--diag-rule-width: 2px;
+}
+
+/* Under `auto`, the host's own light themes take the light scale. Scoped to
+	 auto so a forced theme is never overruled by the editor's kind. */
+html[data-theme="auto"] body.vscode-light,
+html[data-theme="light"] {
+	--sev-mix: 4%;
+	--state-mix: 8%;
+	--diag-hairline: rgb(0 0 0 / 7%);
+}
+
+/* Forced themes: our own palette replaces the host mapping. Values are the
+	 Dark Modern / Light Modern families, so a forced theme still looks native
+	 rather than like a second product. */
+html[data-theme="dark"] {
+	color-scheme: dark;
+	--background: #1f1f1f;
+	--foreground: #cccccc;
+	--card: #202020;
+	--card-foreground: #cccccc;
+	--popover: #202020;
+	--popover-foreground: #cccccc;
+	--secondary: #313131;
+	--secondary-foreground: #cccccc;
+	--secondary-hover: #3c3c3c;
+	--muted: #2b2b2b;
+	--muted-foreground: #9d9d9d;
+	--border: #2e2e2e;
+	--input: #3c3c3c;
+	--input-background: #313131;
+	--input-foreground: #cccccc;
+	--input-placeholder: #989898;
+	--dropdown-background: #313131;
+	--dropdown-foreground: #cccccc;
+	--dropdown: #3c3c3c;
+	--ghost-hover: rgb(90 93 94 / 31%);
+	--disabled: #313131;
+	--disabled-foreground: #cccccc80;
+	--ok: #3fb950;
+	--warn: #cca700;
+	--err: #f85149;
+}
+
+html[data-theme="light"] {
+	color-scheme: light;
+	--background: #ffffff;
+	--foreground: #3b3b3b;
+	--card: #f8f8f8;
+	--card-foreground: #3b3b3b;
+	--popover: #ffffff;
+	--popover-foreground: #3b3b3b;
+	--secondary: #e5e5e5;
+	--secondary-foreground: #3b3b3b;
+	--secondary-hover: #cccccc;
+	--muted: #f8f8f8;
+	--muted-foreground: #616161;
+	--border: #e5e5e5;
+	--input: #cecece;
+	--input-background: #ffffff;
+	--input-foreground: #3b3b3b;
+	--input-placeholder: #767676;
+	--dropdown-background: #ffffff;
+	--dropdown-foreground: #3b3b3b;
+	--dropdown: #cecece;
+	--ghost-hover: rgb(184 184 184 / 31%);
+	--disabled: #e5e5e5;
+	--disabled-foreground: #61616180;
+	--ok: #1a7f37;
+	--warn: #8f6b00;
+	--err: #cd3131;
+}
+
+/* Accent: one hue per theme pair, tuned so it carries on both surfaces. It
+	 deploys on primary actions, selection, focus and links ONLY - never on
+	 status, never as decoration, or it stops meaning "you can act here". The
+	 default follows the host's own button color, so an untouched install looks
+	 exactly as it did. */
+:root,
+html[data-accent="blue"] {
+	--accent-hue: var(--vscode-button-background, #0078d4);
+	--accent-on: var(--vscode-button-foreground, #ffffff);
+}
+html[data-theme="dark"][data-accent="blue"] {
+	--accent-hue: #0078d4;
+}
+html[data-theme="light"][data-accent="blue"] {
+	--accent-hue: #005fb8;
+}
+html[data-accent="violet"] {
+	--accent-hue: #7c5cf0;
+	--accent-on: #ffffff;
+}
+html[data-theme="light"][data-accent="violet"] {
+	--accent-hue: #6b46c1;
+}
+html[data-accent="teal"] {
+	--accent-hue: #0d9488;
+	--accent-on: #ffffff;
+}
+html[data-theme="light"][data-accent="teal"] {
+	--accent-hue: #0f766e;
+}
+html[data-accent="amber"] {
+	--accent-hue: #b97e2a;
+	--accent-on: #ffffff;
+}
+html[data-theme="light"][data-accent="amber"] {
+	--accent-hue: #a15c00;
+}
+
+/* Derived once, from whichever pair won above. */
+:root {
+	--accent-soft: color-mix(in srgb, var(--accent-hue) var(--state-mix), transparent);
+	--accent-line: color-mix(in srgb, var(--accent-hue) 45%, transparent);
+	--ok-soft: color-mix(in srgb, var(--ok) var(--sev-mix), transparent);
+	--warn-soft: color-mix(in srgb, var(--warn) var(--sev-mix), transparent);
+	--err-soft: color-mix(in srgb, var(--err) var(--sev-mix), transparent);
+	/* The interactive cousin of --err-soft: a destructive control under the
+		 pointer, not a banner sitting on the page. */
+	--err-wash: color-mix(in srgb, var(--err) var(--state-mix), transparent);
+}
+
 /* High contrast: the host draws every boundary with the contrast border and
 	 marks the active one, so the semantic border/focus tokens follow suit.
 	 Fills disappear by design in HC (button.secondaryBackground and its
@@ -132,6 +285,21 @@ body.vscode-high-contrast-light {
 	--color-dropdown-foreground: var(--dropdown-foreground);
 	--color-warning: var(--warning);
 	--color-error: var(--error);
+	/* The theme/accent layer: severity and its per-theme tints, the accent and
+		 the washes derived from it. Advisory tints (-soft) fill whole blocks;
+		 the interactive washes carry hover and selection. */
+	--color-ok: var(--ok);
+	--color-warn: var(--warn);
+	--color-err: var(--err);
+	--color-ok-soft: var(--ok-soft);
+	--color-warn-soft: var(--warn-soft);
+	--color-err-soft: var(--err-soft);
+	--color-err-wash: var(--err-wash);
+	--color-accent-hue: var(--accent-hue);
+	--color-accent-on: var(--accent-on);
+	--color-accent-soft: var(--accent-soft);
+	--color-accent-line: var(--accent-line);
+	--color-diag-hairline: var(--diag-hairline);
 	--color-disabled: var(--disabled);
 	--color-disabled-foreground: var(--disabled-foreground);
 	--radius-*: initial;

@@ -40,6 +40,8 @@ import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import {
 	getDiscoveryTimeout,
+	getUiAccent,
+	getUiTheme,
 	getUsageAlertThresholds,
 	getUsagePollIntervalMs,
 	SERVERS_SETTING_KEY,
@@ -733,6 +735,8 @@ function createRealPanel(extensionUri: vscode.Uri): DashboardPanel {
 		styleUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(distDir, DASHBOARD_STYLESHEET_FILENAME)).toString(),
 		language: vscode.env.language,
 		l10nBundle: vscode.l10n.bundle,
+		theme: getUiTheme(),
+		accent: getUiAccent(),
 	});
 	return panel;
 }

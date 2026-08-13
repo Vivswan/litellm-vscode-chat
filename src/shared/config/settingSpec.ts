@@ -24,6 +24,35 @@ export const MODEL_PARAMETERS_SETTING_KEY = "models.parameters";
 export const SERVERS_SETTING_KEY = "servers";
 export const USAGE_ALERT_THRESHOLDS_SETTING_KEY = "usage.alertThresholds";
 export const USAGE_STATUS_BAR_SETTING_KEY = "usage.statusBar";
+export const UI_THEME_SETTING_KEY = "ui.theme";
+export const UI_ACCENT_SETTING_KEY = "ui.accent";
+
+/**
+ * The dashboard's theme choices. "auto" leaves every semantic token mapped
+ * onto the host's --vscode-* variables, so the dashboard follows whatever
+ * theme the editor wears - high contrast and themes we have never seen
+ * included. The other two pin our own palette instead.
+ *
+ * The vocabularies live here rather than beside their readers because the
+ * HTML shell stamps them on the root element and this module is the only
+ * settings module it can reach: the shell is pure string building so the
+ * render harness can import it outside the extension host.
+ */
+export const UI_THEMES = ["auto", "light", "dark"] as const;
+
+export type UiTheme = (typeof UI_THEMES)[number];
+
+export const DEFAULT_UI_THEME: UiTheme = "auto";
+
+/**
+ * The accent hue, deployed on primary actions, selection, focus and links -
+ * never on status, where it would compete with the severity colors.
+ */
+export const UI_ACCENTS = ["blue", "violet", "teal", "amber"] as const;
+
+export type UiAccent = (typeof UI_ACCENTS)[number];
+
+export const DEFAULT_UI_ACCENT: UiAccent = "blue";
 
 /** The floor both timeout settings clamp to; sub-second timeouts would abort requests before they leave. */
 export const MIN_TIMEOUT_MS = 1000;
@@ -67,7 +96,8 @@ export type BooleanSettingId = keyof typeof BOOLEAN_SETTING_SPECS;
 
 /**
  * The settings under the config section with no scalar spec: the object and
- * array settings plus the enum-string usage.statusBar. Their value grammars
+ * array settings plus the enum strings (usage.statusBar, ui.theme,
+ * ui.accent). Their value grammars
  * live with their readers; this list only names the keys.
  */
 export const STRUCTURED_SETTING_KEYS = [
@@ -76,6 +106,8 @@ export const STRUCTURED_SETTING_KEYS = [
 	MODEL_CAPABILITIES_SETTING_KEY,
 	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
 	USAGE_STATUS_BAR_SETTING_KEY,
+	UI_THEME_SETTING_KEY,
+	UI_ACCENT_SETTING_KEY,
 ] as const;
 
 /**
