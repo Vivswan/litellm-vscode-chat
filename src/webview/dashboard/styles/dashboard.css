@@ -1021,330 +1021,392 @@
 		margin: 4px 0;
 	}
 
-	/* The model inspector (the models table's Inspect slide-over): read-only
-		   prose and small provenance tables, muted where a value is not sent.
-		   The row's Inspect action keeps the quiet chrome but stays visible at
-		   rest: it is the inspector's only entry point, and a hover-revealed
-		   control at the table's right edge is undiscoverable. */
-	.params-inspector h3 {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		margin: 4px 24px 4px 0;
+	/* The model inspector (the models table's Inspect slide-over). The panel is
+		   the product's provenance surface, so its whole vocabulary is provenance:
+		   monospace for machine text (model IDs, record keys, wire values), the
+		   host's sans for prose, tabular figures on every number, and one neutral
+		   outline badge for "where this came from". Nothing here is uppercased -
+		   hierarchy is weight and space - and nothing collapses: a reader who
+		   opened the panel has already asked for it. */
+	.model-inspector h3 {
+		/* Clear of the panel's own close button, which floats at the top right. */
+		margin: 0 28px 2px 0;
+		font-size: 1.15em;
 	}
-	.params-inspector .params-identity {
-		overflow-wrap: anywhere;
-	}
-	.params-inspector table.params td,
-	.params-inspector table.params th {
-		padding-right: 10px;
-	}
-	.params-inspector .param-name,
-	.params-inspector .param-value {
+	.model-inspector .inspector-identity {
+		margin: 0 0 10px;
+		color: var(--muted-foreground);
 		font-family: var(--vscode-editor-font-family, monospace);
-		overflow-wrap: anywhere;
-	}
-	.params-inspector .param-not-sent td {
-		color: var(--vscode-descriptionForeground);
-	}
-	.params-inspector .param-skip {
-		color: var(--vscode-descriptionForeground);
-	}
-	/* The configure-jump: a quiet action right-aligned in its section's header
-		   band, and a quiet per-row "edit" beside record-sourced values (the
-		   "Parameters"/"Capabilities" text idiom, revealed as a link only on
-		   interaction like every quiet action). */
-	.params-inspector .row-edit {
-		margin-left: 6px;
-	}
-	/* Capability values never wrap: "128,000" split mid-number reads as two
-		   values. Open fields carry arbitrary JSON (a supported_openai_params
-		   list, say), so long values truncate with a CSS ellipsis instead of
-		   blowing the table wide - the .caps-text idiom: the clip sits on an
-		   inner span, and the focusable tip beside it carries the full text.
-		   The table's columns are FIXED shares of the slide-over (680px,
-		   shrinking to 94vw on narrow hosts): under auto layout a nowrap value
-		   cell's min-content width forced the whole table past the panel's right
-		   edge and pushed the Source column off-screen. The renderer's clip
-		   threshold (modelInspector.tsx VALUE_CLIP_CH) is paired with the value
-		   column's share. */
-	.caps-inspector table.params {
-		table-layout: fixed;
-	}
-	/* Names are the wide content (two-line labels like "Long-context cache
-		   write"); values are short ($/M prices, token counts, yes/no) and clip
-		   with the tip idiom when they are not. The shares ride a colgroup
-		   (modelInspector.tsx CapsColumns), not the thead, so the header-less
-		   pricing and supported-params tables keep the same tracks as the headed
-		   capabilities table and every provenance table in the panel aligns - the
-		   parameters table included (fixed too, below), so "temperature" never
-		   shatters mid-word under an auto layout squeezed by a long Source cell. */
-	.params-inspector col.caps-col-name {
-		width: 32%;
-	}
-	.params-inspector col.caps-col-value {
-		width: 24%;
-	}
-	.model-inspector table.params {
-		table-layout: fixed;
-	}
-	/* The parameters table shares the caps tables' last-resort Source-column
-		   wrap under the fixed layout: record keys can be long unbroken regexes,
-		   and without the escape they would overflow the panel instead of
-		   widening the column as the old auto layout did. */
-	.model-inspector table.params td:last-child {
-		overflow-wrap: anywhere;
-	}
-	/* The band-labeled tables' collapsed header row (pricing, supported
-		   params): each is its own table element, so assistive tech needs its own
-		   column headers - the ths shed all box so the row has zero visual
-		   footprint, and the clipped .visually-hidden spans inside carry the
-		   names. */
-	.caps-inspector thead.caps-head-hidden th {
-		padding: 0;
-		border: none;
-		line-height: 0;
-	}
-	.caps-inspector .param-value {
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-	/* The params count cell renders plain (its full list follows on the next
-		   row), so it wraps instead of clipping - a clipped count with no tip
-		   would be unreadable on narrow hosts. */
-	.caps-inspector td.param-plain {
-		white-space: normal;
-		overflow: visible;
-		text-overflow: clip;
-	}
-	.caps-inspector .param-value .tip-wrap {
-		max-width: 100%;
-	}
-	.caps-inspector .param-value .param-value-clip {
-		display: inline-block;
-		max-width: 100%;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		vertical-align: bottom;
-	}
-	.params-inspector .param-shadowed td {
-		color: var(--vscode-descriptionForeground);
 		font-size: 0.9em;
-		border-bottom: none;
-		padding-top: 0;
+		overflow-wrap: anywhere;
 	}
-	.params-inspector .param-shadowed .param-value {
-		text-decoration: line-through;
-	}
-	/* Shadow rows group under THEIR field: the rule moves from between a field
-		   and its shadows to after the last shadow, so the struck-through values
-		   never read as belonging to the next field down. */
-	.params-inspector table.params tr:not(.param-shadowed):has(+ tr.param-shadowed) td {
-		border-bottom: none;
-	}
-	.params-inspector .param-shadowed:not(:has(+ .param-shadowed)) td {
-		border-bottom: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
-	}
-	/* Core capability names are localized human labels wrapping at their own
-		   spaces; open rows render their raw wire keys in <code> (they ARE
-		   settings keys, so they keep the monospace register), breaking at the
-		   <wbr> the renderer places after underscores. Under the fixed column
-		   layout, overflow-wrap: anywhere is the last resort for a segment longer
-		   than the column (an underscore-less open key would otherwise overlap
-		   the value column); the <wbr> breaks still win whenever the segments
-		   fit. The Source column gets the same last resort - record keys can be
-		   long unbroken regexes. */
-	.caps-inspector .param-name {
-		font-family: var(--vscode-font-family);
-		overflow-wrap: normal;
-	}
-	.caps-inspector .param-name code {
+	/* Machine text is monospace and carries no box: a chip around every wire
+		   key turned the panel into a field of pills. */
+	.model-inspector code {
 		font-family: var(--vscode-editor-font-family, monospace);
-		overflow-wrap: anywhere;
-	}
-	.caps-inspector table.params td:last-child {
-		overflow-wrap: anywhere;
-	}
-	/* The in-table section bands (Supported parameters / Other fields): small
-		   muted headers spanning one provenance table, so the columns stay
-		   aligned across sections. The hover suppression keeps a band from
-		   lighting up like a data row. */
-	.caps-inspector tr.caps-section th {
-		padding-top: 14px;
-		font-size: 0.8em;
-		font-weight: 600;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
-		color: var(--vscode-descriptionForeground);
-	}
-	.caps-inspector tr.caps-section:hover {
-		background: transparent;
-	}
-	/* The full supported-parameters list: one quiet pill per name on a row
-		   spanning the table, wrapping freely - the panel is the detail surface,
-		   so the list renders whole instead of clipping behind a tip. The count
-		   row keeps no border against its list (the shadowed-row grouping idiom
-		   above): the two rows read as one entry. */
-	.caps-inspector tr.caps-params-row:hover {
-		background: transparent;
-	}
-	.caps-inspector table.params tr:not(.caps-params-row):has(+ tr.caps-params-row) td {
-		border-bottom: none;
-	}
-	.caps-inspector .caps-params-list {
-		list-style: none;
-		display: flex;
-		flex-wrap: wrap;
-		gap: 4px;
-		margin: 2px 0 6px;
+		background: none;
+		color: inherit;
 		padding: 0;
 	}
-	.caps-inspector .caps-params-list code {
-		font-family: var(--vscode-editor-font-family, monospace);
-		font-size: 0.9em;
-		padding: 1px 6px;
-		border-radius: 8px;
-		background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.14));
-	}
-	.params-inspector .params-replaced ul {
-		list-style: none;
-		margin: 4px 0 8px;
-		padding: 0 0 0 12px;
-		color: var(--vscode-descriptionForeground);
-		font-family: var(--vscode-editor-font-family, monospace);
-		font-size: 0.9em;
-	}
-	/* The header's one orientation line: Family and Capabilities as inline
-		   definition pairs, the capability words in the quiet chip register. */
-	.params-inspector .model-orientation {
+	/* The header's one orientation line: family and the capability chips as
+		   inline definition pairs. The chips are the dashboard's soft-fill Badge -
+		   prose words about the model - which is exactly what keeps them tellable
+		   apart from the outline provenance badges below, whose content is
+		   machine text. */
+	.model-inspector .inspector-orientation {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 4px 8px;
 		align-items: baseline;
-		margin: 8px 0 12px;
+		margin: 0 0 4px;
 	}
-	.params-inspector .model-orientation dt:not(:first-child) {
+	.model-inspector .inspector-orientation dt {
+		color: var(--muted-foreground);
+		font-size: 0.9em;
+	}
+	.model-inspector .inspector-orientation dt:not(:first-child) {
 		margin-left: 8px;
 	}
-	.params-inspector .model-orientation dd {
+	.model-inspector .inspector-orientation dd {
 		display: inline-flex;
 		flex-wrap: wrap;
 		gap: 4px;
 		align-items: baseline;
 		margin: 0;
 	}
-	.params-inspector .model-orientation .cap-chip {
-		font-size: 0.9em;
-		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
-		border-radius: 9px;
-		padding: 0 7px;
-		white-space: nowrap;
+	/* Sections are always open, so the rule between them is what makes the
+		   panel read as one document rather than one long page. */
+	.model-inspector .page-section {
+		margin: 20px 0 0;
+		padding-top: 14px;
+		border-top: 1px solid var(--border);
+		scroll-margin-top: 12px;
 	}
-	/* The always-sent fields render as code chips on one labeled line, and the
-		   caveats as labeled definition pairs: fixed explanations are structure
-		   here, never stacked prose paragraphs. Together they are the section's
-		   closing machinery, set off from the answers above by one rule (on the
-		   chips line - the caveats ride under it without another). */
-	.params-inspector .params-fixed {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 4px 6px;
-		align-items: baseline;
-		margin: 14px 0 4px;
-		padding-top: 10px;
-		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+	.model-inspector .section-head {
+		margin: 0 0 8px;
 	}
-	.params-inspector code {
-		font-family: var(--vscode-editor-font-family, monospace);
-		font-size: 0.9em;
-		background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.15));
-		padding: 1px 5px;
-		border-radius: 3px;
-	}
-	.params-caveat-label {
-		font-size: 0.8em;
-		font-weight: 600;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
-		color: var(--vscode-descriptionForeground);
-	}
-	/* The max_tokens derivation: always present, so it renders as a footer
-		   band clearly distinct from the parameter table above it - a stray
-		   unstyled paragraph there reads like a collapsed table row. It keeps the
-		   full foreground (the value always goes out; muting it would demote the
-		   one line every request obeys). */
-	.params-inspector .params-max-tokens {
-		margin: 12px 0 8px;
-		padding: 6px 10px;
-		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
-		border-radius: 3px;
-		background: var(--vscode-editorWidget-background, transparent);
-	}
-	.params-inspector .params-caveats {
-		margin-top: 4px;
-	}
-	.params-inspector .params-caveats div {
-		margin: 4px 0;
-	}
-	.params-inspector .params-caveats dt {
-		display: inline;
-	}
-	.params-inspector .params-caveats dd {
-		display: inline;
-		margin: 0 0 0 8px;
-	}
-	/* The merged inspector's top-level section header bands (Parameters /
-		   Capabilities / Pricing): the caps-section band idiom lifted out of the
-		   table, with a rule above so the panel reads as one document of labeled
-		   sections, and the section's one action (the configure-jump) right-aligned
-		   on the same line. The anchor id and the focusable heading stay on the h4;
-		   the band chrome sits on the wrapping head row. The first section follows
-		   the header directly and needs no separating rule. */
-	.model-inspector .inspector-section-head {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		flex-wrap: wrap;
-		margin: 18px 0 6px;
-		padding-top: 12px;
-		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
-	}
-	.model-inspector .inspector-section-head .section-action {
-		margin-left: auto;
-		font-size: 0.9em;
-	}
-	.model-inspector h4.inspector-section {
-		display: flex;
-		align-items: center;
-		gap: 8px;
+	.model-inspector .section-title {
 		margin: 0;
-		font-size: 0.8em;
+		font-size: 1.08em;
 		font-weight: 600;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
-		color: var(--vscode-descriptionForeground);
-		/* The scrollIntoView landings (the Diagnostics jump links) keep clear
-			   of the panel's top padding AND the head band's own rule + padding
-			   above this h4 (12 + 12 + 1). */
-		scroll-margin-top: 25px;
 	}
-	.model-inspector section:first-of-type .inspector-section-head {
-		border-top: none;
-		margin-top: 10px;
+	.model-inspector .section-meta {
+		font-size: 0.9em;
+	}
+	.model-inspector .section-actions .section-action {
+		font-size: 0.9em;
+	}
+	/* A block inside a section: its own quiet heading line, carrying the count
+		   and the provenance badge that would otherwise need a row of their own. */
+	.model-inspector .inspector-subhead {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 8px;
+		margin: 16px 0 2px;
+	}
+	.model-inspector .inspector-subhead h5 {
+		margin: 0;
+		font-size: 0.95em;
+		font-weight: 600;
+	}
+
+	/* THE RESOLUTION TABLE. Three fixed tracks so every table in the panel
+		   aligns down the page: the name, the value, and the provenance. The
+		   layout is fixed because the panel is 680px and shrinks to 94vw on narrow
+		   hosts - under an auto layout one long record key drags the source column
+		   off the panel's right edge. */
+	.model-inspector table.resolution {
+		width: 100%;
+		table-layout: fixed;
+		border-collapse: collapse;
+	}
+	.model-inspector col.res-col-name {
+		width: 26%;
+	}
+	.model-inspector col.res-col-value {
+		width: 22%;
+	}
+	/* Read-only reference: nothing here responds to a pointer, and the generic
+		   row highlight would light up a winner without its shadows. */
+	.model-inspector table.resolution tbody tr:hover {
+		background: transparent;
+	}
+	.model-inspector table.resolution th,
+	.model-inspector table.resolution td {
+		text-align: left;
+		padding: 3px 10px 3px 0;
+		vertical-align: baseline;
+	}
+	/* The column names, said once and quietly: a badge column that never says
+		   "source" reads as decoration. */
+	.model-inspector table.resolution thead th {
+		font-size: 0.85em;
+		font-weight: 600;
+		color: var(--muted-foreground);
+		border-bottom: 1px solid var(--border);
+		padding-bottom: 5px;
+	}
+	.model-inspector .res-name {
+		font-family: var(--vscode-editor-font-family, monospace);
+		overflow-wrap: anywhere;
+	}
+	/* A named capability is prose, not a wire key: it takes the sans face and
+		   wraps at its own spaces, with the key one focusable tip away. */
+	.model-inspector .res-name .res-label {
+		font-family: var(--vscode-font-family);
+		overflow-wrap: normal;
+	}
+	/* Values never wrap: "128,000" split mid-number reads as two values. Open
+		   fields carry arbitrary JSON, so a long value clips with an ellipsis and
+		   the focusable tip beside it carries the full text (the renderer's
+		   VALUE_CLIP_CH is paired with this column's share). */
+	.model-inspector .res-value {
+		font-family: var(--vscode-editor-font-family, monospace);
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.model-inspector .res-value .tip-wrap {
+		max-width: 100%;
+	}
+	.model-inspector .res-value .res-value-clip {
+		display: inline-block;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		vertical-align: bottom;
+	}
+	/* Badge, marks and the row's edit action sit on one line; the margins do
+		   the spacing because a table cell cannot be a flex container without
+		   leaving the column model. */
+	.model-inspector .res-source > * {
+		margin-right: 2px;
+	}
+	/* The row's one action floats to the cell's right edge so every "edit"
+		   lands in the same column: after a badge of unpredictable width they
+		   scattered across the panel, and an action you have to hunt for on each
+		   row is not an action, it is a distraction. */
+	.model-inspector .res-source .row-edit {
+		float: right;
+	}
+	/* A row whose value never reaches the wire reads as one dimmed line. */
+	.model-inspector .res-not-sent td {
+		color: var(--muted-foreground);
+	}
+	/* THE BEATEN VALUES. Dimmed, struck, and tied to the row above them: the
+		   hairline moves from between a field and its shadows to after the last
+		   shadow, so a struck value never reads as belonging to the next field. */
+	.model-inspector .res-shadow td {
+		color: var(--muted-foreground);
+		font-size: 0.9em;
 		padding-top: 0;
 	}
-	/* Each section's record-path figure behind its collapsed disclosure: the
-		   closing fine print, so the summary keeps the muted register and the
-		   figure indents nothing when opened. */
-	.model-inspector details.record-paths {
-		margin: 10px 0 8px;
+	/* A beaten value's badge recedes with it - outline included. The border is
+		   the loud part of a badge, so muting only the text left the loser reading
+		   at the winner's weight. */
+	.model-inspector .res-shadow .prov-key {
+		color: inherit;
 	}
-	.model-inspector details.record-paths summary {
+	.model-inspector .res-shadow .prov {
+		border-color: color-mix(in srgb, var(--muted-foreground) 22%, transparent);
+	}
+	.model-inspector table.resolution tbody tr:not(.res-shadow):has(+ tr.res-shadow) td {
+		border-bottom: none;
+	}
+	.model-inspector table.resolution tbody tr:not(:last-child):not(:has(+ tr.res-shadow)) td {
+		border-bottom: 1px solid var(--border);
+	}
+	.model-inspector del {
+		text-decoration-thickness: 1px;
+	}
+	/* The one in-table band left: the open-vocabulary extras. Sentence case at
+		   weight, like every other heading in the panel. */
+	.model-inspector tr.res-group th {
+		padding-top: 16px;
+		font-size: 0.9em;
+		font-weight: 600;
+		color: var(--muted-foreground);
+	}
+
+	/* THE PROVENANCE BADGE. Neutral by construction: provenance is not
+		   severity, and a source column painted in the palette the dashboard uses
+		   for trouble teaches the reader to see calm configuration as a problem.
+		   The scope word is muted and the record key takes the foreground, because
+		   the key is the thing you go and edit. */
+	.model-inspector .prov {
+		display: inline-flex;
+		align-items: baseline;
+		gap: 4px;
+		white-space: nowrap;
+		max-width: 100%;
+		/* Mixed from the badge's own muted text rather than taken from --border:
+			   the hairline token is tuned for panel edges and vanishes at badge size
+			   on a light surface, and a box you cannot see is not a box. Mixing the
+			   foreground is self-correcting in both polarities. */
+		border: 1px solid color-mix(in srgb, var(--muted-foreground) 40%, transparent);
+		border-radius: 3px;
+		padding: 0 4px;
+		font-family: var(--vscode-editor-font-family, monospace);
+		font-size: 0.85em;
+	}
+	.model-inspector .prov-scope {
+		color: var(--muted-foreground);
+	}
+	.model-inspector .prov-key {
+		color: var(--foreground);
+		/* A flex item refuses to shrink below its content by default, so without
+			 this the badge overflows its column instead of ellipsizing the key. */
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	/* High contrast draws every boundary with the contrast border, and a mixed
+		   hairline is exactly what that mode cannot render: the badge takes the
+		   host's own border color there. */
+	body.vscode-high-contrast .model-inspector .prov,
+	body.vscode-high-contrast-light .model-inspector .prov {
+		border-color: var(--vscode-contrastBorder, var(--muted-foreground));
+	}
+	/* THE DIRECTIVE MARKS. One accent word, the same the record editors write
+		   on the record side, in the accent's readable label tier rather than the
+		   control hue: a mark is a permanent label, not something to click. */
+	.model-inspector .mark {
+		white-space: nowrap;
+		font-size: 0.85em;
+		color: var(--accent-text);
+	}
+	.model-inspector .mark code {
+		font-size: 1em;
+	}
+	.model-inspector .mark-quiet {
+		white-space: nowrap;
+		font-size: 0.85em;
+		color: var(--muted-foreground);
+	}
+
+	/* WHAT THE MODEL ACCEPTS. The count and the source ride the heading line,
+		   so the block itself is nothing but names: quiet monospace text flowing
+		   into columns, alphabetical down each one. Twenty-seven pills were a
+		   wall; twenty-seven words are a list. */
+	.model-inspector .params-names {
+		list-style: none;
+		margin: 4px 0 2px;
+		padding: 0;
+		/* Tuned to the longest name the wire carries (max_completion_tokens):
+			 wider tracks opened rivers of dead space between the columns. */
+		column-width: 10.5rem;
+		column-gap: 20px;
+		font-family: var(--vscode-editor-font-family, monospace);
+		font-size: 0.9em;
+		color: var(--muted-foreground);
+	}
+	.model-inspector .params-names li {
+		break-inside: avoid;
+		line-height: 1.6;
+	}
+	.model-inspector .params-shadow {
+		margin: 2px 0;
+		font-size: 0.9em;
+		color: var(--muted-foreground);
+	}
+	/* ABSENCE, SAID OUT LOUD. A dim dash and the reason - never a zero, never a
+		   silently missing section. */
+	.model-inspector .absent {
+		display: flex;
+		gap: 8px;
+		margin: 6px 0;
+		color: var(--muted-foreground);
+	}
+	.model-inspector .absent-dash {
+		opacity: 0.7;
+	}
+	/* The max_tokens derivation: always present, and the one line every request
+		   obeys, so it sits on its own quiet fill instead of dissolving into the
+		   table above it. */
+	.model-inspector .max-tokens {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 4px 8px;
+		margin: 14px 0 4px;
+		padding: 5px 8px;
+		border-radius: 4px;
+		background: var(--chip);
+	}
+	.model-inspector .max-tokens-name {
+		font-weight: 600;
+	}
+	.model-inspector .max-tokens-value {
+		font-family: var(--vscode-editor-font-family, monospace);
+		font-variant-numeric: tabular-nums;
+	}
+	.model-inspector .max-tokens .hint {
+		margin: 0;
+	}
+	/* The fixed machinery closing the Parameters section: three labeled facts
+		   in one grid rather than three stacked blocks with headings of their own.
+		   Structure, never prose paragraphs. */
+	.model-inspector .inspector-notes {
+		margin: 12px 0 0;
+	}
+	.model-inspector .inspector-notes > div {
+		display: grid;
+		grid-template-columns: 10rem minmax(0, 1fr);
+		gap: 4px 12px;
+		margin: 5px 0;
+	}
+	.model-inspector .inspector-notes dt {
+		color: var(--muted-foreground);
+		font-size: 0.9em;
+		font-weight: 600;
+	}
+	.model-inspector .inspector-notes dd {
+		margin: 0;
+		font-size: 0.95em;
+	}
+	.model-inspector .inspector-notes dd.hint {
+		margin: 0;
+	}
+	.model-inspector .inspector-notes dd code {
+		margin-right: 8px;
+	}
+	.model-inspector .inspector-notes dd .hint {
+		display: block;
+		margin: 2px 0 0;
+	}
+	.model-inspector .output-limit {
+		margin: 10px 0 0;
+	}
+	/* The record verdicts: prose about the reader's configuration, so it reads
+		   in the sans face - the monospace list this replaces made four sentences
+		   look like log output. */
+	.model-inspector .record-problems {
+		margin: 10px 0 0;
+	}
+	.model-inspector .record-problems p {
+		margin: 0;
+	}
+	/* The one place in the panel where severity is real: a value the reader set
+		   is being ignored. Provenance stays colorless precisely so this can carry
+		   the warning tone; the advisory notes below stay muted, because an
+		   unrecognized key APPLIES and is only possibly a typo. */
+	.model-inspector .record-problems > p {
+		color: var(--warn-text);
+	}
+	.model-inspector .record-notes > p {
+		color: var(--muted-foreground);
+	}
+	.model-inspector .record-problems ul {
+		list-style: none;
+		margin: 2px 0 0;
+		padding: 0 0 0 12px;
+		color: var(--muted-foreground);
 		font-size: 0.9em;
 	}
-	.model-inspector details.record-paths .record-chain {
-		margin: 4px 0;
+	.model-inspector .record-problems li {
+		margin: 3px 0;
 	}
 
 	/* The server form's slide-over: a scrim over the page and a focus-trapped
@@ -1808,19 +1870,32 @@
 	.tree-barrier {
 		color: var(--warn-text);
 	}
-	/* The inspectors' record-path figure: one hint-toned line per map, keys as
-		   quiet inline jumps sharing the tree's barrier tone for the markers. Each
+	/* The inspectors' record-path figure: one quiet line per map, opened by the
+		   same provenance badge that names the layer everywhere else in the panel,
+		   keys as inline jumps, markers sharing the tree's barrier tone. Each
 		   arrow+key+marker link is an inline-block, so long chains wrap between
 		   links, never mid-marker or with an arrow stranded at a line end. */
 	.record-chain {
-		margin: 2px 0 6px;
+		margin: 14px 0 0;
+		color: var(--muted-foreground);
+		font-size: 0.9em;
+	}
+	.record-chain .record-chain-label {
+		font-weight: 600;
 	}
 	.record-chain .record-chain-link {
 		display: inline-block;
 		white-space: nowrap;
 	}
+	/* The arrow's own spaces sit at the start of an inline-block and are
+		   dropped, so the gap is a margin. */
+	.record-chain .record-chain-arrow {
+		margin: 0 4px;
+		opacity: 0.7;
+	}
 	.record-chain code {
 		font-family: var(--vscode-editor-font-family, monospace);
+		color: var(--foreground);
 	}
 	.tree-model {
 		margin: 2px 0;

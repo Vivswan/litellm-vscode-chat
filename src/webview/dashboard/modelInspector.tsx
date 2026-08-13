@@ -1,7 +1,6 @@
 /**
  * The model inspector: ONE read-only slide-over per model row, sectioned
- * Parameters / Capabilities / Pricing, replacing the former separate
- * parameters and capabilities panels. Request/response-fed on both feeds: it
+ * Parameters / Capabilities / Pricing. Request/response-fed on both feeds: it
  * posts readModelParameters AND readModelCapabilities on open (and on every
  * state push) and renders each section when its own answer lands - the
  * extension resolves both through the SAME shared machinery the request path
@@ -9,26 +8,41 @@
  * resolver logic and no catalog data live in the webview; the answers are
  * data.
  *
+ * This panel is where provenance lives, so provenance is what it draws. Every
+ * resolved field renders as a RESOLUTION CHAIN: the winning value at full
+ * strength, the values it beat directly beneath it as struck-out <del> text
+ * (a loser must not read - or be announced - as a peer), each line carrying
+ * one compact monospace outline badge naming where that value came from
+ * ("settings gpt-5*", "server", "built-in default"). The badge is the whole
+ * source column; the English sentences that used to sit in table cells are
+ * gone. Badges are neutral by construction - provenance is not severity, and
+ * the two must never share a color.
+ *
+ * The directives a record carries (force, fallback, inherited, the catalog
+ * marks) render as the same quiet accent words the record editors' chips use,
+ * with the sentence behind a focusable tip when there is one to tell.
+ *
+ * Sections are always open and never collapse - the reader opened a panel to
+ * read it, not to open more of it - so each section's header line carries its
+ * own summary (a count, a unit) and its one action, and the record-path figure
+ * closes its section in the open.
+ *
  * Placement decisions worth naming: answers first, machinery last - each
- * section leads with its table (what we send, what the model can do) and
- * closes with the fixed caveats and the record-path figure behind a collapsed
- * "Record paths" disclosure, because a reader opens Inspect for the values and
- * only sometimes for why they won. The supported-parameters list is still a
- * CAPABILITY on the wire (it resolves with the capability walk and its rows
- * jump into capability records), but it renders in the Parameters section -
- * what the model accepts belongs next to what we send. Pricing renders
- * exactly once, in its provenance-aware section; the old params-side pricing
- * fact lines are gone, and the header keeps only the orientation line (family
- * and capability chips) - the token limits live in the capabilities table
- * with provenance instead of repeating above it.
+ * section leads with its table and closes with the fixed caveats and the
+ * record-path figure. The supported-parameters list is still a CAPABILITY on
+ * the wire (it resolves with the capability walk and jumps into capability
+ * records), but it renders in the Parameters section - what the model accepts
+ * belongs next to what we send. Pricing renders exactly once, in its
+ * provenance-aware section, which states its absence rather than hiding when a
+ * server declares no prices.
  */
 
 import * as l10n from "@vscode/l10n";
 import type { ReactNode } from "react";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef } from "react";
 import type { ResponseFor } from "../../dashboard/endpoints";
 import { formatJsonValue } from "../../dashboard/presenters";
-import type { DashboardModel, RecordChainView } from "../../dashboard/viewModels";
+import type { DashboardModel } from "../../dashboard/viewModels";
 import {
 	COST_CAPABILITY_FIELDS,
 	capabilityDisplayLabel,
@@ -54,13 +68,27 @@ import type {
 } from "../../shared/config/parameterResolution";
 import { DEFAULT_MAX_TOKENS_CAP } from "../../shared/config/parameterResolution";
 import { DOCS_LINK_CAPS_INSPECTOR, DOCS_LINK_PARAMS_INSPECTOR } from "./docsLinks";
-import { DocsLink, Help, HoverTip } from "./help";
+import { HoverTip } from "./help";
 import { helpCapsInspector, helpParamsInspector } from "./helpText";
 import { useRpc } from "./hooks";
 import { capabilityList, formatTokens } from "./models";
-import { chainsWithStory, RecordChainFigure } from "./recordChain";
+import type { MarkView, ProvenanceView } from "./provenance";
+import {
+	approxWidthCh,
+	entryScope,
+	fallbackWord,
+	forceWord,
+	inheritedWord,
+	Mark,
+	Provenance,
+	serverScope,
+	settingsScope,
+} from "./provenance";
+import { RecordChainFigure } from "./recordChain";
 import { SlideOver } from "./slideOver";
+import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { Section } from "./ui/section";
 
 /** The readModelParameters answer; the inspector's own useRpc instance correlates it. */
 export type ModelParametersResponse = ResponseFor<"readModelParameters">;
@@ -71,18 +99,94 @@ export type ModelCapabilitiesResponse = ResponseFor<"readModelCapabilities">;
 /** The panel's addressable sections; the Diagnostics table's jump links land on one. */
 export type InspectorSection = "params" | "caps";
 
-/** The parameter Source column's naming: the layer that set the value plus its winning record key. */
-function sourceName(ref: ParameterSourceRef): string {
-	return ref.layer === "entry"
-		? l10n.t('Server entry "{0}" - {1}', ref.entryLabel, ref.key)
-		: l10n.t("Settings - {0}", ref.key);
+/** The section element ids the anchors land on; Section derives them from its own id. */
+const SECTION_ELEMENT_ID: Record<InspectorSection, string> = {
+	params: "inspector-params-section",
+	caps: "inspector-caps-section",
+};
+
+/** The parameter layers as a badge: the scope that set the value plus its winning record key. */
+function parameterProvenance(ref: ParameterSourceRef): ProvenanceView {
+	return { scope: ref.layer === "entry" ? entryScope() : settingsScope(), recordKey: ref.key };
+}
+
+/**
+ * The capability walk's levels as a badge plus, where a directive did the
+ * work, the mark that names it: a `_fallback` fill is a settings or entry
+ * record wearing a directive, not a level of its own, and the two catalog
+ * levels differ only in whether the user named the catalog model or we matched
+ * it - so the badge names the source and the mark names the directive.
+ */
+function capabilityProvenance(
+	level: CapabilityLevel,
+	key: string | undefined
+): { readonly source: ProvenanceView; readonly mark?: MarkView } {
+	switch (level) {
+		case "entry":
+			return { source: { scope: entryScope(), recordKey: key } };
+		case "global":
+			return { source: { scope: settingsScope(), recordKey: key } };
+		// The one mark that INVERTS the badge: an ordinary entry or settings
+		// record beats the server's report, a `_fallback` fill loses to it. The
+		// word cannot carry that, so the sentence rides its tip.
+		case "entry-fallback":
+			return { source: { scope: entryScope(), recordKey: key }, mark: fallbackMark() };
+		case "global-fallback":
+			return { source: { scope: settingsScope(), recordKey: key }, mark: fallbackMark() };
+		case "server":
+			return { source: { scope: serverScope() } };
+		// The two catalog levels differ only in whether a record NAMED the catalog
+		// model or the extension matched one itself, and the marks say exactly
+		// that - so neither carries a tip. A tip here would be one Tab stop per
+		// row repeating identical text, and every field of a model whose server
+		// reports nothing can land on these levels at once.
+		case "directive":
+			return {
+				source: { scope: "OpenRouter", recordKey: key },
+				mark: { word: "_openrouter_model", mono: true },
+			};
+		case "catalog":
+			return {
+				source: { scope: "OpenRouter", recordKey: key },
+				mark: {
+					word: l10n.t({ message: "matched", comment: ["Directive mark: the catalog entry was matched, not named"] }),
+				},
+			};
+		case "derived":
+			return {
+				source: {
+					// Bare t(), matching the Diagnostics tree's own "derived".
+					scope: l10n.t("derived"),
+					tip: l10n.t("Context length minus max output tokens: nothing declared this field directly."),
+				},
+			};
+		case "floor":
+			return {
+				source: {
+					scope: l10n.t({
+						message: "built-in default",
+						comment: ["Provenance badge: nothing declared the field, so the extension's own floor applies"],
+					}),
+				},
+			};
+	}
+}
+
+/** The `_fallback` mark and the precedence rule the word alone cannot state. */
+function fallbackMark(): MarkView {
+	return {
+		word: fallbackWord(),
+		detail: l10n.t(
+			"Fills the field only where the server reported nothing; the server's own value wins when it has one."
+		),
+	};
 }
 
 /** The not-sent annotations, resolved at call time (no module-level localized constants). */
 function skipReasonText(reason: "underscore" | "provider-owned"): string {
 	return reason === "underscore"
-		? l10n.t("not sent: keys starting with _ are directives - instructions to the extension, never sent")
-		: l10n.t("not sent: a provider-owned request field, never overridable");
+		? l10n.t("Keys starting with _ are directives - instructions to the extension, never sent.")
+		: l10n.t("A provider-owned request field: the extension owns it and never sends an override.");
 }
 
 /**
@@ -126,32 +230,47 @@ function parameterDiagnosticText(diagnostic: ParameterDiagnostic): string {
 	}
 }
 
-/** The request fields the extension itself owns; rendered as chips, never prose. */
+/** The request fields the extension itself owns; rendered as code, never prose. */
 const ALWAYS_SENT_FIELDS = ["model", "messages", "stream", "stream_options", "max_tokens"] as const;
 
-/** The max_tokens derivation, split into the value and one short reason per branch. */
-function maxTokensParts(maxTokens: ProjectedMaxTokens): { value: number; reason: string } {
+/**
+ * The max_tokens derivation: the value, its provenance where configuration set
+ * it, and one short reason where the extension derived it instead. A
+ * configured value carries a badge like every other resolved value; the two
+ * derived branches have no record to point at and say so in words.
+ */
+function maxTokensParts(maxTokens: ProjectedMaxTokens): {
+	value: number;
+	source?: ProvenanceView;
+	mark?: MarkView;
+	reason?: string;
+} {
+	// No source, no badge: the projection can report a configured value whose
+	// layer it could not name, and minting a settings badge for it would put the
+	// wrong layer on a value the server entry may well have set.
+	const source = maxTokens.configuredSource === undefined ? undefined : parameterProvenance(maxTokens.configuredSource);
+	const unattributed = l10n.t("set in configuration");
 	switch (maxTokens.source) {
 		case "forced":
 			return {
 				value: maxTokens.value,
-				reason:
-					maxTokens.configuredSource !== undefined
-						? l10n.t("forced by {0}; overrides runtime options and the picker", sourceName(maxTokens.configuredSource))
-						: l10n.t("forced in configuration; overrides runtime options and the picker"),
+				...(source === undefined ? { reason: unattributed } : { source }),
+				mark: {
+					word: forceWord(),
+					detail: l10n.t("Overrides runtime options and the picker configuration; never clamped."),
+				},
 			};
 		case "configured":
-			return {
-				value: maxTokens.value,
-				reason:
-					maxTokens.configuredSource !== undefined
-						? l10n.t("set by {0}", sourceName(maxTokens.configuredSource))
-						: l10n.t("set in configuration"),
-			};
+			return source === undefined
+				? { value: maxTokens.value, reason: unattributed }
+				: { value: maxTokens.value, source };
 		case "declared":
+			// "the model's", not "the server's": a user-set capability record and
+			// a _fallback fill both count as declared for this branch, so naming
+			// the server would be a claim the panel cannot back up.
 			return {
 				value: maxTokens.value,
-				reason: l10n.t("the server's declared output limit (nothing configured sets it)"),
+				reason: l10n.t("the model's declared output limit (nothing configured sets it)"),
 			};
 		case "capped-default":
 			return {
@@ -161,66 +280,8 @@ function maxTokensParts(maxTokens: ProjectedMaxTokens): { value: number; reason:
 	}
 }
 
-function ParamShadowedLine({ shadow }: { shadow: ShadowedParameterValue }) {
-	return (
-		<tr className="param-shadowed">
-			<td />
-			<td className="param-value">{formatJsonValue(shadow.value)}</td>
-			<td>{l10n.t("overridden: {0}", sourceName(shadow))}</td>
-		</tr>
-	);
-}
-
-function ParameterRow({
-	row,
-	onEditSource,
-}: {
-	row: EffectiveParameterRow;
-	/** The per-row jump to the record that owns the value; absent, no affordance renders. */
-	onEditSource?: ((source: ParameterSourceRef) => void) | undefined;
-}) {
-	return (
-		<>
-			<tr className={row.sent ? undefined : "param-not-sent"}>
-				<td className="param-name">{row.name}</td>
-				<td className="param-value">{formatJsonValue(row.value)}</td>
-				<td>
-					{sourceName(row.source)}
-					{onEditSource !== undefined ? (
-						<Button
-							variant="secondary"
-							size="compact"
-							className="row-edit px-0.5 py-0"
-							aria-label={
-								row.source.layer === "entry"
-									? l10n.t('Edit in server entry "{0}"', row.source.entryLabel)
-									: l10n.t('Edit record "{0}" in settings', row.source.key)
-							}
-							onClick={() => onEditSource(row.source)}
-						>
-							{l10n.t("edit")}
-						</Button>
-					) : null}
-					{row.inheritedFrom !== undefined ? (
-						<span className="param-skip"> ({l10n.t("inherited from {0}", row.inheritedFrom)})</span>
-					) : null}
-					{row.skipReason !== undefined ? (
-						<span className="param-skip"> ({skipReasonText(row.skipReason)})</span>
-					) : null}
-					{row.forced === true ? (
-						<span className="param-skip"> ({l10n.t("forced: overrides runtime options and the picker")})</span>
-					) : null}
-				</td>
-			</tr>
-			{row.shadowed.map((shadow) => (
-				<ParamShadowedLine key={`${shadow.layer}/${shadow.key}`} shadow={shadow} />
-			))}
-		</>
-	);
-}
-
 /**
- * The capability fields in display order after the token trio and support
+ * The capability fields in display order: after the token trio and support
  * flags come the consumed booleans (CONSUMED_BOOLEAN_ORDER); pricing and the
  * params list get sections of their own, and every other field the resolution
  * carries (the vocabulary is open) renders under "Other fields", sorted by
@@ -248,41 +309,28 @@ const TOKEN_FIELDS: ReadonlySet<string> = new Set(["context_length", "max_input_
 
 /**
  * Where the stylesheet's ellipsis can start clipping a value cell. The value
- * column is a FIXED 24% of the slide-over (html.ts), which is 680px wide but
- * shrinks to 94vw on narrow hosts: ~20ch of its monospace at full width,
- * ~9ch at a degenerate 360px window - the threshold sits at the practical
- * floor so any value the ellipsis could realistically touch carries the
- * focusable HoverTip (keyboards and assistive tech must reach the full text;
- * native title tooltips do not reliably render in the webview host, see
- * help.tsx). Short values (token counts, $/M prices, yes/no) stay plain text
- * outside the Tab order.
+ * column is a FIXED share of the slide-over (html.ts), which is 680px wide but
+ * shrinks to 94vw on narrow hosts: ~18ch of its monospace at full width, ~9ch
+ * at a degenerate 360px window - the threshold sits at the practical floor so
+ * any value the ellipsis could realistically touch carries the focusable
+ * HoverTip (keyboards and assistive tech must reach the full text; native
+ * title tooltips do not reliably render in the webview host, see help.tsx).
+ * Short values (token counts, $/M prices, yes/no) stay plain text outside the
+ * Tab order.
  */
 const VALUE_CLIP_CH = 8;
 
-/**
- * An approximate rendered width in ch: code points beyond Latin-1 (CJK,
- * emoji) count double, erring toward MORE tips - a wide-glyph value clips
- * well before its code-unit length reaches the ch box, and an ellipsized
- * value without the focusable tip would be unreachable without a pointer.
- */
-function approxWidthCh(text: string): number {
-	let width = 0;
-	for (const ch of text) {
-		width += (ch.codePointAt(0) ?? 0) > 0xff ? 2 : 1;
-	}
-	return width;
-}
-
 /** One value cell: plain text while it surely fits, the focusable full-text tip once the ellipsis could clip it. */
-function ValueCell({ text }: { text: string }) {
+function ValueCell({ text, struck = false }: { text: string; struck?: boolean }) {
+	const body = struck ? <del>{text}</del> : text;
 	return (
-		<td className="param-value">
+		<td className="res-value">
 			{approxWidthCh(text) > VALUE_CLIP_CH ? (
 				<HoverTip focusable tip={text}>
-					<span className="param-value-clip">{text}</span>
+					<span className="res-value-clip">{body}</span>
 				</HoverTip>
 			) : (
-				text
+				body
 			)}
 		</td>
 	);
@@ -303,7 +351,7 @@ function FieldName({ name }: { name: string }) {
 	if (label !== undefined) {
 		return (
 			<HoverTip focusable tip={name}>
-				<span>{label}</span>
+				<span className="res-label">{label}</span>
 			</HoverTip>
 		);
 	}
@@ -328,11 +376,10 @@ function FieldName({ name }: { name: string }) {
 /**
  * One capability value as the table shows it: booleans as yes/no, the token
  * trio as token counts, the cost fields as dollars per million tokens (their
- * section header names the unit), the params list as its count (the full
- * list renders whole on its own row, see SupportedParamsBlock), other numbers
- * plain, and everything else (strings, arrays, objects - open fields carry
- * any JSON) as compact JSON, truncated by the stylesheet rather than
- * chopped here.
+ * section header names the unit), the params list as its count (the full list
+ * renders whole in its own block, see SupportedParamsBlock), other numbers
+ * plain, and everything else (strings, arrays, objects - open fields carry any
+ * JSON) as compact JSON, truncated by the stylesheet rather than chopped here.
  */
 function formatValue(name: string, value: CapabilityJsonValue): string {
 	if (typeof value === "boolean") {
@@ -345,7 +392,7 @@ function formatValue(name: string, value: CapabilityJsonValue): string {
 		return TOKEN_FIELDS.has(name) ? formatTokens(value) : String(value);
 	}
 	if (name === "supported_openai_params" && Array.isArray(value) && value.every((item) => typeof item === "string")) {
-		// The count alone: the winning list renders in full on its own row
+		// The count alone: the winning list renders in full in its own block
 		// (SupportedParamsBlock), one element per name so boundaries survive
 		// without JSON quoting; shadowed lists stay count-only (their record
 		// holds the value).
@@ -354,53 +401,127 @@ function formatValue(name: string, value: CapabilityJsonValue): string {
 	return JSON.stringify(value) ?? "";
 }
 
-/** The capability Source column's naming: the precedence level that set the value plus its winning key. */
-function levelName(level: CapabilityLevel, key: string | undefined): string {
-	switch (level) {
-		case "entry":
-			return l10n.t("Server entry - {0}", key ?? "");
-		case "global":
-			return l10n.t("Settings - {0}", key ?? "");
-		case "directive":
-			return l10n.t("OpenRouter catalog (via _openrouter_model {0})", key ?? "");
-		case "server":
-			return l10n.t("Server-reported");
-		case "entry-fallback":
-			return l10n.t("Server entry fallback - {0}", key ?? "");
-		case "global-fallback":
-			return l10n.t("Settings fallback - {0}", key ?? "");
-		case "catalog":
-			return l10n.t("OpenRouter catalog match {0}", key ?? "");
-		case "derived":
-			return l10n.t("Derived (context length minus output tokens)");
-		case "floor":
-			return l10n.t("Built-in default");
-	}
-}
-
-function CapShadowedLine({ name, shadow }: { name: string; shadow: ShadowedCapabilityValue }) {
+/**
+ * A beaten value: struck out, dimmed, and announced as what it is. <del> alone
+ * carries the semantics unevenly across screen readers, so the row opens with
+ * a clipped word - a loser must never be announced as a peer of the value that
+ * beat it.
+ */
+function ShadowedRow({ value, source, mark }: { value: string; source: ProvenanceView; mark?: MarkView | undefined }) {
 	return (
-		<tr className="param-shadowed">
-			<td />
-			<ValueCell text={formatValue(name, shadow.value)} />
-			<td>{l10n.t("overridden: {0}", levelName(shadow.level, shadow.key))}</td>
+		<tr className="res-shadow">
+			<td className="res-name">
+				<span className="visually-hidden">{l10n.t("Overridden value")}</span>
+			</td>
+			<ValueCell text={value} struck />
+			<td className="res-source">
+				<Provenance source={source} /> {mark !== undefined ? <Mark mark={mark} /> : null}
+			</td>
 		</tr>
 	);
+}
+
+function ParamShadowedLine({ shadow }: { shadow: ShadowedParameterValue }) {
+	return <ShadowedRow value={formatJsonValue(shadow.value)} source={parameterProvenance(shadow)} />;
+}
+
+/**
+ * A capability row's edit label, which has to name the LAYER: the redesign put
+ * every visible layer word inside a badge, so for a screen reader this label is
+ * the only place the layer is stated. It mirrors the parameter side's wording.
+ */
+function capabilityEditLabel(level: CapabilityLevel, key: string, serverLabel: string): string {
+	return level === "entry" || level === "entry-fallback"
+		? l10n.t('Edit in server entry "{0}"', serverLabel)
+		: l10n.t('Edit record "{0}" in settings', key);
+}
+
+/** The per-row jump to the record that owns a value, in the source cell's trailing slot. */
+function RowEdit({ label, onClick }: { label: string; onClick: () => void }) {
+	return (
+		<Button variant="secondary" size="compact" className="row-edit px-0.5 py-0" aria-label={label} onClick={onClick}>
+			{l10n.t("edit")}
+		</Button>
+	);
+}
+
+function ParameterRow({
+	row,
+	onEditSource,
+}: {
+	row: EffectiveParameterRow;
+	/** The per-row jump to the record that owns the value; absent, no affordance renders. */
+	onEditSource?: ((source: ParameterSourceRef) => void) | undefined;
+}) {
+	return (
+		<>
+			<tr className={row.sent ? undefined : "res-not-sent"}>
+				<td className="res-name">{row.name}</td>
+				<ValueCell text={formatJsonValue(row.value)} />
+				<td className="res-source">
+					<Provenance source={parameterProvenance(row.source)} />{" "}
+					{row.inheritedFrom !== undefined ? (
+						<Mark mark={{ word: inheritedWord() }}>
+							{" "}
+							<code>{row.inheritedFrom}</code>
+						</Mark>
+					) : null}{" "}
+					{row.forced === true ? (
+						<Mark
+							mark={{
+								word: forceWord(),
+								detail: l10n.t("Overrides runtime options and the picker configuration."),
+							}}
+						/>
+					) : null}{" "}
+					{row.skipReason !== undefined ? (
+						<span className="mark-quiet">
+							<HoverTip focusable tip={skipReasonText(row.skipReason)}>
+								<span>{l10n.t("not sent")}</span>
+							</HoverTip>
+						</span>
+					) : null}
+					{onEditSource !== undefined ? (
+						<RowEdit
+							label={
+								row.source.layer === "entry"
+									? l10n.t('Edit in server entry "{0}"', row.source.entryLabel)
+									: l10n.t('Edit record "{0}" in settings', row.source.key)
+							}
+							onClick={() => onEditSource(row.source)}
+						/>
+					) : null}
+				</td>
+			</tr>
+			{row.shadowed.map((shadow) => (
+				<ParamShadowedLine key={`${shadow.layer}/${shadow.key}`} shadow={shadow} />
+			))}
+		</>
+	);
+}
+
+/** The capability Source column's naming: the precedence level that set the value plus its winning key. */
+function CapShadowedLine({ name, shadow }: { name: string; shadow: ShadowedCapabilityValue }) {
+	// A beaten value keeps its directive too: a fallback fill or a catalog match
+	// that lost still has to say WHY it was in the running at all.
+	const { source, mark } = capabilityProvenance(shadow.level, shadow.key);
+	return <ShadowedRow value={formatValue(name, shadow.value)} source={source} mark={mark} />;
 }
 
 function FieldRow({
 	name,
 	field,
+	serverLabel,
 	onEditField,
-	plainValue = false,
 }: {
 	name: string;
 	field: EffectiveCapabilityField;
+	/** Names the entry an entry-level row belongs to, for the jump's accessible label. */
+	serverLabel: string;
 	/** The per-row jump to the record that owns the value; renders only on record-sourced rows. */
 	onEditField?: ((level: CapabilityLevel, key: string) => void) | undefined;
-	/** Skip the clip-tip on the value cell; the full detail renders elsewhere (the params list row). */
-	plainValue?: boolean;
 }) {
+	const { source, mark } = capabilityProvenance(field.level, field.key);
 	const editable =
 		onEditField !== undefined &&
 		field.key !== undefined &&
@@ -411,29 +532,23 @@ function FieldRow({
 	return (
 		<>
 			<tr>
-				<td className="param-name">
+				<td className="res-name">
 					<FieldName name={name} />
 				</td>
-				{plainValue ? (
-					<td className="param-value param-plain">{formatValue(name, field.value)}</td>
-				) : (
-					<ValueCell text={formatValue(name, field.value)} />
-				)}
-				<td>
-					{levelName(field.level, field.key)}
-					{editable ? (
-						<Button
-							variant="secondary"
-							size="compact"
-							className="row-edit px-0.5 py-0"
-							aria-label={l10n.t('Edit record "{0}"', field.key ?? "")}
-							onClick={() => onEditField?.(field.level, field.key ?? "")}
-						>
-							{l10n.t("edit")}
-						</Button>
-					) : null}
+				<ValueCell text={formatValue(name, field.value)} />
+				<td className="res-source">
+					<Provenance source={source} /> {mark !== undefined ? <Mark mark={mark} /> : null}{" "}
 					{field.inheritedFrom !== undefined ? (
-						<span className="param-skip"> ({l10n.t("inherited from {0}", field.inheritedFrom)})</span>
+						<Mark mark={{ word: inheritedWord() }}>
+							{" "}
+							<code>{field.inheritedFrom}</code>
+						</Mark>
+					) : null}
+					{editable ? (
+						<RowEdit
+							label={capabilityEditLabel(field.level, field.key ?? "", serverLabel)}
+							onClick={() => onEditField?.(field.level, field.key ?? "")}
+						/>
 					) : null}
 				</td>
 			</tr>
@@ -505,97 +620,68 @@ function outputLimitNote(capabilities: EffectiveCapabilities): string {
 }
 
 /**
- * The capability tables' shared column tracks: fixed shares matching the old
- * thead-width rules, carried by a colgroup so the header-less tables (the
- * pricing and supported-params blocks) keep the same fixed layout as the
- * headed one and every provenance table in the panel aligns.
+ * One resolution table: name, value, provenance. The column tracks are fixed
+ * shares of the slide-over carried by a colgroup, so every table in the panel
+ * aligns down the page whatever its rows hold, and a long value clips into its
+ * tip instead of shoving the badge column off the panel's edge. The head names
+ * the columns once, quietly - a badge column that never says "source" reads as
+ * decoration.
  */
-function CapsColumns() {
-	return (
-		<colgroup>
-			<col className="caps-col-name" />
-			<col className="caps-col-value" />
-			<col />
-		</colgroup>
-	);
-}
-
-/**
- * A visually collapsed header row for the band-labeled tables (pricing,
- * supported params): the band above carries the visible label, but each
- * table is its own element, so assistive tech needs its own column headers -
- * the ths collapse to nothing on screen (the caps-head-hidden rule) while
- * their clipped spans keep the names readable.
- */
-function HiddenColumnHeads() {
-	return (
-		<thead className="caps-head-hidden">
-			<tr>
-				<th>
-					<span className="visually-hidden">{l10n.t("Capability")}</span>
-				</th>
-				<th>
-					<span className="visually-hidden">{l10n.t("Value")}</span>
-				</th>
-				<th>
-					<span className="visually-hidden">{l10n.t("Source")}</span>
-				</th>
-			</tr>
-		</thead>
-	);
-}
-
-/**
- * One provenance-table section: its own tbody, opened by a small muted header
- * band when labeled (scope="rowgroup": the header names the rows below it).
- * Renders nothing when the section has no fields, so headers never dangle
- * over empty sections.
- */
-function CapsSection({
-	label,
-	names,
-	fields,
-	onEditField,
+function ResolutionTable({
+	nameHead,
+	valueHead,
+	children,
 }: {
-	label?: string | undefined;
-	names: readonly string[];
-	fields: EffectiveCapabilities["fields"];
-	onEditField?: ((level: CapabilityLevel, key: string) => void) | undefined;
+	nameHead: string;
+	valueHead: string;
+	children: ReactNode;
 }) {
-	if (names.length === 0) {
-		return null;
-	}
 	return (
-		<tbody>
-			{label !== undefined ? (
-				<tr className="caps-section">
-					<th colSpan={3} scope="rowgroup">
-						{label}
-					</th>
+		<table className="resolution">
+			<colgroup>
+				<col className="res-col-name" />
+				<col className="res-col-value" />
+				<col />
+			</colgroup>
+			<thead>
+				<tr>
+					<th>{nameHead}</th>
+					<th>{valueHead}</th>
+					<th>{l10n.t("Source")}</th>
 				</tr>
-			) : null}
-			{names.map((name) => {
-				const field = capabilityField(fields, name);
-				return field === undefined ? null : <FieldRow key={name} name={name} field={field} onEditField={onEditField} />;
-			})}
-		</tbody>
+			</thead>
+			{children}
+		</table>
+	);
+}
+
+/** A section's sub-heading line: the sentence-case title, its summary, and its one action. */
+function Subhead({ title, meta, action }: { title: string; meta?: ReactNode; action?: ReactNode }) {
+	return (
+		<div className="inspector-subhead">
+			<h5>{title}</h5>
+			{meta !== undefined ? <span className="section-meta">{meta}</span> : null}
+			{action}
+		</div>
 	);
 }
 
 /**
  * The Supported parameters block, rendered in the PARAMETERS section next to
  * the effective sends (what the model accepts beside what we send) while the
- * field stays a capability on the wire: the standard provenance row carries
- * the count (plain, no clip-tip), and the winning list renders in full on a
- * row of its own spanning the table - the panel is the detail surface, so the
- * list never hides behind a tip. One element per name keeps boundaries
- * unambiguous without JSON quoting.
+ * field stays a capability on the wire. Its header line carries the count and
+ * the provenance badge, so the list itself is nothing but the names: quiet
+ * monospace text flowing into columns, alphabetical down each column, because
+ * thirty pills are a wall and thirty words are a list.
  */
 function SupportedParamsBlock({
 	fields,
+	serverLabel,
 	onEditField,
 }: {
 	fields: EffectiveCapabilities["fields"];
+	/** Names the entry an entry-level value belongs to, for the jump's accessible label. */
+	serverLabel: string;
 	onEditField?: ((level: CapabilityLevel, key: string) => void) | undefined;
 }) {
 	const field = capabilityField(fields, "supported_openai_params");
@@ -603,107 +689,65 @@ function SupportedParamsBlock({
 		return null;
 	}
 	// Sorted for scanning: the wire order of supported_openai_params carries
-	// no meaning (it is a set), and 30 pills are findable only alphabetically.
+	// no meaning (it is a set), and 30 names are findable only alphabetically.
 	// Code-unit sort - these are wire identifiers, not display text.
 	const items = (
 		Array.isArray(field.value) ? field.value.filter((item): item is string => typeof item === "string") : []
 	).sort();
+	const { source, mark } = capabilityProvenance(field.level, field.key);
+	const editable =
+		onEditField !== undefined &&
+		field.key !== undefined &&
+		(field.level === "entry" ||
+			field.level === "global" ||
+			field.level === "entry-fallback" ||
+			field.level === "global-fallback");
 	return (
-		<div className="caps-inspector">
-			<table className="params">
-				<CapsColumns />
-				<HiddenColumnHeads />
-				<tbody>
-					<tr className="caps-section">
-						<th colSpan={3} scope="rowgroup">
-							{l10n.t("Supported parameters")}
-						</th>
-					</tr>
-					<FieldRow name="supported_openai_params" field={field} onEditField={onEditField} plainValue />
-					{items.length > 0 ? (
-						<tr className="caps-params-row">
-							<td colSpan={3}>
-								<ul className="caps-params-list" aria-label={l10n.t("Supported parameters")}>
-									{items.map((item) => (
-										<li key={item}>
-											<code>{item}</code>
-										</li>
-									))}
-								</ul>
-							</td>
-						</tr>
-					) : null}
-				</tbody>
-			</table>
+		<div className="supported-params">
+			<Subhead
+				title={l10n.t("Supported parameters")}
+				meta={
+					<>
+						<span className="params-count">{parameterCountText(items.length)}</span> <Provenance source={source} />{" "}
+						{mark !== undefined ? <Mark mark={mark} /> : null}
+					</>
+				}
+				action={
+					editable ? (
+						<RowEdit
+							label={capabilityEditLabel(field.level, field.key ?? "", serverLabel)}
+							onClick={() => onEditField?.(field.level, field.key ?? "")}
+						/>
+					) : undefined
+				}
+			/>
+			{field.shadowed.map((shadow) => (
+				<p className="params-shadow" key={`${shadow.level}/${shadow.key ?? ""}`}>
+					<span className="visually-hidden">{l10n.t("Overridden value")}</span>{" "}
+					<del>{formatValue("supported_openai_params", shadow.value)}</del>{" "}
+					<Provenance source={capabilityProvenance(shadow.level, shadow.key).source} />
+				</p>
+			))}
+			{items.length > 0 ? (
+				<ul className="params-names" aria-label={l10n.t("Supported parameters")}>
+					{items.map((item) => (
+						<li key={item}>{item}</li>
+					))}
+				</ul>
+			) : null}
 		</div>
 	);
 }
 
-/**
- * One section's header band: the caps-section idiom lifted to the panel level,
- * with its glyphs beside the label and the section's one action (the
- * configure-jump) right-aligned on the same line. The anchor id and the
- * focusable heading stay on the h4 itself - the Diagnostics jump lands there.
- */
-function SectionTitle({
-	id,
-	label,
-	help,
-	helpName,
-	docs,
-	action,
-}: {
-	id: string;
-	label: string;
-	help?: string;
-	/** The help glyph's accessible name ("About effective parameters"), not the bare section word. */
-	helpName?: string | undefined;
-	docs?: ReactNode;
-	/** The band's right-aligned action; outside the h4 so the heading's name stays the section word. */
-	action?: ReactNode;
-}) {
+/** A field the panel has nothing to show for: a dim dash and the reason, never a fabricated value. */
+function AbsentNote({ reason }: { reason: string }) {
 	return (
-		<div className="inspector-section-head">
-			<h4 className="inspector-section" id={id} tabIndex={-1}>
-				{label}
-				{help !== undefined && helpName !== undefined ? <Help text={help} name={helpName} /> : null}
-				{docs}
-			</h4>
-			{action}
-		</div>
-	);
-}
-
-/**
- * A section's record-path figures behind one collapsed disclosure: they
- * explain WHY a value won (the machinery), so they close the section instead
- * of preceding its answers. No chain with a story, no disclosure - an empty
- * details would promise detail it cannot show. Controlled open state: every
- * state push orphans the answers and unmounts this element until the fresh
- * ones land, and an uncontrolled details would remount collapsed under a
- * reader mid-chain.
- */
-function RecordPathsDetails({
-	chains,
-	open,
-	onToggle,
-	onEditRecord,
-	onEditEntry,
-}: {
-	chains: readonly RecordChainView[] | undefined;
-	open: boolean;
-	onToggle: (open: boolean) => void;
-	onEditRecord?: ((key: string) => void) | undefined;
-	onEditEntry?: ((label: string) => void) | undefined;
-}) {
-	if (chainsWithStory(chains).length === 0) {
-		return null;
-	}
-	return (
-		<details className="record-paths" open={open} onToggle={(event) => onToggle(event.currentTarget.open)}>
-			<summary>{l10n.t("Record paths")}</summary>
-			<RecordChainFigure chains={chains} onEditRecord={onEditRecord} onEditEntry={onEditEntry} />
-		</details>
+		<p className="absent">
+			<span className="absent-dash" aria-hidden="true">
+				-
+			</span>
+			<span>{reason}</span>
+		</p>
 	);
 }
 
@@ -734,9 +778,6 @@ export function ModelInspector({
 	// parameters one.
 	const paramsRpc = useRpc("readModelParameters");
 	const capsRpc = useRpc("readModelCapabilities");
-	// The disclosures' controlled open state (see RecordPathsDetails), one per section.
-	const [paramsPathsOpen, setParamsPathsOpen] = useState(false);
-	const [capsPathsOpen, setCapsPathsOpen] = useState(false);
 
 	// One request pair per inspected model AND per state push: the push means
 	// the stores may have moved (a settings edit, a discovery pass), and an
@@ -757,14 +798,14 @@ export function ModelInspector({
 	const caps = answeredCaps?.capabilities;
 
 	// The Diagnostics jump's landing: move focus AND the reading position to
-	// the named section heading (focus once - the slide-over's own first-field
-	// focus must not win over the requested section, but later re-runs must
-	// not yank focus back either), then re-scroll as each answer lands -
-	// content filling in above the target moves it. The re-scrolls stop FOR
-	// GOOD once both feeds have answered once: readiness flips false again on
-	// every state push (fresh requestIds orphan the old answers), and a reader
-	// who scrolled away must not be yanked back to the anchor by a
-	// configuration change landing minutes later.
+	// the named section (focus once - the slide-over's own first-field focus
+	// must not win over the requested section, but later re-runs must not yank
+	// focus back either), then re-scroll as each answer lands - content filling
+	// in above the target moves it. The re-scrolls stop FOR GOOD once both
+	// feeds have answered once: readiness flips false again on every state push
+	// (fresh requestIds orphan the old answers), and a reader who scrolled away
+	// must not be yanked back to the anchor by a configuration change landing
+	// minutes later.
 	const paramsReady = answeredParams !== undefined;
 	const capsReady = answeredCaps !== undefined;
 	const anchorFocused = useRef(false);
@@ -773,7 +814,7 @@ export function ModelInspector({
 		if (anchor === undefined || anchorSettled.current) {
 			return;
 		}
-		const target = document.getElementById(anchor === "caps" ? "inspector-section-caps" : "inspector-section-params");
+		const target = document.getElementById(SECTION_ELEMENT_ID[anchor]);
 		if (target === null) {
 			return;
 		}
@@ -817,6 +858,10 @@ export function ModelInspector({
 	// the derivation line instead of as a row, so it defeats the empty state.
 	const paramsEmpty =
 		projection !== undefined && projection.rows.length === 0 && projection.maxTokens.source !== "configured";
+	const sentCount = projection === undefined ? 0 : projection.rows.filter((row) => row.sent).length;
+	// The derivation line's parts, resolved once: the value always goes out, so
+	// the line renders whenever a projection has landed.
+	const maxTokens = projection === undefined ? undefined : maxTokensParts(projection.maxTokens);
 
 	// The capability section partition over the resolved bag: the capabilities
 	// (core order plus the consumed booleans, then the open extras sorted by
@@ -833,6 +878,7 @@ export function ModelInspector({
 	const advisories = caps === undefined ? [] : caps.diagnostics.filter((d) => d.kind === "unrecognized-key");
 	const problems = caps === undefined ? [] : caps.diagnostics.filter((d) => d.kind !== "unrecognized-key");
 	const capabilityChips = capabilityList(model);
+	const fieldCount = capabilityNames.length + extraNames.length;
 
 	return (
 		<SlideOver
@@ -843,9 +889,9 @@ export function ModelInspector({
 			onKeepEditing={onClose}
 			onDiscard={onClose}
 		>
-			<div className="params-inspector model-inspector">
+			<div className="model-inspector">
 				<h3 id="model-inspector-title">{model.name}</h3>
-				<p className="hint params-identity">
+				<p className="inspector-identity">
 					{l10n.t({
 						message: "{0} on {1}",
 						args: [model.rawId, model.serverLabel],
@@ -854,52 +900,54 @@ export function ModelInspector({
 				</p>
 				{/* The token limits deliberately do NOT repeat here - the
 				    capabilities table below carries them with provenance. */}
-				<dl className="model-orientation">
-					<dt className="params-caveat-label">{l10n.t("Family")}</dt>
-					<dd>{model.family}</dd>
-					<dt className="params-caveat-label">{l10n.t("Capabilities")}</dt>
+				<dl className="inspector-orientation">
+					<dt>{l10n.t("Family")}</dt>
+					<dd>
+						<code>{model.family}</code>
+					</dd>
+					<dt>{l10n.t("Capabilities")}</dt>
 					<dd>
 						{capabilityChips.length > 0 ? (
 							capabilityChips.map((cap) => (
-								<span className="cap-chip" key={cap}>
+								<Badge className="cap-chip" key={cap}>
 									{cap}
-								</span>
+								</Badge>
 							))
 						) : (
 							<span className="hint">{l10n.t("none declared")}</span>
 						)}
 					</dd>
 				</dl>
-				<section aria-labelledby="inspector-section-params">
-					<SectionTitle
-						id="inspector-section-params"
-						label={l10n.t("Parameters")}
-						help={helpParamsInspector()}
-						helpName={l10n.t("About effective parameters")}
-						docs={<DocsLink href={DOCS_LINK_PARAMS_INSPECTOR} label={l10n.t("Open the effective-parameters guide")} />}
-						action={
-							onEditRecord !== undefined ? (
-								<Button
-									variant="secondary"
-									size="compact"
-									className="section-action"
-									disabled={answeredParams === undefined}
-									onClick={() => {
-										// Reuse the most specific matching global record when one
-										// exists; otherwise a fresh draft keyed by the exact model ID.
-										const key = answeredParams?.globalRecordKey;
-										if (key !== undefined) {
-											onEditRecord("parameters", key, false);
-										} else {
-											onEditRecord("parameters", model.rawId, true);
-										}
-									}}
-								>
-									{l10n.t("Configure parameters for this model")}
-								</Button>
-							) : undefined
-						}
-					/>
+				<Section
+					id="inspector-params"
+					level={4}
+					title={l10n.t("Parameters")}
+					help={helpParamsInspector()}
+					docs={{ href: DOCS_LINK_PARAMS_INSPECTOR, label: l10n.t("Open the effective-parameters guide") }}
+					{...(sentCount > 0 ? { meta: sentCount === 1 ? l10n.t("1 sent") : l10n.t("{0} sent", sentCount) } : {})}
+					actions={
+						onEditRecord !== undefined ? (
+							<Button
+								variant="secondary"
+								size="compact"
+								className="section-action"
+								disabled={answeredParams === undefined}
+								onClick={() => {
+									// Reuse the most specific matching global record when one
+									// exists; otherwise a fresh draft keyed by the exact model ID.
+									const key = answeredParams?.globalRecordKey;
+									if (key !== undefined) {
+										onEditRecord("parameters", key, false);
+									} else {
+										onEditRecord("parameters", model.rawId, true);
+									}
+								}}
+							>
+								{l10n.t("Configure parameters for this model")}
+							</Button>
+						) : undefined
+					}
+				>
 					{answeredParams === undefined ? (
 						<p className="hint" role="status">
 							{l10n.t("Resolving parameters...")}
@@ -909,26 +957,18 @@ export function ModelInspector({
 							{l10n.t("The model list changed; close and reopen the inspector.")}
 						</p>
 					) : projection.rows.length > 0 ? (
-						<table className="params">
-							<CapsColumns />
-							<thead>
-								<tr>
-									<th>{l10n.t("Parameter")}</th>
-									<th>{l10n.t("Value")}</th>
-									<th>{l10n.t("Source")}</th>
-								</tr>
-							</thead>
+						<ResolutionTable nameHead={l10n.t("Parameter")} valueHead={l10n.t("Value")}>
 							<tbody>
 								{projection.rows.map((row) => (
 									<ParameterRow key={row.name} row={row} onEditSource={editParamSource} />
 								))}
 							</tbody>
-						</table>
+						</ResolutionTable>
 					) : paramsEmpty ? (
-						<p className="hint params-empty">{l10n.t("No configured parameters match this model.")}</p>
+						<AbsentNote reason={l10n.t("No configured parameters match this model.")} />
 					) : null}
 					{projection !== undefined && projection.diagnostics.length > 0 ? (
-						<div className="params-replaced">
+						<div className="record-problems">
 							<p className="hint">{l10n.t("Configuration problems in the matched records:")}</p>
 							<ul>
 								{projection.diagnostics.map((diagnostic) => (
@@ -942,78 +982,85 @@ export function ModelInspector({
 					{/* What the model accepts, right beside what we send. Still a
 					    capability on the wire, so it rides the capability feed and
 					    renders as soon as THAT answer lands. */}
-					{caps !== undefined ? <SupportedParamsBlock fields={caps.fields} onEditField={editCapField} /> : null}
-					{projection !== undefined ? (
-						<p className="params-max-tokens">
-							<code>max_tokens {maxTokensParts(projection.maxTokens).value}</code>
-							<span className="hint"> {maxTokensParts(projection.maxTokens).reason}</span>
+					{caps !== undefined ? (
+						<SupportedParamsBlock fields={caps.fields} serverLabel={model.serverLabel} onEditField={editCapField} />
+					) : null}
+					{maxTokens !== undefined ? (
+						<p className="max-tokens">
+							<code className="max-tokens-name">max_tokens</code>{" "}
+							<span className="max-tokens-value">{maxTokens.value}</span>{" "}
+							{maxTokens.source !== undefined ? <Provenance source={maxTokens.source} /> : null}{" "}
+							{maxTokens.mark !== undefined ? <Mark mark={maxTokens.mark} /> : null}
+							{maxTokens.reason !== undefined ? <span className="hint">{maxTokens.reason}</span> : null}
 						</p>
 					) : null}
-					<div className="params-fixed">
-						<span className="params-caveat-label">{l10n.t("Always sent")}</span>
-						{ALWAYS_SENT_FIELDS.map((field) => (
-							<code key={field}>{field}</code>
-						))}
-						<span className="hint">{l10n.t("+ tools, tool_choice with tools; not overridable")}</span>
-					</div>
-					{projection !== undefined ? (
-						<dl className="params-caveats">
+					{/* Fixed truth about the extension, not about this answer: the grid
+					    renders while the projection is still in flight, because
+					    "Resolving parameters..." followed by nothing at all reads as a
+					    section that failed to load. */}
+					<dl className="inspector-notes">
+						<div>
+							<dt>{l10n.t("Always sent")}</dt>
+							<dd>
+								{ALWAYS_SENT_FIELDS.map((field) => (
+									<code key={field}>{field}</code>
+								))}
+								<span className="hint">{l10n.t("+ tools, tool_choice with tools; not overridable")}</span>
+							</dd>
+						</div>
+						<div>
+							<dt>{l10n.t("Runtime options")}</dt>
+							<dd className="hint">
+								{projection?.rows.some((row) => row.forced === true) === true
+									? l10n.t("Set per request by the chat client; they override every row above except forced rows.")
+									: l10n.t("Set per request by the chat client; they override every row above.")}
+							</dd>
+						</div>
+						{model.reasoning ? (
 							<div>
-								<dt className="params-caveat-label">{l10n.t("Runtime options")}</dt>
+								<dt>{l10n.t("Picker: reasoning effort")}</dt>
 								<dd className="hint">
-									{projection.rows.some((row) => row.forced === true)
-										? l10n.t("Set per request by the chat client; they override every row above except forced rows.")
-										: l10n.t("Set per request by the chat client; they override every row above.")}
+									{l10n.t("Chosen in Configure Model and stored by VS Code; overrides reasoning_effort here.")}
 								</dd>
 							</div>
-							{model.reasoning ? (
-								<div>
-									<dt className="params-caveat-label">{l10n.t("Picker: reasoning effort")}</dt>
-									<dd className="hint">
-										{l10n.t("Chosen in Configure Model and stored by VS Code; overrides reasoning_effort here.")}
-									</dd>
-								</div>
-							) : null}
-						</dl>
-					) : null}
-					<RecordPathsDetails
+						) : null}
+					</dl>
+					<RecordChainFigure
 						chains={answeredParams?.chains}
-						open={paramsPathsOpen}
-						onToggle={setParamsPathsOpen}
 						onEditRecord={onEditRecord === undefined ? undefined : (key) => onEditRecord("parameters", key, false)}
 						onEditEntry={onEditEntry}
 					/>
-				</section>
-				<section aria-labelledby="inspector-section-caps">
-					<SectionTitle
-						id="inspector-section-caps"
-						label={l10n.t("Capabilities")}
-						help={helpCapsInspector()}
-						helpName={l10n.t("About effective capabilities")}
-						docs={<DocsLink href={DOCS_LINK_CAPS_INSPECTOR} label={l10n.t("Open the effective-capabilities guide")} />}
-						action={
-							onEditRecord !== undefined ? (
-								<Button
-									variant="secondary"
-									size="compact"
-									className="section-action"
-									disabled={answeredCaps === undefined}
-									onClick={() => {
-										// Reuse the most specific matching global record when one
-										// exists; otherwise a fresh draft keyed by the exact model ID.
-										const key = answeredCaps?.globalRecordKey;
-										if (key !== undefined) {
-											onEditRecord("capabilities", key, false);
-										} else {
-											onEditRecord("capabilities", model.rawId, true);
-										}
-									}}
-								>
-									{l10n.t("Configure capabilities for this model")}
-								</Button>
-							) : undefined
-						}
-					/>
+				</Section>
+				<Section
+					id="inspector-caps"
+					level={4}
+					title={l10n.t("Capabilities")}
+					help={helpCapsInspector()}
+					docs={{ href: DOCS_LINK_CAPS_INSPECTOR, label: l10n.t("Open the effective-capabilities guide") }}
+					{...(fieldCount > 0 ? { meta: fieldCount === 1 ? l10n.t("1 field") : l10n.t("{0} fields", fieldCount) } : {})}
+					actions={
+						onEditRecord !== undefined ? (
+							<Button
+								variant="secondary"
+								size="compact"
+								className="section-action"
+								disabled={answeredCaps === undefined}
+								onClick={() => {
+									// Reuse the most specific matching global record when one
+									// exists; otherwise a fresh draft keyed by the exact model ID.
+									const key = answeredCaps?.globalRecordKey;
+									if (key !== undefined) {
+										onEditRecord("capabilities", key, false);
+									} else {
+										onEditRecord("capabilities", model.rawId, true);
+									}
+								}}
+							>
+								{l10n.t("Configure capabilities for this model")}
+							</Button>
+						) : undefined
+					}
+				>
 					{answeredCaps === undefined ? (
 						<p className="hint" role="status">
 							{l10n.t("Resolving capabilities...")}
@@ -1040,33 +1087,47 @@ export function ModelInspector({
 								</p>
 							) : null}
 							{capabilityNames.length > 0 || extraNames.length > 0 ? (
-								<div className="caps-inspector">
-									<table className="params">
-										<CapsColumns />
-										<thead>
-											<tr>
-												<th>{l10n.t("Capability")}</th>
-												<th>{l10n.t("Value")}</th>
-												<th>{l10n.t("Source")}</th>
+								<ResolutionTable nameHead={l10n.t("Capability")} valueHead={l10n.t("Value")}>
+									<tbody>
+										{capabilityNames.map((name) => {
+											const field = capabilityField(caps.fields, name);
+											return field === undefined ? null : (
+												<FieldRow
+													key={name}
+													name={name}
+													field={field}
+													serverLabel={model.serverLabel}
+													onEditField={editCapField}
+												/>
+											);
+										})}
+									</tbody>
+									{extraNames.length > 0 ? (
+										<tbody>
+											<tr className="res-group">
+												<th colSpan={3} scope="rowgroup">
+													{l10n.t("Other fields")}
+												</th>
 											</tr>
-										</thead>
-										{/* Unlabeled: the section's own header already names these
-										    rows; only the open extras get an inner band. */}
-										<CapsSection names={capabilityNames} fields={caps.fields} onEditField={editCapField} />
-										<CapsSection
-											label={l10n.t("Other fields")}
-											names={extraNames}
-											fields={caps.fields}
-											onEditField={editCapField}
-										/>
-									</table>
-								</div>
+											{extraNames.map((name) => {
+												const field = capabilityField(caps.fields, name);
+												return field === undefined ? null : (
+													<FieldRow
+														key={name}
+														name={name}
+														field={field}
+														serverLabel={model.serverLabel}
+														onEditField={editCapField}
+													/>
+												);
+											})}
+										</tbody>
+									) : null}
+								</ResolutionTable>
 							) : null}
-							<p className="params-max-tokens">
-								<span className="hint">{outputLimitNote(caps)}</span>
-							</p>
+							<p className="output-limit hint">{outputLimitNote(caps)}</p>
 							{problems.length > 0 ? (
-								<div className="params-replaced">
+								<div className="record-problems">
 									<p className="hint">{l10n.t("Configuration problems in the matched records:")}</p>
 									<ul>
 										{problems.map((diagnostic) => (
@@ -1078,7 +1139,7 @@ export function ModelInspector({
 								</div>
 							) : null}
 							{advisories.length > 0 ? (
-								<div className="params-replaced params-advisories">
+								<div className="record-problems record-notes">
 									<p className="hint">{l10n.t("Notes on the matched records:")}</p>
 									<ul>
 										{advisories.map((diagnostic) => (
@@ -1091,32 +1152,56 @@ export function ModelInspector({
 							) : null}
 						</>
 					)}
-					<RecordPathsDetails
+					<RecordChainFigure
 						chains={answeredCaps?.chains}
-						open={capsPathsOpen}
-						onToggle={setCapsPathsOpen}
 						onEditRecord={onEditRecord === undefined ? undefined : (key) => onEditRecord("capabilities", key, false)}
 						onEditEntry={onEditEntry}
 					/>
-				</section>
-				{caps !== undefined && pricingNames.length > 0 ? (
-					<section aria-labelledby="inspector-section-pricing">
-						<SectionTitle
-							id="inspector-section-pricing"
-							label={l10n.t({
-								message: "Pricing ($/M tokens)",
-								comment: ["Section header; $/M is US dollars per million tokens"],
-							})}
-						/>
-						<div className="caps-inspector">
-							<table className="params">
-								<CapsColumns />
-								<HiddenColumnHeads />
-								<CapsSection names={pricingNames} fields={caps.fields} onEditField={editCapField} />
-							</table>
-						</div>
-					</section>
-				) : null}
+				</Section>
+				{/* The section stands whether or not the answer has landed: a pricing
+				    section that simply is not there while capabilities resolve is the
+				    same vanishing act the absence state exists to prevent. */}
+				<Section
+					id="inspector-pricing"
+					level={4}
+					title={l10n.t("Pricing")}
+					meta={l10n.t({
+						message: "$ per million tokens",
+						comment: ["Section summary: the unit every price in the section is stated in"],
+					})}
+				>
+					{answeredCaps === undefined ? (
+						<p className="hint" role="status">
+							{l10n.t("Resolving capabilities...")}
+						</p>
+					) : caps === undefined ? (
+						<p className="hint" role="status">
+							{l10n.t("The model list changed; close and reopen the inspector.")}
+						</p>
+					) : pricingNames.length > 0 ? (
+						<ResolutionTable nameHead={l10n.t("Tokens")} valueHead={l10n.t("Price")}>
+							<tbody>
+								{pricingNames.map((name) => {
+									const field = capabilityField(caps.fields, name);
+									return field === undefined ? null : (
+										<FieldRow
+											key={name}
+											name={name}
+											field={field}
+											serverLabel={model.serverLabel}
+											onEditField={editCapField}
+										/>
+									);
+								})}
+							</tbody>
+						</ResolutionTable>
+					) : (
+						// Absence is a state, not a missing section: a server that
+						// reports no prices (or the 0/0 pair that means the same
+						// thing) says so, and no number is invented to fill the gap.
+						<AbsentNote reason={l10n.t("No prices declared for this model, so spend cannot be estimated.")} />
+					)}
+				</Section>
 			</div>
 		</SlideOver>
 	);

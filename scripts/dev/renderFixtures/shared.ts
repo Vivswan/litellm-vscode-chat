@@ -245,7 +245,7 @@ export const OPENAI_PARAMS_FULL: readonly string[] = [
 ];
 
 /**
- * The worst-case effective-capabilities bag both caps-inspector fixtures
+ * The worst-case effective-capabilities bag both model-inspector fixtures
  * render: the core seven, the three consumed booleans, the FULL eight-field
  * Anthropic-style cost family with sub-micro per-token values (5e-7 and
  * friends - the scientific-notation regression case), the 27-element params

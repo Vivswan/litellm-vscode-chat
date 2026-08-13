@@ -25,6 +25,12 @@
 	"\"{0}\" takes a list of non-empty strings, e.g. [\"temperature\"]; this value is ignored and lower levels fill in": "\"{0}\" takes a list of non-empty strings, e.g. [\"temperature\"]; this value is ignored and lower levels fill in",
 	"\"{0}\" takes a positive whole number; this value is ignored and lower levels fill in": "\"{0}\" takes a positive whole number; this value is ignored and lower levels fill in",
 	"\"{0}\" takes true or false; this value is ignored and lower levels fill in": "\"{0}\" takes true or false; this value is ignored and lower levels fill in",
+	"$ per million tokens/Section summary: the unit every price in the section is stated in": {
+		"message": "$ per million tokens",
+		"comment": [
+			"Section summary: the unit every price in the section is stated in"
+		]
+	},
 	"$(add) Add Server": "$(add) Add Server",
 	"$(book) Documentation": "$(book) Documentation",
 	"$(bug) Report Bug": "$(bug) Report Bug",
@@ -53,6 +59,7 @@
 	"1 alert threshold raises no alert and was dropped: a threshold must be inside (0, 1].": "1 alert threshold raises no alert and was dropped: a threshold must be inside (0, 1].",
 	"1 catalog model": "1 catalog model",
 	"1 day ago": "1 day ago",
+	"1 field": "1 field",
 	"1 hidden group": "1 hidden group",
 	"1 hour ago": "1 hour ago",
 	"1 label already exists; you will choose overwrite, skip, or rename.": "1 label already exists; you will choose overwrite, skip, or rename.",
@@ -67,6 +74,7 @@
 	"1 parameter": "1 parameter",
 	"1 problem": "1 problem",
 	"1 request": "1 request",
+	"1 sent": "1 sent",
 	"1 server": "1 server",
 	"1 server added": "1 server added",
 	"1 server entry cannot be imported and will be skipped.": "1 server entry cannot be imported and will be skipped.",
@@ -106,6 +114,7 @@
 	"A language models group named \"{0}\" already exists, so server \"{1}\" was not migrated. Review the group in the language models UI, then remove the legacy server via \"{2}\".": "A language models group named \"{0}\" already exists, so server \"{1}\" was not migrated. Review the group in the language models UI, then remove the legacy server via \"{2}\".",
 	"A manual budget in USD, e.g. 50, driving usage alerts. Outranks the key's own max_budget; the Usage tab shows both.": "A manual budget in USD, e.g. 50, driving usage alerts. Outranks the key's own max_budget; the Usage tab shows both.",
 	"A new label for the imported server.": "A new label for the imported server.",
+	"A provider-owned request field: the extension owns it and never sends an override.": "A provider-owned request field: the extension owns it and never sends an override.",
 	"A server named \"{0}\" already exists.": "A server named \"{0}\" already exists.",
 	"A server with this label already exists": "A server with this label already exists",
 	"A single threshold goes straight to the error alert.": "A single threshold goes straight to the error alert.",
@@ -117,8 +126,6 @@
 	"API key": "API key",
 	"API key (bearer)": "API key (bearer)",
 	"API version": "API version",
-	"About effective capabilities": "About effective capabilities",
-	"About effective parameters": "About effective parameters",
 	"Accent color": "Accent color",
 	"Add a field to \"{0}\"": "Add a field to \"{0}\"",
 	"Add a server under Servers and its models appear here once it syncs.": "Add a server under Servers and its models appear here once it syncs.",
@@ -163,7 +170,6 @@
 	"Budget": "Budget",
 	"Budget (USD)": "Budget (USD)",
 	"Budget spent:": "Budget spent:",
-	"Built-in default": "Built-in default",
 	"Cache hit rate": "Cache hit rate",
 	"Cache read/Pricing row label: cost of cached input tokens": {
 		"message": "Cache read",
@@ -221,6 +227,7 @@
 	"Connection failed\n{0}\nClick for details": "Connection failed\n{0}\nClick for details",
 	"Connection state and per-server details": "Connection state and per-server details",
 	"Context length": "Context length",
+	"Context length minus max output tokens: nothing declared this field directly.": "Context length minus max output tokens: nothing declared this field directly.",
 	"Copied only if the group has an API key.": "Copied only if the group has an API key.",
 	"Copied only if the group is configured for OAuth.": "Copied only if the group is configured for OAuth.",
 	"Copied only if the group sends a virtual key header.": "Copied only if the group sends a virtual key header.",
@@ -248,7 +255,6 @@
 	"Declared models": "Declared models",
 	"Degraded": "Degraded",
 	"Delete the group's object from the models file (chatLanguageModels.json), reload the window, then run Sync models - or save the entry under a new label instead.": "Delete the group's object from the models file (chatLanguageModels.json), reload the window, then run Sync models - or save the entry under a new label instead.",
-	"Derived (context length minus output tokens)": "Derived (context length minus output tokens)",
 	"Details: {0}": "Details: {0}",
 	"Diagnostics": "Diagnostics",
 	"Discard": "Discard",
@@ -281,7 +287,6 @@
 	"Edit field \"{0}\"": "Edit field \"{0}\"",
 	"Edit in server entry \"{0}\"": "Edit in server entry \"{0}\"",
 	"Edit parameter matcher": "Edit parameter matcher",
-	"Edit record \"{0}\"": "Edit record \"{0}\"",
 	"Edit record \"{0}\" in settings": "Edit record \"{0}\" in settings",
 	"Edit {0}": "Edit {0}",
 	"Editing {0} settings. Rows here apply together via the Apply button; the plain settings above save each change on its own.": "Editing {0} settings. Rows here apply together via the Apply button; the plain settings above save each change on its own.",
@@ -330,6 +335,7 @@
 	"Fetching models...": "Fetching models...",
 	"Fields": "Fields",
 	"Fill missing model capabilities from the OpenRouter catalog, refreshed weekly.": "Fill missing model capabilities from the OpenRouter catalog, refreshed weekly.",
+	"Fills the field only where the server reported nothing; the server's own value wins when it has one.": "Fills the field only where the server reported nothing; the server's own value wins when it has one.",
 	"Filter by model ID or matcher key, e.g. gpt-5*": "Filter by model ID or matcher key, e.g. gpt-5*",
 	"Filter by name, family, or server": "Filter by name, family, or server",
 	"Filter models": "Filter models",
@@ -400,6 +406,7 @@
 	"Just the segment, no slashes or spaces - e.g. v2": "Just the segment, no slashes or spaces - e.g. v2",
 	"Just the segment, no slashes.": "Just the segment, no slashes.",
 	"Keep editing": "Keep editing",
+	"Keys starting with _ are directives - instructions to the extension, never sent.": "Keys starting with _ are directives - instructions to the extension, never sent.",
 	"Label": "Label",
 	"Label cannot contain '/' (used as separator in model parameters)": "Label cannot contain '/' (used as separator in model parameters)",
 	"Label is required": "Label is required",
@@ -589,6 +596,7 @@
 	"No models match the filter.": "No models match the filter.",
 	"No models yet.": "No models yet.",
 	"No per-server parameters. This entry sends whatever the global setting resolves.": "No per-server parameters. This entry sends whatever the global setting resolves.",
+	"No prices declared for this model, so spend cannot be estimated.": "No prices declared for this model, so spend cannot be estimated.",
 	"No server sends these headers: the removed global headers setting still holds values and no server entry received them. Add them to a server entry, then delete the old setting.": "No server sends these headers: the removed global headers setting still holds values and no server entry received them. Add them to a server entry, then delete the old setting.",
 	"No servers configured; add one under Servers.": "No servers configured; add one under Servers.",
 	"No servers declared in the {0} setting yet. Add one there or in the dashboard first.": "No servers declared in the {0} setting yet. Add one there or in the dashboard first.",
@@ -663,8 +671,6 @@
 	"Open {0} in settings.json": "Open {0} in settings.json",
 	"OpenRouter ID, e.g. openai/gpt-4o": "OpenRouter ID, e.g. openai/gpt-4o",
 	"OpenRouter catalog": "OpenRouter catalog",
-	"OpenRouter catalog (via _openrouter_model {0})": "OpenRouter catalog (via _openrouter_model {0})",
-	"OpenRouter catalog match {0}": "OpenRouter catalog match {0}",
 	"OpenRouter model \"{0}\" was not found in the catalog; its fields fill from the remaining levels.": "OpenRouter model \"{0}\" was not found in the catalog; its fields fill from the remaining levels.",
 	"Other": "Other",
 	"Other fields": "Other fields",
@@ -676,6 +682,9 @@
 			"Pricing row label: cost of output tokens"
 		]
 	},
+	"Overridden value": "Overridden value",
+	"Overrides runtime options and the picker configuration.": "Overrides runtime options and the picker configuration.",
+	"Overrides runtime options and the picker configuration; never clamped.": "Overrides runtime options and the picker configuration; never clamped.",
 	"Overrides the key's own budget for alerts and the percentage.": "Overrides the key's own budget for alerts and the percentage.",
 	"Overwrite": "Overwrite",
 	"Overwriting 1 server changes its connection settings; its dashboard row will show the steps to reconnect.": "Overwriting 1 server changes its connection settings; its dashboard row will show the steps to reconnect.",
@@ -695,12 +704,8 @@
 	"Pick how requests authenticate: a bearer API key, a key in a custom header, or OAuth client credentials. Exactly one form per entry; lower-ranked companions ride inside it.": "Pick how requests authenticate: a bearer API key, a key in a custom header, or OAuth client credentials. Exactly one form per entry; lower-ranked companions ride inside it.",
 	"Picker: reasoning effort": "Picker: reasoning effort",
 	"Point the extension at your LiteLLM server and its models appear in Copilot Chat's model picker.": "Point the extension at your LiteLLM server and its models appear in Copilot Chat's model picker.",
-	"Pricing ($/M tokens)/Section header; $/M is US dollars per million tokens": {
-		"message": "Pricing ($/M tokens)",
-		"comment": [
-			"Section header; $/M is US dollars per million tokens"
-		]
-	},
+	"Price": "Price",
+	"Pricing": "Pricing",
 	"Pricing ($/M)": "Pricing ($/M)",
 	"Prompt caching": "Prompt caching",
 	"Provider groups without a server entry no longer receive the removed global headers ({0}); adopt the external group to restore them.": "Provider groups without a server entry no longer receive the removed global headers ({0}); adopt the external group to restore them.",
@@ -710,9 +715,7 @@
 	"Reconfigure": "Reconfigure",
 	"Record \"{0}\" inherits nothing from \"{1}\": no record carries that name, so the name is skipped and the rest still applies.": "Record \"{0}\" inherits nothing from \"{1}\": no record carries that name, so the name is skipped and the rest still applies.",
 	"Record keys to inherit from, comma-separated": "Record keys to inherit from, comma-separated",
-	"Record path (server entry \"{0}\"):": "Record path (server entry \"{0}\"):",
-	"Record path (settings):": "Record path (settings):",
-	"Record paths": "Record paths",
+	"Record path": "Record path",
 	"Refetch the model list from every server": "Refetch the model list from every server",
 	"Refresh": "Refresh",
 	"Refresh now": "Refresh now",
@@ -781,15 +784,11 @@
 	"Server \"{0}\" removed.": "Server \"{0}\" removed.",
 	"Server \"{0}\" updated!": "Server \"{0}\" updated!",
 	"Server adopted": "Server adopted",
-	"Server entry \"{0}\" - {1}": "Server entry \"{0}\" - {1}",
-	"Server entry - {0}": "Server entry - {0}",
-	"Server entry fallback - {0}": "Server entry fallback - {0}",
 	"Server entry {0} is switched off until it is fixed.": "Server entry {0} is switched off until it is fixed.",
 	"Server entry {0} runs without part of its configuration.": "Server entry {0} runs without part of its configuration.",
 	"Server migration is in progress, try again in a moment.": "Server migration is in progress, try again in a moment.",
 	"Server removed": "Server removed",
 	"Server saved": "Server saved",
-	"Server-reported": "Server-reported",
 	"Server: {0}": "Server: {0}",
 	"Servers": "Servers",
 	"Servers, API keys, and which models are enabled": "Servers, API keys, and which models are enabled",
@@ -798,9 +797,7 @@
 	"Set per request by the chat client; they override every row above except forced rows.": "Set per request by the chat client; they override every row above except forced rows.",
 	"Set per request by the chat client; they override every row above.": "Set per request by the chat client; they override every row above.",
 	"Settings": "Settings",
-	"Settings - {0}": "Settings - {0}",
 	"Settings and stored server secrets will be restored to their state from {0}. Changes made to them since then will be lost.": "Settings and stored server secrets will be restored to their state from {0}. Changes made to them since then will be lost.",
-	"Settings fallback - {0}": "Settings fallback - {0}",
 	"Settings this extension could not use as written, e.g. a matcher key no model can match. Problems with a server itself show on that server's row.": "Settings this extension could not use as written, e.g. a matcher key no model can match. Problems with a server itself show on that server's row.",
 	"Show": "Show",
 	"Show in settings.json": "Show in settings.json",
@@ -920,6 +917,7 @@
 	"Thresholds run from above 0% to 100%: enter 80% or 0.8.": "Thresholds run from above 0% to 100%: enter 80% or 0.8.",
 	"Timeouts, caching, headers, model parameters": "Timeouts, caching, headers, model parameters",
 	"Token counts are numbers, e.g. 128000; support flags true or false; costs per-token USD, 0 meaning free. Your values beat what the server reports unless the row is marked fallback.": "Token counts are numbers, e.g. 128000; support flags true or false; costs per-token USD, 0 meaning free. Your values beat what the server reports unless the row is marked fallback.",
+	"Tokens": "Tokens",
 	"Tokens, e.g. 128000": "Tokens, e.g. 128000",
 	"Too many chat tools are enabled for this request. Disable some in the chat Tools picker, or turn off unused extensions or MCP servers, and try again.": "Too many chat tools are enabled for this request. Disable some in the chat Tools picker, or turn off unused extensions or MCP servers, and try again.",
 	"Tool calling": "Tool calling",
@@ -982,6 +980,12 @@
 	"Your servers answered but listed no models.": "Your servers answered but listed no models.",
 	"an entry with this label already exists": "an entry with this label already exists",
 	"background polling off (usage.pollInterval 0)": "background polling off (usage.pollInterval 0)",
+	"built-in default/Provenance badge: nothing declared the field, so the extension's own floor applies": {
+		"message": "built-in default",
+		"comment": [
+			"Provenance badge: nothing declared the field, so the extension's own floor applies"
+		]
+	},
 	"bundled snapshot": "bundled snapshot",
 	"cache read {0}": "cache read {0}",
 	"cache write {0}": "cache write {0}",
@@ -1012,6 +1016,12 @@
 	"enter the key sent in this header": "enter the key sent in this header",
 	"entry fallback {0}": "entry fallback {0}",
 	"entry {0}": "entry {0}",
+	"entry/Provenance badge: the value comes from this server entry's own record": {
+		"message": "entry",
+		"comment": [
+			"Provenance badge: the value comes from this server entry's own record"
+		]
+	},
 	"every refresh": "every refresh",
 	"everything that reaches it": "everything that reaches it",
 	"exact ID": "exact ID",
@@ -1029,9 +1039,6 @@
 		]
 	},
 	"forced": "forced",
-	"forced by {0}; overrides runtime options and the picker": "forced by {0}; overrides runtime options and the picker",
-	"forced in configuration; overrides runtime options and the picker": "forced in configuration; overrides runtime options and the picker",
-	"forced: overrides runtime options and the picker": "forced: overrides runtime options and the picker",
 	"h/Abbreviation for hours in durations like '1 h 30 min'.": {
 		"message": "h",
 		"comment": [
@@ -1048,6 +1055,12 @@
 	},
 	"inheritance stops here": "inheritance stops here",
 	"inherited from {0}": "inherited from {0}",
+	"inherited from/Directive mark on a resolved value: the winning record inherited it from the record named next": {
+		"message": "inherited from",
+		"comment": [
+			"Directive mark on a resolved value: the winning record inherited it from the record named next"
+		]
+	},
 	"inherits": "inherits",
 	"inherits custom": "inherits custom",
 	"inherits everything": "inherits everything",
@@ -1059,6 +1072,12 @@
 	"last sync {0}": "last sync {0}",
 	"less than an hour ago": "less than an hour ago",
 	"long-context tier: {0}": "long-context tier: {0}",
+	"matched/Directive mark: the catalog entry was matched, not named": {
+		"message": "matched",
+		"comment": [
+			"Directive mark: the catalog entry was matched, not named"
+		]
+	},
 	"matches all models": "matches all models",
 	"may be outdated: the last statistics fetch failed": "may be outdated: the last statistics fetch failed",
 	"min({0}, model max) - the limit is a default, not server-declared": "min({0}, model max) - the limit is a default, not server-declared",
@@ -1085,8 +1104,7 @@
 	"not a usable http(s) URL": "not a usable http(s) URL",
 	"not in use": "not in use",
 	"not reported": "not reported",
-	"not sent: a provider-owned request field, never overridable": "not sent: a provider-owned request field, never overridable",
-	"not sent: keys starting with _ are directives - instructions to the extension, never sent": "not sent: keys starting with _ are directives - instructions to the extension, never sent",
+	"not sent": "not sent",
 	"nothing - barrier": "nothing - barrier",
 	"of {0}": "of {0}",
 	"only listed records": "only listed records",
@@ -1095,7 +1113,6 @@
 	"optional - 1 matcher": "optional - 1 matcher",
 	"optional - {0} matchers": "optional - {0} matchers",
 	"over budget by {0}": "over budget by {0}",
-	"overridden: {0}": "overridden: {0}",
 	"per-server API version overrides (requests use the auto rule)": "per-server API version overrides (requests use the auto rule)",
 	"per-server custom headers": "per-server custom headers",
 	"per-server model capabilities, declared models, and expected failures": "per-server model capabilities, declared models, and expected failures",
@@ -1118,7 +1135,12 @@
 	"secret storage": "secret storage",
 	"server entry key {0}": "server entry key {0}",
 	"server-reported": "server-reported",
-	"set by {0}": "set by {0}",
+	"server/Provenance badge: the value is what the LiteLLM server reported": {
+		"message": "server",
+		"comment": [
+			"Provenance badge: the value is what the LiteLLM server reported"
+		]
+	},
 	"set in configuration": "set in configuration",
 	"set on this entry": "set on this entry",
 	"set on this entry - the key reports {0}": "set on this entry - the key reports {0}",
@@ -1138,7 +1160,7 @@
 	"supported": "supported",
 	"the authentication guide": "the authentication guide",
 	"the key does not report a reset date": "the key does not report a reset date",
-	"the server's declared output limit (nothing configured sets it)": "the server's declared output limit (nothing configured sets it)",
+	"the model's declared output limit (nothing configured sets it)": "the model's declared output limit (nothing configured sets it)",
 	"the settings-migration guide": "the settings-migration guide",
 	"the usage and budgets guide": "the usage and budgets guide",
 	"the window reports no prompt tokens": "the window reports no prompt tokens",
@@ -1153,6 +1175,7 @@
 	"{0} cached": "{0} cached",
 	"{0} catalog models": "{0} catalog models",
 	"{0} days ago": "{0} days ago",
+	"{0} fields": "{0} fields",
 	"{0} for {1}": "{0} for {1}",
 	"{0} h ago": "{0} h ago",
 	"{0} hidden groups": "{0} hidden groups",
@@ -1195,6 +1218,7 @@
 	"{0} parameters": "{0} parameters",
 	"{0} problems": "{0} problems",
 	"{0} requests": "{0} requests",
+	"{0} sent": "{0} sent",
 	"{0} server entries cannot be imported and will be skipped.": "{0} server entries cannot be imported and will be skipped.",
 	"{0} servers": "{0} servers",
 	"{0} servers added": "{0} servers added",

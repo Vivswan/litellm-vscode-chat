@@ -1,9 +1,9 @@
 /**
  * The inspector's inheritance chain figures (RecordChainFigure): each feed's
  * per-map chains render as one compact record path each - broadest to winner,
- * keys clickable through the existing edit-jump wiring, barrier and
- * exclusive-list markers worded like the Diagnostics tree - and a single
- * match renders no figure at all.
+ * opened by the layer's provenance badge, keys clickable through the existing
+ * edit-jump wiring, barrier and exclusive-list markers worded like the
+ * Diagnostics tree - and a single match renders no figure at all.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { RecordChainView } from "../../../../dashboard/viewModels";
@@ -62,9 +62,12 @@ describe("the params inspector's record path", () => {
 		const chain = root.querySelector(".record-chain") as HTMLElement;
 		expect(chain).not.toBeNull();
 		const text = (chain.textContent ?? "").replace(/\s+/g, " ").trim();
+		// The layer opens the line as the same provenance badge every value in
+		// the panel wears; the keys and markers follow, broadest to winner.
 		expect(text).toBe(
-			"Record path (settings): * -> gpt-5* [inheritance stops here] -> gpt-5.6 [inherits from: *, gpt-5*]"
+			"Record path settings * -> gpt-5* [inheritance stops here] -> gpt-5.6 [inherits from: *, gpt-5*]"
 		);
+		expect(chain.querySelector(".prov")?.textContent?.trim()).toBe("settings");
 		// The barrier marker wears the Diagnostics tree's warning tone.
 		expect(chain.querySelector(".tree-barrier")?.textContent).toContain("inheritance stops here");
 	});
@@ -97,8 +100,12 @@ describe("the params inspector's record path", () => {
 		);
 		const chains = Array.from(root.querySelectorAll(".record-chain"));
 		expect(chains).toHaveLength(2);
-		expect(chains[0]?.textContent).toContain("Record path (settings):");
-		expect(chains[1]?.textContent).toContain('Record path (server entry "Prod"):');
+		expect(chains[0]?.querySelector(".prov")?.textContent?.trim()).toBe("settings");
+		// The layer word alone: the badge's second slot is a record key
+		// everywhere else in the panel, so an entry LABEL must not sit in it.
+		// The entry is named in the jump's accessible label instead.
+		expect(chains[1]?.querySelector(".prov")?.textContent?.trim()).toBe("entry");
+		expect(chains[1]?.querySelector(".prov-key")).toBeNull();
 
 		// An entry-layer key opens the entry's form (entry records live there).
 		const entryKey = chains[1]?.querySelector("button.chain-key") as HTMLButtonElement;
@@ -168,5 +175,5 @@ test("the capabilities section renders the same figure from its own response", (
 	});
 	const chain = root.querySelector(".record-chain") as HTMLElement;
 	const text = (chain.textContent ?? "").replace(/\s+/g, " ").trim();
-	expect(text).toBe("Record path (settings): * [inherits from: true] -> gpt-5* [inheritance stops here]");
+	expect(text).toBe("Record path settings * [inherits from: true] -> gpt-5* [inheritance stops here]");
 });

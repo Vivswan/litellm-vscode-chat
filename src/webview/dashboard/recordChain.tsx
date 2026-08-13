@@ -1,19 +1,25 @@
 /**
  * The inspectors' compact inheritance figure: one line per record map showing
  * the inspected model's matching chain broadest to winner - `* -> gpt-5*
- * [inheritance stops here] -> gpt-5.6` - with each key jumping into the
- * editor that owns it (a global key into the settings record editor, an entry
- * key into the server entry's form) and the barrier/exclusive-list markers
- * worded exactly as the Diagnostics tree words them. A chain of one record
- * tells no inheritance story and renders nothing.
+ * [inheritance stops here] -> gpt-5.6` - opened by the same provenance badge
+ * that names the layer everywhere else in the panel, with each key jumping
+ * into the editor that owns it (a global key into the settings record editor,
+ * an entry key into the server entry's form) and the barrier/exclusive-list
+ * markers worded exactly as the Diagnostics tree words them. A chain of one
+ * record tells no inheritance story and renders nothing.
+ *
+ * The figure is the WHY behind the values above it, so it closes its section
+ * in the quiet register - and in the open. It used to sit behind a disclosure,
+ * which put a menu inside a panel the reader had already chosen to open.
  */
 
 import * as l10n from "@vscode/l10n";
 import type { RecordChainView } from "../../dashboard/viewModels";
+import { entryScope, Provenance, settingsScope } from "./provenance";
 import { Button } from "./ui/button";
 
 /** The chains that tell an inheritance story; a chain of one record renders nothing. */
-export function chainsWithStory(chains: readonly RecordChainView[] | undefined): readonly RecordChainView[] {
+function chainsWithStory(chains: readonly RecordChainView[] | undefined): readonly RecordChainView[] {
 	return (chains ?? []).filter((chain) => chain.links.length >= 2);
 }
 
@@ -48,12 +54,13 @@ export function RecordChainFigure({
 				const jumpFor = (key: string) =>
 					chain.layer === "entry" ? jump : onEditRecord === undefined ? undefined : () => onEditRecord(key);
 				return (
-					<p className="record-chain hint" key={chain.layer}>
-						<span className="record-chain-label">
-							{chain.layer === "entry"
-								? l10n.t('Record path (server entry "{0}"):', chain.entryLabel)
-								: l10n.t("Record path (settings):")}
-						</span>{" "}
+					<p className="record-chain" key={chain.layer}>
+						<span className="record-chain-label">{l10n.t("Record path")}</span>{" "}
+						{/* The layer word alone: the badge's second slot is a RECORD KEY
+						    everywhere else in the panel, and an entry label sitting in it
+						    reads as a record named "prod". The entry is named in the
+						    jump's accessible label, and in the panel's own header. */}
+						<Provenance source={{ scope: chain.layer === "entry" ? entryScope() : settingsScope() }} />{" "}
 						{chain.links.map((link, index) => {
 							const onJump = jumpFor(link.key);
 							return (

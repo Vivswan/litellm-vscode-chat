@@ -15,12 +15,18 @@
  * its own section, and the old params-side pricing facts are gone. The
  * hierarchy pins hold the approved reading order - answers first, machinery
  * last: the header keeps one orientation line without token counts, each
- * section leads with its table, and the record-path figures sit collapsed
- * behind a "Record paths" disclosure at their section's end.
+ * section leads with its table, and the record-path figure closes its section
+ * in the open.
+ *
+ * The provenance pins are the panel's own design contract: a source renders as
+ * one compact badge (scope plus record key), never as an English sentence in a
+ * table cell; a beaten value renders inside a real <del> behind a clipped
+ * "Overridden value", so no screen reader announces a loser as a peer; and
+ * nothing in the panel collapses.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
-import type { EffectiveCapabilities } from "../../../../shared/config/capabilityResolution";
+import type { CapabilityLevel, EffectiveCapabilities } from "../../../../shared/config/capabilityResolution";
 import { projectEffectiveParameters } from "../../../../shared/config/parameterResolution";
 import { App } from "../../../../webview/dashboard/app";
 import type { ModelCapabilitiesResponse, ModelParametersResponse } from "../../../../webview/dashboard/modelInspector";
@@ -48,6 +54,16 @@ afterEach(() => {
 });
 
 const model = makeModel({ id: "gpt-4o", rawId: "gpt-4o", name: "Omni", serverLabel: "Prod", scopeKey: "s0" });
+
+/** One element's text with runs of whitespace collapsed; JSX separators and tips make raw text noisy. */
+function normOf(root: ParentNode, selector: string): string {
+	return textOf(root, selector).replace(/\s+/g, " ");
+}
+
+/** The panel's section titles in document order; every section names itself. */
+function sectionTitles(root: ParentNode): string[] {
+	return [...root.querySelectorAll(".model-inspector .section-title")].map((title) => (title.textContent ?? "").trim());
+}
 
 /**
  * Mount the inspector, capture its own posted readModelParameters requestId,
@@ -161,28 +177,30 @@ test("the panel reads as one document: Parameters, Capabilities, and Pricing sec
 			},
 		})
 	);
-	const headers = [...root.querySelectorAll("h4.inspector-section")].map((h) =>
-		(h.firstChild?.textContent ?? "").trim()
-	);
-	expect(headers).toEqual(["Parameters", "Capabilities", "Pricing ($/M tokens)"]);
+	expect(sectionTitles(root)).toEqual(["Parameters", "Capabilities", "Pricing"]);
+	// The unit moves out of the title and onto the header line's summary slot.
+	expect(textOf(root, "#inspector-pricing-section .section-meta")).toBe("$ per million tokens");
 	// The Diagnostics jump anchors exist on the two addressable sections.
-	expect(root.querySelector("#inspector-section-params")).not.toBeNull();
-	expect(root.querySelector("#inspector-section-caps")).not.toBeNull();
+	expect(root.querySelector("#inspector-params-section")).not.toBeNull();
+	expect(root.querySelector("#inspector-caps-section")).not.toBeNull();
 });
 
-test("without pricing fields the Pricing section does not render at all", () => {
+test("without pricing fields the Pricing section states the absence instead of vanishing", () => {
+	// Absence is a designed state: a reader who opens the panel to check what a
+	// model costs gets an answer, not a missing section - and no invented zero.
 	const root = mountCapsAnswered(makeCapabilities());
-	const headers = [...root.querySelectorAll("h4.inspector-section")].map((h) =>
-		(h.firstChild?.textContent ?? "").trim()
-	);
-	expect(headers).toEqual(["Parameters", "Capabilities"]);
+	expect(sectionTitles(root)).toEqual(["Parameters", "Capabilities", "Pricing"]);
+	const pricing = root.querySelector("#inspector-pricing-section") as HTMLElement;
+	expect(textOf(pricing, ".absent")).toContain("No prices declared for this model");
+	expect(pricing.querySelector("table.resolution")).toBeNull();
+	expect(pricing.textContent).not.toContain("$0");
 });
 
-test("the Parameters section leads with the answer: table, supported params, max_tokens, machinery, record paths", () => {
+test("the Parameters section leads with the answer: table, supported params, max_tokens, machinery, record path", () => {
 	// The approved hierarchy: answers first, machinery last. The effective-sends
 	// table opens the section, the supported-parameters block and the max_tokens
-	// line follow, and the fixed machinery (always-sent chips, caveats) plus the
-	// collapsed record-path figure close it.
+	// line follow, and the fixed machinery (always-sent fields, caveats) plus the
+	// record-path figure close it.
 	const container = mount(<ModelInspector model={model} stateSeq={0} onClose={() => {}} />);
 	respondTo(lastRequest("readModelParameters"), {
 		projection: projectEffectiveParameters({
@@ -211,56 +229,47 @@ test("the Parameters section leads with the answer: table, supported params, max
 			},
 		}),
 	});
-	const section = container.querySelector("#inspector-section-params")?.closest("section") as HTMLElement;
+	const section = container.querySelector("#inspector-params-section") as HTMLElement;
 	expect(section).not.toBeNull();
 	// querySelectorAll returns document order: classify each major block and
 	// pin the whole reading sequence.
 	const blocks = [
 		...section.querySelectorAll(
-			"table.params, .params-replaced, .params-max-tokens, .params-fixed, .params-caveats, details.record-paths"
+			"table.resolution, .record-problems, .supported-params, .max-tokens, .inspector-notes, .record-chain"
 		),
 	].map((element) => {
-		if (element.matches("details.record-paths")) {
-			return "record-paths";
+		if (element.matches(".record-chain")) {
+			return "record-path";
 		}
-		if (element.matches(".params-replaced")) {
+		if (element.matches(".record-problems")) {
 			return "diagnostics";
 		}
-		if (element.matches(".params-max-tokens")) {
+		if (element.matches(".max-tokens")) {
 			return "max-tokens";
 		}
-		if (element.matches(".params-fixed")) {
-			return "always-sent";
+		if (element.matches(".inspector-notes")) {
+			return "notes";
 		}
-		if (element.matches(".params-caveats")) {
-			return "caveats";
-		}
-		return element.closest(".caps-inspector") !== null ? "supported-params" : "effective-table";
+		return element.matches(".supported-params") ? "supported-params" : "effective-table";
 	});
-	expect(blocks).toEqual([
-		"effective-table",
-		"diagnostics",
-		"supported-params",
-		"max-tokens",
-		"always-sent",
-		"caveats",
-		"record-paths",
-	]);
-	// The Diagnostics jump anchor stays on the h4 inside the head band.
-	expect(section.querySelector(".inspector-section-head h4#inspector-section-params")).not.toBeNull();
+	expect(blocks).toEqual(["effective-table", "diagnostics", "supported-params", "max-tokens", "notes", "record-path"]);
+	// The section names itself through its heading, which is where the
+	// Diagnostics jump lands.
+	expect(section.getAttribute("aria-labelledby")).toBe("inspector-params-title");
+	expect(section.querySelector(".section-head h4#inspector-params-title")).not.toBeNull();
 });
 
 test("both section header bands carry their Configure action, right-aligned in the band", () => {
 	const root = mount(<ModelInspector model={model} stateSeq={0} onClose={() => {}} onEditRecord={() => {}} />);
-	const actionText = (anchorId: string): string | undefined => {
-		const head = root.querySelector(`.inspector-section-head:has(#${anchorId})`);
+	const actionText = (titleId: string): string | undefined => {
+		const head = root.querySelector(`.section-head:has(#${titleId})`);
 		return head?.querySelector("button.section-action")?.textContent ?? undefined;
 	};
-	expect(actionText("inspector-section-params")).toBe("Configure parameters for this model");
-	expect(actionText("inspector-section-caps")).toBe("Configure capabilities for this model");
+	expect(actionText("inspector-params-title")).toBe("Configure parameters for this model");
+	expect(actionText("inspector-caps-title")).toBe("Configure capabilities for this model");
 });
 
-test("the record-path figures render collapsed under a Record paths summary at their section's end", () => {
+test("the record-path figure closes its section in the open: nothing in the panel collapses", () => {
 	const root = mountParamsAnswered({
 		globalParameters: { "gpt-4*": { temperature: 0.2 } },
 		chains: [
@@ -273,28 +282,20 @@ test("the record-path figures render collapsed under a Record paths summary at t
 			},
 		],
 	});
-	const section = root.querySelector("#inspector-section-params")?.closest("section") as HTMLElement;
-	const details = section.querySelector("details.record-paths") as HTMLDetailsElement;
-	expect(details).not.toBeNull();
-	// Collapsed by default: the figure is the WHY, read on demand.
-	expect(details.open).toBe(false);
-	expect(details.querySelector("summary")?.textContent).toBe("Record paths");
-	// The existing figure renders unchanged inside and shows once opened.
-	// happy-dom fires the native toggle event on the open flip, and the
-	// controlled disclosure's state update must land inside act.
-	void act(() => {
-		details.open = true;
-	});
-	const chain = details.querySelector(".record-chain");
+	const section = root.querySelector("#inspector-params-section") as HTMLElement;
+	const chain = section.querySelector(".record-chain");
 	expect(chain).not.toBeNull();
-	expect(chain?.textContent).toContain("Record path (settings):");
+	expect(chain?.textContent).toContain("Record path");
 	expect(chain?.textContent).toContain("gpt-4*");
+	// A reader who opened the panel has already asked for it: no disclosure
+	// anywhere in the overlay, so no state can hide the machinery.
+	expect(root.querySelector("details")).toBeNull();
 });
 
-test("an open Record paths disclosure survives a state push instead of collapsing under the reader", () => {
-	// A state push orphans the answers (fresh requestIds), so the disclosure
-	// unmounts until the new answer lands; the controlled open state must carry
-	// across the remount.
+test("a state push leaves the record path on screen instead of hiding it under the reader", () => {
+	// A state push orphans the answers (fresh requestIds), so the figure
+	// unmounts until the new answer lands; what comes back must be the same
+	// visible figure, never a re-collapsed one.
 	const chains = [
 		{
 			layer: "global" as const,
@@ -318,34 +319,27 @@ test("an open Record paths disclosure survives a state push instead of collapsin
 		});
 	};
 	answer();
-	const details = container.querySelector("details.record-paths") as HTMLDetailsElement;
-	expect(details.open).toBe(false);
-	// The reader opens it (the native toggle the summary click produces).
-	void act(() => {
-		details.open = true;
-		details.dispatchEvent(new Event("toggle"));
-	});
+	expect(container.querySelector(".record-chain")).not.toBeNull();
 
-	// The push: readiness drops (a re-request orphans the answer, so the
-	// disclosure may unmount), then the fresh answer lands.
+	// The push: readiness drops (a re-request orphans the answer, so the figure
+	// may unmount), then the fresh answer lands.
 	void act(() => {
 		render(<ModelInspector {...props} stateSeq={1} />, container);
 	});
 	answer();
-	const after = container.querySelector("details.record-paths") as HTMLDetailsElement;
-	expect(after).not.toBeNull();
-	expect(after.open).toBe(true);
+	expect(container.querySelector(".record-chain")).not.toBeNull();
+	expect(container.querySelector("details")).toBeNull();
 });
 
-test("without a chain story the Parameters section renders no Record paths disclosure", () => {
-	// A single-link chain (or none) tells no inheritance story; an empty
-	// disclosure would promise detail it cannot show. (The caps feed stays
+test("without a chain story the Parameters section renders no record path at all", () => {
+	// A single-link chain (or none) tells no inheritance story; a figure with
+	// one key would promise detail it cannot show. (The caps feed stays
 	// unanswered here; the caps section's own pin is above.)
 	const root = mountParamsAnswered({ globalParameters: { "gpt-4o": { temperature: 0.2 } } });
-	expect(root.querySelector("details.record-paths")).toBeNull();
+	expect(root.querySelector(".record-chain")).toBeNull();
 });
 
-test("the Capabilities section closes with problems, notes, then its collapsed record-path disclosure", () => {
+test("the Capabilities section closes with problems, notes, then its record path", () => {
 	const root = mountCapsAnswered(
 		makeCapabilities({
 			diagnostics: [
@@ -364,31 +358,27 @@ test("the Capabilities section closes with problems, notes, then its collapsed r
 			},
 		]
 	);
-	const section = root.querySelector("#inspector-section-caps")?.closest("section") as HTMLElement;
-	const details = section.querySelector("details.record-paths") as HTMLDetailsElement;
-	expect(details).not.toBeNull();
-	expect(details.open).toBe(false);
-	// The disclosure is the section's LAST block: the output-limit note, the
+	const section = root.querySelector("#inspector-caps-section") as HTMLElement;
+	expect(section.querySelector(".record-chain")).not.toBeNull();
+	// The figure is the section's LAST block: the output-limit note, the
 	// problems, and the advisory notes all come before it, in that order.
-	const blocks = [...section.querySelectorAll(".params-max-tokens, .params-replaced, details.record-paths")].map(
-		(element) => {
-			if (element.matches("details.record-paths")) {
-				return "record-paths";
-			}
-			if (element.matches(".params-advisories")) {
-				return "notes";
-			}
-			return element.matches(".params-replaced") ? "problems" : "output-limit";
+	const blocks = [...section.querySelectorAll(".output-limit, .record-problems, .record-chain")].map((element) => {
+		if (element.matches(".record-chain")) {
+			return "record-path";
 		}
-	);
-	expect(blocks).toEqual(["output-limit", "problems", "notes", "record-paths"]);
+		if (element.matches(".record-notes")) {
+			return "notes";
+		}
+		return element.matches(".record-problems") ? "problems" : "output-limit";
+	});
+	expect(blocks).toEqual(["output-limit", "problems", "notes", "record-path"]);
 });
 
-test("the collapsed disclosure joins the focus trap: Tab wraps at the summary, never at a hidden chain button", () => {
-	// The disclosure is the dialog's last tabbable while collapsed. The trap
-	// must treat the SUMMARY as the boundary: counting the chain-jump buttons
-	// hidden inside the closed details would let Tab escape the dialog at the
-	// real boundary and land Shift+Tab wrapping on an unfocusable control.
+test("the record path's last jump is the trap's boundary: Tab wraps there, back to Close", () => {
+	// With the figure always open, its chain-jump buttons are ordinary members
+	// of the trap - the disclosure that used to fence them off is gone. This
+	// fixture ends the panel there, so the last jump is the last tabbable: the
+	// trap has to wrap at it, and Shift+Tab has to come back to it from the top.
 	const inspected = makeModel();
 	const container = mount(
 		<ModelInspector model={inspected} stateSeq={0} onClose={() => {}} onEditRecord={() => {}} onEditEntry={() => {}} />
@@ -407,21 +397,19 @@ test("the collapsed disclosure joins the focus trap: Tab wraps at the summary, n
 		],
 	});
 	const panel = document.querySelector(".slide-over") as HTMLElement;
-	const details = panel.querySelector("details.record-paths") as HTMLDetailsElement;
-	expect(details.open).toBe(false);
-	// The chain-jump buttons exist inside the closed disclosure.
-	expect(details.querySelectorAll("button.chain-key").length).toBeGreaterThan(0);
-	const summary = details.querySelector("summary") as HTMLElement;
+	const jumps = [...panel.querySelectorAll<HTMLElement>("button.chain-key")];
+	expect(jumps.length).toBeGreaterThan(0);
+	const last = jumps[jumps.length - 1] as HTMLElement;
 	const fireTab = (element: HTMLElement, shiftKey: boolean) => {
 		void act(() => {
 			element.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true }));
 		});
 	};
-	summary.focus();
-	fireTab(summary, false);
+	last.focus();
+	fireTab(last, false);
 	expect((document.activeElement as HTMLElement | null)?.getAttribute("aria-label")).toBe("Close");
 	fireTab(document.activeElement as HTMLElement, true);
-	expect(document.activeElement).toBe(summary);
+	expect(document.activeElement).toBe(last);
 });
 
 test("a stateSeq bump re-requests BOTH feeds, so an open inspector follows configuration edits", () => {
@@ -458,7 +446,7 @@ test("a params response for another request id is ignored; the loading note stay
 		},
 	});
 	expect(root.textContent).toContain("Resolving parameters...");
-	expect(root.querySelector("table.params")).toBeNull();
+	expect(root.querySelector("table.resolution")).toBeNull();
 });
 
 test("a caps response for another request id is ignored; only the correlated one renders", () => {
@@ -470,28 +458,31 @@ test("a caps response for another request id is ignored; only the correlated one
 		payload: { capabilities: makeCapabilities() },
 	});
 	expect(root.textContent).toContain("Resolving capabilities...");
-	expect(root.querySelector("table.params")).toBeNull();
+	expect(root.querySelector("table.resolution")).toBeNull();
 });
 
 test("a projection-less params response says the state moved on instead of inventing values", () => {
 	const container = mount(<ModelInspector model={model} stateSeq={0} onClose={() => {}} />);
 	respondTo(lastRequest("readModelParameters"), {});
 	expect(container.textContent).toContain("The model list changed");
-	expect(container.querySelector("table.params")).toBeNull();
+	expect(container.querySelector("table.resolution")).toBeNull();
 });
 
 test("the header states the raw ID and the server label", () => {
 	const root = mountParamsAnswered({});
-	expect(textOf(root, ".params-identity")).toBe("gpt-4o on Prod");
+	expect(textOf(root, ".inspector-identity")).toBe("gpt-4o on Prod");
 	expect(root.textContent).toContain("Always sent");
 });
 
 test("a global match renders as a sent row sourced to the settings layer and its winning key", () => {
 	const root = mountParamsAnswered({ globalParameters: { "gpt-4*": { temperature: 0.2 } } });
-	const row = root.querySelector("table.params tbody tr") as HTMLElement;
+	const row = root.querySelector("table.resolution tbody tr") as HTMLElement;
 	const cells = Array.from(row.querySelectorAll("td")).map((cell) => (cell.textContent ?? "").trim());
-	expect(cells).toEqual(["temperature", "0.2", "Settings - gpt-4*"]);
-	expect(row.classList.contains("param-not-sent")).toBe(false);
+	// The source is a badge - scope then winning key - not a sentence.
+	expect(cells).toEqual(["temperature", "0.2", "settings gpt-4*"]);
+	expect(row.querySelector(".prov-scope")?.textContent).toBe("settings");
+	expect(row.querySelector(".prov-key")?.textContent).toBe("gpt-4*");
+	expect(row.classList.contains("res-not-sent")).toBe(false);
 });
 
 test("an entry override names the entry layer and shows the shadowed global value struck through", () => {
@@ -500,19 +491,24 @@ test("an entry override names the entry layer and shows the shadowed global valu
 		entryLabel: "Team A",
 		globalParameters: { "gpt-4*": { temperature: 0.8, top_p: 0.9 } },
 	});
-	const rows = Array.from(root.querySelectorAll("table.params tbody tr"));
+	const rows = Array.from(root.querySelectorAll("table.resolution tbody tr"));
 	const texts = rows.map((row) =>
 		Array.from(row.querySelectorAll("td"))
 			.map((cell) => (cell.textContent ?? "").trim())
 			.join(" | ")
 	);
+	// The beaten value sits under its winner, opened by a clipped word that
+	// keeps a screen reader from announcing it as another parameter.
 	expect(texts).toEqual([
-		'temperature | 0.1 | Server entry "Team A" - gpt-4*',
-		" | 0.8 | overridden: Settings - gpt-4*",
-		"top_p | 0.9 | Settings - gpt-4*",
+		"temperature | 0.1 | entry gpt-4*",
+		"Overridden value | 0.8 | settings gpt-4*",
+		"top_p | 0.9 | settings gpt-4*",
 	]);
-	const shadowed = root.querySelector("tr.param-shadowed") as HTMLElement;
-	expect(shadowed.querySelector(".param-value")).not.toBeNull();
+	const shadowed = root.querySelector("tr.res-shadow") as HTMLElement;
+	expect(shadowed.querySelector(".res-name .visually-hidden")?.textContent).toBe("Overridden value");
+	// A real deletion, not a line-through class: the semantics have to survive
+	// a stylesheet the reader never loads.
+	expect(shadowed.querySelector(".res-value del")?.textContent).toBe("0.8");
 });
 
 test("an inherited field renders its writer key with the inherited-from note", () => {
@@ -522,30 +518,41 @@ test("an inherited field renders its writer key with the inherited-from note", (
 			"gpt-4*": { temperature: 0.3 },
 		},
 	});
-	const rows = Array.from(root.querySelectorAll("table.params tbody tr"));
+	const rows = Array.from(root.querySelectorAll("table.resolution tbody tr"));
 	const texts = rows.map((row) => (row.textContent ?? "").replace(/\s+/g, " ").trim());
-	expect(texts.some((text) => text.includes("Settings - *") && text.includes("inherited from *"))).toBe(true);
-	expect(texts.some((text) => text.includes("Settings - gpt-4*") && !text.includes("inherited"))).toBe(true);
+	// The inheritance is a quiet directive mark naming the record it came from,
+	// beside the badge naming the record that won.
+	expect(texts.some((text) => text.includes("settings *") && text.includes("inherited from *"))).toBe(true);
+	expect(texts.some((text) => text.includes("settings gpt-4*") && !text.includes("inherited"))).toBe(true);
+	expect(root.querySelector(".mark")?.textContent?.replace(/\s+/g, " ").trim()).toBe("inherited from *");
 });
 
 test("unknown underscore keys never surface; provider-owned keys render muted with the not-sent reason", () => {
 	const root = mountParamsAnswered({ globalParameters: { "gpt-4*": { _internal: true, stream: false } } });
-	const rows = Array.from(root.querySelectorAll("table.params tbody tr")) as HTMLElement[];
+	const rows = Array.from(root.querySelectorAll("table.resolution tbody tr")) as HTMLElement[];
 	expect(rows.length).toBe(1);
-	expect(rows.every((row) => row.classList.contains("param-not-sent"))).toBe(true);
+	expect(rows.every((row) => row.classList.contains("res-not-sent"))).toBe(true);
 	expect(root.textContent).not.toContain("_internal");
-	expect(root.textContent).toContain("not sent: a provider-owned request field");
+	// The mark is one quiet phrase; the rule behind it rides a focusable tip,
+	// because that sentence exists nowhere else on the panel.
+	expect(textOf(root, ".mark-quiet")).toContain("not sent");
+	const tip = root.querySelector('.mark-quiet [role="tooltip"]');
+	expect(tip?.textContent).toBe("A provider-owned request field: the extension owns it and never sends an override.");
+	expect(root.querySelector(".mark-quiet .tip-wrap")?.getAttribute("tabindex")).toBe("0");
 });
 
 test("a forced row states that it overrides runtime options, and the runtime caveat excepts it", () => {
 	const root = mountParamsAnswered({ globalParameters: { "gpt-4*": { temperature: 0.2, _force: true } } });
-	expect(root.textContent).toContain("forced: overrides runtime options and the picker");
+	expect(textOf(root, "tbody .mark")).toBe("force");
+	expect(root.querySelector('tbody .res-source [role="tooltip"]')?.textContent).toBe(
+		"Overrides runtime options and the picker configuration."
+	);
 	expect(root.textContent).toContain("they override every row above except forced rows.");
 });
 
 test("without forced rows the runtime caveat keeps its unconditional wording", () => {
 	const root = mountParamsAnswered({ globalParameters: { "gpt-4*": { temperature: 0.2 } } });
-	expect(root.textContent).not.toContain("forced:");
+	expect(root.querySelector("tbody .mark")).toBeNull();
 	expect(root.textContent).toContain("they override every row above.");
 });
 
@@ -577,26 +584,33 @@ test("clean configuration renders no diagnostics block", () => {
 
 test("the max_tokens derivation states the configured branch with its attribution", () => {
 	const root = mountParamsAnswered({ globalParameters: { "gpt-4*": { max_tokens: 2222 } } });
-	expect(textOf(root, ".params-max-tokens")).toBe("max_tokens 2222 set by Settings - gpt-4*");
+	// The configured branch carries the same badge a row would: scope and key,
+	// no sentence.
+	expect(normOf(root, ".max-tokens")).toBe("max_tokens 2222 settings gpt-4*");
 	// A configured max_tokens is the derivation's story, never a table row -
-	// and it is real configuration, so the empty-state line must not claim
-	// nothing matched.
-	expect(root.querySelector("table.params")).toBeNull();
-	expect(root.querySelector(".params-empty")).toBeNull();
+	// and it is real configuration, so the absence line must not claim nothing
+	// matched.
+	expect(root.querySelector("table.resolution")).toBeNull();
+	expect(root.querySelector(".absent")).toBeNull();
 });
 
 test("the max_tokens derivation states the declared and capped-default branches", () => {
+	// Neither derived branch has a record to point at, so neither wears a
+	// badge: they say in words where the number came from.
 	const declared = mountParamsAnswered({ modelOverrides: { maxOutputTokens: 32000, outputLimitDeclared: true } });
-	expect(textOf(declared, ".params-max-tokens")).toContain("max_tokens 32000 the server's declared output limit");
+	expect(normOf(declared, ".max-tokens")).toContain("max_tokens 32000 the model's declared output limit");
+	expect(declared.querySelector(".max-tokens .prov")).toBeNull();
 
 	const capped = mountParamsAnswered({ modelOverrides: { maxOutputTokens: 32000, outputLimitDeclared: false } });
-	expect(textOf(capped, ".params-max-tokens")).toContain("max_tokens 4096 min(4096, model max)");
+	expect(normOf(capped, ".max-tokens")).toContain("max_tokens 4096 min(4096, model max)");
 });
 
 test("a forced max_tokens reports the forced derivation with its attribution", () => {
 	const root = mountParamsAnswered({ globalParameters: { "gpt-4*": { max_tokens: 2222, _force: ["max_tokens"] } } });
-	expect(textOf(root, ".params-max-tokens")).toBe(
-		"max_tokens 2222 forced by Settings - gpt-4*; overrides runtime options and the picker"
+	// Badge plus the force mark, whose tip states the rule the sentence used to.
+	expect(normOf(root, ".max-tokens")).toContain("max_tokens 2222 settings gpt-4* force");
+	expect(root.querySelector('.max-tokens [role="tooltip"]')?.textContent).toBe(
+		"Overrides runtime options and the picker configuration; never clamped."
 	);
 });
 
@@ -614,8 +628,8 @@ test("the runtime caveat always renders; the picker caveat only on reasoning mod
 
 test("the zero-config empty state still shows max_tokens and the caveats", () => {
 	const root = mountParamsAnswered({});
-	expect(textOf(root, ".params-empty")).toContain("No configured parameters match this model");
-	expect(root.querySelector(".params-max-tokens")).not.toBeNull();
+	expect(textOf(root, ".absent")).toContain("No configured parameters match this model");
+	expect(root.querySelector(".max-tokens")).not.toBeNull();
 	expect(root.textContent).toContain("Runtime options");
 });
 
@@ -678,7 +692,7 @@ test("one snapshot rendered under two labels: the inspector stays on the clicked
 	fireClick(document.querySelector("button[aria-label='Inspect Omni on B']") as HTMLButtonElement);
 	const dialog = document.querySelector("[role='dialog']") as HTMLElement;
 	expect(dialog).not.toBeNull();
-	expect(textOf(dialog, ".params-identity")).toBe("gpt-4o on B");
+	expect(textOf(dialog, ".inspector-identity")).toBe("gpt-4o on B");
 });
 
 test("the header keeps ONE orientation line - family and capability chips - and repeats no token counts", () => {
@@ -703,12 +717,16 @@ test("the header keeps ONE orientation line - family and capability chips - and 
 			reasoning: false,
 		},
 	});
-	const line = root.querySelector(".model-orientation");
+	const line = root.querySelector(".inspector-orientation");
 	expect(line).not.toBeNull();
 	expect(line?.textContent).toContain("Family");
 	expect(line?.textContent).toContain("gpt");
 	const chips = [...(line?.querySelectorAll(".cap-chip") ?? [])].map((chip) => chip.textContent);
 	expect(chips).toEqual(["tools", "vision"]);
+	// Capability words are prose about the model, so they wear the soft-fill
+	// chip - never the outline badge, which means provenance and nothing else.
+	expect(line?.querySelector(".cap-chip")?.getAttribute("data-slot")).toBe("badge");
+	expect(line?.querySelector(".prov")).toBeNull();
 	// The facts grid is gone, and no token count renders anywhere in the header.
 	expect(root.querySelector(".model-facts")).toBeNull();
 	expect(line?.textContent).not.toContain("Input tokens");
@@ -722,7 +740,7 @@ test("a model with no capability flags says none declared instead of an empty ch
 	const root = mountParamsAnswered({
 		modelOverrides: { toolCalling: false, imageInput: false, promptCaching: false, reasoning: false },
 	});
-	const line = root.querySelector(".model-orientation");
+	const line = root.querySelector(".inspector-orientation");
 	expect(line?.querySelectorAll(".cap-chip").length).toBe(0);
 	expect(line?.textContent).toContain("none declared");
 });
@@ -742,17 +760,181 @@ test("the correlated caps response renders every field with its value and source
 			},
 		})
 	);
-	const table = root.querySelector("table.params");
+	const table = root.querySelector("table.resolution");
 	expect(table).not.toBeNull();
 	// 7 field rows + 1 shadowed row.
 	expect(table?.querySelectorAll("tbody tr").length).toBe(8);
-	const text = table?.textContent ?? "";
+	const text = (table?.textContent ?? "").replace(/\s+/g, " ");
 	expect(text).toContain("Context length");
 	expect(text).toContain((200000).toLocaleString());
-	expect(text).toContain("Server entry - gpt-4");
-	expect(text).toContain("overridden: Settings - gpt");
-	expect(text).toContain("Server-reported");
-	expect(text).toContain("Built-in default");
+	// Every level renders as a badge; the walk's levels that no record can own
+	// (the report, the floor) carry a scope word and no key.
+	expect(text).toContain("entry gpt-4");
+	expect(text).toContain("Overridden value");
+	expect(text).toContain("settings gpt");
+	expect(text).toContain("server");
+	expect(text).toContain("built-in default");
+});
+
+test("every level of the capability walk renders as one badge, with the directive as a mark", () => {
+	// The panel's whole source vocabulary in one pin. A badge names WHERE
+	// (scope plus the record key you would go and edit); a mark names the
+	// DIRECTIVE that did the work, in the same word the record editors write on
+	// the record side. Nothing here is a sentence, and nothing is severity: the
+	// badge carries no state class in any level.
+	const levels: [CapabilityLevel, string | undefined, string, string | undefined][] = [
+		["entry", "gpt-4", "entry gpt-4", undefined],
+		["global", "gpt*", "settings gpt*", undefined],
+		["entry-fallback", "gpt-4", "entry gpt-4", "fallback"],
+		["global-fallback", "*", "settings *", "fallback"],
+		["server", undefined, "server", undefined],
+		["directive", "openai/gpt-4o", "OpenRouter openai/gpt-4o", "_openrouter_model"],
+		["catalog", "openai/gpt-4o", "OpenRouter openai/gpt-4o", "matched"],
+		["derived", undefined, "derived", undefined],
+		["floor", undefined, "built-in default", undefined],
+	];
+	for (const [level, key, badge, mark] of levels) {
+		const root = mountCapsAnswered(
+			makeCapabilities({
+				fields: {
+					...makeCapabilities().fields,
+					context_length: { value: 128000, level, ...(key === undefined ? {} : { key }), shadowed: [] },
+				},
+			})
+		);
+		const row = root.querySelector("table.resolution tbody tr") as HTMLElement;
+		expect(row.querySelector(".prov")?.textContent?.replace(/\s+/g, " ").trim()).toBe(badge);
+		expect(row.querySelector(".prov")?.className).toBe("prov");
+		expect(row.querySelector(".mark")?.textContent?.trim()).toBe(mark);
+		cleanup();
+		resetPosted();
+	}
+});
+
+test("a scope word a reader cannot infer carries its sentence in a focusable tip", () => {
+	// "derived" is a computation, not a place, and the rule behind it exists
+	// nowhere else on the panel - so it has to be reachable without a pointer.
+	const root = mountCapsAnswered(
+		makeCapabilities({
+			fields: { ...makeCapabilities().fields, max_input_tokens: { value: 112000, level: "derived", shadowed: [] } },
+		})
+	);
+	const tip = root.querySelector(".res-source .tip-wrap");
+	expect(tip?.getAttribute("tabindex")).toBe("0");
+	expect(tip?.querySelector('[role="tooltip"]')?.textContent).toBe(
+		"Context length minus max output tokens: nothing declared this field directly."
+	);
+});
+
+test("a record key too long for its column carries the full badge text in a focusable tip", () => {
+	// The stylesheet ellipsizes a badge that outgrows the source column, and a
+	// long unbroken regex matcher is exactly the text a reader opened the panel
+	// for - so a clipped badge joins the Tab order with its full text.
+	const key = "/^(gpt|claude)-[0-9.]+-(preview|latest)$/i";
+	const root = mountCapsAnswered(
+		makeCapabilities({
+			fields: {
+				...makeCapabilities().fields,
+				context_length: { value: 128000, level: "global", key, shadowed: [] },
+			},
+		})
+	);
+	// The context_length row is the table's first; the derived row below it has
+	// a tip of its own, so both reads stay scoped to their own row.
+	const tip = root.querySelector("tbody tr")?.querySelector(".res-source .tip-wrap");
+	expect(tip?.getAttribute("tabindex")).toBe("0");
+	expect(tip?.querySelector('[role="tooltip"]')?.textContent).toBe(`settings ${key}`);
+	// A key that comfortably fits stays plain text, outside the Tab order.
+	cleanup();
+	resetPosted();
+	const short = mountCapsAnswered(
+		makeCapabilities({
+			fields: {
+				...makeCapabilities().fields,
+				context_length: { value: 128000, level: "global", key: "gpt-4*", shadowed: [] },
+			},
+		})
+	);
+	expect(short.querySelector("tbody tr")?.querySelector(".res-source .tip-wrap") ?? null).toBeNull();
+});
+
+test("every resolution table names its three columns for assistive tech", () => {
+	// The hidden-thead machinery is gone because the heads are visible now; the
+	// contract it existed for - a provenance table always names name, value and
+	// source - has to stay pinned somewhere.
+	const root = mountCapsAnswered(
+		makeCapabilities({
+			fields: {
+				...makeCapabilities().fields,
+				input_cost_per_token: { value: 0.000005, level: "server", shadowed: [] },
+			},
+		})
+	);
+	const heads = [...root.querySelectorAll("table.resolution")].map((table) =>
+		[...table.querySelectorAll("thead th")].map((cell) => (cell.textContent ?? "").trim())
+	);
+	expect(heads).toEqual([
+		["Capability", "Value", "Source"],
+		["Tokens", "Price", "Source"],
+	]);
+});
+
+test("the Pricing section states its own in-flight state instead of vanishing", () => {
+	// Pricing rides the capability feed, so it has nothing to show until that
+	// answer lands - which is a state to render, not a section to withhold.
+	const container = mount(<ModelInspector model={model} stateSeq={0} onClose={() => {}} />);
+	expect(sectionTitles(container)).toEqual(["Parameters", "Capabilities", "Pricing"]);
+	const pricing = container.querySelector("#inspector-pricing-section") as HTMLElement;
+	expect(pricing.querySelector("[role='status']")?.textContent).toBe("Resolving capabilities...");
+	expect(pricing.querySelector("table.resolution")).toBeNull();
+	expect(pricing.querySelector(".absent")).toBeNull();
+});
+
+test("the fixed machinery renders while the projection is still in flight", () => {
+	// "Resolving parameters..." followed by nothing reads as a section that
+	// failed to load; the always-sent fields and the caveats are truth about the
+	// extension, not about this answer.
+	const container = mount(<ModelInspector model={model} stateSeq={0} onClose={() => {}} />);
+	expect(container.textContent).toContain("Resolving parameters...");
+	expect(container.querySelector(".inspector-notes")).not.toBeNull();
+	expect(container.textContent).toContain("Always sent");
+	// With no projection to read, the runtime caveat keeps its unconditional
+	// wording rather than claiming there are forced rows.
+	expect(container.textContent).toContain("they override every row above.");
+});
+
+test("a configured max_tokens whose layer the projection could not name wears no badge", () => {
+	// The projection reports the branch and the value; the layer is a separate
+	// lookup that can come back empty. A badge would then name a layer the panel
+	// does not know - so it says so in words instead.
+	const container = mount(<ModelInspector model={model} stateSeq={0} onClose={() => {}} />);
+	respondTo(lastRequest("readModelParameters"), {
+		projection: { rows: [], maxTokens: { source: "configured", value: 2222 }, diagnostics: [] },
+	});
+	expect(normOf(container, ".max-tokens")).toBe("max_tokens 2222 set in configuration");
+	expect(container.querySelector(".max-tokens .prov")).toBeNull();
+});
+
+test("a beaten value keeps the directive that put it in the running", () => {
+	// A shadowed fallback fill is still a fallback: dropping the mark from the
+	// loser leaves the reader guessing why a record they never see in the
+	// winner's chain was competing at all.
+	const root = mountCapsAnswered(
+		makeCapabilities({
+			fields: {
+				...makeCapabilities().fields,
+				context_length: {
+					value: 200000,
+					level: "entry",
+					key: "gpt-4",
+					shadowed: [{ level: "global-fallback", key: "*", value: 128000 }],
+				},
+			},
+		})
+	);
+	const shadow = root.querySelector("tr.res-shadow") as HTMLElement;
+	expect(shadow.querySelector(".prov")?.textContent?.replace(/\s+/g, " ").trim()).toBe("settings *");
+	expect(shadow.querySelector(".mark")?.textContent?.trim()).toBe("fallback");
 });
 
 test("declared, directive-not-found, inherited fields, and diagnostics all render their notes", () => {
@@ -770,7 +952,7 @@ test("declared, directive-not-found, inherited fields, and diagnostics all rende
 	const text = root.textContent ?? "";
 	expect(text).toContain("Declared model");
 	expect(text).toContain('"openai/nope" was not found');
-	expect(text).toContain("inherited from gpt*");
+	expect(root.querySelector("tbody .mark")?.textContent?.replace(/\s+/g, " ").trim()).toBe("inherited from gpt*");
 	expect(text).toContain('"supports_web_search" is not a field this extension knows');
 });
 
@@ -797,7 +979,7 @@ test("the core fields render first in their pinned order; open fields land under
 			},
 		})
 	);
-	const names = [...root.querySelectorAll("table.params tbody tr:not(.param-shadowed) td.param-name")].map(nameText);
+	const names = [...root.querySelectorAll("table.resolution tbody tr:not(.res-shadow) td.res-name")].map(nameText);
 	expect(names).toEqual([
 		"Context length",
 		"Max input tokens",
@@ -813,26 +995,25 @@ test("the core fields render first in their pinned order; open fields land under
 		"supports_web_search",
 	]);
 	// The extras open the labeled Other-fields band inside the caps table.
-	const bands = [...root.querySelectorAll("tr.caps-section th")].map((cell) => cell.textContent);
+	const bands = [...root.querySelectorAll("tr.res-group th")].map((cell) => cell.textContent);
 	expect(bands).toEqual(["Other fields"]);
 	const text = root.textContent ?? "";
 	// Open values render as plain numbers, never token-formatted.
 	expect(text).toContain("custom_rank");
 	// An open boolean keeps the yes/no idiom.
-	const webSearchRow = [...root.querySelectorAll("table.params tbody tr")].find((row) =>
+	const webSearchRow = [...root.querySelectorAll("table.resolution tbody tr")].find((row) =>
 		row.textContent?.includes("supports_web_search")
 	);
 	expect(webSearchRow?.textContent).toContain("yes");
-	expect(webSearchRow?.textContent).toContain("Server entry - gpt-4");
+	expect(webSearchRow?.textContent?.replace(/\s+/g, " ")).toContain("entry gpt-4");
 });
 
 test("a core-only response renders no in-table bands; the section headers carry the document structure", () => {
 	const root = mountCapsAnswered(makeCapabilities());
-	expect(root.querySelectorAll("tr.caps-section").length).toBe(0);
-	const headers = [...root.querySelectorAll("h4.inspector-section")].map((h) =>
-		(h.firstChild?.textContent ?? "").trim()
-	);
-	expect(headers).toEqual(["Parameters", "Capabilities"]);
+	expect(root.querySelectorAll("tr.res-group").length).toBe(0);
+	expect(sectionTitles(root)).toEqual(["Parameters", "Capabilities", "Pricing"]);
+	// The capabilities header line summarizes what the table holds.
+	expect(textOf(root, "#inspector-caps-section .section-meta")).toBe("7 fields");
 });
 
 test("cost fields render as $/M in the Pricing section, exactly once, never in scientific notation", () => {
@@ -856,37 +1037,38 @@ test("cost fields render as $/M in the Pricing section, exactly once, never in s
 	);
 	// The cost rows live under the Pricing section header - the one pricing
 	// rendering in the whole panel (the old facts-grid pricing lines are gone).
-	const pricingSection = root.querySelector("#inspector-section-pricing")?.closest("section") as HTMLElement;
+	const pricingSection = root.querySelector("#inspector-pricing-section") as HTMLElement;
 	expect(pricingSection).not.toBeNull();
-	const pricingRows = [...pricingSection.querySelectorAll("table.params tbody tr")].filter((row) =>
-		row.querySelector(".param-value")
+	const pricingRows = [...pricingSection.querySelectorAll("table.resolution tbody tr")].filter((row) =>
+		row.querySelector(".res-value")
 	);
-	const values = pricingRows.map((row) => row.querySelector(".param-value")?.textContent ?? "");
+	const values = pricingRows.map((row) => row.querySelector(".res-value")?.textContent ?? "");
 	expect(values).toContain("$5.00");
 	expect(values).toContain("$25.00");
 	expect(values).toContain("$0.50");
 	expect(values).toContain("$6.25");
 	// The shadowed cost formats as $/M too, and nothing renders as 5e-7.
-	expect(pricingSection.querySelector("tr.param-shadowed .param-value")?.textContent).toBe("$37.50");
+	expect(pricingSection.querySelector("tr.res-shadow .res-value")?.textContent).toBe("$37.50");
 	for (const value of values) {
 		expect(value).not.toMatch(/\de[+-]?\d/);
 	}
-	// No dollar amount renders anywhere outside the Pricing section.
-	const outside = (root.textContent ?? "").split("Pricing ($/M tokens)")[0] ?? "";
+	// No dollar amount renders anywhere outside the Pricing section, whose own
+	// header line states the unit once.
+	const outside = (root.textContent ?? "").split("Pricing")[0] ?? "";
 	expect(outside).not.toContain("$");
 	// The friendly labels replace the raw wire keys, which stay one focusable
 	// tip away (the label hides the very key a capabilities record needs).
-	const names = pricingRows.map((row) => nameText(row.querySelector(".param-name")));
+	const names = pricingRows.map((row) => nameText(row.querySelector(".res-name")));
 	expect(names).toContain("Input");
 	expect(names).toContain("Cache read");
 	expect(names).not.toContain("input_cost_per_token");
-	const inputRow = pricingRows.find((row) => nameText(row.querySelector(".param-name")) === "Input");
-	const nameTip = inputRow?.querySelector(".param-name .tip-wrap");
+	const inputRow = pricingRows.find((row) => nameText(row.querySelector(".res-name")) === "Input");
+	const nameTip = inputRow?.querySelector(".res-name .tip-wrap");
 	expect(nameTip?.getAttribute("tabindex")).toBe("0");
 	expect(nameTip?.querySelector('[role="tooltip"]')?.textContent).toBe("input_cost_per_token");
 });
 
-test("the supported-params list renders in the PARAMETERS section: count row plus the full sorted pill list", () => {
+test("the supported-params list renders in the PARAMETERS section: header line count plus the sorted names", () => {
 	const long = [
 		"frequency_penalty",
 		"logit_bias",
@@ -932,34 +1114,32 @@ test("the supported-params list renders in the PARAMETERS section: count row plu
 	// What the model ACCEPTS renders beside what we send: the block lives in
 	// the Parameters section, not the Capabilities table, while staying a
 	// capability on the wire (it arrived on the modelCapabilities response).
-	const paramsSection = root.querySelector("#inspector-section-params")?.closest("section") as HTMLElement;
+	const paramsSection = root.querySelector("#inspector-params-section") as HTMLElement;
 	expect(paramsSection).not.toBeNull();
-	const row = [...paramsSection.querySelectorAll("table.params tbody tr")].find((candidate) =>
-		candidate.textContent?.includes("27 parameters")
-	);
-	expect(row).not.toBeUndefined();
-	expect(nameText(row?.querySelector(".param-name") ?? null)).toBe("Supported parameters");
-	// Its own table still names its columns for assistive tech: the band
-	// carries the visible label, the collapsed thead the semantics.
-	expect(row?.closest("table")?.querySelector("thead.caps-head-hidden")).not.toBeNull();
-	// The count renders plain (no clip-tip): the full list follows on its own
-	// row spanning the table, one element per name so boundaries survive a
-	// comma inside a name - the panel is the detail surface, nothing hides
-	// behind a tip.
-	expect(row?.querySelector('.param-value [role="tooltip"]')).toBeNull();
-	const listItems = [...paramsSection.querySelectorAll(".caps-params-list li code")].map((item) => item.textContent);
+	const block = paramsSection.querySelector(".supported-params") as HTMLElement;
+	expect(block).not.toBeNull();
+	// The block's header line carries the name, the count and the source, so
+	// the body below is nothing but names.
+	expect(textOf(block, "h5")).toBe("Supported parameters");
+	expect(textOf(block, ".params-count")).toBe("27 parameters");
+	expect(textOf(block, ".prov").replace(/\s+/g, " ")).toBe("settings gpt-5*");
+	// Quiet monospace text, not a wall of pills: one element per name so
+	// boundaries survive a comma inside a name, nothing hidden behind a tip.
+	const listItems = [...block.querySelectorAll(".params-names li")].map((item) => item.textContent);
 	expect(listItems).toEqual([...long].sort());
-	// The list row spans all three columns, and a shadowed list stays
-	// count-only (its record holds the value; the full row shows the winner).
-	const listCell = paramsSection.querySelector(".caps-params-row td");
-	expect(listCell?.getAttribute("colspan")).toBe("3");
-	const shadowedLine = [...paramsSection.querySelectorAll("tr.param-shadowed")].find((candidate) =>
-		candidate.textContent?.includes("1 parameter")
-	);
-	expect(shadowedLine).not.toBeUndefined();
+	expect(block.querySelector('[role="tooltip"]')).toBeNull();
+	expect(block.querySelector(".params-names")?.getAttribute("aria-label")).toBe("Supported parameters");
+	// A shadowed list stays count-only (its record holds the value), struck
+	// through behind the same clipped word every beaten value carries.
+	const shadowedLine = block.querySelector(".params-shadow") as HTMLElement;
+	expect(shadowedLine?.querySelector("del")?.textContent).toBe("1 parameter");
+	expect(shadowedLine?.querySelector(".visually-hidden")?.textContent).toBe("Overridden value");
+	// The clipped marker and the value are separate words to a screen reader,
+	// not "Overridden value1 parameter".
+	expect(shadowedLine?.textContent?.replace(/\s+/g, " ")).toContain("Overridden value 1 parameter");
 	expect(shadowedLine?.textContent).not.toContain("temperature");
 	// The Capabilities section renders the list nowhere - one rendering only.
-	const capsSection = root.querySelector("#inspector-section-caps")?.closest("section") as HTMLElement;
+	const capsSection = root.querySelector("#inspector-caps-section") as HTMLElement;
 	expect(capsSection.textContent).not.toContain("27 parameters");
 	cleanup();
 	resetPosted();
@@ -972,9 +1152,9 @@ test("the supported-params list renders in the PARAMETERS section: count row plu
 		})
 	);
 	expect(empty.textContent).toContain("0 parameters");
-	// An empty list renders no list row at all - a bare pill strip under the
-	// count would read as a rendering bug.
-	expect(empty.querySelector(".caps-params-list")).toBeNull();
+	// An empty list renders no list at all - a bare strip under the count would
+	// read as a rendering bug.
+	expect(empty.querySelector(".params-names")).toBeNull();
 });
 
 test("prototype-named open fields render from the bag, never from Object.prototype", () => {
@@ -985,7 +1165,7 @@ test("prototype-named open fields render from the bag, never from Object.prototy
 		["toString", { value: "shadowed-name", level: "global", key: "*", shadowed: [] }],
 	]) as EffectiveCapabilities["fields"];
 	const root = mountCapsAnswered(makeCapabilities({ fields }));
-	const names = [...root.querySelectorAll("table.params tbody tr td.param-name")].map((cell) => cell.textContent);
+	const names = [...root.querySelectorAll("table.resolution tbody tr td.res-name")].map((cell) => cell.textContent);
 	expect(names).toContain("__proto__");
 	expect(names).toContain("toString");
 	const text = root.textContent ?? "";
@@ -1005,12 +1185,12 @@ test("a value long enough to clip gets the focusable full-text tip; short values
 			},
 		})
 	);
-	const tipWrap = root.querySelector(".param-value .tip-wrap");
+	const tipWrap = root.querySelector(".res-value .tip-wrap");
 	expect(tipWrap).not.toBeNull();
 	expect(tipWrap?.getAttribute("tabindex")).toBe("0");
 	expect(tipWrap?.querySelector('[role="tooltip"]')?.textContent).toBe(JSON.stringify(long));
 	// The short core values stay plain text outside the Tab order.
-	expect(root.querySelectorAll(".param-value .tip-wrap").length).toBe(1);
+	expect(root.querySelectorAll(".res-value .tip-wrap").length).toBe(1);
 });
 
 test("the clip tip's threshold sits exactly at the 8ch box, counting wide glyphs double", () => {
@@ -1020,7 +1200,7 @@ test("the clip tip's threshold sits exactly at the 8ch box, counting wide glyphs
 				fields: { ...makeCapabilities().fields, note: { value, level: "server", shadowed: [] } },
 			})
 		);
-		const count = root.querySelectorAll(".param-value .tip-wrap").length;
+		const count = root.querySelectorAll(".res-value .tip-wrap").length;
 		cleanup();
 		resetPosted();
 		return count;
@@ -1042,13 +1222,13 @@ test("an unrecognized-key diagnostic renders as an informational note, apart fro
 			],
 		})
 	);
-	const advisories = root.querySelector(".params-advisories");
+	const advisories = root.querySelector(".record-notes");
 	expect(advisories).not.toBeNull();
 	expect(advisories?.textContent).toContain("applied as an override as-is");
 	expect(advisories?.querySelector("li")?.className).toBe("hint");
 	// The record diagnostics live at the end of the Capabilities section (near
 	// the records they judge), never dangling after Pricing.
-	expect(advisories?.closest("section")?.querySelector("#inspector-section-caps")).not.toBeNull();
+	expect(advisories?.closest("section")?.id).toBe("inspector-caps-section");
 	// The real problem stays under the problems heading, not among the notes.
 	const text = root.textContent ?? "";
 	expect(text).toContain("Configuration problems in the matched records:");
@@ -1076,7 +1256,7 @@ test("the output-limit note follows outputLimitSource", () => {
 test("an empty-capabilities response says the state moved on instead of inventing values", () => {
 	const root = mountCapsAnswered(undefined);
 	expect(root.textContent).toContain("The model list changed");
-	expect(root.querySelector("table.params")).toBeNull();
+	expect(root.querySelector("table.resolution")).toBeNull();
 });
 
 test("the Diagnostics jump links open the merged panel scrolled to their section", () => {
@@ -1118,8 +1298,8 @@ test("the Diagnostics jump links open the merged panel scrolled to their section
 		fireClick(inspectLink);
 		expect(document.querySelector("[role='dialog']")).not.toBeNull();
 		expect(textOf(document.body, "#model-inspector-title")).toContain("Omni");
-		expect(landings).toContain("inspector-section-params");
-		expect((document.activeElement as HTMLElement | null)?.id).toBe("inspector-section-params");
+		expect(landings).toContain("inspector-params-section");
+		expect((document.activeElement as HTMLElement | null)?.id).toBe("inspector-params-section");
 	} finally {
 		Element.prototype.scrollIntoView = original;
 	}
@@ -1137,7 +1317,7 @@ test("the anchor stops re-scrolling for good once both feeds have answered", () 
 	try {
 		const props = { model, anchor: "caps" as const, onClose: () => {} };
 		const container = mount(<ModelInspector {...props} stateSeq={0} />);
-		expect(landings).toContain("inspector-section-caps");
+		expect(landings).toContain("inspector-caps-section");
 
 		const answer = () => {
 			respondTo(lastRequest("readModelParameters"), {

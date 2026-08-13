@@ -184,10 +184,13 @@ describe("the inspector's capabilities configure-jump", () => {
 
 		// The global-sourced field's edit goes to the capabilities record that
 		// owns the value; the entry-level field's edit opens the entry's form.
+		// Each label names its LAYER: the redesign moved every visible layer word
+		// into a badge, so for a screen reader this label is the only place the
+		// layer is stated.
 		const rowEdits = [...root.querySelectorAll<HTMLButtonElement>("button.row-edit")];
 		expect(rowEdits.map((button) => button.getAttribute("aria-label"))).toEqual([
-			'Edit record "gpt-5*"',
-			'Edit record "*"',
+			'Edit record "gpt-5*" in settings',
+			'Edit in server entry "Prod"',
 		]);
 		rowEdits[0]?.click();
 		expect(recordJumps).toEqual([
