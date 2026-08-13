@@ -8,7 +8,7 @@
  *
  * What it should photograph: every dollar figure whole, the qualifying fact
  * beside the percentage, and the meter as a full-width rule under the row -
- * with the budget-less rows showing no meter at all rather than an empty track,
+ * with the budget-less rows showing no axis at all rather than a bare one,
  * which would read as a measured zero.
  */
 import type { RenderFixture } from "../render-dashboard.ts";

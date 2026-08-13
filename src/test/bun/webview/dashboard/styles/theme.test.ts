@@ -28,8 +28,8 @@ const REQUIRED_UTILITIES = [
 	"text-muted-foreground",
 	// The spend meter's two halves. The axis is the only thing marking the
 	// 100% extent, and the forced-colors fill is the only thing keeping a
-	// meter from reading as 100% when backgrounds flatten to Canvas - both
-	// vanish silently if the scan stops emitting them.
+	// budgeted meter from reading as a measured zero when backgrounds flatten
+	// to Canvas - both vanish silently if the scan stops emitting them.
 	"border-axis",
 	"forced-colors:bg-[Highlight]",
 	// Secondary's resting affordance. It is the only thing that says a
@@ -393,9 +393,9 @@ test("severity as text resolves to the readable tier, as fills to the raw hue", 
 test("status fills darken on light too, because a meter is the reading", async () => {
 	// The text tier exempted fills on the grounds that a shape carries no
 	// reading burden. True of a dot beside a word; false of a 3px meter, which
-	// measured 2.0:1 on the light page - a healthy bar nobody can
-	// see. Fills need 3:1 rather than 4.5, so they darken more gently and keep
-	// more of the bright character the meter wants.
+	// measured 2.0:1 on the light page - a healthy bar nobody can see. Fills
+	// need 3:1 rather than 4.5, so they darken more gently and keep more of the
+	// bright character the meter wants.
 	const output = await compileTheme();
 	const source = readFileSync(themeEntry, "utf8");
 	for (const hue of ["ok", "warn", "err"] as const) {
@@ -405,6 +405,38 @@ test("status fills darken on light too, because a meter is the reading", async (
 		// the raw hue - that indirection is the whole fix.
 		expect(source).toContain(`--color-${hue}-fill: var(--${hue}-fill);`);
 	}
+});
+
+test("the meter's axis carries no alpha of its own", async () => {
+	// The whole reason this token exists rather than a foreground/55 utility is
+	// that a translucent axis recomposites over the row's hover wash and drops
+	// to 2.95:1. Nothing else pins that: REQUIRED_UTILITIES proves `border-axis`
+	// compiles and the component suite proves the class is on the element, so
+	// rewriting the value to an alpha - or to `transparent`, which reproduces
+	// the invisible track this replaced - leaves the whole suite green.
+	const output = await compileTheme();
+	// Both pins read the COMPILED stylesheet rather than the source text, which
+	// buys two things a source pin cannot: a declaration commented out still
+	// satisfies toContain against the source while the token goes undefined,
+	// and only the compiler settles which of several declarations wins.
+	expect(output).toContain("--axis: color-mix(in srgb, var(--foreground) 65%, var(--background));");
+	// `border-axis` paints through --color-axis, so an alpha introduced there
+	// evades the value pin entirely - and the compiler takes whichever
+	// --color-axis comes last, so a second one added below the first is the one
+	// the meter would paint with.
+	expect(output).toContain(".border-axis {\n    border-color: var(--axis);");
+	// Declared once across BOTH stylesheets, so neither a per-theme override nor
+	// a rule in dashboard.css can reintroduce an alpha under one palette while
+	// the pins above still pass. Comments come out first, so a commented-out
+	// declaration counts as the absent thing it is. Unanchored on purpose: an
+	// override indented with spaces, or inlined into a one-line block, is still
+	// an override. `--color-axis:` does not match it.
+	const declarations = [themeEntry, dashboardEntry].flatMap((entry) => [
+		...readFileSync(entry, "utf8")
+			.replace(/\/\*[\s\S]*?\*\//g, "")
+			.matchAll(/--axis:/g),
+	]);
+	expect(declarations).toHaveLength(1);
 });
 
 test("the status text aliases are declared on :root alone, never on body", () => {

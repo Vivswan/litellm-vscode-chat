@@ -98,12 +98,19 @@
 	--secondary-foreground: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
 	--muted: var(--vscode-textBlockQuote-background, var(--vscode-editorWidget-background));
 	/* The spend meter's baseline: the 100% extent, drawn as a 1px rule UNDER the
-	   bar rather than as a track behind it. Opaque on purpose - mixed toward the
-	   background rather than carried as an alpha - because a semi-transparent
-	   axis recomposites over the row's hover wash and loses contrast at exactly
-	   the moment someone is reading it (measured 2.95:1 hovered against 3.06 at
-	   rest, in light). Mixed at 65% it never drops below 3.5:1 in any state:
-	   3.95 at rest and 3.53 hovered in light, 5.10 and 4.29 in dark.
+	   bar rather than as a track behind it. It names no alpha OF ITS OWN - mixed
+	   toward the background rather than expressed as a translucent foreground -
+	   because a semi-transparent axis recomposites over the row's hover wash and
+	   loses contrast at exactly the moment someone is reading it (measured
+	   2.95:1 hovered against 3.06 at rest, in light). The alpha it inherits is
+	   0.65 * alpha(--foreground) + 0.35 * alpha(--background): translucent only
+	   if an input is, and never below 65% of --foreground's. Against the opaque
+	   palettes the forced-theme blocks pin, it never drops below 3.5:1 in any
+	   state: 3.95 at rest and 3.53 hovered in light, 5.10 and 4.29 in dark.
+	   Under `auto` the readings follow the host's own palette - identical on
+	   Light and Dark Modern, which is what those blocks resolve, and moved on a
+	   host whose editor.background is deliberately translucent (see the body
+	   rule above) and composites something else behind them.
 	   Not --border, which is a widget rule and measures 1.26:1 here. Nor a
 	   description-strength rule, which is what the advisory diagnostic uses for
 	   its own 3:1 problem: at 6.1:1 and up, a scale line out-shouts the smallest

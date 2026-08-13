@@ -79,8 +79,8 @@ const TONE_TEXT: Readonly<Record<"ok" | "warn" | "error", string>> = {
  * 3:1 carries it, while the same colour as a word has to clear AA and darkens
  * further for it. Both tiers move only on light surfaces, where the raw hues
  * were tuned for a dark editor - the healthy green measured 2.0:1 on the light
- * page before that correction. The `-fill` names are the explicit ones on purpose: `bg-ok` still
- * compiles and would paint the meter in the text colour.
+ * page before that correction. The `-fill` names are the explicit ones on
+ * purpose: `bg-ok` still compiles and would paint the meter in the text colour.
  */
 const TONE_FILL: Readonly<Record<"ok" | "warn" | "error", string>> = {
 	ok: "bg-ok-fill",
@@ -558,9 +558,9 @@ function UsageRow({
 				    chrome that ignores the theme tokens. It repeats the percentage
 				    beside it, so it is decoration and stays out of the a11y tree
 				    instead of stuffing a chart into the button's name. With no
-				    budget there is nothing to measure, and an empty track would
-				    read as a measured zero - so the column stays reserved and
-				    blank, and the tail says why. */}
+				    budget there is nothing to measure, and a bare axis would read
+				    as a measured zero - so the column stays reserved and blank,
+				    and the tail says why. */}
 				{/* A baseline, not a track. The unfilled remainder used to be a
 				    background the fill sat ON, and that made the two contrasts
 				    fight: lifting the track off the page pushes the fill toward it.
@@ -590,9 +590,11 @@ function UsageRow({
 				    forced-colors block - which could have won this too, being
 				    unlayered, so this is a placement choice and not a necessity.
 				    Some rule has to exist: backgrounds flatten to Canvas there while
-				    border-color forces to CanvasText, so an unhandled fill leaves a
-				    full-width axis under nothing, reading as 100% rather than as an
-				    absent meter. */}
+				    border-color forces to CanvasText, so an unhandled fill leaves the
+				    axis standing alone - and an axis with no fill above it is an empty
+				    meter, which is a measured zero on a row that has spend. That is
+				    the same reading the no-budget row must not produce, which is why
+				    it renders no axis at all. */}
 				<span
 					className={cn(
 						"usage-meter h-[3px] overflow-hidden rounded-xs",
