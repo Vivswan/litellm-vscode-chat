@@ -28,7 +28,7 @@
  */
 
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { RAIL_COLLAPSE_QUERY } from "../../../../webview/dashboard/rail";
 
@@ -61,8 +61,16 @@ function declared(pattern: RegExp, what: string): number {
 function reversalBand(): { readonly low: number; readonly high: number } {
 	const railWidth = declared(/\.rail \{[^}]*flex: 0 0 (\d+)px/s, "the rail's width");
 	const collapsedWidth = declared(/\.rail \{\s*flex: 0 0 (\d+)px;\s*\}/s, "the collapsed rail's width");
-	const panePadding = declared(/\.pane \{[^}]*padding: \d+px (\d+)px/s, "the pane's horizontal padding");
-	const collapseAt = declared(/@media \(width < (\d+)px\)/, "the rail's collapse width");
+	// Both anchored to the block they belong to. Unanchored, each takes the
+	// FIRST match in the file, so a second width media query or another padding
+	// pair would quietly re-point the arithmetic at someone else's rule.
+	const panePadding = declared(
+		/\.pane \{[^}]*container-name: pane[^}]*\}/s.source.length > 0
+			? /\.pane \{[^}]*padding: \d+px (\d+)px[^}]*container-name: pane/s
+			: /$^/,
+		"the pane's horizontal padding"
+	);
+	const collapseAt = declared(/@media \(width < (\d+)px\) \{[^@]*?\.rail \{/s, "the rail's collapse width");
 	// One border on the rail's trailing edge, at both widths.
 	const border = 1;
 	return {
@@ -74,17 +82,26 @@ function reversalBand(): { readonly low: number; readonly high: number } {
 /** Every pane threshold, wherever it is spelled. */
 function paneThresholds(): { readonly value: number; readonly source: string; readonly inclusive: boolean }[] {
 	const found: { value: number; source: string; inclusive: boolean }[] = [];
-	for (const match of stylesheet().matchAll(/@container pane \((max-width: (\d+)px|width < (\d+)px)\)/g)) {
-		const inclusive = match[2] !== undefined;
-		found.push({
-			value: Number(inclusive ? match[2] : match[3]),
-			source: "dashboard.css",
-			inclusive,
-		});
+	// Four spellings, not two: `width <= N` is what the bundler emits for
+	// `max-width`, so it is the form an author copying from dist would write,
+	// and an unnamed `@container` is a pane query too - the pane is the nearest
+	// container every one of these rules has.
+	for (const match of stylesheet().matchAll(
+		/@container (?:pane )?\((?:(max-width): (\d+)px|(width <=) (\d+)px|width < (\d+)px)\)/g
+	)) {
+		const inclusive = match[1] !== undefined || match[3] !== undefined;
+		const value = Number(match[2] ?? match[4] ?? match[5]);
+		found.push({ value, source: "dashboard.css", inclusive });
 	}
 	// The components' own halves: a row's track template has to sit with the
-	// component, because a utility always beats the stylesheet.
-	for (const file of ["settings.tsx", "usage.tsx", "servers.tsx", "rail.tsx", "models.tsx", "serverEditPage.tsx"]) {
+	// component, because a utility always beats the stylesheet. Read the tree
+	// rather than a list of files - a list is a list of the files somebody
+	// remembered, and the overlays (the inspector, the record editors) sit
+	// inside the pane too, so their container queries are pane queries.
+	for (const file of readdirSync(WEBVIEW, { recursive: true, encoding: "utf8" })) {
+		if (!file.endsWith(".tsx") && !file.endsWith(".ts")) {
+			continue;
+		}
 		const source = readFileSync(join(WEBVIEW, file), "utf8");
 		for (const match of source.matchAll(/@max-\[(\d+)px\]\/pane:/g)) {
 			found.push({ value: Number(match[1]), source: file, inclusive: false });
@@ -95,10 +112,23 @@ function paneThresholds(): { readonly value: number; readonly source: string; re
 
 test("no pane threshold sits inside the band the rail's collapse creates", () => {
 	const band = reversalBand();
-	// Sanity: the band is real and wide, or the arithmetic above stopped reading
-	// what it thinks it reads.
+	// Sanity on the EDGES, not the width: the width is the rail's two sizes
+	// subtracted from each other, so the padding and the collapse width cancel
+	// and a misread of either would pass a width check untouched. These bounds
+	// are wide enough to survive a redesign and tight enough to catch a regex
+	// that started matching something else.
+	expect(band.low).toBeGreaterThan(400);
+	expect(band.low).toBeLessThan(band.high);
+	expect(band.high).toBeLessThan(1400);
 	expect(band.high - band.low).toBeGreaterThan(100);
-	const inside = paneThresholds().filter((threshold) => threshold.value > band.low && threshold.value < band.high);
+	// `>= band.low` for an inclusive spelling: the band's floor is a width that
+	// occurs in BOTH regimes, so `max-width: <floor>` fires on one side of the
+	// collapse and not the other, while `width < <floor>` does not.
+	const inside = paneThresholds().filter((threshold) =>
+		threshold.inclusive
+			? threshold.value >= band.low && threshold.value < band.high
+			: threshold.value > band.low && threshold.value < band.high
+	);
 	expect(inside.map((threshold) => `${threshold.value} (${threshold.source})`)).toEqual([]);
 });
 

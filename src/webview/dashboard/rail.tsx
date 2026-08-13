@@ -121,8 +121,14 @@ function useCollapsedRail(): boolean {
 
 function coordinates(element: HTMLElement): CSSProperties {
 	const rect = element.getBoundingClientRect();
+	// x from the RAIL, y from the control. Measured from each control's own
+	// right edge, the tips started at different x - the tabs stretch the rail's
+	// width while the footer's buttons are 32px squares - so a column of tips
+	// stepped in and out as the pointer moved down it, and the footer's sat
+	// almost against the rail's border.
+	const rail = element.closest(".rail")?.getBoundingClientRect();
 	return {
-		"--rail-tip-left": `${rect.right + 8}px`,
+		"--rail-tip-left": `${(rail?.right ?? rect.right) + 8}px`,
 		"--rail-tip-top": `${rect.top + rect.height / 2}px`,
 	} as CSSProperties;
 }
