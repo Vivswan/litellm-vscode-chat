@@ -26,6 +26,17 @@ const REQUIRED_UTILITIES = [
 	"hover:text-err-strong",
 	"hover:bg-ghost-hover",
 	"text-muted-foreground",
+	// Secondary's resting affordance. It is the only thing that says a
+	// secondary button is a button before the pointer arrives, and the
+	// component suites run without a cascade, so they can only assert that the
+	// class name is on the element - if the scan stopped emitting the rule,
+	// every one of those buttons would go back to reading as prose with the
+	// whole suite green.
+	"underline",
+	"decoration-dotted",
+	"underline-offset-2",
+	"disabled:no-underline",
+	"aria-disabled:no-underline",
 	"border-input",
 	"bg-input-background",
 	"placeholder:text-input-placeholder",

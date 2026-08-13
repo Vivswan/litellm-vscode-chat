@@ -1,10 +1,10 @@
 /**
  * The Button primitive's class resolution. The vocabulary is typographic -
- * rank in weight and color, the fill only under the cursor - so the contracts
+ * rank in weight and colour, the fill only under the cursor - so the contracts
  * worth pinning are the ones a screenshot cannot show: that no variant fills
  * at rest, that disabled never gains a fill, that danger is a variant rather
- * than a caller's className, and that a caller's override still wins when one
- * is passed.
+ * than a caller's className, that a caller's override still wins when one is
+ * passed, and which buttons carry secondary's resting underline.
  */
 import { afterEach, expect, test } from "bun:test";
 import { Button } from "../../../../../webview/dashboard/ui/button";
@@ -16,6 +16,11 @@ const VARIANTS = ["default", "secondary", "danger"] as const;
 
 function classesOf(node: HTMLElement): readonly string[] {
 	return [...(node.querySelector("button")?.classList ?? [])];
+}
+
+/** Stands in for any icon: what matters here is only that it renders no text of its own. */
+function Icon() {
+	return <svg viewBox="0 0 16 16" aria-hidden="true" />;
 }
 
 test("no variant carries a fill at rest: the fill belongs to hover", () => {
@@ -112,4 +117,114 @@ test("a caller's hover colour still replaces the variant's instead of stacking w
 	// same modifier, or two rules survive and source order picks the colour.
 	const classes = classesOf(mount(<Button variant="secondary" className="hover:text-err" />));
 	expect(classes.filter((name) => /(^|:)hover:text-/.test(name))).toEqual(["hover:text-err"]);
+});
+
+test("secondary's resting underline follows the LABEL, however deeply the label is wrapped", () => {
+	// The affordance that makes a secondary button readable as a button before
+	// the pointer arrives, and the rule deciding it turns on what counts as a
+	// child - which both CSS and `Children.toArray` get wrong in their own way.
+	// `:has(> svg:only-child)` counts ELEMENT children, so an icon beside a
+	// label looks identical to an icon alone; `Children.toArray` treats a
+	// fragment as one opaque node, so a label inside one looks like no label.
+	//
+	// Every shape below is taken from a real call site, because those are the
+	// shapes that decide whether the affordance actually ships.
+	const underlined = (node: HTMLElement) => classesOf(node).includes("underline");
+
+	// A plain string label (usage "Refresh now", settings "Export settings").
+	expect(underlined(mount(<Button variant="secondary">Export settings</Button>))).toBe(true);
+	// Icon beside a string (diagnostics "Test connection", the rail's Report a bug).
+	expect(
+		underlined(
+			mount(
+				<Button variant="secondary">
+					<Icon /> Report a bug
+				</Button>
+			)
+		)
+	).toBe(true);
+	// The label inside a fragment (serverEditPage "Test connection", and every
+	// spinner branch: settings and usage while an action runs).
+	expect(
+		underlined(
+			mount(
+				<Button variant="secondary">
+					<>
+						<Icon /> Test connection
+					</>
+				</Button>
+			)
+		)
+	).toBe(true);
+	// The label inside an element (recordChain's matcher key in a <code>).
+	expect(
+		underlined(
+			mount(
+				<Button variant="secondary">
+					<code>gpt-5*</code>
+				</Button>
+			)
+		)
+	).toBe(true);
+	// A glyph alone still has nothing to underline, wrapped or not.
+	expect(
+		underlined(
+			mount(
+				<Button variant="secondary">
+					<Icon />
+				</Button>
+			)
+		)
+	).toBe(false);
+	expect(
+		underlined(
+			mount(
+				<Button variant="secondary">
+					<>
+						<Icon />
+					</>
+				</Button>
+			)
+		)
+	).toBe(false);
+	// Whitespace is not a label: JSX puts a space between an icon and its text,
+	// and that space must not make a glyph-only button look labelled.
+	expect(underlined(mount(<Button variant="secondary"> </Button>))).toBe(false);
+});
+
+test("the underline is secondary's alone, and a disabled button does not wear it", () => {
+	// default already reads as an action through the accent and the weight, and
+	// danger through its own colour; underlining them too would say the same
+	// thing twice and flatten the three ranks back into one.
+	for (const variant of ["default", "danger"] as const) {
+		expect(classesOf(mount(<Button variant={variant}>Label</Button>)), variant).not.toContain("underline");
+	}
+	// The same reasoning the file gives for disabled carrying no fill: a
+	// resting affordance that says "activate me" on a control that refuses the
+	// click is worse than none. Both forms, since aria-disabled exists exactly
+	// to refuse without leaving the tab order. Live at the zero-servers state
+	// of Refresh now and Test connection.
+	const classes = classesOf(mount(<Button variant="secondary">Label</Button>));
+	expect(classes).toContain("disabled:no-underline");
+	expect(classes).toContain("aria-disabled:no-underline");
+	// Dotted, and left to currentColor: this is the resting information that
+	// the words are a control, so it has to clear the 3:1 a graphical object
+	// needs, and half the muted token measures 2.2:1 light and 2.6:1 dark.
+	// currentColor is also count-link's, so the two cannot drift apart.
+	expect(classes).toContain("decoration-dotted");
+	expect(classes.filter((name) => name.startsWith("decoration-"))).toEqual(["decoration-dotted"]);
+	// It survives hover. Clearing can only be spelled as a transparent
+	// decoration colour, which forced colours repaint, so it would not clear
+	// for those readers at all - and a cleared line returns instantly while the
+	// fill takes 120ms to fade, so the two would desynchronise on the way out.
+	expect(classes.filter((name) => name.startsWith("hover:decoration-"))).toEqual([]);
+});
+
+test("a numeric label counts as a label, bigint included", () => {
+	// React renders numbers and bigints as their digits and React 19's
+	// ReactNode admits both, so a count rendered as `{n}` is as much a label as
+	// a word.
+	const underlined = (node: HTMLElement) => classesOf(node).includes("underline");
+	expect(underlined(mount(<Button variant="secondary">{42}</Button>))).toBe(true);
+	expect(underlined(mount(<Button variant="secondary">{9007199254740993n}</Button>))).toBe(true);
 });
