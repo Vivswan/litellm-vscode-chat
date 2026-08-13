@@ -250,59 +250,180 @@
 		outline: 1px solid var(--vscode-focusBorder);
 		outline-offset: -1px;
 	}
-	.table-scroll.windowed thead th {
-		position: sticky;
-		top: 0;
-		z-index: 1;
-		background: var(--vscode-editor-background, var(--vscode-panel-background));
+	/* Every model row shares one rhythm, windowed or not: two lines at a fixed
+		   height, so a long name or a missing price cannot make one row taller
+		   than its neighbours. The height doubles as the windowing arithmetic's
+		   anchor (the component measures the first rendered row's line, 46px as
+		   the fallback), so both render paths must keep the same rule. The one
+		   row allowed to break it is the open one, whose detail is measured. */
+	.model-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
 	}
-	/* Every models table shares one single-line rhythm, windowed or not:
-		   nowrap cells at a fixed 26px row height, so pricing never breaks
-		   mid-expression and row heights cannot vary with wrapping. The height
-		   doubles as the windowing arithmetic's anchor (the component measures
-		   the first rendered row, 26px as the fallback), so both render paths
-		   must keep the same rule. */
-	table.models tbody tr:not(.spacer) {
-		height: 26px;
+	.model-row-line {
+		box-sizing: border-box;
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		height: 46px;
+		padding: 0 8px;
+		border-bottom: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.15));
 	}
-	table.models tbody td {
-		padding-top: 0;
-		padding-bottom: 0;
-		white-space: nowrap;
+	.model-row:hover .model-row-line {
+		background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.08));
 	}
-	th button.sort {
+	/* The readable block IS the disclosure, so it takes the row's width and
+		   leaves the trailing controls their own space. Transparent and
+		   unstyled: it has to read as the row it is, not as a button drawn
+		   inside one. The chevron is the part that says it opens. */
+	button.model-disclosure {
+		flex: 1 1 auto;
+		min-width: 0;
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr);
+		align-items: center;
+		column-gap: 8px;
 		background: transparent;
 		border: none;
-		border-radius: 0;
+		border-radius: 2px;
 		padding: 0;
+		margin: 0;
 		cursor: pointer;
 		color: inherit;
 		font: inherit;
-		font-weight: 600;
+		text-align: left;
+	}
+	.model-chevron {
+		grid-row: 1 / span 2;
 		display: inline-flex;
-		align-items: center;
-		gap: 4px;
+		color: var(--muted-foreground);
+		transition: transform 120ms ease;
+	}
+	.model-row.is-open .model-chevron {
+		transform: rotate(90deg);
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.model-chevron {
+			transition: none;
+		}
+	}
+	button.model-disclosure:hover {
+		background: transparent;
+	}
+	button.model-disclosure:focus-visible {
+		outline: 1px solid var(--vscode-focusBorder);
+		outline-offset: 1px;
+	}
+	/* Both lines clip rather than wrap: the fixed row height is the windowing
+		   arithmetic's anchor, and a wrapped line would break it. */
+	.model-line-1,
+	.model-line-2 {
+		display: block;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	th button.sort:hover {
-		background: transparent;
+	.model-line-1 {
+		font-weight: 600;
 		color: var(--vscode-foreground);
+	}
+	.model-meta {
+		margin-left: 8px;
+		font-weight: 400;
+		font-size: 0.9em;
+		color: var(--muted-foreground);
+	}
+	/* The specs as one quiet sentence. Machine-shaped values (token counts and
+		   prices) keep the mono face and tabular figures so they line up down the
+		   list even without columns to align them. */
+	.model-line-2 {
+		font-size: 0.92em;
+		color: var(--muted-foreground);
+	}
+	.model-line-2 .model-limits,
+	.model-line-2 .model-price {
+		font-family: var(--vscode-editor-font-family, monospace);
+		font-variant-numeric: tabular-nums;
+		color: var(--vscode-foreground);
+	}
+	.model-row-actions {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex: 0 0 auto;
+	}
+	/* The open row keeps its line marked while the detail is out, so the pair
+		   reads as one block rather than as a row with something loose beneath it. */
+	.model-row.is-open .model-row-line {
+		background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.08));
+		border-bottom-color: transparent;
+	}
+	/* The row's detail: indented under the row it belongs to, with the accent
+		   edge tying it to its opener.
+		   Every pixel it contributes to the row's height must be INSIDE this box,
+		   because that height is measured (offsetHeight) and handed to the window
+		   arithmetic, which excludes margins. A vertical margin here would be real
+		   space the spacers never account for, so the row would jump by exactly
+		   that much the moment it scrolled out of the window. The breathing room
+		   below is padding for that reason, and the horizontal inset stays margin
+		   because only the height is load-bearing. */
+	.model-detail {
+		padding: 10px 14px 14px;
+		margin: 0 8px;
+		border-left: 2px solid var(--vscode-focusBorder);
+		border-radius: 0 3px 3px 0;
+		background: var(--vscode-textBlockQuote-background, rgba(128, 128, 128, 0.07));
+	}
+	/* Fields pack from the left and wrap, rather than sharing the row's full
+		   width between however many there happen to be: a model with three facts
+		   and one with nine both have to look deliberate, and stretched columns
+		   make the short case read as a half-finished panel. */
+	.model-detail-grid {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 10px 32px;
+		margin: 0;
+	}
+	.model-detail-field {
+		min-width: 140px;
+	}
+	.model-detail-field dt {
+		font-size: 0.85em;
+		color: var(--muted-foreground);
+	}
+	.model-detail-field dd {
+		margin: 2px 0 0;
+		color: var(--vscode-foreground);
+	}
+	.model-detail-field dd.mono {
+		font-family: var(--vscode-editor-font-family, monospace);
+		font-variant-numeric: tabular-nums;
+	}
+	.model-detail-note {
+		margin: 8px 0 0;
+		font-size: 0.85em;
+		color: var(--muted-foreground);
+	}
+	/* Sorting lives on the section header line now that the rows carry no
+		   headers of their own. */
+	.sort-control {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.sort-label {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		color: var(--muted-foreground);
 	}
 	.sort-arrow {
 		display: inline-flex;
 	}
 	.sort-arrow.desc {
 		transform: rotate(180deg);
-	}
-	/* Inactive columns keep a resting affordance: a dim arrow surfaces on the
-		   header's hover or focus, so sortability is discoverable before the
-		   first click. */
-	.sort-arrow.idle {
-		opacity: 0;
-	}
-	th:hover .sort-arrow.idle,
-	button.sort:focus-visible .sort-arrow.idle {
-		opacity: 0.45;
 	}
 	/* Per-row icon actions surface on the row's hover or when focus is inside
 		   it; opacity (not visibility) keeps them in the Tab order throughout.
@@ -311,6 +432,8 @@
 	button.icon-action {
 		opacity: 0;
 	}
+	.model-row:hover button.icon-action,
+	.model-row:focus-within button.icon-action,
 	tr:hover button.icon-action,
 	tr:focus-within button.icon-action,
 	button.icon-action:focus-visible {
@@ -562,44 +685,6 @@
 		   narrow viewport's horizontal scroll loses instead of the first. */
 	td.actions {
 		white-space: nowrap;
-	}
-	/* The models table's column budget: the default table must fit a ~960px
-		   content column with no horizontal scroll (scroll stays only as a fallback
-		   for extreme content); wider viewports relax the two ellipsis caps in the
-		   min-width block below. Right padding tighter than the generic 12px, none
-		   at all on the trailing action column, and an ellipsis cap on the two
-		   free-text columns; the capabilities tip carries the full list, and a
-		   trimmed name stays whole in the DOM and the inspector's heading. The
-		   inline-blocks align bottom because a baseline-aligned box with hidden
-		   overflow would ride up off the row's shared baseline. */
-	table.models th,
-	table.models td {
-		padding-right: 8px;
-	}
-	table.models th:last-child,
-	table.models td:last-child {
-		padding-right: 0;
-	}
-	/* The models table's name cell keeps its copy action on the name's line. */
-	td.model-name {
-		white-space: nowrap;
-	}
-	.model-name-text {
-		display: inline-block;
-		max-width: 17em;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		vertical-align: bottom;
-	}
-	td.caps .tip-wrap {
-		max-width: 100%;
-	}
-	.caps-text {
-		display: inline-block;
-		max-width: 10em;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		vertical-align: bottom;
 	}
 
 	.toolbar {
@@ -1649,10 +1734,6 @@
 		scroll-margin-top: 44px;
 		outline: none;
 	}
-	#models-section {
-		scroll-margin-top: 44px;
-		outline: none;
-	}
 
 	/* The section header line. This rule is what makes the header a LINE: the
 		   help glyph, the docs link, the meta text and the actions are siblings of
@@ -1750,35 +1831,9 @@
 		   width. Each breakpoint is the width where the remaining column set
 		   stops fitting the pane's content box, from the ~960px budget above:
 		   full set ~945px, then ~670, ~480, ~350. */
-	/* Wide viewports hand the freed space to the two ellipsis-capped columns
-		   first: the capabilities list uncramps before anything else spreads. */
-	@container pane (min-width: 1240px) {
-		.model-name-text {
-			max-width: 24em;
-		}
-		.caps-text {
-			max-width: 20em;
-		}
-	}
-	@container pane (min-width: 1560px) {
-		.caps-text {
-			max-width: 28em;
-		}
-	}
-	@container pane (max-width: 1000px) {
-		/* The most derivable columns go first: family is an ID prefix and the
-			   token limits are capability detail, while pricing and capabilities
-			   are what the table is scanned for. */
-		table.models .col-family,
-		table.models .col-input,
-		table.models .col-output {
-			display: none;
-		}
-	}
+	/* Wide viewports hand the freed space back to the rows, which simply have
+		   more room before their two lines clip. */
 	@container pane (max-width: 780px) {
-		table.models .model-name-text {
-			max-width: 14em;
-		}
 		/* The server row stacks into a card: its actions have no other route, so
 			   they must be reachable without horizontal scrolling, and 780px is where
 			   the full row stops fitting. Stacked, the actions stay visible rather
@@ -1802,17 +1857,12 @@
 			margin-top: 4px;
 		}
 	}
-	@container pane (max-width: 670px) {
-		table.models .col-caps {
-			display: none;
-		}
-	}
+	/* The row's second line is the first thing to run out of room, so a narrow
+		   pane lets the model's detail carry what no longer fits on it: the actions
+		   stay put and the sentence clips from its tail. */
 	@container pane (max-width: 560px) {
-		table.models .col-price {
-			display: none;
-		}
-		table.models .model-name-text {
-			max-width: 12em;
+		.model-row-actions button.icon-action {
+			opacity: 1;
 		}
 	}
 

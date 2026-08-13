@@ -28,7 +28,7 @@ The extension asks each configured server what it serves - on activation, when s
 
 ### Declared models
 
-Discovery is not the only way in: a server entry's `discovery.declared` lists exact model IDs to register even when the server cannot list them, and it goes inert for any ID discovery starts listing. Declaring a model and describing it are separate steps - a declared model's [capabilities](#capabilities) resolve from the same sources as every discovered model's, and it carries a "declared" badge in the [dashboard's models table](dashboard.md#models). The full story, including the one-object recipe for a discovery-less gateway, is at [Servers - Declared models](servers.md#declared-models).
+Discovery is not the only way in: a server entry's `discovery.declared` lists exact model IDs to register even when the server cannot list them, and it goes inert for any ID discovery starts listing. Declaring a model and describing it are separate steps - a declared model's [capabilities](#capabilities) resolve from the same sources as every discovered model's, and it says "declared" on its row in the [dashboard's models list](dashboard.md#models). The full story, including the one-object recipe for a discovery-less gateway, is at [Servers - Declared models](servers.md#declared-models).
 
 ### What registers
 
@@ -52,11 +52,11 @@ A model reported with a `providers` array of routes behind it registers differen
 - When no route supports tools, a single base entry registers instead, without the aggregates.
 - The aggregates advertise the strictest tool-capable route's token limits.
 
-These entries register under their own IDs - `<id>:cheapest`, `<id>:fastest`, and `<id>:<provider>` - and that suffixed ID is what [matcher keys](#model-matching) match, not the base ID the server reports: an exact key like `gpt-4` reaches none of them, while a glob (`gpt-4*`) covers the whole family. The [dashboard's models table](dashboard.md#models) copy action gives the exact suffixed ID.
+These entries register under their own IDs - `<id>:cheapest`, `<id>:fastest`, and `<id>:<provider>` - and that suffixed ID is what [matcher keys](#model-matching) match, not the base ID the server reports: an exact key like `gpt-4` reaches none of them, while a glob (`gpt-4*`) covers the whole family. The [dashboard's models list](dashboard.md#models) copy action gives the exact suffixed ID.
 
 ## Model matching
 
-The two model-keyed records - `models.parameters` and `models.capabilities`, global and per-entry alike - select models with the same key grammar. Keys match the model's exact ID as your server reports it (a route-backed model's entries match under their [suffixed IDs](#provider-routes-and-aggregates)), which the picker does not show; the [dashboard's models table](dashboard.md#models) has a per-row copy action for it.
+The two model-keyed records - `models.parameters` and `models.capabilities`, global and per-entry alike - select models with the same key grammar. Keys match the model's exact ID as your server reports it (a route-backed model's entries match under their [suffixed IDs](#provider-routes-and-aggregates)), which the picker does not show; the [dashboard's models list](dashboard.md#models) has a per-row copy action for it.
 
 **A key matches exactly unless it says otherwise:**
 
@@ -403,7 +403,7 @@ Any parameter left unset by all five falls through to your model provider's defa
 
 ## The picker
 
-Each server entry becomes a provider group in Copilot's model picker, named after its label, with the server's models under it. Entries show the provider name the server declares (model info's `litellm_provider`, or a provider route's name) and fall back to `litellm` when it declares none; the `(cheapest)` and `(fastest)` [aggregates](#provider-routes-and-aggregates) always show `litellm`. The [dashboard's models table](dashboard.md#models) shows the same data with the exact IDs.
+Each server entry becomes a provider group in Copilot's model picker, named after its label, with the server's models under it. Entries show the provider name the server declares (model info's `litellm_provider`, or a provider route's name) and fall back to `litellm` when it declares none; the `(cheapest)` and `(fastest)` [aggregates](#provider-routes-and-aggregates) always show `litellm`. The [dashboard's models list](dashboard.md#models) shows the same data with the exact IDs.
 
 ### Per-model configuration
 
@@ -423,7 +423,7 @@ Temperature stays free-form in `models.parameters` on purpose: the Configure men
 
 ### Pricing in the picker
 
-- The effective per-token costs - the server's report plus your overrides ([pricing](#pricing)) - are converted to the per-million-token figures the model picker and the [dashboard](dashboard.md)'s models table display, along with cache and long-context tier costs where declared.
+- The effective per-token costs - the server's report plus your overrides ([pricing](#pricing)) - are converted to the per-million-token figures the model picker and the [dashboard](dashboard.md)'s models list display, along with cache and long-context tier costs where declared.
 - A *server-reported* cost pair of exactly zero is treated as undeclared rather than free, because LiteLLM stamps zeros onto models with no pricing data. A zero pair you wrote yourself displays as free - $0 in / $0 out, with the cheapest badge.
 - The cheapest/fastest aggregates carry no *server* pricing - there the proxy's routing decides what a request actually costs - though a user cost record matching the aggregate's [suffixed ID](#provider-routes-and-aggregates) still prices it.
 
@@ -453,7 +453,7 @@ Beyond plain text, four things can come back in (or about) a reply:
 
 ## Inspectors
 
-Every rule on this page is observable. The [dashboard](dashboard.md)'s models table gives each model an Inspect action opening one panel with two provenance sections:
+Every rule on this page is observable. The [dashboard](dashboard.md)'s models list gives each model an Inspect action opening one panel with two provenance sections:
 
 - **Parameters** ([effective parameters](dashboard.md#effective-parameters)): every parameter that would go out, its resolved value, and the source that set it - which record, which matcher key - with shadowed values shown beneath the winner, plus the `max_tokens` the request would carry and why.
 - **Capabilities** ([effective capabilities](dashboard.md#effective-capabilities)): every capability field with its resolved value and source - an entry or global record key, an `_openrouter_model` derivation, the server's report, a `_fallback` fill, a catalog match, or the built-in default - again with the shadowed values beneath.

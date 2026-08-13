@@ -14,12 +14,14 @@ afterEach(() => {
 	cleanup();
 });
 
-test("renders one row per model with formatted tokens, pricing, capabilities, and the full pricing detail tip", () => {
+test("a row reads as two lines - name and meta, then a spec sentence - with the exact figures in its detail", () => {
 	const priced = makeModel({
 		id: "gpt-priced",
+		rawId: "gpt-priced-raw",
 		name: "GPT Priced",
 		maxInputTokens: 128000,
 		maxOutputTokens: 16384,
+		outputLimitDeclared: true,
 		inputCost: 2.5,
 		outputCost: 10.1234,
 		cacheReadCost: 0.256789,
@@ -36,44 +38,100 @@ test("renders one row per model with formatted tokens, pricing, capabilities, an
 	const bare = makeModel({ id: "bare", name: "Bare", toolCalling: false, imageInput: false });
 	const root = mount(<ModelsSection models={[priced, bare]} serverCount={1} onInspect={() => {}} />);
 
-	const rows = Array.from(root.querySelectorAll("tbody tr"));
+	const rows = Array.from(root.querySelectorAll("li.model-row"));
 	expect(rows.length).toBe(2);
 
-	// The pricing cell's tip text lives inside the cell, so read cell text
-	// from the cells' first text nodes and the pricing from its own span.
-	const cells = Array.from(rows[0]?.querySelectorAll("td") ?? []).map((cell) =>
-		(cell.querySelector(".tip-wrap > span")?.textContent ?? cell.textContent ?? "").trim()
-	);
-	// toLocaleString is the formatter under test; compute the expectation the same way.
-	expect(cells).toContain((128000).toLocaleString());
-	expect(cells).toContain((16384).toLocaleString());
+	// The second line is one readable sentence: limits, price, capabilities.
+	// Token counts read compact here - the exact figures are in the detail.
+	const line2 = (row: Element) => (row.querySelector(".model-line-2")?.textContent ?? "").trim();
+	expect(rows[0]?.querySelector(".model-limits")?.textContent).toBe("128k context, 16k out");
 	// Three significant digits, no binary-fraction noise.
-	expect(cells).toContain("$2.5 in / $10.1 out");
-	expect(cells).toContain("tools, vision, caching, reasoning");
+	expect(rows[0]?.querySelector(".model-price")?.textContent).toBe("$2.5 in / $10.1 out");
+	expect(line2(rows[0] as Element)).toContain("per M");
 
-	// The cache and long-context tiers render in a hover tip element (native
-	// title attributes do not show inside the webview host).
-	const pricingTip = rows[0]?.querySelector("td .tip-wrap .help-tip");
-	expect(pricingTip?.textContent).toBe(
-		"USD per million tokens, cache read $0.257, cache write $3.13, long-context tier: $5 in, $20 out, cache read $0.5, cache write $6.25"
+	// The row prints only what the model CAN do. It does not strike through the
+	// rest: a strikethrough means SUPERSEDED everywhere in this dashboard (the
+	// inspector's chain strikes a value a higher-precedence record beat, and
+	// that mark is accessibility-pinned there), so one mark cannot also mean
+	// "cannot". Absence carries it here and the detail answers explicitly.
+	expect(rows[0]?.querySelector(".model-caps")?.textContent).toBe("tools, vision, caching, reasoning");
+	expect(rows[0]?.querySelectorAll("del").length).toBe(0);
+
+	// What is drawn and what is spoken are the same string now, so there is no
+	// aria-hidden visual half and no visually-hidden spoken half to disagree.
+	const caps = rows[0]?.querySelector(".model-caps") as HTMLElement;
+	expect(caps.getAttribute("aria-hidden")).toBeNull();
+	expect(rows[0]?.querySelector(".model-line-2 .sr-only")).toBeNull();
+
+	// The bare model: no price at all says so in words rather than with a dash
+	// nobody can read, and a model that can do none of the four prints no
+	// capability clause at all rather than an empty one.
+	expect(line2(rows[1] as Element)).toContain("price unknown");
+	expect(rows[1]?.querySelector(".model-caps")).toBeNull();
+	expect(rows[1]?.querySelectorAll("del").length).toBe(0);
+
+	// The exact limits and the cache and long-context tiers live in the row's
+	// detail. They used to be reachable only by pointing at the price cell, and
+	// the exact token counts were not shown at all.
+	fireClick(rows[0]?.querySelector("button.model-disclosure") as HTMLElement);
+	const detail = rows[0]?.querySelector(".model-detail") as HTMLElement;
+	const field = (label: string) =>
+		Array.from(detail.querySelectorAll(".model-detail-field"))
+			.find((entry) => entry.querySelector("dt")?.textContent === label)
+			?.querySelector("dd")?.textContent;
+	// toLocaleString is the formatter under test; compute the expectation the same way.
+	expect(field("Max input tokens")).toBe((128000).toLocaleString());
+	expect(field("Max output tokens")).toBe((16384).toLocaleString());
+	// The RAW id: what a request's `model` field carries, which is not always
+	// what the row is titled with and was previously readable only from the
+	// copy button's accessible name.
+	expect(field("Model ID")).toBe("gpt-priced-raw");
+	expect(field("Cache read")).toBe("$0.257");
+	expect(field("Cache write")).toBe("$3.13");
+	expect(field("Long-context input")).toBe("$5");
+	expect(field("Long-context output")).toBe("$20");
+	expect(field("Long-context cache read")).toBe("$0.5");
+	expect(field("Long-context cache write")).toBe("$6.25");
+	expect(detail.textContent).toContain("USD per million tokens");
+
+	// The negative answer lives here, explicitly, named and valued the way the
+	// inspector's capabilities table names and values it.
+	expect(field("Tool calling")).toBe("yes");
+	expect(field("Vision")).toBe("yes");
+	expect(field("Prompt caching")).toBe("yes");
+	expect(field("Reasoning")).toBe("yes");
+});
+
+test("a capability the model lacks is answered in the detail, since the row only prints what it has", () => {
+	const bare = makeModel({ id: "bare", toolCalling: true, imageInput: false, promptCaching: false, reasoning: false });
+	const root = mount(<ModelsSection models={[bare]} serverCount={1} onInspect={() => {}} />);
+	expect(root.querySelector(".model-caps")?.textContent).toBe("tools");
+
+	fireClick(root.querySelector("button.model-disclosure") as HTMLElement);
+	const detail = root.querySelector(".model-detail") as HTMLElement;
+	const answer = (label: string) =>
+		Array.from(detail.querySelectorAll(".model-detail-field"))
+			.find((entry) => entry.querySelector("dt")?.textContent === label)
+			?.querySelector("dd")?.textContent;
+	expect(answer("Tool calling")).toBe("yes");
+	expect(answer("Vision")).toBe("no");
+	expect(answer("Prompt caching")).toBe("no");
+	expect(answer("Reasoning")).toBe("no");
+	// Never by drawing a line through it; that mark belongs to the inspector.
+	expect(detail.querySelectorAll("del").length).toBe(0);
+});
+
+test("an undeclared output limit says so where the number is read", () => {
+	// The extension picked that number and it caps requests, which is worth
+	// saying next to it; a declared limit needs no such note.
+	const assumed = makeModel({ id: "assumed", maxOutputTokens: 4096, outputLimitDeclared: false });
+	const root = mount(<ModelsSection models={[assumed]} serverCount={1} onInspect={() => {}} />);
+	fireClick(root.querySelector("button.model-disclosure") as HTMLElement);
+	const detail = root.querySelector(".model-detail") as HTMLElement;
+	const maxOutput = Array.from(detail.querySelectorAll(".model-detail-field")).find(
+		(entry) => entry.querySelector("dt")?.textContent === "Max output tokens"
 	);
-
-	// The capabilities cell truncates with a CSS ellipsis, so its tip must
-	// carry the full list, focus-reachable (the trimmed tail is invisible
-	// without a pointer): the wrapper joins the Tab order and names the tip
-	// as its description. A model with no capabilities renders no tip shell.
-	const capsWrap = rows[0]?.querySelector("td.caps .tip-wrap") as HTMLElement;
-	const capsTip = capsWrap.querySelector(".help-tip") as HTMLElement;
-	expect(capsTip.textContent).toBe("tools, vision, caching, reasoning");
-	expect(capsWrap.getAttribute("tabindex")).toBe("0");
-	expect(capsWrap.getAttribute("aria-describedby")).toBe(capsTip.id);
-	expect(rows[1]?.querySelector("td.caps .tip-wrap")).toBeNull();
-
-	const bareCells = Array.from(rows[1]?.querySelectorAll("td") ?? []).map((cell) =>
-		(cell.querySelector(".tip-wrap > span")?.textContent ?? cell.textContent ?? "").trim()
-	);
-	expect(bareCells).toContain("-");
-	expect(bareCells).toContain("");
+	expect(maxOutput?.querySelector("dd")?.textContent).toBe(`${(4096).toLocaleString()} (assumed)`);
 });
 
 test("filter narrows rows by name, id, family, and server label and updates 'showing N of M'", () => {
@@ -84,7 +142,9 @@ test("filter narrows rows by name, id, family, and server label and updates 'sho
 	const root = mount(<ModelsSection models={models} serverCount={2} onInspect={() => {}} />);
 	const filter = root.querySelector("input[aria-label='Filter models']") as HTMLInputElement;
 	const visibleNames = () =>
-		Array.from(root.querySelectorAll("tbody tr")).map((row) => (row.querySelector("td")?.textContent ?? "").trim());
+		Array.from(root.querySelectorAll("li.model-row")).map((row) =>
+			(row.querySelector(".model-name-text")?.textContent ?? "").trim()
+		);
 
 	expect(visibleNames()).toEqual(["Omni", "Sonnet"]);
 
@@ -103,16 +163,22 @@ test("filter narrows rows by name, id, family, and server label and updates 'sho
 	expect(root.textContent).toContain("No models match the filter.");
 });
 
-test("the server column appears only when serverCount > 1, keyed to the count rather than distinct labels", () => {
+test("the server names itself on the row only when serverCount > 1, keyed to the count rather than distinct labels", () => {
+	// The rows carry no column headers, so the server rides in the row's meta
+	// line - and it is still keyed to the count, because two groups can share
+	// one label and their models must stay attributable.
 	const models = [makeModel({ serverLabel: "Shared" }), makeModel({ id: "b", serverLabel: "Shared" })];
 	const single = mount(<ModelsSection models={models} serverCount={1} onInspect={() => {}} />);
-	const singleHeaders = Array.from(single.querySelectorAll("th")).map((th) => (th.textContent ?? "").trim());
-	expect(singleHeaders).not.toContain("Server");
+	expect(single.querySelector(".model-meta")?.textContent).toBe("gpt");
 
-	// Two groups can share one label; their models must stay attributable.
 	const dual = mount(<ModelsSection models={models} serverCount={2} onInspect={() => {}} />);
-	const dualHeaders = Array.from(dual.querySelectorAll("th")).map((th) => (th.textContent ?? "").trim());
-	expect(dualHeaders).toContain("Server");
+	expect(dual.querySelector(".model-meta")?.textContent).toBe("gpt - Shared");
+
+	// It is also what there is to sort by: no second server, no Server key.
+	const sortKeys = (root: HTMLElement) =>
+		Array.from(root.querySelectorAll(".sort-control option")).map((option) => (option.textContent ?? "").trim());
+	expect(sortKeys(single)).not.toContain("Server");
+	expect(sortKeys(dual)).toContain("Server");
 });
 
 test("a server scope narrows the rows before the text filter and renders as a clearable chip", () => {
@@ -131,7 +197,9 @@ test("a server scope narrows the rows before the text filter and renders as a cl
 		/>
 	);
 	const visibleNames = () =>
-		Array.from(root.querySelectorAll("tbody tr")).map((row) => (row.querySelector("td")?.textContent ?? "").trim());
+		Array.from(root.querySelectorAll("li.model-row")).map((row) =>
+			(row.querySelector(".model-name-text")?.textContent ?? "").trim()
+		);
 
 	// The scope alone: only Prod's models, and the denominator follows it.
 	expect(visibleNames()).toEqual(["Omni", "Omni B"]);
@@ -149,7 +217,11 @@ test("a server scope narrows the rows before the text filter and renders as a cl
 	expect(cleared).toBe(1);
 });
 
-test("a declared model wears the declared badge with its explanatory tip; discovered models do not", () => {
+test("a declared model says so on its row, and its detail explains what that means; discovered models do not", () => {
+	// It used to be a badge with a hover tip. Being declared is the same kind
+	// of fact as the family it sits beside, so it reads as part of the meta
+	// line, and the explanation moved into the detail - where it is readable
+	// without a pointer rather than only on hover.
 	const root = mount(
 		<ModelsSection
 			models={[makeModel({ id: "my-model", name: "Mine", declared: true }), makeModel({ id: "gpt", name: "Found" })]}
@@ -157,12 +229,16 @@ test("a declared model wears the declared badge with its explanatory tip; discov
 			onInspect={() => {}}
 		/>
 	);
-	const rows = Array.from(root.querySelectorAll("tbody tr"));
-	const badges = rows.map((row) => row.querySelector(".model-name [data-slot='badge']")?.textContent ?? null);
+	const rows = Array.from(root.querySelectorAll("li.model-row"));
 	// Unsorted, so the rows keep the given order: Mine first, Found second.
-	expect(badges).toEqual(["declared", null]);
-	const tip = rows[0]?.querySelector(".model-name .tip-wrap .help-tip");
-	expect(tip?.textContent).toContain("discovery.declared");
+	expect(rows.map((row) => row.querySelector(".model-meta")?.textContent)).toEqual(["gpt, declared", "gpt"]);
+
+	fireClick(rows[0]?.querySelector("button.model-disclosure") as HTMLElement);
+	expect(rows[0]?.querySelector(".model-detail")?.textContent).toContain("discovery.declared");
+
+	// The discovered model's detail has nothing to say about it.
+	fireClick(rows[1]?.querySelector("button.model-disclosure") as HTMLElement);
+	expect(rows[1]?.querySelector(".model-detail")?.textContent).not.toContain("discovery.declared");
 });
 
 test("the Inspect action reports the clicked row's full identity to the inspector owner", () => {

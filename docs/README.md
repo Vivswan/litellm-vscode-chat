@@ -33,7 +33,7 @@ In reading order:
 2. [Servers](servers.md) - the `servers` setting in full: entry fields, the three auth forms, secret storage, per-server model configuration, the sync lifecycle, adoption, and Settings Sync.
 3. [Models](models.md) - how models appear in the picker, matcher keys and inheritance, capabilities, parameters, the per-model picker configuration, and the effective-values inspectors.
 4. [Usage](usage.md) - spend and budget tracking: where budgets come from, alerts, the status bar item, and the dashboard's usage panel.
-5. [Dashboard](dashboard.md) - a tour of the panel: the server list and form, the models table, the settings editors, and diagnostics.
+5. [Dashboard](dashboard.md) - a tour of the panel: the server list and form, the models list, the settings editors, and diagnostics.
 6. [Settings](settings.md) - the complete reference: every setting, its default, and the rename table for configs from older versions.
 7. [Troubleshooting](troubleshooting.md) - symptom-indexed: what you see, what it means, how to fix it.
 8. [Development](development.md) - building from source and the local Docker stack for testing against a real LiteLLM proxy.

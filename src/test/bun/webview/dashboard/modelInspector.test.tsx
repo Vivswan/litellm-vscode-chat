@@ -137,10 +137,10 @@ function mountCapsAnswered(
 	return container;
 }
 
-test("the models table row carries ONE quiet Inspect action that opens the merged dialog and posts both reads", () => {
+test("the models list row carries ONE quiet Inspect action that opens the merged dialog and posts both reads", () => {
 	mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()], models: [model] })));
-	const row = document.querySelector("table.models tbody tr") as HTMLElement;
+	const row = document.querySelector("li.model-row") as HTMLElement;
 	expect(row.querySelectorAll("button.params-action").length).toBe(1);
 	const action = document.querySelector("button[aria-label='Inspect Omni on Prod']");
 	expect(action).not.toBeNull();

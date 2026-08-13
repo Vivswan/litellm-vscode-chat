@@ -130,8 +130,11 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	// WP4: webview component presenters that resolve l10n.t at call time.
 	"relativeTime",
 	"formatPricing",
-	"pricingDetail",
-	"capabilities",
+	"pricingNote",
+	"metaLine",
+	"detailFields",
+	"fieldLabel",
+	"capabilityList",
 	"externalTip",
 	"locationName",
 	"sectionLabel",

@@ -68,11 +68,12 @@ Edit on an external row is the adopt action; see [Servers](servers.md#external-s
 
 ## Models
 
-Every model your servers report, as registered with Copilot Chat, in a sortable and filterable table with token limits, pricing, and capability notes. Where the columns come from, what each capability gates, and why a model might be missing: [Models](models.md#how-models-appear).
+Every model your servers report, as registered with Copilot Chat, one two-line row each: the name and its family and server, then a quiet sentence of specs - token limits, price per million, and what the model can do. Sort and filter controls sit above the list. Where those values come from, what each capability gates, and why a model might be missing: [Models](models.md#how-models-appear).
 
 - Clicking a server's model count on the Servers page opens this one scoped to that server; a chip beside the filter box shows the active scope and clears it.
 - Each row carries a copy action (visible on hover) for the model's exact ID - the string your [matcher keys](models.md#model-matching) match against.
-- Models registered by an entry's [declared list](servers.md#declared-models) rather than discovered on the server carry a "declared" badge.
+- Clicking a row opens its detail in place - the exact token limits, the raw model ID, every price tier including cache and long-context, and a yes or no for each capability. One row is open at a time and the page does not navigate.
+- Models registered by an entry's [declared list](servers.md#declared-models) rather than discovered on the server say "declared" beside their family, and their detail explains what that means.
 - Lists are cached ([`discovery.cacheTtl`](settings.md#reference)); the Sync models button asks the servers again now.
 
 ### Effective parameters

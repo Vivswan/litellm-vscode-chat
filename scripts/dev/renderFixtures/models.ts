@@ -2,7 +2,7 @@
  * The Models destination, which is its own page rather than the lower half of
  * the servers view. Enough rows to cross the windowing threshold, so the shot
  * covers the virtualized path (spacer rows, sticky header) and not just the
- * simple one, plus a declared badge and an unpriced row.
+ * simple one, plus a declared model and an unpriced row.
  */
 import type { DashboardModel } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";

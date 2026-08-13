@@ -1,14 +1,15 @@
 /**
- * The models table's interactive layer: column sorting (toggle, aria-sort,
- * absent values last), the windowed rendering past the row threshold with its
- * spacer arithmetic, and the per-row copy-ID action.
+ * The models list's interactive layer: sorting (key, direction, absent values
+ * last), the windowed rendering past the row threshold with its spacer
+ * arithmetic including one open row's measured detail, and the per-row copy-ID
+ * action.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import type { DashboardModel } from "../../../../dashboard/viewModels";
-import { ModelsSection } from "../../../../webview/dashboard/models";
+import { DEFAULT_ROW_HEIGHT, ModelsSection } from "../../../../webview/dashboard/models";
 import { makeModel } from "../fixtures";
-import { cleanup, fireClick, fireInput, mount, resetPosted } from "../harness";
+import { cleanup, fireClick, fireInput, fireSelect, mount, resetPosted } from "../harness";
 
 beforeEach(() => {
 	resetPosted();
@@ -17,45 +18,58 @@ afterEach(() => {
 	cleanup();
 });
 
-function headerButton(root: ParentNode, label: string): HTMLButtonElement {
-	const button = Array.from(root.querySelectorAll("th button.sort")).find(
-		(candidate) => (candidate.textContent ?? "").trim() === label
-	);
-	if (button === undefined) {
-		throw new Error(`no sortable header ${label}`);
-	}
-	return button as HTMLButtonElement;
+/** happy-dom lays nothing out, so unless a test stubs offsetHeight the component's fallback is the height in play. */
+const ROW = DEFAULT_ROW_HEIGHT;
+
+function sortSelect(root: ParentNode): HTMLSelectElement {
+	return root.querySelector(".sort-control select") as HTMLSelectElement;
+}
+
+function sortDirection(root: ParentNode): HTMLButtonElement {
+	return root.querySelector("button.sort-dir") as HTMLButtonElement;
 }
 
 function firstColumn(root: ParentNode): string[] {
-	return Array.from(root.querySelectorAll("tbody tr:not(.spacer)")).map((row) =>
-		(row.querySelector("td")?.textContent ?? "").trim()
+	return Array.from(root.querySelectorAll("li.model-row")).map((row) =>
+		(row.querySelector(".model-name-text")?.textContent ?? "").trim()
 	);
 }
 
-test("clicking a header sorts ascending, again descending, and aria-sort tracks the active column", () => {
+test("the sort control picks the key and the toggle picks the direction, and both announce the state", () => {
+	// The rows carry no column headers to click, so sorting moved onto the
+	// section header line. aria-sort went with the headers; the announcement is
+	// now the labelled control's own value plus the toggle's pressed state.
 	const models = [
 		makeModel({ id: "b", name: "Bravo", maxInputTokens: 200 }),
 		makeModel({ id: "c", name: "Charlie", maxInputTokens: 100 }),
 		makeModel({ id: "a", name: "Alpha", maxInputTokens: 300 }),
 	];
 	const root = mount(<ModelsSection models={models} serverCount={1} onInspect={() => {}} />);
+	// Unsorted is a real choice - the order the servers reported - so it is a
+	// value of the control, and there is no direction to flip while it holds.
+	expect(sortSelect(root).value).toBe("discovered");
+	expect(sortDirection(root).disabled).toBe(true);
 	expect(firstColumn(root)).toEqual(["Bravo", "Charlie", "Alpha"]);
 
-	const modelHeader = headerButton(root, "Model");
-	fireClick(modelHeader);
+	fireSelect(sortSelect(root), "name");
 	expect(firstColumn(root)).toEqual(["Alpha", "Bravo", "Charlie"]);
-	expect(modelHeader.closest("th")?.getAttribute("aria-sort")).toBe("ascending");
+	expect(sortDirection(root).disabled).toBe(false);
+	expect(sortDirection(root).getAttribute("aria-pressed")).toBe("false");
 
-	fireClick(modelHeader);
+	fireClick(sortDirection(root));
 	expect(firstColumn(root)).toEqual(["Charlie", "Bravo", "Alpha"]);
-	expect(modelHeader.closest("th")?.getAttribute("aria-sort")).toBe("descending");
+	expect(sortDirection(root).getAttribute("aria-pressed")).toBe("true");
 
-	// Switching columns starts ascending on the new column and clears the old aria-sort.
-	fireClick(headerButton(root, "Input tokens"));
+	// A new key starts ascending again rather than inheriting the old direction.
+	fireSelect(sortSelect(root), "input");
 	expect(firstColumn(root)).toEqual(["Charlie", "Bravo", "Alpha"]);
-	expect(modelHeader.closest("th")?.getAttribute("aria-sort")).toBeNull();
-	expect(headerButton(root, "Input tokens").closest("th")?.getAttribute("aria-sort")).toBe("ascending");
+	expect(sortSelect(root).value).toBe("input");
+	expect(sortDirection(root).getAttribute("aria-pressed")).toBe("false");
+
+	// And the reader can get back to the reported order.
+	fireSelect(sortSelect(root), "discovered");
+	expect(firstColumn(root)).toEqual(["Bravo", "Charlie", "Alpha"]);
+	expect(sortDirection(root).disabled).toBe(true);
 });
 
 test("models without a price sort last in both directions", () => {
@@ -65,10 +79,9 @@ test("models without a price sort last in both directions", () => {
 		makeModel({ id: "dear", name: "Dear", inputCost: 10 }),
 	];
 	const root = mount(<ModelsSection models={models} serverCount={1} onInspect={() => {}} />);
-	const price = headerButton(root, "Pricing ($/M)");
-	fireClick(price);
+	fireSelect(sortSelect(root), "price");
 	expect(firstColumn(root)).toEqual(["Cheap", "Dear", "Unpriced"]);
-	fireClick(price);
+	fireClick(sortDirection(root));
 	expect(firstColumn(root)).toEqual(["Dear", "Cheap", "Unpriced"]);
 });
 
@@ -95,123 +108,323 @@ test("past the threshold the table windows: spacers stand in for off-screen rows
 	expect(rendered[0]).toBe("Model 000");
 	// Only the trailing spacer at the top of the list; spacers are layout
 	// filler and stay out of the accessibility tree.
-	expect(root.querySelectorAll("tbody tr.spacer").length).toBe(1);
-	expect(root.querySelector("tbody tr.spacer")?.getAttribute("role")).toBe("presentation");
+	expect(root.querySelectorAll("li.spacer").length).toBe(1);
+	expect(root.querySelector("li.spacer")?.getAttribute("role")).toBe("presentation");
 
-	scrollTo(container, 26 * 100);
+	scrollTo(container, ROW * 100);
 	const scrolled = firstColumn(root);
 	expect(scrolled).not.toContain("Model 000");
 	expect(scrolled).toContain("Model 100");
-	expect(root.querySelectorAll("tbody tr.spacer").length).toBe(2);
+	expect(root.querySelectorAll("li.spacer").length).toBe(2);
 
 	// The boundary: scrolled to the very end, the last row renders and only
 	// the leading spacer remains.
-	scrollTo(container, 26 * 200);
+	scrollTo(container, ROW * 200);
 	const atEnd = firstColumn(root);
 	expect(atEnd[atEnd.length - 1]).toBe("Model 199");
-	expect(root.querySelectorAll("tbody tr.spacer").length).toBe(1);
+	expect(root.querySelectorAll("li.spacer").length).toBe(1);
 });
 
 test("sorting while scrolled deep re-fills the window from the new order without leaving range", () => {
 	const root = mount(<ModelsSection models={manyModels(200)} serverCount={1} onInspect={() => {}} />);
 	const container = root.querySelector(".table-scroll") as HTMLElement;
-	scrollTo(container, 26 * 150);
+	scrollTo(container, ROW * 150);
 	expect(firstColumn(root)).toContain("Model 150");
 
 	// Descending by name: the window at the same scroll offset now shows the
 	// reversed order's slice, still fully in range with both spacers.
-	fireClick(headerButton(root, "Model"));
-	fireClick(headerButton(root, "Model"));
+	fireSelect(sortSelect(root), "name");
+	fireClick(sortDirection(root));
 	const rows = firstColumn(root);
 	expect(rows.length).toBeGreaterThan(0);
 	const sortedDesc = [...rows].sort().reverse();
 	expect(rows).toEqual(sortedDesc);
-	// scrollTop 150*26 with 200 rows: the window sits mid-list, spacers on both sides.
-	expect(root.querySelectorAll("tbody tr.spacer").length).toBe(2);
+	// scrollTop 150 rows down a 200-row list: the window sits mid-list, spacers on both sides.
+	expect(root.querySelectorAll("li.spacer").length).toBe(2);
 	expect(rows).toContain("Model 059"); // 200 - 1 - 140 = 59: the descending row near index 140
 });
 
 test("a filter that shrinks the list under a deep scroll clamps the window back into range", () => {
 	const root = mount(<ModelsSection models={manyModels(200)} serverCount={1} onInspect={() => {}} />);
 	const container = root.querySelector(".table-scroll") as HTMLElement;
-	scrollTo(container, 26 * 150);
+	scrollTo(container, ROW * 150);
 
 	fireInput(root.querySelector("input[aria-label='Filter models']") as HTMLInputElement, "Model 00");
 	// 10 matches (000..009): below the threshold, all render, no spacers.
 	expect(firstColumn(root).length).toBe(10);
-	expect(root.querySelectorAll("tbody tr.spacer").length).toBe(0);
+	expect(root.querySelectorAll("li.spacer").length).toBe(0);
 });
 
 test("under the threshold every row renders with no scrollport", () => {
 	const root = mount(<ModelsSection models={manyModels(50)} serverCount={1} onInspect={() => {}} />);
 	expect(firstColumn(root).length).toBe(50);
 	expect((root.querySelector(".table-scroll") as HTMLElement).classList.contains("windowed")).toBe(false);
-	expect(root.querySelectorAll("tbody tr.spacer").length).toBe(0);
+	expect(root.querySelectorAll("li.spacer").length).toBe(0);
 });
 
-test("the copy button lives inside the model-name cell; the trailing column holds only the Inspect action", () => {
-	// The copy action moved from a trailing actions column into the first
-	// cell, beside the name it copies; the header row and every data row must
-	// agree on the column set, with the quiet Inspect action as the last column.
-	const root = mount(
-		<ModelsSection models={[makeModel({ id: "gpt-4o", name: "Omni" })]} serverCount={1} onInspect={() => {}} />
-	);
-	const headers = Array.from(root.querySelectorAll("thead th")).map((th) => (th.textContent ?? "").trim());
-	expect(headers).toEqual(["Model", "Family", "Input tokens", "Output tokens", "Pricing ($/M)", "Capabilities", ""]);
-
-	const row = root.querySelector("tbody tr") as HTMLElement;
-	const cells = Array.from(row.querySelectorAll("td"));
-	expect(cells.length).toBe(headers.length);
-	const nameCell = cells[0] as HTMLElement;
-	expect(nameCell.classList.contains("model-name")).toBe(true);
-	expect(nameCell.textContent).toContain("Omni");
-	// The name renders inside the ellipsis-capped span the stylesheet trims;
-	// the full text stays in the DOM.
-	expect(nameCell.querySelector(".model-name-text")?.textContent).toBe("Omni");
-	expect(nameCell.querySelector("button[aria-label='Copy model ID gpt-4o from Prod']")).not.toBeNull();
-	// The last cell carries the ONE Inspect action (the merged panel's only
-	// entry point); copy and Inspect are the row's only controls.
-	const lastCell = cells[cells.length - 1] as HTMLElement;
-	expect(lastCell.classList.contains("actions")).toBe(true);
-	expect(lastCell.querySelectorAll("button.params-action").length).toBe(1);
-	expect(row.querySelectorAll("button").length).toBe(2);
-});
-
-test("the hideable columns carry their col- classes on header and cells, and the Inspect action is not hover-revealed", () => {
-	// The narrow-viewport media queries drop whole columns by these classes;
-	// a th/td that loses its class silently reopens the horizontal-scroll
-	// dead zones. Both the 7- and 8-column layouts (without and with the
-	// Server column) must stay wired.
+test("one row past the threshold windows, with or without the server on the rows", () => {
+	// 51 rows is one past the 50-row threshold; together with the 50-row
+	// full-render test above this pins the boundary exactly. Windowing brings
+	// the trailing spacer with it, and neither side of serverCount > 1 changes
+	// that - the rows have no column count left to shear.
 	for (const serverCount of [1, 2]) {
-		const root = mount(<ModelsSection models={[makeModel()]} serverCount={serverCount} onInspect={() => {}} />);
-		for (const col of ["col-family", "col-input", "col-output", "col-price", "col-caps"]) {
-			expect(root.querySelectorAll(`thead th.${col}`).length).toBe(1);
-			expect(root.querySelectorAll(`tbody td.${col}`).length).toBe(1);
-		}
-		// The Inspect action is the inspector's only entry point: it must not
-		// ride the hover-revealed icon-action styling the copy button uses.
-		const params = root.querySelector("button.params-action") as HTMLElement;
-		expect(params.classList.contains("icon-action")).toBe(false);
+		const root = mount(<ModelsSection models={manyModels(51)} serverCount={serverCount} onInspect={() => {}} />);
+		expect((root.querySelector(".table-scroll") as HTMLElement).classList.contains("windowed")).toBe(true);
+		expect(root.querySelectorAll("li.spacer").length).toBe(1);
 		cleanup();
 	}
 });
 
-test("spacer colSpan tracks the rendered column count with and without the Server column", () => {
-	// The spacer's one cell must span every rendered column or the table's
-	// layout shears; the count changes with the Server column, so both sides
-	// of serverCount > 1 are pinned. 51 rows is one past the 50-row
-	// threshold - together with the 50-row full-render test above this pins
-	// the boundary exactly - and windowing brings the trailing spacer with it.
-	const spacerCell = (root: HTMLElement) => root.querySelector("tbody tr.spacer td") as HTMLTableCellElement;
+test("a row is a disclosure plus its two controls, and the Inspect action is not hover-revealed", () => {
+	// The two readable lines ARE the disclosure, so they must be one button and
+	// the row's other controls must sit outside it: a button cannot contain a
+	// button, and nesting them would make the copy action unreachable.
+	const root = mount(
+		<ModelsSection models={[makeModel({ id: "gpt-4o", name: "Omni" })]} serverCount={1} onInspect={() => {}} />
+	);
+	const row = root.querySelector("li.model-row") as HTMLElement;
+	const disclosure = row.querySelector("button.model-disclosure") as HTMLElement;
+	expect(disclosure.querySelectorAll("button").length).toBe(0);
+	expect(disclosure.getAttribute("aria-expanded")).toBe("false");
 
-	const single = mount(<ModelsSection models={manyModels(51)} serverCount={1} onInspect={() => {}} />);
-	expect((single.querySelector(".table-scroll") as HTMLElement).classList.contains("windowed")).toBe(true);
-	expect(single.querySelectorAll("thead th").length).toBe(7);
-	expect(spacerCell(single).colSpan).toBe(7);
+	// A row that opens has to LOOK like a row that opens. Without a state mark
+	// it is identical to one that does not, and the only way to find out is to
+	// click; the mark is inside the disclosure and decorative, since the button
+	// already carries the state in aria-expanded.
+	const chevron = disclosure.querySelector(".model-chevron") as HTMLElement;
+	expect(chevron).not.toBeNull();
+	expect(chevron.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+	expect(row.classList.contains("is-open")).toBe(false);
+	fireClick(disclosure);
+	// The open state is a class the stylesheet turns the mark with, not a
+	// second icon that could disagree with aria-expanded.
+	expect(row.classList.contains("is-open")).toBe(true);
+	expect(disclosure.getAttribute("aria-expanded")).toBe("true");
+	fireClick(disclosure);
 
-	const dual = mount(<ModelsSection models={manyModels(51)} serverCount={2} onInspect={() => {}} />);
-	expect(dual.querySelectorAll("thead th").length).toBe(8);
-	expect(spacerCell(dual).colSpan).toBe(8);
+	// The name renders inside the ellipsis-capped span the stylesheet trims;
+	// the full text stays in the DOM.
+	expect(disclosure.querySelector(".model-name-text")?.textContent).toBe("Omni");
+
+	// Copy and Inspect are the row's only other controls, both outside the
+	// disclosure and both present at rest.
+	const actions = row.querySelector(".model-row-actions") as HTMLElement;
+	expect(actions.querySelector("button[aria-label='Copy model ID gpt-4o from Prod']")).not.toBeNull();
+	expect(actions.querySelectorAll("button.params-action").length).toBe(1);
+	expect(row.querySelectorAll("button").length).toBe(3);
+
+	// The Inspect action is the inspector's only entry point: it must not ride
+	// the hover-revealed icon-action styling the copy button uses.
+	const params = row.querySelector("button.params-action") as HTMLElement;
+	expect(params.classList.contains("icon-action")).toBe(false);
+});
+
+test("one row opens at a time, and its detail is wired to the disclosure that opened it", () => {
+	const root = mount(<ModelsSection models={manyModels(3)} serverCount={1} onInspect={() => {}} />);
+	const rows = () => Array.from(root.querySelectorAll("li.model-row"));
+	const disclosure = (index: number) => rows()[index]?.querySelector("button.model-disclosure") as HTMLElement;
+
+	fireClick(disclosure(0));
+	expect(rows()[0]?.querySelector(".model-detail")).not.toBeNull();
+	expect(disclosure(0).getAttribute("aria-expanded")).toBe("true");
+	// aria-controls names the detail it opened, so the relationship survives
+	// for a reader who cannot see the row grow.
+	const detailId = (root.querySelector("li.model-row .model-detail") as HTMLElement).id;
+	expect(detailId).not.toBe("");
+	expect(disclosure(0).getAttribute("aria-controls")).toBe(detailId);
+
+	// Opening another closes the first: one at a time, and the page never
+	// navigates to show it.
+	fireClick(disclosure(1));
+	expect(rows()[0]?.querySelector(".model-detail")).toBeNull();
+	expect(rows()[1]?.querySelector(".model-detail")).not.toBeNull();
+	expect(root.querySelectorAll(".model-detail").length).toBe(1);
+
+	// And it closes itself.
+	fireClick(disclosure(1));
+	expect(root.querySelectorAll(".model-detail").length).toBe(0);
+	expect(disclosure(1).getAttribute("aria-expanded")).toBe("false");
+	expect(disclosure(1).getAttribute("aria-controls")).toBeNull();
+});
+
+test("the open row is remembered by identity, so sorting does not move the detail to another model", () => {
+	// The open row is held by row id, not by index. An index would follow the
+	// position through a re-sort and leave the detail hanging under whichever
+	// model landed there.
+	const models = [
+		makeModel({ id: "b", name: "Bravo" }),
+		makeModel({ id: "c", name: "Charlie" }),
+		makeModel({ id: "a", name: "Alpha" }),
+	];
+	const root = mount(<ModelsSection models={models} serverCount={1} onInspect={() => {}} />);
+	const openRowName = () =>
+		(root.querySelector("li.model-row:has(.model-detail) .model-name-text")?.textContent ?? "").trim();
+
+	fireClick(root.querySelectorAll("button.model-disclosure")[0] as HTMLElement);
+	expect(openRowName()).toBe("Bravo");
+
+	fireSelect(sortSelect(root), "name");
+	expect(firstColumn(root)).toEqual(["Alpha", "Bravo", "Charlie"]);
+	// Bravo moved from first to second and its detail went with it.
+	expect(openRowName()).toBe("Bravo");
+	expect(root.querySelectorAll(".model-detail").length).toBe(1);
+
+	// Filtered away entirely, the detail simply is not rendered - and nothing
+	// else inherits it.
+	fireInput(root.querySelector("input[aria-label='Filter models']") as HTMLInputElement, "Alpha");
+	expect(firstColumn(root)).toEqual(["Alpha"]);
+	expect(root.querySelectorAll(".model-detail").length).toBe(0);
+});
+
+/**
+ * happy-dom performs no layout, so every offsetHeight is 0 and the component's
+ * measurement path is dead: with it, `delta` is always zero and the whole
+ * variable-height arithmetic is unreachable from a test. Stubbing the two boxes
+ * the component measures is what makes that path executable, and it is the only
+ * way the assertions below can fail.
+ */
+function withMeasuredLayout(rowHeight: number, detailHeight: number, run: () => void): void {
+	const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+	Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+		configurable: true,
+		get(this: HTMLElement) {
+			if (this.classList.contains("model-row-line")) {
+				return rowHeight;
+			}
+			if (this.classList.contains("model-detail")) {
+				return detailHeight;
+			}
+			return 0;
+		},
+	});
+	try {
+		run();
+	} finally {
+		if (original === undefined) {
+			delete (HTMLElement.prototype as { offsetHeight?: unknown }).offsetHeight;
+		} else {
+			Object.defineProperty(HTMLElement.prototype, "offsetHeight", original);
+		}
+	}
+}
+
+/** Spacers plus rendered rows, as the DOM claims them. */
+function claimedHeight(root: ParentNode, rowHeight: number, detailHeight: number): number {
+	const spacers = Array.from(root.querySelectorAll("li.spacer")).reduce(
+		(total, spacer) => total + Number.parseInt((spacer as HTMLElement).style.height, 10),
+		0
+	);
+	const rows = root.querySelectorAll("li.model-row").length;
+	const details = root.querySelectorAll(".model-detail").length;
+	return spacers + rows * rowHeight + details * detailHeight;
+}
+
+test("the open row's measured detail is accounted for at every scroll position, in the window or out of it", () => {
+	// The one row allowed to break the uniform grid. If its height is missing
+	// from whichever spacer stands in for it, the list claims less height than
+	// it has and every row below the open one jumps the moment it scrolls out
+	// of the window - which is precisely the boundary this walks across.
+	const DETAIL = 120;
+	withMeasuredLayout(ROW, DETAIL, () => {
+		const root = mount(<ModelsSection models={manyModels(200)} serverCount={1} onInspect={() => {}} />);
+		const container = root.querySelector(".table-scroll") as HTMLElement;
+		const total = () => claimedHeight(root, ROW, DETAIL);
+
+		// Closed, the list is exactly its rows.
+		expect(total()).toBe(200 * ROW);
+
+		fireClick(root.querySelectorAll("button.model-disclosure")[3] as HTMLElement);
+		// Open, it is its rows plus the one measured detail - and stays that way
+		// whether the open row is rendered, above the window, or below it.
+		expect(total()).toBe(200 * ROW + DETAIL);
+		for (const top of [0, ROW * 2, ROW * 3 + 1, ROW * 3 + DETAIL, ROW * 40, ROW * 150, ROW * 200 + DETAIL]) {
+			scrollTo(container, top);
+			expect(total()).toBe(200 * ROW + DETAIL);
+		}
+
+		// Scrolled far enough that the open row is above the window, the leading
+		// spacer is the one carrying it: whole rows plus the detail.
+		scrollTo(container, ROW * 150);
+		expect(root.querySelector(".model-detail")).toBeNull();
+		const rendered = firstColumn(root);
+		const start = Number((rendered[0] as string).slice("Model ".length));
+		expect(start).toBeGreaterThan(3);
+		const leading = (root.querySelector("li.spacer") as HTMLElement).style.height;
+		expect(leading).toBe(`${start * ROW + DETAIL}px`);
+
+		// Closing it takes the detail back out of the spacer arithmetic.
+		scrollTo(container, 0);
+		fireClick(root.querySelectorAll("button.model-disclosure")[3] as HTMLElement);
+		expect(total()).toBe(200 * ROW);
+	});
+});
+
+test("a detail that resizes while it is scrolled out of the window is re-measured when it comes back", () => {
+	// The detail is windowed like everything else: scrolling far enough unmounts
+	// it and scrolling back mounts a fresh element. A measurement bound to the
+	// first element would leave the height frozen at whatever it was when the
+	// row left, and every row below it would sit at the wrong offset.
+	let detailHeight = 100;
+	const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+	Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+		configurable: true,
+		get(this: HTMLElement) {
+			if (this.classList.contains("model-row-line")) {
+				return ROW;
+			}
+			return this.classList.contains("model-detail") ? detailHeight : 0;
+		},
+	});
+	try {
+		const root = mount(<ModelsSection models={manyModels(200)} serverCount={1} onInspect={() => {}} />);
+		const container = root.querySelector(".table-scroll") as HTMLElement;
+		fireClick(root.querySelectorAll("button.model-disclosure")[2] as HTMLElement);
+		expect(claimedHeight(root, ROW, detailHeight)).toBe(200 * ROW + 100);
+
+		// Out of the window, then taller (the pane reflowed and its field grid
+		// rewrapped), then back.
+		scrollTo(container, ROW * 150);
+		expect(root.querySelector(".model-detail")).toBeNull();
+		detailHeight = 260;
+		scrollTo(container, 0);
+
+		const detail = root.querySelector(".model-detail") as HTMLElement;
+		expect(detail).not.toBeNull();
+		const leadingAfter = () => {
+			scrollTo(container, ROW * 150);
+			return (root.querySelector("li.spacer") as HTMLElement).style.height;
+		};
+		const rendered = (() => {
+			scrollTo(container, ROW * 150);
+			return Number((firstColumn(root)[0] as string).slice("Model ".length));
+		})();
+		expect(leadingAfter()).toBe(`${rendered * ROW + 260}px`);
+	} finally {
+		if (original === undefined) {
+			delete (HTMLElement.prototype as { offsetHeight?: unknown }).offsetHeight;
+		} else {
+			Object.defineProperty(HTMLElement.prototype, "offsetHeight", original);
+		}
+	}
+});
+
+test("two provider groups sharing a label keep separate rows: opening one does not open the other", () => {
+	// Labels are not identities - two groups may carry the same one, which is
+	// why the server column keyed off the count rather than the distinct
+	// labels. A row identity built from the label alone would collide here and
+	// open (or flash the copy check on) the wrong row.
+	const models = [
+		makeModel({ id: "gpt-4o", name: "Omni", serverLabel: "Shared", scopeKey: "s1" }),
+		makeModel({ id: "gpt-4o", name: "Omni", serverLabel: "Shared", scopeKey: "s2" }),
+	];
+	const root = mount(<ModelsSection models={models} serverCount={2} onInspect={() => {}} />);
+	const rows = Array.from(root.querySelectorAll("li.model-row"));
+	expect(rows.length).toBe(2);
+
+	fireClick(rows[1]?.querySelector("button.model-disclosure") as HTMLElement);
+	expect(rows[1]?.querySelector(".model-detail")).not.toBeNull();
+	expect(rows[0]?.querySelector(".model-detail")).toBeNull();
+	expect(rows[0]?.querySelector("button.model-disclosure")?.getAttribute("aria-expanded")).toBe("false");
 });
 
 test("the row's copy action writes the model ID to the clipboard and flashes a check", async () => {

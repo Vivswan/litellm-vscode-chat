@@ -26,6 +26,11 @@ export function IconArrowUp() {
 	return <Svg path="M8 3l4 4-.71.71L8.5 5.12V13h-1V5.12L4.71 7.71 4 7l4-4z" />;
 }
 
+/** A disclosure's resting state; rotated by CSS (.model-chevron on an open row) to point down. */
+export function IconChevronRight() {
+	return <Svg path="M5.7 3.3L10.4 8l-4.7 4.7-.7-.7L9 8 5 4l.7-.7z" />;
+}
+
 /** The trail back out of a destination. */
 export function IconArrowLeft() {
 	return <Svg path="M10.5 3.5L6 8l4.5 4.5-.7.7L4.6 8l5.2-5.2.7.7z" />;

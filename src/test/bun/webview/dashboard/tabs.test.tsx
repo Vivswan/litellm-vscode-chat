@@ -8,6 +8,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { App } from "../../../../webview/dashboard/app";
+import { DEFAULT_ROW_HEIGHT } from "../../../../webview/dashboard/models";
 import { makeDeclaredServer, makeModel, makeState, makeUsage, makeUsageServer, statePush } from "../fixtures";
 import { cleanup, fireClick, fireInput, fireKeyDown, mount, pushToWebview, resetPosted } from "../harness";
 
@@ -72,8 +73,8 @@ function scopedState() {
 }
 
 function visibleModelNames(root: ParentNode): string[] {
-	return Array.from(root.querySelectorAll("#models-section tbody tr:not(.spacer)")).map((row) =>
-		(row.querySelector("td")?.textContent ?? "").trim()
+	return Array.from(root.querySelectorAll("#models-section li.model-row")).map((row) =>
+		(row.querySelector(".model-name-text")?.textContent ?? "").trim()
 	);
 }
 
@@ -133,8 +134,8 @@ test("servers and models are separate destinations, each holding only its own li
 	const servers = panel(root, "overview");
 	const models = panel(root, "models");
 	expect(servers.querySelector("ul.server-list")).not.toBeNull();
-	expect(servers.querySelector("table.models")).toBeNull();
-	expect(models.querySelector("#models-section table.models")).not.toBeNull();
+	expect(servers.querySelector("ul.model-list")).toBeNull();
+	expect(models.querySelector("#models-section ul.model-list")).not.toBeNull();
 	expect(models.querySelector("ul.server-list")).toBeNull();
 });
 
@@ -372,7 +373,7 @@ test("scoping rewinds a deeply scrolled windowed table to the new list's top", (
 	// 120 rows exceed the windowing threshold; scroll deep into the list.
 	const scrollport = root.querySelector(".table-scroll.windowed") as HTMLElement;
 	void act(() => {
-		scrollport.scrollTop = 26 * 100;
+		scrollport.scrollTop = DEFAULT_ROW_HEIGHT * 100;
 		scrollport.dispatchEvent(new Event("scroll"));
 	});
 	expect(visibleModelNames(root)).not.toContain("A 00");
