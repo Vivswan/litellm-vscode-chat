@@ -72,7 +72,7 @@ function usage(): never {
 	console.error(
 		"usage: bun scripts/dev/render-dashboard.ts --fixture <fixture.ts> --out <shot.png>" +
 			" [--width N] [--height N] [--theme dark|light|high-contrast|forced-colors]" +
-			" [--accent blue|violet|teal|amber]" +
+			" [--accent blue|violet|teal|amber] [--app-theme auto|light|dark]" +
 			" [--clip-viewport] [--html-out <page.html>] [--no-theme]"
 	);
 	process.exit(1);
@@ -629,6 +629,7 @@ async function main(): Promise<void> {
 			"no-theme": { type: "boolean", default: false },
 			theme: { type: "string" },
 			accent: { type: "string" },
+			"app-theme": { type: "string" },
 		},
 	});
 	if (values.fixture === undefined || values.out === undefined) {
@@ -659,11 +660,18 @@ async function main(): Promise<void> {
 		throw new Error(`--accent must be one of ${accentNames.join(", ")}; got ${values.accent}`);
 	}
 	const accent: Accent = values.accent ?? "blue";
-	// The forced-theme attribute the shell stamps: --theme names the HOST theme
-	// the page is emulating, so the ordinary two map onto the reader's own
-	// setting and the contrast modes stay on "auto", where the tokens follow
-	// the host exactly as high contrast requires.
-	const forcedTheme = hostTheme === "light" || hostTheme === "dark" ? hostTheme : "auto";
+	// --theme names the HOST theme being emulated; --app-theme names the
+	// reader's own ui.theme setting. They are different things and conflating
+	// them hides the default: almost everyone runs "auto", so the configuration
+	// most worth looking at is auto ON a light or dark host, which is what this
+	// leaves as the default rather than something only a flag can reach.
+	const appThemes = ["auto", "light", "dark"] as const;
+	type AppTheme = (typeof appThemes)[number];
+	const isAppTheme = (value: string): value is AppTheme => (appThemes as readonly string[]).includes(value);
+	if (values["app-theme"] !== undefined && !isAppTheme(values["app-theme"])) {
+		throw new Error(`--app-theme must be one of ${appThemes.join(", ")}; got ${values["app-theme"]}`);
+	}
+	const forcedTheme: AppTheme = values["app-theme"] ?? "auto";
 	const html = buildPageHtml(fixture.messages, fixture.respond ?? {}, hostTheme, forcedTheme, accent);
 	if (values["html-out"] !== undefined) {
 		await fs.writeFile(path.resolve(values["html-out"]), html);

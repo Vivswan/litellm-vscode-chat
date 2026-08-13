@@ -226,8 +226,16 @@ html[data-theme="light"][data-accent="amber"] {
 	--accent-hue: #a15c00;
 }
 
-/* Derived once, from whichever pair won above. */
-:root {
+/* Derived on BOTH root and body, which is not redundancy. A custom property
+	 substitutes against the value on the element it is DECLARED on, so a
+	 derivation living only on :root would bake in html's mix percentage and
+	 keep it - body inheriting the finished color cannot re-derive. Under
+	 `auto` the light scale lands on body (that is where VS Code stamps its
+	 theme class), so without this line a light host would get the light
+	 hairline and the dark-strength tint together: exactly the combination the
+	 per-theme scale exists to prevent. */
+:root,
+body {
 	--accent-soft: color-mix(in srgb, var(--accent-hue) var(--state-mix), transparent);
 	--accent-line: color-mix(in srgb, var(--accent-hue) 45%, transparent);
 	--ok-soft: color-mix(in srgb, var(--ok) var(--sev-mix), transparent);
