@@ -6,31 +6,34 @@
  * rather than the one row, because the row's columns belong to the list. As
  * nowrap text a URL is a single unbreakable token, so its intrinsic width was
  * charged to every track the second line spans: the name column collapsed to
- * nothing on all five rows, and the page grew a horizontal scrollbar.
+ * nothing on all the rows at once, and the page grew a horizontal scrollbar.
  *
- * What it should photograph: five intact server names, no horizontal overflow,
+ * It carries the overview's full cast rather than a bare state, so the
+ * misconfigured row is in it: that row's action cluster is the only one wider
+ * than two short buttons, which is the other way this list has broken.
+ *
+ * What it should photograph: every server name intact, no horizontal overflow,
  * and the long URL wrapped onto a second line inside its own row - the damage
  * local to the row that owns it.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
-import { baseState } from "./shared.ts";
+import overview from "./overview.ts";
 
-const state = baseState();
+const long = "https://litellm-gateway-production-eu-west-1.internal.example.com/v1";
 
 const fixture: RenderFixture = {
-	messages: [
-		{
-			kind: "push",
-			state: {
-				...state,
-				servers: state.servers.map((server, index) =>
-					index === 0
-						? { ...server, baseUrl: "https://litellm-gateway-production-eu-west-1.internal.example.com/v1" }
-						: server
-				),
-			},
-		},
-	],
+	messages: overview.messages.map((message) => {
+		const push = message as { kind: string; state?: { servers?: readonly Record<string, unknown>[] } };
+		return push.kind === "push" && push.state?.servers !== undefined
+			? {
+					...push,
+					state: {
+						...push.state,
+						servers: push.state.servers.map((server, index) => (index === 0 ? { ...server, baseUrl: long } : server)),
+					},
+				}
+			: message;
+	}),
 	viewport: { width: 500, height: 900 },
 };
 

@@ -68,6 +68,30 @@ function mountSection(servers: readonly DashboardServer[]) {
 	);
 }
 
+test("a server row keeps the four-part shape the narrow stylesheet folds", () => {
+	// Every narrow rule keys off this structure: four direct children of
+	// .server-row, with the second line's members inside .server-meta, which is
+	// `display: contents` at full width and a flex line once the row folds. Move
+	// a badge out of the meta wrapper, or rename a part, and the fold silently
+	// stops working at every width - with this suite still green, because
+	// happy-dom has no cascade and no layout to notice. Nothing else can catch
+	// it short of a human looking at a render.
+	const root = mountSection([makeDeclaredServer({ label: "Prod", modelCount: 2 })]);
+	const row = root.querySelector(".server-row");
+	expect(row).not.toBeNull();
+	expect(Array.from(row?.children ?? []).map((child) => child.className.split(" ")[0])).toEqual([
+		"server-name",
+		"server-status",
+		"server-meta",
+		"server-actions",
+	]);
+	const meta = row?.querySelector(".server-meta");
+	expect(meta?.querySelector(".server-url")).not.toBeNull();
+	expect(meta?.querySelector(".server-count")).not.toBeNull();
+	expect(meta?.querySelector(".server-usage")).not.toBeNull();
+	expect(meta?.querySelector(".server-badges")).not.toBeNull();
+});
+
 test("a row's URL keeps its exact configured text, with only the https scheme marked for hiding", () => {
 	// The narrow row stops PAINTING "https://" so the ellipsis cannot eat the
 	// host, and the way it does that has to leave the row's text alone: what a
@@ -80,12 +104,17 @@ test("a row's URL keeps its exact configured text, with only the https scheme ma
 		makeDeclaredServer({ label: "Secure", baseUrl: "https://litellm.example.com" }),
 		makeDeclaredServer({ label: "Plain", baseUrl: "http://localhost:4000" }),
 		makeDeclaredServer({ label: "Half-typed", baseUrl: "https://" }),
+		makeDeclaredServer({ label: "Shouty", baseUrl: "HTTPS://loud.example.com" }),
 	]);
 	const urls = Array.from(root.querySelectorAll(".server-url"));
 	expect(urls.map((url) => (url.textContent ?? "").trim())).toEqual([
 		"https://litellm.example.com",
 		"http://localhost:4000",
 		"https://",
+		// The row prints the scheme the setting holds, not a normalized copy of
+		// it: the match is case-insensitive so an uppercase scheme is hidden with
+		// the rest, but hiding is all it does.
+		"HTTPS://loud.example.com",
 	]);
 	expect(urls[0]?.querySelector(".url-scheme.quiet")?.textContent).toBe("https://");
 	expect(urls[1]?.querySelector(".url-scheme")).toBe(null);
@@ -93,6 +122,7 @@ test("a row's URL keeps its exact configured text, with only the https scheme ma
 	// marked quiet it would render as an empty space at narrow, which is the
 	// width at which being told the entry is half-typed matters most.
 	expect(urls[2]?.querySelector(".url-scheme.quiet")).toBe(null);
+	expect(urls[3]?.querySelector(".url-scheme.quiet")?.textContent).toBe("HTTPS://");
 });
 
 /**
@@ -647,7 +677,7 @@ test("the hidden-groups line states the count, expands to rows, and Unhide posts
 	expect(line?.textContent).not.toContain("Unhide");
 
 	fireClick(buttonByText(root, "Show 2 hidden groups"));
-	expect(buttonByText(root, "Hide 2 hidden groups")).not.toBeNull();
+	expect(buttonByText(root, "Hide")).not.toBeNull();
 	expect(line?.textContent).toContain("Old");
 	expect(line?.textContent).toContain("http://old.test");
 	const unhide = [...root.querySelectorAll("button")].find((el) => el.textContent?.trim() === "Unhide");

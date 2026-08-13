@@ -28,7 +28,7 @@
  */
 import * as l10n from "@vscode/l10n";
 import type { CSSProperties, KeyboardEvent, ReactNode, SyntheticEvent } from "react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { IconBug, IconSync } from "./icons";
 import { Button } from "./ui/button";
 import { cn } from "./ui/cn";
@@ -89,19 +89,68 @@ export interface RailSection<Id extends string = string> {
  * stale if the rail scrolls while a tip is shown; leaving the control
  * re-measures.
  */
+/**
+ * The width at which the rail collapses, as a media query, spelled here as well
+ * as in the stylesheet - CSS decides what the rail LOOKS like and this decides
+ * what it can DO, and neither can read the other. A test pins the two spellings
+ * together so they cannot drift.
+ */
+export const RAIL_COLLAPSE_QUERY = "(width < 1000px)";
+
+/**
+ * Whether the rail is currently painting icons instead of labels.
+ *
+ * The rail's own geometry is CSS's business, but two behaviours depend on it and
+ * cannot be expressed in a stylesheet: whether the fleet's verdict is worth a
+ * tab stop (below the collapse its word is unpainted, so a keyboard reader has
+ * no other way to reach it; above it, a stop that reveals nothing is a stop
+ * every keyboard user pays on every visit), and re-measuring a tip when the
+ * collapse itself moves the rail under a focused control.
+ */
+function useCollapsedRail(): boolean {
+	const [collapsed, setCollapsed] = useState(false);
+	useEffect(() => {
+		const query = window.matchMedia(RAIL_COLLAPSE_QUERY);
+		const update = () => setCollapsed(query.matches);
+		update();
+		query.addEventListener("change", update);
+		return () => query.removeEventListener("change", update);
+	}, []);
+	return collapsed;
+}
+
+function coordinates(element: HTMLElement): CSSProperties {
+	const rect = element.getBoundingClientRect();
+	return {
+		"--rail-tip-left": `${rect.right + 8}px`,
+		"--rail-tip-top": `${rect.top + rect.height / 2}px`,
+	} as CSSProperties;
+}
+
 function useRailTip(): {
 	style: CSSProperties;
 	place: (event: SyntheticEvent<HTMLElement>) => void;
 	clear: (event: SyntheticEvent<HTMLElement>) => void;
 } {
 	const [style, setStyle] = useState<CSSProperties>({});
+	// The control the coordinates belong to, so a resize can re-measure the one
+	// that is still showing a tip rather than leaving it to paint from a rail
+	// that has since moved - which is exactly what crossing the collapse width
+	// does, and it moves the rail by 168px.
+	const anchor = useRef<HTMLElement | null>(null);
 	const place = (event: SyntheticEvent<HTMLElement>) => {
-		const rect = event.currentTarget.getBoundingClientRect();
-		setStyle({
-			"--rail-tip-left": `${rect.right + 8}px`,
-			"--rail-tip-top": `${rect.top + rect.height / 2}px`,
-		} as CSSProperties);
+		anchor.current = event.currentTarget;
+		setStyle(coordinates(event.currentTarget));
 	};
+	useEffect(() => {
+		const onResize = () => {
+			if (anchor.current !== null) {
+				setStyle(coordinates(anchor.current));
+			}
+		};
+		window.addEventListener("resize", onResize);
+		return () => window.removeEventListener("resize", onResize);
+	}, []);
 	// Dropped when the pointer or focus leaves, so nothing can paint from stale
 	// coordinates. Hover cannot outlive a window resize, but FOCUS can, and
 	// dragging an editor splitter is exactly when the rail's geometry moves -
@@ -111,6 +160,7 @@ function useRailTip(): {
 	// to fall back to the static position.
 	const clear = (event: SyntheticEvent<HTMLElement>) => {
 		if (document.activeElement !== event.currentTarget) {
+			anchor.current = null;
 			setStyle({});
 		}
 	};
@@ -233,6 +283,7 @@ export function Rail<Id extends string>({
 	synced: string | undefined;
 }) {
 	const { style: verdictTipStyle, place: placeVerdictTip, clear: clearVerdictTip } = useRailTip();
+	const collapsed = useCollapsedRail();
 	const select = (id: Id) => {
 		onSelect(id);
 		document.getElementById(`tab-${id}`)?.focus();
@@ -289,16 +340,16 @@ export function Rail<Id extends string>({
 					{/* The same pill and tone vocabulary every server row uses: one set of
 				    state indicators for the page, so the rail's verdict and a row's
 				    can never drift apart visually. */}
-					{/* Focusable, though it performs no action, and it is the same
-					    exception the page's other tips take (HoverTip's `focusable`):
-					    once the rail collapses this verdict is painted as a dot, and a
-					    dot that only decodes on hover decodes for nobody on a keyboard
-					    or a touchscreen. The word stays in the DOM for assistive tech
-					    either way; the tab stop is what puts it on SCREEN. */}
+					{/* Focusable only while the rail is collapsed, which is the only
+					    width where the tab stop buys anything: there the verdict is a
+					    dot and its word is unpainted, so hover is otherwise the sole way
+					    to read it and a keyboard or touch reader has none. Above the
+					    collapse the word is right there, and a stop that reveals nothing
+					    is one every keyboard user pays on every visit. Screen readers
+					    reach the word at both widths either way - it is in the DOM. */}
 					<p
 						className={cn("rail-status pill", `tone-${overall.tone}`)}
-						// biome-ignore lint/a11y/noNoninteractiveTabindex: the collapsed rail paints this verdict as a dot whose only other trigger is hover; see above
-						tabIndex={0}
+						tabIndex={collapsed ? 0 : undefined}
 						onMouseEnter={placeVerdictTip}
 						onMouseLeave={clearVerdictTip}
 						onFocus={placeVerdictTip}

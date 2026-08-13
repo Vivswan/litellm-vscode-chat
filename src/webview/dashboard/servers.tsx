@@ -1,5 +1,5 @@
 import * as l10n from "@vscode/l10n";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { latestCheckedMs } from "../../dashboard/presenters";
 import { sectionFailureText } from "../../dashboard/serverForm";
 import type {
@@ -635,7 +635,7 @@ function urlParts(baseUrl: string): { readonly scheme: string; readonly rest: st
 	// someone has to fix, and hiding it at narrow would render the row's URL as
 	// an empty space - blank at exactly the width where being told is useful.
 	return marked && rest.length > 0
-		? { scheme: secure, rest, quiet: true }
+		? { scheme: baseUrl.slice(0, secure.length), rest, quiet: true }
 		: { scheme: marked ? baseUrl : "", rest: marked ? "" : baseUrl, quiet: false };
 }
 
@@ -824,6 +824,7 @@ function ServerRow({
  */
 function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 	const [expanded, setExpanded] = useState(false);
+	const listId = useId();
 	if (hidden.length === 0) {
 		return null;
 	}
@@ -833,10 +834,11 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 	// had to assemble the two halves to learn what "show" would show. Saying it
 	// once is also fewer words on the page, which is the direction the whole
 	// surface is moving.
+	// "Hide 1 hidden group" is what saying it symmetrically costs: the count is
+	// the reason to open the list and says nothing once it is open, and the rows
+	// beneath are their own answer to how many there are.
 	const label = expanded
-		? hidden.length === 1
-			? l10n.t("Hide 1 hidden group")
-			: l10n.t("Hide {0} hidden groups", hidden.length)
+		? l10n.t("Hide")
 		: hidden.length === 1
 			? l10n.t("Show 1 hidden group")
 			: l10n.t("Show {0} hidden groups", hidden.length);
@@ -846,12 +848,16 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 				variant="secondary"
 				size="compact"
 				aria-expanded={expanded}
+				// Named while it exists: aria-expanded says a control opens something,
+				// and without this nothing says WHAT. Only while open, because an
+				// aria-controls pointing at an unmounted id is a dangling reference.
+				aria-controls={expanded ? listId : undefined}
 				onClick={() => setExpanded((value) => !value)}
 			>
 				{label}
 			</Button>
 			{expanded ? (
-				<ul>
+				<ul id={listId}>
 					{hidden.map((group) => (
 						// Keyed by the identity pair the unhideServer intent posts.
 						<li key={`${group.label}:${group.baseUrl}`}>

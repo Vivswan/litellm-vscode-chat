@@ -202,10 +202,15 @@ function SettingRow({
 				// beside it. Stacked, the row reads title, control, description -
 				// the order it is spoken in.
 				// The PANE decides, not the window: this pane can be narrow inside a
-				// wide window whenever the editor is split. 870px is where the third
-				// column stops being usable, measured on this surface rather than
-				// guessed from the row's own arithmetic.
-				"@max-[870px]/pane:grid-cols-1 @max-[870px]/pane:gap-x-0",
+				// wide window whenever the editor is split. The third column stops
+				// being usable at about 870px, measured on this surface - but the
+				// threshold sits at 910, just clear of a band the rail's collapse
+				// creates. Collapsing the rail hands the pane 168px, so a window
+				// growing through 1000px drops the pane from ~902 to ~736 and grows
+				// again: every pane width in between happens TWICE, and a breakpoint
+				// inside it fires in reverse as the window widens. A reader dragging
+				// a splitter rightward would have watched this page collapse.
+				"@max-[910px]/pane:grid-cols-1 @max-[910px]/pane:gap-x-0",
 				configuredScope !== null
 					? "modified border-l-[var(--vscode-settings-modifiedItemIndicator,var(--vscode-focusBorder))]"
 					: "border-l-transparent"
@@ -213,9 +218,9 @@ function SettingRow({
 			hidden={hidden}
 		>
 			{titleFor === undefined ? (
-				<span className="setting-title text-right font-semibold @max-[870px]/pane:text-left">{title}</span>
+				<span className="setting-title text-right font-semibold @max-[910px]/pane:text-left">{title}</span>
 			) : (
-				<label className="setting-title text-right font-semibold @max-[870px]/pane:text-left" htmlFor={titleFor}>
+				<label className="setting-title text-right font-semibold @max-[910px]/pane:text-left" htmlFor={titleFor}>
 					{title}
 				</label>
 			)}
@@ -454,7 +459,7 @@ function CatalogRow({ catalog, enabled, now }: { catalog: CatalogStatusView; ena
 			? (relativeTime(new Date(catalog.lastSuccessAt).toISOString(), now) ?? l10n.t("just now"))
 			: undefined;
 	return (
-		<div className="catalog-row flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 pb-1 pl-[11rem] text-[0.95em] @max-[870px]/pane:pl-0">
+		<div className="catalog-row flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 pb-1 pl-[11rem] text-[0.95em] @max-[910px]/pane:pl-0">
 			{enabled ? (
 				<>
 					<span className="hint">

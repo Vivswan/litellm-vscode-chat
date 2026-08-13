@@ -11,13 +11,13 @@
  * photographs: every row's description on its own line, every glyph beneath it,
  * and no row's answer depending on how long its sentence happens to be.
  *
- * 1040px is chosen, not something narrower. Below about 870 the row template's
- * fixed 10rem label and 20rem control gutters leave the third column a few tens
- * of pixels and EVERY implementation of it looks broken, so a shot there
- * measures the template, not the cell, and would go on passing while this cell
- * regressed. 1040 is the widest point at which the cell is still too narrow to
- * seat prose and glyph on one line, which makes it the width that tells the two
- * designs apart.
+ * The width moved from 1040 to 1220 when the row learned to stack. Below 910px
+ * of PANE the three columns become one, and 1040px of window is 775px of pane
+ * once the rail and the pane's own padding are taken off - so this shot had
+ * quietly become a second photograph of the stacked layout, and the cell it
+ * exists to watch was being watched by nothing. 1220 is the narrowest window
+ * that still has three columns (pane 955), which keeps it the width that tells
+ * the two designs apart.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";
@@ -27,7 +27,7 @@ const fixture: RenderFixture = {
 		{ kind: "push", state: baseState() },
 		{ kind: "focusSection", section: "settings" },
 	],
-	viewport: { width: 1040, height: 2400 },
+	viewport: { width: 1220, height: 2400 },
 };
 
 export default fixture;

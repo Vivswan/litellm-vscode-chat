@@ -9,9 +9,11 @@
  * row is spoken.
  *
  * The pane rather than the window decides, which is the whole reason this shot
- * exists at 900px: the rail has already collapsed by here, so the window is
- * 900 and the pane is 852, and a viewport media query would have asked the
- * wrong question. It is also why this cannot be a component test - happy-dom
+ * exists at 900px: the rail has already collapsed by here, so the window is 900
+ * and the container query sees 803 - the window less the collapsed rail and the
+ * pane's own 24px of padding on each side. A viewport media query would have
+ * asked the wrong question, and counting the rail but not the padding would have
+ * answered it 49px wrong. It is also why this cannot be a component test - happy-dom
  * has no layout, so a container query there is just a class name.
  *
  * Deliberately not the same width as settings-narrow.ts: that one photographs

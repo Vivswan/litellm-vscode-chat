@@ -1845,16 +1845,6 @@
 	.filterbar input {
 		min-width: 260px;
 	}
-	/* A 260px floor plus a scope chip plus a count does not fit a 400px pane,
-		 and a floor cannot yield: the input ran off the right edge instead of
-		 shrinking. Below this width the field takes the line it is already
-		 wrapping onto and gives up the floor. */
-	@container pane (max-width: 560px) {
-		.filterbar input {
-			min-width: 0;
-			flex: 1 1 100%;
-		}
-	}
 	/* The active server scope as a chip beside the filter input: same quiet
 		   chrome as a badge, plus its clear button riding inside. */
 	.chip {
@@ -1903,16 +1893,6 @@
 	}
 	.section-head .section-meta {
 		color: var(--muted-foreground);
-	}
-	/* Once the header wraps, its actions stop being a trailing edge and become
-		 a line of their own - and `margin-left: auto` then pins that line to the
-		 right of the pane, alone, aligned with nothing. Every narrow surface grew
-		 the same orphan ("Refresh now", "Open in Settings editor"). Below the fold
-		 they simply follow the title's left edge. */
-	@container pane (max-width: 640px) {
-		.section-head .section-actions {
-			margin-left: 0;
-		}
 	}
 
 	.empty {
@@ -1984,197 +1964,6 @@
 		   width. Each breakpoint is the width where the remaining column set
 		   stops fitting the pane's content box, from the ~960px budget above:
 		   full set ~945px, then ~670, ~480, ~350. */
-	/* Wide viewports hand the freed space back to the rows, which simply have
-		   more room before their two lines clip. */
-	@container pane (max-width: 780px) {
-		table.models .model-name-text {
-			max-width: 14em;
-		}
-	}
-	/* ---- the server row, two lines -------------------------------------------
-		 920px is where the seven-column row stops being a row. It does not stop at
-		 the width where the cells collide - the URL is the flexible column, so it
-		 is the one that pays, and it pays by starving: at a 850px pane the host
-		 rendered as an empty cell between two full ones, a column of nothing down
-		 the page. The threshold is the width the row's own content asks for with
-		 the URL still readable, not the width at which something visibly breaks.
-		 It does not stack, either: a stack is seven ragged lines whose only order
-		 is the DOM's, and that is what this row looked like before - label, url,
-		 status, count, percent, badge and actions each alone on a line, nothing
-		 aligned with anything above it, 200px of window per server.
-		 It folds instead, into a composition that says the same things in the
-		 order they are wanted: who and how it is (line one), where it is and what
-		 it holds (line two), and what you can do about it (a cluster beside both,
-		 so the two lines read as one row). The columns still belong to the LIST,
-		 so the verdicts line up down the page and the actions sit under each
-		 other; only the shape of a row changed. */
-	@container pane (max-width: 920px) {
-		/* The name track takes its width from the names, capped; the ACTIONS
-			 track takes the slack. Giving the slack to the name instead pushed
-			 every verdict to the far right of the pane, which aligns them but
-			 leaves a hand's width of nothing between a server and its own state -
-			 two facts about one row, read as far apart as the page allows. Capped,
-			 the verdicts still line up down the page (a track is a track), just
-			 next to what they are about. */
-		/* fit-content, not minmax: a track with a fixed growth limit takes free
-			 space before a flexible one does, so `minmax(6em, 20em)` quietly grew
-			 the name column into the pane's spare width and left the actions column
-			 at its own minimum - one button wide, so Edit and Remove stacked on
-			 every healthy row. fit-content sizes to the names and stops there,
-			 capped so one very long label cannot take the row; the actions track
-			 takes the slack, which is what right-aligns the cluster, and never
-			 gives up its own content (a plain 1fr has a zero minimum, and at 500px
-			 the buttons then printed straight over the verdict beside them). */
-		.server-list {
-			grid-template-columns: fit-content(10em) auto minmax(min-content, 1fr);
-		}
-		.server-row {
-			align-items: start;
-			gap: 1px 10px;
-			padding: 7px 8px;
-		}
-		.server-name {
-			grid-row: 1;
-			grid-column: 1;
-			/* A floor the second line cannot argue with. The meta line spans all
-				 three tracks, so ITS content is charged to them too - and a URL long
-				 enough (they are single unbreakable tokens) collapsed this column to
-				 nothing on EVERY row at once, since the tracks belong to the list.
-				 The name is the row's identity; it gives up characters to an
-				 ellipsis, never its whole column. */
-			min-width: 5em;
-		}
-		.server-status {
-			grid-row: 1;
-			grid-column: 2;
-		}
-		.server-meta {
-			display: flex;
-			grid-row: 2;
-			grid-column: 1 / -1;
-			flex-wrap: wrap;
-			align-items: baseline;
-			gap: 1px 9px;
-			/* Zero, so this line asks the row's columns for nothing: it spans them
-				 all, and a spanning item's content is otherwise charged to the tracks
-				 it crosses. */
-			min-width: 0;
-		}
-		/* The second line runs the row's full width, under the actions as well as
-			 under the name: the actions have a whole line's height beside them
-			 already, and the ~100px they would otherwise reserve on line two is
-			 exactly what the URL needs to stop ellipsizing its host. */
-		/* The tag is a wide-width nicety, and it is the one thing on the row that
-			 is said twice: the pill beside it reads "Misconfigured" and the line
-			 below it opens "... is switched off until this entry is fixed". At this
-			 width it was costing the label its own name - "broken" rendered as a
-			 sliver of an ellipsis next to an intact "not in use". */
-		.server-name .server-tag {
-			position: absolute;
-			width: 1px;
-			height: 1px;
-			margin: -1px;
-			padding: 0;
-			overflow: hidden;
-			clip: rect(0 0 0 0);
-			white-space: nowrap;
-			border: 0;
-		}
-		/* The URL leads the line and the facts follow it directly, rather than the
-			 URL stretching and pushing them to the right edge: pushed right, they
-			 landed at a different x on every row (the widest badge decides), which
-			 is the ragged look this composition exists to end. Read together they
-			 are one sentence about the server - where it is, what it holds, what it
-			 costs, how it authenticates - and the URL is the only member that gives
-			 up width, because a truncated host still identifies the server while a
-			 wrapped count and a wrapped badge are debris. */
-		/* The https:// scheme stops being painted, and stays in the row: the text
-			 is still there for a screen reader, a copy and a find-in-page, so the
-			 URL a reader gets is always the URL the setting holds. An http:// URL
-			 keeps its scheme on screen - insecure is news, and its hosts are short. */
-		.server-url .url-scheme.quiet {
-			position: absolute;
-			width: 1px;
-			height: 1px;
-			margin: -1px;
-			padding: 0;
-			overflow: hidden;
-			clip: rect(0 0 0 0);
-			white-space: nowrap;
-			border: 0;
-		}
-		/* Three arrangements were measured here and this is the only one that
-			 costs nothing shared. A URL that GROWS pins the facts to the trailing
-			 edge, where they start at a different x on every row - the ragged look
-			 this line exists to end. A line that does not WRAP charges its whole
-			 width to the row's columns, and since those columns belong to the list,
-			 it collapsed the name column on every row at once. Wrapping with a
-			 content basis keeps the facts beside the URL and keeps the damage local:
-			 a URL too long for the line takes a line of its own, on its own row. */
-		.server-url {
-			flex: 0 1 auto;
-			min-width: 0;
-			/* It WRAPS here rather than ellipsizing, and that is what keeps a long
-				 host from costing the whole list: a URL is one unbreakable token, so
-				 as nowrap text its max-content is its full length - and this line
-				 spans every one of the row's columns, so that length was charged to
-				 tracks the whole list shares. A 60-character host pushed the page
-				 into a horizontal scrollbar and squeezed every row's NAME. Allowed to
-				 break, it costs one row one extra line and nothing else, and the
-				 reader gets the whole address instead of an ellipsis. */
-			max-width: 100%;
-			white-space: normal;
-			overflow-wrap: anywhere;
-		}
-		.server-count,
-		.server-usage {
-			flex: none;
-			min-width: 0;
-			text-align: left;
-		}
-		.server-badges {
-			flex: none;
-		}
-		/* Beside the name and the verdict, not under them: the row's two lines
-			 read as one row, and an actions line of its own would make every server
-			 three lines tall and put two buttons a reader rarely uses on the same
-			 footing as the row's facts.
-			 Always painted at these widths, since hover is not a thing a touch
-			 device can express. The cap and the wrap are what keep the ROW inside
-			 the pane: an unwrapped cluster's minimum is both its buttons side by
-			 side, and a row whose minimum exceeds the pane does not truncate, it
-			 puts a horizontal scrollbar under the whole page. Wrapped, the minimum
-			 is one button - which the two-step confirm ("Confirm remove?" beside
-			 "Cancel") does reach at 500px, and which is the right thing to spend a
-			 line on for the state a reader is looking straight at. */
-		.server-actions {
-			grid-row: 1;
-			grid-column: 3;
-			max-width: 13em;
-			/* The cap is why this is needed: an item that cannot stretch to fill
-				 its track is placed at the track's START, so the cluster sat at a
-				 fixed offset from the name and left up to 380px of empty row to its
-				 right at a 900px pane - the row froze at its 500px shape while the
-				 rule beneath it and the diagnostic block below ran the full width.
-				 The cluster belongs on the row's trailing edge at every width in
-				 this range. */
-			justify-self: end;
-			flex-wrap: wrap;
-			justify-content: flex-end;
-			opacity: 1;
-		}
-		/* The cluster wraps between buttons, never inside one: a button broken
-			 mid-phrase reads as two controls. */
-		.server-actions button {
-			white-space: nowrap;
-		}
-		/* Tighter under a two-line row: the rule and its indent were sized
-			 against a one-line row above them. */
-		.row-diagnostic {
-			margin-left: 8px;
-			padding: 5px 8px;
-		}
-	}
 	/* The row's second line is the first thing to run out of room, so a narrow
 		   pane lets the model's detail carry what no longer fits on it: the actions
 		   stay put and the sentence clips from its tail. */
@@ -2194,306 +1983,9 @@
 			display: none;
 		}
 	}
-	/* ---- the usage line, folded ----------------------------------------------
-		 Six columns do not survive a 400px pane: the money truncates to "$21.1..."
-		 while a decorative meter keeps its 8rem, which is the wrong thing to spend
-		 width on by any reading.
-		 Folded, the row keeps every one of its facts and ranks them by line: who
-		 and how close to the budget (line one), how much of how much and the fact
-		 that qualifies it (line two), and the meter as a full-width rule beneath,
-		 where a 3px bar is a better shape than a 3px stub.
-		 The row's tracks come from the component's own utility list - a utility
-		 always beats this layer, so the template has to live where the rest of the
-		 row's geometry does - and the placements live here, with the composition
-		 they belong to. Both are keyed to the same 620px. */
-	@container pane (width < 620px) {
-		.usage-label {
-			grid-area: 1 / 1;
-		}
-		.usage-spend {
-			grid-area: 2 / 1;
-		}
-		.usage-percent {
-			grid-area: 1 / 2;
-		}
-		.usage-tail {
-			grid-area: 2 / 2;
-			text-align: right;
-		}
-		.usage-toggle {
-			grid-area: 1 / 3 / span 3;
-			align-self: center;
-		}
-		.usage-meter {
-			grid-area: 3 / 1 / auto / span 2;
-			width: 100%;
-			margin-top: 3px;
-		}
-	}
 	@container pane (max-width: 560px) {
 		.model-row-actions button.icon-action {
 			opacity: 1;
-		}
-	}
-	/* ---- the server row, three lines -----------------------------------------
-		 The last tier, and it exists because of what the old 420px floor was
-		 hiding: the verdict and the actions are both nowrap, so under ~400px of
-		 pane they take the line between them and the NAME is what gets squeezed to
-		 nothing. A row that has lost its server's name has lost the one thing that
-		 says which server it is; a row that has spent one more line has lost
-		 nothing. So the verdict takes a line of its own here, and the row reads
-		 name (with its actions), then how it is, then what it holds. */
-	@container pane (width < 400px) {
-		/* The name takes the whole first line and the actions drop to the
-			 verdict's, because at this width the name is what was losing: sharing
-			 line one with a nowrap cluster left it four characters. */
-		.server-name {
-			/* To the third track, not through it: spanning the flexible track hands
-				 it the label's whole nowrap width as a minimum, and a 40-character
-				 label then took the page into a horizontal scrollbar. Stopping short
-				 leaves the label ellipsizing inside the space it has, which is what
-				 it does at every other width. */
-			grid-area: 1 / 1 / auto / 3;
-		}
-		.server-actions {
-			grid-area: 2 / 3;
-			align-self: center;
-		}
-		.server-meta {
-			grid-row: 3;
-		}
-		/* Its own line, because the alternative at this width is one character and
-			 an ellipsis: the facts beside it are nowrap and short. */
-		.server-url {
-			flex-basis: 100%;
-		}
-		/* Spanning the empty middle column rather than paying for its gap. */
-		.server-status {
-			grid-area: 2 / 1 / auto / 3;
-		}
-		/* Here, and only here, a button may break its own label. Everywhere else
-			 that reads as two controls, but at this width the two-step confirm
-			 ("Confirm remove?" beside a nowrap verdict pill) has a minimum wider
-			 than the pane, and an unbreakable button would take the whole page into
-			 a horizontal scroll - which is the one thing the floor promises does
-			 not happen above 320px. */
-		.server-actions button {
-			white-space: normal;
-		}
-	}
-
-	/* ---- the rail at narrow widths -----------------------------------------
-		 Placed HERE, after every rule it overrides, and not beside the rail's own
-		 rules where it was first written. This file is one flat layer, so a
-		 same-specificity rule wins by coming later - and from up there this block
-		 silently lost three arguments it appeared to win: the footer's centring
-		 (to `.rail-state`), the verdict dot's size (to `.pill .dot`), and the
-		 slide-over's narrow width (to `.slide-over`). Each looked correct in the
-		 stylesheet and did nothing on screen.
-		 A window under ~1000px cannot afford 216px of rail: at 500px it is nearly
-		 half the pane spent on five words over empty space. The rail becomes an
-		 icon rail, the way VS Code's activity bar is one, and hands ~170px back to
-		 the content.
-		 The threshold buys CONTENT, and only that: 1000px is where a full rail
-		 leaves the pane under ~780px, which is where every surface here starts
-		 having to give something up. It is deliberately not tuned to keep the
-		 server rows on one line - that fold sits at 920px of pane, which a full
-		 rail could only clear above a 1136px window, and collapsing the rail this
-		 early to chase it would trade five labels for one row shape.
-		 A media query, not a container query: the rail's question is how wide the
-		 WINDOW is, and it is the only element on the page for which that is true.
-		 Asking the pane would also be circular - the rail's width is half of the
-		 pane's answer. */
-	@media (width < 1000px) {
-		/* Nothing is dropped from the document, only from the paint: every label,
-			 the brand (the page's only h1) and the fleet's verdict stay readable to
-			 assistive tech, so the accessible name of every control is the same at
-			 500px as at 1500px. */
-		.rail-brand,
-		.rail-label,
-		.rail-synced,
-		.rail-word,
-		.rail-action-label {
-			position: absolute;
-			width: 1px;
-			height: 1px;
-			margin: -1px;
-			padding: 0;
-			overflow: hidden;
-			clip: rect(0 0 0 0);
-			white-space: nowrap;
-			border: 0;
-		}
-		.rail {
-			flex: 0 0 48px;
-		}
-		.rail-inner {
-			gap: 14px;
-			padding: 12px 4px 14px;
-			align-items: center;
-		}
-		.rail-nav {
-			align-self: stretch;
-			gap: 4px;
-		}
-		.rail-nav .rail-tab {
-			position: relative;
-			flex-direction: column;
-			align-items: center;
-			justify-content: center;
-			gap: 1px;
-			min-height: 38px;
-		}
-		.rail-icon {
-			display: flex;
-		}
-		.rail-icon .icon {
-			width: 18px;
-			height: 18px;
-		}
-		/* The two footer actions are icons here too, and they are read as part of
-			 the same column as the destinations above them: one glyph size for the
-			 whole rail, or the rail looks like two rails. */
-		.rail-action .icon {
-			width: 17px;
-			height: 17px;
-		}
-		/* The count survives the collapse - it is the rail's claim over a tab
-			 strip - as a small figure under its icon rather than a badge over it:
-			 a badge would need a fill of its own, and a tinted number cannot be
-			 read against an arbitrary badge colour. */
-		.rail-tab .rail-count {
-			margin-left: 0;
-			font-size: 0.8em;
-			line-height: 1.1;
-		}
-		/* The active mark moves to the rail's edge, where the activity bar puts
-			 it: with no label to carry weight, a soft fill alone is a weak signal at
-			 a glance. */
-		.rail-nav .rail-tab[aria-selected="true"]::before {
-			content: "";
-			position: absolute;
-			top: 4px;
-			bottom: 4px;
-			left: -4px;
-			width: 2px;
-			border-radius: 0 2px 2px 0;
-			background: var(--accent-hue);
-		}
-		.rail-state {
-			align-items: center;
-			gap: 8px;
-			padding: 0;
-		}
-		/* The footer's two columns collapse with everything else: with no words
-			 to line the glyphs up against, the insets that align them would only
-			 push the dot off the rail's centre. */
-		.rail-status {
-			justify-content: center;
-			padding-left: 0;
-			/* Stretched so the box the tip measures from is the rail's column and
-				 not the 11px dot: measured from the dot, the verdict's tip landed
-				 20px left of every other one, over the rail's own border. */
-			align-self: stretch;
-		}
-		.rail-state .rail-status .dot {
-			margin-inline: 0;
-		}
-		/* With the word hidden, the dot is the whole verdict, so it stops relying
-			 on hue alone: one shape per tone. Forced colours discard every colour
-			 here and would otherwise leave four states looking like one. */
-		.rail-status .dot {
-			width: 11px;
-			height: 11px;
-			box-sizing: border-box;
-		}
-		.rail-status.tone-warn .dot {
-			border-radius: 0;
-			clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
-		}
-		.rail-status.tone-error .dot {
-			border-radius: 2px;
-		}
-		.rail-status.tone-muted .dot {
-			background: transparent;
-			border: 1.5px solid currentColor;
-		}
-		/* The slide-over stops at the rail instead of halfway across it. Its own
-			 width rule (94vw) leaves a 30px sliver of a 48px rail: half an icon and
-			 half a count badge, cut down the middle, which reads as a positioning
-			 fault rather than as a panel. Landing on the rail's edge keeps the rail
-			 whole and legible; it is not a way out, since the scrim covers it while
-			 the panel is modal, and that is deliberate - the way out is Esc or the
-			 panel's own close. */
-		.slide-over {
-			/* Joins the panel's own cap rather than replacing it: written as a bare
-				 calc this took over from 723px up, where the base rule had already
-				 settled at 680, and a 980px window got a 931px panel that snapped
-				 back to 680 thirty pixels later.
-				 49 and not 48: the rail's box is its 48px basis PLUS its 1px right
-				 border - nothing here is border-box, there is no preflight - so 48
-				 put the panel over that border column. */
-			width: min(680px, calc(100% - 49px));
-		}
-		/* Forced colours discard author backgrounds, which is where both of the
-			 collapsed rail's marks live: the active item's edge bar and the verdict
-			 dot itself. At full width neither loss shows - the selected item still
-			 reads as text and the verdict is a word - but here they are the only
-			 copy, so both are redrawn in system colours. The tones stay apart by
-			 shape, which is what that channel is for. */
-		@media (forced-colors: active) {
-			.rail-nav .rail-tab[aria-selected="true"]::before {
-				background: Highlight;
-			}
-			/* currentColor is not a system colour, so forced colours replace the
-				 dot's fill with the canvas and it disappears into its own
-				 background. Named through the footer to keep the rail's verdict
-				 independent of the shared pill rule above. */
-			.rail-state .rail-status .dot {
-				background: CanvasText;
-			}
-			.rail-state .rail-status.tone-muted .dot {
-				background: Canvas;
-				border-color: CanvasText;
-			}
-		}
-		/* Each control names itself on hover or keyboard focus, beside the rail
-			 rather than over it: the rail is a column against the window's edge, so
-			 a tip above a control would cover its neighbour.
-			 Generated content, not an element, so the label is not also a second
-			 copy of itself in the page's text; fixed, because the rail's column
-			 scrolls in a short window and an absolute tip would be clipped at that
-			 overflow box; and placed from the two variables the control measured
-			 for itself, which are inert at every other width.
-			 The chrome is the help tip's, deliberately: one tooltip look for the
-			 page, whether it comes from an element or from a pseudo-element. */
-		.rail-tab:hover .rail-icon::after,
-		.rail-tab:focus-visible .rail-icon::after,
-		.rail-action:hover .rail-action-icon::after,
-		.rail-action:focus-visible .rail-action-icon::after,
-		.rail-status:hover .dot::after,
-		.rail-status:focus-visible .dot::after {
-			content: attr(data-tip);
-			position: fixed;
-			left: var(--rail-tip-left);
-			top: var(--rail-tip-top);
-			transform: translateY(-50%);
-			z-index: 100;
-			width: max-content;
-			max-width: min(240px, calc(100vw - 72px));
-			padding: 5px 9px;
-			background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background));
-			color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
-			border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
-			border-radius: 3px;
-			box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.35));
-			font-family: var(--vscode-font-family);
-			font-size: var(--vscode-font-size);
-			font-weight: 400;
-			line-height: 1.5;
-			text-align: left;
-			white-space: normal;
-			pointer-events: none;
 		}
 	}
 
@@ -2951,8 +2443,16 @@
 	}
 	/* Below the width where two input tracks stay usable, rows stack back to
 		   the panel-column layout and the column heads regroup into one legend
-		   line (the help glyphs must survive the stacking). */
-	@container pane (max-width: 700px) {
+		   line (the help glyphs must survive the stacking).
+
+		   Range syntax rather than max-width, deliberately: Tailwind compiles the
+		   components' `@max-[700px]/pane:` variants to `not (min-width: 700px)`,
+		   which is `< 700`, while `max-width: 700px` is `<= 700`. The server form
+		   pairs its own variants with this rule, so at exactly 700px of pane the
+		   two would disagree and the page would stack in halves. The sibling
+		   rules below still read `max-width` because no Tailwind variant pairs
+		   with 560, 620 or 780 - there is nothing for them to disagree with. */
+	@container pane (width < 700px) {
 		/* Below the width where two input tracks stay usable, every panel's
 			   key/value rows stack to one column - the server form's header rows
 			   follow the same threshold as the matcher editor's field rows. */
@@ -3012,5 +2512,560 @@
 		padding: 12px 20px;
 		background: var(--vscode-editor-background, var(--vscode-panel-background));
 		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
+	}
+}
+
+/* ===========================================================================
+   The narrow layer: what the dashboard does when its pane is not wide.
+
+   Its own layer, above `legacy`, for two reasons. The first is the rule of the
+   house - new designed CSS is written into `components`, and the legacy block
+   is scheduled for wholesale deletion, so anything left in it either dies or
+   becomes somebody else's migration. The second is that these rules have to
+   WIN: every one of them exists to override a full-width rule below, and while
+   they sat in the same flat layer that argument was settled by source order
+   alone. It was settled wrongly three times - the footer's centring, the
+   verdict dot's size and the slide-over's width all read correctly in the
+   stylesheet and did nothing on screen. A layer says what the order was only
+   implying.
+
+   What is NOT here: edits to rules that already existed (a base rule gaining a
+   min-width, a flex direction, a wrap). Those belong to the rule they change
+   and go with it whenever it goes.
+
+   One limit, because the layer does not lift it: utilities still beat this.
+   Where a component sets a property through a Tailwind class - a row's
+   grid-template-columns, most often - the matching value has to live in that
+   component's own class list, and only the placements live here. Each such
+   pair is keyed to the same width, and spelled as a range so the two agree
+   with the exclusive semantics Tailwind compiles max-width variants to.
+   =========================================================================== */
+@layer components {
+	/* Once the header wraps, its actions stop being a trailing edge and become
+	 a line of their own - and `margin-left: auto` then pins that line to the
+	 right of the pane, alone, aligned with nothing. Every narrow surface grew
+	 the same orphan ("Refresh now", "Open in Settings editor"). Below the fold
+	 they simply follow the title's left edge. */
+	@container pane (max-width: 640px) {
+		.section-head .section-actions {
+			margin-left: 0;
+		}
+	}
+	/* ---- the server row, two lines -------------------------------------------
+	 920px is where the seven-column row stops being a row. It does not stop at
+	 the width where the cells collide - the URL is the flexible column, so it
+	 is the one that pays, and it pays by starving: at a 850px pane the host
+	 rendered as an empty cell between two full ones, a column of nothing down
+	 the page. The threshold is the width the row's own content asks for with
+	 the URL still readable, not the width at which something visibly breaks.
+	 It does not stack, either: a stack is seven ragged lines whose only order
+	 is the DOM's, and that is what this row looked like before - label, url,
+	 status, count, percent, badge and actions each alone on a line, nothing
+	 aligned with anything above it, 200px of window per server.
+	 It folds instead, into a composition that says the same things in the
+	 order they are wanted: who and how it is (line one), where it is and what
+	 it holds (line two), and what you can do about it (a cluster beside both,
+	 so the two lines read as one row). The columns still belong to the LIST,
+	 so the verdicts line up down the page and the actions sit under each
+	 other; only the shape of a row changed. */
+	@container pane (max-width: 920px) {
+		/* The name track takes its width from the names, capped; the ACTIONS
+		 track takes the slack. Giving the slack to the name instead pushed
+		 every verdict to the far right of the pane, which aligns them but
+		 leaves a hand's width of nothing between a server and its own state -
+		 two facts about one row, read as far apart as the page allows. Capped,
+		 the verdicts still line up down the page (a track is a track), just
+		 next to what they are about. */
+		/* fit-content, not minmax: a track with a fixed growth limit takes free
+		 space before a flexible one does, so `minmax(6em, 20em)` quietly grew
+		 the name column into the pane's spare width and left the actions column
+		 at its own minimum - one button wide, so Edit and Remove stacked on
+		 every healthy row. fit-content sizes to the names and stops there,
+		 capped so one very long label cannot take the row; the actions track
+		 takes the slack, which is what right-aligns the cluster, and never
+		 gives up its own content (a plain 1fr has a zero minimum, and at 500px
+		 the buttons then printed straight over the verdict beside them). */
+		.server-list {
+			grid-template-columns: fit-content(10em) auto minmax(min-content, 1fr);
+		}
+		.server-row {
+			align-items: start;
+			gap: 1px 10px;
+			padding: 7px 8px;
+		}
+		.server-name {
+			grid-row: 1;
+			grid-column: 1;
+			/* A floor the second line cannot argue with. The meta line spans all
+			 three tracks, so ITS content is charged to them too - and a URL long
+			 enough (they are single unbreakable tokens) collapsed this column to
+			 nothing on EVERY row at once, since the tracks belong to the list.
+			 The name is the row's identity; it gives up characters to an
+			 ellipsis, never its whole column. */
+			min-width: 5em;
+		}
+		.server-status {
+			grid-row: 1;
+			grid-column: 2;
+		}
+		.server-meta {
+			display: flex;
+			grid-row: 2;
+			grid-column: 1 / -1;
+			flex-wrap: wrap;
+			align-items: baseline;
+			gap: 1px 9px;
+			/* Zero, so this line asks the row's columns for nothing: it spans them
+			 all, and a spanning item's content is otherwise charged to the tracks
+			 it crosses. */
+			min-width: 0;
+		}
+		/* The second line runs the row's full width, under the actions as well as
+		 under the name: the actions have a whole line's height beside them
+		 already, and the ~100px they would otherwise reserve on line two is
+		 exactly what the URL needs to stop ellipsizing its host. */
+		/* The tag is a wide-width nicety, and it is the one thing on the row that
+		 is said twice: the pill beside it reads "Misconfigured" and the line
+		 below it opens "... is switched off until this entry is fixed". At this
+		 width it was costing the label its own name - "broken" rendered as a
+		 sliver of an ellipsis next to an intact "not in use". */
+		.server-name .server-tag {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			margin: -1px;
+			padding: 0;
+			overflow: hidden;
+			clip: rect(0 0 0 0);
+			white-space: nowrap;
+			border: 0;
+		}
+		/* The URL leads the line and the facts follow it directly, rather than the
+		 URL stretching and pushing them to the right edge: pushed right, they
+		 landed at a different x on every row (the widest badge decides), which
+		 is the ragged look this composition exists to end. Read together they
+		 are one sentence about the server - where it is, what it holds, what it
+		 costs, how it authenticates - and the URL is the only member that gives
+		 up width, because a truncated host still identifies the server while a
+		 wrapped count and a wrapped badge are debris. */
+		/* The https:// scheme stops being painted, and stays in the row: the text
+		 is still there for a screen reader, a copy and a find-in-page, so the
+		 URL a reader gets is always the URL the setting holds. An http:// URL
+		 keeps its scheme on screen - insecure is news, and its hosts are short. */
+		.server-url .url-scheme.quiet {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			margin: -1px;
+			padding: 0;
+			overflow: hidden;
+			clip: rect(0 0 0 0);
+			white-space: nowrap;
+			border: 0;
+		}
+		/* Three arrangements were measured here and this is the only one that
+		 costs nothing shared. A URL that GROWS pins the facts to the trailing
+		 edge, where they start at a different x on every row - the ragged look
+		 this line exists to end. A line that does not WRAP charges its whole
+		 width to the row's columns, and since those columns belong to the list,
+		 it collapsed the name column on every row at once. Wrapping with a
+		 content basis keeps the facts beside the URL and keeps the damage local:
+		 a URL too long for the line takes a line of its own, on its own row. */
+		.server-url {
+			flex: 0 1 auto;
+			min-width: 0;
+			/* It WRAPS here rather than ellipsizing, and that is what keeps a long
+			 host from costing the whole list: a URL is one unbreakable token, so
+			 as nowrap text its max-content is its full length - and this line
+			 spans every one of the row's columns, so that length was charged to
+			 tracks the whole list shares. A 60-character host pushed the page
+			 into a horizontal scrollbar and squeezed every row's NAME. Allowed to
+			 break, it costs one row one extra line and nothing else, and the
+			 reader gets the whole address instead of an ellipsis. */
+			max-width: 100%;
+			white-space: normal;
+			overflow-wrap: anywhere;
+		}
+		.server-count,
+		.server-usage {
+			flex: none;
+			min-width: 0;
+			text-align: left;
+		}
+		.server-badges {
+			flex: none;
+		}
+		/* Beside the name and the verdict, not under them: the row's two lines
+		 read as one row, and an actions line of its own would make every server
+		 three lines tall and put two buttons a reader rarely uses on the same
+		 footing as the row's facts.
+		 Always painted at these widths, since hover is not a thing a touch
+		 device can express. The cap and the wrap are what keep the ROW inside
+		 the pane: an unwrapped cluster's minimum is both its buttons side by
+		 side, and a row whose minimum exceeds the pane does not truncate, it
+		 puts a horizontal scrollbar under the whole page. Wrapped, the minimum
+		 is one button - which the two-step confirm ("Confirm remove?" beside
+		 "Cancel") does reach at 500px, and which is the right thing to spend a
+		 line on for the state a reader is looking straight at. */
+		.server-actions {
+			grid-row: 1;
+			grid-column: 3;
+			max-width: 13em;
+			/* The cap is why this is needed: an item that cannot stretch to fill
+			 its track is placed at the track's START, so the cluster sat at a
+			 fixed offset from the name and left up to 380px of empty row to its
+			 right at a 900px pane - the row froze at its 500px shape while the
+			 rule beneath it and the diagnostic block below ran the full width.
+			 The cluster belongs on the row's trailing edge at every width in
+			 this range. */
+			justify-self: end;
+			flex-wrap: wrap;
+			justify-content: flex-end;
+			opacity: 1;
+		}
+		/* The cluster wraps between buttons, never inside one: a button broken
+		 mid-phrase reads as two controls. */
+		.server-actions button {
+			white-space: nowrap;
+		}
+		/* Tighter under a two-line row: the rule and its indent were sized
+		 against a one-line row above them. */
+		.row-diagnostic {
+			margin-left: 8px;
+			padding: 5px 8px;
+		}
+	}
+	/* ---- the usage line, folded ----------------------------------------------
+	 Six columns do not survive a 400px pane: the money truncates to "$21.1..."
+	 while a decorative meter keeps its 8rem, which is the wrong thing to spend
+	 width on by any reading.
+	 Folded, the row keeps every one of its facts and ranks them by line: who
+	 and how close to the budget (line one), how much of how much and the fact
+	 that qualifies it (line two), and the meter as a full-width rule beneath,
+	 where a 3px bar is a better shape than a 3px stub.
+	 The row's tracks come from the component's own utility list - a utility
+	 always beats this layer, so the template has to live where the rest of the
+	 row's geometry does - and the placements live here, with the composition
+	 they belong to. Both are keyed to the same 620px. */
+	@container pane (width < 620px) {
+		.usage-label {
+			grid-area: 1 / 1;
+		}
+		.usage-spend {
+			grid-area: 2 / 1;
+		}
+		.usage-percent {
+			grid-area: 1 / 2;
+		}
+		.usage-tail {
+			grid-area: 2 / 2;
+			text-align: right;
+		}
+		.usage-toggle {
+			grid-area: 1 / 3 / span 3;
+			align-self: center;
+		}
+		.usage-meter {
+			grid-area: 3 / 1 / auto / span 2;
+			width: 100%;
+			margin-top: 3px;
+		}
+	}
+	/* ---- the narrowest two-line rows: the time yields first ------------------
+		 A row's own name is the one thing on it that cannot be derived from
+		 anything else, and under ~560px of pane it was the thing paying: the
+		 verdict and the actions are both unbreakable, so a long label ellipsized
+		 while "2 min ago" sat intact beside it. That is the wrong order. The
+		 relative time is line one's most derivable fact - every row's own state
+		 is spelled out beneath it, and the fleet's sync time is in the rail - so
+		 it stops being PAINTED here and the label spends what it frees.
+		 Hidden the way everything else in this work is hidden: the text stays in
+		 the row for a screen reader and for a copy of the line. */
+	@container pane (width < 560px) {
+		.server-list {
+			grid-template-columns: fit-content(14em) auto minmax(min-content, 1fr);
+		}
+		.server-status .pill-time {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			margin: -1px;
+			padding: 0;
+			overflow: hidden;
+			clip: rect(0 0 0 0);
+			white-space: nowrap;
+			border: 0;
+		}
+	}
+	/* ---- the server row, three lines -----------------------------------------
+	 The last tier, and it exists because of what the old 420px floor was
+	 hiding: the verdict and the actions are both nowrap, so under ~400px of
+	 pane they take the line between them and the NAME is what gets squeezed to
+	 nothing. A row that has lost its server's name has lost the one thing that
+	 says which server it is; a row that has spent one more line has lost
+	 nothing. So the verdict takes a line of its own here, and the row reads
+	 name (with its actions), then how it is, then what it holds. */
+	@container pane (width < 400px) {
+		/* The name takes the whole first line and the actions drop to the
+		 verdict's, because at this width the name is what was losing: sharing
+		 line one with a nowrap cluster left it four characters. */
+		.server-name {
+			/* To the third track, not through it: spanning the flexible track hands
+			 it the label's whole nowrap width as a minimum, and a 40-character
+			 label then took the page into a horizontal scrollbar. Stopping short
+			 leaves the label ellipsizing inside the space it has, which is what
+			 it does at every other width. */
+			grid-area: 1 / 1 / auto / 3;
+		}
+		.server-actions {
+			grid-area: 2 / 3;
+			align-self: center;
+		}
+		.server-meta {
+			grid-row: 3;
+		}
+		/* Its own line, because the alternative at this width is one character and
+		 an ellipsis: the facts beside it are nowrap and short. */
+		.server-url {
+			flex-basis: 100%;
+		}
+		/* Spanning the empty middle column rather than paying for its gap. */
+		.server-status {
+			grid-area: 2 / 1 / auto / 3;
+		}
+		/* Here, and only here, a button may break its own label. Everywhere else
+		 that reads as two controls, but at this width the two-step confirm
+		 ("Confirm remove?" beside a nowrap verdict pill) has a minimum wider
+		 than the pane, and an unbreakable button would take the whole page into
+		 a horizontal scroll - which is the one thing the floor promises does
+		 not happen above 320px. */
+		.server-actions button {
+			white-space: normal;
+		}
+	}
+	/* ---- the rail at narrow widths -----------------------------------------
+	 Placed HERE, after every rule it overrides, and not beside the rail's own
+	 rules where it was first written. This file is one flat layer, so a
+	 same-specificity rule wins by coming later - and from up there this block
+	 silently lost three arguments it appeared to win: the footer's centring
+	 (to `.rail-state`), the verdict dot's size (to `.pill .dot`), and the
+	 slide-over's narrow width (to `.slide-over`). Each looked correct in the
+	 stylesheet and did nothing on screen.
+	 A window under ~1000px cannot afford 216px of rail: at 500px it is nearly
+	 half the pane spent on five words over empty space. The rail becomes an
+	 icon rail, the way VS Code's activity bar is one, and hands ~170px back to
+	 the content.
+	 The threshold buys CONTENT, and only that: 1000px is where a full rail
+	 leaves the pane under ~780px, which is where every surface here starts
+	 having to give something up. It is deliberately not tuned to keep the
+	 server rows on one line - that fold sits at 920px of pane, which a full
+	 rail could only clear above a 1185px window (920 plus the rail's 217 and
+	 the pane's own 48 of padding), and collapsing the rail this early to chase
+	 it would trade five labels for one row shape.
+	 A media query, not a container query: the rail's question is how wide the
+	 WINDOW is, and it is the only element on the page for which that is true.
+	 Asking the pane would also be circular - the rail's width is half of the
+	 pane's answer. */
+	@media (width < 1000px) {
+		/* Nothing is dropped from the document, only from the paint: every label,
+		 the brand (the page's only h1) and the fleet's verdict stay readable to
+		 assistive tech, so the accessible name of every control is the same at
+		 500px as at 1500px. */
+		.rail-brand,
+		.rail-label,
+		.rail-synced,
+		.rail-word,
+		.rail-action-label {
+			position: absolute;
+			width: 1px;
+			height: 1px;
+			margin: -1px;
+			padding: 0;
+			overflow: hidden;
+			clip: rect(0 0 0 0);
+			white-space: nowrap;
+			border: 0;
+		}
+		.rail {
+			flex: 0 0 48px;
+		}
+		.rail-inner {
+			gap: 14px;
+			padding: 12px 4px 14px;
+			align-items: center;
+		}
+		.rail-nav {
+			align-self: stretch;
+			gap: 4px;
+		}
+		.rail-nav .rail-tab {
+			position: relative;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			gap: 1px;
+			min-height: 38px;
+		}
+		.rail-icon {
+			display: flex;
+		}
+		.rail-icon .icon {
+			width: 18px;
+			height: 18px;
+		}
+		/* The two footer actions are icons here too, and they are read as part of
+		 the same column as the destinations above them: one glyph size for the
+		 whole rail, or the rail looks like two rails. */
+		.rail-action .icon {
+			width: 17px;
+			height: 17px;
+		}
+		/* The count survives the collapse - it is the rail's claim over a tab
+		 strip - as a small figure under its icon rather than a badge over it:
+		 a badge would need a fill of its own, and a tinted number cannot be
+		 read against an arbitrary badge colour. */
+		.rail-tab .rail-count {
+			margin-left: 0;
+			font-size: 0.8em;
+			line-height: 1.1;
+		}
+		/* The active mark moves to the rail's edge, where the activity bar puts
+		 it: with no label to carry weight, a soft fill alone is a weak signal at
+		 a glance. */
+		.rail-nav .rail-tab[aria-selected="true"]::before {
+			content: "";
+			position: absolute;
+			top: 4px;
+			bottom: 4px;
+			left: -4px;
+			width: 2px;
+			border-radius: 0 2px 2px 0;
+			background: var(--accent-hue);
+		}
+		.rail-state {
+			align-items: center;
+			gap: 8px;
+			padding: 0;
+		}
+		/* The footer's two columns collapse with everything else: with no words
+		 to line the glyphs up against, the insets that align them would only
+		 push the dot off the rail's centre. */
+		.rail-status {
+			justify-content: center;
+			padding-left: 0;
+			/* Stretched so the box the tip measures from is the rail's column and
+			 not the 11px dot: measured from the dot, the verdict's tip landed
+			 20px left of every other one, over the rail's own border. */
+			align-self: stretch;
+		}
+		.rail-state .rail-status .dot {
+			margin-inline: 0;
+		}
+		/* With the word hidden, the dot is the whole verdict, so it stops relying
+		 on hue alone: one shape per tone. Forced colours discard every colour
+		 here and would otherwise leave four states looking like one. */
+		.rail-status .dot {
+			width: 11px;
+			height: 11px;
+			box-sizing: border-box;
+		}
+		.rail-status.tone-warn .dot {
+			border-radius: 0;
+			clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+		}
+		.rail-status.tone-error .dot {
+			border-radius: 2px;
+		}
+		.rail-status.tone-muted .dot {
+			background: transparent;
+			border: 1.5px solid currentColor;
+		}
+		/* The slide-over stops at the rail instead of halfway across it. Its own
+		 width rule (94vw) leaves a 30px sliver of a 48px rail: half an icon and
+		 half a count badge, cut down the middle, which reads as a positioning
+		 fault rather than as a panel. Landing on the rail's edge keeps the rail
+		 whole and legible; it is not a way out, since the scrim covers it while
+		 the panel is modal, and that is deliberate - the way out is Esc or the
+		 panel's own close. */
+		.slide-over {
+			/* Joins the panel's own cap rather than replacing it: written as a bare
+			 calc this took over from 723px up, where the base rule had already
+			 settled at 680, and a 980px window got a 931px panel that snapped
+			 back to 680 thirty pixels later.
+			 49 and not 48: the rail's box is its 48px basis PLUS its 1px right
+			 border - nothing here is border-box, there is no preflight - so 48
+			 put the panel over that border column. */
+			width: min(680px, calc(100% - 49px));
+		}
+		/* Forced colours discard author backgrounds, which is where both of the
+		 collapsed rail's marks live: the active item's edge bar and the verdict
+		 dot itself. At full width neither loss shows - the selected item still
+		 reads as text and the verdict is a word - but here they are the only
+		 copy, so both are redrawn in system colours. The tones stay apart by
+		 shape, which is what that channel is for. */
+		@media (forced-colors: active) {
+			.rail-nav .rail-tab[aria-selected="true"]::before {
+				background: Highlight;
+			}
+			/* currentColor is not a system colour, so forced colours replace the
+			 dot's fill with the canvas and it disappears into its own
+			 background. Named through the footer to keep the rail's verdict
+			 independent of the shared pill rule above. */
+			.rail-state .rail-status .dot {
+				background: CanvasText;
+			}
+			.rail-state .rail-status.tone-muted .dot {
+				background: Canvas;
+				border-color: CanvasText;
+			}
+		}
+		/* Each control names itself on hover or keyboard focus, beside the rail
+		 rather than over it: the rail is a column against the window's edge, so
+		 a tip above a control would cover its neighbour.
+		 Generated content, not an element, so the label is not also a second
+		 copy of itself in the page's text; fixed, because the rail's column
+		 scrolls in a short window and an absolute tip would be clipped at that
+		 overflow box; and placed from the two variables the control measured
+		 for itself, which are inert at every other width.
+		 The chrome is the help tip's, deliberately: one tooltip look for the
+		 page, whether it comes from an element or from a pseudo-element. */
+		.rail-tab:hover .rail-icon::after,
+		.rail-tab:focus-visible .rail-icon::after,
+		.rail-action:hover .rail-action-icon::after,
+		.rail-action:focus-visible .rail-action-icon::after,
+		.rail-status:hover .dot::after,
+		.rail-status:focus-visible .dot::after {
+			content: attr(data-tip);
+			position: fixed;
+			left: var(--rail-tip-left);
+			top: var(--rail-tip-top);
+			transform: translateY(-50%);
+			z-index: 100;
+			width: max-content;
+			max-width: min(240px, calc(100vw - 72px));
+			padding: 5px 9px;
+			background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background));
+			color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+			border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
+			border-radius: 3px;
+			box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.35));
+			font-family: var(--vscode-font-family);
+			font-size: var(--vscode-font-size);
+			font-weight: 400;
+			line-height: 1.5;
+			text-align: left;
+			white-space: normal;
+			pointer-events: none;
+		}
+	}
+	/* A 260px floor plus a scope chip plus a count does not fit a 400px pane,
+	 and a floor cannot yield: the input ran off the right edge instead of
+	 shrinking. Below this width the field takes the line it is already
+	 wrapping onto and gives up the floor. */
+	@container pane (width < 560px) {
+		.filterbar input {
+			min-width: 0;
+			flex: 1 1 100%;
+		}
 	}
 }

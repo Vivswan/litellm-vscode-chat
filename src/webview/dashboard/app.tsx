@@ -1,5 +1,5 @@
 import * as l10n from "@vscode/l10n";
-import type { ReactNode } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AckedMethod, NotifyingMethod } from "../../dashboard/endpoints";
 import { failuresAfterStatePush, isAckedMethod } from "../../dashboard/endpoints";
@@ -50,7 +50,7 @@ function sectionLabel(section: SectionId): string {
  * exhaustive switch the labels use, so a new destination cannot ship with a
  * name and no icon - at narrow widths the icon IS the name.
  */
-function sectionIcon(section: SectionId): ReactNode {
+function sectionIcon(section: SectionId): ReactElement {
 	switch (section) {
 		case "overview":
 			return <IconServers />;
