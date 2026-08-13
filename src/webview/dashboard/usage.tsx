@@ -4,12 +4,19 @@
  * and closed endpoint-standing enums only - the extension narrowed everything
  * response-derived away before it reached the store). Servers whose LiteLLM
  * instance serves no usage endpoints never appear; a server a refused key
- * (401/403) leaves without readable usage gets a reduced card naming the
- * block instead - forbidden is fixable, unsupported is not. When no server
- * surfaces at all, the section says so instead of showing empty charts
- * (docs/usage.md).
+ * (401/403) leaves without readable usage keeps its row and states the block
+ * instead - forbidden is fixable, unsupported is not. When no server surfaces
+ * at all, the section says so instead of showing empty charts (docs/usage.md).
  *
- * Failure rendering is two-part: a localized human headline (what happened,
+ * Every row is one scannable line - name, spend, meter, percentage, and the
+ * fact that matters most - that opens onto a labelled inventory of everything
+ * this extension knows about that server. Usage is per SERVER, never per
+ * model, and every field can be missing: a proxy that does not serve the
+ * activity endpoint reports no request statistics at all, which is a normal
+ * shape rather than a failure. So absence is designed rather than hidden - a
+ * dim dash plus the reason in place - and a missing number is never a zero.
+ *
+ * Failure rendering is two-part: a localized human sentence (what happened,
  * what to do) plus a compact English detail line built from the standing's
  * enums (endpoint path, HTTP status, fixed vocabulary). The detail stays
  * English on purpose: users paste it into GitHub issues, and every term is
@@ -17,17 +24,21 @@
  */
 
 import * as l10n from "@vscode/l10n";
+import type { ReactNode } from "react";
+import { useId, useState } from "react";
 import type {
 	DashboardUsage,
 	UsageEndpointStandingView,
 	UsageForbiddenServerView,
+	UsageServerCardView,
 	UsageServerView,
 } from "../../dashboard/viewModels";
 import { DOCS_LINK_USAGE } from "./docsLinks";
-import { DocsLink, Help } from "./help";
 import { helpUsageSection } from "./helpText";
 import { relativeTime } from "./time";
 import { Button } from "./ui/button";
+import { cn } from "./ui/cn";
+import { Section } from "./ui/section";
 import { sendRequest } from "./vscodeApi";
 
 /** A dollar amount as the panel prints it; two decimals below $1000, whole dollars above. */
@@ -56,47 +67,64 @@ export function barPresentation(
 	return { widthPercent, tone };
 }
 
+/** The severity a tone paints text with; the meter fill reads the same scale. */
+const TONE_TEXT: Readonly<Record<"ok" | "warn" | "error", string>> = {
+	ok: "text-ok",
+	warn: "text-warn",
+	error: "text-err",
+};
+
 /**
- * The card head's freshness slot. Never-loaded spend gets a reasoned headline
- * per the /key/info standing instead of the old self-contradictory "never
- * updated (stale)"; a stale age keeps the docs-quoted "last updated {age}"
- * phrase and extends the marker with the cause when the standing knows one.
- * Every branch is one whole l10n literal so extraction sees full sentences.
+ * The meter's fill takes the RAW hue, not the readable text tier: a bar is a
+ * shape, so 3:1 carries it, while the same colour as a word has to clear AA
+ * and is darkened for it. The `-fill` names are the explicit ones on purpose -
+ * `bg-ok` still compiles and would paint the meter in the text colour.
  */
-function lastUpdatedText(server: UsageServerView, now: number): string {
-	if (server.lastUpdatedAt === undefined) {
-		if (server.keyInfo.kind === "unavailable") {
-			return server.keyInfo.reason === "forbidden"
-				? l10n.t("This key isn't allowed to read its spend.")
-				: l10n.t("This server doesn't report spend.");
-		}
-		return l10n.t("Spend hasn't loaded for this server yet.");
+const TONE_FILL: Readonly<Record<"ok" | "warn" | "error", string>> = {
+	ok: "bg-ok-fill",
+	warn: "bg-warn-fill",
+	error: "bg-err-fill",
+};
+
+/**
+ * Why a server has never reported spend at all, per the /key/info standing:
+ * the reason the "Last updated" fact carries in place of an age.
+ */
+function neverUpdatedText(server: UsageServerView): string {
+	if (server.keyInfo.kind === "unavailable") {
+		return server.keyInfo.reason === "forbidden"
+			? l10n.t("This key isn't allowed to read its spend.")
+			: l10n.t("This server doesn't report spend.");
 	}
-	const ago = relativeTime(new Date(server.lastUpdatedAt).toISOString(), now);
-	if (ago === undefined) {
-		return l10n.t("just updated");
-	}
-	if (server.fresh) {
-		return l10n.t("last updated {0}", ago);
-	}
-	if (server.keyInfo.kind === "error") {
-		return l10n.t("last updated {0} - last refresh failed", ago);
-	}
-	if (server.keyInfo.kind === "unavailable" && server.keyInfo.reason === "forbidden") {
-		return l10n.t("last updated {0} - usage access denied", ago);
-	}
-	// Merely old (laptop asleep, polling off): the plain history marker.
-	return l10n.t("last updated {0} (stale)", ago);
+	return l10n.t("Spend hasn't loaded for this server yet.");
 }
 
 /**
- * The spend slot when /key/info gave no spend number: why, and what unblocks
- * it, branched on the standing (a forbidden key, a transient failure, and a
- * server that simply omits the field must not render identically). Undefined
- * when the card head already carries the same sentence - the never-fetched
- * "unknown" standing - so the card never repeats itself word for word.
+ * What is wrong with an age that is not fresh, in the same words the line's
+ * tail uses, so a row's marker and its panel never name the state differently.
+ * Undefined while the data is fresh.
  */
-function spendUnknownText(server: UsageServerView, pollingOff: boolean): string | undefined {
+function stalenessText(server: UsageServerView): string | undefined {
+	if (server.fresh) {
+		return undefined;
+	}
+	if (server.keyInfo.kind === "error") {
+		return l10n.t("last refresh failed");
+	}
+	if (server.keyInfo.kind === "unavailable" && server.keyInfo.reason === "forbidden") {
+		return l10n.t("usage access denied");
+	}
+	// Merely old (laptop asleep, polling off): the plain history marker.
+	return l10n.t("possibly stale");
+}
+
+/**
+ * The spend fact's reason when /key/info gave no spend number: why, and what
+ * unblocks it, branched on the standing (a forbidden key, a transient
+ * failure, and a server that simply omits the field must not read
+ * identically).
+ */
+function spendUnknownText(server: UsageServerView, pollingOff: boolean): string {
 	switch (server.keyInfo.kind) {
 		case "unavailable":
 			return server.keyInfo.reason === "forbidden"
@@ -107,7 +135,7 @@ function spendUnknownText(server: UsageServerView, pollingOff: boolean): string 
 		case "ok":
 			return l10n.t("This server doesn't report spend for this key.");
 		case "unknown":
-			return server.lastUpdatedAt === undefined ? undefined : l10n.t("Spend hasn't loaded for this server yet.");
+			return l10n.t("Spend hasn't loaded for this server yet.");
 		case "error":
 			return pollingOff
 				? l10n.t("Spend hasn't loaded yet - the last check failed; use Refresh now to try again.")
@@ -116,8 +144,8 @@ function spendUnknownText(server: UsageServerView, pollingOff: boolean): string 
 }
 
 /**
- * The one English template for a forbidden endpoint standing; every card
- * shape prints this same line so pasted issue reports stay uniform.
+ * The one English template for a forbidden endpoint standing; every row
+ * prints this same line so pasted issue reports stay uniform.
  */
 function forbiddenLine(path: string, status: number | undefined): string {
 	return `LiteLLM ${path}:${status !== undefined ? ` HTTP ${status} -` : ""} this key may not read usage data; Refresh now re-probes`;
@@ -167,7 +195,7 @@ function activityDetail(server: UsageServerView): string | undefined {
 		case "unknown":
 			return undefined;
 		case "unavailable":
-			// Unsupported needs no detail: the headline's parenthetical covers it.
+			// Unsupported needs no detail: the fact's own reason covers it.
 			return standing.reason === "forbidden" ? forbiddenLine("/user/daily/activity", standing.status) : undefined;
 		case "error": {
 			const how =
@@ -184,10 +212,10 @@ function activityDetail(server: UsageServerView): string | undefined {
 }
 
 /**
- * The requests slot when /user/daily/activity has no retained window: the
- * permanent shapes keep their own sentences (unsupported stays the documented
- * normal-shape note; forbidden names the fix), and everything else is the
- * transient couldn't-fetch-yet line.
+ * The requests fact's reason when /user/daily/activity has no retained
+ * window: the permanent shapes keep their own sentences (unsupported stays
+ * the documented normal-shape note, forbidden names the fix), and everything
+ * else is the transient couldn't-fetch-yet line.
  */
 function requestsMissingText(server: UsageServerView): string {
 	if (server.dailyActivity.kind === "unavailable") {
@@ -195,22 +223,20 @@ function requestsMissingText(server: UsageServerView): string {
 			? l10n.t(
 					"This key isn't allowed to read request statistics on this server. After the key's permissions change, use Refresh now to re-check."
 				)
-			: l10n.t(
-					"No request statistics: this server does not serve /user/daily/activity (a normal shape on some setups)."
-				);
+			: l10n.t("This server does not serve /user/daily/activity (a normal shape on some setups).");
 	}
 	return l10n.t("Request statistics couldn't be fetched yet - retries on the next refresh.");
 }
 
 /**
- * The forbidden card's English detail line for one endpoint standing:
- * the shared forbidden template for the refused endpoint, the not-served
- * note for an unsupported partner (so a mixed 404-plus-403 server states
- * both facts), undefined otherwise. Same policy as keyInfoDetail: English
- * protocol vocabulary users paste into issue reports, built from closed
- * enums and the status number only.
+ * The forbidden row's English detail line for one endpoint standing: the
+ * shared forbidden template for the refused endpoint, the not-served note for
+ * an unsupported partner (so a mixed 404-plus-403 server states both facts),
+ * undefined otherwise. Same policy as keyInfoDetail: English protocol
+ * vocabulary users paste into issue reports, built from closed enums and the
+ * status number only.
  */
-function forbiddenCardDetail(path: string, standing: UsageEndpointStandingView): string | undefined {
+function forbiddenRowDetail(path: string, standing: UsageEndpointStandingView): string | undefined {
 	if (standing.kind !== "unavailable") {
 		return undefined;
 	}
@@ -220,33 +246,245 @@ function forbiddenCardDetail(path: string, standing: UsageEndpointStandingView):
 }
 
 /**
- * The reduced card for a server a refused key (401/403) leaves without any
- * readable usage: the localized headline says what happened and what
- * unblocks it, the dimmed English lines carry the endpoint standings. No
- * spend bar, no budget line - there are no numbers to show, and faking a
- * zero would misread as data.
+ * The collapsed line's trailing fact, ranked: a problem the reader has to act
+ * on beats budget pressure, and budget pressure beats a healthy statistic. The
+ * percentage is already its own column, so the budget clauses say the thing a
+ * percentage does not - how much is left, or how far past the line this is.
+ * "warn" is also the verdict the header counts as needing attention, so the
+ * two can never disagree.
  */
-function ForbiddenUsageCard({ server }: { server: UsageForbiddenServerView }) {
+function tailFact(server: UsageServerView, thresholds: readonly number[]): { text: string; tone: "warn" | "muted" } {
+	if (server.keyInfo.kind === "unavailable" && server.keyInfo.reason === "forbidden") {
+		return { text: l10n.t("usage access denied"), tone: "warn" };
+	}
+	if (server.keyInfo.kind === "error") {
+		return { text: l10n.t("last refresh failed"), tone: "warn" };
+	}
+	if (server.dailyActivity.kind === "unavailable" && server.dailyActivity.reason === "forbidden") {
+		return { text: l10n.t("request statistics denied"), tone: "warn" };
+	}
+	if (server.dailyActivity.kind === "error" && server.requests !== undefined) {
+		return { text: l10n.t("statistics may be outdated"), tone: "warn" };
+	}
+	if (server.lastUpdatedAt !== undefined && !server.fresh) {
+		return { text: l10n.t("possibly stale"), tone: "warn" };
+	}
+	const fraction = server.spentFraction;
+	if (fraction !== undefined && server.spend !== undefined && server.effectiveBudget !== undefined) {
+		const tone = barPresentation(fraction, thresholds).tone;
+		if (fraction > 1) {
+			return { text: l10n.t("over budget by {0}", formatUsd(server.spend - server.effectiveBudget)), tone: "warn" };
+		}
+		if (tone !== "ok") {
+			return { text: l10n.t("{0} left", formatUsd(server.effectiveBudget - server.spend)), tone: "warn" };
+		}
+	}
+	if (server.requests !== undefined) {
+		const total =
+			server.requests.total === 1
+				? l10n.t("1 request")
+				: l10n.t("{0} requests", server.requests.total.toLocaleString());
+		return {
+			text:
+				server.requests.cacheHitRate !== undefined
+					? `${total} - ${l10n.t("{0} cached", formatPercent(server.requests.cacheHitRate))}`
+					: total,
+			tone: "muted",
+		};
+	}
+	if (server.effectiveBudget === undefined && server.spend !== undefined) {
+		return { text: l10n.t("no budget set"), tone: "muted" };
+	}
+	return { text: l10n.t("no request statistics"), tone: "muted" };
+}
+
+/** One fact row: the label column never changes, so a half-reported server keeps the same shape. */
+function Fact({ label, children }: { label: string; children: ReactNode }) {
+	return (
+		<>
+			<dt className="text-muted-foreground">{label}</dt>
+			<dd className="m-0 font-mono text-[0.92em] tabular-nums">{children}</dd>
+		</>
+	);
+}
+
+/**
+ * A number this server did not report: a dim dash plus the reason in place.
+ * Never a zero - a zero is a measurement, and no measurement was taken. The
+ * dash alone reads as nothing to a screen reader, so a fact with no reason of
+ * its own carries the words instead.
+ */
+function Absent({ reason }: { reason?: string | undefined }) {
+	return (
+		<span className="text-muted-foreground">
+			<span aria-hidden="true">-</span>
+			{reason === undefined ? <span className="sr-only">{l10n.t("not reported")}</span> : <Why text={reason} />}
+		</span>
+	);
+}
+
+/** The prose annotation beside a fact: provenance for a value, the cause for an absence. */
+function Why({ text }: { text: string }) {
+	return <span className="ml-2.5 font-sans text-[0.92em] text-muted-foreground">{text}</span>;
+}
+
+/** The budget fact's provenance, so a number that came from the key never reads as one the user set. */
+function BudgetFact({ server }: { server: UsageServerView }) {
+	if (server.effectiveBudget === undefined) {
+		return (
+			<Fact label={l10n.t("Budget")}>
+				<Absent
+					reason={l10n.t(
+						"neither this entry nor the key sets one, so there is no percentage to show; set one on the entry under Servers & Models, or on the key in LiteLLM"
+					)}
+				/>
+			</Fact>
+		);
+	}
+	const alsoKey =
+		server.budgetSource === "entry" && server.keyBudget !== undefined && server.keyBudget !== server.effectiveBudget;
+	return (
+		<Fact label={l10n.t("Budget")}>
+			{formatUsd(server.effectiveBudget)}
+			{alsoKey ? (
+				<Why text={l10n.t("set on this entry - the key reports {0}", formatUsd(server.keyBudget ?? 0))} />
+			) : (
+				<Why text={server.budgetSource === "entry" ? l10n.t("set on this entry") : l10n.t("reported by the key")} />
+			)}
+		</Fact>
+	);
+}
+
+/**
+ * The request-statistics facts: the retained window, or one stated absence per
+ * number. Every dash carries its own reason - the two rates are computed from
+ * denominators that can be missing on their own, and three bare dashes under
+ * one explanation would leave the reader guessing which one it covered.
+ */
+function RequestFacts({ server }: { server: UsageServerView }) {
+	// Retained statistics from a failing endpoint must not read as current:
+	// spend freshness says nothing about the activity window. "unknown" stays
+	// unmarked - a re-probe is pending, nothing failed yet.
+	const outdated = server.dailyActivity.kind === "error" || server.dailyActivity.kind === "unavailable";
+	const requests = server.requests;
+	if (requests === undefined) {
+		const noWindow = l10n.t("no request statistics to compute it from");
+		return (
+			<>
+				<Fact label={l10n.t("Requests, 30 days")}>
+					<Absent reason={requestsMissingText(server)} />
+				</Fact>
+				<Fact label={l10n.t("Success rate")}>
+					<Absent reason={noWindow} />
+				</Fact>
+				<Fact label={l10n.t("Cache hit rate")}>
+					<Absent reason={noWindow} />
+				</Fact>
+			</>
+		);
+	}
+	return (
+		<>
+			<Fact label={l10n.t("Requests, 30 days")}>
+				{requests.total.toLocaleString()}
+				{outdated ? <Why text={l10n.t("may be outdated: the last statistics fetch failed")} /> : null}
+			</Fact>
+			<Fact label={l10n.t("Success rate")}>
+				{requests.successRate !== undefined ? (
+					formatPercent(requests.successRate)
+				) : (
+					<Absent reason={l10n.t("no requests in the window to compute it from")} />
+				)}
+			</Fact>
+			<Fact label={l10n.t("Cache hit rate")}>
+				{requests.cacheHitRate !== undefined ? (
+					formatPercent(requests.cacheHitRate)
+				) : (
+					<Absent reason={l10n.t("the window reports no prompt tokens")} />
+				)}
+			</Fact>
+		</>
+	);
+}
+
+/** The expanded inventory for a server with readable usage: every field, present or stated missing. */
+function UsagePanel({
+	server,
+	pollingOff,
+	discoveryTimeoutMs,
+	now,
+}: {
+	server: UsageServerView;
+	pollingOff: boolean;
+	discoveryTimeoutMs: number;
+	now: number;
+}) {
+	const details = [keyInfoDetail(server, pollingOff, discoveryTimeoutMs), activityDetail(server)].filter(
+		(detail): detail is string => detail !== undefined
+	);
+	const staleness = stalenessText(server);
+	const spendReason = server.spend === undefined ? spendUnknownText(server, pollingOff) : undefined;
+	// The two facts answer different questions, but on a server that has never
+	// been fetched they answer with the same sentence; the second one drops its
+	// reason rather than repeating the first word for word.
+	const neverUpdated = neverUpdatedText(server);
+	return (
+		<>
+			<dl className="usage-facts m-0 grid max-w-[46rem] grid-cols-[11rem_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-[0.95em]">
+				<Fact label={l10n.t("Server")}>{server.baseUrl}</Fact>
+				<Fact label={l10n.t("Spend")}>
+					{server.spend !== undefined ? formatUsd(server.spend) : <Absent reason={spendReason} />}
+				</Fact>
+				<BudgetFact server={server} />
+				<Fact label={l10n.t("Next reset")}>
+					{server.budgetResetAt !== undefined ? (
+						new Date(server.budgetResetAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })
+					) : (
+						<Absent reason={l10n.t("the key does not report a reset date")} />
+					)}
+				</Fact>
+				<RequestFacts server={server} />
+				<Fact label={l10n.t("Last updated")}>
+					{server.lastUpdatedAt === undefined ? (
+						<Absent reason={neverUpdated === spendReason ? undefined : neverUpdated} />
+					) : (
+						<span className={server.fresh ? undefined : "text-warn"}>
+							{relativeTime(new Date(server.lastUpdatedAt).toISOString(), now) ?? l10n.t("just now")}
+							{staleness !== undefined ? <Why text={staleness} /> : null}
+						</span>
+					)}
+				</Fact>
+			</dl>
+			{details.map((detail) => (
+				<p key={detail} className="usage-detail mt-2 mb-0 font-mono text-[0.85em] text-muted-foreground">
+					{detail}
+				</p>
+			))}
+		</>
+	);
+}
+
+/**
+ * The expanded panel for a server a refused key leaves without any readable
+ * usage: what happened, what unblocks it, and the endpoint standings. No
+ * facts grid - there are no numbers to label, and seven dashes explaining the
+ * same denial seven times would be noise, not an inventory.
+ */
+function ForbiddenPanel({ server }: { server: UsageForbiddenServerView }) {
 	const details = [
-		forbiddenCardDetail("/key/info", server.keyInfo),
-		forbiddenCardDetail("/user/daily/activity", server.dailyActivity),
+		forbiddenRowDetail("/key/info", server.keyInfo),
+		forbiddenRowDetail("/user/daily/activity", server.dailyActivity),
 	].filter((detail): detail is string => detail !== undefined);
 	return (
-		<div className="usage-card">
-			<div className="usage-card-head">
-				<span className="usage-label">{server.label}</span>
-				<span className="url">{server.baseUrl}</span>
-				<span className="spacer" />
-				<span className="hint state-warn">{l10n.t("usage unavailable")}</span>
-			</div>
-			<p>{l10n.t("Usage unavailable: this key isn't allowed to read its usage.")}</p>
-			<p className="hint">
+		<div className="max-w-[46rem]">
+			<p className="m-0">{l10n.t("Usage unavailable: this key isn't allowed to read its usage.")}</p>
+			<p className="mt-1 mb-0 text-muted-foreground">
 				{l10n.t(
 					"Ask whoever issued the key to allow reading its own usage, then use Refresh now - the extension won't re-check on its own."
 				)}
 			</p>
 			{details.map((detail) => (
-				<p key={detail} className="hint usage-detail">
+				<p key={detail} className="usage-detail mt-2 mb-0 font-mono text-[0.85em] text-muted-foreground">
 					{detail}
 				</p>
 			))}
@@ -254,43 +492,20 @@ function ForbiddenUsageCard({ server }: { server: UsageForbiddenServerView }) {
 	);
 }
 
-function BudgetLine({ server }: { server: UsageServerView }) {
-	if (server.effectiveBudget === undefined) {
-		// Spend without a budget: no percentage, no bar - there is nothing to
-		// compute a fraction of, and such a server never alerts.
-		return (
-			<p className="hint">
-				{l10n.t("No budget: neither the entry nor the key sets one, so there is no percentage to show.")}
-			</p>
-		);
-	}
-	const both =
-		server.budgetSource === "entry" && server.keyBudget !== undefined && server.keyBudget !== server.effectiveBudget;
-	return (
-		<p className="usage-budget-line">
-			{l10n.t("budget {0}", formatUsd(server.effectiveBudget))}
-			{both ? <span className="hint"> {l10n.t("- key reports {0}", formatUsd(server.keyBudget ?? 0))}</span> : null}
-			{server.budgetResetAt !== undefined ? (
-				<span className="hint">
-					{" "}
-					{l10n.t(
-						"- resets {0}",
-						new Date(server.budgetResetAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })
-					)}
-				</span>
-			) : null}
-		</p>
-	);
-}
-
-function UsageCard({
+/**
+ * One server: a line that stands on its own - name, spend, meter, percentage,
+ * and the fact that matters most - opening onto the full inventory. The line
+ * is the button; the meter is decoration beside the percentage it repeats, so
+ * the button's accessible name stays the facts rather than a chart.
+ */
+function UsageRow({
 	server,
 	thresholds,
 	pollingOff,
 	discoveryTimeoutMs,
 	now,
 }: {
-	server: UsageServerView;
+	server: UsageServerCardView;
 	thresholds: readonly number[];
 	/** Whether background polling is off (usage.pollInterval 0); retry hints name Refresh now instead of the automatic retry. */
 	pollingOff: boolean;
@@ -298,76 +513,127 @@ function UsageCard({
 	discoveryTimeoutMs: number;
 	now: number;
 }) {
-	const fraction = server.spentFraction;
+	const [open, setOpen] = useState(false);
+	const panelId = useId();
+	const usage = server.kind === "usage" ? server : undefined;
+	const fraction = usage?.spentFraction;
 	const bar = fraction !== undefined ? barPresentation(fraction, thresholds) : undefined;
-	const spendDetail = keyInfoDetail(server, pollingOff, discoveryTimeoutMs);
-	// Retained statistics from a failing endpoint must not read as current:
-	// spend freshness (the head marker) says nothing about the activity window.
-	// "unknown" stays unmarked - a re-probe is pending, nothing failed yet.
-	const statsOutdated =
-		server.requests !== undefined &&
-		(server.dailyActivity.kind === "error" || server.dailyActivity.kind === "unavailable");
-	const requestsDetail = server.requests === undefined || statsOutdated ? activityDetail(server) : undefined;
+	const tail =
+		usage !== undefined ? tailFact(usage, thresholds) : { text: l10n.t("usage access denied"), tone: "warn" as const };
 	return (
-		<div className="usage-card">
-			<div className="usage-card-head">
-				<span className="usage-label">{server.label}</span>
-				<span className="url">{server.baseUrl}</span>
-				<span className="spacer" />
-				<span className={server.fresh ? "hint" : "hint state-warn"}>{lastUpdatedText(server, now)}</span>
-			</div>
-			<div className="usage-spend-row">
-				<span className="usage-spend">
-					{server.spend !== undefined
-						? l10n.t("spent {0}", formatUsd(server.spend))
-						: spendUnknownText(server, pollingOff)}
+		<div className="usage-row border-border border-b last:border-b-0">
+			<button
+				type="button"
+				// border-control-outline, like every other control: transparent in the
+				// ordinary themes (the stylesheet ships no preflight, so a bare button
+				// would otherwise wear the UA's own box) and the contrast border under
+				// high contrast, where a borderless row stops reading as clickable.
+				// Every column but the label and the percentage may shrink to nothing,
+				// so a narrow editor group truncates the line instead of overflowing it.
+				className="usage-line grid w-full grid-cols-[minmax(5rem,11rem)_minmax(0,9rem)_minmax(0,8rem)_3rem_minmax(0,1fr)_auto] items-center gap-x-4 rounded-sm border border-control-outline px-2.5 py-2 text-left hover:bg-accent focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid"
+				aria-expanded={open}
+				// Only while the panel exists: an aria-controls pointing at an
+				// unmounted id is a dangling reference, and aria-expanded already
+				// carries the state.
+				aria-controls={open ? panelId : undefined}
+				onClick={() => setOpen(!open)}
+			>
+				<span className="usage-label truncate font-semibold">{server.label}</span>
+				<span className="usage-spend truncate font-mono text-[0.92em] tabular-nums">
+					{usage?.spend !== undefined ? (
+						formatUsd(usage.spend)
+					) : (
+						<span className="text-muted-foreground">
+							<span aria-hidden="true">-</span>
+							<span className="sr-only">{l10n.t("spend not reported")}</span>
+						</span>
+					)}
+					{usage?.effectiveBudget !== undefined ? (
+						<span className="text-muted-foreground"> {l10n.t("of {0}", formatUsd(usage.effectiveBudget))}</span>
+					) : null}
 				</span>
-				{fraction !== undefined && bar !== undefined ? (
-					<span className={`usage-percent tone-${bar.tone}`}>{formatPercent(fraction)}</span>
-				) : null}
-			</div>
-			{spendDetail !== undefined ? <p className="hint usage-detail">{spendDetail}</p> : null}
-			{bar !== undefined ? (
-				// A plain div rather than <meter>: the native element paints its own
-				// UA chrome that ignores the theme tokens, so the bar draws itself
-				// and carries the meter semantics via ARIA.
-				// biome-ignore lint/a11y/useSemanticElements: <meter> cannot be themed with the VS Code tokens; the ARIA meter role carries the semantics.
-				<div
-					className="usage-bar"
-					role="meter"
-					aria-label={l10n.t("Spend against the effective budget for {0}", server.label)}
-					aria-valuemin={0}
-					aria-valuemax={100}
-					aria-valuenow={Math.round((fraction ?? 0) * 100)}
+				{/* A plain element rather than <meter>: the native one paints UA
+				    chrome that ignores the theme tokens. It repeats the percentage
+				    beside it, so it is decoration and stays out of the a11y tree
+				    instead of stuffing a chart into the button's name. With no
+				    budget there is nothing to measure, and an empty track would
+				    read as a measured zero - so the column stays reserved and
+				    blank, and the tail says why. */}
+				<span
+					className={cn("usage-meter h-[3px] overflow-hidden rounded-xs", bar !== undefined ? "bg-muted" : null)}
+					aria-hidden="true"
 				>
-					<div className={`usage-bar-fill tone-${bar.tone}`} style={{ width: `${bar.widthPercent}%` }} />
+					{bar !== undefined ? (
+						<span
+							className={cn("usage-meter-fill block h-full", TONE_FILL[bar.tone])}
+							style={{ width: `${bar.widthPercent}%` }}
+						/>
+					) : null}
+				</span>
+				<span
+					className={cn(
+						"usage-percent text-right font-mono text-[0.92em] tabular-nums",
+						bar !== undefined ? TONE_TEXT[bar.tone] : "text-muted-foreground"
+					)}
+				>
+					{fraction !== undefined ? formatPercent(fraction) : <span aria-hidden="true">-</span>}
+				</span>
+				<span
+					className={cn(
+						"usage-tail truncate text-[0.92em]",
+						tail.tone === "warn" ? "text-warn" : "text-muted-foreground"
+					)}
+				>
+					{tail.text}
+				</span>
+				<span className="usage-toggle text-[0.92em] text-muted-foreground">
+					{open ? l10n.t("close") : l10n.t("open")}
+				</span>
+			</button>
+			{open ? (
+				<div id={panelId} className="usage-panel px-2.5 pt-1 pb-4">
+					{server.kind === "usage" ? (
+						<UsagePanel server={server} pollingOff={pollingOff} discoveryTimeoutMs={discoveryTimeoutMs} now={now} />
+					) : (
+						<ForbiddenPanel server={server} />
+					)}
 				</div>
 			) : null}
-			<BudgetLine server={server} />
-			{server.requests !== undefined ? (
-				<>
-					<p className={statsOutdated ? "hint state-warn usage-activity" : "hint usage-activity"}>
-						{server.requests.total === 1
-							? l10n.t("1 request in the last 30 days")
-							: l10n.t("{0} requests in the last 30 days", server.requests.total.toLocaleString())}
-						{server.requests.successRate !== undefined
-							? ` - ${l10n.t("{0} success", formatPercent(server.requests.successRate))}`
-							: ""}
-						{server.requests.cacheHitRate !== undefined
-							? ` - ${l10n.t("{0} cache hits", formatPercent(server.requests.cacheHitRate))}`
-							: ""}
-						{statsOutdated ? ` - ${l10n.t("may be outdated: the last statistics fetch failed")}` : ""}
-					</p>
-					{requestsDetail !== undefined ? <p className="hint usage-detail">{requestsDetail}</p> : null}
-				</>
-			) : (
-				<>
-					<p className="hint usage-activity">{requestsMissingText(server)}</p>
-					{requestsDetail !== undefined ? <p className="hint usage-detail">{requestsDetail}</p> : null}
-				</>
-			)}
 		</div>
 	);
+}
+
+/**
+ * Whether a row carries something the reader should act on: a refused key, a
+ * failing endpoint, or numbers that stopped updating. The same verdict the
+ * line's tail paints warn, counted for the header's summary.
+ */
+function needsAttention(server: UsageServerCardView, thresholds: readonly number[]): boolean {
+	if (server.kind === "forbidden") {
+		return true;
+	}
+	return tailFact(server, thresholds).tone === "warn";
+}
+
+/**
+ * The header's state summary: how many servers report, how many of them need
+ * attention, and whether the numbers refresh on their own. Every clause is a
+ * whole sentence fragment so extraction sees literals, not concatenation.
+ */
+function usageMeta(usage: DashboardUsage): string {
+	const count = usage.servers.length;
+	const attention = usage.servers.filter((server) => needsAttention(server, usage.thresholds)).length;
+	// "with usage data" on purpose: the page header counts every configured
+	// server, and only the ones whose proxy serves the usage endpoints reach
+	// this list, so two different counts sit a hundred pixels apart.
+	const clauses = [count === 1 ? l10n.t("1 server with usage data") : l10n.t("{0} servers with usage data", count)];
+	if (attention > 0) {
+		clauses.push(attention === 1 ? l10n.t("1 needs attention") : l10n.t("{0} need attention", attention));
+	}
+	if (usage.pollIntervalMs === 0) {
+		clauses.push(l10n.t("background polling off (usage.pollInterval 0)"));
+	}
+	return clauses.join(" - ");
 }
 
 export function UsageSection({
@@ -382,12 +648,20 @@ export function UsageSection({
 	now: number;
 }) {
 	return (
-		<section>
-			<h2>
-				{l10n.t("Usage")} <Help text={helpUsageSection()} below />
-				<DocsLink href={DOCS_LINK_USAGE} label={l10n.t("Open the usage and budgets guide")} />
-			</h2>
-			<div className="toolbar">
+		<Section
+			id="usage"
+			title={l10n.t("Usage")}
+			help={helpUsageSection()}
+			// The trigger sits near the top of the document, where a tip placed
+			// above it clips.
+			helpBelow
+			docs={{ href: DOCS_LINK_USAGE, label: l10n.t("Open the usage and budgets guide") }}
+			meta={usage.servers.length > 0 ? usageMeta(usage) : undefined}
+			// The header line caps at the list's own measure: a rule running
+			// 200px past the last row reads as page furniture rather than as
+			// this section's header.
+			headerClassName="max-w-[64rem]"
+			actions={
 				<Button
 					variant="secondary"
 					disabled={usage.refreshing || serverCount === 0}
@@ -401,16 +675,12 @@ export function UsageSection({
 						l10n.t("Refresh now")
 					)}
 				</Button>
-				{usage.pollIntervalMs === 0 ? (
-					<span className="hint">
-						{l10n.t("Background polling is off (usage.pollInterval 0); refresh fetches on demand.")}
-					</span>
-				) : null}
-			</div>
+			}
+		>
 			{/* The data follows the key, not the entry (docs/usage.md#budgets):
 			    rotating a credential switches the numbers to the new key's spend,
 			    and the panel says so instead of leaving the jump unexplained. */}
-			<p className="hint">
+			<p className="hint mt-0 mb-3 max-w-[70ch]">
 				{l10n.t(
 					"Spend is the key's server-side total, e.g. rotating an entry's key switches its numbers to the new key's spend."
 				)}
@@ -431,23 +701,19 @@ export function UsageSection({
 					)}
 				</div>
 			) : (
-				<div className="usage-cards">
-					{usage.servers.map((server) =>
-						server.kind === "forbidden" ? (
-							<ForbiddenUsageCard key={`${server.label} ${server.baseUrl}`} server={server} />
-						) : (
-							<UsageCard
-								key={`${server.label} ${server.baseUrl}`}
-								server={server}
-								thresholds={usage.thresholds}
-								pollingOff={usage.pollIntervalMs === 0}
-								discoveryTimeoutMs={usage.discoveryTimeoutMs}
-								now={now}
-							/>
-						)
-					)}
+				<div className="usage-list max-w-[64rem] border-border border-t">
+					{usage.servers.map((server) => (
+						<UsageRow
+							key={`${server.label} ${server.baseUrl}`}
+							server={server}
+							thresholds={usage.thresholds}
+							pollingOff={usage.pollIntervalMs === 0}
+							discoveryTimeoutMs={usage.discoveryTimeoutMs}
+							now={now}
+						/>
+					))}
 				</div>
 			)}
-		</section>
+		</Section>
 	);
 }

@@ -27,7 +27,7 @@ On a server without a database these endpoints do not exist. The extension detec
 
 That detection sticks: background polls do not re-check an endpoint already found missing. If you enable the database later, run "LiteLLM: Refresh Usage Now" - or edit the server's entry - and the extension re-probes availability.
 
-A key the server refuses is a different case. When `/key/info` or `/user/daily/activity` answers 401 or 403 (a key not permitted to read usage data), the extension treats that as equally permanent - but a permission is something you can fix, so when such a refusal leaves a server with no readable usage at all, the server is not hidden: the [usage panel](#the-usage-panel) shows a card saying its usage is unavailable, with the refused endpoint and HTTP status beneath. That card has no numbers to show - no spend bar, and the server never alerts; after the key's permissions change, run "LiteLLM: Refresh Usage Now" (or edit the entry) to re-probe. A key refused on only one endpoint while the other answers gets the regular card instead, with the refused part marked on it. The curl test below tells the two shapes apart: a missing database answers with a routing error, a restricted key with 401 or 403 - the fix is then a key allowed to read its own usage, not a database.
+A key the server refuses is a different case. When `/key/info` or `/user/daily/activity` answers 401 or 403 (a key not permitted to read usage data), the extension treats that as equally permanent - but a permission is something you can fix, so when such a refusal leaves a server with no readable usage at all, the server is not hidden: the [usage panel](#the-usage-panel) keeps its row, marked "usage access denied", and opening it names the refused endpoint and HTTP status. That row has no numbers to show - no spend meter, and the server never alerts; after the key's permissions change, run "LiteLLM: Refresh Usage Now" (or edit the entry) to re-probe. A key refused on only one endpoint while the other answers gets the regular row instead, with the refused part stated on the fact it blocks. The curl test below tells the two shapes apart: a missing database answers with a routing error, a restricted key with 401 or 403 - the fix is then a key allowed to read its own usage, not a database.
 
 To check what a server supports, ask it the same question the extension asks:
 
@@ -82,7 +82,7 @@ A single failed fetch retries at the next poll as usual, but an endpoint that ke
 - The dashboard still fetches fresh data every time it opens.
 - "LiteLLM: Refresh Usage Now" still fetches immediately, whenever you run it.
 
-**Freshness.** A server's usage data counts as *fresh* while the last fetch succeeded and is less than two poll intervals old; with polling off, data from an on-demand fetch counts as fresh for ten minutes (twice the default interval), and "LiteLLM: Refresh Usage Now" always produces fresh data. Once data goes stale - the server stopped answering, or the window ran out - the extension keeps showing the last-known values in the [usage panel](#the-usage-panel), labeled with their age: "last updated 25 minutes ago (stale)" for merely-old data, and with the cause named when there is one ("last updated 25 minutes ago - last refresh failed", or "- usage access denied" when the key lost permission). A card whose spend never loaded at all says "Spend hasn't loaded for this server yet." instead of an age. The [status bar](#the-status-bar) drops a stale server from its aggregation rather than present an old number as current.
+**Freshness.** A server's usage data counts as *fresh* while the last fetch succeeded and is less than two poll intervals old; with polling off, data from an on-demand fetch counts as fresh for ten minutes (twice the default interval), and "LiteLLM: Refresh Usage Now" always produces fresh data. Once data goes stale - the server stopped answering, or the window ran out - the extension keeps showing the last-known values in the [usage panel](#the-usage-panel), labeled with their age: the open row's "Last updated" fact reads "25 min ago - possibly stale" for merely-old data, and names the cause when there is one ("last refresh failed", or "usage access denied" when the key lost permission). A row whose spend never loaded at all says "Spend hasn't loaded for this server yet." instead of an age. The [status bar](#the-status-bar) drops a stale server from its aggregation rather than present an old number as current.
 
 The same rule covers a machine that was offline or asleep: no polls run while it sleeps, so anything older than two intervals wakes up stale - the panel keeps showing it with its age, and the status bar item stays hidden until the next successful fetch replaces it.
 
@@ -123,7 +123,7 @@ The item's text is one thing only: the spend percentage of the **worst fresh ser
 
 With a custom threshold list, the severity scale tops out at the highest configured threshold: crossing the highest gets the error background, crossing any lower one the warning background - so a single-threshold list goes straight to the error background when crossed; it is the alarm.
 
-Past 100%, the item shows the literal number (`112%`) - the panel's bar just fills, with the real percentage on its label.
+Past 100%, the item shows the literal number (`112%`) - the panel's meter just fills, with the real percentage beside it and the overshoot spelled out on the line ("over budget by $3.00").
 
 The last row is the staleness rule doing its job: the item never shows a stale number as if it were current. Stale servers are excluded from the aggregation and noted in the tooltip; when *no* server has fresh data, the item hides entirely - the connection item already tells the outage story, and a second red thing would add nothing.
 
@@ -138,16 +138,13 @@ Edge cases the rules above imply, spelled out:
 
 ## The usage panel
 
-The dashboard's [Usage section](dashboard.md#the-usage-section) is where the complete picture lives. For each server with usage data:
+The dashboard's [Usage section](dashboard.md#the-usage-section) is where the complete picture lives. Each server with usage data is **one line**: its label, spend against the effective budget, a spend meter, the percentage, and the single fact that matters most on that server right now - a request count, or the problem to deal with ("usage access denied", "last refresh failed", "possibly stale", "over budget by $3.00"). The section heading counts the list and says how many rows need attention, and its **Refresh now** button fetches immediately, disabling itself while a fetch is in flight.
 
-- A **spend vs budget bar** with the percentage, against the effective budget; the key-reported budget shows beside it when the two differ.
-- The **reset date** (`budget_reset_at`).
-- **Request count, success rate, and cache hit rate** over the last 30 days (UTC calendar days, today included), where the server serves `/user/daily/activity`; servers without it show spend and budget only.
-- A **Refresh now** button: fetches immediately, disables itself while a fetch is in flight, and shows when the data was last updated.
+Opening a line lists everything the extension knows about that server, one labelled fact per line: the base URL, the spend, the **budget** with where it came from (the entry or the key, and the key's own figure when the two differ), the **next reset** (`budget_reset_at`), the **request count, success rate, and cache hit rate** over the last 30 days (UTC calendar days, today included) where the server serves `/user/daily/activity`, and when the numbers were **last updated**.
 
-A server the extension cannot read any usage from because the key is refused shows a reduced card here instead: a note that its usage is unavailable, with the refused endpoint and HTTP status beneath - no numbers (see [Requirements](#requirements)).
+A field the server does not report renders as a dim dash **plus the reason in place** - "the key does not report a reset date", "This server does not serve /user/daily/activity (a normal shape on some setups)" - never as a zero, because a zero is a measurement and no measurement was taken. A server the extension cannot read any usage from because the key is refused keeps its line and states the block when opened: what happened, what unblocks it, and the refused endpoint with its HTTP status - no numbers (see [Requirements](#requirements)).
 
-Opening the dashboard fetches fresh data even when [polling](#polling) is off. When a server's data is stale, its last-known values stay on screen labeled "last updated X ago (stale)" - history you can still read, clearly marked as history; when the staleness has a known cause the label names it instead ("- last refresh failed", "- usage access denied"), with a compact technical line beneath naming the endpoint and status.
+Opening the dashboard fetches fresh data even when [polling](#polling) is off. When a server's data is stale, its last-known values stay on screen and the line is marked "possibly stale" - history you can still read, clearly marked as history; when the staleness has a known cause the marker names it instead ("last refresh failed", "usage access denied"), with a compact technical line naming the endpoint and status inside the open row.
 
 ## Commands
 

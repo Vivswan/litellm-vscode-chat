@@ -1,6 +1,8 @@
 /**
- * The Usage tab (docs/usage.md#the-usage-panel): cards, budgets, the
- * refresh-now gate, the empty states, and the bar presentation math.
+ * The Usage tab (docs/usage.md#the-usage-panel): the one-line-per-server
+ * list, the inventory each line opens onto, the absence rules (a dim dash
+ * plus the reason, never a zero), the refresh-now gate, the empty states, and
+ * the bar presentation math.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { UsageServerView } from "../../../../dashboard/viewModels";
@@ -12,6 +14,31 @@ const NOW = 1_700_000_000_000;
 
 beforeEach(resetPosted);
 afterEach(cleanup);
+
+/** Open the first (or nth) server row and return the row element, panel included. */
+function openRow(root: ParentNode, index = 0): HTMLElement {
+	const row = Array.from(root.querySelectorAll(".usage-row"))[index];
+	if (!(row instanceof HTMLElement)) {
+		throw new Error(`no usage row at index ${index}`);
+	}
+	const line = row.querySelector(".usage-line");
+	if (!(line instanceof HTMLElement)) {
+		throw new Error("usage row has no line to open");
+	}
+	fireClick(line);
+	return row;
+}
+
+/** The value cell of one labelled fact in an opened panel, by its label text. */
+function factOf(row: ParentNode, label: string): string {
+	const terms = Array.from(row.querySelectorAll(".usage-facts dt"));
+	const term = terms.find((candidate) => (candidate.textContent ?? "").trim() === label);
+	const value = term?.nextElementSibling;
+	if (!(value instanceof HTMLElement)) {
+		throw new Error(`no fact labelled "${label}"`);
+	}
+	return (value.textContent ?? "").trim();
+}
 
 describe("barPresentation", () => {
 	test("tones scale to the configured thresholds, crossing at >=", () => {
@@ -43,7 +70,7 @@ describe("formatting", () => {
 });
 
 describe("UsageSection", () => {
-	test("renders one card per usage server with spend, percentage, and both budgets", () => {
+	test("renders one line per usage server with spend against budget, and the percentage", () => {
 		const usage = makeUsage({
 			servers: [
 				makeUsageServer({
@@ -61,14 +88,53 @@ describe("UsageSection", () => {
 		const root = mount(<UsageSection usage={usage} serverCount={1} now={NOW} />);
 		expect(textOf(root, ".usage-label")).toBe("prod");
 		expect(textOf(root, ".usage-spend")).toContain("$40.00");
+		expect(textOf(root, ".usage-spend")).toContain("$50.00");
 		expect(textOf(root, ".usage-percent")).toBe("80%");
-		const budgetLine = textOf(root, ".usage-budget-line");
-		expect(budgetLine).toContain("$50.00");
-		// Both budgets stay in view when the entry's value wins (docs/usage.md#budgets).
-		expect(budgetLine).toContain("$100.00");
 	});
 
-	test("a server without a budget shows spend and the no-percentage note", () => {
+	test("the line opens onto the labelled inventory, and both budgets stay in view there", () => {
+		const usage = makeUsage({
+			servers: [
+				makeUsageServer({
+					label: "prod",
+					baseUrl: "https://litellm.example.com",
+					spend: 40,
+					effectiveBudget: 50,
+					entryBudget: 50,
+					keyBudget: 100,
+					budgetSource: "entry",
+					spentFraction: 0.8,
+					budgetResetAt: NOW + 4 * 86_400_000,
+					requests: { total: 1841, successRate: 0.98, cacheHitRate: 0.37 },
+					dailyActivity: { kind: "ok" },
+					lastUpdatedAt: NOW - 60_000,
+				}),
+			],
+		});
+		const root = mount(<UsageSection usage={usage} serverCount={1} now={NOW} />);
+		const line = root.querySelector(".usage-line") as HTMLButtonElement;
+		expect(line.getAttribute("aria-expanded")).toBe("false");
+		expect(root.querySelector(".usage-panel")).toBeNull();
+
+		const row = openRow(root);
+		expect(line.getAttribute("aria-expanded")).toBe("true");
+		expect(factOf(row, "Server")).toBe("https://litellm.example.com");
+		expect(factOf(row, "Spend")).toBe("$40.00");
+		// Both budgets stay in view when the entry's value wins (docs/usage.md#budgets).
+		expect(factOf(row, "Budget")).toContain("$50.00");
+		expect(factOf(row, "Budget")).toContain("$100.00");
+		expect(factOf(row, "Requests, 30 days")).toBe("1,841");
+		expect(factOf(row, "Success rate")).toBe("98%");
+		expect(factOf(row, "Cache hit rate")).toBe("37%");
+		expect(factOf(row, "Last updated")).toBe("1 min ago");
+
+		// And it closes again.
+		fireClick(line);
+		expect(line.getAttribute("aria-expanded")).toBe("false");
+		expect(root.querySelector(".usage-panel")).toBeNull();
+	});
+
+	test("a server without a budget shows spend, a dash for the percentage, and says why in place", () => {
 		const usage = makeUsage({
 			servers: [
 				makeUsageServer({
@@ -82,19 +148,24 @@ describe("UsageSection", () => {
 			],
 		});
 		const root = mount(<UsageSection usage={usage} serverCount={1} now={NOW} />);
-		expect(root.querySelector(".usage-percent")).toBeNull();
-		expect(root.querySelector(".usage-bar")).toBeNull();
-		expect(root.querySelector(".usage-card")?.textContent).toContain("No budget");
+		expect(textOf(root, ".usage-percent")).toBe("-");
+		expect(root.querySelector(".usage-meter-fill")).toBeNull();
+		expect(textOf(root, ".usage-tail")).toBe("no budget set");
+		const row = openRow(root);
+		expect(factOf(row, "Budget")).toContain("neither this entry nor the key sets one");
+		// A missing number is never a zero.
+		expect(factOf(row, "Budget")).not.toContain("$0");
 	});
 
-	test("stale data stays visible, labeled stale with its age", () => {
+	test("stale data stays visible, marked on the line and labeled with its age in the panel", () => {
 		const usage = makeUsage({
 			servers: [makeUsageServer({ fresh: false, lastUpdatedAt: NOW - 25 * 60_000 })],
 		});
 		const root = mount(<UsageSection usage={usage} serverCount={1} now={NOW} />);
-		const head = textOf(root, ".usage-card-head");
-		expect(head).toContain("stale");
-		expect(head).toContain("25");
+		expect(textOf(root, ".usage-tail")).toBe("possibly stale");
+		const updated = factOf(openRow(root), "Last updated");
+		expect(updated).toContain("possibly stale");
+		expect(updated).toContain("25 min ago");
 	});
 
 	test("a stale age names its cause: transient failure, denied access, or merely old", () => {
@@ -108,8 +179,10 @@ describe("UsageSection", () => {
 				now={NOW}
 			/>
 		);
-		expect(textOf(failed, ".usage-card-head")).toContain("last updated 25 min ago - last refresh failed");
-		expect(textOf(failed, ".usage-detail")).toContain("LiteLLM /key/info: HTTP 429 on the last attempt");
+		expect(textOf(failed, ".usage-tail")).toBe("last refresh failed");
+		const failedRow = openRow(failed);
+		expect(factOf(failedRow, "Last updated")).toBe("25 min agolast refresh failed");
+		expect(textOf(failedRow, ".usage-detail")).toContain("LiteLLM /key/info: HTTP 429 on the last attempt");
 		cleanup();
 		const denied = mount(
 			<UsageSection
@@ -126,7 +199,8 @@ describe("UsageSection", () => {
 				now={NOW}
 			/>
 		);
-		expect(textOf(denied, ".usage-card-head")).toContain("last updated 25 min ago - usage access denied");
+		expect(textOf(denied, ".usage-tail")).toBe("usage access denied");
+		expect(factOf(openRow(denied), "Last updated")).toBe("25 min agousage access denied");
 		cleanup();
 		const merelyOld = mount(
 			<UsageSection
@@ -135,8 +209,9 @@ describe("UsageSection", () => {
 				now={NOW}
 			/>
 		);
-		expect(textOf(merelyOld, ".usage-card-head")).toContain("last updated 25 min ago (stale)");
-		expect(merelyOld.querySelector(".usage-detail")).toBeNull();
+		const oldRow = openRow(merelyOld);
+		expect(factOf(oldRow, "Last updated")).toBe("25 min agopossibly stale");
+		expect(oldRow.querySelector(".usage-detail")).toBeNull();
 	});
 
 	test("never-loaded spend explains itself per standing instead of 'never updated (stale)'", () => {
@@ -147,11 +222,12 @@ describe("UsageSection", () => {
 		const transient = mount(
 			<UsageSection usage={neverLoaded({ kind: "error", classification: "network" })} serverCount={1} now={NOW} />
 		);
-		expect(textOf(transient, ".usage-card-head .hint")).toBe("Spend hasn't loaded for this server yet.");
-		expect(textOf(transient, ".usage-spend")).toContain(
+		const transientRow = openRow(transient);
+		expect(factOf(transientRow, "Last updated")).toContain("Spend hasn't loaded for this server yet.");
+		expect(factOf(transientRow, "Spend")).toContain(
 			"the last check failed; it retries automatically with increasing delay"
 		);
-		expect(textOf(transient, ".usage-detail")).toContain("LiteLLM /key/info: network error on the last attempt");
+		expect(textOf(transientRow, ".usage-detail")).toContain("LiteLLM /key/info: network error on the last attempt");
 		cleanup();
 		const forbidden = mount(
 			<UsageSection
@@ -160,9 +236,10 @@ describe("UsageSection", () => {
 				now={NOW}
 			/>
 		);
-		expect(textOf(forbidden, ".usage-card-head .hint")).toBe("This key isn't allowed to read its spend.");
-		expect(textOf(forbidden, ".usage-spend")).toContain("This key can't read its own spend");
-		expect(textOf(forbidden, ".usage-detail")).toContain("LiteLLM /key/info: HTTP 401");
+		const forbiddenRow = openRow(forbidden);
+		expect(factOf(forbiddenRow, "Last updated")).toContain("This key isn't allowed to read its spend.");
+		expect(factOf(forbiddenRow, "Spend")).toContain("This key can't read its own spend");
+		expect(textOf(forbiddenRow, ".usage-detail")).toContain("LiteLLM /key/info: HTTP 401");
 		cleanup();
 		const unsupported = mount(
 			<UsageSection
@@ -171,9 +248,10 @@ describe("UsageSection", () => {
 				now={NOW}
 			/>
 		);
-		expect(textOf(unsupported, ".usage-card-head .hint")).toBe("This server doesn't report spend.");
-		expect(textOf(unsupported, ".usage-spend")).toContain("This server doesn't report spend for this key.");
-		expect(textOf(unsupported, ".usage-detail")).toContain("not served on this server (HTTP 404)");
+		const unsupportedRow = openRow(unsupported);
+		expect(factOf(unsupportedRow, "Last updated")).toContain("This server doesn't report spend.");
+		expect(factOf(unsupportedRow, "Spend")).toContain("This server doesn't report spend for this key.");
+		expect(textOf(unsupportedRow, ".usage-detail")).toContain("not served on this server (HTTP 404)");
 	});
 
 	test("with polling off, the transient spend message points at Refresh now", () => {
@@ -189,7 +267,7 @@ describe("UsageSection", () => {
 				now={NOW}
 			/>
 		);
-		expect(textOf(root, ".usage-spend")).toContain("use Refresh now to try again");
+		expect(factOf(openRow(root), "Spend")).toContain("use Refresh now to try again");
 	});
 
 	test("a timeout detail prints the whole-call bound and the setting to raise", () => {
@@ -210,7 +288,7 @@ describe("UsageSection", () => {
 				now={NOW}
 			/>
 		);
-		const detail = textOf(root, ".usage-detail");
+		const detail = textOf(openRow(root), ".usage-detail");
 		expect(detail).toContain("timed out after 45000ms");
 		expect(detail).toContain("discovery.timeout");
 	});
@@ -225,8 +303,9 @@ describe("UsageSection", () => {
 				now={NOW}
 			/>
 		);
-		expect(textOf(root, ".usage-spend")).toContain("This server doesn't report spend for this key.");
-		expect(textOf(root, ".usage-detail")).toContain("LiteLLM /key/info: OK, no spend field");
+		const row = openRow(root);
+		expect(factOf(row, "Spend")).toContain("This server doesn't report spend for this key.");
+		expect(textOf(row, ".usage-detail")).toContain("LiteLLM /key/info: OK, no spend field");
 	});
 
 	test("retained request statistics carry an outdated marker while their endpoint is failing", () => {
@@ -244,10 +323,13 @@ describe("UsageSection", () => {
 				now={NOW}
 			/>
 		);
-		const stats = textOf(retained, ".usage-activity");
-		expect(stats).toContain("96 requests in the last 30 days");
-		expect(stats).toContain("may be outdated");
-		expect(textOf(retained, ".usage-detail")).toContain("LiteLLM /user/daily/activity: HTTP 500");
+		const retainedRow = openRow(retained);
+		expect(factOf(retainedRow, "Requests, 30 days")).toContain("96");
+		expect(factOf(retainedRow, "Requests, 30 days")).toContain("may be outdated");
+		// A rate the window does not carry stays absent rather than reading zero.
+		expect(factOf(retainedRow, "Cache hit rate")).toContain("-");
+		expect(factOf(retainedRow, "Cache hit rate")).not.toContain("0%");
+		expect(textOf(retainedRow, ".usage-detail")).toContain("LiteLLM /user/daily/activity: HTTP 500");
 		cleanup();
 		const healthy = mount(
 			<UsageSection
@@ -258,8 +340,9 @@ describe("UsageSection", () => {
 				now={NOW}
 			/>
 		);
-		expect(textOf(healthy, ".usage-activity")).not.toContain("may be outdated");
-		expect(healthy.querySelector(".usage-detail")).toBeNull();
+		const healthyRow = openRow(healthy);
+		expect(factOf(healthyRow, "Requests, 30 days")).not.toContain("may be outdated");
+		expect(healthyRow.querySelector(".usage-detail")).toBeNull();
 	});
 
 	test("missing request statistics distinguish unsupported, forbidden, and transient", () => {
@@ -272,8 +355,10 @@ describe("UsageSection", () => {
 				now={NOW}
 			/>
 		);
-		expect(textOf(unsupported, ".usage-activity")).toContain("this server does not serve /user/daily/activity");
-		expect(unsupported.querySelector(".usage-detail")).toBeNull();
+		expect(textOf(unsupported, ".usage-tail")).toBe("no request statistics");
+		const unsupportedRow = openRow(unsupported);
+		expect(factOf(unsupportedRow, "Requests, 30 days")).toContain("does not serve /user/daily/activity");
+		expect(unsupportedRow.querySelector(".usage-detail")).toBeNull();
 		cleanup();
 		const forbidden = mount(
 			<UsageSection
@@ -282,18 +367,20 @@ describe("UsageSection", () => {
 				now={NOW}
 			/>
 		);
-		expect(textOf(forbidden, ".usage-activity")).toContain("This key isn't allowed to read request statistics");
+		const forbiddenRow = openRow(forbidden);
+		expect(factOf(forbiddenRow, "Requests, 30 days")).toContain("This key isn't allowed to read request statistics");
 		// The real status rides through - a 401 must not render as a hardcoded 403.
-		expect(textOf(forbidden, ".usage-detail")).toContain("LiteLLM /user/daily/activity: HTTP 401");
+		expect(textOf(forbiddenRow, ".usage-detail")).toContain("LiteLLM /user/daily/activity: HTTP 401");
 		cleanup();
 		const transient = mount(
 			<UsageSection usage={withActivity({ kind: "error", classification: "network" })} serverCount={1} now={NOW} />
 		);
-		expect(textOf(transient, ".usage-activity")).toContain("Request statistics couldn't be fetched yet");
-		expect(textOf(transient, ".usage-detail")).toContain("LiteLLM /user/daily/activity: network error");
+		const transientRow = openRow(transient);
+		expect(factOf(transientRow, "Requests, 30 days")).toContain("Request statistics couldn't be fetched yet");
+		expect(textOf(transientRow, ".usage-detail")).toContain("LiteLLM /user/daily/activity: network error");
 	});
 
-	test("a server with no readable usage behind a forbidden key renders the reduced card: headline, details, no numbers", () => {
+	test("a server with no readable usage behind a forbidden key states the block and shows no numbers", () => {
 		const root = mount(
 			<UsageSection
 				usage={makeUsage({ servers: [makeForbiddenUsageServer({ label: "locked", baseUrl: "http://locked.test" })] })}
@@ -302,22 +389,24 @@ describe("UsageSection", () => {
 			/>
 		);
 		expect(textOf(root, ".usage-label")).toBe("locked");
-		expect(textOf(root, ".usage-card")).toContain("Usage unavailable: this key isn't allowed to read its usage.");
-		expect(textOf(root, ".usage-card")).toContain("Ask whoever issued the key");
-		const details = Array.from(root.querySelectorAll(".usage-detail")).map((node) => node.textContent ?? "");
+		expect(textOf(root, ".usage-tail")).toBe("usage access denied");
+		const row = openRow(root);
+		expect(row.textContent).toContain("Usage unavailable: this key isn't allowed to read its usage.");
+		expect(row.textContent).toContain("Ask whoever issued the key");
+		const details = Array.from(row.querySelectorAll(".usage-detail")).map((node) => node.textContent ?? "");
 		expect(details).toEqual([
 			"LiteLLM /key/info: HTTP 403 - this key may not read usage data; Refresh now re-probes",
 			"LiteLLM /user/daily/activity: HTTP 403 - this key may not read usage data; Refresh now re-probes",
 		]);
-		// No spend bar, no budget line, no fake numbers.
-		expect(root.querySelector(".usage-bar")).toBeNull();
-		expect(root.querySelector(".usage-budget-line")).toBeNull();
-		expect(textOf(root, ".usage-card")).not.toContain("$");
-		// And it counts as a card: the no-usage-servers empty state must not show.
+		// No meter fill, no facts grid, no fake numbers.
+		expect(row.querySelector(".usage-meter-fill")).toBeNull();
+		expect(row.querySelector(".usage-facts")).toBeNull();
+		expect(row.textContent).not.toContain("$");
+		// And it counts as a row: the no-usage-servers empty state must not show.
 		expect(root.textContent).not.toContain("None of your servers serves usage data");
 	});
 
-	test("the forbidden card names an unsupported partner endpoint and skips transient ones", () => {
+	test("the forbidden row names an unsupported partner endpoint and skips transient ones", () => {
 		const mixed = mount(
 			<UsageSection
 				usage={makeUsage({
@@ -332,7 +421,9 @@ describe("UsageSection", () => {
 				now={NOW}
 			/>
 		);
-		const mixedDetails = Array.from(mixed.querySelectorAll(".usage-detail")).map((node) => node.textContent ?? "");
+		const mixedDetails = Array.from(openRow(mixed).querySelectorAll(".usage-detail")).map(
+			(node) => node.textContent ?? ""
+		);
 		expect(mixedDetails).toEqual([
 			"LiteLLM /key/info: not served on this server (HTTP 404)",
 			"LiteLLM /user/daily/activity: HTTP 403 - this key may not read usage data; Refresh now re-probes",
@@ -347,10 +438,88 @@ describe("UsageSection", () => {
 				now={NOW}
 			/>
 		);
-		const details = Array.from(transientPartner.querySelectorAll(".usage-detail")).map(
+		const details = Array.from(openRow(transientPartner).querySelectorAll(".usage-detail")).map(
 			(node) => node.textContent ?? ""
 		);
 		expect(details).toEqual(["LiteLLM /key/info: HTTP 403 - this key may not read usage data; Refresh now re-probes"]);
+	});
+
+	test("budget pressure speaks on the line, and counts as needing attention", () => {
+		// The percentage column already carries the ratio, so the tail says what a
+		// percentage cannot: how much room is left, or how far past the line this
+		// is. And the header's count reads the same verdict the tail paints, so a
+		// fresh server at 112% can never be red on its row and absent from the
+		// count.
+		const over = mount(
+			<UsageSection
+				usage={makeUsage({
+					servers: [
+						makeUsageServer({ label: "research", spend: 28, effectiveBudget: 25, spentFraction: 1.12 }),
+						makeUsageServer({ label: "gateway", spend: 43.5, effectiveBudget: 50, spentFraction: 0.87 }),
+					],
+				})}
+				serverCount={2}
+				now={NOW}
+			/>
+		);
+		const tails = Array.from(over.querySelectorAll(".usage-tail")).map((node) => (node.textContent ?? "").trim());
+		expect(tails).toEqual(["over budget by $3.00", "$6.50 left"]);
+		expect(textOf(over, ".section-meta")).toContain("2 need attention");
+	});
+
+	test("a failing statistics endpoint marks the line even while the spend side is healthy", () => {
+		const root = mount(
+			<UsageSection
+				usage={makeUsage({
+					servers: [
+						makeUsageServer({
+							requests: { total: 96, successRate: 0.91 },
+							dailyActivity: { kind: "error", status: 500, classification: "http" },
+						}),
+					],
+				})}
+				serverCount={1}
+				now={NOW}
+			/>
+		);
+		expect(textOf(root, ".usage-tail")).toBe("statistics may be outdated");
+		expect(textOf(root, ".section-meta")).toContain("1 needs attention");
+	});
+
+	test("a never-fetched server states the reason once, not once per fact", () => {
+		const root = mount(
+			<UsageSection
+				usage={makeUsage({
+					servers: [makeUsageServer({ lastUpdatedAt: undefined, spend: undefined, keyInfo: { kind: "unknown" } })],
+				})}
+				serverCount={1}
+				now={NOW}
+			/>
+		);
+		const row = openRow(root);
+		const sentence = "Spend hasn't loaded for this server yet.";
+		expect(factOf(row, "Spend")).toContain(sentence);
+		expect((row.textContent ?? "").split(sentence).length - 1).toBe(1);
+	});
+
+	test("the header summarizes the list: how many servers, how many need attention, whether polling runs", () => {
+		const root = mount(
+			<UsageSection
+				usage={makeUsage({
+					pollIntervalMs: 0,
+					servers: [
+						makeUsageServer({ label: "prod" }),
+						makeUsageServer({ label: "gateway", keyInfo: { kind: "error", status: 500 } }),
+					],
+				})}
+				serverCount={2}
+				now={NOW}
+			/>
+		);
+		const meta = textOf(root, ".section-meta");
+		expect(meta).toContain("2 servers");
+		expect(meta).toContain("1 needs attention");
+		expect(meta).toContain("background polling off");
 	});
 
 	test("Refresh now posts the intent and disables while a pass is in flight", () => {

@@ -257,7 +257,7 @@ test("ms equivalence hints: 90000 reads as clock units, the zero-meaning setting
 	expect(rowOf(settingInput(root, "discovery.timeout")).querySelector(".setting-equiv")?.textContent).toBe("= 30 s");
 });
 
-test("a modified row names its scope in the head; number rows add the default; clean rows carry no note", () => {
+test("a modified row names its scope beside the hint; number rows add the default; clean rows carry no note", () => {
 	const base = makeSettings();
 	const settings = makeSettings({
 		numbers: { ...base.numbers, "chat.timeout": 60000 },
@@ -276,10 +276,11 @@ test("a modified row names its scope in the head; number rows add the default; c
 	expect(noteOf("chat.timeout")?.textContent).toBe("Modified in Workspace settings (default: 5 min)");
 	// Boolean rows say where the value lives, without a default.
 	expect(noteOf("ui.maskSecretInputs")?.textContent).toBe("Modified in User settings");
-	// Unmodified rows carry no note at all, and the note lives in the head
-	// (after the title), so its coming and going never shifts the row's text.
+	// Unmodified rows carry no note at all, and the note lives in the hint
+	// column after the description, so its coming and going never moves the
+	// label or the control.
 	expect(noteOf("discovery.timeout")).toBeNull();
-	expect(noteOf("chat.timeout")?.closest(".setting-head")).not.toBeNull();
+	expect(noteOf("chat.timeout")?.closest(".setting-hint")).not.toBeNull();
 	expect(noteOf("chat.timeout")?.previousElementSibling).not.toBeNull();
 });
 
@@ -295,9 +296,10 @@ test("settings-row help glyphs are named for their setting, so a button list is 
 	const glyphOf = (id: string) => rowOf(settingInput(root, id)).querySelector("button.help");
 	expect(glyphOf("chat.timeout")?.getAttribute("aria-label")).toBe("Help: Request timeout");
 	expect(glyphOf("chat.promptCaching")?.getAttribute("aria-label")).toBe("Help: Prompt caching");
-	// Call sites that pass no name keep the bare default: the section heading.
-	const sectionGlyph = root.querySelector("h2 button.help");
-	expect(sectionGlyph?.getAttribute("aria-label")).toBe("Help");
+	// The section's own glyph is named by the Section primitive, for the same
+	// reason: a button called "Settings" that performs no action is a trap.
+	const sectionGlyph = root.querySelector(".section-head button.help");
+	expect(sectionGlyph?.getAttribute("aria-label")).toBe("Help: Settings");
 });
 
 test("ms fields are text inputs (the duration suffixes need letters)", () => {
@@ -521,6 +523,19 @@ test("the catalog row without a refresh yet names the bundled snapshot; a runnin
 	) as HTMLButtonElement;
 	expect(busy).toBeDefined();
 	expect(busy.disabled).toBe(true);
+});
+
+test("the catalog status line hides with the row it belongs to", () => {
+	// It renders after the row rather than inside it, so the row's own hidden
+	// attribute does not cover it; a filter that hides the setting must not
+	// leave its status and Refresh button stranded under another group.
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const filter = root.querySelector<HTMLInputElement>(".filterbar input") as HTMLInputElement;
+	const catalogRow = () => (root.querySelector(".catalog-row") as HTMLElement).closest("[hidden]");
+	expect(catalogRow()).toBeNull();
+	fireInput(filter, "timeout");
+	expect(rowOf(settingInput(root, "chat.timeout")).hidden).toBe(false);
+	expect(catalogRow()).not.toBeNull();
 });
 
 test("with the catalog setting off the row shows the inert hint instead of the status and Refresh", () => {

@@ -194,14 +194,24 @@ function headingByTitle(root: ParentNode, title: string): HTMLElement {
 	return heading as HTMLElement;
 }
 
+/**
+ * The container that owns a section's trailing glyphs: the Section primitive
+ * hangs them off the header LINE beside the heading, a hand-rolled heading
+ * carries them inside itself, and both shapes exist while the surfaces migrate.
+ */
+function headOf(root: ParentNode, title: string): HTMLElement {
+	const heading = headingByTitle(root, title);
+	return (heading.closest(".section-head") as HTMLElement | null) ?? heading;
+}
+
 test("each section heading links its docs page", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(fullState()));
 
-	docsLinkIn(headingByTitle(root, "Servers"), DOCS_LINK_SERVERS, "Open the servers guide");
-	docsLinkIn(headingByTitle(root, "Models"), DOCS_LINK_MODELS, "Open the models guide");
-	docsLinkIn(headingByTitle(root, "Settings"), DOCS_LINK_SETTINGS, "Open the settings guide");
-	docsLinkIn(headingByTitle(root, "Model parameters"), DOCS_LINK_MODEL_PARAMETERS, "Open the model parameters guide");
+	docsLinkIn(headOf(root, "Servers"), DOCS_LINK_SERVERS, "Open the servers guide");
+	docsLinkIn(headOf(root, "Models"), DOCS_LINK_MODELS, "Open the models guide");
+	docsLinkIn(headOf(root, "Settings"), DOCS_LINK_SETTINGS, "Open the settings guide");
+	docsLinkIn(headOf(root, "Model parameters"), DOCS_LINK_MODEL_PARAMETERS, "Open the model parameters guide");
 });
 
 test("the server form links the entry-fields section of the servers guide", () => {

@@ -1,6 +1,22 @@
+/**
+ * The Settings tab: every scalar setting as one row, grouped the way the
+ * manifest groups them, over the same configuration the Settings editor
+ * writes - these rows and settings.json are two views of one file, never two
+ * stores.
+ *
+ * Every row has the same anatomy: a right-aligned label in a fixed gutter,
+ * the control, and the explanation beside it rather than under it. The
+ * explanation column is also where a row states a problem, so an error takes
+ * the hint's place instead of pushing every row below it down - the form's
+ * height does not change while you type. Marking a row modified, revealing
+ * its settings.json line, and resetting the scope that sets it are the same
+ * three gestures on every kind of row, so the vocabulary cannot drift between
+ * a number, a checkbox, an enum, and a color.
+ */
+
 import * as l10n from "@vscode/l10n";
 import type { FocusEvent, ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import {
 	booleanSettingPresentation,
 	defaultDisplay,
@@ -16,8 +32,7 @@ import type {
 	CatalogStatusView,
 	DashboardModel,
 	DashboardSettings,
-	ResettableSettingId,
-	RevealableSettingId,
+	SettingRowId,
 	SettingScope,
 	UsageStatusBarModeSetting,
 } from "../../dashboard/viewModels";
@@ -41,6 +56,7 @@ import { Checkbox } from "./ui/checkbox";
 import { cn } from "./ui/cn";
 import { Input } from "./ui/input";
 import { Radio } from "./ui/radio";
+import { Section } from "./ui/section";
 import { Select } from "./ui/select";
 import { sendRequest } from "./vscodeApi";
 
@@ -81,34 +97,17 @@ const SETTING_GROUPS: readonly {
 ];
 
 /**
- * One settings row in the native Settings-editor anatomy: semibold title,
- * muted description, control below, all on one left edge. A row whose setting
- * is explicitly configured in some scope gets the theme's modified accent bar
- * (the gutter space is reserved, so toggling it never shifts layout). The
- * filter hides rows via the hidden attribute, never by unmounting: a
- * half-typed draft must survive being filtered away and back.
+ * The settings.json jump every row carries: a quiet icon-action posting the
+ * revealSetting intent; the extension opens the user settings.json and selects
+ * "litellm-vscode-chat.<key>". Hover- and focus-revealed with Reset, so a
+ * resting row is its own three columns and nothing else.
  */
-function SettingRow({ modified, hidden, children }: { modified: boolean; hidden: boolean; children: ReactNode }) {
-	return (
-		<div className={modified ? "setting-row modified" : "setting-row"} hidden={hidden}>
-			{children}
-		</div>
-	);
-}
-
-/**
- * The settings.json jump on a row's head or a record editor's heading: a
- * quiet icon-action posting the revealSetting intent; the extension opens the
- * user settings.json and selects "litellm-vscode-chat.<key>". On rows it is
- * hover/focus-revealed like Reset (the .reveal-json rules); on the editor
- * headings it rests visible, as their docs links do.
- */
-function RevealButton({ title, settingId }: { title: string; settingId: RevealableSettingId }) {
+function RevealButton({ title, settingId }: { title: string; settingId: SettingRowId }) {
 	return (
 		<Button
 			variant="secondary"
 			size="compact"
-			className="reveal-json px-1 py-0"
+			className="reveal-json invisible px-1 py-0 group-focus-within/setting:visible group-hover/setting:visible"
 			aria-label={l10n.t("Open {0} in settings.json", title)}
 			onClick={() => sendRequest("revealSetting", { setting: settingId })}
 		>
@@ -118,30 +117,21 @@ function RevealButton({ title, settingId }: { title: string; settingId: Revealab
 }
 
 /**
- * The reset action on a configured row, shown on hover or while the row holds
- * focus. Named for what it really does: it removes the value from the
- * highest-precedence scope that sets it (the next scope's value or the
- * default shows through), so the accessible name says which scope's value
- * goes, never "reset to default". Each button carries its own accessible
- * name; six bare "Reset"s would be indistinguishable to a screen reader.
- * Sits in the control row after the input, so Tab reaches it from the field
- * it resets.
+ * The reset action on a configured row. Named for what it really does: it
+ * removes the value from the highest-precedence scope that sets it (the next
+ * scope's value or the default shows through), so the accessible name says
+ * which scope's value goes, never "reset to default". Each button carries its
+ * own accessible name; six bare "Reset"s would be indistinguishable to a
+ * screen reader. Sits after the control, so Tab reaches it from the field it
+ * resets.
  */
-function ResetButton({
-	title,
-	scope,
-	settingId,
-}: {
-	title: string;
-	scope: SettingScope;
-	settingId: ResettableSettingId;
-}) {
+function ResetButton({ title, scope, settingId }: { title: string; scope: SettingScope; settingId: SettingRowId }) {
 	const action = l10n.t("Remove the {0} value of {1}", settingScopeLabel(scope), title);
 	return (
 		<Button
 			variant="secondary"
 			size="compact"
-			className="reset"
+			className="reset invisible group-focus-within/setting:visible group-hover/setting:visible"
 			aria-label={action}
 			onClick={() => sendRequest("resetSetting", { setting: settingId })}
 		>
@@ -151,21 +141,95 @@ function ResetButton({
 }
 
 /**
- * The muted annotation a configured row wears in its head, matching the
- * native Settings editor's "Modified in:" idiom: the accent bar says that a
+ * The muted annotation a configured row wears, matching the native Settings
+ * editor's "Modified in:" idiom: the accent bar in the gutter says that a
  * value is set, this says where - and, on number rows, what the setting's
- * built-in default is (the value that applies once no scope sets one; a
- * reset may first reveal another scope's value on the way there). Appended
- * after the title inside the head, so appearing or disappearing never
- * shifts the row's text (the accent gutter is reserved separately).
+ * built-in default is (the value that applies once no scope sets one; a reset
+ * may first reveal another scope's value on the way there).
  */
-function ModifiedNote({ scope, defaultText }: { scope: SettingScope; defaultText?: string }) {
+function ModifiedNote({ scope, defaultText }: { scope: SettingScope; defaultText?: string | undefined }) {
 	return (
-		<span className="setting-modified-note">
+		<span className="setting-modified-note whitespace-nowrap text-muted-foreground">
 			{defaultText === undefined
 				? l10n.t("Modified in {0} settings", settingScopeLabel(scope))
 				: l10n.t("Modified in {0} settings (default: {1})", settingScopeLabel(scope), defaultText)}
 		</span>
+	);
+}
+
+/**
+ * One settings row, whatever it holds: the label gutter, the control, and the
+ * explanation column that a live error takes over. A row whose setting is
+ * explicitly configured in some scope wears the theme's modified accent in
+ * the gutter (the border is always there, transparent when clean, so marking
+ * a row never shifts it) and offers the Reset that removes exactly that
+ * scope's value. The filter hides rows via the hidden attribute, never by
+ * unmounting: a half-typed draft must survive being filtered away and back.
+ */
+function SettingRow({
+	settingId,
+	title,
+	titleFor,
+	description,
+	help,
+	control,
+	error,
+	errorId,
+	defaultText,
+	configuredScope,
+	hidden,
+}: {
+	settingId: SettingRowId;
+	title: string;
+	/** The id of the control the label points at; omitted where clicking the title must not write a setting. */
+	titleFor?: string | undefined;
+	description: ReactNode;
+	help?: string | undefined;
+	control: ReactNode;
+	/** Replaces the description while it stands, so the row's height never changes as you type. */
+	error?: string | undefined;
+	errorId?: string;
+	/** The built-in default, named in the modified note (number rows only). */
+	defaultText?: string | undefined;
+	configuredScope: SettingScope | null;
+	hidden: boolean;
+}) {
+	return (
+		<div
+			className={cn(
+				"setting-row group/setting -ml-3 grid grid-cols-[10rem_minmax(0,20rem)_minmax(0,1fr)] items-baseline gap-x-4 gap-y-1 rounded-xs border-l-2 py-2 pr-3 pl-2.5 hover:bg-accent",
+				configuredScope !== null
+					? "modified border-l-[var(--vscode-settings-modifiedItemIndicator,var(--vscode-focusBorder))]"
+					: "border-l-transparent"
+			)}
+			hidden={hidden}
+		>
+			{titleFor === undefined ? (
+				<span className="setting-title text-right font-semibold">{title}</span>
+			) : (
+				<label className="setting-title text-right font-semibold" htmlFor={titleFor}>
+					{title}
+				</label>
+			)}
+			<div className="setting-control flex flex-wrap items-center gap-2">
+				{control}
+				{configuredScope !== null ? <ResetButton title={title} scope={configuredScope} settingId={settingId} /> : null}
+				<RevealButton title={title} settingId={settingId} />
+			</div>
+			{/* The error does not replace the description in the flow, it covers
+			    it: the description stays, merely invisible, so the cell keeps the
+			    height it had and no row below moves while you type. */}
+			<div className="setting-hint relative flex flex-wrap items-baseline gap-x-2 text-[0.95em] text-muted-foreground">
+				<span className={cn("setting-desc", error !== undefined && "invisible")}>{description}</span>
+				{help !== undefined ? <Help text={help} name={l10n.t("Help: {0}", title)} /> : null}
+				{configuredScope !== null ? <ModifiedNote scope={configuredScope} defaultText={defaultText} /> : null}
+				{error !== undefined ? (
+					<span className="error absolute inset-0" id={errorId}>
+						{error}
+					</span>
+				) : null}
+			</div>
+		</div>
 	);
 }
 
@@ -198,7 +262,6 @@ function NumberField({
 	const presentation = numberSettingPresentation(id);
 	const [text, setText] = useState(value === null ? "" : String(value));
 	const [blurred, setBlurred] = useState(false);
-	const help = settingRowHelp(id);
 	// Suffix-grammar units (ms durations: "90s", "5m") need type="text": a
 	// number input silently swallows the suffix letters. Plain-number units
 	// keep type="number".
@@ -243,58 +306,56 @@ function NumberField({
 	const errorId = `${inputId}-error`;
 	const equiv = parse.kind === "value" ? equivalence(id, parse.value) : undefined;
 	return (
-		<SettingRow modified={configuredScope !== null} hidden={hidden}>
-			<div className="setting-head">
-				<label className="setting-title" htmlFor={inputId}>
-					{presentation.label}
-				</label>
-				{help !== undefined ? <Help text={help} name={l10n.t("Help: {0}", presentation.label)} /> : null}
-				<RevealButton title={presentation.label} settingId={id} />
-				{configuredScope !== null ? <ModifiedNote scope={configuredScope} defaultText={defaultDisplay(id)} /> : null}
-			</div>
-			<p className="setting-desc">{presentation.description}</p>
-			<div className="setting-control">
-				<Input
-					id={inputId}
-					type={freeText ? "text" : "number"}
-					// The default text inputmode, stated on purpose: a numeric one
-					// would hide the s/m/h suffix keys the duration grammar needs.
-					inputMode={freeText ? "text" : undefined}
-					spellCheck={freeText ? false : undefined}
-					min={freeText ? undefined : NUMBER_SETTING_SPECS[id].minimum}
-					aria-invalid={error !== undefined}
-					aria-describedby={error === undefined ? unitId : `${unitId} ${errorId}`}
-					value={text}
-					onChange={(event) => setText(event.currentTarget.value)}
-					onBlur={settle}
-					onKeyDown={(event) => {
-						if (event.key === "Enter") {
-							settle();
-						}
-					}}
-				/>
-				<span className="setting-unit" id={unitId}>
-					{presentation.unit}
-				</span>
-				{error !== undefined ? (
-					<span className="error" id={errorId}>
-						{error}
+		<SettingRow
+			settingId={id}
+			title={presentation.label}
+			titleFor={inputId}
+			description={presentation.description}
+			help={settingRowHelp(id)}
+			error={error}
+			errorId={errorId}
+			defaultText={defaultDisplay(id)}
+			configuredScope={configuredScope}
+			hidden={hidden}
+			control={
+				<>
+					<Input
+						id={inputId}
+						className="w-[9rem] tabular-nums"
+						type={freeText ? "text" : "number"}
+						// The default text inputmode, stated on purpose: a numeric one
+						// would hide the s/m/h suffix keys the duration grammar needs.
+						inputMode={freeText ? "text" : undefined}
+						spellCheck={freeText ? false : undefined}
+						min={freeText ? undefined : NUMBER_SETTING_SPECS[id].minimum}
+						aria-invalid={error !== undefined}
+						aria-describedby={error === undefined ? unitId : `${unitId} ${errorId}`}
+						value={text}
+						onChange={(event) => setText(event.currentTarget.value)}
+						onBlur={settle}
+						onKeyDown={(event) => {
+							if (event.key === "Enter") {
+								settle();
+							}
+						}}
+					/>
+					<span className="setting-unit whitespace-nowrap text-muted-foreground tabular-nums" id={unitId}>
+						{presentation.unit}
 					</span>
-				) : null}
-				{equiv !== undefined ? <span className="setting-equiv">{equiv}</span> : null}
-				{configuredScope !== null ? (
-					<ResetButton title={presentation.label} scope={configuredScope} settingId={id} />
-				) : null}
-			</div>
-		</SettingRow>
+					{equiv !== undefined ? (
+						<span className="setting-equiv whitespace-nowrap text-muted-foreground tabular-nums">{equiv}</span>
+					) : null}
+				</>
+			}
+		/>
 	);
 }
 
 /**
- * A boolean setting. The title is plain text on purpose: only the
- * checkbox-plus-description label toggles, so a click on the title cannot
- * silently write settings.json. `extra` renders under the control - the
- * OpenRouter catalog row's status line and Refresh button ride there.
+ * A boolean setting. The title is plain text on purpose: only the checkbox
+ * and its explanation toggle, so a click on the label gutter cannot silently
+ * write settings.json. `extra` renders under the row - the OpenRouter catalog
+ * row's status line and Refresh button ride there.
  */
 function BooleanField({
 	id,
@@ -311,30 +372,31 @@ function BooleanField({
 }) {
 	const presentation = booleanSettingPresentation(id);
 	const inputId = `setting-${id}`;
-	const help = settingRowHelp(id);
 	return (
-		<SettingRow modified={configuredScope !== null} hidden={hidden}>
-			<div className="setting-head">
-				<span className="setting-title">{presentation.label}</span>
-				{help !== undefined ? <Help text={help} name={l10n.t("Help: {0}", presentation.label)} /> : null}
-				<RevealButton title={presentation.label} settingId={id} />
-				{configuredScope !== null ? <ModifiedNote scope={configuredScope} /> : null}
-			</div>
-			<div className="setting-control">
-				<label className="setting-check" htmlFor={inputId}>
+		<>
+			<SettingRow
+				settingId={id}
+				title={presentation.label}
+				description={
+					<label className="cursor-pointer" htmlFor={inputId}>
+						{presentation.description}
+					</label>
+				}
+				help={settingRowHelp(id)}
+				configuredScope={configuredScope}
+				hidden={hidden}
+				control={
 					<Checkbox
 						id={inputId}
 						checked={value}
 						onChange={(event) => sendRequest("setBooleanSetting", { setting: id, value: event.currentTarget.checked })}
 					/>
-					<span className="setting-desc">{presentation.description}</span>
-				</label>
-				{configuredScope !== null ? (
-					<ResetButton title={presentation.label} scope={configuredScope} settingId={id} />
-				) : null}
-			</div>
-			{extra}
-		</SettingRow>
+				}
+			/>
+			{/* Hidden with the row it belongs to: a filter that hides the catalog
+			    setting must not leave its status line and Refresh button behind. */}
+			{extra !== undefined ? <div hidden={hidden}>{extra}</div> : null}
+		</>
 	);
 }
 
@@ -343,6 +405,7 @@ function BooleanField({
  * snapshot's size and last refresh, a Refresh button (the same action as the
  * "LiteLLM: Refresh OpenRouter Catalog" command), a standing failure in the
  * row status - never a toast - and an inert hint while the setting is off.
+ * Indented to the control column, so it reads as belonging to the row above.
  */
 function CatalogRow({ catalog, enabled, now }: { catalog: CatalogStatusView; enabled: boolean; now: number }) {
 	const updated =
@@ -350,7 +413,7 @@ function CatalogRow({ catalog, enabled, now }: { catalog: CatalogStatusView; ena
 			? (relativeTime(new Date(catalog.lastSuccessAt).toISOString(), now) ?? l10n.t("just now"))
 			: undefined;
 	return (
-		<div className="catalog-row">
+		<div className="catalog-row flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 pb-1 pl-[11rem] text-[0.95em]">
 			{enabled ? (
 				<>
 					<span className="hint">
@@ -415,111 +478,79 @@ function uiAccentDescription(): string {
 function statusBarModeLabel(mode: UsageStatusBarModeSetting): string {
 	switch (mode) {
 		case "always":
-			return l10n.t("always - visible whenever there is something to show");
+			return l10n.t("Always shown");
 		case "alerts-only":
-			return l10n.t("alerts only - visible while a threshold is crossed");
+			return l10n.t("Only while a threshold is crossed");
 		case "off":
-			return l10n.t("off - never shown");
+			return l10n.t("Never shown");
 	}
 }
 
 const USAGE_STATUS_BAR_MODES: readonly UsageStatusBarModeSetting[] = ["always", "alerts-only", "off"];
 
-/** The usage.statusBar row: an enum select, committed on change like the checkboxes. */
-function UsageStatusBarRow({
-	mode,
-	configuredScope,
-	hidden,
-}: {
-	mode: UsageStatusBarModeSetting;
-	configuredScope: SettingScope | null;
-	hidden: boolean;
-}) {
-	const inputId = "setting-usage.statusBar";
-	const title = l10n.t("Usage status bar");
-	return (
-		<SettingRow modified={configuredScope !== null} hidden={hidden}>
-			<div className="setting-head">
-				<label className="setting-title" htmlFor={inputId}>
-					{title}
-				</label>
-				<RevealButton title={title} settingId="usage.statusBar" />
-				{configuredScope !== null ? <ModifiedNote scope={configuredScope} /> : null}
-			</div>
-			<p className="setting-desc">{usageStatusBarDescription()}</p>
-			<div className="setting-control">
-				<Select
-					id={inputId}
-					value={mode}
-					onChange={(event) =>
-						sendRequest("setUsageStatusBar", {
-							value: event.currentTarget.value as UsageStatusBarModeSetting,
-						})
-					}
-				>
-					{USAGE_STATUS_BAR_MODES.map((candidate) => (
-						<option key={candidate} value={candidate}>
-							{statusBarModeLabel(candidate)}
-						</option>
-					))}
-				</Select>
-				{configuredScope !== null ? (
-					<ResetButton title={title} scope={configuredScope} settingId="usage.statusBar" />
-				) : null}
-			</div>
-		</SettingRow>
-	);
-}
-
 /** The ui.theme names, resolved at call time (no module-level localized constants). */
 function uiThemeLabel(theme: UiTheme): string {
 	switch (theme) {
 		case "auto":
-			return l10n.t("auto - follow the editor's theme");
+			return l10n.t("Follow the editor");
 		case "light":
-			return l10n.t("light - always light, whatever the editor wears");
+			return l10n.t("Always light");
 		case "dark":
-			return l10n.t("dark - always dark, whatever the editor wears");
+			return l10n.t("Always dark");
 	}
 }
 
-/** The ui.theme row: the same enum select the usage status bar uses. */
-function UiThemeRow({
-	theme,
+/**
+ * Any closed-vocabulary setting as a select: the option list, how to name an
+ * option, and where the pick goes. One component rather than one per enum,
+ * because two hand-written near-copies of a select row is how the two drift
+ * apart - and a third enum setting should cost a call, not a component.
+ */
+function EnumSettingRow<T extends string>({
+	settingId,
+	title,
+	description,
+	value,
+	options,
+	optionLabel,
+	onPick,
 	configuredScope,
 	hidden,
 }: {
-	theme: UiTheme;
+	settingId: SettingRowId;
+	title: string;
+	description: string;
+	value: T;
+	options: readonly T[];
+	optionLabel: (option: T) => string;
+	onPick: (option: T) => void;
 	configuredScope: SettingScope | null;
 	hidden: boolean;
 }) {
-	const inputId = "setting-ui.theme";
-	const title = l10n.t("Dashboard theme");
+	const inputId = `setting-${settingId}`;
 	return (
-		<SettingRow modified={configuredScope !== null} hidden={hidden}>
-			<div className="setting-head">
-				<label className="setting-title" htmlFor={inputId}>
-					{title}
-				</label>
-				<RevealButton title={title} settingId="ui.theme" />
-				{configuredScope !== null ? <ModifiedNote scope={configuredScope} /> : null}
-			</div>
-			<p className="setting-desc">{uiThemeDescription()}</p>
-			<div className="setting-control">
+		<SettingRow
+			settingId={settingId}
+			title={title}
+			titleFor={inputId}
+			description={description}
+			configuredScope={configuredScope}
+			hidden={hidden}
+			control={
 				<Select
 					id={inputId}
-					value={theme}
-					onChange={(event) => sendRequest("setUiTheme", { value: event.currentTarget.value as UiTheme })}
+					className="max-w-full"
+					value={value}
+					onChange={(event) => onPick(event.currentTarget.value as T)}
 				>
-					{UI_THEMES.map((candidate) => (
+					{options.map((candidate) => (
 						<option key={candidate} value={candidate}>
-							{uiThemeLabel(candidate)}
+							{optionLabel(candidate)}
 						</option>
 					))}
 				</Select>
-				{configuredScope !== null ? <ResetButton title={title} scope={configuredScope} settingId="ui.theme" /> : null}
-			</div>
-		</SettingRow>
+			}
+		/>
 	);
 }
 
@@ -562,14 +593,13 @@ function UiAccentRow({
 }) {
 	const title = l10n.t("Accent color");
 	return (
-		<SettingRow modified={configuredScope !== null} hidden={hidden}>
-			<div className="setting-head">
-				<span className="setting-title">{title}</span>
-				<RevealButton title={title} settingId="ui.accent" />
-				{configuredScope !== null ? <ModifiedNote scope={configuredScope} /> : null}
-			</div>
-			<p className="setting-desc">{uiAccentDescription()}</p>
-			<div className="setting-control">
+		<SettingRow
+			settingId="ui.accent"
+			title={title}
+			description={uiAccentDescription()}
+			configuredScope={configuredScope}
+			hidden={hidden}
+			control={
 				<div className="flex gap-2" role="radiogroup" aria-label={title}>
 					{UI_ACCENTS.map((candidate) => (
 						<label
@@ -595,9 +625,8 @@ function UiAccentRow({
 						</label>
 					))}
 				</div>
-				{configuredScope !== null ? <ResetButton title={title} scope={configuredScope} settingId="ui.accent" /> : null}
-			</div>
-		</SettingRow>
+			}
+		/>
 	);
 }
 
@@ -654,14 +683,14 @@ function ThresholdBox({
 }) {
 	return (
 		<>
-			<label className="setting-unit" htmlFor={id}>
+			<label className="setting-unit text-muted-foreground" htmlFor={id}>
 				{label}
 			</label>
 			<Input
 				id={id}
 				type="text"
 				spellCheck={false}
-				className="threshold-input"
+				className="threshold-input w-[4.5rem] tabular-nums"
 				aria-invalid={invalid}
 				aria-describedby={invalid ? errorId : undefined}
 				placeholder={placeholder}
@@ -760,61 +789,52 @@ function UsageThresholdsRow({
 					? l10n.t("A single threshold goes straight to the error alert.")
 					: undefined;
 	return (
-		<SettingRow modified={configuredScope !== null} hidden={hidden}>
-			<div className="setting-head">
-				{custom ? (
-					<span className="setting-title">{title}</span>
+		<SettingRow
+			settingId="usage.alertThresholds"
+			title={title}
+			titleFor={custom ? undefined : warningId}
+			description={
+				<>
+					{usageThresholdsDescription()}
+					{semanticsHint !== undefined ? <span className="ml-1 text-foreground">{semanticsHint}</span> : null}
+				</>
+			}
+			error={parsed === undefined ? l10n.t("Thresholds run from above 0% to 100%: enter 80% or 0.8.") : undefined}
+			errorId={problemId}
+			configuredScope={configuredScope}
+			hidden={hidden}
+			control={
+				custom ? (
+					<>
+						<span className="font-mono tabular-nums">{values.map(percentText).join(", ")}</span>
+						<span className="hint">{l10n.t("Custom list - edit in settings.json.")}</span>
+					</>
 				) : (
-					<label className="setting-title" htmlFor={warningId}>
-						{title}
-					</label>
-				)}
-				<RevealButton title={title} settingId="usage.alertThresholds" />
-				{configuredScope !== null ? <ModifiedNote scope={configuredScope} /> : null}
-			</div>
-			<p className="setting-desc">{usageThresholdsDescription()}</p>
-			{custom ? (
-				<div className="setting-control">
-					<span>{values.map(percentText).join(", ")}</span>
-					<span className="hint">{l10n.t("Custom list - edit in settings.json.")}</span>
-					{configuredScope !== null ? (
-						<ResetButton title={title} scope={configuredScope} settingId="usage.alertThresholds" />
-					) : null}
-				</div>
-			) : (
-				<div className="setting-control">
-					<ThresholdBox
-						id={warningId}
-						label={l10n.t("Warning at")}
-						text={warningText}
-						invalid={warning.kind === "invalid"}
-						errorId={problemId}
-						placeholder={l10n.t("e.g. 80%")}
-						onText={setWarningText}
-						onCommit={commit}
-					/>
-					<ThresholdBox
-						id={errorInputId}
-						label={l10n.t("Error at")}
-						text={errorText}
-						invalid={error.kind === "invalid"}
-						errorId={problemId}
-						placeholder={l10n.t("e.g. 95%")}
-						onText={setErrorText}
-						onCommit={commit}
-					/>
-					{parsed === undefined ? (
-						<span className="error" id={problemId}>
-							{l10n.t("Thresholds run from above 0% to 100%: enter 80% or 0.8.")}
-						</span>
-					) : null}
-					{semanticsHint !== undefined ? <span className="hint">{semanticsHint}</span> : null}
-					{configuredScope !== null ? (
-						<ResetButton title={title} scope={configuredScope} settingId="usage.alertThresholds" />
-					) : null}
-				</div>
-			)}
-		</SettingRow>
+					<>
+						<ThresholdBox
+							id={warningId}
+							label={l10n.t("Warning at")}
+							text={warningText}
+							invalid={warning.kind === "invalid"}
+							errorId={problemId}
+							placeholder={l10n.t("e.g. 80%")}
+							onText={setWarningText}
+							onCommit={commit}
+						/>
+						<ThresholdBox
+							id={errorInputId}
+							label={l10n.t("Error at")}
+							text={errorText}
+							invalid={error.kind === "invalid"}
+							errorId={problemId}
+							placeholder={l10n.t("e.g. 95%")}
+							onText={setErrorText}
+							onCommit={commit}
+						/>
+					</>
+				)
+			}
+		/>
 	);
 }
 
@@ -845,9 +865,16 @@ function SettingGroup({
 }) {
 	const empty = numbers.every((id) => !isVisible(id)) && booleans.every((id) => !isVisible(id)) && tailVisible !== true;
 	return (
-		<div className="settings-group" hidden={empty}>
-			<h3 className="settings-group-title">{title()}</h3>
-			{hint !== undefined ? <p className="hint">{hint()}</p> : null}
+		<div className="settings-group mt-6" hidden={empty}>
+			{/* Sentence case, not an all-caps letterspaced eyebrow: the group
+			    heading separates by weight, space and the hairline, the same way
+			    the section header does one level up. Full-strength foreground
+			    because the record editors nested inside a group head themselves
+			    at muted 600 - a parent that matches its children ranks nothing. */}
+			<h3 className="settings-group-title mt-0 mb-2 border-border border-b pb-1 font-semibold text-[0.95em]">
+				{title()}
+			</h3>
+			{hint !== undefined ? <p className="hint mt-0 mb-2 max-w-[70ch]">{hint()}</p> : null}
 			{numbers.map((id) => (
 				<NumberField
 					key={id}
@@ -873,15 +900,20 @@ function SettingGroup({
 }
 
 /**
- * The scalar groups' scope-context line, matching the record editors'
- * ScopeNote below. Scalar edits land in your User settings, except that a
- * setting the workspace already sets is changed there (the write-scope rule);
- * a value only a folder scope sets is named by its row's Reset action.
+ * Where scalar edits land, for the header's meta line. Edits go to your User
+ * settings, except that a setting the workspace already sets is changed there
+ * (the write-scope rule); a value only a folder scope sets is named by its
+ * row's Reset action.
  */
-function ScalarScopeNote({ settings }: { settings: DashboardSettings }) {
-	// Every row the page renders, not only the scalar ones: the note says where
-	// edits land, and a workspace-set appearance row makes it land there too.
-	const scopes = [
+function scopeSummary(scopes: readonly (SettingScope | null)[]): string {
+	return scopes.some((scope) => scope === "workspace")
+		? l10n.t("editing User settings; a value set in Workspace settings is changed there")
+		: l10n.t("editing User settings");
+}
+
+/** Every row's configured scope, in one list: the meta line counts and summarizes over it. */
+function configuredScopes(settings: DashboardSettings): readonly (SettingScope | null)[] {
+	return [
 		...Object.values(settings.configuredScopes.numbers),
 		...Object.values(settings.configuredScopes.booleans),
 		settings.usage.statusBarScope,
@@ -889,14 +921,6 @@ function ScalarScopeNote({ settings }: { settings: DashboardSettings }) {
 		settings.appearance.themeScope,
 		settings.appearance.accentScope,
 	];
-	const workspaceTouched = scopes.some((scope) => scope === "workspace");
-	return (
-		<p className="hint">
-			{workspaceTouched
-				? l10n.t("Editing User settings; a value set in Workspace settings is changed there.")
-				: l10n.t("Editing User settings.")}
-		</p>
-	);
 }
 
 /** One scalar row's searchable text: its label and description, the two lines the row itself shows. */
@@ -953,6 +977,7 @@ export function SettingsSection({
 	editRecordRequest?: EditRecordRequest | undefined;
 }) {
 	const [filter, setFilter] = useState("");
+	const filterId = useId();
 	// A jump must land on a visible editor: a leftover filter that hides the
 	// target section would swallow the focus, so the request clears it.
 	const editSeq = editRecordRequest?.seq;
@@ -978,9 +1003,6 @@ export function SettingsSection({
 	const capsVisible =
 		needle.length === 0 || recordEditorMatches(needle, modelCapabilitiesTitle(), settings.modelCapabilities);
 	const anyScalarVisible = [...NUMBER_SETTING_IDS, ...BOOLEAN_SETTING_IDS].some(isVisible);
-	// Hoisted out of the group map because the empty-state verdict below has to
-	// see them: a filter matching only a tail row used to render that row under
-	// a "nothing matched" line.
 	// The non-scalar rows filter by the same rule as the scalar ones - name,
 	// explanation, setting id - so a needle cannot find one kind and miss the
 	// other. Hoisted because the empty-state verdict below has to see them: a
@@ -1019,21 +1041,33 @@ export function SettingsSection({
 			/>
 		),
 	};
+	const scopes = configuredScopes(settings);
+	const modifiedCount = scopes.filter((scope) => scope !== null).length;
 	return (
-		<section>
-			<h2>
-				{l10n.t("Settings")} <Help text={helpSettingsSection()} />
-				<DocsLink href={DOCS_LINK_SETTINGS} label={l10n.t("Open the settings guide")} />
-			</h2>
-			<div className="toolbar">
+		<Section
+			id="settings"
+			title={l10n.t("Settings")}
+			help={helpSettingsSection()}
+			docs={{ href: DOCS_LINK_SETTINGS, label: l10n.t("Open the settings guide") }}
+			meta={[
+				...(modifiedCount === 0
+					? []
+					: [modifiedCount === 1 ? l10n.t("1 modified") : l10n.t("{0} modified", modifiedCount)]),
+				scopeSummary(scopes),
+			].join(" - ")}
+			// Capped to the rows' own measure, so the rule stops where they do.
+			headerClassName="max-w-[62rem]"
+			actions={
 				<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "openSettings" })}>
 					{l10n.t("Open in Settings editor")}
 				</Button>
-			</div>
-			<ScalarScopeNote settings={settings} />
+			}
+		>
 			<div className="filterbar">
 				<Input
+					id={filterId}
 					type="text"
+					className="w-[22rem] max-w-full"
 					placeholder={l10n.t("Filter settings, e.g. timeout")}
 					aria-label={l10n.t("Filter settings")}
 					value={filter}
@@ -1041,7 +1075,7 @@ export function SettingsSection({
 				/>
 			</div>
 			{nothingMatches ? <p className="empty">{l10n.t("No settings match the filter.")}</p> : null}
-			<div className="settings-groups">
+			<div className="settings-groups max-w-[62rem]">
 				{SETTING_GROUPS.map((group, index) => {
 					// Two groups carry non-scalar tails: Models gets the two record
 					// editors (mirroring the manifest's grouping - they are model
@@ -1087,16 +1121,28 @@ export function SettingsSection({
 											configuredScope={settings.usage.thresholdsScope}
 											hidden={!thresholdsVisible}
 										/>
-										<UsageStatusBarRow
-											mode={settings.usage.statusBarMode}
+										<EnumSettingRow
+											settingId="usage.statusBar"
+											title={l10n.t("Usage status bar")}
+											description={usageStatusBarDescription()}
+											value={settings.usage.statusBarMode}
+											options={USAGE_STATUS_BAR_MODES}
+											optionLabel={statusBarModeLabel}
+											onPick={(value) => sendRequest("setUsageStatusBar", { value })}
 											configuredScope={settings.usage.statusBarScope}
 											hidden={!statusBarVisible}
 										/>
 									</>
 								) : isUiGroup ? (
 									<>
-										<UiThemeRow
-											theme={settings.appearance.theme}
+										<EnumSettingRow
+											settingId="ui.theme"
+											title={l10n.t("Dashboard theme")}
+											description={uiThemeDescription()}
+											value={settings.appearance.theme}
+											options={UI_THEMES}
+											optionLabel={uiThemeLabel}
+											onPick={(value) => sendRequest("setUiTheme", { value })}
 											configuredScope={settings.appearance.themeScope}
 											hidden={!themeVisible}
 										/>
@@ -1145,6 +1191,6 @@ export function SettingsSection({
 					}
 				/>
 			</div>
-		</section>
+		</Section>
 	);
 }

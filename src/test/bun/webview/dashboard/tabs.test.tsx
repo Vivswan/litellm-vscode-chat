@@ -148,7 +148,7 @@ test("the Usage tab renders the pushed usage snapshot's cards", () => {
 	fireClick(tab(root, "Usage"));
 	const usagePanel = panel(root, "usage");
 	expect(usagePanel.hidden).toBe(false);
-	expect(usagePanel.querySelector(".usage-card")).not.toBeNull();
+	expect(usagePanel.querySelector(".usage-row")).not.toBeNull();
 	expect(usagePanel.textContent).toContain("Prod");
 });
 

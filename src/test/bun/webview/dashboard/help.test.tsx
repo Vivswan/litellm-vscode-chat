@@ -196,15 +196,23 @@ test("each section heading carries its own help", () => {
 		}
 		return heading as HTMLElement;
 	};
-	helpIn(headingByTitle("Servers"), helpServersSection());
-	helpIn(headingByTitle("Models"), helpModelsSection());
-	helpIn(headingByTitle("Settings"), helpSettingsSection());
-	helpIn(headingByTitle("Model parameters"), helpModelParametersSection());
+	// The Section primitive hangs the glyph off the header LINE, as a sibling
+	// of the heading rather than inside it; a hand-rolled heading still carries
+	// its own. Resolve whichever container this section uses, so the contract
+	// reads the same through the migration.
+	const headOf = (title: string): HTMLElement => {
+		const heading = headingByTitle(title);
+		return (heading.closest(".section-head") as HTMLElement | null) ?? heading;
+	};
+	helpIn(headOf("Servers"), helpServersSection());
+	helpIn(headOf("Models"), helpModelsSection());
+	helpIn(headOf("Settings"), helpSettingsSection());
+	helpIn(headOf("Model parameters"), helpModelParametersSection());
 
 	// Placement: the Servers heading sits in the page's top band, so its tip
 	// flips below the trigger; everything further down keeps the default
 	// above placement.
-	const wrapOf = (title: string) => helps(headingByTitle(title))[0]?.parentElement as HTMLElement;
+	const wrapOf = (title: string) => helps(headOf(title))[0]?.parentElement as HTMLElement;
 	expect(wrapOf("Servers").classList.contains("below")).toBe(true);
 	for (const title of ["Models", "Settings", "Model parameters"]) {
 		expect(wrapOf(title).classList.contains("below"), title).toBe(false);
@@ -303,7 +311,7 @@ test("settings rows show help only where the one-line description is not enough"
 		if (row === null) {
 			throw new Error(`no settings row for ${id}`);
 		}
-		helpIn(row.querySelector(".setting-head"), settingRowHelp(id) ?? "");
+		helpIn(row.querySelector(".setting-hint"), settingRowHelp(id) ?? "");
 	}
 	// A row with a self-sufficient description stays clean: no duplicate "?".
 	const plain = rowFor("ui.maskSecretInputs");
