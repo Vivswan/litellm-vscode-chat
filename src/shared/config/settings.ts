@@ -172,20 +172,28 @@ export function getUsageStatusBarMode(): UsageStatusBarMode {
 	return normalizeUsageStatusBarMode(getConfig().get<unknown>(USAGE_STATUS_BAR_SETTING_KEY));
 }
 
-/** The dashboard theme the reader picked; anything outside the vocabulary reads as the default. */
-export function getUiTheme(): UiTheme {
-	const raw = getConfig().get<unknown>(UI_THEME_SETTING_KEY);
+/** Anything outside the theme vocabulary reads as the default. */
+export function normalizeUiTheme(raw: unknown): UiTheme {
 	return typeof raw === "string" && (UI_THEMES as readonly string[]).includes(raw)
 		? (raw as UiTheme)
 		: DEFAULT_UI_THEME;
 }
 
-/** The accent hue the reader picked; anything outside the vocabulary reads as the default. */
-export function getUiAccent(): UiAccent {
-	const raw = getConfig().get<unknown>(UI_ACCENT_SETTING_KEY);
+/** The dashboard theme the reader picked. */
+export function getUiTheme(): UiTheme {
+	return normalizeUiTheme(getConfig().get<unknown>(UI_THEME_SETTING_KEY));
+}
+
+/** Anything outside the accent vocabulary reads as the default. */
+export function normalizeUiAccent(raw: unknown): UiAccent {
 	return typeof raw === "string" && (UI_ACCENTS as readonly string[]).includes(raw)
 		? (raw as UiAccent)
 		: DEFAULT_UI_ACCENT;
+}
+
+/** The accent hue the reader picked. */
+export function getUiAccent(): UiAccent {
+	return normalizeUiAccent(getConfig().get<unknown>(UI_ACCENT_SETTING_KEY));
 }
 
 /** Top-level shape shared by the record settings (headers, models.parameters): a plain object, keyed by string. */

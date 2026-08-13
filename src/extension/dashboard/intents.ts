@@ -17,7 +17,12 @@ import { unitBehavior } from "../../dashboard/presenters";
 import { isUsableHttpUrl } from "../../dashboard/serverForm";
 import { CMD, INTERNAL_CMD, manageCommandTitle } from "../../shared/config/commandIds";
 import type { NumberSettingId } from "../../shared/config/settingSpec";
-import { CONFIG_SECTION, NUMBER_SETTING_SPECS } from "../../shared/config/settingSpec";
+import {
+	CONFIG_SECTION,
+	NUMBER_SETTING_SPECS,
+	UI_ACCENT_SETTING_KEY,
+	UI_THEME_SETTING_KEY,
+} from "../../shared/config/settingSpec";
 import {
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
@@ -416,6 +421,16 @@ export async function executeDashboardIntent(
 		case "setUsageStatusBar":
 			// The schema already pinned the value to the closed mode vocabulary.
 			await env.updateSetting(USAGE_STATUS_BAR_SETTING_KEY, intent.payload.value);
+			return undefined;
+		case "setUiTheme":
+			// Closed vocabularies, pinned by the schema. Writing the setting is the
+			// whole intent: the configuration change re-pushes state, and the
+			// webview restamps the root element from it, so the picker and a hand
+			// edit of settings.json travel the same path.
+			await env.updateSetting(UI_THEME_SETTING_KEY, intent.payload.value);
+			return undefined;
+		case "setUiAccent":
+			await env.updateSetting(UI_ACCENT_SETTING_KEY, intent.payload.value);
 			return undefined;
 		case "setUsageAlertThresholds": {
 			// Out-of-range values are refused here rather than silently dropped:

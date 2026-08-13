@@ -20,6 +20,7 @@ import {
 	fireClick,
 	fireInput,
 	fireKeyDown,
+	fireSelect,
 	mount,
 	postedCalls,
 	postedMessages,
@@ -770,4 +771,132 @@ test("the Import & Export group follows the filter: kept by its own words, hidde
 
 	fireInput(filter, "");
 	expect(group.hidden).toBe(false);
+});
+
+test("the theme select posts setUiTheme, and the accent swatches post setUiAccent with the checked one following state", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const select = root.querySelector("#setting-ui\\.theme");
+	if (!(select instanceof HTMLSelectElement)) {
+		throw new Error("no theme select");
+	}
+	expect(select.value).toBe("auto");
+	// ...and the controls render the stored value, not a hardcoded default.
+	const pinned = mount(
+		<SettingsSection
+			settings={makeSettings({
+				appearance: { theme: "light", themeScope: "workspace", accent: "amber", accentScope: "global" },
+			})}
+			models={[]}
+		/>
+	);
+	const pinnedSelect = pinned.querySelector("#setting-ui\\.theme");
+	expect(pinnedSelect instanceof HTMLSelectElement ? pinnedSelect.value : undefined).toBe("light");
+	expect(
+		[...pinned.querySelectorAll('input[name="ui-accent"]')]
+			.filter((node): node is HTMLInputElement => node instanceof HTMLInputElement && node.checked)
+			.map((node) => node.value)
+	).toEqual(["amber"]);
+	// A configured row shows its scope and offers a Reset; both rows are
+	// configured here, so neither branch is left unrendered.
+	expect(pinned.textContent).toContain("Workspace");
+	fireSelect(select, "dark");
+	expect(postedCalls()).toEqual([{ method: "setUiTheme", payload: { value: "dark" } }]);
+
+	resetPosted();
+	const swatches = [...root.querySelectorAll('input[name="ui-accent"]')].filter(
+		(node): node is HTMLInputElement => node instanceof HTMLInputElement
+	);
+	// Every hue is offered, not just the live one - the choice is the color.
+	expect(swatches.map((input) => input.value)).toEqual(["blue", "violet", "teal", "amber"]);
+	expect(swatches.filter((input) => input.checked).map((input) => input.value)).toEqual(["blue"]);
+	const teal = swatches[2];
+	if (teal === undefined) {
+		throw new Error("no teal swatch");
+	}
+	fireCheck(teal, true);
+	expect(postedCalls()).toEqual([{ method: "setUiAccent", payload: { value: "teal" } }]);
+});
+
+test("a filter matching only an appearance row shows it instead of the nothing-matched line", () => {
+	// The empty-state verdict reads the scalar rows; a tail row that matched
+	// while the verdict said nothing did rendered both at once.
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const filter = root.querySelector('input[aria-label="Filter settings"]');
+	if (!(filter instanceof HTMLInputElement)) {
+		throw new Error("no settings filter");
+	}
+	fireInput(filter, "ui.accent");
+	expect(root.textContent).not.toContain("No settings match the filter.");
+	const accentRow = [...root.querySelectorAll(".setting-row")].find(
+		(row) => row instanceof HTMLElement && !row.hidden && row.textContent?.includes("Accent color") === true
+	);
+	expect(accentRow).toBeDefined();
+});
+
+test("appearance rides every state push onto the root element, so a setting change lands without a reopen", () => {
+	// The HTML shell stamps these once at panel creation. Live-apply is this
+	// effect: the picker (or a hand edit of settings.json) writes the setting,
+	// the configuration change re-pushes state, and the root restamps.
+	document.documentElement.dataset.theme = "auto";
+	document.documentElement.dataset.accent = "blue";
+	mount(<App />);
+	act(() => {
+		pushToWebview(
+			statePush(
+				makeState({
+					settings: makeSettings({
+						appearance: { theme: "dark", themeScope: "global", accent: "amber", accentScope: "global" },
+					}),
+				})
+			)
+		);
+	});
+	expect(document.documentElement.dataset.theme).toBe("dark");
+	expect(document.documentElement.dataset.accent).toBe("amber");
+	// A second push has to land too: the effect keys on the pushed object, and
+	// an appearance that only ever restamped once would pass a single-push test
+	// while leaving an open dashboard stuck after the reader's second change.
+	act(() => {
+		pushToWebview(
+			statePush(
+				makeState({
+					settings: makeSettings({
+						appearance: { theme: "light", themeScope: "global", accent: "teal", accentScope: "global" },
+					}),
+				})
+			)
+		);
+	});
+	expect(document.documentElement.dataset.theme).toBe("light");
+	expect(document.documentElement.dataset.accent).toBe("teal");
+});
+
+test("the settings filter finds a row by its description and its id, whichever kind of row it is", () => {
+	// The two predicates used to disagree: scalar rows matched label plus
+	// description and ignored the id, tail rows matched title plus id and
+	// ignored the description. Typing a word from the theme row's own
+	// description answered "No settings match the filter."
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const filter = root.querySelector('input[aria-label="Filter settings"]');
+	if (!(filter instanceof HTMLInputElement)) {
+		throw new Error("no settings filter");
+	}
+	const visibleRowTitles = (): string[] =>
+		[...root.querySelectorAll(".setting-row")]
+			.filter((row): row is HTMLElement => row instanceof HTMLElement && !row.hidden)
+			.map((row) => row.querySelector(".setting-title")?.textContent ?? "");
+
+	// A tail row found by a word from its description.
+	fireInput(filter, "high contrast");
+	expect(root.textContent).not.toContain("No settings match the filter.");
+	expect(visibleRowTitles()).toContain("Dashboard theme");
+
+	// A scalar row found by its setting id.
+	fireInput(filter, "ui.maskSecretInputs");
+	expect(root.textContent).not.toContain("No settings match the filter.");
+	expect(visibleRowTitles().length).toBeGreaterThan(0);
+
+	// And a needle matching nothing still says so.
+	fireInput(filter, "zzzzz-no-such-setting");
+	expect(root.textContent).toContain("No settings match the filter.");
 });

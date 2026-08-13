@@ -24,6 +24,7 @@ import {
 	RESETTABLE_SETTING_IDS,
 	REVEALABLE_SETTING_IDS,
 } from "../../dashboard/viewModels";
+import { UI_ACCENTS, UI_THEMES } from "../../shared/config/settingSpec";
 import { EXPECTED_FAILURE_CATEGORIES, NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { recordFromKeys } from "../../shared/util/json";
 
@@ -141,6 +142,8 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 	setUsageStatusBar: z.strictObject({
 		value: z.union([z.literal("always"), z.literal("alerts-only"), z.literal("off")]),
 	}),
+	setUiTheme: z.strictObject({ value: asEnum(UI_THEMES) }),
+	setUiAccent: z.strictObject({ value: asEnum(UI_ACCENTS) }),
 	// Bounded like every webview-minted list; the value constraints
 	// (fractions in (0, 1]) live in executeDashboardIntent.
 	setUsageAlertThresholds: z.strictObject({ values: z.array(z.number().finite()).max(32) }),
@@ -205,6 +208,8 @@ const requestSchemas: { readonly [K in DashboardMethod]: z.ZodType<RpcRequest<K>
 	setModelParameters: requestSchema("setModelParameters"),
 	setModelCapabilities: requestSchema("setModelCapabilities"),
 	setUsageStatusBar: requestSchema("setUsageStatusBar"),
+	setUiTheme: requestSchema("setUiTheme"),
+	setUiAccent: requestSchema("setUiAccent"),
 	setUsageAlertThresholds: requestSchema("setUsageAlertThresholds"),
 	refreshCatalog: requestSchema("refreshCatalog"),
 	refreshUsage: requestSchema("refreshUsage"),

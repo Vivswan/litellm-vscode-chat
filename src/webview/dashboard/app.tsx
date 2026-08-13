@@ -387,6 +387,19 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		}
 	}, [serverScope, state]);
 
+	// Appearance follows the setting live. The HTML shell stamps these once at
+	// panel creation, which is enough for a reopen and nothing else: the picker
+	// writes the setting, the configuration change re-pushes state, and this
+	// restamps the root. A hand edit of settings.json travels the identical
+	// path, so both management paths land on an open dashboard.
+	const appearance = state?.settings.appearance;
+	useEffect(() => {
+		if (appearance !== undefined) {
+			document.documentElement.dataset.theme = appearance.theme;
+			document.documentElement.dataset.accent = appearance.accent;
+		}
+	}, [appearance]);
+
 	// The inspected model on the latest push; an inspector whose model left
 	// the list closes instead of rendering stale values.
 	const inspectedModel =
@@ -452,6 +465,8 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		failures.setBooleanSetting ??
 		failures.resetSetting ??
 		failures.setUsageAlertThresholds ??
+		failures.setUiTheme ??
+		failures.setUiAccent ??
 		failures.executeCommand;
 	return (
 		<main>

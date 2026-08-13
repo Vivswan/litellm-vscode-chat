@@ -42,6 +42,16 @@
 	body {
 		background-color: var(--background);
 	}
+	/* An OS forced-colors mode repaints every author color, which is right for
+		 text and wrong for the two places color IS the content or the boundary.
+		 The accent swatches opt out entirely - a color sample the system repaints
+		 black shows four identical circles - and the badges get their outline
+		 back, having traded it for a fill the system flattens into the page. */
+	@media (forced-colors: active) {
+		[data-slot="badge"] {
+			border: 1px solid;
+		}
+	}
 }
 
 /* shadcn's semantic tokens, mapped onto the host's live theme variables: the
@@ -82,8 +92,6 @@
 	--dropdown: var(--vscode-dropdown-border, transparent);
 	--dropdown-background: var(--vscode-dropdown-background);
 	--dropdown-foreground: var(--vscode-dropdown-foreground);
-	--warning: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow));
-	--error: var(--vscode-errorForeground);
 	/* Disabled drops every variant to one neutral treatment: the primary blue
 		 at half opacity still scans as actionable. */
 	--disabled: var(--vscode-button-secondaryBackground, rgba(128, 128, 128, 0.25));
@@ -481,6 +489,10 @@ body.vscode-high-contrast-light {
 	--dropdown: var(--vscode-contrastBorder);
 	--disabled: var(--vscode-editor-background);
 	--control-outline: var(--vscode-contrastBorder);
+	/* Both the hue in use and the hue on offer: the settings picker paints all
+		 four swatches from the --hue-* tokens, and blue's ordinary chain reads the
+		 button color that high contrast paints black. */
+	--hue-blue: var(--vscode-textLink-foreground, var(--vscode-contrastActiveBorder, var(--vscode-focusBorder)));
 	--accent-hue: var(--vscode-textLink-foreground, var(--vscode-contrastActiveBorder, var(--vscode-focusBorder)));
 	--accent-on: var(--vscode-editor-background);
 }
@@ -522,8 +534,6 @@ body.vscode-high-contrast-light {
 	--color-dropdown: var(--dropdown);
 	--color-dropdown-background: var(--dropdown-background);
 	--color-dropdown-foreground: var(--dropdown-foreground);
-	--color-warning: var(--warning);
-	--color-error: var(--error);
 	/* The theme/accent layer: severity and its per-theme tints, the accent and
 		 the washes derived from it. Advisory tints (-soft) fill whole blocks;
 		 the interactive washes carry hover and selection. */

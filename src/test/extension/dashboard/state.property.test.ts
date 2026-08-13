@@ -14,8 +14,14 @@ import * as assert from "node:assert";
 import * as fc from "fast-check";
 import type { DashboardMethod } from "../../../dashboard/endpoints";
 import { DASHBOARD_COMMAND_IDS, DASHBOARD_ENDPOINTS } from "../../../dashboard/endpoints";
-import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS, REVEALABLE_SETTING_IDS } from "../../../dashboard/viewModels";
+import {
+	BOOLEAN_SETTING_IDS,
+	NUMBER_SETTING_IDS,
+	RESETTABLE_SETTING_IDS,
+	REVEALABLE_SETTING_IDS,
+} from "../../../dashboard/viewModels";
 import { parseDashboardRequest, secretDirectiveSchema } from "../../../extension/dashboard/intentSchema";
+import { UI_ACCENTS, UI_THEMES } from "../../../shared/config/settingSpec";
 import {
 	EXPECTED_FAILURE_CATEGORIES,
 	NON_SECRET_OPTIONAL_FIELD_IDS,
@@ -105,7 +111,7 @@ const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 		setting: fc.constantFrom(...BOOLEAN_SETTING_IDS),
 		value: fc.boolean(),
 	}),
-	resetSetting: fc.record({ setting: fc.constantFrom(...NUMBER_SETTING_IDS, ...BOOLEAN_SETTING_IDS) }),
+	resetSetting: fc.record({ setting: fc.constantFrom(...RESETTABLE_SETTING_IDS) }),
 	revealSetting: fc.record({ setting: fc.constantFrom(...REVEALABLE_SETTING_IDS) }),
 	setModelParameters: fc.record({
 		value: fc.dictionary(safeRecordKey, fc.dictionary(safeRecordKey, fc.jsonValue(), { maxKeys: 3 }), { maxKeys: 3 }),
@@ -116,6 +122,8 @@ const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 	refreshCatalog: fc.constant(null),
 	refreshUsage: fc.constant(null),
 	setUsageStatusBar: fc.record({ value: fc.constantFrom("always", "alerts-only", "off") }),
+	setUiTheme: fc.record({ value: fc.constantFrom(...UI_THEMES) }),
+	setUiAccent: fc.record({ value: fc.constantFrom(...UI_ACCENTS) }),
 	setUsageAlertThresholds: fc.record({ values: fc.array(finiteNumber, { maxLength: 32 }) }),
 	saveServerSetting: serverDraftPayload,
 	testServerDraft: serverDraftPayload,

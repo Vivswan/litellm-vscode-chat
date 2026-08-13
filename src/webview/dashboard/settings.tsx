@@ -22,8 +22,8 @@ import type {
 	UsageStatusBarModeSetting,
 } from "../../dashboard/viewModels";
 import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS } from "../../dashboard/viewModels";
-import type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
-import { NUMBER_SETTING_SPECS } from "../../shared/config/settingSpec";
+import type { BooleanSettingId, NumberSettingId, UiAccent, UiTheme } from "../../shared/config/settingSpec";
+import { NUMBER_SETTING_SPECS, UI_ACCENTS, UI_THEMES } from "../../shared/config/settingSpec";
 import { DOCS_LINK_OPENROUTER_CATALOG, DOCS_LINK_SETTINGS } from "./docsLinks";
 import { DocsLink, Help } from "./help";
 import { helpCatalogRow, helpImportExportGroup, helpSettingsSection, settingRowHelp } from "./helpText";
@@ -38,7 +38,9 @@ import {
 import { relativeTime } from "./time";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
+import { cn } from "./ui/cn";
 import { Input } from "./ui/input";
+import { Radio } from "./ui/radio";
 import { Select } from "./ui/select";
 import { sendRequest } from "./vscodeApi";
 
@@ -383,6 +385,30 @@ function CatalogRow({ catalog, enabled, now }: { catalog: CatalogStatusView; ena
 	);
 }
 
+/**
+ * The non-scalar rows' descriptions. They live here rather than inline because
+ * the filter matches on them exactly as it does for a scalar row's description,
+ * and a row whose filter text and visible text can drift is a row a needle
+ * finds without showing, or shows without finding.
+ */
+function usageStatusBarDescription(): string {
+	return l10n.t("When the spend status bar item shows; the worst fresh server's percentage.");
+}
+
+function usageThresholdsDescription(): string {
+	return l10n.t("Warning at 80% and error at 95% by default; enter 80% or 0.8. Empty both to turn alerts off.");
+}
+
+function uiThemeDescription(): string {
+	return l10n.t("High contrast themes always follow the editor, whichever option is picked here.");
+}
+
+function uiAccentDescription(): string {
+	return l10n.t(
+		"Marks primary actions, selection, focus and links; status colors stay green, yellow and red. High contrast themes keep their own accent."
+	);
+}
+
 /** The usage.statusBar mode names, resolved at call time (no module-level localized constants). */
 function statusBarModeLabel(mode: UsageStatusBarModeSetting): string {
 	switch (mode) {
@@ -418,9 +444,7 @@ function UsageStatusBarRow({
 				<RevealButton title={title} settingId="usage.statusBar" />
 				{configuredScope !== null ? <ModifiedNote scope={configuredScope} /> : null}
 			</div>
-			<p className="setting-desc">
-				{l10n.t("When the spend status bar item shows; the worst fresh server's percentage.")}
-			</p>
+			<p className="setting-desc">{usageStatusBarDescription()}</p>
 			<div className="setting-control">
 				<Select
 					id={inputId}
@@ -440,6 +464,136 @@ function UsageStatusBarRow({
 				{configuredScope !== null ? (
 					<ResetButton title={title} scope={configuredScope} settingId="usage.statusBar" />
 				) : null}
+			</div>
+		</SettingRow>
+	);
+}
+
+/** The ui.theme names, resolved at call time (no module-level localized constants). */
+function uiThemeLabel(theme: UiTheme): string {
+	switch (theme) {
+		case "auto":
+			return l10n.t("auto - follow the editor's theme");
+		case "light":
+			return l10n.t("light - always light, whatever the editor wears");
+		case "dark":
+			return l10n.t("dark - always dark, whatever the editor wears");
+	}
+}
+
+/** The ui.theme row: the same enum select the usage status bar uses. */
+function UiThemeRow({
+	theme,
+	configuredScope,
+	hidden,
+}: {
+	theme: UiTheme;
+	configuredScope: SettingScope | null;
+	hidden: boolean;
+}) {
+	const inputId = "setting-ui.theme";
+	const title = l10n.t("Dashboard theme");
+	return (
+		<SettingRow modified={configuredScope !== null} hidden={hidden}>
+			<div className="setting-head">
+				<label className="setting-title" htmlFor={inputId}>
+					{title}
+				</label>
+				<RevealButton title={title} settingId="ui.theme" />
+				{configuredScope !== null ? <ModifiedNote scope={configuredScope} /> : null}
+			</div>
+			<p className="setting-desc">{uiThemeDescription()}</p>
+			<div className="setting-control">
+				<Select
+					id={inputId}
+					value={theme}
+					onChange={(event) => sendRequest("setUiTheme", { value: event.currentTarget.value as UiTheme })}
+				>
+					{UI_THEMES.map((candidate) => (
+						<option key={candidate} value={candidate}>
+							{uiThemeLabel(candidate)}
+						</option>
+					))}
+				</Select>
+				{configuredScope !== null ? <ResetButton title={title} scope={configuredScope} settingId="ui.theme" /> : null}
+			</div>
+		</SettingRow>
+	);
+}
+
+/** Every hue's swatch fill, from the tokens theme.css defines the accent itself with. */
+const ACCENT_SWATCH_CLASS: Readonly<Record<UiAccent, string>> = {
+	blue: "bg-hue-blue",
+	violet: "bg-hue-violet",
+	teal: "bg-hue-teal",
+	amber: "bg-hue-amber",
+};
+
+function uiAccentLabel(accent: UiAccent): string {
+	switch (accent) {
+		case "blue":
+			return l10n.t("Blue - your theme's own button color");
+		case "violet":
+			return l10n.t("Violet");
+		case "teal":
+			return l10n.t("Teal");
+		case "amber":
+			return l10n.t("Amber");
+	}
+}
+
+/**
+ * The ui.accent row: four swatches rather than a list of color words, because
+ * the choice IS the color. Native radios carry the semantics and the keyboard
+ * (arrow keys move between them, one tab stop for the group); the visible
+ * swatch is their label, ringed when checked and when the hidden input takes
+ * focus.
+ */
+function UiAccentRow({
+	accent,
+	configuredScope,
+	hidden,
+}: {
+	accent: UiAccent;
+	configuredScope: SettingScope | null;
+	hidden: boolean;
+}) {
+	const title = l10n.t("Accent color");
+	return (
+		<SettingRow modified={configuredScope !== null} hidden={hidden}>
+			<div className="setting-head">
+				<span className="setting-title">{title}</span>
+				<RevealButton title={title} settingId="ui.accent" />
+				{configuredScope !== null ? <ModifiedNote scope={configuredScope} /> : null}
+			</div>
+			<p className="setting-desc">{uiAccentDescription()}</p>
+			<div className="setting-control">
+				<div className="flex gap-2" role="radiogroup" aria-label={title}>
+					{UI_ACCENTS.map((candidate) => (
+						<label
+							key={candidate}
+							// The checked ring is the foreground, not the accent: a violet
+							// ring around the violet swatch is not a selection marker.
+							className="cursor-pointer rounded-full p-0.5 outline-offset-1 has-[:checked]:outline-1 has-[:checked]:outline-foreground has-[:checked]:outline-solid has-[:focus-visible]:outline-1 has-[:focus-visible]:outline-ring has-[:focus-visible]:outline-solid"
+						>
+							<Radio
+								className="sr-only"
+								name="ui-accent"
+								value={candidate}
+								checked={accent === candidate}
+								aria-label={uiAccentLabel(candidate)}
+								onChange={() => sendRequest("setUiAccent", { value: candidate })}
+							/>
+							{/* forced-color-adjust: the swatch IS the information, so it keeps
+								its own color where the OS would repaint all four identically. */}
+							<span
+								aria-hidden="true"
+								className={cn("block size-4 rounded-full forced-color-adjust-none", ACCENT_SWATCH_CLASS[candidate])}
+							/>
+						</label>
+					))}
+				</div>
+				{configuredScope !== null ? <ResetButton title={title} scope={configuredScope} settingId="ui.accent" /> : null}
 			</div>
 		</SettingRow>
 	);
@@ -616,9 +770,7 @@ function UsageThresholdsRow({
 				<RevealButton title={title} settingId="usage.alertThresholds" />
 				{configuredScope !== null ? <ModifiedNote scope={configuredScope} /> : null}
 			</div>
-			<p className="setting-desc">
-				{l10n.t("Warning at 80% and error at 95% by default; enter 80% or 0.8. Empty both to turn alerts off.")}
-			</p>
+			<p className="setting-desc">{usageThresholdsDescription()}</p>
 			{custom ? (
 				<div className="setting-control">
 					<span>{values.map(percentText).join(", ")}</span>
@@ -725,9 +877,15 @@ function SettingGroup({
  * a value only a folder scope sets is named by its row's Reset action.
  */
 function ScalarScopeNote({ settings }: { settings: DashboardSettings }) {
+	// Every row the page renders, not only the scalar ones: the note says where
+	// edits land, and a workspace-set appearance row makes it land there too.
 	const scopes = [
 		...Object.values(settings.configuredScopes.numbers),
 		...Object.values(settings.configuredScopes.booleans),
+		settings.usage.statusBarScope,
+		settings.usage.thresholdsScope,
+		settings.appearance.themeScope,
+		settings.appearance.accentScope,
 	];
 	const workspaceTouched = scopes.some((scope) => scope === "workspace");
 	return (
@@ -802,12 +960,11 @@ export function SettingsSection({
 		}
 	}, [editSeq]);
 	const needle = filter.trim().toLowerCase();
+	const matches = (...haystack: string[]): boolean =>
+		needle.length === 0 || haystack.some((text) => text.toLowerCase().includes(needle));
 	const isVisible = (id: NumberSettingId | BooleanSettingId): boolean => {
-		if (needle.length === 0) {
-			return true;
-		}
 		const { label, description } = scalarText(id);
-		return label.toLowerCase().includes(needle) || description.toLowerCase().includes(needle);
+		return matches(label, description, id);
 	};
 
 	const placed = new Set<string>(SETTING_GROUPS.flatMap((group) => [...group.numbers, ...group.booleans]));
@@ -819,6 +976,22 @@ export function SettingsSection({
 	const capsVisible =
 		needle.length === 0 || recordEditorMatches(needle, modelCapabilitiesTitle(), settings.modelCapabilities);
 	const anyScalarVisible = [...NUMBER_SETTING_IDS, ...BOOLEAN_SETTING_IDS].some(isVisible);
+	// Hoisted out of the group map because the empty-state verdict below has to
+	// see them: a filter matching only a tail row used to render that row under
+	// a "nothing matched" line.
+	// The non-scalar rows filter by the same rule as the scalar ones - name,
+	// explanation, setting id - so a needle cannot find one kind and miss the
+	// other. Hoisted because the empty-state verdict below has to see them: a
+	// filter matching only a tail row used to render that row under a "nothing
+	// matched" line.
+	const statusBarVisible = matches(l10n.t("Usage status bar"), usageStatusBarDescription(), "usage.statusBar");
+	const thresholdsVisible = matches(
+		l10n.t("Usage alert thresholds"),
+		usageThresholdsDescription(),
+		"usage.alertThresholds"
+	);
+	const themeVisible = matches(l10n.t("Dashboard theme"), uiThemeDescription(), "ui.theme");
+	const accentVisible = matches(l10n.t("Accent color"), uiAccentDescription(), "ui.accent");
 	// The Import & Export group filters like a scalar row: its title and button
 	// labels stand in for the label, its hint line for the description.
 	const importExportVisible =
@@ -826,7 +999,15 @@ export function SettingsSection({
 		[l10n.t("Import & Export"), l10n.t("Export settings"), l10n.t("Import settings"), helpImportExportGroup()].some(
 			(text) => text.toLowerCase().includes(needle)
 		);
-	const nothingMatches = !anyScalarVisible && !paramsVisible && !capsVisible && !importExportVisible;
+	const nothingMatches =
+		!anyScalarVisible &&
+		!paramsVisible &&
+		!capsVisible &&
+		!importExportVisible &&
+		!statusBarVisible &&
+		!thresholdsVisible &&
+		!themeVisible &&
+		!accentVisible;
 	const booleanExtras: Partial<Record<BooleanSettingId, ReactNode>> = {
 		"models.openRouterCatalog": (
 			<CatalogRow
@@ -866,14 +1047,7 @@ export function SettingsSection({
 					// mode enum and the alert-thresholds row.
 					const isModelsGroup = group.booleans.includes("models.openRouterCatalog");
 					const isUsageGroup = group.numbers.includes("usage.pollInterval");
-					const statusBarVisible =
-						needle.length === 0 ||
-						l10n.t("Usage status bar").toLowerCase().includes(needle) ||
-						"usage.statusbar".includes(needle);
-					const thresholdsVisible =
-						needle.length === 0 ||
-						l10n.t("Usage alert thresholds").toLowerCase().includes(needle) ||
-						"usage.alertthresholds".includes(needle);
+					const isUiGroup = group.booleans.includes("ui.maskSecretInputs");
 					return (
 						<SettingGroup
 							// biome-ignore lint/suspicious/noArrayIndexKey: the group list is a fixed literal; position is the identity
@@ -884,7 +1058,8 @@ export function SettingsSection({
 							booleanExtras={booleanExtras}
 							tailVisible={
 								(isModelsGroup && (paramsVisible || capsVisible)) ||
-								(isUsageGroup && (statusBarVisible || thresholdsVisible))
+								(isUsageGroup && (statusBarVisible || thresholdsVisible)) ||
+								(isUiGroup && (themeVisible || accentVisible))
 							}
 							tail={
 								isModelsGroup ? (
@@ -914,6 +1089,19 @@ export function SettingsSection({
 											mode={settings.usage.statusBarMode}
 											configuredScope={settings.usage.statusBarScope}
 											hidden={!statusBarVisible}
+										/>
+									</>
+								) : isUiGroup ? (
+									<>
+										<UiThemeRow
+											theme={settings.appearance.theme}
+											configuredScope={settings.appearance.themeScope}
+											hidden={!themeVisible}
+										/>
+										<UiAccentRow
+											accent={settings.appearance.accent}
+											configuredScope={settings.appearance.accentScope}
+											hidden={!accentVisible}
 										/>
 									</>
 								) : undefined

@@ -31,11 +31,24 @@ const REQUIRED_UTILITIES = [
 	"aria-invalid:border-input-invalid",
 	"bg-dropdown-background",
 	"accent-primary",
-	"text-warning",
+	"bg-warn-soft",
+	"text-warn",
+	"bg-muted",
 	"focus-visible:outline-ring",
 	"disabled:opacity-60",
 	"disabled:bg-transparent",
 	"disabled:text-disabled-foreground",
+	// The accent picker's swatches: every hue paints, not just the live one,
+	// the checked ring is the foreground so it reads against any of them, and
+	// the sample keeps its color where an OS forced-colors mode would repaint
+	// all four the same.
+	"bg-hue-blue",
+	"bg-hue-violet",
+	"bg-hue-teal",
+	"bg-hue-amber",
+	"sr-only",
+	"has-[:checked]:outline-foreground",
+	"forced-color-adjust-none",
 ] as const;
 
 /** A utility name as it appears escaped in a compiled selector. */

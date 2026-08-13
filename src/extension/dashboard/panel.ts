@@ -609,6 +609,8 @@ export class DashboardController implements vscode.Disposable {
 		setModelParameters: (payload) => executeDashboardIntent({ method: "setModelParameters", payload }, this.env),
 		setModelCapabilities: (payload) => executeDashboardIntent({ method: "setModelCapabilities", payload }, this.env),
 		setUsageStatusBar: (payload) => executeDashboardIntent({ method: "setUsageStatusBar", payload }, this.env),
+		setUiTheme: (payload) => executeDashboardIntent({ method: "setUiTheme", payload }, this.env),
+		setUiAccent: (payload) => executeDashboardIntent({ method: "setUiAccent", payload }, this.env),
 		setUsageAlertThresholds: (payload) =>
 			executeDashboardIntent({ method: "setUsageAlertThresholds", payload }, this.env),
 		refreshCatalog: (payload) => executeDashboardIntent({ method: "refreshCatalog", payload }, this.env),
@@ -728,15 +730,43 @@ function createRealPanel(extensionUri: vscode.Uri): DashboardPanel {
 		enableScripts: true,
 		localResourceRoots: [distDir],
 	});
-	panel.webview.html = buildDashboardHtml({
-		cspSource: panel.webview.cspSource,
-		nonce: createNonce(),
-		scriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(distDir, DASHBOARD_BUNDLE_FILENAME)).toString(),
-		styleUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(distDir, DASHBOARD_STYLESHEET_FILENAME)).toString(),
-		language: vscode.env.language,
-		l10nBundle: vscode.l10n.bundle,
-		theme: getUiTheme(),
-		accent: getUiAccent(),
+	const renderShell = (): string =>
+		buildDashboardHtml({
+			cspSource: panel.webview.cspSource,
+			nonce: createNonce(),
+			scriptUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(distDir, DASHBOARD_BUNDLE_FILENAME)).toString(),
+			styleUri: panel.webview.asWebviewUri(vscode.Uri.joinPath(distDir, DASHBOARD_STYLESHEET_FILENAME)).toString(),
+			language: vscode.env.language,
+			l10nBundle: vscode.l10n.bundle,
+			theme: getUiTheme(),
+			accent: getUiAccent(),
+		});
+	panel.webview.html = renderShell();
+	// The shell's whole job is the first paint: it stamps the appearance so a
+	// reader who pinned light never sees a dark frame while the bundle boots.
+	// The panel does not retain context, so a reveal reloads this stored HTML -
+	// which means a theme changed since it was written would hand back exactly
+	// the frame the stamp exists to prevent. Rewriting it while the panel is
+	// hidden costs nothing: the page is already gone, so there is no reload to
+	// pay for and nothing on screen to flash. A visible panel needs none of
+	// this; the state push restamps its live DOM.
+	const resyncShellWhileHidden = (): void => {
+		if (!panel.visible) {
+			panel.webview.html = renderShell();
+		}
+	};
+	const subscriptions = [
+		panel.onDidChangeViewState(resyncShellWhileHidden),
+		vscode.workspace.onDidChangeConfiguration((event) => {
+			if (event.affectsConfiguration(CONFIG_SECTION)) {
+				resyncShellWhileHidden();
+			}
+		}),
+	];
+	panel.onDidDispose(() => {
+		for (const subscription of subscriptions) {
+			subscription.dispose();
+		}
 	});
 	return panel;
 }

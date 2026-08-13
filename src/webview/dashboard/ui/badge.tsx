@@ -2,21 +2,24 @@ import { cva, type VariantProps } from "class-variance-authority";
 import type { ComponentProps } from "react";
 import { cn } from "./cn";
 
-/** The quiet outline chip beside names and counts (auth kind, "external", "declared", inactive notices). */
-const badgeVariants = cva(
-	"inline-block whitespace-nowrap rounded-xl border border-border bg-transparent px-1.5 text-[0.85em]",
-	{
-		variants: {
-			variant: {
-				default: "text-muted-foreground",
-				warn: "text-warning",
-			},
+/**
+ * The quiet chip beside names and counts (auth kind, "external", "declared",
+ * inactive notices). A soft fill rather than an outline: a server row can carry
+ * four of these at once, and four hairline boxes read as structure the row does
+ * not have, while a wash of the same color the rest of the dashboard uses for
+ * severity reads as one texture.
+ */
+const badgeVariants = cva("inline-block whitespace-nowrap rounded-xl px-1.5 text-[0.85em]", {
+	variants: {
+		variant: {
+			default: "bg-muted text-muted-foreground",
+			warn: "bg-warn-soft text-warn",
 		},
-		defaultVariants: {
-			variant: "default",
-		},
-	}
-);
+	},
+	defaultVariants: {
+		variant: "default",
+	},
+});
 
 export function Badge({ className, variant, ...props }: ComponentProps<"span"> & VariantProps<typeof badgeVariants>) {
 	return (

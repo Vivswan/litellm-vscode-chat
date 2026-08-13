@@ -39,12 +39,14 @@ import type { EffectiveParametersProjection } from "../../shared/config/paramete
 import { projectResolvedParameters, resolveModelParameters } from "../../shared/config/parameterResolution";
 import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
 import type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
-import { NUMBER_SETTING_SPECS } from "../../shared/config/settingSpec";
+import { NUMBER_SETTING_SPECS, UI_ACCENT_SETTING_KEY, UI_THEME_SETTING_KEY } from "../../shared/config/settingSpec";
 import {
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
 	normalizeModelCapabilities,
 	normalizeModelParameters,
+	normalizeUiAccent,
+	normalizeUiTheme,
 	normalizeUsageAlertThresholds,
 	normalizeUsageStatusBarMode,
 	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
@@ -635,6 +637,12 @@ export function readDashboardSettings(reader: SettingsReader, catalog: CatalogSt
 			normalizeModelCapabilities
 		),
 		catalog,
+		appearance: {
+			theme: normalizeUiTheme(reader.get(UI_THEME_SETTING_KEY)),
+			themeScope: resolveConfiguredScope(reader.inspect(UI_THEME_SETTING_KEY)),
+			accent: normalizeUiAccent(reader.get(UI_ACCENT_SETTING_KEY)),
+			accentScope: resolveConfiguredScope(reader.inspect(UI_ACCENT_SETTING_KEY)),
+		},
 		usage: {
 			statusBarMode: normalizeUsageStatusBarMode(reader.get(USAGE_STATUS_BAR_SETTING_KEY)),
 			statusBarScope: resolveConfiguredScope(reader.inspect(USAGE_STATUS_BAR_SETTING_KEY)),

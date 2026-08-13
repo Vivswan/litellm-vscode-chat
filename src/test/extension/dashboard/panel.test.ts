@@ -486,6 +486,26 @@ suite("extension/dashboard/panel", () => {
 		assert.deepStrictEqual(harness.loggedErrors, [], "malformed messages are ignored, not errors");
 	});
 
+	test("the appearance intents write their settings, and a value outside the vocabulary is refused", async () => {
+		const harness = makeHarness();
+		harness.controller.open();
+		const fake = harness.panels[0];
+		assert.ok(fake);
+
+		fake.receiveMessage(request("setUiTheme", { value: "dark" }));
+		fake.receiveMessage(request("setUiAccent", { value: "teal" }));
+		// The vocabularies are closed at the schema, so a webview that posted
+		// anything else writes nothing rather than putting junk in the setting.
+		fake.receiveMessage(request("setUiTheme", { value: "solarized" }));
+		fake.receiveMessage(request("setUiAccent", { value: 7 }));
+		await settle();
+
+		assert.deepStrictEqual(harness.updates, [
+			["ui.theme", "dark"],
+			["ui.accent", "teal"],
+		]);
+	});
+
 	test("a command intent reaches executeCommand", async () => {
 		const harness = makeHarness();
 		harness.controller.open();
