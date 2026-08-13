@@ -337,7 +337,7 @@ function BudgetFact({ server }: { server: UsageServerView }) {
 			<Fact label={l10n.t("Budget")}>
 				<Absent
 					reason={l10n.t(
-						"neither this entry nor the key sets one, so there is no percentage to show; set one on the entry under Servers & Models, or on the key in LiteLLM"
+						"neither this entry nor the key sets one, so there is no percentage to show; set one on the entry under Servers, or on the key in LiteLLM"
 					)}
 				/>
 			</Fact>
@@ -690,7 +690,7 @@ export function UsageSection({
 			{usage.servers.length === 0 ? (
 				<div className="empty-block">
 					{serverCount === 0 ? (
-						<p>{l10n.t("No servers configured; add one under Servers & Models.")}</p>
+						<p>{l10n.t("No servers configured; add one under Servers.")}</p>
 					) : (
 						<>
 							<p>{l10n.t("None of your servers serves usage data.")}</p>

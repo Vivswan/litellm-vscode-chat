@@ -42,7 +42,7 @@ export interface RailSection<Id extends string = string> {
 	readonly count?: string | undefined;
 	/**
 	 * The count said in words, for the accessible name: a bare "4" beside a
-	 * label announces as "Servers & Models 4", which is a number without a
+	 * label announces as "Servers 4", which is a number without a
 	 * noun, and the tabpanel inherits that name too. Carries its own unit -
 	 * "4 models", "87% of budget" - and the visible label stays inside the
 	 * accessible name, as Label in Name requires.

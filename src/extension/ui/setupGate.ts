@@ -126,7 +126,7 @@ export async function showSetupProblemGate(problem: SetupProblem, reportAnyway: 
 		problem === "not-configured"
 			? [reconfigureAction(configureNowLabel()), reportAnywayAction]
 			: problem === "hidden-groups"
-				? // The dashboard's Servers & Models view carries the hidden-groups
+				? // The dashboard's Servers view carries the hidden-groups
 					// line with the Unhide action; there is no docs section or
 					// connection test that fixes a deliberate removal.
 					[reconfigureAction(l10n.t("Open Dashboard")), reportAnywayAction]

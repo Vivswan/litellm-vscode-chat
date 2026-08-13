@@ -331,7 +331,7 @@ export const EXTENSION_SETTINGS_FILTER = "@ext:vivswan.litellm-vscode-chat";
  * flow over the registry, for a user whose registry still holds unmigrated
  * servers: editing there feeds the migration (a rename lifts a server's skip
  * marker), so the flow survives until isGroupMigrationComplete. The other two
- * open the dashboard's Servers & Models view: "groupsWithRegistry" means the
+ * open the dashboard's Servers view: "groupsWithRegistry" means the
  * registry was never populated (fresh installs), "groupsOnly" means the
  * migration retired it, so the quick pick would edit dead state.
  */
@@ -401,7 +401,7 @@ function hubItems(): readonly HubItem[] {
 }
 
 /**
- * The hub's server entry: the dashboard's Servers & Models view where the
+ * The hub's server entry: the dashboard's Servers view where the
  * mode allows it, otherwise the legacy quick-pick flows over the registry
  * (see ManagementUiMode). Test Connection and Sync Models are not repeated in
  * the legacy list; the hub the user just came from carries both.

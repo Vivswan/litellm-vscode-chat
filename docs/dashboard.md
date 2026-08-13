@@ -6,10 +6,10 @@ English | [简体中文](zh-cn/dashboard.md) | [繁體中文](zh-tw/dashboard.md
 
 ## Layout
 
-- A status strip on top: overall connection state, server and model counts, last sync, and a Sync models button. A quiet Report a bug action sits beside the title and opens a GitHub issue pre-filled with version, platform, and recent logs.
-- Four tabs. **Servers and models** share the first, since they are one workflow: connect a server, see its models. **Usage** shows spend against budgets. **Settings** holds the extension's settings as editable form controls. **Diagnostics** is a connection summary, the configuration problems the extension has spotted, and the feedback and documentation links.
+- A rail down the left side: the destinations, each with the live number it is about (servers, models, spend against budget, open problems), and under them the fleet's overall connection state and last sync, which stay on screen while the page beside them scrolls. A Sync models button and a quiet Report a bug action sit at its foot; the latter opens a GitHub issue pre-filled with version, platform, and recent logs.
+- Five destinations. **Servers** is your entries and their health, with each server's problems written under the row they belong to. **Models** is everything those servers report, and a server's model count on the Servers page navigates here scoped to it. **Usage** shows spend against budgets. **Settings** holds the extension's settings as editable form controls. **Diagnostics** is a connection summary, the configuration problems the extension has spotted, and the feedback and documentation links.
 - Settings edits write to your VS Code settings (to the scope where the value is already set, otherwise to user settings), and the buttons run the same commands the Command Palette offers.
-- Sections are addressable from outside: commands land on the section they concern, and notification buttons open the dashboard on Servers and models - except the budget alert's Open Usage button, which deep-links to Usage ([Deep links](#deep-links)).
+- Sections are addressable from outside: commands land on the section they concern, and notification buttons open the dashboard on Servers - except the budget alert's Open Usage button, which deep-links to Usage ([Deep links](#deep-links)).
 
 ## Servers
 
@@ -70,7 +70,7 @@ Edit on an external row is the adopt action; see [Servers](servers.md#external-s
 
 Every model your servers report, as registered with Copilot Chat, in a sortable and filterable table with token limits, pricing, and capability notes. Where the columns come from, what each capability gates, and why a model might be missing: [Models](models.md#how-models-appear).
 
-- Clicking a server's model count in the servers table narrows this table to that server's models; a chip beside the filter box shows the active scope and clears it.
+- Clicking a server's model count on the Servers page opens this one scoped to that server; a chip beside the filter box shows the active scope and clears it.
 - Each row carries a copy action (visible on hover) for the model's exact ID - the string your [matcher keys](models.md#model-matching) match against.
 - Models registered by an entry's [declared list](servers.md#declared-models) rather than discovered on the server carry a "declared" badge.
 - Lists are cached ([`discovery.cacheTtl`](settings.md#reference)); the Sync models button asks the servers again now.
@@ -178,5 +178,5 @@ Every dashboard section is addressable from outside the panel, so commands and n
 | LiteLLM: Open Dashboard | the dashboard, on its first section |
 | LiteLLM: Show Diagnostics | [Diagnostics](#diagnostics) |
 | the usage status bar item | [the Usage section](#the-usage-section) |
-| notification buttons that open the dashboard ("Configure Now", "Reconfigure") | [Servers and models](#servers), where connection problems are fixed |
+| notification buttons that open the dashboard ("Configure Now", "Reconfigure") | [Servers](#servers), where connection problems are fixed |
 | the budget alert's "Open Usage" button | [the Usage section](#the-usage-section) |

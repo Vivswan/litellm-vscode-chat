@@ -1,6 +1,6 @@
 import * as l10n from "@vscode/l10n";
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { AckedMethod, NotifyingMethod } from "../../dashboard/endpoints";
 import { failuresAfterStatePush, isAckedMethod } from "../../dashboard/endpoints";
 import { classifyOverall, latestCheckedMs } from "../../dashboard/presenters";
@@ -32,7 +32,9 @@ type SectionId = DashboardSectionId;
 function sectionLabel(section: SectionId): string {
 	switch (section) {
 		case "overview":
-			return l10n.t("Servers & Models");
+			return l10n.t("Servers");
+		case "models":
+			return l10n.t("Models");
 		case "usage":
 			return l10n.t("Usage");
 		case "settings":
@@ -183,17 +185,27 @@ function lastSync(servers: readonly DashboardServer[], now: number): string | un
  * would go to that destination to find out.
  *
  * Absence is deliberate everywhere: no budget to measure against means no
- * usage figure rather than a zero, no diagnostics means no badge, and no
- * servers means no model count, because that destination does not render a
- * models section at all when there is nothing connected. A count that is
+ * usage figure rather than a zero, no diagnostics means no badge, and an empty
+ * fleet or an empty catalogue counts nothing rather than counting zero, because
+ * those destinations explain themselves in words instead. A count that is
  * always present stops being information.
  */
 function railSections(state: DashboardState): readonly RailSection<SectionId>[] {
 	const counts: Readonly<Record<SectionId, { count?: string; countLabel?: string; countTone?: "warn" | "err" }>> = {
-		// No servers means the destination shows a guided start rather than a
-		// models table, so a "0" would count something that is not there.
+		// Each item counts its own noun now that they are separate destinations -
+		// which is half the reason they are. No servers means the destination
+		// shows a guided start rather than a table, so a "0" would count
+		// something that is not there.
 		overview:
 			state.servers.length === 0
+				? {}
+				: {
+						count: String(state.servers.length),
+						countLabel:
+							state.servers.length === 1 ? l10n.t("1 server") : l10n.t("{0} servers", String(state.servers.length)),
+					},
+		models:
+			state.models.length === 0
 				? {}
 				: {
 						count: String(state.models.length),
@@ -349,6 +361,9 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	// the chip in the models filter bar clears it). Held here rather than in
 	// ModelsSection because the servers table is the other end of the wire.
 	const [serverScope, setServerScope] = useState<string | undefined>(undefined);
+	// Set when a server's count link sends the reader to Models, cleared when
+	// the focus it asked for has been delivered.
+	const pendingModelsFocus = useRef(false);
 	// One clock for every relative time on the page; hidden panels share the
 	// same tick instead of running intervals of their own.
 	const now = useNow();
@@ -414,6 +429,13 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		}
 	}, [serverScope, state]);
 
+	useEffect(() => {
+		if (pendingModelsFocus.current && section === "models") {
+			pendingModelsFocus.current = false;
+			document.getElementById("models-section")?.focus({ preventScroll: true });
+		}
+	}, [section]);
+
 	// Appearance follows the setting live. The HTML shell stamps these once at
 	// panel creation, which is enough for a reopen and nothing else: the picker
 	// writes the setting, the configuration change re-pushes state, and this
@@ -449,13 +471,24 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	}
 
 	const showServerModels = (label: string) => {
+		// Models is its own destination now, so a server's count link navigates
+		// and filters rather than scrolling down a shared page. Focus follows the
+		// navigation for the same reason it followed the scroll: without it, Tab
+		// would continue from the count link the reader just left behind, on a
+		// panel that is no longer visible.
 		setServerScope(label);
-		// The jump moves the reading position and the keyboard position
-		// together: without the focus call, Tab would continue from the count
-		// link the user just left behind.
-		const target = document.getElementById("models-section");
-		target?.scrollIntoView();
-		target?.focus({ preventScroll: true });
+		if (section === "models") {
+			// Already on Models: setSection would be a no-op, so the effect that
+			// delivers a pending focus would never run and the flag would latch,
+			// stealing focus the next time the reader arrived here by any route.
+			// The panel is visible, so focus now and leave no flag behind.
+			document.getElementById("models-section")?.focus({ preventScroll: true });
+			return;
+		}
+		setSection("models");
+		// Focus lands in the effect below, not here: the models panel is hidden
+		// until this render commits, and focusing a hidden element does nothing.
+		pendingModelsFocus.current = true;
 	};
 
 	// A model's inspector overlay: opened from the models table (no anchor) or
@@ -523,18 +556,16 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 						onShowModels={showServerModels}
 						editRequest={serverEditRequest}
 					/>
-					{/* With zero servers the guided start card is the whole story; a
-				    second empty block under it would dilute it. */}
-					{state.servers.length > 0 ? (
-						<ModelsSection
-							models={state.models}
-							serverCount={state.servers.length}
-							scope={
-								serverScope !== undefined ? { label: serverScope, onClear: () => setServerScope(undefined) } : undefined
-							}
-							onInspect={inspectModel}
-						/>
-					) : null}
+				</SectionPanel>
+				<SectionPanel section="models" active={section}>
+					<ModelsSection
+						models={state.models}
+						serverCount={state.servers.length}
+						scope={
+							serverScope !== undefined ? { label: serverScope, onClear: () => setServerScope(undefined) } : undefined
+						}
+						onInspect={inspectModel}
+					/>
 				</SectionPanel>
 				<SectionPanel section="usage" active={section}>
 					<UsageSection usage={state.usage} serverCount={state.servers.length} now={now} />

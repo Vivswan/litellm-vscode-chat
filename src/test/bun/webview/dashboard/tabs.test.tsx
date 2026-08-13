@@ -1,9 +1,9 @@
 /**
- * The section tab bar and the combined Servers & Models view: WAI-ARIA tabs
- * wiring, click and keyboard switching, the kept-mounted panels (an open
- * filter or form must survive a visit to another section, so inactive panels
- * hide instead of unmounting), and the bridge between the two halves of the
- * combined tab - a server row's model count scoping the models list.
+ * The rail's section navigation: WAI-ARIA tabs wiring, click and keyboard
+ * switching, the kept-mounted panels (an open filter or form must survive a
+ * visit to another section, so inactive panels hide instead of unmounting),
+ * and the bridge between the two destinations a server's models span - a
+ * server row's model count navigating to Models scoped to that server.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
@@ -45,7 +45,10 @@ function mountApp() {
 	pushToWebview(
 		statePush(
 			makeState({
-				servers: [makeDeclaredServer()],
+				// The count matches the models below it: a row claiming zero while
+				// serving two renders its count as plain text, and the navigation
+				// this file pins hangs off the count link.
+				servers: [makeDeclaredServer({ modelCount: 2 })],
 				models: [makeModel(), makeModel({ id: "second", name: "Second" })],
 			})
 		)
@@ -74,12 +77,12 @@ function visibleModelNames(root: ParentNode): string[] {
 	);
 }
 
-test("four rail items in reading order, the combined view selected by default, and panels wired by aria", () => {
+test("five rail items in reading order, servers selected by default, and panels wired by aria", () => {
 	const root = mountApp();
 	const tabs = Array.from(root.querySelectorAll("[role='tab']"));
 	// Order is the rail's order: the two you look at, then the one that tells
 	// you something is wrong, then the one you visit on purpose.
-	expect(tabs.map(labelOf)).toEqual(["Servers & Models", "Usage", "Diagnostics", "Settings"]);
+	expect(tabs.map(labelOf)).toEqual(["Servers", "Models", "Usage", "Diagnostics", "Settings"]);
 	// A count inside the button would otherwise announce as "Servers & Models
 	// 4" - a number with no noun - and the tabpanel inherits that name too. So
 	// an item carrying a count names itself in words, with the visible label
@@ -106,14 +109,14 @@ test("four rail items in reading order, the combined view selected by default, a
 		expect(root.querySelector(`#${panelId}`)?.getAttribute("aria-labelledby")).toBe(t.id);
 	}
 
-	const overview = tab(root, "Servers & Models");
+	const overview = tab(root, "Servers");
 	expect(overview.getAttribute("aria-selected")).toBe("true");
 	expect(overview.tabIndex).toBe(0);
 	expect(tab(root, "Usage").tabIndex).toBe(-1);
 	expect(tab(root, "Settings").tabIndex).toBe(-1);
 	expect(tab(root, "Diagnostics").tabIndex).toBe(-1);
 
-	for (const section of ["overview", "usage", "settings", "diagnostics"]) {
+	for (const section of ["overview", "models", "usage", "settings", "diagnostics"]) {
 		const pane = panel(root, section);
 		expect(pane.getAttribute("role")).toBe("tabpanel");
 		expect(pane.getAttribute("aria-labelledby")).toBe(`tab-${section}`);
@@ -121,25 +124,48 @@ test("four rail items in reading order, the combined view selected by default, a
 	}
 });
 
-test("the combined tab renders the servers section above the models section in one panel", () => {
+test("servers and models are separate destinations, each holding only its own table", () => {
+	// They are one workflow, but sharing a page cost more than it bought: a rail
+	// item could only count one of its two nouns, and the models table had to
+	// virtualize into an inner scrollport with a height budget tuned against
+	// whatever chrome sat above it.
 	const root = mountApp();
-	const overview = panel(root, "overview");
-	const headings = Array.from(overview.querySelectorAll("h2")).map((h) => (h.textContent ?? "").trim());
-	// Both section headings (with their help glyphs) live in the one panel,
-	// servers first because setup starts there.
-	expect(headings[0]).toContain("Servers");
-	expect(headings[1]).toContain("Models");
-	expect(overview.querySelector("table.servers")).not.toBeNull();
-	expect(overview.querySelector("#models-section table.models")).not.toBeNull();
+	const servers = panel(root, "overview");
+	const models = panel(root, "models");
+	expect(servers.querySelector("table.servers")).not.toBeNull();
+	expect(servers.querySelector("table.models")).toBeNull();
+	expect(models.querySelector("#models-section table.models")).not.toBeNull();
+	expect(models.querySelector("table.servers")).toBeNull();
 });
 
-test("with zero servers the guided start is the combined tab's whole story: the models section folds away", () => {
+test("a server's model count navigates to Models filtered to that server", () => {
+	// The jump used to scroll down a shared page. Across destinations it has to
+	// navigate, carry the filter, and move focus - otherwise Tab continues from
+	// a link on a panel that is no longer visible.
+	const root = mountApp();
+	const countLink = panel(root, "overview").querySelector("table.servers .count-link") as HTMLElement | null;
+	expect(countLink).not.toBeNull();
+	fireClick(countLink as HTMLElement);
+	expect(tab(root, "Models").getAttribute("aria-selected")).toBe("true");
+	expect(panel(root, "models").hidden).toBe(false);
+	// The scope chip names the server the reader came from.
+	expect(panel(root, "models").textContent).toContain("Server: Prod");
+});
+
+test("with zero servers the guided start is the whole story, and Models says it has none", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
-	const overview = panel(root, "overview");
-	expect(overview.querySelector(".empty-start")).not.toBeNull();
-	expect(overview.querySelector("#models-section")).toBeNull();
-	expect(root.textContent).not.toContain("No models discovered yet.");
+	expect(panel(root, "overview").querySelector(".empty-start")).not.toBeNull();
+	// The models destination still exists - a rail item that vanishes is worse
+	// than one that explains itself - and says plainly that there is nothing
+	// yet. With no servers at all it must not suggest a sync: there is nobody
+	// to ask, and the reader's next step is adding a server. Scoped to the
+	// empty block, because the section's help text mentions Sync models too.
+	const empty = panel(root, "models").querySelector(".empty-block") as HTMLElement;
+	expect(empty).not.toBeNull();
+	expect(empty.textContent).toContain("No models yet.");
+	expect(empty.textContent).toContain("Add a server under Servers");
+	expect(empty.textContent).not.toContain("Sync models");
 });
 
 test("clicking a tab switches the visible panel and aria-selected follows", () => {
@@ -148,9 +174,9 @@ test("clicking a tab switches the visible panel and aria-selected follows", () =
 	expect(panel(root, "settings").hidden).toBe(false);
 	expect(panel(root, "overview").hidden).toBe(true);
 	expect(tab(root, "Settings").getAttribute("aria-selected")).toBe("true");
-	expect(tab(root, "Servers & Models").getAttribute("aria-selected")).toBe("false");
+	expect(tab(root, "Servers").getAttribute("aria-selected")).toBe("false");
 
-	fireClick(tab(root, "Servers & Models"));
+	fireClick(tab(root, "Servers"));
 	expect(panel(root, "overview").hidden).toBe(false);
 	expect(panel(root, "settings").hidden).toBe(true);
 });
@@ -186,7 +212,7 @@ test("a focusSection push naming an unknown section is dropped instead of blanki
 	pushToWebview({ kind: "focusSection", section: "definitely-not-a-section" });
 
 	expect(panel(root, "overview").hidden).toBe(false);
-	expect(tab(root, "Servers & Models").getAttribute("aria-selected")).toBe("true");
+	expect(tab(root, "Servers").getAttribute("aria-selected")).toBe("true");
 });
 
 test("arrow keys move selection with wrap-around; Home and End jump", () => {
@@ -197,29 +223,38 @@ test("arrow keys move selection with wrap-around; Home and End jump", () => {
 	const tablist = root.querySelector("[role='tablist']") as HTMLElement;
 
 	fireKeyDown(tablist, "ArrowDown");
+	expect(tab(root, "Models").getAttribute("aria-selected")).toBe("true");
+	fireKeyDown(tablist, "ArrowDown");
 	expect(tab(root, "Usage").getAttribute("aria-selected")).toBe("true");
 	fireKeyDown(tablist, "ArrowDown");
 	expect(tab(root, "Diagnostics").getAttribute("aria-selected")).toBe("true");
 	fireKeyDown(tablist, "ArrowDown");
 	expect(tab(root, "Settings").getAttribute("aria-selected")).toBe("true");
 	fireKeyDown(tablist, "ArrowDown");
-	expect(tab(root, "Servers & Models").getAttribute("aria-selected")).toBe("true");
+	expect(tab(root, "Servers").getAttribute("aria-selected")).toBe("true");
 	fireKeyDown(tablist, "ArrowUp");
 	expect(tab(root, "Settings").getAttribute("aria-selected")).toBe("true");
 	fireKeyDown(tablist, "Home");
-	expect(tab(root, "Servers & Models").getAttribute("aria-selected")).toBe("true");
+	expect(tab(root, "Servers").getAttribute("aria-selected")).toBe("true");
 	fireKeyDown(tablist, "End");
 	expect(tab(root, "Settings").getAttribute("aria-selected")).toBe("true");
 });
 
 test("section-local state survives a round trip through another tab", () => {
 	const root = mountApp();
+	// The filter belongs to Models, so the round trip has to actually go there
+	// and back. Editing it from Servers and returning to Servers never leaves
+	// or re-enters the panel under test, so it would pass even if Models
+	// unmounted and lost every bit of its state.
+	fireClick(tab(root, "Models"));
 	const filter = root.querySelector("input[aria-label='Filter models']") as HTMLInputElement;
 	fireInput(filter, "second");
 	expect(root.textContent).toContain("showing 1 of 2");
 
 	fireClick(tab(root, "Settings"));
-	fireClick(tab(root, "Servers & Models"));
+	expect(panel(root, "models").hidden).toBe(true);
+	fireClick(tab(root, "Models"));
+	expect(panel(root, "models").hidden).toBe(false);
 	const restored = root.querySelector("input[aria-label='Filter models']") as HTMLInputElement;
 	expect(restored.value).toBe("second");
 	expect(root.textContent).toContain("showing 1 of 2");
@@ -357,13 +392,13 @@ test("arrow keys move focus with selection, and only the selected item is tabbab
 	const root = mountApp();
 	const tablist = root.querySelector("[role='tablist']") as HTMLElement;
 	const tabIndexes = () => Array.from(root.querySelectorAll("[role='tab']")).map((t) => (t as HTMLElement).tabIndex);
-	expect(tabIndexes()).toEqual([0, -1, -1, -1]);
+	expect(tabIndexes()).toEqual([0, -1, -1, -1, -1]);
 
 	fireKeyDown(tablist, "ArrowDown");
-	expect(tabIndexes()).toEqual([-1, 0, -1, -1]);
-	expect(document.activeElement).toBe(tab(root, "Usage"));
+	expect(tabIndexes()).toEqual([-1, 0, -1, -1, -1]);
+	expect(document.activeElement).toBe(tab(root, "Models"));
 
 	fireKeyDown(tablist, "End");
-	expect(tabIndexes()).toEqual([-1, -1, -1, 0]);
+	expect(tabIndexes()).toEqual([-1, -1, -1, -1, 0]);
 	expect(document.activeElement).toBe(tab(root, "Settings"));
 });

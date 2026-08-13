@@ -74,7 +74,8 @@ test("a full state push replaces the skeleton with the rail's verdict and counts
 	// whether it is worth going. Diagnostics carries none here because there is
 	// nothing to fix - an absent badge is a fact, a zero is furniture.
 	const counts = railCounts(root);
-	expect(counts["Servers & Models"]).toBe("3");
+	expect(counts.Servers).toBe("2");
+	expect(counts.Models).toBe("3");
 	expect(counts.Diagnostics).toBeUndefined();
 	// The state fanned out to the sections.
 	expect(root.textContent).toContain("Broken");
@@ -239,7 +240,8 @@ test("the rail counts what each destination holds, and says nothing when it hold
 	act(() => {
 		pushToWebview(statePush(makeState()));
 	});
-	expect(railCounts(root)["Servers & Models"]).toBeUndefined();
+	expect(railCounts(root).Servers).toBeUndefined();
+	expect(railCounts(root).Models).toBeUndefined();
 	expect(railCounts(root).Usage).toBeUndefined();
 	expect(railCounts(root).Diagnostics).toBeUndefined();
 
@@ -267,7 +269,8 @@ test("the rail counts what each destination holds, and says nothing when it hold
 		);
 	});
 	const withUsage = railCounts(root);
-	expect(withUsage["Servers & Models"]).toBe("2");
+	expect(withUsage.Servers).toBe("1");
+	expect(withUsage.Models).toBe("2");
 	// The worst fresh fraction: 45%. A sum would say 75%, and folding the stale
 	// server in would say 975% - two entries can authenticate with the same key,
 	// so spends cannot be added.

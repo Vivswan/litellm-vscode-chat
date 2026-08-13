@@ -350,11 +350,11 @@ function diagnosticPresentation(diagnostic: ConfigDiagnosticView): { text: strin
 				text:
 					diagnostic.labels.length === 1
 						? l10n.t(
-								'"{0}" is hidden by an explicit removal and serves no models. Unhide it from the hidden-groups line under Servers & Models.',
+								'"{0}" is hidden by an explicit removal and serves no models. Unhide it from the hidden-groups line under Servers.',
 								diagnostic.labels[0] ?? ""
 							)
 						: l10n.t(
-								"{0} groups are hidden by an explicit removal and serve no models ({1}). Unhide them from the hidden-groups line under Servers & Models.",
+								"{0} groups are hidden by an explicit removal and serve no models ({1}). Unhide them from the hidden-groups line under Servers.",
 								diagnostic.labels.length,
 								diagnostic.labels.join(", ")
 							),

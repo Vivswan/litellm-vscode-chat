@@ -630,7 +630,7 @@ export type ConfigDiagnosticView =
 	| {
 			/**
 			 * Provider groups hidden by an explicit user removal: each answers
-			 * with no models until unhidden from the Servers & Models view's
+			 * with no models until unhidden from the Servers view's
 			 * hidden-groups line. Labels only (the same labels the hidden-groups
 			 * line renders), never URLs beyond what that line already shows.
 			 */
@@ -782,10 +782,18 @@ export interface DashboardState {
  * message names a tab by ID (litellm.showDiagnostics lands on "diagnostics"),
  * and the webview's tab bar renders exactly this list.
  */
-// Order is the rail's order, top to bottom: the two you look at (what is my
-// fleet doing, what is it costing), then the one that tells you something is
-// wrong, then the one you visit on purpose. Settings last because you go there
-// deliberately; diagnostics above it because it competes for attention.
-export const DASHBOARD_SECTION_IDS = ["overview", "usage", "diagnostics", "settings"] as const;
+// Order is the rail's order, top to bottom: the three you look at (what is
+// connected, what it can run, what it costs), then the one that tells you
+// something is wrong, then the one you visit on purpose. Settings last because
+// you go there deliberately; diagnostics above it because it competes for
+// attention.
+//
+// Servers and models are separate destinations rather than one combined page.
+// They are one workflow - connect a server, see its models - but sharing a page
+// cost more than it bought: a rail item could only count one of its two nouns,
+// and the models table had to virtualize into an inner scrollport with a height
+// budget hand-tuned against whatever chrome sat above it. A destination of its
+// own gets the viewport, and the rail keeps both one click apart.
+export const DASHBOARD_SECTION_IDS = ["overview", "models", "usage", "diagnostics", "settings"] as const;
 
 export type DashboardSectionId = (typeof DASHBOARD_SECTION_IDS)[number];

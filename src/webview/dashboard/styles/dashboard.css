@@ -191,7 +191,7 @@
 		font-weight: 400;
 	}
 	/* Text, so these read the -text tier: the raw status hues are unreadable as
-		   words on a light surface. The meter fills below stay raw. */
+		   words on a light surface. Shapes read the -fill tier instead. */
 	.tone-ok {
 		color: var(--ok-text);
 	}
@@ -219,13 +219,11 @@
 	section.table-scroll {
 		margin-top: 0;
 	}
-	/* Long model lists render windowed inside their own scrollport at the
-		   bottom of the combined page. The cap keeps the whole scrollport on
-		   screen once the page has scrolled the models heading to the top: the
-		   chrome above and below it (heading, filter bar, pane padding) measures
-		   a bit over 9em at the default font now that the tab bar is gone, and
-		   the em unit keeps the budget honest when the host font or zoom grows
-		   it.
+	/* Long model lists render windowed inside their own scrollport. The
+		   windowing needs a scrollport to measure, so the cap stays; on the
+		   models destination the only chrome above it is the heading and the
+		   filter bar, which is what the budget below allows for, and the em unit
+		   keeps that honest when the host font or zoom grows them.
 		   The floor keeps the scrollport usable in short windows. The sticky
 		   header keeps the sort controls reachable mid-list; the fixed row height
 		   that makes the scroll arithmetic exact lives on table.models below,

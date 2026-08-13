@@ -295,9 +295,9 @@ export function ModelsSection({
 	const columns = 7 + (showServerColumn ? 1 : 0);
 
 	return (
-		// The id anchors the servers table's model-count links: App scrolls and
-		// focuses here (hence the tabIndex), and the stylesheet's scroll-margin
-		// keeps the heading clear of the sticky tab bar.
+		// The id anchors a server row's model-count link: it navigates here and
+		// App moves focus onto this section (hence the tabIndex), so the keyboard
+		// position follows the reader across the destination change.
 		<section id="models-section" tabIndex={-1}>
 			<h2>
 				{l10n.t("Models")} <Help text={helpModelsSection()} />
@@ -305,10 +305,24 @@ export function ModelsSection({
 			</h2>
 			{models.length === 0 ? (
 				<div className="empty-block">
-					<p>{l10n.t("No models discovered yet.")}</p>
-					<p className="hint">
-						{l10n.t("Models appear here once a server has synced; run Sync models to ask your servers now.")}
-					</p>
+					{/* Two different nothings. With no servers at all this destination
+					    is reachable on a fresh install, and telling that reader to run
+					    a sync would send them to ask nobody; the first thing they need
+					    is a server. With servers configured, a sync is exactly the
+					    right suggestion. */}
+					{serverCount === 0 ? (
+						<>
+							<p>{l10n.t("No models yet.")}</p>
+							<p className="hint">{l10n.t("Add a server under Servers and its models appear here once it syncs.")}</p>
+						</>
+					) : (
+						<>
+							<p>{l10n.t("No models discovered yet.")}</p>
+							<p className="hint">
+								{l10n.t("Models appear here once a server has synced; run Sync models to ask your servers now.")}
+							</p>
+						</>
+					)}
 				</div>
 			) : (
 				<>
