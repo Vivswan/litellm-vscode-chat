@@ -430,16 +430,22 @@ suite("production activation", () => {
 	 * This host's user settings.json, located by content: a unique sentinel is
 	 * written through the configuration API (into the registered chat.timeout
 	 * setting) and the per-label user-data dirs from .vscode-test.mjs are
-	 * scanned for the file that carries it. Content matching, not mtime,
-	 * because stale lvt-* dirs from earlier runs share the same shape.
+	 * scanned for the file that carries it.
+	 *
+	 * The layout is that file's - `<tmp>/lvt/<pid>/<label>`, one parent per run
+	 * so the run can remove its own directories on exit - and this scan is the
+	 * one other place that knows it, so the two move together. Content matching
+	 * rather than picking the newest: a concurrent run of another worktree has
+	 * its own pid and the same shape, and mtime would happily choose theirs.
 	 */
 	async function locateUserSettingsFile(sentinel: string): Promise<string> {
 		const label = "activation-production";
+		const runs = path.join(os.tmpdir(), "lvt");
 		const roots = process.env.VSCODE_TEST_USER_DATA_DIR
 			? [path.join(process.env.VSCODE_TEST_USER_DATA_DIR, label)]
-			: (await fs.readdir(os.tmpdir()))
-					.filter((name) => new RegExp(`^lvt-\\d+-${label}$`).test(name))
-					.map((name) => path.join(os.tmpdir(), name));
+			: (await fs.readdir(runs).catch(() => []))
+					.filter((name) => /^\d+$/.test(name))
+					.map((name) => path.join(runs, name, label));
 		for (const root of roots) {
 			const candidate = path.join(root, "User", "settings.json");
 			const content = await fs.readFile(candidate, "utf8").catch(() => undefined);

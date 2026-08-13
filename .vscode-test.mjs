@@ -1,3 +1,4 @@
+import { readdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { defineConfig } from "@vscode/test-cli";
@@ -5,12 +6,94 @@ import { defineConfig } from "@vscode/test-cli";
 // (see the test scripts and scripts/docker-test.ts).
 import { DOCKER_TEST_LABELS } from "./out/test/dockerTestLabels.js";
 
-// Per-label isolation; VS Code's IPC socket lives inside this dir and must fit macOS's ~104-byte AF_UNIX path cap.
+/**
+ * Where this run puts its per-label user-data directories, and the override
+ * that relocates them. One presence test for both the layout and the cleanup
+ * below: an empty string is not a location, and treating it as one here while
+ * treating it as absent there would disable cleanup for directories this file
+ * had in fact created.
+ */
+const userDataOverride = process.env.VSCODE_TEST_USER_DATA_DIR || undefined;
+
+/**
+ * This run's user-data directories, under one parent so they can be removed as
+ * one. VS Code's IPC socket lives inside a user-data dir and must fit macOS's
+ * ~104-byte AF_UNIX path cap, so the layout is chosen to cost nothing:
+ * `lvt/<pid>/<label>` is exactly as long as the `lvt-<pid>-<label>` it replaces.
+ *
+ * The parent exists because these leaked. Every label got a directory per run
+ * and nothing removed any of them, so a machine running the suite accumulated
+ * them until the disk filled - 8787 of them holding 227 GB, at which point the
+ * failures look like anything but disk: ENOSPC inside a host-fidelity test, an
+ * extension host that dies with no summary, a pre-commit hook failing in tsc.
+ */
+const runsRoot = path.join(os.tmpdir(), "lvt");
+const runRoot = path.join(runsRoot, String(process.pid));
+
+/** Whether a process holds this pid: signal 0 tests for existence and delivers nothing. */
+const alive = (pid) => {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		// EPERM means it exists and belongs to someone else, which still counts.
+		return error.code === "EPERM";
+	}
+};
+
+/** The run parents present now; absent on a machine that has never run the suite. */
+const runParents = () => {
+	try {
+		return readdirSync(runsRoot);
+	} catch {
+		return [];
+	}
+};
+
+/** Cleanup must never read as a test failure, so a locked file loses to the run's verdict. */
+const remove = (dir) => {
+	try {
+		rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+	} catch {
+		// Windows lock contention past maxRetries, most likely. Left for the
+		// next run's sweep rather than surfaced as an uncaught exception on a
+		// green run.
+	}
+};
+
+if (userDataOverride === undefined) {
+	// Sweep first, delete-own second, in that order of importance. The sweep is
+	// what makes the leak unrepeatable: an exit handler only covers the exits it
+	// is given, and SIGKILL, a native crash and a power cut give it none - so
+	// cleanup cannot be the only mechanism, or every abnormal end leaks forever.
+	// A parent named by a pid nothing holds belongs to a run that is over.
+	//
+	// Deliberately no signal handlers. Re-raising a signal from inside its own
+	// handler re-enters it, and SIGINT belongs to @vscode/test-electron, which
+	// implements a two-stage Ctrl+C and ends via `process.exit(1)` only while
+	// `listenerCount("SIGINT") === 0` - a listener of ours registered at config
+	// load would disable that escape hatch for the whole run. An interrupted
+	// run's directories wait for the next run's sweep instead.
+	for (const name of runParents()) {
+		if (/^\d+$/.test(name) && !alive(Number(name))) {
+			remove(path.join(runsRoot, name));
+		}
+	}
+	// This pid's own parent, before anything writes to it: the sweep above
+	// cannot clear it, because the liveness test says a live process holds this
+	// pid - which is true, and it is us. Without this, a run that inherits a
+	// recycled pid inherits the dead run's VS Code state (its settings.json, its
+	// provider groups) and starts un-isolated.
+	remove(runRoot);
+	// And on the way out, so an ordinary run leaves nothing at all rather than
+	// one parent waiting for its successor.
+	process.on("exit", () => remove(runRoot));
+}
+
+// Per-label isolation inside this run's parent.
 const launchArgsFor = (label) => [
 	"--user-data-dir",
-	process.env.VSCODE_TEST_USER_DATA_DIR
-		? path.join(process.env.VSCODE_TEST_USER_DATA_DIR, label)
-		: path.join(os.tmpdir(), `lvt-${process.pid}-${label}`),
+	userDataOverride ? path.join(userDataOverride, label) : path.join(runRoot, label),
 ];
 
 const passthroughEnv = (...names) => Object.fromEntries(names.map((name) => [name, process.env[name] || ""]));
