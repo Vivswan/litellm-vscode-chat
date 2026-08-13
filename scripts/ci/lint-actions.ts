@@ -13,13 +13,9 @@ async function main(): Promise<void> {
 	const findings: LintResult[] = [];
 
 	// The npm actionlint wasm build lags the upstream binary; drop findings it
-	// raises only because its permission-scope or runner-label list is stale
-	// (CI runs the current binary via raven-actions/actionlint, which knows
-	// these scopes and ubuntu-24.04, render-check's pinned runner).
-	const staleFindings = [
-		/unknown permission scope "(attestations|vulnerability-alerts)"/,
-		/label "ubuntu-24\.04" is unknown/,
-	];
+	// raises only because its permission-scope list is stale (CI runs the
+	// current binary via raven-actions/actionlint, which knows these scopes).
+	const staleFindings = [/unknown permission scope "(attestations|vulnerability-alerts)"/];
 
 	for (const file of files) {
 		const input = await fs.readFile(file, "utf8");

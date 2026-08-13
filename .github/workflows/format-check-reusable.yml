@@ -202,3 +202,20 @@ jobs:
             exit 1
           fi
           echo "Packaged file list is clean ($(echo "$listing" | wc -l | tr -d ' ') files)"
+
+      # No PNGs in git. The dashboard's pixel baselines used to live here as
+      # 37 tracked PNGs; they were purged from history, and images that churn
+      # on every render have no business in a text repository. Screenshots for
+      # design review come from CI artifacts and the local harness, never from
+      # a commit. assets/ is the one legitimate home (the extension icon ships
+      # in the package), so the guard is scoped rather than absolute. icase
+      # because a pathspec is case-sensitive by default and .PNG would slip by,
+      # and no `|| true`: a git failure must fail the step, not pass it.
+      - name: No PNGs tracked outside assets/
+        run: |
+          tracked="$(git ls-files ':(icase)*.png' ':!:assets/**')"
+          if [ -n "$tracked" ]; then
+            echo "$tracked"
+            echo "::error::PNG files are tracked outside assets/ (listed above); keep them out of git"
+            exit 1
+          fi

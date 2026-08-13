@@ -127,9 +127,9 @@ test("the scrim re-enables pointer events Radix takes away", () => {
 	// Radix's modal layer sets pointer-events:none on <body> and restores it
 	// only on the dialog node. The scrim is the dialog's sibling, so without an
 	// explicit auto it inherits none and click-to-close dies in a real browser.
-	// happy-dom does no hit-testing and render:check compares pixels, so a
-	// synthesized click still passes and the pixels are unchanged - this rule
-	// is the only place the contract can be pinned.
+	// happy-dom does no hit-testing, so a synthesized click still passes
+	// whatever pointer-events says - this rule is the only place the contract
+	// can be pinned.
 	const legacy = readFileSync(legacyEntry, "utf8");
 	const scrimRule = /\.scrim\s*\{[^}]*\}/.exec(legacy)?.[0];
 	expect(scrimRule).toBeDefined();

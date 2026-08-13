@@ -524,9 +524,9 @@ async function main(): Promise<void> {
 	const pageUrl = pathToFileURL(indexHtml).href;
 
 	// TZ and --lang pin the locale-dependent date strings; CHROME_EXTRA_FLAGS
-	// carries environment-specific launch flags (CI passes --no-sandbox: the
-	// ubuntu-24.04 runner image restricts the unprivileged user namespaces the
-	// Chrome sandbox needs).
+	// carries environment-specific launch flags (a CI runner typically passes
+	// --no-sandbox, since its image restricts the unprivileged user namespaces
+	// the Chrome sandbox needs).
 	const extraFlags = (process.env.CHROME_EXTRA_FLAGS ?? "").split(" ").filter((flag) => flag.length > 0);
 	const chrome = spawn(
 		chromeBin,

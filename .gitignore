@@ -50,7 +50,7 @@ docker/.copilot-token/*
 # Live log tees written by `bun run dev` (litellm, fake-openai, extension)
 /logs/
 
-# render:check output: fresh fixture renders and pixel-diff images
+# Local screenshot output from the render harness (design review material)
 /renders/
 
 # END REPOSITORY LOCAL
