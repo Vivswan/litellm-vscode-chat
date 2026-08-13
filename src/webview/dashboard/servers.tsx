@@ -1,5 +1,5 @@
 import * as l10n from "@vscode/l10n";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { saveFailureDisposition, sectionFailureText } from "../../dashboard/serverForm";
 import type {
 	DashboardServer,
@@ -8,7 +8,6 @@ import type {
 	ExternalDashboardServer,
 	HiddenGroup,
 	InactiveEntryNotice,
-	MisconfiguredDashboardServer,
 	UsageServerView,
 } from "../../dashboard/viewModels";
 import { statusErrorDetail, statusErrorHeadline } from "../../shared/util/errorText";
@@ -27,52 +26,312 @@ import { Button } from "./ui/button";
 import { barPresentation, formatPercent, formatUsd } from "./usage";
 import { sendRequest } from "./vscodeApi";
 
-/** The entry-only-fields-inactive notice classifications; one merged banner covers them all. */
-
 /**
- * Every inactive notice's user-facing pieces in one table: the notice list,
- * the merged banner's surface phrases, and the row badges all derive from it,
- * so a new notice cannot ship half-wired (the satisfies clause fails to
- * compile until the table names it). Zero-arg functions, so the strings
- * resolve after the l10n bootstrap; surface phrases are plural because the
- * banner appends "are not applied".
+ * Every inactive notice's user-facing phrase in one table, so a new notice
+ * cannot ship half-wired (the satisfies clause fails to compile until the
+ * table names it). Zero-arg functions, so the strings resolve after the l10n
+ * bootstrap.
+ *
+ * Each notice used to carry three renderings - a row badge, a hover tip, and a
+ * phrase for the merged banner - which was three places to say one thing and
+ * two of them appeared side by side. The row's advisory line says it once, so
+ * the phrase is all that survives.
  */
 const INACTIVE_NOTICE_PRESENTATION = {
 	"entry-params-inactive": {
 		surface: () => l10n.t("per-server model parameters"),
-		badge: () => l10n.t("params inactive"),
-		tip: () =>
-			l10n.t(
-				"Per-server model parameters are not applied: the group serving this entry predates its label or a rename. The banner below has the fix."
-			),
 	},
 	"entry-capabilities-inactive": {
 		surface: () => l10n.t("per-server model capabilities, declared models, and expected failures"),
-		badge: () => l10n.t("capabilities inactive"),
-		tip: () =>
-			l10n.t(
-				"Per-server model capabilities, declared models, and expected failures are not applied: the group serving this entry predates its label or a rename. The banner below has the fix."
-			),
 	},
 	"entry-headers-inactive": {
 		surface: () => l10n.t("per-server custom headers"),
-		badge: () => l10n.t("headers inactive"),
-		tip: () =>
-			l10n.t(
-				"Per-server custom headers are not applied: the group serving this entry predates its label or a rename. The banner below has the fix."
-			),
 	},
 	"entry-api-version-inactive": {
-		surface: () => l10n.t("per-server API version overrides"),
-		badge: () => l10n.t("API version inactive"),
-		tip: () =>
-			l10n.t(
-				"The API version override is not applied, requests use the auto rule: the group serving this entry predates its label or a rename. The banner below has the fix."
-			),
+		// The consequence rides this phrase because it is specific to this
+		// surface - the others simply do not apply, this one silently falls back
+		// to a different rule - and it lived only in the retired badge's tip.
+		surface: () => l10n.t("per-server API version overrides (requests use the auto rule)"),
 	},
-} as const satisfies Record<InactiveEntryNotice, { surface: () => string; badge: () => string; tip: () => string }>;
+} as const satisfies Record<InactiveEntryNotice, { surface: () => string }>;
 
 const INACTIVE_NOTICES = Object.keys(INACTIVE_NOTICE_PRESENTATION) as readonly InactiveEntryNotice[];
+
+/**
+ * How much a problem costs the reader, which is the only thing that should
+ * decide how loud it looks.
+ *
+ * "blocking" means this server serves nothing until someone acts. "degraded"
+ * means it serves, but less than it should, or part of its configuration is
+ * not reaching it. "advisory" means nothing is wrong - the configuration
+ * applies as written and we are only naming something the reader may not
+ * remember setting up - and these must stay quiet, or they train the reader to
+ * ignore the loud ones.
+ *
+ * The tiers are what the summary line counts, so a tier is a promise about
+ * whether someone has to act, not a volume knob. Anything the reader must do
+ * something about is degraded at the least, however calmly it reads.
+ */
+type DiagnosticSeverity = "blocking" | "degraded" | "advisory";
+
+/** Loudest first: the row's problems are read top to bottom in the order they cost you something. */
+const SEVERITY_ORDER: Readonly<Record<DiagnosticSeverity, number>> = { blocking: 0, degraded: 1, advisory: 2 };
+
+/**
+ * One action offered beside a problem. Every one of them REVEALS the place a
+ * human fixes the problem - the setting, the entry's form, the models file -
+ * or asks the extension to try again. None of them rewrites configuration on
+ * the reader's behalf: this is their settings file, and a button that silently
+ * edited it would be a worse bug than the one it fixed.
+ */
+type DiagnosticAction =
+	/**
+	 * `ariaLabel` names the server, because these buttons repeat down the page:
+	 * a screen-reader user listing controls otherwise hears "Retry" three times
+	 * with nothing to tell them apart. The visible label stays the short verb
+	 * and stays inside the accessible name, as Label in Name requires.
+	 */
+	| { readonly kind: "button"; readonly label: string; readonly ariaLabel: string; readonly onClick: () => void }
+	| { readonly kind: "docs"; readonly label: string; readonly href: string; readonly ariaLabel: string };
+
+interface RowDiagnostic {
+	/** Stable within a row, so React keeps focus on an action button across pushes. */
+	readonly key: string;
+	readonly severity: DiagnosticSeverity;
+	/**
+	 * What it costs, in a sentence that names the server and leads with the
+	 * consequence rather than the mechanism: a reader who stops after the first
+	 * clause should still know what is not working.
+	 */
+	readonly headline: string;
+	/** The server's own words, when it had any. English by policy - it lands in issue reports. */
+	readonly detail?: string | undefined;
+	readonly actions: readonly DiagnosticAction[];
+}
+
+/**
+ * Every problem one server has, worst first.
+ *
+ * These used to be five separate banner stacks under the table, each one
+ * looping over every server and joining its entries with semicolons. That
+ * shape made the reader do the join: a sentence beginning "prod-eu:" sat
+ * inches below the row it was about, and a row in trouble looked exactly like
+ * a healthy one until you read the bottom of the page. Same facts, attached
+ * to the row that owns them.
+ */
+function serverDiagnostics(
+	server: DashboardServer,
+	actions: { readonly onEdit: () => void; readonly onRetry: () => void }
+): readonly RowDiagnostic[] {
+	const found: RowDiagnostic[] = [];
+	if (server.origin === "misconfigured") {
+		found.push({
+			key: "misconfigured",
+			severity: "blocking",
+			// The consequence first: the entry is not merely invalid, it is switched
+			// off, and no amount of retrying changes that.
+			headline: l10n.t("{0} is switched off until this entry is fixed.", server.label),
+			// The parser's structural reports stay English by policy.
+			detail: server.problems?.join("; "),
+			actions: [
+				{
+					kind: "button",
+					label: l10n.t("Fix in settings.json"),
+					ariaLabel: l10n.t("Fix {0} in settings.json", server.label),
+					onClick: () => sendRequest("revealSetting", { setting: "servers" }),
+				},
+				{
+					kind: "docs",
+					label: l10n.t("Learn more"),
+					href: DOCS_LINK_AUTHENTICATION,
+					ariaLabel: l10n.t("Open the authentication guide"),
+				},
+			],
+		});
+	}
+	const error = server.error;
+	if (error !== undefined && server.origin !== "misconfigured") {
+		const declared = server.declaredModelCount ?? 0;
+		const expected = server.expected === true;
+		const headline = statusErrorHeadline(error);
+		if (!expected) {
+			// A live group whose sync failed keeps serving what it already had, so
+			// it is degraded rather than blocking; one that has nothing serves
+			// nothing.
+			const serving = server.state === "ok" || server.modelCount > 0;
+			found.push({
+				key: "discovery-error",
+				severity: serving ? "degraded" : "blocking",
+				headline: serving
+					? l10n.t("{0} is serving its last known models; the newest sync failed: {1}", server.label, headline)
+					: l10n.t("{0} is serving no models: {1}", server.label, headline),
+				detail: statusErrorDetail(error),
+				actions: [
+					{
+						kind: "button",
+						label: l10n.t("Retry"),
+						ariaLabel: l10n.t("Retry discovery for {0}", server.label),
+						onClick: actions.onRetry,
+					},
+					...(server.origin === "declared"
+						? [
+								{
+									kind: "button" as const,
+									label: l10n.t("Open entry"),
+									ariaLabel: l10n.t("Open the entry for {0}", server.label),
+									onClick: actions.onEdit,
+								},
+							]
+						: []),
+					...(server.classification?.setupHint !== undefined
+						? [
+								{
+									kind: "docs" as const,
+									// The helper's `label` is the accessible name (it names the
+									// specific guide); the visible text is the short verb. Do
+									// not spread the helper over these - it carries its own
+									// `label` and would put the long sentence on screen.
+									href: troubleshootingLink(server.classification.setupHint).href,
+									label: l10n.t("Troubleshoot"),
+									ariaLabel: troubleshootingLink(server.classification.setupHint).label,
+								},
+							]
+						: []),
+				],
+			});
+		} else if (declared > 0) {
+			// The entry declared this failure category and named models to serve
+			// through it, so nothing is wrong: this is the quiet tier, stating a
+			// fact the reader may not remember configuring.
+			found.push({
+				key: "expected-serving",
+				severity: "advisory",
+				headline:
+					declared === 1
+						? l10n.t("{0} serves 1 declared model; discovery is expected to fail here: {1}", server.label, headline)
+						: l10n.t(
+								"{0} serves {1} declared models; discovery is expected to fail here: {2}",
+								server.label,
+								declared,
+								headline
+							),
+				detail: statusErrorDetail(error),
+				actions: [],
+			});
+		} else {
+			found.push({
+				// Serves nothing at all, which is the definition of blocking. The
+				// entry expecting the failure category makes the CAUSE unsurprising;
+				// it does not put any models in the picker.
+				key: "expected-nothing-declared",
+				severity: "blocking",
+				headline: l10n.t(
+					"{0} serves no models: discovery fails in a category this entry expects ({1}), and nothing is declared.",
+					server.label,
+					headline
+				),
+				detail: statusErrorDetail(error),
+				actions: [
+					...(server.origin === "declared"
+						? [
+								{
+									kind: "button" as const,
+									label: l10n.t("Declare models"),
+									ariaLabel: l10n.t("Declare models for {0}", server.label),
+									onClick: actions.onEdit,
+								},
+							]
+						: []),
+					{
+						kind: "button",
+						label: l10n.t("Retry"),
+						ariaLabel: l10n.t("Retry discovery for {0}", server.label),
+						onClick: actions.onRetry,
+					},
+				],
+			});
+		}
+	}
+	const inactive = INACTIVE_NOTICES.filter((notice) => server.notices?.includes(notice) === true);
+	if (inactive.length > 0) {
+		// One line for every inactive surface on this row: the cause and the fix
+		// are identical for all of them, so per-surface twins would only repeat
+		// themselves. Degraded rather than advisory: the server answers, but it
+		// is running WITHOUT settings the user wrote, and only they can decide
+		// whether that matters. Advisory would also have kept these rows out of
+		// the summary count, quietly telling a reader whose parameters are being
+		// ignored that nothing needs attention.
+		found.push({
+			key: "entry-inactive",
+			severity: "degraded",
+			headline: l10n.t(
+				"{0} ignores its {1}: the group serving this entry predates its label or a rename.",
+				server.label,
+				inactiveSurfacesText(server)
+			),
+			// The retired banner spelled the remedy out as numbered steps, and was
+			// the only place these facts were written: which file, and that saving
+			// under a new label works instead. They ride the line rather than dying
+			// with it.
+			detail: l10n.t(
+				"Delete the group's object from the models file (chatLanguageModels.json), reload the window, then run Sync models - or save the entry under a new label instead."
+			),
+			actions: [
+				{
+					kind: "button",
+					label: l10n.t("Open models file"),
+					ariaLabel: l10n.t("Open the models file to fix {0}", server.label),
+					onClick: () => sendRequest("executeCommand", { command: "openGroupsFile" }),
+				},
+				{
+					kind: "docs",
+					label: l10n.t("Learn more"),
+					href: DOCS_LINK_PARAMS_INACTIVE,
+					ariaLabel: l10n.t("Learn more in the troubleshooting guide"),
+				},
+			],
+		});
+	}
+	return [...found].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
+}
+
+/**
+ * One problem, indented under the row that owns it, behind a severity rule.
+ *
+ * The rule's colour and the tint carry the severity together. Colour alone
+ * would be the only signal for a reader who cannot separate red from amber,
+ * and a tint alone is too weak to rank three levels, so blocking and advisory
+ * differ in both.
+ */
+function ServerDiagnosticLine({ diagnostic }: { diagnostic: RowDiagnostic }) {
+	return (
+		<div className={`row-diagnostic sev-${diagnostic.severity}`}>
+			<p className="row-diagnostic-headline">{diagnostic.headline}</p>
+			{diagnostic.detail !== undefined ? <p className="row-diagnostic-detail">{diagnostic.detail}</p> : null}
+			{diagnostic.actions.length > 0 ? (
+				<div className="row-diagnostic-actions">
+					{diagnostic.actions.map((action) =>
+						action.kind === "button" ? (
+							<Button
+								key={action.label}
+								variant="secondary"
+								size="compact"
+								aria-label={action.ariaLabel}
+								onClick={action.onClick}
+							>
+								{action.label}
+							</Button>
+						) : (
+							<DocsLink key={action.label} href={action.href} label={action.ariaLabel}>
+								{action.label}
+							</DocsLink>
+						)
+					)}
+				</div>
+			) : null}
+		</div>
+	);
+}
 
 /**
  * The inactive surfaces one noticed row names, as a short localized phrase
@@ -103,7 +362,7 @@ function StatusPill({ server, now }: { server: DashboardServer; now: number }) {
 			<HoverTip
 				focusable
 				tip={l10n.t(
-					"This entry in the servers setting is invalid and is not used until fixed; the banner below lists the problems."
+					"This entry in the servers setting is invalid and is not used until fixed; the line under this row lists the problems."
 				)}
 			>
 				<span className="pill tone-error">
@@ -119,7 +378,9 @@ function StatusPill({ server, now }: { server: DashboardServer; now: number }) {
 			return (
 				<HoverTip
 					focusable
-					tip={l10n.t("The server answered, but its last settings sync reported a problem; details below.")}
+					tip={l10n.t(
+						"The server answered, but its last settings sync reported a problem; the line under this row has the details."
+					)}
 				>
 					<span className="pill tone-warn">
 						<span className="dot" />
@@ -149,7 +410,7 @@ function StatusPill({ server, now }: { server: DashboardServer; now: number }) {
 					tip={
 						declared > 0
 							? l10n.t(
-									"Discovery failed in a category this entry expects; its declared models keep serving. The banner below has the details."
+									"Discovery failed in a category this entry expects; its declared models keep serving. The line under this row has the details."
 								)
 							: l10n.t(
 									"Discovery failed in a category this entry expects. Nothing is declared, so no models are served; add IDs to the entry's discovery.declared."
@@ -226,14 +487,32 @@ function UsageCell({ usage, thresholds }: { usage: UsageServerView | undefined; 
 	if (usage?.spend === undefined) {
 		return null;
 	}
+	// The number says what it is only to someone who remembers the column header
+	// that no longer exists. "42%" beside a model count could be uptime or cache
+	// hits; the accessible name says which, and the tip says it to everyone
+	// else. The count cell earned its header's removal by naming itself; this
+	// one cannot, because a percentage has no noun.
+	// The noun goes in hidden text rather than an aria-label: a plain span has
+	// no role that supports one, so a label there is simply ignored and would
+	// have looked like a fix without being one.
 	if (usage.spentFraction !== undefined) {
 		return (
-			<span className={`usage-cell tone-${barPresentation(usage.spentFraction, thresholds).tone}`}>
-				{formatPercent(usage.spentFraction)}
-			</span>
+			<HoverTip focusable tip={l10n.t("Spend against this server's budget")}>
+				<span className={`usage-cell tone-${barPresentation(usage.spentFraction, thresholds).tone}`}>
+					<span className="visually-hidden">{l10n.t("Budget spent:")} </span>
+					{formatPercent(usage.spentFraction)}
+				</span>
+			</HoverTip>
 		);
 	}
-	return <span className="usage-cell">{formatUsd(usage.spend)}</span>;
+	return (
+		<HoverTip focusable tip={l10n.t("Spend so far; this server has no budget to measure it against")}>
+			<span className="usage-cell">
+				<span className="visually-hidden">{l10n.t("Spent:")} </span>
+				{formatUsd(usage.spend)}
+			</span>
+		</HoverTip>
+	);
 }
 
 function ServerRow({
@@ -264,120 +543,128 @@ function ServerRow({
 		sendRequest("removeServerSetting", { label: server.label });
 		onArmRemove(false);
 	};
+	const diagnostics = serverDiagnostics(server, {
+		onEdit,
+		onRetry: () => sendRequest("executeCommand", { command: "syncModels" }),
+	});
 	return (
-		<tr>
-			<td>{server.label}</td>
-			<td className="url">{server.baseUrl}</td>
-			<td data-label={l10n.t("Status")}>
+		// One line per server, its problems indented underneath. The actions are
+		// revealed by hover AND focus-within: hover alone would put Remove out of
+		// reach of the keyboard entirely, and focus-within is what makes tabbing
+		// into the row show the same thing pointing at it does.
+		<li className="server-item">
+			<div className="server-row">
+				<span className="server-name">
+					{server.label}
+					{server.origin === "misconfigured" ? <span className="server-tag">{l10n.t("not in use")}</span> : null}
+				</span>
+				<span className="server-url">{server.baseUrl}</span>
 				<StatusPill server={server} now={now} />
-			</td>
-			<td className="num" data-label={l10n.t("Models")}>
-				{/* The count doubles as the bridge to the models section below:
-				    clicking it scopes the list to this server. A zero stays plain
-				    text, since an empty scoped list has nothing to show. */}
-				{onShowModels !== undefined && server.modelCount > 0 ? (
-					<Button
-						variant="secondary"
-						size="compact"
-						className="count-link px-1 py-0"
-						aria-label={l10n.t("Show models from {0}", server.label)}
-						onClick={() => onShowModels(server.label)}
-					>
-						{server.modelCount}
-					</Button>
-				) : (
-					server.modelCount
-				)}
-			</td>
-			<td className="num" data-label={l10n.t("Usage")}>
-				<UsageCell usage={usage} thresholds={usageThresholds} />
-			</td>
-			<td>
-				{/* The credential kind is the information, so it is the visible
-				    text; a generic "auth" badge would hide it in a hover tip. */}
-				{server.hasApiKey || server.hasOAuth ? <Badge>{server.hasOAuth ? "OAuth" : l10n.t("API key")}</Badge> : null}
-				{server.origin === "external" ? (
-					<HoverTip focusable tip={externalTip(server)}>
-						<Badge>{l10n.t("external")}</Badge>
-					</HoverTip>
-				) : null}
-				{/* Gated on expected: only expected failures fold the declared count
-				    into the row's served models; an unexpected failure's declarations
-				    are extension bookkeeping, and a badge beside a zero count would
-				    contradict the row. */}
-				{server.state === "error" && server.expected === true && (server.declaredModelCount ?? 0) > 0 ? (
-					<HoverTip
-						focusable
-						tip={l10n.t(
-							"Models declared in the entry's discovery.declared list; they keep serving while discovery fails."
-						)}
-					>
-						<Badge>
-							{(server.declaredModelCount ?? 0) === 1
-								? l10n.t("1 declared model")
-								: l10n.t("{0} declared models", server.declaredModelCount ?? 0)}
-						</Badge>
-					</HoverTip>
-				) : null}
-				{INACTIVE_NOTICES.filter((notice) => server.notices?.includes(notice) === true).map((notice) => (
-					<HoverTip key={notice} tip={INACTIVE_NOTICE_PRESENTATION[notice].tip()}>
-						<Badge variant="warn">{INACTIVE_NOTICE_PRESENTATION[notice].badge()}</Badge>
-					</HoverTip>
-				))}
-			</td>
-			<td className={armed ? "actions armed" : "actions"}>
-				{armed ? (
-					<>
+				<span className="server-count">
+					{/* The count carries its own noun, so the row needs no column header
+					    to say what the number is. The whole phrase is the link, not just
+					    the digit: a bare "models" fragment beside a number cannot be
+					    translated (measure words and word order move), and one word is a
+					    poor click target. Clicking opens the Models destination scoped to
+					    this server; a zero stays plain text, since an empty scoped list
+					    has nothing to show. */}
+					{onShowModels !== undefined && server.modelCount > 0 ? (
 						<Button
-							variant="danger"
-							onClick={() => {
-								// The same two-step confirm for every origin; only the intent
-								// differs (a declared or misconfigured entry is removed from
-								// the setting by label, an external group is hidden by
-								// tombstone).
-								if (server.origin === "external") {
-									onHideExternal(server);
-									onArmRemove(false);
-								} else {
-									confirmRemove();
-								}
-							}}
+							variant="secondary"
+							size="compact"
+							className="count-link px-1 py-0"
+							aria-label={l10n.t("Show models from {0}", server.label)}
+							onClick={() => onShowModels(server.label)}
 						>
-							{l10n.t("Confirm remove?")}
+							{server.modelCount === 1 ? l10n.t("1 model") : l10n.t("{0} models", server.modelCount)}
 						</Button>
-						<Button variant="secondary" size="compact" onClick={() => onArmRemove(false)}>
-							{l10n.t("Cancel")}
-						</Button>
-					</>
-				) : (
-					<>
-						{/* A misconfigured entry cannot round-trip through the edit form
-						    without rewriting what the user typed, so its fix action
-						    reveals the setting instead of opening the form. */}
-						{server.origin === "misconfigured" ? (
+					) : (
+						<span className="count-plain">
+							{server.modelCount === 1 ? l10n.t("1 model") : l10n.t("{0} models", server.modelCount)}
+						</span>
+					)}
+				</span>
+				<span className="server-usage">
+					<UsageCell usage={usage} thresholds={usageThresholds} />
+				</span>
+				<span className="server-badges">
+					{/* The credential kind is the information, so it is the visible
+					    text; a generic "auth" badge would hide it in a hover tip. */}
+					{server.hasApiKey || server.hasOAuth ? <Badge>{server.hasOAuth ? "OAuth" : l10n.t("API key")}</Badge> : null}
+					{server.origin === "external" ? (
+						<HoverTip focusable tip={externalTip(server)}>
+							<Badge>{l10n.t("external")}</Badge>
+						</HoverTip>
+					) : null}
+				</span>
+				<span className={armed ? "server-actions armed" : "server-actions"}>
+					{armed ? (
+						<>
 							<Button
-								variant="secondary"
+								variant="danger"
 								size="compact"
-								onClick={() => sendRequest("revealSetting", { setting: "servers" })}
+								onClick={() => {
+									// The same two-step confirm for every origin; only the intent
+									// differs (a declared or misconfigured entry is removed from
+									// the setting by label, an external group is hidden by
+									// tombstone).
+									if (server.origin === "external") {
+										onHideExternal(server);
+										onArmRemove(false);
+									} else {
+										confirmRemove();
+									}
+								}}
 							>
-								{l10n.t("Fix in settings.json")}
+								{l10n.t("Confirm remove?")}
 							</Button>
-						) : (
-							<Button variant="secondary" size="compact" onClick={onEdit}>
-								{l10n.t("Edit")}
+							<Button variant="secondary" size="compact" onClick={() => onArmRemove(false)}>
+								{l10n.t("Cancel")}
 							</Button>
-						)}
-						{/* A legacy-registry external row is not hideable (the registry
-						    path would keep serving its models), so it keeps Edit only. */}
-						{server.origin === "declared" || server.origin === "misconfigured" || server.hideable ? (
-							<Button variant="danger" onClick={() => onArmRemove(true)}>
-								{l10n.t("Remove")}
-							</Button>
-						) : null}
-					</>
-				)}
-			</td>
-		</tr>
+						</>
+					) : (
+						<>
+							{/* A misconfigured entry cannot round-trip through the edit form
+							    without rewriting what the user typed, so its fix action
+							    reveals the setting instead of opening the form. */}
+							{server.origin === "misconfigured" ? (
+								<Button
+									variant="secondary"
+									size="compact"
+									onClick={() => sendRequest("revealSetting", { setting: "servers" })}
+								>
+									{l10n.t("Fix in settings.json")}
+								</Button>
+							) : (
+								<Button
+									variant="secondary"
+									size="compact"
+									aria-label={l10n.t("Edit {0}", server.label)}
+									onClick={onEdit}
+								>
+									{l10n.t("Edit")}
+								</Button>
+							)}
+							{/* A legacy-registry external row is not hideable (the registry
+							    path would keep serving its models), so it keeps Edit only. */}
+							{server.origin === "declared" || server.origin === "misconfigured" || server.hideable ? (
+								<Button
+									variant="danger"
+									size="compact"
+									aria-label={l10n.t("Remove {0}", server.label)}
+									onClick={() => onArmRemove(true)}
+								>
+									{l10n.t("Remove")}
+								</Button>
+							) : null}
+						</>
+					)}
+				</span>
+			</div>
+			{diagnostics.map((diagnostic) => (
+				<ServerDiagnosticLine key={diagnostic.key} diagnostic={diagnostic} />
+			))}
+		</li>
 	);
 }
 
@@ -505,12 +792,17 @@ export function ServersSection({
 	const hideFailure = hideIntent.outcome?.result === "fail" ? hideIntent.outcome : undefined;
 	const unhideFailure = unhideIntent.outcome?.result === "fail" ? unhideIntent.outcome : undefined;
 	const noServers = servers.length === 0;
-	// The two aggregate failure banners' entry lists, filtered once so the
-	// separator logic can look at each entry's predecessor.
-	const failingServers = servers.filter(
-		(server) => server.origin !== "misconfigured" && server.error !== undefined && server.expected !== true
-	);
-	const expectedFailureServers = servers.filter((server) => server.error !== undefined && server.expected === true);
+	// How many rows are carrying something worth acting on. Read through the
+	// same classifier the rows render, never a second predicate beside it: two
+	// definitions of "needs attention" would drift, and the summary would start
+	// counting rows that look fine (or miss ones that do not). Advisories are
+	// excluded on purpose - the configuration applies as written, so counting
+	// them here would call a healthy fleet unhealthy.
+	const attentionCount = servers.filter((server) =>
+		serverDiagnostics(server, { onEdit: () => {}, onRetry: () => {} }).some(
+			(diagnostic) => diagnostic.severity !== "advisory"
+		)
+	).length;
 
 	const openForm = (target: FormTarget) => {
 		setFormDirty(false);
@@ -786,183 +1078,54 @@ export function ServersSection({
 					<Button onClick={() => openForm({ kind: "add" })}>{l10n.t("Add your first server")}</Button>
 				</div>
 			) : (
-				<div className="table-scroll">
-					{/* className="servers": the narrow-viewport stylesheet stacks these rows
-					    into cards so the row actions stay reachable. */}
-					<table className="servers">
-						<thead>
-							<tr>
-								<th>{l10n.t("Server")}</th>
-								<th>{l10n.t("Base URL")}</th>
-								<th>{l10n.t("Status")}</th>
-								<th className="num">{l10n.t("Models")}</th>
-								<th className="num">{l10n.t("Usage")}</th>
-								<th>{/* badges */}</th>
-								<th>{/* actions */}</th>
-							</tr>
-						</thead>
-						<tbody>
-							{servers.map((server) => (
-								// Keyed identity (the error banner's idiom: origin plus the
-								// external row's opaque handle or the row's unique label -
-								// declared labels are setting-unique, misconfigured rows are
-								// deduplicated by label extension-side) so an async push that
-								// inserts, removes, or reorders entries does not re-associate
-								// another server's row with the user's focus.
-								<ServerRow
-									key={`${server.origin}:${server.adoptHandle ?? server.label}`}
-									server={server}
-									usage={server.origin === "declared" ? usageByLabel.get(server.label) : undefined}
-									usageThresholds={usage?.thresholds ?? []}
-									now={now}
-									armed={armedRemove === server.label}
-									onEdit={() => {
-										// The one place the form's purpose is decided: a declared
-										// row edits, an external row adopts. A misconfigured row
-										// renders no Edit at all (its shape cannot round-trip the
-										// form); the guard keeps the narrowing honest.
-										if (server.origin === "misconfigured") {
-											return;
-										}
-										openForm(
-											server.origin === "declared" ? { kind: "edit", original: server } : { kind: "adopt", server }
-										);
-									}}
-									onArmRemove={(armed) => setArmedRemove(armed ? server.label : undefined)}
-									onHideExternal={hideExternal}
-									onShowModels={onShowModels}
-								/>
-							))}
-						</tbody>
-					</table>
-				</div>
+				<>
+					{/* One quiet line, not a banner: it says how much is wrong without
+					    competing with the rows that say WHAT is wrong. Absent when
+					    nothing needs attention, because a permanent "0 problems" is
+					    furniture that trains the eye to skip the spot. */}
+					{attentionCount > 0 ? (
+						<p className="server-summary">
+							{attentionCount === 1
+								? l10n.t("1 server needs attention")
+								: l10n.t("{0} servers need attention", attentionCount)}
+						</p>
+					) : null}
+					<ul className="server-list">
+						{servers.map((server) => (
+							// Keyed identity (the error banner's idiom: origin plus the
+							// external row's opaque handle or the row's unique label -
+							// declared labels are setting-unique, misconfigured rows are
+							// deduplicated by label extension-side) so an async push that
+							// inserts, removes, or reorders entries does not re-associate
+							// another server's row with the user's focus.
+							<ServerRow
+								key={`${server.origin}:${server.adoptHandle ?? server.label}`}
+								server={server}
+								usage={server.origin === "declared" ? usageByLabel.get(server.label) : undefined}
+								usageThresholds={usage?.thresholds ?? []}
+								now={now}
+								armed={armedRemove === server.label}
+								onEdit={() => {
+									// The one place the form's purpose is decided: a declared
+									// row edits, an external row adopts. A misconfigured row
+									// renders no Edit at all (its shape cannot round-trip the
+									// form); the guard keeps the narrowing honest.
+									if (server.origin === "misconfigured") {
+										return;
+									}
+									openForm(
+										server.origin === "declared" ? { kind: "edit", original: server } : { kind: "adopt", server }
+									);
+								}}
+								onArmRemove={(armed) => setArmedRemove(armed ? server.label : undefined)}
+								onHideExternal={hideExternal}
+								onShowModels={onShowModels}
+							/>
+						))}
+					</ul>
+				</>
 			)}
 			<HiddenGroupsLine hidden={hidden} />
-			{failingServers.length > 0 ? (
-				<div className="banner banner-error">
-					<p className="error">
-						{failingServers.map((server, index) => {
-							// Keyed identity (origin plus the external row's opaque handle
-							// or the declared row's setting-unique label) so reconciliation
-							// keeps focus on a Troubleshoot link when an earlier entry
-							// recovers. A classified failure carries the same short
-							// Troubleshoot link as the draft-test footer, inline after its
-							// own entry's HEADLINE (the link must not drift below a detail
-							// line); a two-part error's technical detail renders as its own
-							// dimmed line after the link. The "; " separator joins inline
-							// entries only: after a block detail line the next entry starts
-							// on its own line, and a leading "; " there would dangle.
-							const detail = statusErrorDetail(server.error ?? "");
-							const afterDetail = index > 0 && statusErrorDetail(failingServers[index - 1]?.error ?? "") !== undefined;
-							return (
-								<Fragment key={`${server.origin}:${server.adoptHandle ?? server.label}`}>
-									{index > 0 && !afterDetail ? "; " : ""}
-									{`${server.label}: ${statusErrorHeadline(server.error ?? "")}`}
-									{server.classification?.setupHint !== undefined ? (
-										// The leading space keeps copied text (the banner is the
-										// selectable error surface) from gluing the link label
-										// onto the error message.
-										<>
-											{" "}
-											<span className="banner-hint">
-												<DocsLink {...troubleshootingLink(server.classification.setupHint)}>
-													{l10n.t("Troubleshoot")}
-												</DocsLink>
-											</span>
-										</>
-									) : null}
-									{detail !== undefined ? <span className="failure-detail">{detail}</span> : null}
-								</Fragment>
-							);
-						})}
-					</p>
-				</div>
-			) : null}
-			{servers.some((server) => server.origin === "misconfigured") ? (
-				<div className="banner banner-error">
-					<p className="error">
-						{servers
-							.filter((server): server is MisconfiguredDashboardServer => server.origin === "misconfigured")
-							.map((server, index) => (
-								<Fragment key={server.label}>
-									{index > 0 ? "; " : ""}
-									{/* The parser's structural reports stay English by policy
-									    (they land in issue reports); only the framing localizes. */}
-									{l10n.t(
-										"{0}: this entry is invalid and not used until fixed - {1}",
-										server.label,
-										server.problems.join("; ")
-									)}
-								</Fragment>
-							))}
-					</p>
-					<p className="hint">
-						{l10n.t("Keep exactly one auth form per entry; companions of lower rank only.")}{" "}
-						<DocsLink href={DOCS_LINK_AUTHENTICATION} label={l10n.t("Open the authentication guide")}>
-							{l10n.t("Learn more")}
-						</DocsLink>
-					</p>
-				</div>
-			) : null}
-			{expectedFailureServers.length > 0 ? (
-				<div className="banner banner-warn">
-					<p className="state-warn">
-						{expectedFailureServers.map((server, index) => {
-							// Warn tone, never the red banner: the entry declared this
-							// category, so the failure is stated with its localized
-							// annotation instead of raised as a problem. Separators join
-							// inline entries only (see the error banner above).
-							const afterDetail =
-								index > 0 && statusErrorDetail(expectedFailureServers[index - 1]?.error ?? "") !== undefined;
-							return (
-								<Fragment key={`${server.origin}:${server.adoptHandle ?? server.label}`}>
-									{index > 0 && !afterDetail ? "; " : ""}
-									<FailureText
-										message={server.error ?? ""}
-										frame={(headline) => l10n.t("{0}: {1} (expected)", server.label, headline)}
-									/>
-								</Fragment>
-							);
-						})}
-					</p>
-				</div>
-			) : null}
-			{servers.some((server) => INACTIVE_NOTICES.some((notice) => server.notices?.includes(notice) === true)) ? (
-				<div className="banner banner-warn">
-					<p className="state-warn">
-						{/* One banner for every inactive entry-only surface: the cause and
-						    the two-step fix are identical, so per-surface twin banners
-						    would only repeat them. */}
-						{servers
-							.filter((server) => INACTIVE_NOTICES.some((notice) => server.notices?.includes(notice) === true))
-							.map((server) => `${server.label}: ${inactiveSurfacesText(server)}`)
-							.join("; ")}{" "}
-						{l10n.t("are not applied: the group serving the entry predates its label or a rename. To activate them:")}{" "}
-						<DocsLink href={DOCS_LINK_PARAMS_INACTIVE} label={l10n.t("Learn more in the troubleshooting guide")}>
-							{l10n.t("Learn more")}
-						</DocsLink>
-					</p>
-					<ol className="notice-steps">
-						<li>{l10n.t("Delete the group's object from the models file (chatLanguageModels.json).")}</li>
-						<li>
-							{l10n.t("Reload the window, then run Sync Models Now - or save the entry under a new label instead.")}
-						</li>
-					</ol>
-				</div>
-			) : null}
-			{servers.some((server) => server.notices?.includes("expected-failures-nothing-declared") === true) ? (
-				<div className="banner banner-warn">
-					<p className="state-warn">
-						{l10n.t(
-							"{0}: discovery fails in an expected category and nothing is declared, so no models are served. Add IDs to the entry's discovery.declared list to serve models without discovery.",
-							servers
-								.filter((server) => server.notices?.includes("expected-failures-nothing-declared") === true)
-								.map((server) => server.label)
-								.join(", ")
-						)}
-					</p>
-				</div>
-			) : null}
 		</section>
 	);
 }

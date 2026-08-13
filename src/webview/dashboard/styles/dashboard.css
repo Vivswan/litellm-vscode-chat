@@ -303,20 +303,226 @@
 	button.icon-action:focus-visible {
 		opacity: 1;
 	}
-	/* A server row's model count doubling as the jump into the models section:
-		   keeps the cell's numeric look, with a dotted underline as the only hint
-		   that it does something. */
-	td.num button.count-link {
+	/* A server row's model count doubling as the jump into the models
+		   destination: keeps the numeric look, with a dotted underline as the only
+		   hint that it does something. */
+	button.count-link {
 		font-variant-numeric: tabular-nums;
 		text-decoration: underline dotted;
 		text-underline-offset: 2px;
 	}
+	.server-count .count-plain {
+		font-variant-numeric: tabular-nums;
+	}
 	/* A server row's spend-at-a-glance: the Usage tab's numbers and severity
-		   tokens (its warn is editorWarning, not the pill yellow), table-sized. */
-	table.servers .usage-cell {
+		   tokens (its warn is editorWarning, not the pill yellow), row-sized. */
+	.usage-cell {
 		font-variant-numeric: tabular-nums;
 		font-weight: 600;
 		white-space: nowrap;
+	}
+	/* ---- the server list ---------------------------------------------------
+	   One line per server with its problems indented underneath, replacing a
+	   seven-column table. The row's cells label themselves ("6 models"), which
+	   is what let the header row go: a header that only ever said "Models" over
+	   a number is a line of chrome per page for a word the cell can carry. */
+	/* The LIST owns the column model, and the rows inherit it through subgrid.
+		 Giving each row its own grid was the obvious thing and it was wrong: auto
+		 tracks then size against that row's content alone, so a server with no
+		 badge or no budget slid its neighbours' figures sideways and nothing lined
+		 up down the page. Comparing spend and model counts across servers is why
+		 those cells are on the row at all, and min-width floors cannot fix it -
+		 they stop a cell shrinking, they do not make two rows agree. */
+	.server-list {
+		display: grid;
+		grid-template-columns: minmax(7em, 12em) minmax(0, 1fr) auto auto auto auto minmax(7em, auto);
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+	.server-item {
+		display: grid;
+		grid-template-columns: subgrid;
+		grid-column: 1 / -1;
+		padding: 2px 0;
+	}
+	.server-item + .server-item {
+		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+	}
+	/* Seven cells - name, url, status, count, usage, badges, actions - taking
+		 their widths from the list above rather than from this row. The actions
+		 get a track of their own rather than an overlay: reserved space means
+		 revealing them cannot reflow the row, so hovering never moves the line you
+		 are reading. */
+	.server-row {
+		display: grid;
+		grid-template-columns: subgrid;
+		grid-column: 1 / -1;
+		align-items: center;
+		gap: 4px 14px;
+		padding: 5px 8px;
+		border-radius: 4px;
+	}
+	.server-row:hover,
+	.server-item:focus-within .server-row {
+		background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12));
+	}
+	.server-name {
+		font-weight: 600;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.server-name .server-tag {
+		font-weight: 400;
+		font-size: 0.92em;
+		color: var(--vscode-descriptionForeground);
+		margin-left: 7px;
+	}
+	/* Machine text, so monospace, and it is the row's flexible column: a long
+		   URL ellipsizes rather than pushing the status and counts off the line. */
+	.server-url {
+		font-family: var(--vscode-editor-font-family, monospace);
+		font-size: 0.92em;
+		color: var(--vscode-descriptionForeground);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.server-count,
+	.server-usage {
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
+		text-align: right;
+	}
+	/* Floors, so the numbers line up down the page even though every row is its
+		 own grid. Without them a row with no budget lets its neighbours' figures
+		 slide sideways, and comparing spend across servers - the reason the column
+		 is on the row at all - turns into reading each line separately. */
+	.server-count {
+		min-width: 6.5em;
+		color: var(--vscode-descriptionForeground);
+	}
+	.server-usage {
+		min-width: 3.5em;
+	}
+	.server-badges {
+		display: flex;
+		gap: 6px;
+		align-items: center;
+	}
+	/* Revealed by hover AND focus-within. The mockup freed the space by hiding
+		   the counts on hover, which deletes the two numbers the reader came for at
+		   the exact moment they reach for Edit - and does it to every keyboard user
+		   the instant they tab in. The actions get a column of their own instead:
+		   it costs a little width and takes nothing away. */
+	/* OPACITY, never visibility. visibility:hidden takes descendants out of the
+		   tab order, so these buttons could not be focused, so :focus-within could
+		   never fire FOR them - the reveal would depend on some other focusable
+		   element happening to sit in the same row, and a healthy row with no
+		   credential, no count link and no problem has none. Its Edit and Remove
+		   were unreachable by keyboard entirely. This is the same rule the icon
+		   actions above already use, and the :focus-visible clause is what lets
+		   the buttons reveal themselves rather than waiting to be revealed. */
+	.server-actions {
+		display: flex;
+		gap: 8px;
+		align-items: center;
+		justify-content: flex-end;
+		opacity: 0;
+		transition: opacity 120ms ease-out;
+	}
+	.server-row:hover .server-actions,
+	.server-item:focus-within .server-actions,
+	.server-actions:focus-within,
+	.server-actions.armed {
+		opacity: 1;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.server-actions {
+			transition: none;
+		}
+	}
+	/* One quiet line above the list, deliberately not a banner: it says how
+		   much is wrong, and the rows say what. */
+	.server-summary {
+		margin: 0 0 6px;
+		color: var(--vscode-descriptionForeground);
+	}
+	/* ---- a row's problems --------------------------------------------------
+	   Indented under the row that owns them, behind a severity rule. The rule's
+	   colour and the tint move together: colour alone excludes anyone who cannot
+	   separate red from amber, and a tint alone is too weak to rank three
+	   levels, so blocking and advisory differ in both. */
+	/* Severity rides THREE channels, not one: hue, wash, and the rule's own
+		   weight and style. Hue alone fails the reader who cannot separate red from
+		   amber - and measurement showed that pair was the one relying on it, since
+		   blocking and degraded carried near-identical washes and identical 2px
+		   rules (1.06:1 apart in light). Geometry also survives forced-colors,
+		   where every colour collapses to the same value and a hue-only or
+		   wash-only scheme leaves three tiers looking like one. */
+	.row-diagnostic {
+		grid-column: 1 / -1;
+		margin: 2px 0 6px 12px;
+		padding: 6px 10px;
+		border-left: 2px solid var(--vscode-descriptionForeground);
+		border-radius: 0 4px 4px 0;
+	}
+	/* Double, not merely thicker. Under forced colours the wash is discarded and
+		   every rule resolves to the same system colour, so blocking and degraded
+		   were left differing by one pixel of width - not a rank anyone can read
+		   across rows that are never adjacent. A doubled rule is a different SHAPE,
+		   which survives both forced colours and a reader who cannot separate red
+		   from amber. */
+	.row-diagnostic.sev-blocking {
+		border-left: 4px double var(--err-fill);
+		background: color-mix(in srgb, var(--err) 10%, transparent);
+	}
+	.row-diagnostic.sev-degraded {
+		border-left: 2px solid var(--warn-fill);
+		background: color-mix(in srgb, var(--warn) 7%, transparent);
+	}
+	/* The quiet tier: nothing is wrong, so it gets no wash at all - an advisory
+		   tinted like a warning is how a page teaches its reader to ignore
+		   warnings. It still needs a rule anyone can SEE, though: the border token
+		   it used to read measured 1.27:1 against its own background, under the
+		   3:1 a graphical object needs, which made the quiet tier quietly
+		   invisible. The description foreground is a text token, so it clears that
+		   with room, and the dashed 1px keeps it unmistakably the lightest of the
+		   three without needing colour to say so. */
+	.row-diagnostic.sev-advisory {
+		border-left: 1px dashed var(--vscode-descriptionForeground);
+		background: transparent;
+	}
+	/* Forced colours discard every background, so the washes above stop existing
+		   and the rules all resolve to the same system colour. Weight and style are
+		   what still rank the tiers there; GrayText is the one hint the mode itself
+		   offers for "this one matters least". */
+	@media (forced-colors: active) {
+		.row-diagnostic.sev-advisory {
+			border-left-color: GrayText;
+		}
+	}
+	.row-diagnostic-headline {
+		margin: 0;
+		/* The tint spans the pane so the severity is unmissable, but the sentence
+			 stops where prose stops being readable. A proxy error can be two hundred
+			 characters of the server's own words, and at full pane width the eye
+			 loses the line on the way back. */
+		max-width: 84ch;
+	}
+	.row-diagnostic-detail {
+		margin: 2px 0 0;
+		max-width: 84ch;
+		font-size: 0.92em;
+		color: var(--vscode-descriptionForeground);
+	}
+	.row-diagnostic-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 10px;
+		align-items: center;
+		margin-top: 6px;
 	}
 	th,
 	td {
@@ -1557,41 +1763,27 @@
 		table.models .model-name-text {
 			max-width: 14em;
 		}
-		/* The servers table stacks into card-style blocks: rows carry actions
-			   with no other route, so they must be reachable without horizontal
-			   scrolling, and 780px is where the full row set stops fitting. */
-		table.servers,
-		table.servers tbody,
-		table.servers tr,
-		table.servers td {
-			display: block;
+		/* The server row stacks into a card: its actions have no other route, so
+			   they must be reachable without horizontal scrolling, and 780px is where
+			   the full row stops fitting. Stacked, the actions stay visible rather
+			   than waiting for a hover that a touch device cannot express. */
+		.server-row {
+			grid-template-columns: minmax(0, 1fr);
+			gap: 2px;
+			padding: 8px;
 		}
-		table.servers thead {
-			display: none;
-		}
-		table.servers tr {
-			border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
-			border-radius: 4px;
-			padding: 4px 12px 8px;
-			margin: 8px 0;
-		}
-		table.servers td {
-			border-bottom: none;
-			padding: 2px 0;
-		}
-		table.servers td.num,
-		table.servers td.actions {
+		.server-count,
+		.server-usage,
+		.server-actions {
 			text-align: left;
+			justify-content: flex-start;
 		}
-		table.servers td:first-child {
-			font-weight: 600;
-		}
-		table.servers td:empty {
-			display: none;
-		}
-		table.servers td[data-label]::before {
-			content: attr(data-label) ": ";
-			color: var(--vscode-descriptionForeground);
+		/* Opacity, matching the mechanism above - `visibility: visible` here was a
+			   no-op the moment the hiding moved to opacity, which left the actions
+			   invisible at rest on exactly the widths where hover does not exist. */
+		.server-actions {
+			opacity: 1;
+			margin-top: 4px;
 		}
 	}
 	@container pane (max-width: 670px) {

@@ -51,7 +51,7 @@ test("each server state renders its pill tone, verdict, and relative check time"
 		makeDeclaredServer({ label: "Fresh", baseUrl: "http://c", state: "unchecked" }),
 	]);
 
-	const pills = [...root.querySelectorAll("tbody .pill")];
+	const pills = [...root.querySelectorAll(".server-list .pill")];
 	expect(pills.length).toBe(3);
 	const byText = (word: string) => pills.find((pill) => pill.textContent?.includes(word));
 
@@ -70,13 +70,18 @@ test("each server state renders its pill tone, verdict, and relative check time"
 	expect(unchecked?.closest(".tip-wrap")?.querySelector(".help-tip")?.textContent).toContain("Sync models");
 });
 
-test("an ok row still carrying a sync error shows the warn tone, matching the section's error banner", () => {
+test("an ok row still carrying a sync error shows the warn tone, matching its own diagnostic line", () => {
 	const root = mountSection([
 		makeDeclaredServer({ label: "Prod", state: "ok", error: "the group upsert failed", modelCount: 3 }),
 	]);
-	const pill = root.querySelector("tbody .pill");
+	const pill = root.querySelector(".server-list .pill");
 	expect(pill?.classList.contains("tone-warn")).toBe(true);
 	expect(pill?.textContent).toContain("Sync issue");
-	// The full error text stays visible (and selectable) in the section banner.
-	expect(root.textContent).toContain("Prod: the group upsert failed");
+	// The full error text stays visible (and selectable) - under this row now,
+	// rather than in a section banner the reader had to match back to it. A row
+	// that kept serving is degraded, not blocking, and the tone says so on both.
+	const diagnostic = root.querySelector(".row-diagnostic");
+	expect(diagnostic?.classList.contains("sev-degraded")).toBe(true);
+	expect(diagnostic?.textContent).toContain("the group upsert failed");
+	expect(diagnostic?.textContent).toContain("Prod");
 });

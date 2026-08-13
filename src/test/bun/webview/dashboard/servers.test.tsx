@@ -104,37 +104,42 @@ test("with no servers the guided start renders and its call to action opens the 
 	expect(root.querySelector(".slide-over .form-card")).not.toBeNull();
 });
 
-test("a noticed entry renders the params-inactive badge and the remedy paragraph", () => {
+test("a noticed entry states its inactive surfaces under its own row, not in a shared banner", () => {
 	const root = mountSection([
 		makeDeclaredServer({ label: "Prod", notices: ["entry-params-inactive"] }),
 		makeDeclaredServer({ label: "Quiet", baseUrl: "http://quiet.test" }),
 	]);
 
-	const badge = [...root.querySelectorAll("span[data-slot='badge'][data-variant='warn']")].find(
-		(el) => el.textContent?.trim() === "params inactive"
+	// One line, under the row it belongs to. The badge and the merged banner
+	// were two renderings of one fact sitting on the same screen; this is the
+	// one that does not make the reader match a label back to a row.
+	const lines = [...root.querySelectorAll(".row-diagnostic")];
+	expect(lines.length).toBe(1);
+	const line = lines[0] as HTMLElement;
+	expect(line.textContent).toContain("Prod");
+	expect(line.textContent).not.toContain("Quiet");
+	expect(line.textContent).toContain("per-server model parameters");
+	// Degraded, not advisory: the server answers, but it is running WITHOUT
+	// settings the user wrote. Advisory would also have kept this row out of the
+	// summary count, telling a reader whose parameters are being ignored that
+	// nothing needs attention.
+	expect(line.classList.contains("sev-degraded")).toBe(true);
+	expect(root.querySelector(".server-summary")?.textContent).toContain("1 server needs attention");
+	// The remedy the retired banner spelled out survives on the line.
+	expect(line.textContent).toContain("chatLanguageModels.json");
+	expect(line.textContent).toContain("under a new label");
+	// Reveal, never rewrite: both actions open the place a human fixes it.
+	const actions = [...line.querySelectorAll(".row-diagnostic-actions button, .row-diagnostic-actions a")].map((el) =>
+		el.textContent?.trim()
 	);
-	expect(badge).toBeDefined();
-	// Native title attributes do not render in the webview host; the detail
-	// rides the CSS hover tip next to the badge instead.
-	const tip = badge?.closest(".tip-wrap")?.querySelector(".help-tip");
-	expect(tip?.textContent).toContain("The banner below has the fix");
-
-	const paragraph = root.querySelector("p.state-warn");
-	expect(paragraph?.textContent).toContain("Prod");
-	expect(paragraph?.textContent).not.toContain("Quiet");
-	expect(paragraph?.textContent).toContain("per-server model parameters are not applied");
-	// The remedy renders as numbered steps under the lead line, not prose.
-	const banner = root.querySelector(".banner-warn");
-	expect(banner?.textContent).toContain("run Sync Models Now");
-	expect(banner?.querySelectorAll("ol.notice-steps li").length).toBe(2);
+	expect(actions).toEqual(["Open models file", "Learn more"]);
 });
 
-test("without a notice, no params-inactive badge or paragraph renders", () => {
+test("without a notice a healthy row carries no diagnostic line at all", () => {
 	const root = mountSection([makeDeclaredServer()]);
-	expect([...root.querySelectorAll("span[data-slot='badge']")].map((el) => el.textContent?.trim())).not.toContain(
-		"params inactive"
-	);
-	expect(root.querySelector("p.state-warn")).toBeNull();
+	expect(root.querySelector(".row-diagnostic")).toBeNull();
+	// And no summary line: a permanent "0 problems" is furniture.
+	expect(root.querySelector(".server-summary")).toBeNull();
 });
 
 test("the edit form round-trips per-entry model parameters into the save intent", () => {
@@ -499,7 +504,7 @@ test("removing an external row is two-step and posts hideExternalServer with the
 
 test("a non-hideable external row (legacy registry) offers Edit only, no Remove", () => {
 	const root = mountSection([makeExternalServer({ hideable: false })]);
-	const actions = [...root.querySelectorAll("td.actions button")].map((el) => el.textContent?.trim());
+	const actions = [...root.querySelectorAll(".server-actions button")].map((el) => el.textContent?.trim());
 	expect(actions).toEqual(["Edit"]);
 });
 
@@ -743,7 +748,7 @@ test("a failed test with a setup hint renders the troubleshooting link inside th
 	expect(root.querySelector(".test-hint")).toBeNull();
 });
 
-test("classified refresh failures carry per-entry Troubleshoot links; unclassified entries stay plain", () => {
+test("classified refresh failures carry a Troubleshoot link on their own row; unclassified rows stay plain", () => {
 	const root = mountSection([
 		makeDeclaredServer({
 			label: "Prod",
@@ -765,16 +770,21 @@ test("classified refresh failures carry per-entry Troubleshoot links; unclassifi
 	// separator to the next), the unclassified entry stays plain, and copied
 	// text keeps a space between the error and the link label. A missing link
 	// fails this line loudly - no vacuous index comparisons.
-	const banner = root.querySelector(".banner-error p.error");
-	expect(banner?.textContent).toBe(
-		"Prod: unable to connect Troubleshoot; Quiet: boom; Wrong: answered 404 Troubleshoot"
-	);
+	// One line per failing row, each naming its own server: nothing is joined
+	// with semicolons any more, so nothing has to be matched back to a row.
+	const lines = [...root.querySelectorAll(".row-diagnostic")];
+	expect(lines.length).toBe(3);
+	expect(lines[0]?.textContent).toContain("Prod");
+	expect(lines[0]?.textContent).toContain("unable to connect");
+	expect(lines[1]?.textContent).toContain("Quiet");
+	expect(lines[1]?.querySelector("a.docs-link")).toBeNull();
+	expect(lines[2]?.textContent).toContain("answered 404");
 
 	// Two classified failures, two links, each targeting the
 	// troubleshooting-guide section matching its own setup-hint id, with the
 	// fuller per-cause accessible label - the same links the draft-test footer
 	// renders.
-	const anchors = [...(banner?.querySelectorAll<HTMLAnchorElement>(".banner-hint a.docs-link") ?? [])];
+	const anchors = [...root.querySelectorAll<HTMLAnchorElement>(".row-diagnostic a.docs-link")];
 	expect(anchors.map((anchor) => anchor.getAttribute("href"))).toEqual([
 		DOCS_LINK_PROXY_NOT_RUNNING,
 		DOCS_LINK_CHECK_BASE_URL,
@@ -783,19 +793,26 @@ test("classified refresh failures carry per-entry Troubleshoot links; unclassifi
 		"Open the troubleshooting guide: unable to connect",
 		"Open the troubleshooting guide: the server answered 404",
 	]);
+	// The VISIBLE text is the short verb - the long sentence is the accessible
+	// name. Spreading the link helper over the label put that sentence on screen
+	// once already, so it is pinned here.
+	expect(anchors.map((anchor) => anchor.textContent?.trim())).toEqual(["Troubleshoot", "Troubleshoot"]);
 });
 
-test("without a classification the error banner renders exactly as before: joined text, no elements", () => {
+test("without a classification a row's failure line is plain text, with no link", () => {
 	const root = mountSection([
 		makeDeclaredServer({ label: "Prod", state: "error", error: "boom" }),
 		makeDeclaredServer({ label: "Beta", baseUrl: "http://beta.test", state: "error", error: "bang" }),
 	]);
-	// Pinned markup: the joined line stays pure text - no link, no wrapper
-	// span appeared for unclassified failures.
-	expect(root.querySelector(".banner-error p.error")?.innerHTML).toBe("Prod: boom; Beta: bang");
+	const lines = [...root.querySelectorAll(".row-diagnostic")];
+	expect(lines.length).toBe(2);
+	expect(lines[0]?.textContent).toContain("boom");
+	expect(lines[1]?.textContent).toContain("bang");
+	// No link, and no wrapper element, appears for an unclassified failure.
+	expect(root.querySelector(".row-diagnostic a.docs-link")).toBeNull();
 });
 
-test("a hintless classification renders no troubleshooting link in the banner", () => {
+test("a hintless classification renders no troubleshooting link", () => {
 	const root = mountSection([
 		makeDeclaredServer({
 			label: "Prod",
@@ -804,8 +821,8 @@ test("a hintless classification renders no troubleshooting link in the banner", 
 			classification: { kind: "http", status: 500 },
 		}),
 	]);
-	expect(root.querySelector(".banner-error p.error")?.innerHTML).toBe("Prod: LiteLLM API error: 500");
-	expect(root.querySelector(".banner-hint")).toBeNull();
+	expect(root.querySelector(".row-diagnostic")?.textContent).toContain("LiteLLM API error: 500");
+	expect(root.querySelector(".row-diagnostic a.docs-link")).toBeNull();
 });
 
 test("a failed test renders its message inline and the result clears on any credential-affecting edit", () => {
@@ -1305,7 +1322,7 @@ test("fallback checkbox: a hand-written _fallback true loads checked and saves u
 	expect(saved.payload.server.modelCapabilities).toEqual({ "gpt-4": { context_length: 128000, _fallback: true } });
 });
 
-test("an expected failure renders the warn pill, the declared-count badge, and the warn banner, never the red one", () => {
+test("an expected failure serving declared models reads Connected, and states the count on its own line", () => {
 	const root = mountSection([
 		makeDeclaredServer({
 			label: "Gateway",
@@ -1318,19 +1335,23 @@ test("an expected failure renders the warn pill, the declared-count badge, and t
 	]);
 	// Serving declared models reads Connected (one state, one name across
 	// tabs), in the warn tone that says the connection is not what it seems.
-	const pill = [...root.querySelectorAll("td .pill")].find((el) => el.textContent?.includes("Connected"));
+	const pill = [...root.querySelectorAll(".server-row .pill")].find((el) => el.textContent?.includes("Connected"));
 	expect(pill).toBeDefined();
 	expect(pill?.classList.contains("tone-warn")).toBe(true);
-	const badge = [...root.querySelectorAll("span[data-slot='badge']")].find((el) =>
-		el.textContent?.includes("2 declared models")
-	);
-	expect(badge).toBeDefined();
-	expect(root.querySelector(".banner-error")).toBeNull();
-	const warn = root.querySelector(".banner-warn");
-	expect(warn?.textContent).toContain("Gateway: 404 on /models (expected)");
+	// The declared count is stated by the row's own line rather than by a badge
+	// beside it: the badge and the banner were the same fact twice.
+	const line = root.querySelector(".row-diagnostic");
+	expect(line?.textContent).toContain("2 declared models");
+	expect(line?.textContent).toContain("Gateway");
+	// The entry declared this failure category and is serving through it, so
+	// nothing is wrong: quiet tier, and never the blocking one.
+	expect(line?.classList.contains("sev-advisory")).toBe(true);
+	expect(root.querySelector(".row-diagnostic.sev-blocking")).toBeNull();
+	// It still says what the server said, for the reader who wants the cause.
+	expect(line?.textContent).toContain("404 on /models");
 });
 
-test("an expected failure with nothing declared raises the capabilities-and-declare guidance banners", () => {
+test("an expected failure with nothing declared reads blocking and offers Declare models", () => {
 	const root = mountSection([
 		makeDeclaredServer({
 			label: "Gateway",
@@ -1340,41 +1361,40 @@ test("an expected failure with nothing declared raises the capabilities-and-decl
 			notices: ["expected-failures-nothing-declared"],
 		}),
 	]);
-	const banners = [...root.querySelectorAll(".banner-warn")].map((el) => el.textContent ?? "");
-	expect(banners.some((text) => text.includes("nothing is declared"))).toBe(true);
-	expect(banners.some((text) => text.includes("discovery.declared"))).toBe(true);
+	// Serving nothing at all is the definition of blocking. The entry expecting
+	// this failure category makes the CAUSE unsurprising; it does not put any
+	// models in the picker, and the tier is a promise about whether someone has
+	// to act rather than a volume knob.
+	const line = root.querySelector(".row-diagnostic");
+	expect(line?.classList.contains("sev-blocking")).toBe(true);
+	expect(line?.textContent).toContain("nothing is declared");
+	const actions = [...(line?.querySelectorAll(".row-diagnostic-actions button") ?? [])].map((el) =>
+		el.textContent?.trim()
+	);
+	expect(actions).toContain("Declare models");
+	expect(actions).toContain("Retry");
 });
 
-test("the capabilities-inactive notice renders its own badge and joins the one merged remedy banner", () => {
+test("several inactive surfaces on one row share a single line naming them all", () => {
 	const root = mountSection([
 		makeDeclaredServer({ label: "Prod", notices: ["entry-params-inactive", "entry-capabilities-inactive"] }),
 	]);
-	const badges = [...root.querySelectorAll("span[data-slot='badge'][data-variant='warn']")].map((el) =>
-		el.textContent?.trim()
-	);
-	expect(badges).toContain("params inactive");
-	expect(badges).toContain("capabilities inactive");
-	// One banner for every inactive entry-only surface: the surfaces list, then
-	// the shared cause-and-fix sentence.
-	const banners = [...root.querySelectorAll(".banner-warn")].map((el) => el.textContent ?? "");
-	expect(banners.length).toBe(1);
-	const banner = banners[0] ?? "";
-	expect(banner).toContain("Prod: per-server model parameters");
-	expect(banner).toContain("per-server model capabilities, declared models, and expected failures");
-	expect(banner).toContain("are not applied");
+	// One line for every inactive surface on the row, not one per surface: the
+	// cause and the fix are identical, so twins would only repeat themselves.
+	const lines = [...root.querySelectorAll(".row-diagnostic")];
+	expect(lines.length).toBe(1);
+	const line = lines[0]?.textContent ?? "";
+	expect(line).toContain("Prod");
+	expect(line).toContain("per-server model parameters");
+	expect(line).toContain("per-server model capabilities, declared models, and expected failures");
 });
 
-test("the api-version-inactive notice renders its badge and its surface joins the merged banner", () => {
+test("the api-version-inactive notice names its surface on the row it belongs to", () => {
 	const root = mountSection([makeDeclaredServer({ label: "Prod", notices: ["entry-api-version-inactive"] })]);
-	const badges = [...root.querySelectorAll("span[data-slot='badge'][data-variant='warn']")].map((el) =>
-		el.textContent?.trim()
-	);
-	expect(badges).toContain("API version inactive");
-	const banners = [...root.querySelectorAll(".banner-warn")].map((el) => el.textContent ?? "");
-	expect(banners.length).toBe(1);
-	const banner = banners[0] ?? "";
-	expect(banner).toContain("Prod: per-server API version overrides");
-	expect(banner).toContain("are not applied");
+	const lines = [...root.querySelectorAll(".row-diagnostic")];
+	expect(lines.length).toBe(1);
+	expect(lines[0]?.textContent).toContain("Prod");
+	expect(lines[0]?.textContent).toContain("per-server API version overrides");
 });
 
 test("editing a capability row or an expected-failure checkbox clears a standing test result", () => {
@@ -1496,19 +1516,24 @@ test("the usage column shows the spend percentage with the Usage tab's severity 
 		});
 
 	pushToWebview(statePush(makeState({ servers: [server], usage: usageFor(0.42) })));
-	const cell = () => root.querySelector("table.servers .usage-cell") as HTMLElement;
-	expect(cell().textContent).toBe("42%");
+	const cell = () => root.querySelector(".server-list .usage-cell") as HTMLElement;
+	/** The figure without the hidden noun that names it for a screen reader. */
+	const shown = () => (cell().lastChild?.textContent ?? "").trim();
+	// The header row is gone, so the cell says what its number is - but only to
+	// a screen reader. Sighted readers get the same noun from the hover tip.
+	expect(cell().querySelector(".visually-hidden")?.textContent).toContain("Budget spent");
+	expect(shown()).toBe("42%");
 	expect(cell().classList.contains("tone-ok")).toBe(true);
 
 	// Reaching a threshold counts as crossing it, exactly as the Usage tab
 	// colors its percentage (the fixture thresholds are 0.8 and 0.95).
 	pushToWebview(statePush(makeState({ servers: [server], usage: usageFor(0.8) })));
-	expect(cell().textContent).toBe("80%");
+	expect(shown()).toBe("80%");
 	expect(cell().classList.contains("tone-warn")).toBe(true);
 
 	// Over budget shows the literal percentage in the error tone.
 	pushToWebview(statePush(makeState({ servers: [server], usage: usageFor(1.12) })));
-	expect(cell().textContent).toBe("112%");
+	expect(shown()).toBe("112%");
 	expect(cell().classList.contains("tone-error")).toBe(true);
 });
 
@@ -1528,8 +1553,10 @@ test("spend without a budget renders as the plain amount, never a percentage", (
 	});
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()], usage })));
-	const cell = root.querySelector("table.servers .usage-cell") as HTMLElement;
-	expect(cell.textContent).toBe("$3.07");
+	const cell = root.querySelector(".server-list .usage-cell") as HTMLElement;
+	expect(cell.querySelector(".visually-hidden")?.textContent).toContain("Spent");
+	expect((cell.lastChild?.textContent ?? "").trim()).toBe("$3.07");
+	// No severity tone: there is no budget for the amount to be a fraction of.
 	expect(cell.className).toBe("usage-cell");
 });
 
@@ -1541,10 +1568,11 @@ test("a server without usage data gets an empty usage cell, not an unknown marke
 	});
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()], usage })));
-	const headers = [...root.querySelectorAll("table.servers thead th")].map((th) => th.textContent?.trim());
-	expect(headers).toContain("Usage");
-	const row = root.querySelector("table.servers tbody tr") as HTMLElement;
-	const usageCell = row.querySelectorAll("td")[4] as HTMLElement;
+	// The cell exists and is empty, rather than being absent or carrying a
+	// placeholder. There is no header row to label it any more: each cell on the
+	// compact row says what it is, and an empty one says nothing at all.
+	const usageCell = root.querySelector(".server-row .server-usage") as HTMLElement;
+	expect(usageCell).not.toBeNull();
 	expect(usageCell.textContent).toBe("");
 	expect(root.textContent).not.toContain("unknown");
 });
@@ -1557,8 +1585,7 @@ test("a forbidden-usage card leaves its server row's usage cell empty", () => {
 	});
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })], usage })));
-	const row = root.querySelector("table.servers tbody tr") as HTMLElement;
-	const usageCell = row.querySelectorAll("td")[4] as HTMLElement;
+	const usageCell = root.querySelector(".server-row .server-usage") as HTMLElement;
 	expect(usageCell.textContent).toBe("");
 	expect(usageCell.querySelector(".usage-cell")).toBeNull();
 });

@@ -86,7 +86,7 @@ test("a two-part server failure banner renders the framed headline plus a detail
 	expect(banner?.querySelector(".failure-detail")?.textContent).toBe("settings.json is read-only");
 });
 
-test("mixed error banner: a two-part entry keeps its detail as a block, and the next entry gets no dangling separator", () => {
+test("a two-part error keeps its technical half on its own line, under its own row", () => {
 	const root = mountServers([
 		makeDeclaredServer({
 			label: "Prod",
@@ -95,23 +95,25 @@ test("mixed error banner: a two-part entry keeps its detail as a block, and the 
 		}),
 		makeDeclaredServer({ label: "Beta", baseUrl: "http://beta.test", state: "error", error: "bang" }),
 	]);
-	const banner = root.querySelector(".banner-error p.error");
-	expect(banner?.textContent).toContain("Prod: The server could not be reached.");
-	expect(banner?.querySelector(".failure-detail")?.textContent).toBe("GET http://prod.test/v1/models: ETIMEDOUT");
-	// The block detail already breaks the line; a leading "; " on the next
-	// entry would dangle at the start of its line.
-	expect(banner?.textContent).not.toContain("; Beta");
-	expect(banner?.textContent).toContain("Beta: bang");
-	// Single-line neighbors keep the joined shape.
-	cleanup();
-	const joined = mountServers([
-		makeDeclaredServer({ label: "Prod", state: "error", error: "boom" }),
-		makeDeclaredServer({ label: "Beta", baseUrl: "http://beta.test", state: "error", error: "bang" }),
-	]);
-	expect(joined.querySelector(".banner-error p.error")?.innerHTML).toBe("Prod: boom; Beta: bang");
+	const lines = [...root.querySelectorAll(".row-diagnostic")];
+	expect(lines.length).toBe(2);
+	// The readable half leads; the wire detail sits beneath it, dimmed, still
+	// selectable for an issue report.
+	expect(lines[0]?.querySelector(".row-diagnostic-headline")?.textContent).toContain(
+		"The server could not be reached."
+	);
+	expect(lines[0]?.querySelector(".row-diagnostic-detail")?.textContent).toBe(
+		"GET http://prod.test/v1/models: ETIMEDOUT"
+	);
+	// There are no separators left to dangle: each row owns its line, which is
+	// the whole reason the joined banner went away.
+	expect(root.textContent).not.toContain("; Beta");
+	expect(lines[1]?.textContent).toContain("bang");
+	// A one-part error grows no empty detail line.
+	expect(lines[1]?.querySelector(".row-diagnostic-detail")).toBeNull();
 });
 
-test("mixed expected banner: the (expected) frame carries the headline, the detail rides beneath", () => {
+test("an expected two-part failure keeps its detail beneath its own headline", () => {
 	const root = mountServers([
 		makeDeclaredServer({
 			label: "Alpha",
@@ -121,11 +123,14 @@ test("mixed expected banner: the (expected) frame carries the headline, the deta
 		}),
 		makeDeclaredServer({ label: "Beta", baseUrl: "http://beta.test", state: "error", error: "quiet", expected: true }),
 	]);
-	const banner = root.querySelector(".banner-warn p.state-warn");
-	expect(banner?.textContent).toContain("Alpha: Discovery is declared unavailable. (expected)");
-	expect(banner?.querySelector(".failure-detail")?.textContent).toBe("GET http://alpha.test/v1/models: 404");
-	expect(banner?.textContent).not.toContain("; Beta");
-	expect(banner?.textContent).toContain("Beta: quiet (expected)");
+	const lines = [...root.querySelectorAll(".row-diagnostic")];
+	expect(lines.length).toBe(2);
+	// An expected failure still says what the server said - the reader who
+	// configured this months ago should not have to remember why.
+	expect(lines[0]?.textContent).toContain("Discovery is declared unavailable.");
+	expect(lines[0]?.querySelector(".row-diagnostic-detail")?.textContent).toBe("GET http://alpha.test/v1/models: 404");
+	expect(root.textContent).not.toContain("; Beta");
+	expect(lines[1]?.textContent).toContain("quiet");
 });
 
 test("the diagnostics grid splits a two-part server error instead of collapsing it", () => {

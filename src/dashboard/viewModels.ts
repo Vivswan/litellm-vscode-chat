@@ -254,7 +254,6 @@ export type DashboardServer = DashboardServerBase &
  */
 export type DeclaredDashboardServer = Extract<DashboardServer, { origin: "declared" }>;
 export type ExternalDashboardServer = Extract<DashboardServer, { origin: "external" }>;
-export type MisconfiguredDashboardServer = Extract<DashboardServer, { origin: "misconfigured" }>;
 
 /** One registered model, reduced to display facts. Costs are USD per million tokens, as registration converted them. */
 export interface DashboardModel {

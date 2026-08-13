@@ -124,7 +124,7 @@ test("five rail items in reading order, servers selected by default, and panels 
 	}
 });
 
-test("servers and models are separate destinations, each holding only its own table", () => {
+test("servers and models are separate destinations, each holding only its own list", () => {
 	// They are one workflow, but sharing a page cost more than it bought: a rail
 	// item could only count one of its two nouns, and the models table had to
 	// virtualize into an inner scrollport with a height budget tuned against
@@ -132,10 +132,10 @@ test("servers and models are separate destinations, each holding only its own ta
 	const root = mountApp();
 	const servers = panel(root, "overview");
 	const models = panel(root, "models");
-	expect(servers.querySelector("table.servers")).not.toBeNull();
+	expect(servers.querySelector("ul.server-list")).not.toBeNull();
 	expect(servers.querySelector("table.models")).toBeNull();
 	expect(models.querySelector("#models-section table.models")).not.toBeNull();
-	expect(models.querySelector("table.servers")).toBeNull();
+	expect(models.querySelector("ul.server-list")).toBeNull();
 });
 
 test("a server's model count navigates to Models filtered to that server", () => {
@@ -143,7 +143,7 @@ test("a server's model count navigates to Models filtered to that server", () =>
 	// navigate, carry the filter, and move focus - otherwise Tab continues from
 	// a link on a panel that is no longer visible.
 	const root = mountApp();
-	const countLink = panel(root, "overview").querySelector("table.servers .count-link") as HTMLElement | null;
+	const countLink = panel(root, "overview").querySelector(".server-list .count-link") as HTMLElement | null;
 	expect(countLink).not.toBeNull();
 	fireClick(countLink as HTMLElement);
 	expect(tab(root, "Models").getAttribute("aria-selected")).toBe("true");

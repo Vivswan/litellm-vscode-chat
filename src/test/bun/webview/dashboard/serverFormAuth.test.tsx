@@ -114,7 +114,7 @@ test("a misconfigured row shows the Misconfigured pill, swaps Edit for Fix in se
 	expect(pills).toContain("Misconfigured");
 
 	const firstRowActions = Array.from(
-		root.querySelectorAll("tbody tr")[0]?.querySelectorAll("td.actions button") ?? []
+		root.querySelectorAll(".server-item")[0]?.querySelectorAll(".server-actions button") ?? []
 	).map((el) => (el.textContent ?? "").trim());
 	expect(firstRowActions).toEqual(["Fix in settings.json", "Remove"]);
 
@@ -122,13 +122,17 @@ test("a misconfigured row shows the Misconfigured pill, swaps Edit for Fix in se
 	fireClick(buttonByText(root, "Fix in settings.json"));
 	expect(postedCalls()).toEqual([{ method: "revealSetting", payload: { setting: "servers" } }]);
 
-	// Its problems render in the misconfigured banner, not the generic error
-	// banner (which this state has no member for), with the one-form hint.
-	const banners = Array.from(root.querySelectorAll(".banner-error"));
-	expect(banners.length).toBe(1);
-	expect(banners[0]?.textContent).toContain("Broken: this entry is invalid and not used until fixed");
-	expect(banners[0]?.textContent).toContain(broken.problems[0] ?? "");
-	expect(banners[0]?.textContent).toContain("Keep exactly one auth form per entry");
+	// Its problems render under its own row, and only its row: the healthy
+	// sibling stays clean. Blocking, because the entry is switched off - the
+	// consequence leads, and the parser's report follows as the detail.
+	const lines = Array.from(root.querySelectorAll(".row-diagnostic"));
+	expect(lines.length).toBe(1);
+	expect(lines[0]?.classList.contains("sev-blocking")).toBe(true);
+	expect(lines[0]?.textContent).toContain("Broken is switched off");
+	expect(lines[0]?.textContent).toContain(broken.problems[0] ?? "");
+	// The row it belongs to, not the one below it.
+	expect(root.querySelectorAll(".server-item")[0]?.querySelector(".row-diagnostic")).not.toBeNull();
+	expect(root.querySelectorAll(".server-item")[1]?.querySelector(".row-diagnostic")).toBeNull();
 
 	// The two-step remove posts removeServerSetting by label, like a declared row.
 	resetPosted();

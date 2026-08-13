@@ -225,14 +225,14 @@ test("the server form links the entry-fields section of the servers guide", () =
 	docsLinkIn(heading, DOCS_LINK_SERVER_FORM, "Open the server fields guide");
 });
 
-test("the params-inactive banner links the troubleshooting remedy", () => {
+test("the params-inactive line links the troubleshooting remedy", () => {
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod", notices: ["entry-params-inactive"] })] }))
 	);
 
-	const banner = root.querySelector(".banner-warn");
-	const anchor = docsLinkIn(banner, DOCS_LINK_PARAMS_INACTIVE, "Learn more in the troubleshooting guide");
+	const line = root.querySelector(".row-diagnostic");
+	const anchor = docsLinkIn(line, DOCS_LINK_PARAMS_INACTIVE, "Learn more in the troubleshooting guide");
 	// Visible text too: inside prose the icon alone would be too quiet.
 	expect(anchor.textContent).toContain("Learn more");
 });
