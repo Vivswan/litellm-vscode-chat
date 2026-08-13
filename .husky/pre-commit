@@ -31,8 +31,14 @@ if (tM > eM || (tM === eM && tm > em)) {
 # Run linting
 bun run lint
 
-# Type-check the bun-run helper scripts (not covered by compile)
-bunx tsc --noEmit -p tsconfig.scripts.json
+# Type-check every tsconfig project. NOT just the helper scripts, and not just
+# what `compile` covers: `compile` builds the ROOT project alone, so a type
+# error anywhere in src/webview (the dashboard) or src/test/bun passed this hook
+# and every local check that looked like typechecking, and was caught only by
+# CI. That is how a deterministic error reached main three commits running.
+# Runs before the tests because it costs about seven seconds against their
+# minutes, and a type error should not wait behind a suite that cannot pass.
+bun run typecheck
 
 # Localization gate: bundle extraction drift and translation-file parity
 bun run l10n:check

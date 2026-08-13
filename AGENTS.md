@@ -82,7 +82,12 @@ bun run dev                # Extension Development Host preconfigured against th
 
 ### Validation expectations for agents
 
-- After TypeScript changes: `bun run compile`; when scripts/ changed, `bun run typecheck`.
+- After ANY TypeScript change: `bun run typecheck`. It covers all four tsconfig
+  projects; `bun run compile` builds only the root one, so a type error in
+  `src/webview/` or `src/test/bun/` passes compile and fails CI. `lint:types` is
+  eslint and typechecks nothing - the names are misleading and have cost a
+  red main. The pre-commit hook runs typecheck too, so this is a fast local
+  echo of the gate rather than an extra obligation.
 - After source or test changes: `bun run lint`, `bun run lint:types`, `bun run lint:knip`, and the relevant tests. After workflow changes: `bun run lint:actions`.
 - Never launch VS Code or any GUI for verification; humans test interactively (`F5` or `bun run dev`).
 
@@ -115,7 +120,7 @@ Workflow: after adding or changing localized strings, `bun run l10n:extract` reg
 
 ### Repository conventions
 
-- Biome formats and lints: tabs (width 2), semicolons, 120-char lines. Husky pre-commit runs format, lint, actionlint, scripts typecheck, and the unit and capture host-fidelity suites; `biome check --write` applies to staged JS/TS files only (via lint-staged, which re-stages its fixes and aborts on unfixable issues), so unstaged sibling edits are left alone, while lints and tests still run against the working tree.
+- Biome formats and lints: tabs (width 2), semicolons, 120-char lines. Husky pre-commit runs format, lint, actionlint, `typecheck` (all four tsconfig projects), the localization gate, and the unit and capture host-fidelity suites; `biome check --write` applies to staged JS/TS files only (via lint-staged, which re-stages its fixes and aborts on unfixable issues), so unstaged sibling edits are left alone, while lints and tests still run against the working tree.
 - release-please manages versioning and Marketplace publishing from Conventional Commit titles. Never bump `package.json` manually.
 - A commit that resolves a community-reported issue or supersedes a community PR credits the author in its subject, e.g. `fix: normalize base URL slashes (#53, thanks @Pandaplanes)` - release-please copies the subject into the changelog, so the credit ships with the release. Commits that land or supersede community CODE also carry a human `Co-authored-by:` trailer and a row in `ACKNOWLEDGMENTS.md`.
 - No AI/tool attribution in commits or PRs: no "Generated with", no "Co-Authored-By: Claude/Copilot/Codex" or similar. `Co-authored-by:` trailers for human community contributors are the one sanctioned use.
