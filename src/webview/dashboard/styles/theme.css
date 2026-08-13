@@ -411,7 +411,11 @@ html:where(:not(:has(body.vscode-high-contrast, body.vscode-high-contrast-light)
 		--vscode-settings-modifiedItemIndicator: #bb800966 !important;
 		--vscode-statusBarItem-errorBackground: #c72e0f !important;
 		--vscode-statusBarItem-errorForeground: #ffffff !important;
-		--vscode-testing-iconPassed: #73c991 !important;
+		/* The workbench registry's LIGHT value, not the dark one: #73c991 is a
+			 green for dark surfaces and lands at about 2:1 on #ffffff, so a forced
+			 light theme used to paint every ok state - status dots, spend meters -
+			 in a green you have to hunt for. */
+		--vscode-testing-iconPassed: #007100 !important;
 		--vscode-textBlockQuote-background: #f8f8f8 !important;
 		--vscode-textCodeBlock-background: #f8f8f8 !important;
 		--vscode-textLink-activeForeground: #005fb8 !important;

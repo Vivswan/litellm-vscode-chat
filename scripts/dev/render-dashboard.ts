@@ -202,7 +202,7 @@ function lightCss(): string {
 		--vscode-errorForeground: #f85149;
 		--vscode-editorWarning-foreground: #bf8803;
 		--vscode-notificationsWarningIcon-foreground: #bf8803;
-		--vscode-testing-iconPassed: #73c991;
+		--vscode-testing-iconPassed: #007100;
 		--vscode-charts-green: #388a34;
 		--vscode-charts-yellow: #bf8803;
 		--vscode-list-hoverBackground: #f2f2f2;
