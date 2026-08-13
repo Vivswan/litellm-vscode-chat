@@ -138,7 +138,9 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 	// rejectsWithOwnRow rule buildServers draws by, so the Diagnostics
 	// destination can drop exactly the problems a row already states without
 	// spelling that rule a second time.
-	const drawnRows = new Set(rejectsWithOwnRow(input.entryReports, input.declared));
+	// Keyed by the report's own index, never by object identity: the rule
+	// returns narrowed copies, and a Set of those would match nothing here.
+	const drawnRows = new Set(rejectsWithOwnRow(input.entryReports, input.declared).map((report) => report.index));
 	for (const report of input.entryReports) {
 		if (report.problems.length > 0) {
 			diagnostics.push({
@@ -147,7 +149,7 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 				position: report.index + 1,
 				problems: report.problems,
 				misconfigured: !report.accepted,
-				rowOwned: drawnRows.has(report),
+				rowOwned: drawnRows.has(report.index),
 				severity: "warning",
 			});
 		}

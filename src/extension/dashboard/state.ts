@@ -324,6 +324,9 @@ function declaredOutcome(
  * states it instead) and contributes no models, and the remaining external
  * rows carry their recorded provenance classification when one exists.
  */
+/** A rejected entry that has the identity a row needs: both fields narrowed, so no call site defaults them. */
+export type DrawableReject = ServerEntryReport & { readonly label: string; readonly baseUrl: string };
+
 /**
  * The rejected servers-setting entries that earn a row of their own, in
  * setting order.
@@ -341,10 +344,10 @@ function declaredOutcome(
 export function rejectsWithOwnRow(
 	entryReports: readonly ServerEntryReport[],
 	declared: readonly Pick<DeclaredServerView, "label">[]
-): readonly ServerEntryReport[] {
+): readonly DrawableReject[] {
 	const declaredLabels = new Set(declared.map((view) => view.label));
 	const drawn = new Set<string>();
-	const rows: ServerEntryReport[] = [];
+	const rows: DrawableReject[] = [];
 	for (const report of entryReports) {
 		if (
 			report.accepted ||
@@ -356,7 +359,7 @@ export function rejectsWithOwnRow(
 			continue;
 		}
 		drawn.add(report.label);
-		rows.push(report);
+		rows.push({ ...report, label: report.label, baseUrl: report.baseUrl });
 	}
 	return rows;
 }
@@ -493,8 +496,8 @@ function buildServers(
 	// problems a row already states, and which they are the only report of.
 	for (const report of rejectsWithOwnRow(entryReports, declared)) {
 		servers.push({
-			label: report.label ?? "",
-			baseUrl: report.baseUrl ?? "",
+			label: report.label,
+			baseUrl: report.baseUrl,
 			modelCount: 0,
 			hasApiKey: false,
 			hasOAuth: false,
