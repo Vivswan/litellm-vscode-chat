@@ -2346,8 +2346,16 @@
 	}
 	/* Below the width where two input tracks stay usable, rows stack back to
 		   the panel-column layout and the column heads regroup into one legend
-		   line (the help glyphs must survive the stacking). */
-	@container pane (max-width: 700px) {
+		   line (the help glyphs must survive the stacking).
+
+		   Range syntax rather than max-width, deliberately: Tailwind compiles the
+		   components' `@max-[700px]/pane:` variants to `not (min-width: 700px)`,
+		   which is `< 700`, while `max-width: 700px` is `<= 700`. The server form
+		   pairs its own variants with this rule, so at exactly 700px of pane the
+		   two would disagree and the page would stack in halves. The sibling
+		   rules below still read `max-width` because no Tailwind variant pairs
+		   with 560, 620 or 780 - there is nothing for them to disagree with. */
+	@container pane (width < 700px) {
 		/* Below the width where two input tracks stay usable, every panel's
 			   key/value rows stack to one column - the server form's header rows
 			   follow the same threshold as the matcher editor's field rows. */
