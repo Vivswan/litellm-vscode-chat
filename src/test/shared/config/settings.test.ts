@@ -1,5 +1,13 @@
 import * as assert from "node:assert";
 import {
+	DEFAULT_UI_ACCENT,
+	DEFAULT_UI_THEME,
+	UI_ACCENT_SETTING_KEY,
+	UI_ACCENTS,
+	UI_THEME_SETTING_KEY,
+	UI_THEMES,
+} from "../../../shared/config/settingSpec";
+import {
 	DEFAULT_DISCOVERY_CACHE_TTL_MS,
 	DEFAULT_DISCOVERY_TIMEOUT_MS,
 	DEFAULT_REQUEST_TIMEOUT_MS,
@@ -7,12 +15,16 @@ import {
 	getDiscoveryTimeout,
 	getModelCapabilitiesConfig,
 	getRequestTimeout,
+	getUiAccent,
+	getUiTheme,
 	getUsagePollIntervalMs,
 	MIN_TIMEOUT_MS,
 	MIN_USAGE_POLL_INTERVAL_MS,
 	MODEL_CAPABILITIES_SETTING_KEY,
 	normalizeCustomHeaders,
 	normalizeModelCapabilities,
+	normalizeUiAccent,
+	normalizeUiTheme,
 } from "../../../shared/config/settings";
 import { expectDefined } from "../../pureHelpers";
 import { withConfig } from "../../testUtils";
@@ -215,6 +227,36 @@ suite("shared/config/settings getUsagePollIntervalMs", () => {
 		});
 		await withConfig({ "usage.pollInterval": 600000 }, () => {
 			assert.strictEqual(getUsagePollIntervalMs(), 600000);
+		});
+	});
+});
+
+suite("shared/config/settings appearance getters", () => {
+	test("a junk settings.json appearance value reads as the default, whatever kind it is", () => {
+		// The dashboard restamps the root element from these two on every state
+		// push, so a hand-edited settings.json holding a typo, a number, or null
+		// must not reach the webview as a data-theme nobody styles.
+		for (const junk of ["Dark", "", "system", 3, null, undefined, {}, ["dark"]]) {
+			assert.strictEqual(normalizeUiTheme(junk), DEFAULT_UI_THEME, JSON.stringify(junk) ?? "undefined");
+			assert.strictEqual(normalizeUiAccent(junk), DEFAULT_UI_ACCENT, JSON.stringify(junk) ?? "undefined");
+		}
+		// Every member of the vocabulary passes through untouched.
+		for (const theme of UI_THEMES) {
+			assert.strictEqual(normalizeUiTheme(theme), theme);
+		}
+		for (const accent of UI_ACCENTS) {
+			assert.strictEqual(normalizeUiAccent(accent), accent);
+		}
+	});
+
+	test("the getters read their settings through the normalizer", async () => {
+		await withConfig({ [UI_THEME_SETTING_KEY]: "light", [UI_ACCENT_SETTING_KEY]: "teal" }, () => {
+			assert.strictEqual(getUiTheme(), "light");
+			assert.strictEqual(getUiAccent(), "teal");
+		});
+		await withConfig({ [UI_THEME_SETTING_KEY]: "solarized", [UI_ACCENT_SETTING_KEY]: 7 }, () => {
+			assert.strictEqual(getUiTheme(), DEFAULT_UI_THEME);
+			assert.strictEqual(getUiAccent(), DEFAULT_UI_ACCENT);
 		});
 	});
 });
