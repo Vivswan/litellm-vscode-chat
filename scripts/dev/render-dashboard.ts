@@ -603,10 +603,43 @@ async function main(): Promise<void> {
 			console.warn("warning: no <main> h1 found; the page is likely still on the loading skeleton");
 		}
 
+		const captureBeyondViewport = values["clip-viewport"] !== true;
 		await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+		if (captureBeyondViewport) {
+			// Pin the scroll offset, then let two frames settle under the final
+			// viewport metrics. A full-page capture photographs the whole
+			// document through the fixture's small viewport, and a
+			// position: sticky element paints where the CURRENT offset puts it -
+			// so the tab bar lands wherever a step's scrollIntoView resolved to.
+			// That offset is not stable: layout is still settling around it (the
+			// models table re-measures row height after paint), so the same bytes
+			// photograph differently run to run. At offset 0 a sticky element is
+			// unstuck and coincides with its flow position, which no later
+			// relayout or viewport expansion can move - a fixpoint rather than a
+			// narrower race. Only the full-page path wants this: --clip-viewport
+			// exists to photograph exactly what the fixture scrolled to.
+			await evaluate(cdp, "window.scrollTo(0, 0)");
+			await evaluate(cdp, "new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))", true);
+			// The pin only reaches the document scroller. An inner one left
+			// scrolled (a windowed table, a slide-over) would keep its own sticky
+			// children racing, so fail loudly rather than photograph a surprise.
+			const stray = (await evaluate(
+				cdp,
+				`(() => {
+					if (window.scrollY !== 0) { return "document at " + window.scrollY; }
+					for (const node of document.querySelectorAll("*")) {
+						if (node.scrollTop > 0) { return node.tagName + "." + node.className + " at " + node.scrollTop; }
+					}
+					return null;
+				})()`
+			)) as string | null;
+			if (stray !== null) {
+				throw new Error(`Scroll offset survived the pre-capture pin (${stray}); the render would not be reproducible`);
+			}
+		}
 		const shot = (await cdp.send("Page.captureScreenshot", {
 			format: "png",
-			captureBeyondViewport: values["clip-viewport"] !== true,
+			captureBeyondViewport,
 		})) as { data?: string };
 		if (typeof shot.data !== "string" || shot.data.length === 0) {
 			throw new Error("Page.captureScreenshot returned no data");
