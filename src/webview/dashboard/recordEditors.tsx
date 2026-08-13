@@ -2341,11 +2341,18 @@ export function RecordMatcherTable({
 						    happened and the words stay readable - but it is a floor with no
 						    responsive escape, so a narrow pane cannot get under it.
 
-						    One dormant consequence: `.slide-over .chip-list` in dashboard.css
-						    exists to stop a chip popover clipping at a panel's left edge, and
-						    nothing renders this table inside a slide-over today. If one ever
-						    does, this floor lets the popover's containing block exceed the
-						    panel width and re-opens exactly what that rule prevents. */}
+						    One dormant consequence: dashboard.css used to carry a slide-over
+						    adaptation for this list (a relative `.chip-list` as the chip
+						    popover's containing block, so the popover could not clip past a
+						    panel's left edge - clipped there it is unreachable, overflow
+						    only scrolls rightward). It was deleted as dead during the layer
+						    merge: nothing renders this table inside a slide-over. If a panel
+						    ever hosts it again, the adaptation must be REBUILT, not
+						    un-deleted, and it has two hazards to answer: this floor lets the
+						    popover's containing block outgrow the panel and re-opens the
+						    clipping, and a static anchor with no relatively positioned
+						    ancestor resolves the popover against the FIXED panel itself, so
+						    `top: 100%` drops it past the panel's bottom edge. */}
 						<span className="chip-list flex min-w-min flex-1 flex-wrap items-baseline gap-x-2 gap-y-1">
 							{chips.map((rowIndex) => {
 								const row = group.params[rowIndex];

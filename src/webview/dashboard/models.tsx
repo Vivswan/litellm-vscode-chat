@@ -663,7 +663,7 @@ export function ModelsSection({
 								return (
 									<li
 										key={position}
-										className={isOpen ? "model-row is-open" : "model-row"}
+										className={isOpen ? "model-row is-open group/row" : "model-row group/row"}
 										{...(windowed ? { "aria-setsize": sorted.length, "aria-posinset": position + 1 } : {})}
 									>
 										<div className="model-row-line">
@@ -725,15 +725,33 @@ export function ModelsSection({
 											<span className="model-row-actions">
 												{/* The server label keeps the accessible name unique when one
 												    raw ID is registered through several servers. */}
-												<Button
-													variant="secondary"
-													size="compact"
-													className="icon-action"
-													aria-label={l10n.t("Copy model ID {0} from {1}", model.id, model.serverLabel)}
-													onClick={() => copyId(model, rowId)}
-												>
-													{copied === rowId ? <IconCheck /> : <IconCopy />}
-												</Button>
+												{/* The hover-reveal lives on this WRAPPER, never on the Button:
+												    Button's base carries disabled:opacity-60/aria-disabled:opacity-60,
+												    whose emitted selectors (class plus pseudo-class or attribute)
+												    outrank a bare opacity-0 on specificity - on one element the
+												    disabled states win deterministically, so a disabled copy button
+												    would paint at 60% in a RESTING row instead of staying hidden.
+												    On the wrapper the two opacities multiply instead of competing.
+												    Reveal is a container concern (the container is the row, the
+												    group/row above); disabled is the widget's own. Opacity, not
+												    visibility, keeps the button in the Tab order, and the wrapper
+												    carries its own transition because Button's cannot animate a
+												    property that changes on its parent. The @max-[560px]/pane
+												    variant keeps the action painted where hover does not exist
+												    (touch, narrow panes), keyed to the stylesheet's 560px tier
+												    with the same exclusive `width < 560px` semantics - it
+												    replaces the deleted inclusive query outright rather than
+												    pairing with a surviving rule. */}
+												<span className="opacity-0 transition-opacity duration-[120ms] ease-out group-hover/row:opacity-100 group-focus-within/row:opacity-100 @max-[560px]/pane:opacity-100 motion-reduce:transition-none">
+													<Button
+														variant="secondary"
+														size="compact"
+														aria-label={l10n.t("Copy model ID {0} from {1}", model.id, model.serverLabel)}
+														onClick={() => copyId(model, rowId)}
+													>
+														{copied === rowId ? <IconCheck /> : <IconCopy />}
+													</Button>
+												</span>
 												{/* Visible at rest rather than inside the detail: it is the
 												    inspector's only entry point on this row, and burying it
 												    one disclosure deep would cost every reader a click to

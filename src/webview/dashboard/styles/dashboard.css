@@ -1,13 +1,26 @@
-/* All styling uses the host's theme tokens (var(--vscode-*)) so the dashboard
-	 follows every color theme without shipping a framework. The layout runs on
-	 an 8px rhythm; motion is limited to sub-150ms hover transitions.
+/* The dashboard's own rules, all in the `components` cascade layer theme.css
+	 declares below `utilities`: a Tailwind utility on an element always beats
+	 anything here, regardless of specificity. Every rule reads the host's theme
+	 tokens (var(--vscode-*)) so the dashboard follows every color theme without
+	 shipping a framework; the layout runs on an 8px rhythm and motion is
+	 limited to sub-150ms hover transitions.
 
-	 Everything here sits in the legacy cascade layer, ranked below the Tailwind
-	 utilities theme.css declares: a utility on an element always beats these
-	 rules. The file shrinks as components move onto the token theme and is
-	 deleted once the last one does. */
+	 ORDER INSIDE THE FILE IS LOAD-BEARING. One flat layer settles every
+	 equal-specificity argument by source order alone, and this file relies on
+	 that twice over:
+	 - the narrow-width overrides (the tail of the file, from "The narrow
+		 rules" banner down) come AFTER every full-width rule they override;
+		 several selectors (.server-actions, .slide-over, .server-name, ...) are
+		 deliberately written in both regions, and moving a narrow block above
+		 its full-width counterpart silently hands the argument back to the wide
+		 rule;
+	 - within that tail, the full-width additions at its head stay BEFORE the
+		 narrow query blocks that re-place them (appended after the folds once,
+		 the placements beat the folds and twelve of eighteen renders changed).
+	 Add new full-width rules above the banner, new narrow overrides at the
+	 end, and keep an edit with the rule it edits. */
 
-@layer legacy {
+@layer components {
 	body {
 		color: var(--vscode-foreground);
 		font-family: var(--vscode-font-family);
@@ -459,20 +472,6 @@
 	}
 	.sort-arrow.desc {
 		transform: rotate(180deg);
-	}
-	/* Per-row icon actions surface on the row's hover or when focus is inside
-		   it; opacity (not visibility) keeps them in the Tab order throughout.
-		   The fade itself rides on Button's transition utility, which names
-		   opacity for exactly this. */
-	button.icon-action {
-		opacity: 0;
-	}
-	.model-row:hover button.icon-action,
-	.model-row:focus-within button.icon-action,
-	tr:hover button.icon-action,
-	tr:focus-within button.icon-action,
-	button.icon-action:focus-visible {
-		opacity: 1;
 	}
 	/* A server row's model count doubling as the jump into the models
 		   destination: keeps the numeric look, with a dotted underline as the only
@@ -954,9 +953,6 @@
 	}
 	.state-warn {
 		color: var(--warn-text);
-	}
-	.state-muted {
-		color: var(--vscode-descriptionForeground);
 	}
 
 	/* The record field-row grid: since the table redesign these rows render
@@ -1644,11 +1640,6 @@
 		display: block;
 		margin-top: 2px;
 	}
-	/* A failed server entry's inline troubleshooting link: the label and its
-		   external-link icon stay together mid-sentence in the joined banner. */
-	.banner-hint {
-		white-space: nowrap;
-	}
 	/* The discard confirm pins to the panel's bottom edge so it is in view
 		   wherever the Esc that raised it was pressed. */
 	.discard-confirm {
@@ -1724,10 +1715,6 @@
 	.banner-error,
 	.banner-error .error {
 		color: var(--err-text);
-	}
-	.banner-warn {
-		border-color: var(--vscode-inputValidation-warningBorder, var(--vscode-editorWarning-foreground));
-		background: var(--vscode-inputValidation-warningBackground, transparent);
 	}
 
 	/* Success toasts: bottom-right like the host's own notifications,
@@ -1911,11 +1898,6 @@
 		.model-line-2 .model-limits,
 		.model-line-2 .model-limits + .model-sep {
 			display: none;
-		}
-	}
-	@container pane (max-width: 560px) {
-		.model-row-actions button.icon-action {
-			opacity: 1;
 		}
 	}
 
@@ -2175,24 +2157,15 @@
 		   edge. Putting them in flow was tried and reverted - the popover then
 		   outgrew both edges and was clipped bodily instead, which is worse
 		   than a floating list. They need their own bound, not this one. */
-	/* Inside a slide-over panel the popover anchors to the fields CELL, not
-		   the chip: a chip-anchored 300px popover can fall past either panel
-		   edge, and content clipped past the panel's left edge is
-		   unreachable (overflow only scrolls rightward). */
-	.slide-over .chip-list {
-		position: relative;
-	}
-	.slide-over .chip-anchor {
-		position: static;
-	}
-	.slide-over .chip-popover,
-	.slide-over .chip-popover.align-end {
-		left: 0;
-		right: auto;
-		min-width: 0;
-		width: max-content;
-		max-width: 100%;
-	}
+	/* A slide-over adaptation used to live here: a relative .chip-list as the
+		   popover's containing block, a static .chip-anchor opting out of the
+		   anchor, and left-anchored width caps on the popover, together keeping
+		   a chip popover clear of a panel's left edge (clipped there it is
+		   unreachable - overflow only scrolls rightward). Deleted as dead:
+		   nothing renders the record matcher table inside a slide-over. If a
+		   panel ever hosts it again, REBUILD the adaptation rather than
+		   restoring the old rules - the chip-list note in recordEditors.tsx
+		   names the two hazards a rebuild must answer. */
 	.chip-popover input.value,
 	.chip-popover input.key {
 		width: 100%;
@@ -2443,40 +2416,40 @@
 		background: var(--vscode-editor-background, var(--vscode-panel-background));
 		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
 	}
-}
 
-/* ===========================================================================
-   The narrow layer: what the dashboard does when its pane is not wide.
+	/* =========================================================================
+		 The narrow rules: what the dashboard does when its pane is not wide.
 
-   Its own layer, above `legacy`, for two reasons. The first is the rule of the
-   house - new designed CSS is written into `components`, and the legacy block
-   is scheduled for wholesale deletion, so anything left in it either dies or
-   becomes somebody else's migration. The second is that these rules have to
-   WIN: every one of them exists to override a full-width rule below, and while
-   they sat in the same flat layer that argument was settled by source order
-   alone. It was settled wrongly three times - the footer's centring, the
-   verdict dot's size and the slide-over's width all read correctly in the
-   stylesheet and did nothing on screen. A layer says what the order was only
-   implying.
+		 Everything from here down exists to override or complete a full-width
+		 rule above it, and in one flat layer that argument is settled by source
+		 order alone: at equal specificity the later rule wins. That is why this
+		 region sits at the END of the file. While these rules lived higher up,
+		 the argument was settled wrongly three times - the footer's centring,
+		 the verdict dot's size and the slide-over's width all read correctly in
+		 the stylesheet and did nothing on screen.
 
-   What is NOT here: edits to rules that already existed (a base rule gaining a
-   min-width, a flex direction, a wrap). Those belong to the rule they change
-   and go with it whenever it goes.
+		 Order matters INSIDE the region too: the full-width additions directly
+		 below stay before the query blocks that re-place or flip them at narrow
+		 widths. Appended after the folds instead, the placements won at equal
+		 specificity and the fold stopped folding - twelve of eighteen renders
+		 changed.
 
-   One limit, because the layer does not lift it: utilities still beat this.
-   Where a component sets a property through a Tailwind class - a row's
-   grid-template-columns, most often - the matching value has to live in that
-   component's own class list, and only the placements live here. Each such
-   pair is keyed to the same width, and spelled as a range so the two agree
-   with the exclusive semantics Tailwind compiles max-width variants to.
-   =========================================================================== */
-@layer components {
-	/* ---- what the redesign added beside the rules it changed --------------
-		 New selectors, not edits: they sit next to full-width rules in the legacy
-		 block because that is where they read, but they are this design's own and
-		 the legacy sweep would take them with it - and taking them would show the
-		 rail's icons at full width, unplace every cell of a server row, and give
-		 the status dots back their forced-colors blindness. */
+		 What is NOT here: edits to rules that already existed (a base rule
+		 gaining a min-width, a flex direction, a wrap). Those belong to the
+		 rule they change and go with it whenever it goes.
+
+		 One limit: utilities still beat this file. Where a component sets a
+		 property through a Tailwind class - a row's grid-template-columns, most
+		 often - the matching value has to live in that component's own class
+		 list, and only the placements live here. Each such pair is keyed to the
+		 same width, and spelled as a range so the two agree with the exclusive
+		 semantics Tailwind compiles max-width variants to.
+		 ========================================================================= */
+	/* ---- full-width rules the narrow blocks below re-place or flip ---------
+		 These stay ABOVE the query blocks: each fold overrides them at equal
+		 specificity, so it only wins by coming later. Losing that order shows
+		 the rail's icons at full width, unplaces every cell of a server row,
+		 and blinds the status dots under forced colors. */
 	/* The destination icons only paint once the rail collapses; at full width
 	 the label is the item and an icon beside it would be decoration. */
 	.rail-icon {

@@ -21,10 +21,10 @@
  * `width < N` while `@container pane (max-width: N)` is `<= N`, so a rule and
  * the utility it PAIRS with disagree at exactly N - a one-pixel band where a row
  * takes half of each layout. Every pair here is spelled exclusively on both
- * sides for that reason. Two numbers (620, 560) are also spelled inclusively
- * elsewhere in the sheet for unrelated surfaces, which is harmless - a models
- * rule and a usage utility never meet - and is why this is a rule for authors
- * rather than an assertion.
+ * sides for that reason. One number (620) is also spelled inclusively
+ * elsewhere in the sheet for an unrelated surface (the model row's limits
+ * drop), which is harmless - a models rule and a usage utility never meet -
+ * and is why this is a rule for authors rather than an assertion.
  */
 
 import { expect, test } from "bun:test";

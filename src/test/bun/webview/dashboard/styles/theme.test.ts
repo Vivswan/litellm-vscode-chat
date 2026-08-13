@@ -4,7 +4,7 @@ import path from "node:path";
 
 const stylesDir = path.resolve(import.meta.dir, "../../../../../webview/dashboard/styles");
 const themeEntry = path.join(stylesDir, "theme.css");
-const legacyEntry = path.join(stylesDir, "dashboard.css");
+const dashboardEntry = path.join(stylesDir, "dashboard.css");
 
 /**
  * Load-bearing utilities the ui components consume: each one must compile
@@ -67,6 +67,16 @@ const REQUIRED_UTILITIES = [
 	"sr-only",
 	"has-[:checked]:outline-foreground",
 	"forced-color-adjust-none",
+	// The copy action's reveal wrapper (models.tsx): the whole class set,
+	// because the reveal is invisible to the component suites (happy-dom
+	// runs no cascade) and a scan regression would strand the copy button
+	// hidden forever - or painted forever - with every test green.
+	"opacity-0",
+	"transition-opacity",
+	"motion-reduce:transition-none",
+	"group-hover/row:opacity-100",
+	"group-focus-within/row:opacity-100",
+	"@max-[560px]/pane:opacity-100",
 ] as const;
 
 /** A utility name as it appears escaped in a compiled selector. */
@@ -109,28 +119,76 @@ test("the palette and radius resets keep Tailwind's defaults unreachable", async
 	expect(output).not.toMatch(/border-radius:\s*[\d.]+rem/);
 });
 
-test("the cascade puts legacy below components and utilities", async () => {
+test("the cascade puts the dashboard stylesheet below utilities", async () => {
 	// The order declaration lives in theme.css and the wrap in dashboard.css;
-	// together they are the contract that a utility always beats a legacy rule.
-	expect(readFileSync(themeEntry, "utf8")).toContain("@layer theme, base, legacy, components, utilities;");
-	expect(readFileSync(legacyEntry, "utf8")).toContain("@layer legacy {");
+	// together they are the contract that a utility always beats a stylesheet
+	// rule. There is exactly ONE layer wrap: the dashboard rules are one flat
+	// layer whose internal order is load-bearing (the narrow overrides at the
+	// file's tail win their equal-specificity arguments by coming later).
+	expect(readFileSync(themeEntry, "utf8")).toContain("@layer theme, base, components, utilities;");
+	const dashboard = readFileSync(dashboardEntry, "utf8");
+	expect(dashboard).toContain("@layer components {");
+	expect([...dashboard.matchAll(/@layer/g)]).toHaveLength(1);
 });
 
-test("no minted utility collides with a class the legacy stylesheet styles", async () => {
+test("source order keeps every narrow override after the full-width rule it beats", () => {
+	// The dashboard stylesheet is one flat layer, so every equal-specificity,
+	// same-property argument is settled by source order alone - the file's
+	// header calls that ordering load-bearing, and this is the assertion
+	// behind the comment. Each pair below is an argument that was settled
+	// wrongly at least once (the rail's collapse, the slide-over's narrow
+	// width, the server actions' always-painted fold, the rail icons, a
+	// folded row's placement): the base spelling must precede the override,
+	// or the override silently loses at exactly the width it exists for.
+	// Anchors are asserted UNIQUE declaration texts, so a reworded or
+	// duplicated rule fails loudly here instead of quietly unpinning the
+	// guard, and every override must also fall below the banner that divides
+	// the full-width region from the narrow tail.
+	const sheet = readFileSync(dashboardEntry, "utf8");
+	// One banner divides the full-width region from the narrow tail.
+	const bannerAt = sheet.indexOf("The narrow rules: what the dashboard does");
+	expect(bannerAt).toBeGreaterThan(-1);
+	expect(sheet.indexOf("The narrow rules", bannerAt + 1)).toBe(-1);
+	const pairs: readonly (readonly [string, string])[] = [
+		// the rail's full width, then its collapsed width
+		["flex: 0 0 216px", "flex: 0 0 48px"],
+		// the slide-over's resting width, then its collapsed-rail width
+		["width: min(680px, 94vw)", "width: min(680px, calc(100% - 49px))"],
+		// the server actions hidden at rest, then the folded cluster's
+		// always-painted state - the very opacity collision being guarded
+		["opacity: 0;\n\t\ttransition: opacity 120ms ease-out;", "justify-content: flex-end;\n\t\t\topacity: 1;"],
+		// the rail icons unpainted at full width, then painted collapsed
+		[".rail-icon {\n\t\tdisplay: none;", ".rail-icon {\n\t\t\tdisplay: flex;"],
+		// the server name's full-width placement, then its three-line re-place
+		[".server-name {\n\t\tgrid-area: 1 / 1;", "grid-area: 1 / 1 / auto / 3"],
+	];
+	for (const [base, override] of pairs) {
+		const baseAt = sheet.indexOf(base);
+		const overrideAt = sheet.indexOf(override);
+		expect(baseAt, `base anchor missing: ${base}`).toBeGreaterThan(-1);
+		expect(overrideAt, `override anchor missing: ${override}`).toBeGreaterThan(-1);
+		expect(sheet.lastIndexOf(base), `base anchor is not unique: ${base}`).toBe(baseAt);
+		expect(sheet.lastIndexOf(override), `override anchor is not unique: ${override}`).toBe(overrideAt);
+		expect(baseAt, `override precedes its base rule: ${override}`).toBeLessThan(overrideAt);
+		expect(bannerAt, `override sits above the narrow banner: ${override}`).toBeLessThan(overrideAt);
+	}
+});
+
+test("no minted utility collides with a class the dashboard stylesheet styles", async () => {
 	const output = await compileTheme();
-	// Utilities outrank the legacy layer, so a utility whose name matches a
+	// Utilities outrank the components layer, so a utility whose name matches a
 	// dashboard.css class would silently restyle every element carrying it
 	// (the scan also mints utilities from incidental word tokens). Compare
-	// against the classes the legacy stylesheet actually styles.
+	// against the classes the dashboard stylesheet actually styles.
 	const minted = new Set([...output.matchAll(/^\s*\.([A-Za-z][A-Za-z0-9-]*)[\s{,:]/gm)].map((match) => match[1] ?? ""));
-	const legacyClasses = new Set(
-		[...readFileSync(legacyEntry, "utf8").matchAll(/\.([A-Za-z][A-Za-z0-9_-]*)/g)].map((match) => match[1] ?? "")
+	const dashboardClasses = new Set(
+		[...readFileSync(dashboardEntry, "utf8").matchAll(/\.([A-Za-z][A-Za-z0-9_-]*)/g)].map((match) => match[1] ?? "")
 	);
 	// The size floors keep both extractions honest; an extractor finding
 	// nothing would prove nothing.
 	expect(minted.size).toBeGreaterThan(REQUIRED_UTILITIES.length);
-	expect(legacyClasses.size).toBeGreaterThan(100);
-	expect([...minted].filter((utility) => legacyClasses.has(utility))).toBeEmpty();
+	expect(dashboardClasses.size).toBeGreaterThan(100);
+	expect([...minted].filter((utility) => dashboardClasses.has(utility))).toBeEmpty();
 });
 
 test("the hidden attribute beats a display utility", async () => {
@@ -177,8 +235,8 @@ test("the scrim re-enables pointer events Radix takes away", () => {
 	// happy-dom does no hit-testing, so a synthesized click still passes
 	// whatever pointer-events says - this rule is the only place the contract
 	// can be pinned.
-	const legacy = readFileSync(legacyEntry, "utf8");
-	const scrimRule = /\.scrim\s*\{[^}]*\}/.exec(legacy)?.[0];
+	const dashboard = readFileSync(dashboardEntry, "utf8");
+	const scrimRule = /\.scrim\s*\{[^}]*\}/.exec(dashboard)?.[0];
 	expect(scrimRule).toBeDefined();
 	expect(scrimRule).toContain("pointer-events: auto");
 });
@@ -207,12 +265,12 @@ function forcedBlock(theme: "dark" | "light"): string {
 
 test("a forced theme redefines every host token the stylesheets read", () => {
 	// Forcing a theme means replacing the HOST's variables, because that is what
-	// every consumer reads: the semantic mapping, the legacy stylesheet's direct
-	// reads, and the utilities alike. A token the palettes miss keeps its value
-	// from the editor's theme, which is how a forced dark dashboard ends up a
-	// light page with one black input.
+	// every consumer reads: the semantic mapping, the dashboard stylesheet's
+	// direct reads, and the utilities alike. A token the palettes miss keeps its
+	// value from the editor's theme, which is how a forced dark dashboard ends
+	// up a light page with one black input.
 	const read = new Set<string>();
-	for (const entry of [themeEntry, legacyEntry]) {
+	for (const entry of [themeEntry, dashboardEntry]) {
 		for (const match of readFileSync(entry, "utf8").matchAll(/var\((--vscode-[A-Za-z0-9-]+)/g)) {
 			if (!UNFORCED_HOST_TOKENS.has(match[1] ?? "")) {
 				read.add(match[1] ?? "");
@@ -300,7 +358,7 @@ test("severity as text resolves to the readable tier, as fills to the raw hue", 
 	// is what VS Code's own Light Modern publishes, not a mistake of ours.
 	//
 	// The repair is a TOKEN, not a class, because the two consumers never meet
-	// otherwise: the legacy stylesheet paints pills through .tone-*, while
+	// otherwise: the dashboard stylesheet paints pills through .tone-*, while
 	// components use the text-ok/text-warn/text-err utilities compiled from the
 	// theme mapping. A class-only fix repairs the pills and silently leaves
 	// every utility consumer failing, in light only.
@@ -321,11 +379,11 @@ test("severity as text resolves to the readable tier, as fills to the raw hue", 
 	// readable tier: these are live call sites in the server editor.
 	expect(output).toContain(".text-err {\n    color: var(--err-text);");
 	expect(output).toContain(".text-warn {\n    color: var(--warn-text);");
-	const legacy = readFileSync(legacyEntry, "utf8");
-	expect(/\.tone-ok \{\s*color: var\(--ok-text\);/.test(legacy)).toBe(true);
-	// No status hue may still be painted as text anywhere in the legacy sheet.
+	const dashboard = readFileSync(dashboardEntry, "utf8");
+	expect(/\.tone-ok \{\s*color: var\(--ok-text\);/.test(dashboard)).toBe(true);
+	// No status hue may still be painted as text anywhere in the dashboard sheet.
 	const rawText = [
-		...legacy.matchAll(
+		...dashboard.matchAll(
 			/\n\s*color: var\(--vscode-(testing-iconPassed|errorForeground|editorWarning-foreground|notificationsWarningIcon-foreground)/g
 		),
 	];

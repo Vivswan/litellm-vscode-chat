@@ -95,7 +95,7 @@ const SETTING_GROUPS: readonly {
 ];
 
 /**
- * The settings.json jump every row carries: a quiet icon-action posting the
+ * The settings.json jump every row carries: a quiet icon button posting the
  * revealSetting intent; the extension opens the user settings.json and selects
  * "litellm-vscode-chat.<key>". Hover- and focus-revealed with Reset, so a
  * resting row is its own three columns and nothing else.
