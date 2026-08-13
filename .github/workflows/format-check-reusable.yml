@@ -152,12 +152,21 @@ jobs:
           # floor guards a truncated or empty emit and the greps are the
           # content gate: these strings only survive if the real dashboard
           # components compiled into the bundle.
+          #
+          # Markers are WIRE METHOD NAMES from src/dashboard/endpoints.ts, never
+          # UI copy. A copy marker fails the moment the interface is redesigned,
+          # which is a false red on a healthy bundle: this list once held the
+          # dashboard's visible title, and retiring that heading for the rail
+          # broke the check while nothing about the build was wrong. A method
+          # name breaks only when the protocol breaks, which is the thing worth
+          # detecting. Keep them spread across surfaces (server save, secret
+          # prefill, usage settings) so one dead tree cannot pass the gate.
           webview_size="$(wc -c < dist/webview/dashboard.js | tr -d ' ')"
           if [ "$webview_size" -lt 40000 ]; then
             echo "::error::dist/webview/dashboard.js is only ${webview_size} bytes; the dashboard bundle looks broken"
             exit 1
           fi
-          for marker in 'LiteLLM Dashboard' 'readInlineSecrets' 'saveServerSetting'; do
+          for marker in 'setUsageAlertThresholds' 'readInlineSecrets' 'saveServerSetting'; do
             if ! grep -q "$marker" dist/webview/dashboard.js; then
               echo "::error::dist/webview/dashboard.js lacks '${marker}'; the dashboard did not compile into the bundle"
               exit 1
