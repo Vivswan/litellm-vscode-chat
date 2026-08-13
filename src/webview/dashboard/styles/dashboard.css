@@ -784,7 +784,15 @@
 	/* The "learn more" anchor beside section titles and in notices: opens the
 		   matching docs page on GitHub (the webview host opens plain anchors
 		   externally, so no CSP grant is involved). Quiet, on the textLink tokens;
-		   the external-link glyph is the affordance. */
+		   the external-link glyph is the affordance.
+
+		   No underline at rest, which is the opposite of the secondary button's
+		   dotted one, and the asymmetry is deliberate: these two say different
+		   things. A link is already visibly a link at rest - accent colour plus
+		   the external glyph - so its underline is hit feedback. A secondary
+		   button had no resting identity at all, being muted grey text, which is
+		   what the dotted underline supplies. Same reason the glyph is here and
+		   never on an in-app action: it means this one leaves the app. */
 	a.docs-link {
 		display: inline-flex;
 		align-items: center;
