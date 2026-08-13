@@ -51,6 +51,114 @@ function rowOf(input: HTMLElement): HTMLElement {
 	return row;
 }
 
+test("a row's help glyph rides a prose box with a basis, so it wraps by width and never by sentence length", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	// discovery.cacheTtl has the longest description of the rows that carry
+	// help, and it is the row whose "?" used to be pushed onto a line by
+	// itself while a shorter sibling's stayed inline. What fixes that is the
+	// prose owning a box with a flex-basis: above the basis the pair shares a
+	// line and every glyph lands past the same measure, below it the prose
+	// takes the line and every glyph wraps - uniform either way, which the
+	// naked flex sibling never was.
+	//
+	// happy-dom runs no layout, so the rules that decide it are what get
+	// pinned; the structure alone would survive a swap back. A track-based
+	// answer is pinned OUT deliberately: a fixed glyph track holds its width
+	// while the prose starves, and at the widths a split editor produces that
+	// printed the description one letter per line under the glyph.
+	const hint = rowOf(settingInput(root, "discovery.cacheTtl")).querySelector(".setting-hint");
+	expect(hint?.classList.contains("flex")).toBe(true);
+	expect(hint?.classList.contains("flex-wrap")).toBe(true);
+	expect(Array.from(hint?.classList ?? []).some((name) => name.startsWith("grid"))).toBe(false);
+
+	const help = hint?.querySelector("button.help");
+	expect(help).not.toBeNull();
+	// The glyph is the hint cell's own child, so it wraps against the prose
+	// BOX rather than inside the prose's own wrapping.
+	expect(help?.closest(".help-wrap")?.parentElement).toBe(hint as HTMLElement);
+	expect(hint?.querySelector(".setting-desc")?.closest(".help-wrap")).toBeNull();
+
+	const prose = hint?.querySelector(".setting-desc")?.parentElement;
+	expect(prose?.parentElement).toBe(hint as HTMLElement);
+	expect(prose?.querySelector("button.help")).toBeNull();
+	// The exact values, not the shape of them. A box spelled `basis-[1px]`
+	// starves exactly like the rejected track did and reads as a basis to any
+	// assertion that only checks the prefix, and `flex-1` beside a basis
+	// utility is two contradictory bases whose winner is decided by the order
+	// Tailwind emits them - one shorthand cannot disagree with itself.
+	expect(prose?.classList.contains("flex-[1_1_18rem]")).toBe(true);
+	expect(prose?.classList.contains("flex-1")).toBe(false);
+	expect(prose?.classList.contains("max-w-[46ch]")).toBe(true);
+	expect(prose?.classList.contains("min-w-0")).toBe(true);
+	// The box owns breaking because it owns wrapping: one unbroken token in a
+	// description would otherwise set its own min-content width and push out
+	// of the cell.
+	expect(prose?.classList.contains("break-words")).toBe(true);
+});
+
+test("an error covers the hint cell without taking its height or the help glyph's clicks", () => {
+	// The three rules that keep the form still while you type, none of which
+	// happy-dom can observe by measuring, and all of which sit in the cell this
+	// change reorganized: the description stays in flow (invisible, not
+	// removed) so the row keeps the height it had, the error is absolute inside
+	// the relative cell so it adds none, and it lets clicks through - it spans
+	// the glyph too, and a row explaining what you typed wrong is the worst
+	// moment to make its help unreachable.
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const input = settingInput(root, "discovery.cacheTtl");
+	fireInput(input, "not a number");
+	const hint = rowOf(input).querySelector(".setting-hint");
+	const desc = hint?.querySelector(".setting-desc");
+	const error = hint?.querySelector(".error");
+
+	expect(error?.textContent).toContain("Not a duration");
+	expect(desc).not.toBeNull();
+	expect(desc?.classList.contains("invisible")).toBe(true);
+	expect(hint?.classList.contains("relative")).toBe(true);
+	expect(error?.classList.contains("absolute")).toBe(true);
+	expect(error?.classList.contains("inset-0")).toBe(true);
+	expect(error?.classList.contains("pointer-events-none")).toBe(true);
+	// The glyph is still there to be reached.
+	expect(hint?.querySelector("button.help")).not.toBeNull();
+});
+
+test("a group with no help renders no glyph in its head", () => {
+	// Only Import & Export passes help today, so every other group head is the
+	// case where the glyph must not appear at all - an empty tip would be a
+	// button that says nothing.
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const heads = Array.from(root.querySelectorAll(".settings-group-head"));
+	expect(heads.length).toBeGreaterThan(1);
+	for (const head of heads) {
+		const title = head.querySelector(".settings-group-title")?.textContent;
+		expect(Boolean(head.querySelector("button.help"))).toBe(title === "Import & Export");
+	}
+});
+
+test("a configured row's modified note shares the prose box, never the glyph's place", () => {
+	// The note is the other thing that used to sit in the wrapping row. It
+	// belongs with the description - it is more prose - so it must ride inside
+	// the box that gives, not beside the glyph that does not.
+	const settings = makeSettings();
+	const root = mount(
+		<SettingsSection
+			settings={{
+				...settings,
+				configuredScopes: {
+					...settings.configuredScopes,
+					numbers: { ...settings.configuredScopes.numbers, "discovery.cacheTtl": "global" },
+				},
+			}}
+			models={[]}
+		/>
+	);
+	const hint = rowOf(settingInput(root, "discovery.cacheTtl")).querySelector(".setting-hint");
+	const note = hint?.querySelector(".setting-modified-note");
+	expect(note?.textContent).toContain("Modified in User settings");
+	expect(note?.parentElement).toBe(hint?.querySelector(".setting-desc")?.parentElement);
+	expect(note?.closest(".help-wrap")).toBeNull();
+});
+
 test("a below-minimum draft stays calm until blur reveals it; commit posts nothing; a valid draft posts once; unchanged posts nothing", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const input = settingInput(root, "discovery.timeout");
@@ -742,11 +850,22 @@ function importExportGroup(root: ParentNode): HTMLElement {
 	return group;
 }
 
-test("the Import & Export group renders last with its hint, and each button posts exactly its command", () => {
+test("the Import & Export group renders last with its help, and each button posts exactly its command", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const group = importExportGroup(root);
+	const head = group.querySelector(".settings-group-head");
+	// The heading names the group and nothing else: the Help button is its
+	// sibling, so the group does not announce as "Import & Export Help: ...".
 	expect(group.querySelector(".settings-group-title")?.textContent).toBe("Import & Export");
-	expect(group.querySelector("p.hint")?.textContent).toContain("Export writes your settings to a JSON file");
+	// The explanation moved out of a standing paragraph and behind the glyph;
+	// it is still on the page, and still reachable as the trigger's description.
+	expect(group.querySelector("p.hint")).toBeNull();
+	expect(head?.querySelector('[role="tooltip"]')?.textContent).toContain("Export writes your settings to a JSON file");
+	const helpButton = head?.querySelector("button.help");
+	expect(helpButton?.getAttribute("aria-label")).toBe("Help: Import & Export");
+	expect(helpButton?.getAttribute("aria-describedby")).toBe(
+		head?.querySelector('[role="tooltip"]')?.getAttribute("id")
+	);
 
 	const exportButton = buttonByText(group, "Export settings");
 	const importButton = buttonByText(group, "Import settings");
@@ -775,6 +894,15 @@ test("the Import & Export group follows the filter: kept by its own words, hidde
 	expect(group.hidden).toBe(false);
 	expect(rowOf(settingInput(root, "chat.timeout")).hidden).toBe(true);
 	expect(root.textContent).not.toContain("No settings match the filter.");
+
+	// The help string is deliberately NOT in the haystack. It renders nowhere
+	// on the page now that it lives behind the heading's glyph, and a needle
+	// that matches invisible text finds a group without showing the reader
+	// why - the drift the module's non-scalar descriptions exist to prevent,
+	// and the reason scalar rows leave their own help out too.
+	fireInput(filter, "another machine");
+	expect(group.hidden).toBe(true);
+	expect(root.textContent).toContain("No settings match the filter.");
 
 	// A scalar-only needle hides the group whole (hidden, never unmounted).
 	fireInput(filter, "timeout");

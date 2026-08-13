@@ -79,8 +79,6 @@ export interface EditRecordRequest extends ExternalRecordEdit {
  */
 const SETTING_GROUPS: readonly {
 	readonly title: () => string;
-	/** A muted note under the group title. */
-	readonly hint?: () => string;
 	readonly numbers: readonly NumberSettingId[];
 	readonly booleans: readonly BooleanSettingId[];
 }[] = [
@@ -218,13 +216,46 @@ function SettingRow({
 			</div>
 			{/* The error does not replace the description in the flow, it covers
 			    it: the description stays, merely invisible, so the cell keeps the
-			    height it had and no row below moves while you type. */}
+			    height it had and no row below moves while you type.
+
+			    The Help glyph used to be a bare flex sibling after the prose, so
+			    it inherited the prose's wrapping: a description that filled the
+			    cell pushed the "?" onto a line of its own, orphaned under the
+			    text it belongs to, while a shorter sibling's glyph stayed inline.
+			    The glyphs drifted with sentence length instead of reading as a
+			    column.
+
+			    The prose owning a box with a basis is what fixes it. While the
+			    cell can hold that basis, both fit on one line and the prose grows
+			    to the 46ch cap, so every glyph lands past the same measure - a
+			    column. Below the basis the prose takes the line alone and the
+			    glyph wraps under it, which is the honest answer when the column
+			    is 30px wide: reserving a track for the glyph there does not make
+			    room appear, it just takes half of what little the words had and
+			    prints them one letter per line. The wrap is the graceful
+			    degradation, not the bug - the bug was that it happened at full
+			    width too.
+
+			    One `flex` shorthand rather than `flex-1` plus a basis utility:
+			    `flex-1` IS `flex: 1 1 0%`, so the two spell contradictory bases
+			    and which one survives is decided by the order Tailwind happens to
+			    emit them in. A basis of 0 never wraps, and no test can catch it -
+			    the DOM the component suites run in has no layout. The box also
+			    owns breaking, since it owns the wrapping: a description with one
+			    unbroken token would otherwise set its own min-content width and
+			    push straight out of the cell. */}
 			<div className="setting-hint relative flex flex-wrap items-baseline gap-x-2 text-[0.95em] text-muted-foreground">
-				<span className={cn("setting-desc", error !== undefined && "invisible")}>{description}</span>
+				<div className="flex min-w-0 max-w-[46ch] flex-[1_1_18rem] flex-wrap items-baseline gap-x-2 break-words">
+					<span className={cn("setting-desc", error !== undefined && "invisible")}>{description}</span>
+					{configuredScope !== null ? <ModifiedNote scope={configuredScope} defaultText={defaultText} /> : null}
+				</div>
 				{help !== undefined ? <Help text={help} name={l10n.t("Help: {0}", title)} /> : null}
-				{configuredScope !== null ? <ModifiedNote scope={configuredScope} defaultText={defaultText} /> : null}
+				{/* pointer-events-none because the overlay spans the whole cell,
+				    glyph included: without it a row with an error has an
+				    unhoverable "?" - exactly when its help is most wanted. What it
+				    covers is `visibility: hidden` and so untouchable anyway. */}
 				{error !== undefined ? (
-					<span className="error absolute inset-0" id={errorId}>
+					<span className="error pointer-events-none absolute inset-0" id={errorId}>
 						{error}
 					</span>
 				) : null}
@@ -840,7 +871,7 @@ function UsageThresholdsRow({
 
 function SettingGroup({
 	title,
-	hint,
+	help,
 	numbers,
 	booleans,
 	settings,
@@ -850,7 +881,7 @@ function SettingGroup({
 	tailVisible,
 }: {
 	title: () => string;
-	hint?: (() => string) | undefined;
+	help?: (() => string) | undefined;
 	numbers: readonly NumberSettingId[];
 	booleans: readonly BooleanSettingId[];
 	settings: DashboardSettings;
@@ -871,10 +902,21 @@ function SettingGroup({
 			    the section header does one level up. Full-strength foreground
 			    because the record editors nested inside a group head themselves
 			    at muted 600 - a parent that matches its children ranks nothing. */}
-			<h3 className="settings-group-title mt-0 mb-2 border-border border-b pb-1 font-semibold text-[0.95em]">
-				{title()}
-			</h3>
-			{hint !== undefined ? <p className="hint mt-0 mb-2 max-w-[70ch]">{hint()}</p> : null}
+			{/* The glyph is the heading's sibling, not its child, the same way
+			    SectionHeader arranges the pair one level up: a button nested
+			    inside a heading folds its accessible name into the heading's, so
+			    the group would announce as "Import & Export Help: Import &
+			    Export". The rule and the spacing belong to the line, so they sit
+			    on the wrapper and the heading carries neither. */}
+			<div className="settings-group-head mt-0 mb-2 flex items-baseline gap-x-2 border-border border-b pb-1">
+				<h3 className="settings-group-title m-0 font-semibold text-[0.95em]">{title()}</h3>
+				{/* Behind the glyph, not above the rows. A group's explanation is
+				    read once and then never again, so as a standing paragraph it
+				    costs every later visit the space and the eye movement while
+				    telling a returning reader nothing. The "?" is where the rows
+				    below already put their own detail. */}
+				{help !== undefined ? <Help text={help()} name={l10n.t("Help: {0}", title())} /> : null}
+			</div>
 			{numbers.map((id) => (
 				<NumberField
 					key={id}
@@ -1017,11 +1059,17 @@ export function SettingsSection({
 	const themeVisible = matches(l10n.t("Dashboard theme"), uiThemeDescription(), "ui.theme");
 	const accentVisible = matches(l10n.t("Accent color"), uiAccentDescription(), "ui.accent");
 	// The Import & Export group filters like a scalar row: its title and button
-	// labels stand in for the label, its hint line for the description.
+	// labels stand in for the label, and it has no description to add. Its
+	// explanation is deliberately NOT in the haystack, and not because the two
+	// could drift - the haystack would call the same function the tip renders.
+	// It is that a needle matching only the help leaves a group standing whose
+	// every visible word misses the needle, with nothing on screen to say why
+	// it survived. Row-level and section-level help are out for the same
+	// reason, so including this one would have been the odd case out.
 	const importExportVisible =
 		needle.length === 0 ||
-		[l10n.t("Import & Export"), l10n.t("Export settings"), l10n.t("Import settings"), helpImportExportGroup()].some(
-			(text) => text.toLowerCase().includes(needle)
+		[l10n.t("Import & Export"), l10n.t("Export settings"), l10n.t("Import settings")].some((text) =>
+			text.toLowerCase().includes(needle)
 		);
 	const nothingMatches =
 		!anyScalarVisible &&
@@ -1173,7 +1221,7 @@ export function SettingsSection({
 				    rows. */}
 				<SettingGroup
 					title={() => l10n.t("Import & Export")}
-					hint={helpImportExportGroup}
+					help={helpImportExportGroup}
 					numbers={[]}
 					booleans={[]}
 					settings={settings}
