@@ -91,11 +91,6 @@
 		font-variant-numeric: tabular-nums;
 		font-weight: 400;
 	}
-	/* The destination icons only paint once the rail collapses; at full width
-		 the label is the item and an icon beside it would be decoration. */
-	.rail-icon {
-		display: none;
-	}
 	/* Pinned to the bottom: the fleet's state is the last thing you should have
 		   to hunt for, and margin-top auto keeps it there without a spacer
 		   element that means nothing to a screen reader. */
@@ -225,33 +220,6 @@
 		border-radius: 50%;
 		background: currentColor;
 		flex: none;
-	}
-	/* Forced colours discard both of the dot's channels at once: currentColor is
-		 not a system colour, so the fill becomes the canvas and the dot vanishes
-		 entirely, taking the hue with it. Every state then reads as its word alone
-		 - and two of the words are the same word, since a stale-but-serving row
-		 and a healthy one both say "Connected". Redrawn in a system colour, with
-		 one shape per tone: the same vocabulary the collapsed rail's verdict uses,
-		 and the same reason the diagnostic rules differ in weight rather than only
-		 in colour. */
-	@media (forced-colors: active) {
-		.pill .dot {
-			background: CanvasText;
-			box-sizing: border-box;
-		}
-		.pill.tone-warn .dot {
-			border-radius: 0;
-			clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
-			width: 10px;
-			height: 9px;
-		}
-		.pill.tone-error .dot {
-			border-radius: 2px;
-		}
-		.pill.tone-muted .dot {
-			background: Canvas;
-			border: 1.5px solid CanvasText;
-		}
 	}
 	.pill .pill-time {
 		color: var(--vscode-descriptionForeground);
@@ -572,39 +540,6 @@
 		padding: 5px 8px;
 		border-radius: 4px;
 	}
-	/* Row AND column, for every cell. A cell that names only its column leaves
-		 its row to auto-placement, and auto-placement never moves backwards: the
-		 status cell sits in the document before the URL cell and claims column 3,
-		 after which column 2 is behind the cursor and the URL starts a second row.
-		 The whole row silently became two lines at full width. */
-	.server-name {
-		grid-area: 1 / 1;
-	}
-	.server-url {
-		grid-area: 1 / 2;
-	}
-	.server-status {
-		grid-area: 1 / 3;
-	}
-	.server-count {
-		grid-area: 1 / 4;
-	}
-	.server-usage {
-		grid-area: 1 / 5;
-	}
-	.server-badges {
-		grid-area: 1 / 6;
-	}
-	.server-actions {
-		grid-area: 1 / 7;
-	}
-	/* The line-two group is not a box at full width: its members are cells of
-		 the row's own grid, and only fold into a line of their own when the row
-		 goes two-line. `display: contents` is what keeps that one wrapper from
-		 costing the wide layout anything. */
-	.server-meta {
-		display: contents;
-	}
 	.server-row:hover,
 	.server-item:focus-within .server-row {
 		background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12));
@@ -619,11 +554,6 @@
 		gap: 7px;
 		min-width: 0;
 		font-weight: 600;
-	}
-	.server-label-text {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 	}
 	.server-name .server-tag {
 		flex: none;
@@ -2541,6 +2471,83 @@
    with the exclusive semantics Tailwind compiles max-width variants to.
    =========================================================================== */
 @layer components {
+	/* ---- what the redesign added beside the rules it changed --------------
+		 New selectors, not edits: they sit next to full-width rules in the legacy
+		 block because that is where they read, but they are this design's own and
+		 the legacy sweep would take them with it - and taking them would show the
+		 rail's icons at full width, unplace every cell of a server row, and give
+		 the status dots back their forced-colors blindness. */
+	/* The destination icons only paint once the rail collapses; at full width
+	 the label is the item and an icon beside it would be decoration. */
+	.rail-icon {
+		display: none;
+	}
+	/* Forced colours discard both of the dot's channels at once: currentColor is
+	 not a system colour, so the fill becomes the canvas and the dot vanishes
+	 entirely, taking the hue with it. Every state then reads as its word alone
+	 - and two of the words are the same word, since a stale-but-serving row
+	 and a healthy one both say "Connected". Redrawn in a system colour, with
+	 one shape per tone: the same vocabulary the collapsed rail's verdict uses,
+	 and the same reason the diagnostic rules differ in weight rather than only
+	 in colour. */
+	@media (forced-colors: active) {
+		.pill .dot {
+			background: CanvasText;
+			box-sizing: border-box;
+		}
+		.pill.tone-warn .dot {
+			border-radius: 0;
+			clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+			width: 10px;
+			height: 9px;
+		}
+		.pill.tone-error .dot {
+			border-radius: 2px;
+		}
+		.pill.tone-muted .dot {
+			background: Canvas;
+			border: 1.5px solid CanvasText;
+		}
+	}
+	.server-label-text {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	/* The line-two group is not a box at full width: its members are cells of
+	 the row's own grid, and only fold into a line of their own when the row
+	 goes two-line. `display: contents` is what keeps that one wrapper from
+	 costing the wide layout anything. */
+	.server-meta {
+		display: contents;
+	}
+	/* Row AND column, for every cell. A cell that names only its column leaves
+	 its row to auto-placement, and auto-placement never moves backwards: the
+	 status cell sits in the document before the URL cell and claims column 3,
+	 after which column 2 is behind the cursor and the URL starts a second row.
+	 The whole row silently became two lines at full width. */
+	.server-name {
+		grid-area: 1 / 1;
+	}
+	.server-url {
+		grid-area: 1 / 2;
+	}
+	.server-status {
+		grid-area: 1 / 3;
+	}
+	.server-count {
+		grid-area: 1 / 4;
+	}
+	.server-usage {
+		grid-area: 1 / 5;
+	}
+	.server-badges {
+		grid-area: 1 / 6;
+	}
+	.server-actions {
+		grid-area: 1 / 7;
+	}
+
 	/* Once the header wraps, its actions stop being a trailing edge and become
 	 a line of their own - and `margin-left: auto` then pins that line to the
 	 right of the pane, alone, aligned with nothing. Every narrow surface grew
