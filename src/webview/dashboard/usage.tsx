@@ -78,8 +78,8 @@ const TONE_TEXT: Readonly<Record<"ok" | "warn" | "error", string>> = {
  * The meter's fill takes the fill tier, not the text tier: a bar is a shape, so
  * 3:1 carries it, while the same colour as a word has to clear AA and darkens
  * further for it. Both tiers move only on light surfaces, where the raw hues
- * were tuned for a dark editor - the healthy green measured 1.88:1 on this
- * track. The `-fill` names are the explicit ones on purpose: `bg-ok` still
+ * were tuned for a dark editor - the healthy green measured 1.88:1 against the
+ * light page before that correction. The `-fill` names are the explicit ones on purpose: `bg-ok` still
  * compiles and would paint the meter in the text colour.
  */
 const TONE_FILL: Readonly<Record<"ok" | "warn" | "error", string>> = {
@@ -561,13 +561,43 @@ function UsageRow({
 				    budget there is nothing to measure, and an empty track would
 				    read as a measured zero - so the column stays reserved and
 				    blank, and the tail says why. */}
+				{/* A baseline, not a track. The unfilled remainder used to be a
+				    background the fill sat ON, and that made the two contrasts
+				    fight: every step that lifted the track off the page pushed the
+				    fill toward it. Measured on Light Modern at rest, the ladder is
+				    monotonic - a track at foreground/55 reaches 3.06:1 against the
+				    page and leaves the HEALTHY fill, the weakest of the three
+				    there, at 1.24:1 against it. No opacity tested cleared both.
+
+				    Decoupled, both are free. The extent is a 1px axis under the
+				    bar; the fill sits on the page above it and keeps its saturated
+				    tones. Canvas-composited on the Light and Dark Modern fixtures,
+				    the axis never drops below 3.5:1 in any state - 3.95 at rest and
+				    3.53 under the row's hover wash in light, 5.10 and 4.29 in dark -
+				    and the fills measure ok/warn/err 3.8/5.6/6.0 light and
+				    8.2/7.1/4.9 dark.
+				    Fill carries the magnitude, axis carries the extent, and the
+				    percentage beside them carries the precision.
+
+				    Box sizing is content-box (no preflight), so h-[3px] plus the
+				    border is a 4px meter with a 3px fill area, and the fill's
+				    h-full is that 3px.
+
+				    The fill needs its forced-colors colour at the CALL SITE: a
+				    utility outranks any rule the stylesheet could write for it, and
+				    without one the background flattens to Canvas while the axis
+				    survives as CanvasText - a full-width rule under nothing, which
+				    reads as 100% rather than as an absent meter. */}
 				<span
-					className={cn("usage-meter h-[3px] overflow-hidden rounded-xs", bar !== undefined ? "bg-muted" : null)}
+					className={cn(
+						"usage-meter h-[3px] overflow-hidden rounded-xs",
+						bar !== undefined ? "border-axis border-b" : null
+					)}
 					aria-hidden="true"
 				>
 					{bar !== undefined ? (
 						<span
-							className={cn("usage-meter-fill block h-full", TONE_FILL[bar.tone])}
+							className={cn("usage-meter-fill block h-full forced-colors:bg-[Highlight]", TONE_FILL[bar.tone])}
 							style={{ width: `${bar.widthPercent}%` }}
 						/>
 					) : null}

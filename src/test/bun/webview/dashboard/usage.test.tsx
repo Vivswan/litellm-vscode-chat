@@ -150,6 +150,10 @@ describe("UsageSection", () => {
 		const root = mount(<UsageSection usage={usage} serverCount={1} now={NOW} />);
 		expect(textOf(root, ".usage-percent")).toBe("-");
 		expect(root.querySelector(".usage-meter-fill")).toBeNull();
+		// Nor the baseline axis. It marks the 100% extent, so a full-width rule
+		// under no fill is a measured zero - which is the one thing a server with
+		// no budget must not appear to be. The cell stays reserved and blank.
+		expect(root.querySelector(".usage-meter")?.className).not.toContain("border-b");
 		expect(textOf(root, ".usage-tail")).toBe("no budget set");
 		const row = openRow(root);
 		expect(factOf(row, "Budget")).toContain("neither this entry nor the key sets one");
