@@ -16,7 +16,7 @@ suite("provider/catalog/modelConfiguration", () => {
 			assert.deepStrictEqual(property().enum, ["default", ...REASONING_EFFORT_LEVELS]);
 			assert.deepStrictEqual(
 				property().enumItemLabels,
-				["Provider default", "Off", "Minimal", "Low", "Medium", "High", "Extra High"],
+				["Provider default", "Off", "Minimal", "Low", "Medium", "High", "Extra High", "Max"],
 				"the host requires enumItemLabels to match the enum's length and order"
 			);
 			assert.strictEqual(

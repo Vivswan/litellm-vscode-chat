@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import * as vscode from "vscode";
+import { REASONING_EFFORT_LEVELS } from "../../../provider/catalog/modelConfiguration";
 import { resolveFuzzSeed } from "../../fuzzStream";
 import { mswServer, useMsw } from "../../mocks/handlers";
 import { makeModelInfo } from "../../pureHelpers";
@@ -43,18 +44,7 @@ const bodyKey = fc.oneof(
 const sourceRecord = fc.dictionary(bodyKey, fc.jsonValue({ maxDepth: 2 }), { maxKeys: 5 });
 
 /** The picker's reasoningEffort choice: valid levels, the default sentinel, junk, or no configuration at all. */
-const pickerArb = fc.constantFrom<unknown>(
-	"none",
-	"minimal",
-	"low",
-	"medium",
-	"high",
-	"xhigh",
-	"default",
-	"extreme",
-	42,
-	undefined
-);
+const pickerArb = fc.constantFrom<unknown>(...REASONING_EFFORT_LEVELS, "default", "extreme", 42, undefined);
 
 const toolsArb = fc
 	.array(
@@ -128,7 +118,7 @@ suite("provider/request full-pipeline pass-through properties", () => {
 
 					// Everything else: the merged user-set keys, later sources winning.
 					const pickerMapped =
-						typeof picker === "string" && ["none", "minimal", "low", "medium", "high", "xhigh"].includes(picker)
+						typeof picker === "string" && (REASONING_EFFORT_LEVELS as readonly string[]).includes(picker)
 							? { reasoning_effort: picker }
 							: {};
 					const expected = { ...passthrough(modelParams), ...pickerMapped, ...passthrough(modelOptions) };

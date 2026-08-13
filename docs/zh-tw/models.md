@@ -411,13 +411,13 @@
 
 1. 在選擇器中選中該模型。
 2. 按一下聊天輸入框中模型名稱旁的 "Thinking Effort" 標籤。
-3. 從 Off 到 Extra High 之間選一檔; VS Code 會為該模型記住這個選擇。
+3. 從 Off 到 Max 之間選一檔; VS Code 會為該模型記住這個選擇。
 
 每檔送出什麼:
 
 - 之後每個請求都相應攜帶 `reasoning_effort`; "Off" 以 `reasoning_effort: "none"` 送出, 在支援該值的模型上關閉思考。
 - "Provider default" (初始狀態) 不送出任何東西, 由您的提供者決定。
-- 每個推理模型的選單都相同, 因為 LiteLLM 回報哪些模型接受 `reasoning_effort`, 但不回報每個模型接受哪些值。如果您選了模型拒絕的檔位 (比如在最高只到 High 的模型上選 Extra High), 請求會帶著伺服器自己的錯誤訊息失敗; 換一檔重試即可。
+- 每個推理模型的選單都相同, 因為 LiteLLM 回報哪些模型接受 `reasoning_effort`, 但不回報每個模型接受哪些值。如果您選了模型拒絕的檔位 (比如在最高只到 High 的模型上選 Max), 請求會帶著伺服器自己的錯誤訊息失敗; 換一檔重試即可。
 
 temperature 刻意留在 `models.parameters` 中自由設定: 設定選單只能呈現固定選項, 所以延伸模組不在那裡加 temperature 預設檔。
 

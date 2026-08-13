@@ -411,13 +411,13 @@ Some models offer a Configure menu in the picker - this is the "picker configura
 
 1. Select the model in the picker.
 2. Click the "Thinking Effort" label next to the model name in the chat input.
-3. Pick a level from Off through Extra High; VS Code remembers the choice for that model.
+3. Pick a level from Off through Max; VS Code remembers the choice for that model.
 
 What each choice sends:
 
 - Every request then carries `reasoning_effort` accordingly; "Off" goes out as `reasoning_effort: "none"`, which turns thinking off on models that support that.
 - "Provider default" (the initial state) sends nothing and lets your provider decide.
-- The menu is the same for every reasoning model, because LiteLLM reports which models take `reasoning_effort` but not which values each one accepts. If you pick a level your model rejects (say, Extra High on a model that stops at High), the request fails with the server's own error message; pick a different level and retry.
+- The menu is the same for every reasoning model, because LiteLLM reports which models take `reasoning_effort` but not which values each one accepts. If you pick a level your model rejects (say, Max on a model that stops at High), the request fails with the server's own error message; pick a different level and retry.
 
 Temperature stays free-form in `models.parameters` on purpose: the Configure menu can only render fixed choices, so the extension does not add temperature presets there.
 
