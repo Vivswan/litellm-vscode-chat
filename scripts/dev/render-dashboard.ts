@@ -476,10 +476,34 @@ function stubScript(nonce: string, messages: readonly unknown[], respond: Readon
 			window.__posted = window.__posted || [];
 			window.__posted.push(message);
 			if (message && message.kind === "request" && message.method === "ready") {
-				for (const data of window.__fixtureMessages) {
-					window.dispatchEvent(new MessageEvent("message", { data }));
-				}
-				window.__ready = true;
+				// One message per frame, because that is how the editor delivers
+				// them and because React has to COMMIT between them. Dispatching
+				// the whole list in a single tick let a focusSection reach
+				// app.tsx while the first state push was still uncommitted, so
+				// the message hit selectSectionRef while it was the no-op the
+				// state === undefined skeleton leaves behind - the ref is
+				// assigned during a render that had not happened yet - and the
+				// shot silently landed on Servers. A render cannot fail on that:
+				// the PNG is written and it is the right size, just of somewhere
+				// else, so every fixture that deep-links a section was
+				// photographing the wrong page and saying it was fine.
+				//
+				// A bare setTimeout(0) is not enough: React schedules its work
+				// through the Scheduler's own channel, so the next task can
+				// still beat the commit. rAF resolves after it, and the trailing
+				// timeout puts the dispatch back on a plain task rather than
+				// inside the frame callback. __ready waits for the last one so
+				// the capture still does not start early.
+				let next = 0;
+				const pump = () => {
+					if (next >= window.__fixtureMessages.length) {
+						window.__ready = true;
+						return;
+					}
+					window.dispatchEvent(new MessageEvent("message", { data: window.__fixtureMessages[next++] }));
+					requestAnimationFrame(() => setTimeout(pump, 0));
+				};
+				pump();
 			}
 			// Canned request answers: fill the request's id and method into the
 			// envelope template, like the extension's responders, asynchronously
