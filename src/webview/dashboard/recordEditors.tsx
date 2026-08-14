@@ -81,8 +81,16 @@ export function modelCapabilitiesTitle(): string {
 
 /**
  * The record editors' settings.json jump, the settings form's RevealButton
- * on an editor heading: rests visible like the docs link beside it (an h3 has
- * no hover band to reveal from).
+ * on an editor heading. It sits directly after the heading it opens - one
+ * position, with its label - rather than floating after the docs link, where
+ * a bare pair of braces belonged to nothing in particular. The heading LINE
+ * is the hover band (the head itself, not the h3: a control may not nest in
+ * a heading), so the jump rests hidden and reveals on hover or focus like
+ * the setting rows' own. Opacity, never visibility, keeps it in the Tab
+ * order so its own focus can reveal it; the @max-[560px]/pane variant keeps
+ * it painted where hover does not exist (touch, narrow panes), keyed to the
+ * stylesheet's 560px tier; the wrapper owns the transition and stands down
+ * under reduced motion.
  */
 function HeadingRevealButton({
 	title,
@@ -92,15 +100,17 @@ function HeadingRevealButton({
 	settingId: "models.parameters" | "models.capabilities";
 }) {
 	return (
-		<Button
-			variant="secondary"
-			size="compact"
-			className="reveal-json px-1 py-0"
-			aria-label={l10n.t("Open {0} in settings.json", title)}
-			onClick={() => sendRequest("revealSetting", { setting: settingId })}
-		>
-			<IconBraces />
-		</Button>
+		<span className="opacity-0 transition-opacity duration-[120ms] ease-out group-hover/head:opacity-100 group-focus-within/head:opacity-100 @max-[560px]/pane:opacity-100 motion-reduce:transition-none">
+			<Button
+				variant="secondary"
+				size="compact"
+				className="reveal-json px-1 py-0"
+				aria-label={l10n.t("Open {0} in settings.json", title)}
+				onClick={() => sendRequest("revealSetting", { setting: settingId })}
+			>
+				<IconBraces />
+			</Button>
+		</span>
 	);
 }
 
@@ -2846,11 +2856,11 @@ export function ModelParametersEditor({
 			    above it: same muted tone, one size down, and no rule of its own.
 			    At the surrounding group's weight and the page's foreground it
 			    out-shouted its own container. */}
-			<div className="section-head mb-1">
+			<div className="section-head group/head mb-1">
 				<h3 className="m-0 font-semibold text-[0.9em] text-muted-foreground">{modelParametersTitle()}</h3>
+				<HeadingRevealButton title={modelParametersTitle()} settingId="models.parameters" />
 				<Help text={helpModelParametersSection()} name={l10n.t("Help: {0}", modelParametersTitle())} />
 				<DocsLink href={DOCS_LINK_MODEL_PARAMETERS} label={l10n.t("Open the model parameters guide")} />
-				<HeadingRevealButton title={modelParametersTitle()} settingId="models.parameters" />
 			</div>
 			<ScopeNote scoped={scoped} />
 			{json !== undefined ? (
@@ -3098,11 +3108,11 @@ export function ModelCapabilitiesEditor({
 	return (
 		<section hidden={hidden}>
 			{/* Quieter than its container, like the parameters twin above. */}
-			<div className="section-head mb-1">
+			<div className="section-head group/head mb-1">
 				<h3 className="m-0 font-semibold text-[0.9em] text-muted-foreground">{modelCapabilitiesTitle()}</h3>
+				<HeadingRevealButton title={modelCapabilitiesTitle()} settingId="models.capabilities" />
 				<Help text={helpModelCapabilitiesSection()} name={l10n.t("Help: {0}", modelCapabilitiesTitle())} />
 				<DocsLink href={DOCS_LINK_MODEL_CAPABILITIES} label={l10n.t("Open the model capabilities guide")} />
-				<HeadingRevealButton title={modelCapabilitiesTitle()} settingId="models.capabilities" />
 			</div>
 			<ScopeNote scoped={scoped} />
 			{json !== undefined ? (

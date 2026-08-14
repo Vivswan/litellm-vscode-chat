@@ -139,9 +139,10 @@
 		font-weight: 600;
 	}
 	/* Centred in the glyph column: the dot is smaller than an icon and would
-		 otherwise start the same line 3px to the left of every other one. */
+		 otherwise start the same line 3px to the left of every other one. Its
+		 size is read from the dot's own property, never copied. */
 	.rail-state .rail-status .dot {
-		margin-inline: calc((var(--rail-glyph) - 8px) / 2);
+		margin-inline: calc((var(--rail-glyph) - var(--dot-size)) / 2);
 	}
 	/* No glyph of its own, so it starts where the words start. */
 	.rail-synced {
@@ -227,13 +228,58 @@
 		white-space: nowrap;
 		font-weight: 600;
 	}
+	/* The dot's size is a custom property because the collapsed rail scales
+		 the whole vocabulary up together: a second copy of the number is how
+		 the rail's dot and the rows' drifted apart in the first place. */
 	.pill .dot {
+		--dot-size: 8px;
 		display: inline-block;
-		width: 8px;
-		height: 8px;
+		box-sizing: border-box;
+		width: var(--dot-size);
+		height: var(--dot-size);
 		border-radius: 50%;
 		background: currentColor;
 		flex: none;
+	}
+	/* ONE SHAPE PER TONE, at every width and in every palette - circle ok,
+		 triangle warn, square error, hollow ring muted - the same vocabulary at
+		 8px on a row and 11px in the collapsed rail. Hue alone cannot rank the
+		 tones: a stale-but-serving row and a healthy one both say "Connected",
+		 so their dots are the only thing telling them apart, and a reader who
+		 cannot separate green from amber reads two identical rows. Forced
+		 colours used to be the only place these shapes existed, which meant the
+		 dot said less the moment the palette said more. */
+	.pill.tone-warn .dot {
+		border-radius: 0;
+		clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+		/* A triangle inside the circle's own box reads a size smaller, so it
+			 paints a step larger without occupying more: scale is paint, not
+			 layout, so the rail footer's glyph arithmetic and the rows' columns
+			 hold for every tone. The ratio reproduces the 10x9 the forced-colors
+			 triangle was hand-tuned to at the 8px base size. */
+		transform: scale(1.25, 1.125);
+	}
+	.pill.tone-error .dot {
+		border-radius: 2px;
+	}
+	.pill.tone-muted .dot {
+		background: transparent;
+		border: 1.5px solid currentColor;
+	}
+	/* Forced colours discard the dot's hue: currentColor is not a system
+		 colour, so the fill becomes the canvas and the dot vanishes entirely.
+		 Only the PAINT needs repair - the one-shape-per-tone rules above are
+		 what keep the tones apart once every colour collapses to CanvasText,
+		 the same reason the diagnostic rules differ in weight rather than only
+		 in colour. */
+	@media (forced-colors: active) {
+		.pill .dot {
+			background: CanvasText;
+		}
+		.pill.tone-muted .dot {
+			background: Canvas;
+			border-color: CanvasText;
+		}
 	}
 	.pill .pill-time {
 		color: var(--vscode-descriptionForeground);
@@ -2750,39 +2796,11 @@
 	/* ---- full-width rules the narrow blocks below re-place or flip ---------
 		 These stay ABOVE the query blocks: each fold overrides them at equal
 		 specificity, so it only wins by coming later. Losing that order shows
-		 the rail's icons at full width, unplaces every cell of a server row,
-		 and blinds the status dots under forced colors. */
+		 the rail's icons at full width and unplaces every cell of a server row. */
 	/* The destination icons only paint once the rail collapses; at full width
 	 the label is the item and an icon beside it would be decoration. */
 	.rail-icon {
 		display: none;
-	}
-	/* Forced colours discard both of the dot's channels at once: currentColor is
-	 not a system colour, so the fill becomes the canvas and the dot vanishes
-	 entirely, taking the hue with it. Every state then reads as its word alone
-	 - and two of the words are the same word, since a stale-but-serving row
-	 and a healthy one both say "Connected". Redrawn in a system colour, with
-	 one shape per tone: the same vocabulary the collapsed rail's verdict uses,
-	 and the same reason the diagnostic rules differ in weight rather than only
-	 in colour. */
-	@media (forced-colors: active) {
-		.pill .dot {
-			background: CanvasText;
-			box-sizing: border-box;
-		}
-		.pill.tone-warn .dot {
-			border-radius: 0;
-			clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
-			width: 10px;
-			height: 9px;
-		}
-		.pill.tone-error .dot {
-			border-radius: 2px;
-		}
-		.pill.tone-muted .dot {
-			background: Canvas;
-			border: 1.5px solid CanvasText;
-		}
 	}
 	.server-label-text {
 		overflow: hidden;
@@ -3243,24 +3261,12 @@
 		.rail-state .rail-status .dot {
 			margin-inline: 0;
 		}
-		/* With the word hidden, the dot is the whole verdict, so it stops relying
-		 on hue alone: one shape per tone. Forced colours discard every colour
-		 here and would otherwise leave four states looking like one. */
+		/* With the word hidden, the dot is the whole verdict, so it grows a step.
+		 The one-shape-per-tone vocabulary rides in from the shared pill rules;
+		 only the scale is the rail's own, and one property moves all four
+		 shapes at once. */
 		.rail-status .dot {
-			width: 11px;
-			height: 11px;
-			box-sizing: border-box;
-		}
-		.rail-status.tone-warn .dot {
-			border-radius: 0;
-			clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
-		}
-		.rail-status.tone-error .dot {
-			border-radius: 2px;
-		}
-		.rail-status.tone-muted .dot {
-			background: transparent;
-			border: 1.5px solid currentColor;
+			--dot-size: 11px;
 		}
 		/* The slide-over stops at the rail instead of halfway across it. Its own
 		 width rule (94vw) leaves a 30px sliver of a 48px rail: half an icon and
@@ -3279,26 +3285,13 @@
 			 put the panel over that border column. */
 			width: min(680px, calc(100% - 49px));
 		}
-		/* Forced colours discard author backgrounds, which is where both of the
-		 collapsed rail's marks live: the active item's edge bar and the verdict
-		 dot itself. At full width neither loss shows - the selected item still
-		 reads as text and the verdict is a word - but here they are the only
-		 copy, so both are redrawn in system colours. The tones stay apart by
-		 shape, which is what that channel is for. */
+		/* Forced colours discard author backgrounds, which is where the collapsed
+		 rail's active mark lives: the edge bar is the selected item's only copy
+		 here, so it is redrawn in a system colour. The verdict dot needs nothing
+		 of its own - the shared pill repaint above already covers it. */
 		@media (forced-colors: active) {
 			.rail-nav .rail-tab[aria-selected="true"]::before {
 				background: Highlight;
-			}
-			/* currentColor is not a system colour, so forced colours replace the
-			 dot's fill with the canvas and it disappears into its own
-			 background. Named through the footer to keep the rail's verdict
-			 independent of the shared pill rule above. */
-			.rail-state .rail-status .dot {
-				background: CanvasText;
-			}
-			.rail-state .rail-status.tone-muted .dot {
-				background: Canvas;
-				border-color: CanvasText;
 			}
 		}
 	}
