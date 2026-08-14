@@ -154,7 +154,10 @@
 		   are the width driver (the models table's capabilities column and action
 		   links) - while FORMS are measured: the form and prose surfaces re-cap
 		   themselves below at their own readable measure (the settings page, the
-		   server edit page, usage cards, banners, notices).
+		   server edit page, usage cards, banners, notices). One table is
+		   measured too: the diagnostics resolution table (.resolved-scroll),
+		   because every sibling on its page wears the 64rem measure and it was
+		   the page's one uncapped right edge.
 		   The pane also supplies the page padding the body used to. The bottom
 		   gutter is a custom property because it has a second reader: anything
 		   sizing itself against the fold has to leave exactly this much room
@@ -722,9 +725,15 @@
 		border-left: 4px double var(--err-fill);
 		background: color-mix(in srgb, var(--err) 10%, transparent);
 	}
+	/* padding-left absorbs the rule-width difference (4px double vs 2px vs
+		   1px), so all three tiers start their text on one x. The rules keep one
+		   shared edge because the margin stays constant; without the compensation
+		   the content edge tracked severity 3px at a time for no informational
+		   reason. */
 	.row-diagnostic.sev-degraded {
 		border-left: 2px solid var(--warn-fill);
 		background: color-mix(in srgb, var(--warn) 7%, transparent);
+		padding-left: 12px;
 	}
 	/* The quiet tier: nothing is wrong, so it gets no wash at all - an advisory
 		   tinted like a warning is how a page teaches its reader to ignore
@@ -737,12 +746,24 @@
 	.row-diagnostic.sev-advisory {
 		border-left: 1px dashed var(--vscode-descriptionForeground);
 		background: transparent;
+		padding-left: 13px;
 	}
 	/* Forced colours discard every background, so the washes above stop existing
 		   and the rules all resolve to the same system colour. Weight and style are
 		   what still rank the tiers there; GrayText is the one hint the mode itself
-		   offers for "this one matters least". */
+		   offers for "this one matters least". Blocking widens to 6px: `double`
+		   cuts the width into three equal parts, so 4px yields two ~1.33px
+		   antialiased strokes that read LIGHTER than degraded's crisp 2px solid -
+		   the loudest tier rendering quietest. 6px gives two crisp 2px strokes.
+		   Ordinary themes keep 4px, where the rule is the third channel behind
+		   hue and wash rather than the only one. */
 	@media (forced-colors: active) {
+		.row-diagnostic.sev-blocking {
+			border-left-width: 6px;
+			/* The wider rule keeps the equalized content x: 6px + 8px matches
+				   the other tiers' rule-plus-padding sum. */
+			padding-left: 8px;
+		}
 		.row-diagnostic.sev-advisory {
 			border-left-color: GrayText;
 		}
@@ -764,9 +785,20 @@
 	.row-diagnostic-actions {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 10px;
+		gap: 16px;
 		align-items: center;
 		margin-top: 6px;
+	}
+	/* The compact button size keeps its horizontal padding in the layout, so
+		   its label sat 6px right of the block's own text edge - a stagger
+		   repeated on every problem block. Hand the padding back the way the
+		   default size does (its -mx-2.5): ink aligns, and only the hover fill
+		   overhangs. 0.375rem is compact's px-1.5, in the same unit so the two
+		   cannot drift apart under a different root size. The gap above is
+		   sized so the visible text spacing stays what it was before the
+		   hand-back. */
+	.row-diagnostic-actions button {
+		margin-inline: -0.375rem;
 	}
 	th,
 	td {
@@ -801,6 +833,18 @@
 		flex-wrap: wrap;
 		margin: 8px 0;
 		align-items: center;
+	}
+	/* Default-size buttons hand their 0.625rem horizontal padding back to the
+		   layout (Button's -mx-2.5), so their border boxes overhang the flex gap
+		   by 1.25rem per adjacent pair. Invisible in ordinary themes; forced
+		   colors draws every border box, and four Support tools rendered as one
+		   collided segmented control. Widen the gap by exactly the overhang in
+		   the one mode that draws it, so the boxes keep the 8px the layout
+		   intends. */
+	@media (forced-colors: active) {
+		.toolbar {
+			gap: calc(8px + 1.25rem);
+		}
 	}
 	button:disabled {
 		opacity: 0.5;
@@ -1468,7 +1512,9 @@
 			   on a light surface, and a box you cannot see is not a box. Mixing the
 			   foreground is self-correcting in both polarities. */
 		border: 1px solid color-mix(in srgb, var(--muted-foreground) 40%, transparent);
-		border-radius: 3px;
+		/* The rounded-sm token's arithmetic, shared with .chip-prov: every
+			   provenance badge takes the one chip radius. */
+		border-radius: calc(var(--radius) - 2px);
 		padding: 0 4px;
 		font-family: var(--vscode-editor-font-family, monospace);
 		font-size: 0.85em;
@@ -2368,7 +2414,10 @@
 		   a settings file - so it reads mono and its digits line up column to
 		   column. Neutral by construction: outline and description foreground,
 		   never a severity colour, because provenance says where a value came
-		   from and never whether that is a problem. */
+		   from and never whether that is a problem. The radius is the rounded-sm
+		   token's own arithmetic (theme.css @theme is inline, so the utility's
+		   variable never exists at runtime): one shape for every chip, and a
+		   near-pill read as a toggle. */
 	.chip-prov,
 	.resolved-matched .chip-matcher {
 		font-family: var(--vscode-editor-font-family, monospace);
@@ -2376,9 +2425,43 @@
 		font-size: 0.85em;
 		color: var(--vscode-descriptionForeground);
 		border: 1px solid var(--vscode-editorWidget-border, #555);
-		border-radius: 8px;
+		border-radius: calc(var(--radius) - 2px);
 		padding: 0 6px;
 		white-space: nowrap;
+	}
+	/* The resolution table at the page's measure: the section headers and the
+		   problem list wear the same 64rem cap, and the table stretching past
+		   them put the Inspect column on a right edge nothing else shared. (The
+		   trees need no cap of their own: their lines end where their text
+		   ends.) */
+	.resolved-scroll {
+		max-width: 64rem;
+	}
+	/* The table's own filter binds to the table, not to the trees above it:
+		   equidistant margins read as a control floating between the two
+		   figures. */
+	.resolved-filter {
+		margin-top: 16px;
+		margin-bottom: 4px;
+	}
+	/* Inside the table alone, and only once the pane is genuinely narrow, a
+		   provenance chip may wrap at its own spaces: the longest chips ("catalog
+		   (directive ...)", an inherited-from phrase) are what decide the table's
+		   minimum width, and holding them to one line pushed the Inspect column
+		   past a ~900px pane's edge - a half-clipped button at rest. The 920px
+		   tier is the stylesheet's existing wide-to-narrow threshold; above it
+		   the chips stay one line, because a chip folding while space sits
+		   beside it reads as a bug. */
+	@container pane (width < 920px) {
+		.resolved-scroll .chip-prov {
+			white-space: normal;
+		}
+	}
+	/* A model ID never splits at its hyphens just because the capability column
+		   is hungry: the floor keeps the common two-word ID whole, and an ID too
+		   long for it wraps rather than widening the table. */
+	table.resolved-models td.resolved-id {
+		min-width: 16ch;
 	}
 	.resolved-cell code,
 	.resolved-price-part code {
@@ -3037,10 +3120,24 @@
 			white-space: nowrap;
 		}
 		/* Tighter under a two-line row: the rule and its indent were sized
-		 against a one-line row above them. */
+		 against a one-line row above them. The per-tier padding-left keeps
+		 absorbing the rule-width difference at this size too, against this
+		 tier's 8px base. */
 		.row-diagnostic {
 			margin-left: 8px;
 			padding: 5px 8px;
+		}
+		.row-diagnostic.sev-degraded {
+			padding-left: 10px;
+		}
+		.row-diagnostic.sev-advisory {
+			padding-left: 11px;
+		}
+		/* The forced-colors 6px blocking rule against this tier's 8px base. */
+		@media (forced-colors: active) {
+			.row-diagnostic.sev-blocking {
+				padding-left: 6px;
+			}
 		}
 	}
 	/* ---- the usage line, folded ----------------------------------------------

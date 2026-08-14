@@ -417,6 +417,15 @@ export const RESOLVED_VIEW: ResolvedModelsView = {
 				{ name: "context_length", valueText: "131072", level: "entry-fallback", key: "deepseek-r1" },
 				{ name: "supports_reasoning", valueText: "true", level: "entry", key: "deepseek-r1" },
 				{ name: "max_output_tokens", valueText: "16000", level: "floor" },
+				// An open-vocabulary field with a LONG raw wire key: the key renders
+				// as-is (no friendly label), so it is the widest unbreakable token
+				// the capability column ever has to survive at narrow panes.
+				{
+					name: "x_gateway_rate_limit_tier_override",
+					valueText: '"gold-eu-west"',
+					level: "entry",
+					key: "deepseek-r1",
+				},
 			],
 		},
 	],

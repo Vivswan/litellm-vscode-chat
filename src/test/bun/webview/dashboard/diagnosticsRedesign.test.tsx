@@ -720,15 +720,15 @@ describe("Resolved models", () => {
 		const cell = Array.from(root.querySelectorAll("table.resolved-models .resolved-cell")).find((candidate) =>
 			candidate.textContent?.includes("Supported parameters")
 		);
-		expect(cell?.textContent).toContain("5 parameters");
 		// The tip is focusable and carries the wire key plus the exact wire
 		// value: element boundaries survive.
 		const tip = cell?.querySelector(".tip-wrap");
 		expect(tip?.getAttribute("tabindex")).toBe("0");
 		expect(tip?.querySelector('[role="tooltip"]')?.textContent).toBe(`supported_openai_params ${JSON.stringify(list)}`);
 		expect(cell?.querySelector(".chip-prov")?.textContent).toBe("server-reported");
-		// The visible cell shows only the count; the array lives in the tip.
-		expect(cell?.querySelector(".tip-wrap > span:not(.tip-bubble)")?.textContent).toBe("5 parameters");
+		// The visible cell shows only the bare count - the label beside it
+		// already says "parameters" - and the array lives in the tip.
+		expect(cell?.querySelector(".tip-wrap > span:not(.tip-bubble)")?.textContent).toBe("5");
 	});
 
 	test("a cost cell whose value is not a number keeps the generic rendering instead of joining the pricing line", () => {

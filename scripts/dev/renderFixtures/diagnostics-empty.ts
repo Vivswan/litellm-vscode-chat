@@ -1,0 +1,66 @@
+/**
+ * The Diagnostics destination at rest on a fresh, healthy install: zero
+ * configuration diagnostics ("Your settings read cleanly."), a resolution
+ * with no matcher records and no discovered models (both empty-state
+ * sentences), and the support tools. This is the page most readers open, and
+ * the only fixture that photographs its three quiet states together.
+ *
+ * The file replaced err-diagnostics.ts, which rendered the per-server outcome
+ * grid's error rows; that grid moved to the Servers destination (each fact
+ * now sits beside the control that fixes it), so server errors are the
+ * servers fixtures' territory and this page's own worst case is
+ * diagnostics.ts.
+ */
+import type { DashboardState } from "../../../src/dashboard/viewModels.ts";
+import type { RenderFixture } from "../render-dashboard.ts";
+import { baseState, NO_SECRETS } from "./shared.ts";
+
+// A just-declared server before its first sync: nothing checked, nothing
+// discovered, no records written - the state every empty sentence below is
+// about. Usage and the record maps are empty too: a rail wearing spend, or a
+// Settings destination showing four matcher records, would contradict "no
+// matcher records configured" one tab away.
+const base = baseState({
+	servers: [
+		{
+			origin: "declared",
+			label: "prod",
+			baseUrl: "https://litellm.example.com",
+			modelCount: 0,
+			hasApiKey: true,
+			hasOAuth: false,
+			state: "unchecked",
+			config: { secrets: NO_SECRETS },
+		},
+	],
+	models: [],
+	diagnostics: [],
+});
+
+const state: DashboardState = {
+	...base,
+	usage: { ...base.usage, servers: [] },
+	settings: {
+		...base.settings,
+		modelParameters: { ...base.settings.modelParameters, value: {}, effective: {} },
+		modelCapabilities: { ...base.settings.modelCapabilities, value: {}, effective: {} },
+	},
+};
+
+const fixture: RenderFixture = {
+	messages: [
+		{ kind: "push", state },
+		{ kind: "focusSection", section: "diagnostics" },
+	],
+	respond: {
+		readResolvedModels: { kind: "response", payload: { view: { trees: [], rows: [], recordCount: 0 } } },
+	},
+	// See diagnostics.ts: the harness delivers every message in one tick, so
+	// the focusSection deep link above lands before React commits the first
+	// state render; the click is the HARNESS's fallback, not the product's.
+	steps: [`document.getElementById("tab-diagnostics")?.click()`],
+	viewport: { width: 1300, height: 900 },
+	settleMs: 500,
+};
+
+export default fixture;

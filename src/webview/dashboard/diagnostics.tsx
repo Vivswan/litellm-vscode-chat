@@ -43,7 +43,6 @@ import {
 	COST_CAPABILITY_FIELDS,
 	capabilityDisplayLabel,
 	formatCostPerMillion,
-	parameterCountText,
 } from "../../shared/config/capabilityDisplay";
 import type { RecordDiagnostic } from "../../shared/config/recordResolution";
 import type { DocsUrl } from "./docsLinks";
@@ -380,14 +379,18 @@ function recordProblemText(diagnostic: RecordDiagnostic): string {
 function legacyProblemText(diagnostic: Extract<ConfigDiagnosticView, { kind: "legacy" }>): string {
 	switch (diagnostic.hint) {
 		case "inert-url-scoped-key":
-			return l10n.t('Nothing uses "{0}": that key grammar was removed and matches no model ID.', diagnostic.oldKey);
+			// One cause is the budget: the key grammar's removal is the whole
+			// story, and "matches no model ID" was that story retold as a
+			// second reason.
+			return l10n.t('Nothing uses "{0}": that key grammar was removed.', diagnostic.oldKey);
 		case "inert-global-headers":
 			return l10n.t("No server sends these headers: the setting that held them was removed.");
 		case "parked-global-headers":
-			return l10n.t(
-				"Provider groups without a server entry no longer get the removed global headers ({0}).",
-				diagnostic.detail
-			);
+			// Consequence first, one negative: the old wording ("provider groups
+			// without a server entry no longer get the removed global headers")
+			// stacked a negative subject, a temporal claim, and a
+			// self-contradicting noun phrase.
+			return l10n.t("Externally managed provider groups no longer send the global headers ({0}).", diagnostic.detail);
 	}
 }
 
@@ -743,14 +746,21 @@ function paramProvenance(cell: ResolvedParamCell): string {
 	const base = cell.layer === "entry" ? l10n.t("entry {0}", cell.key) : l10n.t("settings {0}", cell.key);
 	const marks = [
 		...(cell.forced === true ? [l10n.t("forced")] : []),
-		...(cell.inheritedFrom !== undefined ? [l10n.t("inherited from {0}", cell.inheritedFrom)] : []),
+		// "inherited from X" earns its words only when X is another record; a
+		// value a record holds itself is already named by the base phrase.
+		...(cell.inheritedFrom !== undefined && cell.inheritedFrom !== cell.key
+			? [l10n.t("inherited from {0}", cell.inheritedFrom)]
+			: []),
 	];
 	return marks.length > 0 ? `${base}; ${marks.join(", ")}` : base;
 }
 
 /** A capability cell's provenance, one compact phrase (the caps inspector's level names, shortened). */
 function capProvenance(cell: ResolvedCapCell): string {
-	const inherited = cell.inheritedFrom !== undefined ? `; ${l10n.t("inherited from {0}", cell.inheritedFrom)}` : "";
+	const inherited =
+		cell.inheritedFrom !== undefined && cell.inheritedFrom !== cell.key
+			? `; ${l10n.t("inherited from {0}", cell.inheritedFrom)}`
+			: "";
 	switch (cell.level) {
 		case "entry":
 			return l10n.t("entry {0}", cell.key ?? "") + inherited;
@@ -774,6 +784,28 @@ function capProvenance(cell: ResolvedCapCell): string {
 }
 
 /**
+ * A table chip's text with every space-separated token held whole: below the
+ * 920px pane tier the table's chips may wrap internally, and an unguarded
+ * wrap breaks record keys at their hyphens ("settings claude-" / "sonnet-4") -
+ * the same mid-token split the code cells forbid, on text the chip rule
+ * documents as retypeable. Wraps land between tokens, never inside one, and
+ * textContent is unchanged.
+ */
+function ChipTokens({ text }: { text: string }) {
+	return (
+		<>
+			{text.split(" ").map((token, index) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: tokens can repeat within one chip, and the list rebuilds wholesale with its text
+				<Fragment key={`${index}-${token}`}>
+					{index > 0 ? " " : null}
+					<span className="whitespace-nowrap">{token}</span>
+				</Fragment>
+			))}
+		</>
+	);
+}
+
+/**
  * One generic capability cell: the friendly label where the consumed
  * vocabulary has one (the value keeps the monospace register), the raw wire
  * key in code otherwise (for an open field the key IS the fact), each with
@@ -793,10 +825,16 @@ function CapabilityCell({ cell }: { cell: ResolvedCapCell }) {
 				</HoverTip>
 			) : (
 				<code>
-					{cell.name} {cell.valueText}
+					{/* Key and value each hold together; a narrow column breaks the
+					    line BETWEEN them, never inside a token - a quoted value like
+					    "gold-eu-west" was splitting at its hyphens. */}
+					<span className="whitespace-nowrap">{cell.name}</span>{" "}
+					<span className="whitespace-nowrap">{cell.valueText}</span>
 				</code>
 			)}
-			<span className="chip-prov">{capProvenance(cell)}</span>
+			<span className="chip-prov">
+				<ChipTokens text={capProvenance(cell)} />
+			</span>
 		</span>
 	);
 }
@@ -827,11 +865,15 @@ function ParamsListCell({ cell }: { cell: ResolvedCapCell }) {
 			    array), not a joined rendering: element boundaries must survive
 			    on a debugging surface, and a comma inside one name would make a
 			    join ambiguous. The empty list keeps the tip too - the wire key
-			    must stay reachable on every rendering. */}
+			    must stay reachable on every rendering. The visible value is the
+			    bare count: the label beside it already says "parameters", and
+			    "Supported parameters 27 parameters" said it twice. */}
 			<HoverTip tip={`${cell.name} ${cell.valueText}`}>
-				<span>{parameterCountText(list.length)}</span>
+				<span>{String(list.length)}</span>
 			</HoverTip>
-			<span className="chip-prov">{capProvenance(cell)}</span>
+			<span className="chip-prov">
+				<ChipTokens text={capProvenance(cell)} />
+			</span>
 		</span>
 	);
 }
@@ -908,14 +950,20 @@ function CapabilityCells({ cells, currencySymbol }: { cells: readonly ResolvedCa
 					{/* The dominant source's chip leads the line ("default: X,
 					    except where noted"), so an unbadged part obviously reads
 					    as the leading chip's source. */}
-					<span className="chip-prov">{dominant}</span>
+					<span className="chip-prov">
+						<ChipTokens text={dominant} />
+					</span>
 					{pricing.map((entry) => {
 						const provenance = capProvenance(entry.cell);
 						return (
 							<span key={entry.cell.name} className="resolved-price-part">
 								{capabilityDisplayLabel(entry.cell.name)}{" "}
 								<code>{formatCostPerMillion(entry.perToken, currencySymbol)}</code>
-								{provenance === dominant ? null : <span className="chip-prov">{provenance}</span>}
+								{provenance === dominant ? null : (
+									<span className="chip-prov">
+										<ChipTokens text={provenance} />
+									</span>
+								)}
 							</span>
 						);
 					})}
@@ -981,9 +1029,11 @@ function ResolvedModels({
 			help={helpResolutionSection()}
 			docs={{ href: DOCS_LINK_RESOLVED_MODELS, label: l10n.t("Open the resolved-models guide") }}
 			// The count belongs to the title, not to a line of its own beside the
-			// filter input, where it read as part of the control.
+			// filter input, where it read as part of the control. And only while
+			// the filter is narrowing: "showing 3 of 3" at rest is a tautology,
+			// where the configuration header's "8 of 9" does real work.
 			meta={
-				view === undefined || view.rows.length === 0
+				view === undefined || view.rows.length === 0 || rows.length === view.rows.length
 					? undefined
 					: l10n.t("showing {0} of {1}", rows.length, view.rows.length)
 			}
@@ -1008,19 +1058,27 @@ function ResolvedModels({
 						view.trees.map((tree, index) => <RecordTree key={index} tree={tree} />)
 					)}
 					{view.rows.length === 0 ? (
-						<p className="empty">{l10n.t("No models discovered yet; the table fills once a server syncs.")}</p>
+						// The same quiet register as the section's other empty
+						// sentences; an italic here implied a hierarchy between two
+						// empty states that does not exist.
+						<p className="hint">{l10n.t("No models discovered yet; the table fills once a server syncs.")}</p>
 					) : (
 						<>
-							<div className="filterbar">
+							<div className="filterbar resolved-filter">
+								{/* The placeholder is short enough to survive the input's 260px
+								    floor whole: the longer wording clipped at the input's edge,
+								    cutting the text off exactly where the example started. */}
 								<Input
 									type="text"
-									placeholder={l10n.t("Filter by model ID or matcher key, e.g. gpt-5*")}
+									placeholder={l10n.t("Model ID or matcher key, e.g. gpt-5*")}
 									aria-label={l10n.t("Filter resolved models")}
 									value={filter}
 									onChange={(event) => setFilter(event.currentTarget.value)}
 								/>
 							</div>
-							<div className="table-scroll">
+							{/* resolved-scroll: the stylesheet caps this table at the page's
+							    measure; the rule carries the reasoning. */}
+							<div className="table-scroll resolved-scroll">
 								<table className="resolved-models">
 									<thead>
 										<tr>
@@ -1071,9 +1129,14 @@ function ResolvedModels({
 															row.parameters.map((cell) => (
 																<span key={cell.name} className="resolved-cell">
 																	<code>
-																		{cell.name} {cell.valueText}
+																		{/* Same token discipline as the capability cell:
+																		    break between key and value, never inside one. */}
+																		<span className="whitespace-nowrap">{cell.name}</span>{" "}
+																		<span className="whitespace-nowrap">{cell.valueText}</span>
 																	</code>
-																	<span className="chip-prov">{paramProvenance(cell)}</span>
+																	<span className="chip-prov">
+																		<ChipTokens text={paramProvenance(cell)} />
+																	</span>
 																</span>
 															))
 														)}
