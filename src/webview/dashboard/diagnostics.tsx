@@ -786,7 +786,7 @@ function CapabilityCell({ cell }: { cell: ResolvedCapCell }) {
 	return (
 		<span className="resolved-cell">
 			{label !== undefined ? (
-				<HoverTip focusable tip={`${cell.name} ${cell.valueText}`}>
+				<HoverTip tip={`${cell.name} ${cell.valueText}`}>
 					<span className="resolved-field">
 						{label} <code>{cell.valueText}</code>
 					</span>
@@ -828,7 +828,7 @@ function ParamsListCell({ cell }: { cell: ResolvedCapCell }) {
 			    on a debugging surface, and a comma inside one name would make a
 			    join ambiguous. The empty list keeps the tip too - the wire key
 			    must stay reachable on every rendering. */}
-			<HoverTip focusable tip={`${cell.name} ${cell.valueText}`}>
+			<HoverTip tip={`${cell.name} ${cell.valueText}`}>
 				<span>{parameterCountText(list.length)}</span>
 			</HoverTip>
 			<span className="chip-prov">{capProvenance(cell)}</span>
@@ -889,7 +889,6 @@ function CapabilityCells({ cells }: { cells: readonly ResolvedCapCell[] }) {
 					    and its source, so the dominant-chip scheme never asks the
 					    reader to infer a source it cannot see. */}
 					<HoverTip
-						focusable
 						tip={pricing
 							.map((entry) => `${entry.cell.name} ${entry.cell.valueText} (${capProvenance(entry.cell)})`)
 							.join(", ")}

@@ -335,7 +335,7 @@ function ValueCell({ text, numeric = false, struck = false }: { text: string; nu
 		// cell; a second name for one concept is how a vocabulary rots.
 		<td className={numeric ? "res-value num" : "res-value"}>
 			{approxWidthCh(text) > VALUE_CLIP_CH ? (
-				<HoverTip focusable tip={text}>
+				<HoverTip tip={text}>
 					<span className="res-value-clip">{body}</span>
 				</HoverTip>
 			) : (
@@ -359,7 +359,7 @@ function FieldName({ name }: { name: string }) {
 	const label = capabilityDisplayLabel(name);
 	if (label !== undefined) {
 		return (
-			<HoverTip focusable tip={name}>
+			<HoverTip tip={name}>
 				<span className="res-label">{label}</span>
 			</HoverTip>
 		);
@@ -507,7 +507,7 @@ function ParameterRow({
 					) : null}{" "}
 					{row.skipReason !== undefined ? (
 						<span className="mark-quiet">
-							<HoverTip focusable tip={skipReasonText(row.skipReason)}>
+							<HoverTip tip={skipReasonText(row.skipReason)}>
 								<span>{l10n.t("not sent")}</span>
 							</HoverTip>
 						</span>

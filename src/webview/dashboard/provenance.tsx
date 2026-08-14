@@ -143,13 +143,7 @@ export function Provenance({ source }: { source: ProvenanceView }) {
 			) : null}
 		</span>
 	);
-	return tip === undefined ? (
-		badge
-	) : (
-		<HoverTip focusable tip={tip}>
-			{badge}
-		</HoverTip>
-	);
+	return tip === undefined ? badge : <HoverTip tip={tip}>{badge}</HoverTip>;
 }
 
 /**
@@ -165,11 +159,5 @@ export function Mark({ mark, children }: { mark: MarkView; children?: ReactNode 
 			{children}
 		</span>
 	);
-	return mark.detail === undefined ? (
-		body
-	) : (
-		<HoverTip focusable tip={mark.detail}>
-			{body}
-		</HoverTip>
-	);
+	return mark.detail === undefined ? body : <HoverTip tip={mark.detail}>{body}</HoverTip>;
 }

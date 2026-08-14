@@ -402,5 +402,5 @@ test("the external rows link the pinned destinations with decorative glyphs", ()
 	// Copy diagnostics collects lives on the header's help affordance. Scoped
 	// to the body, since the help tip legitimately carries that sentence.
 	expect(support.querySelectorAll("p.hint")).toHaveLength(0);
-	expect(support.querySelector(".section-head .help-tip")?.textContent).toContain("Copy diagnostics");
+	expect(support.querySelector(".section-head .tip-bubble")?.textContent).toContain("Copy diagnostics");
 });

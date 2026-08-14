@@ -25,46 +25,36 @@ function labelOf(item: Element): string {
 	return (item.querySelector(".rail-label")?.textContent ?? "").trim();
 }
 
-test("the rail's footer actions and its verdict carry the same tip contract as its tabs", () => {
+test("the rail's footer actions and its verdict keep their words in the DOM behind aria-hidden glyphs", () => {
 	// The collapsed rail paints these three as glyphs and nothing else, so each
-	// one's whole meaning is an attribute: the label element that survives as the
-	// accessible name, and the data-tip that paints it back for a sighted reader.
-	// Both live on an aria-hidden element, because Chromium folds generated
-	// content into the accessible name and the label is already there.
+	// one's whole meaning rests on the label element that survives as the
+	// accessible name; the glyph beside it is aria-hidden so the name is said
+	// once. What paints the label back for a sighted reader at the collapsed
+	// width is the tip primitive, pinned in tip.test.tsx.
 	const root = mountApp();
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()] })));
 	for (const action of Array.from(root.querySelectorAll(".rail-action"))) {
 		const label = action.querySelector(".rail-action-label")?.textContent ?? "";
 		expect(label.length).toBeGreaterThan(0);
-		const icon = action.querySelector(".rail-action-icon");
-		expect(icon?.getAttribute("data-tip")).toBe(label);
-		expect(icon?.getAttribute("aria-hidden")).toBe("true");
+		expect(action.querySelector(".rail-action-icon")?.getAttribute("aria-hidden")).toBe("true");
 	}
 	const dot = root.querySelector(".rail-status .dot");
 	expect(dot?.getAttribute("aria-hidden")).toBe("true");
 	const word = root.querySelector(".rail-word")?.textContent ?? "";
 	expect(word.length).toBeGreaterThan(0);
-	expect(dot?.getAttribute("data-tip")).toContain(word);
 });
 
-test("every rail item carries its label in a .rail-label element, and its own tip text", () => {
-	// Both halves of the collapsed rail's contract, and neither is visible to a
-	// layout-free DOM any other way. The label element is what keeps the
-	// accessible name once the rail paints icons only - and it is what these
-	// suites read a label from, so a rename would leave them reading "" and
-	// still passing. The tip is generated content from data-tip, deliberately
-	// not an element, so the label is never a second copy of itself in the
-	// page's text; nothing but this attribute proves it is there at all.
+test("every rail item carries its label in a .rail-label element, behind an aria-hidden icon", () => {
+	// The label element is what keeps the accessible name once the rail paints
+	// icons only - and it is what these suites read a label from, so a rename
+	// would leave them reading "" and still passing. The icon is aria-hidden,
+	// so the name a screen reader hears is the label said once.
 	const root = mountApp();
 	const items = Array.from(root.querySelectorAll("[role='tab']"));
 	expect(items.length).toBeGreaterThan(0);
 	for (const item of items) {
 		const label = item.querySelector(".rail-label")?.textContent ?? "";
 		expect(label.length).toBeGreaterThan(0);
-		const tip = item.querySelector(".rail-icon")?.getAttribute("data-tip") ?? "";
-		expect(tip).toContain(label);
-		// The name a screen reader hears already carries the label, so the tip
-		// must not be added to it.
 		expect(item.querySelector(".rail-icon")?.getAttribute("aria-hidden")).toBe("true");
 	}
 });

@@ -527,7 +527,7 @@ describe("Resolved models", () => {
 		expect(section.textContent).not.toContain("precomputed resolution");
 		expect(section.textContent).not.toContain("never part of issue reports");
 		// The concept still has a home: the header's help affordance.
-		expect(section.querySelector(".section-head .help-tip")?.textContent).toContain("Which record set each value");
+		expect(section.querySelector(".section-head .tip-bubble")?.textContent).toContain("Which record set each value");
 	});
 
 	test("requests only while the tab is active", () => {
@@ -726,7 +726,7 @@ describe("Resolved models", () => {
 		expect(tip?.querySelector('[role="tooltip"]')?.textContent).toBe(`supported_openai_params ${JSON.stringify(list)}`);
 		expect(cell?.querySelector(".chip-prov")?.textContent).toBe("server-reported");
 		// The visible cell shows only the count; the array lives in the tip.
-		expect(cell?.querySelector(".tip-wrap > span:not(.help-tip)")?.textContent).toBe("5 parameters");
+		expect(cell?.querySelector(".tip-wrap > span:not(.tip-bubble)")?.textContent).toBe("5 parameters");
 	});
 
 	test("a cost cell whose value is not a number keeps the generic rendering instead of joining the pricing line", () => {

@@ -984,7 +984,7 @@ function nameText(cell: Element | null): string | null {
 	if (cell === null) {
 		return null;
 	}
-	return (cell.querySelector(".tip-wrap > span:not(.help-tip)") ?? cell).textContent;
+	return (cell.querySelector(".tip-wrap > span:not(.tip-bubble)") ?? cell).textContent;
 }
 
 test("the core fields render first in their pinned order; open fields land under Other fields, sorted by wire key", () => {

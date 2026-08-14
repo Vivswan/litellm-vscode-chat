@@ -173,6 +173,33 @@ export function fireMouseEnter(element: HTMLElement): void {
 	});
 }
 
+/**
+ * React synthesizes onMouseLeave from the bubbling mouseout event, and only
+ * when relatedTarget - where the pointer went - sits outside the listened
+ * element's subtree. Passing a descendant as `to` therefore exercises the
+ * pointer moving deeper (a trigger's own tooltip bubble, say) and must NOT
+ * fire onMouseLeave; the default, document.body, is a plain departure.
+ */
+export function fireMouseLeave(element: HTMLElement, to?: HTMLElement): void {
+	void act(() => {
+		element.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: to ?? document.body }));
+	});
+}
+
+/**
+ * Resize happy-dom's viewport, firing matchMedia change listeners and the
+ * window resize event. act()-wrapped because components subscribe to both.
+ * happy-dom's default is 1024x768; a suite that shrinks the viewport must
+ * restore it in afterEach, or every later suite inherits the narrow window.
+ */
+export function setViewport(width: number, height: number): void {
+	const happy = (window as unknown as { happyDOM: { setViewport: (v: { width: number; height: number }) => void } })
+		.happyDOM;
+	void act(() => {
+		happy.setViewport({ width, height });
+	});
+}
+
 export function fireClick(element: HTMLElement): void {
 	void act(() => {
 		element.click();

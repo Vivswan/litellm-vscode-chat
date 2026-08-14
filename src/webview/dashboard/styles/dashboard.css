@@ -761,13 +761,10 @@
 	}
 
 	/* The "?" help affordance next to section titles and field labels: a
-		   muted circled glyph revealing a tooltip this document draws itself,
-		   because native title tooltips do not reliably render in the webview
-		   host and never show on keyboard focus. The wrapper anchors the tip;
-		   hovering the wrapper or keyboard-focusing the button shows it.
-		   A button so it is keyboard-focusable, but styled out of button chrome. */
+		   muted circled glyph revealing the tip primitive below (ui/tip.tsx owns
+		   when; this file owns what it looks like). A button so it is
+		   keyboard-focusable, but styled out of button chrome. */
 	.help-wrap {
-		position: relative;
 		display: inline-flex;
 		flex: none;
 	}
@@ -799,14 +796,20 @@
 		outline: 1px solid var(--vscode-focusBorder);
 		outline-offset: 1px;
 	}
-	/* The tip mirrors the editor's hover widget (same theme tokens) and sits
-		   above the trigger. The font resets so heading styles cannot leak in,
-		   and pointer-events stays off so the tip never traps the mouse. */
-	.help-tip {
+	/* The page's one tooltip bubble (ui/tip.tsx decides when it shows and
+		 measures where; ONLY that primitive renders this class). It mirrors the
+		 editor's hover widget, on the same theme tokens. Fixed positioning is
+		 load-bearing: tips render inside the tables' scroll containers and the
+		 rail's own scrolling 48px column, whose overflow boxes clip any
+		 absolutely-positioned child, and position: fixed escapes every ancestor
+		 clip. The font resets so heading styles cannot leak in. Hidden rather
+		 than unmounted, so an aria-describedby pointing at it always resolves.
+		 Deliberately hoverable (WCAG 1.4.13): no pointer-events: none here, and
+		 the ::before bridge below spans the gap back to the trigger so the
+		 pointer can travel onto the tip without the trigger's hover ending. */
+	.tip-bubble {
 		display: none;
-		position: absolute;
-		bottom: calc(100% + 6px);
-		left: -8px;
+		position: fixed;
 		z-index: 100;
 		width: max-content;
 		max-width: min(320px, calc(100vw - 48px));
@@ -816,17 +819,50 @@
 		border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
 		border-radius: 3px;
 		box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.35));
+		font-family: var(--vscode-font-family);
 		font-size: var(--vscode-font-size);
 		font-weight: 400;
 		line-height: 1.5;
 		text-align: left;
 		white-space: normal;
 		overflow-wrap: break-word;
-		pointer-events: none;
 	}
-	.help-wrap:hover .help-tip,
-	button.help:focus-visible + .help-tip {
+	.tip-bubble[data-open] {
 		display: block;
+	}
+	/* The hover bridge: an invisible extension of the bubble's hit area across
+		 the gap between trigger and tip, on the side the trigger sits. */
+	.tip-bubble::before {
+		content: "";
+		position: absolute;
+	}
+	.tip-bubble[data-placement="above"]::before {
+		top: 100%;
+		right: 0;
+		left: 0;
+		height: 10px;
+	}
+	.tip-bubble[data-placement="below"]::before {
+		bottom: 100%;
+		right: 0;
+		left: 0;
+		height: 10px;
+	}
+	/* Beside: the collapsed rail's tips. Vertically centered on the trigger by
+		 transform, so the trigger's unknown height stays out of the measuring
+		 arithmetic; a narrower cap because these sit beside a 48px rail in an
+		 already-narrow window; the bridge reaches back across the rail's inline
+		 padding to its controls. */
+	.tip-bubble[data-placement="beside"] {
+		max-width: min(240px, calc(100vw - 72px));
+		padding: 5px 9px;
+		transform: translateY(-50%);
+	}
+	.tip-bubble[data-placement="beside"]::before {
+		top: 0;
+		bottom: 0;
+		left: -24px;
+		width: 24px;
 	}
 	/* The "learn more" anchor beside section titles and in notices: opens the
 		   matching docs page on GitHub (the webview host opens plain anchors
@@ -865,17 +901,10 @@
 	.feedback-links li {
 		margin: 8px 0;
 	}
-	/* Hover tips over non-interactive inline content (badges, status pills):
-		   the same tip element, revealed by hovering the wrapper. Extra detail
-		   only; anything load-bearing also renders as visible text. */
+	/* Wrappers for tips over non-interactive inline content (badges, status
+		   pills): layout only - the bubble and its reveal are the tip primitive's. */
 	.tip-wrap {
-		position: relative;
 		display: inline-flex;
-	}
-	.tip-wrap:hover .help-tip,
-	.tip-wrap:focus-visible .help-tip,
-	.tip-wrap:focus-within .help-tip {
-		display: block;
 	}
 	.tip-wrap[tabindex]:focus-visible {
 		outline: 1px solid var(--vscode-focusBorder);
@@ -883,12 +912,6 @@
 	}
 	.tip-wrap + .tip-wrap {
 		margin-left: 4px;
-	}
-	/* Triggers in the page's top band (the first section heading) flip the
-		   tip below them; above would clip against the top of the document. */
-	.help-wrap.below .help-tip {
-		bottom: auto;
-		top: calc(100% + 6px);
 	}
 
 	/* Plain number fields like the native Settings editor: no spin buttons
@@ -2933,9 +2956,9 @@
 		.rail-status {
 			justify-content: center;
 			padding-left: 0;
-			/* Stretched so the box the tip measures from is the rail's column and
-			 not the 11px dot: measured from the dot, the verdict's tip landed
-			 20px left of every other one, over the rail's own border. */
+			/* Stretched so the verdict's hover and focus target is the rail's
+				 column and not the 11px dot: an 11px hover target is a miss most
+				 of the time, and the tip is the only way to read the verdict here. */
 			align-self: stretch;
 		}
 		.rail-state .rail-status .dot {
@@ -2998,44 +3021,6 @@
 				background: Canvas;
 				border-color: CanvasText;
 			}
-		}
-		/* Each control names itself on hover or keyboard focus, beside the rail
-		 rather than over it: the rail is a column against the window's edge, so
-		 a tip above a control would cover its neighbour.
-		 Generated content, not an element, so the label is not also a second
-		 copy of itself in the page's text; fixed, because the rail's column
-		 scrolls in a short window and an absolute tip would be clipped at that
-		 overflow box; and placed from the two variables the control measured
-		 for itself, which are inert at every other width.
-		 The chrome is the help tip's, deliberately: one tooltip look for the
-		 page, whether it comes from an element or from a pseudo-element. */
-		.rail-tab:hover .rail-icon::after,
-		.rail-tab:focus-visible .rail-icon::after,
-		.rail-action:hover .rail-action-icon::after,
-		.rail-action:focus-visible .rail-action-icon::after,
-		.rail-status:hover .dot::after,
-		.rail-status:focus-visible .dot::after {
-			content: attr(data-tip);
-			position: fixed;
-			left: var(--rail-tip-left);
-			top: var(--rail-tip-top);
-			transform: translateY(-50%);
-			z-index: 100;
-			width: max-content;
-			max-width: min(240px, calc(100vw - 72px));
-			padding: 5px 9px;
-			background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background));
-			color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
-			border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
-			border-radius: 3px;
-			box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.35));
-			font-family: var(--vscode-font-family);
-			font-size: var(--vscode-font-size);
-			font-weight: 400;
-			line-height: 1.5;
-			text-align: left;
-			white-space: normal;
-			pointer-events: none;
 		}
 	}
 	/* A 260px floor plus a scope chip plus a count does not fit a 400px pane,

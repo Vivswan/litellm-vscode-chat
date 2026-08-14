@@ -24,14 +24,24 @@
  * its sync time stay in the DOM and go visually-hidden, so the accessible name
  * of every control, the page's h1, and the whole keyboard contract are the same
  * at 500px as at 1500px - what changes is only what is painted. For sighted
- * readers each control carries its own tip, drawn as the page's other tips are.
+ * readers each collapsed control carries the page's tip primitive (ui/tip.tsx),
+ * placed beside the rail: the rail is a column against the window's edge, so a
+ * tip above a control would cover its neighbour, and the rail's own scrolling
+ * column would clip an absolute tip. Every rail bubble is paint-only - its text
+ * repeats what the accessible tree already carries (a control's own label, or,
+ * for the verdict, the word plus the sync line that stays in the DOM beside
+ * it), so none of them is a description; the verdict's tab stop instead points
+ * at that sync paragraph, which is the one fact its own text does not carry.
+ * The bubbles render only while the rail is collapsed: at full width the label
+ * is painted right there, and a tip repeating it is noise.
  */
 import * as l10n from "@vscode/l10n";
-import type { CSSProperties, KeyboardEvent, ReactNode, SyntheticEvent } from "react";
-import { useEffect, useRef, useState } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
+import { useEffect, useId, useState } from "react";
 import { IconBug, IconSync } from "./icons";
 import { Button } from "./ui/button";
 import { cn } from "./ui/cn";
+import { TipBubble, useTip } from "./ui/tip";
 import { sendRequest } from "./vscodeApi";
 
 /** The fleet's one-word verdict, exactly as the pills spell it. Not widened to
@@ -72,24 +82,6 @@ export interface RailSection<Id extends string = string> {
 }
 
 /**
- * Where a collapsed-rail tip should paint, as custom properties on the control
- * it belongs to.
- *
- * The tip is generated content (`content: attr(data-tip)`) rather than an
- * element, because an element would put a second copy of the control's own
- * label into the page's text: the same words in the accessible name, in
- * find-in-page, and in anything that reads textContent. What the reader needs
- * is the label PAINTED somewhere else, not said twice.
- *
- * The coordinates arrive as variables rather than as a style the handler picks,
- * so the stylesheet stays the one thing that decides whether there is a tip at
- * all: at full width these variables are inert. They are measured because the
- * rail's own column scrolls in a short window, and only a fixed tip escapes
- * that overflow box - the same reason the help tips are fixed. Coordinates go
- * stale if the rail scrolls while a tip is shown; leaving the control
- * re-measures.
- */
-/**
  * The width at which the rail collapses, as a media query, spelled here as well
  * as in the stylesheet - CSS decides what the rail LOOKS like and this decides
  * what it can DO, and neither can read the other. A test pins the two spellings
@@ -104,8 +96,9 @@ export const RAIL_COLLAPSE_QUERY = "(width < 1000px)";
  * cannot be expressed in a stylesheet: whether the fleet's verdict is worth a
  * tab stop (below the collapse its word is unpainted, so a keyboard reader has
  * no other way to reach it; above it, a stop that reveals nothing is a stop
- * every keyboard user pays on every visit), and re-measuring a tip when the
- * collapse itself moves the rail under a focused control.
+ * every keyboard user pays on every visit), and whether each control renders
+ * its tip bubble at all (above the collapse the labels are painted, and a tip
+ * repeating the label beside it is noise).
  */
 function useCollapsedRail(): boolean {
 	const [collapsed, setCollapsed] = useState(false);
@@ -119,71 +112,19 @@ function useCollapsedRail(): boolean {
 	return collapsed;
 }
 
-function coordinates(element: HTMLElement): CSSProperties {
-	const rect = element.getBoundingClientRect();
-	// x from the RAIL, y from the control. Measured from each control's own
-	// right edge, the tips started at different x - the tabs stretch the rail's
-	// width while the footer's buttons are 32px squares - so a column of tips
-	// stepped in and out as the pointer moved down it, and the footer's sat
-	// almost against the rail's border.
-	const rail = element.closest(".rail")?.getBoundingClientRect();
-	return {
-		"--rail-tip-left": `${(rail?.right ?? rect.right) + 8}px`,
-		"--rail-tip-top": `${rect.top + rect.height / 2}px`,
-	} as CSSProperties;
-}
-
-function useRailTip(): {
-	style: CSSProperties;
-	place: (event: SyntheticEvent<HTMLElement>) => void;
-	clear: (event: SyntheticEvent<HTMLElement>) => void;
-} {
-	const [style, setStyle] = useState<CSSProperties>({});
-	// The control the coordinates belong to, so a resize can re-measure the one
-	// that is still showing a tip rather than leaving it to paint from a rail
-	// that has since moved - which is exactly what crossing the collapse width
-	// does, and it moves the rail by 168px.
-	const anchor = useRef<HTMLElement | null>(null);
-	const place = (event: SyntheticEvent<HTMLElement>) => {
-		anchor.current = event.currentTarget;
-		setStyle(coordinates(event.currentTarget));
-	};
-	useEffect(() => {
-		const onResize = () => {
-			if (anchor.current !== null) {
-				setStyle(coordinates(anchor.current));
-			}
-		};
-		window.addEventListener("resize", onResize);
-		return () => window.removeEventListener("resize", onResize);
-	}, []);
-	// Dropped when the pointer or focus leaves, so nothing can paint from stale
-	// coordinates. Hover cannot outlive a window resize, but FOCUS can, and
-	// dragging an editor splitter is exactly when the rail's geometry moves -
-	// including across the width where the rail itself collapses.
-	// A pointer leaving a control that still holds focus clears nothing: the tip
-	// is still painted for the focus, and dropping its coordinates would leave it
-	// to fall back to the static position.
-	const clear = (event: SyntheticEvent<HTMLElement>) => {
-		if (document.activeElement !== event.currentTarget) {
-			anchor.current = null;
-			setStyle({});
-		}
-	};
-	return { style, place, clear };
-}
-
-/** One destination. Its own tip state, since only the hovered control needs coordinates. */
+/** One destination. Its own tip, since only the hovered control needs coordinates. */
 function RailTab<Id extends string>({
 	section,
 	active,
+	collapsed,
 	onSelect,
 }: {
 	section: RailSection<Id>;
 	active: boolean;
+	collapsed: boolean;
 	onSelect: () => void;
 }) {
-	const { style, place, clear } = useRailTip();
+	const tip = useTip("beside", collapsed);
 	const named =
 		section.countLabel === undefined ? section.label : l10n.t("{0}, {1}", section.label, section.countLabel);
 	return (
@@ -196,11 +137,7 @@ function RailTab<Id extends string>({
 			tabIndex={active ? 0 : -1}
 			{...(section.countLabel === undefined ? {} : { "aria-label": named })}
 			onClick={onSelect}
-			onMouseEnter={place}
-			onMouseLeave={clear}
-			onFocus={place}
-			onBlur={clear}
-			style={style}
+			{...tip.triggerProps}
 			className={cn(
 				"rail-tab cursor-pointer rounded-sm border border-control-outline px-2 py-1 text-left transition-[color,background-color] duration-[120ms] ease-out focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid max-[1000px]:px-0 max-[1000px]:py-1.5",
 				active
@@ -208,7 +145,7 @@ function RailTab<Id extends string>({
 					: "text-muted-foreground hover:bg-ghost-hover hover:text-foreground"
 			)}
 		>
-			<span className="rail-icon" aria-hidden="true" data-tip={named}>
+			<span className="rail-icon" aria-hidden="true">
 				{section.icon}
 			</span>
 			<span className="rail-label">{section.label}</span>
@@ -223,6 +160,7 @@ function RailTab<Id extends string>({
 					{section.count}
 				</span>
 			) : null}
+			{collapsed ? <TipBubble tip={tip}>{named}</TipBubble> : null}
 		</button>
 	);
 }
@@ -232,14 +170,16 @@ function RailAction({
 	icon,
 	label,
 	disabled,
+	collapsed,
 	onClick,
 }: {
 	icon: ReactNode;
 	label: string;
 	disabled?: boolean;
+	collapsed: boolean;
 	onClick: () => void;
 }) {
-	const { style, place, clear } = useRailTip();
+	const tip = useTip("beside", collapsed);
 	return (
 		<Button
 			variant="secondary"
@@ -256,17 +196,14 @@ function RailAction({
 					onClick();
 				}
 			}}
-			onMouseEnter={place}
-			onMouseLeave={clear}
-			onFocus={place}
-			onBlur={clear}
-			style={style}
+			{...tip.triggerProps}
 			className="rail-action max-[1000px]:size-8 max-[1000px]:px-0 max-[1000px]:py-0"
 		>
-			<span className="rail-action-icon" aria-hidden="true" data-tip={label}>
+			<span className="rail-action-icon" aria-hidden="true">
 				{icon}
 			</span>
 			<span className="rail-action-label">{label}</span>
+			{collapsed ? <TipBubble tip={tip}>{label}</TipBubble> : null}
 		</Button>
 	);
 }
@@ -288,8 +225,12 @@ export function Rail<Id extends string>({
 	/** Already-relative "2 min ago"; absent when nothing has synced. */
 	synced: string | undefined;
 }) {
-	const { style: verdictTipStyle, place: placeVerdictTip, clear: clearVerdictTip } = useRailTip();
 	const collapsed = useCollapsedRail();
+	const verdictTip = useTip("beside", collapsed);
+	// The sync line's id, minted rather than spelled: the verdict pill points
+	// its description at that paragraph, and a literal id would be correct only
+	// for as long as exactly one rail is ever mounted.
+	const syncedId = useId();
 	const select = (id: Id) => {
 		onSelect(id);
 		document.getElementById(`tab-${id}`)?.focus();
@@ -319,7 +260,9 @@ export function Rail<Id extends string>({
 	const verdict = synced === undefined ? overall.word : l10n.t("{0}, last sync {1}", overall.word, synced);
 
 	return (
-		<nav className="rail" aria-label={l10n.t("Dashboard")}>
+		// data-tip-edge: the collapsed controls' tips anchor their x to this
+		// box's right edge, so the column of tips lines up (ui/tip.tsx).
+		<nav className="rail" aria-label={l10n.t("Dashboard")} data-tip-edge="">
 			<div className="rail-inner">
 				<h1 className="rail-brand">LiteLLM</h1>
 				{/* A tablist is what this is - one pane at a time with a roving
@@ -336,6 +279,7 @@ export function Rail<Id extends string>({
 							key={section.id}
 							section={section}
 							active={section.id === active}
+							collapsed={collapsed}
 							onSelect={() => onSelect(section.id)}
 						/>
 					))}
@@ -356,20 +300,25 @@ export function Rail<Id extends string>({
 					<p
 						className={cn("rail-status pill", `tone-${overall.tone}`)}
 						tabIndex={collapsed ? 0 : undefined}
-						onMouseEnter={placeVerdictTip}
-						onMouseLeave={clearVerdictTip}
-						onFocus={placeVerdictTip}
-						onBlur={clearVerdictTip}
-						style={verdictTipStyle}
+						// The tab stop must say everything the hover says, and each thing
+						// once. The pill's own text is the verdict word, and the sync line
+						// below is still in the DOM at this width (visually-hidden, not
+						// removed), so the description points at THAT paragraph rather than
+						// at the tip - whose text is the word and the time together, and
+						// would read the word twice. The tip stays paint-only, as the tabs'
+						// tips are.
+						aria-describedby={collapsed && synced !== undefined ? syncedId : undefined}
+						{...verdictTip.triggerProps}
 					>
-						{/* aria-hidden because the tip is generated content on this element, and
-						    Chromium folds generated content into the accessible name: without
-						    it the verdict announces once as the paragraph's text and again as
-						    its own tooltip. The word itself is the span below. */}
-						<span className="dot" data-tip={verdict} aria-hidden="true" />
+						<span className="dot" aria-hidden="true" />
 						<span className="rail-word">{overall.word}</span>
+						{collapsed ? <TipBubble tip={verdictTip}>{verdict}</TipBubble> : null}
 					</p>
-					{synced !== undefined ? <p className="rail-synced">{l10n.t("last sync {0}", synced)}</p> : null}
+					{synced !== undefined ? (
+						<p className="rail-synced" id={syncedId}>
+							{l10n.t("last sync {0}", synced)}
+						</p>
+					) : null}
 					{/* The acked method, not the fire-and-forget command post: this is the
 					    page's most prominent sync, and on the command route it rode the
 					    chained channel and held every later dashboard message for the whole
@@ -380,11 +329,13 @@ export function Rail<Id extends string>({
 						icon={<IconSync />}
 						label={l10n.t("Sync models")}
 						disabled={serverCount === 0}
+						collapsed={collapsed}
 						onClick={() => sendRequest("syncModels", null)}
 					/>
 					<RailAction
 						icon={<IconBug />}
 						label={l10n.t("Report a bug")}
+						collapsed={collapsed}
 						onClick={() => sendRequest("executeCommand", { command: "reportIssue" })}
 					/>
 				</div>

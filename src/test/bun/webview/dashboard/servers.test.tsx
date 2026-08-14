@@ -730,7 +730,7 @@ test("the external badge tip renders the provenance classification, or the hones
 
 	const tips = [...root.querySelectorAll("span[data-slot='badge']")]
 		.filter((el) => el.textContent?.trim() === "external")
-		.map((el) => el.closest(".tip-wrap")?.querySelector(".help-tip")?.textContent ?? "");
+		.map((el) => el.closest(".tip-wrap")?.querySelector(".tip-bubble")?.textContent ?? "");
 	expect(tips.length).toBe(3);
 	const removedTip = tips.find((tip) => tip.includes('removed entry "Old"'));
 	expect(removedTip).toContain("Leftover");

@@ -5,9 +5,9 @@
  * meaningful), and render assertions that every "?" glyph renders its own
  * tooltip element (the webview draws tooltips itself; native titles are
  * unreliable in the webview host), wires it as the trigger's accessible
- * description, and sits next to the control it explains. Visibility toggling
- * is pure CSS (hover/focus-visible), which happy-dom cannot compute, so the
- * tests pin the structure and class contract the stylesheet keys on.
+ * description, and sits next to the control it explains. The tip primitive's
+ * own reveal, dismissal, and persistence behaviors are pinned in tip.test.tsx;
+ * this file pins the help affordance built on it.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { SERVER_FORM_FIELD_ORDER } from "../../../../dashboard/serverForm";
@@ -169,13 +169,17 @@ test("every help glyph renders a tooltip element wired as its accessible descrip
 
 		const tip = tipFor(glyph);
 		expect(tip.getAttribute("role")).toBe("tooltip");
-		expect(tip.classList.contains("help-tip")).toBe(true);
+		expect(tip.classList.contains("tip-bubble")).toBe(true);
+		// aria-hidden keeps the tip text out of any name-from-contents walk;
+		// the aria-describedby reference above still reads it, so the text is
+		// announced exactly once, as the description.
+		expect(tip.getAttribute("aria-hidden")).toBe("true");
 		expect((tip.textContent ?? "").length).toBeGreaterThan(40);
 		tipIds.add(tip.id);
 
-		// The structure the stylesheet keys on: the tip is the button's next
-		// sibling inside a .help-wrap, so `.help-wrap:hover .help-tip` and
-		// `button.help:focus-visible + .help-tip` can reveal it.
+		// The tip is the button's next sibling inside a .help-wrap: the wrapper
+		// is the hover boundary the primitive listens on, so the bubble must sit
+		// inside it or hovering the bubble would count as leaving the trigger.
 		expect(glyph.parentElement?.classList.contains("help-wrap")).toBe(true);
 		expect(glyph.nextElementSibling).toBe(tip);
 	}
@@ -214,10 +218,10 @@ test("each section heading carries its own help", () => {
 	// Placement: the Servers heading sits in the page's top band, so its tip
 	// flips below the trigger; everything further down keeps the default
 	// above placement.
-	const wrapOf = (title: string) => helps(headOf(title))[0]?.parentElement as HTMLElement;
-	expect(wrapOf("Servers").classList.contains("below")).toBe(true);
+	const placementOf = (title: string) => tipFor(helps(headOf(title))[0] as HTMLElement).getAttribute("data-placement");
+	expect(placementOf("Servers")).toBe("below");
 	for (const title of ["Models", "Settings", "Model parameters"]) {
-		expect(wrapOf(title).classList.contains("below"), title).toBe(false);
+		expect(placementOf(title), title).toBe("above");
 	}
 });
 
@@ -237,7 +241,7 @@ test("every server form field carries its help glyph, trailing and named for the
 		if (button === undefined) {
 			throw new Error(`no help glyph for ${label}`);
 		}
-		expect(button.parentElement?.querySelector(".help-tip")?.textContent).toBe(serverFieldHelp(field));
+		expect(button.parentElement?.querySelector(".tip-bubble")?.textContent).toBe(serverFieldHelp(field));
 		return button;
 	};
 	const trailing = (field: Parameters<typeof serverFieldHelp>[0], label: string, id: string) => {
@@ -294,7 +298,7 @@ test("every server form field carries its help glyph, trailing and named for the
 
 	// Two secrets on this shape, each with its own storage choice and glyph.
 	expect(root.querySelectorAll(".secret-where").length).toBe(2);
-	for (const tip of root.querySelectorAll(".secret-where .help-tip")) {
+	for (const tip of root.querySelectorAll(".secret-where .tip-bubble")) {
 		expect(tip.textContent).toBe(helpSecretStorage());
 	}
 
@@ -310,7 +314,7 @@ test("every server form field carries its help glyph, trailing and named for the
 	trailing("oauthScopes", "OAuth scopes", "oauthScopes");
 	const companionTip = Array.from(root.querySelectorAll<HTMLElement>("button.help"))
 		.find((candidate) => candidate.getAttribute("aria-label") === "Help: API key")
-		?.parentElement?.querySelector(".help-tip");
+		?.parentElement?.querySelector(".tip-bubble");
 	expect(companionTip?.textContent).toBe(helpOauthCompanionApiKey());
 	// Three secrets under OAuth: the client secret plus both companions.
 	expect(root.querySelectorAll(".secret-where").length).toBe(3);
@@ -365,23 +369,23 @@ test("settings rows show help only where the one-line description is not enough"
 	expect(helps(plain as ParentNode).length).toBe(0);
 });
 
-test("a shown tip pins itself with fixed coordinates, so scroll containers cannot clip it", () => {
+test("a shown tip carries measured viewport coordinates, so scroll containers cannot clip it", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(fullState()));
 
-	// Before any hover the tip has no inline placement: the stylesheet's
-	// absolute positioning is the resting default.
+	// At rest the tip is closed and carries no measured placement.
 	const wrap = root.querySelector(".help-wrap") as HTMLElement;
-	const tip = wrap.querySelector(".help-tip") as HTMLElement;
-	expect(tip.style.position).toBe("");
+	const tip = wrap.querySelector(".tip-bubble") as HTMLElement;
+	expect(tip.hasAttribute("data-open")).toBe(false);
+	expect(tip.style.left).toBe("");
 
-	// Hover measures the trigger and re-anchors the tip to the viewport;
-	// fixed positioning is what escapes the tables' overflow clipping. One
-	// vertical side pins to the trigger's edge, the other stands down
-	// (which is which depends on the wrapper's above/below placement).
+	// Hover measures the trigger and anchors the tip to the viewport; the
+	// stylesheet's position: fixed on .tip-bubble is what makes these
+	// viewport coordinates, escaping the tables' overflow clipping. One
+	// vertical side pins to the trigger's edge, the other stays free
+	// (which is which depends on the above/below placement).
 	fireMouseEnter(wrap);
-	expect(tip.style.position).toBe("fixed");
-	expect([tip.style.top, tip.style.bottom]).toContain("auto");
+	expect(tip.getAttribute("data-open")).toBe("true");
 	expect([tip.style.top, tip.style.bottom].some((edge) => edge.endsWith("px"))).toBe(true);
 	expect(tip.style.left.endsWith("px")).toBe(true);
 });
@@ -396,7 +400,7 @@ test("a tip in normal position sits 8px left of its trigger with its bottom pinn
 	stubBoundingRect(wrap, { left: 200, top: 300, bottom: 320 });
 	fireMouseEnter(wrap);
 
-	const tip = wrap.querySelector(".help-tip") as HTMLElement;
+	const tip = wrap.querySelector(".tip-bubble") as HTMLElement;
 	// Unclamped: rect.left - 8 wins over both viewport bounds. The guard makes
 	// the assumption explicit rather than silently depending on happy-dom's
 	// default viewport width.
@@ -405,8 +409,8 @@ test("a tip in normal position sits 8px left of its trigger with its bottom pinn
 	// Default placement anchors the tip's bottom to the trigger's top edge
 	// (plus the 6px gap), keeping the tip's unknown height out of the math.
 	expect(tip.style.bottom).toBe(`${window.innerHeight - 300 + 6}px`);
-	expect(tip.style.top).toBe("auto");
-	expect(tip.style.position).toBe("fixed");
+	expect(tip.style.top).toBe("");
+	expect(tip.getAttribute("data-placement")).toBe("above");
 });
 
 test("the horizontal clamp keeps the tip's 350px box inside the viewport at both edges", () => {
@@ -420,7 +424,7 @@ test("the horizontal clamp keeps the tip's 350px box inside the viewport at both
 	const rightWrap = right.querySelector(".help-wrap") as HTMLElement;
 	stubBoundingRect(rightWrap, { left: window.innerWidth - 20, top: 300, bottom: 320 });
 	fireMouseEnter(rightWrap);
-	expect((rightWrap.querySelector(".help-tip") as HTMLElement).style.left).toBe(`${window.innerWidth - 350}px`);
+	expect((rightWrap.querySelector(".tip-bubble") as HTMLElement).style.left).toBe(`${window.innerWidth - 350}px`);
 
 	// Near the left edge, rect.left - 8 would go negative; the 8px viewport
 	// margin wins.
@@ -428,7 +432,7 @@ test("the horizontal clamp keeps the tip's 350px box inside the viewport at both
 	const leftWrap = left.querySelector(".help-wrap") as HTMLElement;
 	stubBoundingRect(leftWrap, { left: 4, top: 300, bottom: 320 });
 	fireMouseEnter(leftWrap);
-	expect((leftWrap.querySelector(".help-tip") as HTMLElement).style.left).toBe("8px");
+	expect((leftWrap.querySelector(".tip-bubble") as HTMLElement).style.left).toBe("8px");
 });
 
 // Drift guard for helpText's no-interpolation contract: the apiVersion help
@@ -444,14 +448,14 @@ test("the below variant pins the tip's top under the trigger and stands the bott
 	stubBoundingRect(wrap, { left: 200, top: 10, bottom: 30 });
 	fireMouseEnter(wrap);
 
-	const tip = wrap.querySelector(".help-tip") as HTMLElement;
+	const tip = wrap.querySelector(".tip-bubble") as HTMLElement;
 	// Below flips the anchored edge: top pins to the trigger's bottom edge
-	// plus the 6px gap, and bottom stands down instead of top.
+	// plus the 6px gap, and bottom stays free instead of top.
 	expect(tip.style.top).toBe("36px");
-	expect(tip.style.bottom).toBe("auto");
+	expect(tip.style.bottom).toBe("");
 	// The horizontal rule is the same in both variants.
 	expect(tip.style.left).toBe("192px");
-	expect(tip.style.position).toBe("fixed");
+	expect(tip.getAttribute("data-placement")).toBe("below");
 });
 
 test("no heading anywhere on the page contains an interactive control", () => {

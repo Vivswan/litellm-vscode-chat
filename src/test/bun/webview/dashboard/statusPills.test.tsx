@@ -75,7 +75,7 @@ test("each server state renders its pill tone, verdict, and relative check time"
 	expect(unchecked?.classList.contains("tone-muted")).toBe(true);
 	expect(unchecked?.querySelector(".pill-time")).toBeNull();
 	// The explainer moved off the (non-rendering) title attribute onto the hover tip.
-	expect(unchecked?.closest(".tip-wrap")?.querySelector(".help-tip")?.textContent).toContain("Sync models");
+	expect(unchecked?.closest(".tip-wrap")?.querySelector(".tip-bubble")?.textContent).toContain("Sync models");
 });
 
 test("an ok row still carrying a sync error shows the warn tone, matching its own diagnostic line", () => {

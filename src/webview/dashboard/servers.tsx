@@ -533,13 +533,7 @@ function StatusPill({
 	);
 	// Native title attributes do not render in the webview host, so anything the
 	// pill wants to add rides the hover tip instead.
-	return tip === undefined ? (
-		pill
-	) : (
-		<HoverTip focusable tip={tip}>
-			{pill}
-		</HoverTip>
-	);
+	return tip === undefined ? pill : <HoverTip tip={tip}>{pill}</HoverTip>;
 }
 
 /** The DashboardServer origins as their own types; Extract keeps them in step with the protocol union. */
@@ -593,7 +587,7 @@ function UsageCell({ usage, thresholds }: { usage: UsageServerView | undefined; 
 	// have looked like a fix without being one.
 	if (usage.spentFraction !== undefined) {
 		return (
-			<HoverTip focusable tip={l10n.t("Spend against this server's budget")}>
+			<HoverTip tip={l10n.t("Spend against this server's budget")}>
 				<span className={`usage-cell tone-${barPresentation(usage.spentFraction, thresholds).tone}`}>
 					<span className="visually-hidden">{l10n.t("Budget spent:")} </span>
 					{formatPercent(usage.spentFraction)}
@@ -602,7 +596,7 @@ function UsageCell({ usage, thresholds }: { usage: UsageServerView | undefined; 
 		);
 	}
 	return (
-		<HoverTip focusable tip={l10n.t("Spend so far; this server has no budget to measure it against")}>
+		<HoverTip tip={l10n.t("Spend so far; this server has no budget to measure it against")}>
 			<span className="usage-cell">
 				<span className="visually-hidden">{l10n.t("Spent:")} </span>
 				{formatUsd(usage.spend)}
@@ -740,7 +734,7 @@ function ServerRow({
 							<Badge>{server.hasOAuth ? "OAuth" : l10n.t("API key")}</Badge>
 						) : null}
 						{server.origin === "external" ? (
-							<HoverTip focusable tip={externalTip(server)}>
+							<HoverTip tip={externalTip(server)}>
 								<Badge>{l10n.t("external")}</Badge>
 							</HoverTip>
 						) : null}
