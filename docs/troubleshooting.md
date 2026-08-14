@@ -27,7 +27,7 @@ Next to it, the **usage item** answers "how close am I to a budget?" - a spend p
 | the percentage on an error background | some server crossed the highest threshold (default 95%) |
 | nothing | no budget data is fresh (the connection item already signals outages), usage features do not apply to your servers, or `usage.statusBar` hides it |
 
-Clicking it opens the dashboard's [Usage section](dashboard.md#the-usage-section). How budgets, thresholds, and polling fit together is on the [Usage](usage.md#the-status-bar) page. (With a single configured threshold, that threshold is both the lowest and the highest, so crossing it goes straight to the error background.)
+Clicking it opens the dashboard's [Servers page](dashboard.md#usage-on-the-servers-page), where each row carries its spend. How budgets, thresholds, and polling fit together is on the [Usage](usage.md#the-status-bar) page. (With a single configured threshold, that threshold is both the lowest and the highest, so crossing it goes straight to the error background.)
 
 So: **red on the left** means requests cannot get through - work through [Common issues](#common-issues) below. **Red on the right** means requests get through fine but a budget is nearly spent - see [Usage: alerts](usage.md#alerts).
 
@@ -186,16 +186,16 @@ Your VS Code build lacks the thinking-part API, so streamed reasoning is dropped
 
 ## Usage features are missing
 
-The dashboard has no Usage section for a server, no spend percentage appears, and no alerts fire. In likelihood order:
+The dashboard's server rows show no spend, no spend percentage appears, and no alerts fire. In likelihood order:
 
-- **The server runs without a database.** LiteLLM serves spend data (`/key/info`) only when backed by a database; without one, the extension detects that once and hides all usage features for that server - by design, nothing to configure. Verify from a terminal: `curl -H "Authorization: Bearer sk-..." https://your-gateway/key/info` - an error page instead of JSON confirms it. If you add a database later, background polls will not notice on their own: run "LiteLLM: Refresh Usage Now" to re-check.
-- **The key cannot read usage data.** A database-backed server that answers 401 or 403 on the usage endpoints shows no numbers, but it is not hidden: its row stays on the Usage section, marked "usage access denied", and opening it says "Usage unavailable: this key isn't allowed to read its usage." with a detail line naming the endpoint and status. The curl above then returns 401 or 403 instead of an error page; ask whoever issued the key to allow it to read its own `/key/info`, then use Refresh now - the extension does not re-check on its own.
+- **The server runs without a database.** LiteLLM serves spend data (`/key/info`) only when backed by a database; without one, the extension detects that once and hides all usage features for that server - an empty spend cell, by design, nothing to configure. Verify from a terminal: `curl -H "Authorization: Bearer sk-..." https://your-gateway/key/info` - an error page instead of JSON confirms it. If you add a database later, background polls will not notice on their own: run "LiteLLM: Refresh Usage Now" to re-check.
+- **The key cannot read usage data.** A database-backed server that answers 401 or 403 on the usage endpoints shows no numbers, but it is not hidden: its row on the dashboard's Servers page carries a problem line reading "Usage is unavailable ...: this key isn't allowed to read its usage." with a detail naming the endpoint and status. The curl above then returns 401 or 403 instead of an error page; ask whoever issued the key to allow it to read its own `/key/info`, then use Refresh now - the extension does not re-check on its own.
 - **Polling is off.** `usage.pollInterval: 0` disables background polling; the dashboard still fetches when opened, no alerts fire, and the status bar item shows on-demand data for ten minutes after a fetch, then hides. Run "LiteLLM: Refresh Usage Now" for an immediate fetch - it always re-lights the item.
 - **Alerts are off.** An empty `usage.alertThresholds` list means no thresholds, so nothing ever fires and `"alerts-only"` status bar mode never shows.
 - **The item is configured away.** `usage.statusBar: "off"` hides the item; `"alerts-only"` shows it only when a threshold is crossed.
 - **No budget anywhere.** Percentages need a budget: either the key's own LiteLLM `max_budget` or the entry's `budget` field. See [Usage: budgets](usage.md#budgets).
 
-A related partial case: **spend shows, but no request counts**. The row's request count, success rate, and cache hit rate come from a second endpoint (`/user/daily/activity`); when the server does not serve it - or refuses it for your key - the open row shows spend and budget alone, with the reason stated in place of the missing numbers. Availability is detected per endpoint, so this is a normal shape on some setups, not an error.
+A related partial case: **spend shows, but no request counts**. The drawer's request count, success rate, and cache hit rate come from a second endpoint (`/user/daily/activity`); when the server does not serve it - or refuses it for your key - the open row shows spend and budget alone, with the reason stated in place of the missing numbers. Availability is detected per endpoint, so this is a normal shape on some setups, not an error.
 
 The full feature is described on the [Usage](usage.md#the-usage-panel) page; the settings and their defaults are in the [reference](settings.md#reference).
 

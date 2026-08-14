@@ -6,15 +6,17 @@ English | [简体中文](zh-cn/dashboard.md) | [繁體中文](zh-tw/dashboard.md
 
 ## Layout
 
-- A rail down the left side: the destinations, each carrying the live number it is about when there is one to show (servers, models, spend against budget, open problems), and under them the fleet's overall connection state and last sync, which stay on screen while the page beside them scrolls. A Sync models button and a quiet Report a bug action sit at its foot; the latter opens a GitHub issue pre-filled with version, platform, and recent logs.
-- Five destinations. **Servers** is your entries and their health, with each server's problems written under the row they belong to. **Models** is everything those servers report, and a server's model count on the Servers page navigates here scoped to it. **Usage** shows spend against budgets. **Diagnostics** is a connection summary, the configuration problems the extension has spotted, and the feedback and documentation links. **Settings** holds the extension's settings as editable form controls.
+- A rail down the left side: the destinations, each carrying the live number it is about when there is one to show (servers, models, open problems), and under them the fleet's overall connection state and last sync, which stay on screen while the page beside them scrolls. A Sync models button and a quiet Report a bug action sit at its foot; the latter opens a GitHub issue pre-filled with version, platform, and recent logs.
+- Four destinations. **Servers** is your entries, their health, and their spend against budgets, with each server's problems written under the row they belong to and its full inventory behind the row's disclosure. **Models** is everything those servers report, and a server drawer's model count navigates here scoped to it. **Diagnostics** is a connection summary, the configuration problems the extension has spotted, and the feedback and documentation links. **Settings** holds the extension's settings as editable form controls.
 - Settings edits write to your VS Code settings (to the scope where the value is already set, otherwise to user settings), and the buttons run the same commands the Command Palette offers.
-- Sections are addressable from outside: commands land on the section they concern, and notification buttons open the dashboard on Servers - except the budget alert's Open Usage button, which deep-links to Usage ([Deep links](#deep-links)).
+- Sections are addressable from outside: commands land on the section they concern, and notification buttons open the dashboard on Servers - the budget alert's Open Usage button included, since spend lives there now ([Deep links](#deep-links)).
 - Narrow panes reflow instead of scrolling sideways, down to a 320px floor. Below 1000px of window the rail collapses to an icon rail, the way VS Code's own activity bar is one; every label, the fleet's verdict, and its sync time stay in the accessible names and appear as tips, and the wider rows fold onto extra lines rather than dropping facts.
 
 ## Servers
 
-The server list shows every server the extension knows about: entries declared in the [`litellm-vscode-chat.servers` setting](servers.md#entry-reference), and "external" servers that exist only as VS Code provider groups (added outside this extension - see [adoption](servers.md#external-servers-and-adoption)). Groups hidden by a removed entry fold into a "hidden groups" line with an Unhide action ([lifecycle](servers.md#lifecycle-renames-removals-hidden-groups)).
+The server list shows every server the extension knows about: entries declared in the [`litellm-vscode-chat.servers` setting](servers.md#entry-reference), and "external" servers that exist only as VS Code provider groups (added outside this extension - see [adoption](servers.md#external-servers-and-adoption)). Groups hidden by a removed entry fold into a "hidden groups" line with an Unhide action ([lifecycle](servers.md#lifecycle-renames-removals-hidden-groups)). The section heading carries a one-line summary - the server count, how many rows need attention, the worst fresh budget percentage, and whether background polling is off - plus Add server and a Refresh now button that fetches usage data immediately (disabled while a fetch is in flight).
+
+Each row is one readable block - label, status, URL, model count, spend, and credential badges - that opens onto a drawer with the row's full inventory: the base URL, the credential kind, the model count (as a link opening [Models](#models) scoped to this server), when discovery last checked it, and, where the server tracks spend, every usage fact ([the usage panel](usage.md#the-usage-panel)). On the collapsed row, spend is the budget percentage over a small meter in the shared severity tones, or the plain amount when no budget gives a percentage meaning; servers whose proxy tracks no spend show an empty cell.
 
 Each row's Status pill is one of six states:
 
@@ -27,7 +29,7 @@ Each row's Status pill is one of six states:
 | Misconfigured | The entry itself is invalid - for example more than one [auth form](servers.md#authentication) - and is not used until fixed |
 | Not checked | Declared, but no discovery pass has seen it yet |
 
-A row's problems render directly under it, worst first. Each line leads with the consequence ("prod is serving no models: ..."), carries the server's own error text where there was any, and offers the matching actions in place - Retry, Open entry, Fix in settings.json, Declare models, Open models file, or a troubleshooting link. When any row needs action, a "N servers need attention" summary sits above the list; quiet advisory lines state facts that need none and stay out of that count. [Troubleshooting](troubleshooting.md#common-issues) covers the recovery steps. One deliberate softening: an expected discovery failure with the entry's [declared models](servers.md#declared-models) still serving is not a problem - the row stays Connected, with a quiet advisory line stating the expected failure. With nothing declared the row goes red like any other server serving no models, and its verdict reads "Expected failure".
+A row's problems render directly under it, worst first. Each line leads with the consequence ("prod is serving no models: ..."), carries the server's own error text where there was any, and offers the matching actions in place - Retry, Open entry, Fix in settings.json, Declare models, Open models file, Refresh now, or a troubleshooting link. Usage problems rank on the same scale: a key denied its own usage data and a budget past its thresholds are counted problems, while a transient refresh failure is a quiet advisory that still renders in full (headline, technical detail, and Refresh now) because it clears itself on the next poll. When any row needs action, the heading's summary counts it ("2 need attention"); quiet advisory lines state facts that need none and stay out of that count. [Troubleshooting](troubleshooting.md#common-issues) covers the recovery steps. One deliberate softening: an expected discovery failure with the entry's [declared models](servers.md#declared-models) still serving is not a problem - the row stays Connected, with a quiet advisory line stating the expected failure. With nothing declared the row goes red like any other server serving no models, and its verdict reads "Expected failure".
 
 ### Notices
 
@@ -71,7 +73,7 @@ Edit on an external row is the adopt action; see [Servers](servers.md#external-s
 
 Every model your servers report, as registered with Copilot Chat, one two-line row each: the name and its family and server, then a quiet sentence of specs - token limits, price per million, and what the model can do. Sort and filter controls sit above the list. Where those values come from, what each capability gates, and why a model might be missing: [Models](models.md#how-models-appear).
 
-- Clicking a server's model count on the Servers page opens this one scoped to that server; a chip beside the filter box shows the active scope and clears it.
+- Clicking a server drawer's model count on the Servers page opens this one scoped to that server; a chip beside the filter box shows the active scope and clears it.
 - Each row carries a copy action (visible on hover) for the model's exact ID - the string your [matcher keys](models.md#model-matching) match against.
 - Clicking a row opens its detail in place - the exact token limits, the raw model ID, every price tier including cache and long-context, and a yes or no for each capability. One row is open at a time and the page does not navigate.
 - Models registered by an entry's [declared list](servers.md#declared-models) rather than discovered on the server say "declared" beside their family, and their detail explains what that means.
@@ -100,11 +102,9 @@ The inspector's Capabilities section answers the other question: what does the e
 
 It renders from the same resolver the registration path runs, so what it shows is what Copilot Chat was told.
 
-## The Usage section
+## Usage on the Servers page
 
-Spend against budget, per server, for every server whose LiteLLM instance tracks spend - servers without a database simply do not appear, and when none of your servers tracks spend the section says so instead of showing empty charts.
-
-Each server is one line - label, spend against the effective budget, meter, percentage, and the fact that matters most - and opening it lists every number the extension holds: the effective and key-reported budgets when they differ, the budget's next reset date, and, where the server serves daily activity data, request count, success rate, and cache hit rate. A field the server does not report renders as a dim dash plus the reason in place, never as a zero. A Refresh now button in the section heading fetches immediately (disabled while a fetch is in flight); stale data stays visible, marked with its cause when one is known ("last refresh failed", "usage access denied"). When an explicit refresh fails on every server, one warning toast says so; the per-server detail stays on the rows.
+Spend against budget lives on each server's row: the collapsed row carries the percentage and meter, and opening the row lists every number the extension holds - the effective and key-reported budgets when they differ, the budget's next reset date, and, where the server serves daily activity data, request count, success rate, and cache hit rate. A field the server does not report renders as a dim dash plus the reason in place, never as a zero. Servers whose LiteLLM tracks no spend (no database) simply show an empty spend cell; a key denied its usage data keeps its row and states the denial as a problem line under it. The heading's Refresh now button fetches immediately (disabled while a fetch is in flight); stale data stays visible, marked with its cause when one is known ("possibly stale" beside the number, or a problem line naming the failed refresh or the denial). When an explicit refresh fails on every server, one warning toast says so; the per-server detail stays on the rows.
 
 Opening the dashboard always fetches fresh usage data, even when background polling is off. The depth - what the extension reads and from where, how the two budget sources interact, polling and freshness, alert thresholds, the status bar item - lives on the [Usage and budgets](usage.md) page.
 
@@ -169,7 +169,7 @@ Settings problems never fail silently; each one renders as a diagnostic with the
 The extension owns up to two status bar items; the dashboard is where their click-targets land.
 
 - **The connection item** reads `$(check) LiteLLM` when everything is healthy, with the server and model counts in its tooltip; error and partial states change the icon and tooltip, and the tooltip's lines are written to be pasted into an issue report. Clicking it opens the dashboard. (Older versions put the model count in the item's text; it now lives in the tooltip, keeping the bar quiet.)
-- **The usage item** shows the worst fresh server's spend percentage and appears only when there is something trustworthy to show; clicking it opens [the Usage section](#the-usage-section). Its full behavior - modes, thresholds, the staleness rule - is specified in [Usage and budgets](usage.md#the-status-bar).
+- **The usage item** shows the worst fresh server's spend percentage and appears only when there is something trustworthy to show; clicking it opens [Servers](#servers), where each row carries its spend. Its full behavior - modes, thresholds, the staleness rule - is specified in [Usage and budgets](usage.md#the-status-bar).
 
 ## Deep links
 
@@ -179,6 +179,6 @@ Every dashboard section is addressable from outside the panel, so commands and n
 |---|---|
 | LiteLLM: Open Dashboard | the dashboard, on its first section |
 | LiteLLM: Show Diagnostics | [Diagnostics](#diagnostics) |
-| the usage status bar item | [the Usage section](#the-usage-section) |
+| the usage status bar item | [Servers](#servers), where each row carries its spend |
 | notification buttons that open the dashboard ("Configure Now", "Reconfigure") | [Servers](#servers), where connection problems are fixed |
-| the budget alert's "Open Usage" button | [the Usage section](#the-usage-section) |
+| the budget alert's "Open Usage" button | [Servers](#servers), where the budget's row lives |
