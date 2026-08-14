@@ -269,6 +269,30 @@ test("Enter commits a valid draft like blur does", () => {
 	]);
 });
 
+test("the count-unit number input rejects a fractional draft live and commits a whole one", () => {
+	// chat.maxToolsPerRequest is the count-unit setting: type="number" (no
+	// suffix grammar to swallow), whole values only. "1.5" has no reading
+	// under the count grammar, so the error shows on the keystroke (a parse
+	// failure, not a blur-gated bound) and the draft never commits.
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const input = settingInput(root, "chat.maxToolsPerRequest");
+	expect(input.type).toBe("number");
+
+	fireInput(input, "1.5");
+	expect(rowOf(input).textContent).toContain("Not a whole number");
+	expect(input.getAttribute("aria-invalid")).toBe("true");
+	fireKeyDown(input, "Enter");
+	fireBlur(input);
+	expect(postedMessages).toEqual([]);
+
+	fireInput(input, "129");
+	expect(rowOf(input).textContent).not.toContain("Not a whole number");
+	fireKeyDown(input, "Enter");
+	expect(postedCalls()).toEqual([
+		{ method: "setNumberSetting", payload: { setting: "chat.maxToolsPerRequest", value: 129 } },
+	]);
+});
+
 test("an external state push resyncs a rejected draft and re-arms the calm start, including a scope-only change", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
