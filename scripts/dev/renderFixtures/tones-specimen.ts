@@ -3,9 +3,9 @@
  * the 8px row dot and the 11px collapsed-rail dot. This is the tone-parity
  * specimen - circle ok, triangle warn, square error, hollow ring muted; one
  * shape per tone so the vocabulary survives a reader who cannot separate the
- * hues - and it is the fixture --dpr runs against, because the muted ring's
- * 1.5px border is the sub-2px stroke that snaps differently across display
- * densities.
+ * hues - and it is the fixture --dpr runs against, because the shapes'
+ * strokes and clips are where display densities disagree (the muted ring sat
+ * under the 2px state floor once, snapping to a hairline at some densities).
  *
  * The window is 900px wide ON PURPOSE: the 11px size exists only inside the
  * collapsed-rail media query (width < 1000px), so a wider render would

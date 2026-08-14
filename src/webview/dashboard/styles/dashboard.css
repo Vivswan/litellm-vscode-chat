@@ -267,7 +267,11 @@
 	}
 	.pill.tone-muted .dot {
 		background: transparent;
-		border: 1.5px solid currentColor;
+		/* 2px is the state floor every other state mark meets; the ring it
+			 replaced was 1.5px, a stroke that snapped to a hairline at some
+			 display densities. Still hollow: at the 8px row size a 2px ring
+			 keeps a 4px hole, so absence cannot read as the filled circle. */
+		border: 2px solid currentColor;
 	}
 	/* Forced colours discard the dot's hue: currentColor is not a system
 		 colour, so the fill becomes the canvas and the dot vanishes entirely.
@@ -871,13 +875,14 @@
 	   colour and the tint move together: colour alone excludes anyone who cannot
 	   separate red from amber, and a tint alone is too weak to rank three
 	   levels, so blocking and advisory differ in both. */
-	/* Severity rides THREE channels, not one: hue, wash, and the rule's own
-		   weight and style. Hue alone fails the reader who cannot separate red from
-		   amber - and measurement showed that pair was the one relying on it, since
-		   blocking and degraded carried near-identical washes and identical 2px
-		   rules (1.06:1 apart in light). Geometry also survives forced-colors,
-		   where every colour collapses to the same value and a hue-only or
-		   wash-only scheme leaves three tiers looking like one. */
+	/* Severity rides three channels - hue, wash, and the rule's own weight and
+		   style - but only the RULE can rank alone. Hue fails the reader who
+		   cannot separate red from amber, and the washes fail everyone: measured
+		   composited they sit ~1.01:1 apart in dark and ~1.05:1 in light, one
+		   wash to any eye, there to say "toned" rather than to say which tone.
+		   So the rule's geometry (6px double / 2px solid / 1px dashed) carries
+		   the ranking by itself, in every palette and under forced colors, where
+		   hue and wash stop existing entirely. */
 	.row-diagnostic {
 		grid-column: 1 / -1;
 		/* It spans every track the list shares, so - exactly like the row's second
@@ -893,21 +898,28 @@
 		border-left: 2px solid var(--vscode-descriptionForeground);
 		border-radius: 0 var(--radius) var(--radius) 0;
 	}
-	/* Double, not merely thicker. Under forced colours the wash is discarded and
-		   every rule resolves to the same system colour, so blocking and degraded
-		   were left differing by one pixel of width - not a rank anyone can read
-		   across rows that are never adjacent. A doubled rule is a different SHAPE,
-		   which survives both forced colours and a reader who cannot separate red
-		   from amber. */
+	/* Double, not merely thicker, and 6px in EVERY palette. The washes cannot
+		   rank these two tiers - measured composited, blocking's and degraded's
+		   washes sit 1.01:1 apart in dark and 1.05:1 in light, one wash to any
+		   eye - so for a reader who cannot separate red from amber the rule is
+		   the ranking channel, not a third voice behind hue and wash. And a 4px
+		   double is a broken rung on that ladder: `double` cuts the width into
+		   three equal parts, so 4px yields two ~1.33px antialiased strands that
+		   read LIGHTER than degraded's crisp 2px solid - the loudest tier
+		   rendering quietest, in ordinary themes exactly as it did under forced
+		   colours. 6px gives two crisp 2px strokes: more ink (4px against 2px
+		   against 1px) and a different SHAPE, a ranking that survives forced
+		   colours, where every rule resolves to one system colour, and any
+		   palette, because it never asks hue or wash to carry it. */
 	.row-diagnostic.sev-blocking {
-		border-left: 4px double var(--err-fill);
+		border-left: 6px double var(--err-fill);
 		background: color-mix(in srgb, var(--err) 10%, transparent);
+		padding-left: 8px;
 	}
-	/* padding-left absorbs the rule-width difference (4px double vs 2px vs
+	/* padding-left absorbs the rule-width difference (6px double vs 2px vs
 		   1px), so all three tiers start their text on one x. The rules keep one
 		   shared edge because the margin stays constant; without the compensation
-		   the content edge tracked severity 3px at a time for no informational
-		   reason. */
+		   the content edge tracked severity for no informational reason. */
 	.row-diagnostic.sev-degraded {
 		border-left: 2px solid var(--warn-fill);
 		background: color-mix(in srgb, var(--warn) 7%, transparent);
@@ -927,21 +939,11 @@
 		padding-left: 13px;
 	}
 	/* Forced colours discard every background, so the washes above stop existing
-		   and the rules all resolve to the same system colour. Weight and style are
-		   what still rank the tiers there; GrayText is the one hint the mode itself
-		   offers for "this one matters least". Blocking widens to 6px: `double`
-		   cuts the width into three equal parts, so 4px yields two ~1.33px
-		   antialiased strokes that read LIGHTER than degraded's crisp 2px solid -
-		   the loudest tier rendering quietest. 6px gives two crisp 2px strokes.
-		   Ordinary themes keep 4px, where the rule is the third channel behind
-		   hue and wash rather than the only one. */
+		   and the rules all resolve to the same system colour. The rules' weight
+		   and style already rank the tiers on their own (the geometry above is the
+		   same in every palette); GrayText is the one hint the mode itself offers
+		   for "this one matters least". */
 	@media (forced-colors: active) {
-		.row-diagnostic.sev-blocking {
-			border-left-width: 6px;
-			/* The wider rule keeps the equalized content x: 6px + 8px matches
-				   the other tiers' rule-plus-padding sum. */
-			padding-left: 8px;
-		}
 		.row-diagnostic.sev-advisory {
 			border-left-color: GrayText;
 		}
@@ -3566,11 +3568,9 @@
 		.row-diagnostic.sev-advisory {
 			padding-left: 11px;
 		}
-		/* The forced-colors 6px blocking rule against this tier's 8px base. */
-		@media (forced-colors: active) {
-			.row-diagnostic.sev-blocking {
-				padding-left: 6px;
-			}
+		/* The 6px blocking rule against this tier's 8px base. */
+		.row-diagnostic.sev-blocking {
+			padding-left: 6px;
 		}
 		.server-drawer {
 			padding: 8px 10px 10px;

@@ -555,7 +555,29 @@ describe("Resolved models", () => {
 		expect(tree?.textContent).toContain("inheritance stops here");
 		expect(tree?.textContent).toContain("gpt-5.6");
 		expect(tree?.textContent).toContain("1 model matches no record here");
-		expect(tree?.textContent).toContain('"gpt*5" is not a valid matcher key');
+		expect(tree?.textContent).toContain('"gpt*5" is listed under Configuration above.');
+	});
+
+	test("an invalid matcher key is told once: Configuration owns the verdict, the tree points", () => {
+		// The page's header comment records that the outcome grid was removed to
+		// end exactly this kind of repeat; the tree names the key (a record the
+		// reader wrote must not silently vanish from the figure) but defers the
+		// verdict to the ranked row above.
+		const { root } = mountDiagnostics({
+			diagnostics: [
+				{
+					kind: "record",
+					setting: "models.parameters",
+					diagnostic: { kind: "invalid-matcher", recordKey: "gpt*5", key: "gpt*5" },
+					severity: "warning",
+				},
+			],
+		});
+		expect((root.textContent ?? "").match(/is not a valid matcher key/g) ?? []).toHaveLength(1);
+		expect(root.querySelector(".config-diagnostics")?.textContent).toContain("not a valid matcher key");
+		const tree = root.querySelector(".record-tree");
+		expect(tree?.textContent).not.toContain("not a valid matcher key");
+		expect(tree?.textContent).toContain('"gpt*5" is listed under Configuration above.');
 	});
 
 	test("the flat table filters by matcher key and jumps to the inspectors", () => {

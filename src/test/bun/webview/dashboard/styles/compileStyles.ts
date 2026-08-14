@@ -64,6 +64,13 @@ export interface StyleRule {
 	readonly context: readonly string[];
 	readonly unlayered: boolean;
 	readonly unconditional: boolean;
+	/**
+	 * Where the rule's prelude starts in the compiled sheet. Two rules for one
+	 * selector at equal specificity are settled by this alone (the dashboard
+	 * sheet is one flat layer), so an order assertion needs the offset, not
+	 * just the rule.
+	 */
+	readonly start: number;
 }
 
 /** The forced-colors query, as the compiled at-rule prelude reads. */
@@ -75,6 +82,8 @@ export interface Block {
 	readonly body: string;
 	readonly text: string;
 	readonly context: readonly string[];
+	/** Where the block's prelude starts in the sheet; source order settles equal-specificity arguments. */
+	readonly start: number;
 }
 
 /** Outside every cascade layer, which is what it takes to beat a utility. */
@@ -144,6 +153,7 @@ export function blocks(css: string): readonly Block[] {
 				body: css.slice(closed.bodyStart, i),
 				text: css.slice(closed.at, i + 1).trim(),
 				context: closed.context,
+				start: closed.at,
 			});
 		} else if (char === ";") {
 			preludeStart = i + 1;
@@ -188,5 +198,6 @@ export function rulesFor(css: string, selector: string): readonly StyleRule[] {
 			context: block.context,
 			unlayered: isUnlayered(block.context),
 			unconditional: isUnconditional(block.context),
+			start: block.start,
 		}));
 }

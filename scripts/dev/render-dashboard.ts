@@ -1405,9 +1405,9 @@ async function main(): Promise<void> {
 	if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
 		throw new Error(`Viewport must be positive integers; got ${width}x${height}`);
 	}
-	// --dpr sets the emulated deviceScaleFactor: sub-2px strokes (the muted
-	// ring's 1.5px border, hairline separators) snap differently per display
-	// density, so a review of them needs the same page at 1x and 2x.
+	// --dpr sets the emulated deviceScaleFactor: sub-2px strokes (hairline
+	// separators, any stroke under the 2px state floor) snap differently per
+	// display density, so a review of them needs the same page at 1x and 2x.
 	const dpr = values.dpr === undefined ? 1 : Number(values.dpr);
 	if (!Number.isFinite(dpr) || dpr <= 0) {
 		throw new Error(`--dpr takes a positive number; got ${values.dpr}`);

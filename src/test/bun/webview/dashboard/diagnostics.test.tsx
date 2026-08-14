@@ -403,4 +403,9 @@ test("the external rows link the pinned destinations with decorative glyphs", ()
 	// to the body, since the help tip legitimately carries that sentence.
 	expect(support.querySelectorAll("p.hint")).toHaveLength(0);
 	expect(support.querySelector(".section-head .tip-bubble")?.textContent).toContain("Copy diagnostics");
+	// The section-level actions live on the header's actions slot, like every
+	// other section's; the strip of buttons beneath the header was the
+	// pre-convergence shape ui/section.tsx exists to end.
+	expect(support.querySelector(".toolbar")).toBeNull();
+	expect(support.querySelectorAll(".section-head .section-actions button")).toHaveLength(4);
 });

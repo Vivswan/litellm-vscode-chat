@@ -538,10 +538,12 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
  *
  * The class names are the server rows' own, deliberately: severity is one
  * vocabulary across the dashboard, and two stylesheets spelling the same three
- * tiers would drift the moment either changed. Severity rides three channels
- * there - hue, wash, and the rule's weight and style - so blocking and
- * degraded stay apart for a reader who cannot separate red from amber, and all
- * three stay ranked under forced colours, where every colour collapses to one.
+ * tiers would drift the moment either changed. The rule's own geometry (6px
+ * double, 2px solid, 1px dashed) ranks the tiers by itself - hue and wash
+ * support it but cannot rank, the washes measuring near-identical - so
+ * blocking and degraded stay apart for a reader who cannot separate red from
+ * amber, and all three stay ranked under forced colours, where every colour
+ * collapses to one.
  */
 function ConfigProblemLine({ problem }: { problem: ConfigProblem }) {
 	return (
@@ -740,8 +742,14 @@ function RecordTree({ tree }: { tree: RecordTreeView }) {
 					</li>
 				) : null}
 				{tree.invalidKeys.map((key) => (
-					<li key={key} className="tree-model state-warn">
-						{l10n.t('"{0}" is not a valid matcher key; it matches nothing', key)}
+					<li key={key} className="tree-model">
+						{/* A pointer, not a verdict: the Configuration section above owns
+						    the invalid-matcher fact (ranked, with the reveal and the
+						    guide), and this page's header comment records why one fact
+						    must not be told twice. The tree still names the key, because
+						    a record the reader wrote silently missing from the figure
+						    reads as a rendering bug. */}
+						<span className="hint">{l10n.t('"{0}" is listed under Configuration above.', key)}</span>
 					</li>
 				))}
 			</ul>
@@ -1319,28 +1327,32 @@ function Support({
 			help={helpSupportSection()}
 			docs={{ href: DOCS_LINK_GETTING_STARTED, label: l10n.t("Open the getting-started guide") }}
 			headerClassName={DIAGNOSTICS_MEASURE}
+			// The header's actions slot, like every other section: a strip of
+			// buttons beneath the header was the pre-convergence shape.
+			actions={
+				<>
+					<Button
+						variant="secondary"
+						// Registry-only installs get no offer to test: the legacy registry's
+						// serving path retires with this release train, so with no server
+						// rows there is nothing a connection test could durably reach.
+						disabled={servers.length === 0}
+						onClick={() => sendRequest("executeCommand", { command: "testConnection" })}
+					>
+						<IconPlug /> {l10n.t("Test connection")}
+					</Button>
+					<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "openOutput" })}>
+						<IconOutput /> {l10n.t("Open output log")}
+					</Button>
+					<Button variant="secondary" onClick={copyDiagnostics}>
+						{copied ? <IconCheck /> : <IconCopy />} {l10n.t("Copy diagnostics")}
+					</Button>
+					<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "reportIssue" })}>
+						<IconBug /> {l10n.t("Report a bug")}
+					</Button>
+				</>
+			}
 		>
-			<div className="toolbar">
-				<Button
-					variant="secondary"
-					// Registry-only installs get no offer to test: the legacy registry's
-					// serving path retires with this release train, so with no server
-					// rows there is nothing a connection test could durably reach.
-					disabled={servers.length === 0}
-					onClick={() => sendRequest("executeCommand", { command: "testConnection" })}
-				>
-					<IconPlug /> {l10n.t("Test connection")}
-				</Button>
-				<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "openOutput" })}>
-					<IconOutput /> {l10n.t("Open output log")}
-				</Button>
-				<Button variant="secondary" onClick={copyDiagnostics}>
-					{copied ? <IconCheck /> : <IconCopy />} {l10n.t("Copy diagnostics")}
-				</Button>
-				<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "reportIssue" })}>
-					<IconBug /> {l10n.t("Report a bug")}
-				</Button>
-			</div>
 			{/* No standing paragraph: the buttons name what they do, and what
 			    Copy diagnostics collects is a question for the help tip rather
 			    than a line under every visit. */}

@@ -351,15 +351,92 @@ test("one shape per tone: the pill dots' shape vocabulary survives compilation",
 	const warn = onlyRuleBody(output, ".pill.tone-warn .dot");
 	expect(warn).toContain("clip-path: polygon(50% 0%, 100% 100%, 0% 100%)");
 	expect(warn).toContain("border-radius: 0");
-	// error a square, muted a hollow ring.
+	// error a square, muted a hollow ring - at the 2px state floor, and still
+	// hollow: the 8px box keeps a 4px hole, so absence cannot read as presence.
 	expect(onlyRuleBody(output, ".pill.tone-error .dot")).toContain("border-radius: 2px");
 	const muted = onlyRuleBody(output, ".pill.tone-muted .dot");
 	expect(muted).toContain("background: none");
-	expect(muted).toContain("border: 1.5px solid");
+	expect(muted).toContain("border: 2px solid");
 	// The collapsed rail scales the whole vocabulary through the shared size
 	// property and declares nothing else: a shape property of its own here is
 	// how the rail's dot and the rows' fork apart again.
 	expect(onlyRuleBody(output, ".rail-status .dot").trim()).toBe("--dot-size: 11px;");
+});
+
+test("the severity rules rank by geometry alone, the same geometry in every palette", async () => {
+	// The washes cannot rank blocking against degraded - composited they
+	// measure ~1.01:1 apart in dark and ~1.05:1 in light, one wash to any eye -
+	// and hue excludes the reader who cannot separate red from amber, so the
+	// rule's own geometry is the ranking channel: 6px double over 2px solid
+	// over 1px dashed, more ink AND a different stroke style per step. happy-dom
+	// runs no cascade, so the compiled sheet is the only place this can be
+	// pinned.
+	const output = await compileDashboard();
+	// The one rule per tier and condition: the narrow tier restates only the
+	// padding compensation, and forced colors only advisory's GrayText.
+	const one = (selector: string, wanted: (rule: StyleRule) => boolean, why: string): StyleRule => {
+		const rules = rulesFor(output, selector).filter(wanted);
+		expect(rules, `expected one ${why} rule for ${selector}`).toHaveLength(1);
+		if (rules[0] === undefined) {
+			throw new Error(`no ${why} rule for ${selector}`);
+		}
+		return rules[0];
+	};
+	const base = (selector: string) => one(selector, (rule) => rule.unconditional, "unconditional");
+	const blocking = base(".row-diagnostic.sev-blocking");
+	const degraded = base(".row-diagnostic.sev-degraded");
+	const advisory = base(".row-diagnostic.sev-advisory");
+	// 6px, never 4: `double` cuts the width into thirds, and a 4px double
+	// rendered as two ~1.33px antialiased strands that read LIGHTER than
+	// degraded's crisp 2px solid - the loudest tier quietest. 6px gives two
+	// crisp 2px strokes.
+	expect(blocking.declarations).toMatch(/border-left:\s*6px double/);
+	expect(degraded.declarations).toMatch(/border-left:\s*2px solid/);
+	expect(advisory.declarations).toMatch(/border-left:\s*1px dashed/);
+	// No palette gets its own geometry: nothing may restate a blocking border
+	// under forced colors, where the 6px double already carries the rank -
+	// a forced-colors width override is how the two geometries forked apart
+	// in the first place.
+	expect(
+		rulesFor(output, ".row-diagnostic.sev-blocking").filter((rule) => rule.context.includes(FORCED_COLORS_QUERY))
+	).toBeEmpty();
+	// Advisory's one forced-colors repaint survives: GrayText is the mode's own
+	// hint for "matters least", on top of the geometry.
+	expect(
+		rulesFor(output, ".row-diagnostic.sev-advisory").some(
+			(rule) => rule.context.includes(FORCED_COLORS_QUERY) && rule.declarations.toLowerCase().includes("graytext")
+		)
+	).toBe(true);
+	// And the tiers keep one content x: rule width plus padding-left agree
+	// across the tiers, at the full tier (14px) and the narrow one (12px).
+	const paddingLeft = (declarations: string): number => {
+		const match = /padding-left:\s*([\d.]+)px/.exec(declarations);
+		expect(match, `no padding-left in: ${declarations}`).not.toBeNull();
+		return Number(match?.[1]);
+	};
+	expect(6 + paddingLeft(blocking.declarations)).toBe(14);
+	expect(2 + paddingLeft(degraded.declarations)).toBe(14);
+	expect(1 + paddingLeft(advisory.declarations)).toBe(14);
+	const narrow = (selector: string) =>
+		one(selector, (rule) => !rule.unconditional && !rule.context.includes(FORCED_COLORS_QUERY), "narrow");
+	for (const [width, selector, baseRule] of [
+		[6, ".row-diagnostic.sev-blocking", blocking],
+		[2, ".row-diagnostic.sev-degraded", degraded],
+		[1, ".row-diagnostic.sev-advisory", advisory],
+	] as const) {
+		const override = narrow(selector);
+		expect(width + paddingLeft(override.declarations)).toBe(12);
+		// The narrow compensation wins its equal-specificity argument by source
+		// order alone (one flat layer), so the declaration existing is not
+		// enough: compiled ahead of the base rule it would silently lose at
+		// exactly the width it exists for, leaving the narrow tier at 14px.
+		expect(override.start, `${selector}'s narrow compensation precedes its base rule`).toBeGreaterThan(baseRule.start);
+		// The shared left edge also rests on the margin staying the base rule's:
+		// a per-tier margin would break the tiers' one content x while every
+		// border and padding sum above still passes.
+		expect(baseRule.declarations, `${selector} declares its own margin`).not.toContain("margin");
+		expect(override.declarations, `${selector}'s narrow override declares its own margin`).not.toContain("margin");
+	}
 });
 
 /**
