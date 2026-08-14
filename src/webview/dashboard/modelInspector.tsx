@@ -41,6 +41,7 @@ import * as l10n from "@vscode/l10n";
 import type { ReactNode } from "react";
 import { Fragment, useEffect, useRef } from "react";
 import type { ResponseFor } from "../../dashboard/endpoints";
+import { capabilityList } from "../../dashboard/modelFilters";
 import { formatJsonValue } from "../../dashboard/presenters";
 import type { DashboardModel } from "../../dashboard/viewModels";
 import {
@@ -71,7 +72,7 @@ import { DOCS_LINK_CAPS_INSPECTOR, DOCS_LINK_PARAMS_INSPECTOR } from "./docsLink
 import { HoverTip } from "./help";
 import { helpCapsInspector, helpParamsInspector } from "./helpText";
 import { useRpc } from "./hooks";
-import { capabilityList, formatTokens } from "./models";
+import { formatTokens } from "./models";
 import type { MarkView, ProvenanceView } from "./provenance";
 import {
 	approxWidthCh,

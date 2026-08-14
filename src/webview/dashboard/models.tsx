@@ -1,5 +1,21 @@
 import * as l10n from "@vscode/l10n";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+	CAPABILITY_FLAGS,
+	capabilityList,
+	EMPTY_MODEL_FILTER,
+	filterModels,
+	isFilterActive,
+	isPriced,
+	type ModelFilter,
+	type ModelFilterOptions,
+	modelFilterOptions,
+	priceFilterLabel,
+	toggleCapability,
+	toggleFamily,
+	togglePrice,
+	toggleServer,
+} from "../../dashboard/modelFilters";
 import type { DashboardModel } from "../../dashboard/viewModels";
 import { capabilityDisplayLabel } from "../../shared/config/capabilityDisplay";
 import { DOCS_LINK_MODELS } from "./docsLinks";
@@ -123,7 +139,7 @@ function detailFields(model: DashboardModel): {
 	// Every capability, answered. The row above prints only what the model can
 	// do, so this is where the negative answer lives - named and valued the way
 	// the inspector's capabilities table names and values it, one click deeper.
-	for (const [wireKey, property] of CAPABILITY_FIELDS) {
+	for (const [wireKey, property] of CAPABILITY_FLAGS) {
 		fields.push({ label: fieldLabel(wireKey), value: model[property] === true ? l10n.t("yes") : l10n.t("no") });
 	}
 	if (model.declared === true) {
@@ -162,33 +178,6 @@ function ModelDetail({ id, model, ref }: { id: string; model: DashboardModel; re
 }
 
 /**
- * Every capability with its answer, paired with the wire key that names it, in
- * the fixed order the detail prints them.
- *
- * The row at rest prints only the true ones. Drawing a line through the false
- * ones was the first shape of this, and it lost to a vocabulary rule: a
- * strikethrough means SUPERSEDED everywhere in this dashboard - the inspector's
- * resolution chain strikes a value that a higher-precedence record beat, and
- * that mark is accessibility-pinned there. One mark cannot also mean "cannot".
- * So absence carries it on the row and the detail answers explicitly, which is
- * also the cheaper read: a scanning eye wants what a model CAN do.
- */
-const CAPABILITY_FIELDS = [
-	["supports_function_calling", "toolCalling", () => l10n.t("tools")],
-	["supports_vision", "imageInput", () => l10n.t("vision")],
-	["supports_prompt_caching", "promptCaching", () => l10n.t("caching")],
-	["supports_reasoning", "reasoning", () => l10n.t("reasoning")],
-] as const satisfies readonly (readonly [string, keyof DashboardModel, () => string])[];
-
-/**
- * What the model CAN do, in words: the row's spec line, and the chips in the
- * inspector's header. Empty when it can do none of them.
- */
-export function capabilityList(model: DashboardModel): readonly string[] {
-	return CAPABILITY_FIELDS.filter(([, property]) => model[property] === true).map(([, , label]) => label());
-}
-
-/**
  * Token counts at a glance: "128k", not "128,000". The row's second line is a
  * sentence to be skimmed, and four exact digits in the middle of one are read
  * rather than seen. The exact figure keeps a home in the row's detail, where
@@ -202,15 +191,6 @@ function compactTokens(count: number): string {
 		return `${Math.round(count / 1000)}k`;
 	}
 	return String(count);
-}
-
-function matches(model: DashboardModel, needle: string): boolean {
-	return (
-		model.name.toLowerCase().includes(needle) ||
-		model.id.toLowerCase().includes(needle) ||
-		model.family.toLowerCase().includes(needle) ||
-		model.serverLabel.toLowerCase().includes(needle)
-	);
 }
 
 /**
@@ -331,11 +311,15 @@ function SortControl({
 			</label>
 			{/* Pressed is the descending state, so the control announces which way
 			    the list runs rather than only what the click will do. Disabled
-			    while unsorted: there is no direction to flip. */}
+			    while unsorted: there is no direction to flip. text-foreground
+			    steps the glyph up from secondary's muted tier (6.1:1 on the dark
+			    editor background) to 10.3:1 dark / 11.2:1 light - at the muted
+			    tier the ENABLED arrow read as its own disabled state, which is
+			    dimmed twice below it (disabledForeground times opacity-60). */}
 			<Button
 				variant="secondary"
 				size="compact"
-				className="sort-dir"
+				className="sort-dir text-foreground"
 				aria-label={l10n.t("Sort descending")}
 				aria-pressed={sort !== undefined && sort.dir === -1}
 				disabled={sort === undefined}
@@ -350,6 +334,123 @@ function SortControl({
 				</span>
 			</Button>
 		</span>
+	);
+}
+
+/**
+ * One filter pill: a toggle button in the chip vocabulary - outline at rest,
+ * the soft chip fill when pressed - with aria-pressed carrying the state.
+ */
+function FilterPill({ pressed, label, onToggle }: { pressed: boolean; label: string; onToggle: () => void }) {
+	return (
+		<button type="button" className="filter-pill" aria-pressed={pressed} onClick={onToggle}>
+			{label}
+		</button>
+	);
+}
+
+/**
+ * The structured filters, one wrapping row of toggle pills between the toolbar
+ * and the list. The dimensions run in the columnar tier's column order -
+ * family and server (the identity column's two facts), then price, then
+ * capabilities - so the pills read as a legend for the rows under them.
+ *
+ * Which pills exist is the options' business (see modelFilterOptions); this
+ * component only draws what it is handed, plus the clear-all action once
+ * anything is pressed. The server group additionally follows the rows' own
+ * rule: one server serving means no server names anywhere on this page.
+ */
+function FilterPills({
+	options,
+	active,
+	showServers,
+	onChange,
+	onClearAll,
+}: {
+	options: ModelFilterOptions;
+	active: ModelFilter;
+	/** The rows' serverCount > 1 rule; the options' own two-server rule still applies under it. */
+	showServers: boolean;
+	/**
+	 * Takes an updater, never a computed state: two toggles in one React batch
+	 * would otherwise both derive from the same stale `active` and the second
+	 * would silently undo the first.
+	 */
+	onChange: (update: (filter: ModelFilter) => ModelFilter) => void;
+	onClearAll: () => void;
+}) {
+	const groups: { key: string; label: string; pills: readonly React.ReactNode[] }[] = [
+		{
+			key: "family",
+			label: l10n.t("Filter by family"),
+			pills: options.families.map((family) => (
+				<FilterPill
+					key={family}
+					pressed={active.families.has(family)}
+					label={family}
+					onToggle={() => onChange((filter) => toggleFamily(filter, family))}
+				/>
+			)),
+		},
+		{
+			key: "server",
+			label: l10n.t("Filter by server"),
+			// When one server serves, dead server toggles hide with the rows' own
+			// rule - but a pill still PRESSED from when there were two must stay
+			// visible, or the filter it applies would have no control to unpress.
+			pills: options.servers
+				.filter((server) => showServers || active.servers.has(server.scopeKey))
+				.map((server) => (
+					<FilterPill
+						key={server.scopeKey}
+						pressed={active.servers.has(server.scopeKey)}
+						label={server.display}
+						onToggle={() => onChange((filter) => toggleServer(filter, server.scopeKey, server.label))}
+					/>
+				)),
+		},
+		{
+			key: "price",
+			label: l10n.t("Filter by price"),
+			pills: options.prices.map((price) => (
+				<FilterPill
+					key={price}
+					pressed={active.prices.has(price)}
+					label={priceFilterLabel(price)}
+					onToggle={() => onChange((filter) => togglePrice(filter, price))}
+				/>
+			)),
+		},
+		{
+			key: "capability",
+			label: l10n.t("Filter by capability"),
+			pills: options.capabilities.map((capability) => (
+				<FilterPill
+					key={capability.key}
+					pressed={active.capabilities.has(capability.key)}
+					label={capability.label()}
+					onToggle={() => onChange((filter) => toggleCapability(filter, capability.key))}
+				/>
+			)),
+		},
+	];
+	const populated = groups.filter((group) => group.pills.length > 0);
+	if (populated.length === 0) {
+		return null;
+	}
+	return (
+		<div className="filter-pills">
+			{populated.map((group) => (
+				<fieldset key={group.key} className="filter-pill-group" aria-label={group.label}>
+					{group.pills}
+				</fieldset>
+			))}
+			{isFilterActive(active) ? (
+				<Button variant="secondary" size="compact" onClick={onClearAll}>
+					{l10n.t("Clear filters")}
+				</Button>
+			) : null}
+		</div>
 	);
 }
 
@@ -398,6 +499,7 @@ export function ModelsSection({
 	onInspect: (target: { scopeKey: string; rawId: string; serverLabel: string }) => void;
 }) {
 	const [filter, setFilter] = useState("");
+	const [pills, setPills] = useState<ModelFilter>(EMPTY_MODEL_FILTER);
 	const [sort, setSort] = useState<Sort | undefined>(undefined);
 	const [scrollTop, setScrollTop] = useState(0);
 	const [copied, setCopied] = useState<string | undefined>(undefined);
@@ -463,6 +565,13 @@ export function ModelsSection({
 		publish();
 		const observer = new ResizeObserver(publish);
 		observer.observe(element);
+		// The pill row above wraps and unwraps as filters change, which MOVES
+		// this scrollport without resizing it - and a pure position change fires
+		// no ResizeObserver on the element itself. It does resize the parent the
+		// two share, so the parent is observed too and the moved top republishes.
+		if (element.parentElement !== null) {
+			observer.observe(element.parentElement);
+		}
 		window.addEventListener("resize", publish, { passive: true });
 		return () => {
 			observer.disconnect();
@@ -519,12 +628,36 @@ export function ModelsSection({
 	// Keyed to the server count, not the distinct labels: two groups can share
 	// a label, and their models must stay attributable.
 	const showServerColumn = serverCount > 1;
-	// The scope narrows first, then the text filter: the chip and the input
-	// compose as two independent conditions.
-	const scoped = scope === undefined ? models : models.filter((model) => model.serverLabel === scope.label);
-	const needle = filter.trim().toLowerCase();
-	const filtered = needle.length === 0 ? scoped : scoped.filter((model) => matches(model, needle));
+	// Three independent conditions compose AND, narrowing in this order: the
+	// scope (the server chip), then the pills, then the text. The "showing N of
+	// M" line reads sorted.length over scoped.length, so pills and text both
+	// move N live while the scope moves M.
+	// Memoized for identity, not for the filter's cost: pillOptions below keys
+	// on this list, and a fresh array every render (every scroll event is one)
+	// would make that memo a no-op whenever a scope is active.
+	const scoped = useMemo(
+		() => (scopeLabel === undefined ? models : models.filter((model) => model.serverLabel === scopeLabel)),
+		[models, scopeLabel]
+	);
+	const filtered = filterModels(scoped, pills, filter);
 	const sorted = sort === undefined ? filtered : [...filtered].sort(compareBy(sort));
+	// Offered pills derive from the scoped list: within a server scope the other
+	// servers' families are dead toggles. Never from the pill-filtered list -
+	// the unpressed pills of a dimension must stay visible while a sibling is
+	// pressed, or OR-within-a-dimension would be unreachable. Memoized because
+	// every scroll event re-renders this component, and the options walk the
+	// whole scoped list.
+	const pillOptions = useMemo(() => modelFilterOptions(scoped, pills), [scoped, pills]);
+	const textActive = filter.trim().length > 0;
+	// Both clear actions unmount the button that was just pressed, so focus
+	// would fall to the body and take the keyboard user's place with it; the
+	// filter input is where the cleared filters live on.
+	const filterInputRef = useRef<HTMLInputElement>(null);
+	const clearFilters = () => {
+		setFilter("");
+		setPills(EMPTY_MODEL_FILTER);
+		filterInputRef.current?.focus();
+	};
 
 	const copyId = (model: DashboardModel, rowId: string) => {
 		// Clipboard write is fire-and-forget; the check mark is the only feedback.
@@ -617,6 +750,7 @@ export function ModelsSection({
 					<div className="filterbar">
 						<Input
 							type="text"
+							ref={filterInputRef}
 							placeholder={l10n.t("Filter by name, family, or server")}
 							aria-label={l10n.t("Filter models")}
 							value={filter}
@@ -637,6 +771,13 @@ export function ModelsSection({
 						) : null}
 						<span className="hint">{l10n.t("showing {0} of {1}", sorted.length, scoped.length)}</span>
 					</div>
+					<FilterPills
+						options={pillOptions}
+						active={pills}
+						showServers={showServerColumn}
+						onChange={setPills}
+						onClearAll={clearFilters}
+					/>
 					{/* When windowed, the scrollport is a focusable, labelled region so
 					    arrow/PageDown scrolling works from the keyboard, and each row
 					    declares its true position in a list only a window of which
@@ -658,7 +799,7 @@ export function ModelsSection({
 								const rowId = rowIdOf(model);
 								const isOpen = openIndex === position;
 								const detailId = `model-detail-${position}`;
-								const priced = model.inputCost !== undefined || model.outputCost !== undefined;
+								const priced = isPriced(model);
 								const caps = capabilityList(model);
 								return (
 									<li
@@ -778,7 +919,22 @@ export function ModelsSection({
 							) : null}
 						</ul>
 					</section>
-					{sorted.length === 0 ? <p className="empty">{l10n.t("No models match the filter.")}</p> : null}
+					{sorted.length === 0 ? (
+						<p className="empty">
+							{l10n.t("No models match the filter.")}
+							{/* The way back, beside the sentence that needs it. Only when this
+							    section's own filters caused the nothing: an empty scope is the
+							    server chip's to clear, not this button's. */}
+							{textActive || isFilterActive(pills) ? (
+								<>
+									{" "}
+									<Button variant="secondary" size="compact" onClick={clearFilters}>
+										{l10n.t("Clear filters")}
+									</Button>
+								</>
+							) : null}
+						</p>
+					) : null}
 				</>
 			)}
 		</Section>

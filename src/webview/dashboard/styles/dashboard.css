@@ -1873,6 +1873,82 @@
 		font-size: 0.9em;
 		white-space: nowrap;
 	}
+	/* The structured filters: one row of toggle pills between the toolbar and
+		   the list, wrapping freely at narrow, claiming no space the columnar
+		   tier uses. The larger column gap is the seam between dimensions -
+		   family, server, price, capabilities - without a border to draw it. */
+	.filter-pills {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 4px 16px;
+		margin: 0 0 8px;
+	}
+	/* A fieldset for the semantics only: the browser's box (border, padding,
+		   the min-width:min-content quirk) is all reset away so the group is
+		   nothing but its pills. */
+	.filter-pill-group {
+		display: inline-flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 4px;
+		margin: 0;
+		padding: 0;
+		border: 0;
+		min-width: 0;
+	}
+	/* A pill is the chip's chrome as a toggle: outline at rest, the badge's
+		   soft fill when pressed, so active reads as filled-vs-outline in the
+		   vocabulary the page already speaks. Pressed is triple-coded - fill,
+		   foreground text, and a border stepped up to the muted-foreground token
+		   - because the fill alone is a 14% wash that high contrast may flatten,
+		   and aria-pressed carries the state for readers who see none of it. */
+	.filter-pill {
+		display: inline-flex;
+		align-items: center;
+		padding: 1px 8px;
+		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
+		border-radius: 9px;
+		background: none;
+		color: var(--muted-foreground);
+		font-family: inherit;
+		font-size: 0.9em;
+		white-space: nowrap;
+		cursor: pointer;
+		transition:
+			background-color 120ms ease-out,
+			color 120ms ease-out,
+			border-color 120ms ease-out;
+	}
+	.filter-pill:hover {
+		background: var(--ghost-hover);
+		color: var(--foreground);
+	}
+	.filter-pill:focus-visible {
+		outline: 1px solid var(--vscode-focusBorder);
+		outline-offset: 1px;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.filter-pill {
+			transition: none;
+		}
+	}
+	.filter-pill[aria-pressed="true"] {
+		background: var(--chip);
+		border-color: var(--muted-foreground);
+		color: var(--foreground);
+	}
+	/* Forced colours repaint the fill into the page and every border to the
+		   same system ink, so nothing above survives as a pressed mark. Border
+		   thickness is a channel the mode leaves alone - the same one the danger
+		   button rank uses there - and the padding hands the extra pixel back so
+		   the pressed pill keeps its box. */
+	@media (forced-colors: active) {
+		.filter-pill[aria-pressed="true"] {
+			border-width: 2px;
+			padding: 0 7px;
+		}
+	}
 	/* Landing target of an in-page jump. The margin keeps the heading clear of
 		   whatever is stuck to the top of the viewport, and the programmatic focus
 		   (a container, not a control) draws no ring. Class-scoped rather than

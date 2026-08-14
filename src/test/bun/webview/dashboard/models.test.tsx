@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { ModelsSection } from "../../../../webview/dashboard/models";
 import { makeModel } from "../fixtures";
-import { cleanup, fireClick, fireInput, mount, resetPosted } from "../harness";
+import { buttonByText, cleanup, fireClick, fireInput, mount, render, resetPosted } from "../harness";
 
 beforeEach(() => {
 	resetPosted();
@@ -289,4 +289,173 @@ test("the Inspect action reports the clicked row's full identity to the inspecto
 	// the full row identity - serverLabel included, since one snapshot can
 	// render under several labels.
 	expect(opened).toEqual([{ scopeKey: "s3", rawId: "gpt-4", serverLabel: "Prod" }]);
+});
+
+test("filter pills sit between the toolbar and the list, dimension groups in the columns' order", () => {
+	const models = [
+		makeModel({ id: "a", family: "gpt", scopeKey: "s1", serverLabel: "Prod", inputCost: 1, toolCalling: true }),
+		makeModel({ id: "b", family: "claude", scopeKey: "s2", serverLabel: "Staging", toolCalling: false }),
+	];
+	const root = mount(<ModelsSection models={models} serverCount={2} onInspect={() => {}} />);
+	const pills = root.querySelector(".filter-pills") as HTMLElement;
+	// Between the toolbar and the list: the row claims no space the columnar
+	// tier uses, in either tier.
+	expect(pills.previousElementSibling?.className).toBe("filterbar");
+	expect(pills.nextElementSibling?.classList.contains("table-scroll")).toBe(true);
+	// Groups follow the columnar tier's column order: the identity column's two
+	// facts (family, then server), then price, then capabilities.
+	const groups = Array.from(pills.querySelectorAll(".filter-pill-group"));
+	expect(groups.map((group) => group.getAttribute("aria-label"))).toEqual([
+		"Filter by family",
+		"Filter by server",
+		"Filter by price",
+		"Filter by capability",
+	]);
+	// Every pill is a toggle button carrying its state.
+	const buttons = Array.from(pills.querySelectorAll("button.filter-pill"));
+	expect(buttons.length).toBeGreaterThan(0);
+	for (const button of buttons) {
+		expect(button.getAttribute("aria-pressed")).toBe("false");
+	}
+	// Nothing is pressed, so there is nothing to clear.
+	expect(Array.from(pills.querySelectorAll("button")).some((b) => b.textContent === "Clear filters")).toBe(false);
+});
+
+test("a pill toggles with aria-pressed, narrows the rows, and moves the live count", () => {
+	const models = [
+		makeModel({ id: "a", name: "Tools", toolCalling: true }),
+		makeModel({ id: "b", name: "Bare", toolCalling: false }),
+	];
+	const root = mount(<ModelsSection models={models} serverCount={1} onInspect={() => {}} />);
+	const visibleNames = () =>
+		Array.from(root.querySelectorAll("li.model-row")).map((row) =>
+			(row.querySelector(".model-name-text")?.textContent ?? "").trim()
+		);
+	const pill = buttonByText(root.querySelector(".filter-pills") as HTMLElement, "tools");
+
+	expect(root.textContent).toContain("showing 2 of 2");
+	fireClick(pill);
+	expect(pill.getAttribute("aria-pressed")).toBe("true");
+	expect(visibleNames()).toEqual(["Tools"]);
+	expect(root.textContent).toContain("showing 1 of 2");
+	// A toggle, one by one: pressing again clears exactly this pill.
+	fireClick(pill);
+	expect(pill.getAttribute("aria-pressed")).toBe("false");
+	expect(visibleNames()).toEqual(["Tools", "Bare"]);
+	expect(root.textContent).toContain("showing 2 of 2");
+});
+
+test("pills compose with the text filter and the server scope", () => {
+	const models = [
+		makeModel({ id: "a", name: "Omni", family: "gpt", serverLabel: "Prod", imageInput: true }),
+		makeModel({ id: "b", name: "Mini", family: "gpt", serverLabel: "Prod", imageInput: false }),
+		makeModel({ id: "c", name: "Sonnet Vision", family: "claude", serverLabel: "Staging", imageInput: true }),
+	];
+	const root = mount(
+		<ModelsSection models={models} serverCount={2} scope={{ label: "Prod", onClear: () => {} }} onInspect={() => {}} />
+	);
+	const visibleNames = () =>
+		Array.from(root.querySelectorAll("li.model-row")).map((row) =>
+			(row.querySelector(".model-name-text")?.textContent ?? "").trim()
+		);
+	// The scope narrows first: Staging's vision model is out before any pill.
+	fireClick(buttonByText(root.querySelector(".filter-pills") as HTMLElement, "vision"));
+	expect(visibleNames()).toEqual(["Omni"]);
+	// The text filter is the third condition on top.
+	fireInput(root.querySelector("input[aria-label='Filter models']") as HTMLInputElement, "mini");
+	expect(visibleNames()).toEqual([]);
+	expect(root.textContent).toContain("showing 0 of 2");
+});
+
+test("server pills are offered per scopeKey - two servers sharing a label stay two pills", () => {
+	const models = [
+		makeModel({ id: "a", name: "On S1", scopeKey: "s1", serverLabel: "prod" }),
+		makeModel({ id: "b", name: "On S2", scopeKey: "s2", serverLabel: "prod" }),
+	];
+	const root = mount(<ModelsSection models={models} serverCount={2} onInspect={() => {}} />);
+	const serverGroup = root.querySelector("[aria-label='Filter by server']") as HTMLElement;
+	const pills = Array.from(serverGroup.querySelectorAll("button.filter-pill"));
+	// Numbered apart: two controls reading identically could not be chosen
+	// between on purpose; the scopeKey stays the identity underneath.
+	expect(pills.map((pill) => pill.textContent)).toEqual(["prod (1)", "prod (2)"]);
+	fireClick(pills[0] as HTMLElement);
+	const visibleNames = Array.from(root.querySelectorAll("li.model-row")).map((row) =>
+		(row.querySelector(".model-name-text")?.textContent ?? "").trim()
+	);
+	expect(visibleNames).toEqual(["On S1"]);
+});
+
+test("one serving server means no server pills, matching the rows' own rule", () => {
+	const models = [makeModel({ id: "a" }), makeModel({ id: "b", family: "claude" })];
+	const root = mount(<ModelsSection models={models} serverCount={1} onInspect={() => {}} />);
+	expect(root.querySelector("[aria-label='Filter by server']")).toBeNull();
+	// The family dimension still offers its pills.
+	expect(root.querySelector("[aria-label='Filter by family']")).not.toBeNull();
+});
+
+test("a pressed server pill survives the fleet dropping to one server, so its filter stays clearable", () => {
+	const twoServers = [
+		makeModel({ id: "a", name: "On S1", scopeKey: "s1", serverLabel: "prod" }),
+		makeModel({ id: "b", name: "On S2", scopeKey: "s2", serverLabel: "staging" }),
+	];
+	const root = mount(<ModelsSection models={twoServers} serverCount={2} onInspect={() => {}} />);
+	fireClick(buttonByText(root.querySelector("[aria-label='Filter by server']") as HTMLElement, "staging"));
+	// The staging group disappears (a push removed it): its models are gone and
+	// the fleet is one server again, which hides the server DIMENSION - but the
+	// pressed pill still applies, so it alone stays, pressed and unpressable
+	// back to nothing.
+	const oneServer = [twoServers[0] as ReturnType<typeof makeModel>];
+	render(<ModelsSection models={oneServer} serverCount={1} onInspect={() => {}} />, root);
+	expect(root.textContent).toContain("showing 0 of 1");
+	const pill = buttonByText(root.querySelector("[aria-label='Filter by server']") as HTMLElement, "staging");
+	expect(pill.getAttribute("aria-pressed")).toBe("true");
+	fireClick(pill);
+	expect(root.textContent).toContain("showing 1 of 1");
+	// Nothing pressed anywhere anymore, so the one-server rule hides the group again.
+	expect(root.querySelector("[aria-label='Filter by server']")).toBeNull();
+});
+
+test("Clear filters clears every pill and the text at once", () => {
+	const models = [
+		makeModel({ id: "a", name: "Omni", family: "gpt", toolCalling: true }),
+		makeModel({ id: "b", name: "Sonnet", family: "claude", toolCalling: false }),
+	];
+	const root = mount(<ModelsSection models={models} serverCount={1} onInspect={() => {}} />);
+	const pillRow = () => root.querySelector(".filter-pills") as HTMLElement;
+	const input = root.querySelector("input[aria-label='Filter models']") as HTMLInputElement;
+
+	fireClick(buttonByText(pillRow(), "gpt"));
+	fireClick(buttonByText(pillRow(), "tools"));
+	fireInput(input, "omni");
+	expect(root.textContent).toContain("showing 1 of 2");
+
+	fireClick(buttonByText(pillRow(), "Clear filters"));
+	expect(root.textContent).toContain("showing 2 of 2");
+	expect(input.value).toBe("");
+	for (const pill of Array.from(root.querySelectorAll("button.filter-pill"))) {
+		expect(pill.getAttribute("aria-pressed")).toBe("false");
+	}
+	// Everything cleared, so the clear-all affordance retires.
+	expect(Array.from(pillRow().querySelectorAll("button")).some((b) => b.textContent === "Clear filters")).toBe(false);
+	// The press unmounted the button that held focus; the filter input is
+	// where the cleared filters live on, so focus lands there instead of
+	// falling to the body.
+	expect(document.activeElement).toBe(input);
+});
+
+test("an all-filtered list is one sentence plus a clear action that brings the models back", () => {
+	const models = [
+		makeModel({ id: "a", name: "Omni", family: "gpt" }),
+		makeModel({ id: "b", name: "Sonnet", family: "claude" }),
+	];
+	const root = mount(<ModelsSection models={models} serverCount={1} onInspect={() => {}} />);
+	// A family pill plus a text needle from the other family: nothing survives.
+	fireClick(buttonByText(root.querySelector(".filter-pills") as HTMLElement, "gpt"));
+	fireInput(root.querySelector("input[aria-label='Filter models']") as HTMLInputElement, "sonnet");
+	const empty = root.querySelector("p.empty") as HTMLElement;
+	expect(empty.textContent).toContain("No models match the filter.");
+
+	fireClick(buttonByText(empty, "Clear filters"));
+	expect(root.querySelector("p.empty")).toBeNull();
+	expect(root.textContent).toContain("showing 2 of 2");
 });

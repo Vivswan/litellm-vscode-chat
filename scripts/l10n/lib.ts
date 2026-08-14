@@ -135,6 +135,7 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"detailFields",
 	"fieldLabel",
 	"capabilityList",
+	"priceFilterLabel",
 	"externalTip",
 	"locationName",
 	"sectionLabel",
