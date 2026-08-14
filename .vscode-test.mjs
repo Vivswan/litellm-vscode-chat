@@ -41,10 +41,10 @@ const alive = (pid) => {
 	}
 };
 
-/** The run parents present now; absent on a machine that has never run the suite. */
-const runParents = () => {
+/** A directory's entries; cleanup only reads, so unreadable counts as empty. */
+const entriesIn = (dir) => {
 	try {
-		return readdirSync(runsRoot);
+		return readdirSync(dir);
 	} catch {
 		return [];
 	}
@@ -74,9 +74,18 @@ if (userDataOverride === undefined) {
 	// `listenerCount("SIGINT") === 0` - a listener of ours registered at config
 	// load would disable that escape hatch for the whole run. An interrupted
 	// run's directories wait for the next run's sweep instead.
-	for (const name of runParents()) {
+	for (const name of entriesIn(runsRoot)) {
 		if (/^\d+$/.test(name) && !alive(Number(name))) {
 			remove(path.join(runsRoot, name));
+		}
+	}
+	// The flat layout this parent replaced (`lvt-<pid>-<label>` directly in
+	// the tmpdir) is outside the sweep above, so directories leaked before
+	// the parent existed would otherwise sit there forever.
+	for (const name of entriesIn(os.tmpdir())) {
+		const legacy = /^lvt-(\d+)-/.exec(name);
+		if (legacy !== null && !alive(Number(legacy[1]))) {
+			remove(path.join(os.tmpdir(), name));
 		}
 	}
 	// This pid's own parent, before anything writes to it: the sweep above

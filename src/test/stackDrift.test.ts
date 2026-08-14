@@ -555,7 +555,13 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 
 	function resolveRelative(fromFile: string, spec: string): string | undefined {
 		const base = path.resolve(path.dirname(fromFile), spec);
-		for (const candidate of [base, `${base}.ts`, `${base}.tsx`, path.join(base, "index.ts")]) {
+		for (const candidate of [
+			base,
+			`${base}.ts`,
+			`${base}.tsx`,
+			path.join(base, "index.ts"),
+			path.join(base, "index.tsx"),
+		]) {
 			if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
 				return candidate;
 			}
@@ -651,9 +657,21 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 	test("no bun-tree suite reaches vscode or msw", () => {
 		// vscode fails loudly there (no such package under bun), but msw
 		// resolves and runs; only this walk enforces that half of the rule.
+		// The preload files bunfig.toml names run before every bun suite, so
+		// they are seeded into the walk: a violation there would run
+		// everywhere while a suites-only walk stayed green.
+		const preloadList = /^preload = \[([^\]]*)\]/m.exec(read("bunfig.toml"));
+		assert.ok(preloadList, "bunfig.toml declares a preload list");
+		const preloads = [...(preloadList[1] as string).matchAll(/"([^"]+)"/g)].map((match) =>
+			(match[1] as string).replace(/^\.\//, "")
+		);
+		assert.ok(preloads.length >= 1, "bunfig.toml's preload list names at least one file");
+		for (const file of preloads) {
+			assert.ok(fs.existsSync(path.join(repoRoot, file)), `bunfig.toml preloads ${file}, which does not exist`);
+		}
 		const bunSuites = walkTestFiles(path.join(repoRoot, "src", "test", "bun"), []);
 		assert.ok(bunSuites.length > 20, `walking src/test/bun found a real bun tree (got ${bunSuites.length} files)`);
-		for (const file of bunSuites) {
+		for (const file of [...preloads, ...bunSuites]) {
 			assert.ok(
 				!reachesHostMachinery(path.join(repoRoot, file)),
 				`${file} reaches vscode or msw through its runtime imports; it cannot run under bun - move it back to the host tree`
