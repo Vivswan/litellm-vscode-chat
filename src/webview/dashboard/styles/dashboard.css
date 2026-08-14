@@ -1440,6 +1440,25 @@
 		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
 		margin: 8px -12px 0;
 		padding: 8px 12px 2px;
+		/* Ink-to-ink on the horizontal axis, because the bar pairs the
+			 default-size Add matcher with the compact Edit as JSON and both hand
+			 their padding back to the layout (ui/button.tsx): 14px keeps the
+			 visible spacing the pair showed when the compact button's box still
+			 padded the toolbar's 8px gap. The row gap stays the toolbar's own
+			 8px: vertical padding never left the box. */
+		column-gap: 14px;
+	}
+	/* The bordered modes zero the hand-back (theme.css), where the 14px ink
+		 gap would present as a 14px BOX gap: 8px is the box separation the pair
+		 showed in those modes before the hand-back moved to the primitive. */
+	@media (forced-colors: active) {
+		.record-frame .editor-actions {
+			column-gap: 8px;
+		}
+	}
+	body.vscode-high-contrast .record-frame .editor-actions,
+	body.vscode-high-contrast-light .record-frame .editor-actions {
+		column-gap: 8px;
 	}
 	/* The matcher list's shared internal grid: [matcher | field chips |
 		   inherits | action], the LIST owning the column model and the rows
@@ -2136,12 +2155,35 @@
 		display: flex;
 		align-items: baseline;
 		justify-content: space-between;
-		gap: 8px;
+		/* Both numbers measure to the Dismiss button's INK, because it hands
+			 its padding back to the layout (ui/button.tsx): 18px on the trailing
+			 edge is the box-era 12px padding plus the 6px the button's box used
+			 to add on top of it, so the glyph keeps the inset it has always had,
+			 and 14px is the floor between message and Dismiss when a long
+			 failure fills the line - the box-era 8px plus the same 6px. Sized
+			 against the box, the hand-back slid the Dismiss 6px toward the
+			 border and 6px toward the message. */
+		gap: 14px;
+		padding: 4px 18px 4px 12px;
 		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
 		border-radius: 4px;
-		padding: 4px 12px;
 		margin: 8px 0;
 		max-width: 640px;
+	}
+	/* The bordered modes zero the hand-back (theme.css), where the two ink
+		 numbers would present as box numbers 6px looser each: 8px and 12px are
+		 the box separation and trailing inset the banner showed in those modes
+		 before the hand-back moved to the primitive. */
+	@media (forced-colors: active) {
+		.banner {
+			gap: 8px;
+			padding-right: 12px;
+		}
+	}
+	body.vscode-high-contrast .banner,
+	body.vscode-high-contrast-light .banner {
+		gap: 8px;
+		padding-right: 12px;
 	}
 	.banner p {
 		margin: 4px 0;
@@ -2437,6 +2479,20 @@
 	}
 	.notice .toolbar {
 		margin: 8px 0 0;
+		/* The same ink restatement as .record-frame .editor-actions, for the
+			 same pair - a default-size button beside a compact one across the
+			 toolbar's 8px gap; the derivation lives there. */
+		column-gap: 14px;
+	}
+	/* The bordered-mode box separation, as on .record-frame .editor-actions. */
+	@media (forced-colors: active) {
+		.notice .toolbar {
+			column-gap: 8px;
+		}
+	}
+	body.vscode-high-contrast .notice .toolbar,
+	body.vscode-high-contrast-light .notice .toolbar {
+		column-gap: 8px;
 	}
 	.skeleton {
 		border-radius: 3px;

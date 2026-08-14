@@ -679,8 +679,11 @@ test("the bordered modes drop the button hand-back as a property, never as a mar
  * stated in ink, and the box separation they fall back to where a mode draws
  * every button's box is the small number below. Left alone, such a cluster
  * silently grows by the padding its gap was spanning - 12px per adjacent
- * compact pair - and each of these four sits inside a measured budget it would
- * then overrun.
+ * compact pair - and the first four sit inside measured budgets they would
+ * then overrun, while the last three (the notice's toolbar, the banner, the
+ * record editors' actions bar) state the box numbers those modes showed
+ * before the hand-back moved into the Button primitive, so their bordered
+ * renders stay where they were.
  *
  * Not every ink-stated container is here. `.confirm-actions`, and the `.chip`
  * and `.toast` paddings, are ink-stated too and drift the same way, but they
@@ -690,7 +693,7 @@ test("the bordered modes drop the button hand-back as a property, never as a mar
  *
  * `unlayered` is per cluster because it is decided by what the twin overrules:
  * the settings slot's gap is a Tailwind utility and can only be beaten from
- * outside the layers, while the other three overrule plain stylesheet rules in
+ * outside the layers, while the others overrule plain stylesheet rules in
  * the components layer.
  */
 const INK_GAP_CLUSTERS = [
@@ -698,6 +701,12 @@ const INK_GAP_CLUSTERS = [
 	{ selector: ".model-row-actions", sheet: "dashboard", declaration: "gap: 6px", unlayered: false },
 	{ selector: ".server-actions", sheet: "dashboard", declaration: "column-gap: 8px", unlayered: false },
 	{ selector: ".row-diagnostic-actions", sheet: "dashboard", declaration: "column-gap: 4px", unlayered: false },
+	{ selector: ".notice .toolbar", sheet: "dashboard", declaration: "column-gap: 8px", unlayered: false },
+	{ selector: ".banner", sheet: "dashboard", declaration: "gap: 8px", unlayered: false },
+	// The banner's trailing padding is ink-stated too (the Dismiss sits at the
+	// banner's own edge), so its twin restates the box inset beside the gap.
+	{ selector: ".banner", sheet: "dashboard", declaration: "padding-right: 12px", unlayered: false },
+	{ selector: ".record-frame .editor-actions", sheet: "dashboard", declaration: "column-gap: 8px", unlayered: false },
 ] as const;
 
 /**
