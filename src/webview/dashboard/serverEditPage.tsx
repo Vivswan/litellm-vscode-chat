@@ -1873,9 +1873,8 @@ function ServerForm({
 					{/* One row while the pair fits it with room, a column below the
 					    560px tier: between those, the two labels either sat squeezed
 					    into one exactly-full line or wrapped at whatever width the
-					    translation happened to hit - the Method radios above stack for
-					    the same reason. The threshold is the stylesheet's own 560 with
-					    the same exclusive `width < 560px` semantics. */}
+					    translation happened to hit. The threshold is the stylesheet's
+					    own 560 with the same exclusive `width < 560px` semantics. */}
 					<fieldset
 						className="expected-failures m-0 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 border-0 p-0 text-[12.5px] @max-[560px]/pane:flex-col @max-[560px]/pane:items-start"
 						aria-label={serverFormFieldLabel("expectedFailures")}

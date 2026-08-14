@@ -4,7 +4,7 @@ English | [简体中文](zh-cn/usage.md) | [繁體中文](zh-tw/usage.md)
 
 When a LiteLLM server tracks spend, the extension surfaces it: how much your key has spent against its budget, alerts before the budget runs out, a status bar item that stays out of the way until it matters, and a dashboard panel with the full picture. Everything here is read-only - the extension reads spend data from your servers and never changes a budget, a key, or anything else server-side. Spend data is also never written to the extension's logs or into bug reports; it stays between you and your server.
 
-Four settings drive it all, each detailed in context below:
+A handful of settings drive it all, each detailed in context below:
 
 | Setting | Default | One line |
 |---|---|---|

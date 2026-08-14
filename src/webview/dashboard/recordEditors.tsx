@@ -84,11 +84,13 @@ export function modelCapabilitiesTitle(): string {
  * on an editor heading. It sits directly after the heading it opens - one
  * position, with its label - rather than floating after the docs link, where
  * a bare pair of braces belonged to nothing in particular. The heading LINE
- * is the hover band (the head itself, not the h3: a control may not nest in
- * a heading), so the jump rests hidden and reveals on hover or focus like
- * the setting rows' own. Opacity, never visibility, keeps it in the Tab
- * order so its own focus can reveal it; the @max-[560px]/pane variant keeps
- * it painted where hover does not exist (touch, narrow panes), keyed to the
+ * is the hover band (the head itself, not the h3: a button inside the
+ * heading folds into its accessible name, and the heading would announce
+ * as "Model parameters, Open Model parameters in settings.json"), so the
+ * jump rests hidden and reveals on hover or focus like the setting rows'
+ * own. Opacity, never visibility, keeps it in the Tab order so its own
+ * focus can reveal it; the @max-[560px]/pane variant keeps it painted
+ * where hover does not exist (touch, narrow panes), keyed to the
  * stylesheet's 560px tier; the wrapper owns the transition and stands down
  * under reduced motion.
  */

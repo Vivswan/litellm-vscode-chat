@@ -549,7 +549,7 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 		);
 	}
 
-	function resolveRelative(fromFile: string, spec: string): string | undefined {
+	function resolveRelative(fromFile: string, spec: string): string {
 		const base = path.resolve(path.dirname(fromFile), spec);
 		for (const candidate of [
 			base,
@@ -562,7 +562,12 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 				return candidate;
 			}
 		}
-		return undefined;
+		// Fail closed: a spec this resolver cannot place would silently prune
+		// the walk, and a pruned subtree is exactly where a vscode or msw edge
+		// hides while every reachability guard below stays green.
+		throw new Error(
+			`${fromFile} imports "${spec}", which resolves to no file this scanner knows; teach resolveRelative the new shape`
+		);
 	}
 
 	/** Whether the file's transitive runtime imports reach vscode or msw. */
@@ -580,10 +585,7 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 					return true;
 				}
 				if (spec.startsWith(".")) {
-					const resolved = resolveRelative(file, spec);
-					if (resolved !== undefined) {
-						stack.push(resolved);
-					}
+					stack.push(resolveRelative(file, spec));
 				}
 			}
 		}

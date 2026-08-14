@@ -40,6 +40,7 @@ import {
 	resolveModelCapabilities,
 } from "../../../shared/config/capabilityResolution";
 import { ModelResolutionTable } from "../../../shared/config/resolutionTable";
+import { getCurrencySymbol } from "../../../shared/config/settings";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
@@ -337,7 +338,10 @@ function assertAdvertisesEffective(info: PreAttachModelInfo, effective: Effectiv
 		reasoningGate(effective.fields),
 		"the reasoning control must follow the gate over the flag and the params list"
 	);
-	const expectedPricing = pricingFieldsFromEffective(effective.fields, "$");
+	// The production derivation prices with the ambient usage.currencySymbol,
+	// so the expectation reads the same getter rather than assuming a suite
+	// left the setting at its default.
+	const expectedPricing = pricingFieldsFromEffective(effective.fields, getCurrencySymbol());
 	for (const key of MODEL_PRICING_KEYS) {
 		assert.strictEqual(info[key], expectedPricing[key], `${key} must equal the effective-field derivation exactly`);
 	}

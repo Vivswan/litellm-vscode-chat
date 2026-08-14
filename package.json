@@ -577,6 +577,7 @@
 					},
 					"litellm-vscode-chat.usage.currencySymbol": {
 						"type": "string",
+						"maxLength": 12,
 						"default": "$",
 						"description": "%litellm.config.usage.currencySymbol.description%"
 					}

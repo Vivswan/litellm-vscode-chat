@@ -1727,12 +1727,31 @@ test("each editor heading carries a settings.json jump posting revealSetting wit
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 
-	const jumpOf = (heading: string) => sectionByHeading(root, heading).querySelector("button.reveal-json");
+	const headOf = (heading: string) => sectionByHeading(root, heading).querySelector(".section-head") as HTMLElement;
+	const jumpOf = (heading: string) => headOf(heading).querySelector("button.reveal-json");
+
+	for (const heading of ["Model parameters", "Model capabilities"]) {
+		// The head is the reveal's container (modelsTable's group/row pin, one
+		// tier up): happy-dom runs no cascade, so the class names are all this
+		// suite can pin, and without them the jump paints only below 560px.
+		expect(headOf(heading).classList.contains("group/head")).toBe(true);
+		const wrapper = (jumpOf(heading) as HTMLElement).parentElement as HTMLElement;
+		expect(wrapper.classList.contains("opacity-0")).toBe(true);
+		expect(wrapper.classList.contains("group-hover/head:opacity-100")).toBe(true);
+		expect(wrapper.classList.contains("group-focus-within/head:opacity-100")).toBe(true);
+	}
+
 	const paramsJump = jumpOf("Model parameters");
 	expect(paramsJump?.getAttribute("aria-label")).toBe("Open Model parameters in settings.json");
 	resetPosted();
 	fireClick(paramsJump as HTMLButtonElement);
 	expect(postedCalls()).toEqual([{ method: "revealSetting", payload: { setting: "models.parameters" } }]);
+
+	const capsJump = jumpOf("Model capabilities");
+	expect(capsJump?.getAttribute("aria-label")).toBe("Open Model capabilities in settings.json");
+	resetPosted();
+	fireClick(capsJump as HTMLButtonElement);
+	expect(postedCalls()).toEqual([{ method: "revealSetting", payload: { setting: "models.capabilities" } }]);
 });
 
 test("the settings filter hides an editor with a dirty draft via hidden, and the draft applies after unhiding", () => {

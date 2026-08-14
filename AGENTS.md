@@ -45,7 +45,9 @@ LiteLLM VSCode Chat: Use 100+ LLMs in VS Code with GitHub Copilot Chat powered b
   `.github/workflows/checks.yml`,
   `.github/workflows/format-check-reusable.yml` (the format-check job
   checks.yml calls, including the packaged-file-list and no-tracked-PNGs
-  guards), `.github/workflows/release.yml`, `.gitleaks.toml`,
+  guards), `.github/workflows/test-reusable.yml` (the test job checks.yml
+  and docker-test.yml call), `.github/workflows/release.yml`,
+  `.gitleaks.toml`,
   `.gitignore`'s marked LOCAL section, `.typography-allow.local`
   (typography exemptions; the managed `.typography-allow` is overwritten
   by sync), and the repository-specific section below.

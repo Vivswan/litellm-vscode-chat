@@ -79,6 +79,11 @@ const REQUIRED_UTILITIES = [
 	"group-hover/row:opacity-100",
 	"group-focus-within/row:opacity-100",
 	"@max-[560px]/pane:opacity-100",
+	// The record editors' settings.json jump (recordEditors.tsx) reveals on
+	// its heading's hover band the same way: a scan regression would strand
+	// the jump painted only below 560px, with every component test green.
+	"group-hover/head:opacity-100",
+	"group-focus-within/head:opacity-100",
 ] as const;
 
 /** A utility name as it appears escaped in a compiled selector. */
@@ -231,6 +236,53 @@ test("the scrim re-enables pointer events Radix takes away", () => {
 	const scrimRule = /\.scrim\s*\{[^}]*\}/.exec(dashboard)?.[0];
 	expect(scrimRule).toBeDefined();
 	expect(scrimRule).toContain("pointer-events: auto");
+});
+
+/** The body of the ONE rule `selector` opens in `css`, uniqueness asserted. */
+function onlyRuleBody(css: string, selector: string): string {
+	// Anchored after a brace or semicolon, so a longer selector ending in this
+	// one (`.rail-state .rail-status .dot` beside `.rail-status .dot`) is the
+	// different rule it is rather than a second copy of this one.
+	const opener = new RegExp(String.raw`[{};]\s*${selector.replace(/\./g, "\\.")}\s*\{([^}]*)\}`, "g");
+	const bodies = [...css.matchAll(opener)].map((match) => match[1] ?? "");
+	expect(bodies, `expected exactly one \`${selector}\` rule`).toHaveLength(1);
+	return bodies[0] ?? "";
+}
+
+test("one shape per tone: the pill dots' shape vocabulary survives compilation", async () => {
+	// The dots are the only channel ranking two rows whose verdict text agrees
+	// (stale-but-serving and healthy both say "Connected"), so the shapes carry
+	// the reading for anyone who cannot separate green from amber. happy-dom
+	// runs no cascade, so no component suite would notice a shape dropping out
+	// - the compiled sheet is the only place the vocabulary can be pinned.
+	// Values are asserted as Bun's printer canonicalizes them (`transparent`
+	// on a background prints as `none`, a shorthand's currentColor is elided).
+	const compiled = await compileDashboard();
+	// The forced-colors repaints reuse these selectors for paint alone; drop
+	// those blocks so each shape rule asserts unique in the ordinary cascade,
+	// where a second rule for the same selector would silently win.
+	const output = forcedColorsBlocks(compiled).reduce((css, block) => css.replace(block.text, ""), compiled);
+	// One size property, circle by default: every tone rides the same box.
+	const base = onlyRuleBody(output, ".pill .dot");
+	expect(base).toContain("--dot-size: 8px");
+	expect(base).toContain("width: var(--dot-size)");
+	expect(base).toContain("height: var(--dot-size)");
+	expect(base).toContain("border-radius: 50%");
+	expect(base).toContain("background: currentColor");
+	// warn is a triangle: the clip-path is the shape, and the radius reset is
+	// what lets a clipped corner exist at all.
+	const warn = onlyRuleBody(output, ".pill.tone-warn .dot");
+	expect(warn).toContain("clip-path: polygon(50% 0%, 100% 100%, 0% 100%)");
+	expect(warn).toContain("border-radius: 0");
+	// error a square, muted a hollow ring.
+	expect(onlyRuleBody(output, ".pill.tone-error .dot")).toContain("border-radius: 2px");
+	const muted = onlyRuleBody(output, ".pill.tone-muted .dot");
+	expect(muted).toContain("background: none");
+	expect(muted).toContain("border: 1.5px solid");
+	// The collapsed rail scales the whole vocabulary through the shared size
+	// property and declares nothing else: a shape property of its own here is
+	// how the rail's dot and the rows' fork apart again.
+	expect(onlyRuleBody(output, ".rail-status .dot").trim()).toBe("--dot-size: 11px;");
 });
 
 /**

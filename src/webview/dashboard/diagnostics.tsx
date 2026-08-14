@@ -879,6 +879,16 @@ function ParamsListCell({ cell }: { cell: ResolvedCapCell }) {
 }
 
 /**
+ * The pricing line's field label, naming the unit with the configured symbol
+ * ("Pricing ($/M)"); the empty symbol drops the currency claim and keeps the
+ * per-million unit.
+ */
+function pricingFieldLabel(currencySymbol: string): string {
+	const symbol = currencySymbol.trim();
+	return symbol.length === 0 ? l10n.t("Pricing (per M tokens)") : l10n.t("Pricing ({0}/M)", symbol);
+}
+
+/**
  * The capability cells of one resolved-model row, grouped for scanning: the
  * flag and token fields first (friendly labels where the vocabulary knows
  * them), then the eight cost fields collapsed into one $/M pricing line, then
@@ -890,16 +900,6 @@ function ParamsListCell({ cell }: { cell: ResolvedCapCell }) {
  * wire keys, exact per-token values, and per-field sources the $/M rendering
  * summarizes.
  */
-/**
- * The pricing line's field label, naming the unit with the configured symbol
- * ("Pricing ($/M)"); the empty symbol drops the currency claim and keeps the
- * per-million unit.
- */
-function pricingFieldLabel(currencySymbol: string): string {
-	const symbol = currencySymbol.trim();
-	return symbol.length === 0 ? l10n.t("Pricing (per M tokens)") : l10n.t("Pricing ({0}/M)", symbol);
-}
-
 function CapabilityCells({ cells, currencySymbol }: { cells: readonly ResolvedCapCell[]; currencySymbol: string }) {
 	const pricing = COST_CAPABILITY_FIELDS.flatMap((name) => {
 		const cell = cells.find((candidate) => candidate.name === name);

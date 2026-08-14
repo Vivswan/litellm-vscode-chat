@@ -54,6 +54,7 @@ import {
 } from "../../../shared/config/capabilityResolution";
 import type { RecordChainResolution } from "../../../shared/config/recordResolution";
 import { ModelResolutionTable } from "../../../shared/config/resolutionTable";
+import { getCurrencySymbol } from "../../../shared/config/settings";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
@@ -1031,7 +1032,10 @@ suite("provider/catalog capability cross-layer properties", () => {
 							merged[name] = value;
 						}
 					}
-					const expected = pricingFromCosts(merged, "$", { zeroPairMeansUndeclared: false });
+					// The production merge prices with the ambient usage.currencySymbol,
+					// so the expectation reads the same getter rather than assuming a
+					// suite left the setting at its default.
+					const expected = pricingFromCosts(merged, getCurrencySymbol(), { zeroPairMeansUndeclared: false });
 					for (const key of MODEL_PRICING_KEYS) {
 						assert.ok(
 							Object.is(info[key], expected[key]),
