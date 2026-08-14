@@ -1444,11 +1444,12 @@ export function SettingsSection({
 	// The Import & Export group filters like a scalar row: its title and button
 	// labels stand in for the label, and it has no description to add. Its
 	// help stays OUT of the haystack even though the rows' own help is in,
-	// because the two miss differently: a row matched through its help shows
-	// its "?" with the matching words one hover away, while a GROUP kept alive
-	// by group-level help stands with every visible word missing the needle
-	// and nothing on screen to say why it survived. Section-level help is out
-	// for the same reason.
+	// because the two keep different things alive: a row matched through its
+	// help keeps exactly the row those words describe, with its "?" carrying
+	// the match, while a group matched through group-level help would keep a
+	// whole group standing when no row in it matches - the reader scans the
+	// surviving rows for the needle and finds it in none of them. Section-level
+	// help is out for the same reason.
 	const importExportVisible =
 		needle.length === 0 ||
 		[l10n.t("Import & Export"), l10n.t("Export settings"), l10n.t("Import settings")].some((text) =>

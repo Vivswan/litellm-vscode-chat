@@ -561,6 +561,29 @@ test("the filter matches the record editor by its key names (nested parameter na
 	expect(editorSection(root, "Model parameters").hidden).toBe(true);
 });
 
+test("the filter matches a row's help text, but never group-level help", () => {
+	// The searchable synonyms moved into the "?" tips when the long
+	// explanations left the descriptions, so the tips are part of a row's
+	// haystack: the row's glyph is visible at rest and its tip carries the
+	// match. Group help stays out - a group kept alive by words on no row
+	// would survive with every one of its rows missing the needle.
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const filter = root.querySelector<HTMLInputElement>('input[aria-label="Filter settings"]') as HTMLInputElement;
+
+	// "homelab" lives only in discovery.staleServeWindow's help.
+	fireInput(filter, "homelab");
+	expect(rowOf(settingInput(root, "discovery.staleServeWindow")).hidden).toBe(false);
+	expect(rowOf(settingInput(root, "discovery.timeout")).hidden).toBe(true);
+
+	// "merges such a file" lives only in the Import & Export group's help.
+	fireInput(filter, "merges such a file");
+	const importExport = Array.from(root.querySelectorAll<HTMLElement>(".settings-group")).find(
+		(group) => group.querySelector(".settings-group-title")?.textContent === "Import & Export"
+	);
+	expect(importExport?.hidden).toBe(true);
+	expect(root.textContent).toContain("No settings match the filter.");
+});
+
 test("zero hits show the no-match line, and a dirty draft survives being filtered away and back", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const filter = root.querySelector<HTMLInputElement>('input[aria-label="Filter settings"]') as HTMLInputElement;

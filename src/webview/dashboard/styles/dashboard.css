@@ -457,6 +457,19 @@
 		gap: 18px;
 		flex: 0 0 auto;
 	}
+	/* The bordered modes zero that hand-back (theme.css), so the ink number
+		 would become an 18px BOX gap and widen the cluster 12px past the
+		 columnar tier's measured slack; 6px box separation is what these rows
+		 always showed there. */
+	@media (forced-colors: active) {
+		.model-row-actions {
+			gap: 6px;
+		}
+	}
+	body.vscode-high-contrast .model-row-actions,
+	body.vscode-high-contrast-light .model-row-actions {
+		gap: 6px;
+	}
 	/* The open row keeps its line marked while the detail is out, so the pair
 		   reads as one block rather than as a row with something loose beneath it. */
 	.model-row.is-open .model-row-line {
@@ -3304,9 +3317,8 @@
 			/* Wider than the wide tier's track: beside a two-line row an extra
 			 button width costs the URL nothing it was not already giving up,
 			 and the armed pair reaching a second line here is the state a
-			 reader is looking straight at. Declared through the track property
-			 so the bordered modes' --actions-grow addend keeps applying here. */
-			--actions-track: 13em;
+			 reader is looking straight at. */
+			max-width: 13em;
 			opacity: 1;
 			padding-right: 0;
 		}

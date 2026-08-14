@@ -204,7 +204,7 @@ test("source order keeps every narrow override after the full-width rule it beat
 		["width: min(680px, 94vw)", "width: min(680px, calc(100% - 49px))"],
 		// the server actions hidden at rest, then the folded cluster's
 		// always-painted state - the very opacity collision being guarded
-		["opacity: 0;\n\t\ttransition: opacity 120ms ease-out;", "--actions-track: 13em;\n\t\t\topacity: 1;"],
+		["opacity: 0;\n\t\ttransition: opacity 120ms ease-out;", "max-width: 13em;\n\t\t\topacity: 1;"],
 		// the rail icons unpainted at full width, then painted collapsed
 		[".rail-icon {\n\t\tdisplay: none;", ".rail-icon {\n\t\t\tdisplay: flex;"],
 		// the server name's full-width placement, then its three-line re-place

@@ -91,6 +91,14 @@
 	[data-slot="button"] {
 		margin-inline: 0;
 	}
+	/* The settings rows' actions slot sizes its gap in ink terms (gap-4.5,
+		 sized for the hand-back this mode just zeroed), and a utility can only
+		 be beaten from outside the layers: 6px is the box separation the slot
+		 always showed here, and it keeps Reset plus the settings.json jump
+		 inside the row grid's fixed 5.5rem actions track. */
+	.setting-actions {
+		gap: 6px;
+	}
 	[data-slot="badge"] {
 		border: 1px solid;
 	}
@@ -147,10 +155,15 @@
  both HC themes light --control-outline up through the contrast token, so
  they draw every button's box at rest exactly as forced colors does, and the
  overhanging margins merge neighbours the same way. Unlayered for the same
- reason as that block: it has to beat the -mx utilities. */
+ reason as that block: it has to beat the -mx utilities. The settings actions
+ slot rides along for the reason it does up there. */
 body.vscode-high-contrast [data-slot="button"],
 body.vscode-high-contrast-light [data-slot="button"] {
 	margin-inline: 0;
+}
+body.vscode-high-contrast .setting-actions,
+body.vscode-high-contrast-light .setting-actions {
+	gap: 6px;
 }
 
 /* shadcn's semantic tokens, mapped onto the host's live theme variables: the
