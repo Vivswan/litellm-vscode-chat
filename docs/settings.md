@@ -9,7 +9,7 @@ The lookup reference for every `litellm-vscode-chat.*` setting and every server-
 Two equivalent ways to edit everything:
 
 - **Settings UI / settings.json** - `Ctrl+,` / `Cmd+,`, search "litellm-vscode-chat". The settings are grouped into sections (Servers, Models, Chat, Discovery, Usage, UI).
-- **The dashboard** - "LiteLLM: Open Dashboard", Settings tab. Same values as form controls with validation, units, and defaults inline; a configured row says where its value lives, and Reset clears that scope. See [Dashboard](dashboard.md).
+- **The dashboard** - "LiteLLM: Open Dashboard", the Settings section. Same values as form controls with validation, units, and defaults inline; a configured row says where its value lives, and Reset clears that scope. See [Dashboard](dashboard.md).
 
 | Fact | Detail |
 |---|---|
@@ -20,7 +20,7 @@ Two equivalent ways to edit everything:
 
 ## Export and import
 
-Settings Sync deliberately skips the parts that matter most here - `servers` is machine-scoped and secret-storage values never sync - so moving a setup to another machine has its own pair of commands. The dashboard's Settings tab carries them as the **Import & Export** buttons; command or button, the flow is the same.
+Settings Sync deliberately skips the parts that matter most here - `servers` is machine-scoped and secret-storage values never sync - so moving a setup to another machine has its own pair of commands. The dashboard's Settings section carries them as the **Import & Export** buttons; command or button, the flow is the same.
 
 - **"LiteLLM: Export Settings..."** writes every `litellm-vscode-chat.*` setting you have configured in user settings to a JSON file (default `~/litellm-settings.json`). A modal asks about secrets first: **Include Secrets** copies secret-storage values into their server entries so the file is complete - and carries those credentials in plaintext, so store and share it carefully - while **Exclude Secrets** strips every secret value, inline ones included, so the file carries no credentials (custom [header](servers.md#custom-headers) values are plain settings, not secrets, and stay; credentials are re-entered after importing).
 - **"LiteLLM: Import Settings..."** merges such a file back. Nothing is written until you confirm a preview (which settings will be written, how many servers collide, how many secret values the file carries), and each server label that already exists asks what to do: **Overwrite** replaces the entry and its stored secrets in place - when that changes connection settings (base URL, credentials), the already-synced provider group cannot pick them up, so the server's dashboard row shows the reconnect steps ([lifecycle](servers.md#lifecycle-renames-removals-hidden-groups)), and the preview flags such overwrites up front - **Skip** leaves yours, **Import Renamed** adds the incoming entry under a new label. Non-colliding servers are appended, other settings are written whole, and secret values in the file go into VS Code secret storage, never your settings file. Dismissing any prompt aborts the whole import with nothing written.

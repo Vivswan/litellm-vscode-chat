@@ -140,7 +140,7 @@ An `"_inherit_from"` list curates the ancestry explicitly - and it is also the o
 
 Two independent rules sit outside this flow: a server entry's record beats the global record field by field (each resolved with its own matching first), and a flowing field keeps its source record's [`_fallback`](#fallback-values-_fallback) or [`_force`](#forcing-parameters-_force) marking.
 
-Resolution never happens per request: each model's flat result is computed once and cached - recomputed only when settings, entries, or the model list change - and requests only merge runtime values on top. The [inspectors](#inspectors) and the Diagnostics tab's [Resolved models view](dashboard.md#diagnostics) render that same cached table - the fastest way to debug a matcher, and exactly what will be sent.
+Resolution never happens per request: each model's flat result is computed once and cached - recomputed only when settings, entries, or the model list change - and requests only merge runtime values on top. The [inspectors](#inspectors) and the Diagnostics section's [Resolved models view](dashboard.md#diagnostics) render that same cached table - the fastest way to debug a matcher, and exactly what will be sent.
 
 ### Migrated from prefix keys
 
@@ -363,7 +363,7 @@ Four sources can set a parameter for a request, listed here from lowest to highe
 
    Useful for models with hard requirements (gpt-5 rejecting any `temperature` but 1) or house defaults (a `"*"` key). Common parameters: `max_tokens`, `temperature`, `top_p`, `frequency_penalty`, `presence_penalty`, `stop`, `response_format`, `reasoning_effort`, `seed`.
 
-2. **Entry parameters** - a server entry's `models.parameters`, same grammar, applied above the global record field by field; the home for server-specific values ([Servers](servers.md#per-server-model-configuration)). A request picks up an entry's parameters only when the provider group it runs through matches the entry on both label and base URL; external groups with no entry, and stale groups left behind by a label or `baseUrl` edit, get only the global setting - the dashboard flags this as a ["params inactive" notice](troubleshooting.md#per-server-model-parameters-are-inactive).
+2. **Entry parameters** - a server entry's `models.parameters`, same grammar, applied above the global record field by field; the home for server-specific values ([Servers](servers.md#per-server-model-configuration)). A request picks up an entry's parameters only when the provider group it runs through matches the entry on both label and base URL; external groups with no entry, and stale groups left behind by a label or `baseUrl` edit, get only the global setting - the dashboard says so under the server's row ([Troubleshooting](troubleshooting.md#per-server-model-parameters-are-inactive)).
 
 3. **Picker configuration** - the per-model [Configure menu](#per-model-configuration) in Copilot's picker (today: reasoning effort). These choices count as user-set and are forwarded like any configured parameter, except only schema-declared properties go out, mapped to their wire keys.
 

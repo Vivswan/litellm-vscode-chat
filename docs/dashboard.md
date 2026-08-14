@@ -2,14 +2,15 @@
 
 English | [简体中文](zh-cn/dashboard.md) | [繁體中文](zh-tw/dashboard.md)
 
-"LiteLLM: Open Dashboard" opens one panel with everything on it: servers, discovered models, usage and budgets, and the extension's settings, under a status strip showing the overall connection state. It is a view over the same stores the rest of the extension uses, so anything you do here you could equally do through VS Code settings and commands; the dashboard just puts it in one place, with validation and provenance the raw JSON cannot show.
+"LiteLLM: Open Dashboard" opens one panel with everything on it: servers, discovered models, usage and budgets, and the extension's settings, with the overall connection state pinned to the rail beside them. It is a view over the same stores the rest of the extension uses, so anything you do here you could equally do through VS Code settings and commands; the dashboard just puts it in one place, with validation and provenance the raw JSON cannot show.
 
 ## Layout
 
-- A rail down the left side: the destinations, each with the live number it is about (servers, models, spend against budget, open problems), and under them the fleet's overall connection state and last sync, which stay on screen while the page beside them scrolls. A Sync models button and a quiet Report a bug action sit at its foot; the latter opens a GitHub issue pre-filled with version, platform, and recent logs.
-- Five destinations. **Servers** is your entries and their health, with each server's problems written under the row they belong to. **Models** is everything those servers report, and a server's model count on the Servers page navigates here scoped to it. **Usage** shows spend against budgets. **Settings** holds the extension's settings as editable form controls. **Diagnostics** is a connection summary, the configuration problems the extension has spotted, and the feedback and documentation links.
+- A rail down the left side: the destinations, each carrying the live number it is about when there is one to show (servers, models, spend against budget, open problems), and under them the fleet's overall connection state and last sync, which stay on screen while the page beside them scrolls. A Sync models button and a quiet Report a bug action sit at its foot; the latter opens a GitHub issue pre-filled with version, platform, and recent logs.
+- Five destinations. **Servers** is your entries and their health, with each server's problems written under the row they belong to. **Models** is everything those servers report, and a server's model count on the Servers page navigates here scoped to it. **Usage** shows spend against budgets. **Diagnostics** is a connection summary, the configuration problems the extension has spotted, and the feedback and documentation links. **Settings** holds the extension's settings as editable form controls.
 - Settings edits write to your VS Code settings (to the scope where the value is already set, otherwise to user settings), and the buttons run the same commands the Command Palette offers.
 - Sections are addressable from outside: commands land on the section they concern, and notification buttons open the dashboard on Servers - except the budget alert's Open Usage button, which deep-links to Usage ([Deep links](#deep-links)).
+- Narrow panes reflow instead of scrolling sideways, down to a 320px floor. Below 1000px of window the rail collapses to an icon rail, the way VS Code's own activity bar is one; every label, the fleet's verdict, and its sync time stay in the accessible names and appear as tips, and the wider rows fold onto extra lines rather than dropping facts.
 
 ## Servers
 
@@ -26,12 +27,12 @@ Each row's Status pill is one of six states:
 | Misconfigured | The entry itself is invalid - for example more than one [auth form](servers.md#authentication) - and is not used until fixed |
 | Not checked | Declared, but no discovery pass has seen it yet |
 
-The error text behind an Error or Sync issue state renders selectable in a banner under the table; [Troubleshooting](troubleshooting.md#common-issues) covers the recovery steps. One deliberate softening: an expected discovery failure is never shown red - the row stays Connected while the entry's [declared models](servers.md#declared-models) keep serving, or shows "Expected failure" when nothing is declared.
+A row's problems render directly under it, worst first. Each line leads with the consequence ("prod is serving no models: ..."), carries the server's own error text where there was any, and offers the matching actions in place - Retry, Open entry, Fix in settings.json, Declare models, Open models file, or a troubleshooting link. When any row needs action, a "N servers need attention" summary sits above the list; quiet advisory lines state facts that need none and stay out of that count. [Troubleshooting](troubleshooting.md#common-issues) covers the recovery steps. One deliberate softening: an expected discovery failure with the entry's [declared models](servers.md#declared-models) still serving is not a problem - the row stays Connected, with a quiet advisory line stating the expected failure. With nothing declared the row goes red like any other server serving no models, and its verdict reads "Expected failure".
 
 ### Notices
 
-- **"params inactive"** (a badge on the server row, with a matching banner under the table): the entry declares per-server model parameters, but the provider group serving it does not carry the entry's labeled identity (the group predates entry labels, or a rename left a stale group), so those parameters are not being applied. Entries whose per-server capabilities, declared models, or expected failures are inactive for the same reason get the twin "capabilities inactive" badge, inactive custom headers get their own "headers inactive" badge, and an inactive `apiVersion` override (requests fall back to the auto rule) gets "API version inactive". The fix is the same for all four: delete the group's object from the models file (chatLanguageModels.json), reload the window, and re-sync - or re-label the entry; [Troubleshooting](troubleshooting.md#per-server-model-parameters-are-inactive) has the steps.
-- **An expected discovery failure with nothing declared** gets its own banner: discovery failed only in categories the entry expects, but the entry's `discovery.declared` list is empty, so the server serves no models; the banner points at [declared models](servers.md#declared-models).
+- **Inactive entry configuration** (a diagnostic line under the server's row): the provider group serving the entry does not carry the entry's labeled identity (the group predates entry labels, or a rename left a stale group), so some of what the entry declares is not being applied - its per-server model parameters, per-server capabilities, declared models and expected failures, custom headers, or an `apiVersion` override (requests fall back to the auto rule). One line names exactly which of those surfaces are inactive, with an Open models file action beside it. The fix is the same for all: delete the group's object from the models file (chatLanguageModels.json), reload the window, and re-sync - or re-label the entry; [Troubleshooting](troubleshooting.md#per-server-model-parameters-are-inactive) has the steps.
+- **An expected discovery failure with nothing declared** is a blocking line under the row: discovery failed only in categories the entry expects, but the entry's `discovery.declared` list is empty, so the server serves no models; the line's Declare models action opens the entry ([declared models](servers.md#declared-models)).
 - **After adopting an external server**, a one-time notice reminds you that the original group still exists and its models appear twice until you delete its object from the models file (the notice's button opens it) and reload the window.
 
 ## The server form
@@ -121,14 +122,14 @@ The Settings section renders the same settings the native Settings editor shows,
 
 The Diagnostics section gathers the support surfaces; "LiteLLM: Show Diagnostics" in the Command Palette opens the dashboard straight onto it.
 
-- A connection summary, written to be copied whole into a bug report: the same verdict the status strip shows, the configured-server count, the last check as an absolute timestamp (with a relative echo), and one outcome line per server ("OK (12 models)", the error text otherwise), plus a Test connection button. Installs carrying pre-migration servers with no row of their own also see a "Legacy registry servers" count.
+- A connection summary, written to be copied whole into a bug report: the same verdict the rail shows, the configured-server count, the last check as an absolute timestamp (with a relative echo), and one outcome line per server ("OK (12 models)", the error text otherwise), plus a Test connection button. Installs carrying pre-migration servers with no row of their own also see a "Legacy registry servers" count.
 - Configuration diagnostics: problems the extension found in your settings, each rendered here and beside the row it concerns ([below](#configuration-diagnostics)).
-- Report a bug opens a GitHub issue pre-filled with version, platform, and recent logs - the same action as the header button.
+- Report a bug opens a GitHub issue pre-filled with version, platform, and recent logs - the same action as the rail's button.
 - Request a feature, Rate this extension, Documentation, and the GitHub repository are plain links.
 
 ### Resolved models
 
-The Diagnostics tab also renders the extension's precomputed resolution table - the exact capabilities and parameters every registered model ends up with, across all servers, before any request is made. Two views of the same data:
+The Diagnostics section also renders the extension's precomputed resolution table - the exact capabilities and parameters every registered model ends up with, across all servers, before any request is made. Two views of the same data:
 
 - **The inheritance tree**: your matcher keys drawn as a tree - each record under its next-broader match, models as leaves under their most specific match - with each node's own fields, its `_inheritable` marks, and `_inherit_from: false` barriers drawn on the branch they cut. One glance answers "why does gpt-5.6 have this temperature": follow its branch upward.
 

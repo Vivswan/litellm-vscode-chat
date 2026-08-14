@@ -48,7 +48,7 @@ Every property an entry can carry:
 |---|---|---|
 | `label` | string, required | Names the server in the model picker; half of the entry's identity |
 | `baseUrl` | string, required | The server's root URL. The extension appends `/v1` unless the URL already ends in a version segment (like `/v1` or `/v2`), which is used as-is; the `apiVersion` field overrides both |
-| `apiVersion` | string | What to append to the base URL. Unset = auto (`/v1`, or a version already in the URL); `""` = append nothing; `"v2"` = append `/v2`. Like every per-entry field, it applies only through a provider group matching the entry's label and base URL; a stale group falls back to the auto rule (the dashboard's "API version inactive" badge) |
+| `apiVersion` | string | What to append to the base URL. Unset = auto (`/v1`, or a version already in the URL); `""` = append nothing; `"v2"` = append `/v2`. Like every per-entry field, it applies only through a provider group matching the entry's label and base URL; a stale group falls back to the auto rule, and the dashboard says so under the server's row |
 | `auth` | object | Exactly one form of `apiKey`, `oauth`, `virtualKey`, optionally with lower-ranked companions ([below](#authentication)). Omit entirely for servers that need none. An ambiguous shape is reported and the entry is treated as misconfigured |
 | `headers` | object | Custom HTTP headers on every request to this server ([below](#custom-headers)); extension-managed auth headers win conflicts |
 | `models.parameters` | record | Request parameters for this server's models only; same [matcher keys](models.md#model-matching) as the global setting, applied above it field by field ([details](models.md#parameters)) |

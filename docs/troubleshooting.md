@@ -2,7 +2,7 @@
 
 English | [简体中文](zh-cn/troubleshooting.md) | [繁體中文](zh-tw/troubleshooting.md)
 
-This page is indexed by symptom: find what you are seeing, and each entry says what it means, how to fix it, and where the full story lives. The extension puts its state where you can see it - a status bar item for the connection, one for usage, the dashboard's Diagnostics tab for details, and an output channel for the full log - so start there when nothing below matches.
+This page is indexed by symptom: find what you are seeing, and each entry says what it means, how to fix it, and where the full story lives. The extension puts its state where you can see it - a status bar item for the connection, one for usage, the dashboard's Diagnostics section for details, and an output channel for the full log - so start there when nothing below matches.
 
 ## Status bar
 
@@ -14,9 +14,9 @@ Two items sit in the bottom-right corner. The left one is the **connection item*
 | `$(loading~spin) LiteLLM` | Loading | Fetching models from servers |
 | `$(check) LiteLLM` | Connected | All servers reachable; the tooltip carries the model count |
 | `$(warning) LiteLLM` | Degraded | Some servers unreachable; the tooltip says how many models the reachable ones serve |
-| `$(error) LiteLLM` | Error | All servers failed - the Diagnostics tab has each server's error |
+| `$(error) LiteLLM` | Error | All servers failed - the Diagnostics section has each server's error |
 
-Clicking it opens the [dashboard](dashboard.md); the Diagnostics tab has the per-server detail.
+Clicking it opens the [dashboard](dashboard.md); the Diagnostics section has the per-server detail.
 
 Next to it, the **usage item** answers "how close am I to a budget?" - a spend percentage for the worst server:
 
@@ -36,7 +36,7 @@ So: **red on the left** means requests cannot get through - work through [Common
 | Tool | What it gives you |
 |------|-------------------|
 | "LiteLLM: Test Connection" (Command Palette) | Verifies a server end to end: connects, reports the number of models found, shows detailed error messages on failure, and updates the status bar. The dashboard's Test connection button does the same for a draft entry before you save it |
-| "LiteLLM: Show Diagnostics" | Opens the dashboard on its Diagnostics tab: the overall status, the configured-server count, the last check timestamp, and one outcome line per server with its URL |
+| "LiteLLM: Show Diagnostics" | Opens the dashboard on its Diagnostics section: the overall status, the configured-server count, the last check timestamp, and one outcome line per server with its URL |
 | The "LiteLLM" output channel | The full log: configuration changes, model fetch attempts and results, and errors with full details. Open the Output panel (`Ctrl+Shift+U` / `Cmd+Shift+U`) and select "LiteLLM" from the dropdown |
 | The dashboard's inspectors | Per model, which source set every parameter and capability field - the tool for "why is this value what it is" questions ([Models: inspectors](models.md#inspectors)) |
 | "LiteLLM: Help & Feedback" | Shortcuts for reporting bugs, requesting features, or opening the documentation |
@@ -138,14 +138,14 @@ The key matches exactly; use `"*"` to set a floor for every model. (Older versio
 
 ### "A parameter I configured is not taking effect"
 
-Do not guess - open the dashboard's Models tab and check the model's parameters [inspector](models.md#inspectors): it shows every effective field and exactly which source set it. What it usually reveals:
+Do not guess - open the dashboard's Models section and check the model's parameters [inspector](models.md#inspectors): it shows every effective field and exactly which source set it. What it usually reveals:
 
 - **The key does not match.** Keys are exact by default: `"gpt-5"` matches only `gpt-5`, not `gpt-5-turbo`. Family keys need the trailing `*`. See [model matching](models.md#model-matching).
 - **A regex key anchors to the whole ID.** `"/gpt-5/"` matches only the literal ID `gpt-5`, not `my-gpt-5-deployment` - slash-wrapped patterns must match the entire model ID, not a substring of it. For a contains-match, write `"/.*gpt-5.*/"`. An invalid pattern (or any flag other than `i`) is reported in the dashboard and the key is ignored.
-- **A broader key is not flowing in.** By default the most specific matching record wins wholesale - a `"*"` or `"gpt-5*"` value reaches a more specific match only when marked `_inheritable` (and no `_inherit_from: false` barrier sits between); a server entry's record beats the global setting field by field. Check the inheritance tree in the Diagnostics tab, then see [Models - matching](models.md#which-record-applies).
+- **A broader key is not flowing in.** By default the most specific matching record wins wholesale - a `"*"` or `"gpt-5*"` value reaches a more specific match only when marked `_inheritable` (and no `_inherit_from: false` barrier sits between); a server entry's record beats the global setting field by field. Check the inheritance tree in the Diagnostics section, then see [Models - matching](models.md#which-record-applies).
 - **Runtime options outrank you.** Options passed at request time (by Copilot or a chat tool) and the [picker's per-model configuration](models.md#the-picker) beat configured records. To pin a field regardless, mark it forced: `"gpt-5*": { "_force": ["temperature"], "temperature": 1 }`. See [Models: parameters](models.md#parameters).
 - **Even a forced field needs its record to apply.** `_force` beats runtime options only when the record carrying it takes part in the model's resolution: when a more specific record wins and does not inherit the forced field, the force never reaches the request - the Diagnostics tree shows where it stopped. And provider-owned keys (`model`, `messages`, `stream`, ...) cannot be forced at all; such a `_force` is reported and ignored.
-- **The entry's records are inactive.** If the dashboard shows a "params inactive" badge on the server, see [below](#per-server-model-parameters-are-inactive).
+- **The entry's records are inactive.** If the server's dashboard row says the entry's per-server configuration is being ignored, see [below](#per-server-model-parameters-are-inactive).
 
 ### "The model produced only reasoning output, which this version of VS Code could not display"
 
@@ -156,13 +156,13 @@ Your VS Code build lacks the thinking-part API, so streamed reasoning is dropped
 The dashboard has no Usage section for a server, no spend percentage appears, and no alerts fire. In likelihood order:
 
 - **The server runs without a database.** LiteLLM serves spend data (`/key/info`) only when backed by a database; without one, the extension detects that once and hides all usage features for that server - by design, nothing to configure. Verify from a terminal: `curl -H "Authorization: Bearer sk-..." https://your-gateway/key/info` - an error page instead of JSON confirms it. If you add a database later, background polls will not notice on their own: run "LiteLLM: Refresh Usage Now" to re-check.
-- **The key cannot read usage data.** A database-backed server that answers 401 or 403 on both usage endpoints hides the usage surfaces exactly like a missing database. The curl above then returns 401 or 403 instead of an error page; ask whoever issued the key to allow it to read its own `/key/info`. A server whose card is already visible says so on the card itself ("This key isn't allowed to read its spend."), with a detail line naming the endpoint and status - the curl is only needed for servers that never appeared.
+- **The key cannot read usage data.** A database-backed server that answers 401 or 403 on the usage endpoints shows no numbers, but it is not hidden: its row stays on the Usage section, marked "usage access denied", and opening it says "Usage unavailable: this key isn't allowed to read its usage." with a detail line naming the endpoint and status. The curl above then returns 401 or 403 instead of an error page; ask whoever issued the key to allow it to read its own `/key/info`, then use Refresh now - the extension does not re-check on its own.
 - **Polling is off.** `usage.pollInterval: 0` disables background polling; the dashboard still fetches when opened, no alerts fire, and the status bar item shows on-demand data for ten minutes after a fetch, then hides. Run "LiteLLM: Refresh Usage Now" for an immediate fetch - it always re-lights the item.
 - **Alerts are off.** An empty `usage.alertThresholds` list means no thresholds, so nothing ever fires and `"alerts-only"` status bar mode never shows.
 - **The item is configured away.** `usage.statusBar: "off"` hides the item; `"alerts-only"` shows it only when a threshold is crossed.
 - **No budget anywhere.** Percentages need a budget: either the key's own LiteLLM `max_budget` or the entry's `budget` field. See [Usage: budgets](usage.md#budgets).
 
-A related partial case: **spend shows, but no request counts**. The card's request count, success rate, and cache hit rate come from a second endpoint (`/user/daily/activity`); when the server does not serve it - or refuses it for your key - the card shows spend and budget alone. Availability is detected per endpoint, so this is a normal shape on some setups, not an error.
+A related partial case: **spend shows, but no request counts**. The row's request count, success rate, and cache hit rate come from a second endpoint (`/user/daily/activity`); when the server does not serve it - or refuses it for your key - the open row shows spend and budget alone, with the reason stated in place of the missing numbers. Availability is detected per endpoint, so this is a normal shape on some setups, not an error.
 
 The full feature is described on the [Usage](usage.md#the-usage-panel) page; the settings and their defaults are in the [reference](settings.md#reference).
 
@@ -201,7 +201,7 @@ A hidden group returns on its own when you re-add an entry with the same label a
 
 ## Per-server model parameters are inactive
 
-The dashboard shows a "params inactive" badge (and a banner naming the affected entries) when a server entry carries per-entry `models.parameters` but the VS Code provider group serving that server does not carry the entry's labeled identity. That happens when the group predates entry labels, or when a rename or base URL edit left a stale group behind; requests through such a group get only the global `models.parameters` setting. The twin "capabilities inactive" badge means the same thing for an entry's `models.capabilities`, `discovery.declared`, and `discovery.expectedFailures`, an entry's custom `headers` get their own "headers inactive" badge, and an entry's `apiVersion` override gets "API version inactive" (requests fall back to the auto rule); all have the same fixes.
+The dashboard puts a diagnostic line under a server's row - "ignores its per-server model parameters: the group serving this entry predates its label or a rename" - when the entry carries per-entry `models.parameters` but the VS Code provider group serving that server does not carry the entry's labeled identity. That happens when the group predates entry labels, or when a rename or base URL edit left a stale group behind; requests through such a group get only the global `models.parameters` setting. The same line names every other affected surface too: an entry's `models.capabilities`, `discovery.declared`, and `discovery.expectedFailures`, its custom `headers`, and its `apiVersion` override (requests fall back to the auto rule); all have the same fixes.
 
 Two ways to fix it:
 

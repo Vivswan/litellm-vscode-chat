@@ -112,7 +112,7 @@ With the default `usage.alertThresholds` of `[0.8, 0.95]`, you get one notificat
 
 ### See why a value is what it is
 
-When several matcher keys, a server entry, and the picker all have opinions, guessing is the slow way. Open the dashboard's Models tab and Inspect a model: the panel lists every effective parameter and capability with the exact source that set it - which matcher key, which server entry, the server's own report, or the OpenRouter catalog. Details: [Models: the inspectors](models.md#inspectors).
+When several matcher keys, a server entry, and the picker all have opinions, guessing is the slow way. Open the dashboard's Models section and Inspect a model: the panel lists every effective parameter and capability with the exact source that set it - which matcher key, which server entry, the server's own report, or the OpenRouter catalog. Details: [Models: the inspectors](models.md#inspectors).
 
 ## Commands
 
@@ -124,7 +124,7 @@ Everything the extension can do on demand is a Command Palette command (`Ctrl+Sh
 | LiteLLM: Open Dashboard | The [dashboard](dashboard.md) panel: servers, models, usage, and settings in one place |
 | LiteLLM: Test Connection | Connects to each server and reports the model count or the exact error |
 | LiteLLM: Sync Models Now | Refreshes the model lists immediately, bypassing the discovery cache |
-| LiteLLM: Show Diagnostics | Opens the dashboard's Diagnostics tab: per-server connection state, model counts, errors, and the last check time |
+| LiteLLM: Show Diagnostics | Opens the dashboard's Diagnostics section: per-server connection state, model counts, errors, and the last check time |
 | LiteLLM: Set Server Secret | Stores a server's API key, OAuth client secret, or virtual key in [secret storage](servers.md#secrets-and-secret-storage) |
 | LiteLLM: Refresh Usage Now | Fetches spend and budget data immediately, regardless of the polling interval |
 | LiteLLM: Refresh OpenRouter Catalog | Refreshes the capability catalog on demand ([Models](models.md#capabilities)) |
