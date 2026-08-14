@@ -1391,9 +1391,14 @@ export function SettingsSection({
 	const needle = filter.trim().toLowerCase();
 	const matches = (...haystack: string[]): boolean =>
 		needle.length === 0 || haystack.some((text) => text.toLowerCase().includes(needle));
+	// Row-level help is part of a row's haystack: the "?" glyph is visible at
+	// rest and its tip carries the matching words, so a reader can always see
+	// why the row survived - and the help is where the searchable synonyms
+	// went when the long explanations moved out of the descriptions ("stale"
+	// finds discovery.staleServeWindow again).
 	const isVisible = (id: NumberSettingId | BooleanSettingId): boolean => {
 		const { label, description } = scalarText(id);
-		return matches(label, description, id);
+		return matches(label, description, id, settingRowHelp(id) ?? "");
 	};
 
 	const placed = new Set<string>(SETTING_GROUPS.flatMap((group) => [...group.numbers, ...group.booleans]));
@@ -1406,37 +1411,44 @@ export function SettingsSection({
 		needle.length === 0 || recordEditorMatches(needle, modelCapabilitiesTitle(), settings.modelCapabilities);
 	const anyScalarVisible = [...NUMBER_SETTING_IDS, ...BOOLEAN_SETTING_IDS].some(isVisible);
 	// The non-scalar rows filter by the same rule as the scalar ones - name,
-	// explanation, setting id - so a needle cannot find one kind and miss the
-	// other. Hoisted because the empty-state verdict below has to see them: a
-	// filter matching only a tail row used to render that row under a "nothing
-	// matched" line.
+	// explanation, setting id, and the row's own help where it carries one -
+	// so a needle cannot find one kind and miss the other. Hoisted because the
+	// empty-state verdict below has to see them: a filter matching only a tail
+	// row used to render that row under a "nothing matched" line.
 	const statusBarVisible = matches(l10n.t("Usage status bar"), usageStatusBarDescription(), "usage.statusBar");
 	const tokenEstimationVisible = matches(
 		l10n.t("Token estimation"),
 		tokenEstimationDescription(),
-		"chat.tokenEstimation"
+		"chat.tokenEstimation",
+		helpTokenEstimation()
 	);
 	const toolSchemaKeywordsVisible = matches(
 		l10n.t("Extra tool schema keywords"),
 		toolSchemaKeywordsDescription(),
-		"chat.additionalToolSchemaKeywords"
+		"chat.additionalToolSchemaKeywords",
+		helpToolSchemaKeywords()
 	);
 	const thresholdsVisible = matches(
 		l10n.t("Usage alert thresholds"),
 		usageThresholdsDescription(),
 		"usage.alertThresholds"
 	);
-	const currencyVisible = matches(l10n.t("Currency symbol"), currencySymbolDescription(), "usage.currencySymbol");
-	const themeVisible = matches(l10n.t("Dashboard theme"), uiThemeDescription(), "ui.theme");
-	const accentVisible = matches(l10n.t("Accent color"), uiAccentDescription(), "ui.accent");
+	const currencyVisible = matches(
+		l10n.t("Currency symbol"),
+		currencySymbolDescription(),
+		"usage.currencySymbol",
+		helpCurrencySymbol()
+	);
+	const themeVisible = matches(l10n.t("Dashboard theme"), uiThemeDescription(), "ui.theme", helpUiTheme());
+	const accentVisible = matches(l10n.t("Accent color"), uiAccentDescription(), "ui.accent", helpUiAccent());
 	// The Import & Export group filters like a scalar row: its title and button
 	// labels stand in for the label, and it has no description to add. Its
-	// explanation is deliberately NOT in the haystack, and not because the two
-	// could drift - the haystack would call the same function the tip renders.
-	// It is that a needle matching only the help leaves a group standing whose
-	// every visible word misses the needle, with nothing on screen to say why
-	// it survived. Row-level and section-level help are out for the same
-	// reason, so including this one would have been the odd case out.
+	// help stays OUT of the haystack even though the rows' own help is in,
+	// because the two miss differently: a row matched through its help shows
+	// its "?" with the matching words one hover away, while a GROUP kept alive
+	// by group-level help stands with every visible word missing the needle
+	// and nothing on screen to say why it survived. Section-level help is out
+	// for the same reason.
 	const importExportVisible =
 		needle.length === 0 ||
 		[l10n.t("Import & Export"), l10n.t("Export settings"), l10n.t("Import settings")].some((text) =>
