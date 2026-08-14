@@ -130,7 +130,7 @@ Workflow: after adding or changing localized strings, `bun run l10n:extract` reg
 
 ### Code review guidance
 
-Prioritize correctness, security, regressions, missing tests, and violations of this document. Report concrete findings tied to the changed code; skip style Biome already enforces. Pay particular attention to streaming responses, tool-call pairing, multimodal conversion, token limits, request-field ownership, and secret handling (storage, logs, and the webview boundary).
+Prioritize correctness, security, regressions, missing tests, and violations of this document. Report concrete findings tied to the changed code; skip style Biome already enforces. Pay particular attention to streaming responses, tool-call pairing, multimodal conversion, token limits, request-field ownership, and secret handling (storage, logs, and the webview boundary). Dashboard UI changes are judged against the visual-language charter in `docs/dashboard-visual-language.md`.
 
 ### Testing
 
