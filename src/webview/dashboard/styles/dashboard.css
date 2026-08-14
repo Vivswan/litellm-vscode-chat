@@ -149,11 +149,16 @@
 		padding-left: calc(var(--rail-inset) + var(--rail-glyph) + var(--rail-gap));
 		color: var(--muted-foreground);
 	}
-	/* The content column keeps its generous cap; the pane supplies the page
-		   padding the body used to. The bottom gutter is a custom property because
-		   it has a second reader: anything sizing itself against the fold has to
-		   leave exactly this much room below, and a copy of the number would drift
-		   the first time one of the two changed. */
+	/* The width policy: LISTS run full-bleed to this generous cap - the tables
+		   are the width driver (the models table's capabilities column and action
+		   links) - while FORMS are measured: the form and prose surfaces re-cap
+		   themselves below at their own readable measure (the settings page, the
+		   server edit page, usage cards, banners, notices).
+		   The pane also supplies the page padding the body used to. The bottom
+		   gutter is a custom property because it has a second reader: anything
+		   sizing itself against the fold has to leave exactly this much room
+		   below, and a copy of the number would drift the first time one of the
+		   two changed. */
 	.pane {
 		--pane-gutter-bottom: 48px;
 		flex: 1 1 auto;
@@ -170,10 +175,6 @@
 		container-type: inline-size;
 		container-name: pane;
 	}
-	/* The content column runs fluid up to a generous cap so wide windows give
-		   the tables room (the models table's capabilities column and action links
-		   are the width driver); prose surfaces re-cap themselves below where full
-		   measure would hurt (settings rows, usage cards, banners, notices). */
 	/* The pane owns the content cap now; main is only the shell's flex row. */
 	main {
 		margin: 0 auto;

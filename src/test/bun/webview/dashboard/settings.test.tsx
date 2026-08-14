@@ -603,6 +603,62 @@ test("the capabilities editor renders as a second record editor and applies via 
 	expect(typeof posted.id).toBe("string");
 });
 
+test("the page's header rule and its groups stop at one measure", () => {
+	// The width policy's whole claim on this page: the header line and
+	// everything under it are capped by the SAME token, so the rule above the
+	// rows ends exactly where the rows' content does. Nothing else here would
+	// notice if either lost its cap - the rows would simply run to the pane's
+	// own edge and the page would grow a second right edge.
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const groups = root.querySelector(".settings-groups") as HTMLElement;
+	const header = root.querySelector(".page-section > .section-head") as HTMLElement;
+	const measure = Array.from(groups.classList).find((name) => name.startsWith("max-w-["));
+	expect(measure).toBeDefined();
+	expect(header.classList.contains(measure as string)).toBe(true);
+});
+
+test("the catalog row adopts the settings row grid instead of restating the gutter", () => {
+	// The row used to indent itself with an 11rem padding - the label track
+	// plus the gap, restated as one literal that would silently drift the
+	// moment either changed. Now it wears the same template as every setting
+	// row and places its content in the control and explanation tracks, so
+	// one number owns the gutter.
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const row = root.querySelector(".catalog-row") as HTMLElement;
+	expect(Array.from(row.classList).some((name) => name.startsWith("pl-["))).toBe(false);
+	expect(row.classList.contains("grid")).toBe(true);
+	// Every track declaration the setting row wears, the catalog row wears too:
+	// the template AND its stacked override, read off the setting row rather
+	// than spelled again here, so the threshold keeps a single owner.
+	const settingRow = root.querySelector(".setting-row") as HTMLElement;
+	const tracks = Array.from(settingRow.classList).filter((name) => name.includes("grid-cols-"));
+	expect(tracks.length).toBeGreaterThanOrEqual(2);
+	for (const track of tracks) {
+		expect(row.classList.contains(track)).toBe(true);
+	}
+	// The stacked variant's prefix, taken from the override itself - the same
+	// number, so the two tiers cannot drift apart by one edit.
+	const stacked = tracks.find((name) => name.endsWith("grid-cols-1"))?.replace("grid-cols-1", "") ?? "";
+	expect(stacked).toMatch(/^@max-\[\d+px\]\/pane:$/);
+	const content = row.firstElementChild as HTMLElement;
+	// Wide, the content starts past the label gutter and fills the two tracks
+	// beyond it; without the span it would sit in the control column and the
+	// explanation track would go empty.
+	expect(content.classList.contains("col-start-2")).toBe(true);
+	expect(content.classList.contains("col-span-2")).toBe(true);
+	// Stacked, the grid is one track: a start or a span past the first would
+	// mint implicit tracks and indent the line into nothing.
+	expect(content.classList.contains(`${stacked}col-start-1`)).toBe(true);
+	expect(content.classList.contains(`${stacked}col-span-1`)).toBe(true);
+	// The label's alignment turns at the same width the tracks do. It is its own
+	// class string - Tailwind only compiles variants it can read whole, so the
+	// threshold cannot be interpolated from the grid's - and nothing but this
+	// stops the label flipping to the left at one width while the columns
+	// collapse at another.
+	const title = root.querySelector(".setting-title") as HTMLElement;
+	expect(title.classList.contains(`${stacked}text-left`)).toBe(true);
+});
+
 test("the catalog row states the snapshot's size and age, and Refresh posts refreshCatalog", () => {
 	const now = Date.now();
 	const settings = makeSettings({

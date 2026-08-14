@@ -234,19 +234,7 @@ function constrainsPaneWidth(text: string): boolean {
  */
 function paneQueries(): PaneQuery[] {
 	const found: PaneQuery[] = [];
-	// Every stylesheet under the webview tree, not just styles/: both live there
-	// today, and a component-local sheet somewhere else is exactly the file
-	// nobody would think to scan.
-	for (const file of readdirSync(WEBVIEW_TREE, { recursive: true, encoding: "utf8" })) {
-		if (!file.endsWith(".css")) {
-			continue;
-		}
-		// Comments out, or the prose ABOUT a rule reads as a rule - the note above
-		// the 700px block spells the legal form to explain itself. CSS's comment
-		// grammar, not a tokenizer: a `/*` inside a quoted value would open a
-		// comment that is not there and swallow the rules after it, which only the
-		// stylesheet floor below could notice, and only if it ate enough of them.
-		const css = readFileSync(join(WEBVIEW_TREE, file), "utf8").replace(/\/\*.*?\*\//gs, "");
+	for (const { file, css } of stylesheetSources()) {
 		// Case-insensitive because CSS at-rules are; the legal form is the
 		// canonical lower-case spelling, so `@CONTAINER` is caught and reported
 		// rather than passing as a second way to write the same rule.
@@ -285,6 +273,156 @@ function paneQueries(): PaneQuery[] {
 				}
 				const legal = LEGAL_VARIANT.exec(text);
 				found.push({ value: legal === null ? undefined : Number(legal[1]), source: file, side: "component", text });
+			}
+		}
+	}
+	return found;
+}
+
+/**
+ * Every stylesheet under the webview tree, comments stripped, with its path.
+ *
+ * Not just styles/: both live there today, and a component-local sheet
+ * somewhere else is exactly the file nobody would think to scan. Comments go
+ * because the prose ABOUT a rule otherwise reads as a rule - the note above the
+ * 700px block spells the legal form to explain itself. CSS's comment grammar,
+ * not a tokenizer: an unterminated comment opener inside a quoted value would
+ * swallow the rules after it, which only the stylesheet floor below could
+ * notice, and only if it ate enough of them.
+ */
+function stylesheetSources(): { readonly file: string; readonly css: string }[] {
+	const sheets: { file: string; css: string }[] = [];
+	for (const file of readdirSync(WEBVIEW_TREE, { recursive: true, encoding: "utf8" })) {
+		if (!file.endsWith(".css")) {
+			continue;
+		}
+		sheets.push({ file, css: readFileSync(join(WEBVIEW_TREE, file), "utf8").replace(/\/\*.*?\*\//gs, "") });
+	}
+	return sheets;
+}
+
+/** Split on any of `separators`, but only at paren depth zero: `:is(a, b)` is one token. */
+function splitTopLevel(text: string, separators: string): string[] {
+	const parts: string[] = [];
+	let depth = 0;
+	let current = "";
+	for (const char of text) {
+		if (char === "(") {
+			depth += 1;
+		} else if (char === ")") {
+			depth = Math.max(0, depth - 1);
+		}
+		if (depth === 0 && separators.includes(char)) {
+			parts.push(current);
+			current = "";
+			continue;
+		}
+		current += char;
+	}
+	parts.push(current);
+	return parts.filter((part) => part.trim() !== "");
+}
+
+/** The root box, wherever it is named: `html`, `:root`, or either inside `:is()`/`:where()`. */
+const ROOT_SUBJECT = /(?:^|[^\w-])(?:html|:root)\b/i;
+
+/** The root box unnamed: a universal selector matches every element, and html is one. */
+const UNIVERSAL_SUBJECT = /^(?:\*|:is\(\*\)|:where\(\*\))$/i;
+
+/**
+ * What one selector in a list points AT - its subject, which is its last
+ * compound, not everything it mentions. `html[data-theme] body` names html and
+ * styles body.
+ *
+ * A bare `*` is the root too, and only a bare one: `*` matches html, while
+ * `.x *` cannot, since the root has no ancestor to sit under. So the universal
+ * case asks the whole selector rather than its subject alone. `*::before` is
+ * not the root either - it is a box the root grows, not the root - which is why
+ * the pattern is exact rather than a prefix.
+ *
+ * "parent" is the nesting answer: `&[data-theme]` styles whatever `&` resolves
+ * to, so the question moves outward a level. Contains rather than starts with,
+ * because `:is(&)` and `&.x` are the same question in different clothes. `&
+ * body` is not - its subject is body whatever the parent was.
+ */
+function subjectKind(part: string): "root" | "parent" | "other" {
+	const compounds = splitTopLevel(part, " \t\n\r>+~");
+	const subject = compounds.at(-1)?.trim() ?? "";
+	if (ROOT_SUBJECT.test(subject)) {
+		return "root";
+	}
+	if (compounds.length === 1 && UNIVERSAL_SUBJECT.test(subject)) {
+		return "root";
+	}
+	return subject.includes("&") ? "parent" : "other";
+}
+
+/**
+ * Does a rule nested this deep style the root box?
+ *
+ * Walks the prelude stack outward, since a `&`-rooted selector answers with its
+ * parent's subject. At-rule preludes are transparent: `@media`, `@layer` and
+ * `@container` wrap rules without changing what they select.
+ */
+function selectsRoot(stack: readonly string[]): boolean {
+	for (let index = stack.length - 1; index >= 0; index -= 1) {
+		const prelude = stack[index] ?? "";
+		if (prelude.startsWith("@")) {
+			continue;
+		}
+		const kinds = splitTopLevel(prelude, ",").map(subjectKind);
+		if (kinds.includes("root")) {
+			return true;
+		}
+		if (!kinds.includes("parent")) {
+			return false;
+		}
+	}
+	return false;
+}
+
+/** `font-size`, and the `font` shorthand that sets it too. Not `font-family`, not `--font-size`. */
+const FONT_SIZE_DECLARATION = /^\s*font(?:-size)?\s*:/i;
+
+/**
+ * Every rule setting a font size on the ROOT box - the one `rem` resolves
+ * against, and so the one that decides what this page's rem sizes are worth
+ * against its px thresholds.
+ *
+ * A brace walk rather than a regex per rule, because CSS nesting hides the
+ * answer from any regex that reads one block at a time: theme.css already nests
+ * with `&`, and `html { &[data-theme="dark"] { font-size } }` styles html while
+ * its own prelude says only `&[data-theme="dark"]`. The walk keeps the prelude
+ * stack, so the nested rule is judged by what its `&` resolves to.
+ *
+ * It is still a walk over source rather than a parse: it assumes braces and
+ * semicolons outside strings mean what they say (string literals are blanked
+ * first, so a brace inside `content` cannot desync it), and it does not see CSS
+ * built by a template literal. There is none.
+ */
+function rootFontSizeDeclarations(): string[] {
+	const found: string[] = [];
+	for (const { file, css } of stylesheetSources()) {
+		const stack: string[] = [];
+		let buffer = "";
+		// Strings blanked, not removed: an attribute value reading "html" is not a
+		// selector on html, and a brace inside one is not a block.
+		for (const char of css.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, '""')) {
+			if (char === "{") {
+				stack.push(buffer.trim());
+				buffer = "";
+			} else if (char === "}" || char === ";") {
+				// Checked before the pop: a block's last declaration may drop its
+				// semicolon, and the stack top is still the rule it belongs to.
+				if (FONT_SIZE_DECLARATION.test(buffer) && selectsRoot(stack)) {
+					found.push(`${file}: ${stack.join(" > ")} { ${buffer.trim()} }`);
+				}
+				if (char === "}") {
+					stack.pop();
+				}
+				buffer = "";
+			} else {
+				buffer += char;
 			}
 		}
 	}
@@ -348,4 +486,39 @@ test("every pane query is spelled the one legal way", () => {
 	// fail the same way, because they are the same mistake seen from two files.
 	const illegal = queries.filter((query) => query.value === undefined).map((query) => `${query.source}: ${query.text}`);
 	expect(illegal).toEqual([]);
+});
+
+test("the settings measure fits under the page's own stack threshold", () => {
+	// The Settings page caps itself at its rows' measure and stacks those rows
+	// on a pane query, and the measure's comment claims the middle state - a
+	// three-column row whose explanation column starves - is unreachable. That
+	// is only arithmetic while measure <= threshold: a pane below the measure
+	// has already stacked. Both numbers are class strings no runtime assertion
+	// can see, so this reads them out of the source the way the spelling test
+	// does.
+	const source = readFileSync(join(WEBVIEW, "settings.tsx"), "utf8");
+	// Anchored to the constant's DECLARATION rather than to the first
+	// `max-w-[Nrem]` in the file. Unanchored it is the same first-match hazard
+	// the rail arithmetic above documents: any control that caps itself in rem
+	// - a `max-w-[9em]` input's neighbour, a future badge - would become the
+	// number the page is judged by, and the judgement would still pass.
+	const measure = /SETTINGS_MEASURE = "max-w-\[(\d+)rem\]"/.exec(source);
+	if (measure?.[1] === undefined) {
+		throw new Error('could not read the settings measure (SETTINGS_MEASURE = "max-w-[Nrem]") from settings.tsx');
+	}
+	// Anchored for the same reason: settings.tsx spells a second pane threshold
+	// (560, on a control's width), and an unanchored read judges the page by
+	// whichever one happens to appear first.
+	const stack = /SETTING_ROW_GRID =[\s\S]{0,200}?@max-\[(\d+)px\]\/pane:grid-cols-1/.exec(source);
+	if (stack?.[1] === undefined) {
+		throw new Error("could not read the settings rows' stack threshold from SETTING_ROW_GRID in settings.tsx");
+	}
+	// The rem resolves against the ROOT font size, and the 16 below is the CSS
+	// default. That is a fact about the stylesheets rather than a constant, so
+	// it is checked: this page states its measure and its row tracks in rem and
+	// its thresholds in px, so a root font size other than the default moves one
+	// side of every comparison here and leaves the other where it was - and this
+	// test would go on passing against numbers that no longer mean what it says.
+	expect(rootFontSizeDeclarations()).toEqual([]);
+	expect(Number(measure[1]) * 16).toBeLessThanOrEqual(Number(stack[1]));
 });

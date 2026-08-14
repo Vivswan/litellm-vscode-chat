@@ -95,6 +95,62 @@ const SETTING_GROUPS: readonly {
 ];
 
 /**
+ * The page's measure, stated once and worn by the header and the groups
+ * container together, so the header rule, the group rules, the record editors
+ * with their pencils, and the rows all stop at ONE right edge. The number is
+ * the row anatomy's own sum, not a chosen round one: at the default host font
+ * the label gutter (10rem) + gap (1rem) + the control column (20rem) + gap
+ * (1rem) + the explanation at its 46ch cap (~357px) + its help glyph (~22px)
+ * comes to ~891px, measured on this surface; 56rem is that sum on the 8px
+ * rhythm. It sits under the 910px stack threshold on purpose - a pane wide
+ * enough for three columns is always wide enough for the whole measure, so
+ * the middle state where the explanation column starves is unreachable
+ * (narrowThresholds' settings-measure test enforces the relation).
+ *
+ * This is the page-wide width policy's "forms measured" half: prose and
+ * controls cap at a readable measure while the record editors' matcher lists
+ * run full-bleed to it, the same way the models and servers lists run
+ * full-bleed to the pane's own cap.
+ */
+const SETTINGS_MEASURE = "max-w-[56rem]";
+
+/**
+ * The one row template every full-width row obeys: the label gutter, the
+ * control column, and the explanation column. A constant rather than a class
+ * string per row kind, because the catalog row used to restate the gutter as
+ * padding (11rem, the track plus the gap) and a literal offset drifts the
+ * moment either number changes.
+ *
+ * Narrow: the three tracks become one. A description column twenty characters
+ * wide is not a column, it is a word per line, and the title's right edge
+ * stops meaning anything once nothing lines up beside it. Stacked, the row
+ * reads title, control, description - the order it is spoken in.
+ * The PANE decides, not the window: this pane can be narrow inside a wide
+ * window whenever the editor is split. The threshold sits at 910: just above
+ * the page's own 896px measure, and just clear of a band the rail's collapse
+ * creates. Collapsing the rail hands the pane 168px, so a window growing
+ * through 1000px drops the pane from ~902 to ~736 and grows again: every pane
+ * width in between happens TWICE, and a breakpoint inside it fires in reverse
+ * as the window widens. A reader dragging a splitter rightward would have
+ * watched this page collapse.
+ */
+const SETTING_ROW_GRID =
+	"grid grid-cols-[10rem_minmax(0,20rem)_minmax(0,1fr)] gap-x-4 @max-[910px]/pane:grid-cols-1 @max-[910px]/pane:gap-x-0";
+
+/**
+ * The label cell, which turns at the same width the tracks do: right-aligned
+ * against the control while there is a column to align to, left-aligned once
+ * the row is one track and there is not.
+ *
+ * A constant because the row renders the label two ways - a `label` when it has
+ * a control to name, a `span` when it does not - and the threshold spelled once
+ * per branch is a threshold that can move in one of them. The number cannot be
+ * interpolated out: Tailwind compiles the variants it can read whole, so
+ * `@max-[910px]/pane:` has to appear in the source as itself.
+ */
+const SETTING_TITLE = "setting-title text-right font-semibold @max-[910px]/pane:text-left";
+
+/**
  * The settings.json jump every row carries: a quiet icon button posting the
  * revealSetting intent; the extension opens the user settings.json and selects
  * "litellm-vscode-chat.<key>". Hover- and focus-revealed with Reset, so a
@@ -195,22 +251,14 @@ function SettingRow({
 	return (
 		<div
 			className={cn(
-				"setting-row group/setting -ml-3 grid grid-cols-[10rem_minmax(0,20rem)_minmax(0,1fr)] items-baseline gap-x-4 gap-y-1 rounded-xs border-l-2 py-2 pr-3 pl-2.5 hover:bg-accent",
-				// Narrow: the three tracks become one. A description column twenty
-				// characters wide is not a column, it is a word per line, and the
-				// title's right edge stops meaning anything once nothing lines up
-				// beside it. Stacked, the row reads title, control, description -
-				// the order it is spoken in.
-				// The PANE decides, not the window: this pane can be narrow inside a
-				// wide window whenever the editor is split. The third column stops
-				// being usable at about 870px, measured on this surface - but the
-				// threshold sits at 910, just clear of a band the rail's collapse
-				// creates. Collapsing the rail hands the pane 168px, so a window
-				// growing through 1000px drops the pane from ~902 to ~736 and grows
-				// again: every pane width in between happens TWICE, and a breakpoint
-				// inside it fires in reverse as the window widens. A reader dragging
-				// a splitter rightward would have watched this page collapse.
-				"@max-[910px]/pane:grid-cols-1 @max-[910px]/pane:gap-x-0",
+				SETTING_ROW_GRID,
+				"setting-row group/setting -ml-3 items-baseline gap-y-1 rounded-xs border-l-2 py-2 pl-2.5 hover:bg-accent",
+				// The right edge mirrors the record rows' (-mx-2 with px-2): the
+				// hover tint overhangs the measure by 8px while the CONTENT stops
+				// exactly at it, so the description column's glyphs and the record
+				// editors' pencils share one edge. pr-3 without the margin left the
+				// row's content 12px short of everything below it.
+				"-mr-2 pr-2",
 				configuredScope !== null
 					? "modified border-l-[var(--vscode-settings-modifiedItemIndicator,var(--vscode-focusBorder))]"
 					: "border-l-transparent"
@@ -218,9 +266,9 @@ function SettingRow({
 			hidden={hidden}
 		>
 			{titleFor === undefined ? (
-				<span className="setting-title text-right font-semibold @max-[910px]/pane:text-left">{title}</span>
+				<span className={SETTING_TITLE}>{title}</span>
 			) : (
-				<label className="setting-title text-right font-semibold @max-[910px]/pane:text-left" htmlFor={titleFor}>
+				<label className={SETTING_TITLE} htmlFor={titleFor}>
 					{title}
 				</label>
 			)}
@@ -451,7 +499,9 @@ function BooleanField({
  * snapshot's size and last refresh, a Refresh button (the same action as the
  * "LiteLLM: Refresh OpenRouter Catalog" command), a standing failure in the
  * row status - never a toast - and an inert hint while the setting is off.
- * Indented to the control column, so it reads as belonging to the row above.
+ * It adopts the shared row grid and places its content in the control and
+ * explanation tracks, so it reads as belonging to the row above without
+ * restating the gutter as padding.
  */
 function CatalogRow({ catalog, enabled, now }: { catalog: CatalogStatusView; enabled: boolean; now: number }) {
 	const updated =
@@ -459,39 +509,52 @@ function CatalogRow({ catalog, enabled, now }: { catalog: CatalogStatusView; ena
 			? (relativeTime(new Date(catalog.lastSuccessAt).toISOString(), now) ?? l10n.t("just now"))
 			: undefined;
 	return (
-		<div className="catalog-row flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 pb-1 pl-[11rem] text-[0.95em] @max-[910px]/pane:pl-0">
-			{enabled ? (
-				<>
-					<span className="hint">
-						{catalog.modelCount === 1 ? l10n.t("1 catalog model") : l10n.t("{0} catalog models", catalog.modelCount)}
-						{updated !== undefined ? ` - ${l10n.t("updated {0}", updated)}` : ` - ${l10n.t("bundled snapshot")}`}
-					</span>
-					<Button variant="secondary" disabled={catalog.refreshing} onClick={() => sendRequest("refreshCatalog", null)}>
-						{catalog.refreshing ? (
-							<>
-								<span className="spinner" aria-hidden="true" /> {l10n.t("Refreshing...")}
-							</>
-						) : (
-							l10n.t("Refresh")
-						)}
-					</Button>
-					<Help text={helpCatalogRow()} />
-					<DocsLink href={DOCS_LINK_OPENROUTER_CATALOG} label={l10n.t("Open the OpenRouter catalog guide")} />
-					{catalog.lastFailure !== undefined ? (
-						<span className="error">
-							{/* The classification is a fixed English vocabulary ("HTTP 503",
-							    "network error"), protocol-ish like header names. */}
-							{l10n.t("Last refresh failed ({0}); serving the cached snapshot.", catalog.lastFailure.classification)}
+		<div className={cn("catalog-row", SETTING_ROW_GRID, "pt-1 pb-1 text-[0.95em]")}>
+			<div
+				className={cn(
+					"col-start-2 col-span-2 flex flex-wrap items-center gap-x-3 gap-y-1",
+					// Stacked, the grid is one track; starting at a second column
+					// would mint an implicit one and indent this line into nothing.
+					"@max-[910px]/pane:col-span-1 @max-[910px]/pane:col-start-1"
+				)}
+			>
+				{enabled ? (
+					<>
+						<span className="hint">
+							{catalog.modelCount === 1 ? l10n.t("1 catalog model") : l10n.t("{0} catalog models", catalog.modelCount)}
+							{updated !== undefined ? ` - ${l10n.t("updated {0}", updated)}` : ` - ${l10n.t("bundled snapshot")}`}
 						</span>
-					) : null}
-				</>
-			) : (
-				<span className="hint">
-					{l10n.t(
-						"Catalog off: no refreshes and no implicit ID matching; explicit _openrouter_model directives keep answering from the cached snapshot."
-					)}
-				</span>
-			)}
+						<Button
+							variant="secondary"
+							disabled={catalog.refreshing}
+							onClick={() => sendRequest("refreshCatalog", null)}
+						>
+							{catalog.refreshing ? (
+								<>
+									<span className="spinner" aria-hidden="true" /> {l10n.t("Refreshing...")}
+								</>
+							) : (
+								l10n.t("Refresh")
+							)}
+						</Button>
+						<Help text={helpCatalogRow()} />
+						<DocsLink href={DOCS_LINK_OPENROUTER_CATALOG} label={l10n.t("Open the OpenRouter catalog guide")} />
+						{catalog.lastFailure !== undefined ? (
+							<span className="error">
+								{/* The classification is a fixed English vocabulary ("HTTP 503",
+							    "network error"), protocol-ish like header names. */}
+								{l10n.t("Last refresh failed ({0}); serving the cached snapshot.", catalog.lastFailure.classification)}
+							</span>
+						) : null}
+					</>
+				) : (
+					<span className="hint">
+						{l10n.t(
+							"Catalog off: no refreshes and no implicit ID matching; explicit _openrouter_model directives keep answering from the cached snapshot."
+						)}
+					</span>
+				)}
+			</div>
 		</div>
 	);
 }
@@ -1119,7 +1182,7 @@ export function SettingsSection({
 				scopeSummary(scopes),
 			].join(" - ")}
 			// Capped to the rows' own measure, so the rule stops where they do.
-			headerClassName="max-w-[62rem]"
+			headerClassName={SETTINGS_MEASURE}
 			actions={
 				<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "openSettings" })}>
 					{l10n.t("Open in Settings editor")}
@@ -1138,7 +1201,7 @@ export function SettingsSection({
 				/>
 			</div>
 			{nothingMatches ? <p className="empty">{l10n.t("No settings match the filter.")}</p> : null}
-			<div className="settings-groups max-w-[62rem]">
+			<div className={cn("settings-groups", SETTINGS_MEASURE)}>
 				{SETTING_GROUPS.map((group, index) => {
 					// Two groups carry non-scalar tails: Models gets the two record
 					// editors (mirroring the manifest's grouping - they are model

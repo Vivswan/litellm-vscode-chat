@@ -1,23 +1,25 @@
 /**
- * The Settings tab at the width where the explanation column runs out of room
- * for its help glyph but not for its words.
+ * The Settings tab just above the measure boundary: a pane still wide enough
+ * for three columns, and barely.
  *
- * The shot exists because that column's layout has already produced one
- * regression the full-width render could not show. A hint cell that reserves a
- * track for the glyph looks correct at 1300px and, here, holds that track at
- * full size while the prose starves beside it. The prose has to be the thing
- * that gives, and it has to give all the way to taking the line alone, so the
- * glyph wraps under it rather than into it - which is what this width
- * photographs: every row's description on its own line, every glyph beneath it,
- * and no row's answer depending on how long its sentence happens to be.
+ * The page's measure sits deliberately under the 910px stack threshold
+ * (narrowThresholds' settings-measure test enforces the relation), so a pane
+ * wide enough for three columns is always wide enough for the whole measure -
+ * there is no middle band where the explanation column starves beside its
+ * glyph. This shot is the proof near that edge: the full grid, every
+ * description at its cap with its glyph past it, and the leftover margin
+ * beyond the page's one right edge. settings-stacked.ts photographs the other
+ * side of the same threshold.
  *
- * The width moved from 1040 to 1220 when the row learned to stack. Below 910px
- * of PANE the three columns become one, and 1040px of window is 775px of pane
- * once the rail and the pane's own padding are taken off - so this shot had
- * quietly become a second photograph of the stacked layout, and the cell it
- * exists to watch was being watched by nothing. 1220 is the narrowest window
- * that still has three columns (pane 955), which keeps it the width that tells
- * the two designs apart.
+ * 1190px of window is 925px of pane - the window less the uncollapsed rail
+ * (216px plus its border) and the pane's own 24px of padding on each side.
+ * Not the narrowest three-column pane, which is the threshold itself: the
+ * 15px of clearance is what stops the shot flipping tiers over a pixel of
+ * chrome, and a fixture that photographs the wrong tier proves nothing while
+ * looking like proof. The PANE decides, not the window: a viewport media
+ * query would have asked the wrong question. It is also why this cannot be a
+ * component test - happy-dom has no layout, so a container query there is
+ * just a class name.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";
@@ -27,7 +29,7 @@ const fixture: RenderFixture = {
 		{ kind: "push", state: baseState() },
 		{ kind: "focusSection", section: "settings" },
 	],
-	viewport: { width: 1220, height: 2400 },
+	viewport: { width: 1190, height: 2400 },
 };
 
 export default fixture;
