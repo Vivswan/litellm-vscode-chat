@@ -7,3 +7,7 @@
 # suites), and both files keep their box-drawing section dividers.
 src/test/docker-fuzz.test.ts
 src/test/fuzzStream.ts
+# The text-token estimator prices fullwidth forms and non-Latin scripts, so
+# its suite feeds them as literals: fullwidth digits for the two-band test,
+# Cyrillic homoglyphs for the script-detection test. Test data, not typography.
+src/test/bun/shared/conversion/textTokens.test.ts
