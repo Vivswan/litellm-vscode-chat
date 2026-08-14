@@ -554,8 +554,15 @@ test("an all-filtered list is one sentence plus a clear action that brings the m
 	expect(clears.length).toBe(1);
 	expect(empty.contains(clears[0] as HTMLElement)).toBe(true);
 
-	fireClick(buttonByText(empty, "Clear filters"));
+	// The sole clear is now the load-bearing focus path: pressing it unmounts
+	// the button under the keyboard user, and the filter input is where the
+	// cleared filters live on. happy-dom's click does not focus, so the test
+	// takes the position deliberately before pressing.
+	const clear = clears[0] as HTMLButtonElement;
+	clear.focus();
+	fireClick(clear);
 	expect(root.querySelector("p.empty")).toBeNull();
 	expect(root.querySelectorAll("li.model-row").length).toBe(2);
 	expect(root.textContent).not.toContain("showing");
+	expect(document.activeElement).toBe(root.querySelector("input[aria-label='Filter models']"));
 });
