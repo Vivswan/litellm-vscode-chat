@@ -112,7 +112,7 @@ LiteLLM 狀態列項目 (右下角) 一眼呈現連線狀態 - 勾號 (`$(check)
 
 ### 查看某個值為什麼是這個值
 
-當幾個比對鍵、一個伺服器項目和選擇器各有意見時, 用猜的最慢。開啟儀表板的模型分頁, 展開某個模型的檢查器: 它們列出每個有效的參數與能力, 以及設定它的確切來源 - 哪個比對鍵、哪個伺服器項目、伺服器自己的回報, 還是 OpenRouter 目錄。詳情: [模型: 檢查器](models.md#檢查器)。
+當幾個比對鍵、一個伺服器項目和選擇器各有意見時, 用猜的最慢。開啟儀表板的模型頁面, 對某個模型點「檢查」: 面板列出每個有效的參數與能力, 以及設定它的確切來源 - 哪個比對鍵、哪個伺服器項目、伺服器自己的回報, 還是 OpenRouter 目錄。詳情: [模型: 檢查器](models.md#檢查器)。
 
 ## 命令
 
@@ -124,7 +124,7 @@ LiteLLM 狀態列項目 (右下角) 一眼呈現連線狀態 - 勾號 (`$(check)
 | LiteLLM: Open Dashboard | [儀表板](dashboard.md)面板: 伺服器、模型、用量與設定集中一處 |
 | LiteLLM: Test Connection | 連線每個伺服器並回報模型數量或確切的錯誤 |
 | LiteLLM: Sync Models Now | 立即重新整理模型清單, 略過探索快取 |
-| LiteLLM: Show Diagnostics | 開啟儀表板的診斷分頁: 各伺服器連線狀態、模型數量、錯誤, 以及上次檢查時間 |
+| LiteLLM: Show Diagnostics | 開啟儀表板的診斷區段: 各伺服器連線狀態、模型數量、錯誤, 以及上次檢查時間 |
 | LiteLLM: Set Server Secret | 把伺服器的 API 金鑰、OAuth 用戶端密碼或虛擬金鑰存入[祕密儲存體](servers.md#祕密與祕密儲存體) |
 | LiteLLM: Refresh Usage Now | 立即擷取支出與預算資料, 不受輪詢間隔約束 |
 | LiteLLM: Refresh OpenRouter Catalog | 隨選重新整理能力目錄 ([模型](models.md#能力)) |

@@ -18,7 +18,7 @@
 - 多模態輸入 (視覺、PDF/文件附件、文字/JSON 資料) 與產生的影像/音訊輸出
 - 串流、函式呼叫與思考/推理 token
 - 廣泛的模型選項傳遞 (`response_format`、`reasoning_effort`、`seed` 等)
-- 各模型能力覆寫與宣告的模型: 修正閘道回報的內容, 或註冊它根本列不出的模型, 缺口由 OpenRouter 目錄自動填補 ([詳細資料](docs/zh-tw/model-capabilities.md))
+- 各模型能力覆寫與宣告的模型: 修正閘道回報的內容, 或註冊它根本列不出的模型, 缺口由 OpenRouter 目錄自動填補 ([詳細資料](docs/zh-tw/models.md#能力))
 - 管理伺服器、模型與設定的儀表板面板, 背後是純 VS Code 設定
 - 設定匯出與匯入: 把伺服器、模型記錄以及 (明確選擇時) 儲存的祕密搬到另一台機器, 並支援一條命令復原 ([詳情](docs/zh-tw/settings.md#匯出與匯入))
 - 可自架或使用雲端部署
@@ -53,10 +53,10 @@
 - [快速入門](docs/zh-tw/getting-started.md) - 第一個伺服器、逐步解說、命令, 以及各項設定的位置
 - [伺服器](docs/zh-tw/servers.md) - 多伺服器、祕密與祕密儲存體、OAuth、虛擬金鑰、採用外部伺服器
 - [模型與功能](docs/zh-tw/models.md) - 會註冊哪些模型、功能門檻、多模態輸入與輸出、用量回報
-- [模型參數](docs/zh-tw/model-parameters.md) - 各模型請求參數、前置詞比對、優先順序、推理程度
-- [模型能力](docs/zh-tw/model-capabilities.md) - 能力覆寫、宣告的模型、OpenRouter 目錄、預期的探索失敗
+- [模型參數](docs/zh-tw/models.md#參數) - 各模型請求參數、前置詞比對、優先順序、推理程度
+- [模型能力](docs/zh-tw/models.md#能力) - 能力覆寫、宣告的模型、OpenRouter 目錄、預期的探索失敗
 - [設定](docs/zh-tw/settings.md) - 每個設定與其預設值: token 上限、逾時、快取、標頭
-- [儀表板](docs/zh-tw/dashboard.md) - 面板的索引標籤、伺服器表單與記錄編輯器
+- [儀表板](docs/zh-tw/dashboard.md) - 面板的各個頁面、伺服器表單與記錄編輯器
 - [疑難排解](docs/zh-tw/troubleshooting.md) - 診斷、問題回報、常見問題、隱私權、解除安裝清理、移轉注意事項
 - [開發](docs/development.md) (English) - 從原始碼建置與本機 Docker 測試堆疊
 
@@ -73,7 +73,7 @@ bun run compile
 
 ## 隱私
 
-您的提示與完成內容只在 VS Code 與您設定的 LiteLLM 伺服器之間傳輸。一個預設開啟的例外: 延伸模組約每週從 `https://openrouter.ai/api/v1/models` 重新整理一次內建的模型能力目錄, 這是一份公開、無需驗證的模型清單 - 該請求不帶提示、不帶用量, 也不帶任何關於您或您伺服器的資訊。把 `litellm-vscode-chat.openRouterCatalog.enabled` 設為 `false` 可關閉重新整理與自動比對; 明確的 `_openrouter_model` 指示詞繼續離線使用內建快照。詳細資料參閱[模型能力](docs/zh-tw/model-capabilities.md#openrouter-目錄)與[隱私與資料](docs/zh-tw/troubleshooting.md#隱私與資料)。
+您的提示與完成內容只在 VS Code 與您設定的 LiteLLM 伺服器之間傳輸。一個預設開啟的例外: 延伸模組約每週從 `https://openrouter.ai/api/v1/models` 重新整理一次內建的模型能力目錄, 這是一份公開、無需驗證的模型清單 - 該請求不帶提示、不帶用量, 也不帶任何關於您或您伺服器的資訊。把 `litellm-vscode-chat.openRouterCatalog.enabled` 設為 `false` 可關閉重新整理與自動比對; 明確的 `_openrouter_model` 指示詞繼續離線使用內建快照。詳細資料參閱[模型能力](docs/zh-tw/models.md#openrouter-目錄)與[隱私與資料](docs/zh-tw/troubleshooting.md#隱私與資料)。
 
 ## 誌謝
 

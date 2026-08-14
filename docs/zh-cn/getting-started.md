@@ -112,7 +112,7 @@ LiteLLM 状态栏项 (右下角) 一眼展示连接状态 - 对勾 (`$(check) Li
 
 ### 查看某个值为什么是这个值
 
-当几个匹配键、一个服务器条目和选择器都有各自的意见时, 靠猜是最慢的办法。打开仪表板的模型标签页, 展开某个模型的检查器: 它们列出每个生效的参数和能力, 以及设置它的确切来源 - 哪个匹配键、哪个服务器条目、服务器自己的报告, 还是 OpenRouter 目录。详情: [模型: 检查器](models.md#检查器)。
+当几个匹配键、一个服务器条目和选择器都有各自的意见时, 靠猜是最慢的办法。打开仪表板的模型页面, 对某个模型点「检查」: 面板列出每个生效的参数和能力, 以及设置它的确切来源 - 哪个匹配键、哪个服务器条目、服务器自己的报告, 还是 OpenRouter 目录。详情: [模型: 检查器](models.md#检查器)。
 
 ## 命令
 
@@ -124,7 +124,7 @@ LiteLLM 状态栏项 (右下角) 一眼展示连接状态 - 对勾 (`$(check) Li
 | LiteLLM: Open Dashboard | [仪表板](dashboard.md)面板: 服务器、模型、用量和设置集中一处 |
 | LiteLLM: Test Connection | 连接每个服务器并报告模型数量或确切的错误 |
 | LiteLLM: Sync Models Now | 立即刷新模型列表, 绕过发现缓存 |
-| LiteLLM: Show Diagnostics | 打开仪表板的诊断标签页: 每服务器连接状态、模型数量、错误, 以及上次检查时间 |
+| LiteLLM: Show Diagnostics | 打开仪表板的诊断区块: 每服务器连接状态、模型数量、错误, 以及上次检查时间 |
 | LiteLLM: Set Server Secret | 把服务器的 API 密钥、OAuth 客户端密钥或虚拟密钥存入[密钥存储](servers.md#密钥与密钥存储) |
 | LiteLLM: Refresh Usage Now | 立即获取支出和预算数据, 不受轮询间隔约束 |
 | LiteLLM: Refresh OpenRouter Catalog | 按需刷新能力目录 ([模型](models.md#能力)) |
