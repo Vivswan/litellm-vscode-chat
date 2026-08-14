@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { ModelsSection } from "../../../../webview/dashboard/models";
 import { makeModel } from "../fixtures";
-import { buttonByText, cleanup, fireClick, fireInput, mount, render, resetPosted } from "../harness";
+import { buttonByText, cleanup, fireClick, fireInput, fireSelect, mount, render, resetPosted } from "../harness";
 
 beforeEach(() => {
 	resetPosted();
@@ -467,6 +467,72 @@ test("Clear filters clears every pill and the text at once", () => {
 	// where the cleared filters live on, so focus lands there instead of
 	// falling to the body.
 	expect(document.activeElement).toBe(input);
+});
+
+test("a scope over two groups sharing the label keeps the server UI: the numbered pills are the only thing apart", () => {
+	// A scope is a LABEL, so both groups are inside it. Their rows' suffixes
+	// read identically, but the server pills stay offered (numbered per
+	// scopeKey) because they are the one control that can still split the two.
+	const models = [
+		makeModel({ id: "a", name: "On S1", scopeKey: "s1", serverLabel: "prod" }),
+		makeModel({ id: "b", name: "On S2", scopeKey: "s2", serverLabel: "prod" }),
+	];
+	const root = mount(
+		<ModelsSection
+			currencySymbol="$"
+			models={models}
+			serverCount={2}
+			scope={{ label: "prod", onClear: () => {} }}
+			onInspect={() => {}}
+		/>
+	);
+	expect(root.querySelector(".model-meta")?.textContent).toBe("gpt - prod");
+	const serverGroup = root.querySelector("[aria-label='Filter by server']") as HTMLElement;
+	expect(serverGroup).not.toBeNull();
+	expect(Array.from(serverGroup.querySelectorAll("button.filter-pill")).map((pill) => pill.textContent)).toEqual([
+		"prod (1)",
+		"prod (2)",
+	]);
+});
+
+test("a hidden Server sort key reads and renders as unsorted, and comes back with the scope's clearing", () => {
+	// Discovered order deliberately disagrees with server order, so the two
+	// are tellable apart in every assertion below.
+	const models = [
+		makeModel({ id: "a", name: "Alpha", scopeKey: "s2", serverLabel: "staging" }),
+		makeModel({ id: "b", name: "Bravo", scopeKey: "s1", serverLabel: "prod" }),
+	];
+	const root = mount(<ModelsSection currencySymbol="$" models={models} serverCount={2} onInspect={() => {}} />);
+	const select = () => root.querySelector(".sort-control select") as HTMLSelectElement;
+	const dir = () => root.querySelector("button.sort-dir") as HTMLButtonElement;
+	const visibleNames = () =>
+		Array.from(root.querySelectorAll("li.model-row")).map((row) =>
+			(row.querySelector(".model-name-text")?.textContent ?? "").trim()
+		);
+	fireSelect(select(), "server");
+	expect(visibleNames()).toEqual(["Bravo", "Alpha"]);
+
+	// Scoping hides the Server key. The picked state survives underneath, but
+	// the list must not follow an order the control cannot display: it renders
+	// in discovered order and the control reads unsorted, direction disabled.
+	render(
+		<ModelsSection
+			currencySymbol="$"
+			models={models}
+			serverCount={2}
+			scope={{ label: "prod", onClear: () => {} }}
+			onInspect={() => {}}
+		/>,
+		root
+	);
+	expect(select().value).toBe("discovered");
+	expect(dir().disabled).toBe(true);
+
+	// Clearing the scope restores the sort exactly as it was picked.
+	render(<ModelsSection currencySymbol="$" models={models} serverCount={2} onInspect={() => {}} />, root);
+	expect(select().value).toBe("server");
+	expect(dir().disabled).toBe(false);
+	expect(visibleNames()).toEqual(["Bravo", "Alpha"]);
 });
 
 test("an all-filtered list is one sentence plus a clear action that brings the models back", () => {

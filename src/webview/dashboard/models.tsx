@@ -667,11 +667,6 @@ export function ModelsSection({
 		setScrollTop(0);
 	}, [scopeLabel]);
 
-	// Keyed to the server count, not the distinct labels: two groups can share
-	// a label, and their models must stay attributable. Scope-aware on top:
-	// under the server chip every row's label would only repeat the chip, so a
-	// scoped list is a one-server list whatever the fleet's count.
-	const showServerColumn = scopeLabel === undefined && serverCount > 1;
 	// Three independent conditions compose AND, narrowing in this order: the
 	// scope (the server chip), then the pills, then the text. The header's
 	// "showing N of M" count reads sorted.length over scoped.length, so pills
@@ -683,8 +678,22 @@ export function ModelsSection({
 		() => (scopeLabel === undefined ? models : models.filter((model) => model.serverLabel === scopeLabel)),
 		[models, scopeLabel]
 	);
+	// Keyed to the server count, not the distinct labels: two groups can share
+	// a label, and their models must stay attributable. Under the server chip
+	// the same question is asked of the scoped list itself - a scope is a
+	// LABEL, so two groups sharing it are both inside, and they keep their
+	// server UI (the numbered pills are the only thing telling them apart) -
+	// while a one-group scope drops the suffix that would only repeat the chip.
+	const scopedServers = useMemo(() => new Set(scoped.map((model) => model.scopeKey)).size, [scoped]);
+	const showServerColumn = scopeLabel === undefined ? serverCount > 1 : scopedServers > 1;
+	// The Server sort key can leave the control while picked: scoping to one
+	// server hides it, and a push can drop the fleet to one group. The PICKED
+	// state stays - clearing the scope brings the sort back exactly as chosen -
+	// but while the key is hidden the list must not follow an order the control
+	// cannot display, so it renders and reads unsorted.
+	const effectiveSort = sort?.key === "server" && !showServerColumn ? undefined : sort;
 	const filtered = filterModels(scoped, pills, filter);
-	const sorted = sort === undefined ? filtered : [...filtered].sort(compareBy(sort));
+	const sorted = effectiveSort === undefined ? filtered : [...filtered].sort(compareBy(effectiveSort));
 	// Offered pills derive from the scoped list: within a server scope the other
 	// servers' families are dead toggles. Never from the pill-filtered list -
 	// the unpressed pills of a dimension must stay visible while a sibling is
@@ -788,7 +797,7 @@ export function ModelsSection({
 							value={filter}
 							onChange={(event) => setFilter(event.currentTarget.value)}
 						/>
-						<SortControl sort={sort} showServer={showServerColumn} onChange={setSort} />
+						<SortControl sort={effectiveSort} showServer={showServerColumn} onChange={setSort} />
 					</>
 				)
 			}
