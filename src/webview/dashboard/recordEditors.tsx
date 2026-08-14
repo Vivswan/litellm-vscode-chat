@@ -2372,8 +2372,21 @@ export function RecordMatcherTable({
 									groupHere(popover) &&
 									popover.fieldKey === row.key &&
 									popover.ordinal === ordinal;
+								// A chip with nothing to say. Forced colours repaint a border
+								// colour even where the author wrote it transparent, so every
+								// chip wore the hairline the row only offers on approach, and
+								// the marked ones stopped being the ones with a box. Named at
+								// the call site rather than in the stylesheet's unlayered
+								// forced-colors block, because that block beats the utilities
+								// layer outright and would take the hover and focus rules with
+								// it; as a utility this composes, and the group selectors below
+								// still outrank it. Gated rather than ordered, so an invalid or
+								// hinted chip never has to win a same-specificity argument
+								// against the resting state.
+								const unmarked = issue?.problem === undefined && issue?.hint === undefined && !openHere;
 								const chipClass = cn(
 									"chip-field inline-flex items-baseline gap-1.5 rounded-sm border border-transparent px-1 font-mono text-[12px] text-muted-foreground",
+									unmarked && "forced-colors:border-[color:Canvas]",
 									// Quiet at rest, a field on approach: the hairline and
 									// the fill arrive with the pointer or with focus, which
 									// is the moment the row has to prove it is editable.
@@ -2456,7 +2469,7 @@ export function RecordMatcherTable({
 								<span className="chip-anchor">
 									<button
 										type="button"
-										className="chip-field chip-add rounded-sm border border-transparent px-1 text-muted-foreground group-hover/row:border-border group-focus-within/row:border-border hover:text-foreground focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid"
+										className="chip-field chip-add rounded-sm border border-transparent px-1 text-muted-foreground forced-colors:border-[color:Canvas] group-hover/row:border-border group-focus-within/row:border-border hover:text-foreground focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid"
 										aria-expanded={addOpen}
 										disabled={disabled}
 										aria-label={l10n.t('Add a field to "{0}"', matcherName)}

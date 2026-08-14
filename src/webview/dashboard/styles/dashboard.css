@@ -408,6 +408,16 @@
 		background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.08));
 		border-bottom-color: transparent;
 	}
+	/* Forced colours repaint that transparent border rather than honouring it,
+		   so the divider the open row just retracted comes back and the pair reads
+		   as a row with something loose beneath it again. Canvas is where the
+		   retracted line has to go: the hover wash above it is a background, which
+		   the same mode discards down to the page. */
+	@media (forced-colors: active) {
+		.model-row.is-open .model-row-line {
+			border-bottom-color: Canvas;
+		}
+	}
 	/* The row's detail: indented under the row it belongs to, with the accent
 		   edge tying it to its opener.
 		   Every pixel it contributes to the row's height must be INSIDE this box,
@@ -1688,6 +1698,22 @@
 	@keyframes spinner-turn {
 		to {
 			transform: rotate(360deg);
+		}
+	}
+	/* The gap is the animation. Forced colours repaint a border colour even
+		   where the author wrote it transparent, so the missing quarter comes
+		   back as CanvasText and the marker turns into a complete ring, which
+		   rotates without appearing to move at all - a busy button that reads
+		   exactly like an idle one. Canvas rather than ButtonFace, even though
+		   every spinner today is a button's label: the button is disabled while
+		   it is busy, disabled buttons here declare a transparent background
+		   (`disabled:bg-transparent` in ui/button.tsx, pinned in the theme
+		   suite), and a fully transparent background is the one paint this mode
+		   leaves alone - so what sits behind the gap is the page. It is also
+		   the safe answer for a spinner placed anywhere else. */
+	@media (forced-colors: active) {
+		.spinner {
+			border-top-color: Canvas;
 		}
 	}
 	@media (prefers-reduced-motion: reduce) {

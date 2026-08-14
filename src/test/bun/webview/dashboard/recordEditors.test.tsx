@@ -423,6 +423,62 @@ test("popover validation: a bad value marks the chip and blocks Apply; the messa
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(true);
 });
 
+test("under forced colors the resting chip drops its border and a marked one keeps it", () => {
+	// Forced colours repaint a border colour even where the author wrote it
+	// transparent, so every chip wore at rest the hairline the row only offers
+	// on approach - and the chip with something to say stopped being the one
+	// with a box. The fix is a utility, and it is GATED rather than ordered:
+	// nothing about the class names says which of two same-specificity rules
+	// the compiler will emit last, so the marked states must not carry the
+	// resting one at all. Only this suite can see that gate; the compiled
+	// stylesheet has both rules either way.
+	const quiet = "forced-colors:border-[color:Canvas]";
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2, top_p: 0.9 } }) })));
+	const section = () => sectionByHeading(root, "Model parameters");
+	expect(chipFor(section(), "temperature").classList.contains(quiet)).toBe(true);
+	expect(chipFor(section(), "top_p").classList.contains(quiet)).toBe(true);
+	// The add chip has no marked state to lose, so it is quiet unconditionally.
+	expect(section().querySelector(".chip-add")?.classList.contains(quiet)).toBe(true);
+
+	// Open: the chip is wearing the field's own border, which is the thing the
+	// resting rule would paint over.
+	fireClick(chipFor(section(), "temperature"));
+	expect(chipFor(section(), "temperature").classList.contains(quiet)).toBe(false);
+	fireInput(popoverOf(section()).querySelector("input.value") as HTMLInputElement, "not json");
+	expect(chipFor(section(), "temperature").classList.contains("invalid")).toBe(true);
+
+	// Invalid with the popover CLOSED, which is the assertion that means
+	// something: while it is open the chip is disqualified by being open, so
+	// the same expectation would hold with the problem gate deleted. Here the
+	// mark is the only reason left, and the border is the only channel carrying
+	// it - the mode repaints the error colour that carries it everywhere else.
+	fireClick(chipFor(section(), "temperature"));
+	expect(section().querySelector(".chip-popover")).toBeNull();
+	expect(chipFor(section(), "temperature").classList.contains("invalid")).toBe(true);
+	expect(chipFor(section(), "temperature").classList.contains(quiet)).toBe(false);
+	// The untouched neighbour stays quiet, so the marked chip is the one that
+	// reads as marked.
+	expect(chipFor(section(), "top_p").classList.contains(quiet)).toBe(true);
+});
+
+test("under forced colors a hinted chip keeps its border too", () => {
+	// The gate's third branch, which the invalid test cannot reach: a hint is
+	// not a problem, so deleting it from the gate leaves that test green while
+	// every hinted chip goes quiet. An _inheritable naming a field the record
+	// does not set is the cheapest hint there is.
+	const quiet = "forced-colors:border-[color:Canvas]";
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2, _inheritable: ["nope"] } }) }))
+	);
+	const section = () => sectionByHeading(root, "Model parameters");
+	const hinted = chipFor(section(), "_inheritable");
+	expect(hinted.classList.contains("hinted")).toBe(true);
+	expect(hinted.classList.contains(quiet)).toBe(false);
+	expect(chipFor(section(), "temperature").classList.contains(quiet)).toBe(true);
+});
+
 test("the popover's force toggle writes the _force list without a raw chip, and unmarking removes it", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));

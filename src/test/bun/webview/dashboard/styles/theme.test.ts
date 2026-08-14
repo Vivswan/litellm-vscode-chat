@@ -1,10 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-
-const stylesDir = path.resolve(import.meta.dir, "../../../../../webview/dashboard/styles");
-const themeEntry = path.join(stylesDir, "theme.css");
-const dashboardEntry = path.join(stylesDir, "dashboard.css");
+import { compileTheme, dashboardEntry, forcedColorsBlocks, themeEntry } from "./compileStyles";
 
 /**
  * Load-bearing utilities the ui components consume: each one must compile
@@ -32,6 +29,11 @@ const REQUIRED_UTILITIES = [
 	// to Canvas - both vanish silently if the scan stops emitting them.
 	"border-axis",
 	"forced-colors:bg-[Highlight]",
+	// The record chips' resting state under forced colors, where a border
+	// colour is repainted whether or not the author wrote it transparent:
+	// without this the hairline the row offers on approach is on every chip
+	// at rest, and the invalid and hinted ones stop being the marked ones.
+	"forced-colors:border-[color:Canvas]",
 	// Secondary's resting affordance. It is the only thing that says a
 	// secondary button is a button before the pointer arrives, and the
 	// component suites run without a cascade, so they can only assert that the
@@ -84,19 +86,9 @@ function escapedSelector(utility: string): string {
 	return `.${utility.replace(/[^a-zA-Z0-9-]/g, (char) => `\\${char}`)}`;
 }
 
-async function compileTheme(): Promise<string> {
-	const proc = Bun.spawn({
-		cmd: [process.execPath, "x", "@tailwindcss/cli", "--input", themeEntry],
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	const [output, errors, exitCode] = await Promise.all([
-		new Response(proc.stdout).text(),
-		new Response(proc.stderr).text(),
-		proc.exited,
-	]);
-	expect(exitCode, errors).toBe(0);
-	return output;
+/** How many times `needle` appears in `haystack`, as a plain substring. */
+function occurrences(haystack: string, needle: string): number {
+	return haystack.split(needle).length - 1;
 }
 
 test("the source scan compiles every utility the ui components depend on", async () => {
@@ -437,6 +429,37 @@ test("the meter's axis carries no alpha of its own", async () => {
 			.matchAll(/--axis:/g),
 	]);
 	expect(declarations).toHaveLength(1);
+});
+
+test("the settings gutter marks the modified row alone, under forced colors too", async () => {
+	// A modified setting is marked by its left border, and the unmodified state
+	// spells that as border-l-transparent - which forced colours repaint like
+	// any other border colour, so every row wore the mark and the modified one
+	// stopped standing out. Nothing else can catch that: happy-dom runs no
+	// cascade and no forced-colors mode, and the class names on the element are
+	// right either way, so the regression is invisible to the component suite
+	// and lives only in the compiled cascade. Asserted inside the UNLAYERED
+	// forced-colors block, because both halves of that placement are
+	// load-bearing: a system colour outside the media query paints in every
+	// ordinary theme, where it answers to the OS rather than to the host's
+	// palette, and a layered copy loses to the very utility it overrules.
+	const output = await compileTheme();
+	const forced = forcedColorsBlocks(output)
+		.filter((block) => block.unlayered)
+		.map((block) => block.text)
+		.join("\n");
+	expect(forced).toContain(".setting-row:not(.modified) {\n    border-left-color: Canvas;");
+	expect(forced).toContain(".setting-row.modified {\n    border-left-color: Highlight;");
+	// Once each in this sheet, because the pins above prove only that a correct
+	// rule exists: a second one further down would win, and hand the off state
+	// its CanvasText back with the whole suite green. This sheet and not the
+	// shipped stylesheet, which also carries dashboard.css - that file is wholly
+	// layered and cannot outrank an unlayered rule, so a copy over there would
+	// be inert rather than dangerous. Counted without the brace, so a grouped
+	// selector - `.setting-row.modified, .elsewhere { ... }` - counts as the
+	// second declaration it is.
+	expect(occurrences(output, ".setting-row:not(.modified)")).toBe(1);
+	expect(occurrences(output, ".setting-row.modified")).toBe(1);
 });
 
 test("the status text aliases are declared on :root alone, never on body", () => {

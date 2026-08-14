@@ -62,10 +62,14 @@
  this file is layered; this block is the exception because forced colors is
  the one context where the design has to overrule its own utilities. */
 /* An OS forced-colors mode repaints every author color, which is right for
- text and wrong for the two places color IS the content or the boundary.
- The accent swatches opt out entirely - a color sample the system repaints
- black shows four identical circles - and the badges get their outline
- back, having traded it for a fill the system flattens into the page. */
+ text and wrong where color IS the content, the boundary, or the mark. What
+ this block holds: the badges get their outline back, having traded it for a
+ fill the system flattens into the page; the destructive button gets a rank
+ the mode cannot repaint away; and the settings gutter gets its off state
+ named. The other answers to the same mode live where they compose better -
+ the accent swatches opt out at their call site (forced-color-adjust-none),
+ the record chips name their resting border there too, and the rules keyed
+ to the dashboard's own classes sit in dashboard.css beside them. */
 @media (forced-colors: active) {
 	[data-slot="badge"] {
 		border: 1px solid;
@@ -79,6 +83,21 @@
 	[data-slot="button"][data-variant="danger"] {
 		border-width: 2px;
 		font-weight: 700;
+	}
+	/* The settings gutter marks a modified row with its left border, and spells
+	 the unmodified state as a TRANSPARENT one. Forced colours repaint a border
+	 colour whether or not it is transparent, so the off state painted too and
+	 every row wore the marker - which is worse than losing it, because the one
+	 row that really was modified stopped being the one that stood out. Canvas
+	 is the off state rather than a dropped border, since the border's width is
+	 what holds every row's text on the same left edge. Highlight for the on
+	 state, not the CanvasText it would otherwise inherit, so the marker still
+	 reads as a marker beside the hairlines the system draws on the controls. */
+	.setting-row:not(.modified) {
+		border-left-color: Canvas;
+	}
+	.setting-row.modified {
+		border-left-color: Highlight;
 	}
 }
 
@@ -131,7 +150,6 @@
 	--primary-hover: var(--vscode-button-hoverBackground, var(--vscode-button-background));
 	--secondary-hover: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-secondaryBackground));
 	--ghost-hover: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
-	--button-border: var(--vscode-button-border, transparent);
 	--input-background: var(--vscode-input-background);
 	--input-foreground: var(--vscode-input-foreground);
 	--input-placeholder: var(--vscode-input-placeholderForeground, var(--vscode-descriptionForeground));
@@ -642,7 +660,6 @@ body.vscode-high-contrast-light {
 	--primary-hover: var(--vscode-button-hoverBackground, var(--primary));
 	--secondary-hover: var(--secondary);
 	--ghost-hover: transparent;
-	--button-border: var(--vscode-contrastBorder);
 	--dropdown: var(--vscode-contrastBorder);
 	--disabled: var(--vscode-editor-background);
 	--control-outline: var(--vscode-contrastBorder);
@@ -684,7 +701,6 @@ body.vscode-high-contrast-light {
 	--color-primary-hover: var(--primary-hover);
 	--color-secondary-hover: var(--secondary-hover);
 	--color-ghost-hover: var(--ghost-hover);
-	--color-button-border: var(--button-border);
 	--color-input-background: var(--input-background);
 	--color-input-foreground: var(--input-foreground);
 	--color-input-placeholder: var(--input-placeholder);
