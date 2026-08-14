@@ -50,6 +50,12 @@ jobs:
   test:
     permissions:
       contents: read
+    # Roughly double the slowest observed leg (the Windows unit pass at about
+    # fifteen minutes; the docker-stack shards routed through this job finish
+    # well under that); without a pin a hung host runs into GitHub's
+    # 360-minute default, and fail-fast is off so no sibling leg would cut it
+    # short.
+    timeout-minutes: 30
     strategy:
       # One OS failing must not cancel the other legs: the all-green gate
       # aggregates at the end either way, and a cancelled leg destroys the

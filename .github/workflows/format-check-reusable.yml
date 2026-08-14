@@ -20,6 +20,9 @@ jobs:
   format-check:
     permissions:
       contents: read
+    # Generous against the observed few-minute runs; the alternative is
+    # GitHub's 360-minute default when a step hangs.
+    timeout-minutes: 20
     runs-on: ubuntu-latest
 
     steps:

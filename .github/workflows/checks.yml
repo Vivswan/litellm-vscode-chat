@@ -17,8 +17,9 @@ on:
   workflow_call:
 
 jobs:
-  # Unit suite plus the capture-mode host-fidelity suite on all three OSes;
-  # the Linux leg also enforces the source-line coverage floor.
+  # The full `bun run test` pass (bun tree, unit, activation-production, and
+  # both capture-mode host-fidelity suites) on all three OSes; the Linux leg
+  # also enforces the source-line coverage floor.
   test:
     uses: ./.github/workflows/test-reusable.yml
     with:
