@@ -112,12 +112,12 @@ test("the auth selector reveals exactly the picked form's fields", () => {
 test("editing a keyed entry derives the API-key form; switching to None keeps the stored key visible and removable", () => {
 	const root = mountEditPage([declaredWithSecrets({ apiKey: "secure" })]);
 	expect(authRadio(root, "API key (bearer)").checked).toBe(true);
-	expect(root.textContent).not.toContain("still activates the bearer");
+	expect(root.textContent).not.toContain("A stored API key is still attached");
 
 	fireCheck(authRadio(root, "None"), true);
 	// The shape rule: a stored key still activates the bearer, so the form
 	// says so and keeps the Remove checkbox reachable.
-	expect(root.textContent).toContain("A stored API key still activates the bearer here.");
+	expect(root.textContent).toContain("A stored API key is still attached and still sent as a bearer token.");
 	const remove = Array.from(root.querySelectorAll(".secret-remove input[type=checkbox]"));
 	expect(remove.length).toBe(1);
 

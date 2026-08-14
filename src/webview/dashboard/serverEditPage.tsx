@@ -83,6 +83,7 @@ import { Checkbox } from "./ui/checkbox";
 import { cn } from "./ui/cn";
 import { Input } from "./ui/input";
 import { Radio } from "./ui/radio";
+import { SectionHeader } from "./ui/section";
 import { Select } from "./ui/select";
 import { sendRequest } from "./vscodeApi";
 
@@ -293,12 +294,12 @@ function FormSection({
 	title,
 	aside,
 	help,
-	action,
+	docs,
 	quiet,
 	children,
 }: {
 	title: string;
-	/** The heading's trailing note: "optional", plus a count where the section holds rows. */
+	/** The heading's quiet trailing fact: "optional", plus a count where the section holds rows. */
 	aside?: string;
 	/**
 	 * The section's detail, behind its "?". Required, because the paragraphs
@@ -308,32 +309,28 @@ function FormSection({
 	 * announces a dozen identical "Help" buttons otherwise.
 	 */
 	help: string;
-	/** Docs anchors and other trailing links for the section as a whole. */
-	action?: ReactNode;
+	/** The section's docs anchor, on the header line in the primitive's docs slot. */
+	docs?: { readonly href: DocsUrl; readonly label: string };
 	quiet?: boolean;
 	children: ReactNode;
 }) {
 	return (
 		<div className="form-section mt-6">
-			{/* The heading holds the title and its aside; the Help glyph and any
-			    trailing action are its SIBLINGS on this line, because a control
-			    nested in a heading folds its own accessible name into the
-			    heading's - "Connection" would announce as "Connection Help:
-			    Connection", once per section, to the heading navigation a screen
-			    reader user skims with. */}
-			<div className="section-head mb-0.5">
-				<h4
-					className={cn(
-						"m-0 flex items-baseline gap-2 text-[13px] font-semibold",
-						quiet === true ? "text-muted-foreground" : "text-foreground"
-					)}
-				>
-					<span>{title}</span>
-					{aside !== undefined ? <span className="text-[11px] font-normal text-muted-foreground">{aside}</span> : null}
-				</h4>
-				<Help text={help} name={l10n.t("Help: {0}", title)} />
-				{action}
-			</div>
+			{/* The shared header primitive, so this heading is drawn the one way
+			    every section header is: title, help, docs, meta, actions as
+			    SIBLINGS on the .section-head line. The form's own scale (13px
+			    titles, 11px meta) rides the .form-section-head rules in
+			    dashboard.css. Quiet dims the whole line through inheritance; the
+			    fields below stay at full strength, because a value the user
+			    typed is never the quiet part. */}
+			<SectionHeader
+				level={4}
+				title={title}
+				help={help}
+				{...(docs !== undefined ? { docs } : {})}
+				{...(aside !== undefined ? { meta: aside } : {})}
+				className={cn("form-section-head mb-0.5", quiet === true && "text-muted-foreground")}
+			/>
 			<div className="mt-2 mb-3 h-px bg-border" />
 			{/* The section owns the tracks and every row adopts them through
 			    subgrid, so one gutter and one set of control edges run down the
@@ -376,7 +373,6 @@ function FieldRow({
 	htmlFor,
 	label,
 	help,
-	action,
 	hint,
 	hintTone,
 	problem,
@@ -388,7 +384,6 @@ function FieldRow({
 	htmlFor?: string;
 	label: string;
 	help?: ReactNode;
-	action?: ReactNode;
 	hint?: ReactNode;
 	/** A hint that names a consequence rather than a fact (a secret about to land in plain text). */
 	hintTone?: "warn";
@@ -464,7 +459,11 @@ function FieldRow({
 			    lands in is the container query's business: the end of a wide row,
 			    and up beside the label once stacked, where "after the hint" would
 			    be a mark alone on a line under an input for the five rows that
-			    have no hint. */}
+			    have no hint. The glyph is the ONLY thing this track carries: a
+			    row-level extra (a docs link once rode here) widens the section's
+			    own auto track and jogs its help column off every other
+			    section's - anything beyond the "?" belongs to the section
+			    header's docs slot. */}
 			<span
 				className={cn(
 					"col-start-4 flex items-baseline gap-1.5 self-center",
@@ -475,7 +474,6 @@ function FieldRow({
 				)}
 			>
 				{help}
-				{action}
 			</span>
 		</div>
 	);
@@ -506,6 +504,24 @@ function matcherCountAside(count: number): string {
 	}
 	return count === 1 ? l10n.t("optional - 1 matcher") : l10n.t("optional - {0} matchers", count);
 }
+
+/**
+ * The commit bar the edit and adopt forms share: it sticks to the bottom of
+ * the viewport while the page scrolls. Its rule meets the page's own 860px
+ * measure when the pane caps the column, and bleeds into `.pane`'s 24px gutter
+ * when the pane is what limits it - a symmetric bleed at every width overshot
+ * the capped column by 24px each side. The bleed is a CLAMP rather than a pane
+ * query on purpose: 860 sits inside the band the rail's collapse makes
+ * ambiguous (the same pane width occurs on both sides of the collapse, so a
+ * threshold there flips back and forth while the window narrows once -
+ * narrowThresholds.test.ts refuses it), and a continuous ramp cannot flip.
+ * 884px is the cap plus the full bleed, so the ramp starts exactly where the
+ * gutter stops being the limit; the padding mirrors the margin so the buttons
+ * hold the column's edge. The z-index is the house footer level; the discard
+ * question outranks it from the shell's own modal layer, not from here.
+ */
+const COMMIT_BAR_CLASS =
+	"toolbar sticky bottom-0 z-[2] mt-6 mb-[-48px] flex flex-wrap items-center gap-4 border-t border-border bg-background py-3 [--bleed:clamp(0px,884px_-_100cqw,24px)] mx-[calc(0px_-_var(--bleed))] px-[var(--bleed)]";
 
 /** A control that belongs under the row above it: it clears the label gutter, and takes the full width once the rows stack. */
 function FieldUnderRow({ children, className }: { children: ReactNode; className?: string }) {
@@ -862,7 +878,10 @@ function HeaderRowsEditor({
 				<div className="row flex flex-wrap items-center gap-2" key={index}>
 					<Input
 						type="text"
-						className="key w-[190px] font-mono text-[12px]"
+						// 204 = the 190px measure this input always showed plus its own
+						// padding and border, which border-box now counts inside the
+						// width; at 190 the placeholder lost its last three characters.
+						className="key w-[204px] font-mono text-[12px]"
 						aria-label={l10n.t("Header name")}
 						aria-invalid={problems[index] !== undefined}
 						placeholder={l10n.t("Header, e.g. x-routing-env")}
@@ -1531,17 +1550,19 @@ function ServerForm({
 	return (
 		<div className="form-card server-form">
 			<BackToServers onRequestClose={onRequestClose} />
-			{/* The docs anchor is the heading's sibling, so neither the page's
-			    accessible name nor the heading's own carries the anchor's label.
-			    The 24px above is the h3 rule's, written here because this row
-			    opens no <section> for it to come from, and a heading zeroed
-			    inside an unspaced row would slide up into the breadcrumb. */}
-			<div className="section-head mt-6">
-				<h3 className="m-0" id="server-form-title">
-					{target.kind === "add" ? l10n.t("Add server") : l10n.t("Edit {0}", target.original.label)}
-				</h3>
-				<DocsLink href={DOCS_LINK_SERVER_FORM} label={l10n.t("Open the server fields guide")} />
-			</div>
+			{/* The shared header primitive puts the docs anchor beside the heading
+			    as its sibling, so neither the page's accessible name nor the
+			    heading's own carries the anchor's label. The 24px above is the h3
+			    rule's, written here because this row opens no <section> for it to
+			    come from, and a heading zeroed inside an unspaced row would slide
+			    up into the breadcrumb. */}
+			<SectionHeader
+				titleId="server-form-title"
+				level={3}
+				title={target.kind === "add" ? l10n.t("Add server") : l10n.t("Edit {0}", target.original.label)}
+				docs={{ href: DOCS_LINK_SERVER_FORM, label: l10n.t("Open the server fields guide") }}
+				className="mt-6"
+			/>
 			<FormSection title={l10n.t("Connection")} help={helpConnectionSection()}>
 				<TextField field="label" placeholder={l10n.t("e.g. Production")} props={props} />
 				{renaming && (parse.ok || parse.problems.label === undefined) ? (
@@ -1643,7 +1664,7 @@ function ServerForm({
 					>
 						<option value="auto">{l10n.t("Auto-detect, default /{0}", DEFAULT_API_VERSION)}</option>
 						<option value="none">{l10n.t("No version - use the URL as-is")}</option>
-						<option value="custom">{l10n.t("Custom...")}</option>
+						<option value="custom">{l10n.t("Custom segment - type it below")}</option>
 					</Select>
 				</FieldRow>
 				{draft.apiVersion.mode === "custom" ? (
@@ -1674,7 +1695,7 @@ function ServerForm({
 			<FormSection
 				title={serverFormFieldLabel("authForm")}
 				help={serverFieldHelp("authForm")}
-				action={<DocsLink href={DOCS_LINK_AUTHENTICATION} label={l10n.t("Open the authentication guide")} />}
+				docs={{ href: DOCS_LINK_AUTHENTICATION, label: l10n.t("Open the authentication guide") }}
 			>
 				<FieldRow label={l10n.t("Method")} wide={true}>
 					{/* One per line rather than an inline flow. The four labels are
@@ -1738,7 +1759,7 @@ function ServerForm({
 							<p className="m-0 text-[11.5px] font-semibold text-warn">{l10n.t("Stored credentials")}</p>
 							{storedApiKeyOrphan ? (
 								<p className="hint state-warn m-0 text-[11.5px]">
-									{l10n.t("A stored API key still activates the bearer here.")}
+									{l10n.t("A stored API key is still attached and still sent as a bearer token.")}
 								</p>
 							) : null}
 							{storedVkOrphan ? (
@@ -1802,7 +1823,7 @@ function ServerForm({
 				title={serverFormFieldLabel("modelCapabilities")}
 				aside={matcherCountAside(draft.modelCapabilities.length)}
 				help={serverFieldHelp("modelCapabilities")}
-				action={<DocsLink href={DOCS_LINK_MODEL_CAPABILITIES} label={l10n.t("Open the model capabilities guide")} />}
+				docs={{ href: DOCS_LINK_MODEL_CAPABILITIES, label: l10n.t("Open the model capabilities guide") }}
 			>
 				<FieldRow label={l10n.t("Matchers")} wide={true}>
 					{draft.modelCapabilities.length > 0 ? (
@@ -1837,7 +1858,13 @@ function ServerForm({
 					</div>
 				</FieldRow>
 			</FormSection>
-			<FormSection quiet={true} title={l10n.t("Discovery")} aside={l10n.t("optional")} help={helpDiscoverySection()}>
+			<FormSection
+				quiet={true}
+				title={l10n.t("Discovery")}
+				aside={l10n.t("optional")}
+				help={helpDiscoverySection()}
+				docs={{ href: DOCS_LINK_DECLARED_MODELS, label: l10n.t("Open the declared models guide") }}
+			>
 				<FieldRow
 					htmlFor="server-declaredModels"
 					label={serverFormFieldLabel("declaredModels")}
@@ -1847,7 +1874,6 @@ function ServerForm({
 							name={l10n.t("Help: {0}", serverFormFieldLabel("declaredModels"))}
 						/>
 					}
-					action={<DocsLink href={DOCS_LINK_DECLARED_MODELS} label={l10n.t("Open the declared models guide")} />}
 					wide={true}
 				>
 					<textarea
@@ -1918,13 +1944,7 @@ function ServerForm({
 				</FieldRow>
 				<TextField field="budget" narrow={true} placeholder={l10n.t("e.g. 50")} props={props} />
 			</FormSection>
-			{/* The commit bar sticks to the bottom of the viewport while the page
-			    scrolls, and the negative margins cancel the pane's own gutter so
-			    the rule spans the reading column edge to edge - the numbers move
-			    with `.pane`'s padding in dashboard.css. The z-index is the house
-			    footer level; the discard question outranks it from the shell's
-			    own modal layer, not from here. */}
-			<div className="toolbar sticky bottom-0 z-[2] mx-[-24px] mt-6 mb-[-48px] flex flex-wrap items-center gap-4 border-t border-border bg-background px-6 py-3">
+			<div className={COMMIT_BAR_CLASS}>
 				<Button disabled={phase.phase !== "editing"} onClick={save}>
 					{saving ? (
 						<>
@@ -2034,7 +2054,10 @@ function AdoptForm({
 	return (
 		<div className="form-card server-form">
 			<BackToServers onRequestClose={onRequestClose} />
-			<h3 id="server-form-title">{l10n.t("Adopt {0}", server.label)}</h3>
+			{/* The same header primitive as the edit form's title row, without a
+			    docs slot; the 24px above is the h3 rule's, restated here for the
+			    reason the edit form restates it. */}
+			<SectionHeader titleId="server-form-title" level={3} title={l10n.t("Adopt {0}", server.label)} className="mt-6" />
 			<FormSection title={l10n.t("Adoption")} help={helpAdoptionSection()}>
 				<FieldRow
 					htmlFor="adopt-label"
@@ -2107,7 +2130,7 @@ function AdoptForm({
 				</FieldSpan>
 			</FormSection>
 			{/* Same footer as the edit page's, for the same reasons. */}
-			<div className="toolbar sticky bottom-0 z-[2] mx-[-24px] mt-6 mb-[-48px] flex flex-wrap items-center gap-4 border-t border-border bg-background px-6 py-3">
+			<div className={COMMIT_BAR_CLASS}>
 				<Button disabled={saving} onClick={adopt}>
 					{saving ? (
 						<>

@@ -1026,7 +1026,6 @@
 		flex: none;
 		align-items: center;
 		justify-content: center;
-		box-sizing: border-box;
 		width: 14px;
 		height: 14px;
 		padding: 0;
@@ -1226,28 +1225,40 @@
 		   context. .rows owns the column tracks and each .row inside it subgrids
 		   onto them, so the value inputs and the Remove buttons line up across
 		   rows regardless of per-row content; where subgrid is unsupported the
-		   per-row template below applies - the pre-alignment layout. The input
-		   tracks carry no fixed floors (minmax(0, ...)): the action column sizes
-		   to its content, and a floor on the inputs could push the track sum past
-		   the panel's content box; the inputs shrink instead, and the
+		   per-row template below applies - the pre-alignment layout. The two
+		   input tracks are asymmetric on purpose: keys are long snake_case
+		   identifiers and values are short scalars, so the key track sizes to
+		   the names themselves - fit-content, fed by the key inputs reporting
+		   their text as intrinsic size (field-sizing below) - and the value
+		   track takes what remains. An even split handed the narrow track to
+		   the longer content: six of eleven capability names clipped mid-token
+		   beside value boxes sitting near-empty. The fit-content cap and the
+		   value track's minmax(0, ...) keep the sum inside the panel's content
+		   box - the inputs shrink instead, and the
 		   `@container pane (width < 700px)` block near the end of the full-width
 		   region stacks the rows before they get too cramped to use. */
 	.rows {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) max-content max-content;
+		grid-template-columns: fit-content(60%) minmax(0, 1fr) max-content max-content;
 		gap: 4px 8px;
 		margin: 4px 0 8px;
 	}
 	.row {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto auto;
+		grid-template-columns: fit-content(60%) minmax(0, 1fr) auto auto;
 		gap: 4px 8px;
 		align-items: center;
 		margin: 4px 0;
 	}
+	/* field-sizing is what lets the key TRACK see the key TEXT: without it an
+		   input's intrinsic size is its default ~20ch whatever it holds. Inputs
+		   with an explicit width (the header rows') are untouched - field-sizing
+		   only informs auto sizing - and where the property is unsupported the
+		   track falls back to that default, close to the old split. */
 	.row input.key {
 		grid-column: 1;
 		width: auto;
+		field-sizing: content;
 	}
 	.row input.value {
 		grid-column: 2;
@@ -1488,7 +1499,6 @@
 	}
 	.record-json textarea {
 		width: 100%;
-		box-sizing: border-box;
 		resize: vertical;
 		font-family: var(--vscode-editor-font-family, monospace);
 		font-size: inherit;
@@ -2262,7 +2272,6 @@
 		   text with nothing to flex. */
 	.filter-pill {
 		display: inline-block;
-		box-sizing: border-box;
 		max-width: min(100%, 40ch);
 		padding: 1px 8px;
 		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
@@ -2359,6 +2368,18 @@
 	}
 	.section-head .section-meta {
 		color: var(--muted-foreground);
+	}
+	/* The server form's section headers ride the shared anatomy at the form's
+		   own scale: h4 titles one step under the page h3, the aside fact in the
+		   meta slot a step under that. Scale is all this varies - the slot order
+		   stays the primitive's, so these headers are drawn the way every other
+		   section header is. */
+	.form-section-head .section-title {
+		font-size: 13px;
+		font-weight: 600;
+	}
+	.form-section-head .section-meta {
+		font-size: 11px;
 	}
 
 	.empty {
@@ -2858,7 +2879,6 @@
 	.chip-popover input.value,
 	.chip-popover input.key {
 		width: 100%;
-		box-sizing: border-box;
 	}
 	.chip-popover .suggest-input {
 		width: 100%;
@@ -2980,17 +3000,15 @@
 		flex-wrap: wrap;
 	}
 	/* The field rows as one grid line each: key, value, flags, remove. The
-		   input tracks flex (minmax(0, ...)), the flag and action columns hug
-		   their content at the right edge; the column heads label the two input
-		   tracks so key-vs-value is legible before any placeholder renders. */
+		   column templates are the shared .rows/.row ones above (the key track
+		   sized to the names, the value track flexing, the flag and action
+		   columns hugging their content at the right edge); the column heads
+		   label the two input tracks so key-vs-value is legible before any
+		   placeholder renders. */
 	.matcher-editor .rows {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) max-content max-content;
 		gap: 6px 8px;
 		margin: 2px 0 8px;
-	}
-	.matcher-editor .row {
-		grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) max-content max-content;
 	}
 	.matcher-editor .rows > .row {
 		grid-template-columns: subgrid;
@@ -3091,6 +3109,15 @@
 			   them wrap again so a long translation cannot overflow the panel. */
 		.matcher-editor .row .directive-flag {
 			flex-wrap: wrap;
+		}
+		/* Stacked, the cells are start-justified, so a content-sized key input
+			   makes every row its own width - a 5-character key rendered as a
+			   43px sliver beside full-length neighbours. The content sizing
+			   exists to feed the SHARED key track, and stacking dissolves that
+			   track, so the inputs go back to the uniform default width here. */
+		.slide-over .row input.key,
+		.matcher-editor .row input.key {
+			field-sizing: fixed;
 		}
 	}
 	/* The overlay footer pins like the form's Save row: Done leads on the

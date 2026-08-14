@@ -15,12 +15,17 @@
 /* Preflight-lite: exactly the inheritance dashboard.css's element rules give
 	 every form control. Without preflight a control falls back to the browser
 	 default font, so the base layer says it too and keeps saying it if those
-	 element rules ever go. */
+	 element rules ever go. Box sizing rides here for the same reason: a
+	 content-box control with a width runs its padding and border past that
+	 width, so every full-width control needed the border-box hand-fix restated
+	 beside it (the declared-models textarea shipped 14px wider than its
+	 siblings for missing one). One base rule retires the per-control fixes. */
 @layer base {
 	button,
 	input,
 	select,
 	textarea {
+		box-sizing: border-box;
 		font-family: inherit;
 		font-size: inherit;
 	}
