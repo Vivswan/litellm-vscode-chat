@@ -98,6 +98,7 @@ export const CONSUMED_CAPABILITY_FIELDS: Readonly<Record<string, CapabilityValue
 	supports_pdf_input: "boolean",
 	supports_response_schema: "boolean",
 	supported_openai_params: "string-array",
+	reasoning_effort_levels: "string-array",
 };
 
 function isCapabilityFieldName(key: string): key is CapabilityFieldName {
@@ -608,6 +609,7 @@ export type ServerCapabilityValues = CapabilityFieldValues & {
 	readonly supports_pdf_input: boolean;
 	readonly supports_response_schema: boolean;
 	readonly supported_openai_params: readonly string[];
+	readonly reasoning_effort_levels: readonly string[];
 };
 
 /**

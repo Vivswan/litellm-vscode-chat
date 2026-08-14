@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { REASONING_EFFORT_SCHEMA } from "../provider/catalog/modelConfiguration";
+import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema } from "../provider/catalog/modelConfiguration";
 import { CMD } from "../shared/config/commandIds";
 import { CONFIG_SECTION } from "../shared/config/settingSpec";
 import {
@@ -30,6 +30,9 @@ import {
 	waitForHostModels,
 } from "./hostApiHelpers";
 import { expectDefined } from "./pureHelpers";
+
+/** The menu the built-in default level list produces; fixtures here carry no per-level server flags. */
+const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS);
 
 /**
  * Docker resolution suite: catalog-ON capability backfill and the parameter

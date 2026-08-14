@@ -42,7 +42,7 @@ Every chat-capable model a reachable server reports appears in the picker. Three
 
 When one model name is served by several deployments (a load-balanced pool), it registers once, with the strictest contributor's token limits, so a request can never exceed whichever deployment serves it. This merging matters for the [`max_tokens` exception](#the-max_tokens-exception): the merged output limit counts as declared only when every deployment declared one.
 
-The same conservative merge applies beyond token limits: the pool advertises a capability only when every deployment does - one deployment declaring tool calling off removes it from the pool, a modality (vision, audio) survives only when every deployment has it, and the Thinking Effort control appears only when every deployment advertises reasoning. Pricing shows only where every deployment declares the identical per-field cost (where they disagree, the proxy's routing decides what a request actually costs, so the picker shows nothing rather than a wrong number), and the picker's provider name follows the first deployment. A capability the merge dropped can be restored with a [`models.capabilities` override](#capabilities).
+The same conservative merge applies beyond token limits: the pool advertises a capability only when every deployment does - one deployment declaring tool calling off removes it from the pool, a modality (vision, audio) survives only when every deployment has it, and the Thinking Effort control appears only when every deployment advertises reasoning (its server-declared level menu narrowing to the levels every deployment flags). Pricing shows only where every deployment declares the identical per-field cost (where they disagree, the proxy's routing decides what a request actually costs, so the picker shows nothing rather than a wrong number), and the picker's provider name follows the first deployment. A capability the merge dropped can be restored with a [`models.capabilities` override](#capabilities).
 
 ### Provider routes and aggregates
 
@@ -180,6 +180,7 @@ The `models.capabilities` records (global setting and [per-entry field](servers.
 | `supports_prompt_caching` | boolean | Whether prompt-cache markers are placed - the one capability that changes what a request contains. The feature stays double-gated: the [`chat.promptCaching` setting](settings.md#prompt-caching) must be on too |
 | `supports_pdf_input`, `supports_response_schema` | boolean | Nothing yet: both resolve and display in the [capability inspector](#inspectors) but gate no behavior - PDFs are sent to every model regardless ([multimodal input](#multimodal-input)) |
 | `supported_openai_params` | string array | `reasoning_effort` in the list is the second signal for the Thinking Effort control, beside `supports_reasoning`; whichever of the two resolved at the higher precedence level decides, the flag winning ties |
+| `reasoning_effort_levels` | string array | The Thinking Effort menu's levels, in menu order ([per-model configuration](#per-model-configuration)). Any level name works - the menu offers your strings verbatim and sends them as-is. Decides only the menu's contents, never whether the control exists |
 
 Cost fields take non-negative per-token USD numbers; writing a zero pair yourself means genuinely free ([pricing](#pricing)).
 
@@ -197,6 +198,7 @@ Discovery reads capabilities from model info:
 | Vision | `supports_vision` | |
 | Audio input | `supports_audio_input` | |
 | Reasoning | `supports_reasoning`, or `reasoning_effort` among `supported_openai_params` | An explicit `supports_reasoning: false` wins |
+| Reasoning effort levels | The `supports_<level>_reasoning_effort` flags (e.g. `supports_max_reasoning_effort`) | Levels flagged `true` become the Thinking Effort menu; `false` and `null` read as unreported, and with no `true` flag at all the menu falls back to its built-in list |
 | Prompt caching | `supports_prompt_caching` | Overridable like every field; the feature stays double-gated by `chat.promptCaching` ([Settings](settings.md#prompt-caching)) |
 | Pricing | the eight cost fields (`input_cost_per_token`, ...) | An input/output pair of exactly 0/0 is LiteLLM's stamp for "no pricing data" and reads as no report at all ([pricing](#pricing)) |
 | Token limits | model info's token limit fields | See [Token limits](#token-limits) |
@@ -411,13 +413,27 @@ Some models offer a Configure menu in the picker - this is the "picker configura
 
 1. Select the model in the picker.
 2. Click the "Thinking Effort" label next to the model name in the chat input.
-3. Pick a level from Off through Extra High; VS Code remembers the choice for that model.
+3. Pick a level; VS Code remembers the choice for that model.
 
 What each choice sends:
 
 - Every request then carries `reasoning_effort` accordingly; "Off" goes out as `reasoning_effort: "none"`, which turns thinking off on models that support that.
 - "Provider default" (the initial state) sends nothing and lets your provider decide.
-- The menu is the same for every reasoning model, because LiteLLM reports which models take `reasoning_effort` but not which values each one accepts. If you pick a level your model rejects (say, Extra High on a model that stops at High), the request fails with the server's own error message; pick a different level and retry.
+
+The menu's levels resolve per model like any capability field ([precedence](#capability-precedence)), highest source first:
+
+1. A `reasoning_effort_levels` list in your [`models.capabilities` records](#capabilities) (entry over global). Any strings work - the vocabulary is open, and a picked level is sent as-is. An empty list you write yourself empties the menu down to Provider default.
+2. The server's `supports_<level>_reasoning_effort` flags from model info, where LiteLLM declares them (for a [pooled model](#load-balanced-pools), the levels every deployment flags; disjoint flags read as no report).
+3. A `_fallback`-marked list from your records, filling where the server reports nothing.
+4. The built-in list: Off, Minimal, Low, Medium, High, Extra High, Max.
+
+```json
+"litellm-vscode-chat.models.capabilities": {
+  "grok-*": { "reasoning_effort_levels": ["low", "high", "max"] }
+}
+```
+
+If a picked level still turns out wrong for the model (say, Max where the provider stops at High), the request fails with the server's own error message; pick a different level and retry. The list decides only the menu: whether the control exists at all stays with `supports_reasoning` and `supported_openai_params` above. Reasoning parameters beyond the effort level (a `thinking` block, a `reasoning` object, budgets) are not menu material and stay in the [`models.parameters` pass-through](#parameters).
 
 Temperature stays free-form in `models.parameters` on purpose: the Configure menu can only render fixed choices, so the extension does not add temperature presets there.
 

@@ -732,13 +732,25 @@ suite("provider/request contract", () => {
 			assert.strictEqual(body.reasoning_effort, "high");
 		});
 
-		test("a malformed picker value drops and leaves lower-precedence sources intact", async () => {
+		test("an unknown picker string is a user-set level (open vocabulary) and outranks the config", async () => {
 			const configured = await withConfig(
 				{ "models.parameters": { "test-model": { reasoning_effort: "medium" } } },
 				() =>
 					captureRequestBody(createConfiguredProvider(), modelInfo, {
 						toolMode: vscode.LanguageModelChatToolMode.Auto,
 						modelConfiguration: { reasoningEffort: "extreme" },
+					})
+			);
+			assert.strictEqual(configured.reasoning_effort, "extreme", "a stored string counts as user-set and goes as-is");
+		});
+
+		test("a non-string picker value drops and leaves lower-precedence sources intact", async () => {
+			const configured = await withConfig(
+				{ "models.parameters": { "test-model": { reasoning_effort: "medium" } } },
+				() =>
+					captureRequestBody(createConfiguredProvider(), modelInfo, {
+						toolMode: vscode.LanguageModelChatToolMode.Auto,
+						modelConfiguration: { reasoningEffort: 42 },
 					})
 			);
 			assert.strictEqual(configured.reasoning_effort, "medium", "the invalid choice must not shadow the config");

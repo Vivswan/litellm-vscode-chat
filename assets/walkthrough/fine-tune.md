@@ -6,6 +6,6 @@ All global options are under `litellm-vscode-chat` in VS Code settings:
 - model list caching
 - prompt caching for models that support it
 - custom HTTP headers
-- per-model request parameters (`modelParameters`)
+- per-model request parameters (`models.parameters`)
 
 For everything in one place, run "Manage LiteLLM Provider" from the Command Palette.

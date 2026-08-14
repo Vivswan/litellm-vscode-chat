@@ -9,11 +9,14 @@ import {
 	parseGroupConfiguration,
 	parseModelMetadata,
 } from "../../../provider/catalog/groupModels";
-import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfiguration";
+import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema } from "../../../provider/catalog/modelConfiguration";
 import { oauthCredentialFingerprint } from "../../../provider/transport/auth";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { fingerprint } from "../../../shared/util/fingerprint";
 import { expectDefined, makeModelInfo } from "../../pureHelpers";
+
+/** The menu the built-in default level list produces; fixtures here carry no per-level server flags. */
+const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS);
 
 const OAUTH_FIELDS = {
 	oauthTokenUrl: "http://idp.test/oauth2/token",

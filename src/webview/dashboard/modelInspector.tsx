@@ -282,7 +282,8 @@ function maxTokensParts(maxTokens: ProjectedMaxTokens): {
 
 /**
  * The capability fields in display order: after the token trio and support
- * flags come the consumed booleans (CONSUMED_BOOLEAN_ORDER); pricing and the
+ * flags come the consumed booleans (CONSUMED_BOOLEAN_ORDER) and the consumed
+ * lists (CONSUMED_LIST_ORDER); pricing and the
  * params list get sections of their own, and every other field the resolution
  * carries (the vocabulary is open) renders under "Other fields", sorted by
  * key.
@@ -303,6 +304,9 @@ const CONSUMED_BOOLEAN_ORDER: readonly string[] = [
 	"supports_pdf_input",
 	"supports_response_schema",
 ];
+
+/** The consumed list fields that close the capabilities section; the params list has a section of its own. */
+const CONSUMED_LIST_ORDER: readonly string[] = ["reasoning_effort_levels"];
 
 /** The number fields that render as token counts; other numbers (costs aside) render plain. */
 const TOKEN_FIELDS: ReadonlySet<string> = new Set(["context_length", "max_input_tokens", "max_output_tokens"]);
@@ -406,6 +410,17 @@ function formatValue(name: string, value: CapabilityJsonValue): string {
 		// without JSON quoting; shadowed lists stay count-only (their record
 		// holds the value).
 		return parameterCountText(value.length);
+	}
+	if (
+		name === "reasoning_effort_levels" &&
+		Array.isArray(value) &&
+		value.length > 0 &&
+		value.every((item) => typeof item === "string")
+	) {
+		// Short enough to render whole: the menu's levels, comma-joined in menu
+		// order, without JSON quoting. A user-written empty list (no levels)
+		// falls through to its JSON form rather than a blank cell.
+		return value.join(", ");
 	}
 	return JSON.stringify(value) ?? "";
 }
@@ -920,7 +935,9 @@ export function ModelInspector({
 	// properties only, and the per-name reads go through capabilityField: a
 	// field named "toString" must read from the bag, never Object.prototype.
 	const present = new Set(caps === undefined ? [] : Object.keys(caps.fields));
-	const capabilityNames = [...FIELD_ORDER, ...CONSUMED_BOOLEAN_ORDER].filter((name) => present.has(name));
+	const capabilityNames = [...FIELD_ORDER, ...CONSUMED_BOOLEAN_ORDER, ...CONSUMED_LIST_ORDER].filter((name) =>
+		present.has(name)
+	);
 	const pricingNames = COST_CAPABILITY_FIELDS.filter((name) => present.has(name));
 	const sectioned = new Set([...capabilityNames, ...pricingNames, "supported_openai_params"]);
 	const extraNames = [...present].filter((name) => !sectioned.has(name)).sort();

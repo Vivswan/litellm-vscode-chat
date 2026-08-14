@@ -34,7 +34,7 @@ import {
 	resolveDashboardModelParameters,
 } from "../../../extension/dashboard/state";
 import type { DeclaredServerView } from "../../../extension/servers/serverSync";
-import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfiguration";
+import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema } from "../../../provider/catalog/modelConfiguration";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
 import type { NumberSettingId } from "../../../shared/config/settingSpec";
@@ -42,6 +42,9 @@ import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { assertOmits, makeModelInfo } from "../../pureHelpers";
 import { makeServerStatus } from "../../testUtils";
 import { KEEP_ALL, makeEnv, type RecordedEnv, serverPayload } from "./recordedEnv";
+
+/** The menu the built-in default level list produces; fixtures here carry no per-level server flags. */
+const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS);
 
 /** A declared-server view with every secret absent; overrides fill in the specifics. */
 function makeDeclared(overrides: Partial<DeclaredServerView> = {}): DeclaredServerView {

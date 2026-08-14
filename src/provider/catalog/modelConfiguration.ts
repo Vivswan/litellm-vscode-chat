@@ -1,4 +1,7 @@
+import * as l10n from "@vscode/l10n";
 import type { LanguageModelConfigurationSchema } from "vscode";
+import type { EffectiveCapabilityFields } from "../../shared/config/capabilityResolution";
+import { capabilityField } from "../../shared/config/capabilityResolution";
 import { isRecord } from "../../shared/util/json";
 import type { LiteLLMProvider } from "./schemas";
 
@@ -14,19 +17,18 @@ import type { LiteLLMProvider } from "./schemas";
  */
 
 /**
- * The reasoning effort levels the picker can put on the wire, in menu order.
- * The one menu serves every reasoning model: LiteLLM's capability data names
- * the reasoning_effort parameter but never its accepted values, so per-model
- * menus cannot be derived from /v1/model/info. A level a given model rejects
- * (e.g. xhigh where only low/medium/high exist) surfaces the server's own
- * invalid-parameter error through the chat error path, where the user can
- * re-pick; LiteLLM's provider translations clamp several such cases first.
- * "none" is a real wire value (thinking off, where supported), distinct from
- * the sentinel below, which sends nothing at all.
+ * The built-in reasoning effort levels, in menu order: the walk's backstop
+ * when neither a `reasoning_effort_levels` capability record nor the server's
+ * `supports_<level>_reasoning_effort` flags name a per-model list (see
+ * effectiveReasoningLevels). A floor, not a ceiling: the level vocabulary is
+ * open, so a record can list levels this extension has never heard of and the
+ * menu offers them verbatim. A level a given model rejects surfaces the
+ * server's own invalid-parameter error through the chat error path, where the
+ * user can re-pick; LiteLLM's provider translations clamp several such cases
+ * first. "none" is a real wire value (thinking off, where supported),
+ * distinct from the sentinel below, which sends nothing at all.
  */
-export const REASONING_EFFORT_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
-
-type ReasoningEffort = (typeof REASONING_EFFORT_LEVELS)[number];
+export const DEFAULT_REASONING_EFFORT_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
 /**
  * Sentinel picker value meaning "send nothing; the provider's default
@@ -40,53 +42,158 @@ type ReasoningEffort = (typeof REASONING_EFFORT_LEVELS)[number];
  */
 const PROVIDER_DEFAULT = "default";
 
-const PICKER_VALUES = [PROVIDER_DEFAULT, ...REASONING_EFFORT_LEVELS] as const;
+/**
+ * The localized label of a known picker value; an unknown level (open
+ * vocabulary: a record- or server-named tier) shows its raw wire string, a
+ * protocol term that stays unlocalized. Resolved at call time, never at
+ * module level: modules load before the l10n bundle is configured.
+ */
+function pickerLabel(value: string): string {
+	switch (value) {
+		case PROVIDER_DEFAULT:
+			return l10n.t("Provider default");
+		case "none":
+			return l10n.t({ message: "Off", comment: ["Reasoning effort level label in the model picker"] });
+		case "minimal":
+			return l10n.t({ message: "Minimal", comment: ["Reasoning effort level label in the model picker"] });
+		case "low":
+			return l10n.t({ message: "Low", comment: ["Reasoning effort level label in the model picker"] });
+		case "medium":
+			return l10n.t({ message: "Medium", comment: ["Reasoning effort level label in the model picker"] });
+		case "high":
+			return l10n.t({ message: "High", comment: ["Reasoning effort level label in the model picker"] });
+		case "xhigh":
+			return l10n.t({ message: "Extra High", comment: ["Reasoning effort level label in the model picker"] });
+		case "max":
+			return l10n.t({ message: "Max", comment: ["Reasoning effort level label in the model picker"] });
+		default:
+			return value;
+	}
+}
 
-type PickerValue = (typeof PICKER_VALUES)[number];
-
-const PICKER_LABELS: Readonly<Record<PickerValue, string>> = {
-	default: "Provider default",
-	none: "Off",
-	minimal: "Minimal",
-	low: "Low",
-	medium: "Medium",
-	high: "High",
-	xhigh: "Extra High",
-};
-
-const PICKER_DESCRIPTIONS: Readonly<Record<PickerValue, string>> = {
-	default: "Send no reasoning effort; the provider's own default applies",
-	none: "Ask the model to skip reasoning entirely, on models that can turn thinking off",
-	minimal: "The fastest reasoning tier, on models that offer one below Low",
-	low: "Favor speed and cost over reasoning depth",
-	medium: "Balance reasoning depth against latency",
-	high: "Spend more reasoning on harder problems",
-	xhigh: "The deepest reasoning tier, on models that offer one above High",
-};
+/** The localized menu description of a picker value; unknown levels state the wire value they send. */
+function pickerDescription(value: string): string {
+	switch (value) {
+		case PROVIDER_DEFAULT:
+			return l10n.t("Send no reasoning effort; the provider's own default applies");
+		case "none":
+			return l10n.t("Ask the model to skip reasoning entirely, on models that can turn thinking off");
+		case "minimal":
+			return l10n.t("The fastest reasoning tier, on models that offer one below Low");
+		case "low":
+			return l10n.t("Favor speed and cost over reasoning depth");
+		case "medium":
+			return l10n.t("Balance reasoning depth against latency");
+		case "high":
+			return l10n.t("Spend more reasoning on harder problems");
+		case "xhigh":
+			return l10n.t("A deeper reasoning tier above High, on models that offer one");
+		case "max":
+			return l10n.t("The deepest reasoning tier, on models that offer one");
+		default:
+			return l10n.t('Sent as reasoning_effort "{0}"', value);
+	}
+}
 
 /**
- * The schema behind the "Reasoning Effort" submenu. The labels and
- * descriptions are built from the values so the host's requirement that
+ * The picker's value list for a resolved level list: the sentinel first, then
+ * the levels deduplicated in their given order. Sanitized rather than trusted:
+ * a level equal to the sentinel would make "send this level" and "send
+ * nothing" one menu entry, and an empty string cannot be a wire value, so
+ * both drop here. The one enum builder, shared by the schema and by
+ * capabilityOverrides' advertises check, so the two can never disagree about
+ * which menu a level list produces.
+ */
+export function reasoningEffortPickerValues(levels: readonly string[]): readonly string[] {
+	const seen = new Set<string>([PROVIDER_DEFAULT, ""]);
+	const values: string[] = [PROVIDER_DEFAULT];
+	for (const level of levels) {
+		if (!seen.has(level)) {
+			seen.add(level);
+			values.push(level);
+		}
+	}
+	return values;
+}
+
+/**
+ * The schema behind the "Reasoning Effort" submenu, built per model from its
+ * resolved level list (effectiveReasoningLevels). The labels and descriptions
+ * are built from the values so the host's requirement that
  * `enumItemLabels`/`enumDescriptions` match the enum's length and order holds
  * by construction. The default is the PROVIDER_DEFAULT sentinel, not a real
  * effort level: an unset picker resolves to it and the request path sends
  * nothing.
  */
-export const REASONING_EFFORT_SCHEMA: LanguageModelConfigurationSchema = {
-	properties: {
-		reasoningEffort: {
-			type: "string",
-			title: "Reasoning Effort",
-			description: "How much reasoning the model puts in before it answers.",
-			enum: [...PICKER_VALUES],
-			enumItemLabels: PICKER_VALUES.map((value) => PICKER_LABELS[value]),
-			enumDescriptions: PICKER_VALUES.map((value) => PICKER_DESCRIPTIONS[value]),
-			default: PROVIDER_DEFAULT,
-			// Promotes the control to a primary action in the picker.
-			group: "navigation",
+export function reasoningEffortSchema(levels: readonly string[]): LanguageModelConfigurationSchema {
+	const values = reasoningEffortPickerValues(levels);
+	return {
+		properties: {
+			reasoningEffort: {
+				type: "string",
+				title: l10n.t("Reasoning Effort"),
+				description: l10n.t("How much reasoning the model puts in before it answers."),
+				enum: [...values],
+				enumItemLabels: values.map(pickerLabel),
+				enumDescriptions: values.map(pickerDescription),
+				default: PROVIDER_DEFAULT,
+				// Promotes the control to a primary action in the picker.
+				group: "navigation",
+			},
 		},
-	},
-};
+	};
+}
+
+/** LiteLLM's per-level support flags, e.g. supports_xhigh_reasoning_effort; the level name is the capture. */
+const REASONING_LEVEL_FLAG = /^supports_(.+)_reasoning_effort$/;
+
+/**
+ * The reasoning effort levels a server report flags, or undefined when it
+ * flags none. LiteLLM stamps `supports_<level>_reasoning_effort` per level
+ * onto model info, `true`/`false`/`null`; only an explicit `true` counts, and
+ * a report whose every flag is false or null reads as no signal rather than
+ * an empty menu - the same accepted conflation of "reported false" with
+ * "unreported" the modality flags apply (a user record can still write the
+ * exact list). Known levels come back in the built-in menu order, unknown
+ * flagged levels (the vocabulary is the server's) after them in report order.
+ */
+export function reasoningEffortLevelsFromFlags(source: unknown): string[] | undefined {
+	if (!isRecord(source)) {
+		return undefined;
+	}
+	const flagged = new Set<string>();
+	for (const [key, value] of Object.entries(source)) {
+		const level = REASONING_LEVEL_FLAG.exec(key)?.[1];
+		if (level !== undefined && level !== "" && value === true) {
+			flagged.add(level);
+		}
+	}
+	if (flagged.size === 0) {
+		return undefined;
+	}
+	const known = DEFAULT_REASONING_EFFORT_LEVELS.filter((level) => flagged.has(level));
+	const unknown = [...flagged].filter(
+		(level) => !(DEFAULT_REASONING_EFFORT_LEVELS as readonly string[]).includes(level)
+	);
+	return [...known, ...unknown];
+}
+
+/**
+ * The picker's level list from a model's effective capability fields: the
+ * resolved `reasoning_effort_levels` value when some level carries one - user
+ * records above the server's flag-derived list, through the standard walk -
+ * else the built-in default list. The extra validation is a backstop, not a
+ * second opinion: every source of the field is kind-validated already (the
+ * record parse diagnoses invalid values away, the server baseline is typed),
+ * so a non-string-array here cannot arise; falling back keeps the menu total
+ * anyway.
+ */
+export function effectiveReasoningLevels(fields: EffectiveCapabilityFields): readonly string[] {
+	const value = capabilityField(fields, "reasoning_effort_levels")?.value;
+	return Array.isArray(value) && value.every((level) => typeof level === "string")
+		? (value as readonly string[])
+		: DEFAULT_REASONING_EFFORT_LEVELS;
+}
 
 /**
  * Whether a provider entry's capability data says the model accepts a
@@ -97,7 +204,9 @@ export const REASONING_EFFORT_SCHEMA: LanguageModelConfigurationSchema = {
  * capability one deployment explicitly disclaimed. Otherwise the explicit
  * true flag or reasoning_effort among the supported OpenAI params counts.
  * Providers-array entries are lenient pass-throughs, so the params list is
- * re-narrowed before use.
+ * re-narrowed before use. The per-level flags decide the menu's contents
+ * (reasoningEffortLevelsFromFlags), never the control's existence: that stays
+ * the flag-and-params-list judgment here.
  */
 export function supportsReasoningEffort(provider: LiteLLMProvider): boolean {
 	if (provider.supports_reasoning === false) {
@@ -116,29 +225,26 @@ export function supportsReasoningEffort(provider: LiteLLMProvider): boolean {
  * buildRequestBody's Record-typed pass-through.
  */
 export type ModelConfigurationRequestParams = {
-	reasoning_effort?: ReasoningEffort;
+	reasoning_effort?: string;
 };
-
-function isReasoningEffort(value: unknown): value is ReasoningEffort {
-	return typeof value === "string" && (REASONING_EFFORT_LEVELS as readonly string[]).includes(value);
-}
 
 /**
  * Map the host-resolved modelConfiguration onto wire request parameters. Only
  * the properties this extension declared in its configuration schema are
  * mapped, each under its explicit wire key; the object is never spread
  * blindly, so host-added properties this version never declared cannot leak
- * into the request. The value narrowing is load-bearing, not belt-and-braces:
- * the host merges the group's stored settings into modelConfiguration
- * verbatim, without checking them against the schema, so hand-edited or stale
- * settings arrive as-is. Anything but a known effort level drops silently,
- * including the PROVIDER_DEFAULT sentinel, which is how an unset (or reset)
- * picker sends nothing at all.
+ * into the request. The level vocabulary is open on purpose - the menu is
+ * built per model and hand-edited settings count as user-set - so any
+ * non-empty string except the PROVIDER_DEFAULT sentinel goes out as-is, and
+ * the sentinel's drop is how an unset (or reset) picker sends nothing at all.
+ * Non-strings still drop: the host merges the group's stored settings into
+ * modelConfiguration verbatim, without checking them against the schema, and
+ * reasoning_effort is a string on the wire.
  */
 export function requestParamsFromModelConfiguration(modelConfiguration: unknown): ModelConfigurationRequestParams {
 	if (!isRecord(modelConfiguration)) {
 		return {};
 	}
 	const effort: unknown = modelConfiguration.reasoningEffort;
-	return isReasoningEffort(effort) ? { reasoning_effort: effort } : {};
+	return typeof effort === "string" && effort !== "" && effort !== PROVIDER_DEFAULT ? { reasoning_effort: effort } : {};
 }

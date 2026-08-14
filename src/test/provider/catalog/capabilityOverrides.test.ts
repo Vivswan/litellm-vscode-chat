@@ -11,12 +11,15 @@
 import * as assert from "node:assert";
 import type { CapabilityOverrideOptions } from "../../../provider/catalog/capabilityOverrides";
 import { applyCapabilityOverrides, synthesizeDeclaredModels } from "../../../provider/catalog/capabilityOverrides";
-import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfiguration";
+import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema } from "../../../provider/catalog/modelConfiguration";
 import { buildModelInfos } from "../../../provider/catalog/registration";
 import type { LiteLLMModelItem } from "../../../provider/catalog/schemas";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
 import { ModelResolutionTable } from "../../../shared/config/resolutionTable";
 import { makeModelInfo } from "../../pureHelpers";
+
+/** The menu the built-in default level list produces; fixtures here carry no per-level server flags. */
+const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS);
 
 const SERVER = { id: "srv1", label: "Default", baseUrl: "http://litellm.test", apiKey: "k" };
 const SCOPE = "http://litellm.test";
@@ -221,6 +224,98 @@ suite("provider/catalog/capabilityOverrides", () => {
 				options({ globalCapabilities: { "gpt-test": { supports_reasoning: true } } })
 			);
 			assert.deepStrictEqual(promoted[0]?.configurationSchema, REASONING_EFFORT_SCHEMA, "promotion adds the control");
+		});
+
+		test("a reasoning_effort_levels record replaces the menu, unknown levels included", () => {
+			const reasoningItem: LiteLLMModelItem = {
+				...DEPLOYMENT,
+				shape: { kind: "deployment", provider: { ...DEPLOYMENT_PROVIDER, supports_reasoning: true } },
+			};
+			const out = applyCapabilityOverrides(
+				[registered(reasoningItem)],
+				SERVER,
+				options({ globalCapabilities: { "gpt-test": { reasoning_effort_levels: ["low", "high", "ultra"] } } })
+			);
+			assert.deepStrictEqual(
+				out[0]?.configurationSchema,
+				reasoningEffortSchema(["low", "high", "ultra"]),
+				"the user's list is the menu, verbatim - the vocabulary is open"
+			);
+		});
+
+		test("the entry's level list beats the global one, and a levels-only record on a gated-off model is inert", () => {
+			const reasoningItem: LiteLLMModelItem = {
+				...DEPLOYMENT,
+				shape: { kind: "deployment", provider: { ...DEPLOYMENT_PROVIDER, supports_reasoning: true } },
+			};
+			const out = applyCapabilityOverrides(
+				[registered(reasoningItem)],
+				SERVER,
+				options({
+					globalCapabilities: { "gpt-test": { reasoning_effort_levels: ["low"] } },
+					entryCapabilities: { "gpt-test": { reasoning_effort_levels: ["high", "max"] } },
+				})
+			);
+			assert.deepStrictEqual(out[0]?.configurationSchema, reasoningEffortSchema(["high", "max"]));
+
+			const gatedOff = applyCapabilityOverrides(
+				[registered(DEPLOYMENT)],
+				SERVER,
+				options({ globalCapabilities: { "gpt-test": { reasoning_effort_levels: ["high", "max"] } } })
+			);
+			assert.strictEqual(
+				gatedOff[0]?.configurationSchema,
+				undefined,
+				"the level list decides the menu's contents, never the control's existence"
+			);
+		});
+
+		test("server-declared per-level flags register their menu directly and take the identity fast path", () => {
+			const flagged: LiteLLMModelItem = {
+				...DEPLOYMENT,
+				shape: {
+					kind: "deployment",
+					provider: {
+						...DEPLOYMENT_PROVIDER,
+						supports_reasoning: true,
+						reasoning_effort_levels: ["low", "high", "max"],
+					},
+				},
+			};
+			const infos = [registered(flagged)];
+			assert.deepStrictEqual(
+				infos[0]?.configurationSchema,
+				reasoningEffortSchema(["low", "high", "max"]),
+				"registration's schema is the server's flag-derived list"
+			);
+			const out = applyCapabilityOverrides(infos, SERVER, options());
+			assert.strictEqual(out, infos, "the walk's server level re-derives the same menu, so nothing rebuilds");
+		});
+
+		test("a stale served menu heals once its level record is removed", () => {
+			const flagged: LiteLLMModelItem = {
+				...DEPLOYMENT,
+				shape: {
+					kind: "deployment",
+					provider: {
+						...DEPLOYMENT_PROVIDER,
+						supports_reasoning: true,
+						reasoning_effort_levels: ["low", "high"],
+					},
+				},
+			};
+			const overridden = applyCapabilityOverrides(
+				[registered(flagged)],
+				SERVER,
+				options({ globalCapabilities: { "gpt-test": { reasoning_effort_levels: ["max"] } } })
+			);
+			assert.deepStrictEqual(overridden[0]?.configurationSchema, reasoningEffortSchema(["max"]));
+			const healed = applyCapabilityOverrides(overridden, SERVER, options());
+			assert.deepStrictEqual(
+				healed[0]?.configurationSchema,
+				reasoningEffortSchema(["low", "high"]),
+				"the advertises check compares the menu itself, so the server's list returns"
+			);
 		});
 
 		test("a stored copy carrying pricing the walk does not derive is healed by the verified rebuild", () => {

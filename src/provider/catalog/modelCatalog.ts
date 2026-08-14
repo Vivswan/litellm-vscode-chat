@@ -174,15 +174,15 @@ function serverCostValues(costs: PerTokenCosts): Partial<ServerCapabilityValues>
 }
 
 /**
- * The supported-params answer of a contributor set: present only when EVERY
- * contributor carries an array (the same as-soon-as-one-lacks rule deployment
- * merging applies via intersectSupportedParams), holding the params every
- * contributor lists. Providers-array entries are lenient pass-throughs, so
- * each list is re-narrowed element-wise before use - to non-empty strings,
- * the same vocabulary the user-record "string-array" kind validates.
+ * The intersection of a contributor set's string lists: present only when
+ * EVERY contributor carries an array (the same as-soon-as-one-lacks rule
+ * deployment merging applies via intersectSupportedParams), holding the
+ * strings every contributor lists. Providers-array entries are lenient
+ * pass-throughs, so each list is re-narrowed element-wise before use - to
+ * non-empty strings, the same vocabulary the user-record "string-array" kind
+ * validates.
  */
-function intersectReportedParams(providers: readonly LiteLLMProvider[]): readonly string[] | undefined {
-	const lists = providers.map((p) => p.supported_openai_params);
+function intersectReportedLists(lists: readonly (string[] | null | undefined)[]): readonly string[] | undefined {
 	const [first, ...rest] = lists;
 	if (!Array.isArray(first) || rest.some((list) => !Array.isArray(list))) {
 		return undefined;
@@ -191,6 +191,28 @@ function intersectReportedParams(providers: readonly LiteLLMProvider[]): readonl
 		list.filter((param): param is string => typeof param === "string" && param.length > 0);
 	const tails = rest.map((list) => new Set(narrow(list as unknown[])));
 	return narrow(first).filter((param) => tails.every((tail) => tail.has(param)));
+}
+
+/** The supported-params answer of a contributor set; see intersectReportedLists for the presence rule. */
+function intersectReportedParams(providers: readonly LiteLLMProvider[]): readonly string[] | undefined {
+	return intersectReportedLists(providers.map((p) => p.supported_openai_params));
+}
+
+/**
+ * The reasoning-effort level list of a contributor set, from the
+ * flag-derived lists discovery authored (reasoningEffortLevelsFromFlags):
+ * present only when every contributor carries one, holding their
+ * intersection. An EMPTY intersection (contributors flagging disjoint levels)
+ * collapses to no signal, mirroring the all-negative-flags rule one layer
+ * down: the server said nothing usable, so the menu falls back rather than
+ * registering empty - only a user-written [] means "no levels", and that
+ * value never passes through here. The one levels rule registration's
+ * configurationSchemaFor and the capability baseline both read, so the schema
+ * registration attaches and the walk's server level cannot disagree.
+ */
+export function reportedReasoningLevels(providers: readonly LiteLLMProvider[]): readonly string[] | undefined {
+	const intersection = intersectReportedLists(providers.map((p) => p.reasoning_effort_levels));
+	return intersection !== undefined && intersection.length > 0 ? intersection : undefined;
 }
 
 export interface DiscoveredBaselineInput {
@@ -239,9 +261,10 @@ export interface DiscoveredBaselineInput {
  * with "unreported". The prompt-caching and response-schema flags hold only
  * when every contributor advertises them (the same every-contributor rule the
  * registered supportsPromptCaching metadata applies, so the baseline can
- * never say more than the entry advertised); the supported-params list is
- * present only when every contributor carries one and holds their
- * intersection; costs appear only for pricing-eligible shapes (see
+ * never say more than the entry advertised); the supported-params list and
+ * the flag-derived reasoning_effort_levels list are each present only when
+ * every contributor carries one and hold their intersection; costs appear
+ * only for pricing-eligible shapes (see
  * DiscoveredBaselineInput.costs) under serverCostValues' zero-pair rule.
  */
 export function discoveredCapabilityBaseline(input: DiscoveredBaselineInput): ServerDeclaredCapabilities {
@@ -256,6 +279,7 @@ export function discoveredCapabilityBaseline(input: DiscoveredBaselineInput): Se
 	const promptCachingReported = providers.some((p) => typeof p.supports_prompt_caching === "boolean");
 	const responseSchemaReported = providers.some((p) => typeof p.supports_response_schema === "boolean");
 	const supportedParams = intersectReportedParams(providers);
+	const reasoningLevels = reportedReasoningLevels(providers);
 	const values: Partial<ServerCapabilityValues> = {
 		...(constraints !== undefined && reported.context ? { context_length: constraints.contextLength } : {}),
 		...(constraints !== undefined && reported.any ? { max_input_tokens: constraints.maxInputTokens } : {}),
@@ -276,6 +300,7 @@ export function discoveredCapabilityBaseline(input: DiscoveredBaselineInput): Se
 			? { supports_response_schema: providers.every((p) => p.supports_response_schema === true) }
 			: {}),
 		...(supportedParams !== undefined ? { supported_openai_params: supportedParams } : {}),
+		...(reasoningLevels !== undefined ? { reasoning_effort_levels: reasoningLevels } : {}),
 		...(input.costs !== undefined ? serverCostValues(input.costs) : {}),
 	};
 	return { kind: "discovered", values, outputDeclared: constraints?.outputLimitSource === "provider" };

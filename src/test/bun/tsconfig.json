@@ -18,6 +18,10 @@
 	"include": [
 		"./**/*",
 		"../../webview/**/*",
-		"../../dashboard/**/*"
+		"../../dashboard/**/*",
+		// The host-side source this project pulls in (src/shared, src/provider)
+		// references the "vscode" module's augmented types; the ambient
+		// declarations must ride along or those imports fail to resolve.
+		"../../vscodeApi.d.ts"
 	]
 }

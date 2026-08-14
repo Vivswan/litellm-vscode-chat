@@ -6,6 +6,6 @@
 - 模型清單快取
 - 支援之模型的提示快取
 - 自訂 HTTP 標頭
-- 各模型請求參數 (`modelParameters`)
+- 各模型請求參數 (`models.parameters`)
 
 想在同一個地方管理一切, 請從命令選擇區執行「管理 LiteLLM 提供者」。

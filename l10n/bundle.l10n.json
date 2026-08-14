@@ -95,6 +95,7 @@
 	"1 unrecognized part of the servers setting was omitted because it cannot be checked for secrets.": "1 unrecognized part of the servers setting was omitted because it cannot be checked for secrets.",
 	"1 unsaved change": "1 unsaved change",
 	"A bundled snapshot of OpenRouter's public model list fills capability gaps, refreshed about weekly. Refresh fetches it now; failures show here, never as popups.": "A bundled snapshot of OpenRouter's public model list fills capability gaps, refreshed about weekly. Refresh fetches it now; failures show here, never as popups.",
+	"A deeper reasoning tier above High, on models that offer one": "A deeper reasoning tier above High, on models that offer one",
 	"A default.": "A default.",
 	"A gateway in front of the server could not reach it while listing models.": "A gateway in front of the server could not reach it while listing models.",
 	"A hard bound on one model-list fetch; type 30s, 1m, or plain ms./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {
@@ -156,6 +157,7 @@
 	"Apply": "Apply",
 	"Applying...": "Applying...",
 	"As discovered": "As discovered",
+	"Ask the model to skip reasoning entirely, on models that can turn thinking off": "Ask the model to skip reasoning entirely, on models that can turn thinking off",
 	"Ask whoever issued the key to allow reading its own usage, then use Refresh now - the extension won't re-check on its own.": "Ask whoever issued the key to allow reading its own usage, then use Refresh now - the extension won't re-check on its own.",
 	"Audio input": "Audio input",
 	"Authentication": "Authentication",
@@ -163,6 +165,7 @@
 	"Authentication failed: Your LiteLLM server requires an API key. Please run the \"{0}\" command to configure your API key.": "Authentication failed: Your LiteLLM server requires an API key. Please run the \"{0}\" command to configure your API key.",
 	"Auto - detect, default /{0}": "Auto - detect, default /{0}",
 	"Back to servers": "Back to servers",
+	"Balance reasoning depth against latency": "Balance reasoning depth against latency",
 	"Base URL": "Base URL",
 	"Base URL is required": "Base URL is required",
 	"Blue - your theme's own button color": "Blue - your theme's own button color",
@@ -321,10 +324,17 @@
 	"Expected failures": "Expected failures",
 	"Export settings": "Export settings",
 	"Extra HTTP headers on every request to this server, e.g. x-routing-env: prod. Auth headers win conflicts, and values are plain settings text, not secrets.": "Extra HTTP headers on every request to this server, e.g. x-routing-env: prod. Auth headers win conflicts, and values are plain settings text, not secrets.",
+	"Extra High/Reasoning effort level label in the model picker": {
+		"message": "Extra High",
+		"comment": [
+			"Reasoning effort level label in the model picker"
+		]
+	},
 	"Failed to fetch LiteLLM models: the server at {0} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.": "Failed to fetch LiteLLM models: the server at {0} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.",
 	"Failed to parse the LiteLLM usage response from {0}.": "Failed to parse the LiteLLM usage response from {0}.",
 	"Fall back for \"{0}\"": "Fall back for \"{0}\"",
 	"Family": "Family",
+	"Favor speed and cost over reasoning depth": "Favor speed and cost over reasoning depth",
 	"Fetching models...": "Fetching models...",
 	"Fields": "Fields",
 	"Fill missing model capabilities from the OpenRouter catalog, refreshed weekly.": "Fill missing model capabilities from the OpenRouter catalog, refreshed weekly.",
@@ -359,6 +369,12 @@
 	"Hide the {0}": "Hide the {0}",
 	"Hiding the group failed:": "Hiding the group failed:",
 	"High contrast themes always follow the editor, whichever option is picked here.": "High contrast themes always follow the editor, whichever option is picked here.",
+	"High/Reasoning effort level label in the model picker": {
+		"message": "High",
+		"comment": [
+			"Reasoning effort level label in the model picker"
+		]
+	},
 	"How long a failing server's last known models stay in the picker, e.g. 1h for a homelab proxy that sleeps; counted from the last successful sync. 0 drops them on the first failed refresh./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {
 		"message": "How long a failing server's last known models stay in the picker, e.g. 1h for a homelab proxy that sleeps; counted from the last successful sync. 0 drops them on the first failed refresh.",
 		"comment": [
@@ -368,6 +384,7 @@
 	"How long an unreachable server's last known models stay in the picker; 0 drops them at once.": "How long an unreachable server's last known models stay in the picker; 0 drops them at once.",
 	"How long discovered model lists are reused, e.g. 1h or 0 to ask the server on every refresh. Sync Models Now always refreshes immediately.": "How long discovered model lists are reused, e.g. 1h or 0 to ask the server on every refresh. Sync Models Now always refreshes immediately.",
 	"How long discovered model lists are reused; 0 asks the server on every refresh.": "How long discovered model lists are reused; 0 asks the server on every refresh.",
+	"How much reasoning the model puts in before it answers.": "How much reasoning the model puts in before it answers.",
 	"How often per-server spend and budget data refresh; 0 turns polling off.": "How often per-server spend and budget data refresh; 0 turns polling off.",
 	"How often spend and budget data refresh in the background; type 5m, 90s, or plain ms. 0 turns polling off - the dashboard and Refresh Usage Now still fetch on demand./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {
 		"message": "How often spend and budget data refresh in the background; type 5m, 90s, or plain ms. 0 turns polling off - the dashboard and Refresh Usage Now still fetch on demand.",
@@ -524,6 +541,12 @@
 			"Pricing row label: long-context tier"
 		]
 	},
+	"Low/Reasoning effort level label in the model picker": {
+		"message": "Low",
+		"comment": [
+			"Reasoning effort level label in the model picker"
+		]
+	},
 	"Manage LiteLLM Provider": "Manage LiteLLM Provider",
 	"Manage server \"{0}\" ({1})": "Manage server \"{0}\" ({1})",
 	"Mark \"{0}\" inheritable": "Mark \"{0}\" inheritable",
@@ -537,7 +560,25 @@
 	"Matches model IDs: gpt-4 exactly, gpt-4* for the family, /regex/ or * for broader sets; the most specific match wins. Server-specific records belong in the entry's models.parameters, not in URL-prefixed keys.": "Matches model IDs: gpt-4 exactly, gpt-4* for the family, /regex/ or * for broader sets; the most specific match wins. Server-specific records belong in the entry's models.parameters, not in URL-prefixed keys.",
 	"Max input tokens": "Max input tokens",
 	"Max output tokens": "Max output tokens",
+	"Max/Reasoning effort level label in the model picker": {
+		"message": "Max",
+		"comment": [
+			"Reasoning effort level label in the model picker"
+		]
+	},
+	"Medium/Reasoning effort level label in the model picker": {
+		"message": "Medium",
+		"comment": [
+			"Reasoning effort level label in the model picker"
+		]
+	},
 	"Method": "Method",
+	"Minimal/Reasoning effort level label in the model picker": {
+		"message": "Minimal",
+		"comment": [
+			"Reasoning effort level label in the model picker"
+		]
+	},
 	"Misconfigured": "Misconfigured",
 	"Model": "Model",
 	"Model \"{0}\" is not registered with any configured server. Refresh the model list and try again.": "Model \"{0}\" is not registered with any configured server. Refresh the model list and try again.",
@@ -630,6 +671,12 @@
 	"OAuth scopes": "OAuth scopes",
 	"OAuth token URL": "OAuth token URL",
 	"OAuth token request to {0} timed out after {1}ms. Increase the \"{2}.discovery.timeout\" setting if your identity provider needs more time.": "OAuth token request to {0} timed out after {1}ms. Increase the \"{2}.discovery.timeout\" setting if your identity provider needs more time.",
+	"Off/Reasoning effort level label in the model picker": {
+		"message": "Off",
+		"comment": [
+			"Reasoning effort level label in the model picker"
+		]
+	},
 	"On models that support it (currently Anthropic Claude), reuses the cached prompt prefix between turns instead of re-sending the whole history at full price.": "On models that support it (currently Anthropic Claude), reuses the cached prompt prefix between turns instead of re-sending the whole history at full price.",
 	"One model ID per line, e.g. deepseek-r1": "One model ID per line, e.g. deepseek-r1",
 	"Only needed when the proxy cannot list its own models, or cannot report their info. Declared IDs register anyway; marked failures log quietly and skip retries.": "Only needed when the proxy cannot list its own models, or cannot report their info. Declared IDs register anyway; marked failures log quietly and skip retries.",
@@ -709,10 +756,13 @@
 	"Pricing": "Pricing",
 	"Pricing ($/M)": "Pricing ($/M)",
 	"Prompt caching": "Prompt caching",
+	"Provider default": "Provider default",
 	"Provider groups without a server entry no longer get the removed global headers ({0}).": "Provider groups without a server entry no longer get the removed global headers ({0}).",
 	"Rate this extension": "Rate this extension",
 	"Re-add a server under this label with the dashboard form, then edit the entry to set or remove the affected secrets.": "Re-add a server under this label with the dashboard form, then edit the entry to set or remove the affected secrets.",
 	"Reasoning": "Reasoning",
+	"Reasoning Effort": "Reasoning Effort",
+	"Reasoning effort levels": "Reasoning effort levels",
 	"Reconfigure": "Reconfigure",
 	"Record \"{0}\" inherits nothing from \"{1}\": no record has that name.": "Record \"{0}\" inherits nothing from \"{1}\": no record has that name.",
 	"Record keys to inherit from, comma-separated": "Record keys to inherit from, comma-separated",
@@ -777,7 +827,9 @@
 	"Secret storage keeps the value encrypted and out of settings.json; Settings writes it there in plain text. When editing later, leave a secret field empty to keep what is stored.": "Secret storage keeps the value encrypted and out of settings.json; Settings writes it there in plain text. When editing later, leave a secret field empty to keep what is stored.",
 	"Select an action": "Select an action",
 	"Select an action or server to manage": "Select an action or server to manage",
+	"Send no reasoning effort; the provider's own default applies": "Send no reasoning effort; the provider's own default applies",
 	"Sends this value even when the chat client or the model picker sets the same key, e.g. pinning temperature 0.2. Unchecked, runtime options win.": "Sends this value even when the chat client or the model picker sets the same key, e.g. pinning temperature 0.2. Unchecked, runtime options win.",
+	"Sent as reasoning_effort \"{0}\"": "Sent as reasoning_effort \"{0}\"",
 	"Sent beside the OAuth bearer as X-API-Key only, e.g. a LiteLLM key naming the team to bill; Authorization stays with the token.": "Sent beside the OAuth bearer as X-API-Key only, e.g. a LiteLLM key naming the team to bill; Authorization stays with the token.",
 	"Sent on every request as an Authorization bearer plus an X-API-Key copy. Leave empty if the server needs none, or to set the key later.": "Sent on every request as an Authorization bearer plus an X-API-Key copy. Leave empty if the server needs none, or to set the key later.",
 	"Sent with tools": "Sent with tools",
@@ -821,6 +873,7 @@
 	"Spend hasn't loaded yet - the last check failed; it retries automatically with increasing delay.": "Spend hasn't loaded yet - the last check failed; it retries automatically with increasing delay.",
 	"Spend hasn't loaded yet - the last check failed; use Refresh now to try again.": "Spend hasn't loaded yet - the last check failed; use Refresh now to try again.",
 	"Spend is the key's server-side total, e.g. rotating an entry's key switches its numbers to the new key's spend.": "Spend is the key's server-side total, e.g. rotating an entry's key switches its numbers to the new key's spend.",
+	"Spend more reasoning on harder problems": "Spend more reasoning on harder problems",
 	"Spend so far; this server has no budget to measure it against": "Spend so far; this server has no budget to measure it against",
 	"Spend tracking needs a LiteLLM server with a database (the /key/info endpoint); servers without one simply do not appear here.": "Spend tracking needs a LiteLLM server with a database (the /key/info endpoint); servers without one simply do not appear here.",
 	"Spent:": "Spent:",
@@ -852,8 +905,10 @@
 	"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server.": "The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
 	"The connection to {0} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.": "The connection to {0} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.",
 	"The conversation is too long for this model - trim it, remove attachments, or start a new chat.": "The conversation is too long for this model - trim it, remove attachments, or start a new chat.",
+	"The deepest reasoning tier, on models that offer one": "The deepest reasoning tier, on models that offer one",
 	"The entry being edited no longer exists in the servers setting; close the form and retry": "The entry being edited no longer exists in the servers setting; close the form and retry",
 	"The extension's settings, same as the Settings editor. Reset removes your value so the next scope's value or the built-in default shows through.": "The extension's settings, same as the Settings editor. Reset removes your value so the next scope's value or the built-in default shows through.",
+	"The fastest reasoning tier, on models that offer one below Low": "The fastest reasoning tier, on models that offer one below Low",
 	"The file carries 1 secret value; imported secrets are stored in VS Code secret storage.": "The file carries 1 secret value; imported secrets are stored in VS Code secret storage.",
 	"The file carries {0} secret values; imported secrets are stored in VS Code secret storage.": "The file carries {0} secret values; imported secrets are stored in VS Code secret storage.",
 	"The file contains secret values in plaintext; store and share it carefully.": "The file contains secret values in plaintext; store and share it carefully.",

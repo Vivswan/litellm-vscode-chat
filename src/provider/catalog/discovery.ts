@@ -7,6 +7,7 @@ import { normalizeCostPerToken, normalizePositiveNumber } from "../../shared/uti
 import { MODEL_INFO_PATH, MODELS_PATH, modelInfoUrl, modelsUrl } from "../transport/clients";
 import { mapSdkError, RequestError, timeoutRequestError } from "../transport/errorMapping";
 import { collapseTokenConstraints, reportedLimits } from "./modelCatalog";
+import { reasoningEffortLevelsFromFlags } from "./modelConfiguration";
 import type {
 	LiteLLMArchitecture,
 	LiteLLMModelInfoItem,
@@ -119,6 +120,7 @@ export function normalizeModelItem(raw: RawModelItem, log: FetchModelsRequest["l
 			providers.push({
 				...entry,
 				output_limit_source: undefined,
+				reasoning_effort_levels: reasoningEffortLevelsFromFlags(entry),
 				input_cost_per_token: normalizeCostPerToken(entry.input_cost_per_token),
 				output_cost_per_token: normalizeCostPerToken(entry.output_cost_per_token),
 				cache_read_input_token_cost: normalizeCostPerToken(entry.cache_read_input_token_cost),
@@ -190,6 +192,7 @@ export function mapModelInfoEntry(item: LiteLLMModelInfoItem): MappedModelInfo {
 		supports_reasoning: item.model_info?.supports_reasoning ?? null,
 		supports_pdf_input: item.model_info?.supports_pdf_input ?? null,
 		supported_openai_params: item.model_info?.supported_openai_params ?? null,
+		reasoning_effort_levels: reasoningEffortLevelsFromFlags(item.model_info) ?? null,
 		input_cost_per_token: normalizeCostPerToken(item.model_info?.input_cost_per_token),
 		output_cost_per_token: normalizeCostPerToken(item.model_info?.output_cost_per_token),
 		cache_read_input_token_cost: normalizeCostPerToken(item.model_info?.cache_read_input_token_cost),
@@ -270,7 +273,8 @@ function agreedCost(values: readonly (number | null | undefined)[]): number | nu
  * marker, storing effective values back into provider fields would launder
  * the floor guess into a declared limit.
  * Capability flags hold only when every deployment advertises them, and
- * input modalities and supported_openai_params intersect. Pricing carries
+ * input modalities, supported_openai_params, and the flag-derived
+ * reasoning_effort_levels intersect. Pricing carries
  * over only when every
  * deployment advertises the identical per-field cost: with differing prices
  * the proxy's routing decides which deployment (and cost) actually serves a
@@ -308,6 +312,7 @@ export function mergeModelDeployments(deployments: ModelDeployments): MappedMode
 		supports_reasoning: everyDeploymentSupports(providers.map((p) => p.supports_reasoning)),
 		supports_pdf_input: everyDeploymentSupports(providers.map((p) => p.supports_pdf_input)),
 		supported_openai_params: intersectSupportedParams(providers.map((p) => p.supported_openai_params)),
+		reasoning_effort_levels: intersectSupportedParams(providers.map((p) => p.reasoning_effort_levels)),
 		input_cost_per_token: agreedCost(providers.map((p) => p.input_cost_per_token)),
 		output_cost_per_token: agreedCost(providers.map((p) => p.output_cost_per_token)),
 		cache_read_input_token_cost: agreedCost(providers.map((p) => p.cache_read_input_token_cost)),

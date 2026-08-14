@@ -42,7 +42,7 @@
 
 当一个模型名由多个部署提供 (负载均衡池) 时, 它注册一次, 采用最严格贡献者的 token 限制, 这样请求绝不会超出实际服务它的那个部署。这次合并与 [`max_tokens` 例外](#max_tokens-例外)相关: 合并后的输出限制只有在每个部署都声明了输出限制时才算已声明。
 
-同样保守的合并不止于 token 限制: 池只有在每个部署都声明某项能力时才对外宣布它 - 一个部署声明关闭工具调用, 池就失去它; 一种模态 (视觉、音频) 只有在所有部署都具备时才留存; 「思考力度」控件只在每个部署都声明推理时出现。定价只在每个部署逐字段声明完全一致的成本时显示 (不一致时, 请求实际花多少由代理的路由决定, 所以选择器宁可不显示, 也不显示错误数字); 选择器的提供方名称跟随第一个部署。被合并丢掉的能力可以用 [`models.capabilities` 覆盖](#能力)恢复。
+同样保守的合并不止于 token 限制: 池只有在每个部署都声明某项能力时才对外宣布它 - 一个部署声明关闭工具调用, 池就失去它; 一种模态 (视觉、音频) 只有在所有部署都具备时才留存; 「思考力度」控件只在每个部署都声明推理时出现 (其服务器声明的档位菜单收窄为每个部署都标记的档位)。定价只在每个部署逐字段声明完全一致的成本时显示 (不一致时, 请求实际花多少由代理的路由决定, 所以选择器宁可不显示, 也不显示错误数字); 选择器的提供方名称跟随第一个部署。被合并丢掉的能力可以用 [`models.capabilities` 覆盖](#能力)恢复。
 
 ### 提供方路由与聚合条目
 
@@ -180,6 +180,7 @@
 | `supports_prompt_caching` | 布尔 | 是否放置提示缓存标记 - 唯一会改变请求内容的能力。该功能仍是双重门控: [`chat.promptCaching` 设置](settings.md#提示缓存)也必须开启 |
 | `supports_pdf_input`、`supports_response_schema` | 布尔 | 目前什么都不驱动: 两者都会解析并显示在[能力检查器](#检查器)中, 但不门控任何行为 - PDF 无论如何都发给每个模型 ([多模态输入](#多模态输入)) |
 | `supported_openai_params` | 字符串数组 | 列表中含 `reasoning_effort` 是 Thinking Effort 控件在 `supports_reasoning` 之外的第二个信号; 两者中在更高优先级层解析出的那个说了算, 平局时标志胜出 |
+| `reasoning_effort_levels` | 字符串数组 | Thinking Effort 菜单的档位, 按菜单顺序 ([每模型配置](#每模型配置))。任何档位名都可以 - 菜单原样呈现你的字符串并按原样发送。只决定菜单的内容, 不决定控件是否存在 |
 
 成本字段取非负的每 token 美元数; 你自己写下零对表示真正免费 ([定价](#定价))。
 
@@ -197,6 +198,7 @@
 | 视觉 | `supports_vision` | |
 | 音频输入 | `supports_audio_input` | |
 | 推理 | `supports_reasoning`, 或 `supported_openai_params` 中含 `reasoning_effort` | 显式 `supports_reasoning: false` 胜出 |
+| 推理强度档位 | `supports_<level>_reasoning_effort` 标志 (例如 `supports_max_reasoning_effort`) | 标为 `true` 的档位成为 Thinking Effort 菜单; `false` 和 `null` 视为未报告, 完全没有 `true` 标志时菜单回落到内置列表 |
 | 提示缓存 | `supports_prompt_caching` | 与每个字段一样可覆盖; 该功能仍受 `chat.promptCaching` 双重门控 ([设置](settings.md#提示缓存)) |
 | 定价 | 八个成本字段 (`input_cost_per_token` 等) | 恰好为 0/0 的输入/输出对是 LiteLLM「没有定价数据」的印记, 视为完全没有报告 ([定价](#定价)) |
 | Token 限制 | 模型信息的 token 限制字段 | 见 [Token 限制](#token-限制) |
@@ -411,13 +413,27 @@
 
 1. 在选择器中选中该模型。
 2. 单击聊天输入框中模型名称旁的 "Thinking Effort" 标签。
-3. 从 Off 到 Extra High 之间选一档; VS Code 会为该模型记住这个选择。
+3. 选一档; VS Code 会为该模型记住这个选择。
 
 每档发送什么:
 
-- 之后每个请求都相应携带 `reasoning_effort`; "Off" 以 `reasoning_effort: "none"` 发出, 在支持该取值的模型上关闭思维。
-- "Provider default" (初始状态) 不发送任何东西, 由你的提供方决定。
-- 每个推理模型的菜单都相同, 因为 LiteLLM 报告哪些模型接受 `reasoning_effort`, 但不报告每个模型接受哪些值。如果你选了模型拒绝的档位 (比如在最高只到 High 的模型上选 Extra High), 请求会带着服务器自己的错误消息失败; 换一档重试即可。
+- 之后每个请求都相应携带 `reasoning_effort`; 「关闭」以 `reasoning_effort: "none"` 发出, 在支持该取值的模型上关闭思维。
+- 「提供方默认」(初始状态) 不发送任何东西, 由你的提供方决定。
+
+菜单的档位像任何能力字段一样按模型解析 ([优先级](#能力优先级)), 来源从高到低:
+
+1. 你的 [`models.capabilities` 记录](#能力)中的 `reasoning_effort_levels` 列表 (条目优先于全局)。任何字符串都可以 - 词汇表是开放的, 选中的档位按原样发送。你自己写下的空列表会把菜单清空到只剩「提供方默认」。
+2. 服务器模型信息中的 `supports_<level>_reasoning_effort` 标志, 当 LiteLLM 声明了它们时 (对[负载均衡池](#负载均衡池), 取每个部署都标记的档位; 互不相交的标志视为未报告)。
+3. 你的记录中带 `_fallback` 标记的列表, 在服务器未报告时填充。
+4. 内置列表: 关闭、最小、低、中、高、极高、最大。
+
+```json
+"litellm-vscode-chat.models.capabilities": {
+  "grok-*": { "reasoning_effort_levels": ["low", "high", "max"] }
+}
+```
+
+如果选中的档位对该模型仍然不对 (比如在提供方最高只到 High 时选「最大」), 请求会带着服务器自己的错误消息失败; 换一档重试即可。该列表只决定菜单本身: 控件是否存在仍由上面的 `supports_reasoning` 和 `supported_openai_params` 决定。强度档位之外的推理参数 (`thinking` 块、`reasoning` 对象、预算) 不属于菜单, 仍走 [`models.parameters` 透传](#参数)。
 
 temperature 有意留在 `models.parameters` 中自由设置: 配置菜单只能呈现固定选项, 所以扩展不在那里添加 temperature 预设。
 

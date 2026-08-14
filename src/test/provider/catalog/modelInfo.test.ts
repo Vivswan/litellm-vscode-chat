@@ -1,10 +1,13 @@
 import * as assert from "node:assert";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
-import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfiguration";
+import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema } from "../../../provider/catalog/modelConfiguration";
 import { discoveryHandlers, MODEL_INFO_URL, MODELS_URL, mswServer, TEST_BASE_URL, useMsw } from "../../mocks/handlers";
 import { expectDefined, toHeaderMap } from "../../pureHelpers";
 import { makeProvider } from "../../testUtils";
+
+/** The menu the built-in default level list produces; fixtures here carry no per-level server flags. */
+const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS);
 
 suite("provider/model info and fallback", () => {
 	useMsw();
@@ -429,6 +432,43 @@ suite("provider/model info and fallback", () => {
 		test("a model_info entry with supports_reasoning gets the picker schema", async () => {
 			mswServer.use(...discoveryHandlers({ data: [infoEntry("o3", { supports_reasoning: true })] }));
 			assert.deepStrictEqual((await findInfo("o3")).configurationSchema, REASONING_EFFORT_SCHEMA);
+		});
+
+		test("per-level reasoning-effort flags shape the schema's menu end to end", async () => {
+			mswServer.use(
+				...discoveryHandlers({
+					data: [
+						infoEntry("grok-5", {
+							supports_reasoning: true,
+							supports_low_reasoning_effort: true,
+							supports_high_reasoning_effort: true,
+							supports_max_reasoning_effort: true,
+							supports_minimal_reasoning_effort: false,
+						}),
+					],
+				})
+			);
+			assert.deepStrictEqual(
+				(await findInfo("grok-5")).configurationSchema,
+				reasoningEffortSchema(["low", "high", "max"]),
+				"the menu is the server's flagged levels, not the built-in list"
+			);
+		});
+
+		test("deployments flagging disjoint levels fall back to the built-in menu", async () => {
+			mswServer.use(
+				...discoveryHandlers({
+					data: [
+						infoEntry("split", { supports_reasoning: true, supports_low_reasoning_effort: true }),
+						infoEntry("split", { supports_reasoning: true, supports_high_reasoning_effort: true }),
+					],
+				})
+			);
+			assert.deepStrictEqual(
+				(await findInfo("split")).configurationSchema,
+				REASONING_EFFORT_SCHEMA,
+				"an empty intersection is no signal; the menu must never register empty"
+			);
 		});
 
 		test("reasoning_effort among supported_openai_params also gets the schema", async () => {

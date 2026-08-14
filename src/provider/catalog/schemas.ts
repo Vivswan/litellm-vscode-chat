@@ -51,6 +51,15 @@ export interface LiteLLMProvider {
 	supports_pdf_input?: boolean | null | undefined;
 	/** List of OpenAI-compatible parameters the model supports. */
 	supported_openai_params?: string[] | null | undefined;
+	/**
+	 * The reasoning effort levels the report's per-level
+	 * `supports_<level>_reasoning_effort` flags mark true, synthesized by
+	 * discovery (reasoningEffortLevelsFromFlags in modelConfiguration.ts holds
+	 * the scan and order rules). Like the long-context costs these never pass
+	 * through raw: discovery authors them on every provider it normalizes, so
+	 * a wire entry cannot forge the list past the flags.
+	 */
+	reasoning_effort_levels?: string[] | null | undefined;
 	/** Cost per input token as LiteLLM reports it; registration converts it to a per-million display cost. */
 	input_cost_per_token?: number | null | undefined;
 	/** Cost per output token. */

@@ -6,9 +6,11 @@ import {
 	type MappedModelInfo,
 	mapModelInfoEntry,
 	mergeModelDeployments,
+	normalizeModelItem,
 	parseModelInfoItem,
 } from "../../../provider/catalog/discovery";
 import { deriveTokenConstraints } from "../../../provider/catalog/modelCatalog";
+import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema } from "../../../provider/catalog/modelConfiguration";
 import { buildModelInfos } from "../../../provider/catalog/registration";
 import type { LiteLLMModelItem, ModelShape } from "../../../provider/catalog/schemas";
 import { createServerClient } from "../../../provider/transport/clients";
@@ -97,6 +99,59 @@ suite("provider/catalog/discovery", () => {
 				"a non-string params member drops alone; the usable members survive"
 			);
 			assert.strictEqual(parsed.model_info?.max_output_tokens, "16000", "numeric strings stay for normalization");
+		});
+
+		test("per-level reasoning-effort flags author the levels list on both discovery paths", () => {
+			// model_info entries: mapModelInfoEntry authors the field from the flags.
+			const mapped = mapModelInfoEntry(
+				expectDefined(
+					parseModelInfoItem({
+						model_name: "flagged",
+						model_info: {
+							supports_reasoning: true,
+							supports_max_reasoning_effort: true,
+							supports_low_reasoning_effort: true,
+							supports_minimal_reasoning_effort: false,
+							supports_none_reasoning_effort: null,
+						},
+					})
+				)
+			);
+			assert.deepStrictEqual(
+				mapped.provider.reasoning_effort_levels,
+				["low", "max"],
+				"true flags collect in menu order; false and null read as unreported"
+			);
+
+			// providers-array entries: normalizeModelItem authors the field after
+			// the pass-through spread, so a wire entry cannot forge the list.
+			const routed = normalizeModelItem(
+				{
+					id: "routed",
+					providers: [
+						{
+							provider: "openrouter",
+							status: "ok",
+							supports_high_reasoning_effort: true,
+							reasoning_effort_levels: ["forged"],
+						},
+					],
+				},
+				() => {}
+			);
+			const [provider] = expectShape(routed, "group").providers;
+			assert.deepStrictEqual(provider.reasoning_effort_levels, ["high"], "the flags are the wire truth");
+
+			// No true flag anywhere is no signal at all, never an empty list.
+			const unflagged = mapModelInfoEntry(
+				expectDefined(
+					parseModelInfoItem({
+						model_name: "plain",
+						model_info: { supports_reasoning: true, supports_low_reasoning_effort: false },
+					})
+				)
+			);
+			assert.strictEqual(unflagged.provider.reasoning_effort_levels, null);
 		});
 	});
 
@@ -690,6 +745,9 @@ suite("provider/catalog/discovery", () => {
 								max_input_tokens: 128000,
 								max_output_tokens: 16000,
 								supported_openai_params: ["temperature", "seed"],
+								supports_low_reasoning_effort: true,
+								supports_high_reasoning_effort: true,
+								supports_max_reasoning_effort: true,
 							},
 						},
 						{
@@ -702,6 +760,9 @@ suite("provider/catalog/discovery", () => {
 								max_input_tokens: 64000,
 								max_output_tokens: 8000,
 								supported_openai_params: ["temperature"],
+								supports_low_reasoning_effort: true,
+								supports_xhigh_reasoning_effort: true,
+								supports_max_reasoning_effort: true,
 							},
 						},
 					],
@@ -721,6 +782,11 @@ suite("provider/catalog/discovery", () => {
 			assert.strictEqual(provider.supports_reasoning, true);
 			assert.strictEqual(provider.supports_prompt_caching, false);
 			assert.deepStrictEqual(provider.supported_openai_params, ["temperature"]);
+			assert.deepStrictEqual(
+				provider.reasoning_effort_levels,
+				["low", "max"],
+				"the flag-derived level lists intersect like the supported params"
+			);
 			assert.strictEqual(model.architecture, undefined, "Vision holds only when every deployment advertises it");
 		});
 
@@ -953,6 +1019,32 @@ suite("provider/catalog/discovery", () => {
 		test("a single deployment passes through unchanged", () => {
 			const sole = deployment({ max_output_tokens: 8000, supports_prompt_caching: true, supports_vision: true });
 			assert.strictEqual(mergeModelDeployments([sole]), sole);
+		});
+
+		test("disjoint per-level reasoning flags collapse to no signal, never an empty menu", () => {
+			const merged = mergeModelDeployments([
+				deployment({ supports_reasoning: true, supports_low_reasoning_effort: true }),
+				deployment({ supports_reasoning: true, supports_high_reasoning_effort: true }),
+			]);
+			assert.deepStrictEqual(merged.provider.reasoning_effort_levels, [], "the raw intersection is empty");
+			const { infos } = buildModelInfos(
+				[{ id: "balanced", shape: { kind: "deployment", provider: merged.provider } }],
+				{ id: "srv1", label: "Default", baseUrl: TEST_BASE_URL, apiKey: "k" },
+				1,
+				() => {}
+			);
+			const info = expectDefined(infos[0]);
+			assert.deepStrictEqual(
+				info.configurationSchema,
+				reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS),
+				"an empty intersection reads as no signal, so the menu falls back to the built-in list"
+			);
+			const declared = info.litellm.serverDeclared;
+			assert.ok(declared.kind === "discovered");
+			assert.ok(
+				!("reasoning_effort_levels" in declared.values),
+				"the baseline omits the field so the walk's server level cannot pin an empty menu"
+			);
 		});
 
 		test("a merged deployment's baseline never claims more than the merge advertised", () => {

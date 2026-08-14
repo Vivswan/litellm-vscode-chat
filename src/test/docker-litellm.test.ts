@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import { createHash } from "node:crypto";
 import * as vscode from "vscode";
-import { REASONING_EFFORT_SCHEMA } from "../provider/catalog/modelConfiguration";
+import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema } from "../provider/catalog/modelConfiguration";
 import { STACK_DEFAULTS } from "./envFile";
 import { COMMAND_SIGIL, COMMANDS, FALLBACK_TEXT, PNG_SHA256, WAV_SHA256 } from "./fakeStack/commands";
 import { PLAYBACK_MODEL } from "./fakeStack/models";
@@ -24,6 +24,9 @@ import {
 	waitForHostModels,
 } from "./hostApiHelpers";
 import { assertOmits, assertShows, expectDefined } from "./pureHelpers";
+
+/** The menu the built-in default level list produces; fixtures here carry no per-level server flags. */
+const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS);
 
 /**
  * Docker-stack test suite.
@@ -214,13 +217,21 @@ suite("Docker LiteLLM stack", () => {
 		test("the reasoning-effort picker schema follows supports_reasoning through real discovery", async () => {
 			const infos = await refreshEntryModels(entryLabel);
 			const byId = new Map(infos.map((info) => [info.id, info]));
-			for (const id of ["claude-opus-4-5", "deepseek-r2", "gpt-5.2-mini"]) {
+			for (const id of ["claude-opus-4-5", "gpt-5.2-mini"]) {
 				assert.deepStrictEqual(
 					expectDefined(byId.get(id), `${id} in refreshEntryModels`).configurationSchema,
 					REASONING_EFFORT_SCHEMA,
-					`${id} advertises reasoning and must surface the picker control`
+					`${id} advertises reasoning without per-level flags and must surface the built-in menu`
 				);
 			}
+			// deepseek-r2 declares supports_<level>_reasoning_effort flags in the
+			// generated proxy config (src/test/fakeStack/models.ts), so its menu
+			// must be the server's list, forwarded through a real proxy.
+			assert.deepStrictEqual(
+				expectDefined(byId.get("deepseek-r2"), "deepseek-r2 in refreshEntryModels").configurationSchema,
+				reasoningEffortSchema(["low", "medium", "high", "max"]),
+				"the picker menu must follow the server's per-level reasoning-effort flags"
+			);
 			for (const id of ["gpt-5.2", "llama-4-scout"]) {
 				assert.ok(
 					!("configurationSchema" in expectDefined(byId.get(id), `${id} in refreshEntryModels`)),

@@ -8,8 +8,9 @@ import {
 	collapseTokenConstraints,
 	deriveTokenConstraints,
 	discoveredCapabilityBaseline,
+	reportedReasoningLevels,
 } from "./modelCatalog";
-import { REASONING_EFFORT_SCHEMA, supportsReasoningEffort } from "./modelConfiguration";
+import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema, supportsReasoningEffort } from "./modelConfiguration";
 import type { LiteLLMModelItem, LiteLLMProvider } from "./schemas";
 import { supportsTools } from "./schemas";
 
@@ -79,12 +80,21 @@ function priceCategoryFor(inputCost: number, outputCost: number): "low" | "mediu
  * schema, so an aggregate over mixed providers stays without it, as does a
  * merged deployment group whose intersection already demoted the flag. Bare
  * /v1/models entries have no provider data and never advertise the control.
+ * The menu's levels are the server's flag-derived list when every backing
+ * provider carries one (reportedReasoningLevels - the same rule the
+ * capability baseline stores, so the walk's server level re-derives this
+ * exact schema and the attach-side fast path holds), else the built-in
+ * default list.
  */
 function configurationSchemaFor(
 	providers: readonly LiteLLMProvider[]
 ): Pick<LanguageModelChatInformation, "configurationSchema"> {
 	return providers.length > 0 && providers.every(supportsReasoningEffort)
-		? { configurationSchema: REASONING_EFFORT_SCHEMA }
+		? {
+				configurationSchema: reasoningEffortSchema(
+					reportedReasoningLevels(providers) ?? DEFAULT_REASONING_EFFORT_LEVELS
+				),
+			}
 		: {};
 }
 

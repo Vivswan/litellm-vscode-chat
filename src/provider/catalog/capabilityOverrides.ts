@@ -25,7 +25,7 @@ import type { ServerConfig } from "../../shared/servers";
 import type { PreAttachModelInfo } from "./groupModels";
 import type { PerTokenCosts } from "./modelCatalog";
 import { buildExposedModelId, rawModelIdFromExposed } from "./modelCatalog";
-import { REASONING_EFFORT_SCHEMA } from "./modelConfiguration";
+import { effectiveReasoningLevels, reasoningEffortPickerValues, reasoningEffortSchema } from "./modelConfiguration";
 import type { ModelPricing } from "./registration";
 import { COMMON_MODEL_FIELDS, pricingFromCosts, serverDisplayContext } from "./registration";
 
@@ -90,7 +90,8 @@ const COST_CAPABILITY_FIELDS = Object.keys({
  * Every capability field whose effective value feeds a registered artifact:
  * the typed core (token limits, the capability flags), the 8 cost fields
  * (pricing), supports_prompt_caching (the caching gate on litellm metadata),
- * and supported_openai_params (the reasoning gate). The rebuild reads exactly
+ * supported_openai_params (the reasoning gate), and reasoning_effort_levels
+ * (the reasoning menu's contents). The rebuild reads exactly
  * these, so only they leave the identity fast path: an extras-only
  * configuration - supports_pdf_input and supports_response_schema included,
  * which resolve and display but gate nothing yet - leaves registered models
@@ -101,6 +102,7 @@ const REGISTRATION_CONSUMED_FIELDS: readonly string[] = [
 	...COST_CAPABILITY_FIELDS,
 	"supports_prompt_caching",
 	"supported_openai_params",
+	"reasoning_effort_levels",
 ];
 
 /**
@@ -162,6 +164,31 @@ export function reasoningGate(fields: EffectiveCapabilityFields): boolean {
 /** The effective prompt-caching answer: the resolved flag, or false when no level carries one. */
 function promptCachingFrom(fields: EffectiveCapabilityFields): boolean {
 	return capabilityField(fields, "supports_prompt_caching")?.value === true;
+}
+
+/**
+ * Whether the entry's stored reasoning control matches the walk: no schema
+ * exactly when the gate is off, and a schema whose enum is the one the
+ * effective level list produces when it is on. The enum comparison goes
+ * through reasoningEffortPickerValues - the same builder the schema uses - so
+ * a levels change (a record edit, a server report change) can never freeze a
+ * stale menu behind the fast path; labels derive from the enum, so comparing
+ * the values is comparing the menu.
+ */
+function advertisesReasoningMenu(
+	schema: PreAttachModelInfo["configurationSchema"],
+	fields: EffectiveCapabilityFields
+): boolean {
+	if (!reasoningGate(fields)) {
+		return schema === undefined;
+	}
+	const advertised: unknown = schema?.properties?.reasoningEffort?.enum;
+	const expected = reasoningEffortPickerValues(effectiveReasoningLevels(fields));
+	return (
+		Array.isArray(advertised) &&
+		advertised.length === expected.length &&
+		expected.every((value, index) => advertised[index] === value)
+	);
 }
 
 /**
@@ -242,7 +269,7 @@ function advertisesEffective(info: PreAttachModelInfo, effective: EffectiveCapab
 		(info.litellm.supportsAudioInput === true) === fields.supports_audio_input.value &&
 		info.litellm.supportsPromptCaching === promptCachingFrom(fields) &&
 		info.litellm.outputLimitSource === effective.outputLimitSource &&
-		(info.configurationSchema !== undefined) === reasoningGate(fields) &&
+		advertisesReasoningMenu(info.configurationSchema, fields) &&
 		advertisesPricing(info, pricingFieldsFromEffective(fields))
 	);
 }
@@ -254,7 +281,8 @@ function advertisesEffective(info: PreAttachModelInfo, effective: EffectiveCapab
  * no copies. A matched model is rebuilt coherently from the effective fields:
  * token limits, the toolCalling/imageInput capabilities, the audio and
  * prompt-caching gates, the reasoning configurationSchema (reasoningGate:
- * added on promotion, removed on demotion), the pricing block (stripped and
+ * added on promotion, removed on demotion, its menu rebuilt from the
+ * effective reasoning_effort_levels), the pricing block (stripped and
  * re-derived from the effective cost fields on every rebuild - a server price
  * re-derives byte-identical, a user cost record beats it, a user 0/0 prices
  * as free), and the outputLimitSource provenance ("user" for any override
@@ -293,12 +321,14 @@ export function applyCapabilityOverrides(
 		}
 		changed = true;
 		// The schema is removed on demotion by destructuring it away, then
-		// re-added only when the gate holds; an entry that already carried it
-		// keeps the same object. The pricing block is stripped the same way and
+		// rebuilt from the effective level list only when the gate holds - a
+		// fresh build every rebuild, because the menu's contents are effective
+		// fields too (a kept object could carry a stale level list). The pricing
+		// block is stripped the same way and
 		// re-derived from the effective cost fields, so untouched server costs
 		// come back byte-identical and a price the walk no longer justifies
 		// never survives a rebuild.
-		const { configurationSchema, ...rest } = info;
+		const { configurationSchema: _replaced, ...rest } = info;
 		const base = withoutPricing(rest);
 		return {
 			...base,
@@ -310,7 +340,9 @@ export function applyCapabilityOverrides(
 				imageInput: fields.supports_vision.value,
 			},
 			...pricingFieldsFromEffective(fields),
-			...(reasoningGate(fields) ? { configurationSchema: configurationSchema ?? REASONING_EFFORT_SCHEMA } : {}),
+			...(reasoningGate(fields)
+				? { configurationSchema: reasoningEffortSchema(effectiveReasoningLevels(fields)) }
+				: {}),
 			litellm: {
 				...info.litellm,
 				supportsPromptCaching: promptCachingFrom(fields),
@@ -390,7 +422,9 @@ export function synthesizeDeclaredModels(
 			// declared baseline (no server level at all): a user cost record prices
 			// a declared model, and the caching and reasoning gates apply alike.
 			...pricingFieldsFromEffective(fields),
-			...(reasoningGate(fields) ? { configurationSchema: REASONING_EFFORT_SCHEMA } : {}),
+			...(reasoningGate(fields)
+				? { configurationSchema: reasoningEffortSchema(effectiveReasoningLevels(fields)) }
+				: {}),
 			litellm: {
 				supportsPromptCaching: promptCachingFrom(fields),
 				outputLimitSource: effective.outputLimitSource,

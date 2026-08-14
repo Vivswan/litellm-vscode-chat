@@ -67,6 +67,8 @@ export function capabilityDisplayLabel(name: string): string | undefined {
 			return l10n.t("Response schema");
 		case "supported_openai_params":
 			return l10n.t("Supported parameters");
+		case "reasoning_effort_levels":
+			return l10n.t("Reasoning effort levels");
 		case "input_cost_per_token":
 			return l10n.t({ message: "Input", comment: ["Pricing row label: cost of input tokens"] });
 		case "output_cost_per_token":

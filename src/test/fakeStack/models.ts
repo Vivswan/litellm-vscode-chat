@@ -61,6 +61,12 @@ export interface FakeModelCapabilities {
 	promptCaching?: boolean;
 	audioInput?: boolean;
 	audioOutput?: boolean;
+	/**
+	 * Emitted as one supports_<level>_reasoning_effort: true flag per level;
+	 * omission emits no per-level flags at all, so the extension's picker menu
+	 * falls back to its built-in level list.
+	 */
+	reasoningEffortLevels?: readonly string[];
 }
 
 export interface FakeModel {
@@ -136,9 +142,12 @@ export const FAKE_MODELS: readonly FakeModel[] = [
 	},
 	{
 		// Reasoning without tools: the tools-negative that still reasons;
-		// reasoning_effort pass-through target.
+		// reasoning_effort pass-through target. The per-level flags make it the
+		// server-declared-levels positive: the picker menu must follow them
+		// through a real proxy (the other reasoning models keep the built-in
+		// list, the flags-absent negative).
 		alias: "deepseek-r2",
-		capabilities: { tools: false, reasoning: true },
+		capabilities: { tools: false, reasoning: true, reasoningEffortLevels: ["low", "medium", "high", "max"] },
 		deployments: [{ upstreamModel: "fake-reasoner", maxInputTokens: 128000, maxOutputTokens: 32000 }],
 		pricing: { inputCostPerToken: 6e-7, outputCostPerToken: 2.4e-6 },
 	},

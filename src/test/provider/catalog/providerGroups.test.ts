@@ -3,7 +3,7 @@ import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
 import { DiscoveryCache } from "../../../provider/catalog/discoveryCache";
 import type { DiscoveredGroupModels } from "../../../provider/catalog/groupDiscovery";
-import { REASONING_EFFORT_SCHEMA } from "../../../provider/catalog/modelConfiguration";
+import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema } from "../../../provider/catalog/modelConfiguration";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { publicErrorText } from "../../../shared/logger";
 import { MirroredError } from "../../../shared/mirroredError";
@@ -21,6 +21,9 @@ import {
 } from "../../mocks/handlers";
 import { DEFAULT_DISCOVERY_PAYLOAD, expectDefined, toHeaderMap } from "../../pureHelpers";
 import { makeProvider, systemMessage, userMessage, withConfig } from "../../testUtils";
+
+/** The menu the built-in default level list produces; fixtures here carry no per-level server flags. */
+const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS);
 
 /** The host passes the group configuration structurally; stable typings only declare `silent`. */
 function groupOptions(configuration: unknown, silent = true): { silent: boolean } {

@@ -42,7 +42,7 @@
 
 當一個模型名稱由多個部署提供 (負載平衡池) 時, 它註冊一次, 採用最嚴格貢獻者的 token 上限, 這樣請求絕不會超出實際服務它的那個部署。這次合併與 [`max_tokens` 例外](#max_tokens-例外)相關: 合併後的輸出上限只有在每個部署都宣告了輸出上限時才算已宣告。
 
-同樣保守的合併不止於 token 上限: 池只有在每個部署都宣告某項能力時才對外宣告它 - 一個部署宣告關閉工具呼叫, 池就失去它; 一種模態 (視覺、音訊) 只有在所有部署都具備時才留存; 「思考力度」控制項只在每個部署都宣告推理時出現。定價只在每個部署逐欄位宣告完全一致的成本時顯示 (不一致時, 請求實際花多少由代理的路由決定, 所以選擇器寧可不顯示, 也不顯示錯誤數字); 選擇器的提供者名稱跟隨第一個部署。被合併丟掉的能力可以用 [`models.capabilities` 覆寫](#能力)恢復。
+同樣保守的合併不止於 token 上限: 池只有在每個部署都宣告某項能力時才對外宣告它 - 一個部署宣告關閉工具呼叫, 池就失去它; 一種模態 (視覺、音訊) 只有在所有部署都具備時才留存; 「思考力度」控制項只在每個部署都宣告推理時出現 (其伺服器宣告的檔位選單收窄為每個部署都標記的檔位)。定價只在每個部署逐欄位宣告完全一致的成本時顯示 (不一致時, 請求實際花多少由代理的路由決定, 所以選擇器寧可不顯示, 也不顯示錯誤數字); 選擇器的提供者名稱跟隨第一個部署。被合併丟掉的能力可以用 [`models.capabilities` 覆寫](#能力)恢復。
 
 ### 提供者路由與彙總項目
 
@@ -180,6 +180,7 @@
 | `supports_prompt_caching` | 布林 | 是否放置提示快取標記 - 唯一會改變請求內容的能力。該功能仍是雙重門控: [`chat.promptCaching` 設定](settings.md#提示快取)也必須開啟 |
 | `supports_pdf_input`、`supports_response_schema` | 布林 | 目前什麼都不驅動: 兩者都會解析並顯示在[能力檢查器](#檢查器)中, 但不門控任何行為 - PDF 無論如何都送給每個模型 ([多模態輸入](#多模態輸入)) |
 | `supported_openai_params` | 字串陣列 | 清單中含 `reasoning_effort` 是 Thinking Effort 控制項在 `supports_reasoning` 之外的第二個訊號; 兩者中在更高優先層解析出的那個說了算, 平手時旗標勝出 |
+| `reasoning_effort_levels` | 字串陣列 | Thinking Effort 選單的檔位, 按選單順序 ([各模型設定](#各模型設定))。任何檔位名稱都可以 - 選單原樣呈現您的字串並按原樣送出。只決定選單的內容, 不決定控制項是否存在 |
 
 成本欄位取非負的每 token 美元數; 您自己寫下零對表示真正免費 ([定價](#定價))。
 
@@ -197,6 +198,7 @@
 | 視覺 | `supports_vision` | |
 | 音訊輸入 | `supports_audio_input` | |
 | 推理 | `supports_reasoning`, 或 `supported_openai_params` 中含 `reasoning_effort` | 明確的 `supports_reasoning: false` 勝出 |
+| 推理強度檔位 | `supports_<level>_reasoning_effort` 旗標 (例如 `supports_max_reasoning_effort`) | 標為 `true` 的檔位成為 Thinking Effort 選單; `false` 與 `null` 視為未回報, 完全沒有 `true` 旗標時選單退回內建清單 |
 | 提示快取 | `supports_prompt_caching` | 與每個欄位一樣可覆寫; 該功能仍受 `chat.promptCaching` 雙重門控 ([設定](settings.md#提示快取)) |
 | 定價 | 八個成本欄位 (`input_cost_per_token` 等) | 恰好為 0/0 的輸入/輸出對是 LiteLLM「沒有定價資料」的印記, 視為完全沒有回報 ([定價](#定價)) |
 | Token 上限 | 模型資訊的 token 上限欄位 | 見 [Token 上限](#token-上限) |
@@ -411,13 +413,27 @@
 
 1. 在選擇器中選中該模型。
 2. 按一下聊天輸入框中模型名稱旁的 "Thinking Effort" 標籤。
-3. 從 Off 到 Extra High 之間選一檔; VS Code 會為該模型記住這個選擇。
+3. 選一檔; VS Code 會為該模型記住這個選擇。
 
 每檔送出什麼:
 
-- 之後每個請求都相應攜帶 `reasoning_effort`; "Off" 以 `reasoning_effort: "none"` 送出, 在支援該值的模型上關閉思考。
-- "Provider default" (初始狀態) 不送出任何東西, 由您的提供者決定。
-- 每個推理模型的選單都相同, 因為 LiteLLM 回報哪些模型接受 `reasoning_effort`, 但不回報每個模型接受哪些值。如果您選了模型拒絕的檔位 (比如在最高只到 High 的模型上選 Extra High), 請求會帶著伺服器自己的錯誤訊息失敗; 換一檔重試即可。
+- 之後每個請求都相應攜帶 `reasoning_effort`; 「關閉」以 `reasoning_effort: "none"` 送出, 在支援該值的模型上關閉思考。
+- 「提供者預設」(初始狀態) 不送出任何東西, 由您的提供者決定。
+
+選單的檔位像任何能力欄位一樣按模型解析 ([優先順序](#能力優先順序)), 來源從高到低:
+
+1. 您的 [`models.capabilities` 記錄](#能力)中的 `reasoning_effort_levels` 清單 (項目優先於全域)。任何字串都可以 - 詞彙表是開放的, 選中的檔位按原樣送出。您自己寫下的空清單會把選單清空到只剩「提供者預設」。
+2. 伺服器模型資訊中的 `supports_<level>_reasoning_effort` 旗標, 當 LiteLLM 宣告了它們時 (對[負載平衡池](#負載平衡池), 取每個部署都標記的檔位; 互不相交的旗標視為未回報)。
+3. 您的記錄中帶 `_fallback` 標記的清單, 在伺服器未回報時填充。
+4. 內建清單: 關閉、最小、低、中、高、極高、最大。
+
+```json
+"litellm-vscode-chat.models.capabilities": {
+  "grok-*": { "reasoning_effort_levels": ["low", "high", "max"] }
+}
+```
+
+如果選中的檔位對該模型仍然不對 (比如在提供者最高只到 High 時選「最大」), 請求會帶著伺服器自己的錯誤訊息失敗; 換一檔重試即可。該清單只決定選單本身: 控制項是否存在仍由上面的 `supports_reasoning` 與 `supported_openai_params` 決定。強度檔位之外的推理參數 (`thinking` 區塊、`reasoning` 物件、預算) 不屬於選單, 仍走 [`models.parameters` 直通](#參數)。
 
 temperature 刻意留在 `models.parameters` 中自由設定: 設定選單只能呈現固定選項, 所以延伸模組不在那裡加 temperature 預設檔。
 

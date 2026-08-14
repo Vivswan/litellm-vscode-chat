@@ -91,9 +91,13 @@ const PRICING_WIRE_KEYS: Readonly<Record<keyof FakeModelPricing, string>> = {
 /**
  * Exhaustive for the same reason; tools is excluded because it is emitted
  * explicitly (true AND false - discovery defaults a missing flag to true, so
- * only an explicit false is a real tools-negative).
+ * only an explicit false is a real tools-negative), and reasoningEffortLevels
+ * because it emits one supports_<level>_reasoning_effort flag per level below
+ * rather than a single boolean key.
  */
-const CAPABILITY_WIRE_KEYS: Readonly<Record<Exclude<keyof FakeModelCapabilities, "tools">, string>> = {
+const CAPABILITY_WIRE_KEYS: Readonly<
+	Record<Exclude<keyof FakeModelCapabilities, "tools" | "reasoningEffortLevels">, string>
+> = {
 	vision: "supports_vision",
 	pdfInput: "supports_pdf_input",
 	reasoning: "supports_reasoning",
@@ -125,11 +129,14 @@ function consolidatedInfoLines(model: FakeModel, deployment: FakeModel["deployme
 		`      supports_tool_choice: ${model.capabilities.tools}`
 	);
 	for (const [property, wireKey] of Object.entries(CAPABILITY_WIRE_KEYS) as Array<
-		[Exclude<keyof FakeModelCapabilities, "tools">, string]
+		[Exclude<keyof FakeModelCapabilities, "tools" | "reasoningEffortLevels">, string]
 	>) {
 		if (model.capabilities[property]) {
 			lines.push(`      ${wireKey}: true`);
 		}
+	}
+	for (const level of model.capabilities.reasoningEffortLevels ?? []) {
+		lines.push(`      supports_${level}_reasoning_effort: true`);
 	}
 	for (const [property, wireKey] of Object.entries(PRICING_WIRE_KEYS) as Array<[keyof FakeModelPricing, string]>) {
 		const value = model.pricing?.[property];
