@@ -74,7 +74,11 @@ const buttonVariants = cva(
 	{
 		variants: {
 			variant: {
-				default: "font-semibold text-accent-hue hover:bg-accent-soft",
+				// The readable accent tier, not the raw hue: this is the label of
+				// the page's primary actions, and --accent-hue is tuned to be seen
+				// as a fill, not read as a word (3.64:1 on the dark page; the text
+				// tier's worst case across accents and themes is 5.06:1).
+				default: "font-semibold text-accent-text hover:bg-accent-soft",
 				secondary: "text-muted-foreground hover:bg-ghost-hover hover:text-foreground",
 				danger: "text-err-quiet hover:bg-err-wash hover:text-err-strong",
 			},

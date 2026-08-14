@@ -8,8 +8,14 @@ import { cn } from "./cn";
  * four of these at once, and four hairline boxes read as structure the row does
  * not have, while a wash of the same color the rest of the dashboard uses for
  * severity reads as one texture.
+ *
+ * The chip radius, not the near-pill: rounded-sm is the --radius-chip
+ * arithmetic, and the capsule is the toggles' shape - a passive label wearing
+ * it read as one more filter pill the moment forced colors flattened the fill
+ * (the old rounded-xl sat within a pixel of the pill radius, a difference that
+ * distinguished nothing). Shape is a channel every palette leaves alone.
  */
-const badgeVariants = cva("inline-block whitespace-nowrap rounded-xl px-1.5 text-[0.85em]", {
+const badgeVariants = cva("inline-block whitespace-nowrap rounded-sm px-1.5 text-[0.85em]", {
 	variants: {
 		variant: {
 			default: "bg-chip text-muted-foreground",

@@ -54,6 +54,18 @@
 	input[type="checkbox"] {
 		margin: 0;
 	}
+	/* A checkbox and its words are ONE control, so the gap between them is
+		 stated once, on the wrapping label: before this rule the same pair
+		 measured 0 in the record rows (the container's gap never reached inside
+		 the label), 4px in the chip popover and 6px at the form's utility call
+		 sites. Base layer on purpose - a shared control default any component
+		 rule or utility may override, and the utility sites that restate it
+		 (gap-1.5) agree at 6px. */
+	label:has(> input[type="checkbox"]) {
+		display: inline-flex;
+		gap: 6px;
+		align-items: center;
+	}
 	/* The dashboard paints its own surface. VS Code's webview default styles set
 		 `body { background-color: transparent }` and let the editor area show
 		 through, which is right until the reader forces a theme: the forced
@@ -861,7 +873,6 @@ body.vscode-high-contrast-light {
 	--color-chip: var(--chip);
 	--color-warn-chip: var(--warn-chip);
 	--color-warn-chip-foreground: var(--warn-chip-foreground);
-	--color-accent-hue: var(--accent-hue);
 	--color-accent-text: var(--accent-text);
 	/* The four choosable hues, for the settings picker's swatches: it paints
 		 every option, not just the live one. */
@@ -880,6 +891,5 @@ body.vscode-high-contrast-light {
 	--radius-sm: calc(var(--radius) - 2px);
 	--radius-md: var(--radius);
 	--radius-lg: calc(var(--radius) + 2px);
-	--radius-xl: calc(var(--radius) + 4px);
 	--radius-full: calc(infinity * 1px);
 }

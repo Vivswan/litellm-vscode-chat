@@ -1097,7 +1097,7 @@
 		background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background));
 		color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
 		border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
-		border-radius: 3px;
+		border-radius: var(--radius);
 		box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.35));
 		font-family: var(--vscode-font-family);
 		font-size: var(--vscode-font-size);
@@ -1365,12 +1365,9 @@
 		font-size: 0.9em;
 		margin: 0;
 	}
-	/* The boolean capability control: one checkbox with its short reading. */
-	.capability-flag {
-		display: flex;
-		gap: 6px;
-		align-items: center;
-	}
+	/* The boolean capability control keeps only its name here: its layout and
+		   the checkbox-to-word gap come from theme.css's base-layer rule for
+		   every label wrapping a checkbox, and the row grid's .cell rules. */
 	/* The _openrouter_model catalog picker: the value input anchors its own
 		   dropdown, styled like the hover widget so it reads as transient UI. */
 	.catalog-picker {
@@ -1391,7 +1388,7 @@
 		background: var(--vscode-editorHoverWidget-background);
 		color: var(--vscode-editorHoverWidget-foreground);
 		border: 1px solid var(--vscode-editorHoverWidget-border);
-		border-radius: 4px;
+		border-radius: var(--radius);
 		box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.3));
 	}
 	.catalog-results button {
@@ -1400,7 +1397,11 @@
 		text-align: left;
 		padding: 3px 6px;
 		border: none;
-		border-radius: 3px;
+		/* The chip radius, which here is also the concentric arithmetic: an
+			 option nested inside the surface's var(--radius) corner with 2px of
+			 its padding showing wants radius - 2px, and that is what the token
+			 bakes in. */
+		border-radius: var(--radius-chip);
 		background: transparent;
 		color: var(--vscode-descriptionForeground);
 		cursor: pointer;
@@ -1445,7 +1446,7 @@
 	}
 	.group {
 		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
-		border-radius: 4px;
+		border-radius: var(--radius);
 		padding: 8px 16px;
 		margin: 8px 0;
 		background: var(--vscode-editorWidget-background, transparent);
@@ -1465,7 +1466,7 @@
 		   is this frame's slide-over cousin. */
 	.record-frame {
 		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
-		border-radius: 4px;
+		border-radius: var(--radius);
 		padding: 6px 12px;
 		margin: 4px 0 8px;
 		background: var(--vscode-editorWidget-background, transparent);
@@ -2541,7 +2542,9 @@
 		column-gap: 8px;
 	}
 	.skeleton {
-		border-radius: 3px;
+		/* Chip-scale geometry: a skeleton stands in for a line of text, not a
+			 framed surface. */
+		border-radius: var(--radius-chip);
 		background: var(--vscode-foreground);
 		opacity: 0.12;
 	}
@@ -2840,6 +2843,29 @@
 		padding: 0 6px;
 		white-space: nowrap;
 	}
+	/* Forced colours flatten every fill and repaint every border to one ink,
+		   so these inert chips read as doubles of the interactive field chips.
+		   GrayText is a system keyword the mode guarantees distinct from
+		   CanvasText, and it is the mode's own word for "not actionable" - the
+		   right rank for a source annotation that answers no click, next to the
+		   field chips and filter pills whose repainted borders keep saying
+		   "control". The text stays repainted CanvasText: provenance is read
+		   and retyped, only its boundary is inert. The body-class twins are
+		   load-bearing, not belt-and-braces: an OS forced-colors mode arrives
+		   with a high-contrast body class in practice, and the inspector's own
+		   HC border rule above outranks the plain selectors here - same weight
+		   plus a body class - so without them the inspector's provenance kept
+		   the contrast border while the table's went GrayText. */
+	@media (forced-colors: active) {
+		.chip-prov,
+		.resolved-matched .chip-matcher,
+		.model-inspector .prov,
+		.model-inspector .res-shadow .prov,
+		body.vscode-high-contrast .model-inspector .prov,
+		body.vscode-high-contrast-light .model-inspector .prov {
+			border-color: GrayText;
+		}
+	}
 	/* The resolution table at the page's measure: the section headers and the
 		   problem list wear the same 64rem cap, and the table stretching past
 		   them put the Inspect column on a right edge nothing else shared. (The
@@ -2948,7 +2974,7 @@
 		background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background));
 		color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
 		border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
-		border-radius: 4px;
+		border-radius: var(--radius);
 		box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.35));
 		text-align: left;
 		font-size: var(--vscode-font-size);
@@ -2971,7 +2997,10 @@
 		   its measurement cannot see them and they can still hang past the
 		   edge. Putting them in flow was tried and reverted - the popover then
 		   outgrew both edges and was clipped bodily instead, which is worse
-		   than a floating list. They need their own bound, not this one. */
+		   than a floating list. Their own bound is below: pinned to both edges
+		   of their anchor (which spans the popover's content box), with the
+		   260px floor waived - it was sized for the row grid's wide right-
+		   anchored popup and overran a narrow popover's edge by 58px. */
 	/* A slide-over adaptation used to live here: a relative .chip-list as the
 		   popover's containing block, a static .chip-anchor opting out of the
 		   anchor, and left-anchored width caps on the popover, together keeping
@@ -2996,7 +3025,14 @@
 	.chip-popover .catalog-results,
 	.chip-popover .suggest-results {
 		left: 0;
-		right: auto;
+		right: 0;
+		min-width: 0;
+	}
+	/* Bounded, a long catalog ID has to wrap instead of widening the list
+		   back past the popover's edge. */
+	.chip-popover .catalog-results button {
+		white-space: normal;
+		overflow-wrap: anywhere;
 	}
 	.chip-popover-flags {
 		display: flex;
@@ -3006,10 +3042,9 @@
 		font-size: 0.9em;
 		color: var(--vscode-descriptionForeground);
 	}
+	/* Layout and gap come from theme.css's base-layer checkbox-label rule;
+		   only the wrapping ban is this row's own. */
 	.chip-popover-flags label {
-		display: inline-flex;
-		gap: 4px;
-		align-items: center;
 		white-space: nowrap;
 	}
 	.chip-popover-actions {
@@ -3053,16 +3088,18 @@
 		top: 40px;
 		box-shadow: -12px 0 24px rgba(0, 0, 0, 0.5);
 	}
-	/* Small section labels, the settings group-title recipe: one labeling
-		   system across the page. */
+	/* Small section labels, in the register the settings group titles speak
+		   (settings.tsx: sentence case at weight 600, 0.95em) rather than an
+		   uppercase letterspaced eyebrow - this was the page's only uppercase
+		   text, while claiming the group-title recipe. Muted where the group
+		   titles are full-strength, because these label inputs inside one
+		   editor, not groups of rows. */
 	.editor-label {
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		font-size: 0.8em;
+		font-size: 0.95em;
 		font-weight: 600;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
 		color: var(--vscode-descriptionForeground);
 		margin: 0 0 4px;
 	}
