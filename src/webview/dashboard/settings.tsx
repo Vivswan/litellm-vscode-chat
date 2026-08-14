@@ -121,15 +121,21 @@ export interface SettingWriteFailure {
 }
 
 /**
- * The last write each method posted and the row that posted it. The fail
- * envelope echoes the request id but never the payload, so this registry is
- * what turns "setNumberSetting failed" into "the Request timeout row's write
- * failed". Module state rather than React state on purpose: it is written
- * inside commit handlers and only read while placing a failure that quotes
- * the same id, and ids are minted fresh per post, so a stale entry can never
- * claim anything.
+ * The row that posted each still-recent write, keyed by the write's request
+ * id. The fail envelope echoes the id but never the payload, so this registry
+ * is what turns "setNumberSetting failed" into "the Request timeout row's
+ * write failed". Keyed by id rather than per method, because a method holds
+ * one slot: a newer write on the same method would un-claim an older
+ * still-standing failure and teleport its notice to the fallback line.
+ * Module state rather than React state on purpose: it is written inside
+ * commit handlers and only read while placing a failure that quotes the same
+ * id, and ids are minted fresh per post, so a stale entry can never claim
+ * anything. Bounded so a long session's commits cannot grow it without end;
+ * far more writes than the store's one standing failure per method can ever
+ * need.
  */
-const lastSettingWrites = new Map<SettingWriteMethod, { readonly id: string; readonly row: SettingRowId }>();
+const lastSettingWrites = new Map<string, SettingRowId>();
+const LAST_SETTING_WRITES_CAP = 64;
 
 /** Post one scalar write, remembering which row posted it (see lastSettingWrites). */
 function postSettingWrite<K extends SettingWriteMethod>(
@@ -137,7 +143,13 @@ function postSettingWrite<K extends SettingWriteMethod>(
 	payload: RequestPayload<K>,
 	row: SettingRowId
 ): void {
-	lastSettingWrites.set(method, { id: sendRequest(method, payload), row });
+	lastSettingWrites.set(sendRequest(method, payload), row);
+	if (lastSettingWrites.size > LAST_SETTING_WRITES_CAP) {
+		const oldest = lastSettingWrites.keys().next().value;
+		if (oldest !== undefined) {
+			lastSettingWrites.delete(oldest);
+		}
+	}
 }
 
 /** Each row's standing write failure, keyed by the owning row; SettingRow reads its own. */
@@ -1619,10 +1631,10 @@ export function SettingsSection({
 		}
 	};
 	// Each standing failure lands by scope: the row whose remembered write id
-	// the failure echoes owns it, latest seq winning when two methods' failures
-	// share one row (a failed Reset beside a failed write); anything unclaimed
-	// - an id no mounted row posted, or an owning row the filter has hidden -
-	// falls back to one always-visible section-top line, latest first.
+	// the failure echoes owns it, latest seq winning when two writes' failures
+	// share one row (a failed Reset beside a failed value write); anything
+	// unclaimed - an id no mounted row posted, or an owning row the filter has
+	// hidden - falls back to one always-visible section-top line, latest first.
 	const rowFailures: Partial<Record<SettingRowId, SettingWriteFailure>> = {};
 	let unclaimedFailure: SettingWriteFailure | undefined;
 	for (const method of SETTING_WRITE_METHODS) {
@@ -1630,11 +1642,11 @@ export function SettingsSection({
 		if (failure === undefined) {
 			continue;
 		}
-		const write = lastSettingWrites.get(method);
-		if (write !== undefined && write.id === failure.id && rowVisible(write.row)) {
-			const standing = rowFailures[write.row];
+		const row = lastSettingWrites.get(failure.id);
+		if (row !== undefined && rowVisible(row)) {
+			const standing = rowFailures[row];
 			if (standing === undefined || failure.seq > standing.seq) {
-				rowFailures[write.row] = failure;
+				rowFailures[row] = failure;
 			}
 		} else if (unclaimedFailure === undefined || failure.seq > unclaimedFailure.seq) {
 			unclaimedFailure = failure;

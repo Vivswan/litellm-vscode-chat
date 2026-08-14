@@ -446,8 +446,11 @@ function FieldRow({
 					<span
 						id={errorId}
 						className={cn(
-							showProblem ? "error" : "text-muted-foreground",
-							hintTone === "warn" && !showProblem && "state-warn"
+							// One register at a time: stacking text-muted-foreground under
+							// state-warn shipped muted for as long as the tone rules could
+							// lose to a utility, and still reads as muted in the source now
+							// that they cannot.
+							showProblem ? "error" : hintTone === "warn" ? "state-warn" : "text-muted-foreground"
 						)}
 					>
 						{showProblem ? problem : hint}

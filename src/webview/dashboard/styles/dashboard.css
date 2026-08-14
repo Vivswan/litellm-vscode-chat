@@ -1256,9 +1256,6 @@
 	.caps {
 		color: var(--vscode-descriptionForeground);
 	}
-	.state-ok {
-		color: var(--ok-text);
-	}
 
 	/* The record field-row grid: since the table redesign these rows render
 		   only inside slide-over panels (the matcher editor overlay, the server

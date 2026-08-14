@@ -821,6 +821,7 @@ test("tone text is one unlayered presentation: severity color plus the weight ch
 	const registers = [
 		{ selector: ".error", color: "color: var(--err-text)" },
 		{ selector: ".state-warn", color: "color: var(--warn-text)" },
+		{ selector: ".state-ok", color: "color: var(--ok-text)" },
 	] as const;
 	for (const register of registers) {
 		const rules = rulesFor(output, register.selector);
@@ -830,12 +831,13 @@ test("tone text is one unlayered presentation: severity color plus the weight ch
 		expect(ordinary[0]?.declarations, register.selector).toContain(register.color);
 		expect(ordinary[0]?.declarations, register.selector).toContain("font-weight: 600");
 	}
-	// And dashboard.css may not fork it: no bare .error or .state-warn rule at
-	// all over there - the rules that PLACE tone text (.row .error and friends)
-	// are longer selectors and stay.
+	// And dashboard.css may not fork it: no bare .error, .state-warn, or
+	// .state-ok rule at all over there - the rules that PLACE tone text
+	// (.row .error and friends) are longer selectors and stay.
 	const dashboard = await compileDashboard();
 	expect(rulesFor(dashboard, ".error")).toHaveLength(0);
 	expect(rulesFor(dashboard, ".state-warn")).toHaveLength(0);
+	expect(rulesFor(dashboard, ".state-ok")).toHaveLength(0);
 });
 
 test("tone text keeps a second channel under forced colors: the editor's squiggle", async () => {

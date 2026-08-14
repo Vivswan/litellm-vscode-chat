@@ -192,23 +192,31 @@ body.vscode-high-contrast-light .setting-actions {
 	gap: 6px;
 }
 
-/* Tone TEXT, the app-wide presentation of .error and .state-warn: the readable
- severity tier for the hue, and weight as the channel that does not depend on
- color - the same pair the danger button's forced-colors rank uses, and the
- inline analogue of how the banners survive that mode (their box is a border,
- which the mode repaints but never removes). Unlayered, because this is the one
- statement of the register and nothing may quietly outrank it: as layered rules
- these lost to `p.hint` on specificity (0-1-1 over 0-1-0, so every warn hint on
- the server form rendered muted) and to any color utility on the same element
- by layer order (text-muted-foreground at one call site). Every surface
- inherits this; a per-surface fork is a bug. theme.test.ts pins both rules,
- their placement, and the forced-colors squiggle above. */
+/* Tone TEXT, the app-wide presentation of .error, .state-warn, and .state-ok:
+ the readable severity tier for the hue, and weight as the channel that does
+ not depend on color - the same pair the danger button's forced-colors rank
+ uses, and the inline analogue of how the banners survive that mode (their box
+ is a border, which the mode repaints but never removes). All three registers
+ share the weight so a tone vocabulary's members carry comparable perceptual
+ weight (a pass and a fail render in one slot on the server form); only the
+ two PROBLEM registers take the forced-colors squiggle above, because the
+ squiggle is the editor's problem mark and ok is not a problem. Unlayered,
+ because this is the one statement of the registers and nothing may quietly
+ outrank it: as layered rules these lost to `p.hint` on specificity (0-1-1
+ over 0-1-0, so every warn hint on the server form rendered muted) and to any
+ color utility on the same element by layer order (text-muted-foreground at
+ one call site). Every surface inherits this; a per-surface fork is a bug.
+ theme.test.ts pins the rules, their placement, and the squiggle. */
 .error {
 	color: var(--err-text);
 	font-weight: 600;
 }
 .state-warn {
 	color: var(--warn-text);
+	font-weight: 600;
+}
+.state-ok {
+	color: var(--ok-text);
 	font-weight: 600;
 }
 

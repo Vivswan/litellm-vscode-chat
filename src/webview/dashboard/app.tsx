@@ -667,11 +667,6 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		openEdit({ kind: "edit", label });
 	};
 
-	// The scalar setting writes report their standing failures on the settings
-	// page itself, placed by owning row over the request id (SettingsSection's
-	// writeFailures prop). Only executeCommand keeps the pane-top line: it is
-	// posted from every tab (Report a bug, Open output, the settings toolbar)
-	// and owns no row anywhere.
 	// The section actually on screen. A deep link recorded on the way in shows
 	// immediately rather than after the effect below has run, so the command
 	// does not paint the Servers page for a frame first; while the edit
@@ -679,6 +674,11 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	// rather than a move.
 	const activeSection = pendingFocusSection !== undefined && editing === undefined ? pendingFocusSection : section;
 
+	// The scalar setting writes report their standing failures on the settings
+	// page itself, placed by owning row over the request id (SettingsSection's
+	// writeFailures prop). Only executeCommand keeps a pane-top line of its
+	// own: it is posted from every tab (Report a bug, Open output, the
+	// settings toolbar) and owns no row anywhere.
 	const commandFailure = failures.executeCommand;
 	const settingWriteFailures: Partial<Record<SettingWriteMethod, SettingWriteFailure>> = {};
 	for (const method of SETTING_WRITE_METHODS) {
@@ -687,6 +687,19 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 			settingWriteFailures[method] = failure;
 		}
 	}
+	// A refused write must stay visible from ANY tab: a rail click can be the
+	// very blur that commits the failing write, so the fail envelope lands
+	// after the settings panel is hidden - and a hidden subtree neither paints
+	// nor announces. Away from Settings the latest failure takes a pane-top
+	// line; on Settings the page places it by row.
+	const awaySettingFailure =
+		activeSection === "settings"
+			? undefined
+			: Object.values(settingWriteFailures).reduce(
+					(latest: SettingWriteFailure | undefined, failure) =>
+						latest === undefined || failure.seq > latest.seq ? failure : latest,
+					undefined
+				);
 	return (
 		<main
 			className="shell"
@@ -719,6 +732,14 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 					<p className="error">
 						<FailureText
 							message={commandFailure.message}
+							frame={(headline) => l10n.t("The last change did not apply: {0}", headline)}
+						/>
+					</p>
+				) : null}
+				{awaySettingFailure !== undefined ? (
+					<p key={awaySettingFailure.seq} className="error" role="alert">
+						<FailureText
+							message={awaySettingFailure.message}
 							frame={(headline) => l10n.t("The last change did not apply: {0}", headline)}
 						/>
 					</p>

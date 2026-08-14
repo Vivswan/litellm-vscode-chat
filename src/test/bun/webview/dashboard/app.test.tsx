@@ -139,6 +139,37 @@ test("an executeCommand intentFailed keeps the pane-top line: it is posted from 
 	expect(root.textContent).not.toContain("The last change did not apply");
 });
 
+test("a refused write is visible from another tab: the pane-top line stands until Settings is active", () => {
+	// A rail click can be the very blur that commits the failing write, so the
+	// fail envelope lands after the settings panel is hidden - and a hidden
+	// subtree neither paints nor announces. Away from Settings the failure
+	// takes a pane-top line of its own; arriving on Settings hands it to the
+	// page's own placement.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState()));
+	pushToWebview({
+		kind: "fail",
+		id: "req-2",
+		method: "setCurrencySymbol",
+		message: "the write was refused",
+		failureKind: "operation",
+	});
+	// The default tab is Servers, so the away line stands, announced.
+	const away = root.querySelector(".pane > p.error[role='alert']");
+	expect(away?.textContent).toContain("The last change did not apply: the write was refused");
+
+	// On Settings the page owns the notice and the away line stands down.
+	const settingsTab = root.querySelector("#tab-settings");
+	if (!(settingsTab instanceof HTMLElement)) {
+		throw new Error("no settings rail tab");
+	}
+	fireClick(settingsTab);
+	expect(root.querySelector(".pane > p.error[role='alert']")).toBeNull();
+	expect(root.querySelector("#panel-settings p.error[role='alert']")?.textContent).toContain(
+		"The last change did not apply: the write was refused"
+	);
+});
+
 test("a saveServerSetting fail notice survives a subsequent state push", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()] })));
