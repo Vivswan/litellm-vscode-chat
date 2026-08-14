@@ -252,7 +252,10 @@ function scanForTransparentBorders(): Map<string, number> {
 		const css = file.endsWith(".css");
 		const source = readFileSync(file, "utf8");
 		const scanned = css ? source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s+/g, " ") : source;
-		const relative = path.relative(webviewDir, file);
+		// path.relative yields backslashes on Windows; the registry spells
+		// forward slashes. Normalize so the key is platform-invariant - run
+		// 31764220436 failed all 11 entries on spelling alone.
+		const relative = path.relative(webviewDir, file).split(path.sep).join("/");
 		const matches = css
 			? [...scanned.matchAll(DECLARATION_PATTERN), ...scanned.matchAll(TOKEN_PATTERN)]
 			: [...scanned.matchAll(UTILITY_PATTERN)];
