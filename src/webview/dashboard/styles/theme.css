@@ -166,6 +166,22 @@
 	--input: var(--vscode-input-border, var(--vscode-widget-border, var(--vscode-panel-border)));
 	--ring: var(--vscode-focusBorder);
 	--radius: 4px;
+	/* The named radii, declared at runtime because dashboard.css reads them
+		 directly: the @theme block below is inline, so a utility's --radius-*
+		 variable never exists on the page, and before these tokens every plain
+		 CSS chip or pill rule restated the arithmetic as a literal that could
+		 drift. One radius per shape class:
+		 - chip: the machine-text chips and provenance badges, the same
+			 arithmetic the rounded-sm utility bakes in;
+		 - pill: the near-pill toggles (the filter pills, the scope chip), whose
+			 rounder box is what makes filled-vs-outline read as a toggle rather
+			 than a chip;
+		 - field: the text fields (the rounded-sm inputs and the plain-CSS
+			 textarea), same value as the chip radius today but a separate token
+			 because fields and chips are different shape classes that may part. */
+	--radius-chip: calc(var(--radius) - 2px);
+	--radius-pill: 9px;
+	--radius-field: calc(var(--radius) - 2px);
 	/* VS Code publishes explicit state and per-control colors that shadcn's
 		 alpha-blended hover conventions cannot derive, so they get their own
 		 semantic tokens instead of opacity tricks on the base ones. */

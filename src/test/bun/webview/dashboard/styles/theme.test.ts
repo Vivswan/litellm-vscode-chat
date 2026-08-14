@@ -155,6 +155,16 @@ test("the palette and radius resets keep Tailwind's defaults unreachable", async
 	// The radius scale maps onto --radius; Tailwind's default rem-based scale
 	// must stay unreachable so an off-scale rounded-2xl cannot compile.
 	expect(output).not.toMatch(/border-radius:\s*[\d.]+rem/);
+	// The named shape radii exist at runtime (the @theme block is inline, so
+	// utilities bake values in and their variables never reach the page): the
+	// plain-CSS chip, pill, and field rules read these tokens instead of
+	// restating literals that drift.
+	for (const token of ["--radius-chip: calc(var(--radius) - 2px)", "--radius-pill: 9px", "--radius-field:"]) {
+		expect(output).toContain(token);
+	}
+	// And the near-pill literal stays minted once: a 9px radius written into
+	// the dashboard sheet is a fork of --radius-pill.
+	expect(readFileSync(dashboardEntry, "utf8")).not.toContain("border-radius: 9px");
 });
 
 test("the cascade puts the dashboard stylesheet below utilities", async () => {

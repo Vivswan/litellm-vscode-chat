@@ -1454,7 +1454,7 @@
 		color: var(--vscode-input-foreground);
 		background: var(--vscode-input-background);
 		border: 1px solid var(--vscode-input-border, transparent);
-		border-radius: 2px;
+		border-radius: var(--radius-field);
 		padding: 4px 8px;
 	}
 	.record-json textarea:focus {
@@ -1703,9 +1703,9 @@
 			   on a light surface, and a box you cannot see is not a box. Mixing the
 			   foreground is self-correcting in both polarities. */
 		border: 1px solid color-mix(in srgb, var(--muted-foreground) 40%, transparent);
-		/* The rounded-sm token's arithmetic, shared with .chip-prov: every
-			   provenance badge takes the one chip radius. */
-		border-radius: calc(var(--radius) - 2px);
+		/* The named chip radius, shared with .chip-prov: every provenance badge
+			   takes the one chip shape. */
+		border-radius: var(--radius-chip);
 		padding: 0 4px;
 		font-family: var(--vscode-editor-font-family, monospace);
 		font-size: 0.85em;
@@ -2139,7 +2139,7 @@
 		gap: 4px;
 		padding: 1px 2px 1px 8px;
 		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
-		border-radius: 9px;
+		border-radius: var(--radius-pill);
 		font-size: 0.9em;
 		white-space: nowrap;
 		min-width: 0;
@@ -2192,7 +2192,7 @@
 		max-width: min(100%, 40ch);
 		padding: 1px 8px;
 		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
-		border-radius: 9px;
+		border-radius: var(--radius-pill);
 		background: none;
 		color: var(--muted-foreground);
 		font-family: inherit;
@@ -2644,10 +2644,9 @@
 		   a settings file - so it reads mono and its digits line up column to
 		   column. Neutral by construction: outline and description foreground,
 		   never a severity colour, because provenance says where a value came
-		   from and never whether that is a problem. The radius is the rounded-sm
-		   token's own arithmetic (theme.css @theme is inline, so the utility's
-		   variable never exists at runtime): one shape for every chip, and a
-		   near-pill read as a toggle. */
+		   from and never whether that is a problem. The radius is the named chip
+		   token (theme.css's --radius-chip, the rounded-sm arithmetic): one shape
+		   for every chip, and a near-pill read as a toggle. */
 	.chip-prov,
 	.resolved-matched .chip-matcher {
 		font-family: var(--vscode-editor-font-family, monospace);
@@ -2655,7 +2654,7 @@
 		font-size: 0.85em;
 		color: var(--vscode-descriptionForeground);
 		border: 1px solid var(--vscode-editorWidget-border, #555);
-		border-radius: calc(var(--radius) - 2px);
+		border-radius: var(--radius-chip);
 		padding: 0 6px;
 		white-space: nowrap;
 	}

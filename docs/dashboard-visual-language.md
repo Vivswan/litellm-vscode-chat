@@ -131,12 +131,13 @@ wraps machine text (dashboard.css:1382-1386). Five families, one job each:
   (dashboard.css:2510-2529, 1576-1580, 2390-2394).
 - Field chip: a record row's key/value cell (recordEditors.tsx:2382).
 
-Chip radius never mints a fresh literal. The machine-text chips share the
-token arithmetic (`calc(var(--radius) - 2px)`, theme.css:767-773; restated
-where plain CSS needs it, because theme.css's `@theme` is inline and the
-utility's variable does not exist at runtime, dashboard.css:2515-2526). The
-toggle pills share the one near-pill radius that makes filled-vs-outline read
-as a toggle rather than a chip (dashboard.css:2021-2033 and 2075-2094).
+Chip radius never mints a fresh literal. The named tokens live in theme.css
+(`--radius-chip`, `--radius-pill`, `--radius-field`, declared at runtime on
+`:root` beside `--radius`), and every plain-CSS chip, pill, or field rule reads
+its token: the machine-text chips wear `--radius-chip` (the same arithmetic the
+`rounded-sm` utility bakes in), and the toggle pills wear `--radius-pill`, the
+one near-pill radius that makes filled-vs-outline read as a toggle rather than
+a chip.
 
 ## 5. Disclosure
 
