@@ -1496,6 +1496,36 @@ test("two methods' failures on one row keep the latest, not the method-list orde
 	expect(notice?.textContent).not.toContain("the older reset failure");
 });
 
+test("a newer write on the same method does not un-claim an older standing failure's row", () => {
+	// The registry keys by request id, one entry per write: with one slot per
+	// method, committing row B would evict row A's remembered write, and A's
+	// still-standing failure would teleport from its row to the fallback line
+	// mid-read (announcing itself a second time on the way).
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const older = settingInput(root, "chat.timeout");
+	fireInput(older, "45000");
+	fireBlur(older);
+	const olderWrite = postedMessages.filter((message) => message.method === "setNumberSetting").pop();
+	const newer = settingInput(root, "discovery.timeout");
+	fireInput(newer, "20480");
+	fireBlur(newer);
+	expect(postedMessages.filter((message) => message.method === "setNumberSetting")).toHaveLength(2);
+	cleanup();
+
+	const withFailure = mount(
+		<SettingsSection
+			settings={makeSettings()}
+			models={[]}
+			writeFailures={{ setNumberSetting: { seq: 1, id: olderWrite?.id ?? "", message: "the write was refused" } }}
+		/>
+	);
+	const row = rowOf(settingInput(withFailure, "chat.timeout"));
+	expect(row.querySelector(".row-diagnostic.sev-blocking")?.textContent).toContain(
+		"The last change did not apply: the write was refused"
+	);
+	expect(withFailure.querySelector("p.error[role='alert']")).toBeNull();
+});
+
 test("a failure whose owning row the filter hides routes to the section-top line instead of a hidden notice", () => {
 	// The filter hides rows without unmounting them, so a claimed notice under
 	// a hidden row would be placed and invisible at once - the worst of both.

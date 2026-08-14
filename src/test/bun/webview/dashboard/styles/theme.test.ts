@@ -853,4 +853,7 @@ test("tone text keeps a second channel under forced colors: the editor's squiggl
 		.join("\n");
 	const rule = /\.error,\s*\.state-warn \{([^}]*)\}/.exec(forced)?.[1] ?? "";
 	expect(rule).toContain("text-decoration: underline wavy");
+	// The squiggle is the PROBLEM mark, so the ok register must never wear it:
+	// a forced-colors rule decorating .state-ok would dress a pass as a fault.
+	expect(forced).not.toContain(".state-ok");
 });
