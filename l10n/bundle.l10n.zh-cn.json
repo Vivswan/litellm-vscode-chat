@@ -141,6 +141,7 @@
  "Applying...": "正在应用...",
  "As discovered": "按发现顺序",
  "Ask the model to skip reasoning entirely, on models that can turn thinking off": "让模型完全跳过推理, 用于可以关闭思维的模型",
+ "At most {0} characters.": "最多 {0} 个字符。",
  "At most {0} keywords.": "最多 {0} 个关键字。",
  "Audio input": "音频输入",
  "Authentication": "身份验证",

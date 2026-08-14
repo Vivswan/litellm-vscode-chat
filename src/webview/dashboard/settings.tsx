@@ -18,6 +18,7 @@
 import * as l10n from "@vscode/l10n";
 import type { FocusEvent, ReactNode } from "react";
 import { useEffect, useId, useState } from "react";
+import { WIRE_LIMITS } from "../../dashboard/endpoints";
 import {
 	booleanSettingPresentation,
 	defaultDisplay,
@@ -1039,10 +1040,15 @@ function UsageThresholdsRow({
 
 /**
  * The usage.currencySymbol row: one short text box over the string setting.
- * Any text is legal - the symbol is display-only and never sent anywhere - so
- * there is no invalid state; clearing the box commits the empty string, which
- * renders bare numbers. Commits on Enter or blur, like the thresholds pair,
- * and the maxLength mirrors the intent schema's bound.
+ * Any text is legal - the symbol is display-only and never sent anywhere -
+ * up to the wire cap (WIRE_LIMITS.currencySymbol), which both the maxLength
+ * and the intent schema read. maxLength gates typing only: a longer symbol
+ * hand-written in settings.json round-trips into the box via the state push,
+ * and the row must neither truncate it nor let a commit die as a generic
+ * envelope failure - so an over-limit draft shows the bound as the row's
+ * error and never commits, and deleting down to the cap recovers in place.
+ * Clearing the box commits the empty string, which renders bare numbers.
+ * Commits on Enter or blur, like the thresholds pair.
  */
 function CurrencySymbolRow({
 	value,
@@ -1060,8 +1066,13 @@ function CurrencySymbolRow({
 		setText(value);
 	}, [syncKey]);
 	const inputId = "setting-usage.currencySymbol";
+	const errorId = `${inputId}-error`;
+	const error =
+		text.length > WIRE_LIMITS.currencySymbol
+			? l10n.t("At most {0} characters.", WIRE_LIMITS.currencySymbol)
+			: undefined;
 	const commit = () => {
-		if (text !== value) {
+		if (error === undefined && text !== value) {
 			sendRequest("setCurrencySymbol", { value: text });
 		}
 	};
@@ -1072,6 +1083,8 @@ function CurrencySymbolRow({
 			titleFor={inputId}
 			description={currencySymbolDescription()}
 			help={helpCurrencySymbol()}
+			error={error}
+			errorId={errorId}
 			configuredScope={configuredScope}
 			hidden={hidden}
 			control={
@@ -1080,8 +1093,10 @@ function CurrencySymbolRow({
 					type="text"
 					spellCheck={false}
 					className="w-[4.5rem]"
-					maxLength={12}
+					maxLength={WIRE_LIMITS.currencySymbol}
 					placeholder="$"
+					aria-invalid={error !== undefined}
+					aria-describedby={error === undefined ? undefined : errorId}
 					value={text}
 					onChange={(event) => setText(event.currentTarget.value)}
 					onBlur={commit}
@@ -1098,8 +1113,8 @@ function CurrencySymbolRow({
 
 /**
  * The intent schema's bounds on setAdditionalToolSchemaKeywords, mirrored
- * (intentSchema.ts: z.array(z.string().max(256)).max(64)) the way the
- * currency row mirrors its maxLength: a paste the host would reject is
+ * (intentSchema.ts: z.array(z.string().max(256)).max(64)) for the same reason
+ * the currency row reads WIRE_LIMITS: a paste the host would reject is
  * refused here with a reason, instead of surfacing as a generic envelope
  * failure after the fact.
  */

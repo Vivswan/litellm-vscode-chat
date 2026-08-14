@@ -156,6 +156,7 @@
 	"Applying...": "Applying...",
 	"As discovered": "As discovered",
 	"Ask the model to skip reasoning entirely, on models that can turn thinking off": "Ask the model to skip reasoning entirely, on models that can turn thinking off",
+	"At most {0} characters.": "At most {0} characters.",
 	"At most {0} keywords.": "At most {0} keywords.",
 	"Audio input": "Audio input",
 	"Authentication": "Authentication",

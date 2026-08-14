@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import type { RpcRequest } from "../../../../dashboard/endpoints";
+import { WIRE_LIMITS } from "../../../../dashboard/endpoints";
 import { isBoundViolation, parseNumberDraft } from "../../../../dashboard/presenters";
 import { NUMBER_SETTING_IDS } from "../../../../dashboard/viewModels";
 import { App } from "../../../../webview/dashboard/app";
@@ -971,6 +972,44 @@ test("clearing the currency-symbol box commits the empty string (bare numbers), 
 	fireInput(input, "");
 	fireKeyDown(input, "Enter");
 	expect(postedCalls()).toEqual([{ method: "setCurrencySymbol", payload: { value: "" } }]);
+});
+
+test("the currency box's maxLength reads the shared wire cap, not a private twin", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	expect(settingInput(root, "usage.currencySymbol").maxLength).toBe(WIRE_LIMITS.currencySymbol);
+});
+
+test("an over-limit symbol from settings.json round-trips whole, errors instead of committing, and recovers in place", () => {
+	// maxLength gates typing only: a longer symbol hand-written in
+	// settings.json rides the state push into the box unclamped. The row
+	// neither truncates it nor lets a commit die host-side as a generic
+	// envelope failure: the bound is the row's error, commits refuse, and
+	// deleting down to the cap commits normally.
+	const long = "x".repeat(WIRE_LIMITS.currencySymbol + 3);
+	const settings = makeSettings();
+	const root = mount(
+		<SettingsSection settings={{ ...settings, usage: { ...settings.usage, currencySymbol: long } }} models={[]} />
+	);
+	const input = settingInput(root, "usage.currencySymbol");
+	expect(input.value).toBe(long);
+	expect(rowOf(input).textContent).toContain(`At most ${WIRE_LIMITS.currencySymbol} characters.`);
+	expect(input.getAttribute("aria-invalid")).toBe("true");
+	fireKeyDown(input, "Enter");
+	fireBlur(input);
+	expect(postedMessages).toEqual([]);
+
+	// An edited draft still over the cap keeps erroring and never posts...
+	fireInput(input, "x".repeat(WIRE_LIMITS.currencySymbol + 1));
+	fireKeyDown(input, "Enter");
+	expect(postedMessages).toEqual([]);
+	// ...and one at the cap commits.
+	fireInput(input, "x".repeat(WIRE_LIMITS.currencySymbol));
+	expect(rowOf(input).textContent).not.toContain("At most");
+	expect(input.getAttribute("aria-invalid")).toBe("false");
+	fireKeyDown(input, "Enter");
+	expect(postedCalls()).toEqual([
+		{ method: "setCurrencySymbol", payload: { value: "x".repeat(WIRE_LIMITS.currencySymbol) } },
+	]);
 });
 
 test("the status-bar mode select posts setUsageStatusBar on change", () => {

@@ -145,7 +145,7 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 	setTokenEstimation: z.strictObject({ value: asEnum(TOKEN_ESTIMATION_MODES) }),
 	// Free text, but webview-minted and display-only: bounded so a hostile
 	// page cannot balloon the setting (12 covers a code plus a space, "EUR ").
-	setCurrencySymbol: z.strictObject({ value: z.string().max(12) }),
+	setCurrencySymbol: z.strictObject({ value: z.string().max(WIRE_LIMITS.currencySymbol) }),
 	// Bounded like every webview-minted list; the value constraints (non-empty
 	// keyword names) live in executeDashboardIntent.
 	setAdditionalToolSchemaKeywords: z.strictObject({ values: z.array(z.string().max(256)).max(64) }),

@@ -94,6 +94,13 @@ export const WIRE_LIMITS = {
 	recordJsonUnits: 1024 * 1024,
 	/** discovery.declared entries per save. */
 	declaredModels: 1024,
+	/**
+	 * The usage.currencySymbol display prefix. Unlike the caps above, honest
+	 * input can meet this one (it is display text, not structure), so the
+	 * settings form pre-gates against it and package.json's manifest maxLength
+	 * mirrors it (pinned by test - JSON cannot reference this constant).
+	 */
+	currencySymbol: 12,
 } as const;
 
 /**

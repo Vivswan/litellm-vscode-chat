@@ -13,7 +13,7 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import type { DashboardMethod } from "../../../dashboard/endpoints";
-import { DASHBOARD_COMMAND_IDS, DASHBOARD_ENDPOINTS } from "../../../dashboard/endpoints";
+import { DASHBOARD_COMMAND_IDS, DASHBOARD_ENDPOINTS, WIRE_LIMITS } from "../../../dashboard/endpoints";
 import {
 	BOOLEAN_SETTING_IDS,
 	NUMBER_SETTING_IDS,
@@ -124,7 +124,7 @@ const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 	refreshUsage: fc.constant(null),
 	setUsageStatusBar: fc.record({ value: fc.constantFrom("always", "alerts-only", "off") }),
 	setTokenEstimation: fc.record({ value: fc.constantFrom(...TOKEN_ESTIMATION_MODES) }),
-	setCurrencySymbol: fc.record({ value: fc.string({ maxLength: 12 }) }),
+	setCurrencySymbol: fc.record({ value: fc.string({ maxLength: WIRE_LIMITS.currencySymbol }) }),
 	setAdditionalToolSchemaKeywords: fc.record({
 		values: fc.array(fc.string({ maxLength: 256 }), { maxLength: 64 }),
 	}),
