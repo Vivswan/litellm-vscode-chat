@@ -51,6 +51,10 @@ jobs:
     permissions:
       contents: read
     strategy:
+      # One OS failing must not cancel the other legs: the all-green gate
+      # aggregates at the end either way, and a cancelled leg destroys the
+      # signal of whether it would have passed.
+      fail-fast: false
       matrix:
         os: ${{ inputs.os == 'matrix' && fromJSON('["ubuntu-latest", "windows-latest", "macos-latest"]') || fromJSON(format('["{0}"]', inputs.os)) }}
     runs-on: ${{ matrix.os }}
