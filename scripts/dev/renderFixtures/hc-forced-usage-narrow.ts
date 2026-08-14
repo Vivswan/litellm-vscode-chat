@@ -7,8 +7,8 @@
  * What it should photograph: the selected rail item's edge bar and the footer's
  * verdict dot, redrawn in system colours - the collapsed rail's only two marks,
  * both of them backgrounds, which is the layer forced colours discard - beside
- * the narrow meter, which at this width is a full-width rule under the row
- * rather than a short bar at the end of it.
+ * the narrow meter, which at this width is a rule under the row's facts
+ * rather than a short bar at the end of the line.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import usageNarrow from "./usage-narrow.ts";

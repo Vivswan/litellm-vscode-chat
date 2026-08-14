@@ -159,10 +159,16 @@ describe("UsageSection", () => {
 		const line = root.querySelector(".usage-line") as HTMLButtonElement;
 		expect(line.getAttribute("aria-expanded")).toBe("false");
 		expect(root.querySelector(".usage-panel")).toBeNull();
+		// The disclosure mark is the model rows' chevron, not a text toggle: the
+		// state lives on aria-expanded, so the words "open"/"close" must not
+		// ride in the button's accessible name.
+		expect(line.querySelector(".usage-chevron")).not.toBeNull();
+		expect(line.textContent).not.toContain("open");
 
 		const row = openRow(root);
 		expect(line.getAttribute("aria-expanded")).toBe("true");
-		expect(factOf(row, "Server")).toBe("https://litellm.example.com");
+		expect(line.textContent).not.toContain("close");
+		expect(factOf(row, "Base URL")).toBe("https://litellm.example.com");
 		expect(factOf(row, "Spend")).toBe("$40.00");
 		// Both budgets stay in view when the entry's value wins (docs/usage.md#budgets).
 		expect(factOf(row, "Budget")).toContain("$50.00");
@@ -630,6 +636,6 @@ describe("UsageSection", () => {
 
 	test("the data-follows-the-key note renders on the tab", () => {
 		const root = mount(<UsageSection currencySymbol="$" usage={makeUsage()} serverCount={1} now={NOW} />);
-		expect(root.textContent).toContain("rotating an entry's key switches its numbers");
+		expect(root.textContent).toContain("key switches its numbers to the new key's spend");
 	});
 });

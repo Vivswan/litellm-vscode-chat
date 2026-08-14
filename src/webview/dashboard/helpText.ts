@@ -31,7 +31,7 @@ export function helpModelsSection(): string {
 
 export function helpUsageSection(): string {
 	return l10n.t(
-		"Spend against budget per server, read from the server's own /key/info. Only servers whose LiteLLM tracks spend (a database-backed proxy) appear here."
+		"Spend against budget per server: the key's own server-side total, read from /key/info. Only servers whose LiteLLM tracks spend (a database-backed proxy) appear here."
 	);
 }
 

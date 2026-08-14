@@ -35,6 +35,7 @@ import type {
 } from "../../dashboard/viewModels";
 import { DOCS_LINK_USAGE } from "./docsLinks";
 import { helpUsageSection } from "./helpText";
+import { IconChevronRight } from "./icons";
 import { relativeTime } from "./time";
 import { Button } from "./ui/button";
 import { cn } from "./ui/cn";
@@ -351,9 +352,12 @@ function BudgetFact({ server, currencySymbol }: { server: UsageServerView; curre
 	if (server.effectiveBudget === undefined) {
 		return (
 			<Fact label={l10n.t("Budget")}>
+				{/* The reason states what to do, not what the reader can see: the
+				    dash on the percentage column already says nothing is measured
+				    against, so this line does not repeat it. */}
 				<Absent
 					reason={l10n.t(
-						"neither this entry nor the key sets one, so there is no percentage to show; set one on the entry under Servers, or on the key in LiteLLM"
+						"neither this entry nor the key sets one; set one on the entry under Servers, or on the key in LiteLLM"
 					)}
 				/>
 			</Fact>
@@ -460,7 +464,11 @@ function UsagePanel({
 			    its label and then its value, and the dd's own bottom margin is
 			    what keeps the next label from joining the value above it. */}
 			<dl className="usage-facts m-0 grid max-w-[46rem] grid-cols-[11rem_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-[0.95em] @max-[560px]/pane:grid-cols-[minmax(0,1fr)] @max-[560px]/pane:gap-y-0">
-				<Fact label={l10n.t("Server")}>
+				{/* "Base URL", the same name the server form gives this field: the
+				    row's own label already says which server this is, so a fact
+				    labelled "Server" would restate the line above it and misname
+				    the address it carries. */}
+				<Fact label={l10n.t("Base URL")}>
 					<span className="usage-url">{server.baseUrl}</span>
 				</Fact>
 				<Fact label={l10n.t("Spend")}>
@@ -565,7 +573,16 @@ function UsageRow({
 				// high contrast, where a borderless row stops reading as clickable.
 				// Every column but the label and the percentage may shrink to nothing,
 				// so a narrow editor group truncates the line instead of overflowing it.
-				className="usage-line grid w-full grid-cols-[minmax(5rem,11rem)_minmax(0,9rem)_minmax(0,8rem)_3rem_minmax(0,1fr)_auto] items-center gap-x-4 rounded-sm border border-control-outline px-2.5 py-2 text-left hover:bg-accent focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid @max-[620px]/pane:grid-cols-[minmax(0,1fr)_auto_auto] @max-[620px]/pane:items-baseline @max-[620px]/pane:gap-x-3 @max-[620px]/pane:gap-y-0.5"
+				// Open, the line keeps the hover wash so the pair reads as one block
+				// rather than as a row with something loose beneath it. The wash
+				// vanishes under high contrast, where the outline is the box that
+				// matters - so the open line retracts its bottom edge instead, the
+				// same retraction the model rows make, and repaints it Canvas under
+				// forced colors, which ignores transparent and would put it back.
+				className={cn(
+					"usage-line grid w-full grid-cols-[auto_minmax(5rem,11rem)_minmax(0,9rem)_minmax(0,8rem)_3rem_minmax(0,1fr)] items-center gap-x-4 rounded-sm border border-control-outline px-2.5 py-2 text-left hover:bg-accent focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid @max-[620px]/pane:grid-cols-[auto_minmax(0,1fr)_auto] @max-[620px]/pane:items-baseline @max-[620px]/pane:gap-x-3 @max-[620px]/pane:gap-y-0.5",
+					open ? "border-b-transparent bg-accent forced-colors:border-b-[color:Canvas]" : null
+				)}
 				aria-expanded={open}
 				// Only while the panel exists: an aria-controls pointing at an
 				// unmounted id is a dangling reference, and aria-expanded already
@@ -573,6 +590,13 @@ function UsageRow({
 				aria-controls={open ? panelId : undefined}
 				onClick={() => setOpen(!open)}
 			>
+				{/* The row's state mark, same as the model rows: without it a row
+				    that opens looks exactly like one that does not, and the only way
+				    to find out is to click. Decoration only - aria-expanded already
+				    announces the state, so the button's name stays the facts. */}
+				<span className="usage-chevron">
+					<IconChevronRight />
+				</span>
 				<span className="usage-label truncate font-semibold">{server.label}</span>
 				<span className="usage-spend truncate font-mono text-[0.92em] tabular-nums">
 					{usage?.spend !== undefined ? (
@@ -661,12 +685,9 @@ function UsageRow({
 				>
 					{tail.text}
 				</span>
-				<span className="usage-toggle text-[0.92em] text-muted-foreground">
-					{open ? l10n.t("close") : l10n.t("open")}
-				</span>
 			</button>
 			{open ? (
-				<div id={panelId} className="usage-panel px-2.5 pt-1 pb-4">
+				<div id={panelId} className="usage-panel">
 					{server.kind === "usage" ? (
 						<UsagePanel
 							server={server}
@@ -761,13 +782,12 @@ export function UsageSection({
 				</Button>
 			}
 		>
-			{/* The data follows the key, not the entry (docs/usage.md#budgets):
-			    rotating a credential switches the numbers to the new key's spend,
-			    and the panel says so instead of leaving the jump unexplained. */}
+			{/* The data follows the key, not the entry (docs/usage.md#budgets), and
+			    the panel says so instead of leaving the jump unexplained. One
+			    consequence sentence: the mechanism (the key's server-side total)
+			    lives behind the header's "?". */}
 			<p className="hint mt-0 mb-3 max-w-[70ch]">
-				{l10n.t(
-					"Spend is the key's server-side total, e.g. rotating an entry's key switches its numbers to the new key's spend."
-				)}
+				{l10n.t("Rotating an entry's key switches its numbers to the new key's spend.")}
 			</p>
 			{usage.servers.length === 0 ? (
 				<div className="empty-block">
