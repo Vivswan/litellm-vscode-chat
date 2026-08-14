@@ -487,6 +487,12 @@
 						"default": 3600000,
 						"minimum": 0,
 						"description": "%litellm.config.discovery.cacheTtl.description%"
+					},
+					"litellm-vscode-chat.discovery.staleServeWindow": {
+						"type": "number",
+						"default": 600000,
+						"minimum": 0,
+						"description": "%litellm.config.discovery.staleServeWindow.description%"
 					}
 				}
 			},

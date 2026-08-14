@@ -77,6 +77,9 @@ export const NUMBER_SETTING_SPECS = {
 	"discovery.timeout": { default: 30000, minimum: MIN_TIMEOUT_MS, nullable: false },
 	// A zero TTL is legal: it disables serving from the discovery cache.
 	"discovery.cacheTtl": { default: 3600000, minimum: 0, nullable: false },
+	// Zero is legal: it disables stale serving, so a failed silent refresh
+	// serves the empty list immediately instead of the last known models.
+	"discovery.staleServeWindow": { default: 600000, minimum: 0, nullable: false },
 	// Milliseconds like the other cadence settings. Zero is legal and disables
 	// usage polling entirely (explicit refresh still works); negatives clamp
 	// to it.

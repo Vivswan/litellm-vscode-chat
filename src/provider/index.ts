@@ -12,6 +12,7 @@ import { CancellationError, EventEmitter } from "vscode";
 import type { CapabilityCatalogLookup, ModelCapabilitiesRecord } from "../shared/config/capabilityResolution";
 import { EMPTY_CATALOG_LOOKUP } from "../shared/config/capabilityResolution";
 import { ModelResolutionTable } from "../shared/config/resolutionTable";
+import { getDiscoveryStaleServeWindow, getDiscoveryTimeout } from "../shared/config/settings";
 import { CHARS_PER_TOKEN, estimateMessagesTokens } from "../shared/conversion/tokenEstimation";
 import type { Logger } from "../shared/logger";
 import type { ExpectedFailureCategory } from "../shared/serverEntry";
@@ -31,6 +32,45 @@ import { toLanguageModelError } from "./transport/errorMapping";
 
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * The floor of refreshViaHost's default deadline. The deadline also bounds
+ * the host's own re-resolve round trip (event fan-out plus one call per
+ * group), which costs the same however low discovery.timeout is configured,
+ * so a pathologically low timeout (the reader clamps to MIN_TIMEOUT_MS =
+ * 1000) must not make the host pass abandon almost instantly; the floor
+ * keeps the historical 8s bound as the minimum. hostRefreshDeadlineMs's
+ * tests pin both the floor and the margin.
+ */
+const HOST_REFRESH_DEADLINE_FLOOR_MS = 8000;
+
+/**
+ * Headroom added on top of the discovery timeout: a group report lands only
+ * after the host's dispatch and the provider's post-fetch processing, which
+ * are not covered by the per-request discovery timeout.
+ */
+const HOST_REFRESH_DEADLINE_MARGIN_MS = 2000;
+
+/**
+ * refreshViaHost's default deadline: long enough for one full discovery
+ * attempt plus report plumbing, never below the floor. Derived from the
+ * configured discovery timeout so raising discovery.timeout cannot silently
+ * make the host pass give up while a slow server's fetch is still inside its
+ * own budget. Exported for the drift tests that pin the derivation.
+ */
+export function hostRefreshDeadlineMs(discoveryTimeoutMs: number): number {
+	return Math.max(HOST_REFRESH_DEADLINE_FLOOR_MS, discoveryTimeoutMs + HOST_REFRESH_DEADLINE_MARGIN_MS);
+}
+
+/**
+ * The default deadline exactly as refreshViaHost derives it: the configured
+ * DISCOVERY timeout (the host pass races discovery fetches, so chat.timeout
+ * plays no part) through hostRefreshDeadlineMs. Split out so a test can pin
+ * which setting the wiring reads without waiting a real deadline out.
+ */
+export function defaultHostRefreshDeadlineMs(log?: (message: string, data?: unknown) => void): number {
+	return hostRefreshDeadlineMs(getDiscoveryTimeout(log));
 }
 
 export interface LiteLLMChatModelProviderOptions {
@@ -164,7 +204,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			resolution: this._resolution,
 		});
 		this._discoveryCache = options.discoveryCache ?? new DiscoveryCache();
-		this._statusWindow = new StatusWindow(options.now ?? (() => Date.now()));
+		this._statusWindow = new StatusWindow(
+			options.now ?? (() => Date.now()),
+			// Read per consumption so settings changes apply live; the facade owns
+			// the log boundary, so the clamp warning routes through its logger.
+			() => getDiscoveryStaleServeWindow((message, data) => this.log(message, data))
+		);
 		this._reporter = new GroupStatusReporter(this._statusWindow);
 		this._decorator = new ServedModelDecorator({
 			getEntryModelCapabilities: options.getEntryModelCapabilities ?? (() => undefined),
@@ -335,8 +380,12 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	 * `quietMs`, or at `deadlineMs`. Zero group reports by the deadline (the
 	 * event went nowhere, or the host only made the groupless call) falls back
 	 * to probing the group servers already observed in the status window.
+	 * The default deadline follows the configured discovery timeout (see
+	 * hostRefreshDeadlineMs), so Sync Models Now and Test Connection wait out
+	 * one full discovery attempt instead of abandoning the pass at a fixed 8s.
 	 */
-	async refreshViaHost(deadlineMs = 8000, quietMs = 500): Promise<void> {
+	async refreshViaHost(deadlineMs?: number, quietMs = 500): Promise<void> {
+		const deadline = deadlineMs ?? defaultHostRefreshDeadlineMs((message, data) => this.log(message, data));
 		// Every caller of this method wants a real round trip (Test Connection,
 		// Sync Models Now), so the discovery cache is dropped first; clear()
 		// detaches in-flight loads, so they cannot re-store pre-drop data. The
@@ -348,7 +397,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		const start = Date.now();
 		let lastCount = groupReportsBefore;
 		let lastChangeAt = Date.now();
-		while (Date.now() - start < deadlineMs) {
+		while (Date.now() - start < deadline) {
 			await delay(50);
 			if (this._reporter.groupReportCount !== lastCount) {
 				lastCount = this._reporter.groupReportCount;

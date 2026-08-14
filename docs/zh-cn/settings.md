@@ -48,6 +48,7 @@ Settings Sync 有意跳过这里最要紧的部分 - `servers` 是机器作用�
 | `litellm-vscode-chat.chat.promptCaching` | `true` | 在宣布支持的模型上, 跨会话轮次复用提供方侧的提示缓存; [详情见下](#提示缓存) |
 | `litellm-vscode-chat.discovery.timeout` | `30000` | 单轮模型发现的硬性时间预算, 毫秒 - 含重试和 OAuth 令牌交换。最小 1000 |
 | `litellm-vscode-chat.discovery.cacheTtl` | `3600000` | 已发现的模型列表复用多久, 毫秒。VS Code 重新解析提供程序很频繁 (有时一秒好几次); 缓存把那挡在你的服务器之外。`0` 表示每次都新取 (负值钳制为 `0`); 失败从不缓存; 同时发生的刷新共享一个请求; "LiteLLM: Sync Models Now" 绕过它 |
+| `litellm-vscode-chat.discovery.staleServeWindow` | `600000` | 服务器停止响应后, 其最后已知的模型继续提供 (标记为过期) 的时长, 毫秒, 从最后一次成功发现起算。若服务器休眠或重启超过十分钟, 可调大它; `0` 表示从不提供过期模型 (刷新失败立即清空该服务器的列表)。详情: [模型 - 发现](models.md#发现) |
 | `litellm-vscode-chat.usage.pollInterval` | `300000` | 后台支出/预算轮询节奏, 毫秒。`0` = 关闭: 仪表板打开时仍会获取, 但没有后台请求, 没有警报。低于 `30000` 的非零值向上钳制到 30 秒。完整故事: [用量](usage.md) |
 | `litellm-vscode-chat.usage.alertThresholds` | `[0.8, 0.95]` | 各触发一次警报的预算比例; 每个值在 (0, 1] 内; 空列表 = 关闭警报。完整故事: [用量 - 警报](usage.md#警报) |
 | `litellm-vscode-chat.usage.statusBar` | `"always"` | 用量状态栏项: `"always"`、`"alerts-only"`、`"off"`。完整故事: [用量 - 状态栏](usage.md#状态栏) |

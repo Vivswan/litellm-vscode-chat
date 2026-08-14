@@ -83,6 +83,7 @@
 	"litellm.config.chat.timeout.description": "聊天完成請求的逾時 (毫秒)。預設為 300000ms (5 分鐘)。若長時間執行的請求出現逾時錯誤, 請調高此值。",
 	"litellm.config.discovery.timeout.description": "模型探索請求的逾時 (毫秒)。預設為 30000ms (30 秒)。",
 	"litellm.config.discovery.cacheTtl.description": "已探索的模型清單在再次詢問伺服器前可重複使用多久 (毫秒)。預設為 3600000 (1 小時)。較高的值可避免 VS Code 密集重新解析提供者時重複發出探索請求, 但伺服器上新增或移除的模型最久要這麼長時間才會出現; 較低的值能較快反映伺服器端變更, 代價是更多請求。設為 0 表示每次重新整理都詢問伺服器 (同時發生的重新整理仍共用一個請求)。執行「LiteLLM: 立即同步模型」可不受此設定影響立即重新整理。",
+	"litellm.config.discovery.staleServeWindow.description": "伺服器停止回應後, 其最後已知的模型繼續提供 (標記為過時) 的時長 (毫秒), 從最後一次成功探索起算。預設為 600000 (10 分鐘)。若你的伺服器會休眠或重啟更久, 且希望期間模型仍留在選擇器中, 可調高此值; 設為 0 則永不提供過時模型, 重新整理失敗會立即清空該伺服器的模型清單。",
 	"litellm.config.usage.pollInterval.description": "從每個 LiteLLM 伺服器重新整理各伺服器花費與預算資料的頻率, 以毫秒計。預設為 300000 (5 分鐘)。設為 0 可完全停用輪詢 (不發出背景用量請求, 也不產生預算提醒); 「LiteLLM: 立即重新整理用量」命令與儀表板仍可隨需取得。",
 	"litellm.config.usage.alertThresholds.description": "觸發用量提醒的預算比例, 每個值需大於 0 且不超過 1。預設為 [0.8, 0.95]: 在伺服器有效預算的 80% 與 95% 時提醒。空陣列會停用門檻提醒。",
 	"litellm.config.usage.statusBar.description": "何時顯示用量狀態列項目: \"always\" (一律顯示), \"alerts-only\" (僅當某伺服器超過預算提醒門檻時), 或 \"off\" (永不)。",

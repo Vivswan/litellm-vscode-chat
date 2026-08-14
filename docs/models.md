@@ -24,7 +24,7 @@ The extension asks each configured server what it serves - on activation, when s
 - Discovery requests are idempotent GETs, so transient failures are retried; the whole pass - retries and any OAuth token exchange included - is bounded by `discovery.timeout` (default 30 seconds). Details on the retry rules: [Troubleshooting](troubleshooting.md#timeouts-and-retries).
 - A server *expected* to fail an endpoint (a gateway with no model listing) says so in its entry's `discovery.expectedFailures`: single attempt, an info-level log line, no error noise. See [Servers](servers.md#discovery-and-expected-failures).
 - Results are reused for `discovery.cacheTtl` (default 1 hour), because VS Code re-resolves providers often - sometimes several times per second. Failures are never cached, simultaneous refreshes share one request, and "LiteLLM: Sync Models Now" bypasses the cache when you need a fresh list immediately.
-- When a background refresh fails but the last successful discovery is under ten minutes old, the last known models stay available, flagged stale (a warning icon with a hover note) instead of vanishing from the picker mid-session.
+- When a background refresh fails but the last successful discovery is within `discovery.staleServeWindow` (default ten minutes), the last known models stay available, flagged stale (a warning icon with a hover note) instead of vanishing from the picker mid-session. Raise the window for a server that sleeps or restarts for longer; set it to `0` to drop a failing server's models on the first failed refresh.
 
 ### Declared models
 

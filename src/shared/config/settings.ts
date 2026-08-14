@@ -92,6 +92,16 @@ export function getDiscoveryCacheTtl(log?: LogFn): number {
 	return getDurationSetting("discovery.cacheTtl", log);
 }
 
+/**
+ * How long a failing group refresh may keep serving the group's last known
+ * models flagged stale, anchored to the last successful discovery, in
+ * milliseconds. 0 is a valid configuration (the spec's floor): it disables
+ * stale serving entirely, so a failed silent refresh serves the empty list.
+ */
+export function getDiscoveryStaleServeWindow(log?: LogFn): number {
+	return getDurationSetting("discovery.staleServeWindow", log);
+}
+
 export function isPromptCachingEnabled(): boolean {
 	return getBooleanSetting("chat.promptCaching");
 }

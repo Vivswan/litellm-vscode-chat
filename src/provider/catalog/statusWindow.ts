@@ -10,14 +10,15 @@ import type { ServerStatus } from "../../shared/servers";
 import type { GroupServer, PreAttachModelInfo } from "./groupModels";
 
 /**
- * Rolling status entries and their cached clients are evicted when not
- * refreshed within this window. The same window bounds stale serving: a
- * group's last known models are served past a failed refresh only while its
- * last SUCCESSFUL discovery is younger than this, so a permanently-down
- * server stops offering selectable models instead of surviving on its own
- * failure reports.
+ * The floor of the eviction window: rolling status entries and their cached
+ * clients are evicted when not refreshed within evictionTtlMs(). The
+ * configured stale-serve window bounds stale serving exactly (see
+ * staleServableModels) but only GROWS eviction beyond this floor, never
+ * shrinks it below: eviction anchors to the last report of any kind, and a
+ * short window would evict mid-sweep entries the one-cycle grace exists to
+ * keep visible (statusWindow.test.ts pins both directions).
  */
-const STATUS_TTL_MS = 10 * 60 * 1000;
+const EVICTION_TTL_FLOOR_MS = 10 * 60 * 1000;
 
 /**
  * One server's slice of the status window, for read-only consumers (the
@@ -30,7 +31,7 @@ export interface ServerModelsSnapshot {
 	readonly models: readonly PreAttachModelInfo[];
 	/**
 	 * The raw model IDs discovery last returned for this server, carried
-	 * forward across failure reports like lastSuccessAt. declared-ID inertness
+	 * forward across failure reports like lastSuccess. declared-ID inertness
 	 * is judged against this set, never against `models`: registration may
 	 * emit only synthetic variants (`foo:cheapest`) for a discovered `foo`.
 	 */
@@ -49,12 +50,16 @@ type StatusWindowEntry = {
 	cycle: number;
 	at: number;
 	/**
-	 * When this server last reported a successful discovery, carried forward
-	 * across failure reports (undefined = never succeeded). `at` refreshes on
-	 * every report, success or not, so it cannot age anything; this is the
-	 * anchor for the stale-serving window.
+	 * The last successful discovery: when it happened and what it served,
+	 * carried forward across failure reports (undefined = never succeeded).
+	 * `at` refreshes on every report, success or not, so it cannot age
+	 * anything; this is the anchor and the source set for stale serving. Kept
+	 * apart from `models` (what the LATEST report served, the dashboard's
+	 * view): a failure report past the stale window records an empty `models`,
+	 * but must not destroy this bundle - a discovery.staleServeWindow raised
+	 * mid-outage serves from it again.
 	 */
-	lastSuccessAt: number | undefined;
+	lastSuccess: { at: number; models: readonly PreAttachModelInfo[] } | undefined;
 	status: ServerStatus;
 	models: readonly PreAttachModelInfo[];
 	discoveredRawIds: readonly string[];
@@ -86,7 +91,7 @@ export interface DiscoveryObservations {
  * re-fetched in the current sweep visible, so the merged view never flickers
  * mid-sweep. Two fallbacks cover hosts that skip the group-agnostic call:
  * re-seeing a group within one unmarked cycle also starts a new cycle
- * (beginCycleOnReSight), and entries untouched for STATUS_TTL_MS go
+ * (beginCycleOnReSight), and entries untouched for evictionTtlMs() go
  * regardless.
  */
 export class StatusWindow {
@@ -105,7 +110,28 @@ export class StatusWindow {
 	private cycleMarked = false;
 	private readonly entries = new Map<string, StatusWindowEntry>();
 
-	constructor(private readonly now: () => number) {}
+	constructor(
+		private readonly now: () => number,
+		/**
+		 * The discovery.staleServeWindow setting, read at consumption time so a
+		 * settings change reaches the next refresh without event plumbing. The
+		 * provider facade wires the settings read; tests inject constants.
+		 */
+		private readonly staleServeWindowMs: () => number
+	) {}
+
+	/**
+	 * How long an entry untouched by any report survives: the configured
+	 * stale-serve window, floored at EVICTION_TTL_FLOOR_MS. The window must
+	 * reach eviction because the stale-serve anchor (lastSuccess) lives on
+	 * the entry: a host that made no refresh for longer than the floor (a
+	 * suspended laptop) would otherwise evict the entry at the next cycle
+	 * boundary and lose the anchor a longer configured window promises to
+	 * serve from.
+	 */
+	private evictionTtlMs(): number {
+		return Math.max(this.staleServeWindowMs(), EVICTION_TTL_FLOOR_MS);
+	}
 
 	/** The group-agnostic call's cycle boundary; marks the cycle as host-driven. */
 	beginCycle(): void {
@@ -131,8 +157,9 @@ export class StatusWindow {
 		this.cycle += 1;
 		this.cycleMarked = false;
 		const now = this.now();
+		const ttl = this.evictionTtlMs();
 		for (const [serverId, entry] of this.entries) {
-			if (entry.cycle < this.cycle - 1 || now - entry.at > STATUS_TTL_MS) {
+			if (entry.cycle < this.cycle - 1 || now - entry.at > ttl) {
 				this.entries.delete(serverId);
 			}
 		}
@@ -155,7 +182,7 @@ export class StatusWindow {
 		this.entries.set(status.serverId, {
 			cycle: this.cycle,
 			at: this.now(),
-			lastSuccessAt: status.state === "ok" ? this.now() : previous?.lastSuccessAt,
+			lastSuccess: status.state === "ok" ? { at: this.now(), models } : previous?.lastSuccess,
 			status,
 			models,
 			discoveredRawIds:
@@ -203,18 +230,23 @@ export class StatusWindow {
 	 * last successful discovery they came from. Retention is anchored to that
 	 * SUCCESS, not the last report - failure reports refresh the entry's
 	 * timestamp, so without the anchor a permanently-down server would stay
-	 * selectable forever. Undefined once the anchor ages past STATUS_TTL_MS
-	 * (or the server never succeeded), at which point the failure serves the
-	 * empty list, as it always did.
+	 * selectable forever - and served from the success bundle, not from
+	 * `models`, so an out-of-window failure report (which records the empty
+	 * list) cannot destroy what a raised discovery.staleServeWindow would
+	 * still serve. Undefined once the anchor ages past the configured window
+	 * (or the server never succeeded, or the window is 0 = stale serving
+	 * disabled), at which point the failure serves the empty list, as it
+	 * always did.
 	 */
 	staleServableModels(
 		serverId: string
 	): { models: readonly PreAttachModelInfo[]; discoveredRawIds: readonly string[]; lastSuccessAt: number } | undefined {
 		const entry = this.entries.get(serverId);
-		const lastSuccessAt = entry?.lastSuccessAt;
-		if (entry === undefined || lastSuccessAt === undefined || this.now() - lastSuccessAt > STATUS_TTL_MS) {
+		const lastSuccess = entry?.lastSuccess;
+		const windowMs = this.staleServeWindowMs();
+		if (entry === undefined || lastSuccess === undefined || windowMs <= 0 || this.now() - lastSuccess.at > windowMs) {
 			return undefined;
 		}
-		return { models: entry.models, discoveredRawIds: entry.discoveredRawIds, lastSuccessAt };
+		return { models: lastSuccess.models, discoveredRawIds: entry.discoveredRawIds, lastSuccessAt: lastSuccess.at };
 	}
 }

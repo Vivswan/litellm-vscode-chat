@@ -174,7 +174,7 @@ What the two timeout settings bound, and what retries when:
 - **Discovery retries.** Model discovery requests are idempotent GETs, retried up to twice on transient failures, with the whole pass - retries and any OAuth token exchange included - bounded by `discovery.timeout` (default 30 seconds). Raise it for slow gateway infrastructure; note that a slow OAuth identity provider spends from the same budget, and the exchange is bounded by `discovery.timeout` on chat requests as well.
 - **Expected failures do not retry.** An endpoint named in the entry's `discovery.expectedFailures` gets a single attempt and an info-level log line instead of a red error ([Servers](servers.md#entry-reference)).
 - **Minimums.** Both timeouts clamp to at least 1000 ms.
-- **The stale-list grace.** When a background refresh fails but the last successful discovery is under ten minutes old, the extension keeps serving the last known model list, flagged stale with a warning icon, instead of dropping your models mid-session.
+- **The stale-list grace.** When a background refresh fails but the last successful discovery is within `discovery.staleServeWindow` (default ten minutes), the extension keeps serving the last known model list, flagged stale with a warning icon, instead of dropping your models mid-session. Raise the window for a server that sleeps longer; `0` turns the grace off.
 
 Defaults and units for the settings are in the [reference](settings.md#reference).
 

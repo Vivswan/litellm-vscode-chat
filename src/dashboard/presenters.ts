@@ -254,6 +254,7 @@ const NUMBER_SETTING_UNITS = {
 	"chat.timeout": "ms",
 	"discovery.timeout": "ms",
 	"discovery.cacheTtl": "ms",
+	"discovery.staleServeWindow": "ms",
 	"usage.pollInterval": "ms",
 } as const satisfies Record<NumberSettingId, NumberSettingUnit>;
 
@@ -371,6 +372,15 @@ export function numberSettingPresentation(id: NumberSettingId): NumberSettingPre
 				description: l10n.t("How long discovered model lists are reused; 0 asks the server on every refresh."),
 				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
 				zeroMeaning: l10n.t("every refresh"),
+			};
+		case "discovery.staleServeWindow":
+			return {
+				label: l10n.t("Stale-list grace"),
+				description: l10n.t(
+					"How long an unreachable server's last known models stay in the picker; 0 drops them at once."
+				),
+				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
+				zeroMeaning: l10n.t("no stale serving"),
 			};
 		case "usage.pollInterval":
 			return {

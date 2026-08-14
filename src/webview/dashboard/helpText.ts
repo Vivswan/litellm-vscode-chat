@@ -288,6 +288,7 @@ export const SETTING_ROW_HELP_IDS: readonly (NumberSettingId | BooleanSettingId)
 	"chat.timeout",
 	"discovery.timeout",
 	"discovery.cacheTtl",
+	"discovery.staleServeWindow",
 	"usage.pollInterval",
 	"chat.promptCaching",
 ];
@@ -310,6 +311,12 @@ export function settingRowHelp(id: NumberSettingId | BooleanSettingId): string |
 			return l10n.t(
 				"How long discovered model lists are reused, e.g. 1h or 0 to ask the server on every refresh. Sync Models Now always refreshes immediately."
 			);
+		case "discovery.staleServeWindow":
+			return l10n.t({
+				message:
+					"How long a failing server's last known models stay in the picker, e.g. 1h for a homelab proxy that sleeps; counted from the last successful sync. 0 drops them on the first failed refresh.",
+				comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
+			});
 		case "usage.pollInterval":
 			return l10n.t({
 				message:

@@ -87,7 +87,7 @@ const SETTING_GROUPS: readonly {
 	{ title: () => l10n.t("Chat"), numbers: ["chat.timeout"], booleans: ["chat.promptCaching"] },
 	{
 		title: () => l10n.t("Discovery"),
-		numbers: ["discovery.timeout", "discovery.cacheTtl"],
+		numbers: ["discovery.timeout", "discovery.cacheTtl", "discovery.staleServeWindow"],
 		booleans: [],
 	},
 	{ title: () => l10n.t("Usage"), numbers: ["usage.pollInterval"], booleans: [] },

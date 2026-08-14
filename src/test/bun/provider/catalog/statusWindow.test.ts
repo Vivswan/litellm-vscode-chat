@@ -1,0 +1,125 @@
+/**
+ * The stale-serve window against the StatusWindow directly: the configured
+ * discovery.staleServeWindow bounds staleServableModels exactly (0 disables
+ * stale serving), while eviction only GROWS with the window and never shrinks
+ * below its ten-minute floor. Both directions are load-bearing: a suspended
+ * host must not lose the success anchor a longer window promises to serve
+ * from, and a zero window must not evict mid-sweep entries the one-cycle
+ * grace keeps visible.
+ */
+import { describe, expect, test } from "bun:test";
+import type { GroupServer, PreAttachModelInfo } from "../../../../provider/catalog/groupModels";
+import { StatusWindow } from "../../../../provider/catalog/statusWindow";
+import { markLogSafe } from "../../../../shared/logger";
+import type { ServerStatus } from "../../../../shared/servers";
+import { normalizeBaseUrl } from "../../../../shared/util/baseUrl";
+
+const MINUTE_MS = 60_000;
+const DEFAULT_WINDOW_MS = 10 * MINUTE_MS;
+
+const groupServer: GroupServer = { baseUrl: normalizeBaseUrl("http://litellm.test"), apiKey: "k", label: "Default" };
+
+// The window stores and returns models opaquely; one branded stand-in is enough.
+const models = [{ id: "test-model" } as PreAttachModelInfo];
+
+// Failure reports below record the EMPTY list, exactly like groupDiscovery's
+// out-of-window failure path: stale retention must come from the recorded
+// success, never from what a failure report happened to carry.
+
+function status(state: "ok" | "error", serverId = "s1"): ServerStatus {
+	const common = { serverId, label: "Default", baseUrl: "http://litellm.test", lastChecked: "now" };
+	return state === "ok"
+		? { ...common, state, modelCount: 1 }
+		: { ...common, state, error: "boom", logSafeError: markLogSafe("boom") };
+}
+
+/** A window on a fake clock with a mutable configured stale-serve window. */
+function makeWindow(initialWindowMs: number) {
+	const clock = { nowMs: 1_000_000 };
+	const config = { windowMs: initialWindowMs };
+	const window = new StatusWindow(
+		() => clock.nowMs,
+		() => config.windowMs
+	);
+	return { window, clock, config };
+}
+
+describe("provider/catalog/statusWindow: the configured stale-serve window", () => {
+	test("the default window serves at ten minutes and stops past it (today's behavior)", () => {
+		const { window, clock } = makeWindow(DEFAULT_WINDOW_MS);
+		window.record(status("ok"), models, groupServer, { discoveredRawIds: ["test-model"] });
+
+		clock.nowMs += DEFAULT_WINDOW_MS;
+		window.record(status("error"), [], groupServer);
+		expect(window.staleServableModels("s1")?.models).toEqual(models);
+
+		clock.nowMs += 1;
+		expect(window.staleServableModels("s1")).toBeUndefined();
+	});
+
+	test("a zero window never serves stale, even right after the success", () => {
+		const { window } = makeWindow(0);
+		window.record(status("ok"), models, groupServer, { discoveredRawIds: ["test-model"] });
+		window.record(status("error"), [], groupServer);
+		expect(window.staleServableModels("s1")).toBeUndefined();
+	});
+
+	test("a longer window serves past ten minutes and honors its own bound", () => {
+		const { window, clock } = makeWindow(60 * MINUTE_MS);
+		window.record(status("ok"), models, groupServer, { discoveredRawIds: ["test-model"] });
+
+		clock.nowMs += 30 * MINUTE_MS;
+		window.record(status("error"), [], groupServer);
+		expect(window.staleServableModels("s1")?.models).toEqual(models);
+
+		clock.nowMs += 31 * MINUTE_MS;
+		window.record(status("error"), [], groupServer);
+		expect(window.staleServableModels("s1")).toBeUndefined();
+	});
+
+	test("a settings change reaches the next read without re-recording", () => {
+		const { window, clock, config } = makeWindow(DEFAULT_WINDOW_MS);
+		window.record(status("ok"), models, groupServer, { discoveredRawIds: ["test-model"] });
+		clock.nowMs += 30 * MINUTE_MS;
+		window.record(status("error"), [], groupServer);
+		expect(window.staleServableModels("s1")).toBeUndefined();
+
+		config.windowMs = 60 * MINUTE_MS;
+		expect(window.staleServableModels("s1")?.models).toEqual(models);
+	});
+
+	test("eviction grows with the window: a report gap longer than the floor keeps the anchor alive", () => {
+		// The suspended-host scenario: last report 30 minutes ago, then a new
+		// sweep begins. With the historical fixed TTL the cycle boundary would
+		// evict the entry and lose the recorded success before the failing refresh
+		// could serve from it.
+		const { window, clock } = makeWindow(60 * MINUTE_MS);
+		window.record(status("ok"), models, groupServer, { discoveredRawIds: ["test-model"] });
+
+		clock.nowMs += 30 * MINUTE_MS;
+		window.beginCycle();
+		expect(window.serverIds()).toEqual(["s1"]);
+		window.record(status("error"), [], groupServer);
+		expect(window.staleServableModels("s1")?.models).toEqual(models);
+	});
+
+	test("eviction keeps its ten-minute floor with the default window (today's behavior)", () => {
+		const { window, clock } = makeWindow(DEFAULT_WINDOW_MS);
+		window.record(status("ok"), models, groupServer, { discoveredRawIds: ["test-model"] });
+
+		clock.nowMs += 30 * MINUTE_MS;
+		window.beginCycle();
+		expect(window.serverIds()).toEqual([]);
+	});
+
+	test("a zero window never shrinks eviction below the floor: mid-sweep entries survive the cycle boundary", () => {
+		const { window, clock } = makeWindow(0);
+		window.record(status("ok"), models, groupServer, { discoveredRawIds: ["test-model"] });
+
+		// One cycle boundary minutes later: the one-cycle grace plus the
+		// eviction floor keep the entry visible for the merged status view.
+		clock.nowMs += 5 * MINUTE_MS;
+		window.beginCycle();
+		expect(window.serverIds()).toEqual(["s1"]);
+	});
+});

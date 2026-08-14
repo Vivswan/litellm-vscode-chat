@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import * as fc from "fast-check";
 import { HttpResponse, http } from "msw";
 import * as vscode from "vscode";
+import { defaultHostRefreshDeadlineMs, hostRefreshDeadlineMs } from "../../provider";
 import { DiscoveryCache } from "../../provider/catalog/discoveryCache";
 import type { DiscoveredGroupModels } from "../../provider/catalog/groupDiscovery";
 import { attachGroupServer } from "../../provider/catalog/groupModels";
@@ -19,6 +20,30 @@ const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
 const SEED = resolveFuzzSeed();
 
 suite("provider", () => {
+	test("hostRefreshDeadlineMs floors at 8s and follows the discovery timeout plus its margin", () => {
+		// The floor: a pathologically low discovery timeout (the reader clamps
+		// to 1000) must not make the host pass abandon almost instantly - the
+		// deadline also bounds the host's own re-resolve round trip.
+		assert.strictEqual(hostRefreshDeadlineMs(1000), 8000);
+		// At the default discovery timeout the margin applies: the deadline
+		// outlasts one full discovery attempt plus report plumbing, so raising
+		// discovery.timeout can never silently starve Sync Models Now's host pass.
+		assert.strictEqual(hostRefreshDeadlineMs(30000), 32000);
+		assert.strictEqual(hostRefreshDeadlineMs(120000), 122000);
+	});
+
+	test("the default refresh deadline follows discovery.timeout, never chat.timeout", async () => {
+		// The wiring pin behind the pure-function test above: refreshViaHost's
+		// default branch reads the DISCOVERY timeout. A swap to the chat timeout
+		// would pass every other test (they all supply explicit deadlines).
+		await withConfig({ "discovery.timeout": 45000, "chat.timeout": 1000 }, async () => {
+			assert.strictEqual(defaultHostRefreshDeadlineMs(), 47000);
+		});
+		await withConfig({ "discovery.timeout": 1000, "chat.timeout": 999999 }, async () => {
+			assert.strictEqual(defaultHostRefreshDeadlineMs(), 8000, "the floor holds however low the timeout goes");
+		});
+	});
+
 	test("provideLanguageModelChatInformation returns empty array with no configured servers", async () => {
 		const provider = makeProvider();
 

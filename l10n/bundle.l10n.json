@@ -359,6 +359,13 @@
 	"Hide the {0}": "Hide the {0}",
 	"Hiding the group failed:": "Hiding the group failed:",
 	"High contrast themes always follow the editor, whichever option is picked here.": "High contrast themes always follow the editor, whichever option is picked here.",
+	"How long a failing server's last known models stay in the picker, e.g. 1h for a homelab proxy that sleeps; counted from the last successful sync. 0 drops them on the first failed refresh./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {
+		"message": "How long a failing server's last known models stay in the picker, e.g. 1h for a homelab proxy that sleeps; counted from the last successful sync. 0 drops them on the first failed refresh.",
+		"comment": [
+			"Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."
+		]
+	},
+	"How long an unreachable server's last known models stay in the picker; 0 drops them at once.": "How long an unreachable server's last known models stay in the picker; 0 drops them at once.",
 	"How long discovered model lists are reused, e.g. 1h or 0 to ask the server on every refresh. Sync Models Now always refreshes immediately.": "How long discovered model lists are reused, e.g. 1h or 0 to ask the server on every refresh. Sync Models Now always refreshes immediately.",
 	"How long discovered model lists are reused; 0 asks the server on every refresh.": "How long discovered model lists are reused; 0 asks the server on every refresh.",
 	"How often per-server spend and budget data refresh; 0 turns polling off.": "How often per-server spend and budget data refresh; 0 turns polling off.",
@@ -817,6 +824,7 @@
 	"Spend so far; this server has no budget to measure it against": "Spend so far; this server has no budget to measure it against",
 	"Spend tracking needs a LiteLLM server with a database (the /key/info endpoint); servers without one simply do not appear here.": "Spend tracking needs a LiteLLM server with a database (the /key/info endpoint); servers without one simply do not appear here.",
 	"Spent:": "Spent:",
+	"Stale-list grace": "Stale-list grace",
 	"Store an API key or OAuth secret outside settings files": "Store an API key or OAuth secret outside settings files",
 	"Store in:": "Store in:",
 	"Stored credentials": "Stored credentials",
@@ -1087,6 +1095,7 @@
 	"no request statistics": "no request statistics",
 	"no request statistics to compute it from": "no request statistics to compute it from",
 	"no requests in the window to compute it from": "no requests in the window to compute it from",
+	"no stale serving": "no stale serving",
 	"none declared": "none declared",
 	"not a usable http(s) URL": "not a usable http(s) URL",
 	"not in use": "not in use",

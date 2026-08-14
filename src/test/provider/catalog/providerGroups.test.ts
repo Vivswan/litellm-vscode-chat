@@ -682,6 +682,103 @@ suite("provider groups", () => {
 		});
 	});
 
+	test("a configured discovery.staleServeWindow of 0 disables stale serving outright", async () => {
+		const provider = makeProvider();
+		let fail = false;
+		mswServer.use(
+			http.get(MODEL_INFO_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))),
+			http.get(MODELS_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)))
+		);
+
+		await withConfig({ "discovery.cacheTtl": 0, "discovery.staleServeWindow": 0 }, async () => {
+			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
+			fail = true;
+			const served = await provider.provideLanguageModelChatInformation(
+				groupOptions({ baseUrl: TEST_BASE_URL }),
+				cancellation()
+			);
+			assert.deepStrictEqual(served, [], "a zero window must serve the empty list on the very first failed refresh");
+		});
+	});
+
+	test("a raised discovery.staleServeWindow serves stale models past the ten-minute default", async () => {
+		let nowMs = 1_000_000;
+		const provider = makeProvider(undefined, "test-key", undefined, { now: () => nowMs });
+		let fail = false;
+		mswServer.use(
+			http.get(MODEL_INFO_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))),
+			http.get(MODELS_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)))
+		);
+
+		await withConfig({ "discovery.cacheTtl": 0, "discovery.staleServeWindow": 60 * 60_000 }, async () => {
+			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
+
+			fail = true;
+			nowMs += 30 * 60_000;
+			const withinWindow = await provider.provideLanguageModelChatInformation(
+				groupOptions({ baseUrl: TEST_BASE_URL }),
+				cancellation()
+			);
+			assert.strictEqual(
+				withinWindow.length,
+				1,
+				"thirty minutes after the last success a one-hour window still serves"
+			);
+			assert.strictEqual(expectDefined(withinWindow[0]?.statusIcon).id, "warning");
+
+			nowMs += 31 * 60_000;
+			const pastWindow = await provider.provideLanguageModelChatInformation(
+				groupOptions({ baseUrl: TEST_BASE_URL }),
+				cancellation()
+			);
+			assert.deepStrictEqual(pastWindow, [], "the configured window still bounds stale serving");
+		});
+	});
+
+	test("raising discovery.staleServeWindow mid-outage restores serving after an out-of-window failure", async () => {
+		// The out-of-window failure report records an empty model list; the
+		// stale-serve source must survive it, or raising the setting after
+		// noticing the models vanished could never bring them back.
+		let nowMs = 1_000_000;
+		const provider = makeProvider(undefined, "test-key", undefined, { now: () => nowMs });
+		let fail = false;
+		mswServer.use(
+			http.get(MODEL_INFO_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))),
+			http.get(MODELS_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)))
+		);
+
+		// withConfig reads this object live, so mutating it mid-callback is a
+		// real settings change between refreshes.
+		const config: Record<string, unknown> = { "discovery.cacheTtl": 0 };
+		await withConfig(config, async () => {
+			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
+
+			// Failing refreshes keep flowing (the host re-resolves on its own),
+			// so the entry's report timestamp stays fresh and only the success
+			// anchor ages: eviction never fires, exactly the outage a user
+			// watches before reaching for the setting.
+			fail = true;
+			nowMs += 5 * 60_000;
+			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
+
+			nowMs += 6 * 60_000;
+			const pastDefaultWindow = await provider.provideLanguageModelChatInformation(
+				groupOptions({ baseUrl: TEST_BASE_URL }),
+				cancellation()
+			);
+			assert.deepStrictEqual(pastDefaultWindow, [], "eleven minutes out, the default window serves nothing");
+
+			config["discovery.staleServeWindow"] = 60 * 60_000;
+			nowMs += 60_000;
+			const restored = await provider.provideLanguageModelChatInformation(
+				groupOptions({ baseUrl: TEST_BASE_URL }),
+				cancellation()
+			);
+			assert.strictEqual(restored.length, 1, "the raised window serves the last successful set again");
+			assert.strictEqual(expectDefined(restored[0]?.statusIcon).id, "warning", "restored models stay stale-flagged");
+		});
+	});
+
 	test("a non-silent group failure still throws even when a last known model set exists", async () => {
 		const provider = makeProvider();
 		let fail = false;
