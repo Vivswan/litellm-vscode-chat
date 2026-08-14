@@ -5,6 +5,7 @@ import {
 	compileDashboard,
 	compileTheme,
 	dashboardEntry,
+	FORCED_COLORS_QUERY,
 	forcedColorsBlocks,
 	rulesFor,
 	type StyleRule,
@@ -699,26 +700,47 @@ const INK_GAP_CLUSTERS = [
 	{ selector: ".row-diagnostic-actions", sheet: "dashboard", declaration: "column-gap: 4px", unlayered: false },
 ] as const;
 
+/**
+ * A rule's declarations, asserted to STATE `declaration` rather than merely to
+ * contain its text: `gap: 6px` is a substring of `row-gap: 6px`, which is a
+ * different property with a different effect on the same rule.
+ */
+function statesDeclaration(declarations: string, declaration: string): boolean {
+	const escaped = declaration.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	return new RegExp(`(^|[;{\\s])${escaped};`).test(declarations);
+}
+
 test("every ink-stated action cluster keeps its bordered-mode box gap", async () => {
 	const sheets = { theme: await compileTheme(), dashboard: await compileDashboard() };
 	for (const cluster of INK_GAP_CLUSTERS) {
 		const output = sheets[cluster.sheet];
-		const blocks = forcedColorsBlocks(output).filter((block) => block.text.includes(`${cluster.selector} {`));
-		expect(blocks, `no forced-colors gap for ${cluster.selector}`).toHaveLength(1);
-		expect(blocks[0]?.text).toContain(cluster.declaration);
-		// Unconditional: a twin written inside a width query stops existing at
-		// every other width, and the narrow tiers are where these clusters have
-		// the least room to grow into.
-		expect(blocks[0]?.unconditional, `${cluster.selector}'s twin sits inside a query`).toBe(true);
-		expect(blocks[0]?.unlayered, `${cluster.selector}'s twin is in the wrong layer`).toBe(cluster.unlayered);
+		// The forced-colors gap is read as the RULE it is, not as a substring of
+		// the block around it: that block holds six other rules in theme.css, so
+		// "the block mentions this selector and the block mentions this gap"
+		// stays green with the gap on any one of its neighbours.
+		const forced = rulesFor(output, cluster.selector).filter((rule) => rule.context.includes(FORCED_COLORS_QUERY));
+		expect(forced, `no forced-colors gap for ${cluster.selector}`).toHaveLength(1);
+		expect(
+			statesDeclaration(forced[0]?.declarations ?? "", cluster.declaration),
+			`${cluster.selector}'s forced-colors twin states another gap`
+		).toBe(true);
+		// The forced-colors query and NOTHING else: a twin written inside a width
+		// query stops existing at every other width, and the narrow tiers are
+		// where these clusters have the least room to grow into.
+		expect(
+			forced[0]?.context.filter((prelude) => /^@(?:media|container|supports)\b/.test(prelude)),
+			`${cluster.selector}'s twin sits inside another query`
+		).toEqual([FORCED_COLORS_QUERY]);
+		expect(forced[0]?.unlayered, `${cluster.selector}'s twin is in the wrong layer`).toBe(cluster.unlayered);
 		// The high-contrast themes draw the same boxes, so they take the same
 		// number - read as the one rule both selectors open, carrying the
 		// declaration itself, because a selector that merely occurs somewhere
 		// proves neither that it states the gap nor that its sibling exists.
 		const hc = highContrastTwin(output, cluster.selector);
-		expect(hc.declarations, `the high-contrast twin for ${cluster.selector} states another gap`).toContain(
-			cluster.declaration
-		);
+		expect(
+			statesDeclaration(hc.declarations, cluster.declaration),
+			`the high-contrast twin for ${cluster.selector} states another gap`
+		).toBe(true);
 		expect(hc.unconditional).toBe(true);
 		expect(hc.unlayered).toBe(cluster.unlayered);
 	}

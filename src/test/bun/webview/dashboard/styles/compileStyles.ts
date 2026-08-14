@@ -66,7 +66,8 @@ export interface StyleRule {
 	readonly unconditional: boolean;
 }
 
-const FORCED_COLORS = "@media (forced-colors: active)";
+/** The forced-colors query, as the compiled at-rule prelude reads. */
+export const FORCED_COLORS_QUERY = "@media (forced-colors: active)";
 
 /** One brace block of a compiled sheet: what opened it, and what is inside. */
 interface Block {
@@ -151,7 +152,7 @@ function blocks(css: string): readonly Block[] {
 /** Every forced-colors block in a compiled sheet, with the at-rules around it. */
 export function forcedColorsBlocks(css: string): readonly ForcedColorsBlock[] {
 	return blocks(css)
-		.filter((block) => block.prelude === FORCED_COLORS)
+		.filter((block) => block.prelude === FORCED_COLORS_QUERY)
 		.map((block) => ({
 			text: block.text,
 			context: block.context,
@@ -170,7 +171,10 @@ export function forcedColorsBlocks(css: string): readonly ForcedColorsBlock[] {
  * The list is split rather than searched, so a longer selector ending in this
  * one is the different rule it is rather than a second copy of it - the trap a
  * substring match falls into, and how a pin ends up passing off a rule it was
- * never written about.
+ * never written about. The split is naive about a comma inside `:is(a, b)`,
+ * which no sheet here writes and which fails CLOSED if one ever does: the parts
+ * match no selector exactly, so the rule goes unfound and its caller fails
+ * loudly rather than asserting against the wrong rule.
  */
 export function rulesFor(css: string, selector: string): readonly StyleRule[] {
 	return blocks(css)

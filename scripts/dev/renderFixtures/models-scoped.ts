@@ -53,6 +53,12 @@ const fixture: RenderFixture = {
 			if (!document.querySelector("#panel-models .chip .chip-label")) {
 				throw new Error("the count link did not scope the Models page");
 			}
+			// The chip's own clear button, not just the chip: the geometry this
+			// fixture photographs is where that button's ink lands, so a chip
+			// rendered without it is a large green screenshot of nothing.
+			if (!document.querySelector('#panel-models .chip [data-slot="button"]')) {
+				throw new Error("the scope chip rendered without its clear button");
+			}
 		})()`,
 	],
 	viewport: { width: 1300, height: 700 },

@@ -34,10 +34,16 @@ const fixture: RenderFixture = {
 	steps: [
 		// Throw rather than photograph a page with no toast on it: the stack is
 		// this fixture's whole subject, and an ack whose method stops raising one
-		// would otherwise pass as a large, empty, successful render.
+		// would otherwise pass as a large, empty, successful render. The dismiss
+		// buttons are counted too, since where their ink lands is the geometry
+		// being photographed.
 		`(() => {
 			const toasts = document.querySelectorAll(".toast");
 			if (toasts.length !== 2) { throw new Error("expected 2 toasts, found " + toasts.length); }
+			const dismissers = document.querySelectorAll('.toast [data-slot="button"]');
+			if (dismissers.length !== 2) {
+				throw new Error("expected 2 toast dismiss buttons, found " + dismissers.length);
+			}
 		})()`,
 	],
 	// The stack pins itself to the viewport's bottom-right corner, so a
