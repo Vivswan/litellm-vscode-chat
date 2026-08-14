@@ -29,6 +29,7 @@
 import { spawn } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { parseArgs } from "node:util";
 
 const REPO_ROOT = path.resolve(__dirname, "../..");
@@ -165,9 +166,14 @@ async function main(): Promise<void> {
 	console.log(`  pane widths:     ${paneWidths.join(", ")}`);
 	const results: Result[] = [];
 	// A pool rather than a map: each sweep launches its own Chrome, so running
-	// the whole set at once would ask for sixty of them.
+	// the whole set at once would ask for sixty of them. The workers' first
+	// sweeps are staggered, because even the pool's four launches land in the
+	// same instant when every Chrome is cold: on a busy CI runner that first
+	// wave has starved itself past the harness's DevTools deadline, and
+	// spreading the cold starts costs about a second of wall clock once.
 	await Promise.all(
-		Array.from({ length: Math.min(jobs, queue.length) }, async () => {
+		Array.from({ length: Math.min(jobs, queue.length) }, async (_, worker) => {
+			await delay(worker * 400);
 			for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
 				const result = await sweep(next, widths, paneWidths);
 				results.push(result);

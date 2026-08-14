@@ -46,7 +46,7 @@
  * the CSP, the default styles) is a claim about the editor, and a wrong claim
  * is worse than no claim.
  */
-import { spawn, spawnSync } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -138,6 +138,15 @@ const REPO_ROOT = path.resolve(__dirname, "../..");
 const NARROW_PROBE_WIDTH = 320;
 const WIDE_PROBE_WIDTH = 1920;
 const READY_TIMEOUT_MS = 15000;
+/**
+ * How many times a Chrome that never brought up its DevTools server is
+ * launched before the run fails. Launch is the one phase that retries: on a
+ * loaded CI runner several Chromes starting at once can starve each other past
+ * READY_TIMEOUT_MS, which says nothing about the page. Anything after the
+ * server is up - a page error, a CSP violation, an overflow - is a finding
+ * about the code, and retrying it would mask nondeterminism instead of noise.
+ */
+const LAUNCH_ATTEMPTS = 3;
 const MIN_PNG_BYTES = 10 * 1024;
 
 function usage(): never {
@@ -589,8 +598,15 @@ function findChrome(): string {
 	);
 }
 
-/** Chrome writes "<port>\n<browser ws path>" here once the DevTools server is up. */
-async function waitForDevtoolsPort(userDataDir: string, timeoutMs: number): Promise<number> {
+/**
+ * Chrome writes "<port>\n<browser ws path>" here once the DevTools server is
+ * up. A Chrome that DIED on startup is not a slow one, so its exit ends the
+ * wait immediately: without that, a systematic launch failure (a sandbox the
+ * runner forbids, a missing shared library, a bad CHROME_EXTRA_FLAGS) would
+ * spend the full deadline once per attempt per fixture, and the sweep would
+ * run out its CI job timeout instead of reporting which fixtures never ran.
+ */
+async function waitForDevtoolsPort(chrome: ChildProcess, userDataDir: string, timeoutMs: number): Promise<number> {
 	const portFile = path.join(userDataDir, "DevToolsActivePort");
 	const deadline = Date.now() + timeoutMs;
 	while (Date.now() < deadline) {
@@ -602,9 +618,137 @@ async function waitForDevtoolsPort(userDataDir: string, timeoutMs: number): Prom
 		} catch {
 			// Not written yet.
 		}
+		// Read AFTER the file check, so a Chrome that wrote the port and exited
+		// in the same breath is still believed about the port.
+		if (chrome.exitCode !== null || chrome.signalCode !== null) {
+			throw new Error(
+				`Chrome exited (code ${chrome.exitCode ?? "none"}, signal ${chrome.signalCode ?? "none"})` +
+					` without writing ${portFile}`
+			);
+		}
 		await delay(100);
 	}
 	throw new Error(`Chrome did not write ${portFile} within ${timeoutMs}ms`);
+}
+
+/**
+ * Whether this platform has POSIX process groups. Windows does not: spawning
+ * detached there buys nothing, and a negative-pid probe reports ESRCH for a
+ * live Chrome - reading that as "group gone" would skip the kill entirely.
+ * On win32 the child handle and its exit/signal codes are the whole
+ * mechanism, which is what this harness did before launches retried.
+ */
+const CAN_SIGNAL_PROCESS_GROUP = process.platform !== "win32";
+
+/**
+ * Ends a Chrome by its whole process group, SIGTERM then SIGKILL: a launch
+ * killed mid-startup can leave renderer and GPU children the browser process
+ * never got around to owning, and a relaunch that leaked a Chrome per attempt
+ * would deepen the very contention it exists to survive. The spawn below puts
+ * Chrome in its own group (detached) so the negative-pid signal reaches the
+ * children too, and liveness is judged on the GROUP, not the leader: children
+ * can outlive the browser process, which is precisely the leak this hunts.
+ * Where group signalling does not exist or fails, the direct handle and its
+ * exit or signal code are the fallback.
+ */
+async function killChromeTree(chrome: ChildProcess): Promise<void> {
+	// A spawn that never produced a pid has nothing to kill, and its handle
+	// reports neither an exit code nor a signal - so without this the loop
+	// below would poll out its whole grace period to signal nobody.
+	if (chrome.pid === undefined) {
+		return;
+	}
+	const leaderGone = (): boolean => chrome.exitCode !== null || chrome.signalCode !== null;
+	const groupGone = (): boolean => {
+		if (CAN_SIGNAL_PROCESS_GROUP && chrome.pid !== undefined) {
+			try {
+				process.kill(-chrome.pid, 0);
+				return false;
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code === "ESRCH") {
+					return true;
+				}
+				// Probing failed some other way; the leader is the best signal left.
+			}
+		}
+		return leaderGone();
+	};
+	const signalTree = (signal: NodeJS.Signals): void => {
+		if (CAN_SIGNAL_PROCESS_GROUP && chrome.pid !== undefined) {
+			try {
+				process.kill(-chrome.pid, signal);
+				return;
+			} catch {
+				// The group is gone or unaddressable; fall through to the handle.
+			}
+		}
+		chrome.kill(signal);
+	};
+	if (groupGone()) {
+		return;
+	}
+	signalTree("SIGTERM");
+	const deadline = Date.now() + 2000;
+	while (!groupGone() && Date.now() < deadline) {
+		await delay(50);
+	}
+	if (!groupGone()) {
+		signalTree("SIGKILL");
+	}
+}
+
+/**
+ * Launches Chrome and waits for its DevTools server, relaunching a Chrome
+ * that never got there. Each attempt gets a FRESH profile directory: the
+ * killed attempt leaves a half-written profile (SingletonLock included)
+ * behind, and a relaunch into it would be debugging the wreckage instead of
+ * retrying the launch. The profiles live under the caller's tmpRoot, so its
+ * one removal sweeps every attempt. `onSpawn` hands the caller each attempt's
+ * process as it is born, so a cancellation mid-wait has something to kill;
+ * `stopped` is read before every spawn, because a cancellation that landed
+ * BETWEEN attempts already ran its cleanup and a relaunch after it would be
+ * a Chrome nothing kills. No await sits between that check and the spawn, so
+ * a signal handler cannot interleave.
+ */
+async function launchChrome(
+	chromeBin: string,
+	tmpRoot: string,
+	flags: readonly string[],
+	pageUrl: string,
+	onSpawn: (chrome: ChildProcess) => void,
+	stopped: () => boolean
+): Promise<{ chrome: ChildProcess; port: number }> {
+	for (let attempt = 1; ; attempt++) {
+		const profileDir = path.join(tmpRoot, `profile-${attempt}`);
+		await fs.mkdir(profileDir);
+		if (stopped()) {
+			throw new Error("Launch cancelled by a termination signal");
+		}
+		const chrome = spawn(chromeBin, [...flags, `--user-data-dir=${profileDir}`, pageUrl], {
+			stdio: "ignore",
+			// Its own process group where groups exist, so killChromeTree can
+			// signal the whole tree.
+			detached: CAN_SIGNAL_PROCESS_GROUP,
+			env: { ...process.env, TZ: "UTC", LANG: "en_US.UTF-8" },
+		});
+		onSpawn(chrome);
+		try {
+			const port = await waitForDevtoolsPort(chrome, profileDir, READY_TIMEOUT_MS);
+			return { chrome, port };
+		} catch (error) {
+			await killChromeTree(chrome);
+			if (attempt >= LAUNCH_ATTEMPTS) {
+				throw error;
+			}
+			// The reason rides along rather than being restated: a Chrome that
+			// died on startup and one that was merely too slow are different
+			// stories, and only the wait knows which happened.
+			console.log(
+				`chrome launch ${attempt}/${LAUNCH_ATTEMPTS} brought up no DevTools server` +
+					` (${error instanceof Error ? error.message : String(error)}); relaunching with a fresh profile`
+			);
+		}
+	}
 }
 
 interface DevtoolsTarget {
@@ -1352,10 +1496,43 @@ async function main(): Promise<void> {
 	const harnessCss = DETERMINISM_CSS;
 
 	const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "render-dashboard-"));
+	let chrome: ChildProcess | undefined;
+	let cdp: CdpConnection | undefined;
+	// One memoized cleanup for every way out: the finally below awaits it, and
+	// so does the signal path. A detached Chrome left the terminal's process
+	// group, so the terminal-generated signals that used to reach it now end
+	// this process alone - the handlers forward the termination (kill the tree,
+	// sweep tmpRoot, exit), stay installed until the cleanup has finished so a
+	// signal cannot land in an unguarded window, and share the one promise so a
+	// repeated signal joins the cleanup already running instead of cutting it
+	// short. Installed immediately after the directory exists, because from
+	// that line on there is something to leak.
+	let cleanedUp: Promise<void> | undefined;
+	const cleanup = (): Promise<void> => {
+		cleanedUp ??= (async () => {
+			if (chrome !== undefined) {
+				await killChromeTree(chrome);
+			}
+			await fs.rm(tmpRoot, { recursive: true, force: true });
+		})();
+		return cleanedUp;
+	};
+	let terminating = false;
+	const onTermination = (): void => {
+		terminating = true;
+		void cleanup().finally(() => process.exit(1));
+	};
+	// Every terminal-generated termination, not just Ctrl-C: closing the window
+	// or dropping an ssh session sends SIGHUP and Ctrl-\ sends SIGQUIT, and
+	// each would otherwise kill this process by default action and orphan a
+	// detached Chrome - which is what sharing the terminal's group used to
+	// prevent for free.
+	const TERMINATION_SIGNALS: readonly NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"];
+	for (const signal of TERMINATION_SIGNALS) {
+		process.on(signal, onTermination);
+	}
 	const pageDir = path.join(tmpRoot, "page");
-	const profileDir = path.join(tmpRoot, "profile");
 	await fs.mkdir(pageDir);
-	await fs.mkdir(profileDir);
 	const indexHtml = path.join(pageDir, "index.html");
 	await fs.copyFile(bundlePath, path.join(pageDir, "dashboard.js"));
 	await fs.copyFile(stylesheetPath, path.join(pageDir, DASHBOARD_STYLESHEET_FILENAME));
@@ -1368,26 +1545,28 @@ async function main(): Promise<void> {
 	// --no-sandbox, since its image restricts the unprivileged user namespaces
 	// the Chrome sandbox needs).
 	const extraFlags = (process.env.CHROME_EXTRA_FLAGS ?? "").split(" ").filter((flag) => flag.length > 0);
-	const chrome = spawn(
-		chromeBin,
-		[
-			"--headless=new",
-			"--remote-debugging-port=0",
-			`--user-data-dir=${profileDir}`,
-			"--no-first-run",
-			"--hide-scrollbars",
-			"--lang=en-US",
-			"--force-color-profile=srgb",
-			`--window-size=${width},${height}`,
-			...extraFlags,
-			pageUrl,
-		],
-		{ stdio: "ignore", env: { ...process.env, TZ: "UTC", LANG: "en_US.UTF-8" } }
-	);
-	let cdp: CdpConnection | undefined;
+	const launchFlags = [
+		"--headless=new",
+		"--remote-debugging-port=0",
+		"--no-first-run",
+		"--hide-scrollbars",
+		"--lang=en-US",
+		"--force-color-profile=srgb",
+		`--window-size=${width},${height}`,
+		...extraFlags,
+	];
 	try {
-		const port = await waitForDevtoolsPort(profileDir, READY_TIMEOUT_MS);
-		cdp = await CdpConnection.connect(await findPageTargetUrl(port, pageUrl, READY_TIMEOUT_MS));
+		const launched = await launchChrome(
+			chromeBin,
+			tmpRoot,
+			launchFlags,
+			pageUrl,
+			(spawned) => {
+				chrome = spawned;
+			},
+			() => terminating
+		);
+		cdp = await CdpConnection.connect(await findPageTargetUrl(launched.port, pageUrl, READY_TIMEOUT_MS));
 		// Emulated for every theme, dark included: skipping it left dark renders
 		// on whatever Chrome's host preferred, so the one theme that never
 		// declared its scheme was the default one. prefers-contrast rises only
@@ -1790,17 +1969,12 @@ async function main(): Promise<void> {
 		console.log(`wrote ${outPath} (${size} bytes)`);
 	} finally {
 		cdp?.close();
-		if (chrome.exitCode === null) {
-			chrome.kill();
-			const killDeadline = Date.now() + 2000;
-			while (chrome.exitCode === null && Date.now() < killDeadline) {
-				await delay(50);
-			}
-			if (chrome.exitCode === null) {
-				chrome.kill("SIGKILL");
-			}
+		await cleanup();
+		// Only after the cleanup: removed any earlier, a signal in the gap
+		// would end the process with Chrome still running.
+		for (const signal of TERMINATION_SIGNALS) {
+			process.removeListener(signal, onTermination);
 		}
-		await fs.rm(tmpRoot, { recursive: true, force: true });
 	}
 }
 
