@@ -854,6 +854,104 @@ suite("extension/dashboard/intents", () => {
 
 			assert.deepStrictEqual(recorded.serverWrites, []);
 		});
+
+		test("declareExpectedFailure appends the category under discovery, preserving everything else verbatim", async () => {
+			const recorded = makeEnv([
+				"junk",
+				{
+					label: "Ollama",
+					baseUrl: "http://localhost:11434",
+					headers: { "x-a": "1" },
+					discovery: { declared: ["m1"], expectedFailures: ["bogus-value", "modelListing"] },
+				},
+			]);
+			await executeDashboardIntent(
+				{ method: "declareExpectedFailure", payload: { label: "Ollama", category: "modelInfo" } },
+				recorded.env
+			);
+
+			assert.deepStrictEqual(recorded.serverWrites, [
+				[
+					"junk",
+					{
+						label: "Ollama",
+						baseUrl: "http://localhost:11434",
+						headers: { "x-a": "1" },
+						// The unknown value the user typed survives; only the one category
+						// is appended.
+						discovery: { declared: ["m1"], expectedFailures: ["bogus-value", "modelListing", "modelInfo"] },
+					},
+				],
+			]);
+			assert.strictEqual(recorded.syncRequests, 1);
+		});
+
+		test("declareExpectedFailure on an entry without a discovery object creates it", async () => {
+			const recorded = makeEnv([{ label: "Ollama", baseUrl: "http://localhost:11434" }]);
+			await executeDashboardIntent(
+				{ method: "declareExpectedFailure", payload: { label: "Ollama", category: "modelListing" } },
+				recorded.env
+			);
+
+			assert.deepStrictEqual(recorded.serverWrites, [
+				[
+					{
+						label: "Ollama",
+						baseUrl: "http://localhost:11434",
+						discovery: { expectedFailures: ["modelListing"] },
+					},
+				],
+			]);
+			assert.strictEqual(recorded.syncRequests, 1);
+		});
+
+		test("an already-declared category acks as a no-op: nothing written, no sync", async () => {
+			const recorded = makeEnv([
+				{ label: "Ollama", baseUrl: "http://localhost:11434", discovery: { expectedFailures: ["modelInfo"] } },
+			]);
+			await executeDashboardIntent(
+				{ method: "declareExpectedFailure", payload: { label: "Ollama", category: "modelInfo" } },
+				recorded.env
+			);
+
+			assert.deepStrictEqual(recorded.serverWrites, []);
+			assert.strictEqual(recorded.syncRequests, 0);
+		});
+
+		test("declaring on a label the setting does not hold refuses without writing", async () => {
+			const recorded = makeEnv([{ label: "A", baseUrl: "http://a.test" }]);
+			await assert.rejects(
+				executeDashboardIntent(
+					{ method: "declareExpectedFailure", payload: { label: "External", category: "modelInfo" } },
+					recorded.env
+				)
+			);
+
+			assert.deepStrictEqual(recorded.serverWrites, []);
+			assert.strictEqual(recorded.syncRequests, 0);
+		});
+
+		test("the draft probe carries the draft's trimmed label for discovery's declaration hints, never the synthetic ID", async () => {
+			const recorded = makeEnv([]);
+			await executeDashboardIntent(
+				{
+					method: "testServerDraft",
+					payload: { server: serverPayload({ label: "  Draft  ", baseUrl: "http://x.test" }), secrets: KEEP_ALL },
+				},
+				recorded.env
+			);
+			assert.strictEqual(recorded.probes[0]?.label, "Draft");
+
+			// An unlabeled draft carries none: a declaration hint has nothing to name.
+			await executeDashboardIntent(
+				{
+					method: "testServerDraft",
+					payload: { server: serverPayload({ label: "", baseUrl: "http://x.test" }), secrets: KEEP_ALL },
+				},
+				recorded.env
+			);
+			assert.strictEqual(recorded.probes[1]?.label, undefined);
+		});
 	});
 
 	suite("executeDashboardIntent: adoptServer", () => {

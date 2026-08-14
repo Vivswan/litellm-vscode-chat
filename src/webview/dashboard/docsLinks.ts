@@ -31,6 +31,8 @@ export const DOCS_LINK_PROXY_NOT_RUNNING =
 	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/troubleshooting.md#connection-error-unable-to-connect";
 export const DOCS_LINK_CONFIGURE_API_KEY =
 	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/troubleshooting.md#authentication-failed";
+export const DOCS_LINK_OPENAI_COMPATIBLE =
+	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/troubleshooting.md#pointing-at-ollama-vllm-or-plain-openai-compatible-servers";
 export const DOCS_LINK_USAGE = "https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/usage.md";
 export const DOCS_LINK_RESOLVED_MODELS =
 	"https://github.com/Vivswan/litellm-vscode-chat/blob/main/docs/dashboard.md#resolved-models";
@@ -60,6 +62,7 @@ export type DocsUrl =
 	| typeof DOCS_LINK_CHECK_BASE_URL
 	| typeof DOCS_LINK_PROXY_NOT_RUNNING
 	| typeof DOCS_LINK_CONFIGURE_API_KEY
+	| typeof DOCS_LINK_OPENAI_COMPATIBLE
 	| typeof DOCS_LINK_USAGE
 	| typeof DOCS_LINK_RESOLVED_MODELS
 	| typeof DOCS_LINK_MODEL_MATCHING

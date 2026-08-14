@@ -27,11 +27,28 @@ export type TransportErrorKind = (typeof TRANSPORT_ERROR_KINDS)[number];
 export const SETUP_HINT_KINDS = ["check-base-url", "proxy-not-running", "configure-api-key"] as const;
 export type SetupHintKind = (typeof SETUP_HINT_KINDS)[number];
 
+/**
+ * The failure shapes that read as "this server does not serve the endpoint":
+ * a hang until the discovery timeout, or an HTTP 404/405. Discovery classifies
+ * each endpoint's failure against this vocabulary to tell an unserved
+ * endpoint (declare it in the entry's expectedFailures) from a genuinely slow
+ * or broken one (retry, or raise the timeout).
+ */
+export type UnservedEndpointEvidence = "timeout" | "status";
+
 /** Classification only - kind, HTTP status, and hint id; never message text. */
 export interface TransportErrorClassification {
 	readonly kind: TransportErrorKind;
 	readonly status?: number | undefined;
 	readonly setupHint?: SetupHintKind | undefined;
+	/**
+	 * Discovery-only, assigned at the construction site like setupHint: the
+	 * models listing failed like an unserved endpoint while the model-info
+	 * probe answered (or was itself declared expected), so declaring
+	 * expectedFailures: ["modelListing"] on the entry fits better than
+	 * retrying. UI surfaces read it to offer that declaration as an action.
+	 */
+	readonly unsupportedEndpoint?: "modelListing" | undefined;
 }
 
 function isTransportErrorKind(value: unknown): value is TransportErrorKind {
@@ -55,17 +72,22 @@ function isSetupHintKind(value: unknown): value is SetupHintKind {
  */
 export function transportClassificationOf(error: unknown): TransportErrorClassification | undefined {
 	try {
-		const candidate = error as { kind?: unknown; status?: unknown; setupHint?: unknown } | null | undefined;
+		const candidate = error as
+			| { kind?: unknown; status?: unknown; setupHint?: unknown; unsupportedEndpoint?: unknown }
+			| null
+			| undefined;
 		const kind = candidate?.kind;
 		if (!isTransportErrorKind(kind)) {
 			return undefined;
 		}
 		const status = candidate?.status;
 		const setupHint = candidate?.setupHint;
+		const unsupportedEndpoint = candidate?.unsupportedEndpoint;
 		return {
 			kind,
 			...(typeof status === "number" && Number.isInteger(status) ? { status } : {}),
 			...(isSetupHintKind(setupHint) ? { setupHint } : {}),
+			...(unsupportedEndpoint === "modelListing" ? { unsupportedEndpoint } : {}),
 		};
 	} catch {
 		// A hostile kind/status/setupHint getter must not break classification.

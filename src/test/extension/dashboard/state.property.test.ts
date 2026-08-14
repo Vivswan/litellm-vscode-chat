@@ -130,6 +130,10 @@ const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 	saveServerSetting: serverDraftPayload,
 	testServerDraft: serverDraftPayload,
 	removeServerSetting: fc.record({ label: fc.string() }),
+	declareExpectedFailure: fc.record({
+		label: fc.string(),
+		category: fc.constantFrom(...EXPECTED_FAILURE_CATEGORIES),
+	}),
 	hideExternalServer: fc.record({ baseUrl: fc.string(), sourceHandle: requestId }),
 	unhideServer: fc.record({ label: fc.string(), baseUrl: fc.string() }),
 	readInlineSecrets: fc.record({ label: fc.string() }),

@@ -58,7 +58,7 @@ import {
 	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
 	USAGE_STATUS_BAR_SETTING_KEY,
 } from "../../shared/config/settings";
-import type { TransportErrorClassification } from "../../shared/errorClassification";
+import type { TransportErrorClassification, UnservedEndpointEvidence } from "../../shared/errorClassification";
 import { pickNonSecretOptionalFields } from "../../shared/serverEntry";
 import type { ServerStatus } from "../../shared/servers";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
@@ -264,7 +264,13 @@ function declaredOutcome(
 	status: ServerStatus | undefined,
 	syncError: string | undefined
 ):
-	| { state: "ok"; modelCount: number; error?: string | undefined; errorEnglish?: string | undefined }
+	| {
+			state: "ok";
+			modelCount: number;
+			error?: string | undefined;
+			errorEnglish?: string | undefined;
+			modelInfoUnsupported?: UnservedEndpointEvidence | undefined;
+	  }
 	| {
 			state: "error";
 			modelCount: number;
@@ -276,7 +282,12 @@ function declaredOutcome(
 	  }
 	| { state: "unchecked"; modelCount: number } {
 	if (status?.state === "ok") {
-		return { state: "ok", modelCount: status.modelCount, error: syncError };
+		return {
+			state: "ok",
+			modelCount: status.modelCount,
+			error: syncError,
+			...(status.modelInfoUnsupported !== undefined ? { modelInfoUnsupported: status.modelInfoUnsupported } : {}),
+		};
 	}
 	if (status?.state === "error") {
 		return syncError !== undefined

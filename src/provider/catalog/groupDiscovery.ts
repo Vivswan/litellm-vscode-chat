@@ -1,4 +1,5 @@
 import { getDiscoveryCacheTtl } from "../../shared/config/settings";
+import type { UnservedEndpointEvidence } from "../../shared/errorClassification";
 import { MirroredError } from "../../shared/mirroredError";
 import type { ExpectedFailureCategory } from "../../shared/serverEntry";
 import { apiRootOf } from "../../shared/util/baseUrl";
@@ -34,6 +35,13 @@ export interface DiscoveredGroupModels {
 	readonly apiRoot: string;
 	/** See FetchModelsResult.observedModelInfoKeys; rides the cache so cached serves re-report it. */
 	readonly observedModelInfoKeys?: readonly string[];
+	/**
+	 * See FetchModelsResult.modelInfoUnsupported; rides the cache so cached
+	 * serves re-report it. The serve gates it against the entry's CURRENT
+	 * expectedFailures, so declaring the failure retires the hint immediately
+	 * instead of waiting out the cache TTL.
+	 */
+	readonly modelInfoUnsupported?: UnservedEndpointEvidence;
 }
 
 export interface GroupDiscoveryOptions {
@@ -147,6 +155,16 @@ export class GroupDiscovery {
 			server.baseUrl,
 			groupServer.label !== undefined ? this._options.getEntryApiVersion(groupServer.label, server.baseUrl) : undefined
 		);
+		// Resolved before the cache read: the ok-path hint below gates on the
+		// entry's CURRENT declarations, cached serve or fresh.
+		const expectedFailures = this.expectedDiscoveryFailures(groupServer.label, server.baseUrl);
+		// The unserved-probe hint one ok serve carries; see DiscoveredGroupModels.modelInfoUnsupported.
+		const probeHint = (
+			discovered: Pick<DiscoveredGroupModels, "modelInfoUnsupported">
+		): { modelInfoUnsupported?: UnservedEndpointEvidence } =>
+			discovered.modelInfoUnsupported !== undefined && !expectedFailures.modelInfo
+				? { modelInfoUnsupported: discovered.modelInfoUnsupported }
+				: {};
 		if (bypassCache) {
 			this._options.cache.invalidate(server.id);
 		} else {
@@ -168,7 +186,7 @@ export class GroupDiscovery {
 					server,
 					groupServer,
 					silent,
-					{ state: "ok", modelCount: overridden.length + declared.infos.length },
+					{ state: "ok", modelCount: overridden.length + declared.infos.length, ...probeHint(cached) },
 					overridden,
 					{
 						discoveredRawIds: cached.discoveredRawIds,
@@ -180,15 +198,18 @@ export class GroupDiscovery {
 		}
 
 		this._options.log("Fetching models for provider group", { baseUrl: server.baseUrl, silent });
-		const expectedFailures = this.expectedDiscoveryFailures(groupServer.label, server.baseUrl);
 		try {
 			const load = async (): Promise<DiscoveredGroupModels> => {
-				const { models, observedModelInfoKeys } = await this._options.client.fetchModels(server, expectedFailures);
+				const { models, observedModelInfoKeys, modelInfoUnsupported } = await this._options.client.fetchModels(
+					server,
+					expectedFailures
+				);
 				return {
 					infos: buildModelInfos(models, server, 1, (msg) => this._options.log(msg)).infos,
 					discoveredRawIds: models.map((model) => model.id),
 					apiRoot: effectiveApiRoot,
 					...(observedModelInfoKeys !== undefined ? { observedModelInfoKeys } : {}),
+					...(modelInfoUnsupported !== undefined ? { modelInfoUnsupported } : {}),
 				};
 			};
 			let discovered = await this._options.cache.fetch(server.id, load);
@@ -213,7 +234,7 @@ export class GroupDiscovery {
 				server,
 				groupServer,
 				silent,
-				{ state: "ok", modelCount: overridden.length + declared.infos.length },
+				{ state: "ok", modelCount: overridden.length + declared.infos.length, ...probeHint(discovered) },
 				overridden,
 				{
 					discoveredRawIds: discovered.discoveredRawIds,

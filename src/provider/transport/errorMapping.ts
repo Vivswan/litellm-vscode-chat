@@ -43,6 +43,13 @@ export class RequestError extends MirroredError {
 	readonly status?: number | undefined;
 	readonly setupHint?: SetupHintKind;
 	/**
+	 * Discovery's endpoint-unsupported marker, assigned only at the discovery
+	 * construction site that proved it in one pass (the models listing failed
+	 * like an unserved endpoint while model-info answered or was declared
+	 * expected); see TransportErrorClassification.unsupportedEndpoint.
+	 */
+	readonly unsupportedEndpoint?: "modelListing";
+	/**
 	 * Set by auth.ts at the OAuth token-endpoint construction sites: the
 	 * failure happened during the token exchange, BEFORE the target endpoint
 	 * was called, so consumers judging the target endpoint from this error
@@ -58,6 +65,7 @@ export class RequestError extends MirroredError {
 			readonly status?: number;
 			readonly cause?: unknown;
 			readonly setupHint?: SetupHintKind;
+			readonly unsupportedEndpoint?: "modelListing";
 			readonly oauthTokenEndpoint?: true;
 		}
 	) {
@@ -67,6 +75,9 @@ export class RequestError extends MirroredError {
 		this.status = options.status;
 		if (options.setupHint !== undefined) {
 			this.setupHint = options.setupHint;
+		}
+		if (options.unsupportedEndpoint !== undefined) {
+			this.unsupportedEndpoint = options.unsupportedEndpoint;
 		}
 		if (options.oauthTokenEndpoint !== undefined) {
 			this.oauthTokenEndpoint = options.oauthTokenEndpoint;

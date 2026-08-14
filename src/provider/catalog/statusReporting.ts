@@ -1,4 +1,4 @@
-import type { TransportErrorClassification } from "../../shared/errorClassification";
+import type { TransportErrorClassification, UnservedEndpointEvidence } from "../../shared/errorClassification";
 import type { LogSafeErrorText } from "../../shared/logger";
 import type { AggregatedStatus, ServerWithKey } from "../../shared/servers";
 import type { GroupServer, PreAttachModelInfo } from "./groupModels";
@@ -11,6 +11,8 @@ export type GroupServeOutcome =
 			modelCount: number;
 			/** See ServerStatusOk: zero models because the user hid the group, never a server outcome. */
 			hiddenByRemoval?: boolean;
+			/** See ServerStatusOk: the serve fell back to /models past an unserved-looking model-info probe. */
+			modelInfoUnsupported?: UnservedEndpointEvidence;
 	  }
 	| {
 			state: "error";

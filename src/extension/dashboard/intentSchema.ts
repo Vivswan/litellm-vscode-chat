@@ -153,6 +153,9 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 	saveServerSetting: serverDraftPayloadSchema,
 	testServerDraft: serverDraftPayloadSchema,
 	removeServerSetting: z.strictObject({ label: labelSchema }),
+	// Two closed vocabularies: an entry label and a category token; the
+	// entry-existence check lives in executeDashboardIntent.
+	declareExpectedFailure: z.strictObject({ label: labelSchema, category: asEnum(EXPECTED_FAILURE_CATEGORIES) }),
 	adoptServer: z.strictObject({
 		label: labelSchema,
 		baseUrl: z.string().max(WIRE_LIMITS.url),
@@ -219,6 +222,7 @@ const requestSchemas: { readonly [K in DashboardMethod]: z.ZodType<RpcRequest<K>
 	saveServerSetting: requestSchema("saveServerSetting"),
 	testServerDraft: requestSchema("testServerDraft"),
 	removeServerSetting: requestSchema("removeServerSetting"),
+	declareExpectedFailure: requestSchema("declareExpectedFailure"),
 	adoptServer: requestSchema("adoptServer"),
 	hideExternalServer: requestSchema("hideExternalServer"),
 	unhideServer: requestSchema("unhideServer"),

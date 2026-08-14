@@ -1482,6 +1482,87 @@ test("an expected failure with nothing declared reads blocking and offers Declar
 	expect(actions).toContain("Retry");
 });
 
+test("an unserved model-info probe raises the quiet declare hint; the two-step confirm posts declareExpectedFailure", () => {
+	const root = mountSection([makeDeclaredServer({ label: "Ollama", modelCount: 3, modelInfoUnsupported: "timeout" })]);
+
+	// The models serve and the configuration applies as written, so this is the
+	// quiet tier - and stays out of the needs-attention count.
+	const line = root.querySelector(".row-diagnostic");
+	expect(line?.classList.contains("sev-advisory")).toBe(true);
+	expect(line?.textContent).toContain("model-info probe never answers");
+	expect(line?.textContent).toContain('"expectedFailures": ["modelInfo"]');
+	expect(root.textContent).not.toContain("needs attention");
+
+	// Arm, then cancel: nothing posted, the plain button returns.
+	fireClick(buttonByText(root, "Declare expected failure"));
+	expect(root.textContent).toContain("Confirm declaration?");
+	fireClick(buttonByText(root, "Cancel"));
+	expect(postedMessages).toEqual([]);
+	expect(root.textContent).not.toContain("Confirm declaration?");
+
+	// Arm and confirm: exactly one declareExpectedFailure naming the entry and
+	// the modelInfo category - the closed vocabulary, nothing free-typed.
+	fireClick(buttonByText(root, "Declare expected failure"));
+	fireClick(buttonByText(root, "Confirm declaration?"));
+	expect(postedMessages.length).toBe(1);
+	const posted = postedMessages[0] as RpcRequest<"declareExpectedFailure">;
+	expect(posted.method).toBe("declareExpectedFailure");
+	expect(posted.payload).toEqual({ label: "Ollama", category: "modelInfo" });
+
+	// In flight the pair stays and states that it is working; Cancel refuses
+	// too, because the posted write cannot be cancelled - it only ever disarms.
+	expect(root.textContent).toContain("Declaring...");
+	expect(buttonByText(root, "Cancel").getAttribute("aria-disabled")).toBe("true");
+});
+
+test("the status-evidence hint names the missing endpoint rather than a wait", () => {
+	const root = mountSection([makeDeclaredServer({ label: "Ollama", modelInfoUnsupported: "status" })]);
+	const line = root.querySelector(".row-diagnostic");
+	expect(line?.textContent).toContain("without LiteLLM's model-info endpoint");
+	expect(line?.textContent).toContain('"expectedFailures": ["modelInfo"]');
+});
+
+test("no declare hint on a row whose entry fields are inactive: the declaration could not reach the group", () => {
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Ollama",
+			modelInfoUnsupported: "timeout",
+			notices: ["entry-capabilities-inactive"],
+		}),
+	]);
+	expect(root.textContent).not.toContain("Declare expected failure");
+	// The entry-inactive line still owns the row's fix.
+	expect(root.querySelector(".row-diagnostic")?.textContent).toContain("ignores its");
+});
+
+test("a models-listing-unserved error offers the declare action writing modelListing", () => {
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Gateway",
+			state: "error",
+			error: "The models listing failed, but this server answers",
+			classification: { kind: "http", status: 404, unsupportedEndpoint: "modelListing" },
+		}),
+	]);
+	fireClick(buttonByText(root, "Declare expected failure"));
+	fireClick(buttonByText(root, "Confirm declaration?"));
+	expect(postedMessages.length).toBe(1);
+	const posted = postedMessages[0] as RpcRequest<"declareExpectedFailure">;
+	expect(posted.payload).toEqual({ label: "Gateway", category: "modelListing" });
+});
+
+test("a discovery error without the endpoint classification offers no declare action", () => {
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Gateway",
+			state: "error",
+			error: "boom",
+			classification: { kind: "http", status: 500 },
+		}),
+	]);
+	expect(root.textContent).not.toContain("Declare expected failure");
+});
+
 test("several inactive surfaces on one row share a single line naming them all", () => {
 	const root = mountSection([
 		makeDeclaredServer({ label: "Prod", notices: ["entry-params-inactive", "entry-capabilities-inactive"] }),

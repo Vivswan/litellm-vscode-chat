@@ -4,7 +4,7 @@
  * (the dependency between layers is one-way: extension -> provider -> shared).
  */
 
-import type { TransportErrorClassification } from "./errorClassification";
+import type { TransportErrorClassification, UnservedEndpointEvidence } from "./errorClassification";
 import type { LogSafeErrorText } from "./logger";
 
 export interface ServerConfig {
@@ -37,6 +37,15 @@ interface ServerStatusOk extends ServerStatusCommon {
 	 * read it to name the recovery instead of blaming the server.
 	 */
 	hiddenByRemoval?: boolean | undefined;
+	/**
+	 * Present when this serve's discovery fell back to /models because the
+	 * model-info probe failed like an unserved endpoint (timeout or HTTP
+	 * 404/405) the entry does not declare expected: the models serve fine, but
+	 * every sync pays for the doomed probe first, so presentation surfaces
+	 * suggest declaring expectedFailures: ["modelInfo"]. Classification only
+	 * (the evidence shape), advisory only - nothing gates on it.
+	 */
+	modelInfoUnsupported?: UnservedEndpointEvidence | undefined;
 	error?: undefined;
 }
 

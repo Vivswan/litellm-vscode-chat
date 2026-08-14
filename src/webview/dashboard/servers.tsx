@@ -10,9 +10,15 @@ import type {
 	InactiveEntryNotice,
 	UsageServerView,
 } from "../../dashboard/viewModels";
+import type { ExpectedFailureCategory } from "../../shared/serverEntry";
 import { statusErrorDetail, statusErrorHeadline } from "../../shared/util/errorText";
 import type { DocsUrl } from "./docsLinks";
-import { DOCS_LINK_AUTHENTICATION, DOCS_LINK_PARAMS_INACTIVE, DOCS_LINK_SERVERS } from "./docsLinks";
+import {
+	DOCS_LINK_AUTHENTICATION,
+	DOCS_LINK_OPENAI_COMPATIBLE,
+	DOCS_LINK_PARAMS_INACTIVE,
+	DOCS_LINK_SERVERS,
+} from "./docsLinks";
 import { FailureText } from "./failureText";
 import { DocsLink, Help, HoverTip } from "./help";
 import { helpServersSection } from "./helpText";
@@ -77,11 +83,14 @@ type DiagnosticSeverity = "blocking" | "degraded" | "advisory";
 const SEVERITY_ORDER: Readonly<Record<DiagnosticSeverity, number>> = { blocking: 0, degraded: 1, advisory: 2 };
 
 /**
- * One action offered beside a problem. Every one of them REVEALS the place a
- * human fixes the problem - the setting, the entry's form, the models file -
- * or asks the extension to try again. None of them rewrites configuration on
- * the reader's behalf: this is their settings file, and a button that silently
- * edited it would be a worse bug than the one it fixed.
+ * One action offered beside a problem. Almost every one of them REVEALS the
+ * place a human fixes the problem - the setting, the entry's form, the models
+ * file - or asks the extension to try again, because this is their settings
+ * file and a button that silently edited it would be a worse bug than the one
+ * it fixed. The one exception is the declare-expected action: behind an
+ * explicit confirm it appends one closed-vocabulary token
+ * (discovery.expectedFailures) to the entry - nothing free-typed, nothing
+ * removed, and the row's diagnostic named exactly what will be written.
  */
 type DiagnosticAction =
 	/**
@@ -103,6 +112,8 @@ type DiagnosticAction =
 			readonly ariaLabel: string;
 			/** In flight: the control states that it is working and refuses a second click. */
 			readonly disabled?: boolean | undefined;
+			/** The accent rank, for the one action of an armed pair that commits; everything else stays secondary. */
+			readonly emphasized?: boolean | undefined;
 			readonly onClick: () => void;
 	  }
 	| {
@@ -147,8 +158,72 @@ function serverDiagnostics(
 		readonly retrying?: boolean;
 		/** A sync is in flight somewhere, so no row may start a second one. */
 		readonly syncBusy?: boolean;
+		/** Post the declareExpectedFailure intent for this row; only a declared row wires it. */
+		readonly onDeclareExpected?: (category: ExpectedFailureCategory) => void;
+		/** The category whose confirm step is showing, armed by the declare button. */
+		readonly armedDeclare?: ExpectedFailureCategory | undefined;
+		readonly onArmDeclare?: (category: ExpectedFailureCategory | undefined) => void;
+		/** This row's declare intent is unanswered; its buttons state that and refuse a second post. */
+		readonly declaring?: boolean;
 	}
 ): readonly RowDiagnostic[] {
+	// The two-step declare control: the plain button arms, the armed pair
+	// confirms or cancels (the Remove idiom). Only rows wired with the
+	// callbacks - declared entries - get any of it.
+	const declareActions = (category: ExpectedFailureCategory): DiagnosticAction[] => {
+		const { onDeclareExpected, onArmDeclare } = actions;
+		if (onDeclareExpected === undefined || onArmDeclare === undefined) {
+			return [];
+		}
+		if (actions.armedDeclare === category) {
+			return [
+				{
+					kind: "button",
+					id: `declare-confirm-${category}`,
+					label: actions.declaring === true ? l10n.t("Declaring...") : l10n.t("Confirm declaration?"),
+					ariaLabel:
+						actions.declaring === true
+							? l10n.t("Declaring the expected failure for {0}", server.label)
+							: l10n.t("Confirm declaring the expected failure for {0}", server.label),
+					disabled: actions.declaring === true,
+					// The committing half of the armed pair leads; Cancel stays quiet.
+					emphasized: true,
+					// The pair stays armed through the round trip so this button can
+					// state "Declaring..."; the row disarms when the outcome lands.
+					onClick: () => onDeclareExpected(category),
+				},
+				{
+					kind: "button",
+					id: `declare-cancel-${category}`,
+					label: l10n.t("Cancel"),
+					ariaLabel: l10n.t("Cancel declaring the expected failure for {0}", server.label),
+					// A posted write cannot be cancelled; an enabled Cancel beside
+					// "Declaring..." would claim otherwise. It only ever disarms.
+					disabled: actions.declaring === true,
+					onClick: () => onArmDeclare(undefined),
+				},
+			];
+		}
+		return [
+			{
+				kind: "button",
+				id: `declare-expected-${category}`,
+				label: l10n.t("Declare expected failure"),
+				ariaLabel: l10n.t("Declare the {0} failure expected for {1}", category, server.label),
+				disabled: actions.declaring === true,
+				onClick: () => onArmDeclare(category),
+			},
+		];
+	};
+	// The endpoint-declaration diagnostics' shared guide link (the new
+	// troubleshooting section covering Ollama/vLLM/plain-OpenAI servers).
+	const openAiCompatibleGuide: DiagnosticAction = {
+		kind: "docs",
+		id: "openai-compatible-guide",
+		href: DOCS_LINK_OPENAI_COMPATIBLE,
+		label: l10n.t("Learn more"),
+		ariaLabel: l10n.t("Open the OpenAI-compatible servers guide"),
+	};
 	const found: RowDiagnostic[] = [];
 	if (server.origin === "misconfigured") {
 		found.push({
@@ -225,6 +300,15 @@ function serverDiagnostics(
 									ariaLabel: l10n.t("Open the entry for {0}", server.label),
 									onClick: actions.onEdit,
 								},
+							]
+						: []),
+					...(server.origin === "declared" && server.classification?.unsupportedEndpoint === "modelListing"
+						? [
+								// The error's own headline already carries the declaration
+								// advice (transport proved the shape); this is its one-click
+								// form, writing exactly the category the headline names.
+								...declareActions("modelListing"),
+								openAiCompatibleGuide,
 							]
 						: []),
 					...(server.classification?.setupHint !== undefined
@@ -313,6 +397,42 @@ function serverDiagnostics(
 			});
 		}
 	}
+	if (
+		server.state === "ok" &&
+		server.modelInfoUnsupported !== undefined &&
+		server.origin === "declared" &&
+		// An inactive entry cannot receive the declaration until its group is
+		// recreated; that row's entry-inactive line already owns the fix.
+		server.notices?.includes("entry-capabilities-inactive") !== true
+	) {
+		// The quiet tier on purpose: the models serve and the configuration
+		// applies as written - the declaration marks the failing probe as normal
+		// (single attempt, info-level log, no hint). It does NOT shorten the
+		// probe's wait: a hanging endpoint still spends one discovery timeout
+		// per sync, and only a lower discovery.timeout shortens that - so the
+		// copy promises the marking, never speed.
+		found.push({
+			key: "model-info-unsupported",
+			severity: "advisory",
+			headline:
+				server.modelInfoUnsupported === "timeout"
+					? l10n.t(
+							"{0} serves its models, but its model-info probe never answers and waits out the discovery timeout on every sync. Declaring the failure expected marks that as normal for this server.",
+							server.label
+						)
+					: l10n.t(
+							"{0} serves its models without LiteLLM's model-info endpoint (capability and pricing metadata). Declaring the failure expected marks that as normal for this server.",
+							server.label
+						),
+			// English by policy, like every detail: the exact endpoints and the
+			// declaration the action writes.
+			detail:
+				server.modelInfoUnsupported === "timeout"
+					? 'GET /model/info times out; GET /models succeeds. The action writes "expectedFailures": ["modelInfo"] on this entry.'
+					: 'GET /model/info answers HTTP 404/405; GET /models succeeds. The action writes "expectedFailures": ["modelInfo"] on this entry.',
+			actions: [...declareActions("modelInfo"), openAiCompatibleGuide],
+		});
+	}
 	const inactive = INACTIVE_NOTICES.filter((notice) => server.notices?.includes(notice) === true);
 	if (inactive.length > 0) {
 		// One line for every inactive surface on this row: the cause and the fix
@@ -377,7 +497,7 @@ function ServerDiagnosticLine({ diagnostic }: { diagnostic: RowDiagnostic }) {
 						action.kind === "button" ? (
 							<Button
 								key={action.id}
-								variant="secondary"
+								variant={action.emphasized === true ? undefined : "secondary"}
 								size="compact"
 								aria-label={action.ariaLabel}
 								// aria-disabled, not disabled: the `disabled` attribute drops
@@ -646,6 +766,8 @@ function ServerRow({
 	retrying,
 	syncBusy,
 	onRetry,
+	onDeclareExpected,
+	declaring,
 }: {
 	server: DashboardServer;
 	/** The server's usage snapshot entry, when its proxy serves usage data. */
@@ -664,12 +786,35 @@ function ServerRow({
 	/** A sync is in flight for some row; the command is fleet-wide, so none may start another. */
 	syncBusy: boolean;
 	onRetry: () => void;
+	/** Posts the declareExpectedFailure intent for this declared row; the section owns the requestId. */
+	onDeclareExpected: (category: ExpectedFailureCategory) => void;
+	/** This row's declare intent is unanswered. */
+	declaring: boolean;
 }) {
 	const confirmRemove = () => {
 		sendRequest("removeServerSetting", { label: server.label });
 		onArmRemove(false);
 	};
-	const diagnostics = serverDiagnostics(server, { onEdit, onRetry, retrying, syncBusy });
+	// The declare control's confirm step, per row: arming one category shows
+	// its confirm pair, and only this row's control (row identity is keyed, so
+	// a push cannot re-associate the armed state with another server). The
+	// pair survives the post - that is where "Declaring..." renders - and
+	// disarms when the round trip ends, either answer.
+	const [armedDeclare, setArmedDeclare] = useState<ExpectedFailureCategory | undefined>(undefined);
+	useEffect(() => {
+		if (!declaring) {
+			setArmedDeclare(undefined);
+		}
+	}, [declaring]);
+	const diagnostics = serverDiagnostics(server, {
+		onEdit,
+		onRetry,
+		retrying,
+		syncBusy,
+		...(server.origin === "declared"
+			? { onDeclareExpected, armedDeclare, onArmDeclare: setArmedDeclare, declaring }
+			: {}),
+	});
 	const url = urlParts(server.baseUrl);
 	return (
 		// One line per server, its problems indented underneath. The actions are
@@ -952,6 +1097,20 @@ export function ServersSection({
 	useEffect(() => {
 		setRetrying((current) => (current !== undefined && syncOutcome?.id === current.requestId ? undefined : current));
 	}, [syncOutcome]);
+	// The row whose declare-expected intent is unanswered, keyed like the
+	// retry state: the hook reports the METHOD's latest outcome whoever posted
+	// it, so only the answer to THIS request may clear the row's in-flight
+	// state - either answer, because a failed declare is a finished one.
+	const declareIntent = useIntentOutcome("declareExpectedFailure");
+	const [pendingDeclare, setPendingDeclare] = useState<
+		{ readonly label: string; readonly requestId: string } | undefined
+	>(undefined);
+	const declareOutcome = declareIntent.outcome;
+	useEffect(() => {
+		setPendingDeclare((current) =>
+			current !== undefined && declareOutcome?.id === current.requestId ? undefined : current
+		);
+	}, [declareOutcome]);
 	// The one-time post-adoption notice: the old host-owned group survives (no
 	// removal API), so the user is told plainly why models now appear twice.
 	const [adoptNotice, setAdoptNotice] = useState<string | undefined>(undefined);
@@ -978,6 +1137,7 @@ export function ServersSection({
 	const adoptFailure = adoptIntent.outcome?.result === "fail" ? adoptIntent.outcome : undefined;
 	const hideFailure = hideIntent.outcome?.result === "fail" ? hideIntent.outcome : undefined;
 	const unhideFailure = unhideIntent.outcome?.result === "fail" ? unhideIntent.outcome : undefined;
+	const declareFailure = declareIntent.outcome?.result === "fail" ? declareIntent.outcome : undefined;
 	const noServers = servers.length === 0;
 	// How many rows are carrying something worth acting on. Read through the
 	// same classifier the rows render, never a second predicate beside it: two
@@ -1148,6 +1308,19 @@ export function ServersSection({
 					</Button>
 				</div>
 			) : null}
+			{declareFailure !== undefined ? (
+				<div className="banner banner-error" role="alert">
+					<p>
+						<FailureText
+							message={declareFailure.message}
+							frame={(headline) => sectionFailureText(l10n.t("Declaring the expected failure failed:"), headline)}
+						/>
+					</p>
+					<Button variant="secondary" size="compact" onClick={declareIntent.reset}>
+						{l10n.t("Dismiss")}
+					</Button>
+				</div>
+			) : null}
 			{noServers ? (
 				<div className="empty-start">
 					<h3>{l10n.t("Connect LiteLLM to Copilot Chat")}</h3>
@@ -1233,6 +1406,13 @@ export function ServersSection({
 								onRetry={() => {
 									setRetrying({ label: server.label, requestId: syncIntent.send(null) });
 								}}
+								onDeclareExpected={(category) => {
+									setPendingDeclare({
+										label: server.label,
+										requestId: declareIntent.send({ label: server.label, category }),
+									});
+								}}
+								declaring={pendingDeclare?.label === server.label}
 							/>
 						))}
 					</ul>

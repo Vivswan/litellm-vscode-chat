@@ -19,7 +19,7 @@ import type {
 	UiTheme,
 } from "../shared/config/settingSpec";
 import { BOOLEAN_SETTING_SPECS, NUMBER_SETTING_SPECS } from "../shared/config/settingSpec";
-import type { TransportErrorClassification } from "../shared/errorClassification";
+import type { TransportErrorClassification, UnservedEndpointEvidence } from "../shared/errorClassification";
 import type {
 	ExpectedFailureCategory,
 	NonSecretOptionalFields,
@@ -215,6 +215,13 @@ export type DashboardServer = DashboardServerBase &
 				readonly classification?: undefined;
 				readonly expected?: undefined;
 				readonly declaredModelCount?: undefined;
+				/**
+				 * ServerStatusOk.modelInfoUnsupported, surfaced on declared rows
+				 * only (the fix - declaring expectedFailures: ["modelInfo"] - lives
+				 * on an entry). Classification only; the row's advisory copy and
+				 * its declare action render webview-side.
+				 */
+				readonly modelInfoUnsupported?: UnservedEndpointEvidence | undefined;
 		  }
 		| {
 				readonly state: "error";
@@ -240,6 +247,7 @@ export type DashboardServer = DashboardServerBase &
 				readonly expected?: boolean | undefined;
 				/** How many declared models this server keeps serving despite the failure. */
 				readonly declaredModelCount?: number | undefined;
+				readonly modelInfoUnsupported?: undefined;
 		  }
 		| {
 				readonly state: "unchecked";
@@ -248,6 +256,7 @@ export type DashboardServer = DashboardServerBase &
 				readonly classification?: undefined;
 				readonly expected?: undefined;
 				readonly declaredModelCount?: undefined;
+				readonly modelInfoUnsupported?: undefined;
 		  }
 	);
 

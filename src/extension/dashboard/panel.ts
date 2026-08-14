@@ -619,6 +619,8 @@ export class DashboardController implements vscode.Disposable {
 		saveServerSetting: (payload) => executeDashboardIntent({ method: "saveServerSetting", payload }, this.env),
 		testServerDraft: (payload) => executeDashboardIntent({ method: "testServerDraft", payload }, this.env),
 		removeServerSetting: (payload) => executeDashboardIntent({ method: "removeServerSetting", payload }, this.env),
+		declareExpectedFailure: (payload) =>
+			executeDashboardIntent({ method: "declareExpectedFailure", payload }, this.env),
 		adoptServer: (payload) => executeDashboardIntent({ method: "adoptServer", payload }, this.env),
 		hideExternalServer: (payload) => executeDashboardIntent({ method: "hideExternalServer", payload }, this.env),
 		unhideServer: (payload) => executeDashboardIntent({ method: "unhideServer", payload }, this.env),

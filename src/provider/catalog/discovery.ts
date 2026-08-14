@@ -1,5 +1,7 @@
 import * as l10n from "@vscode/l10n";
 import type OpenAI from "openai";
+import { CONFIG_SECTION } from "../../shared/config/settingSpec";
+import type { UnservedEndpointEvidence } from "../../shared/errorClassification";
 import { classificationOf, errorMessageText } from "../../shared/logger";
 import { collapseWhitespace } from "../../shared/util/errorText";
 import { isRecord } from "../../shared/util/json";
@@ -345,6 +347,15 @@ export interface FetchModelsResult {
 	 * a hostile payload cannot balloon the status window.
 	 */
 	observedModelInfoKeys?: readonly string[];
+	/**
+	 * Present when the model-info probe failed like an unserved endpoint
+	 * (timed out, or answered 404/405) while the /models fallback succeeded in
+	 * the same pass, and the entry did NOT declare the failure expected: the
+	 * server works without LiteLLM's model-info endpoint, so declaring
+	 * expectedFailures: ["modelInfo"] fits better than raising the timeout.
+	 * Advisory only - the pass succeeded and the models serve either way.
+	 */
+	modelInfoUnsupported?: UnservedEndpointEvidence;
 }
 
 /**
@@ -376,6 +387,14 @@ export interface FetchModelsRequest {
 	discoveryTimeout: number;
 	/** Failure categories the server's entry declares expected; see ExpectedDiscoveryFailures. */
 	expected?: ExpectedDiscoveryFailures;
+	/**
+	 * The declared entry's label, when the server has one (the configured
+	 * label only - see ServerConnection.entryLabel), so the endpoint-unserved
+	 * hints can name the entry the declaration belongs on. Empty means "no
+	 * nameable entry" like undefined does (the draft probe resolves headers
+	 * under a label it must never name). Never used for matching here.
+	 */
+	entryLabel?: string | undefined;
 	/** Per-request headers resolved by the caller, e.g. a freshly exchanged OAuth bearer token. */
 	headers?: Record<string, string>;
 	log: (message: string, data?: unknown) => void;
@@ -438,6 +457,168 @@ function coerceJsonPayload(value: unknown, endpointUrl: string): unknown {
 	} catch (error) {
 		throw unparseableModelsResponse(endpointUrl, errorMessageText(error), error);
 	}
+}
+
+/**
+ * How the model-info probe's failure looked, kept for the same-pass verdict:
+ * the /models leg reads it to tell "this server works without model-info"
+ * (suggest the declaration) from "nothing OpenAI-shaped answers here at all".
+ * `status` keeps the exact refused code for the detail lines.
+ */
+type EndpointFailureEvidence = { kind: "timeout" } | { kind: "status"; status: 404 | 405 };
+
+/**
+ * The unserved-endpoint evidence a mapped discovery failure carries, if any:
+ * a timeout (the endpoint never answered) or an HTTP 404/405 (the server
+ * answered that it does not serve the path). Anything else - auth, network,
+ * 5xx, unparseable payloads - proves nothing about endpoint support and
+ * yields undefined.
+ */
+function unservedEvidenceOf(mapped: Error): EndpointFailureEvidence | undefined {
+	if (!(mapped instanceof RequestError)) {
+		return undefined;
+	}
+	if (mapped.kind === "timeout") {
+		return { kind: "timeout" };
+	}
+	if (mapped.kind === "http" && (mapped.status === 404 || mapped.status === 405)) {
+		return { kind: "status", status: mapped.status };
+	}
+	return undefined;
+}
+
+/** One evidence rendering for the English detail lines: "timed out after 30000ms" / "answered HTTP 404". */
+function evidenceText(evidence: EndpointFailureEvidence, timeoutMs: number): string {
+	return evidence.kind === "timeout" ? `timed out after ${timeoutMs}ms` : `answered HTTP ${evidence.status}`;
+}
+
+/** The RequestError kind/status pair an evidence shape maps back onto, so refined errors keep their transport taxonomy. */
+function evidenceKind(evidence: EndpointFailureEvidence): {
+	kind: "timeout" | "http";
+	status?: number;
+	token: string;
+} {
+	return evidence.kind === "timeout"
+		? { kind: "timeout", token: "timeout" }
+		: { kind: "http", status: evidence.status, token: `http, status ${evidence.status}` };
+}
+
+/** What the model-info probe did this pass, as the /models leg's refinement context. */
+interface ModelInfoProbeOutcome {
+	/** The probe got an HTTP response it could read (even one that fell back for lacking usable models). */
+	answered: boolean;
+	/** How the probe failed, when it failed like an unserved endpoint. */
+	evidence: EndpointFailureEvidence | undefined;
+}
+
+/** The refinement context both endpoint-unserved constructors read. */
+interface ModelsFailureContext {
+	modelInfo: ModelInfoProbeOutcome;
+	expected: ExpectedDiscoveryFailures | undefined;
+	entryLabel: string | undefined;
+	baseUrl: string;
+	apiVersion: string | undefined;
+	timeoutMs: number;
+}
+
+/**
+ * The models listing failed like an unserved endpoint while model-info
+ * answered (or was itself declared expected), so the server is alive and the
+ * right move is declaring the listing, not retrying it. Names the entry when
+ * the server has one; carries the unsupportedEndpoint classification so the
+ * dashboard can offer the declaration as an action.
+ */
+function modelListingUnservedError(mapped: Error, evidence: EndpointFailureEvidence, ctx: ModelsFailureContext) {
+	const { kind, status, token } = evidenceKind(evidence);
+	// See FetchModelsRequest.entryLabel: empty means no nameable entry.
+	const namedEntry = ctx.entryLabel !== undefined && ctx.entryLabel.length > 0 ? ctx.entryLabel : undefined;
+	const headline =
+		namedEntry !== undefined
+			? l10n.t(
+					'The models listing failed, but this server answers. If it never serves the models listing, declare that on the "{0}" entry: "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".',
+					namedEntry
+				)
+			: l10n.t(
+					'The models listing failed, but this server answers. If it never serves the models listing, add an entry for it in the "{0}" setting declaring "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".',
+					`${CONFIG_SECTION}.servers`
+				);
+	const englishHeadline =
+		namedEntry !== undefined
+			? `The models listing failed, but this server answers. If it never serves the models listing, declare that on the "${namedEntry}" entry: "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".`
+			: `The models listing failed, but this server answers. If it never serves the models listing, add an entry for it in the "${CONFIG_SECTION}.servers" setting declaring "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".`;
+	const detail = `GET ${modelsUrl(ctx.baseUrl, ctx.apiVersion)} ${evidenceText(evidence, ctx.timeoutMs)}; model info ${
+		ctx.modelInfo.answered ? "answered" : "is declared an expected failure"
+	}`;
+	return new RequestError(`${headline}\n${detail}`, kind, {
+		...(status !== undefined ? { status } : {}),
+		cause: mapped,
+		unsupportedEndpoint: "modelListing",
+		logClassification: `RequestError(${token}, discovery, models listing unserved)`,
+		englishMessage: `${englishHeadline}\n${detail}`,
+	});
+}
+
+/**
+ * Both discovery endpoints failed like unserved endpoints in one pass, so no
+ * per-endpoint declaration can help: nothing OpenAI-compatible answers at
+ * this address. Replaces the raise-the-timeout advice a bare timeout would
+ * carry - a bigger timeout only makes each refresh slower when the endpoint
+ * never answers (issue #261's Ollama-on-11434 shape).
+ */
+function noEndpointServedError(
+	mapped: Error,
+	evidence: EndpointFailureEvidence,
+	infoEvidence: EndpointFailureEvidence,
+	ctx: ModelsFailureContext
+) {
+	const { kind, status, token } = evidenceKind(evidence);
+	const headline = l10n.t(
+		"Neither discovery endpoint answered at {0} - this address does not look like a LiteLLM or OpenAI-compatible API. Check the base URL and port (a LiteLLM proxy defaults to 4000), or put a LiteLLM proxy in front of this server.",
+		ctx.baseUrl
+	);
+	const englishHeadline = `Neither discovery endpoint answered at ${ctx.baseUrl} - this address does not look like a LiteLLM or OpenAI-compatible API. Check the base URL and port (a LiteLLM proxy defaults to 4000), or put a LiteLLM proxy in front of this server.`;
+	const detail = `GET ${MODEL_INFO_PATH} ${evidenceText(infoEvidence, ctx.timeoutMs)}; GET ${MODELS_PATH} ${evidenceText(
+		evidence,
+		ctx.timeoutMs
+	)}`;
+	return new RequestError(`${headline}\n${detail}`, kind, {
+		...(status !== undefined ? { status } : {}),
+		cause: mapped,
+		setupHint: "check-base-url",
+		logClassification: `RequestError(${token}, discovery, no endpoint served)`,
+		englishMessage: `${englishHeadline}\n${detail}`,
+	});
+}
+
+/**
+ * The same-pass verdict over a failed models listing: an unserved-looking
+ * failure becomes the declaration hint when model-info answered (or is
+ * declared expected), or the not-OpenAI-compatible verdict when model-info
+ * failed the same unserved way - the same evidence kind, because mixed
+ * evidence (a 404 probe beside a stalled listing, say) does not prove the
+ * address serves nothing. A models 404 keeps mapSdkError's discovery 404
+ * message even then - that headline already gives this verdict and
+ * docs/troubleshooting.md quotes it verbatim. Everything else (a listing
+ * already declared expected, mixed or non-unserved failures) passes through
+ * unchanged.
+ */
+function refineModelsListingFailure(mapped: Error, ctx: ModelsFailureContext): Error {
+	const evidence = unservedEvidenceOf(mapped);
+	if (evidence === undefined || ctx.expected?.modelListing === true) {
+		return mapped;
+	}
+	if (ctx.modelInfo.answered || ctx.expected?.modelInfo === true) {
+		return modelListingUnservedError(mapped, evidence, ctx);
+	}
+	const infoEvidence = ctx.modelInfo.evidence;
+	if (
+		infoEvidence !== undefined &&
+		infoEvidence.kind === evidence.kind &&
+		!(evidence.kind === "status" && evidence.status === 404)
+	) {
+		return noEndpointServedError(mapped, evidence, infoEvidence, ctx);
+	}
+	return mapped;
 }
 
 /**
@@ -575,17 +756,20 @@ function narrowModelInfoData(data: unknown[], log: FetchModelsRequest["log"]): N
 }
 
 export async function fetchModels(request: FetchModelsRequest): Promise<FetchModelsResult> {
-	const { client, baseUrl, apiVersion, discoveryTimeout, expected, headers, log } = request;
+	const { client, baseUrl, apiVersion, discoveryTimeout, expected, entryLabel, headers, log } = request;
 
 	log("Fetching from:", modelInfoUrl(baseUrl, apiVersion));
 
+	// What the model-info probe did, for the same-pass verdicts: the /models
+	// success return and the /models failure refinement both read it.
+	const modelInfo: ModelInfoProbeOutcome = { answered: false, evidence: undefined };
+	const infoSignal = AbortSignal.timeout(discoveryTimeout);
 	try {
 		// The per-request timeout keeps the SDK's own 600 s default from
 		// overriding ours; boundedBySignal makes the signal a hard whole-call
 		// bound across retries. Retries are safe here (idempotent GET) and stay
 		// off for chat requests - and off entirely for an endpoint whose failure
 		// the entry declares expected.
-		const infoSignal = AbortSignal.timeout(discoveryTimeout);
 		const parsedInfo: unknown = coerceJsonPayload(
 			await boundedBySignal(
 				client.get(MODEL_INFO_PATH, {
@@ -598,6 +782,10 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 			),
 			modelInfoUrl(baseUrl, apiVersion)
 		);
+		// Answered means an HTTP response with a JSON-parseable body, even one
+		// that falls back below for lacking usable models; an unparseable body
+		// throws above and proves nothing about endpoint support.
+		modelInfo.answered = true;
 		if (isRecord(parsedInfo) && Array.isArray(parsedInfo.data)) {
 			const data: unknown[] = parsedInfo.data;
 			log("Parsed model/info response:", { modelCount: data.length });
@@ -624,6 +812,10 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		// because a /model/info failure is nonfatal and never reaches the
 		// provider boundary.
 		const mapped = mapSdkError(error, { surface: "discovery", baseUrl, timeoutMs: discoveryTimeout });
+		// The signal firing IS the timeout evidence even when the mapped error is
+		// not classified as one (AbortSignal.timeout's TimeoutError reaches
+		// mapSdkError as an anonymous throw and maps to the unhandled tail).
+		modelInfo.evidence = infoSignal.aborted ? { kind: "timeout" } : unservedEvidenceOf(mapped);
 		const expectedNote = expected?.modelInfo === true ? " (expected: modelInfo)" : "";
 		// The `error` field prefers the classification: the mapped error's name
 		// is a constant class name (RequestError, or CancellationError on a
@@ -640,6 +832,14 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 	log("Fetching from:", modelsUrl(baseUrl, apiVersion));
 	const timeoutSignal = AbortSignal.timeout(discoveryTimeout);
 	const errorContext = { surface: "discovery" as const, baseUrl, timeoutMs: discoveryTimeout };
+	const failureContext: ModelsFailureContext = {
+		modelInfo,
+		expected,
+		entryLabel,
+		baseUrl,
+		apiVersion,
+		timeoutMs: discoveryTimeout,
+	};
 	let parsed: unknown;
 	try {
 		parsed = coerceJsonPayload(
@@ -656,7 +856,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		);
 	} catch (error) {
 		if (timeoutSignal.aborted) {
-			throw timeoutRequestError(errorContext, error);
+			throw refineModelsListingFailure(timeoutRequestError(errorContext, error), failureContext);
 		}
 		if (error instanceof RequestError && error.logClassification === UNPARSEABLE_MODELS_RESPONSE_CLASSIFICATION) {
 			throw error;
@@ -666,7 +866,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 			// same leak shape as coerceJsonPayload, same classification.
 			throw unparseableModelsResponse(modelsUrl(baseUrl, apiVersion), error.message, error);
 		}
-		throw mapSdkError(error, errorContext);
+		throw refineModelsListingFailure(mapSdkError(error, errorContext), failureContext);
 	}
 	const data = extractDataArray(parsed);
 	log("Parsed response:", { modelCount: data.length });
@@ -680,5 +880,12 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		}
 	}
 	log("Successfully fetched models:", models.length);
-	return { models };
+	return {
+		models,
+		// See FetchModelsResult.modelInfoUnsupported: a declared-expected probe
+		// failure is already handled and gets no hint.
+		...(modelInfo.evidence !== undefined && expected?.modelInfo !== true
+			? { modelInfoUnsupported: modelInfo.evidence.kind }
+			: {}),
+	};
 }

@@ -88,6 +88,39 @@ VS Code 無法與基底 URL 建立可信任的 HTTPS 連線; 延伸模組沒有�
 - 以 `/v1` 或 `/v2` 這樣的版本區段結尾的基底 URL 按原樣使用; 否則延伸模組會附加 `/v1`。因此 404 代表位址在別的方面不對: 路徑前置詞不同、連接埠錯誤, 或伺服器根本不提供 LiteLLM API。每伺服器的 `apiVersion` 欄位可強制指定版本區段 (空字串 = 什麼都不附加)。
 - 先前正常的伺服器在聊天請求上回傳 404, 通常代表該模型已從代理移除: 執行 "LiteLLM: Sync Models Now" 重新整理模型清單。如果每個請求都以 404 失敗, 按上文檢查基底 URL。
 
+### 指向 Ollama、vLLM 或一般 OpenAI 相容伺服器
+
+本延伸模組為 LiteLLM 代理而建, 所以探索會先請求 LiteLLM 的 `/v1/model/info` (能力、定價), 再回退到一般 OpenAI 的 `/v1/models` 清單。只提供其中一部分介面的伺服器也能正常運作 - 只需把缺少的端點宣告出來, 讓該失敗不再算作問題。被宣告的端點每次同步仍會探測一次 (懸置的端點會等滿一次 `discovery.timeout`), 所以如果同步太慢, 也請調低該設定。三種模式:
+
+- **沒有 `/v1/model/info` (Ollama、vLLM、LM Studio 及多數 OpenAI 相容伺服器)。** 模型仍會經回退出現, 但每輪新的探索都要先為注定失敗的模型資訊探測買單 - 在 Ollama 上該請求會懸置直到探索逾時, 所以調大 `discovery.timeout` 只會更糟。儀表板的伺服器列會說明:「可以提供其模型, 但其模型資訊探測永遠不會回應, 每次同步都要等滿探索逾時。將該失敗宣告為預期, 即可把它標記為此伺服器的正常情況。」(當伺服器以 404/405 回應而非懸置時, 提示會點名缺少的端點); 它的「宣告預期失敗」按鈕會寫入該宣告, 也可以手動加入:
+
+```jsonc
+"litellm-vscode-chat.servers": [
+  {
+    "label": "Ollama",
+    "baseUrl": "http://localhost:11434",
+    "discovery": { "expectedFailures": ["modelInfo"] }
+  }
+]
+```
+
+- **連 `/v1/models` 也沒有, 或完全無法列出模型。** 當清單失敗而伺服器在其他方面有回應時, 錯誤會建議對稱的宣告 -「模型清單取得失敗, 但此伺服器有回應。如果它從不提供模型清單, 請在 ... 項目上宣告」- 伺服器列也提供同樣的一鍵「宣告預期失敗」。宣告 `"modelListing"` (或兩個類別都宣告), 並在 `discovery.declared` 中自行列出模型; 完整配方見[伺服器: 探索與預期失敗](servers.md#探索與預期失敗):
+
+```jsonc
+{
+  "label": "my-gateway",
+  "baseUrl": "https://gateway.example.com",
+  "discovery": {
+    "expectedFailures": ["modelListing", "modelInfo"],
+    "declared": ["gpt-5", "deepseek-r1"]
+  }
+}
+```
+
+- **兩個端點都沒有回應。** 錯誤顯示為「位於 ... 的兩個探索端點都沒有回應 - 該位址看起來不是 LiteLLM 或 OpenAI 相容的 API。」這裡沒有任何宣告能幫上忙: 請檢查基底 URL 與連接埠 (LiteLLM 代理預設為 4000, Ollama 為 11434), URL 的解析規則見上文的 404 條目。
+
+宣告究竟改變了什麼: 被點名的端點每輪只嘗試一次 (不重試), 其失敗按預期記錄而不再警示 - 對模型清單來說, 失敗也不再算作故障; 模型資訊探測的失敗本來就不致命 (探索總會回退), 宣告主要是讓日誌安靜下來並撤下儀表板的提示。除此之外什麼都不變。而沒有 `/v1/model/info` 時失去的是中繼資料, 不是聊天: 能力與定價欄位不會到達, 所以重要的欄位請透過 [`models.capabilities`](models.md#能力) 補上 (知名模型 ID 由 OpenRouter 目錄自動回填)。想恢復完整中繼資料 - 以及多提供者路由 - 的替代方案是在該伺服器前架設一個 LiteLLM 代理並把延伸模組指向它; [LiteLLM 自己的文件](https://docs.litellm.ai/docs/providers/ollama)介紹了如何前置 Ollama 等伺服器。
+
 ### 模型選擇器中沒有出現任何模型
 
 先看狀態列 - 它點名故障類別。

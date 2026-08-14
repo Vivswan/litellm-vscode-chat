@@ -88,6 +88,39 @@ Something answered at that address, but not a LiteLLM proxy - or not with this m
 - A base URL ending in a version segment (like `/v1` or `/v2`) is used as-is; otherwise the extension appends `/v1`. A 404 therefore means the address is wrong some other way: a different path prefix, the wrong port, or a server that does not speak the LiteLLM API. The per-server `apiVersion` field forces a specific segment (empty string = append nothing).
 - A 404 on a chat request from a previously working server usually means the model was removed from the proxy: run "LiteLLM: Sync Models Now" to refresh the model list. If every request fails with 404, check the base URL as above.
 
+### Pointing at Ollama, vLLM, or plain OpenAI-compatible servers
+
+The extension is built for LiteLLM proxies, so discovery asks for LiteLLM's `/v1/model/info` first (capabilities, pricing) and falls back to the plain OpenAI `/v1/models` listing. Servers that speak only part of that surface work - they just need the missing endpoint declared, so its failure stops counting as a problem. A declared endpoint still gets one probe per sync (a hanging one waits out `discovery.timeout` once), so lower that setting too if syncs feel slow. Three patterns:
+
+- **No `/v1/model/info` (Ollama, vLLM, LM Studio, most OpenAI-compatible servers).** Models still appear through the fallback, but every fresh discovery pass pays for the doomed model-info probe first - on Ollama the request hangs until the discovery timeout, so raising `discovery.timeout` only makes it worse. The dashboard's server row says "its model-info probe never answers and waits out the discovery timeout on every sync. Declaring the failure expected marks that as normal for this server." (or names the missing endpoint, when the server answers 404/405 instead of hanging); its "Declare expected failure" button writes the declaration, or add it by hand:
+
+```jsonc
+"litellm-vscode-chat.servers": [
+  {
+    "label": "Ollama",
+    "baseUrl": "http://localhost:11434",
+    "discovery": { "expectedFailures": ["modelInfo"] }
+  }
+]
+```
+
+- **No `/v1/models` either, or no listing at all.** When the listing fails but the server otherwise answers, the error suggests the symmetric declaration - "The models listing failed, but this server answers. If it never serves the models listing, declare that on the ... entry" - and the server row offers the same one-click "Declare expected failure". Declare `"modelListing"` (or both categories) and name the models yourself in `discovery.declared`; the full recipe is at [Servers: discovery and expected failures](servers.md#discovery-and-expected-failures):
+
+```jsonc
+{
+  "label": "my-gateway",
+  "baseUrl": "https://gateway.example.com",
+  "discovery": {
+    "expectedFailures": ["modelListing", "modelInfo"],
+    "declared": ["gpt-5", "deepseek-r1"]
+  }
+}
+```
+
+- **Neither endpoint answers.** The error reads "Neither discovery endpoint answered at ... - this address does not look like a LiteLLM or OpenAI-compatible API." No declaration helps here: check the base URL and port (a LiteLLM proxy defaults to 4000, Ollama to 11434), and see the [404 entry above](#the-server-did-not-recognize-this-request--answered-404---it-responded-but-does-not-serve-the-litellm-api) for how the URL is resolved.
+
+What a declaration changes, exactly: the named endpoint gets a single attempt per pass (no retries) and its failure is logged as expected instead of alarming - for the models listing that also stops the failure counting as an outage; a model-info failure was never one (discovery falls back regardless), so there the declaration mainly quiets the log and retires the dashboard's hint. Nothing else changes. And what you give up without `/v1/model/info` is metadata, not chat: capability and pricing fields do not arrive, so fill important ones through [`models.capabilities`](models.md#capabilities) (the OpenRouter catalog backfills well-known IDs automatically). The alternative that restores full metadata - and multi-provider routing - is running a LiteLLM proxy in front of the server and pointing the extension at that; [LiteLLM's own docs](https://docs.litellm.ai/docs/providers/ollama) cover fronting Ollama and friends.
+
 ### No models appear in the model picker
 
 Check the status bar first - it names the failure class.

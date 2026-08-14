@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import { HttpResponse, http } from "msw";
+import { delay, HttpResponse, http } from "msw";
 import {
 	fetchModels,
 	isLiteLLMModelItem,
@@ -989,6 +989,195 @@ suite("provider/catalog/discovery", () => {
 			await assert.rejects(fetchModels({ ...request(), discoveryTimeout: 1000 }), /discovery\.timeout/);
 			const elapsed = Date.now() - started;
 			assert.ok(elapsed < 6000, `Timeout must bound the whole call including backoff sleeps, took ${elapsed}ms`);
+		});
+
+		suite("endpoint-unsupported classification", () => {
+			const hangForever = async (): Promise<Response> => {
+				await delay("infinite");
+				return emptyErrorResponse(503);
+			};
+			const modelsListing = () => HttpResponse.json({ object: "list", data: [{ id: "fallback-model" }] });
+			/** A model/info payload that answers (HTTP 200, parseable JSON) but still forces the fallback. */
+			const unusableModelInfo = () => HttpResponse.json({ object: "no data array here" });
+
+			test("model-info 404 beside a /models success marks the result modelInfoUnsupported: status", async () => {
+				mswServer.use(
+					http.get(MODEL_INFO_URL, () => emptyErrorResponse(404)),
+					http.get(MODELS_URL, modelsListing)
+				);
+				const result = await fetchModels(request());
+				assert.deepStrictEqual(
+					result.models.map((m) => m.id),
+					["fallback-model"]
+				);
+				assert.strictEqual(result.modelInfoUnsupported, "status");
+			});
+
+			test("model-info hanging to timeout beside a /models success marks the result modelInfoUnsupported: timeout", async function () {
+				this.timeout(15000);
+				mswServer.use(http.get(MODEL_INFO_URL, hangForever), http.get(MODELS_URL, modelsListing));
+				const result = await fetchModels({ ...request(), discoveryTimeout: 500 });
+				assert.strictEqual(result.modelInfoUnsupported, "timeout");
+			});
+
+			test("a model-info 500 proves nothing about endpoint support: no marker", async function () {
+				this.timeout(15000);
+				mswServer.use(
+					http.get(MODEL_INFO_URL, () => emptyErrorResponse(500)),
+					http.get(MODELS_URL, modelsListing)
+				);
+				const result = await fetchModels(request());
+				assert.strictEqual(result.modelInfoUnsupported, undefined);
+			});
+
+			test("a declared-expected model-info failure gets no marker: the declaration already covers it", async () => {
+				mswServer.use(
+					http.get(MODEL_INFO_URL, () => emptyErrorResponse(404)),
+					http.get(MODELS_URL, modelsListing)
+				);
+				const result = await fetchModels({ ...request(), expected: { modelInfo: true, modelListing: false } });
+				assert.strictEqual(result.modelInfoUnsupported, undefined);
+			});
+
+			test("a listing 404 while model-info answered throws the declaration hint naming the entry", async () => {
+				mswServer.use(
+					http.get(MODEL_INFO_URL, unusableModelInfo),
+					http.get(MODELS_URL, () => emptyErrorResponse(404))
+				);
+				await assert.rejects(fetchModels({ ...request(), entryLabel: "Ollama" }), (error: unknown) => {
+					assert.ok(error instanceof RequestError);
+					assert.strictEqual(error.kind, "http");
+					assert.strictEqual(error.status, 404);
+					assert.strictEqual(error.unsupportedEndpoint, "modelListing");
+					assert.match(error.message, /"expectedFailures": \["modelListing"\]/);
+					assert.match(error.message, /"Ollama" entry/);
+					assert.match(error.message, /discovery\.declared/);
+					assert.ok(error.englishMessage?.includes('"expectedFailures": ["modelListing"]'));
+					assert.strictEqual(
+						error.logClassification,
+						"RequestError(http, status 404, discovery, models listing unserved)"
+					);
+					return true;
+				});
+			});
+
+			test("the same hint without an entry label points at the servers setting instead", async () => {
+				mswServer.use(
+					http.get(MODEL_INFO_URL, unusableModelInfo),
+					http.get(MODELS_URL, () => emptyErrorResponse(405))
+				);
+				await assert.rejects(fetchModels(request()), (error: unknown) => {
+					assert.ok(error instanceof RequestError);
+					assert.strictEqual(error.status, 405);
+					assert.strictEqual(error.unsupportedEndpoint, "modelListing");
+					assert.match(error.message, /"litellm-vscode-chat\.servers" setting/);
+					return true;
+				});
+			});
+
+			test("a listing that times out while model-info answered gets the timeout flavor of the hint", async function () {
+				this.timeout(15000);
+				mswServer.use(http.get(MODEL_INFO_URL, unusableModelInfo), http.get(MODELS_URL, hangForever));
+				await assert.rejects(
+					fetchModels({ ...request(), discoveryTimeout: 400, entryLabel: "Ollama" }),
+					(error: unknown) => {
+						assert.ok(error instanceof RequestError);
+						assert.strictEqual(error.kind, "timeout");
+						assert.strictEqual(error.unsupportedEndpoint, "modelListing");
+						assert.match(error.message, /"expectedFailures": \["modelListing"\]/);
+						assert.match(error.message, /timed out after 400ms/);
+						assert.strictEqual(error.logClassification, "RequestError(timeout, discovery, models listing unserved)");
+						return true;
+					}
+				);
+			});
+
+			test("a declared-expected model-info failure beside an unserved listing still earns the listing hint", async () => {
+				mswServer.use(
+					http.get(MODEL_INFO_URL, () => emptyErrorResponse(404)),
+					http.get(MODELS_URL, () => emptyErrorResponse(405))
+				);
+				await assert.rejects(
+					fetchModels({ ...request(), entryLabel: "Ollama", expected: { modelInfo: true, modelListing: false } }),
+					(error: unknown) => {
+						assert.ok(error instanceof RequestError);
+						assert.strictEqual(error.unsupportedEndpoint, "modelListing");
+						// The neutralized probe is named as such, never as an answer.
+						assert.match(error.message, /model info is declared an expected failure/);
+						return true;
+					}
+				);
+			});
+
+			test("a declared-expected listing failure keeps its mapped error: no hint for a declaration already made", async () => {
+				mswServer.use(
+					http.get(MODEL_INFO_URL, unusableModelInfo),
+					http.get(MODELS_URL, () => emptyErrorResponse(404))
+				);
+				await assert.rejects(
+					fetchModels({ ...request(), expected: { modelInfo: false, modelListing: true } }),
+					(error: unknown) => {
+						assert.ok(error instanceof RequestError);
+						assert.strictEqual(error.unsupportedEndpoint, undefined);
+						assert.match(error.message, /does not serve the LiteLLM API/);
+						return true;
+					}
+				);
+			});
+
+			test("both endpoints timing out replaces the raise-the-timeout advice with the not-OpenAI-compatible verdict", async function () {
+				this.timeout(15000);
+				mswServer.use(http.get(MODEL_INFO_URL, hangForever), http.get(MODELS_URL, hangForever));
+				await assert.rejects(fetchModels({ ...request(), discoveryTimeout: 400 }), (error: unknown) => {
+					assert.ok(error instanceof RequestError);
+					assert.strictEqual(error.kind, "timeout");
+					assert.strictEqual(error.setupHint, "check-base-url");
+					assert.strictEqual(error.unsupportedEndpoint, undefined, "both-unserved earns no declaration hint");
+					assert.match(error.message, /does not look like a LiteLLM or OpenAI-compatible API/);
+					assert.ok(
+						!error.message.includes("discovery.timeout"),
+						"the raise-the-timeout advice is exactly what this verdict replaces (#261)"
+					);
+					assert.ok(error.englishMessage?.includes("does not look like a LiteLLM or OpenAI-compatible API"));
+					assert.strictEqual(error.logClassification, "RequestError(timeout, discovery, no endpoint served)");
+					return true;
+				});
+			});
+
+			test("both endpoints answering 404 keeps the docs-quoted 404 message, which already gives that verdict", async () => {
+				mswServer.use(
+					http.get(MODEL_INFO_URL, () => emptyErrorResponse(404)),
+					http.get(MODELS_URL, () => emptyErrorResponse(404))
+				);
+				await assert.rejects(fetchModels(request()), (error: unknown) => {
+					assert.ok(error instanceof RequestError);
+					assert.match(error.message, /does not serve the LiteLLM API at this address/);
+					assert.ok(!error.message.includes("Neither discovery endpoint"));
+					assert.strictEqual(error.setupHint, "check-base-url");
+					return true;
+				});
+			});
+
+			test("mixed evidence keeps the plain timeout message: a 400 model-info failure proves nothing", async function () {
+				this.timeout(15000);
+				// 400 is not retryable, so the probe's verdict is its mapped HTTP
+				// class - no unserved evidence - and the stalled listing keeps the
+				// raise-the-timeout advice, which for a mixed pair may be right.
+				mswServer.use(
+					http.get(MODEL_INFO_URL, () => emptyErrorResponse(400)),
+					http.get(MODELS_URL, hangForever)
+				);
+				await assert.rejects(fetchModels({ ...request(), discoveryTimeout: 400 }), /discovery\.timeout/);
+			});
+
+			test("mixed evidence kinds keep the plain message: a 404 probe beside a stalled listing is not both-unserved", async function () {
+				this.timeout(15000);
+				mswServer.use(
+					http.get(MODEL_INFO_URL, () => emptyErrorResponse(404)),
+					http.get(MODELS_URL, hangForever)
+				);
+				await assert.rejects(fetchModels({ ...request(), discoveryTimeout: 400 }), /discovery\.timeout/);
+			});
 		});
 
 		test("JSON served without a JSON content type is still parsed", async () => {

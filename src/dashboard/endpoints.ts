@@ -192,6 +192,13 @@ export const DASHBOARD_ENDPOINTS = {
 	refreshUsage: { outcome: "fire-and-forget", channel: "chained" },
 	saveServerSetting: { outcome: "acked", channel: "chained" },
 	/**
+	 * The servers page's one-click declaration for an endpoint-unsupported
+	 * diagnostic: append one category to the named entry's
+	 * discovery.expectedFailures. Chained like every servers-array
+	 * read-modify-write.
+	 */
+	declareExpectedFailure: { outcome: "acked", channel: "chained" },
+	/**
 	 * One read-only discovery probe of a draft configuration. Concurrent
 	 * because it can block on the network for a whole discovery timeout, and a
 	 * Save queued behind an abandoned probe would stall.
@@ -297,6 +304,15 @@ interface DashboardEndpointIO {
 		};
 	};
 	removeServerSetting: { request: { readonly label: string } };
+	/**
+	 * Append `category` to the declared entry `label` names, under
+	 * discovery.expectedFailures. The whole payload is two closed vocabularies
+	 * (an existing entry's label and a category token) - no free-typed value
+	 * ever rides this method; the entry is otherwise preserved verbatim (a
+	 * malformed discovery shape the parser already ignores is repaired), and
+	 * an already-declared category acks as a no-op.
+	 */
+	declareExpectedFailure: { request: { readonly label: string; readonly category: ExpectedFailureCategory } };
 	/**
 	 * Adopt an external provider group into the servers setting: the entry is
 	 * written under `label`, and the group's credentials (which exist

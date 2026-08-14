@@ -1559,6 +1559,36 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(server.notices, undefined, "declared models mean nothing to flag");
 		});
 
+		test("an ok status's model-info-unsupported marker rides onto the declared row", () => {
+			const state = buildState(
+				[
+					{
+						discoveredRawIds: ["m"],
+						status: makeServerStatus({
+							serverId: "group:fp-prod-labeled:http://x.test",
+							label: "Prod",
+							baseUrl: "http://x.test",
+							state: "ok",
+							modelCount: 1,
+							modelInfoUnsupported: "timeout",
+						}),
+						models: [],
+					},
+				],
+				makeReader({}),
+				[
+					makeDeclared({
+						label: "Prod",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:fp-prod-labeled:http://x.test",
+					}),
+				]
+			);
+			const server = state.servers[0];
+			assert.ok(server?.state === "ok");
+			assert.strictEqual(server.modelInfoUnsupported, "timeout");
+		});
+
 		test("an expected failure with nothing declared raises the needs-declare notice", () => {
 			const state = buildState(
 				[
@@ -2663,7 +2693,7 @@ suite("extension/dashboard/state", () => {
 			});
 
 			assert.deepStrictEqual(recorded.probes, [
-				{ baseUrl: "http://prod.test", apiKey: "sk-draft", expected: NO_EXPECTED },
+				{ baseUrl: "http://prod.test", label: "Prod", apiKey: "sk-draft", expected: NO_EXPECTED },
 			]);
 			assert.strictEqual(notice, "Connected - 0 models");
 			// The no-mutation contract: a probe leaves every store untouched.
@@ -2679,7 +2709,7 @@ suite("extension/dashboard/state", () => {
 				server: serverPayload({ label: "Prod", baseUrl: "http://prod.test", apiVersion: " v2 " }),
 			});
 			assert.deepStrictEqual(custom.probes, [
-				{ baseUrl: "http://prod.test", apiVersion: "v2", apiKey: "", expected: NO_EXPECTED },
+				{ baseUrl: "http://prod.test", label: "Prod", apiVersion: "v2", apiKey: "", expected: NO_EXPECTED },
 			]);
 
 			// "" is a real override (append nothing) and must reach the probe.
@@ -2773,7 +2803,7 @@ suite("extension/dashboard/state", () => {
 			// per-endpoint shape, so the expected endpoint probes with a single
 			// attempt exactly like production discovery.
 			assert.deepStrictEqual(recorded.probes, [
-				{ baseUrl: "http://prod.test", apiKey: "", expected: { modelInfo: false, modelListing: true } },
+				{ baseUrl: "http://prod.test", label: "Prod", apiKey: "", expected: { modelInfo: false, modelListing: true } },
 			]);
 		});
 
@@ -2830,6 +2860,7 @@ suite("extension/dashboard/state", () => {
 			assert.deepStrictEqual(recorded.probes, [
 				{
 					baseUrl: "http://new.test",
+					label: "Prod",
 					apiKey: "sk-inline",
 					oauth: {
 						tokenUrl: "http://idp.test/token",
@@ -2848,7 +2879,7 @@ suite("extension/dashboard/state", () => {
 			await draftTest(recorded);
 
 			assert.deepStrictEqual(recorded.probes, [
-				{ baseUrl: "http://prod.test", apiKey: "sk-orphan", expected: NO_EXPECTED },
+				{ baseUrl: "http://prod.test", label: "Prod", apiKey: "sk-orphan", expected: NO_EXPECTED },
 			]);
 		});
 
@@ -2859,7 +2890,9 @@ suite("extension/dashboard/state", () => {
 				replaceLabel: "Prod",
 			});
 
-			assert.deepStrictEqual(recorded.probes, [{ baseUrl: "http://prod.test", apiKey: "", expected: NO_EXPECTED }]);
+			assert.deepStrictEqual(recorded.probes, [
+				{ baseUrl: "http://prod.test", label: "Prod", apiKey: "", expected: NO_EXPECTED },
+			]);
 			assert.deepStrictEqual(recorded.secretOps, [], "clear on a test deletes nothing");
 		});
 
@@ -2872,6 +2905,7 @@ suite("extension/dashboard/state", () => {
 			assert.deepStrictEqual(recorded.probes, [
 				{
 					baseUrl: "http://prod.test",
+					label: "Prod",
 					apiKey: "",
 					virtualKey: { header: "x-vk", value: "vk-1" },
 					expected: NO_EXPECTED,

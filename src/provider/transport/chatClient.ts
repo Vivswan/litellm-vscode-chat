@@ -193,6 +193,7 @@ export class ChatClient {
 				baseUrl: server.baseUrl,
 				apiVersion,
 				discoveryTimeout,
+				entryLabel: server.entryLabel,
 				log: this.log,
 				...(expected !== undefined ? { expected } : {}),
 				...(headers !== undefined ? { headers } : {}),

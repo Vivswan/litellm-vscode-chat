@@ -509,6 +509,41 @@ export async function executeDashboardIntent(
 			env.requestServerSync();
 			return undefined;
 		}
+		case "declareExpectedFailure": {
+			const entries = rawServerEntries(env.readServersSetting());
+			// Resolution agrees with the parsed world (the saveServerSetting rule):
+			// the entry written is the one the dashboard row described, never a
+			// rejected same-label sibling.
+			const accepted = acceptedEntry(entries, intent.payload.label);
+			const rawEntry = accepted !== undefined ? entries[accepted.index] : undefined;
+			if (!isRecord(rawEntry) || accepted === undefined) {
+				throw new DashboardValidationError(
+					l10n.t("No servers setting entry has this label; the server is managed outside the setting")
+				);
+			}
+			const category = intent.payload.category;
+			const discovery = isRecord(rawEntry.discovery) ? rawEntry.discovery : {};
+			const declared = Array.isArray(discovery.expectedFailures) ? discovery.expectedFailures : [];
+			if (declared.includes(category)) {
+				// Already declared (a stale row, a double click): the ack is truthful
+				// with nothing written.
+				return undefined;
+			}
+			// Everything else on the entry - junk keys included - is preserved
+			// verbatim; only discovery.expectedFailures grows by one category. The
+			// one deliberate exception: a non-record `discovery` or a non-array
+			// `expectedFailures` (shapes the setting parser already reports and
+			// ignores) is replaced by the valid shape, since preserving it would
+			// leave the declaration unable to land at all.
+			const next = [...entries];
+			next[accepted.index] = {
+				...rawEntry,
+				discovery: { ...discovery, expectedFailures: [...declared, category] },
+			};
+			await env.writeServersSetting(next);
+			env.requestServerSync();
+			return undefined;
+		}
 		case "adoptServer":
 			return applyAdoptServer(intent.payload, env);
 		case "hideExternalServer": {

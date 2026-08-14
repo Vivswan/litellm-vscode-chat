@@ -35,6 +35,12 @@ import { readKeepSources, resolveKeptSecret } from "./saveServer";
 export interface DraftConnection {
 	readonly baseUrl: string;
 	/**
+	 * The draft's trimmed label, when it has one: what discovery's
+	 * endpoint-declaration hints may name. Identity and header resolution
+	 * never key on it - the probe's injected seams answer regardless.
+	 */
+	readonly label?: string | undefined;
+	/**
 	 * The draft's apiVersion override, resolved through the probe's injected
 	 * per-entry seam like headers; "" is a real value (append nothing).
 	 * Absent when the draft leaves the mode on auto: the probe then tests the
@@ -166,6 +172,9 @@ export async function applyTestServerDraft(
 
 	const connection: DraftConnection = {
 		baseUrl: intent.server.baseUrl.trim(),
+		// The label rides only so discovery's declaration hints can name the
+		// entry the user is editing; an unlabeled draft leaves it absent.
+		...(trimmedOptional(intent.server.label) !== undefined ? { label: trimmedOptional(intent.server.label) } : {}),
 		// "" is a real override (append nothing) and must ride the probe;
 		// trimmed like the save writes it, so the probe tests the saved shape.
 		...(intent.server.apiVersion !== undefined ? { apiVersion: intent.server.apiVersion.trim() } : {}),
@@ -261,9 +270,12 @@ export function createDraftConnectionProbe(
 				label: DRAFT_PROBE_SERVER_ID,
 				baseUrl: connection.baseUrl,
 				apiKey: connection.apiKey,
-				// The entry-candidate label the header resolver keys on; the
-				// injected resolver above answers this probe's headers only.
-				entryLabel: DRAFT_PROBE_SERVER_ID,
+				// The header/apiVersion seams injected above answer whatever label
+				// they are asked about, so this carries the DRAFT's label - what a
+				// declaration hint may name. Empty means "no nameable entry"
+				// (FetchModelsRequest.entryLabel); the synthetic probe ID must
+				// never surface in a user-facing message.
+				entryLabel: connection.label ?? "",
 				...(connection.oauth !== undefined ? { oauth: connection.oauth } : {}),
 				...(connection.virtualKey !== undefined ? { virtualKey: connection.virtualKey } : {}),
 			},
