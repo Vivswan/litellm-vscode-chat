@@ -725,7 +725,7 @@
  "Saved": "已保存",
  "Saved as plain text in settings.json.": "将以明文保存在 settings.json 中。",
  "Saved to {0}": "保存至 {0}",
- "Saving failed - your edits are kept. Fix the problem below and Apply again.": "保存失败 - 你的编辑已保留。请修正下方的问题后再次应用。",
+ "Saving failed - your edits are kept. Fix the problem and Apply again.": "保存失败 - 你的编辑已保留。请修正问题后再次应用。",
  "Saving the server failed:": "保存服务器失败:",
  "Saving...": "正在保存...",
  "Search the OpenRouter catalog by name or ID, e.g. gpt-4o. Picking an entry fills capability fields the row leaves unset.": "按名称或 ID 搜索 OpenRouter 目录, 例如 gpt-4o。选中条目会填充该行未设置的能力字段。",

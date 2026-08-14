@@ -840,7 +840,7 @@
 	"Saved": "Saved",
 	"Saved as plain text in settings.json.": "Saved as plain text in settings.json.",
 	"Saved to {0}": "Saved to {0}",
-	"Saving failed - your edits are kept. Fix the problem below and Apply again.": "Saving failed - your edits are kept. Fix the problem below and Apply again.",
+	"Saving failed - your edits are kept. Fix the problem and Apply again.": "Saving failed - your edits are kept. Fix the problem and Apply again.",
 	"Saving the server failed:": "Saving the server failed:",
 	"Saving...": "Saving...",
 	"Search the OpenRouter catalog by name or ID, e.g. gpt-4o. Picking an entry fills capability fields the row leaves unset.": "Search the OpenRouter catalog by name or ID, e.g. gpt-4o. Picking an entry fills capability fields the row leaves unset.",

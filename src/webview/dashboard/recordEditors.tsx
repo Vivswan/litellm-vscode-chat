@@ -269,11 +269,13 @@ function FailureNote({ failure, dirty }: { failure: IntentFailureOutcome | undef
 	}
 	// Headline first, the extension's own message verbatim as its own line:
 	// interpolating it into the sentence produced run-ons whenever the inner
-	// message lacked a trailing period. The message stays webview-only (the
-	// panel boundary logs classification tokens, never this text).
+	// message lacked a trailing period. No direction word - the note renders
+	// under the rows, so "below" pointed away from the failing row it meant.
+	// The message stays webview-only (the panel boundary logs classification
+	// tokens, never this text).
 	return (
 		<div className="error failure-note">
-			<p>{l10n.t("Saving failed - your edits are kept. Fix the problem below and Apply again.")}</p>
+			<p>{l10n.t("Saving failed - your edits are kept. Fix the problem and Apply again.")}</p>
 			<p>
 				<FailureText message={failure.message} />
 			</p>
@@ -2217,6 +2219,31 @@ function popoverAlign(target: EventTarget | null): "start" | "end" {
 }
 
 /**
+ * The row index an open field popover is editing in `group`, resolved the way
+ * chip identity is minted: the RAW key plus the occurrence ordinal among exact
+ * duplicates. Undefined when no field popover is open on this group.
+ */
+function openFieldRowIndex(
+	group: PrefixGroup,
+	popover: ChipPopoverTarget | undefined,
+	groupHere: (target: ChipPopoverTarget | undefined) => boolean
+): number | undefined {
+	if (popover?.kind !== "field" || !groupHere(popover)) {
+		return undefined;
+	}
+	let seen = 0;
+	for (let index = 0; index < group.params.length; index += 1) {
+		if (group.params[index]?.key === popover.fieldKey) {
+			if (seen === popover.ordinal) {
+				return index;
+			}
+			seen += 1;
+		}
+	}
+	return undefined;
+}
+
+/**
  * The compact matcher table both record editors and the server form render:
  * one row per matcher - the key, its inheritance, the fields as combined
  * chips, and the full-editor pencil. Rows display in precedence order,
@@ -2303,7 +2330,13 @@ export function RecordMatcherTable({
 				// The visible cell's fallback doubles as the accessible name for
 				// the row's actions: a fresh matcher must not announce as "".
 				const matcherName = group.prefix.trim().length > 0 ? group.prefix : l10n.t("(no matcher)");
-				const rowProblem = (issueView?.rows ?? []).find((row) => row?.problem !== undefined)?.problem?.message;
+				const openRowIndex = openFieldRowIndex(group, popover, groupHere);
+				const rowProblem = (issueView?.rows ?? []).find(
+					// Closed chips only: the open chip's popover already states its
+					// own problem beside the input being fixed, and the same
+					// sentence in two places at once reads as two problems.
+					(row, rowIndex) => rowIndex !== openRowIndex && row?.problem !== undefined
+				)?.problem?.message;
 				return (
 					// Rows are keyed by their MATCHER KEY plus occurrence (index
 					// only for the empty edge): an index key would remount the row
@@ -2390,10 +2423,26 @@ export function RecordMatcherTable({
 									// to prove it is editable.
 									editable &&
 										"cursor-pointer group-hover/row:border-border group-hover/row:bg-input-background group-focus-within/row:border-border group-focus-within/row:bg-input-background hover:text-foreground focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid",
-									issue?.problem !== undefined && "invalid border-input-invalid text-err",
-									issue?.hint !== undefined && "hinted border-warn",
 									catalog && "chip-catalog",
-									openHere && "border-border bg-input-background text-foreground"
+									openHere && "border-border bg-input-background text-foreground",
+									// The marks come AFTER the open state on purpose: cn resolves
+									// conflicting utilities last-wins, and with the order reversed
+									// the open chip's border-border swallowed the invalid border -
+									// the one chip being edited was the one without its mark. The
+									// marks also restate the editable string's hover/focus-within
+									// reveal variants, which are separate merge groups the plain
+									// utility cannot beat: without them the row's hairline reveal
+									// repainted the mark grey the moment the pointer arrived or
+									// the popover took focus.
+									issue?.hint !== undefined &&
+										"hinted border-warn group-hover/row:border-warn group-focus-within/row:border-warn",
+									// The border IS the whole mark - the child spans re-colour
+									// every glyph, so no text tint would paint. The fill tier,
+									// not --input-invalid: a 1px hairline is a graphical mark
+									// needing 3:1, and the host's validation border measures
+									// 1.33:1 on the dark chip fill.
+									issue?.problem !== undefined &&
+										"invalid border-err-fill group-hover/row:border-err-fill group-focus-within/row:border-err-fill"
 								);
 								const body = (
 									<>
@@ -2406,7 +2455,10 @@ export function RecordMatcherTable({
 										)}
 										<span className="chip-value max-w-[14em] truncate text-foreground">{row.valueText}</span>
 										{chipFlags(kind, group, key).map((flag) => (
-											<span className="chip-flag text-[11px] text-accent-hue" key={flag}>
+											// The accent's readable label tier: a directive mark is
+											// a permanent word at 11px on the chip fill, where the
+											// raw hue measures 2.83:1.
+											<span className="chip-flag text-[11px] text-accent-text" key={flag}>
 												{flag}
 											</span>
 										))}

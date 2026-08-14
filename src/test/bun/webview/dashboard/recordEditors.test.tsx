@@ -420,7 +420,26 @@ test("popover validation: a bad value marks the chip and blocks Apply; the messa
 	fireInput(popoverOf(section()).querySelector("input.value") as HTMLInputElement, "not json");
 	expect(popoverOf(section()).textContent).toContain("Not valid JSON");
 	expect(chipFor(section(), "temperature").classList.contains("invalid")).toBe(true);
+	// The mark survives the open state. cn resolves conflicting utilities
+	// last-wins, so with the mark listed before the open state the open
+	// chip's border-border swallowed the red border - the one chip being
+	// edited was the one without its mark. Its plain and reveal-variant
+	// border classes must all resolve to the mark while open.
+	const openChip = chipFor(section(), "temperature");
+	expect(openChip.classList.contains("border-err-fill")).toBe(true);
+	expect(openChip.classList.contains("border-border")).toBe(false);
+	expect(openChip.classList.contains("group-focus-within/row:border-err-fill")).toBe(true);
+	expect(openChip.classList.contains("group-focus-within/row:border-border")).toBe(false);
+	// One placement per scope: while the popover states the problem beside
+	// the input, the row does not repeat the same sentence underneath.
+	expect(section().querySelectorAll(".error").length).toBe(1);
+	expect(popoverOf(section()).querySelector(".error")).not.toBeNull();
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(true);
+	// Closed, the row line takes over: the problem stays said exactly once.
+	fireClick(chipFor(section(), "temperature"));
+	expect(section().querySelector(".chip-popover")).toBeNull();
+	expect(section().querySelectorAll(".error").length).toBe(1);
+	expect(section().textContent).toContain("Not valid JSON");
 });
 
 test("no chip suppresses the forced-colors border repaint, and an invalid mark survives the popover closing", () => {
@@ -440,9 +459,9 @@ test("no chip suppresses the forced-colors border repaint, and an invalid mark s
 		expect(chip.classList.contains("border-transparent")).toBe(true);
 	}
 
-	// Invalid with the popover CLOSED, which is the assertion that means
-	// something: while it is open the chip is marked for being open anyway.
-	// Closed, the .invalid class is the only hook the forced-colors width
+	// Invalid with the popover CLOSED: the open case is pinned by the popover
+	// validation test above (the mark must survive being open too), and
+	// closed, the .invalid class is the only hook the forced-colors width
 	// rule (and the ordinary red border) have.
 	fireClick(chipFor(section(), "temperature"));
 	fireInput(popoverOf(section()).querySelector("input.value") as HTMLInputElement, "not json");
@@ -1301,9 +1320,7 @@ test("an intentFailed after Apply reopens the draft dirty with the failure note"
 	});
 	// The draft returns dirty and retryable; a failed write must not render as
 	// applied. Headline and the extension's message render as separate lines.
-	expect(section().textContent).toContain(
-		"Saving failed - your edits are kept. Fix the problem below and Apply again."
-	);
+	expect(section().textContent).toContain("Saving failed - your edits are kept. Fix the problem and Apply again.");
 	expect(section().textContent).toContain("gpt-4: refused by validation.");
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(false);
 });
