@@ -20,6 +20,7 @@ import type { NumberSettingId } from "../../shared/config/settingSpec";
 import {
 	CONFIG_SECTION,
 	NUMBER_SETTING_SPECS,
+	TOKEN_ESTIMATION_SETTING_KEY,
 	UI_ACCENT_SETTING_KEY,
 	UI_THEME_SETTING_KEY,
 } from "../../shared/config/settingSpec";
@@ -420,6 +421,11 @@ export async function executeDashboardIntent(
 		case "setUsageStatusBar":
 			// The schema already pinned the value to the closed mode vocabulary.
 			await env.updateSetting(USAGE_STATUS_BAR_SETTING_KEY, intent.payload.value);
+			return undefined;
+		case "setTokenEstimation":
+			// Closed vocabulary, pinned by the schema; the tokenizer wiring reacts
+			// to the configuration change like a hand edit of settings.json.
+			await env.updateSetting(TOKEN_ESTIMATION_SETTING_KEY, intent.payload.value);
 			return undefined;
 		case "setUiTheme":
 			// Closed vocabularies, pinned by the schema. Writing the setting is the

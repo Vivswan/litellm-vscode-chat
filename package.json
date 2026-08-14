@@ -470,6 +470,18 @@
 						"type": "boolean",
 						"default": true,
 						"description": "%litellm.config.chat.promptCaching.description%"
+					},
+					"litellm-vscode-chat.chat.tokenEstimation": {
+						"type": "string",
+						"enum": ["auto", "heuristic", "o200k_base", "cl100k_base"],
+						"default": "auto",
+						"enumDescriptions": [
+							"%litellm.config.chat.tokenEstimation.auto%",
+							"%litellm.config.chat.tokenEstimation.heuristic%",
+							"%litellm.config.chat.tokenEstimation.o200k_base%",
+							"%litellm.config.chat.tokenEstimation.cl100k_base%"
+						],
+						"description": "%litellm.config.chat.tokenEstimation.description%"
 					}
 				}
 			},
@@ -609,6 +621,7 @@
 		"@vscode/l10n": "^0.0.18",
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",
+		"gpt-tokenizer": "^3.4.0",
 		"openai": "^7.4.0",
 		"react": "^19.2.0",
 		"react-dom": "^19.2.0",

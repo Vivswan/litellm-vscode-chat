@@ -153,7 +153,14 @@ function stylesheetPlugin(): Plugin {
 	};
 }
 
-/** The extension host bundle. */
+/**
+ * The extension host bundle. A dir output rather than `file`: rolldown
+ * refuses `output.file` outright when the graph holds dynamic imports, and
+ * the gpt-tokenizer encodings load through dynamic import precisely so their
+ * multi-megabyte rank data splits into lazy chunks under dist/chunks/ instead
+ * of riding the eager dist/extension.js (the packaged-file-list check pins
+ * both sides with size bounds).
+ */
 const extensionOptions: BuildOptions = {
 	input: "src/extension.ts",
 	platform: "node",
@@ -161,7 +168,9 @@ const extensionOptions: BuildOptions = {
 	tsconfig: false,
 	transform: { target: "es2022" },
 	output: {
-		file: "dist/extension.js",
+		dir: "dist",
+		entryFileNames: "extension.js",
+		chunkFileNames: "chunks/[name].js",
 		format: "cjs",
 		minify: production,
 		sourcemap: production ? "hidden" : true,

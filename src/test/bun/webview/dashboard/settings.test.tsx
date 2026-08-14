@@ -911,6 +911,28 @@ test("the status-bar mode select posts setUsageStatusBar on change", () => {
 	expect(postedCalls()).toEqual([{ method: "setUsageStatusBar", payload: { value: "alerts-only" } }]);
 });
 
+test("the token-estimation select renders in the Chat group with the default and posts setTokenEstimation on change", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const select = root.querySelector("#setting-chat\\.tokenEstimation") as HTMLSelectElement;
+	expect(select).not.toBeNull();
+	expect(select.value).toBe("auto");
+	expect(Array.from(select.options).map((option) => option.value)).toEqual([
+		"auto",
+		"heuristic",
+		"o200k_base",
+		"cl100k_base",
+	]);
+	// The row rides the Chat group, beside the scalar chat settings.
+	const group = select.closest(".settings-group") as HTMLElement;
+	expect(group.querySelector("#setting-chat\\.timeout")).not.toBeNull();
+
+	void act(() => {
+		select.value = "o200k_base";
+		select.dispatchEvent(new Event("change", { bubbles: true }));
+	});
+	expect(postedCalls()).toEqual([{ method: "setTokenEstimation", payload: { value: "o200k_base" } }]);
+});
+
 /** The Import & Export group, addressed as the last settings group (its pinned position). */
 function importExportGroup(root: ParentNode): HTMLElement {
 	const group = Array.from(root.querySelectorAll(".settings-group")).pop();

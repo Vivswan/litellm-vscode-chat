@@ -37,8 +37,14 @@ import type {
 	UsageStatusBarModeSetting,
 } from "../../dashboard/viewModels";
 import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS } from "../../dashboard/viewModels";
-import type { BooleanSettingId, NumberSettingId, UiAccent, UiTheme } from "../../shared/config/settingSpec";
-import { NUMBER_SETTING_SPECS, UI_ACCENTS, UI_THEMES } from "../../shared/config/settingSpec";
+import type {
+	BooleanSettingId,
+	NumberSettingId,
+	TokenEstimationMode,
+	UiAccent,
+	UiTheme,
+} from "../../shared/config/settingSpec";
+import { NUMBER_SETTING_SPECS, TOKEN_ESTIMATION_MODES, UI_ACCENTS, UI_THEMES } from "../../shared/config/settingSpec";
 import { DOCS_LINK_OPENROUTER_CATALOG, DOCS_LINK_SETTINGS } from "./docsLinks";
 import { DocsLink, Help } from "./help";
 import { helpCatalogRow, helpImportExportGroup, helpSettingsSection, settingRowHelp } from "./helpText";
@@ -569,6 +575,12 @@ function usageStatusBarDescription(): string {
 	return l10n.t("When the spend status bar item shows; the worst fresh server's percentage.");
 }
 
+function tokenEstimationDescription(): string {
+	return l10n.t(
+		"How prompts are sized for the local token budget. Auto loads the o200k_base tokenizer for a non-English VS Code language or for text plain counting underestimates, e.g. CJK; a loaded tokenizer holds 10-30 MB in memory."
+	);
+}
+
 function usageThresholdsDescription(): string {
 	return l10n.t("Warning at 80% and error at 95% by default; enter 80% or 0.8. Empty both to turn alerts off.");
 }
@@ -596,6 +608,22 @@ function statusBarModeLabel(mode: UsageStatusBarModeSetting): string {
 }
 
 const USAGE_STATUS_BAR_MODES: readonly UsageStatusBarModeSetting[] = ["always", "alerts-only", "off"];
+
+/** The chat.tokenEstimation mode names, resolved at call time (no module-level localized constants). */
+function tokenEstimationLabel(mode: TokenEstimationMode): string {
+	switch (mode) {
+		case "auto":
+			return l10n.t("Auto - tokenizer when text needs it");
+		case "heuristic":
+			return l10n.t("Heuristic - 4 characters per token");
+		// The encoding names are protocol terms and stay untranslated; the
+		// parenthetical says which model families they meter.
+		case "o200k_base":
+			return l10n.t("o200k_base tokenizer (GPT-4o and newer)");
+		case "cl100k_base":
+			return l10n.t("cl100k_base tokenizer (GPT-4 era)");
+	}
+}
 
 /** The ui.theme names, resolved at call time (no module-level localized constants). */
 function uiThemeLabel(theme: UiTheme): string {
@@ -1036,6 +1064,7 @@ function configuredScopes(settings: DashboardSettings): readonly (SettingScope |
 	return [
 		...Object.values(settings.configuredScopes.numbers),
 		...Object.values(settings.configuredScopes.booleans),
+		settings.chat.tokenEstimationScope,
 		settings.usage.statusBarScope,
 		settings.usage.thresholdsScope,
 		settings.appearance.themeScope,
@@ -1129,6 +1158,11 @@ export function SettingsSection({
 	// filter matching only a tail row used to render that row under a "nothing
 	// matched" line.
 	const statusBarVisible = matches(l10n.t("Usage status bar"), usageStatusBarDescription(), "usage.statusBar");
+	const tokenEstimationVisible = matches(
+		l10n.t("Token estimation"),
+		tokenEstimationDescription(),
+		"chat.tokenEstimation"
+	);
 	const thresholdsVisible = matches(
 		l10n.t("Usage alert thresholds"),
 		usageThresholdsDescription(),
@@ -1155,6 +1189,7 @@ export function SettingsSection({
 		!capsVisible &&
 		!importExportVisible &&
 		!statusBarVisible &&
+		!tokenEstimationVisible &&
 		!thresholdsVisible &&
 		!themeVisible &&
 		!accentVisible;
@@ -1203,11 +1238,13 @@ export function SettingsSection({
 			{nothingMatches ? <p className="empty">{l10n.t("No settings match the filter.")}</p> : null}
 			<div className={cn("settings-groups", SETTINGS_MEASURE)}>
 				{SETTING_GROUPS.map((group, index) => {
-					// Two groups carry non-scalar tails: Models gets the two record
+					// Three groups carry non-scalar tails: Models gets the two record
 					// editors (mirroring the manifest's grouping - they are model
-					// settings, not a page of their own), Usage gets the status bar
+					// settings, not a page of their own), Chat gets the
+					// token-estimation enum, Usage gets the status bar
 					// mode enum and the alert-thresholds row.
 					const isModelsGroup = group.booleans.includes("models.openRouterCatalog");
+					const isChatGroup = group.numbers.includes("chat.timeout");
 					const isUsageGroup = group.numbers.includes("usage.pollInterval");
 					const isUiGroup = group.booleans.includes("ui.maskSecretInputs");
 					return (
@@ -1220,6 +1257,7 @@ export function SettingsSection({
 							booleanExtras={booleanExtras}
 							tailVisible={
 								(isModelsGroup && (paramsVisible || capsVisible)) ||
+								(isChatGroup && tokenEstimationVisible) ||
 								(isUsageGroup && (statusBarVisible || thresholdsVisible)) ||
 								(isUiGroup && (themeVisible || accentVisible))
 							}
@@ -1240,6 +1278,18 @@ export function SettingsSection({
 											external={editRecordRequest?.kind === "capabilities" ? editRecordRequest : undefined}
 										/>
 									</>
+								) : isChatGroup ? (
+									<EnumSettingRow
+										settingId="chat.tokenEstimation"
+										title={l10n.t("Token estimation")}
+										description={tokenEstimationDescription()}
+										value={settings.chat.tokenEstimation}
+										options={TOKEN_ESTIMATION_MODES}
+										optionLabel={tokenEstimationLabel}
+										onPick={(value) => sendRequest("setTokenEstimation", { value })}
+										configuredScope={settings.chat.tokenEstimationScope}
+										hidden={!tokenEstimationVisible}
+									/>
 								) : isUsageGroup ? (
 									<>
 										<UsageThresholdsRow

@@ -477,6 +477,7 @@ export function baseState(overrides: Partial<DashboardState> = {}): DashboardSta
 			},
 			catalog: { modelCount: 324, lastSuccessAt: minutesAgoMs(60 * 26), refreshing: false },
 			appearance: { theme: "auto", themeScope: null, accent: "blue", accentScope: null },
+			chat: { tokenEstimation: "auto", tokenEstimationScope: null },
 			usage: { statusBarMode: "always", statusBarScope: null, alertThresholds: [0.8, 0.95], thresholdsScope: null },
 		},
 		usage: USAGE,

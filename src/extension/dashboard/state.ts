@@ -39,12 +39,18 @@ import type { EffectiveParametersProjection } from "../../shared/config/paramete
 import { projectResolvedParameters, resolveModelParameters } from "../../shared/config/parameterResolution";
 import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
 import type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
-import { NUMBER_SETTING_SPECS, UI_ACCENT_SETTING_KEY, UI_THEME_SETTING_KEY } from "../../shared/config/settingSpec";
+import {
+	NUMBER_SETTING_SPECS,
+	TOKEN_ESTIMATION_SETTING_KEY,
+	UI_ACCENT_SETTING_KEY,
+	UI_THEME_SETTING_KEY,
+} from "../../shared/config/settingSpec";
 import {
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
 	normalizeModelCapabilities,
 	normalizeModelParameters,
+	normalizeTokenEstimationMode,
 	normalizeUiAccent,
 	normalizeUiTheme,
 	normalizeUsageAlertThresholds,
@@ -670,6 +676,10 @@ export function readDashboardSettings(reader: SettingsReader, catalog: CatalogSt
 			themeScope: resolveConfiguredScope(reader.inspect(UI_THEME_SETTING_KEY)),
 			accent: normalizeUiAccent(reader.get(UI_ACCENT_SETTING_KEY)),
 			accentScope: resolveConfiguredScope(reader.inspect(UI_ACCENT_SETTING_KEY)),
+		},
+		chat: {
+			tokenEstimation: normalizeTokenEstimationMode(reader.get(TOKEN_ESTIMATION_SETTING_KEY)),
+			tokenEstimationScope: resolveConfiguredScope(reader.inspect(TOKEN_ESTIMATION_SETTING_KEY)),
 		},
 		usage: {
 			statusBarMode: normalizeUsageStatusBarMode(reader.get(USAGE_STATUS_BAR_SETTING_KEY)),

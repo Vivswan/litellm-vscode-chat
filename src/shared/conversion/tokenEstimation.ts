@@ -1,9 +1,9 @@
 import * as vscode from "vscode";
 import { type DataPartPosition, dataPartWireForm } from "./dataPartForm";
 import { extractPromptTsxText, isToolResultPart } from "./messages";
+import { countTextBytesTokens, countTextTokens } from "./textTokens";
 import type { OpenAIFunctionToolDef } from "./wire";
 
-export const CHARS_PER_TOKEN = 4;
 export const IMAGE_TOKEN_ESTIMATE = 765;
 export const PDF_TOKEN_ESTIMATE = 500;
 /**
@@ -20,8 +20,9 @@ export const AUDIO_TOKEN_ESTIMATE = 1000;
  * The same capability gates the message conversion runs under, resolved from
  * the model (registered imageInput capability, LiteLLM audio-input modality).
  * Estimation prices the same transmitted forms conversion produces for this
- * model - media at fixed heuristic figures, text by length - and a part the
- * gates exclude never ships, so it counts zero.
+ * model - media at fixed heuristic figures, text through the installed
+ * text-token counter (textTokens.ts) - and a part the gates exclude never
+ * ships, so it counts zero.
  */
 export interface TokenEstimationOptions {
 	imageInput: boolean;
@@ -34,10 +35,10 @@ export function estimatePartTokens(
 	position: DataPartPosition = "user"
 ): number {
 	if (part instanceof vscode.LanguageModelTextPart) {
-		return Math.ceil(part.value.length / CHARS_PER_TOKEN);
+		return countTextTokens(part.value);
 	}
 	if (part instanceof vscode.LanguageModelToolCallPart) {
-		return Math.ceil((part.name.length + JSON.stringify(part.input ?? {}).length) / CHARS_PER_TOKEN);
+		return countTextTokens(part.name + JSON.stringify(part.input ?? {}));
 	}
 	if (part instanceof vscode.LanguageModelDataPart) {
 		const wire = dataPartWireForm(part.mimeType, position, options);
@@ -49,7 +50,7 @@ export function estimatePartTokens(
 			case "audio":
 				return AUDIO_TOKEN_ESTIMATE;
 			case "text":
-				return Math.ceil(part.data.length / CHARS_PER_TOKEN);
+				return countTextBytesTokens(part.data);
 			case "none":
 				return 0;
 			default:
@@ -61,7 +62,7 @@ export function estimatePartTokens(
 	// recognized part classes recurse through the same per-part estimates at
 	// the "toolResult" position (whose wire forms drop PDF and audio and gate
 	// images just like conversion), a bare string is transmitted verbatim and
-	// prices by the same chars/4 rule as other text, and anything else is
+	// prices through the same text counter as other text, and anything else is
 	// JSON-stringified onto the wire, so that serialization's length is what
 	// counts - conversion's `+=` coerces a missing rendering (functions,
 	// symbols) to the literal "undefined", and only a THROWING serialization
@@ -78,13 +79,13 @@ export function estimatePartTokens(
 			) {
 				total += estimatePartTokens(inner, options, "toolResult");
 			} else if (typeof inner === "string") {
-				total += Math.ceil(inner.length / CHARS_PER_TOKEN);
+				total += countTextTokens(inner);
 			} else {
 				try {
 					// Conversion appends JSON.stringify's result with `+=`, which
 					// coerces a missing rendering to the literal "undefined"; the
 					// estimate prices exactly that transmitted text.
-					total += Math.ceil((JSON.stringify(inner) ?? "undefined").length / CHARS_PER_TOKEN);
+					total += countTextTokens(JSON.stringify(inner) ?? "undefined");
 				} catch {
 					// A throwing serialization transmits nothing and prices zero.
 				}
@@ -99,7 +100,7 @@ export function estimatePartTokens(
 	// an object value would otherwise score 0.
 	if (part instanceof vscode.LanguageModelPromptTsxPart) {
 		const extracted = extractPromptTsxText(part);
-		return typeof extracted === "string" ? Math.ceil(extracted.length / CHARS_PER_TOKEN) : 0;
+		return typeof extracted === "string" ? countTextTokens(extracted) : 0;
 	}
 	// Thinking parts (a proposed API class) reach here as unrecognized objects
 	// carrying a string value; their text plus any replayed signature or
@@ -110,9 +111,9 @@ export function estimatePartTokens(
 			record.metadata && typeof record.metadata === "object"
 				? (record.metadata as { signature?: unknown; data?: unknown })
 				: undefined;
-		const signatureLength = typeof metadata?.signature === "string" ? metadata.signature.length : 0;
-		const dataLength = typeof metadata?.data === "string" ? metadata.data.length : 0;
-		return Math.ceil((record.value.length + signatureLength + dataLength) / CHARS_PER_TOKEN);
+		const signature = typeof metadata?.signature === "string" ? metadata.signature : "";
+		const data = typeof metadata?.data === "string" ? metadata.data : "";
+		return countTextTokens(record.value + signature + data);
 	}
 	return 0;
 }
@@ -140,7 +141,7 @@ export function estimateToolTokens(tools: readonly OpenAIFunctionToolDef[] | und
 		return 0;
 	}
 	try {
-		return Math.ceil(JSON.stringify(tools).length / CHARS_PER_TOKEN);
+		return countTextTokens(JSON.stringify(tools));
 	} catch {
 		return 0;
 	}

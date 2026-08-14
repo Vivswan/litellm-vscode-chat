@@ -235,6 +235,18 @@ suite("production activation", () => {
 		assert.deepStrictEqual(testOnly, []);
 	});
 
+	test("activation with the default token-estimation mode loads no tokenizer rank data", () => {
+		// The default chat.tokenEstimation ("auto") under this host's English UI
+		// language defers the o200k_base load to the counter's non-Latin
+		// detection, so activation itself must not pull the multi-megabyte
+		// gpt-tokenizer modules into the process. The bundle side of the same
+		// promise - the encodings split into lazy chunks that dist/extension.js
+		// only reaches through dynamic import - is pinned by the packaged-file
+		// checks in format-check-reusable.yml.
+		const loaded = Object.keys(require.cache).filter((id) => id.includes(`${path.sep}gpt-tokenizer${path.sep}`));
+		assert.deepStrictEqual(loaded, []);
+	});
+
 	test("activation installs a durable per-install fingerprint salt", () => {
 		// Every credential identity in the process is keyed by this salt, so
 		// activation must have generated and stored it (this context started

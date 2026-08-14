@@ -19,6 +19,7 @@ export const CONFIG_SECTION = "litellm-vscode-chat";
  * the key names through these constants, and settingSpec.test.ts pins the
  * package.json contributions against them.
  */
+export const TOKEN_ESTIMATION_SETTING_KEY = "chat.tokenEstimation";
 export const MODEL_CAPABILITIES_SETTING_KEY = "models.capabilities";
 export const MODEL_PARAMETERS_SETTING_KEY = "models.parameters";
 export const SERVERS_SETTING_KEY = "servers";
@@ -53,6 +54,20 @@ export const UI_ACCENTS = ["blue", "violet", "teal", "amber"] as const;
 export type UiAccent = (typeof UI_ACCENTS)[number];
 
 export const DEFAULT_UI_ACCENT: UiAccent = "blue";
+
+/**
+ * How the local token budget prices text (chat.tokenEstimation). "auto"
+ * starts from a script-aware heuristic and loads the o200k_base tokenizer
+ * once the UI language or the counted text is CJK; "heuristic" is the plain
+ * 4-characters-per-token rule and never loads tokenizer data; the explicit
+ * encodings always load theirs. extension/tokenCounting.ts applies the mode
+ * to the shared counter in shared/conversion/textTokens.ts.
+ */
+export const TOKEN_ESTIMATION_MODES = ["auto", "heuristic", "o200k_base", "cl100k_base"] as const;
+
+export type TokenEstimationMode = (typeof TOKEN_ESTIMATION_MODES)[number];
+
+export const DEFAULT_TOKEN_ESTIMATION_MODE: TokenEstimationMode = "auto";
 
 /** The floor both timeout settings clamp to; sub-second timeouts would abort requests before they leave. */
 export const MIN_TIMEOUT_MS = 1000;
@@ -99,14 +114,15 @@ export type BooleanSettingId = keyof typeof BOOLEAN_SETTING_SPECS;
 
 /**
  * The settings under the config section with no scalar spec: the object and
- * array settings plus the enum strings (usage.statusBar, ui.theme,
- * ui.accent). Their value grammars
+ * array settings plus the enum strings (chat.tokenEstimation,
+ * usage.statusBar, ui.theme, ui.accent). Their value grammars
  * live with their readers; this list only names the keys.
  */
 export const STRUCTURED_SETTING_KEYS = [
 	SERVERS_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
 	MODEL_CAPABILITIES_SETTING_KEY,
+	TOKEN_ESTIMATION_SETTING_KEY,
 	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
 	USAGE_STATUS_BAR_SETTING_KEY,
 	UI_THEME_SETTING_KEY,

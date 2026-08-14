@@ -13,7 +13,8 @@ import type { CapabilityCatalogLookup, ModelCapabilitiesRecord } from "../shared
 import { EMPTY_CATALOG_LOOKUP } from "../shared/config/capabilityResolution";
 import { ModelResolutionTable } from "../shared/config/resolutionTable";
 import { getDiscoveryStaleServeWindow, getDiscoveryTimeout } from "../shared/config/settings";
-import { CHARS_PER_TOKEN, estimateMessagesTokens } from "../shared/conversion/tokenEstimation";
+import { countTextTokens } from "../shared/conversion/textTokens";
+import { estimateMessagesTokens } from "../shared/conversion/tokenEstimation";
 import type { Logger } from "../shared/logger";
 import type { ExpectedFailureCategory } from "../shared/serverEntry";
 import type { AggregatedStatus } from "../shared/servers";
@@ -464,7 +465,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		_token: CancellationToken
 	): Promise<number> {
 		if (typeof text === "string") {
-			return Math.ceil(text.length / CHARS_PER_TOKEN);
+			return countTextTokens(text);
 		}
 		// The same capability gates the chat path sends under, so the host's
 		// budget prices the same transmitted forms the request would carry.

@@ -94,7 +94,7 @@ jobs:
           # noticed). Anything new must be added here deliberately, including
           # new asset types and new localization catalogs. POSIX bracket
           # expressions treat \w literally, hence the spelled-out class.
-          allowed='^(package\.json|README\.md|CHANGELOG\.md|LICENSE\.md|ThirdPartyNotices\.txt|dist/extension\.js|dist/webview/dashboard\.js|dist/webview/dashboard\.css|dist/openrouter-models\.json)$|^assets/.+\.(png|md)$|^package\.nls(\.[A-Za-z0-9_-]+)?\.json$|^l10n/bundle\.l10n(\.[A-Za-z0-9_-]+)?\.json$'
+          allowed='^(package\.json|README\.md|CHANGELOG\.md|LICENSE\.md|ThirdPartyNotices\.txt|dist/extension\.js|dist/chunks/[A-Za-z0-9_.-]+\.js|dist/webview/dashboard\.js|dist/webview/dashboard\.css|dist/openrouter-models\.json)$|^assets/.+\.(png|md)$|^package\.nls(\.[A-Za-z0-9_-]+)?\.json$|^l10n/bundle\.l10n(\.[A-Za-z0-9_-]+)?\.json$'
           if echo "$listing" | grep -Ev "$allowed"; then
             echo "::error::vsce would package files outside the allowed set (matches above)"
             exit 1
@@ -109,6 +109,59 @@ jobs:
           fi
           if ! echo "$listing" | grep -qx 'dist/webview/dashboard.css'; then
             echo "::error::dist/webview/dashboard.css is missing from the packaged file list"
+            exit 1
+          fi
+          # The tokenizer rank data must ride the lazy chunks, never the eager
+          # entry: dist/extension.js reaches the encodings only through dynamic
+          # import (scripts/dev/bundle.mts splits them into dist/chunks/). Four
+          # assertions carry the claim jointly. The entry ceiling proves the
+          # ranks did not inline - each encoding's ranks alone are 1-2 MB, and
+          # the production entry weighed about 561,000 bytes when the ceiling
+          # was set (2026-08-13; a dev bundle from the test entry points is
+          # unminified and larger, so compare against a fresh production
+          # `bun run bundle` only, like the webview bounds below). The chunk
+          # floors prove the ranks actually shipped. The shape grep proves the
+          # entry's single reference to each encoding is the deferred
+          # `.then(()=>require(...))` thunk - a top-level require or an
+          # eagerly-evaluated `then(require(...))` both fail, and a bundler
+          # that changes the emitted shape fails closed here rather than
+          # passing unproven. And the all-chunks listing loop proves every
+          # emitted chunk - the eagerly required
+          # rolldown runtime and the shared GptEncoding module included -
+          # survives .vscodeignore into the package; losing the runtime chunk
+          # would fail every activation, losing GptEncoding would silently
+          # degrade every tokenizer load. The activation-side twin (activation
+          # with the default mode loads no rank data) is pinned in
+          # src/test/activation/production.test.ts.
+          extension_size="$(wc -c < dist/extension.js | tr -d ' ')"
+          echo "dist/extension.js: ${extension_size} bytes"
+          if [ "$extension_size" -gt 1200000 ]; then
+            echo "::error::dist/extension.js is ${extension_size} bytes; the tokenizer ranks look inlined into the eager bundle"
+            exit 1
+          fi
+          for chunk in chunks/o200k_base.js chunks/cl100k_base.js; do
+            occurrences="$(grep -oF "$chunk" dist/extension.js | wc -l | tr -d ' ')"
+            if [ "$occurrences" != "1" ]; then
+              echo "::error::dist/extension.js references ${chunk} ${occurrences} times (expected exactly the one lazy edge)"
+              exit 1
+            fi
+            escaped="${chunk//./\\.}"
+            if ! grep -qE "then\(\(\) ?=> ?require\(\"\./${escaped}\"\)\)" dist/extension.js; then
+              echo "::error::dist/extension.js's reference to ${chunk} is not the deferred then(()=>require(...)) thunk"
+              exit 1
+            fi
+          done
+          for chunk in dist/chunks/*.js; do
+            if ! echo "$listing" | grep -qx "$chunk"; then
+              echo "::error::${chunk} is missing from the packaged file list"
+              exit 1
+            fi
+          done
+          o200k_size="$(wc -c < dist/chunks/o200k_base.js | tr -d ' ')"
+          cl100k_size="$(wc -c < dist/chunks/cl100k_base.js | tr -d ' ')"
+          echo "dist/chunks: o200k_base ${o200k_size} bytes, cl100k_base ${cl100k_size} bytes"
+          if [ "$o200k_size" -lt 1500000 ] || [ "$cl100k_size" -lt 700000 ]; then
+            echo "::error::a tokenizer chunk is too small to carry its rank data (o200k ${o200k_size}, cl100k ${cl100k_size})"
             exit 1
           fi
           # The OpenRouter catalog artifact must ship AND carry a real model

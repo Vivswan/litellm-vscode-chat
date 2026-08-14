@@ -6,9 +6,12 @@ import {
 	ALL_SETTING_KEYS,
 	BOOLEAN_SETTING_SPECS,
 	CONFIG_SECTION,
+	DEFAULT_TOKEN_ESTIMATION_MODE,
 	MIN_TIMEOUT_MS,
 	NUMBER_SETTING_SPECS,
 	STRUCTURED_SETTING_KEYS,
+	TOKEN_ESTIMATION_MODES,
+	TOKEN_ESTIMATION_SETTING_KEY,
 } from "../../../shared/config/settingSpec";
 import {
 	MODEL_CAPABILITIES_SETTING_KEY,
@@ -217,6 +220,14 @@ suite("shared/config/settingSpec: package.json drift guard", () => {
 		assert.strictEqual(statusBar.type, "string");
 		assert.deepStrictEqual(statusBar.enum, [...USAGE_STATUS_BAR_MODES]);
 		assert.strictEqual(statusBar.default, "always");
+	});
+
+	test("the token-estimation setting is contributed with the spec's vocabulary and default", () => {
+		const schema = settingSchema(allProperties(), TOKEN_ESTIMATION_SETTING_KEY);
+		assert.strictEqual(schema.type, "string");
+		assert.deepStrictEqual(schema.enum, [...TOKEN_ESTIMATION_MODES]);
+		assert.strictEqual(schema.default, DEFAULT_TOKEN_ESTIMATION_MODE);
+		assert.strictEqual(schema.default, "auto");
 	});
 });
 

@@ -1,7 +1,10 @@
 import * as assert from "node:assert";
 import {
+	DEFAULT_TOKEN_ESTIMATION_MODE,
 	DEFAULT_UI_ACCENT,
 	DEFAULT_UI_THEME,
+	TOKEN_ESTIMATION_MODES,
+	TOKEN_ESTIMATION_SETTING_KEY,
 	UI_ACCENT_SETTING_KEY,
 	UI_ACCENTS,
 	UI_THEME_SETTING_KEY,
@@ -15,6 +18,7 @@ import {
 	getDiscoveryTimeout,
 	getModelCapabilitiesConfig,
 	getRequestTimeout,
+	getTokenEstimationMode,
 	getUiAccent,
 	getUiTheme,
 	getUsagePollIntervalMs,
@@ -23,6 +27,7 @@ import {
 	MODEL_CAPABILITIES_SETTING_KEY,
 	normalizeCustomHeaders,
 	normalizeModelCapabilities,
+	normalizeTokenEstimationMode,
 	normalizeUiAccent,
 	normalizeUiTheme,
 } from "../../../shared/config/settings";
@@ -257,6 +262,32 @@ suite("shared/config/settings appearance getters", () => {
 		await withConfig({ [UI_THEME_SETTING_KEY]: "solarized", [UI_ACCENT_SETTING_KEY]: 7 }, () => {
 			assert.strictEqual(getUiTheme(), DEFAULT_UI_THEME);
 			assert.strictEqual(getUiAccent(), DEFAULT_UI_ACCENT);
+		});
+	});
+});
+
+suite("shared/config/settings token estimation getter", () => {
+	test("a junk chat.tokenEstimation value reads as the default, whatever kind it is", () => {
+		// The settings import path can write an arbitrary value into the key,
+		// and this normalizer is the only thing between that and the counter.
+		for (const junk of ["Auto", "", "gpt2", "o200k", 3, null, undefined, {}, ["auto"]]) {
+			assert.strictEqual(
+				normalizeTokenEstimationMode(junk),
+				DEFAULT_TOKEN_ESTIMATION_MODE,
+				JSON.stringify(junk) ?? "undefined"
+			);
+		}
+		for (const mode of TOKEN_ESTIMATION_MODES) {
+			assert.strictEqual(normalizeTokenEstimationMode(mode), mode);
+		}
+	});
+
+	test("the getter reads the setting through the normalizer", async () => {
+		await withConfig({ [TOKEN_ESTIMATION_SETTING_KEY]: "cl100k_base" }, () => {
+			assert.strictEqual(getTokenEstimationMode(), "cl100k_base");
+		});
+		await withConfig({ [TOKEN_ESTIMATION_SETTING_KEY]: "tiktoken" }, () => {
+			assert.strictEqual(getTokenEstimationMode(), DEFAULT_TOKEN_ESTIMATION_MODE);
 		});
 	});
 });

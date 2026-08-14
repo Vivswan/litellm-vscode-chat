@@ -1,9 +1,9 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { dataPartWireForm } from "../../../shared/conversion/dataPartForm";
+import { CHARS_PER_TOKEN } from "../../../shared/conversion/textTokens";
 import {
 	AUDIO_TOKEN_ESTIMATE,
-	CHARS_PER_TOKEN,
 	estimateMessagesTokens,
 	estimatePartTokens,
 	estimateToolTokens,

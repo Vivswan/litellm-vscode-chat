@@ -1,8 +1,8 @@
 import * as vscode from "vscode";
 import { LiteLLMChatModelProvider } from "../../provider";
 import { CMD } from "../../shared/config/commandIds";
-import { CONFIG_SECTION } from "../../shared/config/settingSpec";
-import { isOpenRouterCatalogEnabled, SERVERS_SETTING_KEY } from "../../shared/config/settings";
+import { CONFIG_SECTION, TOKEN_ESTIMATION_SETTING_KEY } from "../../shared/config/settingSpec";
+import { getTokenEstimationMode, isOpenRouterCatalogEnabled, SERVERS_SETTING_KEY } from "../../shared/config/settings";
 import type { Logger } from "../../shared/logger";
 import type { DebouncedAction } from "../../shared/util/debounce";
 import { debounced } from "../../shared/util/debounce";
@@ -20,6 +20,7 @@ import {
 	readEntryModelCapabilities,
 	readEntryModelParameters,
 } from "../servers/serverSync";
+import { createTokenCountingController } from "../tokenCounting";
 
 /** How long configuration-change bursts (settings.json keystrokes) coalesce before models re-resolve. */
 const CONFIG_CHANGE_DEBOUNCE_MS = 400;
@@ -114,6 +115,29 @@ export function wireProvider(
 		(!deps.isMigrated() && deps.registry.getServers().length > 0);
 
 	return { catalogStore, provider, notifyModelsChanged, hasDeclaredServers, hasConfiguredServers };
+}
+
+/**
+ * The token-estimation wiring: applies chat.tokenEstimation to the shared
+ * text-token counter at activation and re-applies on configuration change.
+ * The controller owns the load policy (see extension/tokenCounting.ts); this
+ * only feeds it the setting, so the mode is read once per change, never per
+ * count.
+ */
+export function wireTokenCounting(context: vscode.ExtensionContext, logger: Logger): void {
+	const controller = createTokenCountingController({
+		log: (message, data) => logger.log(message, data),
+		logError: (message, error) => logger.error(message, error),
+		uiLanguage: vscode.env.language,
+	});
+	controller.applyMode(getTokenEstimationMode());
+	context.subscriptions.push(
+		vscode.workspace.onDidChangeConfiguration((event) => {
+			if (event.affectsConfiguration(`${CONFIG_SECTION}.${TOKEN_ESTIMATION_SETTING_KEY}`)) {
+				controller.applyMode(getTokenEstimationMode());
+			}
+		})
+	);
 }
 
 /**

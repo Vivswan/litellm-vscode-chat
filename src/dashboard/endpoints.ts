@@ -20,7 +20,13 @@
 
 import type { EffectiveCapabilities } from "../shared/config/capabilityResolution";
 import type { EffectiveParametersProjection } from "../shared/config/parameterResolution";
-import type { BooleanSettingId, NumberSettingId, UiAccent, UiTheme } from "../shared/config/settingSpec";
+import type {
+	BooleanSettingId,
+	NumberSettingId,
+	TokenEstimationMode,
+	UiAccent,
+	UiTheme,
+} from "../shared/config/settingSpec";
 import type { TransportErrorClassification } from "../shared/errorClassification";
 import type {
 	ExpectedFailureCategory,
@@ -176,6 +182,7 @@ export const DASHBOARD_ENDPOINTS = {
 	setModelParameters: { outcome: "acked", channel: "chained" },
 	setModelCapabilities: { outcome: "acked", channel: "chained" },
 	setUsageStatusBar: { outcome: "fire-and-forget", channel: "chained" },
+	setTokenEstimation: { outcome: "fire-and-forget", channel: "chained" },
 	setUiTheme: { outcome: "fire-and-forget", channel: "chained" },
 	setUiAccent: { outcome: "fire-and-forget", channel: "chained" },
 	setUsageAlertThresholds: { outcome: "fire-and-forget", channel: "chained" },
@@ -256,6 +263,7 @@ interface DashboardEndpointIO {
 	setModelParameters: { request: { readonly value: Record<string, Record<string, unknown>> } };
 	setModelCapabilities: { request: { readonly value: Record<string, Record<string, unknown>> } };
 	setUsageStatusBar: { request: { readonly value: UsageStatusBarModeSetting } };
+	setTokenEstimation: { request: { readonly value: TokenEstimationMode } };
 	setUiTheme: { request: { readonly value: UiTheme } };
 	setUiAccent: { request: { readonly value: UiAccent } };
 	/** Values must be fractions in (0, 1]; the extension re-validates and refuses out-of-range entries. */

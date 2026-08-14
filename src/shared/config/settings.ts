@@ -3,10 +3,11 @@ import { z } from "zod";
 import type { HeaderScalar } from "../util/headers";
 import { HEADER_NAME_PATTERN, isHeaderScalar, isValidHeaderValue } from "../util/headers";
 import { isUnsafeRecordKey } from "../util/json";
-import type { BooleanSettingId, NumberSettingId } from "./settingSpec";
+import type { BooleanSettingId, NumberSettingId, TokenEstimationMode } from "./settingSpec";
 import {
 	BOOLEAN_SETTING_SPECS,
 	CONFIG_SECTION,
+	DEFAULT_TOKEN_ESTIMATION_MODE,
 	DEFAULT_UI_ACCENT,
 	DEFAULT_UI_THEME,
 	MIN_TIMEOUT_MS,
@@ -14,6 +15,8 @@ import {
 	MODEL_PARAMETERS_SETTING_KEY,
 	NUMBER_SETTING_SPECS,
 	SERVERS_SETTING_KEY,
+	TOKEN_ESTIMATION_MODES,
+	TOKEN_ESTIMATION_SETTING_KEY,
 	UI_ACCENT_SETTING_KEY,
 	UI_ACCENTS,
 	UI_THEME_SETTING_KEY,
@@ -81,6 +84,22 @@ export function getDiscoveryTimeout(log?: LogFn): number {
 
 export function getRequestTimeout(log?: LogFn): number {
 	return getDurationSetting("chat.timeout", log);
+}
+
+/** Anything outside the token-estimation vocabulary reads as the default ("auto"). */
+export function normalizeTokenEstimationMode(raw: unknown): TokenEstimationMode {
+	return typeof raw === "string" && (TOKEN_ESTIMATION_MODES as readonly string[]).includes(raw)
+		? (raw as TokenEstimationMode)
+		: DEFAULT_TOKEN_ESTIMATION_MODE;
+}
+
+/**
+ * How the local token budget prices text. Read once at activation and on
+ * configuration change by the tokenizer wiring (extension/tokenCounting.ts),
+ * never per count.
+ */
+export function getTokenEstimationMode(): TokenEstimationMode {
+	return normalizeTokenEstimationMode(getConfig().get<unknown>(TOKEN_ESTIMATION_SETTING_KEY));
 }
 
 /**

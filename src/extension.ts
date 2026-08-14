@@ -5,7 +5,7 @@ import { registerOpenRouterCatalogTestSeam } from "./extension/openRouterCatalog
 import { registerTestCommands, SessionLogTee } from "./extension/ui/commands";
 import { createIssueReporterEnv, IssueReporter } from "./extension/ui/issueReporter";
 import { wireDashboard, wireGroupRemovalReactions, wireUsageSurfaces } from "./extension/wiring/dashboard";
-import { wireCatalogRefresh, wireProvider } from "./extension/wiring/provider";
+import { wireCatalogRefresh, wireProvider, wireTokenCounting } from "./extension/wiring/provider";
 import { wireServers } from "./extension/wiring/servers";
 import { wireStorage } from "./extension/wiring/storage";
 import { maybeShowWelcome, wireStatusFanout, wireStatusSurfaces, wireUiCommands } from "./extension/wiring/ui";
@@ -58,6 +58,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	logger.log(`LiteLLM Extension activated (v${extVersion})`);
 
 	const storage = await wireStorage(context, logger);
+	// Token estimation serves the request path from the first request: mode
+	// applied now, tokenizer loads (if the mode wants one) settle off the
+	// activation path.
+	wireTokenCounting(context, logger);
 	const { catalogStore, provider, notifyModelsChanged, hasDeclaredServers, hasConfiguredServers } = wireProvider(
 		context,
 		logger,

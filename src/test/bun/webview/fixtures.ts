@@ -45,6 +45,7 @@ export function makeSettings(overrides: Partial<DashboardSettings> = {}): Dashbo
 		modelCapabilities: { editScope: "global", value: {}, otherScopes: [], effective: {} },
 		catalog: { modelCount: 0, lastSuccessAt: undefined, refreshing: false },
 		appearance: { theme: "auto", themeScope: null, accent: "blue", accentScope: null },
+		chat: { tokenEstimation: "auto", tokenEstimationScope: null },
 		usage: { statusBarMode: "always", statusBarScope: null, alertThresholds: [0.8, 0.95], thresholdsScope: null },
 		...overrides,
 	};

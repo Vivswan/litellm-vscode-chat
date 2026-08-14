@@ -21,7 +21,7 @@ import {
 	REVEALABLE_SETTING_IDS,
 } from "../../../dashboard/viewModels";
 import { parseDashboardRequest, secretDirectiveSchema } from "../../../extension/dashboard/intentSchema";
-import { UI_ACCENTS, UI_THEMES } from "../../../shared/config/settingSpec";
+import { TOKEN_ESTIMATION_MODES, UI_ACCENTS, UI_THEMES } from "../../../shared/config/settingSpec";
 import {
 	EXPECTED_FAILURE_CATEGORIES,
 	NON_SECRET_OPTIONAL_FIELD_IDS,
@@ -123,6 +123,7 @@ const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 	refreshCatalog: fc.constant(null),
 	refreshUsage: fc.constant(null),
 	setUsageStatusBar: fc.record({ value: fc.constantFrom("always", "alerts-only", "off") }),
+	setTokenEstimation: fc.record({ value: fc.constantFrom(...TOKEN_ESTIMATION_MODES) }),
 	setUiTheme: fc.record({ value: fc.constantFrom(...UI_THEMES) }),
 	setUiAccent: fc.record({ value: fc.constantFrom(...UI_ACCENTS) }),
 	setUsageAlertThresholds: fc.record({ values: fc.array(finiteNumber, { maxLength: 32 }) }),

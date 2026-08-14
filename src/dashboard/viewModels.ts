@@ -11,7 +11,13 @@
 
 import type { CapabilityLevel } from "../shared/config/capabilityResolution";
 import type { RecordDiagnostic } from "../shared/config/recordResolution";
-import type { BooleanSettingId, NumberSettingId, UiAccent, UiTheme } from "../shared/config/settingSpec";
+import type {
+	BooleanSettingId,
+	NumberSettingId,
+	TokenEstimationMode,
+	UiAccent,
+	UiTheme,
+} from "../shared/config/settingSpec";
 import { BOOLEAN_SETTING_SPECS, NUMBER_SETTING_SPECS } from "../shared/config/settingSpec";
 import type { TransportErrorClassification } from "../shared/errorClassification";
 import type {
@@ -315,6 +321,7 @@ export type RevealableSettingId =
 	| "models.parameters"
 	| "models.capabilities"
 	| "servers"
+	| "chat.tokenEstimation"
 	| "usage.alertThresholds"
 	| "usage.statusBar"
 	| "ui.theme"
@@ -337,16 +344,18 @@ export const REVEALABLE_SETTING_IDS: readonly RevealableSettingId[] = everyId<Re
 	"models.parameters",
 	"models.capabilities",
 	"servers",
+	"chat.tokenEstimation",
 	"usage.alertThresholds",
 	"usage.statusBar",
 	"ui.theme",
 	"ui.accent",
 ]);
 
-/** The settings the resetSetting intent may name: the scalar rows plus the non-scalar usage and appearance rows. */
+/** The settings the resetSetting intent may name: the scalar rows plus the non-scalar chat, usage, and appearance rows. */
 export type ResettableSettingId =
 	| NumberSettingId
 	| BooleanSettingId
+	| "chat.tokenEstimation"
 	| "usage.statusBar"
 	| "usage.alertThresholds"
 	| "ui.theme"
@@ -355,6 +364,7 @@ export type ResettableSettingId =
 export const RESETTABLE_SETTING_IDS: readonly ResettableSettingId[] = everyId<ResettableSettingId>()([
 	...NUMBER_SETTING_IDS,
 	...BOOLEAN_SETTING_IDS,
+	"chat.tokenEstimation",
 	"usage.statusBar",
 	"usage.alertThresholds",
 	"ui.theme",
@@ -433,6 +443,11 @@ export interface DashboardSettings {
 		readonly themeScope: SettingScope | null;
 		readonly accent: UiAccent;
 		readonly accentScope: SettingScope | null;
+	};
+	/** The chat.tokenEstimation enum row (the Chat group's non-scalar tail). */
+	readonly chat: {
+		readonly tokenEstimation: TokenEstimationMode;
+		readonly tokenEstimationScope: SettingScope | null;
 	};
 	/** The two non-scalar usage settings' rows (the enum and the fraction list). */
 	readonly usage: {
