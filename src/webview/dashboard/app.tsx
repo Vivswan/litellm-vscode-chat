@@ -22,6 +22,7 @@ import type { EditRecordRequest } from "./settings";
 import { SettingsSection } from "./settings";
 import { relativeTime, useNow } from "./time";
 import { Button } from "./ui/button";
+import { ConfirmDialog } from "./ui/dialog";
 import { barPresentation, formatPercent, UsageSection } from "./usage";
 import { sendRequest } from "./vscodeApi";
 
@@ -395,11 +396,8 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	// effects in the same commit - state read from a closure would still say
 	// "dirty" and raise a question about a draft that no longer exists.
 	const editDirty = useRef(false);
-	// The child lists this in an effect's deps, so a fresh arrow per parent
-	// render would re-run that effect on every render of the shell.
-	const noteEditDirty = useCallback((dirty: boolean) => {
-		editDirty.current = dirty;
-	}, []);
+	// The guard's open question, rendered as the ConfirmDialog at the end of
+	// the shell; true only while the edit destination is on screen.
 	const [confirmingDiscard, setConfirmingDiscard] = useState(false);
 	// Where the reader was when they opened the page, and where they asked to
 	// go if a rail click is what raised the question. Refs, not state: nothing
@@ -407,6 +405,24 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	// not lose either.
 	const editOpener = useRef<HTMLElement | undefined>(undefined);
 	const leaveIntent = useRef<SectionId | undefined>(undefined);
+	// The child lists this in an effect's deps, so a fresh arrow per parent
+	// render would re-run that effect on every render of the shell.
+	const noteEditDirty = useCallback((dirty: boolean) => {
+		editDirty.current = dirty;
+		// A draft that stopped existing takes its question with it: the page
+		// reports false when the entry is deleted under the reader, and a modal
+		// left standing would ask about edits nobody can keep - with an intent
+		// that would fire on some later exit the reader never asked for.
+		// This leans on the dirty report being one-way: the page's ONLY false
+		// is the target-gone effect (edits never report clean again), so false
+		// here MEANS "the draft ceased to exist". A second false call site -
+		// say, a save rebasing the baseline - would silently dismiss a standing
+		// question and must not reuse this channel.
+		if (!dirty) {
+			leaveIntent.current = undefined;
+			setConfirmingDiscard(false);
+		}
+	}, []);
 	// Where focus goes once the destination has actually left the screen.
 	const pendingLeaveFocus = useRef<{ kind: "opener" } | { kind: "section"; section: SectionId } | undefined>(undefined);
 	// The navigation guard as the one-time message listener can reach it. It is
@@ -650,21 +666,14 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	};
 
 	// Every way out funnels through here: the page's own Discard changes, Esc,
-	// and a rail click. A dirty draft gets the question instead of the exit;
-	// Esc while the question stands answers "keep editing", so a reflexive
-	// Esc-Esc never destroys a draft - only the explicit Discard does.
+	// and a rail click. A dirty draft gets the question instead of the exit -
+	// asked as a modal, which owns its own answering: it holds focus, consumes
+	// its own Esc, and its scrim blocks the page, so nothing can reach this
+	// guard while the question stands. Asking is therefore idempotent, never a
+	// toggle; only the dialog's explicit Discard destroys a draft.
 	const requestLeaveEdit = () => {
 		if (editDirty.current) {
-			setConfirmingDiscard((current) => {
-				// Toggling the question off IS "keep editing", so the navigation
-				// that raised it is abandoned with it. A surviving intent would
-				// send the reader to a destination they already declined, on
-				// whatever exit came next.
-				if (current) {
-					leaveIntent.current = undefined;
-				}
-				return !current;
-			});
+			setConfirmingDiscard(true);
 			return;
 		}
 		leaveEdit();
@@ -770,11 +779,8 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 							key={editing.key}
 							request={editing.request}
 							servers={state.servers}
-							confirmingDiscard={confirmingDiscard}
 							onDirtyChange={noteEditDirty}
 							onRequestClose={requestLeaveEdit}
-							onKeepEditing={keepEditing}
-							onDiscard={leaveEdit}
 							onSaved={leaveEdit}
 						/>
 					) : null}
@@ -844,6 +850,22 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 						setInspecting(undefined);
 						editEntry(label);
 					}}
+				/>
+			) : null}
+			{/* The navigation guard's question, a modal above everything it
+			    interrupts: leaving a dirty page is a decision about the whole
+			    page, so it does not share the save bar it used to sit in. Keep
+			    editing is the safe default; the dialog restores focus into the
+			    page on cancel, and on Discard the intent recorded above decides
+			    where the reader (and focus) land. */}
+			{editing !== undefined && confirmingDiscard ? (
+				<ConfirmDialog
+					question={l10n.t("Discard unsaved changes?")}
+					confirmLabel={l10n.t("Discard")}
+					cancelLabel={l10n.t("Keep editing")}
+					surfaceId="server-edit-page"
+					onConfirm={leaveEdit}
+					onCancel={keepEditing}
 				/>
 			) : null}
 		</main>

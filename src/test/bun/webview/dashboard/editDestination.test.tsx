@@ -10,7 +10,9 @@
  * being a dialog over the page it came from, which is the whole point of the
  * change - a destination has no scrim to click, no X, and no focus trap, and
  * pinning that it has none is as much a part of the contract as the parts it
- * kept.
+ * kept. The one dialog left is the discard question itself: a centered,
+ * focus-trapped alertdialog over a scrim, raised only by a dirty-form
+ * navigation, whose Esc is consumed by the dialog and heard by nothing below.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
@@ -23,6 +25,7 @@ import {
 	fireClick,
 	fireInput,
 	fireKeyDown,
+	fireMouseEnter,
 	inputByLabel,
 	lastRequest,
 	mount,
@@ -51,6 +54,19 @@ function page(root: ParentNode): HTMLElement {
 		throw new Error("the edit destination is not open");
 	}
 	return found as HTMLElement;
+}
+
+/** The discard question's modal, or null while no question stands. It renders beside the pane, never inside the page. */
+function confirmDialog(): HTMLElement | null {
+	return document.querySelector<HTMLElement>(".confirm-dialog");
+}
+
+function openConfirmDialog(): HTMLElement {
+	const dialog = confirmDialog();
+	if (dialog === null) {
+		throw new Error("the discard question is not open");
+	}
+	return dialog;
 }
 
 test("the destination fills the pane with the rail still on screen, and takes focus on arrival", () => {
@@ -93,23 +109,27 @@ test("Esc on a dirty page asks before discarding, and Esc never destroys: only t
 
 	fireKeyDown(label, "Escape");
 	expect(root.querySelector(".server-edit-page")).not.toBeNull();
-	expect(root.querySelector(".discard-confirm")?.textContent).toContain("Discard unsaved changes?");
+	expect(openConfirmDialog().textContent).toContain("Discard unsaved changes?");
+	// The question is not part of the page's own save bar any more.
+	expect(page(root).querySelector(".confirm-dialog")).toBeNull();
+	expect(page(root).querySelector(".discard-confirm")).toBeNull();
 
 	// A second Esc reads as "keep editing" (a reflexive Esc-Esc must not
-	// destroy a half-typed draft); the bar hides, the draft survives.
-	fireKeyDown(label, "Escape");
+	// destroy a half-typed draft). The modal holds focus, so the second press
+	// lands on it; the dialog closes, the draft survives.
+	fireKeyDown(document.activeElement as HTMLElement, "Escape");
 	expect(root.querySelector(".server-edit-page")).not.toBeNull();
-	expect(root.querySelector(".discard-confirm")).toBeNull();
+	expect(confirmDialog()).toBeNull();
 	expect(inputByLabel(page(root), "Label").value).toBe("Prod");
 
 	fireClick(buttonByText(page(root), "Discard changes"));
-	fireClick(buttonByText(page(root), "Keep editing"));
-	expect(root.querySelector(".discard-confirm")).toBeNull();
+	fireClick(buttonByText(openConfirmDialog(), "Keep editing"));
+	expect(confirmDialog()).toBeNull();
 	expect(inputByLabel(page(root), "Label").value).toBe("Prod");
 
 	// The explicit Discard button is the only path that destroys the draft.
 	fireKeyDown(label, "Escape");
-	fireClick(buttonByText(page(root), "Discard"));
+	fireClick(buttonByText(openConfirmDialog(), "Discard"));
 	expect(root.querySelector(".server-edit-page")).toBeNull();
 });
 
@@ -121,10 +141,10 @@ test("while the question stands, another Esc means keep editing rather than fall
 	fireInput(label, "Prod");
 
 	fireKeyDown(label, "Escape");
-	expect(root.querySelector(".discard-confirm")).not.toBeNull();
-	fireKeyDown(label, "Escape");
+	expect(confirmDialog()).not.toBeNull();
+	fireKeyDown(document.activeElement as HTMLElement, "Escape");
 	expect(root.querySelector(".server-edit-page")).not.toBeNull();
-	expect(root.querySelector(".discard-confirm")).toBeNull();
+	expect(confirmDialog()).toBeNull();
 	expect(inputByLabel(page(root), "Label").value).toBe("Prod");
 });
 
@@ -138,27 +158,28 @@ test("a rail click is a navigation the guard sees first, and the answer decides 
 	// draft is still there behind it.
 	fireClick(document.getElementById("tab-usage") as HTMLElement);
 	expect(root.querySelector(".server-edit-page")).not.toBeNull();
-	expect(root.querySelector(".discard-confirm")).not.toBeNull();
+	expect(confirmDialog()).not.toBeNull();
 
 	// Keeping goes nowhere: the reader stays on the page they were editing.
-	fireClick(buttonByText(page(root), "Keep editing"));
+	fireClick(buttonByText(openConfirmDialog(), "Keep editing"));
 	expect(root.querySelector(".server-edit-page")).not.toBeNull();
 	expect(document.getElementById("tab-usage")?.getAttribute("aria-selected")).toBe("false");
 
 	// Discarding takes them where they asked to go, not back to the list.
 	fireClick(document.getElementById("tab-usage") as HTMLElement);
-	fireClick(buttonByText(page(root), "Discard"));
+	fireClick(buttonByText(openConfirmDialog(), "Discard"));
 	expect(root.querySelector(".server-edit-page")).toBeNull();
 	expect(document.getElementById("tab-usage")?.getAttribute("aria-selected")).toBe("true");
 	expect(document.activeElement?.id).toBe("tab-usage");
 });
 
-test("a rail click on a clean page just navigates", () => {
+test("a rail click on a clean page just navigates, with no question in sight", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
 	fireClick(buttonByText(root, "Edit"));
 
 	fireClick(document.getElementById("tab-diagnostics") as HTMLElement);
+	expect(confirmDialog()).toBeNull();
 	expect(root.querySelector(".server-edit-page")).toBeNull();
 	expect(document.getElementById("tab-diagnostics")?.getAttribute("aria-selected")).toBe("true");
 });
@@ -171,7 +192,7 @@ test("the page's own Discard changes routes through the same question when dirty
 
 	fireClick(buttonByText(page(root), "Discard changes"));
 	expect(root.querySelector(".server-edit-page")).not.toBeNull();
-	fireClick(buttonByText(page(root), "Discard"));
+	fireClick(buttonByText(openConfirmDialog(), "Discard"));
 	expect(root.querySelector(".server-edit-page")).toBeNull();
 });
 
@@ -248,8 +269,8 @@ test("a pending adopt never traps the reader: leaving works and the late ack sti
 	// Esc on the edited page asks the usual question; Discard leaves with the
 	// intent still running extension-side.
 	fireKeyDown(page(root), "Escape");
-	expect(root.querySelector(".discard-confirm")).not.toBeNull();
-	fireClick(buttonByText(page(root), "Discard"));
+	expect(confirmDialog()).not.toBeNull();
+	fireClick(buttonByText(openConfirmDialog(), "Discard"));
 	expect(root.querySelector(".server-edit-page")).toBeNull();
 
 	// The late ack still raises the post-adoption notice on the list.
@@ -273,7 +294,26 @@ test("a draft whose entry is deleted stops being a draft: every way out still wo
 	expect(page(root).textContent).toContain("This server is gone");
 	fireClick(buttonByText(page(root), "Back to servers"));
 	expect(root.querySelector(".server-edit-page")).toBeNull();
-	expect(root.querySelector(".discard-confirm")).toBeNull();
+	expect(confirmDialog()).toBeNull();
+});
+
+test("an entry deleted while the question stands takes the question with it", () => {
+	// The modal outliving its draft would ask about edits nobody can keep, and
+	// a navigation intent left behind would fire on some later exit the reader
+	// never asked for.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
+	fireClick(buttonByText(root, "Edit"));
+	fireInput(inputByLabel(page(root), "Base URL"), "http://localhost:9999");
+	fireClick(document.getElementById("tab-usage") as HTMLElement);
+	expect(confirmDialog()).not.toBeNull();
+
+	pushToWebview(statePush(makeState({ servers: [] })));
+	expect(confirmDialog()).toBeNull();
+	expect(page(root).textContent).toContain("This server is gone");
+	// The declined-by-deletion navigation does not fire on the way out either.
+	fireClick(buttonByText(page(root), "Back to servers"));
+	expect(document.getElementById("tab-overview")?.getAttribute("aria-selected")).toBe("true");
 });
 
 test("keeping the page answers the navigation too: the abandoned destination does not fire on the next exit", () => {
@@ -284,36 +324,39 @@ test("keeping the page answers the navigation too: the abandoned destination doe
 
 	// Ask to go to Usage, then say no.
 	fireClick(document.getElementById("tab-usage") as HTMLElement);
-	fireClick(buttonByText(page(root), "Keep editing"));
+	fireClick(buttonByText(openConfirmDialog(), "Keep editing"));
 
 	// Leaving through the page's own control now goes back where the reader
 	// came from, not to the destination they declined.
 	fireClick(buttonByText(page(root), "Discard changes"));
-	fireClick(buttonByText(page(root), "Discard"));
+	fireClick(buttonByText(openConfirmDialog(), "Discard"));
 	expect(root.querySelector(".server-edit-page")).toBeNull();
 	expect(document.getElementById("tab-usage")?.getAttribute("aria-selected")).toBe("false");
 	expect(document.getElementById("tab-overview")?.getAttribute("aria-selected")).toBe("true");
 });
 
-test("Esc reaches the guard from the rail, where a rail click just left the reader's focus", () => {
+test("a question raised from the rail returns focus to the page on keep editing, not to the rail", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
 	fireClick(buttonByText(root, "Edit"));
 	fireInput(inputByLabel(page(root), "Base URL"), "http://localhost:9999");
 
-	// The click moves focus to the rail item and raises the question there.
+	// The click leaves focus on the rail item and raises the question there.
 	const railItem = document.getElementById("tab-usage") as HTMLElement;
 	// Focusing the rail blurs the field, which the form reacts to; act keeps
 	// that update inside the test's own render pass.
 	void act(() => railItem.focus());
 	fireClick(railItem);
-	expect(root.querySelector(".discard-confirm")).not.toBeNull();
+	// The modal takes focus wherever the raise came from, so Esc answers it
+	// without hunting for the right listener.
+	expect(document.activeElement).toBe(buttonByText(openConfirmDialog(), "Keep editing"));
 
-	// Esc from that focus is the natural "no" and has to be heard: the rail is
-	// a sibling of the pane, so a pane-level listener never sees it.
-	fireKeyDown(railItem, "Escape");
-	expect(root.querySelector(".discard-confirm")).toBeNull();
+	fireKeyDown(document.activeElement as HTMLElement, "Escape");
+	expect(confirmDialog()).toBeNull();
 	expect(root.querySelector(".server-edit-page")).not.toBeNull();
+	// The reader said "stay", so focus lands in the page they stayed on -
+	// handing it back to the rail would say the opposite.
+	expect(document.activeElement?.id).toBe("server-edit-page");
 });
 
 test("the extension's deep link is a navigation like any other: a dirty page gets asked", () => {
@@ -324,9 +367,9 @@ test("the extension's deep link is a navigation like any other: a dirty page get
 
 	pushToWebview({ kind: "focusSection", section: "diagnostics" });
 	expect(root.querySelector(".server-edit-page")).not.toBeNull();
-	expect(root.querySelector(".discard-confirm")).not.toBeNull();
+	expect(confirmDialog()).not.toBeNull();
 
-	fireClick(buttonByText(page(root), "Discard"));
+	fireClick(buttonByText(openConfirmDialog(), "Discard"));
 	expect(root.querySelector(".server-edit-page")).toBeNull();
 	expect(document.getElementById("tab-diagnostics")?.getAttribute("aria-selected")).toBe("true");
 });
@@ -345,7 +388,7 @@ test("the trail back routes through the same guard as Esc and the rail", () => {
 	fireInput(inputByLabel(page(root), "Base URL"), "http://localhost:9999");
 	fireClick(buttonByText(page(root), "Servers"));
 	expect(root.querySelector(".server-edit-page")).not.toBeNull();
-	expect(root.querySelector(".discard-confirm")).not.toBeNull();
+	expect(confirmDialog()).not.toBeNull();
 });
 
 test("two adopts resolve independently: an abandoned one still lands its notice while the next page is open", () => {
@@ -365,7 +408,7 @@ test("two adopts resolve independently: an abandoned one still lands its notice 
 	fireClick(buttonByText(page(root), "Adopt"));
 	const alphaId = lastRequest("adoptServer").id;
 	fireKeyDown(page(root), "Escape");
-	fireClick(buttonByText(page(root), "Discard"));
+	fireClick(buttonByText(openConfirmDialog(), "Discard"));
 
 	// A second adopt, from the other row, while the first is still running.
 	fireClick(editButtons()[1] as HTMLButtonElement);
@@ -442,20 +485,21 @@ test("the destination is the Servers panel's own content, so the rail keeps tell
 	expect(document.getElementById("tab-overview")?.getAttribute("aria-selected")).toBe("true");
 });
 
-test("a second rail click changes where the reader is going, it does not answer the question", () => {
+test("a second navigation changes where the reader is going, it does not answer the question", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
 	fireClick(buttonByText(root, "Edit"));
 	fireInput(inputByLabel(page(root), "Base URL"), "http://localhost:9999");
 
 	fireClick(document.getElementById("tab-usage") as HTMLElement);
-	expect(root.querySelector(".discard-confirm")).not.toBeNull();
-	// Clicking a different destination is a new intent, not a toggle: leaving
-	// the question up is the only reading that does not look like the app
-	// ignoring the second click.
-	fireClick(document.getElementById("tab-diagnostics") as HTMLElement);
-	expect(root.querySelector(".discard-confirm")).not.toBeNull();
-	fireClick(buttonByText(page(root), "Discard"));
+	expect(confirmDialog()).not.toBeNull();
+	// A different destination arriving while the question stands (the rail is
+	// behind the scrim, but a deep link still gets through) is a new intent,
+	// not a toggle: leaving the question up is the only reading that does not
+	// look like the app ignoring the request.
+	pushToWebview({ kind: "focusSection", section: "diagnostics" });
+	expect(confirmDialog()).not.toBeNull();
+	fireClick(buttonByText(openConfirmDialog(), "Discard"));
 	expect(document.getElementById("tab-diagnostics")?.getAttribute("aria-selected")).toBe("true");
 });
 
@@ -552,8 +596,8 @@ test("a deep link still asks a dirty page before taking the reader off it", () =
 
 	pushToWebview({ kind: "focusSection", section: "usage" });
 	expect(root.querySelector(".server-edit-page")).not.toBeNull();
-	expect(root.querySelector(".discard-confirm")).not.toBeNull();
-	fireClick(buttonByText(page(root), "Discard"));
+	expect(confirmDialog()).not.toBeNull();
+	fireClick(buttonByText(openConfirmDialog(), "Discard"));
 	expect(document.getElementById("tab-usage")?.getAttribute("aria-selected")).toBe("true");
 });
 
@@ -588,6 +632,143 @@ test("a deep link that arrives with the push that deleted the entry lands where 
 	});
 
 	expect(root.querySelector(".server-edit-page")).toBeNull();
-	expect(root.querySelector(".discard-confirm")).toBeNull();
+	expect(confirmDialog()).toBeNull();
 	expect(document.getElementById("tab-usage")?.getAttribute("aria-selected")).toBe("true");
+});
+
+test("the question is a real modal: alertdialog semantics, a scrim, and the safe answer holding focus", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
+	fireClick(buttonByText(root, "Edit"));
+	fireInput(inputByLabel(page(root), "Base URL"), "http://localhost:9999");
+	fireKeyDown(page(root), "Escape");
+
+	const dialog = openConfirmDialog();
+	expect(dialog.getAttribute("role")).toBe("alertdialog");
+	expect(dialog.getAttribute("aria-modal")).toBe("true");
+	// The question IS the dialog's accessible name.
+	const labelledBy = dialog.getAttribute("aria-labelledby");
+	expect(labelledBy).not.toBeNull();
+	expect(document.getElementById(labelledBy as string)?.textContent).toBe("Discard unsaved changes?");
+	// A scrim keeps the page below out of reach until the question is answered.
+	expect(document.querySelector(".scrim.confirm-scrim")).not.toBeNull();
+	// Default focus on the safe verb: Enter and Esc are the same answer.
+	expect(document.activeElement).toBe(buttonByText(dialog, "Keep editing"));
+	// The danger verb wears the danger rank, not a restyle.
+	expect(buttonByText(dialog, "Discard").dataset.variant).toBe("danger");
+	expect(buttonByText(dialog, "Keep editing").dataset.variant).toBe("default");
+});
+
+test("the dialog's Esc closes nothing else: the page below never hears the key", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
+	fireClick(buttonByText(root, "Edit"));
+	fireInput(inputByLabel(page(root), "Base URL"), "http://localhost:9999");
+	fireKeyDown(page(root), "Escape");
+	const keep = buttonByText(openConfirmDialog(), "Keep editing");
+	expect(document.activeElement).toBe(keep);
+
+	// A bubble listener past the React root: if the dialog's stopPropagation
+	// ever went missing, the shell's guard would hear the key and re-raise the
+	// question this press just answered - and so would this listener.
+	let leaked = false;
+	const listener = (event: KeyboardEvent) => {
+		if (event.key === "Escape") {
+			leaked = true;
+		}
+	};
+	window.addEventListener("keydown", listener);
+	fireKeyDown(keep, "Escape");
+	window.removeEventListener("keydown", listener);
+
+	expect(leaked).toBe(false);
+	expect(confirmDialog()).toBeNull();
+	// One press peeled one surface: the page under the question is untouched.
+	expect(root.querySelector(".server-edit-page")).not.toBeNull();
+	expect(inputByLabel(page(root), "Base URL").value).toBe("http://localhost:9999");
+});
+
+test("the dialog traps Tab both ways, so the page below is unreachable by keyboard", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
+	fireClick(buttonByText(root, "Edit"));
+	fireInput(inputByLabel(page(root), "Base URL"), "http://localhost:9999");
+	fireKeyDown(page(root), "Escape");
+	const dialog = openConfirmDialog();
+	const keep = buttonByText(dialog, "Keep editing");
+	const discard = buttonByText(dialog, "Discard");
+
+	const fireTab = (element: HTMLElement, shiftKey: boolean) => {
+		void act(() => {
+			element.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true }));
+		});
+	};
+
+	// Tab off the last control wraps to the first; Shift-Tab off the first
+	// comes back around. The form's fields never get a turn.
+	void act(() => discard.focus());
+	fireTab(discard, false);
+	expect(document.activeElement).toBe(keep);
+	fireTab(keep, true);
+	expect(document.activeElement).toBe(discard);
+});
+
+test("keep editing returns focus to the exact field the question interrupted", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
+	fireClick(buttonByText(root, "Edit"));
+	const field = inputByLabel(page(root), "Base URL");
+	fireInput(field, "http://localhost:9999");
+	// happy-dom's click never focuses, so the reader's place is set by hand.
+	void act(() => field.focus());
+
+	fireKeyDown(field, "Escape");
+	expect(document.activeElement).toBe(buttonByText(openConfirmDialog(), "Keep editing"));
+	fireClick(buttonByText(openConfirmDialog(), "Keep editing"));
+	expect(confirmDialog()).toBeNull();
+	expect(document.activeElement).toBe(field);
+});
+
+test("a hover tip left open under the modal cannot steal its Esc: one press answers the question", () => {
+	// The tip's own Esc lives on a window-capture listener, so a bubble-phase
+	// dialog would lose the race: the press would peel a tip the scrim already
+	// buried while the reader stares at an unanswered question. The dialog
+	// listens on window capture too, and stopPropagation skips other NODES,
+	// not other listeners on the same window - so the tip still closes, WITH
+	// the press rather than instead of it.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
+	fireClick(buttonByText(root, "Edit"));
+	fireInput(inputByLabel(page(root), "Base URL"), "http://localhost:9999");
+	const helpWrap = page(root).querySelector(".help-wrap") as HTMLElement;
+	fireMouseEnter(helpWrap);
+	expect(helpWrap.querySelector(".tip-bubble")?.getAttribute("data-open")).toBe("true");
+
+	// A deep link raises the question with the hover-held tip still open: the
+	// pointer never moved, so nothing told the tip to close.
+	pushToWebview({ kind: "focusSection", section: "usage" });
+	const dialog = openConfirmDialog();
+
+	fireKeyDown(document.activeElement as HTMLElement, "Escape");
+	expect(confirmDialog()).toBeNull();
+	expect(helpWrap.querySelector(".tip-bubble")?.hasAttribute("data-open")).toBe(false);
+	expect(root.querySelector(".server-edit-page")).not.toBeNull();
+	expect(dialog.isConnected).toBe(false);
+});
+
+test("a benign state push under the open question leaves it standing", () => {
+	// The extension re-pushes the whole state on every store change; a sync
+	// finishing while the reader weighs the question must not blink it away.
+	const server = makeDeclaredServer({ label: "Prod" });
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [server] })));
+	fireClick(buttonByText(root, "Edit"));
+	fireInput(inputByLabel(page(root), "Base URL"), "http://localhost:9999");
+	fireKeyDown(page(root), "Escape");
+	expect(confirmDialog()).not.toBeNull();
+
+	pushToWebview(statePush(makeState({ servers: [server] })));
+	expect(confirmDialog()).not.toBeNull();
+	fireClick(buttonByText(openConfirmDialog(), "Keep editing"));
+	expect(inputByLabel(page(root), "Base URL").value).toBe("http://localhost:9999");
 });

@@ -43,11 +43,8 @@ function mountEditPage(
 		<ServerEditPage
 			request={request}
 			servers={servers}
-			confirmingDiscard={false}
 			onDirtyChange={() => {}}
 			onRequestClose={() => {}}
-			onKeepEditing={() => {}}
-			onDiscard={() => {}}
 			onSaved={() => {}}
 		/>
 	);

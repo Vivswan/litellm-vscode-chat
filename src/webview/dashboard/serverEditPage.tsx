@@ -939,20 +939,14 @@ function HeaderRowsEditor({
 export function ServerEditPage({
 	request,
 	servers,
-	confirmingDiscard,
 	onDirtyChange,
 	onRequestClose,
-	onKeepEditing,
-	onDiscard,
 	onSaved,
 }: {
 	request: ServerEditRequest;
 	servers: readonly DashboardServer[];
-	confirmingDiscard: boolean;
 	onDirtyChange: (dirty: boolean) => void;
 	onRequestClose: () => void;
-	onKeepEditing: () => void;
-	onDiscard: () => void;
 	onSaved: () => void;
 }) {
 	// The page's own adopt round trip. It lives here rather than in the servers
@@ -1052,11 +1046,19 @@ export function ServerEditPage({
 	}, [targetGone]);
 	// tabIndex -1 so the page can take focus itself when it holds no field;
 	// never in the tab order, like every other programmatic focus target here.
+	// The id is the surface the shell's discard-confirm modal returns focus
+	// into on "keep editing".
 	const page = (children: ReactNode) => (
 		// A section rather than a dialog: it is where the reader IS, not
 		// something over where they were - and a name needs an element that
 		// takes one, so the heading only labels this because it is a section.
-		<section className="server-edit-page max-w-[860px]" ref={pageRef} tabIndex={-1} aria-labelledby="server-form-title">
+		<section
+			className="server-edit-page max-w-[860px]"
+			id="server-edit-page"
+			ref={pageRef}
+			tabIndex={-1}
+			aria-labelledby="server-form-title"
+		>
 			{children}
 		</section>
 	);
@@ -1101,15 +1103,12 @@ export function ServerEditPage({
 					server={target.server}
 					declaredLabels={declaredLabels}
 					saving={adopting !== undefined}
-					confirmingDiscard={confirmingDiscard}
 					onDirtyChange={onDirtyChange}
 					onAdoptPosted={(requestId) => {
 						setFailure(undefined);
 						setAdopting(requestId);
 					}}
 					onRequestClose={onRequestClose}
-					onKeepEditing={onKeepEditing}
-					onDiscard={onDiscard}
 				/>
 			</>
 		);
@@ -1121,7 +1120,6 @@ export function ServerEditPage({
 				target={target}
 				declaredLabels={declaredLabels}
 				observedModelInfoKeys={observedKeysForForm(servers, target)}
-				confirmingDiscard={confirmingDiscard}
 				onDirtyChange={onDirtyChange}
 				onSavePosted={(requestId) => {
 					// A retry starts clean: the banner belongs to the round trip
@@ -1130,8 +1128,6 @@ export function ServerEditPage({
 					setSavingId(requestId);
 				}}
 				onRequestClose={onRequestClose}
-				onKeepEditing={onKeepEditing}
-				onDiscard={onDiscard}
 			/>
 		</>
 	);
@@ -1163,7 +1159,7 @@ function resolveEditTarget(request: ServerEditRequest, servers: readonly Dashboa
  * The way back, at the top where a reader looks for it. A panel had an X in
  * its corner; a destination has the trail it came down, and it routes through
  * the same request the rail and Esc do - so a dirty draft gets the same
- * question from all three.
+ * question from all three (the shell's discard-confirm modal).
  */
 function BackToServers({ onRequestClose }: { onRequestClose: () => void }) {
 	return (
@@ -1175,52 +1171,24 @@ function BackToServers({ onRequestClose }: { onRequestClose: () => void }) {
 	);
 }
 
-/**
- * The question the shell raises when a reader with unsaved edits asks to
- * leave. It renders in the page's own commit bar rather than over it: the
- * decision is about Save and Discard, so it belongs beside them, and the
- * reader's eye is already there when they press Esc. The shell owns WHEN this
- * appears; the page owns where.
- */
-function DiscardConfirm({ onKeepEditing, onDiscard }: { onKeepEditing: () => void; onDiscard: () => void }) {
-	return (
-		<div className="discard-confirm flex flex-wrap items-center gap-3" role="alert">
-			<span className="font-semibold">{l10n.t("Discard unsaved changes?")}</span>
-			<Button variant="danger" onClick={onDiscard}>
-				{l10n.t("Discard")}
-			</Button>
-			<Button variant="secondary" onClick={onKeepEditing}>
-				{l10n.t("Keep editing")}
-			</Button>
-		</div>
-	);
-}
-
 function ServerForm({
 	target,
 	declaredLabels,
 	observedModelInfoKeys,
-	confirmingDiscard,
 	onDirtyChange,
 	onSavePosted,
 	onRequestClose,
-	onKeepEditing,
-	onDiscard,
 }: {
 	target: ServerFormTarget;
 	declaredLabels: readonly string[];
 	/** The edited entry's LIVE observed /model/info key set (observedKeysForForm); the capability hints' evidence. */
 	observedModelInfoKeys?: readonly string[] | undefined;
-	/** The shell decided the reader is leaving a dirty page and wants an answer; the bar asks it. */
-	confirmingDiscard: boolean;
 	/** Reports that the draft has edits worth asking about; the shell's navigation guard reads it. */
 	onDirtyChange: (dirty: boolean) => void;
 	/** Hands the posted intent's requestId to the page, which owns the round trip. */
 	onSavePosted: (requestId: string) => void;
 	/** The reader asked to leave; the shell owns what that means. */
 	onRequestClose: () => void;
-	onKeepEditing: () => void;
-	onDiscard: () => void;
 }) {
 	const [draft, setDraft] = useState<ServerFormDraft>(() => draftFor(target));
 	// What the form opened with, for the save bar's unsaved count. Re-based
@@ -1480,7 +1448,7 @@ function ServerForm({
 	// fields): keeping it would strand an invalid empty row in the table.
 	// Both the sweep and the add that minted the group write through setDraft
 	// directly, NOT props.patch: a structural add-then-cancel is a no-op and
-	// must not arm the form's discard confirm (the dirty report is one-way).
+	// must not arm the shell's discard confirm (the dirty report is one-way).
 	const closeMatcherEditor = () => {
 		if (matcherEditor !== undefined) {
 			const list = matcherEditor.kind === "params" ? draft.modelParameters : draft.modelCapabilities;
@@ -1949,10 +1917,10 @@ function ServerForm({
 			    scrolls, and the negative margins cancel the pane's own gutter so
 			    the rule spans the reading column edge to edge - the numbers move
 			    with `.pane`'s padding in dashboard.css. The z-index is the house
-			    footer level; nothing here may outrank a question raised over it. */}
+			    footer level; the discard question outranks it from the shell's
+			    own modal layer, not from here. */}
 			<div className="toolbar sticky bottom-0 z-[2] mx-[-24px] mt-6 mb-[-48px] flex flex-wrap items-center gap-4 border-t border-border bg-background px-6 py-3">
-				{confirmingDiscard ? <DiscardConfirm onKeepEditing={onKeepEditing} onDiscard={onDiscard} /> : null}
-				<Button disabled={phase.phase !== "editing" || confirmingDiscard} onClick={save}>
+				<Button disabled={phase.phase !== "editing"} onClick={save}>
 					{saving ? (
 						<>
 							<span className="spinner" aria-hidden="true" /> {l10n.t("Saving...")}
@@ -1961,9 +1929,9 @@ function ServerForm({
 						l10n.t("Save")
 					)}
 				</Button>
-				{/* Named apart from the confirm bar's own Discard: this one REQUESTS
-				    a close (a dirty form still gets asked), and two controls a key
-				    apart must not answer to the same word. */}
+				{/* Named apart from the confirm dialog's own Discard: this one
+				    REQUESTS a close (a dirty form still gets asked), and two
+				    controls one answer apart must not answer to the same word. */}
 				<Button variant="secondary" onClick={onRequestClose}>
 					{l10n.t("Discard changes")}
 				</Button>
@@ -2002,24 +1970,18 @@ function AdoptForm({
 	server,
 	declaredLabels,
 	saving,
-	confirmingDiscard,
 	onDirtyChange,
 	onAdoptPosted,
 	onRequestClose,
-	onKeepEditing,
-	onDiscard,
 }: {
 	server: ExternalDashboardServer;
 	declaredLabels: readonly string[];
 	/** Whether this form instance's adopt intent is in flight; disables the inputs against a double submit. */
 	saving: boolean;
-	confirmingDiscard: boolean;
 	onDirtyChange: (dirty: boolean) => void;
 	/** Hands the posted intent's requestId to the page, which owns the round trip. */
 	onAdoptPosted: (requestId: string) => void;
 	onRequestClose: () => void;
-	onKeepEditing: () => void;
-	onDiscard: () => void;
 }) {
 	const [label, setLabel] = useState(server.label);
 	const [touched, setTouched] = useState(false);
@@ -2139,12 +2101,9 @@ function AdoptForm({
 					</p>
 				</FieldSpan>
 			</FormSection>
-			{/* Same footer level as the edit page's bar, and for the same reason:
-			    the discard confirm pins to this edge too. */}
 			{/* Same footer as the edit page's, for the same reasons. */}
 			<div className="toolbar sticky bottom-0 z-[2] mx-[-24px] mt-6 mb-[-48px] flex flex-wrap items-center gap-4 border-t border-border bg-background px-6 py-3">
-				{confirmingDiscard ? <DiscardConfirm onKeepEditing={onKeepEditing} onDiscard={onDiscard} /> : null}
-				<Button disabled={saving || confirmingDiscard} onClick={adopt}>
+				<Button disabled={saving} onClick={adopt}>
 					{saving ? (
 						<>
 							<span className="spinner" aria-hidden="true" /> {l10n.t("Adopting...")}

@@ -1676,6 +1676,71 @@
 	.discard-confirm span {
 		font-weight: 600;
 	}
+	/* The navigation guard's confirm modal (ui/dialog.tsx): the question a
+		   dirty-form navigation raises, centered over its own scrim rather than
+		   tucked into the save bar, because leaving is a decision about the
+		   whole page. Chrome is the editor-widget family with the hover-widget
+		   border the chip popover wears: the 1px border is what survives forced
+		   colors, where the shadow and the scrim's alpha stop ranking anything.
+		   Above EVERYTHING it interrupts, the tips' 100 included: a hover tip
+		   left open under the question belongs to the inert page, so it dims
+		   under this scrim instead of painting over the dialog (its Esc is
+		   handled the same way - the dialog consumes the key on window capture,
+		   and the tip's own same-node listener closes it with the same press). */
+	.confirm-scrim {
+		z-index: 110;
+	}
+	.confirm-dialog {
+		position: fixed;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		z-index: 111;
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+		box-sizing: border-box;
+		min-width: 280px;
+		max-width: min(440px, calc(100vw - 32px));
+		padding: 16px 20px;
+		background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+		color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+		border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
+		border-radius: 4px;
+		box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.35));
+		animation: confirm-in 120ms ease-out;
+	}
+	/* One short fade-and-settle on entry - sub-150ms like every transition
+		   here - and it stands down entirely under reduced motion. */
+	@keyframes confirm-in {
+		from {
+			opacity: 0;
+			transform: translate(-50%, -50%) scale(0.97);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.confirm-dialog {
+			animation: none;
+		}
+	}
+	/* Labels, not sentences: the question is the dialog's whole text, so it
+		   carries the weight and stays at the page's size. */
+	.confirm-question {
+		margin: 0;
+		font-size: var(--vscode-font-size);
+		font-weight: 600;
+	}
+	.confirm-actions {
+		display: flex;
+		align-items: center;
+		/* Insurance the strip this replaces carried: a translation long enough
+			 to crowd the row wraps instead of overflowing the dialog. */
+		flex-wrap: wrap;
+		/* Room for the default-size buttons' hover-pill overhang (-mx-2.5):
+			 24px keeps the safe verb's and the danger verb's click targets from
+			 overlapping, which matters most exactly here. */
+		gap: 24px;
+	}
 	.icon {
 		display: inline-block;
 		vertical-align: text-bottom;

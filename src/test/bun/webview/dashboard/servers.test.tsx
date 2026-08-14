@@ -147,11 +147,8 @@ function mountEditPage(
 		<ServerEditPage
 			request={request}
 			servers={servers}
-			confirmingDiscard={false}
 			onDirtyChange={handlers.onDirtyChange ?? (() => {})}
 			onRequestClose={handlers.onRequestClose ?? (() => {})}
-			onKeepEditing={() => {}}
-			onDiscard={() => {}}
 			onSaved={handlers.onSaved ?? (() => {})}
 		/>
 	);
@@ -1250,11 +1247,8 @@ test("a discovery pass finishing under the open form refreshes the unknown-key h
 		<ServerEditPage
 			request={{ kind: "edit", label: "Prod" }}
 			servers={servers}
-			confirmingDiscard={false}
 			onDirtyChange={() => {}}
 			onRequestClose={() => {}}
-			onKeepEditing={() => {}}
-			onDiscard={() => {}}
 			onSaved={() => {}}
 		/>
 	);
