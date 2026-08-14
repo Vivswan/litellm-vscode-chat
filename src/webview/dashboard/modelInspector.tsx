@@ -490,7 +490,7 @@ function RowEdit({ label, onClick }: { label: string; onClick: () => void }) {
 		<Button
 			variant="secondary"
 			size="compact"
-			className="row-edit -mx-0.5 px-0.5 py-0"
+			className="row-edit [--btn-mx:-0.125rem] px-0.5 py-0"
 			aria-label={label}
 			onClick={onClick}
 		>

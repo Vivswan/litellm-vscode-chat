@@ -73,7 +73,7 @@ export function RecordChainFigure({
 										<Button
 											variant="secondary"
 											size="compact"
-											className="chain-key -mx-0.5 px-0.5 py-0"
+											className="chain-key [--btn-mx:-0.125rem] px-0.5 py-0"
 											aria-label={
 												chain.layer === "entry"
 													? l10n.t('Edit in server entry "{0}"', chain.entryLabel)

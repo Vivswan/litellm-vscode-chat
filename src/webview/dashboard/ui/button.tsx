@@ -36,13 +36,28 @@ import { cn } from "./cn";
  * The negative inline margin is deliberate, and BOTH sizes carry it: the hover
  * pill needs padding to exist, but the label has to line up with the text
  * around it, so each size hands its own padding back to the layout and only
- * the fill overhangs. One consequence per party to it: a container's gap
- * always measures ink-to-ink whichever size it holds; a call site that
- * overrides the padding (px-1, px-0.5) must override the margin to match, or
- * its layout box parts from its ink; and the bordered modes - forced colors
- * and the two high-contrast themes, which draw every button's box at rest -
- * get the margins zeroed once in theme.css, because overhanging border boxes
- * merge adjacent buttons into one segmented control there.
+ * the fill overhangs.
+ *
+ * It rides a custom property rather than a margin utility, because the bordered
+ * modes - forced colors and the two high-contrast themes, which draw every
+ * button's box at rest - have to take the hand-back away: overhanging border
+ * boxes merge adjacent buttons into one segmented control there. Zeroing it as
+ * a MARGIN zeroes every other inline margin with it, since `margin-inline`
+ * writes both longhands, and the call site that was paying for that is the
+ * record matcher's pencil, whose `ms-auto` is the only thing holding it at the
+ * row's end when the row wraps. Zeroing the PROPERTY (theme.css, once, in the
+ * unlayered blocks those modes share) leaves the alignment margin standing, and
+ * composes the same way for any margin a call site sets later.
+ *
+ * One consequence per party to it: a container's gap always measures ink-to-ink
+ * whichever size it holds; so does a container's own PADDING where a button sits
+ * at its edge (the models scope chip, a toast), which is a number sized against
+ * the ink rather than against the box; a call site that overrides the padding
+ * (px-1, px-0.5) restates the property to match - `[--btn-mx:-0.25rem]` beside
+ * `px-1` - or its layout box parts from its ink; and a site pinned to a box
+ * rather than to its ink (an absolutely positioned close or reveal, the rail
+ * footer's glyph arithmetic) takes plain `mx-0`, which drops the margin
+ * utility entirely.
  *
  * Two things the mockups could not show. High contrast outlines every control,
  * and a borderless button stops reading as one there, so --control-outline is
@@ -55,7 +70,7 @@ import { cn } from "./cn";
  * and takes the announcement with it, since that rides the focused element.
  */
 const buttonVariants = cva(
-	"inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-sm border border-control-outline transition-[color,background-color,border-color,outline-color,opacity] duration-[120ms] ease-out focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid disabled:cursor-default disabled:bg-transparent disabled:text-disabled-foreground disabled:opacity-60 aria-disabled:cursor-default aria-disabled:bg-transparent aria-disabled:text-disabled-foreground aria-disabled:opacity-60",
+	"inline-flex cursor-pointer items-center justify-center mx-(--btn-mx) gap-1.5 rounded-sm border border-control-outline transition-[color,background-color,border-color,outline-color,opacity] duration-[120ms] ease-out focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid disabled:cursor-default disabled:bg-transparent disabled:text-disabled-foreground disabled:opacity-60 aria-disabled:cursor-default aria-disabled:bg-transparent aria-disabled:text-disabled-foreground aria-disabled:opacity-60",
 	{
 		variants: {
 			variant: {
@@ -64,8 +79,10 @@ const buttonVariants = cva(
 				danger: "text-err-quiet hover:bg-err-wash hover:text-err-strong",
 			},
 			size: {
-				default: "-mx-2.5 px-2.5 py-1",
-				compact: "-mx-1.5 px-1.5 py-0.5",
+				// The value is the size's own horizontal padding, negated: the
+				// hand-back exists to cancel it exactly.
+				default: "[--btn-mx:-0.625rem] px-2.5 py-1",
+				compact: "[--btn-mx:-0.375rem] px-1.5 py-0.5",
 			},
 			/** The resting affordance secondary carries, off for a button with no words under it. */
 			labelled: {

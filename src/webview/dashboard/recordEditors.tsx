@@ -105,7 +105,7 @@ function HeadingRevealButton({
 			<Button
 				variant="secondary"
 				size="compact"
-				className="reveal-json -mx-1 px-1 py-0"
+				className="reveal-json [--btn-mx:-0.25rem] px-1 py-0"
 				aria-label={l10n.t("Open {0} in settings.json", title)}
 				onClick={() => sendRequest("revealSetting", { setting: settingId })}
 			>
@@ -2503,13 +2503,13 @@ export function RecordMatcherTable({
 							   change and is not one: at wide widths the row is a subgrid of
 							   .record-table, where the pencil sits in its own max-content
 							   track (justify-self: end) and the chip list's minmax(0, 1fr)
-							   track consumes the free space, so the margin has none to take
-							   - at a 1300px viewport the pencil measures 8px from the row's
-							   end with or without this, byte for byte. It acts only under
-							   the sub-620px flex fallback, where the row wraps and without
-							   it the pencil lands mid-line: measured 161px and 255px in
-							   from the end on two rows while their unwrapped siblings sat
-							   at 8px.
+							   track consumes the free space, so there is no free space for
+							   the margin to take and the pencil lands wherever the track
+							   puts it, with or without this. It acts only under the
+							   sub-620px flex fallback, where the row wraps and without it
+							   the pencil lands mid-line: measured 161px and 255px in from
+							   the end on two rows while their unwrapped siblings sat at the
+							   row's end.
 
 							   The vocabulary it states: a row's action sits at the row's END,
 							   at the same distance, whatever the content does. This is the
@@ -2521,7 +2521,12 @@ export function RecordMatcherTable({
 							   belongs to the main axis, and a physical left margin points the
 							   wrong way the moment the document is RTL. No RTL bundle ships
 							   today, which is exactly why it is worth spelling correctly now
-							   rather than discovering it later. */
+							   rather than discovering it later.
+
+							   It survives the bordered modes only because their hand-back
+							   reset zeroes a custom property rather than the margin itself
+							   (ui/button.tsx); a blanket margin-inline: 0 flattened this
+							   push in exactly the modes that draw the box it aligns. */
 							<Button
 								variant="secondary"
 								size="compact"

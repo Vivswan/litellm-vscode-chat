@@ -121,7 +121,12 @@ export function SlideOver({
 				<Button
 					variant="secondary"
 					size="compact"
-					className="slide-close"
+					// mx-0, the same pin the server form's reveal toggle takes: this
+					// is absolutely positioned, so the primitive's layout hand-back
+					// would slide the box 6px past the `right: 12px` its rule states.
+					// Both absolute sites answer this the same way - the offset in
+					// the stylesheet is where the box goes, not where the ink lands.
+					className="slide-close mx-0"
 					aria-label={l10n.t("Close")}
 					onClick={onRequestClose}
 				>

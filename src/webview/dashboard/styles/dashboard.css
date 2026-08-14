@@ -947,6 +947,24 @@
 		align-items: center;
 		margin-top: 6px;
 	}
+	/* The bordered modes zero that hand-back (theme.css), where the 16px ink
+		 gap becomes a 16px BOX gap and reads as 28px of ink between two
+		 buttons - so the column gap states the box separation instead: 4px, what
+		 an adjacent button pair showed in these modes before the hand-back moved
+		 to the primitive (16px less the two compact paddings it spanned). The
+		 cluster also holds docs links, which draw no box here and so cannot
+		 merge; a button beside one of those reads 6px tighter than it did, which
+		 is the side to give away. The row gap is untouched: vertical padding
+		 never left the box. */
+	@media (forced-colors: active) {
+		.row-diagnostic-actions {
+			column-gap: 4px;
+		}
+	}
+	body.vscode-high-contrast .row-diagnostic-actions,
+	body.vscode-high-contrast-light .row-diagnostic-actions {
+		column-gap: 4px;
+	}
 	th,
 	td {
 		text-align: left;
@@ -1211,9 +1229,9 @@
 		   per-row template below applies - the pre-alignment layout. The input
 		   tracks carry no fixed floors (minmax(0, ...)): the action column sizes
 		   to its content, and a floor on the inputs could push the track sum past
-		   the panel's content box; the inputs shrink instead, and below the 700px
-		   pane tier the container block at the file's tail stacks the rows before
-		   they get too cramped to use. */
+		   the panel's content box; the inputs shrink instead, and the
+		   `@container pane (width < 700px)` block near the end of the full-width
+		   region stacks the rows before they get too cramped to use. */
 	.rows {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) max-content max-content;
@@ -1261,9 +1279,9 @@
 	}
 	/* The flag cell takes its own full line under the row (see the
 		   directive-flag rules below), which would auto-place the row action after
-		   it, onto a lonely line; pin the action to the input line. Declared
-		   before the 700px container block so its grid-row: auto reset can win
-		   there. */
+		   it, onto a lonely line; pin the action to the input line. The 700px
+		   container block's grid-row: auto reset still wins there on specificity:
+		   it qualifies this selector with the panel's own class. */
 	.row > button {
 		grid-row: 1;
 	}
@@ -1283,8 +1301,9 @@
 		font-size: 0.9em;
 		color: var(--vscode-descriptionForeground);
 	}
-	/* After the per-row template so it wins: rows inside .rows always follow
-		   their container's tracks. */
+	/* After the per-row template, and it wins on specificity rather than on
+		   order (two classes to one): rows inside .rows always follow their
+		   container's tracks. */
 	.rows > .row {
 		grid-column: 1 / -1;
 		grid-template-columns: subgrid;
@@ -1944,6 +1963,10 @@
 			animation: none;
 		}
 	}
+	/* The panel's own close. The offsets place the BORDER BOX, which is only
+		   true because the call site pins mx-0 (slideOver.tsx): with the Button
+		   primitive's layout hand-back left on, an absolute inset lands the ink
+		   here and the box 6px outside it. */
 	.slide-over .slide-close {
 		position: absolute;
 		top: 12px;
@@ -2023,9 +2046,12 @@
 		/* Insurance the strip this replaces carried: a translation long enough
 			 to crowd the row wraps instead of overflowing the dialog. */
 		flex-wrap: wrap;
-		/* Room for the default-size buttons' hover-pill overhang (-mx-2.5):
-			 24px keeps the safe verb's and the danger verb's click targets from
-			 overlapping, which matters most exactly here. */
+		/* Room for the default-size buttons' hover-pill overhang (the primitive's
+			 layout hand-back, --btn-mx): 24px keeps the safe verb's and the danger
+			 verb's click targets from overlapping, which matters most exactly
+			 here. The bordered modes drop the hand-back and this becomes a 24px
+			 BOX gap, which is the drift a dialog can afford - two verbs further
+			 apart, never two boxes merging. */
 		gap: 24px;
 	}
 	.icon {
@@ -2119,8 +2145,17 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 8px;
-		padding: 6px 6px 6px 12px;
+		/* Both numbers are ink-to-ink, because the dismiss button hands its
+			 padding back to the layout (ui/button.tsx): 12px is the inset the
+			 text opposite carries, and the gap is the floor between them when a
+			 long notification fills the line. The glyph lands a pixel further in
+			 than either, since the hand-back cancels the button's padding and not
+			 the 1px border outside it. The 6px trailing inset this carried until
+			 the hand-back moved to the primitive was sized against the button's
+			 BOX, and left the glyph half as far from the border as the text, with
+			 its hover fill running flush into that border. */
+		gap: 14px;
+		padding: 6px 12px;
 		border: 1px solid var(--vscode-notifications-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
 		border-radius: 4px;
 		background: var(--vscode-notifications-background, var(--vscode-editorWidget-background));
@@ -2148,8 +2183,16 @@
 		display: inline-flex;
 		box-sizing: border-box;
 		align-items: center;
-		gap: 4px;
-		padding: 1px 2px 1px 8px;
+		/* Ink-to-ink on both counts, since the clear button hands its padding
+			 back to the layout (ui/button.tsx): 8px insets the X from the pill's
+			 border as the label is inset on the other side, and 10px is the
+			 label-to-glyph separation. Both land a pixel wider in the end, since
+			 the hand-back cancels the button's padding and not the 1px border
+			 outside it. The 2px and 4px these read when they were sized against
+			 the button's BOX left the X 3px inside the pill with its hover fill
+			 painting 4px OUTSIDE the outline. */
+		gap: 10px;
+		padding: 1px 8px;
 		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
 		border-radius: var(--radius-pill);
 		font-size: 0.9em;

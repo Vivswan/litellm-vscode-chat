@@ -71,25 +71,31 @@
 /* An OS forced-colors mode repaints every author color, which is right for
  text and wrong where color IS the content, the boundary, or the mark. What
  this block holds: the badges get their outline back, having traded it for a
- fill the system flattens into the page; the buttons get their layout margins
- back, their destructive rank a weight the mode cannot repaint away, and their
- disabled state the mode's own GrayText; the marked record chips take border
- width, the one channel the mode leaves alone; and the settings gutter gets
- its off state named. The other answers to the same mode live where they
- compose better - the accent swatches opt out at their call site
- (forced-color-adjust-none), the record chips name their resting border there
- too, and the rules keyed to the dashboard's own classes sit in dashboard.css
- beside them. */
+ fill the system flattens into the page; the buttons give up their layout
+ hand-back, their destructive rank takes a weight the mode cannot repaint
+ away, and their disabled state the mode's own GrayText; the marked record
+ chips take border width, the one channel the mode leaves alone; and the
+ settings gutter gets its off state named. The other answers to the same mode
+ live where they compose better - the accent swatches opt out at their call
+ site (forced-color-adjust-none), the record chips name their resting border
+ there too, and the rules keyed to the dashboard's own classes sit in
+ dashboard.css beside them. */
 @media (forced-colors: active) {
-	/* Both button sizes hand their horizontal padding back to the layout
-	 (ui/button.tsx's negative inline margin), so adjacent border boxes overhang
-	 the container's gap. Invisible while nothing paints a resting box; a mode
-	 that draws every box merges neighbours into one segmented control (the
-	 toolbar's four Support tools, the servers header's Add server and Refresh
-	 now). The margins come back here, once, instead of every container widening
-	 its own gap. */
+	/* Both button sizes hand their horizontal padding back to the layout, so
+	 adjacent border boxes overhang the container's gap. Invisible while nothing
+	 paints a resting box; a mode that draws every box merges neighbours into one
+	 segmented control (the toolbar's four Support tools, the servers header's Add
+	 server and Refresh now). The hand-back is dropped here, once, instead of
+	 every container widening its own gap.
+
+	 Zeroing the PROPERTY the primitive reads (ui/button.tsx's --btn-mx), not the
+	 margin: `margin-inline: 0` writes both longhands, so it also flattened any
+	 alignment margin a call site set - the record matcher's pencil rides
+	 `ms-auto` to stay at the row's end once the row wraps, and that push died
+	 exactly here, in the modes that draw the box it was aligning. Unlayered
+	 still: the value is set by a utility, and only an unlayered rule beats one. */
 	[data-slot="button"] {
-		margin-inline: 0;
+		--btn-mx: 0px;
 	}
 	/* The settings rows' actions slot sizes its gap in ink terms (gap-4.5,
 		 sized for the hand-back this mode just zeroed), and a utility can only
@@ -151,15 +157,16 @@
 	}
 }
 
-/* The high-contrast twin of the buttons' forced-colors margin reset above:
+/* The high-contrast twin of the buttons' forced-colors hand-back reset above:
  both HC themes light --control-outline up through the contrast token, so
  they draw every button's box at rest exactly as forced colors does, and the
- overhanging margins merge neighbours the same way. Unlayered for the same
- reason as that block: it has to beat the -mx utilities. The settings actions
- slot rides along for the reason it does up there. */
+ overhanging boxes merge neighbours the same way. Unlayered for the same
+ reason as that block: --btn-mx is set by a utility, and the gap below has to
+ beat one. The settings actions slot rides along for the reason it does up
+ there. */
 body.vscode-high-contrast [data-slot="button"],
 body.vscode-high-contrast-light [data-slot="button"] {
-	margin-inline: 0;
+	--btn-mx: 0px;
 }
 body.vscode-high-contrast .setting-actions,
 body.vscode-high-contrast-light .setting-actions {

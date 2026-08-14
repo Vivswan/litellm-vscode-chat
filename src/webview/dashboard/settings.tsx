@@ -183,7 +183,7 @@ function RevealButton({ title, settingId }: { title: string; settingId: SettingR
 			<Button
 				variant="secondary"
 				size="compact"
-				className="reveal-json -mx-1 px-1 py-0"
+				className="reveal-json [--btn-mx:-0.25rem] px-1 py-0"
 				aria-label={l10n.t("Open {0} in settings.json", title)}
 				onClick={() => sendRequest("revealSetting", { setting: settingId })}
 			>
