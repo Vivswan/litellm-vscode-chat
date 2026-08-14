@@ -1035,9 +1035,11 @@
 		outline-offset: 1px;
 	}
 
-	.error {
-		color: var(--err-text);
-	}
+	/* .error and .state-warn carry no rule here: their one presentation (color
+		 plus the weight channel) is theme.css's unlayered tone-text block, which
+		 is what lets it beat p.hint and any color utility on the same element.
+		 The rules in this file only ever place tone text (grid position, size,
+		 margins), never restate its register. */
 
 	/* The "?" help affordance next to section titles and field labels: a
 		   muted circled glyph revealing the tip primitive below (ui/tip.tsx owns
@@ -1256,9 +1258,6 @@
 	}
 	.state-ok {
 		color: var(--ok-text);
-	}
-	.state-warn {
-		color: var(--warn-text);
 	}
 
 	/* The record field-row grid: since the table redesign these rows render
@@ -2677,12 +2676,15 @@
 		margin: 2px 0;
 	}
 	/* The two-part errors' technical detail line: its own line under the
-		   headline, dimmed, inner newlines preserved (pre-line). */
+		   headline, dimmed, inner newlines preserved (pre-line). Regular weight,
+		   stated because the headline around it is tone text and tone text is
+		   semibold: the detail is the dimmed second voice, not the claim. */
 	.failure-detail {
 		display: block;
 		white-space: pre-line;
 		opacity: 0.85;
 		font-size: 0.9em;
+		font-weight: 400;
 		margin-top: 2px;
 	}
 	/* The configuration problems, one severity-ruled block each. Bullets are

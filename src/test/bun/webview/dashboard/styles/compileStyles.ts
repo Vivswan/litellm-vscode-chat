@@ -70,7 +70,7 @@ export interface StyleRule {
 export const FORCED_COLORS_QUERY = "@media (forced-colors: active)";
 
 /** One brace block of a compiled sheet: what opened it, and what is inside. */
-interface Block {
+export interface Block {
 	readonly prelude: string;
 	readonly body: string;
 	readonly text: string;
@@ -86,6 +86,9 @@ const isUnconditional = (context: readonly string[]): boolean =>
 
 /**
  * Every brace block in a compiled sheet, with the at-rules around it.
+ * Exported so a pin can scope a scan to one layer's rules (the utility
+ * collision guard reads only `@layer utilities`); the extractors below stay
+ * the main doors.
  *
  * A brace walk rather than a parser: the alternative is a CSS parser dependency
  * for a handful of assertions. Comments and string literals are stepped over
@@ -93,7 +96,7 @@ const isUnconditional = (context: readonly string[]): boolean =>
  * would otherwise unbalance the stack and take every later block's address with
  * it.
  */
-function blocks(css: string): readonly Block[] {
+export function blocks(css: string): readonly Block[] {
 	const found: Block[] = [];
 	const open: {
 		readonly prelude: string;

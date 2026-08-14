@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
+	blocks,
 	compileDashboard,
 	compileTheme,
 	dashboardEntry,
@@ -243,8 +244,18 @@ test("no minted utility collides with a class the dashboard stylesheet styles", 
 	// Utilities outrank the components layer, so a utility whose name matches a
 	// dashboard.css class would silently restyle every element carrying it
 	// (the scan also mints utilities from incidental word tokens). Compare
-	// against the classes the dashboard stylesheet actually styles.
-	const minted = new Set([...output.matchAll(/^\s*\.([A-Za-z][A-Za-z0-9-]*)[\s{,:]/gm)].map((match) => match[1] ?? ""));
+	// against the classes the dashboard stylesheet actually styles. Only the
+	// utilities LAYER counts as minted: theme.css's own hand-written rules
+	// (the tone-text block, the forced-colors repairs) name dashboard classes
+	// on purpose - they are rules FOR those classes, not scan accidents.
+	const minted = new Set(
+		blocks(output)
+			.filter((block) => block.context.some((prelude) => prelude.startsWith("@layer utilities")))
+			// The brace restores the terminator the block walk stripped, so the
+			// name boundary stays what it always was: `.group\/setting` is the
+			// variant machinery, not a minted `group` utility.
+			.flatMap((block) => [...`${block.prelude}{`.matchAll(/\.([A-Za-z][A-Za-z0-9-]*)[\s{,:]/g)].map((m) => m[1] ?? ""))
+	);
 	const dashboardClasses = new Set(
 		[...readFileSync(dashboardEntry, "utf8").matchAll(/\.([A-Za-z][A-Za-z0-9_-]*)/g)].map((match) => match[1] ?? "")
 	);
@@ -792,4 +803,52 @@ test("the forced light palette keeps Light Modern's passing green, low contrast 
 	const lightEmulation = /function lightCss\(\)[\s\S]*?\n\}/.exec(harness)?.[0] ?? "";
 	expect(lightEmulation).toContain("--vscode-testing-iconPassed: #73c991");
 	expect(harness).toContain("--vscode-testing-iconPassed: #007100");
+});
+
+test("tone text is one unlayered presentation: severity color plus the weight channel", async () => {
+	// .error and .state-warn once lived in dashboard.css as color-only rules,
+	// and both halves of that placement failed: color-only left them
+	// pixel-identical to body text wherever the hue was repainted or beaten,
+	// and the layered position lost to `p.hint` on specificity (every warn
+	// hint on the server form rendered muted) and to any color utility on the
+	// same element by layer order. The presentation now lives in theme.css
+	// OUTSIDE every layer and query, with font-weight as the channel that
+	// survives forced colors - so this pins the register (color AND weight),
+	// the placement (unlayered, unconditional), and the count (exactly one
+	// ordinary rule per class in the compiled sheet, because a second one
+	// further down would win and hand the channel back).
+	const output = await compileTheme();
+	const registers = [
+		{ selector: ".error", color: "color: var(--err-text)" },
+		{ selector: ".state-warn", color: "color: var(--warn-text)" },
+	] as const;
+	for (const register of registers) {
+		const rules = rulesFor(output, register.selector);
+		const ordinary = rules.filter((rule) => rule.unconditional);
+		expect(ordinary, register.selector).toHaveLength(1);
+		expect(ordinary[0]?.unlayered, register.selector).toBe(true);
+		expect(ordinary[0]?.declarations, register.selector).toContain(register.color);
+		expect(ordinary[0]?.declarations, register.selector).toContain("font-weight: 600");
+	}
+	// And dashboard.css may not fork it: no bare .error or .state-warn rule at
+	// all over there - the rules that PLACE tone text (.row .error and friends)
+	// are longer selectors and stay.
+	const dashboard = await compileDashboard();
+	expect(rulesFor(dashboard, ".error")).toHaveLength(0);
+	expect(rulesFor(dashboard, ".state-warn")).toHaveLength(0);
+});
+
+test("tone text keeps a second channel under forced colors: the editor's squiggle", async () => {
+	// Forced colors repaint the severity hue to CanvasText, leaving weight as
+	// the only mark - a quiet one at hint sizes - so the unlayered
+	// forced-colors block adds the wavy underline, the editor's own problem
+	// mark. Pinned in the unlayered, unconditional forced-colors blocks
+	// because a layered or width-scoped copy is the rule silently dying.
+	const output = await compileTheme();
+	const forced = forcedColorsBlocks(output)
+		.filter((block) => block.unlayered && block.unconditional)
+		.map((block) => block.text)
+		.join("\n");
+	const rule = /\.error,\s*\.state-warn \{([^}]*)\}/.exec(forced)?.[1] ?? "";
+	expect(rule).toContain("text-decoration: underline wavy");
 });

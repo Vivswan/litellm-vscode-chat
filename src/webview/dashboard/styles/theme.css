@@ -70,17 +70,19 @@
  layered one whatever its specificity, and these have to beat the Tailwind
  utilities: the button's own `border` utility sets a 1px width, so a layered
  override of it silently loses - measured, not assumed. The only other
- unlayered rules in this file are the high-contrast twins directly below this
- block, which fight the same utilities for the same reason; everything else is
- layered or only declares custom properties. */
+ unlayered rules in this file are the high-contrast twins and the tone-text
+ block directly below, which fight the same utilities for the same reason;
+ everything else is layered or only declares custom properties. */
 /* An OS forced-colors mode repaints every author color, which is right for
  text and wrong where color IS the content, the boundary, or the mark. What
  this block holds: the badges get their outline back, having traded it for a
  fill the system flattens into the page; the buttons give up their layout
  hand-back, their destructive rank takes a weight the mode cannot repaint
  away, and their disabled state the mode's own GrayText; the marked record
- chips take border width, the one channel the mode leaves alone; and the
- settings gutter gets its off state named. The other answers to the same mode
+ chips take border width, the one channel the mode leaves alone; the
+ settings gutter gets its off state named; and the tone-text registers take
+ the editor's own squiggle, since their hue is repainted and their weight
+ alone is a quiet mark at hint sizes. The other answers to the same mode
  live where they compose better - the accent swatches opt out at their call
  site (forced-color-adjust-none), the record chips name their resting border
  there too, and the rules keyed to the dashboard's own classes sit in
@@ -160,6 +162,18 @@
 	.setting-row.modified {
 		border-left-color: Highlight;
 	}
+	/* Tone text loses its hue here - CanvasText, the same ink as everything
+		 else - so the weight below is the only channel left, and at 11.5px it is
+		 a subtle one. The squiggle is the second: the editor's own problem mark,
+		 which no other underline in this design uses (links underline solid on
+		 hover, resting secondary buttons dotted), so an error line cannot be
+		 misread as either. Both registers share it - the banners this treatment
+		 is judged against do not rank severity by paint under forced colors
+		 either; the words carry the rank. */
+	.error,
+	.state-warn {
+		text-decoration: underline wavy;
+	}
 }
 
 /* The high-contrast twin of the buttons' forced-colors hand-back reset above:
@@ -176,6 +190,26 @@ body.vscode-high-contrast-light [data-slot="button"] {
 body.vscode-high-contrast .setting-actions,
 body.vscode-high-contrast-light .setting-actions {
 	gap: 6px;
+}
+
+/* Tone TEXT, the app-wide presentation of .error and .state-warn: the readable
+ severity tier for the hue, and weight as the channel that does not depend on
+ color - the same pair the danger button's forced-colors rank uses, and the
+ inline analogue of how the banners survive that mode (their box is a border,
+ which the mode repaints but never removes). Unlayered, because this is the one
+ statement of the register and nothing may quietly outrank it: as layered rules
+ these lost to `p.hint` on specificity (0-1-1 over 0-1-0, so every warn hint on
+ the server form rendered muted) and to any color utility on the same element
+ by layer order (text-muted-foreground at one call site). Every surface
+ inherits this; a per-surface fork is a bug. theme.test.ts pins both rules,
+ their placement, and the forced-colors squiggle above. */
+.error {
+	color: var(--err-text);
+	font-weight: 600;
+}
+.state-warn {
+	color: var(--warn-text);
+	font-weight: 600;
 }
 
 /* shadcn's semantic tokens, mapped onto the host's live theme variables: the
