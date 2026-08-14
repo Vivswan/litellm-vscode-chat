@@ -48,6 +48,7 @@ import type {
 	UiTheme,
 } from "../../shared/config/settingSpec";
 import { NUMBER_SETTING_SPECS, TOKEN_ESTIMATION_MODES, UI_ACCENTS, UI_THEMES } from "../../shared/config/settingSpec";
+import { useAlertOnce } from "./announceOnce";
 import { DOCS_LINK_OPENROUTER_CATALOG, DOCS_LINK_SETTINGS } from "./docsLinks";
 import { FailureText } from "./failureText";
 import { DocsLink, Help } from "./help";
@@ -362,6 +363,10 @@ function SettingRow({
 	// The standing failure of this row's own last write, when the host refused
 	// it; App's store retires it on the next state push (the success signal).
 	const writeFailure = useContext(SettingFailuresContext)[settingId];
+	// Announced once per failure seq: the pane-top away line renders the same
+	// failure whenever this page is hidden, and whichever surface was visible
+	// when it landed has already spoken it.
+	const writeFailureRole = useAlertOnce(writeFailure?.seq);
 	return (
 		<div
 			className={cn(
@@ -468,9 +473,10 @@ function SettingRow({
 			    Not the description slot: that slot's covering contract is sized for
 			    the row's own short parse errors, while the host's message carries a
 			    technical detail line of arbitrary length. The seq keys the block so
-			    a repeat of the same failure re-mounts and role="alert" re-announces. */}
+			    a repeat of the same failure re-mounts and announces afresh; the
+			    role dedupes to one announcement per seq (useAlertOnce). */}
 			{writeFailure !== undefined ? (
-				<div key={writeFailure.seq} className="row-diagnostic sev-blocking" role="alert">
+				<div key={writeFailure.seq} className="row-diagnostic sev-blocking" role={writeFailureRole}>
 					<p className="row-diagnostic-headline">{writeFailureText(writeFailure)}</p>
 				</div>
 			) : null}
@@ -1652,6 +1658,9 @@ export function SettingsSection({
 			unclaimedFailure = failure;
 		}
 	}
+	// One announcement per failure seq across every surface: the pane-top away
+	// line may already have spoken this failure before the reader arrived here.
+	const unclaimedRole = useAlertOnce(unclaimedFailure?.seq);
 	return (
 		<SettingFailuresContext.Provider value={rowFailures}>
 			<Section
@@ -1699,7 +1708,7 @@ export function SettingsSection({
 				{/* The fallback for a failure no mounted row claims; a claimed one
 			    renders under its own row instead (see SettingRow). */}
 				{unclaimedFailure !== undefined ? (
-					<p key={unclaimedFailure.seq} className="error" role="alert">
+					<p key={unclaimedFailure.seq} className="error" role={unclaimedRole}>
 						{writeFailureText(unclaimedFailure)}
 					</p>
 				) : null}

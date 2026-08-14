@@ -2276,6 +2276,7 @@ export function RecordMatcherTable({
 	onOpenEditor?: ((groupIndex: number) => void) | undefined;
 }) {
 	const [popover, setPopover] = useState<ChipPopoverTarget | undefined>(undefined);
+	const tableId = useId();
 	// A popover whose group or field left the draft (a state push with no
 	// draft pinned, a removal elsewhere) closes instead of editing a stale
 	// row; one with live edits is never dropped - its edits sit in the draft,
@@ -2407,6 +2408,14 @@ export function RecordMatcherTable({
 									groupHere(popover) &&
 									popover.fieldKey === row.key &&
 									popover.ordinal === ordinal;
+								// The hint said in words, before the popover opens: the amber
+								// border is the only resting mark, and a border is invisible
+								// to a screen reader - unlike a problem, whose message the
+								// row prints as visible text below. A description rather
+								// than part of the name, so the chip still announces as its
+								// key and value first. The id only has to be unique on the
+								// page and stable within a render; the indices do that.
+								const hintId = issue?.hint !== undefined ? `${tableId}-hint-${groupIndex}-${rowIndex}` : undefined;
 								// No forced-colors border suppression any more, deliberately:
 								// when chips were quiet-at-rest the repainted transparent border
 								// put an unearned hairline on every chip, but a FILLED chip's
@@ -2474,6 +2483,7 @@ export function RecordMatcherTable({
 												type="button"
 												className={chipClass}
 												aria-expanded={openHere}
+												aria-describedby={hintId}
 												disabled={disabled}
 												onClick={(event) =>
 													setPopover(
@@ -2499,6 +2509,11 @@ export function RecordMatcherTable({
 										) : (
 											<span className={chipClass}>{body}</span>
 										)}
+										{hintId !== undefined && issue?.hint !== undefined ? (
+											<span id={hintId} className="visually-hidden">
+												{issue.hint}
+											</span>
+										) : null}
 										{openHere && popover !== undefined ? (
 											<FieldChipPopover
 												kind={kind}

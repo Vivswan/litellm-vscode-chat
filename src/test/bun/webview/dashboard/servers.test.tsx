@@ -1512,6 +1512,10 @@ test("an expected failure with nothing declared reads blocking and offers Declar
 	// to act rather than a volume knob.
 	const line = root.querySelector(".row-diagnostic");
 	expect(line?.classList.contains("sev-blocking")).toBe(true);
+	// The blocking tier's hidden rank word, in this page's server subject
+	// (severityLabel): the degraded word is pinned by the spend suite, so this
+	// is the other problem tier's coverage.
+	expect(line?.querySelector(".visually-hidden")?.textContent).toBe("Serving nothing: ");
 	expect(line?.textContent).toContain("nothing is declared");
 	const actions = [...(line?.querySelectorAll(".row-diagnostic-actions button") ?? [])].map((el) =>
 		el.textContent?.trim()

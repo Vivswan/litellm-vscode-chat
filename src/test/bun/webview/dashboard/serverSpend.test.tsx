@@ -556,8 +556,12 @@ describe("the usage diagnostics", () => {
 			text: (line.textContent ?? "").trim(),
 		}));
 		expect(lines).toEqual([
-			{ severity: "sev-degraded", text: "Prod is over its budget by $3.00." },
-			{ severity: "sev-degraded", text: "Gateway is close to its budget: $6.50 left." },
+			// The leading tier word is the shared severity vocabulary's hidden
+			// label (severityLabel, in this page's server subject): the rule's
+			// colour and geometry cannot reach a screen reader, so the headline
+			// speaks its rank.
+			{ severity: "sev-degraded", text: "Action needed: Prod is over its budget by $3.00." },
+			{ severity: "sev-degraded", text: "Action needed: Gateway is close to its budget: $6.50 left." },
 		]);
 		expect(textOf(root, ".section-meta")).toContain("2 need attention");
 	});

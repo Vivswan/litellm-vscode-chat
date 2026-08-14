@@ -132,19 +132,23 @@ test("an executeCommand intentFailed keeps the pane-top line: it is posted from 
 		message: "the command bounced",
 		failureKind: "operation",
 	});
-	const notice = root.querySelector(".pane > p.error");
+	// Announced on arrival: an error line with no live role is invisible to a
+	// reader who is anywhere else on the page.
+	const notice = root.querySelector(".pane > p.error[role='alert']");
 	expect(notice?.textContent).toContain("The last change did not apply: the command bounced");
 
 	pushToWebview(statePush(makeState()));
 	expect(root.textContent).not.toContain("The last change did not apply");
 });
 
-test("a refused write is visible from another tab: the pane-top line stands until Settings is active", () => {
+test("a refused write is visible from another tab, and announced exactly once per failure", () => {
 	// A rail click can be the very blur that commits the failing write, so the
 	// fail envelope lands after the settings panel is hidden - and a hidden
 	// subtree neither paints nor announces. Away from Settings the failure
 	// takes a pane-top line of its own; arriving on Settings hands it to the
-	// page's own placement.
+	// page's own placement. The VISIBLE line follows the reader; the
+	// ANNOUNCEMENT does not: one role="alert" mount per failure seq, however
+	// many times navigation re-mounts a surface holding the same failure.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 	pushToWebview({
@@ -158,14 +162,38 @@ test("a refused write is visible from another tab: the pane-top line stands unti
 	const away = root.querySelector(".pane > p.error[role='alert']");
 	expect(away?.textContent).toContain("The last change did not apply: the write was refused");
 
-	// On Settings the page owns the notice and the away line stands down.
+	// On Settings the page owns the notice and the away line stands down; the
+	// failure was already spoken, so the page's line renders WITHOUT the role.
 	const settingsTab = root.querySelector("#tab-settings");
 	if (!(settingsTab instanceof HTMLElement)) {
 		throw new Error("no settings rail tab");
 	}
 	fireClick(settingsTab);
-	expect(root.querySelector(".pane > p.error[role='alert']")).toBeNull();
-	expect(root.querySelector("#panel-settings p.error[role='alert']")?.textContent).toContain(
+	expect(root.querySelector(".pane > p.error")).toBeNull();
+	const claimed = root.querySelector("#panel-settings p.error");
+	expect(claimed?.textContent).toContain("The last change did not apply: the write was refused");
+	expect(claimed?.getAttribute("role")).toBeNull();
+
+	// Navigating away again re-mounts the pane-top line for the SAME standing
+	// failure: still visible, still silent.
+	const serversTab = root.querySelector("#tab-overview");
+	if (!(serversTab instanceof HTMLElement)) {
+		throw new Error("no servers rail tab");
+	}
+	fireClick(serversTab);
+	const remounted = root.querySelector(".pane > p.error");
+	expect(remounted?.textContent).toContain("The last change did not apply: the write was refused");
+	expect(remounted?.getAttribute("role")).toBeNull();
+
+	// A REPEAT failure is a fresh seq, and a fresh seq announces afresh.
+	pushToWebview({
+		kind: "fail",
+		id: "req-3",
+		method: "setCurrencySymbol",
+		message: "the write was refused",
+		failureKind: "operation",
+	});
+	expect(root.querySelector(".pane > p.error[role='alert']")?.textContent).toContain(
 		"The last change did not apply: the write was refused"
 	);
 });

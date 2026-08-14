@@ -72,6 +72,7 @@ import {
 	IconStar,
 } from "./icons";
 import type { InspectorSection } from "./modelInspector";
+import { type DiagnosticSeverity, SEVERITY_ORDER, severityLabel } from "./severity";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Section } from "./ui/section";
@@ -85,12 +86,12 @@ import { sendRequest } from "./vscodeApi";
  */
 const DIAGNOSTICS_MEASURE = "max-w-[64rem]";
 
-/**
- * How much a problem costs the reader, which is the only thing that should
- * decide how loud it looks. The same three tiers the server rows rank their
- * problems by, read against this page's subject - configuration rather than
- * connections - through the same question: does someone have to act, and how
- * much of what they wrote is being lost?
+/*
+ * This page's reading of the shared severity vocabulary (./severity.ts): the
+ * same three tiers the server rows rank their problems by, read against this
+ * page's subject - configuration rather than connections - through the same
+ * question: does someone have to act, and how much of what they wrote is
+ * being lost?
  *
  * "blocking" means this piece of configuration is wholly inert: it was
  * written, and it does nothing at all until someone changes it. "degraded"
@@ -102,32 +103,6 @@ const DIAGNOSTICS_MEASURE = "max-w-[64rem]";
  * Nothing here can be worse than blocking: a server that serves nothing is a
  * server-row problem, and the row that owns it says so.
  */
-type DiagnosticSeverity = "blocking" | "degraded" | "advisory";
-
-/** Loudest first: the list is read top to bottom in the order it costs you something. */
-const SEVERITY_ORDER: Readonly<Record<DiagnosticSeverity, number>> = { blocking: 0, degraded: 1, advisory: 2 };
-
-/**
- * The tier said in words, for assistive technology.
- *
- * The three tiers are the page's whole organizing principle, and on screen
- * they ride hue, a wash, and the rule's weight and style - none of which a
- * screen reader can report. Without this, eight structurally identical list
- * items announce identically and the ranking the sort performs is invisible
- * to the one reader who cannot see the sort. Visually hidden rather than
- * printed: the sibling server rows carry no tier word either, and adding one
- * to only this surface would split the vocabulary the redesign just unified.
- */
-function severityLabel(severity: DiagnosticSeverity): string {
-	switch (severity) {
-		case "blocking":
-			return l10n.t("Not applied at all:");
-		case "degraded":
-			return l10n.t("Partly ignored:");
-		case "advisory":
-			return l10n.t("Note:");
-	}
-}
 
 /**
  * The host's severity as a ceiling on the tier this page assigns.
@@ -549,7 +524,7 @@ function ConfigProblemLine({ problem }: { problem: ConfigProblem }) {
 	return (
 		<li className={`row-diagnostic sev-${problem.severity}`}>
 			<p className="row-diagnostic-headline">
-				<span className="visually-hidden">{severityLabel(problem.severity)} </span>
+				<span className="visually-hidden">{severityLabel(problem.severity, "configuration")} </span>
 				{problem.headline}
 			</p>
 			{problem.where.length > 0 ? (

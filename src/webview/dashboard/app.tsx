@@ -6,6 +6,7 @@ import { failuresAfterStatePush, isAckedMethod } from "../../dashboard/endpoints
 import { classifyOverall, latestCheckedMs } from "../../dashboard/presenters";
 import type { DashboardSectionId, DashboardServer, DashboardState } from "../../dashboard/viewModels";
 import { DASHBOARD_SECTION_IDS } from "../../dashboard/viewModels";
+import { AnnounceOnceScope, useAlertOnce } from "./announceOnce";
 import { DiagnosticsSection, pageConfigDiagnostics } from "./diagnostics";
 import { FailureText } from "./failureText";
 import { asExtensionMessage } from "./hooks";
@@ -301,6 +302,27 @@ function SectionPanel({ section, active, children }: { section: SectionId; activ
 		<div role="tabpanel" id={`panel-${section}`} aria-labelledby={`tab-${section}`} hidden={section !== active}>
 			{children}
 		</div>
+	);
+}
+
+/**
+ * A standing failure's pane-top line. The visible line renders for as long
+ * as the failure stands; the announcement rides only its first render per
+ * seq (useAlertOnce), so a navigation that re-mounts the line cannot
+ * re-speak an unchanged failure. Callers key it by the seq: a REPEAT of the
+ * same failure carries a fresh seq, and the remount plus the fresh role is
+ * what announces it (adding role="alert" to an element already in the tree
+ * is not reliably spoken).
+ */
+function PaneFailureLine({ failure }: { failure: { readonly seq: number; readonly message: string } }) {
+	const role = useAlertOnce(failure.seq);
+	return (
+		<p className="error" role={role}>
+			<FailureText
+				message={failure.message}
+				frame={(headline) => l10n.t("The last change did not apply: {0}", headline)}
+			/>
+		</p>
 	);
 }
 
@@ -701,152 +723,147 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 					undefined
 				);
 	return (
-		<main
-			className="shell"
-			onKeyDown={(event) => {
-				// Esc while the destination is open is the shell's, and only what
-				// reaches it: the suggestion listbox and the matcher overlay stop
-				// their own Escape, so a popover closes itself before the page
-				// ever hears about leaving. On the shell rather than the pane
-				// because the rail is a sibling of the pane - a reader who just
-				// clicked a rail item has focus there, and that is exactly when
-				// they are most likely to press it.
-				if (editing === undefined || event.key !== "Escape") {
-					return;
-				}
-				event.preventDefault();
-				event.stopPropagation();
-				requestLeaveEdit();
-			}}
-		>
-			<Rail
-				sections={railSections(state)}
-				active={activeSection}
-				onSelect={selectSection}
-				serverCount={state.servers.length}
-				overall={overallState(state.servers, state.legacyServerCount)}
-				synced={lastSync(state.servers, now)}
-			/>
-			<div className="pane">
-				{commandFailure !== undefined ? (
-					<p className="error">
-						<FailureText
-							message={commandFailure.message}
-							frame={(headline) => l10n.t("The last change did not apply: {0}", headline)}
-						/>
-					</p>
-				) : null}
-				{awaySettingFailure !== undefined ? (
-					<p key={awaySettingFailure.seq} className="error" role="alert">
-						<FailureText
-							message={awaySettingFailure.message}
-							frame={(headline) => l10n.t("The last change did not apply: {0}", headline)}
-						/>
-					</p>
-				) : null}
-				{/* The destination lives INSIDE the Servers panel, because that is
+		<AnnounceOnceScope>
+			<main
+				className="shell"
+				onKeyDown={(event) => {
+					// Esc while the destination is open is the shell's, and only what
+					// reaches it: the suggestion listbox and the matcher overlay stop
+					// their own Escape, so a popover closes itself before the page
+					// ever hears about leaving. On the shell rather than the pane
+					// because the rail is a sibling of the pane - a reader who just
+					// clicked a rail item has focus there, and that is exactly when
+					// they are most likely to press it.
+					if (editing === undefined || event.key !== "Escape") {
+						return;
+					}
+					event.preventDefault();
+					event.stopPropagation();
+					requestLeaveEdit();
+				}}
+			>
+				<Rail
+					sections={railSections(state)}
+					active={activeSection}
+					onSelect={selectSection}
+					serverCount={state.servers.length}
+					overall={overallState(state.servers, state.legacyServerCount)}
+					synced={lastSync(state.servers, now)}
+				/>
+				<div className="pane">
+					{/* Both pane-top lines announce once per failure seq and then
+				    stand silently (PaneFailureLine): the executeCommand line is
+				    posted from every tab and owns no row, and the setting-write
+				    line re-mounts on every navigation away from Settings while
+				    its failure stands unchanged. */}
+					{commandFailure !== undefined ? <PaneFailureLine key={commandFailure.seq} failure={commandFailure} /> : null}
+					{awaySettingFailure !== undefined ? (
+						<PaneFailureLine key={awaySettingFailure.seq} failure={awaySettingFailure} />
+					) : null}
+					{/* The destination lives INSIDE the Servers panel, because that is
 				    what it is a destination of: the rail still says Servers, and
 				    the panel it controls is what is on screen. The list stays
 				    mounted behind it - hidden, not unmounted - so the row that
 				    opened the page survives to take focus back, with its scroll
 				    position. */}
-				<SectionPanel section="overview" active={activeSection}>
-					{editing !== undefined ? (
-						<ServerEditPage
-							key={editing.key}
-							request={editing.request}
-							servers={state.servers}
-							onDirtyChange={noteEditDirty}
-							onRequestClose={requestLeaveEdit}
-							onSaved={leaveEdit}
-						/>
-					) : null}
-					<div hidden={editing !== undefined}>
-						<ServersSection
-							servers={state.servers}
-							hidden={state.hiddenGroups}
-							usage={state.usage}
+					<SectionPanel section="overview" active={activeSection}>
+						{editing !== undefined ? (
+							<ServerEditPage
+								key={editing.key}
+								request={editing.request}
+								servers={state.servers}
+								onDirtyChange={noteEditDirty}
+								onRequestClose={requestLeaveEdit}
+								onSaved={leaveEdit}
+							/>
+						) : null}
+						<div hidden={editing !== undefined}>
+							<ServersSection
+								servers={state.servers}
+								hidden={state.hiddenGroups}
+								usage={state.usage}
+								currencySymbol={state.settings.usage.currencySymbol}
+								now={now}
+								onShowModels={showServerModels}
+								onEditServer={(label) => openEdit({ kind: "edit", label })}
+								onAdoptServer={(handle) => openEdit({ kind: "adopt", handle })}
+								onAddServer={() => openEdit({ kind: "add" })}
+							/>
+						</div>
+					</SectionPanel>
+					<SectionPanel section="models" active={activeSection}>
+						<ModelsSection
+							models={state.models}
+							serverCount={state.servers.length}
 							currencySymbol={state.settings.usage.currencySymbol}
-							now={now}
-							onShowModels={showServerModels}
-							onEditServer={(label) => openEdit({ kind: "edit", label })}
-							onAdoptServer={(handle) => openEdit({ kind: "adopt", handle })}
-							onAddServer={() => openEdit({ kind: "add" })}
+							scope={
+								serverScope !== undefined ? { label: serverScope, onClear: () => setServerScope(undefined) } : undefined
+							}
+							onInspect={inspectModel}
 						/>
-					</div>
-				</SectionPanel>
-				<SectionPanel section="models" active={activeSection}>
-					<ModelsSection
-						models={state.models}
-						serverCount={state.servers.length}
-						currencySymbol={state.settings.usage.currencySymbol}
-						scope={
-							serverScope !== undefined ? { label: serverScope, onClear: () => setServerScope(undefined) } : undefined
-						}
-						onInspect={inspectModel}
-					/>
-				</SectionPanel>
-				<SectionPanel section="settings" active={activeSection}>
-					<SettingsSection
-						settings={state.settings}
-						models={state.models}
-						observedModelInfoKeys={state.observedModelInfoKeys}
-						now={now}
-						editRecordRequest={editRecordRequest}
-						writeFailures={settingWriteFailures}
-					/>
-				</SectionPanel>
-				<SectionPanel section="diagnostics" active={activeSection}>
-					<DiagnosticsSection
-						servers={state.servers}
-						modelCount={state.models.length}
-						legacyServerCount={state.legacyServerCount}
-						diagnostics={state.diagnostics}
-						active={section === "diagnostics"}
-						stateSeq={stateSeq}
-						currencySymbol={state.settings.usage.currencySymbol}
-						onInspect={inspectModel}
-					/>
-				</SectionPanel>
-			</div>
-			<ToastHost toasts={toasts} durationMs={toastDurationMs} onDismiss={dismissToast} />
-			{/* The inspector overlay, above the tab panels so it opens in place
+					</SectionPanel>
+					<SectionPanel section="settings" active={activeSection}>
+						<SettingsSection
+							settings={state.settings}
+							models={state.models}
+							observedModelInfoKeys={state.observedModelInfoKeys}
+							now={now}
+							editRecordRequest={editRecordRequest}
+							writeFailures={settingWriteFailures}
+						/>
+					</SectionPanel>
+					<SectionPanel section="diagnostics" active={activeSection}>
+						<DiagnosticsSection
+							servers={state.servers}
+							modelCount={state.models.length}
+							legacyServerCount={state.legacyServerCount}
+							diagnostics={state.diagnostics}
+							active={section === "diagnostics"}
+							stateSeq={stateSeq}
+							currencySymbol={state.settings.usage.currencySymbol}
+							onInspect={inspectModel}
+						/>
+					</SectionPanel>
+				</div>
+				<ToastHost toasts={toasts} durationMs={toastDurationMs} onDismiss={dismissToast} />
+				{/* The inspector overlay, above the tab panels so it opens in place
 			    on any tab; the configure-jumps close the overlay first - the
 			    editor they land on is the next surface. */}
-			{inspectedModel !== undefined ? (
-				<ModelInspector
-					model={inspectedModel}
-					stateSeq={stateSeq}
-					currencySymbol={state.settings.usage.currencySymbol}
-					anchor={inspecting?.anchor}
-					fallbackFocusId={`tab-${section}`}
-					onClose={() => setInspecting(undefined)}
-					onEditRecord={(kind, key, create) => {
-						setInspecting(undefined);
-						editRecord(kind, key, create);
-					}}
-					onEditEntry={(label) => {
-						setInspecting(undefined);
-						editEntry(label);
-					}}
-				/>
-			) : null}
-			{/* The navigation guard's question, a modal above everything it
+				{inspectedModel !== undefined ? (
+					<ModelInspector
+						model={inspectedModel}
+						stateSeq={stateSeq}
+						currencySymbol={state.settings.usage.currencySymbol}
+						anchor={inspecting?.anchor}
+						fallbackFocusId={`tab-${section}`}
+						onClose={() => setInspecting(undefined)}
+						onEditRecord={(kind, key, create) => {
+							setInspecting(undefined);
+							editRecord(kind, key, create);
+						}}
+						onEditEntry={(label) => {
+							setInspecting(undefined);
+							editEntry(label);
+						}}
+					/>
+				) : null}
+				{/* The navigation guard's question, a modal above everything it
 			    interrupts: leaving a dirty page is a decision about the whole
 			    page, so it does not share the save bar it used to sit in. Keep
 			    editing is the safe default; the dialog restores focus into the
 			    page on cancel, and on Discard the intent recorded above decides
 			    where the reader (and focus) land. */}
-			{editing !== undefined && confirmingDiscard ? (
-				<ConfirmDialog
-					question={l10n.t("Discard unsaved changes?")}
-					confirmLabel={l10n.t("Discard")}
-					cancelLabel={l10n.t("Keep editing")}
-					surfaceId="server-edit-page"
-					onConfirm={leaveEdit}
-					onCancel={keepEditing}
-				/>
-			) : null}
-		</main>
+				{editing !== undefined && confirmingDiscard ? (
+					<ConfirmDialog
+						question={l10n.t("Discard unsaved changes?")}
+						confirmLabel={l10n.t("Discard")}
+						cancelLabel={l10n.t("Keep editing")}
+						surfaceId="server-edit-page"
+						onConfirm={leaveEdit}
+						onCancel={keepEditing}
+					/>
+				) : null}
+			</main>
+		</AnnounceOnceScope>
 	);
 }

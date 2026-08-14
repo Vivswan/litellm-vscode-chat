@@ -483,6 +483,16 @@ test("a hinted chip carries the hinted class the forced-colors width rule keys o
 	const hinted = chipFor(section(), "_inheritable");
 	expect(hinted.classList.contains("hinted")).toBe(true);
 	expect(chipFor(section(), "temperature").classList.contains("hinted")).toBe(false);
+	// The amber border is the chip's only resting mark, and a border is
+	// invisible to a screen reader (a PROBLEM prints visible row text; a hint
+	// does not), so the hinted chip describes itself: aria-describedby points
+	// at a hidden copy of the hint, tellable before the popover ever opens.
+	const describedBy = hinted.getAttribute("aria-describedby");
+	expect(describedBy).not.toBeNull();
+	const description = section().querySelector(`[id="${describedBy}"]`);
+	expect(description?.classList.contains("visually-hidden")).toBe(true);
+	expect(description?.textContent ?? "").not.toBeEmpty();
+	expect(chipFor(section(), "temperature").getAttribute("aria-describedby")).toBeNull();
 });
 
 test("the popover's force toggle writes the _force list without a raw chip, and unmarking removes it", () => {

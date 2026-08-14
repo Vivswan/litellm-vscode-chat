@@ -28,6 +28,7 @@ import { helpServersSection } from "./helpText";
 import { useIntentOutcome } from "./hooks";
 import { IconAdd, IconChevronRight } from "./icons";
 import { troubleshootingLink } from "./serverEditPage";
+import { type DiagnosticSeverity, SEVERITY_ORDER, severityLabel } from "./severity";
 import { barPresentation, formatMoney, formatPercent, TONE_FILL, TONE_TEXT } from "./spendFormat";
 import { relativeTime } from "./time";
 import { Badge } from "./ui/badge";
@@ -74,8 +75,9 @@ const INACTIVE_NOTICE_PRESENTATION = {
 
 const INACTIVE_NOTICES = Object.keys(INACTIVE_NOTICE_PRESENTATION) as readonly InactiveEntryNotice[];
 
-/**
- * How much a problem costs the server's PURPOSE - serving its models with the
+/*
+ * This page's reading of the shared severity vocabulary (./severity.ts): how
+ * much a problem costs the server's PURPOSE - serving its models with the
  * configuration it was given - which is the only thing that should decide how
  * loud it looks.
  *
@@ -94,10 +96,6 @@ const INACTIVE_NOTICES = Object.keys(INACTIVE_NOTICE_PRESENTATION) as readonly I
  * The tiers are what the summary line counts, so a tier is a promise about
  * whether someone has to act, not a volume knob.
  */
-type DiagnosticSeverity = "blocking" | "degraded" | "advisory";
-
-/** Loudest first: the row's problems are read top to bottom in the order they cost you something. */
-const SEVERITY_ORDER: Readonly<Record<DiagnosticSeverity, number>> = { blocking: 0, degraded: 1, advisory: 2 };
 
 /**
  * One action offered beside a problem. Almost every one of them REVEALS the
@@ -701,12 +699,18 @@ function usageDiagnostics(
  * The rule's colour and the tint carry the severity together. Colour alone
  * would be the only signal for a reader who cannot separate red from amber,
  * and a tint alone is too weak to rank three levels, so blocking and advisory
- * differ in both.
+ * differ in both. Neither channel reaches a screen reader, so the headline
+ * leads with the shared vocabulary's hidden tier word (severityLabel, the
+ * Diagnostics page's idiom): without it a degraded server announces as
+ * "Connected" plus unranked prose.
  */
 function ServerDiagnosticLine({ diagnostic }: { diagnostic: RowDiagnostic }) {
 	return (
 		<div className={`row-diagnostic sev-${diagnostic.severity}`}>
-			<p className="row-diagnostic-headline">{diagnostic.headline}</p>
+			<p className="row-diagnostic-headline">
+				<span className="visually-hidden">{severityLabel(diagnostic.severity, "server")} </span>
+				{diagnostic.headline}
+			</p>
 			{(diagnostic.details ?? []).map((detail) => (
 				<p key={detail} className="row-diagnostic-detail">
 					{detail}
