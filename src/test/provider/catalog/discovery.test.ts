@@ -1144,6 +1144,49 @@ suite("provider/catalog/discovery", () => {
 				});
 			});
 
+			test("both endpoints answering 405 says the server refuses them, never that neither answered", async () => {
+				mswServer.use(
+					http.get(MODEL_INFO_URL, () => emptyErrorResponse(405)),
+					http.get(MODELS_URL, () => emptyErrorResponse(405))
+				);
+				await assert.rejects(fetchModels(request()), (error: unknown) => {
+					assert.ok(error instanceof RequestError);
+					assert.strictEqual(error.kind, "http");
+					assert.strictEqual(error.status, 405);
+					assert.strictEqual(error.setupHint, "check-base-url");
+					assert.strictEqual(error.unsupportedEndpoint, undefined, "both-unserved earns no declaration hint");
+					assert.match(error.message, /does not serve either discovery endpoint/);
+					assert.match(error.message, /does not look like a LiteLLM or OpenAI-compatible API/);
+					assert.ok(
+						!error.message.includes("Neither discovery endpoint answered"),
+						"both endpoints answered - the headline must not claim otherwise beside a detail line saying they did"
+					);
+					assert.match(error.message, /GET \/model\/info answered HTTP 405; GET \/models answered HTTP 405/);
+					assert.ok(error.englishMessage?.includes("does not serve either discovery endpoint"));
+					assert.strictEqual(error.logClassification, "RequestError(http, status 405, discovery, no endpoint served)");
+					return true;
+				});
+			});
+
+			test("a 404 probe beside a 405 listing is still both-refused and takes the served-nothing verdict", async () => {
+				// Same evidence KIND (status), different codes: the same-kind rule
+				// only excludes the mixed timeout-beside-status pairs, and the 404
+				// carve-out reads the models leg alone.
+				mswServer.use(
+					http.get(MODEL_INFO_URL, () => emptyErrorResponse(404)),
+					http.get(MODELS_URL, () => emptyErrorResponse(405))
+				);
+				await assert.rejects(fetchModels(request()), (error: unknown) => {
+					assert.ok(error instanceof RequestError);
+					assert.strictEqual(error.status, 405);
+					assert.strictEqual(error.setupHint, "check-base-url");
+					assert.strictEqual(error.unsupportedEndpoint, undefined);
+					assert.match(error.message, /does not serve either discovery endpoint/);
+					assert.match(error.message, /GET \/model\/info answered HTTP 404; GET \/models answered HTTP 405/);
+					return true;
+				});
+			});
+
 			test("both endpoints answering 404 keeps the docs-quoted 404 message, which already gives that verdict", async () => {
 				mswServer.use(
 					http.get(MODEL_INFO_URL, () => emptyErrorResponse(404)),

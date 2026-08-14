@@ -875,6 +875,7 @@
  "This label is a reserved name and cannot be used": "此标签是保留名称, 无法使用",
  "This row no longer matches a hideable server - it may have just been adopted or removed, or it predates provider groups.": "此行不再对应可隐藏的服务器 - 它可能刚被采用或删除, 或者早于提供程序组机制。",
  "This server does not serve /user/daily/activity (a normal shape on some setups).": "此服务器不提供 /user/daily/activity (在某些部署中属正常情况)。",
+ "This server does not serve either discovery endpoint at {0} - this address does not look like a LiteLLM or OpenAI-compatible API. Check the base URL and port (a LiteLLM proxy defaults to 4000), or put a LiteLLM proxy in front of this server.": "位于 {0} 的服务器不提供任何一个发现终结点 - 该地址看起来不是 LiteLLM 或 OpenAI 兼容的 API。请检查基础 URL 和端口 (LiteLLM 代理默认为 4000), 或在此服务器前架设一个 LiteLLM 代理。",
  "This server doesn't report spend for this key.": "此服务器不报告此密钥的消费数据。",
  "This server doesn't report spend.": "此服务器不报告消费数据。",
  "This server is gone": "此服务器已不存在",

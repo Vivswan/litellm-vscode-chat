@@ -560,10 +560,10 @@ function modelListingUnservedError(mapped: Error, evidence: EndpointFailureEvide
 
 /**
  * Both discovery endpoints failed like unserved endpoints in one pass, so no
- * per-endpoint declaration can help: nothing OpenAI-compatible answers at
- * this address. Replaces the raise-the-timeout advice a bare timeout would
- * carry - a bigger timeout only makes each refresh slower when the endpoint
- * never answers (issue #261's Ollama-on-11434 shape).
+ * per-endpoint declaration can help: this address does not serve an
+ * OpenAI-compatible API. Replaces the raise-the-timeout advice a bare timeout
+ * would carry - a bigger timeout only makes each refresh slower when the
+ * endpoint never answers (issue #261's Ollama-on-11434 shape).
  */
 function noEndpointServedError(
 	mapped: Error,
@@ -571,17 +571,30 @@ function noEndpointServedError(
 	infoEvidence: EndpointFailureEvidence,
 	ctx: ModelsFailureContext
 ) {
-	const { kind, status, token } = evidenceKind(evidence);
-	const headline = l10n.t(
-		"Neither discovery endpoint answered at {0} - this address does not look like a LiteLLM or OpenAI-compatible API. Check the base URL and port (a LiteLLM proxy defaults to 4000), or put a LiteLLM proxy in front of this server.",
-		ctx.baseUrl
-	);
-	const englishHeadline = `Neither discovery endpoint answered at ${ctx.baseUrl} - this address does not look like a LiteLLM or OpenAI-compatible API. Check the base URL and port (a LiteLLM proxy defaults to 4000), or put a LiteLLM proxy in front of this server.`;
+	const { kind: errorKind, status, token } = evidenceKind(evidence);
+	// The caller guarantees both evidences share a kind, so the pair is either
+	// two timeouts (nothing answered) or two refusal statuses (the server
+	// answered that it serves neither path) - the headline must match, because
+	// the detail line right below it names what each GET did.
+	const headline =
+		evidence.kind === "timeout"
+			? l10n.t(
+					"Neither discovery endpoint answered at {0} - this address does not look like a LiteLLM or OpenAI-compatible API. Check the base URL and port (a LiteLLM proxy defaults to 4000), or put a LiteLLM proxy in front of this server.",
+					ctx.baseUrl
+				)
+			: l10n.t(
+					"This server does not serve either discovery endpoint at {0} - this address does not look like a LiteLLM or OpenAI-compatible API. Check the base URL and port (a LiteLLM proxy defaults to 4000), or put a LiteLLM proxy in front of this server.",
+					ctx.baseUrl
+				);
+	const englishHeadline =
+		evidence.kind === "timeout"
+			? `Neither discovery endpoint answered at ${ctx.baseUrl} - this address does not look like a LiteLLM or OpenAI-compatible API. Check the base URL and port (a LiteLLM proxy defaults to 4000), or put a LiteLLM proxy in front of this server.`
+			: `This server does not serve either discovery endpoint at ${ctx.baseUrl} - this address does not look like a LiteLLM or OpenAI-compatible API. Check the base URL and port (a LiteLLM proxy defaults to 4000), or put a LiteLLM proxy in front of this server.`;
 	const detail = `GET ${MODEL_INFO_PATH} ${evidenceText(infoEvidence, ctx.timeoutMs)}; GET ${MODELS_PATH} ${evidenceText(
 		evidence,
 		ctx.timeoutMs
 	)}`;
-	return new RequestError(`${headline}\n${detail}`, kind, {
+	return new RequestError(`${headline}\n${detail}`, errorKind, {
 		...(status !== undefined ? { status } : {}),
 		cause: mapped,
 		setupHint: "check-base-url",

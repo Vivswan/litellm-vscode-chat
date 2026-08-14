@@ -990,6 +990,7 @@
 	"This label is a reserved name and cannot be used": "This label is a reserved name and cannot be used",
 	"This row no longer matches a hideable server - it may have just been adopted or removed, or it predates provider groups.": "This row no longer matches a hideable server - it may have just been adopted or removed, or it predates provider groups.",
 	"This server does not serve /user/daily/activity (a normal shape on some setups).": "This server does not serve /user/daily/activity (a normal shape on some setups).",
+	"This server does not serve either discovery endpoint at {0} - this address does not look like a LiteLLM or OpenAI-compatible API. Check the base URL and port (a LiteLLM proxy defaults to 4000), or put a LiteLLM proxy in front of this server.": "This server does not serve either discovery endpoint at {0} - this address does not look like a LiteLLM or OpenAI-compatible API. Check the base URL and port (a LiteLLM proxy defaults to 4000), or put a LiteLLM proxy in front of this server.",
 	"This server doesn't report spend for this key.": "This server doesn't report spend for this key.",
 	"This server doesn't report spend.": "This server doesn't report spend.",
 	"This server is gone": "This server is gone",
