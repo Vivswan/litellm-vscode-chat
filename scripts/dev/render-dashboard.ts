@@ -8,13 +8,21 @@
  *
  * Usage:
  *   bun scripts/dev/render-dashboard.ts --fixture scripts/dev/renderFixtures/example.ts --out /tmp/shot.png
- *     [--width 1300] [--height 950] [--theme <host theme>]
- *     [--hover <css selector>] [--clip-viewport] [--html-out /tmp/page.html] [--no-theme]
+ *     [--width 1300] [--height 950] [--theme <host theme>] [--dpr 2]
+ *     [--hover <css selector>] [--focus <css selector>] [--contrast <css selector>] [--contrast-large]
+ *     [--clip-viewport] [--html-out /tmp/page.html] [--no-theme]
  *     [--widths 320,999,1000] [--pane-widths 559,560]
  *
  * --theme overrides the fixture's own hostTheme, so any fixture can be shot in
  * light and dark without a second fixture file; the dashboard has to read well
  * in both.
+ *
+ * --focus focuses an element and FAILS unless it matches :focus-visible, so a
+ * shot can never show a missing ring the harness itself caused; --contrast
+ * prints an element's WCAG contrast ratio against its effective background and
+ * fails below 4.5:1 (3:1 with --contrast-large, the large-text/graphical
+ * floor); --dpr renders at another device density (deviceScaleFactor), which
+ * is how sub-2px strokes are reviewed across displays.
  *
  * Every run asserts the page does not scroll sideways at its own width.
  * --widths asserts the same at each WINDOW width it names; --pane-widths names
@@ -135,9 +143,10 @@ const MIN_PNG_BYTES = 10 * 1024;
 function usage(): never {
 	console.error(
 		"usage: bun scripts/dev/render-dashboard.ts --fixture <fixture.ts> (--out <shot.png> | --widths N,N)" +
-			" [--width N] [--height N] [--theme <host theme>]" +
+			" [--width N] [--height N] [--theme <host theme>] [--dpr N]" +
 			" [--accent blue|violet|teal|amber] [--app-theme auto|light|dark]" +
-			" [--hover <css selector>] [--clip-viewport] [--html-out <page.html>] [--no-theme]"
+			" [--hover <css selector>] [--focus <css selector>] [--contrast <css selector>] [--contrast-large]" +
+			" [--clip-viewport] [--html-out <page.html>] [--no-theme]"
 	);
 	process.exit(1);
 }
@@ -964,8 +973,8 @@ async function assertNoHorizontalOverflow(cdp: CdpConnection, width: number): Pr
 }
 
 /** Applies a viewport width and lets two frames settle under it. */
-async function setWidth(cdp: CdpConnection, width: number, height: number): Promise<void> {
-	await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+async function setWidth(cdp: CdpConnection, width: number, height: number, dpr: number): Promise<void> {
+	await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: dpr, mobile: false });
 	await evaluate(cdp, "new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))", true);
 }
 
@@ -1011,7 +1020,8 @@ async function measurePane(cdp: CdpConnection): Promise<number> {
 async function windowWidthsForPanes(
 	cdp: CdpConnection,
 	panes: readonly number[],
-	height: number
+	height: number,
+	dpr: number
 ): Promise<{ readonly pane: number; readonly window: number; readonly landed: boolean }[]> {
 	const resolved: { pane: number; window: number; landed: boolean }[] = [];
 	for (const pane of panes) {
@@ -1019,7 +1029,7 @@ async function windowWidthsForPanes(
 		for (const start of [NARROW_PROBE_WIDTH, WIDE_PROBE_WIDTH]) {
 			let candidate = start;
 			for (let attempt = 0; attempt < 5; attempt++) {
-				await setWidth(cdp, candidate, height);
+				await setWidth(cdp, candidate, height, dpr);
 				const measured = await measurePane(cdp);
 				if (measured === pane) {
 					found.add(candidate);
@@ -1042,6 +1052,183 @@ async function windowWidthsForPanes(
 	return resolved;
 }
 
+/**
+ * The in-page WCAG contrast probe behind --contrast: reads the element's
+ * computed color and its EFFECTIVE background - compositing translucent
+ * backgrounds up the ancestor chain until an opaque one, exactly what the
+ * pixel shows - and reports the WCAG relative-luminance contrast ratio.
+ *
+ * Colors are normalized by drawing them through a 1x1 canvas rather than
+ * parsed with a regex: the theme derives its tones with color-mix in oklab,
+ * so computed values arrive in whatever space Chrome serializes them in, and
+ * a parser that only speaks rgb() would fail on precisely the derived colors
+ * this probe exists to measure. Anything the probe cannot honestly composite
+ * (a background-image, an opacity below 1, an unparseable color, an element
+ * something else covers or the viewport cannot see, ANY pointer-events-none
+ * element over the probe point) is an error, not a guess - a wrong ratio
+ * certifies a contrast nobody has. One stated non-claim: pseudo-element
+ * overlays are invisible to every element scan (their boxes are not
+ * queryable), so the probe's occlusion guarantee covers elements only.
+ */
+function contrastProbe(selector: string): string {
+	return `(() => {
+		const node = document.querySelector(${JSON.stringify(selector)});
+		if (node === null) {
+			return null;
+		}
+		const rect = node.getBoundingClientRect();
+		if (rect.width === 0 || rect.height === 0) {
+			return JSON.stringify({ error: "the element is zero-sized; nothing is painted" });
+		}
+		// visibility: hidden keeps its geometry, so the size check alone would
+		// happily measure text no pixel shows. Computed visibility inherits, so
+		// the node's own value covers a hidden ancestor too.
+		if (getComputedStyle(node).visibility !== "visible") {
+			return JSON.stringify({ error: "the element's computed visibility is not visible; nothing is painted" });
+		}
+		// The ancestor walk below can only see the element's OWN stacking
+		// context: a scrim or slide-over drawn over it is no ancestor, so the
+		// probe would happily report the contrast of pixels an overlay has
+		// replaced. Hit-test the element's centre instead - the point must be
+		// inside the viewport for hit-testing to see it at all, and the top hit
+		// must be the element or something it contains, or the ratio is a lie.
+		const probeX = rect.left + rect.width / 2;
+		const probeY = rect.top + rect.height / 2;
+		if (probeX < 0 || probeY < 0 || probeX >= window.innerWidth || probeY >= window.innerHeight) {
+			return JSON.stringify({
+				error:
+					"the element's centre sits outside the viewport at (" + Math.round(probeX) + ", " + Math.round(probeY) +
+					"), where hit-testing cannot see it; scroll it on screen or raise --height",
+			});
+		}
+		const hit = document.elementFromPoint(probeX, probeY);
+		if (hit !== node && (hit === null || !node.contains(hit))) {
+			const describe = (candidate) => {
+				if (candidate === null) { return "nothing"; }
+				const classes = typeof candidate.className === "string" ? candidate.className.trim().split(/\\s+/) : [];
+				return candidate.tagName.toLowerCase() + (classes[0] !== undefined && classes[0] !== "" ? "." + classes.slice(0, 2).join(".") : "");
+			};
+			return JSON.stringify({
+				error:
+					"the element is not the top hit at its own centre - " + describe(hit) +
+					" covers it, and a ratio measured through an overlay would certify a contrast nobody sees",
+			});
+		}
+		// Hit-testing is blind to pointer-events: none, and such an overlay can
+		// still paint over the element (a dimming veil, an error banner). No
+		// attempt to decide whether it PAINTS: every "does it paint" list a
+		// previous revision carried missed something (images, borders, painted
+		// pseudo-elements), and a completeness chase on evasions is how an
+		// instrument learns to lie politely. Any such element whose box overlaps
+		// the probe point and is neither the element's ancestor nor its content
+		// fails loudly - over-rejecting on purpose, because an unprovable pixel
+		// is worth less than no ratio. Visibility: hidden and opacity: 0 are the
+		// two exclusions left, because they are proofs of not painting rather
+		// than guesses. Pseudo-element overlays remain outside this probe's
+		// claim entirely: their boxes are not queryable, so no scan of elements
+		// can bound them, and the probe's honest claim stops at elements.
+		for (const veil of document.querySelectorAll("*")) {
+			const veilStyle = getComputedStyle(veil);
+			if (veilStyle.pointerEvents !== "none") { continue; }
+			if (veil === node || node.contains(veil) || veil.contains(node)) { continue; }
+			if (veilStyle.visibility !== "visible" || Number(veilStyle.opacity) === 0) { continue; }
+			const box = veil.getBoundingClientRect();
+			if (probeX < box.left || probeX > box.right || probeY < box.top || probeY > box.bottom) { continue; }
+			const classes = typeof veil.className === "string" ? veil.className.trim().split(/\\s+/) : [];
+			return JSON.stringify({
+				error:
+					"a pointer-events-none element (" + veil.tagName.toLowerCase() +
+					(classes[0] !== undefined && classes[0] !== "" ? "." + classes.slice(0, 2).join(".") : "") +
+					") overlaps the probe point, where hit-testing cannot see it; the probe cannot prove whose pixel it measures",
+			});
+		}
+		const canvas = document.createElement("canvas");
+		canvas.width = 1;
+		canvas.height = 1;
+		const context = canvas.getContext("2d", { willReadFrequently: true });
+		const parse = (text) => {
+			// An invalid color leaves fillStyle at its previous value, so parse
+			// against two sentinels: only a real color lands on the same
+			// serialization from both.
+			context.fillStyle = "#000000";
+			context.fillStyle = text;
+			const fromBlack = context.fillStyle;
+			context.fillStyle = "#ffffff";
+			context.fillStyle = text;
+			if (context.fillStyle !== fromBlack) {
+				return null;
+			}
+			context.clearRect(0, 0, 1, 1);
+			context.fillRect(0, 0, 1, 1);
+			const [r, g, b, a] = context.getImageData(0, 0, 1, 1).data;
+			return { r, g, b, a: a / 255 };
+		};
+		const layers = [];
+		// Backgrounds are collected only until an opaque one - anything behind
+		// it is hidden - but the opacity refusal runs on EVERY ancestor up to
+		// the root: opacity fades the whole subtree, so a translucent ancestor
+		// ABOVE the opaque stop still changes what the pixel shows, and skipping
+		// it would report black-on-white as 21:1 inside an opacity: 0.5 panel.
+		let opaqueFound = false;
+		for (let element = node; element !== null; element = element.parentElement) {
+			const style = getComputedStyle(element);
+			if (Number(style.opacity) < 1) {
+				return JSON.stringify({ error: element.tagName + " has opacity below 1; the probe cannot composite it" });
+			}
+			if (opaqueFound) {
+				continue;
+			}
+			if (style.backgroundImage !== "none") {
+				return JSON.stringify({ error: element.tagName + " paints a background-image; the probe cannot composite it" });
+			}
+			const background = parse(style.backgroundColor);
+			if (background === null) {
+				return JSON.stringify({ error: "unparseable background-color on " + element.tagName + ": " + style.backgroundColor });
+			}
+			if (background.a > 0) {
+				layers.push(background);
+			}
+			if (background.a >= 1) {
+				opaqueFound = true;
+			}
+		}
+		// A stack still translucent at the root composites over the canvas default.
+		if (layers.length === 0 || layers[layers.length - 1].a < 1) {
+			layers.push({ r: 255, g: 255, b: 255, a: 1 });
+		}
+		const over = (top, bottom) => ({
+			r: top.r * top.a + bottom.r * (1 - top.a),
+			g: top.g * top.a + bottom.g * (1 - top.a),
+			b: top.b * top.a + bottom.b * (1 - top.a),
+			a: 1,
+		});
+		let background = layers[layers.length - 1];
+		for (let i = layers.length - 2; i >= 0; i--) {
+			background = over(layers[i], background);
+		}
+		const color = parse(getComputedStyle(node).color);
+		if (color === null) {
+			return JSON.stringify({ error: "unparseable color: " + getComputedStyle(node).color });
+		}
+		const foreground = color.a >= 1 ? { ...color } : over(color, background);
+		const luminance = (paint) => {
+			const channel = (value) => {
+				const scaled = value / 255;
+				return scaled <= 0.04045 ? scaled / 12.92 : ((scaled + 0.055) / 1.055) ** 2.4;
+			};
+			return 0.2126 * channel(paint.r) + 0.7152 * channel(paint.g) + 0.0722 * channel(paint.b);
+		};
+		const lighter = Math.max(luminance(foreground), luminance(background));
+		const darker = Math.min(luminance(foreground), luminance(background));
+		const show = (paint) => "rgb(" + Math.round(paint.r) + ", " + Math.round(paint.g) + ", " + Math.round(paint.b) + ")";
+		return JSON.stringify({
+			ratio: (lighter + 0.05) / (darker + 0.05),
+			foreground: show(foreground),
+			background: show(background),
+		});
+	})()`;
+}
+
 async function main(): Promise<void> {
 	const { values } = parseArgs({
 		options: {
@@ -1052,6 +1239,10 @@ async function main(): Promise<void> {
 			"html-out": { type: "string" },
 			"clip-viewport": { type: "boolean", default: false },
 			hover: { type: "string" },
+			focus: { type: "string" },
+			contrast: { type: "string" },
+			"contrast-large": { type: "boolean", default: false },
+			dpr: { type: "string" },
 			"no-theme": { type: "boolean", default: false },
 			theme: { type: "string" },
 			accent: { type: "string" },
@@ -1069,6 +1260,16 @@ async function main(): Promise<void> {
 	const height = values.height !== undefined ? Number(values.height) : (fixture.viewport?.height ?? 950);
 	if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
 		throw new Error(`Viewport must be positive integers; got ${width}x${height}`);
+	}
+	// --dpr sets the emulated deviceScaleFactor: sub-2px strokes (the muted
+	// ring's 1.5px border, hairline separators) snap differently per display
+	// density, so a review of them needs the same page at 1x and 2x.
+	const dpr = values.dpr === undefined ? 1 : Number(values.dpr);
+	if (!Number.isFinite(dpr) || dpr <= 0) {
+		throw new Error(`--dpr takes a positive number; got ${values.dpr}`);
+	}
+	if (values["contrast-large"] === true && values.contrast === undefined) {
+		throw new Error("--contrast-large only adjusts the --contrast threshold; pass --contrast <selector> too");
 	}
 	// --widths sweeps the page for horizontal overflow at each width before
 	// capturing, and makes --out optional: measuring every fixture at every
@@ -1088,6 +1289,17 @@ async function main(): Promise<void> {
 	const sweepWidths = positiveIntegers(values.widths, "--widths");
 	const paneWidths = positiveIntegers(values["pane-widths"], "--pane-widths");
 	const outPath = values.out === undefined ? undefined : path.resolve(values.out);
+	// The state probes run against the captured page, after the width sweep has
+	// restored the fixture's own width - a measurement-only run returns before
+	// that point, so accepting a probe there would exit 0 having never run it,
+	// which is exactly the silent skip these flags exist to make impossible.
+	const probes = (["hover", "focus", "contrast"] as const).filter((flag) => values[flag] !== undefined);
+	if (outPath === undefined && probes.length > 0) {
+		throw new Error(
+			`--${probes.join(", --")} run(s) against the captured state; a measurement-only run (no --out) would` +
+				" silently skip the probe. Pass --out as well."
+		);
+	}
 
 	const chromeBin = findChrome();
 	console.log(`chrome: ${chromeBin}`);
@@ -1247,13 +1459,13 @@ async function main(): Promise<void> {
 		// --window-size left: a platform with a minimum window width silently
 		// gives back a wider viewport than was asked for, so the number in a
 		// failure would not be the number under test.
-		await setWidth(cdp, width, height);
+		await setWidth(cdp, width, height, dpr);
 		await assertNoHorizontalOverflow(cdp, width);
 		const sweeping = fixture.measuredAtOwnWidth !== true;
 		if (!sweeping && (sweepWidths.length > 0 || paneWidths.length > 0)) {
 			console.log("skipped the width sweep: this fixture's state was measured at its own width");
 		}
-		const aimed = sweeping && paneWidths.length > 0 ? await windowWidthsForPanes(cdp, paneWidths, height) : [];
+		const aimed = sweeping && paneWidths.length > 0 ? await windowWidthsForPanes(cdp, paneWidths, height, dpr) : [];
 		const failures: string[] = [
 			...aimed
 				.filter((entry) => !entry.landed)
@@ -1267,7 +1479,7 @@ async function main(): Promise<void> {
 			...aimed.filter((entry) => entry.landed).map((entry) => ({ window: entry.window, pane: entry.pane })),
 		];
 		for (const at of sweep) {
-			await setWidth(cdp, at.window, height);
+			await setWidth(cdp, at.window, height, dpr);
 			try {
 				await assertNoHorizontalOverflow(cdp, at.window);
 			} catch (error) {
@@ -1278,7 +1490,7 @@ async function main(): Promise<void> {
 			}
 		}
 		if (sweep.length > 0) {
-			await setWidth(cdp, width, height);
+			await setWidth(cdp, width, height, dpr);
 			console.log(`swept ${sweep.length} width(s): ${failures.length === 0 ? "no overflow" : "SEE BELOW"}`);
 		}
 		if (failures.length > 0) {
@@ -1289,7 +1501,7 @@ async function main(): Promise<void> {
 		}
 
 		const captureBeyondViewport = values["clip-viewport"] !== true && fixture.clipViewport !== true;
-		await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+		await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: dpr, mobile: false });
 		if (captureBeyondViewport) {
 			// Pin the scroll offset, then let two frames settle under the final
 			// viewport metrics. A full-page capture photographs the whole
@@ -1322,15 +1534,16 @@ async function main(): Promise<void> {
 				throw new Error(`Scroll offset survived the pre-capture pin (${stray}); the render would not be reproducible`);
 			}
 		}
-		// Hover last, because it is the one state that a later scroll destroys.
-		// This vocabulary puts a button's whole fill and half its meaning on
-		// hover, so a review that can only see resting states reviews half the
-		// work - but :hover answers to the real input pipeline alone, tracks
-		// VIEWPORT coordinates, and Chrome re-runs hit-testing after a scroll.
-		// Dispatching before the full-page path's scroll pin produced a PNG
-		// byte-identical to the unhovered one while the page still reported the
-		// element hovered: the harness certifying a state its own artifact did
-		// not contain, which is the failure this file's header forbids.
+		// Hover after the scroll pin, because it is the one state that a later
+		// scroll destroys. This vocabulary puts a button's whole fill and half
+		// its meaning on hover, so a review that can only see resting states
+		// reviews half the work - but :hover answers to the real input pipeline
+		// alone, tracks VIEWPORT coordinates, and Chrome re-runs hit-testing
+		// after a scroll. Dispatching before the full-page path's scroll pin
+		// produced a PNG byte-identical to the unhovered one while the page
+		// still reported the element hovered: the harness certifying a state
+		// its own artifact did not contain, which is the failure this file's
+		// header forbids.
 		if (values.hover !== undefined) {
 			const target = (await evaluate(
 				cdp,
@@ -1395,6 +1608,168 @@ async function main(): Promise<void> {
 			console.log(`hovered ${values.hover}: ${hovered}`);
 			if (typeof hovered === "string" && hovered.includes('"matches":false')) {
 				throw new Error(`--hover dispatched at (${target.x}, ${target.y}) but ${values.hover} never matched :hover`);
+			}
+		}
+
+		// Focus after hover, because :focus-visible is a claim about input
+		// modality, not just focus: Chrome grants a programmatic focus() the
+		// ring only while it believes the last interaction was keyboard, and
+		// --hover's mouse move (or a fixture step's click) flips that belief.
+		// Hover itself survives the ordering - focus does not move the pointer,
+		// and an element's :focus-visible state is decided when focus lands,
+		// so neither state can destroy the other this way around.
+		if (values.focus !== undefined) {
+			const focusSelector = JSON.stringify(values.focus);
+			const target = (await evaluate(
+				cdp,
+				`(() => {
+					const node = document.querySelector(${focusSelector});
+					if (!node) { return null; }
+					const rect = node.getBoundingClientRect();
+					return {
+						x: Math.round(rect.left + rect.width / 2),
+						y: Math.round(rect.top + rect.height / 2),
+						width: Math.round(rect.width),
+						height: Math.round(rect.height),
+						viewport: { width: window.innerWidth, height: window.innerHeight },
+					};
+				})()`
+			)) as {
+				readonly x: number;
+				readonly y: number;
+				readonly width: number;
+				readonly height: number;
+				readonly viewport: { readonly width: number; readonly height: number };
+			} | null;
+			if (target === null) {
+				throw new Error(`--focus matched no element: ${values.focus}`);
+			}
+			if (target.width === 0 || target.height === 0) {
+				throw new Error(`--focus matched a zero-sized element (${values.focus}); no ring could be photographed`);
+			}
+			const offscreen =
+				target.x < 0 || target.y < 0 || target.x > target.viewport.width || target.y > target.viewport.height;
+			if (offscreen) {
+				throw new Error(
+					`--focus target ${values.focus} sits outside the viewport at capture time (${target.x}, ${target.y});` +
+						" its ring would not be in the shot. Use --clip-viewport, or a taller --height."
+				);
+			}
+			const attempt = `(() => {
+				const node = document.querySelector(${focusSelector});
+				node.focus({ preventScroll: true });
+				const style = getComputedStyle(node);
+				return JSON.stringify({
+					focused: document.activeElement === node,
+					ring: node.matches(":focus-visible"),
+					outline: style.outlineWidth + " " + style.outlineStyle + " " + style.outlineColor,
+					boxShadow: style.boxShadow,
+				});
+			})()`;
+			interface FocusReport {
+				readonly focused: boolean;
+				readonly ring: boolean;
+				readonly outline: string;
+				readonly boxShadow: string;
+			}
+			let report = JSON.parse((await evaluate(cdp, attempt)) as string) as FocusReport;
+			if (!report.ring) {
+				// A real Tab through the input pipeline restores keyboard
+				// modality, and the refocus then earns the ring. Tab moves focus
+				// first and the browser may scroll its landing into view - the
+				// document OR any inner scroller (a windowed table, a slide-over) -
+				// so every scroll position is snapshotted (element references held
+				// in-page), restored, and VERIFIED: a capture whose scroll drifted
+				// photographs a page the viewport validation above never saw.
+				await evaluate(
+					cdp,
+					`(() => {
+						window.__focusScrollSnapshot = { win: [window.scrollX, window.scrollY], nodes: [] };
+						for (const node of document.querySelectorAll("*")) {
+							if (node.scrollTop !== 0 || node.scrollLeft !== 0) {
+								window.__focusScrollSnapshot.nodes.push([node, node.scrollTop, node.scrollLeft]);
+							}
+						}
+					})()`
+				);
+				await cdp.send("Input.dispatchKeyEvent", {
+					type: "keyDown",
+					key: "Tab",
+					code: "Tab",
+					windowsVirtualKeyCode: 9,
+				});
+				await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 });
+				report = JSON.parse((await evaluate(cdp, attempt)) as string) as FocusReport;
+				const drifted = (await evaluate(
+					cdp,
+					`(() => {
+						const snapshot = window.__focusScrollSnapshot;
+						const want = new Map(snapshot.nodes.map((entry) => [entry[0], entry]));
+						window.scrollTo(snapshot.win[0], snapshot.win[1]);
+						const stuck = [];
+						for (const node of document.querySelectorAll("*")) {
+							const [, top, left] = want.get(node) ?? [node, 0, 0];
+							if (node.scrollTop !== top) { node.scrollTop = top; }
+							if (node.scrollLeft !== left) { node.scrollLeft = left; }
+							if (node.scrollTop !== top || node.scrollLeft !== left) {
+								stuck.push(node.tagName + "." + node.className + " at " + node.scrollTop + "," + node.scrollLeft);
+							}
+						}
+						if (window.scrollX !== snapshot.win[0] || window.scrollY !== snapshot.win[1]) {
+							stuck.push("window at " + window.scrollX + "," + window.scrollY);
+						}
+						return JSON.stringify(stuck);
+					})()`
+				)) as string;
+				const stuck = JSON.parse(drifted) as readonly string[];
+				if (stuck.length > 0) {
+					throw new Error(
+						`--focus's Tab fallback scrolled the page and the restore did not take (${stuck.join("; ")});` +
+							" the capture would not be reproducible"
+					);
+				}
+			}
+			console.log(`focused ${values.focus}: ${JSON.stringify(report)}`);
+			if (!report.focused) {
+				throw new Error(`--focus could not move focus to ${values.focus}; it does not appear to be focusable`);
+			}
+			// The assertion is the point: a programmatic focus() that never earned
+			// :focus-visible paints NO ring, and a reviewer must never photograph
+			// a missing focus ring that is actually a harness artifact.
+			if (!report.ring) {
+				throw new Error(
+					`--focus put focus on ${values.focus} but it never matched :focus-visible, even after the Tab fallback;` +
+						" the shot would show no focus ring, so failing instead of writing it"
+				);
+			}
+		}
+
+		// The contrast probe reads the FINAL state, hover and focus included, so
+		// a hover fill or a focused control can be measured as it will be shot.
+		if (values.contrast !== undefined) {
+			const threshold = values["contrast-large"] === true ? 3 : 4.5;
+			const raw = (await evaluate(cdp, contrastProbe(values.contrast))) as string | null;
+			if (raw === null) {
+				throw new Error(`--contrast matched no element: ${values.contrast}`);
+			}
+			const contrast = JSON.parse(raw) as {
+				readonly error?: string;
+				readonly ratio?: number;
+				readonly foreground?: string;
+				readonly background?: string;
+			};
+			if (contrast.error !== undefined || contrast.ratio === undefined) {
+				throw new Error(`--contrast ${values.contrast}: ${contrast.error ?? "the probe returned no ratio"}`);
+			}
+			console.log(
+				`contrast ${values.contrast}: ${contrast.ratio.toFixed(2)}:1` +
+					` (${contrast.foreground} on ${contrast.background}; needs >= ${threshold}:1)`
+			);
+			if (contrast.ratio < threshold) {
+				throw new Error(
+					`--contrast ${values.contrast} measured ${contrast.ratio.toFixed(2)}:1, below the WCAG ${threshold}:1 floor` +
+						` (${contrast.foreground} on ${contrast.background})`
+				);
 			}
 		}
 

@@ -6,7 +6,7 @@
  * (chains included).
  */
 import type { RenderFixture } from "../render-dashboard.ts";
-import { baseState, RESOLVED_VIEW } from "./shared.ts";
+import { baseState, RESOLVED_VIEW, worstCaseCapabilityFields } from "./shared.ts";
 
 const fixture: RenderFixture = {
 	messages: [
@@ -48,18 +48,11 @@ const fixture: RenderFixture = {
 			payload: {
 				globalRecordKey: "gpt-5*",
 				capabilities: {
-					fields: {
-						context_length: { value: 272000, level: "server", shadowed: [] },
-						max_input_tokens: { value: 255616, level: "derived", shadowed: [] },
-						max_output_tokens: { value: 16384, level: "server", shadowed: [] },
-						supports_function_calling: { value: true, level: "server", shadowed: [] },
-						supports_vision: { value: true, level: "server", shadowed: [] },
-						supports_reasoning: { value: true, level: "server", shadowed: [] },
-						supports_audio_input: { value: false, level: "floor", shadowed: [] },
-						input_cost_per_token: { value: 0.00000175, level: "server", shadowed: [] },
-						output_cost_per_token: { value: 0.000012, level: "server", shadowed: [] },
-						supported_openai_params: { value: ["temperature", "top_p", "max_tokens"], level: "server", shadowed: [] },
-					},
+					// The shared worst case, not a hand-rolled subset: the full
+					// eight-field cost family with sub-micro scientific values and
+					// the 27-entry params list are what the inspector's capability
+					// table has to stay readable against.
+					fields: worstCaseCapabilityFields(),
 					outputLimitSource: "provider",
 					diagnostics: [],
 				},

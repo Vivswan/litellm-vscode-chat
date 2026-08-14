@@ -287,6 +287,36 @@ export function worstCaseCapabilityFields(): Record<string, unknown> {
 	};
 }
 
+/**
+ * The same worst case as a RAW record value, for the matcher-editor fixtures:
+ * the full eight-field Anthropic-style cost family (sub-micro scientific
+ * values included) plus the 27-entry params list - the densest record a
+ * record editor has to lay out. One definition, so "full density" cannot
+ * quietly mean different things in different fixtures.
+ */
+export function worstCaseRecordFields(): Record<string, unknown> {
+	return {
+		input_cost_per_token: 0.000005,
+		output_cost_per_token: 0.000025,
+		cache_read_input_token_cost: 5e-7,
+		cache_creation_input_token_cost: 6.25e-6,
+		long_context_input_cost_per_token: 0.00001,
+		long_context_output_cost_per_token: 3.75e-5,
+		long_context_cache_read_input_token_cost: 1e-6,
+		long_context_cache_creation_input_token_cost: 1.25e-5,
+		supported_openai_params: [...OPENAI_PARAMS_FULL],
+	};
+}
+
+/**
+ * A genuinely long matcher key, the length real users write: the longest key
+ * the base state carries is the 13-character deepseek regex, which says
+ * nothing about how the editors survive a route-family regex spanning
+ * providers and vendor prefixes.
+ */
+export const LONG_MATCHER_KEY =
+	"/^(openrouter|github_copilot)\\/(anthropic|google)[./](claude|gemini)-[0-9][\\w.-]*(-thinking)?$/i";
+
 export const RESOLVED_VIEW: ResolvedModelsView = {
 	trees: [
 		{
