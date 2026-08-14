@@ -197,7 +197,10 @@ function RailAction({
 				}
 			}}
 			{...tip.triggerProps}
-			className="rail-action max-[1000px]:size-8 max-[1000px]:px-0 max-[1000px]:py-0"
+			// mx-0: the footer's glyph-column arithmetic (--rail-inset in
+			// dashboard.css) aligns the verdict dot against this button's inline
+			// padding, so the padding stays in the layout here.
+			className="rail-action mx-0 max-[1000px]:size-8 max-[1000px]:px-0 max-[1000px]:py-0"
 		>
 			<span className="rail-action-icon" aria-hidden="true">
 				{icon}

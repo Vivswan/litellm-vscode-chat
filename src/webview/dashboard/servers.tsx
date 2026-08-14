@@ -1400,7 +1400,7 @@ function ServerDrawer({
 						<Button
 							variant="secondary"
 							size="compact"
-							className="count-link px-1 py-0"
+							className="count-link -mx-1 px-1 py-0"
 							aria-label={l10n.t("Show models from {0}", server.label)}
 							onClick={() => onShowModels(server.label)}
 						>

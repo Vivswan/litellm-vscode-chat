@@ -183,7 +183,7 @@ function RevealButton({ title, settingId }: { title: string; settingId: SettingR
 			<Button
 				variant="secondary"
 				size="compact"
-				className="reveal-json px-1 py-0"
+				className="reveal-json -mx-1 px-1 py-0"
 				aria-label={l10n.t("Open {0} in settings.json", title)}
 				onClick={() => sendRequest("revealSetting", { setting: settingId })}
 			>
@@ -368,8 +368,10 @@ function SettingRow({
 			    order and always last - the anatomy's fourth track, so the pair
 			    lands at the same x on every row. Stacked, the slot pins to the
 			    row's top-right corner (the row is relative for exactly this)
-			    instead of stacking as a lone fourth line. */}
-			<div className="setting-actions flex items-center justify-end gap-1.5 self-start justify-self-end @max-[910px]/pane:absolute @max-[910px]/pane:top-1.5 @max-[910px]/pane:right-2">
+			    instead of stacking as a lone fourth line. gap-4.5 is ink-to-ink
+			    (the compact buttons hand their padding back at the Button
+			    primitive): the visible spacing the slot has always shown. */}
+			<div className="setting-actions flex items-center justify-end gap-4.5 self-start justify-self-end @max-[910px]/pane:absolute @max-[910px]/pane:top-1.5 @max-[910px]/pane:right-2">
 				{configuredScope !== null ? <ResetButton title={title} scope={configuredScope} settingId={settingId} /> : null}
 				<RevealButton title={title} settingId={settingId} />
 			</div>

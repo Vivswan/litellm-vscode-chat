@@ -698,7 +698,9 @@ function SecretField({ field, help, props }: { field: SecretFieldId; help?: stri
 					<Button
 						variant="secondary"
 						size="compact"
-						className="absolute top-1/2 right-1 -translate-y-1/2"
+						// mx-0: absolutely positioned against the input's edge, so the
+						// primitive's layout hand-back would drag the box past `right-1`.
+						className="absolute top-1/2 right-1 mx-0 -translate-y-1/2"
 						aria-pressed={revealed}
 						aria-label={
 							revealed
@@ -1162,7 +1164,7 @@ function resolveEditTarget(request: ServerEditRequest, servers: readonly Dashboa
 function BackToServers({ onRequestClose }: { onRequestClose: () => void }) {
 	return (
 		<nav className="page-trail mb-1 text-[12px]" aria-label={l10n.t("Breadcrumb")}>
-			<Button variant="secondary" size="compact" className="-ml-1.5" onClick={onRequestClose}>
+			<Button variant="secondary" size="compact" onClick={onRequestClose}>
 				<IconArrowLeft /> {l10n.t("Servers")}
 			</Button>
 		</nav>

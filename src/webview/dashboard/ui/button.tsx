@@ -33,9 +33,16 @@ import { cn } from "./cn";
  * Icons are the leading glyph rather than decoration - same size as the label,
  * coloured with it - so a toolbar scans by shape while a table row stays quiet.
  *
- * The negative inline margin is deliberate: the hover pill needs padding to
- * exist, but the label has to line up with the text around it, so the padding
- * is handed back to the layout and only the fill overhangs.
+ * The negative inline margin is deliberate, and BOTH sizes carry it: the hover
+ * pill needs padding to exist, but the label has to line up with the text
+ * around it, so each size hands its own padding back to the layout and only
+ * the fill overhangs. One consequence per party to it: a container's gap
+ * always measures ink-to-ink whichever size it holds; a call site that
+ * overrides the padding (px-1, px-0.5) must override the margin to match, or
+ * its layout box parts from its ink; and the bordered modes - forced colors
+ * and the two high-contrast themes, which draw every button's box at rest -
+ * get the margins zeroed once in theme.css, because overhanging border boxes
+ * merge adjacent buttons into one segmented control there.
  *
  * Two things the mockups could not show. High contrast outlines every control,
  * and a borderless button stops reading as one there, so --control-outline is
@@ -58,7 +65,7 @@ const buttonVariants = cva(
 			},
 			size: {
 				default: "-mx-2.5 px-2.5 py-1",
-				compact: "px-1.5 py-0.5",
+				compact: "-mx-1.5 px-1.5 py-0.5",
 			},
 			/** The resting affordance secondary carries, off for a button with no words under it. */
 			labelled: {

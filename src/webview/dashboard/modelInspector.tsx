@@ -487,7 +487,13 @@ function capabilityEditLabel(level: CapabilityLevel, key: string, serverLabel: s
 /** The per-row jump to the record that owns a value, in the source cell's trailing slot. */
 function RowEdit({ label, onClick }: { label: string; onClick: () => void }) {
 	return (
-		<Button variant="secondary" size="compact" className="row-edit px-0.5 py-0" aria-label={label} onClick={onClick}>
+		<Button
+			variant="secondary"
+			size="compact"
+			className="row-edit -mx-0.5 px-0.5 py-0"
+			aria-label={label}
+			onClick={onClick}
+		>
 			{l10n.t("edit")}
 		</Button>
 	);
