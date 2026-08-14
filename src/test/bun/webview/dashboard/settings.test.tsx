@@ -561,12 +561,12 @@ test("the filter matches the record editor by its key names (nested parameter na
 	expect(editorSection(root, "Model parameters").hidden).toBe(true);
 });
 
-test("the filter matches a row's help text, but never group-level help", () => {
+test("the filter matches a row's help text", () => {
 	// The searchable synonyms moved into the "?" tips when the long
 	// explanations left the descriptions, so the tips are part of a row's
 	// haystack: the row's glyph is visible at rest and its tip carries the
-	// match. Group help stays out - a group kept alive by words on no row
-	// would survive with every one of its rows missing the needle.
+	// match. Group-level help stays out; the Import & Export test below holds
+	// that boundary.
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const filter = root.querySelector<HTMLInputElement>('input[aria-label="Filter settings"]') as HTMLInputElement;
 
@@ -574,14 +574,6 @@ test("the filter matches a row's help text, but never group-level help", () => {
 	fireInput(filter, "homelab");
 	expect(rowOf(settingInput(root, "discovery.staleServeWindow")).hidden).toBe(false);
 	expect(rowOf(settingInput(root, "discovery.timeout")).hidden).toBe(true);
-
-	// "merges such a file" lives only in the Import & Export group's help.
-	fireInput(filter, "merges such a file");
-	const importExport = Array.from(root.querySelectorAll<HTMLElement>(".settings-group")).find(
-		(group) => group.querySelector(".settings-group-title")?.textContent === "Import & Export"
-	);
-	expect(importExport?.hidden).toBe(true);
-	expect(root.textContent).toContain("No settings match the filter.");
 });
 
 test("zero hits show the no-match line, and a dirty draft survives being filtered away and back", () => {
@@ -1252,11 +1244,10 @@ test("the Import & Export group follows the filter: kept by its own words, hidde
 	expect(rowOf(settingInput(root, "chat.timeout")).hidden).toBe(true);
 	expect(root.textContent).not.toContain("No settings match the filter.");
 
-	// The help string is deliberately NOT in the haystack. It renders nowhere
-	// on the page now that it lives behind the heading's glyph, and a needle
-	// that matches invisible text finds a group without showing the reader
-	// why - the drift the module's non-scalar descriptions exist to prevent,
-	// and the reason scalar rows leave their own help out too.
+	// The GROUP's help string is deliberately NOT in the haystack, unlike the
+	// rows' own help (see the help-text test above): a group kept alive by
+	// words behind its heading's glyph would stand with rows the needle
+	// matches nowhere, and the reader scanning them finds nothing.
 	fireInput(filter, "another machine");
 	expect(group.hidden).toBe(true);
 	expect(root.textContent).toContain("No settings match the filter.");
