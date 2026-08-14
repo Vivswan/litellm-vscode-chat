@@ -572,7 +572,7 @@ describe("the usage diagnostics", () => {
 });
 
 describe("the header", () => {
-	test("the meta line summarizes the one list: count, attention, worst fresh budget, polling", () => {
+	test("the meta line summarizes the one list: count, attention, worst budget use, polling", () => {
 		const usage = makeUsage({
 			pollIntervalMs: 0,
 			servers: [
@@ -587,11 +587,24 @@ describe("the header", () => {
 		// The over-budget row still counts (its numbers are last-known), and the
 		// near-budget fresh row does too.
 		expect(meta).toContain("2 need attention");
-		// The worst FRESH fraction - a maximum, never a sum, never a stale one,
-		// and the clause says "fresh" so the header cannot read as contradicting
-		// a stale 112% on the row beneath it.
-		expect(meta).toContain("worst fresh budget 87%");
+		// The worst FRESH fraction - a maximum, never a sum, never a stale one.
+		// The clause says "use" (a bare "budget 87%" reads as remaining), and
+		// with a stale row visible it glosses the exclusion, so the header
+		// cannot read as contradicting the stale 112% on the row beneath it.
+		expect(meta).toContain("worst budget use 87% (stale rows excluded)");
 		expect(meta).toContain("background polling off");
+	});
+
+	test("the worst-budget clause drops the staleness gloss when nothing stale carries spend", () => {
+		const usage = makeUsage({
+			servers: [makeUsageServer({ label: "Prod", spend: 43.5, effectiveBudget: 50, spentFraction: 0.87, fresh: true })],
+		});
+		const root = mountServers(usage);
+		const meta = textOf(root, ".section-meta");
+		// No stale row exists, so the qualifier would gloss an exclusion that
+		// excluded nothing.
+		expect(meta).toContain("worst budget use 87%");
+		expect(meta).not.toContain("stale rows excluded");
 	});
 
 	test("Refresh now posts the intent and disables while a pass is in flight", () => {
@@ -604,5 +617,26 @@ describe("the header", () => {
 			(button.textContent ?? "").includes("Refreshing")
 		);
 		expect(refreshing?.disabled).toBe(true);
+	});
+
+	test("a fleet-wide refresh announces through exactly one status region, however many rows it flips", () => {
+		// The refreshing flag rewords every row's Refresh now at once; a status
+		// region per actions cluster would announce every unrelated label once
+		// per row. The busy announcement is the section's, text only, once.
+		const usage = makeUsage({
+			refreshing: true,
+			servers: [
+				makeUsageServer({ label: "Prod", keyInfo: { kind: "error", classification: "network" } }),
+				makeUsageServer({ label: "Gateway", keyInfo: { kind: "error", classification: "network" } }),
+			],
+		});
+		const root = mountServers(usage, [prodServer(), prodServer({ label: "Gateway", baseUrl: "http://gw.test" })]);
+		const spinning = [...root.querySelectorAll(".row-diagnostic-actions .spinner")];
+		expect(spinning.length).toBeGreaterThanOrEqual(2);
+		const announcing = [...root.querySelectorAll('[role="status"]')].filter((region) =>
+			(region.textContent ?? "").includes("Refreshing usage data")
+		);
+		expect(announcing.length).toBe(1);
+		expect(announcing[0]?.querySelector("button")).toBeNull();
 	});
 });

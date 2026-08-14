@@ -884,10 +884,14 @@ export function ModelsSection({
 										<div className="model-row-line">
 											{/* The two lines are the disclosure: the whole readable block
 											    opens the detail, which is why the row's other controls sit
-											    outside it - a button cannot contain a button. */}
+											    outside it - a button cannot contain a button.
+											    border-control-outline like the server rows' disclosure:
+											    transparent in the ordinary themes, the contrast border in
+											    the bordered modes, where a borderless row stops reading as
+											    clickable and the two lists wore two vocabularies. */}
 											<button
 												type="button"
-												className="model-disclosure"
+												className="model-disclosure rounded-sm border border-control-outline"
 												aria-expanded={isOpen}
 												{...(isOpen ? { "aria-controls": detailId } : {})}
 												onClick={() => setOpenRow(isOpen ? undefined : rowId)}

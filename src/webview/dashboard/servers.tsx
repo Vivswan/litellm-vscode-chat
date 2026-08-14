@@ -129,6 +129,12 @@ type DiagnosticAction =
 			readonly ariaLabel: string;
 			/** In flight: the control states that it is working and refuses a second click. */
 			readonly disabled?: boolean | undefined;
+			/**
+			 * In flight: the spinner beside the label (the header Refresh now's
+			 * idiom), so a pass that runs for a minute shows motion, not just a
+			 * reworded button.
+			 */
+			readonly busy?: boolean | undefined;
 			/** The accent rank, for the one action of an armed pair that commits; everything else stays secondary. */
 			readonly emphasized?: boolean | undefined;
 			readonly onClick: () => void;
@@ -229,6 +235,7 @@ function serverDiagnostics(
 							? l10n.t("Declaring the expected failure for {0}", server.label)
 							: l10n.t("Confirm declaring the expected failure for {0}", server.label),
 					disabled: actions.declaring === true,
+					busy: actions.declaring === true,
 					// The committing half of the armed pair leads; Cancel stays quiet.
 					emphasized: true,
 					// The pair stays armed through the round trip so this button can
@@ -306,7 +313,7 @@ function serverDiagnostics(
 			// it is degraded rather than blocking; one that has nothing serves
 			// nothing.
 			const serving = server.state === "ok" || server.modelCount > 0;
-			// The headline's declaration advice with no one-click form beside it
+			// The error's declaration advice with no one-click form beside it
 			// needs the why: the identity fix rides the details wherever the
 			// declare action is withheld - unless the entry-inactive line below
 			// renders and says the same sentence itself.
@@ -314,13 +321,23 @@ function serverDiagnostics(
 				server.origin === "declared" &&
 				server.classification?.unsupportedEndpoint === "modelListing" &&
 				server.entryFieldsInactive === true;
+			// The declaration-suggesting error arrives inverted for this surface: its
+			// first line leads with the remediation (the JSON keys the Declare button
+			// writes), which belongs in the dimmed detail beside the GET fact, while
+			// the bright headline should carry the consequence alone. The transport
+			// string is atomic (toasts show it whole), so the swap happens here: a
+			// short consequence clause takes the headline's slot and the advice rides
+			// the detail lines.
+			const declarationAdvice = server.classification?.unsupportedEndpoint === "modelListing";
+			const cause = declarationAdvice ? l10n.t("the server answers, but its models listing fails.") : headline;
 			found.push({
 				key: "discovery-error",
 				severity: serving ? "degraded" : "blocking",
 				headline: serving
-					? l10n.t("{0} is serving its last known models; the newest sync failed: {1}", server.label, headline)
-					: l10n.t("{0} is serving no models: {1}", server.label, headline),
+					? l10n.t("{0} is serving its last known models; the newest sync failed: {1}", server.label, cause)
+					: l10n.t("{0} is serving no models: {1}", server.label, cause),
 				details: detailLines(
+					declarationAdvice ? headline : undefined,
 					statusErrorDetail(error),
 					declareWithheld && inactive.length === 0 ? entryInactiveFixText() : undefined
 				),
@@ -344,6 +361,7 @@ function serverDiagnostics(
 						// passes from different rows, each one costing every server a
 						// round trip.
 						disabled: actions.retrying === true || actions.syncBusy === true,
+						busy: actions.retrying === true,
 						onClick: actions.onRetry,
 					},
 					...(server.origin === "declared"
@@ -359,12 +377,12 @@ function serverDiagnostics(
 						: []),
 					...(server.origin === "declared" && server.classification?.unsupportedEndpoint === "modelListing"
 						? [
-								// The error's own headline already carries the declaration
-								// advice (transport proved the shape); this is its one-click
-								// form, writing exactly the category the headline names -
-								// withheld when the group did not join by the entry's identity
-								// (the details then carry the identity fix), because the
-								// written declaration may not reach it (the same
+								// The error's declaration advice (riding the detail lines,
+								// transport proved the shape) already spells the fix; this is
+								// its one-click form, writing exactly the category the advice
+								// names - withheld when the group did not join by the entry's
+								// identity (the details then carry the identity fix), because
+								// the written declaration may not reach it (the same
 								// classification the advisory tier keys on).
 								...(declareWithheld ? [] : declareActions("modelListing")),
 								openAiCompatibleGuide,
@@ -451,6 +469,7 @@ function serverDiagnostics(
 						// passes from different rows, each one costing every server a
 						// round trip.
 						disabled: actions.retrying === true || actions.syncBusy === true,
+						busy: actions.retrying === true,
 						onClick: actions.onRetry,
 					},
 				],
@@ -566,6 +585,7 @@ function usageDiagnostics(
 								? l10n.t("Refreshing usage data")
 								: l10n.t("Refresh usage data for {0}", label),
 						disabled: actions.refreshing === true,
+						busy: actions.refreshing === true,
 						onClick: actions.onRefreshUsage,
 					},
 				];
@@ -693,6 +713,11 @@ function ServerDiagnosticLine({ diagnostic }: { diagnostic: RowDiagnostic }) {
 				</p>
 			))}
 			{diagnostic.actions.length > 0 ? (
+				// No live-region role here on purpose: the in-flight relabels are
+				// announced by the section's single text-only status region
+				// (ServersSection), because role="status" is atomic - a per-cluster
+				// region wrapping buttons would read every unrelated label, once per
+				// row, when a fleet-wide flag flips them all together.
 				<div className="row-diagnostic-actions">
 					{diagnostic.actions.map((action) =>
 						action.kind === "button" ? (
@@ -716,6 +741,10 @@ function ServerDiagnosticLine({ diagnostic }: { diagnostic: RowDiagnostic }) {
 									}
 								}}
 							>
+								{/* The header Refresh now's in-flight idiom: motion beside the
+								    reworded label, because a pass can run for a minute and a
+								    static "Checking..." reads as a stuck page. */}
+								{action.busy === true ? <span className="spinner" aria-hidden="true" /> : null}
 								{action.label}
 							</Button>
 						) : (
@@ -895,7 +924,7 @@ function SpendUnit({
 		return null;
 	}
 	// EVERY non-fresh number wears the one-word qualifier, whatever the cause:
-	// the header's "worst fresh budget" clause excludes stale rows from its
+	// the header's "worst budget use" clause excludes stale rows from its
 	// maximum, and an unmarked 112% right beneath it read as the header
 	// contradicting the page. The word is a unit qualifier, not the story -
 	// the cause (a failed refresh, a denied key, mere age) lives in the
@@ -1783,6 +1812,14 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 				aria-controls={expanded ? listId : undefined}
 				onClick={() => setExpanded((value) => !value)}
 			>
+				{/* The disclosure vocabulary the rest of the page speaks: resting
+				    points right, open points down (the server and model rows'
+				    chevron). Decoration only - aria-expanded already announces the
+				    state - but without it this was the page's one aria-expanded
+				    control with no visible state mark. */}
+				<span className="disclosure-chevron" aria-hidden="true">
+					<IconChevronRight />
+				</span>
 				{label}
 			</Button>
 			{expanded ? (
@@ -1847,14 +1884,30 @@ function worstFreshBudgetFraction(usage: DashboardUsage | undefined): number | u
  * the page header counted every configured server, two totals a hundred
  * pixels apart.
  */
-function serversMeta(serverCount: number, attentionCount: number, usage: DashboardUsage | undefined): string {
+function serversMeta(
+	serverCount: number,
+	attentionCount: number,
+	usage: DashboardUsage | undefined,
+	/** A rendered row is showing a stale spend number, so the exclusion is visible and needs its gloss. */
+	staleSpendVisible: boolean
+): string {
 	const clauses = [serverCount === 1 ? l10n.t("1 server") : l10n.t("{0} servers", serverCount)];
 	if (attentionCount > 0) {
 		clauses.push(attentionCount === 1 ? l10n.t("1 needs attention") : l10n.t("{0} need attention", attentionCount));
 	}
 	const worst = worstFreshBudgetFraction(usage);
 	if (worst !== undefined) {
-		clauses.push(l10n.t("worst fresh budget {0}", formatPercent(worst)));
+		// "use", because a bare "budget 87%" reads as budget REMAINING; and the
+		// freshness rule is glossed only when it bites - a stale row's higher
+		// percentage can be visible right below this line, and an unexplained
+		// "fresh" beside a lower number read as the header contradicting the
+		// page. When no rendered row shows a stale spend, the qualifier would
+		// gloss an exclusion the reader cannot see.
+		clauses.push(
+			staleSpendVisible
+				? l10n.t("worst budget use {0} (stale rows excluded)", formatPercent(worst))
+				: l10n.t("worst budget use {0}", formatPercent(worst))
+		);
 	}
 	if (usage?.pollIntervalMs === 0) {
 		clauses.push(l10n.t("background polling off (usage.pollInterval 0)"));
@@ -2012,6 +2065,14 @@ export function ServersSection({
 			(diagnostic) => diagnostic.severity !== "advisory"
 		)
 	).length;
+	// Whether any rendered row is showing a stale spend number - the same join
+	// the rows use, so the header's staleness gloss appears exactly when a
+	// "stale"-marked figure is on the page and never for a snapshot entry no
+	// row renders.
+	const staleSpendVisible = servers.some((server) => {
+		const card = usageFor(server);
+		return card?.kind === "usage" && !card.fresh && card.spend !== undefined;
+	});
 
 	// The post-adoption notice: the old host-owned group survives (there is no
 	// removal API), so the reader coming back to this list is told plainly why
@@ -2041,7 +2102,7 @@ export function ServersSection({
 			// above it clips.
 			helpBelow
 			docs={{ href: DOCS_LINK_SERVERS, label: l10n.t("Open the servers guide") }}
-			meta={noServers ? undefined : serversMeta(servers.length, attentionCount, usage)}
+			meta={noServers ? undefined : serversMeta(servers.length, attentionCount, usage, staleSpendVisible)}
 			// The header line caps at the list's own measure: a rule running
 			// 200px past the last row reads as page furniture rather than as
 			// this section's header.
@@ -2208,7 +2269,8 @@ export function ServersSection({
 				</div>
 			) : (
 				<>
-					{/* The verdict for the whole list, and the only live region on it.
+					{/* The verdict for the whole list, one of its two live regions
+					    (the in-flight busy region follows it).
 					    The retired banners carried role="alert", so without this a
 					    screen-reader user got no announcement at all when a sync
 					    landed and rows changed underneath them. Polite, not assertive:
@@ -2231,6 +2293,26 @@ export function ServersSection({
 									// which is exactly the reassurance a first-run reader
 									// would act on.
 									l10n.t("No servers have been checked yet")}
+					</p>
+					{/* The list's ONE in-flight announcement, text only: the busy
+					    buttons spin and reword where the pointer is, and this says the
+					    same thing to a reader who cannot see them - a changed
+					    accessible name is announced only on the FOCUSED element, and a
+					    mouse user's focus never sits on the button they pressed. One
+					    region rather than role="status" on each actions cluster,
+					    because status regions are atomic: a per-cluster region
+					    wrapping buttons would read every unrelated label, once per
+					    row, when the fleet-wide refresh flag flips them all at once. */}
+					<p className="visually-hidden" role="status" aria-live="polite">
+						{[
+							retrying !== undefined ? l10n.t("Checking {0}", retrying.label) : undefined,
+							pendingDeclare !== undefined
+								? l10n.t("Declaring the expected failure for {0}", pendingDeclare.label)
+								: undefined,
+							usage?.refreshing === true ? l10n.t("Refreshing usage data") : undefined,
+						]
+							.filter((line): line is string => line !== undefined)
+							.join("; ")}
 					</p>
 					<ul className={cn("server-list", SERVERS_MEASURE)}>
 						{servers.map((server) => (

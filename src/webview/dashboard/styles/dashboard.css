@@ -487,7 +487,11 @@
 		}
 	}
 	/* The row's detail: indented under the row it belongs to, with the accent
-		   edge tying it to its opener.
+		   edge tying it to its opener. The accent-rail idiom has ONE geometry
+		   everywhere it appears (here, .server-drawer, .row-diagnostic): the rail
+		   8px in from the list's left edge, the block running to the list's right
+		   edge, corners on the shared radius token - two indents four pixels
+		   apart read as a mistake, not as two idioms.
 		   Every pixel it contributes to the row's height must be INSIDE this box,
 		   because that height is measured (offsetHeight) and handed to the window
 		   arithmetic, which excludes margins. A vertical margin here would be real
@@ -497,9 +501,9 @@
 		   because only the height is load-bearing. */
 	.model-detail {
 		padding: 10px 14px 14px;
-		margin: 0 8px;
+		margin: 0 0 0 8px;
 		border-left: 2px solid var(--vscode-focusBorder);
-		border-radius: 0 3px 3px 0;
+		border-radius: 0 var(--radius) var(--radius) 0;
 		background: var(--vscode-textBlockQuote-background, rgba(128, 128, 128, 0.07));
 	}
 	/* Fields pack from the left and wrap, rather than sharing the row's full
@@ -720,16 +724,23 @@
 	.server-usage {
 		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
-		text-align: right;
 	}
-	/* Floors, so the numbers line up down the page even when a neighbour has no
-		 badge or no budget: they stop the auto tracks collapsing under an empty
-		 cell, which would slide the figures sideways between rows. */
+	/* Numeric columns right-align, phrase columns left-align (the charter's
+		 numeric-vs-phrase rule). The spend cell is a bare figure, so its digits
+		 share a right edge down the page; the count is a localized PHRASE
+		 ("3 models", "1 model") whose trailing word absorbs a right alignment -
+		 right-aligned, the DIGITS landed at a different x on every row, ragged
+		 by exactly the length difference between "model" and "models". The
+		 folded tier already reads the phrase left; this makes the wide tier
+		 agree. The min-widths are floors so the auto tracks cannot collapse
+		 under an empty neighbour, which would slide the figures sideways
+		 between rows. */
 	.server-count {
 		min-width: 6.5em;
 		color: var(--vscode-descriptionForeground);
 	}
 	.server-usage {
+		text-align: right;
 		min-width: 3.5em;
 	}
 	/* The spend-at-a-glance: the percentage over its 3px meter, stacked as one
@@ -806,22 +817,35 @@
 		 tiers' squeeze can hold, so the resting pair wrapped and every row grew
 		 a line. 8px box separation is what this cluster has always shown in
 		 those modes. */
+	/* Always painted, too: these modes draw the disclosure's contrast box, and
+		 that box ends where the actions track begins - with the cluster resting
+		 invisible, every row read as a box beside 130px of bare gutter under a
+		 separator that ran past both. Visible, the cluster's own bordered
+		 buttons are row content sharing the row's right edge, exactly what the
+		 models list's always-visible Inspect shows there; hover-reveal is a
+		 quietness trade these modes already refuse everywhere else. */
 	@media (forced-colors: active) {
 		.server-actions {
 			column-gap: 8px;
+			opacity: 1;
 		}
 	}
 	body.vscode-high-contrast .server-actions,
 	body.vscode-high-contrast-light .server-actions {
 		column-gap: 8px;
+		opacity: 1;
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.server-actions {
 			transition: none;
 		}
 	}
-	/* The opened inventory, dressed like the model rows' detail (.model-detail):
-		 indented under its opener with the accent edge tying the pair together.
+	/* The opened inventory, dressed like the model rows' detail (.model-detail)
+		 in the one accent-rail geometry: rail 8px in, right edge on the list's
+		 own, the shared radius token. The drawer used to sit at 12px with an 8px
+		 right margin, which put the idiom on two edges 4px apart across the two
+		 lists and left this box 8px short of the diagnostics' right edge below
+		 it - three right edges in one column.
 		 It spans every track the list shares, so its own content would otherwise
 		 be charged to them; min-width 0 keeps a long host from widening the
 		 whole list, and the fact grid inside wraps its own values. */
@@ -829,9 +853,9 @@
 		grid-column: 1 / -1;
 		min-width: 0;
 		padding: 10px 14px 14px;
-		margin: 4px 8px 10px 12px;
+		margin: 4px 0 10px 8px;
 		border-left: 2px solid var(--vscode-focusBorder);
-		border-radius: 0 3px 3px 0;
+		border-radius: 0 var(--radius) var(--radius) 0;
 		background: var(--vscode-textBlockQuote-background, rgba(128, 128, 128, 0.07));
 	}
 	/* The one fact whose value is an identifier rather than a number: a
@@ -862,10 +886,12 @@
 			 whole list and take the page with it. */
 		min-width: 0;
 		overflow-wrap: anywhere;
-		margin: 2px 0 6px 12px;
+		/* The accent-rail geometry (.model-detail's comment): rail 8px in,
+			 right edge on the list's own, the shared radius token. */
+		margin: 2px 0 6px 8px;
 		padding: 6px 10px;
 		border-left: 2px solid var(--vscode-descriptionForeground);
-		border-radius: 0 4px 4px 0;
+		border-radius: 0 var(--radius) var(--radius) 0;
 	}
 	/* Double, not merely thicker. Under forced colours the wash is discarded and
 		   every rule resolves to the same system colour, so blocking and degraded
@@ -1197,6 +1223,22 @@
 	.hidden-groups {
 		margin: 4px 0 8px;
 		color: var(--vscode-descriptionForeground);
+	}
+	/* The disclosure's state mark, the server and model rows' vocabulary
+		 (.server-chevron): resting points right, open points down. Keyed off the
+		 button's own aria-expanded, so the mark can never disagree with what the
+		 control announces. */
+	.hidden-groups button[aria-expanded] .disclosure-chevron {
+		display: inline-flex;
+		transition: transform 120ms ease;
+	}
+	.hidden-groups button[aria-expanded="true"] .disclosure-chevron {
+		transform: rotate(90deg);
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.hidden-groups button[aria-expanded] .disclosure-chevron {
+			transition: none;
+		}
 	}
 	.hidden-groups ul {
 		list-style: none;
@@ -2458,21 +2500,29 @@
 		margin: 6px 0;
 	}
 	/* One-time informational callout (e.g. the post-adoption duplicate-group
-		   note): quiet card, no alarm colors. */
+		   note): quiet card, no alarm colors. The card wears the section's own
+		   64rem measure - border-box, so its border sits ON the measure line the
+		   header rule and the server list share, instead of minting a second
+		   right edge 400px short of it. The prose inside keeps its own reading
+		   cap (the diagnostics' 84ch), so a wide card does not stretch its
+		   sentences to the border. */
 	.notice {
+		box-sizing: border-box;
 		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
 		border-radius: 4px;
 		padding: 8px 16px;
 		margin: 8px 0;
-		max-width: 640px;
+		max-width: 64rem;
 		background: var(--vscode-editorWidget-background, transparent);
 	}
 	.notice p {
 		margin: 4px 0;
+		max-width: 84ch;
 	}
 	ol.notice-steps {
 		margin: 4px 0;
 		padding-left: 20px;
+		max-width: 84ch;
 	}
 	ol.notice-steps li {
 		margin: 2px 0;
@@ -3467,12 +3517,11 @@
 			opacity: 1;
 			padding-right: 0;
 		}
-		/* Tighter under a two-line row: the rules and their indents were sized
-		 against a one-line row above them. The per-tier padding-left keeps
-		 absorbing the rule-width difference at this size too, against this
-		 tier's 8px base. */
+		/* Tighter under a two-line row: the paddings were sized against a
+		 one-line row above them (the 8px rail indent is the base rule's at
+		 every tier). The per-tier padding-left keeps absorbing the rule-width
+		 difference at this size too, against this tier's 8px base. */
 		.row-diagnostic {
-			margin-left: 8px;
 			padding: 5px 8px;
 		}
 		.row-diagnostic.sev-degraded {
@@ -3488,7 +3537,6 @@
 			}
 		}
 		.server-drawer {
-			margin-left: 8px;
 			padding: 8px 10px 10px;
 		}
 	}

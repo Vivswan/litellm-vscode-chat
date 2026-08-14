@@ -678,6 +678,10 @@ test("the hidden-groups line states the count, expands to rows, and Unhide posts
 	// One control saying the whole thing, rather than a count sentence with a
 	// lowercase "show" fragment three words behind its own object.
 	expect(line?.textContent).toContain("Show 2 hidden groups");
+	// The disclosure wears the page's disclosure mark (the rotating chevron the
+	// server and model rows carry): an aria-expanded control with no state mark
+	// was the page's one disclosure that looked like a plain button.
+	expect(line?.querySelector("button[aria-expanded] .disclosure-chevron")).not.toBeNull();
 	// Collapsed by default: no Unhide until shown.
 	expect(line?.textContent).not.toContain("Unhide");
 
@@ -1613,6 +1617,29 @@ test("a models-listing-unserved error offers the declare action writing modelLis
 	expect(posted.payload).toEqual({ label: "Gateway", category: "modelListing" });
 });
 
+test("a models-listing-unserved error leads bright with the consequence and dims the declaration advice", () => {
+	// The transport string arrives remediation-first (its headline is the
+	// declaration advice with the JSON keys); this surface swaps the placement,
+	// so the bright line carries what stopped working and the advice rides the
+	// dimmed detail beside the GET fact.
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Gateway",
+			state: "error",
+			error:
+				'The models listing failed, but this server answers. If it never serves the models listing, declare that on the "Gateway" entry: "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".\nGET https://gateway.example/v1/models answered HTTP 404; model info answered',
+			classification: { kind: "http", status: 404, unsupportedEndpoint: "modelListing" },
+		}),
+	]);
+	const headline = root.querySelector(".row-diagnostic-headline")?.textContent ?? "";
+	expect(headline).toContain("Gateway is serving no models");
+	expect(headline).toContain("the server answers, but its models listing fails.");
+	expect(headline).not.toContain("expectedFailures");
+	const details = [...root.querySelectorAll(".row-diagnostic-detail")].map((detail) => detail.textContent ?? "");
+	expect(details.some((detail) => detail.includes('"expectedFailures": ["modelListing"]'))).toBe(true);
+	expect(details.some((detail) => detail.includes("GET https://gateway.example/v1/models"))).toBe(true);
+});
+
 test("a discovery error without the endpoint classification offers no declare action", () => {
 	const root = mountSection([
 		makeDeclaredServer({
@@ -1918,6 +1945,18 @@ test("Retry says it is working, and only its own ack releases it - no push, of a
 	expect(pending.getAttribute("aria-disabled")).toBe("true");
 	expect(pending.disabled).toBe(false);
 	expect(pending.getAttribute("aria-label")).toContain("Prod");
+	// The header Refresh now's in-flight idiom: motion beside the reworded
+	// label. The announcement lives in the section's ONE text-only status
+	// region - not on the actions cluster, whose atomic role="status" would
+	// read every unrelated label once per row on a fleet-wide flip.
+	expect(pending.querySelector(".spinner")).not.toBeNull();
+	expect(pending.closest('[role="status"]')).toBeNull();
+	const busyRegions = [...root.querySelectorAll('[role="status"]')].filter((region) =>
+		(region.textContent ?? "").includes("Checking")
+	);
+	expect(busyRegions.length).toBe(1);
+	expect(busyRegions[0]?.textContent).toContain("Prod");
+	expect(busyRegions[0]?.querySelector("button")).toBeNull();
 	// A second click while it is in flight posts nothing.
 	resetPosted();
 	fireClick(pending);
@@ -2021,10 +2060,14 @@ test("the list carries one polite live region, so a sync's outcome is announced"
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod", state: "error", error: "x" })] })));
 
 	const regions = [...root.querySelectorAll("[aria-live]")].filter((el) => el.closest("#panel-overview") !== null);
-	// One region for the page, not one per row: five rows announcing themselves
-	// on every push is noise, not news.
-	expect(regions.length).toBe(1);
-	const region = regions[0] as HTMLElement;
+	// Two page-level regions, never one per row: the verdict region and the
+	// in-flight busy region (text-only, empty while nothing runs). Five rows
+	// announcing themselves on every push is noise, not news.
+	expect(regions.length).toBe(2);
+	const region = regions.find((el) => (el.textContent ?? "").length > 0) as HTMLElement;
+	const busy = regions.find((el) => el !== region) as HTMLElement;
+	expect(busy.getAttribute("role")).toBe("status");
+	expect(busy.textContent).toBe("");
 	expect(region.getAttribute("role")).toBe("status");
 	expect(region.getAttribute("aria-live")).toBe("polite");
 	expect(region.textContent).toContain("1 server needs attention");

@@ -1238,6 +1238,7 @@
 	"the last check failed; use Refresh now to try again": "the last check failed; use Refresh now to try again",
 	"the model's declared output limit": "the model's declared output limit",
 	"the model-matching guide": "the model-matching guide",
+	"the server answers, but its models listing fails.": "the server answers, but its models listing fails.",
 	"the settings-migration guide": "the settings-migration guide",
 	"the usage and budgets guide": "the usage and budgets guide",
 	"the window reports no prompt tokens": "the window reports no prompt tokens",
@@ -1270,7 +1271,8 @@
 			"Trailing label after the lower usage-alert threshold input, unit-style."
 		]
 	},
-	"worst fresh budget {0}": "worst fresh budget {0}",
+	"worst budget use {0}": "worst budget use {0}",
+	"worst budget use {0} (stale rows excluded)": "worst budget use {0} (stale rows excluded)",
 	"yes": "yes",
 	"{0} (assumed)": "{0} (assumed)",
 	"{0} alert thresholds were dropped: a threshold must be inside (0, 1].": "{0} alert thresholds were dropped: a threshold must be inside (0, 1].",
