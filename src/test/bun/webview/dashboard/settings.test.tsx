@@ -51,49 +51,28 @@ function rowOf(input: HTMLElement): HTMLElement {
 	return row;
 }
 
-test("a row's help glyph rides a prose box with a basis, so it wraps by width and never by sentence length", () => {
+test("a row's help glyph trails the description inline, a sibling of the prose so an error cannot hide it", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
-	// discovery.cacheTtl has the longest description of the rows that carry
-	// help, and it is the row whose "?" used to be pushed onto a line by
-	// itself while a shorter sibling's stayed inline. What fixes that is the
-	// prose owning a box with a flex-basis: above the basis the pair shares a
-	// line and every glyph lands past the same measure, below it the prose
-	// takes the line and every glyph wraps - uniform either way, which the
-	// naked flex sibling never was.
-	//
-	// happy-dom runs no layout, so the rules that decide it are what get
-	// pinned; the structure alone would survive a swap back. A track-based
-	// answer is pinned OUT deliberately: a fixed glyph track holds its width
-	// while the prose starves, and at the widths a split editor produces that
-	// printed the description one letter per line under the glyph.
+	// The glyph used to hold a phantom column past a 46ch prose box, which put
+	// a lone "?" at a different distance from every sentence. It now flows
+	// INLINE after the description's last word - same position relative to the
+	// words on every row - while staying the description SPAN's sibling: the
+	// error overlay hides the span with visibility, and the glyph must survive
+	// that (a row explaining what you typed wrong is the worst moment to lose
+	// its help).
 	const hint = rowOf(settingInput(root, "discovery.cacheTtl")).querySelector(".setting-hint");
-	expect(hint?.classList.contains("flex")).toBe(true);
-	expect(hint?.classList.contains("flex-wrap")).toBe(true);
-	expect(Array.from(hint?.classList ?? []).some((name) => name.startsWith("grid"))).toBe(false);
-
+	expect(hint).not.toBeNull();
 	const help = hint?.querySelector("button.help");
 	expect(help).not.toBeNull();
-	// The glyph is the hint cell's own child, so it wraps against the prose
-	// BOX rather than inside the prose's own wrapping.
 	expect(help?.closest(".help-wrap")?.parentElement).toBe(hint as HTMLElement);
-	expect(hint?.querySelector(".setting-desc")?.closest(".help-wrap")).toBeNull();
-
-	const prose = hint?.querySelector(".setting-desc")?.parentElement;
-	expect(prose?.parentElement).toBe(hint as HTMLElement);
-	expect(prose?.querySelector("button.help")).toBeNull();
-	// The exact values, not the shape of them. A box spelled `basis-[1px]`
-	// starves exactly like the rejected track did and reads as a basis to any
-	// assertion that only checks the prefix, and `flex-1` beside a basis
-	// utility is two contradictory bases whose winner is decided by the order
-	// Tailwind emits them - one shorthand cannot disagree with itself.
-	expect(prose?.classList.contains("flex-[1_1_18rem]")).toBe(true);
-	expect(prose?.classList.contains("flex-1")).toBe(false);
-	expect(prose?.classList.contains("max-w-[46ch]")).toBe(true);
-	expect(prose?.classList.contains("min-w-0")).toBe(true);
-	// The box owns breaking because it owns wrapping: one unbroken token in a
-	// description would otherwise set its own min-content width and push out
-	// of the cell.
-	expect(prose?.classList.contains("break-words")).toBe(true);
+	expect(hint?.querySelector(".setting-desc")?.querySelector("button.help")).toBeNull();
+	// The cell owns wrapping and breaking (one unbroken token must not push out
+	// of the column), and caps its prose at a reading measure inside the
+	// full-bleed track: structure goes full-bleed, sentences do not.
+	expect(hint?.classList.contains("break-words")).toBe(true);
+	expect(hint?.classList.contains("min-w-0")).toBe(true);
+	expect(hint?.classList.contains("max-w-[72ch]")).toBe(true);
+	expect(Array.from(hint?.classList ?? []).some((name) => name.startsWith("grid"))).toBe(false);
 });
 
 test("an error covers the hint cell without taking its height or the help glyph's clicks", () => {
@@ -135,10 +114,11 @@ test("a group with no help renders no glyph in its head", () => {
 	}
 });
 
-test("a configured row's modified note shares the prose box, never the glyph's place", () => {
-	// The note is the other thing that used to sit in the wrapping row. It
-	// belongs with the description - it is more prose - so it must ride inside
-	// the box that gives, not beside the glyph that does not.
+test("a User-scope modified number row keeps its words on demand: the default note rides the reveal idiom", () => {
+	// At rest the gutter bar is the whole signal; the note exists for hover
+	// and focus (the reveal wrapper's opacity idiom), lives in the hint cell
+	// with the prose, and says only the fact worth revealing - the built-in
+	// default a Reset would head toward.
 	const settings = makeSettings();
 	const root = mount(
 		<SettingsSection
@@ -154,9 +134,12 @@ test("a configured row's modified note shares the prose box, never the glyph's p
 	);
 	const hint = rowOf(settingInput(root, "discovery.cacheTtl")).querySelector(".setting-hint");
 	const note = hint?.querySelector(".setting-modified-note");
-	expect(note?.textContent).toContain("Modified in User settings");
-	expect(note?.parentElement).toBe(hint?.querySelector(".setting-desc")?.parentElement);
-	expect(note?.closest(".help-wrap")).toBeNull();
+	expect(note?.textContent).toBe("default: 1 h");
+	expect(note?.textContent).not.toContain("Modified");
+	expect(note?.parentElement).toBe(hint as HTMLElement);
+	expect(note?.classList.contains("opacity-0")).toBe(true);
+	expect(note?.classList.contains("group-hover/setting:opacity-100")).toBe(true);
+	expect(note?.classList.contains("group-focus-within/setting:opacity-100")).toBe(true);
 });
 
 test("a below-minimum draft stays calm until blur reveals it; commit posts nothing; a valid draft posts once; unchanged posts nothing", () => {
@@ -365,7 +348,7 @@ test("ms equivalence hints: 90000 reads as clock units, the zero-meaning setting
 	expect(rowOf(settingInput(root, "discovery.timeout")).querySelector(".setting-equiv")?.textContent).toBe("= 30 s");
 });
 
-test("a modified row names its scope beside the hint; number rows add the default; clean rows carry no note", () => {
+test("annotation earns its place by being news: a workspace override speaks at rest, a User value stays silent", () => {
 	const base = makeSettings();
 	const settings = makeSettings({
 		numbers: { ...base.numbers, "chat.timeout": 60000 },
@@ -380,10 +363,15 @@ test("a modified row names its scope beside the hint; number rows add the defaul
 	const root = mount(<SettingsSection settings={settings} models={[]} />);
 
 	const noteOf = (id: string) => rowOf(settingInput(root, id)).querySelector(".setting-modified-note");
-	// The ms default reads in the duration idiom, matching the field's hint.
+	// A workspace override is the case the gutter bar alone cannot
+	// disambiguate ("my user setting is not what applies here"), so its note
+	// stands at rest - no reveal idiom - and the ms default reads in the
+	// duration idiom, matching the field's hint.
 	expect(noteOf("chat.timeout")?.textContent).toBe("Modified in Workspace settings (default: 5 min)");
-	// Boolean rows say where the value lives, without a default.
-	expect(noteOf("ui.maskSecretInputs")?.textContent).toBe("Modified in User settings");
+	expect(noteOf("chat.timeout")?.classList.contains("opacity-0")).toBe(false);
+	// A User-scope boolean has no default worth revealing and no scope worth
+	// naming: the bar is the whole annotation.
+	expect(noteOf("ui.maskSecretInputs")).toBeNull();
 	// Unmodified rows carry no note at all, and the note lives in the hint
 	// column after the description, so its coming and going never moves the
 	// label or the control.
@@ -490,7 +478,7 @@ function editorSection(root: ParentNode, heading: string): HTMLElement {
 
 test("the filter hides rows by label or description match and collapses emptied groups, all via hidden", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
-	const filter = root.querySelector<HTMLInputElement>(".filterbar input");
+	const filter = root.querySelector<HTMLInputElement>('input[aria-label="Filter settings"]');
 	if (filter === null) {
 		throw new Error("no filter input");
 	}
@@ -533,7 +521,7 @@ test("the filter matches the record editor by its key names (nested parameter na
 		},
 	});
 	const root = mount(<SettingsSection settings={settings} models={[]} />);
-	const filter = root.querySelector<HTMLInputElement>(".filterbar input") as HTMLInputElement;
+	const filter = root.querySelector<HTMLInputElement>('input[aria-label="Filter settings"]') as HTMLInputElement;
 
 	// A nested parameter name keeps the parameters editor.
 	fireInput(filter, "temperature");
@@ -550,7 +538,7 @@ test("the filter matches the record editor by its key names (nested parameter na
 
 test("zero hits show the no-match line, and a dirty draft survives being filtered away and back", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
-	const filter = root.querySelector<HTMLInputElement>(".filterbar input") as HTMLInputElement;
+	const filter = root.querySelector<HTMLInputElement>('input[aria-label="Filter settings"]') as HTMLInputElement;
 	const input = settingInput(root, "chat.timeout");
 
 	// A half-typed (and even rejected) draft...
@@ -603,18 +591,72 @@ test("the capabilities editor renders as a second record editor and applies via 
 	expect(typeof posted.id).toBe("string");
 });
 
-test("the page's header rule and its groups stop at one measure", () => {
-	// The width policy's whole claim on this page: the header line and
-	// everything under it are capped by the SAME token, so the rule above the
-	// rows ends exactly where the rows' content does. Nothing else here would
-	// notice if either lost its cap - the rows would simply run to the pane's
-	// own edge and the page would grow a second right edge.
+test("the page runs full-bleed: no measure cap on the header or the groups, one right edge from the pane", () => {
+	// The earlier design capped the page at a 56rem measure; the redesign
+	// revoked it - this page is a LIST of settings, and its one right edge is
+	// the pane's own, held by the rows' fixed trailing actions track. What
+	// this pins is that nobody quietly reintroduces a cap on one of the two
+	// containers and mints a second right edge.
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const groups = root.querySelector(".settings-groups") as HTMLElement;
 	const header = root.querySelector(".page-section > .section-head") as HTMLElement;
-	const measure = Array.from(groups.classList).find((name) => name.startsWith("max-w-["));
-	expect(measure).toBeDefined();
-	expect(header.classList.contains(measure as string)).toBe(true);
+	for (const surface of [groups, header]) {
+		expect(Array.from(surface.classList).some((name) => name.startsWith("max-w-"))).toBe(false);
+	}
+	// The fixed actions track is what makes the edge one: every row wears the
+	// same template, and its last track is a rem length, not auto.
+	const row = root.querySelector(".setting-row") as HTMLElement;
+	const template = Array.from(row.classList).find((name) => name.startsWith("grid-cols-["));
+	expect(template).toMatch(/_[\d.]+rem\]$/);
+});
+
+test("every settings row anchors its actions in one trailing slot: Reset then the settings.json jump", () => {
+	// The fail-closed structural pin behind the "{} renders in two different
+	// positions" defect: the slot is the row template's LAST cell, the jump is
+	// the slot's LAST child, and no action leaks into the control or hint
+	// cells - asserted over every row the page renders, against the page's own
+	// row INVENTORY rather than a floor: every scalar id plus the seven
+	// non-scalar rows (token estimation, tool schema keywords, thresholds,
+	// status bar, currency, theme, accent). Exact equality is what fails
+	// closed both ways - a dropped row and an uncounted new row both land
+	// here, and adding a tail row costs updating the 7.
+	const base = makeSettings();
+	const settings = makeSettings({
+		configuredScopes: {
+			numbers: { ...base.configuredScopes.numbers, "chat.timeout": "global" },
+			booleans: { ...base.configuredScopes.booleans, "ui.maskSecretInputs": "workspace" },
+		},
+	});
+	const root = mount(<SettingsSection settings={settings} models={[]} />);
+	const rows = Array.from(root.querySelectorAll(".setting-row"));
+	expect(rows.length).toBe(
+		Object.keys(settings.configuredScopes.numbers).length + Object.keys(settings.configuredScopes.booleans).length + 7
+	);
+	for (const row of rows) {
+		const slots = Array.from(row.children).filter((child) => child.classList.contains("setting-actions"));
+		expect(slots.length, row.textContent ?? "").toBe(1);
+		const slot = slots[0] as HTMLElement;
+		expect(row.lastElementChild).toBe(slot);
+		const jumps = row.querySelectorAll("button.reveal-json");
+		expect(jumps.length, row.textContent ?? "").toBe(1);
+		expect(slot.contains(jumps[0] as HTMLElement)).toBe(true);
+		expect(slot.lastElementChild?.querySelector("button.reveal-json") ?? null).not.toBeNull();
+		// Reset, when the row offers one, lives in the same slot - never in the
+		// control cell, where its x would follow the control's width.
+		for (const reset of Array.from(row.querySelectorAll("button.reset"))) {
+			expect(slot.contains(reset)).toBe(true);
+		}
+		expect(row.querySelector(".setting-control button.reveal-json")).toBeNull();
+		expect(row.querySelector(".setting-control button.reset")).toBeNull();
+		// Both actions wear the one reveal idiom: wrapper opacity, both reveal
+		// clauses, and the narrow-pane always-visible fallback.
+		for (const wrap of Array.from(slot.children)) {
+			expect(wrap.classList.contains("opacity-0")).toBe(true);
+			expect(wrap.classList.contains("group-hover/setting:opacity-100")).toBe(true);
+			expect(wrap.classList.contains("group-focus-within/setting:opacity-100")).toBe(true);
+			expect(wrap.classList.contains("@max-[560px]/pane:opacity-100")).toBe(true);
+		}
+	}
 });
 
 test("the catalog row adopts the settings row grid instead of restating the gutter", () => {
@@ -697,7 +739,7 @@ test("the catalog status line hides with the row it belongs to", () => {
 	// attribute does not cover it; a filter that hides the setting must not
 	// leave its status and Refresh button stranded under another group.
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
-	const filter = root.querySelector<HTMLInputElement>(".filterbar input") as HTMLInputElement;
+	const filter = root.querySelector<HTMLInputElement>('input[aria-label="Filter settings"]') as HTMLInputElement;
 	const catalogRow = () => (root.querySelector(".catalog-row") as HTMLElement).closest("[hidden]");
 	expect(catalogRow()).toBeNull();
 	fireInput(filter, "timeout");
@@ -987,6 +1029,7 @@ test("a stored keyword list round-trips into the box, and an unchanged blur post
 			tokenEstimation: "auto",
 			tokenEstimationScope: null,
 			additionalToolSchemaKeywords: ["propertyNames", "patternProperties"],
+			additionalToolSchemaKeywordsLossy: false,
 			additionalToolSchemaKeywordsScope: "global",
 		},
 	});
@@ -997,12 +1040,64 @@ test("a stored keyword list round-trips into the box, and an unchanged blur post
 	expect(postedMessages).toEqual([]);
 });
 
+test("a keyword draft past the intent schema's bounds shows the bound and never posts", () => {
+	// The bounds mirror intentSchema.ts (z.array(z.string().max(256)).max(64)):
+	// without the mirror a big paste committed, failed host-side, and surfaced
+	// as a generic envelope failure instead of a row error.
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const input = settingInput(root, "chat.additionalToolSchemaKeywords");
+
+	fireInput(input, Array.from({ length: 65 }, (_, index) => `k${index}`).join(", "));
+	expect(rowOf(input).textContent).toContain("At most 64 keywords.");
+	expect(input.getAttribute("aria-invalid")).toBe("true");
+	fireKeyDown(input, "Enter");
+	fireBlur(input);
+	expect(postedMessages).toEqual([]);
+
+	fireInput(input, `ok, ${"x".repeat(257)}`);
+	expect(rowOf(input).textContent).toContain("Keywords run up to 256 characters each.");
+	fireKeyDown(input, "Enter");
+	expect(postedMessages).toEqual([]);
+
+	// Back inside the bounds, the same draft machinery commits normally.
+	fireInput(input, "propertyNames");
+	expect(input.getAttribute("aria-invalid")).toBe("false");
+	fireKeyDown(input, "Enter");
+	expect(postedCalls()).toEqual([
+		{ method: "setAdditionalToolSchemaKeywords", payload: { values: ["propertyNames"] } },
+	]);
+});
+
+test("a lossy stored list (entries normalization dropped) renders read-only even when the visible list looks clean", () => {
+	// The push carries only the NORMALIZED list, so a raw
+	// ["propertyNames", "constructor"] arrives as just ["propertyNames"]: no
+	// comma, no edge whitespace, nothing the shape check can see. The host's
+	// lossy flag is what keeps a dashboard edit from silently destroying the
+	// hidden entry.
+	const settings = makeSettings({
+		chat: {
+			tokenEstimation: "auto",
+			tokenEstimationScope: null,
+			additionalToolSchemaKeywords: ["propertyNames"],
+			additionalToolSchemaKeywordsLossy: true,
+			additionalToolSchemaKeywordsScope: "global",
+		},
+	});
+	const root = mount(<SettingsSection settings={settings} models={[]} />);
+	const row = Array.from(root.querySelectorAll(".setting-row")).find((candidate) =>
+		candidate.textContent?.includes("Extra tool schema keywords")
+	) as HTMLElement;
+	expect(row.textContent).toContain("Custom list - edit in settings.json.");
+	expect(row.querySelector("input")).toBeNull();
+});
+
 test("a stored keyword the comma box cannot round-trip renders read-only with the reveal button", () => {
 	const settings = makeSettings({
 		chat: {
 			tokenEstimation: "auto",
 			tokenEstimationScope: null,
 			additionalToolSchemaKeywords: ["a,b"],
+			additionalToolSchemaKeywordsLossy: false,
 			additionalToolSchemaKeywordsScope: "global",
 		},
 	});
@@ -1059,7 +1154,7 @@ test("the Import & Export group renders last with its help, and each button post
 
 test("the Import & Export group follows the filter: kept by its own words, hidden on a miss, counted by no-match", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
-	const filter = root.querySelector<HTMLInputElement>(".filterbar input") as HTMLInputElement;
+	const filter = root.querySelector<HTMLInputElement>('input[aria-label="Filter settings"]') as HTMLInputElement;
 	const group = importExportGroup(root);
 	expect(group.hidden).toBe(false);
 
@@ -1206,7 +1301,7 @@ test("the settings filter finds a row by its description and its id, whichever k
 			.map((row) => row.querySelector(".setting-title")?.textContent ?? "");
 
 	// A tail row found by a word from its description.
-	fireInput(filter, "high contrast");
+	fireInput(filter, "light or dark");
 	expect(root.textContent).not.toContain("No settings match the filter.");
 	expect(visibleRowTitles()).toContain("Dashboard theme");
 

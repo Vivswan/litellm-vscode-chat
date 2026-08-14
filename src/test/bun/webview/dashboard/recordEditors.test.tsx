@@ -423,51 +423,39 @@ test("popover validation: a bad value marks the chip and blocks Apply; the messa
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(true);
 });
 
-test("under forced colors the resting chip drops its border and a marked one keeps it", () => {
-	// Forced colours repaint a border colour even where the author wrote it
-	// transparent, so every chip wore at rest the hairline the row only offers
-	// on approach - and the chip with something to say stopped being the one
-	// with a box. The fix is a utility, and it is GATED rather than ordered:
-	// nothing about the class names says which of two same-specificity rules
-	// the compiler will emit last, so the marked states must not carry the
-	// resting one at all. Only this suite can see that gate; the compiled
-	// stylesheet has both rules either way.
-	const quiet = "forced-colors:border-[color:Canvas]";
+test("no chip suppresses the forced-colors border repaint, and an invalid mark survives the popover closing", () => {
+	// The chips are FILLED at rest and forced colours flatten the fill into
+	// the page, so the repainted transparent border is the resting boundary -
+	// a suppression utility here (the old forced-colors:border-[color:Canvas]
+	// gate) would hand two chips back as one run of words. What distinguishes
+	// a marked chip there is WIDTH: theme.css's forced-colors block keys a
+	// 2px border on the .invalid/.hinted classes, so this suite pins that the
+	// classes are present and that no suppression class returns.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2, top_p: 0.9 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
-	expect(chipFor(section(), "temperature").classList.contains(quiet)).toBe(true);
-	expect(chipFor(section(), "top_p").classList.contains(quiet)).toBe(true);
-	// The add chip has no marked state to lose, so it is quiet unconditionally.
-	expect(section().querySelector(".chip-add")?.classList.contains(quiet)).toBe(true);
-
-	// Open: the chip is wearing the field's own border, which is the thing the
-	// resting rule would paint over.
-	fireClick(chipFor(section(), "temperature"));
-	expect(chipFor(section(), "temperature").classList.contains(quiet)).toBe(false);
-	fireInput(popoverOf(section()).querySelector("input.value") as HTMLInputElement, "not json");
-	expect(chipFor(section(), "temperature").classList.contains("invalid")).toBe(true);
+	const addChip = section().querySelector(".chip-add") as HTMLElement;
+	for (const chip of [chipFor(section(), "temperature"), chipFor(section(), "top_p"), addChip]) {
+		expect(Array.from(chip.classList).some((name) => name.startsWith("forced-colors:border"))).toBe(false);
+		expect(chip.classList.contains("border-transparent")).toBe(true);
+	}
 
 	// Invalid with the popover CLOSED, which is the assertion that means
-	// something: while it is open the chip is disqualified by being open, so
-	// the same expectation would hold with the problem gate deleted. Here the
-	// mark is the only reason left, and the border is the only channel carrying
-	// it - the mode repaints the error colour that carries it everywhere else.
+	// something: while it is open the chip is marked for being open anyway.
+	// Closed, the .invalid class is the only hook the forced-colors width
+	// rule (and the ordinary red border) have.
+	fireClick(chipFor(section(), "temperature"));
+	fireInput(popoverOf(section()).querySelector("input.value") as HTMLInputElement, "not json");
 	fireClick(chipFor(section(), "temperature"));
 	expect(section().querySelector(".chip-popover")).toBeNull();
 	expect(chipFor(section(), "temperature").classList.contains("invalid")).toBe(true);
-	expect(chipFor(section(), "temperature").classList.contains(quiet)).toBe(false);
-	// The untouched neighbour stays quiet, so the marked chip is the one that
-	// reads as marked.
-	expect(chipFor(section(), "top_p").classList.contains(quiet)).toBe(true);
+	expect(chipFor(section(), "top_p").classList.contains("invalid")).toBe(false);
 });
 
-test("under forced colors a hinted chip keeps its border too", () => {
-	// The gate's third branch, which the invalid test cannot reach: a hint is
-	// not a problem, so deleting it from the gate leaves that test green while
-	// every hinted chip goes quiet. An _inheritable naming a field the record
-	// does not set is the cheapest hint there is.
-	const quiet = "forced-colors:border-[color:Canvas]";
+test("a hinted chip carries the hinted class the forced-colors width rule keys on", () => {
+	// A hint is not a problem, so the invalid test above cannot cover this
+	// branch. An _inheritable naming a field the record does not set is the
+	// cheapest hint there is.
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2, _inheritable: ["nope"] } }) }))
@@ -475,8 +463,7 @@ test("under forced colors a hinted chip keeps its border too", () => {
 	const section = () => sectionByHeading(root, "Model parameters");
 	const hinted = chipFor(section(), "_inheritable");
 	expect(hinted.classList.contains("hinted")).toBe(true);
-	expect(hinted.classList.contains(quiet)).toBe(false);
-	expect(chipFor(section(), "temperature").classList.contains(quiet)).toBe(true);
+	expect(chipFor(section(), "temperature").classList.contains("hinted")).toBe(false);
 });
 
 test("the popover's force toggle writes the _force list without a raw chip, and unmarking removes it", () => {
@@ -1660,12 +1647,16 @@ test("model parameters: invalid JSON in the overlay blocks Apply; fixing it appl
 	expect(postedRecordWrites()).toEqual([{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2 } } }]);
 });
 
-test("each editor's hint names the seam between the two save models: rows apply together via Apply", () => {
+test("the seam between the two save models is stated once, above both editors, never per editor", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
-	expect(sectionByHeading(root, "Model parameters").textContent).toContain(
-		"Rows here apply together via the Apply button"
-	);
+	// One note for the pair: the same paragraph repeated under each heading
+	// was the duplicated helper the redesign removed.
+	const notes = Array.from(root.querySelectorAll(".record-editors-note"));
+	expect(notes.length).toBe(1);
+	expect(notes[0]?.textContent).toContain("apply together via their Apply button");
+	expect(sectionByHeading(root, "Model parameters").textContent).not.toContain("apply together");
+	expect(sectionByHeading(root, "Model capabilities").textContent).not.toContain("apply together");
 });
 
 test("Edit as JSON: the textarea seeds from the record, and a valid edit applies through the same parse", () => {
@@ -1762,7 +1753,7 @@ test("the settings filter hides an editor with a dirty draft via hidden, and the
 	draftOneParam(section, "gpt-4", "temperature", "0.9");
 
 	// ...is hidden by a non-matching filter, never unmounted...
-	const filter = root.querySelector<HTMLInputElement>(".filterbar input") as HTMLInputElement;
+	const filter = root.querySelector<HTMLInputElement>('input[aria-label="Filter settings"]') as HTMLInputElement;
 	fireInput(filter, "no such setting");
 	expect(section().hidden).toBe(true);
 	expect(matcherKeys(section())).toEqual(["gpt-4"]);

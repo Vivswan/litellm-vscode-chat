@@ -1,8 +1,9 @@
 /**
  * The Settings tab with the two appearance rows explicitly configured: their
- * modified gutter markers and their "Modified in User settings" notes. (Their
- * Reset buttons are hover- and focus-revealed, so they are not in a plain shot;
- * add `--hover ".setting-row.modified:last-of-type"` to photograph one.)
+ * modified gutter markers, which are the whole at-rest signal. (Their Reset
+ * buttons and any note are hover- and focus-revealed, so they are not in a
+ * plain shot; add `--hover ".setting-row.modified:last-of-type"` to
+ * photograph one.)
  *
  * The shot exists because those states were unrenderable until the harness
  * stopped overwriting the appearance scopes. It stamps the theme and accent

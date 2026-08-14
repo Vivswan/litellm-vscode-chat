@@ -497,37 +497,33 @@ test("every pane query is spelled one of the two legal ways", () => {
 	expect(illegal).toEqual([]);
 });
 
-test("the settings measure fits under the page's own stack threshold", () => {
-	// The Settings page caps itself at its rows' measure and stacks those rows
-	// on a pane query, and the measure's comment claims the middle state - a
-	// three-column row whose explanation column starves - is unreachable. That
-	// is only arithmetic while measure <= threshold: a pane below the measure
-	// has already stacked. Both numbers are class strings no runtime assertion
-	// can see, so this reads them out of the source the way the spelling test
-	// does.
+test("the settings rows' fixed tracks leave the description a working column at the stack threshold", () => {
+	// The Settings page runs full-bleed on a four-track row - label, control,
+	// description, actions - and stacks on a pane query. The description is
+	// the one elastic track, so the middle state to guard against is a pane
+	// just above the threshold where the fixed tracks and gaps eat almost all
+	// of it and the description prints a word per line. That is arithmetic:
+	// fixed rem tracks plus the three 1rem gaps, against the px threshold.
+	// Both numbers are class strings no runtime assertion can see, so this
+	// reads them out of the source the way the spelling test does.
 	const source = readFileSync(join(WEBVIEW, "settings.tsx"), "utf8");
-	// Anchored to the constant's DECLARATION rather than to the first
-	// `max-w-[Nrem]` in the file. Unanchored it is the same first-match hazard
-	// the rail arithmetic above documents: any control that caps itself in rem
-	// - a `max-w-[9em]` input's neighbour, a future badge - would become the
-	// number the page is judged by, and the judgement would still pass.
-	const measure = /SETTINGS_MEASURE = "max-w-\[(\d+)rem\]"/.exec(source);
-	if (measure?.[1] === undefined) {
-		throw new Error('could not read the settings measure (SETTINGS_MEASURE = "max-w-[Nrem]") from settings.tsx');
-	}
-	// Anchored for the same reason: settings.tsx spells a second pane threshold
-	// (560, on a control's width), and an unanchored read judges the page by
-	// whichever one happens to appear first.
-	const stack = /SETTING_ROW_GRID =[\s\S]{0,200}?@max-\[(\d+)px\]\/pane:grid-cols-1/.exec(source);
-	if (stack?.[1] === undefined) {
-		throw new Error("could not read the settings rows' stack threshold from SETTING_ROW_GRID in settings.tsx");
+	// Anchored to the constant's DECLARATION rather than to the first grid in
+	// the file, the same first-match hazard the rail arithmetic documents.
+	const grid =
+		/SETTING_ROW_GRID =\s*"grid grid-cols-\[(\d+(?:\.\d+)?)rem_minmax\(0,(\d+(?:\.\d+)?)rem\)_minmax\(0,1fr\)_(\d+(?:\.\d+)?)rem\] gap-x-4[\s\S]{0,80}?@max-\[(\d+)px\]\/pane:grid-cols-1/.exec(
+			source
+		);
+	if (grid?.[1] === undefined || grid[2] === undefined || grid[3] === undefined || grid[4] === undefined) {
+		throw new Error("could not read the settings row tracks and stack threshold from SETTING_ROW_GRID in settings.tsx");
 	}
 	// The rem resolves against the ROOT font size, and the 16 below is the CSS
 	// default. That is a fact about the stylesheets rather than a constant, so
-	// it is checked: this page states its measure and its row tracks in rem and
-	// its thresholds in px, so a root font size other than the default moves one
-	// side of every comparison here and leaves the other where it was - and this
-	// test would go on passing against numbers that no longer mean what it says.
+	// it is checked: the tracks are rem and the threshold px, and a root font
+	// size other than the default moves one side of the comparison.
 	expect(rootFontSizeDeclarations()).toEqual([]);
-	expect(Number(measure[1]) * 16).toBeLessThanOrEqual(Number(stack[1]));
+	const gaps = 3;
+	const fixed = (Number(grid[1]) + Number(grid[2]) + Number(grid[3]) + gaps) * 16;
+	const threshold = Number(grid[4]);
+	// 240px is about 34 characters of 0.95em prose: a real column, not a sliver.
+	expect(threshold - fixed).toBeGreaterThanOrEqual(240);
 });

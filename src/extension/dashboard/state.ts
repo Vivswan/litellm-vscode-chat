@@ -650,6 +650,27 @@ function buildScopedRecord<V>(
 	return { editScope, value: sanitize(rawByScope[editScope]), otherScopes, effective: sanitize(effectiveRaw) };
 }
 
+/**
+ * Whether normalizing chat.additionalToolSchemaKeywords DROPS anything from
+ * the raw configured value. The state push carries only the normalized list,
+ * so without this flag the dashboard's row cannot tell a clean list from one
+ * hiding entries (a non-string, an empty string, a duplicate, an unsafe key)
+ * that a comma-box edit would silently destroy - the flag forces its
+ * read-only fallback instead. A missing setting is not lossy, and neither is
+ * an array normalization returns element for element.
+ */
+function additionalToolSchemaKeywordsLossy(raw: unknown): boolean {
+	if (raw === undefined) {
+		return false;
+	}
+	const normalized = normalizeAdditionalToolSchemaKeywords(raw);
+	return (
+		!Array.isArray(raw) ||
+		raw.length !== normalized.length ||
+		normalized.some((keyword, index) => raw[index] !== keyword)
+	);
+}
+
 /** The catalog status a headless or test build renders when no store rides the inputs. */
 export const EMPTY_CATALOG_STATUS: CatalogStatusView = {
 	modelCount: 0,
@@ -696,6 +717,9 @@ export function readDashboardSettings(reader: SettingsReader, catalog: CatalogSt
 			tokenEstimation: normalizeTokenEstimationMode(reader.get(TOKEN_ESTIMATION_SETTING_KEY)),
 			tokenEstimationScope: resolveConfiguredScope(reader.inspect(TOKEN_ESTIMATION_SETTING_KEY)),
 			additionalToolSchemaKeywords: normalizeAdditionalToolSchemaKeywords(
+				reader.get(ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY)
+			),
+			additionalToolSchemaKeywordsLossy: additionalToolSchemaKeywordsLossy(
 				reader.get(ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY)
 			),
 			additionalToolSchemaKeywordsScope: resolveConfiguredScope(

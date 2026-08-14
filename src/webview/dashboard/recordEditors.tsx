@@ -61,6 +61,7 @@ import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
 import { cn } from "./ui/cn";
 import { Input } from "./ui/input";
+import { Reveal } from "./ui/reveal";
 import { Select } from "./ui/select";
 import { sendRequest } from "./vscodeApi";
 
@@ -87,12 +88,10 @@ export function modelCapabilitiesTitle(): string {
  * is the hover band (the head itself, not the h3: a button inside the
  * heading folds into its accessible name, and the heading would announce
  * as "Model parameters, Open Model parameters in settings.json"), so the
- * jump rests hidden and reveals on hover or focus like the setting rows'
- * own. Opacity, never visibility, keeps it in the Tab order so its own
- * focus can reveal it; the @max-[560px]/pane variant keeps it painted
- * where hover does not exist (touch, narrow panes), keyed to the
- * stylesheet's 560px tier; the wrapper owns the transition and stands down
- * under reduced motion.
+ * jump rests hidden and reveals on hover or focus through the shared Reveal
+ * idiom (ui/reveal.tsx): opacity keeps it in the Tab order so its own focus
+ * can reveal it, the @max-[560px]/pane clause keeps it painted where hover
+ * does not exist, and the transition stands down under reduced motion.
  */
 function HeadingRevealButton({
 	title,
@@ -102,7 +101,7 @@ function HeadingRevealButton({
 	settingId: "models.parameters" | "models.capabilities";
 }) {
 	return (
-		<span className="opacity-0 transition-opacity duration-[120ms] ease-out group-hover/head:opacity-100 group-focus-within/head:opacity-100 @max-[560px]/pane:opacity-100 motion-reduce:transition-none">
+		<Reveal within="head">
 			<Button
 				variant="secondary"
 				size="compact"
@@ -112,7 +111,7 @@ function HeadingRevealButton({
 			>
 				<IconBraces />
 			</Button>
-		</span>
+		</Reveal>
 	);
 }
 
@@ -264,22 +263,6 @@ export interface ExternalRecordEdit {
 /** The fail arm of a hook outcome: what the editors' failure surfaces render. */
 export type IntentFailureOutcome = Extract<IntentOutcome, { result: "fail" }>;
 
-/**
- * Names the scope this editor writes and the seam between the tab's two save
- * models: the scalar rows above commit each change on its own (numbers on
- * blur or Enter, checkboxes on toggle), these rows only via Apply.
- */
-function ScopeNote({ scoped }: { scoped: ScopedRecordSetting<unknown> }) {
-	return (
-		<p className="hint">
-			{l10n.t(
-				"Editing {0} settings. Rows here apply together via the Apply button; the plain settings above save each change on its own.",
-				settingScopeLabel(scoped.editScope)
-			)}
-		</p>
-	);
-}
-
 function FailureNote({ failure, dirty }: { failure: IntentFailureOutcome | undefined; dirty: boolean }) {
 	if (failure === undefined || !dirty) {
 		return null;
@@ -299,13 +282,13 @@ function FailureNote({ failure, dirty }: { failure: IntentFailureOutcome | undef
 }
 
 /**
- * The Apply outcome next to the button it reports on. The status element is
- * always mounted (empty between phases) so the live region exists before the
- * announcement lands in it.
+ * The Apply outcome beside the commit pair it reports on. The status element
+ * is always mounted (empty between phases) so the live region exists before
+ * the announcement lands in it.
  */
 function ApplyStatus({ phase }: { phase: DraftPhase }) {
 	return (
-		<span className={phase === "saved" ? "apply-status saved" : "apply-status"} role="status">
+		<span className={cn("apply-status", phase === "saved" && "saved")} role="status">
 			{phase === "applying" ? l10n.t("Applying...") : phase === "saved" ? l10n.t("Saved") : ""}
 		</span>
 	);
@@ -1602,6 +1585,9 @@ function matcherKindLabel(kind: MatcherKind): string {
 	}
 }
 
+/** The inherits column's cell chrome, one spelling for every branch below. */
+const INHERIT_CELL = "inherit-cell shrink-0 text-[11px] text-muted-foreground";
+
 /**
  * A row's short reading of its `_inherit_from` state, or nothing at all where
  * the group takes the default. The default is what a record does when nobody
@@ -1615,23 +1601,17 @@ function InheritsSummary({ group }: { group: PrefixGroup }) {
 		case "default":
 			return null;
 		case "all":
-			return (
-				<span className="inherit-cell shrink-0 text-[11px] text-muted-foreground">{l10n.t("inherits everything")}</span>
-			);
+			return <span className={INHERIT_CELL}>{l10n.t("inherits everything")}</span>;
 		case "none":
-			return (
-				<span className="inherit-cell shrink-0 text-[11px] text-muted-foreground">{l10n.t("inherits nothing")}</span>
-			);
+			return <span className={INHERIT_CELL}>{l10n.t("inherits nothing")}</span>;
 		case "keys":
 			return (
-				<span className="inherit-cell shrink-0 text-[11px] text-muted-foreground">
+				<span className={INHERIT_CELL}>
 					{l10n.t("inherits")} <code>{choice.keysText}</code>
 				</span>
 			);
 		case "unreadable":
-			return (
-				<span className="inherit-cell shrink-0 text-[11px] text-muted-foreground">{l10n.t("inherits custom")}</span>
-			);
+			return <span className={INHERIT_CELL}>{l10n.t("inherits custom")}</span>;
 	}
 }
 
@@ -2294,11 +2274,16 @@ export function RecordMatcherTable({
 	const editable = readOnly !== true;
 	const order = sortedGroupOrder(groups);
 	return (
-		// A list, not a table: a record reads as one line of prose - matcher,
-		// then its fields as text - and only turns into controls as the pointer
-		// or focus arrives. The grid it used to be spent three header cells
-		// naming what the line already says.
-		<ul className="record-table m-0 list-none p-0" aria-label={recordListLabel(kind)}>
+		// A list whose rows share ONE internal grid: [matcher | field chips |
+		// inherits | action], columns sized by the list so every row's cells
+		// land at the same x - the rows inherit the tracks through subgrid, the
+		// same construction the models list uses. The STRUCTURE (display, the
+		// tracks, the cells' columns, and the sub-620px flex fallback) lives in
+		// dashboard.css rather than in utilities here: dashboard.css sits in the
+		// components layer UNDER utilities, so a `grid` utility on this element
+		// would beat the stylesheet's narrow fallback no matter the query - one
+		// layer, source order settles it.
+		<ul className="record-table" aria-label={recordListLabel(kind)}>
 			{order.map((groupIndex) => {
 				const group = groups[groupIndex];
 				if (group === undefined) {
@@ -2325,34 +2310,35 @@ export function RecordMatcherTable({
 					// when a state push reorders the record, dropping an open add
 					// popover's half-typed field with it.
 					<li
-						className="record-row group/row -mx-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-md px-2 py-1.5 hover:bg-accent-soft focus-within:bg-accent-soft"
+						className="record-row group/row -mx-2 rounded-md px-2 py-1.5 hover:bg-accent-soft focus-within:bg-accent-soft"
 						key={`${groupKey}#${groupOrdinal}`}
 					>
-						<span className="matcher-cell flex min-w-[104px] shrink-0 items-baseline gap-2">
-							<code className="matcher-key font-mono text-[12px] text-foreground">{matcherName}</code>
+						<span className="matcher-cell flex min-w-[104px] shrink-0 flex-wrap items-baseline gap-2">
+							{/* The matcher wears the chip chrome OUTLINED where the field
+							    chips are FILLED: one radius system, two fills - identity
+							    reads as a container, data as contents. */}
+							<code className="matcher-key rounded-sm border border-border px-1 font-mono text-[12px] text-foreground [overflow-wrap:anywhere]">
+								{matcherName}
+							</code>
 							<span className="matcher-kind text-[11px] text-muted-foreground">
 								{matcherKindLabel(matcherKind(group.prefix))}
 							</span>
 						</span>
-						{/* min-w-min, not min-w-0: flex-1 with a zero floor let this box
-						    be squeezed narrower than a single chip, and a chip cannot
-						    shrink to match, so the chips overflowed and painted over the
-						    inherit summary and the pencil after them - "force" and
-						    "inherits nothing" ran together into one unreadable word.
-						    Measured at a 540px viewport, the content overran the box by
-						    39 to 223px per row. The floor is one chip's own minimum, so
-						    the ROW wraps its trailing cells instead, which is what its
-						    flex-wrap is for, and the chips still wrap among themselves
-						    inside it.
+						{/* min-w-min, not min-w-0: a zero floor let this box be squeezed
+						    narrower than a single chip, and a chip cannot shrink to
+						    match, so the chips overflowed and painted over the inherit
+						    summary and the pencil after them - "force" and "inherits
+						    nothing" ran together into one unreadable word. The floor is
+						    one chip's own minimum; a chip wraps its own parts and its
+						    key may break anywhere, so the floor is a chip's longest
+						    UNBREAKABLE piece rather than its whole line, and `bun run
+						    check-overflow` holds that.
 
-						    The row's floor used to be structural and unescapable: one chip's
-						    min-content, which for a long field name plus a 14em value plus
-						    its marks was 350-450px, and under that the pane scrolled
-						    horizontally instead of the text colliding. A chip now wraps its
-						    own parts and its key may break anywhere, so the floor is a
-						    chip's longest UNBREAKABLE piece rather than its whole line, and
-						    a narrow pane gets under it. `bun run check-overflow` is what
-						    holds that: it fails at the widths this used to scroll at.
+						    No flex-item utilities (flex-1 and friends) on purpose: in
+						    the grid the tracks own this cell's size, and under the 620px
+						    fallback dashboard.css gives it a full line - a `flex-1`
+						    utility here would sit in the utilities layer and beat that
+						    stylesheet rule no matter what its query says.
 
 						    One dormant consequence: dashboard.css used to carry a slide-over
 						    adaptation for this list (a relative `.chip-list` as the chip
@@ -2366,7 +2352,7 @@ export function RecordMatcherTable({
 						    clipping, and a static anchor with no relatively positioned
 						    ancestor resolves the popover against the FIXED panel itself, so
 						    `top: 100%` drops it past the panel's bottom edge. */}
-						<span className="chip-list flex min-w-min flex-1 flex-wrap items-baseline gap-x-2 gap-y-1">
+						<span className="chip-list flex min-w-min flex-wrap items-baseline gap-x-2 gap-y-1">
 							{chips.map((rowIndex) => {
 								const row = group.params[rowIndex];
 								if (row === undefined) {
@@ -2385,24 +2371,20 @@ export function RecordMatcherTable({
 									groupHere(popover) &&
 									popover.fieldKey === row.key &&
 									popover.ordinal === ordinal;
-								// A chip with nothing to say. Forced colours repaint a border
-								// colour even where the author wrote it transparent, so every
-								// chip wore the hairline the row only offers on approach, and
-								// the marked ones stopped being the ones with a box. Named at
-								// the call site rather than in the stylesheet's unlayered
-								// forced-colors block, because that block beats the utilities
-								// layer outright and would take the hover and focus rules with
-								// it; as a utility this composes, and the group selectors below
-								// still outrank it. Gated rather than ordered, so an invalid or
-								// hinted chip never has to win a same-specificity argument
-								// against the resting state.
-								const unmarked = issue?.problem === undefined && issue?.hint === undefined && !openHere;
+								// No forced-colors border suppression any more, deliberately:
+								// when chips were quiet-at-rest the repainted transparent border
+								// put an unearned hairline on every chip, but a FILLED chip's
+								// fill is exactly what forced colours flatten into the page, so
+								// the repainted border is now the only thing keeping "two chips"
+								// from reading as one run of words. The transparent border
+								// repaints to a visible system colour there and that is correct.
 								const chipClass = cn(
-									"chip-field inline-flex flex-wrap items-baseline gap-1.5 rounded-sm border border-transparent px-1 font-mono text-[12px] text-muted-foreground",
-									unmarked && "forced-colors:border-[color:Canvas]",
-									// Quiet at rest, a field on approach: the hairline and
-									// the fill arrive with the pointer or with focus, which
-									// is the moment the row has to prove it is editable.
+									"chip-field inline-flex flex-wrap items-baseline gap-1.5 rounded-sm border border-transparent bg-chip px-1 font-mono text-[12px] text-muted-foreground",
+									// Filled at rest - the frame makes these a bounded region
+									// and the fill is what says "these are the fields"; the
+									// hairline and the input fill still arrive with the
+									// pointer or with focus, which is the moment the row has
+									// to prove it is editable.
 									editable &&
 										"cursor-pointer group-hover/row:border-border group-hover/row:bg-input-background group-focus-within/row:border-border group-focus-within/row:bg-input-background hover:text-foreground focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid",
 									issue?.problem !== undefined && "invalid border-input-invalid text-err",
@@ -2482,7 +2464,7 @@ export function RecordMatcherTable({
 								<span className="chip-anchor">
 									<button
 										type="button"
-										className="chip-field chip-add rounded-sm border border-transparent px-1 text-muted-foreground forced-colors:border-[color:Canvas] group-hover/row:border-border group-focus-within/row:border-border hover:text-foreground focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid"
+										className="chip-field chip-add rounded-sm border border-transparent px-1 text-muted-foreground group-hover/row:border-border group-focus-within/row:border-border hover:text-foreground focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid"
 										aria-expanded={addOpen}
 										disabled={disabled}
 										aria-label={l10n.t('Add a field to "{0}"', matcherName)}
@@ -2857,88 +2839,111 @@ export function ModelParametersEditor({
 				<Help text={helpModelParametersSection()} name={l10n.t("Help: {0}", modelParametersTitle())} />
 				<DocsLink href={DOCS_LINK_MODEL_PARAMETERS} label={l10n.t("Open the model parameters guide")} />
 			</div>
-			<ScopeNote scoped={scoped} />
-			{json !== undefined ? (
-				<div className="record-json">
-					<textarea
-						rows={10}
-						aria-label={l10n.t("Model parameters as JSON")}
-						aria-invalid={jsonBlocked}
-						value={json.text}
-						onChange={(event) => {
-							const text = event.currentTarget.value;
-							setJson((current) => (current === undefined ? current : { ...current, text }));
-							const parsed = groupsFromJsonText(text);
-							if (parsed.ok) {
-								draft.update(parsed.rows);
-							}
-						}}
-					/>
-					{jsonParse !== undefined && !jsonParse.ok ? <p className="error">{jsonParse.problem}</p> : null}
-				</div>
-			) : (
-				<>
-					{groups.length === 0 ? (
-						<p className="empty">{l10n.t("No model parameters configured in this scope.")}</p>
-					) : null}
-					{groups.length > 0 ? (
-						<RecordMatcherTable
-							kind="params"
-							groups={groups}
-							issues={issueViews}
-							keySuggestions={COMMON_PARAMETER_NAMES}
-							onChange={(next) => draft.update(next)}
-							onOpenEditor={openEditor}
-						/>
-					) : null}
-				</>
-			)}
-			<FailureNote failure={draft.failure} dirty={draft.dirty} />
-			<div className="toolbar">
-				{json === undefined ? (
-					<Button
-						variant="secondary"
-						id="params-add-matcher"
-						onClick={() => {
-							draft.update([...groups, { prefix: "", params: [] }]);
-							openEditor(groups.length, "");
-						}}
-					>
-						<IconAdd /> {l10n.t("Add model matcher")}
-					</Button>
+			{/* The frame bounds the draft: the matcher rows (or the JSON side
+			    door), the failure note, and the action bar that commits them are
+			    one region, so "what does Apply apply" has a visible answer. */}
+			<div className="record-frame">
+				{/* Where Apply writes, said only when it is news: the write-scope
+				    rule sends edits to a scope that already sets the record, and
+				    "not your User settings" is the one case worth a line. */}
+				{scoped.editScope !== "global" ? (
+					<p className="hint editor-scope-note">
+						{l10n.t(
+							"Apply writes {0} settings - that scope already sets this record.",
+							settingScopeLabel(scoped.editScope)
+						)}
+					</p>
 				) : null}
-				<Button disabled={!canApply} onClick={apply}>
-					{l10n.t("Apply")}
-				</Button>
-				{/* Discard stays available while a write is in flight: a lost ack
-				    must not wedge the editor until a reload. */}
-				<Button
-					variant="danger"
-					disabled={!draft.dirty && draft.phase !== "applying" && !(json !== undefined && json.text !== json.base)}
-					aria-label={l10n.t("Discard the unapplied model parameter edits")}
-					onClick={discard}
-				>
-					{l10n.t("Discard")}
-				</Button>
-				{json === undefined ? (
-					<Button
-						variant="secondary"
-						size="compact"
-						disabled={!parse.ok}
-						onClick={() => {
-							if (parse.ok) {
-								setJson(seededJson(parse.value));
-							}
-						}}
-					>
-						{l10n.t("Edit as JSON")}
-					</Button>
+				{json !== undefined ? (
+					<div className="record-json">
+						<textarea
+							rows={10}
+							aria-label={l10n.t("Model parameters as JSON")}
+							aria-invalid={jsonBlocked}
+							value={json.text}
+							onChange={(event) => {
+								const text = event.currentTarget.value;
+								setJson((current) => (current === undefined ? current : { ...current, text }));
+								const parsed = groupsFromJsonText(text);
+								if (parsed.ok) {
+									draft.update(parsed.rows);
+								}
+							}}
+						/>
+						{jsonParse !== undefined && !jsonParse.ok ? <p className="error">{jsonParse.problem}</p> : null}
+					</div>
 				) : (
-					<Button variant="secondary" size="compact" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
-						{l10n.t("Edit as rows")}
-					</Button>
+					<>
+						{groups.length === 0 ? (
+							<p className="empty">{l10n.t("No model parameters configured in this scope.")}</p>
+						) : null}
+						{groups.length > 0 ? (
+							<RecordMatcherTable
+								kind="params"
+								groups={groups}
+								issues={issueViews}
+								keySuggestions={COMMON_PARAMETER_NAMES}
+								onChange={(next) => draft.update(next)}
+								onOpenEditor={openEditor}
+							/>
+						) : null}
+					</>
 				)}
-				<ApplyStatus phase={draft.phase} />
+				<FailureNote failure={draft.failure} dirty={draft.dirty} />
+				<div className="toolbar editor-actions">
+					{json === undefined ? (
+						<Button
+							variant="secondary"
+							id="params-add-matcher"
+							onClick={() => {
+								draft.update([...groups, { prefix: "", params: [] }]);
+								openEditor(groups.length, "");
+							}}
+						>
+							<IconAdd /> {l10n.t("Add model matcher")}
+						</Button>
+					) : null}
+					{json === undefined ? (
+						<Button
+							variant="secondary"
+							size="compact"
+							disabled={!parse.ok}
+							onClick={() => {
+								if (parse.ok) {
+									setJson(seededJson(parse.value));
+								}
+							}}
+						>
+							{l10n.t("Edit as JSON")}
+						</Button>
+					) : (
+						<Button variant="secondary" size="compact" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
+							{l10n.t("Edit as rows")}
+						</Button>
+					)}
+					{/* The commit trio is ONE flex group so a narrow pane wraps it as a
+				    unit - a bare ms-auto on the status once let Apply wrap onto a
+				    line of its own, left-aligned under the mode actions. */}
+					<span className="editor-commit ms-auto flex flex-wrap items-center gap-2">
+						<ApplyStatus phase={draft.phase} />
+						{/* Discard stays available while a write is in flight: a lost ack
+					    must not wedge the editor until a reload. */}
+						<Button
+							variant="danger"
+							disabled={!draft.dirty && draft.phase !== "applying" && !(json !== undefined && json.text !== json.base)}
+							aria-label={l10n.t("Discard the unapplied model parameter edits")}
+							onClick={discard}
+						>
+							{l10n.t("Discard")}
+						</Button>
+						{/* Last in the bar, first in rank: the accent `default` rank is
+					    the dashboard's primary, and the trailing slot is where a
+					    region's commit lives. */}
+						<Button disabled={!canApply} onClick={apply}>
+							{l10n.t("Apply")}
+						</Button>
+					</span>
+				</div>
 			</div>
 			{scoped.otherScopes.map((other) => {
 				// The static table judges its rows with the same parse as the edit
@@ -2949,13 +2954,15 @@ export function ModelParametersEditor({
 				return (
 					<div className="other-scope" key={other.scope}>
 						<OtherScopeNote scope={other.scope} />
-						<RecordMatcherTable
-							kind="params"
-							groups={otherGroups}
-							issues={paramIssueViews(otherGroups, otherParse.ok ? [] : otherParse.problems, otherParse.hints)}
-							readOnly
-							onChange={() => undefined}
-						/>
+						<div className="record-frame">
+							<RecordMatcherTable
+								kind="params"
+								groups={otherGroups}
+								issues={paramIssueViews(otherGroups, otherParse.ok ? [] : otherParse.problems, otherParse.hints)}
+								readOnly
+								onChange={() => undefined}
+							/>
+						</div>
 					</div>
 				);
 			})}
@@ -3109,88 +3116,103 @@ export function ModelCapabilitiesEditor({
 				<Help text={helpModelCapabilitiesSection()} name={l10n.t("Help: {0}", modelCapabilitiesTitle())} />
 				<DocsLink href={DOCS_LINK_MODEL_CAPABILITIES} label={l10n.t("Open the model capabilities guide")} />
 			</div>
-			<ScopeNote scoped={scoped} />
-			{json !== undefined ? (
-				<div className="record-json">
-					<textarea
-						rows={10}
-						aria-label={l10n.t("Model capabilities as JSON")}
-						aria-invalid={jsonBlocked}
-						value={json.text}
-						onChange={(event) => {
-							const text = event.currentTarget.value;
-							setJson((current) => (current === undefined ? current : { ...current, text }));
-							const parsed = capabilityGroupsFromJsonText(text);
-							if (parsed.ok) {
-								draft.update(parsed.rows);
-							}
-						}}
-					/>
-					{jsonParse !== undefined && !jsonParse.ok ? <p className="error">{jsonParse.problem}</p> : null}
-				</div>
-			) : (
-				<>
-					{groups.length === 0 ? (
-						<p className="empty">{l10n.t("No model capabilities configured in this scope.")}</p>
-					) : null}
-					{groups.length > 0 ? (
-						<RecordMatcherTable
-							kind="caps"
-							groups={groups}
-							issues={issueViews}
-							keySuggestions={keySuggestions}
-							onChange={(next) => draft.update(next)}
-							onOpenEditor={openEditor}
-						/>
-					) : null}
-				</>
-			)}
-			<FailureNote failure={draft.failure} dirty={draft.dirty} />
-			<div className="toolbar">
-				{json === undefined ? (
-					<Button
-						variant="secondary"
-						id="caps-add-matcher"
-						onClick={() => {
-							draft.update([...groups, { prefix: "", params: [] }]);
-							openEditor(groups.length, "");
-						}}
-					>
-						<IconAdd /> {l10n.t("Add capability matcher")}
-					</Button>
+			{/* The parameters editor's frame, on this editor's own parse. */}
+			<div className="record-frame">
+				{/* The write scope, said only when it is news (the parameters
+				    editor's rule). */}
+				{scoped.editScope !== "global" ? (
+					<p className="hint editor-scope-note">
+						{l10n.t(
+							"Apply writes {0} settings - that scope already sets this record.",
+							settingScopeLabel(scoped.editScope)
+						)}
+					</p>
 				) : null}
-				<Button disabled={!canApply} onClick={apply}>
-					{l10n.t("Apply")}
-				</Button>
-				{/* Discard stays available while a write is in flight: a lost ack
-				    must not wedge the editor until a reload. */}
-				<Button
-					variant="danger"
-					disabled={!draft.dirty && draft.phase !== "applying" && !(json !== undefined && json.text !== json.base)}
-					aria-label={l10n.t("Discard the unapplied model capability edits")}
-					onClick={discard}
-				>
-					{l10n.t("Discard")}
-				</Button>
-				{json === undefined ? (
-					<Button
-						variant="secondary"
-						size="compact"
-						disabled={!parse.ok}
-						onClick={() => {
-							if (parse.ok) {
-								setJson(seededJson(parse.value));
-							}
-						}}
-					>
-						{l10n.t("Edit as JSON")}
-					</Button>
+				{json !== undefined ? (
+					<div className="record-json">
+						<textarea
+							rows={10}
+							aria-label={l10n.t("Model capabilities as JSON")}
+							aria-invalid={jsonBlocked}
+							value={json.text}
+							onChange={(event) => {
+								const text = event.currentTarget.value;
+								setJson((current) => (current === undefined ? current : { ...current, text }));
+								const parsed = capabilityGroupsFromJsonText(text);
+								if (parsed.ok) {
+									draft.update(parsed.rows);
+								}
+							}}
+						/>
+						{jsonParse !== undefined && !jsonParse.ok ? <p className="error">{jsonParse.problem}</p> : null}
+					</div>
 				) : (
-					<Button variant="secondary" size="compact" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
-						{l10n.t("Edit as rows")}
-					</Button>
+					<>
+						{groups.length === 0 ? (
+							<p className="empty">{l10n.t("No model capabilities configured in this scope.")}</p>
+						) : null}
+						{groups.length > 0 ? (
+							<RecordMatcherTable
+								kind="caps"
+								groups={groups}
+								issues={issueViews}
+								keySuggestions={keySuggestions}
+								onChange={(next) => draft.update(next)}
+								onOpenEditor={openEditor}
+							/>
+						) : null}
+					</>
 				)}
-				<ApplyStatus phase={draft.phase} />
+				<FailureNote failure={draft.failure} dirty={draft.dirty} />
+				<div className="toolbar editor-actions">
+					{json === undefined ? (
+						<Button
+							variant="secondary"
+							id="caps-add-matcher"
+							onClick={() => {
+								draft.update([...groups, { prefix: "", params: [] }]);
+								openEditor(groups.length, "");
+							}}
+						>
+							<IconAdd /> {l10n.t("Add capability matcher")}
+						</Button>
+					) : null}
+					{json === undefined ? (
+						<Button
+							variant="secondary"
+							size="compact"
+							disabled={!parse.ok}
+							onClick={() => {
+								if (parse.ok) {
+									setJson(seededJson(parse.value));
+								}
+							}}
+						>
+							{l10n.t("Edit as JSON")}
+						</Button>
+					) : (
+						<Button variant="secondary" size="compact" disabled={jsonBlocked} onClick={() => setJson(undefined)}>
+							{l10n.t("Edit as rows")}
+						</Button>
+					)}
+					{/* The commit trio wraps as a unit; the parameters editor's twin. */}
+					<span className="editor-commit ms-auto flex flex-wrap items-center gap-2">
+						<ApplyStatus phase={draft.phase} />
+						{/* Discard stays available while a write is in flight: a lost ack
+					    must not wedge the editor until a reload. */}
+						<Button
+							variant="danger"
+							disabled={!draft.dirty && draft.phase !== "applying" && !(json !== undefined && json.text !== json.base)}
+							aria-label={l10n.t("Discard the unapplied model capability edits")}
+							onClick={discard}
+						>
+							{l10n.t("Discard")}
+						</Button>
+						<Button disabled={!canApply} onClick={apply}>
+							{l10n.t("Apply")}
+						</Button>
+					</span>
+				</div>
 			</div>
 			{scoped.otherScopes.map((other) => {
 				// The same-parse rule as the parameters editor's static tables,
@@ -3200,13 +3222,15 @@ export function ModelCapabilitiesEditor({
 				return (
 					<div className="other-scope" key={other.scope}>
 						<OtherScopeNote scope={other.scope} />
-						<RecordMatcherTable
-							kind="caps"
-							groups={otherGroups}
-							issues={capabilityIssueViews(otherGroups, otherParse.issues)}
-							readOnly
-							onChange={() => undefined}
-						/>
+						<div className="record-frame">
+							<RecordMatcherTable
+								kind="caps"
+								groups={otherGroups}
+								issues={capabilityIssueViews(otherGroups, otherParse.issues)}
+								readOnly
+								onChange={() => undefined}
+							/>
+						</div>
 					</div>
 				);
 			})}

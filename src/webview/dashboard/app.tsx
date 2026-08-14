@@ -730,6 +730,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		failures.setUsageAlertThresholds ??
 		failures.setUsageStatusBar ??
 		failures.setTokenEstimation ??
+		failures.setAdditionalToolSchemaKeywords ??
 		failures.setCurrencySymbol ??
 		failures.setUiTheme ??
 		failures.setUiAccent ??

@@ -467,6 +467,14 @@ export interface DashboardSettings {
 		readonly tokenEstimationScope: SettingScope | null;
 		/** The configured chat.additionalToolSchemaKeywords as normalization reads them (non-empty strings, deduplicated). */
 		readonly additionalToolSchemaKeywords: readonly string[];
+		/**
+		 * Whether normalization DROPPED anything from the raw configured value
+		 * (a non-string, an empty entry, a duplicate, an unsafe key). The push
+		 * carries only the normalized list, so without this flag the row cannot
+		 * tell a clean list from one hiding entries a dashboard edit would
+		 * silently destroy - it must fall back to read-only instead.
+		 */
+		readonly additionalToolSchemaKeywordsLossy: boolean;
 		readonly additionalToolSchemaKeywordsScope: SettingScope | null;
 	};
 	/** The non-scalar usage settings' rows (the enum, the fraction list, and the currency symbol). */

@@ -29,11 +29,6 @@ const REQUIRED_UTILITIES = [
 	// to Canvas - both vanish silently if the scan stops emitting them.
 	"border-axis",
 	"forced-colors:bg-[Highlight]",
-	// The record chips' resting state under forced colors, where a border
-	// colour is repainted whether or not the author wrote it transparent:
-	// without this the hairline the row offers on approach is on every chip
-	// at rest, and the invalid and hinted ones stop being the marked ones.
-	"forced-colors:border-[color:Canvas]",
 	// Secondary's resting affordance. It is the only thing that says a
 	// secondary button is a button before the pointer arrives, and the
 	// component suites run without a cascade, so they can only assert that the
@@ -84,6 +79,11 @@ const REQUIRED_UTILITIES = [
 	// the jump painted only below 560px, with every component test green.
 	"group-hover/head:opacity-100",
 	"group-focus-within/head:opacity-100",
+	// The settings rows' actions slot (ui/reveal.tsx's "setting" scope):
+	// Reset and the settings.json jump on every row reveal on the row's own
+	// group, same regression mode as the /row and /head entries.
+	"group-hover/setting:opacity-100",
+	"group-focus-within/setting:opacity-100",
 ] as const;
 
 /** A utility name as it appears escaped in a compiled selector. */
@@ -103,6 +103,15 @@ test("the source scan compiles every utility the ui components depend on", async
 	for (const utility of REQUIRED_UTILITIES) {
 		expect(output).toContain(escapedSelector(utility));
 	}
+	// The forced-colors block's own rules ride the same compile: the disabled
+	// buttons' GrayText treatment (an author-styled control keeps its
+	// repainted ButtonText otherwise, reading as actionable) and the marked
+	// chips' width channel (every chip border repaints to one colour, so 2px
+	// is what keeps invalid and hinted chips the marked ones).
+	expect(output).toContain('[data-slot="button"]:disabled');
+	expect(output).toContain("GrayText");
+	expect(output).toContain(".chip-field.invalid");
+	expect(output).toContain(".chip-field.hinted");
 });
 
 test("the palette and radius resets keep Tailwind's defaults unreachable", async () => {

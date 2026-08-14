@@ -57,6 +57,7 @@ export function makeSettings(overrides: Partial<DashboardSettings> = {}): Dashbo
 			tokenEstimation: "auto",
 			tokenEstimationScope: null,
 			additionalToolSchemaKeywords: [],
+			additionalToolSchemaKeywordsLossy: false,
 			additionalToolSchemaKeywordsScope: null,
 		},
 		usage: {

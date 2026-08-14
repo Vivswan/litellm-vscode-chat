@@ -531,7 +531,7 @@ export function booleanSettingPresentation(id: BooleanSettingId): BooleanSetting
 		case "chat.promptCaching":
 			return {
 				label: l10n.t("Prompt caching"),
-				description: l10n.t("Cache the system prompt on models that advertise support."),
+				description: l10n.t("Reuse the cached prompt prefix between turns on models that advertise support."),
 			};
 		case "ui.maskSecretInputs":
 			return {

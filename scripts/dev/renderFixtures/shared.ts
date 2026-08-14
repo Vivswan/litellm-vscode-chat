@@ -498,6 +498,7 @@ export function baseState(overrides: Partial<DashboardState> = {}): DashboardSta
 				tokenEstimation: "auto",
 				tokenEstimationScope: null,
 				additionalToolSchemaKeywords: [],
+				additionalToolSchemaKeywordsLossy: false,
 				additionalToolSchemaKeywordsScope: null,
 			},
 			usage: {

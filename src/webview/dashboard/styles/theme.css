@@ -84,6 +84,28 @@
 		border-width: 2px;
 		font-weight: 700;
 	}
+	/* Disabled is a state forced colours know by name, but only on controls
+	 the system styles itself: an author-styled button keeps its repainted
+	 ButtonText and reads exactly as actionable as its enabled neighbour
+	 (the record editors' resting Apply/Discard were the proof). GrayText is
+	 the mode's own word for "not now", so disabled controls say it
+	 explicitly - text, border, and the secondary rank's resting underline. */
+	[data-slot="button"]:disabled,
+	[data-slot="button"][aria-disabled="true"] {
+		color: GrayText;
+		border-color: GrayText;
+		text-decoration-color: GrayText;
+	}
+	/* The record chips are filled at rest, and the mode flattens the fill, so
+	 every chip's repainted transparent border is welcome - it is what keeps
+	 two chips from reading as one run of words. But that hands every chip a
+	 box, and the invalid and hinted chips' red and amber borders repaint to
+	 the same colour as everyone else's; width is the channel the mode leaves
+	 alone (the danger buttons' rule above), so the marked chips take it. */
+	.chip-field.invalid,
+	.chip-field.hinted {
+		border-width: 2px;
+	}
 	/* The settings gutter marks a modified row with its left border, and spells
 	 the unmodified state as a TRANSPARENT one. Forced colours repaint a border
 	 colour whether or not it is transparent, so the off state painted too and

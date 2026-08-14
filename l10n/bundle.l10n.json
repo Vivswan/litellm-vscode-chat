@@ -49,6 +49,12 @@
 	"(no matcher)": "(no matcher)",
 	"(no own fields)": "(no own fields)",
 	"(unnamed)": "(unnamed)",
+	"0 stops only the background timer - opening the dashboard or running Refresh Usage Now still fetches on demand. Type 5m, 90s, or plain ms./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {
+		"message": "0 stops only the background timer - opening the dashboard or running Refresh Usage Now still fetches on demand. Type 5m, 90s, or plain ms.",
+		"comment": [
+			"Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."
+		]
+	},
 	"1 alert threshold was dropped: a threshold must be inside (0, 1].": "1 alert threshold was dropped: a threshold must be inside (0, 1].",
 	"1 catalog model": "1 catalog model",
 	"1 day ago": "1 day ago",
@@ -88,16 +94,9 @@
 	"1 unknown key will be ignored.": "1 unknown key will be ignored.",
 	"1 unrecognized part of the servers setting was omitted because it cannot be checked for secrets.": "1 unrecognized part of the servers setting was omitted because it cannot be checked for secrets.",
 	"1 unsaved change": "1 unsaved change",
-	"A bundled snapshot of OpenRouter's public model list fills capability gaps, refreshed about weekly. Refresh fetches it now; failures show here, never as popups.": "A bundled snapshot of OpenRouter's public model list fills capability gaps, refreshed about weekly. Refresh fetches it now; failures show here, never as popups.",
 	"A deeper reasoning tier above High, on models that offer one": "A deeper reasoning tier above High, on models that offer one",
 	"A default.": "A default.",
 	"A gateway in front of the server could not reach it while listing models.": "A gateway in front of the server could not reach it while listing models.",
-	"A hard bound on one model-list fetch; type 30s, 1m, or plain ms./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {
-		"message": "A hard bound on one model-list fetch; type 30s, 1m, or plain ms.",
-		"comment": [
-			"Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."
-		]
-	},
 	"A hard bound on the whole chat call, streaming included; type 5m, 90s, or plain ms. Requests are never retried, so raise it if long runs get cut off./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {
 		"message": "A hard bound on the whole chat call, streaming included; type 5m, 90s, or plain ms. Requests are never retried, so raise it if long runs get cut off.",
 		"comment": [
@@ -147,17 +146,26 @@
 	"An entry with this label already exists": "An entry with this label already exists",
 	"An entry with this label already exists; saving replaces it.": "An entry with this label already exists; saving replaces it.",
 	"Any model_info field, e.g. context_length, supports_vision, or input_cost_per_token; unknown names apply as-is. _openrouter_model fills from the catalog, _fallback demotes below the server's report.": "Any model_info field, e.g. context_length, supports_vision, or input_cost_per_token; unknown names apply as-is. _openrouter_model fills from the catalog, _fallback demotes below the server's report.",
+	"Applies per call, and a discovery pass makes several - the model-info listing and the /models fallback each get a fresh budget - so one pass can take a multiple of this. Type 30s, 1m, or plain ms./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {
+		"message": "Applies per call, and a discovery pass makes several - the model-info listing and the /models fallback each get a fresh budget - so one pass can take a multiple of this. Type 30s, 1m, or plain ms.",
+		"comment": [
+			"Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."
+		]
+	},
 	"Applies this value only when the server reports nothing, e.g. filling a missing context_length. Unchecked, your value overrides the server's.": "Applies this value only when the server reports nothing, e.g. filling a missing context_length. Unchecked, your value overrides the server's.",
 	"Apply": "Apply",
+	"Apply writes {0} settings - that scope already sets this record.": "Apply writes {0} settings - that scope already sets this record.",
 	"Applying...": "Applying...",
 	"As discovered": "As discovered",
 	"Ask the model to skip reasoning entirely, on models that can turn thinking off": "Ask the model to skip reasoning entirely, on models that can turn thinking off",
 	"Ask whoever issued the key to allow reading its own usage, then use Refresh now - the extension won't re-check on its own.": "Ask whoever issued the key to allow reading its own usage, then use Refresh now - the extension won't re-check on its own.",
+	"At most {0} keywords.": "At most {0} keywords.",
 	"Audio input": "Audio input",
 	"Authentication": "Authentication",
 	"Authentication failed upstream: the LiteLLM server accepted your key but could not authenticate to the model's upstream provider. Fix that provider's credentials on the LiteLLM server.": "Authentication failed upstream: the LiteLLM server accepted your key but could not authenticate to the model's upstream provider. Fix that provider's credentials on the LiteLLM server.",
 	"Authentication failed: Your LiteLLM server requires an API key. Please run the \"{0}\" command to configure your API key.": "Authentication failed: Your LiteLLM server requires an API key. Please run the \"{0}\" command to configure your API key.",
 	"Auto - tokenizer when text needs it": "Auto - tokenizer when text needs it",
+	"Auto loads the o200k_base tokenizer where a plain character count underestimates, e.g. CJK text; a loaded tokenizer holds 10-30 MB in memory.": "Auto loads the o200k_base tokenizer where a plain character count underestimates, e.g. CJK text; a loaded tokenizer holds 10-30 MB in memory.",
 	"Auto-detect, default /{0}": "Auto-detect, default /{0}",
 	"Back to servers": "Back to servers",
 	"Balance reasoning depth against latency": "Balance reasoning depth against latency",
@@ -174,7 +182,6 @@
 			"Pricing row label: cost of cached input tokens"
 		]
 	},
-	"Cache the system prompt on models that advertise support.": "Cache the system prompt on models that advertise support.",
 	"Cache write/Pricing row label: cost of writing the prompt cache": {
 		"message": "Cache write",
 		"comment": [
@@ -236,6 +243,12 @@
 	"Cost per token, e.g. 0.000002": "Cost per token, e.g. 0.000002",
 	"Could not reach {0} to list its models. Check your network, VPN, or proxy settings, and that the server is up.": "Could not reach {0} to list its models. Check your network, VPN, or proxy settings, and that the server is up.",
 	"Could not reach {0}. Check your network, VPN, or proxy settings, and that the server is up.": "Could not reach {0}. Check your network, VPN, or proxy settings, and that the server is up.",
+	"Counted from the last successful sync, and the held models wear a stale warning in the picker; e.g. 1h suits a homelab proxy that sleeps. Type 1h, 30m, or plain ms./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {
+		"message": "Counted from the last successful sync, and the held models wear a stale warning in the picker; e.g. 1h suits a homelab proxy that sleeps. Type 1h, 30m, or plain ms.",
+		"comment": [
+			"Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."
+		]
+	},
 	"Currency symbol": "Currency symbol",
 	"Custom headers": "Custom headers",
 	"Custom list - edit in settings.json.": "Custom list - edit in settings.json.",
@@ -271,6 +284,7 @@
 	"Discovery timeout": "Discovery timeout",
 	"Dismiss": "Dismiss",
 	"Dismiss notification": "Dismiss notification",
+	"Display only - amounts are never converted; they render exactly as the server reports them, whatever its billing currency.": "Display only - amounts are never converted; they render exactly as the server reports them, whatever its billing currency.",
 	"Documentation": "Documentation",
 	"Documentation, feature requests, bug reports": "Documentation, feature requests, bug reports",
 	"Done": "Done",
@@ -289,8 +303,8 @@
 	"Edit record \"{0}\" in settings": "Edit record \"{0}\" in settings",
 	"Edit {0}": "Edit {0}",
 	"Editable after adopting.": "Editable after adopting.",
-	"Editing {0} settings. Rows here apply together via the Apply button; the plain settings above save each change on its own.": "Editing {0} settings. Rows here apply together via the Apply button; the plain settings above save each change on its own.",
 	"Emptied; the stored value is kept.": "Emptied; the stored value is kept.",
+	"Enter 80% or 0.8; the lower value warns, the higher errors. Clear both fields to turn alerts off.": "Enter 80% or 0.8; the lower value warns, the higher errors. Clear both fields to turn alerts off.",
 	"Enter a JSON value, e.g. 0.2, true, or \"text\".": "Enter a JSON value, e.g. 0.2, true, or \"text\".",
 	"Enter a capability or directive": "Enter a capability or directive",
 	"Enter a header name": "Enter a header name",
@@ -316,7 +330,6 @@
 	"Enter true, false, or a list of record keys, e.g. [\"gpt-5*\"]": "Enter true, false, or a list of record keys, e.g. [\"gpt-5*\"]",
 	"Entry problems:": "Entry problems:",
 	"Error": "Error",
-	"Error at": "Error at",
 	"Every model your servers report, as registered with Copilot Chat. Lists are cached; run Sync models to ask the servers again now.": "Every model your servers report, as registered with Copilot Chat. Lists are cached; run Sync models to ask the servers again now.",
 	"Evidence about this install, e.g. Copy diagnostics puts your connections and configuration problems on the clipboard as English text. Report a bug pre-fills a GitHub issue.": "Evidence about this install, e.g. Copy diagnostics puts your connections and configuration problems on the clipboard as English text. Report a bug pre-fills a GitHub issue.",
 	"Exact model IDs to register even when discovery cannot list them, e.g. deepseek-r1. A declaration goes inert once the server lists the ID.": "Exact model IDs to register even when discovery cannot list them, e.g. deepseek-r1. A declaration goes inert once the server lists the ID.",
@@ -335,7 +348,7 @@
 			"Reasoning effort level label in the model picker"
 		]
 	},
-	"Extra JSON-Schema keywords kept in tool definitions, e.g. propertyNames. The built-in set always applies; keywords your server rejects can fail requests.": "Extra JSON-Schema keywords kept in tool definitions, e.g. propertyNames. The built-in set always applies; keywords your server rejects can fail requests.",
+	"Extra JSON-Schema keywords kept in tool definitions.": "Extra JSON-Schema keywords kept in tool definitions.",
 	"Extra tool schema keywords": "Extra tool schema keywords",
 	"Failed to fetch LiteLLM models: the server at {0} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.": "Failed to fetch LiteLLM models: the server at {0} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.",
 	"Failed to parse the LiteLLM usage response from {0}.": "Failed to parse the LiteLLM usage response from {0}.",
@@ -387,27 +400,14 @@
 			"Reasoning effort level label in the model picker"
 		]
 	},
-	"How long a failing server's last known models stay in the picker, e.g. 1h for a homelab proxy that sleeps; counted from the last successful sync. 0 drops them on the first failed refresh./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {
-		"message": "How long a failing server's last known models stay in the picker, e.g. 1h for a homelab proxy that sleeps; counted from the last successful sync. 0 drops them on the first failed refresh.",
-		"comment": [
-			"Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."
-		]
-	},
 	"How long after a servers-setting edit usage data refreshes.": "How long after a servers-setting edit usage data refreshes.",
 	"How long after startup the first usage poll runs.": "How long after startup the first usage poll runs.",
 	"How long an unreachable server's last known models stay in the picker; 0 drops them at once.": "How long an unreachable server's last known models stay in the picker; 0 drops them at once.",
-	"How long discovered model lists are reused, e.g. 1h or 0 to ask the server on every refresh. Sync Models Now always refreshes immediately.": "How long discovered model lists are reused, e.g. 1h or 0 to ask the server on every refresh. Sync Models Now always refreshes immediately.",
 	"How long discovered model lists are reused; 0 asks the server on every refresh.": "How long discovered model lists are reused; 0 asks the server on every refresh.",
 	"How long fetched usage data counts as fresh while polling is off.": "How long fetched usage data counts as fresh while polling is off.",
 	"How much reasoning the model puts in before it answers.": "How much reasoning the model puts in before it answers.",
 	"How often per-server spend and budget data refresh; 0 turns polling off.": "How often per-server spend and budget data refresh; 0 turns polling off.",
-	"How often spend and budget data refresh in the background; type 5m, 90s, or plain ms. 0 turns polling off - the dashboard and Refresh Usage Now still fetch on demand./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {
-		"message": "How often spend and budget data refresh in the background; type 5m, 90s, or plain ms. 0 turns polling off - the dashboard and Refresh Usage Now still fetch on demand.",
-		"comment": [
-			"Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."
-		]
-	},
-	"How prompts are sized for the local token budget. Auto loads the o200k_base tokenizer for a non-English VS Code language or for text plain counting underestimates, e.g. CJK; a loaded tokenizer holds 10-30 MB in memory.": "How prompts are sized for the local token budget. Auto loads the o200k_base tokenizer for a non-English VS Code language or for text plain counting underestimates, e.g. CJK; a loaded tokenizer holds 10-30 MB in memory.",
+	"How prompts are sized for the local token budget.": "How prompts are sized for the local token budget.",
 	"Import": "Import",
 	"Import & Export": "Import & Export",
 	"Import Renamed": "Import Renamed",
@@ -440,6 +440,7 @@
 	"Just the segment, no slashes.": "Just the segment, no slashes.",
 	"Keep editing": "Keep editing",
 	"Keys starting with _ are directives - instructions to the extension, never sent.": "Keys starting with _ are directives - instructions to the extension, never sent.",
+	"Keywords run up to {0} characters each.": "Keywords run up to {0} characters each.",
 	"Label": "Label",
 	"Label cannot contain '/' (used as separator in model parameters)": "Label cannot contain '/' (used as separator in model parameters)",
 	"Label is required": "Label is required",
@@ -567,7 +568,7 @@
 	"Manage server \"{0}\" ({1})": "Manage server \"{0}\" ({1})",
 	"Mark \"{0}\" inheritable": "Mark \"{0}\" inheritable",
 	"Mark discovery endpoints this server is known to lack, e.g. the model list. Marked failures log quietly, skip retries, and never count as errors.": "Mark discovery endpoints this server is known to lack, e.g. the model list. Marked failures log quietly, skip retries, and never count as errors.",
-	"Marks primary actions, selection, focus and links; status colors stay green, yellow and red. High contrast themes keep their own accent.": "Marks primary actions, selection, focus and links; status colors stay green, yellow and red. High contrast themes keep their own accent.",
+	"Marks primary actions, selection, focus and links.": "Marks primary actions, selection, focus and links.",
 	"Mask secret inputs": "Mask secret inputs",
 	"Matcher": "Matcher",
 	"Matchers": "Matchers",
@@ -696,7 +697,6 @@
 			"Reasoning effort level label in the model picker"
 		]
 	},
-	"On models that support it (currently Anthropic Claude), reuses the cached prompt prefix between turns instead of re-sending the whole history at full price.": "On models that support it (currently Anthropic Claude), reuses the cached prompt prefix between turns instead of re-sending the whole history at full price.",
 	"One model ID per line, e.g. deepseek-r1": "One model ID per line, e.g. deepseek-r1",
 	"Only needed when the proxy cannot list its own models, or cannot report their info. Declared IDs register anyway; marked failures log quietly and skip retries.": "Only needed when the proxy cannot list its own models, or cannot report their info. Declared IDs register anyway; marked failures log quietly and skip retries.",
 	"Only while a threshold is crossed": "Only while a threshold is crossed",
@@ -773,7 +773,7 @@
 	"Pick how requests authenticate, e.g. a bearer API key. Exactly one form per entry; a gateway that checks a second credential takes it as a companion inside that form.": "Pick how requests authenticate, e.g. a bearer API key. Exactly one form per entry; a gateway that checks a second credential takes it as a companion inside that form.",
 	"Point the extension at your LiteLLM server and its models appear in Copilot Chat's model picker.": "Point the extension at your LiteLLM server and its models appear in Copilot Chat's model picker.",
 	"Polling-off freshness window": "Polling-off freshness window",
-	"Prefix on every spend and price figure, e.g. \"EUR \". Amounts are never converted - they render exactly as the server reports them.": "Prefix on every spend and price figure, e.g. \"EUR \". Amounts are never converted - they render exactly as the server reports them.",
+	"Prefix on every spend and price figure, e.g. \"EUR \".": "Prefix on every spend and price figure, e.g. \"EUR \".",
 	"Price": "Price",
 	"Pricing": "Pricing",
 	"Pricing (per M tokens)": "Pricing (per M tokens)",
@@ -833,8 +833,10 @@
 	"Response schema": "Response schema",
 	"Retry": "Retry",
 	"Retry discovery for {0}": "Retry discovery for {0}",
+	"Reuse the cached prompt prefix between turns on models that advertise support.": "Reuse the cached prompt prefix between turns on models that advertise support.",
 	"Reveal File": "Reveal File",
 	"Rotating an entry's key switches its numbers to the new key's spend.": "Rotating an entry's key switches its numbers to the new key's spend.",
+	"Rows in the two editors below apply together via their Apply button; the settings above save each change on its own.": "Rows in the two editors below apply together via their Apply button; the settings above save each change on its own.",
 	"Run Sync models to ask your servers.": "Run Sync models to ask your servers.",
 	"Run Sync models.": "Run Sync models.",
 	"Runtime options": "Runtime options",
@@ -902,6 +904,7 @@
 	"Spend tracking needs a LiteLLM server with a database (the /key/info endpoint); servers without one simply do not appear here.": "Spend tracking needs a LiteLLM server with a database (the /key/info endpoint); servers without one simply do not appear here.",
 	"Spent:": "Spent:",
 	"Stale-list grace": "Stale-list grace",
+	"Status colors stay green, yellow and red whatever you pick, and high contrast themes keep their own accent.": "Status colors stay green, yellow and red whatever you pick, and high contrast themes keep their own accent.",
 	"Store an API key or OAuth secret outside settings files": "Store an API key or OAuth secret outside settings files",
 	"Store in:": "Store in:",
 	"Stored credentials": "Stored credentials",
@@ -909,7 +912,9 @@
 	"Success rate": "Success rate",
 	"Suggestions": "Suggestions",
 	"Support": "Support",
+	"Support currently means Anthropic Claude models (the supports_prompt_caching capability); the reused prefix bills at the provider's cache rate instead of full price.": "Support currently means Anthropic Claude models (the supports_prompt_caching capability); the reused prefix bills at the provider's cache rate instead of full price.",
 	"Supported parameters": "Supported parameters",
+	"Sync Models Now always asks the servers immediately, whatever this says; type 1h, 30m, or 0 to refresh every time.": "Sync Models Now always asks the servers immediately, whatever this says; type 1h, 30m, or 0 to refresh every time.",
 	"Sync issue": "Sync issue",
 	"Sync models": "Sync models",
 	"Teal": "Teal",
@@ -925,6 +930,7 @@
 	"The OAuth client secret. Leave empty for public clients issued without one.": "The OAuth client secret. Leave empty for public clients issued without one.",
 	"The OAuth token endpoint gave an unexpected answer. Check the OAuth token URL in this server's settings.": "The OAuth token endpoint gave an unexpected answer. Check the OAuth token URL in this server's settings.",
 	"The adoption failed, and this label's stored secrets could not be restored.": "The adoption failed, and this label's stored secrets could not be restored.",
+	"The built-in set always applies; keywords your server rejects can fail requests. Unlisted keywords are stripped before sending.": "The built-in set always applies; keywords your server rejects can fail requests. Unlisted keywords are stripped before sending.",
 	"The change was not applied; see the LiteLLM output log.": "The change was not applied; see the LiteLLM output log.",
 	"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server.": "The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
 	"The connection to {0} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.": "The connection to {0} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.",
@@ -1041,8 +1047,6 @@
 	"Vision": "Vision",
 	"Waiting for first sync": "Waiting for first sync",
 	"Waiting for the configured servers to report...": "Waiting for the configured servers to report...",
-	"Warning at": "Warning at",
-	"Warning at 80% and error at 95% by default; enter 80% or 0.8. Clear both threshold fields to turn alerts off.": "Warning at 80% and error at 95% by default; enter 80% or 0.8. Clear both threshold fields to turn alerts off.",
 	"Welcome to LiteLLM! Connect to 100+ LLMs in VS Code.": "Welcome to LiteLLM! Connect to 100+ LLMs in VS Code.",
 	"What one request to this model carries, e.g. temperature 0.2 from your settings. Runtime options from the chat client override the forwarded values, except where a record forces one.": "What one request to this model carries, e.g. temperature 0.2 from your settings. Runtime options from the chat client override the forwarded values, except where a record forces one.",
 	"What this record inherits from broader matches: the default takes fields marked inheritable, \"everything\" takes the whole broader view, \"nothing\" makes it a barrier, and named keys take exactly those records.": "What this record inherits from broader matches: the default takes fields marked inheritable, \"everything\" takes the whole broader view, \"nothing\" makes it a barrier, and named keys take exactly those records.",
@@ -1051,6 +1055,7 @@
 	"When the spend status bar item shows; the worst fresh server's percentage.": "When the spend status bar item shows; the worst fresh server's percentage.",
 	"Where each effective capability comes from, e.g. context_length 128000 from your settings. Higher precedence levels beat server-reported values.": "Where each effective capability comes from, e.g. context_length 128000 from your settings. Higher precedence levels beat server-reported values.",
 	"Where to store the {0}": "Where to store the {0}",
+	"Whether the dashboard renders light or dark; Auto follows the editor.": "Whether the dashboard renders light or dark; Auto follows the editor.",
 	"Which record set each value on each model, e.g. temperature 0.3 from your gpt-5* record. Read-only, and it never leaves this dashboard.": "Which record set each value on each model, e.g. temperature 0.3 from your gpt-5* record. Read-only, and it never leaves this dashboard.",
 	"Which secret?": "Which secret?",
 	"Which server?": "Which server?",
@@ -1077,6 +1082,7 @@
 	"could not restore {0} for server \"{1}\"; the settings entry is unchanged (after a rename, the changed values sit under the new label)": "could not restore {0} for server \"{1}\"; the settings entry is unchanged (after a rename, the changed values sit under the new label)",
 	"declared": "declared",
 	"default": "default",
+	"default: {0}": "default: {0}",
 	"derived": "derived",
 	"e.g. 50": "e.g. 50",
 	"e.g. 80%": "e.g. 80%",
@@ -1101,6 +1107,12 @@
 		"message": "entry",
 		"comment": [
 			"Provenance badge: the value comes from this server entry's own record"
+		]
+	},
+	"error/Trailing label after the higher usage-alert threshold input, unit-style.": {
+		"message": "error",
+		"comment": [
+			"Trailing label after the higher usage-alert threshold input, unit-style."
 		]
 	},
 	"every refresh": "every refresh",
@@ -1255,6 +1267,12 @@
 	"updated {0}": "updated {0}",
 	"usage access denied": "usage access denied",
 	"vision": "vision",
+	"warning/Trailing label after the lower usage-alert threshold input, unit-style.": {
+		"message": "warning",
+		"comment": [
+			"Trailing label after the lower usage-alert threshold input, unit-style."
+		]
+	},
 	"yes": "yes",
 	"{0} (assumed)": "{0} (assumed)",
 	"{0} alert thresholds were dropped: a threshold must be inside (0, 1].": "{0} alert thresholds were dropped: a threshold must be inside (0, 1].",

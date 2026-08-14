@@ -76,11 +76,8 @@ const TRANSPARENT_BORDERS: readonly TransparentBorder[] = [
 		text: "border-transparent",
 		count: 2,
 		disposition: {
-			kind: "named",
-			sheet: "theme",
-			selector: ".forced-colors\\:border-\\[color\\:Canvas\\]",
-			declaration: "border-color: Canvas;",
-			why: "a chip is quiet at rest and a field on approach; painted at rest it is neither, and the invalid and hinted chips lose their marks",
+			kind: "welcome",
+			why: "the chips are FILLED at rest and forced colours flatten the fill into the page, so the repainted border is the only thing keeping two chips from reading as one run of words; the invalid and hinted chips still outrank it with their 2px marks",
 		},
 	},
 	{

@@ -1035,7 +1035,9 @@
 	}
 	.setting-check input[type="checkbox"] {
 		flex: none;
-		margin: 1px 0 0;
+		/* No margin rule: the Checkbox primitive's m-0 utility owns the UA
+		   margin reset for every checkbox, and a layered margin here would
+		   silently lose to it anyway. */
 		cursor: pointer;
 	}
 
@@ -1251,6 +1253,71 @@
 	}
 	.apply-status.saved {
 		color: var(--ok-text);
+	}
+	/* The bounded region a record editor's draft lives in: the matcher rows
+		   (or the JSON side door), the failure note, and the action bar are one
+		   framed surface, so the chip rows read as contents of something rather
+		   than floating between the scalar rows. Same chrome as .group, which
+		   is this frame's slide-over cousin. */
+	.record-frame {
+		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+		border-radius: 4px;
+		padding: 6px 12px;
+		margin: 4px 0 8px;
+		background: var(--vscode-editorWidget-background, transparent);
+	}
+	/* The frame's action bar: a footer separated by a hairline that runs the
+		   frame's full width (the negative margins hand back the frame's own
+		   padding), so the actions read as the region's toolbar rather than a
+		   sentence of verbs under it. */
+	.record-frame .editor-actions {
+		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+		margin: 8px -12px 0;
+		padding: 8px 12px 2px;
+	}
+	/* The matcher list's shared internal grid: [matcher | field chips |
+		   inherits | action], the LIST owning the column model and the rows
+		   inheriting it through subgrid (the models list's construction), so
+		   every row's cells land at the same x. The matcher column is
+		   content-sized with a floor and a cap - a long regex wraps inside it
+		   rather than pushing every other row's chips rightward - the chips take
+		   the free space, and the trailing columns hug their content: an empty
+		   inherits column collapses to nothing, so rows only reserve it when
+		   some row made a choice. STRUCTURE lives here rather than in utilities
+		   because this layer sits UNDER utilities: a `grid` utility on the list
+		   would beat the sub-620px flex fallback in the narrow tail no matter
+		   what the query says, while two rules in one flat layer settle by
+		   source order. */
+	.record-table {
+		display: grid;
+		grid-template-columns: minmax(7rem, 16rem) minmax(0, 1fr) max-content max-content;
+		column-gap: 12px;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+	.record-table .record-row {
+		grid-column: 1 / -1;
+		display: grid;
+		grid-template-columns: subgrid;
+		align-items: baseline;
+		row-gap: 4px;
+	}
+	.record-table .matcher-cell {
+		grid-column: 1;
+	}
+	.record-table .chip-list {
+		grid-column: 2;
+	}
+	.record-table .inherit-cell {
+		grid-column: 3;
+	}
+	.record-table .edit-cell {
+		grid-column: 4;
+		justify-self: end;
+	}
+	.record-table .record-row > .error {
+		grid-column: 1 / -1;
 	}
 	/* Another scope's record, rendered with the same row grid but inert. */
 	.other-scope {
@@ -3464,6 +3531,50 @@
 		.filterbar input {
 			min-width: 0;
 			flex: 1 1 100%;
+		}
+	}
+	/* The matcher list's shared columns stop paying rent under the 620px tier -
+	 four tracks at chip minimums outrun the pane - so the rows fall back to
+	 the wrapping flex lines they are everywhere else. Source order is what
+	 lets this win: the full-width grid above and this fallback share one flat
+	 layer, so the later rule takes the argument (a display utility on the
+	 list would sit in the utilities layer and never yield to it). */
+	@container pane (width < 620px) {
+		.record-table {
+			display: block;
+		}
+		.record-table .record-row {
+			display: flex;
+			flex-wrap: wrap;
+			align-items: baseline;
+			column-gap: 12px;
+		}
+		/* The chips take a full line of their own: sharing the matcher's line
+		 squeezed them into a column a word wide, and chip keys break anywhere,
+		 so "temperature" printed as tem-per-a-ture down the row. */
+		.record-table .chip-list {
+			flex: 1 1 100%;
+		}
+		/* Wrapped rows are three lines tall, so without a seam a row's trailing
+		 "inherits ..." read as the NEXT matcher's preamble. */
+		.record-table .record-row + .record-row {
+			margin-top: 6px;
+		}
+	}
+	/* A header action strip holding a real control (the settings filter) is
+	 not a rigid line: at the unpinning tier it also learns to shrink and
+	 wrap, or the filter input's fixed width would push past a narrow pane's
+	 edge (min-width: 0 lets the strip yield below its content's minimum, and
+	 the wrap gives the input a line of its own to be 100% of). */
+	@container pane (width < 640px) {
+		.section-head .section-actions {
+			flex-wrap: wrap;
+			min-width: 0;
+			max-width: 100%;
+		}
+		.section-head .section-actions input {
+			min-width: 0;
+			max-width: 100%;
 		}
 	}
 }

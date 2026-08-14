@@ -4,14 +4,15 @@
  * writes - these rows and settings.json are two views of one file, never two
  * stores.
  *
- * Every row has the same anatomy: a right-aligned label in a fixed gutter,
- * the control, and the explanation beside it rather than under it. The
- * explanation column is also where a row states a problem, so an error takes
- * the hint's place instead of pushing every row below it down - the form's
- * height does not change while you type. Marking a row modified, revealing
- * its settings.json line, and resetting the scope that sets it are the same
- * three gestures on every kind of row, so the vocabulary cannot drift between
- * a number, a checkbox, an enum, and a color.
+ * Every row has the same full-bleed anatomy: a right-aligned label in a fixed
+ * gutter, the control starting at one shared edge, the explanation growing
+ * with the pane, and the row's actions in a reserved trailing slot at the
+ * pane's right edge. The explanation column is also where a row states a
+ * problem, so an error takes the hint's place instead of pushing every row
+ * below it down - the form's height does not change while you type. Marking a
+ * row modified, revealing its settings.json line, and resetting the scope
+ * that sets it are the same three gestures on every kind of row, so the
+ * vocabulary cannot drift between a number, a checkbox, an enum, and a color.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -47,7 +48,16 @@ import type {
 import { NUMBER_SETTING_SPECS, TOKEN_ESTIMATION_MODES, UI_ACCENTS, UI_THEMES } from "../../shared/config/settingSpec";
 import { DOCS_LINK_OPENROUTER_CATALOG, DOCS_LINK_SETTINGS } from "./docsLinks";
 import { DocsLink, Help } from "./help";
-import { helpCatalogRow, helpImportExportGroup, helpSettingsSection, settingRowHelp } from "./helpText";
+import {
+	helpCurrencySymbol,
+	helpImportExportGroup,
+	helpSettingsSection,
+	helpTokenEstimation,
+	helpToolSchemaKeywords,
+	helpUiAccent,
+	helpUiTheme,
+	settingRowHelp,
+} from "./helpText";
 import { IconBraces } from "./icons";
 import type { ExternalRecordEdit } from "./recordEditors";
 import {
@@ -62,6 +72,7 @@ import { Checkbox } from "./ui/checkbox";
 import { cn } from "./ui/cn";
 import { Input } from "./ui/input";
 import { Radio } from "./ui/radio";
+import { Reveal } from "./ui/reveal";
 import { Section } from "./ui/section";
 import { Select } from "./ui/select";
 import { sendRequest } from "./vscodeApi";
@@ -114,52 +125,41 @@ const SETTING_GROUPS: readonly {
 ];
 
 /**
- * The page's measure, stated once and worn by the header and the groups
- * container together, so the header rule, the group rules, the record editors
- * with their pencils, and the rows all stop at ONE right edge. The number is
- * the row anatomy's own sum, not a chosen round one: at the default host font
- * the label gutter (10rem) + gap (1rem) + the control column (20rem) + gap
- * (1rem) + the explanation at its 46ch cap (~357px) + its help glyph (~22px)
- * comes to ~891px, measured on this surface; 56rem is that sum on the 8px
- * rhythm. It sits under the 910px stack threshold on purpose - a pane wide
- * enough for three columns is always wide enough for the whole measure, so
- * the middle state where the explanation column starves is unreachable
- * (narrowThresholds' settings-measure test enforces the relation).
+ * The one row template every row obeys, full-bleed: the label gutter, the
+ * control column, the explanation column growing with the pane, and the
+ * reserved actions slot at the pane's right edge. A constant rather than a
+ * class string per row kind, because the catalog row used to restate the
+ * gutter as padding (11rem, the track plus the gap) and a literal offset
+ * drifts the moment either number changes.
  *
- * This is the page-wide width policy's "forms measured" half: prose and
- * controls cap at a readable measure while the record editors' matcher lists
- * run full-bleed to it, the same way the models and servers lists run
- * full-bleed to the pane's own cap.
- */
-const SETTINGS_MEASURE = "max-w-[56rem]";
-
-/**
- * The one row template every full-width row obeys: the label gutter, the
- * control column, and the explanation column. A constant rather than a class
- * string per row kind, because the catalog row used to restate the gutter as
- * padding (11rem, the track plus the gap) and a literal offset drifts the
- * moment either number changes.
+ * The actions slot is a FIXED track on purpose: Reset renders only on
+ * configured rows, so an auto track would size per row and hand modified and
+ * clean rows different explanation edges. Fixed, every description ends at
+ * one right edge and the settings.json jump sits at one x down the page.
  *
- * Narrow: the three tracks become one. A description column twenty characters
+ * Narrow: the four tracks become one. A description column twenty characters
  * wide is not a column, it is a word per line, and the title's right edge
  * stops meaning anything once nothing lines up beside it. Stacked, the row
- * reads title, control, description - the order it is spoken in.
- * The PANE decides, not the window: this pane can be narrow inside a wide
- * window whenever the editor is split. The threshold sits at 910: just above
- * the page's own 896px measure, and just clear of a band the rail's collapse
- * creates. Collapsing the rail hands the pane 168px, so a window growing
- * through 1000px drops the pane from ~902 to ~736 and grows again: every pane
- * width in between happens TWICE, and a breakpoint inside it fires in reverse
- * as the window widens. A reader dragging a splitter rightward would have
- * watched this page collapse.
+ * reads title, control, description - the order it is spoken in - and the
+ * actions pin to the row's top-right corner instead of becoming a fourth
+ * line. The PANE decides, not the window: this pane can be narrow inside a
+ * wide window whenever the editor is split. The threshold sits at 910, clear
+ * of a band the rail's collapse creates: collapsing the rail hands the pane
+ * 168px, so a window growing through 1000px drops the pane from ~902 to ~736
+ * and grows again - every pane width in between happens TWICE, and a
+ * breakpoint inside it fires in reverse as the window widens. A reader
+ * dragging a splitter rightward would have watched this page collapse.
  */
 const SETTING_ROW_GRID =
-	"grid grid-cols-[10rem_minmax(0,20rem)_minmax(0,1fr)] gap-x-4 @max-[910px]/pane:grid-cols-1 @max-[910px]/pane:gap-x-0";
+	"grid grid-cols-[10rem_minmax(0,20rem)_minmax(0,1fr)_5.5rem] gap-x-4 @max-[910px]/pane:grid-cols-1 @max-[910px]/pane:gap-x-0";
 
 /**
  * The label cell, which turns at the same width the tracks do: right-aligned
  * against the control while there is a column to align to, left-aligned once
- * the row is one track and there is not.
+ * the row is one track and there is not. Stacked, it also reserves the row's
+ * top-right corner (pr-24): the actions slot pins there absolutely, and a
+ * long or translated title would otherwise run under Reset and the
+ * settings.json jump - which are ALWAYS painted below the 560px tier.
  *
  * A constant because the row renders the label two ways - a `label` when it has
  * a control to name, a `span` when it does not - and the threshold spelled once
@@ -167,25 +167,28 @@ const SETTING_ROW_GRID =
  * interpolated out: Tailwind compiles the variants it can read whole, so
  * `@max-[910px]/pane:` has to appear in the source as itself.
  */
-const SETTING_TITLE = "setting-title text-right font-semibold @max-[910px]/pane:text-left";
+const SETTING_TITLE = "setting-title text-right font-semibold @max-[910px]/pane:text-left @max-[910px]/pane:pr-24";
 
 /**
  * The settings.json jump every row carries: a quiet icon button posting the
  * revealSetting intent; the extension opens the user settings.json and selects
- * "litellm-vscode-chat.<key>". Hover- and focus-revealed with Reset, so a
- * resting row is its own three columns and nothing else.
+ * "litellm-vscode-chat.<key>". Lives in the row's trailing actions slot with
+ * Reset, hover- and focus-revealed through the shared Reveal idiom, so a
+ * resting row is label, control, and explanation and nothing else.
  */
 function RevealButton({ title, settingId }: { title: string; settingId: SettingRowId }) {
 	return (
-		<Button
-			variant="secondary"
-			size="compact"
-			className="reveal-json invisible px-1 py-0 group-focus-within/setting:visible group-hover/setting:visible"
-			aria-label={l10n.t("Open {0} in settings.json", title)}
-			onClick={() => sendRequest("revealSetting", { setting: settingId })}
-		>
-			<IconBraces />
-		</Button>
+		<Reveal within="setting">
+			<Button
+				variant="secondary"
+				size="compact"
+				className="reveal-json px-1 py-0"
+				aria-label={l10n.t("Open {0} in settings.json", title)}
+				onClick={() => sendRequest("revealSetting", { setting: settingId })}
+			>
+				<IconBraces />
+			</Button>
+		</Reveal>
 	);
 }
 
@@ -195,34 +198,45 @@ function RevealButton({ title, settingId }: { title: string; settingId: SettingR
  * scope's value or the default shows through), so the accessible name says
  * which scope's value goes, never "reset to default". Each button carries its
  * own accessible name; six bare "Reset"s would be indistinguishable to a
- * screen reader. Sits after the control, so Tab reaches it from the field it
- * resets.
+ * screen reader. Lives in the trailing actions slot before the settings.json
+ * jump, one home on every kind of row.
  */
 function ResetButton({ title, scope, settingId }: { title: string; scope: SettingScope; settingId: SettingRowId }) {
 	const action = l10n.t("Remove the {0} value of {1}", settingScopeLabel(scope), title);
 	return (
-		<Button
-			variant="secondary"
-			size="compact"
-			className="reset invisible group-focus-within/setting:visible group-hover/setting:visible"
-			aria-label={action}
-			onClick={() => sendRequest("resetSetting", { setting: settingId })}
-		>
-			{l10n.t("Reset")}
-		</Button>
+		<Reveal within="setting">
+			<Button
+				variant="secondary"
+				size="compact"
+				className="reset"
+				aria-label={action}
+				onClick={() => sendRequest("resetSetting", { setting: settingId })}
+			>
+				{l10n.t("Reset")}
+			</Button>
+		</Reveal>
 	);
 }
 
 /**
- * The muted annotation a configured row wears, matching the native Settings
- * editor's "Modified in:" idiom: the accent bar in the gutter says that a
- * value is set, this says where - and, on number rows, what the setting's
- * built-in default is (the value that applies once no scope sets one; a reset
- * may first reveal another scope's value on the way there).
+ * A configured row's annotation, in the description zone's tail. The at-rest
+ * signal is the SHAPE - the accent bar in the gutter - so words appear only
+ * where they add something: a User-scope value shows nothing at rest and
+ * reveals the built-in default on hover or focus (the fact that decides
+ * whether Reset is worth pressing), while a workspace-scope value names its
+ * scope at rest, because "my user setting is not what applies here" is the
+ * one case the bar alone cannot disambiguate.
  */
 function ModifiedNote({ scope, defaultText }: { scope: SettingScope; defaultText?: string | undefined }) {
+	if (scope === "global") {
+		return defaultText === undefined ? null : (
+			<Reveal within="setting" className="setting-modified-note">
+				{l10n.t("default: {0}", defaultText)}
+			</Reveal>
+		);
+	}
 	return (
-		<span className="setting-modified-note whitespace-nowrap text-muted-foreground">
+		<span className="setting-modified-note text-muted-foreground">
 			{defaultText === undefined
 				? l10n.t("Modified in {0} settings", settingScopeLabel(scope))
 				: l10n.t("Modified in {0} settings (default: {1})", settingScopeLabel(scope), defaultText)}
@@ -271,12 +285,12 @@ function SettingRow({
 		<div
 			className={cn(
 				SETTING_ROW_GRID,
-				"setting-row group/setting -ml-3 items-baseline gap-y-1 rounded-xs border-l-2 py-2 pl-2.5 hover:bg-accent",
+				"setting-row group/setting -ml-3 relative items-baseline gap-y-1 rounded-xs border-l-2 py-2 pl-2.5 hover:bg-accent",
 				// The right edge mirrors the record rows' (-mx-2 with px-2): the
-				// hover tint overhangs the measure by 8px while the CONTENT stops
-				// exactly at it, so the description column's glyphs and the record
-				// editors' pencils share one edge. pr-3 without the margin left the
-				// row's content 12px short of everything below it.
+				// hover tint overhangs the pane's cap by 8px while the CONTENT stops
+				// exactly at it, so every row's actions slot and the record editors'
+				// frames share one edge. pr-3 without the margin left the row's
+				// content 12px short of everything below it.
 				"-mr-2 pr-2",
 				configuredScope !== null
 					? "modified border-l-[var(--vscode-settings-modifiedItemIndicator,var(--vscode-focusBorder))]"
@@ -291,47 +305,53 @@ function SettingRow({
 					{title}
 				</label>
 			)}
-			<div className="setting-control flex flex-wrap items-center gap-2">
-				{control}
-				{configuredScope !== null ? <ResetButton title={title} scope={configuredScope} settingId={settingId} /> : null}
-				<RevealButton title={title} settingId={settingId} />
-			</div>
+			<div className="setting-control flex flex-wrap items-center gap-2">{control}</div>
 			{/* The error does not replace the description in the flow, it covers
 			    it: the description stays, merely invisible, so the cell keeps the
 			    height it had and no row below moves while you type.
 
-			    The Help glyph used to be a bare flex sibling after the prose, so
-			    it inherited the prose's wrapping: a description that filled the
-			    cell pushed the "?" onto a line of its own, orphaned under the
-			    text it belongs to, while a shorter sibling's glyph stayed inline.
-			    The glyphs drifted with sentence length instead of reading as a
-			    column.
+			    The help glyph trails the description INLINE, inside the same
+			    prose flow, so it sits where the words end on every row instead of
+			    holding a phantom column at the pane's far edge. It stays the
+			    description span's SIBLING rather than its child, because the
+			    error overlay hides the description with visibility - and a row
+			    explaining what you typed wrong is the worst moment to make its
+			    help unreachable.
 
-			    The prose owning a box with a basis is what fixes it. While the
-			    cell can hold that basis, both fit on one line and the prose grows
-			    to the 46ch cap, so every glyph lands past the same measure - a
-			    column. Below the basis the prose takes the line alone and the
-			    glyph wraps under it, which is the honest answer when the column
-			    is 30px wide: reserving a track for the glyph there does not make
-			    room appear, it just takes half of what little the words had and
-			    prints them one letter per line. The wrap is the graceful
-			    degradation, not the bug - the bug was that it happened at full
-			    width too.
-
-			    One `flex` shorthand rather than `flex-1` plus a basis utility:
-			    `flex-1` IS `flex: 1 1 0%`, so the two spell contradictory bases
-			    and which one survives is decided by the order Tailwind happens to
-			    emit them in. A basis of 0 never wraps, and no test can catch it -
-			    the DOM the component suites run in has no layout. The box also
-			    owns breaking, since it owns the wrapping: a description with one
-			    unbroken token would otherwise set its own min-content width and
-			    push straight out of the cell. */}
-			<div className="setting-hint relative flex flex-wrap items-baseline gap-x-2 text-[0.95em] text-muted-foreground">
-				<div className="flex min-w-0 max-w-[46ch] flex-[1_1_18rem] flex-wrap items-baseline gap-x-2 break-words">
-					<span className={cn("setting-desc", error !== undefined && "invisible")}>{description}</span>
-					{configuredScope !== null ? <ModifiedNote scope={configuredScope} defaultText={defaultText} /> : null}
-				</div>
-				{help !== undefined ? <Help text={help} name={l10n.t("Help: {0}", title)} /> : null}
+			    The cell owns breaking because it owns wrapping: a description
+			    with one unbroken token would otherwise set its own min-content
+			    width and push straight out of the column. The 72ch cap (p.hint's
+			    own measure) is a READING cap inside the growing track, not a
+			    second structural edge: only structure goes full-bleed, prose
+			    stops where lines stay readable. */}
+			<div className="setting-hint relative min-w-0 max-w-[72ch] break-words text-[0.95em] text-muted-foreground">
+				<span className={cn("setting-desc", error !== undefined && "invisible")}>{description}</span>
+				{/* An AT-REST note (a workspace override) precedes the glyph, so
+				    the "?" stays the resting description's last element on every
+				    row. The hover-only User-scope note trails it instead: at rest
+				    nothing visible follows the glyph, and rendering the invisible
+				    note before it would hold a blank gap open mid-sentence. */}
+				{configuredScope !== null && configuredScope !== "global" ? (
+					<>
+						{" "}
+						<ModifiedNote scope={configuredScope} defaultText={defaultText} />
+					</>
+				) : null}
+				{/* A no-break space binds the glyph to the word before it, so a
+				    sentence that exactly fills the measure cannot orphan a lone
+				    "?" onto its own line. */}
+				{help !== undefined ? (
+					<>
+						{"\u00a0"}
+						<Help text={help} name={l10n.t("Help: {0}", title)} />
+					</>
+				) : null}
+				{configuredScope === "global" ? (
+					<>
+						{" "}
+						<ModifiedNote scope={configuredScope} defaultText={defaultText} />
+					</>
+				) : null}
 				{/* pointer-events-none because the overlay spans the whole cell,
 				    glyph included: without it a row with an error has an
 				    unhoverable "?" - exactly when its help is most wanted. What it
@@ -341,6 +361,16 @@ function SettingRow({
 						{error}
 					</span>
 				) : null}
+			</div>
+			{/* The row's one actions slot, at the pane's right edge: Reset when a
+			    scope sets a value, then the settings.json jump, always in that
+			    order and always last - the anatomy's fourth track, so the pair
+			    lands at the same x on every row. Stacked, the slot pins to the
+			    row's top-right corner (the row is relative for exactly this)
+			    instead of stacking as a lone fourth line. */}
+			<div className="setting-actions flex items-center justify-end gap-1.5 self-start justify-self-end @max-[910px]/pane:absolute @max-[910px]/pane:top-1.5 @max-[910px]/pane:right-2">
+				{configuredScope !== null ? <ResetButton title={title} scope={configuredScope} settingId={settingId} /> : null}
+				<RevealButton title={title} settingId={settingId} />
 			</div>
 		</div>
 	);
@@ -518,9 +548,9 @@ function BooleanField({
  * snapshot's size and last refresh, a Refresh button (the same action as the
  * "LiteLLM: Refresh OpenRouter Catalog" command), a standing failure in the
  * row status - never a toast - and an inert hint while the setting is off.
- * It adopts the shared row grid and places its content in the control and
- * explanation tracks, so it reads as belonging to the row above without
- * restating the gutter as padding.
+ * It adopts the shared row grid and starts at the control zone's own edge, a
+ * structured second line of the row above rather than a floater; the failure
+ * takes a line of its own instead of jamming red text beside Refresh.
  */
 function CatalogRow({ catalog, enabled, now }: { catalog: CatalogStatusView; enabled: boolean; now: number }) {
 	const updated =
@@ -545,6 +575,7 @@ function CatalogRow({ catalog, enabled, now }: { catalog: CatalogStatusView; ena
 						</span>
 						<Button
 							variant="secondary"
+							size="compact"
 							disabled={catalog.refreshing}
 							onClick={() => sendRequest("refreshCatalog", null)}
 						>
@@ -556,10 +587,9 @@ function CatalogRow({ catalog, enabled, now }: { catalog: CatalogStatusView; ena
 								l10n.t("Refresh")
 							)}
 						</Button>
-						<Help text={helpCatalogRow()} />
 						<DocsLink href={DOCS_LINK_OPENROUTER_CATALOG} label={l10n.t("Open the OpenRouter catalog guide")} />
 						{catalog.lastFailure !== undefined ? (
-							<span className="error">
+							<span className="error basis-full">
 								{/* The classification is a fixed English vocabulary ("HTTP 503",
 							    "network error"), protocol-ish like header names. */}
 								{l10n.t("Last refresh failed ({0}); serving the cached snapshot.", catalog.lastFailure.classification)}
@@ -589,37 +619,28 @@ function usageStatusBarDescription(): string {
 }
 
 function tokenEstimationDescription(): string {
-	return l10n.t(
-		"How prompts are sized for the local token budget. Auto loads the o200k_base tokenizer for a non-English VS Code language or for text plain counting underestimates, e.g. CJK; a loaded tokenizer holds 10-30 MB in memory."
-	);
+	return l10n.t("How prompts are sized for the local token budget.");
 }
 
 function toolSchemaKeywordsDescription(): string {
-	return l10n.t(
-		"Extra JSON-Schema keywords kept in tool definitions, e.g. propertyNames. The built-in set always applies; keywords your server rejects can fail requests."
-	);
+	// The example lives in the input's own placeholder, one column to the left.
+	return l10n.t("Extra JSON-Schema keywords kept in tool definitions.");
 }
 
 function usageThresholdsDescription(): string {
-	return l10n.t(
-		"Warning at 80% and error at 95% by default; enter 80% or 0.8. Clear both threshold fields to turn alerts off."
-	);
+	return l10n.t("Enter 80% or 0.8; the lower value warns, the higher errors. Clear both fields to turn alerts off.");
 }
 
 function currencySymbolDescription(): string {
-	return l10n.t(
-		'Prefix on every spend and price figure, e.g. "EUR ". Amounts are never converted - they render exactly as the server reports them.'
-	);
+	return l10n.t('Prefix on every spend and price figure, e.g. "EUR ".');
 }
 
 function uiThemeDescription(): string {
-	return l10n.t("High contrast themes always follow the editor, whichever option is picked here.");
+	return l10n.t("Whether the dashboard renders light or dark; Auto follows the editor.");
 }
 
 function uiAccentDescription(): string {
-	return l10n.t(
-		"Marks primary actions, selection, focus and links; status colors stay green, yellow and red. High contrast themes keep their own accent."
-	);
+	return l10n.t("Marks primary actions, selection, focus and links.");
 }
 
 /** The usage.statusBar mode names, resolved at call time (no module-level localized constants). */
@@ -674,6 +695,7 @@ function EnumSettingRow<T extends string>({
 	settingId,
 	title,
 	description,
+	help,
 	value,
 	options,
 	optionLabel,
@@ -684,6 +706,7 @@ function EnumSettingRow<T extends string>({
 	settingId: SettingRowId;
 	title: string;
 	description: string;
+	help?: string | undefined;
 	value: T;
 	options: readonly T[];
 	optionLabel: (option: T) => string;
@@ -698,6 +721,7 @@ function EnumSettingRow<T extends string>({
 			title={title}
 			titleFor={inputId}
 			description={description}
+			help={help}
 			configuredScope={configuredScope}
 			hidden={hidden}
 			control={
@@ -761,6 +785,7 @@ function UiAccentRow({
 			settingId="ui.accent"
 			title={title}
 			description={uiAccentDescription()}
+			help={helpUiAccent()}
 			configuredScope={configuredScope}
 			hidden={hidden}
 			control={
@@ -824,7 +849,7 @@ function parseThresholdBox(
 	return { kind: "value", value };
 }
 
-/** One of the two threshold inputs with its label; error and hint lines render at the row level. */
+/** One of the two threshold inputs with its trailing label; error and hint lines render at the row level. */
 function ThresholdBox({
 	id,
 	label,
@@ -847,9 +872,6 @@ function ThresholdBox({
 }) {
 	return (
 		<>
-			<label className="setting-unit text-muted-foreground" htmlFor={id}>
-				{label}
-			</label>
 			<Input
 				id={id}
 				type="text"
@@ -867,6 +889,13 @@ function ThresholdBox({
 					}
 				}}
 			/>
+			{/* The label TRAILS its input, in the unit's position, so the pair's
+			    first control sits at the shared control edge like every other
+			    row's - a leading "Warning at" pushed the input to an x of its
+			    own. Still a <label>, so clicking it focuses the box. */}
+			<label className="setting-unit text-muted-foreground" htmlFor={id}>
+				{label}
+			</label>
 		</>
 	);
 }
@@ -977,7 +1006,10 @@ function UsageThresholdsRow({
 					<>
 						<ThresholdBox
 							id={warningId}
-							label={l10n.t("Warning at")}
+							label={l10n.t({
+								message: "warning",
+								comment: ["Trailing label after the lower usage-alert threshold input, unit-style."],
+							})}
 							text={warningText}
 							invalid={warning.kind === "invalid"}
 							errorId={problemId}
@@ -987,7 +1019,10 @@ function UsageThresholdsRow({
 						/>
 						<ThresholdBox
 							id={errorInputId}
-							label={l10n.t("Error at")}
+							label={l10n.t({
+								message: "error",
+								comment: ["Trailing label after the higher usage-alert threshold input, unit-style."],
+							})}
 							text={errorText}
 							invalid={error.kind === "invalid"}
 							errorId={problemId}
@@ -1036,6 +1071,7 @@ function CurrencySymbolRow({
 			title={l10n.t("Currency symbol")}
 			titleFor={inputId}
 			description={currencySymbolDescription()}
+			help={helpCurrencySymbol()}
 			configuredScope={configuredScope}
 			hidden={hidden}
 			control={
@@ -1061,19 +1097,34 @@ function CurrencySymbolRow({
 }
 
 /**
+ * The intent schema's bounds on setAdditionalToolSchemaKeywords, mirrored
+ * (intentSchema.ts: z.array(z.string().max(256)).max(64)) the way the
+ * currency row mirrors its maxLength: a paste the host would reject is
+ * refused here with a reason, instead of surfacing as a generic envelope
+ * failure after the fact.
+ */
+const TOOL_SCHEMA_KEYWORD_MAX_LENGTH = 256;
+const TOOL_SCHEMA_KEYWORD_MAX_COUNT = 64;
+
+/**
  * The chat.additionalToolSchemaKeywords row: one comma-separated input over
  * the list setting. Splitting on commas, trimming, and dropping empties gives
- * every draft a reading, so the row never shows a parse error; committing
- * writes the deduplicated list. A stored list the box cannot round-trip (an
- * entry holding a comma or edge whitespace, hand-written) renders read-only
- * with the reveal button, so the dashboard never destroys it.
+ * every draft a reading; a draft past the intent schema's bounds shows the
+ * bound as the row's error and never commits. A stored list the box cannot
+ * round-trip renders read-only with the reveal button, so the dashboard
+ * never destroys it - both the shapes the box cannot spell (an entry holding
+ * a comma or edge whitespace) and, via the lossy flag, raw values whose
+ * dropped entries the normalized push cannot even show.
  */
 function ToolSchemaKeywordsRow({
 	values,
+	lossy,
 	configuredScope,
 	hidden,
 }: {
 	values: readonly string[];
+	/** Whether normalization dropped raw entries the push cannot carry; forces the read-only fallback. */
+	lossy: boolean;
 	configuredScope: SettingScope | null;
 	hidden: boolean;
 }) {
@@ -1093,7 +1144,16 @@ function ToolSchemaKeywordsRow({
 				.filter((keyword) => keyword.length > 0)
 		),
 	];
+	const error =
+		parsed.length > TOOL_SCHEMA_KEYWORD_MAX_COUNT
+			? l10n.t("At most {0} keywords.", TOOL_SCHEMA_KEYWORD_MAX_COUNT)
+			: parsed.some((keyword) => keyword.length > TOOL_SCHEMA_KEYWORD_MAX_LENGTH)
+				? l10n.t("Keywords run up to {0} characters each.", TOOL_SCHEMA_KEYWORD_MAX_LENGTH)
+				: undefined;
 	const commit = () => {
+		if (error !== undefined) {
+			return;
+		}
 		if (parsed.join(",") !== values.join(",")) {
 			sendRequest("setAdditionalToolSchemaKeywords", { values: parsed });
 		}
@@ -1101,15 +1161,20 @@ function ToolSchemaKeywordsRow({
 
 	const title = l10n.t("Extra tool schema keywords");
 	const inputId = "setting-chat.additionalToolSchemaKeywords";
+	const errorId = `${inputId}-error`;
 	// The comma-separated box cannot round-trip an entry that holds a comma or
-	// edge whitespace; only the settings file can write one.
-	const custom = values.some((keyword) => keyword.includes(",") || keyword !== keyword.trim());
+	// edge whitespace, and the lossy flag covers what the normalized push
+	// cannot show at all; only the settings file can write either.
+	const custom = lossy || values.some((keyword) => keyword.includes(",") || keyword !== keyword.trim());
 	return (
 		<SettingRow
 			settingId="chat.additionalToolSchemaKeywords"
 			title={title}
 			titleFor={custom ? undefined : inputId}
 			description={toolSchemaKeywordsDescription()}
+			help={helpToolSchemaKeywords()}
+			error={custom ? undefined : error}
+			errorId={errorId}
 			configuredScope={configuredScope}
 			hidden={hidden}
 			control={
@@ -1126,6 +1191,8 @@ function ToolSchemaKeywordsRow({
 						// Full control-column width: keyword lists grow sideways, unlike
 						// the intrinsic-width number inputs above.
 						className="w-full max-w-full"
+						aria-invalid={error !== undefined}
+						aria-describedby={error === undefined ? undefined : errorId}
 						placeholder={l10n.t("e.g. propertyNames, patternProperties")}
 						value={text}
 						onChange={(event) => setText(event.currentTarget.value)}
@@ -1393,27 +1460,33 @@ export function SettingsSection({
 					: [modifiedCount === 1 ? l10n.t("1 modified") : l10n.t("{0} modified", modifiedCount)]),
 				scopeSummary(scopes),
 			].join(" - ")}
-			// Capped to the rows' own measure, so the rule stops where they do.
-			headerClassName={SETTINGS_MEASURE}
 			actions={
-				<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "openSettings" })}>
-					{l10n.t("Open in Settings editor")}
-				</Button>
+				<>
+					{/* The filter's one home is the header line: it governs the whole
+					    page the way the header's other actions do, and a floating box
+					    between the header and the first group read as belonging to
+					    nothing. */}
+					<Input
+						id={filterId}
+						type="text"
+						className="w-[16rem] min-w-0 max-w-full shrink"
+						placeholder={l10n.t("Filter settings, e.g. timeout")}
+						aria-label={l10n.t("Filter settings")}
+						value={filter}
+						onChange={(event) => setFilter(event.currentTarget.value)}
+					/>
+					<Button
+						variant="secondary"
+						className="whitespace-nowrap"
+						onClick={() => sendRequest("executeCommand", { command: "openSettings" })}
+					>
+						{l10n.t("Open in Settings editor")}
+					</Button>
+				</>
 			}
 		>
-			<div className="filterbar">
-				<Input
-					id={filterId}
-					type="text"
-					className="w-[22rem] max-w-full @max-[560px]/pane:w-full"
-					placeholder={l10n.t("Filter settings, e.g. timeout")}
-					aria-label={l10n.t("Filter settings")}
-					value={filter}
-					onChange={(event) => setFilter(event.currentTarget.value)}
-				/>
-			</div>
 			{nothingMatches ? <p className="empty">{l10n.t("No settings match the filter.")}</p> : null}
-			<div className={cn("settings-groups", SETTINGS_MEASURE)}>
+			<div className="settings-groups">
 				{SETTING_GROUPS.map((group, index) => {
 					// Four groups carry non-scalar tails: Models gets the two record
 					// editors (mirroring the manifest's grouping - they are model
@@ -1441,6 +1514,14 @@ export function SettingsSection({
 							tail={
 								isModelsGroup ? (
 									<>
+										{/* The one statement of the editors' save model, above both
+										    (never the same paragraph twice): the rows below are
+										    drafts until Apply, unlike the scalar rows above. */}
+										<p className="hint record-editors-note" hidden={!paramsVisible && !capsVisible}>
+											{l10n.t(
+												"Rows in the two editors below apply together via their Apply button; the settings above save each change on its own."
+											)}
+										</p>
 										<ModelParametersEditor
 											scoped={settings.modelParameters}
 											models={models}
@@ -1461,6 +1542,7 @@ export function SettingsSection({
 											settingId="chat.tokenEstimation"
 											title={l10n.t("Token estimation")}
 											description={tokenEstimationDescription()}
+											help={helpTokenEstimation()}
 											value={settings.chat.tokenEstimation}
 											options={TOKEN_ESTIMATION_MODES}
 											optionLabel={tokenEstimationLabel}
@@ -1470,6 +1552,7 @@ export function SettingsSection({
 										/>
 										<ToolSchemaKeywordsRow
 											values={settings.chat.additionalToolSchemaKeywords}
+											lossy={settings.chat.additionalToolSchemaKeywordsLossy}
 											configuredScope={settings.chat.additionalToolSchemaKeywordsScope}
 											hidden={!toolSchemaKeywordsVisible}
 										/>
@@ -1504,6 +1587,7 @@ export function SettingsSection({
 											settingId="ui.theme"
 											title={l10n.t("Dashboard theme")}
 											description={uiThemeDescription()}
+											help={helpUiTheme()}
 											value={settings.appearance.theme}
 											options={UI_THEMES}
 											optionLabel={uiThemeLabel}

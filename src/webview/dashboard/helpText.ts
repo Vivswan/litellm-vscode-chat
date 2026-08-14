@@ -248,9 +248,36 @@ export function helpModelCapabilitiesSection(): string {
 	);
 }
 
-export function helpCatalogRow(): string {
+/** The chat.tokenEstimation row's "?": the Auto mode's one surprise, moved out of the description. */
+export function helpTokenEstimation(): string {
 	return l10n.t(
-		"A bundled snapshot of OpenRouter's public model list fills capability gaps, refreshed about weekly. Refresh fetches it now; failures show here, never as popups."
+		"Auto loads the o200k_base tokenizer where a plain character count underestimates, e.g. CJK text; a loaded tokenizer holds 10-30 MB in memory."
+	);
+}
+
+/** The chat.additionalToolSchemaKeywords row's "?": the caveats, moved out of the description. */
+export function helpToolSchemaKeywords(): string {
+	return l10n.t(
+		"The built-in set always applies; keywords your server rejects can fail requests. Unlisted keywords are stripped before sending."
+	);
+}
+
+/** The usage.currencySymbol row's "?": the no-conversion contract, moved out of the description. */
+export function helpCurrencySymbol(): string {
+	return l10n.t(
+		"Display only - amounts are never converted; they render exactly as the server reports them, whatever its billing currency."
+	);
+}
+
+/** The ui.theme row's "?": the one exception to the pick. */
+export function helpUiTheme(): string {
+	return l10n.t("High contrast themes always follow the editor, whichever option is picked here.");
+}
+
+/** The ui.accent row's "?": what the accent deliberately does NOT recolor. */
+export function helpUiAccent(): string {
+	return l10n.t(
+		"Status colors stay green, yellow and red whatever you pick, and high contrast themes keep their own accent."
 	);
 }
 
@@ -304,28 +331,29 @@ export function settingRowHelp(id: NumberSettingId | BooleanSettingId): string |
 			});
 		case "discovery.timeout":
 			return l10n.t({
-				message: "A hard bound on one model-list fetch; type 30s, 1m, or plain ms.",
+				message:
+					"Applies per call, and a discovery pass makes several - the model-info listing and the /models fallback each get a fresh budget - so one pass can take a multiple of this. Type 30s, 1m, or plain ms.",
 				comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
 			});
 		case "discovery.cacheTtl":
 			return l10n.t(
-				"How long discovered model lists are reused, e.g. 1h or 0 to ask the server on every refresh. Sync Models Now always refreshes immediately."
+				"Sync Models Now always asks the servers immediately, whatever this says; type 1h, 30m, or 0 to refresh every time."
 			);
 		case "discovery.staleServeWindow":
 			return l10n.t({
 				message:
-					"How long a failing server's last known models stay in the picker, e.g. 1h for a homelab proxy that sleeps; counted from the last successful sync. 0 drops them on the first failed refresh.",
+					"Counted from the last successful sync, and the held models wear a stale warning in the picker; e.g. 1h suits a homelab proxy that sleeps. Type 1h, 30m, or plain ms.",
 				comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
 			});
 		case "usage.pollInterval":
 			return l10n.t({
 				message:
-					"How often spend and budget data refresh in the background; type 5m, 90s, or plain ms. 0 turns polling off - the dashboard and Refresh Usage Now still fetch on demand.",
+					"0 stops only the background timer - opening the dashboard or running Refresh Usage Now still fetches on demand. Type 5m, 90s, or plain ms.",
 				comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
 			});
 		case "chat.promptCaching":
 			return l10n.t(
-				"On models that support it (currently Anthropic Claude), reuses the cached prompt prefix between turns instead of re-sending the whole history at full price."
+				"Support currently means Anthropic Claude models (the supports_prompt_caching capability); the reused prefix bills at the provider's cache rate instead of full price."
 			);
 		default:
 			return undefined;
