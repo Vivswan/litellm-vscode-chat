@@ -8,6 +8,7 @@ import {
 	getCurrencySymbol,
 	getUsageAlertThresholds,
 	getUsagePollIntervalMs,
+	getUsagePollingOffFreshnessWindowMs,
 	getUsageStatusBarMode,
 	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
 	USAGE_STATUS_BAR_SETTING_KEY,
@@ -26,6 +27,8 @@ import { UsageAlerts } from "../ui/usageAlerts";
 import { UsageStatusBar } from "../ui/usageStatusItem";
 
 const USAGE_POLL_INTERVAL_SETTING_ID = "usage.pollInterval" satisfies NumberSettingId;
+
+const USAGE_POLLING_OFF_WINDOW_SETTING_ID = "usage.pollingOffFreshnessWindow" satisfies NumberSettingId;
 
 /**
  * The dashboard panel controller and its commands. Also registers
@@ -88,6 +91,7 @@ export function wireUsageSurfaces(
 		getMode: getUsageStatusBarMode,
 		getThresholds: () => getUsageAlertThresholds(),
 		getPollIntervalMs: () => getUsagePollIntervalMs(),
+		getPollingOffWindowMs: () => getUsagePollingOffFreshnessWindowMs(),
 		getCurrencySymbol,
 	});
 	context.subscriptions.push(
@@ -101,6 +105,7 @@ export function wireUsageSurfaces(
 			const affects = (id: string) => event.affectsConfiguration(`${CONFIG_SECTION}.${id}`);
 			if (
 				affects(USAGE_POLL_INTERVAL_SETTING_ID) ||
+				affects(USAGE_POLLING_OFF_WINDOW_SETTING_ID) ||
 				affects(USAGE_ALERT_THRESHOLDS_SETTING_KEY) ||
 				affects(USAGE_STATUS_BAR_SETTING_KEY) ||
 				affects(CURRENCY_SYMBOL_SETTING_KEY)

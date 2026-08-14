@@ -67,6 +67,7 @@ function makeInput(overrides: Partial<UsageViewInput> = {}): UsageViewInput {
 		states: [],
 		thresholds: [0.8, 0.95],
 		pollIntervalMs: 300000,
+		pollingOffWindowMs: 600000,
 		discoveryTimeoutMs: 30000,
 		refreshing: false,
 		now: 1_754_000_000_000,

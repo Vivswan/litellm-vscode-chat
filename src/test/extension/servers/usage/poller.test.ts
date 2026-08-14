@@ -121,7 +121,13 @@ interface Harness {
 }
 
 function makeHarness(
-	options: { intervalMs?: number; servers?: unknown; readSecrets?: UsagePollerEnv["readSecrets"] } = {}
+	options: {
+		intervalMs?: number;
+		servers?: unknown;
+		readSecrets?: UsagePollerEnv["readSecrets"];
+		initialRefreshDelayMs?: number;
+		serversChangeRefreshDelayMs?: number;
+	} = {}
 ): Harness {
 	const timer = new FakeTimer();
 	const client = new FakeClient();
@@ -137,6 +143,12 @@ function makeHarness(
 		readSecrets: options.readSecrets ?? (() => Promise.resolve({})),
 		client,
 		pollIntervalMs: () => intervalMs,
+		...(options.initialRefreshDelayMs !== undefined
+			? { initialRefreshDelayMs: () => options.initialRefreshDelayMs as number }
+			: {}),
+		...(options.serversChangeRefreshDelayMs !== undefined
+			? { serversChangeRefreshDelayMs: () => options.serversChangeRefreshDelayMs as number }
+			: {}),
 		alertThresholds: () => thresholds,
 		log: (message, data) => {
 			logs.push(message);
@@ -236,6 +248,36 @@ suite("extension/servers/usage poller", () => {
 		const pending = h.timer.pending();
 		assert.strictEqual(pending.length, 1, "the completed pass schedules the next tick");
 		assert.strictEqual(pending[0]?.ms, 300_000);
+	});
+
+	test("the env's configured delays drive the initial tick and the servers-change tick", async () => {
+		const h = makeHarness({ intervalMs: 300_000, initialRefreshDelayMs: 100, serversChangeRefreshDelayMs: 50 });
+
+		h.poller.start();
+		assert.strictEqual(h.timer.pending()[0]?.ms, 100, "start() reads usage.initialRefreshDelay through the env");
+
+		h.timer.firePending();
+		await settle();
+
+		h.poller.applyServersChange();
+		assert.strictEqual(
+			h.timer.pending()[0]?.ms,
+			50,
+			"a servers change reads usage.serversChangeRefreshDelay through the env"
+		);
+	});
+
+	test("an env without the optional delay readers falls back to the spec defaults", async () => {
+		const h = makeHarness({ intervalMs: 300_000 });
+
+		h.poller.start();
+		assert.strictEqual(h.timer.pending()[0]?.ms, 5_000);
+
+		h.timer.firePending();
+		await settle();
+
+		h.poller.applyServersChange();
+		assert.strictEqual(h.timer.pending()[0]?.ms, 2_000);
 	});
 
 	test("applyConfiguration rewires the cadence: to 0 cancels, back to a positive interval re-schedules", () => {

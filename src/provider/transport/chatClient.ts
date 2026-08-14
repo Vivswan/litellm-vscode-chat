@@ -3,7 +3,9 @@ import type { LanguageModelChatRequestMessage, ProvideLanguageModelChatResponseO
 import * as vscode from "vscode";
 import { ModelResolutionTable } from "../../shared/config/resolutionTable";
 import {
+	getAdditionalToolSchemaKeywords,
 	getDiscoveryTimeout,
+	getMaxToolsPerRequest,
 	getModelParametersConfig,
 	getRequestTimeout,
 	isPromptCachingEnabled,
@@ -25,7 +27,7 @@ import { requestParamsFromModelConfiguration } from "../catalog/modelConfigurati
 import { type OAuthConfig, type OAuthErrorSurface, OAuthTokenSource, type VirtualKeyConfig } from "./auth";
 import { CHAT_COMPLETIONS_PATH, chatCompletionsUrl, ServerClientCache } from "./clients";
 import { mapSdkError, RequestError, timeoutRequestError } from "./errorMapping";
-import { buildRequestBody, MAX_TOOLS_PER_REQUEST, resolveMaxTokens } from "./request";
+import { buildRequestBody, resolveMaxTokens } from "./request";
 import type { ToolCallIdSource } from "./streaming";
 import { StreamProcessor } from "./streaming";
 
@@ -317,23 +319,20 @@ export class ChatClient {
 		const wireGates = { imageInput: metadata.imageInput, audioInput: metadata.supportsAudioInput };
 		const converted = convertMessages(messages, { log: this.log, ...wireGates });
 		validateRequest(messages);
-		const toolConfig = convertTools(options);
+		const toolConfig = convertTools(options, getAdditionalToolSchemaKeywords(this.log));
 
-		if (options.tools && options.tools.length > MAX_TOOLS_PER_REQUEST) {
+		const maxTools = getMaxToolsPerRequest(this.log);
+		if (options.tools && options.tools.length > maxTools) {
 			throw localizedError(
 				chatErrorMessage(
 					l10n.t(
 						"Too many chat tools are enabled for this request. Disable some in the chat Tools picker, or turn off unused extensions or MCP servers, and try again."
 					),
-					l10n.t(
-						"{0} tools requested; the limit is {1} (request not sent)",
-						options.tools.length,
-						MAX_TOOLS_PER_REQUEST
-					)
+					l10n.t("{0} tools requested; the limit is {1} (request not sent)", options.tools.length, maxTools)
 				),
 				englishChatErrorMessage(
 					"Too many chat tools are enabled for this request. Disable some in the chat Tools picker, or turn off unused extensions or MCP servers, and try again.",
-					`${options.tools.length} tools requested; the limit is ${MAX_TOOLS_PER_REQUEST} (request not sent)`
+					`${options.tools.length} tools requested; the limit is ${maxTools} (request not sent)`
 				)
 			);
 		}

@@ -24,6 +24,7 @@
  */
 
 import { RequestError } from "../../../provider/transport/errorMapping";
+import { NUMBER_SETTING_SPECS } from "../../../shared/config/settingSpec";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import type { Clock, Timer } from "../../../shared/util/timer";
 import { PendingCall, REAL_TIMER, SYSTEM_CLOCK } from "../../../shared/util/timer";
@@ -38,16 +39,6 @@ import { UNPROBED_ENDPOINTS, UsageStore, usageAvailabilityOf } from "./store";
 
 /** How many calendar days the daily-activity window reaches back (today included). */
 export const USAGE_ACTIVITY_WINDOW_DAYS = 30;
-
-/** The first refresh after start(): soon, but never on the activation path. */
-const INITIAL_REFRESH_DELAY_MS = 5_000;
-
-/**
- * The refresh delay after a servers-setting change: long enough to coalesce
- * settings.json keystroke bursts, short enough that a just-added server shows
- * usage promptly.
- */
-const SERVERS_CHANGE_REFRESH_DELAY_MS = 2_000;
 
 /** Caps the error backoff at 2^4 = 16x the poll interval (80 minutes at the default 5-minute cadence). */
 const BACKOFF_MAX_EXPONENT = 4;
@@ -82,6 +73,19 @@ export interface UsagePollerEnv {
 	readonly client: UsageFetchClient;
 	/** Read at decision time so a setting edit needs no rebuild; 0 means polling is off. */
 	pollIntervalMs(): number;
+	/**
+	 * The delay from start() to the first pass (usage.initialRefreshDelay):
+	 * soon, but never on the activation path. Optional like timer/clock; the
+	 * spec default applies when absent.
+	 */
+	initialRefreshDelayMs?(): number;
+	/**
+	 * The refresh delay after a servers-setting change
+	 * (usage.serversChangeRefreshDelay): long enough to coalesce settings.json
+	 * keystroke bursts, short enough that a just-added server shows usage
+	 * promptly. Optional like timer/clock; the spec default applies when absent.
+	 */
+	serversChangeRefreshDelayMs?(): number;
 	alertThresholds(): readonly number[];
 	log(message: string, data?: unknown): void;
 	readonly timer?: Timer;
@@ -208,7 +212,16 @@ export class UsagePoller {
 
 	/** Schedule the first pass; a no-op while polling is off (interval 0). */
 	start(): void {
-		this.schedule(INITIAL_REFRESH_DELAY_MS);
+		this.schedule(this.initialRefreshDelayMs());
+	}
+
+	/** The env's configured delays, spec-defaulted when the env leaves them out (like timer/clock). */
+	private initialRefreshDelayMs(): number {
+		return this.env.initialRefreshDelayMs?.() ?? NUMBER_SETTING_SPECS["usage.initialRefreshDelay"].default;
+	}
+
+	private serversChangeRefreshDelayMs(): number {
+		return this.env.serversChangeRefreshDelayMs?.() ?? NUMBER_SETTING_SPECS["usage.serversChangeRefreshDelay"].default;
 	}
 
 	/** Whether a refresh pass is in flight; the dashboard's Refresh now button disables on it (one serialized engine). */
@@ -252,7 +265,7 @@ export class UsagePoller {
 		this.prune(new Set(entries.map((entry) => entry.label)));
 		this.probePending = true;
 		if (this.env.pollIntervalMs() > 0) {
-			this.schedule(SERVERS_CHANGE_REFRESH_DELAY_MS);
+			this.schedule(this.serversChangeRefreshDelayMs());
 		}
 	}
 
@@ -351,11 +364,11 @@ export class UsagePoller {
 	/**
 	 * The delay to the next scheduled tick: the prompt servers-change delay
 	 * while a re-probe is pending (any reschedule would otherwise cancel the
-	 * two-second timer applyServersChange set and postpone the probe by a full
-	 * interval), the configured interval otherwise.
+	 * timer applyServersChange set and postpone the probe by a full interval),
+	 * the configured interval otherwise.
 	 */
 	private nextTickDelayMs(): number {
-		return this.probePending ? SERVERS_CHANGE_REFRESH_DELAY_MS : this.env.pollIntervalMs();
+		return this.probePending ? this.serversChangeRefreshDelayMs() : this.env.pollIntervalMs();
 	}
 
 	private async runPass(force: boolean): Promise<UsageRefreshOutcome | undefined> {

@@ -7,6 +7,7 @@ import { renderUsageStatus, UsageStatusBar } from "../../../extension/ui/usageSt
 
 const NOW = Date.UTC(2026, 7, 1, 12);
 const POLL_INTERVAL_MS = 300_000;
+const POLLING_OFF_WINDOW_MS = 600_000;
 const DEFAULT_THRESHOLDS = [0.8, 0.95];
 
 interface UsageStateOptions {
@@ -72,6 +73,7 @@ function render(
 		states,
 		overrides.nowMs ?? NOW,
 		overrides.pollIntervalMs ?? POLL_INTERVAL_MS,
+		POLLING_OFF_WINDOW_MS,
 		overrides.thresholds ?? DEFAULT_THRESHOLDS,
 		overrides.mode ?? "always",
 		overrides.currencySymbol ?? "$"
@@ -286,6 +288,7 @@ suite("extension/ui usageStatusItem UsageStatusBar", () => {
 			getMode: () => mode,
 			getThresholds: () => thresholds,
 			getPollIntervalMs: () => POLL_INTERVAL_MS,
+			getPollingOffWindowMs: () => POLLING_OFF_WINDOW_MS,
 			getCurrencySymbol: () => "$",
 			clock: { now: () => clock.nowMs },
 			timer: {
@@ -352,10 +355,10 @@ suite("extension/ui usageStatusItem UsageStatusBar", () => {
 
 		const pending = timers.filter((timer) => !timer.cancelled);
 		assert.strictEqual(pending.length, 1, "one stale-edge timer per render with fresh data");
-		const expected = lastUpdatedAt + usageFreshnessWindowMs(POLL_INTERVAL_MS) - NOW;
+		const expected = lastUpdatedAt + usageFreshnessWindowMs(POLL_INTERVAL_MS, POLLING_OFF_WINDOW_MS) - NOW;
 		assert.strictEqual(pending[0]?.ms, expected);
 
-		clock.nowMs = lastUpdatedAt + usageFreshnessWindowMs(POLL_INTERVAL_MS);
+		clock.nowMs = lastUpdatedAt + usageFreshnessWindowMs(POLL_INTERVAL_MS, POLLING_OFF_WINDOW_MS);
 		pending[0]?.callback();
 
 		assert.strictEqual(item.visible, false, "the item hides on time instead of waiting for the next poll");

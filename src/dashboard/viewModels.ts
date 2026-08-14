@@ -330,6 +330,7 @@ export type RevealableSettingId =
 	| "models.parameters"
 	| "models.capabilities"
 	| "servers"
+	| "chat.additionalToolSchemaKeywords"
 	| "chat.tokenEstimation"
 	| "usage.alertThresholds"
 	| "usage.statusBar"
@@ -354,6 +355,7 @@ export const REVEALABLE_SETTING_IDS: readonly RevealableSettingId[] = everyId<Re
 	"models.parameters",
 	"models.capabilities",
 	"servers",
+	"chat.additionalToolSchemaKeywords",
 	"chat.tokenEstimation",
 	"usage.alertThresholds",
 	"usage.statusBar",
@@ -366,6 +368,7 @@ export const REVEALABLE_SETTING_IDS: readonly RevealableSettingId[] = everyId<Re
 export type ResettableSettingId =
 	| NumberSettingId
 	| BooleanSettingId
+	| "chat.additionalToolSchemaKeywords"
 	| "chat.tokenEstimation"
 	| "usage.statusBar"
 	| "usage.alertThresholds"
@@ -376,6 +379,7 @@ export type ResettableSettingId =
 export const RESETTABLE_SETTING_IDS: readonly ResettableSettingId[] = everyId<ResettableSettingId>()([
 	...NUMBER_SETTING_IDS,
 	...BOOLEAN_SETTING_IDS,
+	"chat.additionalToolSchemaKeywords",
 	"chat.tokenEstimation",
 	"usage.statusBar",
 	"usage.alertThresholds",
@@ -457,10 +461,13 @@ export interface DashboardSettings {
 		readonly accent: UiAccent;
 		readonly accentScope: SettingScope | null;
 	};
-	/** The chat.tokenEstimation enum row (the Chat group's non-scalar tail). */
+	/** The Chat group's non-scalar tail: the chat.tokenEstimation enum row and the schema-keywords list row. */
 	readonly chat: {
 		readonly tokenEstimation: TokenEstimationMode;
 		readonly tokenEstimationScope: SettingScope | null;
+		/** The configured chat.additionalToolSchemaKeywords as normalization reads them (non-empty strings, deduplicated). */
+		readonly additionalToolSchemaKeywords: readonly string[];
+		readonly additionalToolSchemaKeywordsScope: SettingScope | null;
 	};
 	/** The non-scalar usage settings' rows (the enum, the fraction list, and the currency symbol). */
 	readonly usage: {

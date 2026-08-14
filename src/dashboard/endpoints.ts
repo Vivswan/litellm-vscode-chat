@@ -184,6 +184,7 @@ export const DASHBOARD_ENDPOINTS = {
 	setUsageStatusBar: { outcome: "fire-and-forget", channel: "chained" },
 	setTokenEstimation: { outcome: "fire-and-forget", channel: "chained" },
 	setCurrencySymbol: { outcome: "fire-and-forget", channel: "chained" },
+	setAdditionalToolSchemaKeywords: { outcome: "fire-and-forget", channel: "chained" },
 	setUiTheme: { outcome: "fire-and-forget", channel: "chained" },
 	setUiAccent: { outcome: "fire-and-forget", channel: "chained" },
 	setUsageAlertThresholds: { outcome: "fire-and-forget", channel: "chained" },
@@ -274,6 +275,8 @@ interface DashboardEndpointIO {
 	setTokenEstimation: { request: { readonly value: TokenEstimationMode } };
 	/** Any short string, the empty string included (bare numbers); the extension bounds the length at the schema. */
 	setCurrencySymbol: { request: { readonly value: string } };
+	/** Values must be non-empty keyword names; the extension re-validates and refuses anything else. */
+	setAdditionalToolSchemaKeywords: { request: { readonly values: readonly string[] } };
 	setUiTheme: { request: { readonly value: UiTheme } };
 	setUiAccent: { request: { readonly value: UiAccent } };
 	/** Values must be fractions in (0, 1]; the extension re-validates and refuses out-of-range entries. */

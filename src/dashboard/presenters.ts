@@ -252,10 +252,14 @@ export function latestCheckedMs(servers: readonly Pick<DashboardServer, "lastChe
  */
 const NUMBER_SETTING_UNITS = {
 	"chat.timeout": "ms",
+	"chat.maxToolsPerRequest": "count",
 	"discovery.timeout": "ms",
 	"discovery.cacheTtl": "ms",
 	"discovery.staleServeWindow": "ms",
 	"usage.pollInterval": "ms",
+	"usage.initialRefreshDelay": "ms",
+	"usage.serversChangeRefreshDelay": "ms",
+	"usage.pollingOffFreshnessWindow": "ms",
 } as const satisfies Record<NumberSettingId, NumberSettingUnit>;
 
 /**
@@ -305,7 +309,7 @@ const NUMBER_UNIT_BEHAVIOR = {
 		minimumText: (minimum) => `${minimum} ms`,
 		freeTextInput: true,
 	},
-	tokens: {
+	count: {
 		parseDraft: (text) => {
 			const trimmed = text.trim();
 			// Number("") is 0; an empty draft has no reading under any grammar.
@@ -313,9 +317,11 @@ const NUMBER_UNIT_BEHAVIOR = {
 				return undefined;
 			}
 			const value = Number(trimmed);
-			return Number.isFinite(value) ? value : undefined;
+			// Counts are whole by definition; a fractional draft has no reading
+			// (the host-side getter floors hand-written fractions the same way).
+			return Number.isInteger(value) ? value : undefined;
 		},
-		parseProblem: () => l10n.t("Not a number"),
+		parseProblem: () => l10n.t("Not a whole number"),
 		exactDisplay: () => undefined,
 		// A digit-grouped echo of the same number would say nothing; the unit
 		// suffix on the input carries the meaning.
@@ -360,6 +366,15 @@ export function numberSettingPresentation(id: NumberSettingId): NumberSettingPre
 				description: l10n.t("Hard bound for one chat completion call."),
 				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
 			};
+		case "chat.maxToolsPerRequest":
+			return {
+				label: l10n.t("Max tools per request"),
+				description: l10n.t("Requests carrying more tools are refused before sending; most servers cap at 128."),
+				// The same message the capability chips use, deliberately without a
+				// distinguishing comment: l10n:check refuses one message minted
+				// under two keys.
+				unit: l10n.t("tools"),
+			};
 		case "discovery.timeout":
 			return {
 				label: l10n.t("Discovery timeout"),
@@ -388,6 +403,25 @@ export function numberSettingPresentation(id: NumberSettingId): NumberSettingPre
 				description: l10n.t("How often per-server spend and budget data refresh; 0 turns polling off."),
 				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
 				zeroMeaning: l10n.t("polling off"),
+			};
+		case "usage.initialRefreshDelay":
+			return {
+				label: l10n.t("First poll delay"),
+				description: l10n.t("How long after startup the first usage poll runs."),
+				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
+			};
+		case "usage.serversChangeRefreshDelay":
+			return {
+				label: l10n.t("Servers-change poll delay"),
+				description: l10n.t("How long after a servers-setting edit usage data refreshes."),
+				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
+			};
+		case "usage.pollingOffFreshnessWindow":
+			return {
+				label: l10n.t("Polling-off freshness window"),
+				description: l10n.t("How long fetched usage data counts as fresh while polling is off."),
+				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
+				zeroMeaning: l10n.t("never fresh"),
 			};
 	}
 }

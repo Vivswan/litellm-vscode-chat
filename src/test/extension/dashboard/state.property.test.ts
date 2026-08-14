@@ -125,6 +125,9 @@ const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 	setUsageStatusBar: fc.record({ value: fc.constantFrom("always", "alerts-only", "off") }),
 	setTokenEstimation: fc.record({ value: fc.constantFrom(...TOKEN_ESTIMATION_MODES) }),
 	setCurrencySymbol: fc.record({ value: fc.string({ maxLength: 12 }) }),
+	setAdditionalToolSchemaKeywords: fc.record({
+		values: fc.array(fc.string({ maxLength: 256 }), { maxLength: 64 }),
+	}),
 	setUiTheme: fc.record({ value: fc.constantFrom(...UI_THEMES) }),
 	setUiAccent: fc.record({ value: fc.constantFrom(...UI_ACCENTS) }),
 	setUsageAlertThresholds: fc.record({ values: fc.array(finiteNumber, { maxLength: 32 }) }),
@@ -242,9 +245,9 @@ suite("extension/dashboard/state webview request schema properties", () => {
 							const record = payload as Record<string, unknown>;
 							const keys = Object.keys(record);
 							const key = keys[pick % keys.length] ?? "label";
-							// setUsageAlertThresholds.values legally holds ANY bounded number
-							// array (empty = alerts off), so the array junk is not a wrong
-							// type there; NaN still is.
+							// setUsageAlertThresholds.values and the schema-keywords list
+							// legally hold ANY bounded array of their element type (empty =
+							// off), so the array junk is not a wrong type there; NaN still is.
 							mutant.payload = { ...record, [key]: key === "values" && Array.isArray(junk) ? Number.NaN : junk };
 						}
 					} else {

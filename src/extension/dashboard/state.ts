@@ -40,6 +40,7 @@ import { projectResolvedParameters, resolveModelParameters } from "../../shared/
 import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
 import type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
 import {
+	ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
 	NUMBER_SETTING_SPECS,
 	TOKEN_ESTIMATION_SETTING_KEY,
 	UI_ACCENT_SETTING_KEY,
@@ -49,6 +50,7 @@ import {
 	CURRENCY_SYMBOL_SETTING_KEY,
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
+	normalizeAdditionalToolSchemaKeywords,
 	normalizeCurrencySymbol,
 	normalizeModelCapabilities,
 	normalizeModelParameters,
@@ -693,6 +695,12 @@ export function readDashboardSettings(reader: SettingsReader, catalog: CatalogSt
 		chat: {
 			tokenEstimation: normalizeTokenEstimationMode(reader.get(TOKEN_ESTIMATION_SETTING_KEY)),
 			tokenEstimationScope: resolveConfiguredScope(reader.inspect(TOKEN_ESTIMATION_SETTING_KEY)),
+			additionalToolSchemaKeywords: normalizeAdditionalToolSchemaKeywords(
+				reader.get(ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY)
+			),
+			additionalToolSchemaKeywordsScope: resolveConfiguredScope(
+				reader.inspect(ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY)
+			),
 		},
 		usage: {
 			statusBarMode: normalizeUsageStatusBarMode(reader.get(USAGE_STATUS_BAR_SETTING_KEY)),

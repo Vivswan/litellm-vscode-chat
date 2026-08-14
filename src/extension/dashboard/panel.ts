@@ -44,6 +44,7 @@ import {
 	getUiTheme,
 	getUsageAlertThresholds,
 	getUsagePollIntervalMs,
+	getUsagePollingOffFreshnessWindowMs,
 	SERVERS_SETTING_KEY,
 } from "../../shared/config/settings";
 import { PARKED_GLOBAL_HEADERS_KEY } from "../../shared/config/storageKeys";
@@ -611,6 +612,8 @@ export class DashboardController implements vscode.Disposable {
 		setUsageStatusBar: (payload) => executeDashboardIntent({ method: "setUsageStatusBar", payload }, this.env),
 		setTokenEstimation: (payload) => executeDashboardIntent({ method: "setTokenEstimation", payload }, this.env),
 		setCurrencySymbol: (payload) => executeDashboardIntent({ method: "setCurrencySymbol", payload }, this.env),
+		setAdditionalToolSchemaKeywords: (payload) =>
+			executeDashboardIntent({ method: "setAdditionalToolSchemaKeywords", payload }, this.env),
 		setUiTheme: (payload) => executeDashboardIntent({ method: "setUiTheme", payload }, this.env),
 		setUiAccent: (payload) => executeDashboardIntent({ method: "setUiAccent", payload }, this.env),
 		setUsageAlertThresholds: (payload) =>
@@ -931,6 +934,7 @@ export function registerDashboardCommand(
 				states: usagePoller.store.getStates(),
 				thresholds: getUsageAlertThresholds(),
 				pollIntervalMs: getUsagePollIntervalMs(),
+				pollingOffWindowMs: getUsagePollingOffFreshnessWindowMs(),
 				discoveryTimeoutMs: getDiscoveryTimeout(),
 				refreshing: usagePoller.isRefreshing(),
 				now: Date.now(),

@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { isRecord } from "../util/json";
+import { isRecord, isUnsafeRecordKey } from "../util/json";
 import type { OpenAIFunctionToolDef } from "./wire";
 
 function isIntegerLikePropertyName(propertyName: string | undefined): boolean {
@@ -66,11 +66,33 @@ const ALLOWED_SCHEMA_KEYWORDS = new Set([
 	"allOf",
 ]);
 
+/**
+ * The keyword set one conversion works against: the built-in allowlist,
+ * extended (never replaced) by the chat.additionalToolSchemaKeywords setting.
+ * Extension-only on purpose: the sanitizer's structural rewrites below assume
+ * the built-ins are present, so user configuration may keep more keywords but
+ * can never strip one the conversion relies on. Prototype-polluting names
+ * ("__proto__" and friends) are refused here too - the settings normalizer
+ * already drops them, but this function takes arbitrary arrays, and admitting
+ * "__proto__" would make pruneUnknownSchemaKeywords assign a prototype
+ * instead of copying an own keyword.
+ */
+function allowedKeywords(additionalKeywords: readonly string[] | undefined): ReadonlySet<string> {
+	const extras = additionalKeywords?.filter((keyword) => !isUnsafeRecordKey(keyword)) ?? [];
+	if (extras.length === 0) {
+		return ALLOWED_SCHEMA_KEYWORDS;
+	}
+	return new Set([...ALLOWED_SCHEMA_KEYWORDS, ...extras]);
+}
+
 /** A fresh object holding only the allow-listed keywords, so sanitizeSchema can mutate it freely. */
-function pruneUnknownSchemaKeywords(schema: Record<string, unknown>): Record<string, unknown> {
+function pruneUnknownSchemaKeywords(
+	schema: Record<string, unknown>,
+	allowed: ReadonlySet<string>
+): Record<string, unknown> {
 	const out: Record<string, unknown> = {};
 	for (const [k, v] of Object.entries(schema)) {
-		if (ALLOWED_SCHEMA_KEYWORDS.has(k)) {
+		if (allowed.has(k)) {
 			out[k] = v;
 		}
 	}
@@ -79,12 +101,12 @@ function pruneUnknownSchemaKeywords(schema: Record<string, unknown>): Record<str
 
 const COMPOSITE_KEYWORDS = ["anyOf", "oneOf", "allOf"] as const;
 
-function sanitizeSchema(input: unknown, propName?: string): Record<string, unknown> {
+function sanitizeSchema(input: unknown, allowed: ReadonlySet<string>, propName?: string): Record<string, unknown> {
 	if (!isRecord(input)) {
 		return { type: "object", properties: {} };
 	}
 
-	const schema = pruneUnknownSchemaKeywords(input);
+	const schema = pruneUnknownSchemaKeywords(input, allowed);
 
 	for (const composite of COMPOSITE_KEYWORDS) {
 		const branch = schema[composite];
@@ -94,7 +116,7 @@ function sanitizeSchema(input: unknown, propName?: string): Record<string, unkno
 			// of being dropped, keeping the composite's branch count stable.
 			schema[composite] = branch
 				.filter((b) => typeof b === "object" && b !== null)
-				.map((b) => sanitizeSchema(b, propName));
+				.map((b) => sanitizeSchema(b, allowed, propName));
 		}
 	}
 
@@ -103,7 +125,7 @@ function sanitizeSchema(input: unknown, propName?: string): Record<string, unkno
 		if (isRecord(defs)) {
 			const sanitized: Record<string, unknown> = {};
 			for (const [k, v] of Object.entries(defs)) {
-				sanitized[k] = sanitizeSchema(v);
+				sanitized[k] = sanitizeSchema(v, allowed);
 			}
 			schema[defKey] = sanitized;
 		}
@@ -135,7 +157,7 @@ function sanitizeSchema(input: unknown, propName?: string): Record<string, unkno
 		// sanitizes into an index-keyed property map rather than being emptied.
 		if (typeof props === "object" && props !== null) {
 			for (const [k, v] of Object.entries(props)) {
-				newProps[k] = sanitizeSchema(v, k);
+				newProps[k] = sanitizeSchema(v, allowed, k);
 			}
 		}
 		schema.properties = newProps;
@@ -154,9 +176,9 @@ function sanitizeSchema(input: unknown, propName?: string): Record<string, unkno
 	} else if (t === "array") {
 		const items = schema.items;
 		if (Array.isArray(items) && items.length > 0) {
-			schema.items = sanitizeSchema(items[0]);
+			schema.items = sanitizeSchema(items[0], allowed);
 		} else if (typeof items === "object" && items !== null) {
-			schema.items = sanitizeSchema(items);
+			schema.items = sanitizeSchema(items, allowed);
 		} else {
 			schema.items = { type: "string" };
 		}
@@ -182,19 +204,26 @@ export interface ToolConfig {
  * Convert VS Code tool definitions to OpenAI function tool definitions, or
  * undefined when the request carries no tools.
  * @param options Request options containing tools and toolMode.
+ * @param additionalSchemaKeywords Extra JSON-Schema keywords the sanitizer
+ * keeps beyond its built-in allowlist (the chat.additionalToolSchemaKeywords
+ * setting, read by the caller); their values pass through verbatim.
  */
-export function convertTools(options: vscode.ProvideLanguageModelChatResponseOptions): ToolConfig | undefined {
+export function convertTools(
+	options: vscode.ProvideLanguageModelChatResponseOptions,
+	additionalSchemaKeywords?: readonly string[]
+): ToolConfig | undefined {
 	const tools = options.tools ?? [];
 	if (tools.length === 0) {
 		return undefined;
 	}
 
+	const allowed = allowedKeywords(additionalSchemaKeywords);
 	const toolDefs: OpenAIFunctionToolDef[] = tools
 		.filter((t): t is vscode.LanguageModelChatTool => typeof t === "object" && t !== null)
 		.map((t: vscode.LanguageModelChatTool) => {
 			const name = sanitizeFunctionName(t.name);
 			const description = typeof t.description === "string" ? t.description : "";
-			const params = sanitizeSchema(t.inputSchema ?? { type: "object", properties: {} });
+			const params = sanitizeSchema(t.inputSchema ?? { type: "object", properties: {} }, allowed);
 			return {
 				type: "function" as const,
 				function: {

@@ -131,7 +131,7 @@ suite("shared/config/settingSpec: package.json drift guard", () => {
 		for (const [key, schema] of Object.entries(allProperties())) {
 			const id = key.slice(`${CONFIG_SECTION}.`.length);
 			const types = schemaTypes(schema);
-			if (types.includes("number")) {
+			if (types.includes("number") || types.includes("integer")) {
 				assert.ok(
 					Object.hasOwn(NUMBER_SETTING_SPECS, id),
 					`${id} is a number setting without a NUMBER_SETTING_SPECS entry`

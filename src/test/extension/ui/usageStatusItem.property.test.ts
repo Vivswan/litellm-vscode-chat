@@ -6,6 +6,7 @@ import { isUsageFresh, usageFreshnessWindowMs } from "../../../extension/servers
 import type { ServerUsageState, UsageEndpointState } from "../../../extension/servers/usage/store";
 import { UNPROBED_ENDPOINTS } from "../../../extension/servers/usage/store";
 import { renderUsageStatus } from "../../../extension/ui/usageStatusItem";
+import { NUMBER_SETTING_SPECS } from "../../../shared/config/settingSpec";
 import type { UsageStatusBarMode } from "../../../shared/config/settings";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
@@ -23,6 +24,8 @@ const SEED = resolveFuzzSeed();
  */
 
 const NOW = Date.UTC(2026, 7, 1, 12);
+
+const POLLING_OFF_WINDOW_MS = NUMBER_SETTING_SPECS["usage.pollingOffFreshnessWindow"].default;
 
 interface GeneratedServer {
 	readonly keyInfo: UsageEndpointState;
@@ -149,7 +152,7 @@ const scenarioArb = fc
 	})
 	.map(({ servers, thresholds, mode, pollIntervalMs, clockSkew }) => {
 		const nowMs = NOW + clockSkew;
-		const windowMs = usageFreshnessWindowMs(pollIntervalMs);
+		const windowMs = usageFreshnessWindowMs(pollIntervalMs, POLLING_OFF_WINDOW_MS);
 		return {
 			states: servers.map((server, index) => toState(server, `s${index}`, nowMs, windowMs)),
 			thresholds,
@@ -167,7 +170,8 @@ function oracle(
 	thresholds: readonly number[]
 ) {
 	const contributing = states.filter(
-		(state) => isUsageFresh(state, nowMs, pollIntervalMs) && state.budget.spentFraction !== undefined
+		(state) =>
+			isUsageFresh(state, nowMs, pollIntervalMs, POLLING_OFF_WINDOW_MS) && state.budget.spentFraction !== undefined
 	);
 	const fractions = contributing.map((state) => state.budget.spentFraction ?? 0);
 	const worst = fractions.length > 0 ? Math.max(...fractions) : undefined;
@@ -189,7 +193,7 @@ suite("extension/ui renderUsageStatus properties", () => {
 	test("hidden exactly per the documented rules; otherwise the worst fresh ratio shows literally", () => {
 		fc.assert(
 			fc.property(scenarioArb, ({ states, thresholds, mode, pollIntervalMs, nowMs }) => {
-				const view = renderUsageStatus(states, nowMs, pollIntervalMs, thresholds, mode, "$");
+				const view = renderUsageStatus(states, nowMs, pollIntervalMs, POLLING_OFF_WINDOW_MS, thresholds, mode, "$");
 				const { worst, severity } = oracle(states, nowMs, pollIntervalMs, thresholds);
 
 				const expectHidden = mode === "off" || worst === undefined || (mode === "alerts-only" && severity === "plain");
@@ -213,7 +217,7 @@ suite("extension/ui renderUsageStatus properties", () => {
 		let warnings = 0;
 		fc.assert(
 			fc.property(scenarioArb, ({ states, thresholds, pollIntervalMs, nowMs }) => {
-				const view = renderUsageStatus(states, nowMs, pollIntervalMs, thresholds, "always", "$");
+				const view = renderUsageStatus(states, nowMs, pollIntervalMs, POLLING_OFF_WINDOW_MS, thresholds, "always", "$");
 				const { worst, lowest, highest, severity } = oracle(states, nowMs, pollIntervalMs, thresholds);
 				if (view === "hidden" || worst === undefined) {
 					return;
@@ -263,7 +267,7 @@ suite("extension/ui renderUsageStatus properties", () => {
 				fc.array(fc.tuple(anyServerArb, spoilerArb), { minLength: 1, maxLength: 3 }),
 				(scenario, extras) => {
 					const { states, thresholds, mode, pollIntervalMs, nowMs } = scenario;
-					const windowMs = usageFreshnessWindowMs(pollIntervalMs);
+					const windowMs = usageFreshnessWindowMs(pollIntervalMs, POLLING_OFF_WINDOW_MS);
 					// Each extra is spoiled out of the aggregation by construction (no
 					// filter: the property always exercises a non-empty addition), one
 					// spoiler per documented exclusion rule.
@@ -278,16 +282,20 @@ suite("extension/ui renderUsageStatus properties", () => {
 										: { ...extra, spend: undefined };
 						const state = toState(spoiled, `x${index}`, nowMs, windowMs);
 						assert.ok(
-							!(isUsageFresh(state, nowMs, pollIntervalMs) && state.budget.spentFraction !== undefined),
+							!(
+								isUsageFresh(state, nowMs, pollIntervalMs, POLLING_OFF_WINDOW_MS) &&
+								state.budget.spentFraction !== undefined
+							),
 							"a spoiled extra must never contribute"
 						);
 						return state;
 					});
-					const before = renderUsageStatus(states, nowMs, pollIntervalMs, thresholds, mode, "$");
+					const before = renderUsageStatus(states, nowMs, pollIntervalMs, POLLING_OFF_WINDOW_MS, thresholds, mode, "$");
 					const after = renderUsageStatus(
 						[...states, ...nonContributing],
 						nowMs,
 						pollIntervalMs,
+						POLLING_OFF_WINDOW_MS,
 						thresholds,
 						mode,
 						"$"
@@ -308,7 +316,7 @@ suite("extension/ui renderUsageStatus properties", () => {
 	test("the tooltip carries the expected line count for the server set", () => {
 		fc.assert(
 			fc.property(scenarioArb, ({ states, thresholds, mode, pollIntervalMs, nowMs }) => {
-				const view = renderUsageStatus(states, nowMs, pollIntervalMs, thresholds, mode, "$");
+				const view = renderUsageStatus(states, nowMs, pollIntervalMs, POLLING_OFF_WINDOW_MS, thresholds, mode, "$");
 				if (view === "hidden") {
 					return;
 				}

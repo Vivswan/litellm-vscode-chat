@@ -8,7 +8,13 @@ import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { CMD } from "../../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../../shared/config/settingSpec";
-import { getUsageAlertThresholds, getUsagePollIntervalMs, SERVERS_SETTING_KEY } from "../../../shared/config/settings";
+import {
+	getUsageAlertThresholds,
+	getUsageInitialRefreshDelayMs,
+	getUsagePollIntervalMs,
+	getUsageServersChangeRefreshDelayMs,
+	SERVERS_SETTING_KEY,
+} from "../../../shared/config/settings";
 import type { Logger } from "../../../shared/logger";
 import { readServerSecrets } from "../serverSync/secrets";
 import type { UsagePollerEnv, UsageRefreshOutcome } from "./poller";
@@ -41,6 +47,8 @@ export function createUsagePollerEnv(
 		readSecrets: (label) => readServerSecrets(context.secrets, label),
 		client: new UsageClient({ userAgent, log }),
 		pollIntervalMs: () => getUsagePollIntervalMs(settingLog),
+		initialRefreshDelayMs: () => getUsageInitialRefreshDelayMs(settingLog),
+		serversChangeRefreshDelayMs: () => getUsageServersChangeRefreshDelayMs(settingLog),
 		alertThresholds: () => getUsageAlertThresholds(settingLog),
 		log,
 	};

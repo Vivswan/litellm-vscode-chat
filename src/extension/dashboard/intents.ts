@@ -18,6 +18,7 @@ import { isUsableHttpUrl } from "../../dashboard/serverForm";
 import { CMD, INTERNAL_CMD, manageCommandTitle } from "../../shared/config/commandIds";
 import type { NumberSettingId } from "../../shared/config/settingSpec";
 import {
+	ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
 	CONFIG_SECTION,
 	CURRENCY_SYMBOL_SETTING_KEY,
 	NUMBER_SETTING_SPECS,
@@ -433,6 +434,23 @@ export async function executeDashboardIntent(
 			// display-only, length-bounded by the schema, and never sent anywhere.
 			await env.updateSetting(CURRENCY_SYMBOL_SETTING_KEY, intent.payload.value);
 			return undefined;
+		case "setAdditionalToolSchemaKeywords": {
+			// Empty and prototype-polluting names are refused here rather than
+			// silently dropped: the dashboard's editor already trims empties away,
+			// so anything else is a bypassing caller. Written deduplicated in the
+			// given order - the canonical form normalization would produce anyway.
+			if (intent.payload.values.some((value) => value.length === 0 || isUnsafeRecordKey(value))) {
+				throw new DashboardValidationError(
+					`${l10n.t("Tool schema keywords must be plain, non-empty names, e.g. propertyNames.")}\n${l10n.t(
+						"setting {0}: allowed range {1}",
+						`${CONFIG_SECTION}.${ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY}`,
+						"plain non-empty strings"
+					)}`
+				);
+			}
+			await env.updateSetting(ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY, [...new Set(intent.payload.values)]);
+			return undefined;
+		}
 		case "setUiTheme":
 			// Closed vocabularies, pinned by the schema. Writing the setting is the
 			// whole intent: the configuration change re-pushes state, and the

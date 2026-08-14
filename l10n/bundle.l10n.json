@@ -334,6 +334,8 @@
 			"Reasoning effort level label in the model picker"
 		]
 	},
+	"Extra JSON-Schema keywords kept in tool definitions, e.g. propertyNames. The built-in set always applies; keywords your server rejects can fail requests.": "Extra JSON-Schema keywords kept in tool definitions, e.g. propertyNames. The built-in set always applies; keywords your server rejects can fail requests.",
+	"Extra tool schema keywords": "Extra tool schema keywords",
 	"Failed to fetch LiteLLM models: the server at {0} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.": "Failed to fetch LiteLLM models: the server at {0} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.",
 	"Failed to parse the LiteLLM usage response from {0}.": "Failed to parse the LiteLLM usage response from {0}.",
 	"Fall back for \"{0}\"": "Fall back for \"{0}\"",
@@ -353,6 +355,7 @@
 	"Filter resolved models": "Filter resolved models",
 	"Filter settings": "Filter settings",
 	"Filter settings, e.g. timeout": "Filter settings, e.g. timeout",
+	"First poll delay": "First poll delay",
 	"Fix in settings.json": "Fix in settings.json",
 	"Fix the header rows": "Fix the header rows",
 	"Fix the model capability rows": "Fix the model capability rows",
@@ -390,9 +393,12 @@
 			"Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."
 		]
 	},
+	"How long after a servers-setting edit usage data refreshes.": "How long after a servers-setting edit usage data refreshes.",
+	"How long after startup the first usage poll runs.": "How long after startup the first usage poll runs.",
 	"How long an unreachable server's last known models stay in the picker; 0 drops them at once.": "How long an unreachable server's last known models stay in the picker; 0 drops them at once.",
 	"How long discovered model lists are reused, e.g. 1h or 0 to ask the server on every refresh. Sync Models Now always refreshes immediately.": "How long discovered model lists are reused, e.g. 1h or 0 to ask the server on every refresh. Sync Models Now always refreshes immediately.",
 	"How long discovered model lists are reused; 0 asks the server on every refresh.": "How long discovered model lists are reused; 0 asks the server on every refresh.",
+	"How long fetched usage data counts as fresh while polling is off.": "How long fetched usage data counts as fresh while polling is off.",
 	"How much reasoning the model puts in before it answers.": "How much reasoning the model puts in before it answers.",
 	"How often per-server spend and budget data refresh; 0 turns polling off.": "How often per-server spend and budget data refresh; 0 turns polling off.",
 	"How often spend and budget data refresh in the background; type 5m, 90s, or plain ms. 0 turns polling off - the dashboard and Refresh Usage Now still fetch on demand./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {
@@ -570,6 +576,7 @@
 	"Matches model IDs: gpt-4 exactly, gpt-4* for the family, /regex/ or * for broader sets; the most specific match wins. Server-specific records belong in the entry's models.parameters, not in URL-prefixed keys.": "Matches model IDs: gpt-4 exactly, gpt-4* for the family, /regex/ or * for broader sets; the most specific match wins. Server-specific records belong in the entry's models.parameters, not in URL-prefixed keys.",
 	"Max input tokens": "Max input tokens",
 	"Max output tokens": "Max output tokens",
+	"Max tools per request": "Max tools per request",
 	"Max/Reasoning effort level label in the model picker": {
 		"message": "Max",
 		"comment": [
@@ -664,8 +671,8 @@
 			"Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."
 		]
 	},
-	"Not a number": "Not a number",
 	"Not a valid HTTP header name": "Not a valid HTTP header name",
+	"Not a whole number": "Not a whole number",
 	"Not applied at all:": "Not applied at all:",
 	"Not checked": "Not checked",
 	"Not configured": "Not configured",
@@ -764,6 +771,7 @@
 	"Paste its API key if it needs one; it can stay in VS Code's encrypted secret storage.": "Paste its API key if it needs one; it can stay in VS Code's encrypted secret storage.",
 	"Pick how requests authenticate, e.g. a bearer API key. Exactly one form per entry; a gateway that checks a second credential takes it as a companion inside that form.": "Pick how requests authenticate, e.g. a bearer API key. Exactly one form per entry; a gateway that checks a second credential takes it as a companion inside that form.",
 	"Point the extension at your LiteLLM server and its models appear in Copilot Chat's model picker.": "Point the extension at your LiteLLM server and its models appear in Copilot Chat's model picker.",
+	"Polling-off freshness window": "Polling-off freshness window",
 	"Prefix on every spend and price figure, e.g. \"EUR \". Amounts are never converted - they render exactly as the server reports them.": "Prefix on every spend and price figure, e.g. \"EUR \". Amounts are never converted - they render exactly as the server reports them.",
 	"Price": "Price",
 	"Pricing": "Pricing",
@@ -815,6 +823,7 @@
 	"Request statistics couldn't be fetched yet - retries on the next refresh.": "Request statistics couldn't be fetched yet - retries on the next refresh.",
 	"Request timeout": "Request timeout",
 	"Request was aborted.": "Request was aborted.",
+	"Requests carrying more tools are refused before sending; most servers cap at 128.": "Requests carrying more tools are refused before sending; most servers cap at 128.",
 	"Requests, 30 days": "Requests, 30 days",
 	"Reset": "Reset",
 	"Resolution": "Resolution",
@@ -864,6 +873,7 @@
 	"Servers": "Servers",
 	"Servers, API keys, and which models are enabled": "Servers, API keys, and which models are enabled",
 	"Servers, models, and settings in one view": "Servers, models, and settings in one view",
+	"Servers-change poll delay": "Servers-change poll delay",
 	"Set in {0} settings - edit there.": "Set in {0} settings - edit there.",
 	"Settings": "Settings",
 	"Settings and stored server secrets will be restored to their state from {0}. Changes made to them since then will be lost.": "Settings and stored server secrets will be restored to their state from {0}. Changes made to them since then will be lost.",
@@ -993,6 +1003,7 @@
 	"Tokens, e.g. 128000": "Tokens, e.g. 128000",
 	"Too many chat tools are enabled for this request. Disable some in the chat Tools picker, or turn off unused extensions or MCP servers, and try again.": "Too many chat tools are enabled for this request. Disable some in the chat Tools picker, or turn off unused extensions or MCP servers, and try again.",
 	"Tool calling": "Tool calling",
+	"Tool schema keywords must be plain, non-empty names, e.g. propertyNames.": "Tool schema keywords must be plain, non-empty names, e.g. propertyNames.",
 	"Troubleshoot": "Troubleshoot",
 	"Troubleshooting Docs": "Troubleshooting Docs",
 	"UI": "UI",
@@ -1076,6 +1087,7 @@
 	"e.g. https://idp.example.com/oauth2/token": "e.g. https://idp.example.com/oauth2/token",
 	"e.g. litellm-vscode": "e.g. litellm-vscode",
 	"e.g. litellm.read litellm.write": "e.g. litellm.read litellm.write",
+	"e.g. propertyNames, patternProperties": "e.g. propertyNames, patternProperties",
 	"e.g. v2": "e.g. v2",
 	"e.g. x-litellm-api-key": "e.g. x-litellm-api-key",
 	"edit": "edit",
@@ -1162,6 +1174,7 @@
 	},
 	"name the header that carries the key": "name the header that carries the key",
 	"neither this entry nor the key sets one, so there is no percentage to show; set one on the entry under Servers, or on the key in LiteLLM": "neither this entry nor the key sets one, so there is no percentage to show; set one on the entry under Servers, or on the key in LiteLLM",
+	"never fresh": "never fresh",
 	"no": "no",
 	"no budget set": "no budget set",
 	"no request statistics": "no request statistics",

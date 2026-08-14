@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import {
+	ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
 	CURRENCY_SYMBOL_SETTING_KEY,
 	DEFAULT_CURRENCY_SYMBOL,
 	DEFAULT_TOKEN_ESTIMATION_MODE,
@@ -16,18 +17,24 @@ import {
 	DEFAULT_DISCOVERY_CACHE_TTL_MS,
 	DEFAULT_DISCOVERY_TIMEOUT_MS,
 	DEFAULT_REQUEST_TIMEOUT_MS,
+	getAdditionalToolSchemaKeywords,
 	getCurrencySymbol,
 	getDiscoveryCacheTtl,
 	getDiscoveryTimeout,
+	getMaxToolsPerRequest,
 	getModelCapabilitiesConfig,
 	getRequestTimeout,
 	getTokenEstimationMode,
 	getUiAccent,
 	getUiTheme,
+	getUsageInitialRefreshDelayMs,
 	getUsagePollIntervalMs,
+	getUsagePollingOffFreshnessWindowMs,
+	getUsageServersChangeRefreshDelayMs,
 	MIN_TIMEOUT_MS,
 	MIN_USAGE_POLL_INTERVAL_MS,
 	MODEL_CAPABILITIES_SETTING_KEY,
+	normalizeAdditionalToolSchemaKeywords,
 	normalizeCurrencySymbol,
 	normalizeCustomHeaders,
 	normalizeModelCapabilities,
@@ -236,6 +243,105 @@ suite("shared/config/settings getUsagePollIntervalMs", () => {
 		});
 		await withConfig({ "usage.pollInterval": 600000 }, () => {
 			assert.strictEqual(getUsagePollIntervalMs(), 600000);
+		});
+	});
+});
+
+suite("shared/config/settings usage cadence getters", () => {
+	test("the delays and the polling-off window default from the spec and clamp negatives to zero", async () => {
+		await withConfig({}, () => {
+			assert.strictEqual(getUsageInitialRefreshDelayMs(), 5000);
+			assert.strictEqual(getUsageServersChangeRefreshDelayMs(), 2000);
+			assert.strictEqual(getUsagePollingOffFreshnessWindowMs(), 600000);
+		});
+		await withConfig(
+			{
+				"usage.initialRefreshDelay": 100,
+				"usage.serversChangeRefreshDelay": 0,
+				"usage.pollingOffFreshnessWindow": 1_200_000,
+			},
+			() => {
+				assert.strictEqual(getUsageInitialRefreshDelayMs(), 100);
+				assert.strictEqual(getUsageServersChangeRefreshDelayMs(), 0);
+				assert.strictEqual(getUsagePollingOffFreshnessWindowMs(), 1_200_000);
+			}
+		);
+		await withConfig({ "usage.initialRefreshDelay": -1, "usage.pollingOffFreshnessWindow": -5 }, () => {
+			assert.strictEqual(getUsageInitialRefreshDelayMs(), 0);
+			assert.strictEqual(getUsagePollingOffFreshnessWindowMs(), 0);
+		});
+	});
+});
+
+suite("shared/config/settings max tools per request", () => {
+	test("defaults to 128, clamps below 1, and passes configured values through", async () => {
+		await withConfig({}, () => {
+			assert.strictEqual(getMaxToolsPerRequest(), 128);
+		});
+		await withConfig({ "chat.maxToolsPerRequest": 256 }, () => {
+			assert.strictEqual(getMaxToolsPerRequest(), 256);
+		});
+		const logged: unknown[] = [];
+		await withConfig({ "chat.maxToolsPerRequest": 0 }, () => {
+			assert.strictEqual(
+				getMaxToolsPerRequest(() => logged.push(true)),
+				1,
+				"a zero cap would refuse every tool-carrying request"
+			);
+		});
+		assert.strictEqual(logged.length, 1);
+		await withConfig({ "chat.maxToolsPerRequest": 128.5 }, () => {
+			assert.strictEqual(
+				getMaxToolsPerRequest(() => logged.push(true)),
+				128,
+				"fractional caps floor, so the refusal detail never reports a fraction"
+			);
+		});
+		assert.strictEqual(logged.length, 2);
+	});
+});
+
+suite("shared/config/settings normalizeAdditionalToolSchemaKeywords", () => {
+	test("a non-array reads as no additions; only a configured non-array logs", () => {
+		const logged: string[] = [];
+		assert.deepStrictEqual(
+			normalizeAdditionalToolSchemaKeywords(undefined, (msg) => logged.push(msg)),
+			[]
+		);
+		assert.strictEqual(logged.length, 0, "unset must not warn");
+		assert.deepStrictEqual(
+			normalizeAdditionalToolSchemaKeywords("propertyNames", (msg) => logged.push(msg)),
+			[]
+		);
+		assert.strictEqual(logged.length, 1);
+	});
+
+	test("keeps non-empty strings in order, deduplicated; drops the rest with one line", () => {
+		const logged: string[] = [];
+		assert.deepStrictEqual(
+			normalizeAdditionalToolSchemaKeywords(["propertyNames", "", 42, "patternProperties", "propertyNames"], (msg) =>
+				logged.push(msg)
+			),
+			["propertyNames", "patternProperties"]
+		);
+		assert.strictEqual(logged.length, 1);
+	});
+
+	test("drops prototype-polluting keyword names", () => {
+		const logged: string[] = [];
+		assert.deepStrictEqual(
+			normalizeAdditionalToolSchemaKeywords(["__proto__", "constructor", "propertyNames"], (msg) => logged.push(msg)),
+			["propertyNames"]
+		);
+		assert.strictEqual(logged.length, 1);
+	});
+
+	test("the getter reads the setting through the normalizer", async () => {
+		await withConfig({ [ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY]: ["propertyNames"] }, () => {
+			assert.deepStrictEqual(getAdditionalToolSchemaKeywords(), ["propertyNames"]);
+		});
+		await withConfig({ [ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY]: { propertyNames: true } }, () => {
+			assert.deepStrictEqual(getAdditionalToolSchemaKeywords(), []);
 		});
 	});
 });

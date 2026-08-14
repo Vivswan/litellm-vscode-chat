@@ -132,6 +132,7 @@ export function renderUsageStatus(
 	states: readonly ServerUsageState[],
 	nowMs: number,
 	pollIntervalMs: number,
+	pollingOffWindowMs: number,
 	thresholds: readonly number[],
 	mode: UsageStatusBarMode,
 	currencySymbol: string
@@ -139,7 +140,9 @@ export function renderUsageStatus(
 	if (mode === "off") {
 		return "hidden";
 	}
-	const freshByLabel = new Map(states.map((state) => [state.label, isUsageFresh(state, nowMs, pollIntervalMs)]));
+	const freshByLabel = new Map(
+		states.map((state) => [state.label, isUsageFresh(state, nowMs, pollIntervalMs, pollingOffWindowMs)])
+	);
 	const contributing = states.filter(
 		(state) => freshByLabel.get(state.label) === true && state.budget.spentFraction !== undefined
 	);
@@ -184,6 +187,8 @@ export interface UsageStatusBarOptions {
 	readonly getMode: () => UsageStatusBarMode;
 	readonly getThresholds: () => readonly number[];
 	readonly getPollIntervalMs: () => number;
+	/** The usage.pollingOffFreshnessWindow setting: the freshness window while polling is off. */
+	readonly getPollingOffWindowMs: () => number;
 	readonly getCurrencySymbol: () => string;
 	readonly clock?: Clock;
 	readonly timer?: Timer;
@@ -228,11 +233,13 @@ export class UsageStatusBar implements vscode.Disposable {
 		this.staleEdge.cancel();
 		const nowMs = this.clock.now();
 		const pollIntervalMs = this.options.getPollIntervalMs();
+		const pollingOffWindowMs = this.options.getPollingOffWindowMs();
 		const states = this.options.store.getStates();
 		const view = renderUsageStatus(
 			states,
 			nowMs,
 			pollIntervalMs,
+			pollingOffWindowMs,
 			this.options.getThresholds(),
 			this.options.getMode(),
 			this.options.getCurrencySymbol()
@@ -243,7 +250,7 @@ export class UsageStatusBar implements vscode.Disposable {
 			this.options.item.render({ text: view.text, tooltip: view.tooltipLines.join("\n"), severity: view.severity });
 			this.options.item.show();
 		}
-		this.scheduleStaleEdge(states, nowMs, pollIntervalMs);
+		this.scheduleStaleEdge(states, nowMs, pollIntervalMs, pollingOffWindowMs);
 	}
 
 	/**
@@ -251,10 +258,18 @@ export class UsageStatusBar implements vscode.Disposable {
 	 * goes stale: without it the item would keep showing (or keep coloring) a
 	 * number the freshness rule already disowned until the next store event.
 	 */
-	private scheduleStaleEdge(states: readonly ServerUsageState[], nowMs: number, pollIntervalMs: number): void {
-		const windowMs = usageFreshnessWindowMs(pollIntervalMs);
+	private scheduleStaleEdge(
+		states: readonly ServerUsageState[],
+		nowMs: number,
+		pollIntervalMs: number,
+		pollingOffWindowMs: number
+	): void {
+		const windowMs = usageFreshnessWindowMs(pollIntervalMs, pollingOffWindowMs);
 		const expiries = states
-			.filter((state) => isUsageFresh(state, nowMs, pollIntervalMs) && state.budget.spentFraction !== undefined)
+			.filter(
+				(state) =>
+					isUsageFresh(state, nowMs, pollIntervalMs, pollingOffWindowMs) && state.budget.spentFraction !== undefined
+			)
 			.map((state) => (state.spendUpdatedAt ?? nowMs) + windowMs - nowMs);
 		if (expiries.length === 0) {
 			return;

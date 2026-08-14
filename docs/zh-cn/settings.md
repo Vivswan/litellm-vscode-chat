@@ -45,11 +45,16 @@ Settings Sync 有意跳过这里最要紧的部分 - `servers` 是机器作用�
 | `litellm-vscode-chat.models.capabilities` | `{}` | 按模型的能力覆盖, 以[匹配器](models.md#模型匹配)为键: token 限制、视觉、工具、推理、定价 - 任何 `model_info` 字段, 认识与否皆可; 词汇表是开放的。完整故事: [模型 - 能力](models.md#能力) |
 | `litellm-vscode-chat.models.openRouterCatalog` | `true` | 用每周刷新的 OpenRouter 公开目录快照填补缺失的能力; 手动刷新用 "LiteLLM: Refresh OpenRouter Catalog"。详情含隐私说明: [模型 - 能力](models.md#能力) |
 | `litellm-vscode-chat.chat.timeout` | `300000` | 单次聊天补全的硬性时间预算, 毫秒。聊天请求从不重试, 所以这是一个请求可占用的总时间, 含流式传输。最小 1000; 更低的值会被钳制。为长推理运行或缓慢的基础设施调大它 |
+| `litellm-vscode-chat.chat.maxToolsPerRequest` | `128` | 一次聊天请求最多可携带的工具数, 超过时扩展在本地拒绝该请求而不发送 (多数 OpenAI 兼容服务器强制 128)。调大到超出你的服务器或模型接受的范围, 只会把失败移到服务器端: 请求会被发送, 然后被服务器拒绝。最小 1 |
+| `litellm-vscode-chat.chat.additionalToolSchemaKeywords` | `[]` | 工具输入 schema 中额外保留的 JSON-Schema 关键字, 例如 `["propertyNames"]`。发送前工具 schema 会按内置关键字白名单清理; 此处列出的关键字也会保留, 其值原样透传。内置白名单始终生效。服务器或模型不接受的关键字可能导致请求失败或工具调用变差 |
 | `litellm-vscode-chat.chat.promptCaching` | `true` | 在宣布支持的模型上, 跨会话轮次复用提供方侧的提示缓存; [详情见下](#提示缓存) |
 | `litellm-vscode-chat.discovery.timeout` | `30000` | 单轮模型发现的硬性时间预算, 毫秒 - 含重试和 OAuth 令牌交换。最小 1000 |
 | `litellm-vscode-chat.discovery.cacheTtl` | `3600000` | 已发现的模型列表复用多久, 毫秒。VS Code 重新解析提供程序很频繁 (有时一秒好几次); 缓存把那挡在你的服务器之外。`0` 表示每次都新取 (负值钳制为 `0`); 失败从不缓存; 同时发生的刷新共享一个请求; "LiteLLM: Sync Models Now" 绕过它 |
 | `litellm-vscode-chat.discovery.staleServeWindow` | `600000` | 服务器停止响应后, 其最后已知的模型继续提供 (标记为过期) 的时长, 毫秒, 从最后一次成功发现起算。若服务器休眠或重启超过十分钟, 可调大它; `0` 表示从不提供过期模型 (刷新失败立即清空该服务器的列表)。详情: [模型 - 发现](models.md#发现) |
 | `litellm-vscode-chat.usage.pollInterval` | `300000` | 后台支出/预算轮询节奏, 毫秒。`0` = 关闭: 仪表板打开时仍会获取, 但没有后台请求, 没有警报。低于 `30000` 的非零值向上钳制到 30 秒。完整故事: [用量](usage.md) |
+| `litellm-vscode-chat.usage.initialRefreshDelay` | `5000` | 扩展启动后多久运行首次用量轮询, 毫秒 |
+| `litellm-vscode-chat.usage.serversChangeRefreshDelay` | `2000` | `servers` 设置变更后多久刷新用量数据, 毫秒; 足以合并 settings.json 中的连续按键 |
+| `litellm-vscode-chat.usage.pollingOffFreshnessWindow` | `600000` | 轮询关闭时, 按需获取的用量数据算作新鲜的时长, 毫秒 (轮询开启时, 窗口改为轮询间隔的两倍)。`0` 则从不算新鲜, [状态栏项](usage.md#状态栏)会因此隐藏 |
 | `litellm-vscode-chat.usage.alertThresholds` | `[0.8, 0.95]` | 各触发一次警报的预算比例; 每个值在 (0, 1] 内; 空列表 = 关闭警报。完整故事: [用量 - 警报](usage.md#警报) |
 | `litellm-vscode-chat.usage.statusBar` | `"always"` | 用量状态栏项: `"always"`、`"alerts-only"`、`"off"`。完整故事: [用量 - 状态栏](usage.md#状态栏) |
 | `litellm-vscode-chat.usage.currencySymbol` | `"$"` | 每个支出和价格数字前的前缀, 例如 `"EUR "`。仅用于显示: 金额从不换算, 完全按服务器报告的数值呈现; 空字符串只显示数字 |

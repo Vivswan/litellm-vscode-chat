@@ -5,6 +5,7 @@ import { HEADER_NAME_PATTERN, isHeaderScalar, isValidHeaderValue } from "../util
 import { isUnsafeRecordKey } from "../util/json";
 import type { BooleanSettingId, NumberSettingId, TokenEstimationMode } from "./settingSpec";
 import {
+	ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
 	BOOLEAN_SETTING_SPECS,
 	CONFIG_SECTION,
 	CURRENCY_SYMBOL_SETTING_KEY,
@@ -62,11 +63,11 @@ function getBooleanSetting(id: BooleanSettingId): boolean {
 }
 
 /**
- * Validate a configured millisecond duration: non-finite values fall back to
- * the default, finite values are clamped to the minimum. Logs whenever the
+ * Validate a configured number setting: non-finite values fall back to the
+ * default, finite values are clamped to the minimum. Logs whenever the
  * effective value differs from the configured one.
  */
-function clampDuration(raw: unknown, fallback: number, minimum: number, name: string, log?: LogFn): number {
+function clampNumber(raw: unknown, fallback: number, minimum: number, name: string, log?: LogFn): number {
 	const candidate = typeof raw === "number" && Number.isFinite(raw) ? raw : fallback;
 	const clamped = Math.max(minimum, candidate);
 	if (clamped !== raw) {
@@ -75,18 +76,18 @@ function clampDuration(raw: unknown, fallback: number, minimum: number, name: st
 	return clamped;
 }
 
-/** The duration settings share the clamping read; each one's default and floor come from its spec. */
-function getDurationSetting(id: NumberSettingId, log?: LogFn): number {
+/** The number settings share the clamping read; each one's default and floor come from its spec. */
+function getClampedNumberSetting(id: NumberSettingId, log?: LogFn): number {
 	const spec = NUMBER_SETTING_SPECS[id];
-	return clampDuration(getNumberSetting(id), spec.default, spec.minimum, id, log);
+	return clampNumber(getNumberSetting(id), spec.default, spec.minimum, id, log);
 }
 
 export function getDiscoveryTimeout(log?: LogFn): number {
-	return getDurationSetting("discovery.timeout", log);
+	return getClampedNumberSetting("discovery.timeout", log);
 }
 
 export function getRequestTimeout(log?: LogFn): number {
-	return getDurationSetting("chat.timeout", log);
+	return getClampedNumberSetting("chat.timeout", log);
 }
 
 /** Anything outside the token-estimation vocabulary reads as the default ("auto"). */
@@ -111,7 +112,7 @@ export function getTokenEstimationMode(): TokenEstimationMode {
  * (concurrent refreshes still coalesce into one request).
  */
 export function getDiscoveryCacheTtl(log?: LogFn): number {
-	return getDurationSetting("discovery.cacheTtl", log);
+	return getClampedNumberSetting("discovery.cacheTtl", log);
 }
 
 /**
@@ -121,11 +122,69 @@ export function getDiscoveryCacheTtl(log?: LogFn): number {
  * stale serving entirely, so a failed silent refresh serves the empty list.
  */
 export function getDiscoveryStaleServeWindow(log?: LogFn): number {
-	return getDurationSetting("discovery.staleServeWindow", log);
+	return getClampedNumberSetting("discovery.staleServeWindow", log);
 }
 
 export function isPromptCachingEnabled(): boolean {
 	return getBooleanSetting("chat.promptCaching");
+}
+
+/**
+ * How many tools one chat request may carry before it is refused locally
+ * instead of sent (chat.maxToolsPerRequest). Values below 1 clamp to 1;
+ * fractions floor (the contribution says integer, but settings.json is free
+ * text); non-finite values fall back to the default.
+ */
+export function getMaxToolsPerRequest(log?: LogFn): number {
+	const clamped = getClampedNumberSetting("chat.maxToolsPerRequest", log);
+	const floored = Math.floor(clamped);
+	if (floored !== clamped) {
+		log?.("Invalid chat.maxToolsPerRequest configuration, using clamped value", {
+			configured: clamped,
+			clamped: floored,
+		});
+	}
+	return floored;
+}
+
+/**
+ * Narrow a raw chat.additionalToolSchemaKeywords value to the keyword names
+ * the tool-schema sanitizer keeps beyond its built-in allowlist: non-empty
+ * strings, deduplicated, in configuration order. A non-array reads as no
+ * additions; non-string, empty, and prototype-polluting entries ("__proto__"
+ * and friends, which could never be copied as own schema keys) drop with one
+ * log line. Exported for the unit suite and the dashboard's settings view.
+ */
+export function normalizeAdditionalToolSchemaKeywords(raw: unknown, log?: LogFn): readonly string[] {
+	if (!Array.isArray(raw)) {
+		if (raw !== undefined) {
+			log?.("Invalid chat.additionalToolSchemaKeywords configuration, using no additional keywords", {
+				configured: typeof raw,
+			});
+		}
+		return [];
+	}
+	const valid = raw.filter(
+		(value): value is string => typeof value === "string" && value.length > 0 && !isUnsafeRecordKey(value)
+	);
+	if (valid.length < raw.length) {
+		log?.("Ignoring chat.additionalToolSchemaKeywords entries that are not plain non-empty keyword names", {
+			ignored: raw.length - valid.length,
+		});
+	}
+	return [...new Set(valid)];
+}
+
+/**
+ * The extra JSON-Schema keywords tool conversion keeps in tool input schemas,
+ * on top of the built-in allowlist. Extension only: the built-ins always
+ * apply, so this can never strip a keyword the conversion relies on.
+ */
+export function getAdditionalToolSchemaKeywords(log?: LogFn): readonly string[] {
+	return normalizeAdditionalToolSchemaKeywords(
+		getConfig().get<unknown>(ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY),
+		log
+	);
 }
 
 /**
@@ -143,7 +202,7 @@ export const MIN_USAGE_POLL_INTERVAL_MS = 30000;
  * the default.
  */
 export function getUsagePollIntervalMs(log?: LogFn): number {
-	const clamped = getDurationSetting("usage.pollInterval", log);
+	const clamped = getClampedNumberSetting("usage.pollInterval", log);
 	if (clamped > 0 && clamped < MIN_USAGE_POLL_INTERVAL_MS) {
 		log?.("Invalid usage.pollInterval configuration, using clamped value", {
 			configured: clamped,
@@ -152,6 +211,26 @@ export function getUsagePollIntervalMs(log?: LogFn): number {
 		return MIN_USAGE_POLL_INTERVAL_MS;
 	}
 	return clamped;
+}
+
+/** The delay from the usage poller's start to its first poll, in milliseconds (usage.initialRefreshDelay). */
+export function getUsageInitialRefreshDelayMs(log?: LogFn): number {
+	return getClampedNumberSetting("usage.initialRefreshDelay", log);
+}
+
+/** The refresh delay after a servers-setting change, in milliseconds (usage.serversChangeRefreshDelay). */
+export function getUsageServersChangeRefreshDelayMs(log?: LogFn): number {
+	return getClampedNumberSetting("usage.serversChangeRefreshDelay", log);
+}
+
+/**
+ * How long on-demand usage data counts as fresh while polling is off, in
+ * milliseconds (usage.pollingOffFreshnessWindow). 0 is a valid configuration
+ * (the spec's floor): on-demand data then never counts as fresh, so the
+ * status bar aggregates nothing while polling is off.
+ */
+export function getUsagePollingOffFreshnessWindowMs(log?: LogFn): number {
+	return getClampedNumberSetting("usage.pollingOffFreshnessWindow", log);
 }
 
 /** The budget fractions the usage poller alerts at when nothing valid is configured. */

@@ -966,6 +966,57 @@ test("the token-estimation select renders in the Chat group with the default and
 	expect(postedCalls()).toEqual([{ method: "setTokenEstimation", payload: { value: "o200k_base" } }]);
 });
 
+test("the tool-schema-keywords box renders in the Chat group and posts the parsed, deduplicated list on commit", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const input = settingInput(root, "chat.additionalToolSchemaKeywords");
+	expect(input.value).toBe("");
+	// The row rides the Chat group, beside the scalar chat settings.
+	const group = input.closest(".settings-group") as HTMLElement;
+	expect(group.querySelector("#setting-chat\\.timeout")).not.toBeNull();
+
+	fireInput(input, " propertyNames, , patternProperties,propertyNames ");
+	fireKeyDown(input, "Enter");
+	expect(postedCalls()).toEqual([
+		{ method: "setAdditionalToolSchemaKeywords", payload: { values: ["propertyNames", "patternProperties"] } },
+	]);
+});
+
+test("a stored keyword list round-trips into the box, and an unchanged blur posts nothing", () => {
+	const settings = makeSettings({
+		chat: {
+			tokenEstimation: "auto",
+			tokenEstimationScope: null,
+			additionalToolSchemaKeywords: ["propertyNames", "patternProperties"],
+			additionalToolSchemaKeywordsScope: "global",
+		},
+	});
+	const root = mount(<SettingsSection settings={settings} models={[]} />);
+	const input = settingInput(root, "chat.additionalToolSchemaKeywords");
+	expect(input.value).toBe("propertyNames, patternProperties");
+	fireBlur(input);
+	expect(postedMessages).toEqual([]);
+});
+
+test("a stored keyword the comma box cannot round-trip renders read-only with the reveal button", () => {
+	const settings = makeSettings({
+		chat: {
+			tokenEstimation: "auto",
+			tokenEstimationScope: null,
+			additionalToolSchemaKeywords: ["a,b"],
+			additionalToolSchemaKeywordsScope: "global",
+		},
+	});
+	const root = mount(<SettingsSection settings={settings} models={[]} />);
+	const row = Array.from(root.querySelectorAll(".setting-row")).find((candidate) =>
+		candidate.textContent?.includes("Extra tool schema keywords")
+	) as HTMLElement;
+	expect(row.textContent).toContain("a,b");
+	expect(row.textContent).toContain("Custom list - edit in settings.json.");
+	// No input: a blur would rewrite the hand-written entry as two keywords.
+	expect(row.querySelector("input")).toBeNull();
+	expect(row.querySelector("button[aria-label='Open Extra tool schema keywords in settings.json']")).not.toBeNull();
+});
+
 /** The Import & Export group, addressed as the last settings group (its pinned position). */
 function importExportGroup(root: ParentNode): HTMLElement {
 	const group = Array.from(root.querySelectorAll(".settings-group")).pop();

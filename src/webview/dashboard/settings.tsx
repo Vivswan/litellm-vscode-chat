@@ -90,13 +90,26 @@ const SETTING_GROUPS: readonly {
 }[] = [
 	// The manifest's section order (Servers carries no scalar settings).
 	{ title: () => l10n.t("Models"), numbers: [], booleans: ["models.openRouterCatalog"] },
-	{ title: () => l10n.t("Chat"), numbers: ["chat.timeout"], booleans: ["chat.promptCaching"] },
+	{
+		title: () => l10n.t("Chat"),
+		numbers: ["chat.timeout", "chat.maxToolsPerRequest"],
+		booleans: ["chat.promptCaching"],
+	},
 	{
 		title: () => l10n.t("Discovery"),
 		numbers: ["discovery.timeout", "discovery.cacheTtl", "discovery.staleServeWindow"],
 		booleans: [],
 	},
-	{ title: () => l10n.t("Usage"), numbers: ["usage.pollInterval"], booleans: [] },
+	{
+		title: () => l10n.t("Usage"),
+		numbers: [
+			"usage.pollInterval",
+			"usage.initialRefreshDelay",
+			"usage.serversChangeRefreshDelay",
+			"usage.pollingOffFreshnessWindow",
+		],
+		booleans: [],
+	},
 	{ title: () => l10n.t("UI"), numbers: [], booleans: ["ui.maskSecretInputs"] },
 ];
 
@@ -581,6 +594,12 @@ function tokenEstimationDescription(): string {
 	);
 }
 
+function toolSchemaKeywordsDescription(): string {
+	return l10n.t(
+		"Extra JSON-Schema keywords kept in tool definitions, e.g. propertyNames. The built-in set always applies; keywords your server rejects can fail requests."
+	);
+}
+
 function usageThresholdsDescription(): string {
 	return l10n.t(
 		"Warning at 80% and error at 95% by default; enter 80% or 0.8. Clear both threshold fields to turn alerts off."
@@ -1041,6 +1060,88 @@ function CurrencySymbolRow({
 	);
 }
 
+/**
+ * The chat.additionalToolSchemaKeywords row: one comma-separated input over
+ * the list setting. Splitting on commas, trimming, and dropping empties gives
+ * every draft a reading, so the row never shows a parse error; committing
+ * writes the deduplicated list. A stored list the box cannot round-trip (an
+ * entry holding a comma or edge whitespace, hand-written) renders read-only
+ * with the reveal button, so the dashboard never destroys it.
+ */
+function ToolSchemaKeywordsRow({
+	values,
+	configuredScope,
+	hidden,
+}: {
+	values: readonly string[];
+	configuredScope: SettingScope | null;
+	hidden: boolean;
+}) {
+	const externalText = values.join(", ");
+	const [text, setText] = useState(externalText);
+	const syncKey = `${values.join(",")}@${configuredScope ?? "default"}`;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: deliberately keyed on syncKey alone; the external text is read at sync time, not watched
+	useEffect(() => {
+		setText(externalText);
+	}, [syncKey]);
+
+	const parsed = [
+		...new Set(
+			text
+				.split(",")
+				.map((keyword) => keyword.trim())
+				.filter((keyword) => keyword.length > 0)
+		),
+	];
+	const commit = () => {
+		if (parsed.join(",") !== values.join(",")) {
+			sendRequest("setAdditionalToolSchemaKeywords", { values: parsed });
+		}
+	};
+
+	const title = l10n.t("Extra tool schema keywords");
+	const inputId = "setting-chat.additionalToolSchemaKeywords";
+	// The comma-separated box cannot round-trip an entry that holds a comma or
+	// edge whitespace; only the settings file can write one.
+	const custom = values.some((keyword) => keyword.includes(",") || keyword !== keyword.trim());
+	return (
+		<SettingRow
+			settingId="chat.additionalToolSchemaKeywords"
+			title={title}
+			titleFor={custom ? undefined : inputId}
+			description={toolSchemaKeywordsDescription()}
+			configuredScope={configuredScope}
+			hidden={hidden}
+			control={
+				custom ? (
+					<>
+						<span className="font-mono">{values.join(", ")}</span>
+						<span className="hint">{l10n.t("Custom list - edit in settings.json.")}</span>
+					</>
+				) : (
+					<Input
+						id={inputId}
+						type="text"
+						spellCheck={false}
+						// Full control-column width: keyword lists grow sideways, unlike
+						// the intrinsic-width number inputs above.
+						className="w-full max-w-full"
+						placeholder={l10n.t("e.g. propertyNames, patternProperties")}
+						value={text}
+						onChange={(event) => setText(event.currentTarget.value)}
+						onBlur={() => commit()}
+						onKeyDown={(event) => {
+							if (event.key === "Enter") {
+								commit();
+							}
+						}}
+					/>
+				)
+			}
+		/>
+	);
+}
+
 function SettingGroup({
 	title,
 	help,
@@ -1131,6 +1232,7 @@ function configuredScopes(settings: DashboardSettings): readonly (SettingScope |
 		...Object.values(settings.configuredScopes.numbers),
 		...Object.values(settings.configuredScopes.booleans),
 		settings.chat.tokenEstimationScope,
+		settings.chat.additionalToolSchemaKeywordsScope,
 		settings.usage.statusBarScope,
 		settings.usage.thresholdsScope,
 		settings.usage.currencySymbolScope,
@@ -1230,6 +1332,11 @@ export function SettingsSection({
 		tokenEstimationDescription(),
 		"chat.tokenEstimation"
 	);
+	const toolSchemaKeywordsVisible = matches(
+		l10n.t("Extra tool schema keywords"),
+		toolSchemaKeywordsDescription(),
+		"chat.additionalToolSchemaKeywords"
+	);
 	const thresholdsVisible = matches(
 		l10n.t("Usage alert thresholds"),
 		usageThresholdsDescription(),
@@ -1258,6 +1365,7 @@ export function SettingsSection({
 		!importExportVisible &&
 		!statusBarVisible &&
 		!tokenEstimationVisible &&
+		!toolSchemaKeywordsVisible &&
 		!thresholdsVisible &&
 		!currencyVisible &&
 		!themeVisible &&
@@ -1307,11 +1415,11 @@ export function SettingsSection({
 			{nothingMatches ? <p className="empty">{l10n.t("No settings match the filter.")}</p> : null}
 			<div className={cn("settings-groups", SETTINGS_MEASURE)}>
 				{SETTING_GROUPS.map((group, index) => {
-					// Three groups carry non-scalar tails: Models gets the two record
+					// Four groups carry non-scalar tails: Models gets the two record
 					// editors (mirroring the manifest's grouping - they are model
 					// settings, not a page of their own), Chat gets the
-					// token-estimation enum, Usage gets the status bar
-					// mode enum and the alert-thresholds row.
+					// token-estimation enum and the tool-schema-keywords list, Usage
+					// gets the status bar mode enum and the alert-thresholds row.
 					const isModelsGroup = group.booleans.includes("models.openRouterCatalog");
 					const isChatGroup = group.numbers.includes("chat.timeout");
 					const isUsageGroup = group.numbers.includes("usage.pollInterval");
@@ -1326,7 +1434,7 @@ export function SettingsSection({
 							booleanExtras={booleanExtras}
 							tailVisible={
 								(isModelsGroup && (paramsVisible || capsVisible)) ||
-								(isChatGroup && tokenEstimationVisible) ||
+								(isChatGroup && (tokenEstimationVisible || toolSchemaKeywordsVisible)) ||
 								(isUsageGroup && (statusBarVisible || thresholdsVisible || currencyVisible)) ||
 								(isUiGroup && (themeVisible || accentVisible))
 							}
@@ -1348,17 +1456,24 @@ export function SettingsSection({
 										/>
 									</>
 								) : isChatGroup ? (
-									<EnumSettingRow
-										settingId="chat.tokenEstimation"
-										title={l10n.t("Token estimation")}
-										description={tokenEstimationDescription()}
-										value={settings.chat.tokenEstimation}
-										options={TOKEN_ESTIMATION_MODES}
-										optionLabel={tokenEstimationLabel}
-										onPick={(value) => sendRequest("setTokenEstimation", { value })}
-										configuredScope={settings.chat.tokenEstimationScope}
-										hidden={!tokenEstimationVisible}
-									/>
+									<>
+										<EnumSettingRow
+											settingId="chat.tokenEstimation"
+											title={l10n.t("Token estimation")}
+											description={tokenEstimationDescription()}
+											value={settings.chat.tokenEstimation}
+											options={TOKEN_ESTIMATION_MODES}
+											optionLabel={tokenEstimationLabel}
+											onPick={(value) => sendRequest("setTokenEstimation", { value })}
+											configuredScope={settings.chat.tokenEstimationScope}
+											hidden={!tokenEstimationVisible}
+										/>
+										<ToolSchemaKeywordsRow
+											values={settings.chat.additionalToolSchemaKeywords}
+											configuredScope={settings.chat.additionalToolSchemaKeywordsScope}
+											hidden={!toolSchemaKeywordsVisible}
+										/>
+									</>
 								) : isUsageGroup ? (
 									<>
 										<UsageThresholdsRow

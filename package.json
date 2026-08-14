@@ -466,6 +466,22 @@
 						"minimum": 1000,
 						"description": "%litellm.config.chat.timeout.description%"
 					},
+					"litellm-vscode-chat.chat.maxToolsPerRequest": {
+						"type": "integer",
+						"default": 128,
+						"minimum": 1,
+						"description": "%litellm.config.chat.maxToolsPerRequest.description%"
+					},
+					"litellm-vscode-chat.chat.additionalToolSchemaKeywords": {
+						"type": "array",
+						"default": [],
+						"items": {
+							"type": "string",
+							"minLength": 1
+						},
+						"uniqueItems": true,
+						"description": "%litellm.config.chat.additionalToolSchemaKeywords.description%"
+					},
 					"litellm-vscode-chat.chat.promptCaching": {
 						"type": "boolean",
 						"default": true,
@@ -516,6 +532,24 @@
 						"default": 300000,
 						"minimum": 0,
 						"description": "%litellm.config.usage.pollInterval.description%"
+					},
+					"litellm-vscode-chat.usage.initialRefreshDelay": {
+						"type": "number",
+						"default": 5000,
+						"minimum": 0,
+						"description": "%litellm.config.usage.initialRefreshDelay.description%"
+					},
+					"litellm-vscode-chat.usage.serversChangeRefreshDelay": {
+						"type": "number",
+						"default": 2000,
+						"minimum": 0,
+						"description": "%litellm.config.usage.serversChangeRefreshDelay.description%"
+					},
+					"litellm-vscode-chat.usage.pollingOffFreshnessWindow": {
+						"type": "number",
+						"default": 600000,
+						"minimum": 0,
+						"description": "%litellm.config.usage.pollingOffFreshnessWindow.description%"
 					},
 					"litellm-vscode-chat.usage.alertThresholds": {
 						"type": "array",

@@ -10,8 +10,6 @@ import type { ModelConfigurationRequestParams } from "../catalog/modelConfigurat
 // transport-side entry point.
 export { DEFAULT_MAX_TOKENS_CAP, resolveMaxTokens } from "../../shared/config/parameterResolution";
 
-export const MAX_TOOLS_PER_REQUEST = 128;
-
 export interface RequestBodyParams {
 	rawModelId: string;
 	openaiMessages: OpenAIChatMessage[];

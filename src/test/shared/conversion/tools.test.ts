@@ -159,3 +159,87 @@ suite("shared/conversion/tools", () => {
 		assert.equal(value.properties, undefined);
 	});
 });
+
+suite("shared/conversion/tools additional schema keywords", () => {
+	function convertWith(inputSchema: object, additionalKeywords?: readonly string[]) {
+		const out = convertTools(
+			{
+				tools: [{ name: "keyword_tool", description: "Keyword tool", inputSchema }],
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+				requestInitiator: "test",
+			} satisfies vscode.ProvideLanguageModelChatResponseOptions,
+			additionalKeywords
+		);
+		assert.ok(out);
+		return expectDefined(out.tools[0]).function.parameters as Record<string, unknown>;
+	}
+
+	test("an unlisted keyword is pruned by default and kept verbatim when listed", () => {
+		const schema = {
+			type: "object",
+			properties: {},
+			propertyNames: { pattern: "^[a-z]+$" },
+		};
+		const pruned = convertWith(schema);
+		assert.equal(pruned.propertyNames, undefined);
+
+		const kept = convertWith(schema, ["propertyNames"]);
+		// The extra keyword's VALUE passes through verbatim: the sanitizer only
+		// rewrites the structural built-ins it knows.
+		assert.deepEqual(kept.propertyNames, { pattern: "^[a-z]+$" });
+	});
+
+	test("additional keywords extend the allowlist without changing the built-ins", () => {
+		const schema = {
+			type: "object",
+			properties: { x: { type: "string", minLength: 1, unlisted: true } },
+			required: ["x", 42],
+		};
+		const params = convertWith(schema, ["propertyNames"]);
+		const props = params.properties as Record<string, Record<string, unknown>>;
+		const x = expectDefined(props.x);
+		assert.equal(x.minLength, 1, "built-in keywords still pass");
+		assert.equal(x.unlisted, undefined, "keywords outside both sets still prune");
+		assert.deepEqual(params.required, ["x"], "the built-in structural rewrites still apply");
+	});
+
+	test("additional keywords apply at every nesting level", () => {
+		const schema = {
+			type: "object",
+			properties: {
+				nested: { type: "object", properties: {}, propertyNames: { maxLength: 8 } },
+				list: { type: "array", items: { type: "object", properties: {}, propertyNames: { maxLength: 8 } } },
+			},
+			$defs: {
+				Entry: { type: "object", properties: {}, propertyNames: { maxLength: 8 } },
+			},
+		};
+		const params = convertWith(schema, ["propertyNames"]);
+		const props = params.properties as Record<string, Record<string, unknown>>;
+		assert.deepEqual(expectDefined(props.nested).propertyNames, { maxLength: 8 });
+		const items = expectDefined(props.list).items as Record<string, unknown>;
+		assert.deepEqual(items.propertyNames, { maxLength: 8 });
+		const defs = params.$defs as Record<string, Record<string, unknown>>;
+		assert.deepEqual(expectDefined(defs.Entry).propertyNames, { maxLength: 8 });
+	});
+
+	test("an empty additions list behaves exactly like no additions", () => {
+		const schema = { type: "object", properties: {}, propertyNames: { pattern: "^[a-z]+$" } };
+		assert.deepEqual(convertWith(schema, []), convertWith(schema));
+	});
+
+	test("prototype-polluting keyword names are refused, so a schema's __proto__ key never becomes a prototype", () => {
+		const schema = {
+			type: "object",
+			properties: {},
+			// If "__proto__" were admitted, copying this key would ASSIGN the
+			// sanitized object's prototype instead of forwarding an own keyword,
+			// and the inherited `maximum` would leak into later reads.
+			["__proto__"]: { maximum: 5 },
+		};
+		const params = convertWith(schema, ["__proto__", "constructor", "propertyNames"]);
+		assert.strictEqual(Object.getPrototypeOf(params), Object.prototype, "the prototype must stay untouched");
+		assert.strictEqual(Object.hasOwn(params, "__proto__"), false);
+		assert.strictEqual(params.maximum, undefined, "nothing may be inherited from the schema value");
+	});
+});

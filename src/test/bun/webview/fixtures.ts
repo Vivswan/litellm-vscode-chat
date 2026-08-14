@@ -25,19 +25,27 @@ export function makeSettings(overrides: Partial<DashboardSettings> = {}): Dashbo
 	return {
 		numbers: {
 			"chat.timeout": 300000,
+			"chat.maxToolsPerRequest": 128,
 			"discovery.timeout": 30000,
 			"discovery.cacheTtl": 3600000,
 			"discovery.staleServeWindow": 600000,
 			"usage.pollInterval": 300000,
+			"usage.initialRefreshDelay": 5000,
+			"usage.serversChangeRefreshDelay": 2000,
+			"usage.pollingOffFreshnessWindow": 600000,
 		},
 		booleans: { "chat.promptCaching": true, "ui.maskSecretInputs": true, "models.openRouterCatalog": true },
 		configuredScopes: {
 			numbers: {
 				"chat.timeout": null,
+				"chat.maxToolsPerRequest": null,
 				"discovery.timeout": null,
 				"discovery.cacheTtl": null,
 				"discovery.staleServeWindow": null,
 				"usage.pollInterval": null,
+				"usage.initialRefreshDelay": null,
+				"usage.serversChangeRefreshDelay": null,
+				"usage.pollingOffFreshnessWindow": null,
 			},
 			booleans: { "chat.promptCaching": null, "ui.maskSecretInputs": null, "models.openRouterCatalog": null },
 		},
@@ -45,7 +53,12 @@ export function makeSettings(overrides: Partial<DashboardSettings> = {}): Dashbo
 		modelCapabilities: { editScope: "global", value: {}, otherScopes: [], effective: {} },
 		catalog: { modelCount: 0, lastSuccessAt: undefined, refreshing: false },
 		appearance: { theme: "auto", themeScope: null, accent: "blue", accentScope: null },
-		chat: { tokenEstimation: "auto", tokenEstimationScope: null },
+		chat: {
+			tokenEstimation: "auto",
+			tokenEstimationScope: null,
+			additionalToolSchemaKeywords: [],
+			additionalToolSchemaKeywordsScope: null,
+		},
 		usage: {
 			statusBarMode: "always",
 			statusBarScope: null,

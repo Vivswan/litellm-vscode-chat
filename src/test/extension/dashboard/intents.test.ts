@@ -149,6 +149,28 @@ suite("extension/dashboard/intents", () => {
 			]);
 		});
 
+		test("setAdditionalToolSchemaKeywords refuses empty or unsafe names and writes the rest deduplicated in order", async () => {
+			const recorded = makeEnv();
+			for (const values of [["propertyNames", ""], ["__proto__"], ["constructor"]]) {
+				await assert.rejects(
+					executeDashboardIntent({ method: "setAdditionalToolSchemaKeywords", payload: { values } }, recorded.env),
+					/allowed range plain non-empty strings/
+				);
+			}
+			assert.deepStrictEqual(recorded.updates, []);
+
+			await executeDashboardIntent(
+				{
+					method: "setAdditionalToolSchemaKeywords",
+					payload: { values: ["propertyNames", "patternProperties", "propertyNames"] },
+				},
+				recorded.env
+			);
+			assert.deepStrictEqual(recorded.updates, [
+				["chat.additionalToolSchemaKeywords", ["propertyNames", "patternProperties"]],
+			]);
+		});
+
 		test("every command ID maps to an allow-listed command", async () => {
 			const recorded = makeEnv();
 			const intents: DashboardIntent[] = [

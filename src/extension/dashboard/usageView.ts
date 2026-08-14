@@ -20,13 +20,20 @@ export interface UsageViewInput {
 	/** The normalized alert thresholds, as getUsageAlertThresholds returns them. */
 	readonly thresholds: readonly number[];
 	readonly pollIntervalMs: number;
+	/** The usage.pollingOffFreshnessWindow setting: the freshness window while polling is off. */
+	readonly pollingOffWindowMs: number;
 	/** The effective discovery.timeout; the card's timeout detail line prints it. */
 	readonly discoveryTimeoutMs: number;
 	/** Whether a refresh pass is in flight (UsagePoller.isRefreshing). */
 	readonly refreshing: boolean;
 	readonly now: number;
 	/** The shared freshness rule (extension/servers/usage/freshness.ts). */
-	readonly isFresh: (state: ServerUsageState, nowMs: number, pollIntervalMs: number) => boolean;
+	readonly isFresh: (
+		state: ServerUsageState,
+		nowMs: number,
+		pollIntervalMs: number,
+		pollingOffWindowMs: number
+	) => boolean;
 }
 
 /**
@@ -96,7 +103,7 @@ function usageServerView(state: ServerUsageState, input: UsageViewInput): UsageS
 		kind: "usage",
 		label: state.label,
 		baseUrl: state.baseUrl,
-		fresh: input.isFresh(state, input.now, input.pollIntervalMs),
+		fresh: input.isFresh(state, input.now, input.pollIntervalMs, input.pollingOffWindowMs),
 		keyInfo: endpointStandingView(state.endpoints.keyInfo),
 		dailyActivity: endpointStandingView(state.endpoints.dailyActivity),
 		...(state.spendUpdatedAt !== undefined ? { lastUpdatedAt: state.spendUpdatedAt } : {}),
