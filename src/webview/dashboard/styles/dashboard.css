@@ -1884,7 +1884,7 @@
 	/* The row's second line is the first thing to run out of room, so a narrow
 		   pane lets the model's detail carry what no longer fits on it: the actions
 		   stay put and the sentence clips from its tail. */
-	@container pane (max-width: 620px) {
+	@container pane (width < 620px) {
 		/* What a narrow row must NOT do is clip from the tail until every row
 			   reads the same. Price and capabilities are what the list is scanned
 			   for and they differ per model; the token limits are the most derivable
@@ -2348,13 +2348,13 @@
 		   the panel-column layout and the column heads regroup into one legend
 		   line (the help glyphs must survive the stacking).
 
-		   Range syntax rather than max-width, deliberately: Tailwind compiles the
-		   components' `@max-[700px]/pane:` variants to `not (min-width: 700px)`,
-		   which is `< 700`, while `max-width: 700px` is `<= 700`. The server form
-		   pairs its own variants with this rule, so at exactly 700px of pane the
-		   two would disagree and the page would stack in halves. The sibling
-		   rules below still read `max-width` because no Tailwind variant pairs
-		   with 560, 620 or 780 - there is nothing for them to disagree with. */
+		   Range syntax, like every pane threshold in this sheet: Tailwind
+		   compiles the components' `@max-[Npx]/pane:` variants to
+		   `@container pane (width < Npx)`, while `max-width: Npx` is `<= N`, so
+		   a rule and a variant at the same number disagree at exactly N and the
+		   page takes half of each layout for one pixel. narrowThresholds.test.ts
+		   reports any other spelling, on either side, and carries the rest of the
+		   reasoning. */
 	@container pane (width < 700px) {
 		/* Below the width where two input tracks stay usable, every panel's
 			   key/value rows stack to one column - the server form's header rows
@@ -2526,7 +2526,7 @@
 	 right of the pane, alone, aligned with nothing. Every narrow surface grew
 	 the same orphan ("Refresh now", "Open in Settings editor"). Below the fold
 	 they simply follow the title's left edge. */
-	@container pane (max-width: 640px) {
+	@container pane (width < 640px) {
 		.section-head .section-actions {
 			margin-left: 0;
 		}
@@ -2548,7 +2548,7 @@
 	 so the two lines read as one row). The columns still belong to the LIST,
 	 so the verdicts line up down the page and the actions sit under each
 	 other; only the shape of a row changed. */
-	@container pane (max-width: 920px) {
+	@container pane (width < 920px) {
 		/* The name track takes its width from the names, capped; the ACTIONS
 		 track takes the slack. Giving the slack to the name instead pushed
 		 every verdict to the far right of the pane, which aligns them but
