@@ -79,8 +79,8 @@ export function serializeBundle(bundle: l10nJsonFormat): string {
  * Lazy localization helpers (zero-arg or key-selecting): calling one at
  * module scope defeats its laziness exactly like a direct t() call, so the
  * guard bans these names alongside l10n.t and vscode.l10n.t. Parsers and
- * presenters that resolve l10n.t transitively count too. New helpers minted
- * by later work packages (help text, catalog presenters) belong on this list.
+ * presenters that resolve l10n.t transitively count too. New lazy helpers
+ * added later (help text, catalog presenters) belong on this list.
  */
 export const LAZY_L10N_HELPERS: readonly string[] = [
 	"configureNowLabel",
@@ -127,7 +127,7 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"timeoutRequestError",
 	"upstreamAuthMessage",
 	"statusErrorTexts",
-	// WP4: webview component presenters that resolve l10n.t at call time.
+	// Webview component presenters that resolve l10n.t at call time.
 	"relativeTime",
 	"formatPricing",
 	"pricingNote",
