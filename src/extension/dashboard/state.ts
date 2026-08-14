@@ -46,8 +46,10 @@ import {
 	UI_THEME_SETTING_KEY,
 } from "../../shared/config/settingSpec";
 import {
+	CURRENCY_SYMBOL_SETTING_KEY,
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
+	normalizeCurrencySymbol,
 	normalizeModelCapabilities,
 	normalizeModelParameters,
 	normalizeTokenEstimationMode,
@@ -697,6 +699,8 @@ export function readDashboardSettings(reader: SettingsReader, catalog: CatalogSt
 			statusBarScope: resolveConfiguredScope(reader.inspect(USAGE_STATUS_BAR_SETTING_KEY)),
 			alertThresholds: normalizeUsageAlertThresholds(reader.get(USAGE_ALERT_THRESHOLDS_SETTING_KEY)),
 			thresholdsScope: resolveConfiguredScope(reader.inspect(USAGE_ALERT_THRESHOLDS_SETTING_KEY)),
+			currencySymbol: normalizeCurrencySymbol(reader.get(CURRENCY_SYMBOL_SETTING_KEY)),
+			currencySymbolScope: resolveConfiguredScope(reader.inspect(CURRENCY_SYMBOL_SETTING_KEY)),
 		},
 	};
 }

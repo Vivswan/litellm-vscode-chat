@@ -1031,7 +1031,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 							merged[name] = value;
 						}
 					}
-					const expected = pricingFromCosts(merged, { zeroPairMeansUndeclared: false });
+					const expected = pricingFromCosts(merged, "$", { zeroPairMeansUndeclared: false });
 					for (const key of MODEL_PRICING_KEYS) {
 						assert.ok(
 							Object.is(info[key], expected[key]),

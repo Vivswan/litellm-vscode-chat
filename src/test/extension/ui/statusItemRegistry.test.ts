@@ -257,6 +257,7 @@ suite("extension/ui statusItemRegistry", () => {
 			getMode: () => "alerts-only",
 			getThresholds: () => [],
 			getPollIntervalMs: () => 0,
+			getCurrencySymbol: () => "$",
 		});
 		// A second construction into the slot (the historical double-activation
 		// shape) must tear the first owner down entirely.

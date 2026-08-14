@@ -12,7 +12,7 @@ import * as assert from "node:assert";
 import type { CapabilityOverrideOptions } from "../../../provider/catalog/capabilityOverrides";
 import { applyCapabilityOverrides, synthesizeDeclaredModels } from "../../../provider/catalog/capabilityOverrides";
 import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema } from "../../../provider/catalog/modelConfiguration";
-import { buildModelInfos } from "../../../provider/catalog/registration";
+import { buildModelInfos, pricingFromCosts } from "../../../provider/catalog/registration";
 import type { LiteLLMModelItem } from "../../../provider/catalog/schemas";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
 import { ModelResolutionTable } from "../../../shared/config/resolutionTable";
@@ -372,6 +372,12 @@ suite("provider/catalog/capabilityOverrides", () => {
 			assert.strictEqual(free.outputCost, 0);
 			assert.strictEqual(free.pricing, "$0 in / $0 out per 1M tokens");
 			assert.strictEqual(free.priceCategory, "low", "a genuinely free model earns the cheapest badge");
+		});
+
+		test("the pricing label takes the configured currency symbol verbatim; the empty symbol renders bare numbers", () => {
+			const costs = { input_cost_per_token: 0.000003, output_cost_per_token: 0.000015 };
+			assert.strictEqual(pricingFromCosts(costs, "EUR ").pricing, "EUR 3 in / EUR 15 out per 1M tokens");
+			assert.strictEqual(pricingFromCosts(costs, "").pricing, "3 in / 15 out per 1M tokens");
 		});
 
 		test("the server's 0/0 stamp stays undeclared: a rebuild adds no pricing fields", () => {

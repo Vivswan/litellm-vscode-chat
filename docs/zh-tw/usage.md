@@ -11,7 +11,8 @@
 | [`usage.pollInterval`](settings.md#參考) | `300000` 毫秒 | 背景多久擷取一次支出; `0` = 關閉 ([輪詢](#輪詢)) |
 | [`usage.alertThresholds`](settings.md#參考) | `[0.8, 0.95]` | 觸發通知的預算比例 ([警示](#警示)) |
 | [`usage.statusBar`](settings.md#參考) | `"always"` | `always` / `alerts-only` / `off` ([狀態列](#狀態列)) |
-| 項目的 [`budget`](servers.md#項目參考) | 未設定 | 按伺服器的手動預算 (美元) ([預算](#預算)) |
+| [`usage.currencySymbol`](settings.md#參考) | `"$"` | 每個支出與價格數字前的前綴, 例如 `"EUR "`; 僅用於顯示, 從不換算 |
+| 項目的 [`budget`](servers.md#項目參考) | 未設定 | 按伺服器的手動預算 (以伺服器自身的計費貨幣計) ([預算](#預算)) |
 
 ## 需求
 
@@ -44,7 +45,7 @@ curl -s -H "Authorization: Bearer $YOUR_LITELLM_KEY" https://litellm.example.com
 預算可以來自兩個地方:
 
 - **金鑰回報**: LiteLLM 存放在金鑰本身上的 `max_budget`, 建立金鑰時在伺服器端設定。`/key/info` 連同目前支出一起回報它。
-- **項目的 `budget` 欄位**: [伺服器項目](servers.md#項目參考)上的手動數字 (美元, 大於 0):
+- **項目的 `budget` 欄位**: [伺服器項目](servers.md#項目參考)上的手動數字 (以伺服器自身的計費貨幣計, 大於 0):
 
 ```jsonc
 "litellm-vscode-chat.servers": [

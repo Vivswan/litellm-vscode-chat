@@ -67,7 +67,7 @@ function mountAnswered(
 		onEditRecord: callbacks.onEditRecord,
 		onEditEntry: callbacks.onEditEntry,
 	};
-	const root = mount(<ModelInspector {...props} />);
+	const root = mount(<ModelInspector currencySymbol="$" {...props} />);
 	respondTo(lastRequest("readModelParameters"), response);
 	return root;
 }
@@ -145,7 +145,7 @@ describe("the inspector's capabilities configure-jump", () => {
 			onEditRecord: callbacks.onEditRecord,
 			onEditEntry: callbacks.onEditEntry,
 		};
-		const root = mount(<ModelInspector {...props} />);
+		const root = mount(<ModelInspector currencySymbol="$" {...props} />);
 		respondTo(
 			lastRequest("readModelCapabilities"),
 			response as Parameters<typeof respondTo<"readModelCapabilities">>[1]

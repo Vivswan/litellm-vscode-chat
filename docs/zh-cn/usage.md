@@ -11,7 +11,8 @@
 | [`usage.pollInterval`](settings.md#参考) | `300000` 毫秒 | 后台多久获取一次支出; `0` = 关闭 ([轮询](#轮询)) |
 | [`usage.alertThresholds`](settings.md#参考) | `[0.8, 0.95]` | 触发通知的预算比例 ([警报](#警报)) |
 | [`usage.statusBar`](settings.md#参考) | `"always"` | `always` / `alerts-only` / `off` ([状态栏](#状态栏)) |
-| 条目的 [`budget`](servers.md#条目参考) | 未设置 | 按服务器的手动预算 (美元) ([预算](#预算)) |
+| [`usage.currencySymbol`](settings.md#参考) | `"$"` | 每个支出和价格数字前的前缀, 例如 `"EUR "`; 仅用于显示, 从不换算 |
+| 条目的 [`budget`](servers.md#条目参考) | 未设置 | 按服务器的手动预算 (以服务器自身的计费货币计) ([预算](#预算)) |
 
 ## 要求
 
@@ -44,7 +45,7 @@ curl -s -H "Authorization: Bearer $YOUR_LITELLM_KEY" https://litellm.example.com
 预算可以来自两个地方:
 
 - **密钥报告**: LiteLLM 存放在密钥本身上的 `max_budget`, 创建密钥时在服务器侧设置。`/key/info` 连同当前支出一起报告它。
-- **条目的 `budget` 字段**: [服务器条目](servers.md#条目参考)上的手动数字 (美元, 大于 0):
+- **条目的 `budget` 字段**: [服务器条目](servers.md#条目参考)上的手动数字 (以服务器自身的计费货币计, 大于 0):
 
 ```jsonc
 "litellm-vscode-chat.servers": [

@@ -170,7 +170,7 @@ export function serverFormFieldLabel(field: ServerFormField): string {
 		case "declaredModels":
 			return l10n.t("Declared models");
 		case "budget":
-			return l10n.t("Budget (USD)");
+			return l10n.t("Budget");
 		case "modelParameters":
 			return l10n.t("Model parameters");
 		case "modelCapabilities":

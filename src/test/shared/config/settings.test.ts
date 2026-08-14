@@ -1,5 +1,7 @@
 import * as assert from "node:assert";
 import {
+	CURRENCY_SYMBOL_SETTING_KEY,
+	DEFAULT_CURRENCY_SYMBOL,
 	DEFAULT_TOKEN_ESTIMATION_MODE,
 	DEFAULT_UI_ACCENT,
 	DEFAULT_UI_THEME,
@@ -14,6 +16,7 @@ import {
 	DEFAULT_DISCOVERY_CACHE_TTL_MS,
 	DEFAULT_DISCOVERY_TIMEOUT_MS,
 	DEFAULT_REQUEST_TIMEOUT_MS,
+	getCurrencySymbol,
 	getDiscoveryCacheTtl,
 	getDiscoveryTimeout,
 	getModelCapabilitiesConfig,
@@ -25,6 +28,7 @@ import {
 	MIN_TIMEOUT_MS,
 	MIN_USAGE_POLL_INTERVAL_MS,
 	MODEL_CAPABILITIES_SETTING_KEY,
+	normalizeCurrencySymbol,
 	normalizeCustomHeaders,
 	normalizeModelCapabilities,
 	normalizeTokenEstimationMode,
@@ -288,6 +292,35 @@ suite("shared/config/settings token estimation getter", () => {
 		});
 		await withConfig({ [TOKEN_ESTIMATION_SETTING_KEY]: "tiktoken" }, () => {
 			assert.strictEqual(getTokenEstimationMode(), DEFAULT_TOKEN_ESTIMATION_MODE);
+		});
+	});
+});
+
+suite("shared/config/settings currency symbol getter", () => {
+	test("any string passes verbatim - multi-character, spaced, and empty included", () => {
+		// The symbol is display-only, so the whole string space is legal: no
+		// trimming (the trailing space in "EUR " is load-bearing) and the empty
+		// string is a real choice (bare numbers), never coerced to the default.
+		for (const symbol of ["$", "EUR ", "kr", "", " ", "USD "]) {
+			assert.strictEqual(normalizeCurrencySymbol(symbol), symbol);
+		}
+	});
+
+	test("a non-string settings.json value reads as the default", () => {
+		for (const junk of [3, null, undefined, {}, ["$"], true]) {
+			assert.strictEqual(normalizeCurrencySymbol(junk), DEFAULT_CURRENCY_SYMBOL, JSON.stringify(junk) ?? "undefined");
+		}
+	});
+
+	test("the getter reads the setting through the normalizer", async () => {
+		await withConfig({ [CURRENCY_SYMBOL_SETTING_KEY]: "EUR " }, () => {
+			assert.strictEqual(getCurrencySymbol(), "EUR ");
+		});
+		await withConfig({ [CURRENCY_SYMBOL_SETTING_KEY]: "" }, () => {
+			assert.strictEqual(getCurrencySymbol(), "");
+		});
+		await withConfig({ [CURRENCY_SYMBOL_SETTING_KEY]: 42 }, () => {
+			assert.strictEqual(getCurrencySymbol(), DEFAULT_CURRENCY_SYMBOL);
 		});
 	});
 });

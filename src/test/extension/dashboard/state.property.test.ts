@@ -124,6 +124,7 @@ const payloadArbs: Readonly<Record<DashboardMethod, fc.Arbitrary<unknown>>> = {
 	refreshUsage: fc.constant(null),
 	setUsageStatusBar: fc.record({ value: fc.constantFrom("always", "alerts-only", "off") }),
 	setTokenEstimation: fc.record({ value: fc.constantFrom(...TOKEN_ESTIMATION_MODES) }),
+	setCurrencySymbol: fc.record({ value: fc.string({ maxLength: 12 }) }),
 	setUiTheme: fc.record({ value: fc.constantFrom(...UI_THEMES) }),
 	setUiAccent: fc.record({ value: fc.constantFrom(...UI_ACCENTS) }),
 	setUsageAlertThresholds: fc.record({ values: fc.array(finiteNumber, { maxLength: 32 }) }),

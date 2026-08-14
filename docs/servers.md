@@ -55,7 +55,7 @@ Every property an entry can carry:
 | `models.capabilities` | record | Capability overrides for this server's models only; same mechanics ([details](models.md#capabilities)) |
 | `discovery.declared` | string[] | Exact model IDs to register even when discovery cannot list them ([below](#declared-models)) |
 | `discovery.expectedFailures` | string[] | Discovery endpoints this server is expected to fail: `"modelListing"` (`/v1/models`), `"modelInfo"` (`/v1/model/info`). Each gets a single attempt and an info-level log line instead of a red error ([below](#discovery-and-expected-failures)) |
-| `budget` | number | Manual budget in USD for [usage alerts](usage.md#budgets). Outranks the key's own `max_budget`; the dashboard shows both |
+| `budget` | number | Manual budget, in the server's billing currency, for [usage alerts](usage.md#budgets). Outranks the key's own `max_budget`; the dashboard shows both |
 
 A complete entry:
 

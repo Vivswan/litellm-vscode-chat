@@ -53,6 +53,7 @@ The file is a versioned envelope (setting keys inside it drop the `litellm-vscod
 | `litellm-vscode-chat.usage.pollInterval` | `300000` | Background spend/budget polling cadence, in milliseconds. `0` = off: the dashboard still fetches when opened, but no background requests and no alerts. Nonzero values below `30000` clamp up to 30 seconds. Full story: [Usage](usage.md) |
 | `litellm-vscode-chat.usage.alertThresholds` | `[0.8, 0.95]` | Budget fractions that trigger a one-time alert each; every value in (0, 1]; empty list = alerts off. Full story: [Usage - Alerts](usage.md#alerts) |
 | `litellm-vscode-chat.usage.statusBar` | `"always"` | The usage status bar item: `"always"`, `"alerts-only"`, `"off"`. Full story: [Usage - The status bar](usage.md#the-status-bar) |
+| `litellm-vscode-chat.usage.currencySymbol` | `"$"` | Prefix on every spend and price figure, e.g. `"EUR "`. Display only: amounts are never converted - they render exactly as the server reports them; an empty string shows bare numbers |
 | `litellm-vscode-chat.ui.maskSecretInputs` | `true` | Mask credential values while typing them into input-box prompts. The dashboard's secret fields always mask, each behind its own Show toggle, regardless of this setting |
 | `litellm-vscode-chat.ui.theme` | `"auto"` | How the dashboard colors itself: `"auto"` follows your VS Code theme, `"light"` and `"dark"` hold still while the editor changes around them. [Appearance notes below](#appearance) |
 | `litellm-vscode-chat.ui.accent` | `"blue"` | The dashboard's accent hue: `"blue"`, `"violet"`, `"teal"`, `"amber"`. It marks primary actions, selection, focus and links, and nothing else - status colors stay green, yellow and red. [Appearance notes below](#appearance) |
@@ -74,7 +75,7 @@ Each entry of `litellm-vscode-chat.servers` (all optional except `label` and `ba
 | `models.capabilities` | record | Capability overrides for this server only; same mechanics |
 | `discovery.declared` | string[] | Exact model IDs to register when discovery cannot list them; [Servers - Declared models](servers.md#declared-models) |
 | `discovery.expectedFailures` | string[] | Discovery endpoints expected to fail here (`"modelListing"`, `"modelInfo"`): one attempt, info-level log, not an outage |
-| `budget` | number | Manual budget in USD, greater than 0; outranks the key's own `max_budget` for [usage alerts](usage.md#budgets); both are shown |
+| `budget` | number | Manual budget in the server's billing currency, greater than 0; outranks the key's own `max_budget` for [usage alerts](usage.md#budgets); both are shown |
 
 Secret-capable fields (`auth.apiKey`, `auth.oauth.clientSecret`, `auth.virtualKey.value`, the OAuth companions) can live in VS Code secret storage instead of the settings file: [Servers - Secrets](servers.md#secrets-and-secret-storage).
 

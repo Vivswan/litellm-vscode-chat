@@ -55,7 +55,7 @@
 | `models.capabilities` | 記錄 | 只針對此伺服器模型的能力覆寫; 機制相同 ([詳情](models.md#能力)) |
 | `discovery.declared` | 字串陣列 | 即使探索列不出也要註冊的精確模型 ID ([下文](#宣告的模型)) |
 | `discovery.expectedFailures` | 字串陣列 | 此伺服器預期失敗的探索端點: `"modelListing"` (`/v1/models`)、`"modelInfo"` (`/v1/model/info`)。各只嘗試一次, 記一條 info 層級記錄而非紅色錯誤 ([下文](#探索與預期失敗)) |
-| `budget` | 數字 | 用於[用量警示](usage.md#預算)的手動預算 (美元)。優先於金鑰自身的 `max_budget`; 儀表板兩者都顯示 |
+| `budget` | 數字 | 用於[用量警示](usage.md#預算)的手動預算 (以伺服器自身的計費貨幣計)。優先於金鑰自身的 `max_budget`; 儀表板兩者都顯示 |
 
 一個完整的項目:
 

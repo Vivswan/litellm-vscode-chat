@@ -7,6 +7,8 @@ import type { BooleanSettingId, NumberSettingId, TokenEstimationMode } from "./s
 import {
 	BOOLEAN_SETTING_SPECS,
 	CONFIG_SECTION,
+	CURRENCY_SYMBOL_SETTING_KEY,
+	DEFAULT_CURRENCY_SYMBOL,
 	DEFAULT_TOKEN_ESTIMATION_MODE,
 	DEFAULT_UI_ACCENT,
 	DEFAULT_UI_THEME,
@@ -33,6 +35,7 @@ type LogFn = (message: string, data?: unknown) => void;
 // (vscode-free, so non-host consumers can load them); re-exported here for
 // the readers that take everything settings-related from this module.
 export {
+	CURRENCY_SYMBOL_SETTING_KEY,
 	MIN_TIMEOUT_MS,
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
@@ -199,6 +202,23 @@ export function normalizeUsageStatusBarMode(raw: unknown): UsageStatusBarMode {
 
 export function getUsageStatusBarMode(): UsageStatusBarMode {
 	return normalizeUsageStatusBarMode(getConfig().get<unknown>(USAGE_STATUS_BAR_SETTING_KEY));
+}
+
+/**
+ * Any string is a legal currency symbol, the empty string included (it
+ * renders the bare number); everything else reads as the default "$". No
+ * trimming: a trailing space is how "EUR " keeps the amount readable.
+ */
+export function normalizeCurrencySymbol(raw: unknown): string {
+	return typeof raw === "string" ? raw : DEFAULT_CURRENCY_SYMBOL;
+}
+
+/**
+ * The prefix every spend and cost figure renders with. Display only, never a
+ * conversion: amounts render exactly as the server reports them.
+ */
+export function getCurrencySymbol(): string {
+	return normalizeCurrencySymbol(getConfig().get<unknown>(CURRENCY_SYMBOL_SETTING_KEY));
 }
 
 /** Anything outside the theme vocabulary reads as the default. */

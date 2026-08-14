@@ -36,7 +36,7 @@ test("a row reads as two lines - name and meta, then a spec sentence - with the 
 		reasoning: true,
 	});
 	const bare = makeModel({ id: "bare", name: "Bare", toolCalling: false, imageInput: false });
-	const root = mount(<ModelsSection models={[priced, bare]} serverCount={1} onInspect={() => {}} />);
+	const root = mount(<ModelsSection currencySymbol="$" models={[priced, bare]} serverCount={1} onInspect={() => {}} />);
 
 	const rows = Array.from(root.querySelectorAll("li.model-row"));
 	expect(rows.length).toBe(2);
@@ -92,7 +92,7 @@ test("a row reads as two lines - name and meta, then a spec sentence - with the 
 	expect(field("Long-context output")).toBe("$20");
 	expect(field("Long-context cache read")).toBe("$0.5");
 	expect(field("Long-context cache write")).toBe("$6.25");
-	expect(detail.textContent).toContain("USD per million tokens");
+	expect(detail.textContent).toContain("$ per million tokens");
 
 	// The negative answer lives here, explicitly, named and valued the way the
 	// inspector's capabilities table names and values it.
@@ -104,7 +104,7 @@ test("a row reads as two lines - name and meta, then a spec sentence - with the 
 
 test("a capability the model lacks is answered in the detail, since the row only prints what it has", () => {
 	const bare = makeModel({ id: "bare", toolCalling: true, imageInput: false, promptCaching: false, reasoning: false });
-	const root = mount(<ModelsSection models={[bare]} serverCount={1} onInspect={() => {}} />);
+	const root = mount(<ModelsSection currencySymbol="$" models={[bare]} serverCount={1} onInspect={() => {}} />);
 	expect(root.querySelector(".model-caps")?.textContent).toBe("tools");
 
 	fireClick(root.querySelector("button.model-disclosure") as HTMLElement);
@@ -125,7 +125,7 @@ test("an undeclared output limit says so where the number is read", () => {
 	// The extension picked that number and it caps requests, which is worth
 	// saying next to it; a declared limit needs no such note.
 	const assumed = makeModel({ id: "assumed", maxOutputTokens: 4096, outputLimitDeclared: false });
-	const root = mount(<ModelsSection models={[assumed]} serverCount={1} onInspect={() => {}} />);
+	const root = mount(<ModelsSection currencySymbol="$" models={[assumed]} serverCount={1} onInspect={() => {}} />);
 	fireClick(root.querySelector("button.model-disclosure") as HTMLElement);
 	const detail = root.querySelector(".model-detail") as HTMLElement;
 	const maxOutput = Array.from(detail.querySelectorAll(".model-detail-field")).find(
@@ -143,7 +143,7 @@ test("each spec segment owns the separator that follows it, so a dropped segment
 	// its segment, never a text node stranded between two spans and never a CSS
 	// ::after a screen reader might not read.
 	const priced = makeModel({ id: "priced", inputCost: 3, outputCost: 15, imageInput: true });
-	const root = mount(<ModelsSection models={[priced]} serverCount={1} onInspect={() => {}} />);
+	const root = mount(<ModelsSection currencySymbol="$" models={[priced]} serverCount={1} onInspect={() => {}} />);
 	const line2 = root.querySelector(".model-line-2") as HTMLElement;
 
 	// The children alternate segment, separator, segment, separator, segment,
@@ -160,7 +160,7 @@ test("each spec segment owns the separator that follows it, so a dropped segment
 	// A model with no capabilities has no trailing separator to dangle.
 	const bare = makeModel({ id: "bare", toolCalling: false, inputCost: 1, outputCost: 2 });
 	cleanup();
-	const bareRoot = mount(<ModelsSection models={[bare]} serverCount={1} onInspect={() => {}} />);
+	const bareRoot = mount(<ModelsSection currencySymbol="$" models={[bare]} serverCount={1} onInspect={() => {}} />);
 	const bareLine = bareRoot.querySelector(".model-line-2") as HTMLElement;
 	expect(Array.from(bareLine.children).map((child) => child.className)).toEqual([
 		"model-limits",
@@ -175,7 +175,7 @@ test("filter narrows rows by name, id, family, and server label and updates 'sho
 		makeModel({ id: "gpt-4o", name: "Omni", family: "gpt", serverLabel: "Prod" }),
 		makeModel({ id: "claude-sonnet", name: "Sonnet", family: "claude", serverLabel: "Staging" }),
 	];
-	const root = mount(<ModelsSection models={models} serverCount={2} onInspect={() => {}} />);
+	const root = mount(<ModelsSection currencySymbol="$" models={models} serverCount={2} onInspect={() => {}} />);
 	const filter = root.querySelector("input[aria-label='Filter models']") as HTMLInputElement;
 	const visibleNames = () =>
 		Array.from(root.querySelectorAll("li.model-row")).map((row) =>
@@ -204,10 +204,10 @@ test("the server names itself on the row only when serverCount > 1, keyed to the
 	// line - and it is still keyed to the count, because two groups can share
 	// one label and their models must stay attributable.
 	const models = [makeModel({ serverLabel: "Shared" }), makeModel({ id: "b", serverLabel: "Shared" })];
-	const single = mount(<ModelsSection models={models} serverCount={1} onInspect={() => {}} />);
+	const single = mount(<ModelsSection currencySymbol="$" models={models} serverCount={1} onInspect={() => {}} />);
 	expect(single.querySelector(".model-meta")?.textContent).toBe("gpt");
 
-	const dual = mount(<ModelsSection models={models} serverCount={2} onInspect={() => {}} />);
+	const dual = mount(<ModelsSection currencySymbol="$" models={models} serverCount={2} onInspect={() => {}} />);
 	expect(dual.querySelector(".model-meta")?.textContent).toBe("gpt - Shared");
 
 	// It is also what there is to sort by: no second server, no Server key.
@@ -226,6 +226,7 @@ test("a server scope narrows the rows before the text filter and renders as a cl
 	let cleared = 0;
 	const root = mount(
 		<ModelsSection
+			currencySymbol="$"
 			models={models}
 			serverCount={2}
 			scope={{ label: "Prod", onClear: () => cleared++ }}
@@ -260,6 +261,7 @@ test("a declared model says so on its row, and its detail explains what that mea
 	// without a pointer rather than only on hover.
 	const root = mount(
 		<ModelsSection
+			currencySymbol="$"
 			models={[makeModel({ id: "my-model", name: "Mine", declared: true }), makeModel({ id: "gpt", name: "Found" })]}
 			serverCount={1}
 			onInspect={() => {}}
@@ -280,7 +282,9 @@ test("a declared model says so on its row, and its detail explains what that mea
 test("the Inspect action reports the clicked row's full identity to the inspector owner", () => {
 	const model = makeModel({ id: "gpt-4", rawId: "gpt-4", scopeKey: "s3" });
 	const opened: { scopeKey: string; rawId: string; serverLabel: string }[] = [];
-	const root = mount(<ModelsSection models={[model]} serverCount={1} onInspect={(target) => opened.push(target)} />);
+	const root = mount(
+		<ModelsSection currencySymbol="$" models={[model]} serverCount={1} onInspect={(target) => opened.push(target)} />
+	);
 	const inspect = root.querySelector("button[aria-label='Inspect GPT Test on Prod']");
 	expect(inspect).not.toBeNull();
 	expect((inspect?.textContent ?? "").trim()).toBe("Inspect");
@@ -296,7 +300,7 @@ test("filter pills sit between the toolbar and the list, dimension groups in the
 		makeModel({ id: "a", family: "gpt", scopeKey: "s1", serverLabel: "Prod", inputCost: 1, toolCalling: true }),
 		makeModel({ id: "b", family: "claude", scopeKey: "s2", serverLabel: "Staging", toolCalling: false }),
 	];
-	const root = mount(<ModelsSection models={models} serverCount={2} onInspect={() => {}} />);
+	const root = mount(<ModelsSection currencySymbol="$" models={models} serverCount={2} onInspect={() => {}} />);
 	const pills = root.querySelector(".filter-pills") as HTMLElement;
 	// Between the toolbar and the list: the row claims no space the columnar
 	// tier uses, in either tier.
@@ -326,7 +330,7 @@ test("a pill toggles with aria-pressed, narrows the rows, and moves the live cou
 		makeModel({ id: "a", name: "Tools", toolCalling: true }),
 		makeModel({ id: "b", name: "Bare", toolCalling: false }),
 	];
-	const root = mount(<ModelsSection models={models} serverCount={1} onInspect={() => {}} />);
+	const root = mount(<ModelsSection currencySymbol="$" models={models} serverCount={1} onInspect={() => {}} />);
 	const visibleNames = () =>
 		Array.from(root.querySelectorAll("li.model-row")).map((row) =>
 			(row.querySelector(".model-name-text")?.textContent ?? "").trim()
@@ -352,7 +356,13 @@ test("pills compose with the text filter and the server scope", () => {
 		makeModel({ id: "c", name: "Sonnet Vision", family: "claude", serverLabel: "Staging", imageInput: true }),
 	];
 	const root = mount(
-		<ModelsSection models={models} serverCount={2} scope={{ label: "Prod", onClear: () => {} }} onInspect={() => {}} />
+		<ModelsSection
+			currencySymbol="$"
+			models={models}
+			serverCount={2}
+			scope={{ label: "Prod", onClear: () => {} }}
+			onInspect={() => {}}
+		/>
 	);
 	const visibleNames = () =>
 		Array.from(root.querySelectorAll("li.model-row")).map((row) =>
@@ -372,7 +382,7 @@ test("server pills are offered per scopeKey - two servers sharing a label stay t
 		makeModel({ id: "a", name: "On S1", scopeKey: "s1", serverLabel: "prod" }),
 		makeModel({ id: "b", name: "On S2", scopeKey: "s2", serverLabel: "prod" }),
 	];
-	const root = mount(<ModelsSection models={models} serverCount={2} onInspect={() => {}} />);
+	const root = mount(<ModelsSection currencySymbol="$" models={models} serverCount={2} onInspect={() => {}} />);
 	const serverGroup = root.querySelector("[aria-label='Filter by server']") as HTMLElement;
 	const pills = Array.from(serverGroup.querySelectorAll("button.filter-pill"));
 	// Numbered apart: two controls reading identically could not be chosen
@@ -387,7 +397,7 @@ test("server pills are offered per scopeKey - two servers sharing a label stay t
 
 test("one serving server means no server pills, matching the rows' own rule", () => {
 	const models = [makeModel({ id: "a" }), makeModel({ id: "b", family: "claude" })];
-	const root = mount(<ModelsSection models={models} serverCount={1} onInspect={() => {}} />);
+	const root = mount(<ModelsSection currencySymbol="$" models={models} serverCount={1} onInspect={() => {}} />);
 	expect(root.querySelector("[aria-label='Filter by server']")).toBeNull();
 	// The family dimension still offers its pills.
 	expect(root.querySelector("[aria-label='Filter by family']")).not.toBeNull();
@@ -398,14 +408,14 @@ test("a pressed server pill survives the fleet dropping to one server, so its fi
 		makeModel({ id: "a", name: "On S1", scopeKey: "s1", serverLabel: "prod" }),
 		makeModel({ id: "b", name: "On S2", scopeKey: "s2", serverLabel: "staging" }),
 	];
-	const root = mount(<ModelsSection models={twoServers} serverCount={2} onInspect={() => {}} />);
+	const root = mount(<ModelsSection currencySymbol="$" models={twoServers} serverCount={2} onInspect={() => {}} />);
 	fireClick(buttonByText(root.querySelector("[aria-label='Filter by server']") as HTMLElement, "staging"));
 	// The staging group disappears (a push removed it): its models are gone and
 	// the fleet is one server again, which hides the server DIMENSION - but the
 	// pressed pill still applies, so it alone stays, pressed and unpressable
 	// back to nothing.
 	const oneServer = [twoServers[0] as ReturnType<typeof makeModel>];
-	render(<ModelsSection models={oneServer} serverCount={1} onInspect={() => {}} />, root);
+	render(<ModelsSection currencySymbol="$" models={oneServer} serverCount={1} onInspect={() => {}} />, root);
 	expect(root.textContent).toContain("showing 0 of 1");
 	const pill = buttonByText(root.querySelector("[aria-label='Filter by server']") as HTMLElement, "staging");
 	expect(pill.getAttribute("aria-pressed")).toBe("true");
@@ -420,7 +430,7 @@ test("Clear filters clears every pill and the text at once", () => {
 		makeModel({ id: "a", name: "Omni", family: "gpt", toolCalling: true }),
 		makeModel({ id: "b", name: "Sonnet", family: "claude", toolCalling: false }),
 	];
-	const root = mount(<ModelsSection models={models} serverCount={1} onInspect={() => {}} />);
+	const root = mount(<ModelsSection currencySymbol="$" models={models} serverCount={1} onInspect={() => {}} />);
 	const pillRow = () => root.querySelector(".filter-pills") as HTMLElement;
 	const input = root.querySelector("input[aria-label='Filter models']") as HTMLInputElement;
 
@@ -448,7 +458,7 @@ test("an all-filtered list is one sentence plus a clear action that brings the m
 		makeModel({ id: "a", name: "Omni", family: "gpt" }),
 		makeModel({ id: "b", name: "Sonnet", family: "claude" }),
 	];
-	const root = mount(<ModelsSection models={models} serverCount={1} onInspect={() => {}} />);
+	const root = mount(<ModelsSection currencySymbol="$" models={models} serverCount={1} onInspect={() => {}} />);
 	// A family pill plus a text needle from the other family: nothing survives.
 	fireClick(buttonByText(root.querySelector(".filter-pills") as HTMLElement, "gpt"));
 	fireInput(root.querySelector("input[aria-label='Filter models']") as HTMLInputElement, "sonnet");

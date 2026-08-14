@@ -55,7 +55,7 @@
 | `models.capabilities` | 记录 | 只针对此服务器模型的能力覆盖; 机制相同 ([详情](models.md#能力)) |
 | `discovery.declared` | 字符串数组 | 即使发现列不出也要注册的精确模型 ID ([下文](#声明的模型)) |
 | `discovery.expectedFailures` | 字符串数组 | 此服务器预期失败的发现终结点: `"modelListing"` (`/v1/models`)、`"modelInfo"` (`/v1/model/info`)。各只尝试一次, 记一条 info 级日志而非红色错误 ([下文](#发现与预期失败)) |
-| `budget` | 数字 | 用于[用量警报](usage.md#预算)的手动预算 (美元)。优先于密钥自身的 `max_budget`; 仪表板两者都显示 |
+| `budget` | 数字 | 用于[用量警报](usage.md#预算)的手动预算 (以服务器自身的计费货币计)。优先于密钥自身的 `max_budget`; 仪表板两者都显示 |
 
 一个完整的条目:
 

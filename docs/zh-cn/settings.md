@@ -52,6 +52,7 @@ Settings Sync 有意跳过这里最要紧的部分 - `servers` 是机器作用�
 | `litellm-vscode-chat.usage.pollInterval` | `300000` | 后台支出/预算轮询节奏, 毫秒。`0` = 关闭: 仪表板打开时仍会获取, 但没有后台请求, 没有警报。低于 `30000` 的非零值向上钳制到 30 秒。完整故事: [用量](usage.md) |
 | `litellm-vscode-chat.usage.alertThresholds` | `[0.8, 0.95]` | 各触发一次警报的预算比例; 每个值在 (0, 1] 内; 空列表 = 关闭警报。完整故事: [用量 - 警报](usage.md#警报) |
 | `litellm-vscode-chat.usage.statusBar` | `"always"` | 用量状态栏项: `"always"`、`"alerts-only"`、`"off"`。完整故事: [用量 - 状态栏](usage.md#状态栏) |
+| `litellm-vscode-chat.usage.currencySymbol` | `"$"` | 每个支出和价格数字前的前缀, 例如 `"EUR "`。仅用于显示: 金额从不换算, 完全按服务器报告的数值呈现; 空字符串只显示数字 |
 | `litellm-vscode-chat.ui.maskSecretInputs` | `true` | 在输入框提示中输入凭据值时进行遮盖。仪表板的密钥字段始终遮盖, 各带自己的「显示」开关, 与此设置无关 |
 | `litellm-vscode-chat.ui.theme` | `"auto"` | 仪表板如何着色: `"auto"` 跟随你的 VS Code 主题, `"light"` 和 `"dark"` 在编辑器变化时保持不动。[外观说明见下](#外观) |
 | `litellm-vscode-chat.ui.accent` | `"blue"` | 仪表板的强调色: `"blue"`、`"violet"`、`"teal"`、`"amber"`。它标记主要操作、选中、焦点和链接, 仅此而已 - 状态色保持绿、黄、红。[外观说明见下](#外观) |
@@ -73,7 +74,7 @@ Settings Sync 有意跳过这里最要紧的部分 - `servers` 是机器作用�
 | `models.capabilities` | 记录 | 只针对此服务器的能力覆盖; 机制相同 |
 | `discovery.declared` | 字符串数组 | 发现列不出时也要注册的精确模型 ID; [服务器 - 声明的模型](servers.md#声明的模型) |
 | `discovery.expectedFailures` | 字符串数组 | 此处预期失败的发现终结点 (`"modelListing"`、`"modelInfo"`): 一次尝试, info 级日志, 不算故障 |
-| `budget` | 数字 | 手动预算, 美元, 大于 0; 在[用量警报](usage.md#预算)中优先于密钥自身的 `max_budget`; 两者都显示 |
+| `budget` | 数字 | 手动预算, 以服务器自身的计费货币计, 大于 0; 在[用量警报](usage.md#预算)中优先于密钥自身的 `max_budget`; 两者都显示 |
 
 可作密钥的字段 (`auth.apiKey`、`auth.oauth.clientSecret`、`auth.virtualKey.value`、OAuth 伴随凭据) 可以存放在 VS Code 密钥存储而非设置文件中: [服务器 - 密钥](servers.md#密钥与密钥存储)。
 

@@ -333,6 +333,7 @@ export type RevealableSettingId =
 	| "chat.tokenEstimation"
 	| "usage.alertThresholds"
 	| "usage.statusBar"
+	| "usage.currencySymbol"
 	| "ui.theme"
 	| "ui.accent";
 
@@ -356,6 +357,7 @@ export const REVEALABLE_SETTING_IDS: readonly RevealableSettingId[] = everyId<Re
 	"chat.tokenEstimation",
 	"usage.alertThresholds",
 	"usage.statusBar",
+	"usage.currencySymbol",
 	"ui.theme",
 	"ui.accent",
 ]);
@@ -367,6 +369,7 @@ export type ResettableSettingId =
 	| "chat.tokenEstimation"
 	| "usage.statusBar"
 	| "usage.alertThresholds"
+	| "usage.currencySymbol"
 	| "ui.theme"
 	| "ui.accent";
 
@@ -376,6 +379,7 @@ export const RESETTABLE_SETTING_IDS: readonly ResettableSettingId[] = everyId<Re
 	"chat.tokenEstimation",
 	"usage.statusBar",
 	"usage.alertThresholds",
+	"usage.currencySymbol",
 	"ui.theme",
 	"ui.accent",
 ]);
@@ -458,13 +462,20 @@ export interface DashboardSettings {
 		readonly tokenEstimation: TokenEstimationMode;
 		readonly tokenEstimationScope: SettingScope | null;
 	};
-	/** The two non-scalar usage settings' rows (the enum and the fraction list). */
+	/** The non-scalar usage settings' rows (the enum, the fraction list, and the currency symbol). */
 	readonly usage: {
 		readonly statusBarMode: UsageStatusBarModeSetting;
 		readonly statusBarScope: SettingScope | null;
 		/** The configured thresholds as normalization reads them (valid fractions, deduplicated, ascending). */
 		readonly alertThresholds: readonly number[];
 		readonly thresholdsScope: SettingScope | null;
+		/**
+		 * The prefix every spend and cost figure renders with (display only,
+		 * never a conversion); the empty string renders the bare number. Every
+		 * webview cost surface reads this one pushed value.
+		 */
+		readonly currencySymbol: string;
+		readonly currencySymbolScope: SettingScope | null;
 	};
 }
 

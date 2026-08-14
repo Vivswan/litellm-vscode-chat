@@ -17,7 +17,7 @@ import {
 	toggleServer,
 } from "../../dashboard/modelFilters";
 import type { DashboardModel } from "../../dashboard/viewModels";
-import { capabilityDisplayLabel } from "../../shared/config/capabilityDisplay";
+import { capabilityDisplayLabel, costUnitLabel } from "../../shared/config/capabilityDisplay";
 import { DOCS_LINK_MODELS } from "./docsLinks";
 import { helpModelsSection } from "./helpText";
 import { IconArrowUp, IconCheck, IconChevronRight, IconClose, IconCopy } from "./icons";
@@ -31,15 +31,16 @@ export function formatTokens(count: number): string {
 }
 
 /**
- * A cost in dollars per million tokens, trimmed to three significant digits:
- * enough to compare models at a glance, and binary-fraction noise never
- * renders.
+ * A cost per million tokens, trimmed to three significant digits: enough to
+ * compare models at a glance, and binary-fraction noise never renders. The
+ * symbol is the configured usage.currencySymbol, verbatim (empty renders the
+ * bare number); amounts are never converted.
  */
-function formatCost(cost: number): string {
-	return `$${Number(cost.toPrecision(3))}`;
+function formatCost(cost: number, currencySymbol: string): string {
+	return `${currencySymbol}${Number(cost.toPrecision(3))}`;
 }
 
-function formatPricing(model: DashboardModel): string {
+function formatPricing(model: DashboardModel, currencySymbol: string): string {
 	if (model.inputCost === undefined && model.outputCost === undefined) {
 		return "-";
 	}
@@ -48,8 +49,8 @@ function formatPricing(model: DashboardModel): string {
 		parts.push(
 			l10n.t({
 				message: "{0} in",
-				args: [formatCost(model.inputCost)],
-				comment: ["price per million input tokens; {0} is a dollar amount"],
+				args: [formatCost(model.inputCost, currencySymbol)],
+				comment: ["price per million input tokens; {0} is a currency amount"],
 			})
 		);
 	}
@@ -57,8 +58,8 @@ function formatPricing(model: DashboardModel): string {
 		parts.push(
 			l10n.t({
 				message: "{0} out",
-				args: [formatCost(model.outputCost)],
-				comment: ["price per million output tokens; {0} is a dollar amount"],
+				args: [formatCost(model.outputCost, currencySymbol)],
+				comment: ["price per million output tokens; {0} is a currency amount"],
 			})
 		);
 	}
@@ -107,7 +108,10 @@ function fieldLabel(name: string): string {
  * note belongs to those fields: printed beside a detail that names no price it
  * would explain a unit nothing here uses.
  */
-function detailFields(model: DashboardModel): {
+function detailFields(
+	model: DashboardModel,
+	currencySymbol: string
+): {
 	readonly fields: readonly { label: string; value: string; mono?: boolean }[];
 	readonly costs: boolean;
 } {
@@ -132,7 +136,7 @@ function detailFields(model: DashboardModel): {
 	for (const [property, wireKey] of DETAIL_COSTS) {
 		const cost = model[property];
 		if (typeof cost === "number") {
-			fields.push({ label: fieldLabel(wireKey), value: formatCost(cost), mono: true });
+			fields.push({ label: fieldLabel(wireKey), value: formatCost(cost, currencySymbol), mono: true });
 			costs = true;
 		}
 	}
@@ -152,16 +156,26 @@ function detailFields(model: DashboardModel): {
 }
 
 /** Prices are per million tokens throughout; the row says so once rather than on every figure. */
-function pricingNote(): string {
-	return l10n.t("USD per million tokens");
+function pricingNote(currencySymbol: string): string {
+	return costUnitLabel(currencySymbol);
 }
 
 /**
  * The open row's detail. Its height is measured by the list (the window
  * arithmetic needs it exactly), so the ref has to reach the outer box.
  */
-function ModelDetail({ id, model, ref }: { id: string; model: DashboardModel; ref: React.Ref<HTMLDivElement> }) {
-	const { fields, costs } = detailFields(model);
+function ModelDetail({
+	id,
+	model,
+	currencySymbol,
+	ref,
+}: {
+	id: string;
+	model: DashboardModel;
+	currencySymbol: string;
+	ref: React.Ref<HTMLDivElement>;
+}) {
+	const { fields, costs } = detailFields(model, currencySymbol);
 	return (
 		<div className="model-detail" id={id} ref={ref}>
 			<dl className="model-detail-grid">
@@ -172,7 +186,7 @@ function ModelDetail({ id, model, ref }: { id: string; model: DashboardModel; re
 					</div>
 				))}
 			</dl>
-			{costs ? <p className="model-detail-note">{pricingNote()}</p> : null}
+			{costs ? <p className="model-detail-note">{pricingNote(currencySymbol)}</p> : null}
 		</div>
 	);
 }
@@ -479,11 +493,14 @@ const FALLBACK_VIEWPORT = 1000;
 export function ModelsSection({
 	models,
 	serverCount,
+	currencySymbol,
 	scope,
 	onInspect,
 }: {
 	models: readonly DashboardModel[];
 	serverCount: number;
+	/** The configured cost prefix (usage.currencySymbol); display only, never a conversion. */
+	currencySymbol: string;
 	/**
 	 * Narrows the list to one server's models; the servers table's model-count
 	 * links set it, its chip's clear button reports back through onClear. One
@@ -846,7 +863,8 @@ export function ModelsSection({
 													<span className="model-cost">
 														{priced ? (
 															<>
-																<span className="model-price">{formatPricing(model)}</span> {l10n.t("per M")}
+																<span className="model-price">{formatPricing(model, currencySymbol)}</span>{" "}
+																{l10n.t("per M")}
 															</>
 														) : (
 															l10n.t("price unknown")
@@ -910,7 +928,9 @@ export function ModelsSection({
 												</Button>
 											</span>
 										</div>
-										{isOpen ? <ModelDetail id={detailId} model={model} ref={measureDetail} /> : null}
+										{isOpen ? (
+											<ModelDetail id={detailId} model={model} currencySymbol={currencySymbol} ref={measureDetail} />
+										) : null}
 									</li>
 								);
 							})}

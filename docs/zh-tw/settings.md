@@ -52,6 +52,7 @@
 | `litellm-vscode-chat.usage.pollInterval` | `300000` | 背景支出/預算輪詢節奏, 毫秒。`0` = 關閉: 儀表板開啟時仍會擷取, 但沒有背景請求, 沒有警示。低於 `30000` 的非零值向上箝制到 30 秒。完整故事: [用量](usage.md) |
 | `litellm-vscode-chat.usage.alertThresholds` | `[0.8, 0.95]` | 各觸發一次警示的預算比例; 每個值在 (0, 1] 內; 空清單 = 關閉警示。完整故事: [用量 - 警示](usage.md#警示) |
 | `litellm-vscode-chat.usage.statusBar` | `"always"` | 用量狀態列項目: `"always"`、`"alerts-only"`、`"off"`。完整故事: [用量 - 狀態列](usage.md#狀態列) |
+| `litellm-vscode-chat.usage.currencySymbol` | `"$"` | 每個支出與價格數字前的前綴, 例如 `"EUR "`。僅用於顯示: 金額從不換算, 完全按伺服器回報的數值呈現; 空字串只顯示數字 |
 | `litellm-vscode-chat.ui.maskSecretInputs` | `true` | 在輸入方塊提示中輸入認證值時進行遮罩。儀表板的祕密欄位始終遮罩, 各帶自己的「顯示」切換, 與此設定無關 |
 | `litellm-vscode-chat.ui.theme` | `"auto"` | 儀表板如何著色: `"auto"` 跟隨您的 VS Code 佈景主題, `"light"` 與 `"dark"` 在編輯器變化時保持不動。[外觀說明見下](#外觀) |
 | `litellm-vscode-chat.ui.accent` | `"blue"` | 儀表板的強調色: `"blue"`、`"violet"`、`"teal"`、`"amber"`。它標記主要動作、選取、焦點與連結, 僅此而已 - 狀態色保持綠、黃、紅。[外觀說明見下](#外觀) |
@@ -73,7 +74,7 @@
 | `models.capabilities` | 記錄 | 只針對此伺服器的能力覆寫; 機制相同 |
 | `discovery.declared` | 字串陣列 | 探索列不出時也要註冊的精確模型 ID; [伺服器 - 宣告的模型](servers.md#宣告的模型) |
 | `discovery.expectedFailures` | 字串陣列 | 此處預期失敗的探索端點 (`"modelListing"`、`"modelInfo"`): 一次嘗試, info 層級記錄, 不算故障 |
-| `budget` | 數字 | 手動預算, 美元, 大於 0; 在[用量警示](usage.md#預算)中優先於金鑰自身的 `max_budget`; 兩者都顯示 |
+| `budget` | 數字 | 手動預算, 以伺服器自身的計費貨幣計, 大於 0; 在[用量警示](usage.md#預算)中優先於金鑰自身的 `max_budget`; 兩者都顯示 |
 
 可作祕密的欄位 (`auth.apiKey`、`auth.oauth.clientSecret`、`auth.virtualKey.value`、OAuth 附隨認證) 可以存放在 VS Code 祕密儲存體而非設定檔中: [伺服器 - 祕密](servers.md#祕密與祕密儲存體)。
 

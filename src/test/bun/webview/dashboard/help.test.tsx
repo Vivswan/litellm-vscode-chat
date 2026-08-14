@@ -282,7 +282,7 @@ test("every server form field carries its help glyph, trailing and named for the
 	trailing("apiKey", "API key", "apiKey");
 	trailing("virtualKeyHeader", "Virtual key header", "virtualKeyHeader");
 	trailing("virtualKeyValue", "Virtual key value", "virtualKeyValue");
-	trailing("budget", "Budget (USD)", "budget");
+	trailing("budget", "Budget", "budget");
 	glyphFor("apiVersion", "API version");
 	// Wide rows have no hint cell, so they cannot go through trailing() - but
 	// they are exactly where the glyph used to sit inside the control, ahead of

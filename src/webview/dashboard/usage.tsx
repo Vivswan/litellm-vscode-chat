@@ -41,9 +41,15 @@ import { cn } from "./ui/cn";
 import { Section } from "./ui/section";
 import { sendRequest } from "./vscodeApi";
 
-/** A dollar amount as the panel prints it; two decimals below $1000, whole dollars above. */
-export function formatUsd(amount: number): string {
-	return amount >= 1000 ? `$${Math.round(amount).toLocaleString()}` : `$${amount.toFixed(2)}`;
+/**
+ * An amount as the panel prints it: the configured currency symbol verbatim
+ * (display only, never a conversion; the empty symbol renders the bare
+ * number), two decimals below 1000, whole units above.
+ */
+export function formatMoney(amount: number, currencySymbol: string): string {
+	return amount >= 1000
+		? `${currencySymbol}${Math.round(amount).toLocaleString()}`
+		: `${currencySymbol}${amount.toFixed(2)}`;
 }
 
 /** The literal percentage, past 100 included (Q3: over-budget shows the real number). */
@@ -255,7 +261,11 @@ function forbiddenRowDetail(path: string, standing: UsageEndpointStandingView): 
  * "warn" is also the verdict the header counts as needing attention, so the
  * two can never disagree.
  */
-function tailFact(server: UsageServerView, thresholds: readonly number[]): { text: string; tone: "warn" | "muted" } {
+function tailFact(
+	server: UsageServerView,
+	thresholds: readonly number[],
+	currencySymbol: string
+): { text: string; tone: "warn" | "muted" } {
 	if (server.keyInfo.kind === "unavailable" && server.keyInfo.reason === "forbidden") {
 		return { text: l10n.t("usage access denied"), tone: "warn" };
 	}
@@ -275,10 +285,16 @@ function tailFact(server: UsageServerView, thresholds: readonly number[]): { tex
 	if (fraction !== undefined && server.spend !== undefined && server.effectiveBudget !== undefined) {
 		const tone = barPresentation(fraction, thresholds).tone;
 		if (fraction > 1) {
-			return { text: l10n.t("over budget by {0}", formatUsd(server.spend - server.effectiveBudget)), tone: "warn" };
+			return {
+				text: l10n.t("over budget by {0}", formatMoney(server.spend - server.effectiveBudget, currencySymbol)),
+				tone: "warn",
+			};
 		}
 		if (tone !== "ok") {
-			return { text: l10n.t("{0} left", formatUsd(server.effectiveBudget - server.spend)), tone: "warn" };
+			return {
+				text: l10n.t("{0} left", formatMoney(server.effectiveBudget - server.spend, currencySymbol)),
+				tone: "warn",
+			};
 		}
 	}
 	if (server.requests !== undefined) {
@@ -331,7 +347,7 @@ function Why({ text }: { text: string }) {
 }
 
 /** The budget fact's provenance, so a number that came from the key never reads as one the user set. */
-function BudgetFact({ server }: { server: UsageServerView }) {
+function BudgetFact({ server, currencySymbol }: { server: UsageServerView; currencySymbol: string }) {
 	if (server.effectiveBudget === undefined) {
 		return (
 			<Fact label={l10n.t("Budget")}>
@@ -347,9 +363,11 @@ function BudgetFact({ server }: { server: UsageServerView }) {
 		server.budgetSource === "entry" && server.keyBudget !== undefined && server.keyBudget !== server.effectiveBudget;
 	return (
 		<Fact label={l10n.t("Budget")}>
-			{formatUsd(server.effectiveBudget)}
+			{formatMoney(server.effectiveBudget, currencySymbol)}
 			{alsoKey ? (
-				<Why text={l10n.t("set on this entry - the key reports {0}", formatUsd(server.keyBudget ?? 0))} />
+				<Why
+					text={l10n.t("set on this entry - the key reports {0}", formatMoney(server.keyBudget ?? 0, currencySymbol))}
+				/>
 			) : (
 				<Why text={server.budgetSource === "entry" ? l10n.t("set on this entry") : l10n.t("reported by the key")} />
 			)}
@@ -415,11 +433,13 @@ function UsagePanel({
 	pollingOff,
 	discoveryTimeoutMs,
 	now,
+	currencySymbol,
 }: {
 	server: UsageServerView;
 	pollingOff: boolean;
 	discoveryTimeoutMs: number;
 	now: number;
+	currencySymbol: string;
 }) {
 	const details = [keyInfoDetail(server, pollingOff, discoveryTimeoutMs), activityDetail(server)].filter(
 		(detail): detail is string => detail !== undefined
@@ -444,9 +464,9 @@ function UsagePanel({
 					<span className="usage-url">{server.baseUrl}</span>
 				</Fact>
 				<Fact label={l10n.t("Spend")}>
-					{server.spend !== undefined ? formatUsd(server.spend) : <Absent reason={spendReason} />}
+					{server.spend !== undefined ? formatMoney(server.spend, currencySymbol) : <Absent reason={spendReason} />}
 				</Fact>
-				<BudgetFact server={server} />
+				<BudgetFact server={server} currencySymbol={currencySymbol} />
 				<Fact label={l10n.t("Next reset")}>
 					{server.budgetResetAt !== undefined ? (
 						new Date(server.budgetResetAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })
@@ -515,6 +535,7 @@ function UsageRow({
 	pollingOff,
 	discoveryTimeoutMs,
 	now,
+	currencySymbol,
 }: {
 	server: UsageServerCardView;
 	thresholds: readonly number[];
@@ -523,6 +544,7 @@ function UsageRow({
 	/** The effective discovery.timeout; the timeout detail line prints it. */
 	discoveryTimeoutMs: number;
 	now: number;
+	currencySymbol: string;
 }) {
 	const [open, setOpen] = useState(false);
 	const panelId = useId();
@@ -530,7 +552,9 @@ function UsageRow({
 	const fraction = usage?.spentFraction;
 	const bar = fraction !== undefined ? barPresentation(fraction, thresholds) : undefined;
 	const tail =
-		usage !== undefined ? tailFact(usage, thresholds) : { text: l10n.t("usage access denied"), tone: "warn" as const };
+		usage !== undefined
+			? tailFact(usage, thresholds, currencySymbol)
+			: { text: l10n.t("usage access denied"), tone: "warn" as const };
 	return (
 		<div className="usage-row border-border border-b last:border-b-0">
 			<button
@@ -552,7 +576,7 @@ function UsageRow({
 				<span className="usage-label truncate font-semibold">{server.label}</span>
 				<span className="usage-spend truncate font-mono text-[0.92em] tabular-nums">
 					{usage?.spend !== undefined ? (
-						formatUsd(usage.spend)
+						formatMoney(usage.spend, currencySymbol)
 					) : (
 						<span className="text-muted-foreground">
 							<span aria-hidden="true">-</span>
@@ -560,7 +584,10 @@ function UsageRow({
 						</span>
 					)}
 					{usage?.effectiveBudget !== undefined ? (
-						<span className="text-muted-foreground"> {l10n.t("of {0}", formatUsd(usage.effectiveBudget))}</span>
+						<span className="text-muted-foreground">
+							{" "}
+							{l10n.t("of {0}", formatMoney(usage.effectiveBudget, currencySymbol))}
+						</span>
 					) : null}
 				</span>
 				{/* A plain element rather than <meter>: the native one paints UA
@@ -641,7 +668,13 @@ function UsageRow({
 			{open ? (
 				<div id={panelId} className="usage-panel px-2.5 pt-1 pb-4">
 					{server.kind === "usage" ? (
-						<UsagePanel server={server} pollingOff={pollingOff} discoveryTimeoutMs={discoveryTimeoutMs} now={now} />
+						<UsagePanel
+							server={server}
+							pollingOff={pollingOff}
+							discoveryTimeoutMs={discoveryTimeoutMs}
+							now={now}
+							currencySymbol={currencySymbol}
+						/>
 					) : (
 						<ForbiddenPanel server={server} />
 					)}
@@ -656,11 +689,11 @@ function UsageRow({
  * failing endpoint, or numbers that stopped updating. The same verdict the
  * line's tail paints warn, counted for the header's summary.
  */
-function needsAttention(server: UsageServerCardView, thresholds: readonly number[]): boolean {
+function needsAttention(server: UsageServerCardView, thresholds: readonly number[], currencySymbol: string): boolean {
 	if (server.kind === "forbidden") {
 		return true;
 	}
-	return tailFact(server, thresholds).tone === "warn";
+	return tailFact(server, thresholds, currencySymbol).tone === "warn";
 }
 
 /**
@@ -668,9 +701,9 @@ function needsAttention(server: UsageServerCardView, thresholds: readonly number
  * attention, and whether the numbers refresh on their own. Every clause is a
  * whole sentence fragment so extraction sees literals, not concatenation.
  */
-function usageMeta(usage: DashboardUsage): string {
+function usageMeta(usage: DashboardUsage, currencySymbol: string): string {
 	const count = usage.servers.length;
-	const attention = usage.servers.filter((server) => needsAttention(server, usage.thresholds)).length;
+	const attention = usage.servers.filter((server) => needsAttention(server, usage.thresholds, currencySymbol)).length;
 	// "with usage data" on purpose: the page header counts every configured
 	// server, and only the ones whose proxy serves the usage endpoints reach
 	// this list, so two different counts sit a hundred pixels apart.
@@ -688,12 +721,15 @@ export function UsageSection({
 	usage,
 	serverCount,
 	now,
+	currencySymbol,
 }: {
 	usage: DashboardUsage;
 	/** How many servers the dashboard knows at all; distinguishes the two empty states. */
 	serverCount: number;
 	/** The shared clock tick (one useNow in App). */
 	now: number;
+	/** The configured spend prefix (usage.currencySymbol); display only, never a conversion. */
+	currencySymbol: string;
 }) {
 	return (
 		<Section
@@ -704,7 +740,7 @@ export function UsageSection({
 			// above it clips.
 			helpBelow
 			docs={{ href: DOCS_LINK_USAGE, label: l10n.t("Open the usage and budgets guide") }}
-			meta={usage.servers.length > 0 ? usageMeta(usage) : undefined}
+			meta={usage.servers.length > 0 ? usageMeta(usage, currencySymbol) : undefined}
 			// The header line caps at the list's own measure: a rule running
 			// 200px past the last row reads as page furniture rather than as
 			// this section's header.
@@ -758,6 +794,7 @@ export function UsageSection({
 							pollingOff={usage.pollIntervalMs === 0}
 							discoveryTimeoutMs={usage.discoveryTimeoutMs}
 							now={now}
+							currencySymbol={currencySymbol}
 						/>
 					))}
 				</div>

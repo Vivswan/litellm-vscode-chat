@@ -28,7 +28,7 @@ import { troubleshootingLink } from "./serverEditPage";
 import { relativeTime } from "./time";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { barPresentation, formatPercent, formatUsd } from "./usage";
+import { barPresentation, formatMoney, formatPercent } from "./usage";
 import { sendRequest } from "./vscodeApi";
 
 /**
@@ -689,7 +689,15 @@ function externalTip(server: ExternalDashboardServer): string {
  * budget exists, the plain spend when none does, and nothing at all for a
  * server without usage data (an empty cell, not an "unknown" marker).
  */
-function UsageCell({ usage, thresholds }: { usage: UsageServerView | undefined; thresholds: readonly number[] }) {
+function UsageCell({
+	usage,
+	thresholds,
+	currencySymbol,
+}: {
+	usage: UsageServerView | undefined;
+	thresholds: readonly number[];
+	currencySymbol: string;
+}) {
 	if (usage?.spend === undefined) {
 		return null;
 	}
@@ -715,7 +723,7 @@ function UsageCell({ usage, thresholds }: { usage: UsageServerView | undefined; 
 		<HoverTip tip={l10n.t("Spend so far; this server has no budget to measure it against")}>
 			<span className="usage-cell">
 				<span className="visually-hidden">{l10n.t("Spent:")} </span>
-				{formatUsd(usage.spend)}
+				{formatMoney(usage.spend, currencySymbol)}
 			</span>
 		</HoverTip>
 	);
@@ -753,6 +761,7 @@ function ServerRow({
 	server,
 	usage,
 	usageThresholds,
+	currencySymbol,
 	now,
 	armed,
 	onEdit,
@@ -770,6 +779,8 @@ function ServerRow({
 	usage: UsageServerView | undefined;
 	/** The usage snapshot's alert thresholds; the cell's severity tone reads them. */
 	usageThresholds: readonly number[];
+	/** The configured spend prefix (usage.currencySymbol); the cell's money text reads it. */
+	currencySymbol: string;
 	now: number;
 	armed: boolean;
 	onEdit: () => void;
@@ -866,7 +877,7 @@ function ServerRow({
 						)}
 					</span>
 					<span className="server-usage">
-						<UsageCell usage={usage} thresholds={usageThresholds} />
+						<UsageCell usage={usage} thresholds={usageThresholds} currencySymbol={currencySymbol} />
 					</span>
 					<span className="server-badges">
 						{/* The credential kind is the information, so it is the visible
@@ -1021,6 +1032,7 @@ export function ServersSection({
 	servers,
 	hidden = [],
 	usage,
+	currencySymbol,
 	now,
 	onShowModels,
 	onEditServer,
@@ -1032,6 +1044,8 @@ export function ServersSection({
 	hidden?: readonly HiddenGroup[];
 	/** The pushed usage snapshot (the Usage tab's source); the rows' Usage cells read it. */
 	usage?: DashboardUsage | undefined;
+	/** The configured spend prefix (usage.currencySymbol); display only, never a conversion. */
+	currencySymbol: string;
 	/** The shared clock tick (one useNow in App), so a hidden panel does not run its own interval. */
 	now: number;
 	/** Scope the models section below to one server; absent, the count cells stay plain text. */
@@ -1377,6 +1391,7 @@ export function ServersSection({
 								server={server}
 								usage={server.origin === "declared" ? usageByLabel.get(server.label) : undefined}
 								usageThresholds={usage?.thresholds ?? []}
+								currencySymbol={currencySymbol}
 								now={now}
 								armed={armedRemove === server.label}
 								onEdit={() => {

@@ -6,7 +6,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { UsageServerView } from "../../../../dashboard/viewModels";
-import { barPresentation, formatPercent, formatUsd, UsageSection } from "../../../../webview/dashboard/usage";
+import { barPresentation, formatMoney, formatPercent, UsageSection } from "../../../../webview/dashboard/usage";
 import { makeForbiddenUsageServer, makeUsage, makeUsageServer } from "../fixtures";
 import { buttonByText, cleanup, fireClick, mount, postedCalls, resetPosted, textOf } from "../harness";
 
@@ -63,9 +63,19 @@ describe("formatting", () => {
 		expect(formatPercent(1.12)).toBe("112%");
 	});
 
-	test("dollar amounts keep cents below $1000", () => {
-		expect(formatUsd(12.5)).toBe("$12.50");
-		expect(formatUsd(1500)).toBe("$1,500");
+	test("money amounts keep cents below 1000 and take the configured symbol verbatim", () => {
+		expect(formatMoney(12.5, "$")).toBe("$12.50");
+		expect(formatMoney(1500, "$")).toBe("$1,500");
+	});
+
+	test("a multi-character symbol prefixes verbatim, spacing included", () => {
+		expect(formatMoney(12.5, "EUR ")).toBe("EUR 12.50");
+		expect(formatMoney(1500, "EUR ")).toBe("EUR 1,500");
+	});
+
+	test("the empty symbol renders the bare number with no stray space", () => {
+		expect(formatMoney(12.5, "")).toBe("12.50");
+		expect(formatMoney(1500, "")).toBe("1,500");
 	});
 });
 
@@ -85,11 +95,36 @@ describe("UsageSection", () => {
 				}),
 			],
 		});
-		const root = mount(<UsageSection usage={usage} serverCount={1} now={NOW} />);
+		const root = mount(<UsageSection currencySymbol="$" usage={usage} serverCount={1} now={NOW} />);
 		expect(textOf(root, ".usage-label")).toBe("prod");
 		expect(textOf(root, ".usage-spend")).toContain("$40.00");
 		expect(textOf(root, ".usage-spend")).toContain("$50.00");
 		expect(textOf(root, ".usage-percent")).toBe("80%");
+	});
+
+	test("a configured currency symbol reaches every money figure on the row and in the panel", () => {
+		const usage = makeUsage({
+			servers: [
+				makeUsageServer({
+					label: "prod",
+					spend: 40,
+					effectiveBudget: 50,
+					entryBudget: 50,
+					keyBudget: 100,
+					budgetSource: "entry",
+					spentFraction: 0.8,
+					lastUpdatedAt: NOW - 60_000,
+				}),
+			],
+		});
+		const root = mount(<UsageSection currencySymbol="EUR " usage={usage} serverCount={1} now={NOW} />);
+		expect(textOf(root, ".usage-spend")).toContain("EUR 40.00");
+		expect(textOf(root, ".usage-spend")).toContain("EUR 50.00");
+		expect(textOf(root, ".usage-spend")).not.toContain("$");
+		const row = openRow(root);
+		expect(factOf(row, "Spend")).toBe("EUR 40.00");
+		expect(factOf(row, "Budget")).toContain("EUR 50.00");
+		expect(factOf(row, "Budget")).toContain("EUR 100.00");
 	});
 
 	test("the line opens onto the labelled inventory, and both budgets stay in view there", () => {
@@ -111,7 +146,7 @@ describe("UsageSection", () => {
 				}),
 			],
 		});
-		const root = mount(<UsageSection usage={usage} serverCount={1} now={NOW} />);
+		const root = mount(<UsageSection currencySymbol="$" usage={usage} serverCount={1} now={NOW} />);
 		// A budgeted row carries the axis marking its 100% extent, and the fill
 		// carries the forced-colors colour that keeps the meter from reading as a
 		// measured zero when backgrounds flatten to Canvas. The no-budget test
@@ -156,7 +191,7 @@ describe("UsageSection", () => {
 				}),
 			],
 		});
-		const root = mount(<UsageSection usage={usage} serverCount={1} now={NOW} />);
+		const root = mount(<UsageSection currencySymbol="$" usage={usage} serverCount={1} now={NOW} />);
 		expect(textOf(root, ".usage-percent")).toBe("-");
 		expect(root.querySelector(".usage-meter-fill")).toBeNull();
 		// Nor the baseline axis. It marks the 100% extent, so a full-width rule
@@ -174,7 +209,7 @@ describe("UsageSection", () => {
 		const usage = makeUsage({
 			servers: [makeUsageServer({ fresh: false, lastUpdatedAt: NOW - 25 * 60_000 })],
 		});
-		const root = mount(<UsageSection usage={usage} serverCount={1} now={NOW} />);
+		const root = mount(<UsageSection currencySymbol="$" usage={usage} serverCount={1} now={NOW} />);
 		expect(textOf(root, ".usage-tail")).toBe("possibly stale");
 		const updated = factOf(openRow(root), "Last updated");
 		expect(updated).toContain("possibly stale");
@@ -185,6 +220,7 @@ describe("UsageSection", () => {
 		const at = NOW - 25 * 60_000;
 		const failed = mount(
 			<UsageSection
+				currencySymbol="$"
 				usage={makeUsage({
 					servers: [makeUsageServer({ fresh: false, lastUpdatedAt: at, keyInfo: { kind: "error", status: 429 } })],
 				})}
@@ -199,6 +235,7 @@ describe("UsageSection", () => {
 		cleanup();
 		const denied = mount(
 			<UsageSection
+				currencySymbol="$"
 				usage={makeUsage({
 					servers: [
 						makeUsageServer({
@@ -217,6 +254,7 @@ describe("UsageSection", () => {
 		cleanup();
 		const merelyOld = mount(
 			<UsageSection
+				currencySymbol="$"
 				usage={makeUsage({ servers: [makeUsageServer({ fresh: false, lastUpdatedAt: at })] })}
 				serverCount={1}
 				now={NOW}
@@ -233,7 +271,12 @@ describe("UsageSection", () => {
 				servers: [makeUsageServer({ fresh: false, lastUpdatedAt: undefined, spend: undefined, keyInfo })],
 			});
 		const transient = mount(
-			<UsageSection usage={neverLoaded({ kind: "error", classification: "network" })} serverCount={1} now={NOW} />
+			<UsageSection
+				currencySymbol="$"
+				usage={neverLoaded({ kind: "error", classification: "network" })}
+				serverCount={1}
+				now={NOW}
+			/>
 		);
 		const transientRow = openRow(transient);
 		expect(factOf(transientRow, "Last updated")).toContain("Spend hasn't loaded for this server yet.");
@@ -244,6 +287,7 @@ describe("UsageSection", () => {
 		cleanup();
 		const forbidden = mount(
 			<UsageSection
+				currencySymbol="$"
 				usage={neverLoaded({ kind: "unavailable", reason: "forbidden", status: 401 })}
 				serverCount={1}
 				now={NOW}
@@ -256,6 +300,7 @@ describe("UsageSection", () => {
 		cleanup();
 		const unsupported = mount(
 			<UsageSection
+				currencySymbol="$"
 				usage={neverLoaded({ kind: "unavailable", reason: "unsupported", status: 404 })}
 				serverCount={1}
 				now={NOW}
@@ -270,6 +315,7 @@ describe("UsageSection", () => {
 	test("with polling off, the transient spend message points at Refresh now", () => {
 		const root = mount(
 			<UsageSection
+				currencySymbol="$"
 				usage={makeUsage({
 					pollIntervalMs: 0,
 					servers: [
@@ -286,6 +332,7 @@ describe("UsageSection", () => {
 	test("a timeout detail prints the whole-call bound and the setting to raise", () => {
 		const root = mount(
 			<UsageSection
+				currencySymbol="$"
 				usage={makeUsage({
 					discoveryTimeoutMs: 45_000,
 					servers: [
@@ -309,6 +356,7 @@ describe("UsageSection", () => {
 	test("a key that answers without a spend number reads as unreported, not unknown", () => {
 		const root = mount(
 			<UsageSection
+				currencySymbol="$"
 				usage={makeUsage({
 					servers: [makeUsageServer({ spend: undefined, keyInfo: { kind: "ok" } })],
 				})}
@@ -324,6 +372,7 @@ describe("UsageSection", () => {
 	test("retained request statistics carry an outdated marker while their endpoint is failing", () => {
 		const retained = mount(
 			<UsageSection
+				currencySymbol="$"
 				usage={makeUsage({
 					servers: [
 						makeUsageServer({
@@ -346,6 +395,7 @@ describe("UsageSection", () => {
 		cleanup();
 		const healthy = mount(
 			<UsageSection
+				currencySymbol="$"
 				usage={makeUsage({
 					servers: [makeUsageServer({ requests: { total: 96 }, dailyActivity: { kind: "ok" } })],
 				})}
@@ -363,6 +413,7 @@ describe("UsageSection", () => {
 			makeUsage({ servers: [makeUsageServer({ dailyActivity })] });
 		const unsupported = mount(
 			<UsageSection
+				currencySymbol="$"
 				usage={withActivity({ kind: "unavailable", reason: "unsupported", status: 404 })}
 				serverCount={1}
 				now={NOW}
@@ -375,6 +426,7 @@ describe("UsageSection", () => {
 		cleanup();
 		const forbidden = mount(
 			<UsageSection
+				currencySymbol="$"
 				usage={withActivity({ kind: "unavailable", reason: "forbidden", status: 401 })}
 				serverCount={1}
 				now={NOW}
@@ -386,7 +438,12 @@ describe("UsageSection", () => {
 		expect(textOf(forbiddenRow, ".usage-detail")).toContain("LiteLLM /user/daily/activity: HTTP 401");
 		cleanup();
 		const transient = mount(
-			<UsageSection usage={withActivity({ kind: "error", classification: "network" })} serverCount={1} now={NOW} />
+			<UsageSection
+				currencySymbol="$"
+				usage={withActivity({ kind: "error", classification: "network" })}
+				serverCount={1}
+				now={NOW}
+			/>
 		);
 		const transientRow = openRow(transient);
 		expect(factOf(transientRow, "Requests, 30 days")).toContain("Request statistics couldn't be fetched yet");
@@ -396,6 +453,7 @@ describe("UsageSection", () => {
 	test("a server with no readable usage behind a forbidden key states the block and shows no numbers", () => {
 		const root = mount(
 			<UsageSection
+				currencySymbol="$"
 				usage={makeUsage({ servers: [makeForbiddenUsageServer({ label: "locked", baseUrl: "http://locked.test" })] })}
 				serverCount={1}
 				now={NOW}
@@ -422,6 +480,7 @@ describe("UsageSection", () => {
 	test("the forbidden row names an unsupported partner endpoint and skips transient ones", () => {
 		const mixed = mount(
 			<UsageSection
+				currencySymbol="$"
 				usage={makeUsage({
 					servers: [
 						makeForbiddenUsageServer({
@@ -444,6 +503,7 @@ describe("UsageSection", () => {
 		cleanup();
 		const transientPartner = mount(
 			<UsageSection
+				currencySymbol="$"
 				usage={makeUsage({
 					servers: [makeForbiddenUsageServer({ dailyActivity: { kind: "error", classification: "network" } })],
 				})}
@@ -465,6 +525,7 @@ describe("UsageSection", () => {
 		// count.
 		const over = mount(
 			<UsageSection
+				currencySymbol="$"
 				usage={makeUsage({
 					servers: [
 						makeUsageServer({ label: "research", spend: 28, effectiveBudget: 25, spentFraction: 1.12 }),
@@ -483,6 +544,7 @@ describe("UsageSection", () => {
 	test("a failing statistics endpoint marks the line even while the spend side is healthy", () => {
 		const root = mount(
 			<UsageSection
+				currencySymbol="$"
 				usage={makeUsage({
 					servers: [
 						makeUsageServer({
@@ -502,6 +564,7 @@ describe("UsageSection", () => {
 	test("a never-fetched server states the reason once, not once per fact", () => {
 		const root = mount(
 			<UsageSection
+				currencySymbol="$"
 				usage={makeUsage({
 					servers: [makeUsageServer({ lastUpdatedAt: undefined, spend: undefined, keyInfo: { kind: "unknown" } })],
 				})}
@@ -518,6 +581,7 @@ describe("UsageSection", () => {
 	test("the header summarizes the list: how many servers, how many need attention, whether polling runs", () => {
 		const root = mount(
 			<UsageSection
+				currencySymbol="$"
 				usage={makeUsage({
 					pollIntervalMs: 0,
 					servers: [
@@ -536,12 +600,19 @@ describe("UsageSection", () => {
 	});
 
 	test("Refresh now posts the intent and disables while a pass is in flight", () => {
-		const root = mount(<UsageSection usage={makeUsage({ servers: [makeUsageServer()] })} serverCount={1} now={NOW} />);
+		const root = mount(
+			<UsageSection currencySymbol="$" usage={makeUsage({ servers: [makeUsageServer()] })} serverCount={1} now={NOW} />
+		);
 		fireClick(buttonByText(root, "Refresh now"));
 		expect(postedCalls()).toEqual([{ method: "refreshUsage", payload: null }]);
 		cleanup();
 		const busy = mount(
-			<UsageSection usage={makeUsage({ refreshing: true, servers: [makeUsageServer()] })} serverCount={1} now={NOW} />
+			<UsageSection
+				currencySymbol="$"
+				usage={makeUsage({ refreshing: true, servers: [makeUsageServer()] })}
+				serverCount={1}
+				now={NOW}
+			/>
 		);
 		const refreshing = Array.from(busy.querySelectorAll("button")).find((button) =>
 			(button.textContent ?? "").includes("Refreshing")
@@ -550,15 +621,15 @@ describe("UsageSection", () => {
 	});
 
 	test("the empty states distinguish no servers from no usage-tracking servers", () => {
-		const none = mount(<UsageSection usage={makeUsage()} serverCount={0} now={NOW} />);
+		const none = mount(<UsageSection currencySymbol="$" usage={makeUsage()} serverCount={0} now={NOW} />);
 		expect(none.textContent).toContain("No servers configured");
 		cleanup();
-		const noUsage = mount(<UsageSection usage={makeUsage()} serverCount={2} now={NOW} />);
+		const noUsage = mount(<UsageSection currencySymbol="$" usage={makeUsage()} serverCount={2} now={NOW} />);
 		expect(noUsage.textContent).toContain("None of your servers serves usage data");
 	});
 
 	test("the data-follows-the-key note renders on the tab", () => {
-		const root = mount(<UsageSection usage={makeUsage()} serverCount={1} now={NOW} />);
+		const root = mount(<UsageSection currencySymbol="$" usage={makeUsage()} serverCount={1} now={NOW} />);
 		expect(root.textContent).toContain("rotating an entry's key switches its numbers");
 	});
 });

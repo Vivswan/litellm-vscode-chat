@@ -139,6 +139,16 @@ suite("extension/dashboard/intents", () => {
 			assert.deepStrictEqual(recorded.updates, [["usage.alertThresholds", [0.8, 0.95]]]);
 		});
 
+		test("setCurrencySymbol writes the string verbatim, the empty string included", async () => {
+			const recorded = makeEnv();
+			await executeDashboardIntent({ method: "setCurrencySymbol", payload: { value: "EUR " } }, recorded.env);
+			await executeDashboardIntent({ method: "setCurrencySymbol", payload: { value: "" } }, recorded.env);
+			assert.deepStrictEqual(recorded.updates, [
+				["usage.currencySymbol", "EUR "],
+				["usage.currencySymbol", ""],
+			]);
+		});
+
 		test("every command ID maps to an allow-listed command", async () => {
 			const recorded = makeEnv();
 			const intents: DashboardIntent[] = [

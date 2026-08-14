@@ -39,7 +39,7 @@ function mountParamsWithChains(
 		onEditRecord: callbacks.onEditRecord,
 		onEditEntry: callbacks.onEditEntry,
 	};
-	const root = mount(<ModelInspector {...props} />);
+	const root = mount(<ModelInspector currencySymbol="$" {...props} />);
 	respondTo(lastRequest("readModelParameters"), {
 		projection: EMPTY_PROJECTION,
 		...(chains !== undefined ? { chains } : {}),
@@ -161,7 +161,7 @@ describe("the params inspector's record path", () => {
 test("the capabilities section renders the same figure from its own response", () => {
 	const model = makeModel({ rawId: "gpt-5.6", name: "GPT-5.6" });
 	const props = { model, stateSeq: 0, onClose: () => {} };
-	const root = mount(<ModelInspector {...props} />);
+	const root = mount(<ModelInspector currencySymbol="$" {...props} />);
 	respondTo(lastRequest("readModelCapabilities"), {
 		chains: [
 			{

@@ -59,6 +59,7 @@ afterEach(() => {
 function mountSection(servers: readonly DashboardServer[]) {
 	return mount(
 		<ServersSection
+			currencySymbol="$"
 			servers={servers}
 			now={Date.now()}
 			onEditServer={() => {}}
@@ -653,6 +654,7 @@ test("the hide ack raises the guidance notice naming the group, with the models-
 test("the hidden-groups line states the count, expands to rows, and Unhide posts the identity verbatim", () => {
 	const root = mount(
 		<ServersSection
+			currencySymbol="$"
 			onEditServer={() => {}}
 			onAdoptServer={() => {}}
 			onAddServer={() => {}}
@@ -696,6 +698,7 @@ test("without hidden groups no hidden-groups line renders; with them it renders 
 	// path must stay reachable.
 	const onlyHidden = mount(
 		<ServersSection
+			currencySymbol="$"
 			servers={[]}
 			hidden={[{ label: "Old", baseUrl: "http://old.test" }]}
 			now={Date.now()}
@@ -746,6 +749,7 @@ test("the model count is a scope link only when the section is given onShowModel
 	const labels: string[] = [];
 	const root = mount(
 		<ServersSection
+			currencySymbol="$"
 			onEditServer={() => {}}
 			onAdoptServer={() => {}}
 			onAddServer={() => {}}
@@ -1222,7 +1226,7 @@ test("a consumed capability key gets its typed input: costs a decimal number fie
 	}
 	expect(carried.value).toBe("true");
 	fireInput(carried, "");
-	const costInput = overlay.querySelector<HTMLInputElement>('input[placeholder^="USD per token"]');
+	const costInput = overlay.querySelector<HTMLInputElement>('input[placeholder^="Cost per token"]');
 	if (costInput === null) {
 		throw new Error("the cost value input did not render");
 	}
@@ -1309,7 +1313,7 @@ test("a preserved invalid consumed value keeps the raw JSON input instead of a t
 		throw new Error("the cost row did not render");
 	}
 	fireInput(costInput, "0.000002");
-	expect(overlay.querySelector<HTMLInputElement>('input[placeholder^="USD per token"]')?.value).toBe("0.000002");
+	expect(overlay.querySelector<HTMLInputElement>('input[placeholder^="Cost per token"]')?.value).toBe("0.000002");
 	// The typed control takes exactly what an HTML number input can display:
 	// scientific notation stays typed, while hex, a trailing dot, and padded
 	// whitespace (all blanked by the control) keep the raw text input.

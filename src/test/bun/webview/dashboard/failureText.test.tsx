@@ -21,6 +21,7 @@ afterEach(cleanup);
 function mountServers(servers: readonly ReturnType<typeof makeDeclaredServer>[]) {
 	return mount(
 		<ServersSection
+			currencySymbol="$"
 			servers={servers}
 			now={Date.now()}
 			onEditServer={() => {}}

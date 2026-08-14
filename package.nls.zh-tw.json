@@ -92,6 +92,7 @@
 	"litellm.config.usage.pollInterval.description": "從每個 LiteLLM 伺服器重新整理各伺服器花費與預算資料的頻率, 以毫秒計。預設為 300000 (5 分鐘)。設為 0 可完全停用輪詢 (不發出背景用量請求, 也不產生預算提醒); 「LiteLLM: 立即重新整理用量」命令與儀表板仍可隨需取得。",
 	"litellm.config.usage.alertThresholds.description": "觸發用量提醒的預算比例, 每個值需大於 0 且不超過 1。預設為 [0.8, 0.95]: 在伺服器有效預算的 80% 與 95% 時提醒。空陣列會停用門檻提醒。",
 	"litellm.config.usage.statusBar.description": "何時顯示用量狀態列項目: \"always\" (一律顯示), \"alerts-only\" (僅當某伺服器超過預算提醒門檻時), 或 \"off\" (永不)。",
+	"litellm.config.usage.currencySymbol.description": "每個支出與價格數字前的前綴, 例如 \"EUR \"。僅用於顯示: 金額從不換算, 完全按伺服器回報的數值呈現。空字串只顯示數字。",
 	"litellm.config.ui.theme.description": "儀表板如何選擇顏色。自動會跟隨您正在使用的 VS Code 佈景主題,包括高對比佈景主題。",
 	"litellm.config.ui.theme.auto": "跟隨 VS Code 佈景主題",
 	"litellm.config.ui.theme.light": "永遠淺色",

@@ -143,6 +143,9 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 		value: z.union([z.literal("always"), z.literal("alerts-only"), z.literal("off")]),
 	}),
 	setTokenEstimation: z.strictObject({ value: asEnum(TOKEN_ESTIMATION_MODES) }),
+	// Free text, but webview-minted and display-only: bounded so a hostile
+	// page cannot balloon the setting (12 covers a code plus a space, "EUR ").
+	setCurrencySymbol: z.strictObject({ value: z.string().max(12) }),
 	setUiTheme: z.strictObject({ value: asEnum(UI_THEMES) }),
 	setUiAccent: z.strictObject({ value: asEnum(UI_ACCENTS) }),
 	// Bounded like every webview-minted list; the value constraints
@@ -214,6 +217,7 @@ const requestSchemas: { readonly [K in DashboardMethod]: z.ZodType<RpcRequest<K>
 	setModelCapabilities: requestSchema("setModelCapabilities"),
 	setUsageStatusBar: requestSchema("setUsageStatusBar"),
 	setTokenEstimation: requestSchema("setTokenEstimation"),
+	setCurrencySymbol: requestSchema("setCurrencySymbol"),
 	setUiTheme: requestSchema("setUiTheme"),
 	setUiAccent: requestSchema("setUiAccent"),
 	setUsageAlertThresholds: requestSchema("setUsageAlertThresholds"),

@@ -24,8 +24,8 @@ import { buttonByText, cleanup, fireClick, mount, pushToWebview, resetPosted } f
 // key doubles as the localization tracer for the Diagnostics tab: its marker
 // must show in the on-screen grid and never in the copied (English) block.
 const FAKE_BUNDLE: Record<string, string> = {
-	"{0} in/price per million input tokens; {0} is a dollar amount": "IN[{0}]",
-	"{0} out/price per million output tokens; {0} is a dollar amount": "OUT[{0}]",
+	"{0} in/price per million input tokens; {0} is a currency amount": "IN[{0}]",
+	"{0} out/price per million output tokens; {0} is a currency amount": "OUT[{0}]",
 	"{0} min ago": "AGO[{0}]",
 	// The tracer for the configuration lines: the on-screen sentence IS
 	// translated, so a copy path that read the rendered text (or reused
@@ -50,7 +50,7 @@ afterEach(() => {
 
 test("the pricing column resolves the composite in/out keys with {0} substituted", () => {
 	const priced = makeModel({ inputCost: 2.5, outputCost: 10.125 });
-	const root = mount(<ModelsSection models={[priced]} serverCount={1} onInspect={() => {}} />);
+	const root = mount(<ModelsSection currencySymbol="$" models={[priced]} serverCount={1} onInspect={() => {}} />);
 
 	const pricing = root.querySelector(".model-price")?.textContent;
 	expect(pricing).toBe("IN[$2.5] / OUT[$10.1]");

@@ -6,6 +6,8 @@ import {
 	ALL_SETTING_KEYS,
 	BOOLEAN_SETTING_SPECS,
 	CONFIG_SECTION,
+	CURRENCY_SYMBOL_SETTING_KEY,
+	DEFAULT_CURRENCY_SYMBOL,
 	DEFAULT_TOKEN_ESTIMATION_MODE,
 	MIN_TIMEOUT_MS,
 	NUMBER_SETTING_SPECS,
@@ -228,6 +230,16 @@ suite("shared/config/settingSpec: package.json drift guard", () => {
 		assert.deepStrictEqual(schema.enum, [...TOKEN_ESTIMATION_MODES]);
 		assert.strictEqual(schema.default, DEFAULT_TOKEN_ESTIMATION_MODE);
 		assert.strictEqual(schema.default, "auto");
+	});
+
+	test("the currency-symbol setting is contributed as a free string defaulting to the spec's symbol", () => {
+		const schema = settingSchema(allProperties(), CURRENCY_SYMBOL_SETTING_KEY);
+		assert.strictEqual(schema.type, "string");
+		// Free text by design (any currency reads as its owner wrote it): no
+		// enum, no pattern - a vocabulary here would refuse real currencies.
+		assert.strictEqual(schema.enum, undefined);
+		assert.strictEqual(schema.default, DEFAULT_CURRENCY_SYMBOL);
+		assert.strictEqual(schema.default, "$");
 	});
 });
 

@@ -21,16 +21,10 @@
 	"\"{0}\" is not a valid matcher key; it matches nothing": "\"{0}\" is not a valid matcher key; it matches nothing",
 	"\"{0}\" must be true or a list of fields the record sets, e.g. [\"context_length\"]; offending marks are ignored ({1})": "\"{0}\" must be true or a list of fields the record sets, e.g. [\"context_length\"]; offending marks are ignored ({1})",
 	"\"{0}\" must be true or a list of fields the record sets, e.g. [\"temperature\"]; offending entries are ignored ({1})": "\"{0}\" must be true or a list of fields the record sets, e.g. [\"temperature\"]; offending entries are ignored ({1})",
-	"\"{0}\" takes USD per token, 0 or more; this value is ignored and lower levels fill in": "\"{0}\" takes USD per token, 0 or more; this value is ignored and lower levels fill in",
+	"\"{0}\" takes a cost per token, 0 or more; this value is ignored and lower levels fill in": "\"{0}\" takes a cost per token, 0 or more; this value is ignored and lower levels fill in",
 	"\"{0}\" takes a list of non-empty strings, e.g. [\"temperature\"]; this value is ignored and lower levels fill in": "\"{0}\" takes a list of non-empty strings, e.g. [\"temperature\"]; this value is ignored and lower levels fill in",
 	"\"{0}\" takes a positive whole number; this value is ignored and lower levels fill in": "\"{0}\" takes a positive whole number; this value is ignored and lower levels fill in",
 	"\"{0}\" takes true or false; this value is ignored and lower levels fill in": "\"{0}\" takes true or false; this value is ignored and lower levels fill in",
-	"$ per million tokens/Section summary: the unit every price in the section is stated in": {
-		"message": "$ per million tokens",
-		"comment": [
-			"Section summary: the unit every price in the section is stated in"
-		]
-	},
 	"$(add) Add Server": "$(add) Add Server",
 	"$(book) Documentation": "$(book) Documentation",
 	"$(bug) Report Bug": "$(bug) Report Bug",
@@ -111,7 +105,7 @@
 		]
 	},
 	"A language models group named \"{0}\" already exists, so server \"{1}\" was not migrated. Review the group in the language models UI, then remove the legacy server via \"{2}\".": "A language models group named \"{0}\" already exists, so server \"{1}\" was not migrated. Review the group in the language models UI, then remove the legacy server via \"{2}\".",
-	"A manual budget in USD, e.g. 50, driving usage alerts. Outranks the key's own max_budget; the Usage tab shows both.": "A manual budget in USD, e.g. 50, driving usage alerts. Outranks the key's own max_budget; the Usage tab shows both.",
+	"A manual budget, e.g. 50, in the server's own billing currency, driving usage alerts. Outranks the key's own max_budget; the Usage tab shows both.": "A manual budget, e.g. 50, in the server's own billing currency, driving usage alerts. Outranks the key's own max_budget; the Usage tab shows both.",
 	"A new label for the imported server.": "A new label for the imported server.",
 	"A provider-owned request field: the extension owns it and never sends an override.": "A provider-owned request field: the extension owns it and never sends an override.",
 	"A server named \"{0}\" already exists.": "A server named \"{0}\" already exists.",
@@ -172,7 +166,6 @@
 	"Blue - your theme's own button color": "Blue - your theme's own button color",
 	"Breadcrumb": "Breadcrumb",
 	"Budget": "Budget",
-	"Budget (USD)": "Budget (USD)",
 	"Budget spent:": "Budget spent:",
 	"Cache hit rate": "Cache hit rate",
 	"Cache read/Pricing row label: cost of cached input tokens": {
@@ -240,8 +233,10 @@
 	"Copy model ID {0} from {1}": "Copy model ID {0} from {1}",
 	"Correct or declare what this server's models can do, e.g. context_length 128000 for gpt-4 models. To create a model discovery does not list, add its ID to the entry's discovery.declared.": "Correct or declare what this server's models can do, e.g. context_length 128000 for gpt-4 models. To create a model discovery does not list, add its ID to the entry's discovery.declared.",
 	"Corrects or completes what servers report for matching models, e.g. context_length 128000. Your values beat server-reported ones unless a row is marked fallback.": "Corrects or completes what servers report for matching models, e.g. context_length 128000. Your values beat server-reported ones unless a row is marked fallback.",
+	"Cost per token, e.g. 0.000002": "Cost per token, e.g. 0.000002",
 	"Could not reach {0} to list its models. Check your network, VPN, or proxy settings, and that the server is up.": "Could not reach {0} to list its models. Check your network, VPN, or proxy settings, and that the server is up.",
 	"Could not reach {0}. Check your network, VPN, or proxy settings, and that the server is up.": "Could not reach {0}. Check your network, VPN, or proxy settings, and that the server is up.",
+	"Currency symbol": "Currency symbol",
 	"Custom headers": "Custom headers",
 	"Custom list - edit in settings.json.": "Custom list - edit in settings.json.",
 	"Custom...": "Custom...",
@@ -769,9 +764,11 @@
 	"Paste its API key if it needs one; it can stay in VS Code's encrypted secret storage.": "Paste its API key if it needs one; it can stay in VS Code's encrypted secret storage.",
 	"Pick how requests authenticate, e.g. a bearer API key. Exactly one form per entry; a gateway that checks a second credential takes it as a companion inside that form.": "Pick how requests authenticate, e.g. a bearer API key. Exactly one form per entry; a gateway that checks a second credential takes it as a companion inside that form.",
 	"Point the extension at your LiteLLM server and its models appear in Copilot Chat's model picker.": "Point the extension at your LiteLLM server and its models appear in Copilot Chat's model picker.",
+	"Prefix on every spend and price figure, e.g. \"EUR \". Amounts are never converted - they render exactly as the server reports them.": "Prefix on every spend and price figure, e.g. \"EUR \". Amounts are never converted - they render exactly as the server reports them.",
 	"Price": "Price",
 	"Pricing": "Pricing",
-	"Pricing ($/M)": "Pricing ($/M)",
+	"Pricing (per M tokens)": "Pricing (per M tokens)",
+	"Pricing ({0}/M)": "Pricing ({0}/M)",
 	"Prompt caching": "Prompt caching",
 	"Provider default": "Provider default",
 	"Provider groups without a server entry no longer get the removed global headers ({0}).": "Provider groups without a server entry no longer get the removed global headers ({0}).",
@@ -990,7 +987,7 @@
 	"This value cannot be sent as an HTTP header": "This value cannot be sent as an HTTP header",
 	"Thresholds run from above 0% to 100%: enter 80% or 0.8.": "Thresholds run from above 0% to 100%: enter 80% or 0.8.",
 	"Timeouts, caching, headers, model parameters": "Timeouts, caching, headers, model parameters",
-	"Token counts are numbers, e.g. 128000; support flags true or false; costs per-token USD, 0 meaning free. Your values beat what the server reports unless the row is marked fallback.": "Token counts are numbers, e.g. 128000; support flags true or false; costs per-token USD, 0 meaning free. Your values beat what the server reports unless the row is marked fallback.",
+	"Token counts are numbers, e.g. 128000; support flags true or false; costs per token, e.g. 0.000002, 0 meaning free. Your values beat what the server reports unless the row is marked fallback.": "Token counts are numbers, e.g. 128000; support flags true or false; costs per token, e.g. 0.000002, 0 meaning free. Your values beat what the server reports unless the row is marked fallback.",
 	"Token estimation": "Token estimation",
 	"Tokens": "Tokens",
 	"Tokens, e.g. 128000": "Tokens, e.g. 128000",
@@ -1000,8 +997,6 @@
 	"Troubleshooting Docs": "Troubleshooting Docs",
 	"UI": "UI",
 	"URL must start with http:// or https://": "URL must start with http:// or https://",
-	"USD per million tokens": "USD per million tokens",
-	"USD per token, e.g. 0.000002": "USD per token, e.g. 0.000002",
 	"Undo Import": "Undo Import",
 	"Undo Import restores the pre-import state; alternatively, edit each affected server in the dashboard or use the Set Server Secret command.": "Undo Import restores the pre-import state; alternatively, edit each affected server in the dashboard or use the Set Server Secret command.",
 	"Undo the last settings import?": "Undo the last settings import?",
@@ -1188,6 +1183,7 @@
 	"optional - {0} matchers": "optional - {0} matchers",
 	"over budget by {0}": "over budget by {0}",
 	"per M": "per M",
+	"per million tokens": "per million tokens",
 	"per-server API version overrides (requests use the auto rule)": "per-server API version overrides (requests use the auto rule)",
 	"per-server custom headers": "per-server custom headers",
 	"per-server model capabilities, declared models, and expected failures": "per-server model capabilities, declared models, and expected failures",
@@ -1258,10 +1254,10 @@
 	"{0} for {1}": "{0} for {1}",
 	"{0} h ago": "{0} h ago",
 	"{0} hours ago": "{0} hours ago",
-	"{0} in/price per million input tokens; {0} is a dollar amount": {
+	"{0} in/price per million input tokens; {0} is a currency amount": {
 		"message": "{0} in",
 		"comment": [
-			"price per million input tokens; {0} is a dollar amount"
+			"price per million input tokens; {0} is a currency amount"
 		]
 	},
 	"{0} is serving its last known models; the newest sync failed: {1}": "{0} is serving its last known models; the newest sync failed: {1}",
@@ -1287,13 +1283,14 @@
 		]
 	},
 	"{0} other servers are over an alert threshold": "{0} other servers are over an alert threshold",
-	"{0} out/price per million output tokens; {0} is a dollar amount": {
+	"{0} out/price per million output tokens; {0} is a currency amount": {
 		"message": "{0} out",
 		"comment": [
-			"price per million output tokens; {0} is a dollar amount"
+			"price per million output tokens; {0} is a currency amount"
 		]
 	},
 	"{0} parameters": "{0} parameters",
+	"{0} per million tokens": "{0} per million tokens",
 	"{0} problems": "{0} problems",
 	"{0} requests": "{0} requests",
 	"{0} sent": "{0} sent",

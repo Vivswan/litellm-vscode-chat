@@ -848,7 +848,17 @@ function ParamsListCell({ cell }: { cell: ResolvedCapCell }) {
  * wire keys, exact per-token values, and per-field sources the $/M rendering
  * summarizes.
  */
-function CapabilityCells({ cells }: { cells: readonly ResolvedCapCell[] }) {
+/**
+ * The pricing line's field label, naming the unit with the configured symbol
+ * ("Pricing ($/M)"); the empty symbol drops the currency claim and keeps the
+ * per-million unit.
+ */
+function pricingFieldLabel(currencySymbol: string): string {
+	const symbol = currencySymbol.trim();
+	return symbol.length === 0 ? l10n.t("Pricing (per M tokens)") : l10n.t("Pricing ({0}/M)", symbol);
+}
+
+function CapabilityCells({ cells, currencySymbol }: { cells: readonly ResolvedCapCell[]; currencySymbol: string }) {
 	const pricing = COST_CAPABILITY_FIELDS.flatMap((name) => {
 		const cell = cells.find((candidate) => candidate.name === name);
 		if (cell === undefined) {
@@ -893,7 +903,7 @@ function CapabilityCells({ cells }: { cells: readonly ResolvedCapCell[] }) {
 							.map((entry) => `${entry.cell.name} ${entry.cell.valueText} (${capProvenance(entry.cell)})`)
 							.join(", ")}
 					>
-						<span className="resolved-field">{l10n.t("Pricing ($/M)")}</span>
+						<span className="resolved-field">{pricingFieldLabel(currencySymbol)}</span>
 					</HoverTip>
 					{/* The dominant source's chip leads the line ("default: X,
 					    except where noted"), so an unbadged part obviously reads
@@ -903,7 +913,8 @@ function CapabilityCells({ cells }: { cells: readonly ResolvedCapCell[] }) {
 						const provenance = capProvenance(entry.cell);
 						return (
 							<span key={entry.cell.name} className="resolved-price-part">
-								{capabilityDisplayLabel(entry.cell.name)} <code>{formatCostPerMillion(entry.perToken)}</code>
+								{capabilityDisplayLabel(entry.cell.name)}{" "}
+								<code>{formatCostPerMillion(entry.perToken, currencySymbol)}</code>
 								{provenance === dominant ? null : <span className="chip-prov">{provenance}</span>}
 							</span>
 						);
@@ -932,10 +943,13 @@ function matchesResolvedFilter(row: ResolvedModelRow, needle: string): boolean {
 function ResolvedModels({
 	active,
 	stateSeq,
+	currencySymbol,
 	onInspect,
 }: {
 	active: boolean;
 	stateSeq: number;
+	/** The configured cost prefix (usage.currencySymbol); the pricing line renders through it. */
+	currencySymbol: string;
 	/** Opens the merged model inspector anchored on the named section. */
 	onInspect: (target: { scopeKey: string; rawId: string; serverLabel: string }, section: InspectorSection) => void;
 }) {
@@ -1066,7 +1080,7 @@ function ResolvedModels({
 													</div>
 												</td>
 												<td className="resolved-col">
-													<CapabilityCells cells={row.capabilities} />
+													<CapabilityCells cells={row.capabilities} currencySymbol={currencySymbol} />
 												</td>
 												<td className="actions">
 													<Button
@@ -1276,6 +1290,7 @@ export function DiagnosticsSection({
 	diagnostics,
 	active,
 	stateSeq,
+	currencySymbol,
 	onInspect,
 }: {
 	servers: readonly DashboardServer[];
@@ -1286,6 +1301,8 @@ export function DiagnosticsSection({
 	active: boolean;
 	/** Bumped on every state push; the resolved view re-requests on it while visible. */
 	stateSeq: number;
+	/** The configured cost prefix (usage.currencySymbol); display only, never a conversion. */
+	currencySymbol: string;
 	/** Open a model's inspector overlay in place; App renders the merged panel over the active tab, scrolled to the section. */
 	onInspect: (target: { scopeKey: string; rawId: string; serverLabel: string }, section: InspectorSection) => void;
 }) {
@@ -1294,7 +1311,7 @@ export function DiagnosticsSection({
 	return (
 		<>
 			<ConfigDiagnostics diagnostics={diagnostics} />
-			<ResolvedModels active={active} stateSeq={stateSeq} onInspect={onInspect} />
+			<ResolvedModels active={active} stateSeq={stateSeq} currencySymbol={currencySymbol} onInspect={onInspect} />
 			<Support
 				servers={servers}
 				modelCount={modelCount}

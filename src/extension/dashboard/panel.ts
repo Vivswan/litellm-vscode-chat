@@ -610,6 +610,7 @@ export class DashboardController implements vscode.Disposable {
 		setModelCapabilities: (payload) => executeDashboardIntent({ method: "setModelCapabilities", payload }, this.env),
 		setUsageStatusBar: (payload) => executeDashboardIntent({ method: "setUsageStatusBar", payload }, this.env),
 		setTokenEstimation: (payload) => executeDashboardIntent({ method: "setTokenEstimation", payload }, this.env),
+		setCurrencySymbol: (payload) => executeDashboardIntent({ method: "setCurrencySymbol", payload }, this.env),
 		setUiTheme: (payload) => executeDashboardIntent({ method: "setUiTheme", payload }, this.env),
 		setUiAccent: (payload) => executeDashboardIntent({ method: "setUiAccent", payload }, this.env),
 		setUsageAlertThresholds: (payload) =>

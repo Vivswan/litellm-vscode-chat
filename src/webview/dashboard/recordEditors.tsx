@@ -1047,7 +1047,7 @@ function capabilityValueKind(key: string): "number" | "boolean" | "cost" | "cata
 /** The number-family value inputs' shared attributes; costs allow 0 and decimals, token counts do not. */
 function numberInputProps(kind: "number" | "cost"): { min: number; step: number | "any"; placeholder: string } {
 	return kind === "cost"
-		? { min: 0, step: "any", placeholder: l10n.t("USD per token, e.g. 0.000002") }
+		? { min: 0, step: "any", placeholder: l10n.t("Cost per token, e.g. 0.000002") }
 		: { min: 1, step: 1, placeholder: l10n.t("Tokens, e.g. 128000") };
 }
 

@@ -553,7 +553,7 @@ function consumedInvalidHint(kind: CapabilityValueKind, key: string): string {
 		case "number":
 			return l10n.t('"{0}" takes a positive whole number; this value is ignored and lower levels fill in', key);
 		case "cost":
-			return l10n.t('"{0}" takes USD per token, 0 or more; this value is ignored and lower levels fill in', key);
+			return l10n.t('"{0}" takes a cost per token, 0 or more; this value is ignored and lower levels fill in', key);
 		case "boolean":
 			return l10n.t('"{0}" takes true or false; this value is ignored and lower levels fill in', key);
 		case "string-array":

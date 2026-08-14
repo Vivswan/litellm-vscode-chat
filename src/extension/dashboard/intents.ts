@@ -19,6 +19,7 @@ import { CMD, INTERNAL_CMD, manageCommandTitle } from "../../shared/config/comma
 import type { NumberSettingId } from "../../shared/config/settingSpec";
 import {
 	CONFIG_SECTION,
+	CURRENCY_SYMBOL_SETTING_KEY,
 	NUMBER_SETTING_SPECS,
 	TOKEN_ESTIMATION_SETTING_KEY,
 	UI_ACCENT_SETTING_KEY,
@@ -426,6 +427,11 @@ export async function executeDashboardIntent(
 			// Closed vocabulary, pinned by the schema; the tokenizer wiring reacts
 			// to the configuration change like a hand edit of settings.json.
 			await env.updateSetting(TOKEN_ESTIMATION_SETTING_KEY, intent.payload.value);
+			return undefined;
+		case "setCurrencySymbol":
+			// Free text by design (any currency reads as its owner wrote it);
+			// display-only, length-bounded by the schema, and never sent anywhere.
+			await env.updateSetting(CURRENCY_SYMBOL_SETTING_KEY, intent.payload.value);
 			return undefined;
 		case "setUiTheme":
 			// Closed vocabularies, pinned by the schema. Writing the setting is the

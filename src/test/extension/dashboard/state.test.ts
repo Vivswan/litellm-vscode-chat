@@ -2094,6 +2094,22 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(settings.booleans["ui.maskSecretInputs"], true);
 		});
 
+		test("the currency symbol pushes verbatim - empty included - with junk reading as the default", () => {
+			const spaced = readSettings(makeReader({ "usage.currencySymbol": "EUR " }));
+			assert.strictEqual(spaced.usage.currencySymbol, "EUR ");
+			assert.strictEqual(spaced.usage.currencySymbolScope, "global");
+
+			const empty = readSettings(makeReader({ "usage.currencySymbol": "" }));
+			assert.strictEqual(empty.usage.currencySymbol, "");
+
+			const junk = readSettings(makeReader({ "usage.currencySymbol": 7 }));
+			assert.strictEqual(junk.usage.currencySymbol, "$");
+
+			const unset = readSettings(makeReader({}));
+			assert.strictEqual(unset.usage.currencySymbol, "$");
+			assert.strictEqual(unset.usage.currencySymbolScope, null);
+		});
+
 		test("every catalog entry is present in the snapshot", () => {
 			const settings = readSettings(makeReader({}));
 

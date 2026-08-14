@@ -182,7 +182,7 @@ The `models.capabilities` records (global setting and [per-entry field](servers.
 | `supported_openai_params` | string array | `reasoning_effort` in the list is the second signal for the Thinking Effort control, beside `supports_reasoning`; whichever of the two resolved at the higher precedence level decides, the flag winning ties |
 | `reasoning_effort_levels` | string array | The Thinking Effort menu's levels, in menu order ([per-model configuration](#per-model-configuration)). Any level name works - the menu offers your strings verbatim and sends them as-is. Decides only the menu's contents, never whether the control exists |
 
-Cost fields take non-negative per-token USD numbers; writing a zero pair yourself means genuinely free ([pricing](#pricing)).
+Cost fields take non-negative per-token cost numbers; writing a zero pair yourself means genuinely free ([pricing](#pricing)).
 
 **Everything else** - any other field not starting with `_` - is an open extra: kept as written (any name works, even awkward ones like `toString`), resolved through the same matching, precedence, and inheritance as every other field, and shown with provenance in the [capability inspector](#inspectors) and the [Resolved models view](dashboard.md#resolved-models). Its values come only from your records: discovery reads the server's report for the core and consumed fields only, so a custom server-side field never supplies a value - its *name* still counts as typo evidence below. Registration does not consume open extras yet; a future version may.
 

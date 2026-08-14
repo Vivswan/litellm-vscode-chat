@@ -189,7 +189,7 @@ suite("extension/ui renderUsageStatus properties", () => {
 	test("hidden exactly per the documented rules; otherwise the worst fresh ratio shows literally", () => {
 		fc.assert(
 			fc.property(scenarioArb, ({ states, thresholds, mode, pollIntervalMs, nowMs }) => {
-				const view = renderUsageStatus(states, nowMs, pollIntervalMs, thresholds, mode);
+				const view = renderUsageStatus(states, nowMs, pollIntervalMs, thresholds, mode, "$");
 				const { worst, severity } = oracle(states, nowMs, pollIntervalMs, thresholds);
 
 				const expectHidden = mode === "off" || worst === undefined || (mode === "alerts-only" && severity === "plain");
@@ -213,7 +213,7 @@ suite("extension/ui renderUsageStatus properties", () => {
 		let warnings = 0;
 		fc.assert(
 			fc.property(scenarioArb, ({ states, thresholds, pollIntervalMs, nowMs }) => {
-				const view = renderUsageStatus(states, nowMs, pollIntervalMs, thresholds, "always");
+				const view = renderUsageStatus(states, nowMs, pollIntervalMs, thresholds, "always", "$");
 				const { worst, lowest, highest, severity } = oracle(states, nowMs, pollIntervalMs, thresholds);
 				if (view === "hidden" || worst === undefined) {
 					return;
@@ -283,8 +283,15 @@ suite("extension/ui renderUsageStatus properties", () => {
 						);
 						return state;
 					});
-					const before = renderUsageStatus(states, nowMs, pollIntervalMs, thresholds, mode);
-					const after = renderUsageStatus([...states, ...nonContributing], nowMs, pollIntervalMs, thresholds, mode);
+					const before = renderUsageStatus(states, nowMs, pollIntervalMs, thresholds, mode, "$");
+					const after = renderUsageStatus(
+						[...states, ...nonContributing],
+						nowMs,
+						pollIntervalMs,
+						thresholds,
+						mode,
+						"$"
+					);
 					if (before === "hidden") {
 						assert.strictEqual(after, "hidden", "servers outside the aggregation cannot summon the item");
 						return;
@@ -301,7 +308,7 @@ suite("extension/ui renderUsageStatus properties", () => {
 	test("the tooltip carries the expected line count for the server set", () => {
 		fc.assert(
 			fc.property(scenarioArb, ({ states, thresholds, mode, pollIntervalMs, nowMs }) => {
-				const view = renderUsageStatus(states, nowMs, pollIntervalMs, thresholds, mode);
+				const view = renderUsageStatus(states, nowMs, pollIntervalMs, thresholds, mode, "$");
 				if (view === "hidden") {
 					return;
 				}

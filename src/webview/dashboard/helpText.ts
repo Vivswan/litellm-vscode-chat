@@ -143,7 +143,7 @@ export function serverFieldHelp(field: ServerFormField): string {
 			);
 		case "budget":
 			return l10n.t(
-				"A manual budget in USD, e.g. 50, driving usage alerts. Outranks the key's own max_budget; the Usage tab shows both."
+				"A manual budget, e.g. 50, in the server's own billing currency, driving usage alerts. Outranks the key's own max_budget; the Usage tab shows both."
 			);
 	}
 }
@@ -202,7 +202,7 @@ export function helpCapabilityName(): string {
 
 export function helpCapabilityValue(): string {
 	return l10n.t(
-		"Token counts are numbers, e.g. 128000; support flags true or false; costs per-token USD, 0 meaning free. Your values beat what the server reports unless the row is marked fallback."
+		"Token counts are numbers, e.g. 128000; support flags true or false; costs per token, e.g. 0.000002, 0 meaning free. Your values beat what the server reports unless the row is marked fallback."
 	);
 }
 

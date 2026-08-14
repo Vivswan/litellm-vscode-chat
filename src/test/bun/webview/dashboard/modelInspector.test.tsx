@@ -83,7 +83,7 @@ function mountParamsAnswered(options: {
 }) {
 	const inspected = makeModel({ ...model, ...options.modelOverrides });
 	const onClose = options.onClose ?? (() => {});
-	const container = mount(<ModelInspector model={inspected} stateSeq={0} onClose={onClose} />);
+	const container = mount(<ModelInspector currencySymbol="$" model={inspected} stateSeq={0} onClose={onClose} />);
 	const request = lastRequest("readModelParameters");
 	expect(request.payload.scopeKey).toBe(inspected.scopeKey);
 	expect(request.payload.rawId).toBe(inspected.rawId);
@@ -129,7 +129,7 @@ function mountCapsAnswered(
 	chains?: ModelCapabilitiesResponse["chains"]
 ): HTMLElement {
 	const inspected = makeModel(modelOverrides);
-	const container = mount(<ModelInspector model={inspected} stateSeq={0} onClose={() => {}} />);
+	const container = mount(<ModelInspector currencySymbol="$" model={inspected} stateSeq={0} onClose={() => {}} />);
 	const request = lastRequest("readModelCapabilities");
 	expect(request.payload.scopeKey).toBe(inspected.scopeKey);
 	expect(request.payload.rawId).toBe(inspected.rawId);
@@ -201,7 +201,7 @@ test("the Parameters section leads with the answer: table, supported params, max
 	// table opens the section, the supported-parameters block and the max_tokens
 	// line follow, and the fixed machinery (always-sent fields, caveats) plus the
 	// record-path figure close it.
-	const container = mount(<ModelInspector model={model} stateSeq={0} onClose={() => {}} />);
+	const container = mount(<ModelInspector currencySymbol="$" model={model} stateSeq={0} onClose={() => {}} />);
 	respondTo(lastRequest("readModelParameters"), {
 		projection: projectEffectiveParameters({
 			rawModelId: model.rawId,
@@ -260,7 +260,9 @@ test("the Parameters section leads with the answer: table, supported params, max
 });
 
 test("both section header bands carry their Configure action, right-aligned in the band", () => {
-	const root = mount(<ModelInspector model={model} stateSeq={0} onClose={() => {}} onEditRecord={() => {}} />);
+	const root = mount(
+		<ModelInspector currencySymbol="$" model={model} stateSeq={0} onClose={() => {}} onEditRecord={() => {}} />
+	);
 	const actionText = (titleId: string): string | undefined => {
 		const head = root.querySelector(`.section-head:has(#${titleId})`);
 		return head?.querySelector("button.section-action")?.textContent ?? undefined;
@@ -306,7 +308,7 @@ test("a state push leaves the record path on screen instead of hiding it under t
 		},
 	];
 	const props = { model, onClose: () => {} };
-	const container = mount(<ModelInspector {...props} stateSeq={0} />);
+	const container = mount(<ModelInspector currencySymbol="$" {...props} stateSeq={0} />);
 	const answer = () => {
 		respondTo(lastRequest("readModelParameters"), {
 			projection: projectEffectiveParameters({
@@ -324,7 +326,7 @@ test("a state push leaves the record path on screen instead of hiding it under t
 	// The push: readiness drops (a re-request orphans the answer, so the figure
 	// may unmount), then the fresh answer lands.
 	void act(() => {
-		render(<ModelInspector {...props} stateSeq={1} />, container);
+		render(<ModelInspector currencySymbol="$" {...props} stateSeq={1} />, container);
 	});
 	answer();
 	expect(container.querySelector(".record-chain")).not.toBeNull();
@@ -381,7 +383,14 @@ test("the record path's last jump is the trap's boundary: Tab wraps there, back 
 	// trap has to wrap at it, and Shift+Tab has to come back to it from the top.
 	const inspected = makeModel();
 	const container = mount(
-		<ModelInspector model={inspected} stateSeq={0} onClose={() => {}} onEditRecord={() => {}} onEditEntry={() => {}} />
+		<ModelInspector
+			currencySymbol="$"
+			model={inspected}
+			stateSeq={0}
+			onClose={() => {}}
+			onEditRecord={() => {}}
+			onEditEntry={() => {}}
+		/>
 	);
 	expect(container).not.toBeNull();
 	respondTo(lastRequest("readModelCapabilities"), {
@@ -413,14 +422,14 @@ test("the record path's last jump is the trap's boundary: Tab wraps there, back 
 });
 
 test("a stateSeq bump re-requests BOTH feeds, so an open inspector follows configuration edits", () => {
-	const container = mount(<ModelInspector model={model} stateSeq={0} onClose={() => {}} />);
+	const container = mount(<ModelInspector currencySymbol="$" model={model} stateSeq={0} onClose={() => {}} />);
 	expect(postedRequests("readModelParameters")).toHaveLength(1);
 	expect(postedRequests("readModelCapabilities")).toHaveLength(1);
 
 	// The same tree re-rendered with a bumped stateSeq (a state push landed):
 	// the inspector must ask again instead of trusting its pre-edit answers.
 	void act(() => {
-		render(<ModelInspector model={model} stateSeq={1} onClose={() => {}} />, container);
+		render(<ModelInspector currencySymbol="$" model={model} stateSeq={1} onClose={() => {}} />, container);
 	});
 	for (const method of ["readModelParameters", "readModelCapabilities"] as const) {
 		const requests = postedRequests(method);
@@ -431,7 +440,7 @@ test("a stateSeq bump re-requests BOTH feeds, so an open inspector follows confi
 });
 
 test("a params response for another request id is ignored; the loading note stays", () => {
-	const root = mount(<ModelInspector model={model} stateSeq={0} onClose={() => {}} />);
+	const root = mount(<ModelInspector currencySymbol="$" model={model} stateSeq={0} onClose={() => {}} />);
 	pushToWebview({
 		kind: "response",
 		id: "someone-elses",
@@ -450,7 +459,7 @@ test("a params response for another request id is ignored; the loading note stay
 });
 
 test("a caps response for another request id is ignored; only the correlated one renders", () => {
-	const root = mount(<ModelInspector model={makeModel()} stateSeq={0} onClose={() => {}} />);
+	const root = mount(<ModelInspector currencySymbol="$" model={makeModel()} stateSeq={0} onClose={() => {}} />);
 	pushToWebview({
 		kind: "response",
 		id: "someone-elses",
@@ -462,7 +471,7 @@ test("a caps response for another request id is ignored; only the correlated one
 });
 
 test("a projection-less params response says the state moved on instead of inventing values", () => {
-	const container = mount(<ModelInspector model={model} stateSeq={0} onClose={() => {}} />);
+	const container = mount(<ModelInspector currencySymbol="$" model={model} stateSeq={0} onClose={() => {}} />);
 	respondTo(lastRequest("readModelParameters"), {});
 	expect(container.textContent).toContain("The model list changed");
 	expect(container.querySelector("table.resolution")).toBeNull();
@@ -894,7 +903,7 @@ test("every resolution table names its three columns for assistive tech", () => 
 test("the Pricing section states its own in-flight state instead of vanishing", () => {
 	// Pricing rides the capability feed, so it has nothing to show until that
 	// answer lands - which is a state to render, not a section to withhold.
-	const container = mount(<ModelInspector model={model} stateSeq={0} onClose={() => {}} />);
+	const container = mount(<ModelInspector currencySymbol="$" model={model} stateSeq={0} onClose={() => {}} />);
 	expect(sectionTitles(container)).toEqual(["Parameters", "Capabilities", "Pricing"]);
 	const pricing = container.querySelector("#inspector-pricing-section") as HTMLElement;
 	expect(pricing.querySelector("[role='status']")?.textContent).toBe("Resolving capabilities...");
@@ -906,7 +915,7 @@ test("the fixed machinery renders while the projection is still in flight", () =
 	// "Resolving parameters..." followed by nothing reads as a section that
 	// failed to load; the always-sent fields and the caveats are truth about the
 	// extension, not about this answer.
-	const container = mount(<ModelInspector model={model} stateSeq={0} onClose={() => {}} />);
+	const container = mount(<ModelInspector currencySymbol="$" model={model} stateSeq={0} onClose={() => {}} />);
 	expect(container.textContent).toContain("Resolving parameters...");
 	expect(container.querySelector(".inspector-notes")).not.toBeNull();
 	// The always-sent fields and the tools pair that rides along with them, in
@@ -926,7 +935,7 @@ test("a configured max_tokens whose layer the projection could not name wears no
 	// The projection reports the branch and the value; the layer is a separate
 	// lookup that can come back empty. A badge would then name a layer the panel
 	// does not know - so it says so in words instead.
-	const container = mount(<ModelInspector model={model} stateSeq={0} onClose={() => {}} />);
+	const container = mount(<ModelInspector currencySymbol="$" model={model} stateSeq={0} onClose={() => {}} />);
 	respondTo(lastRequest("readModelParameters"), {
 		projection: { rows: [], maxTokens: { source: "configured", value: 2222 }, diagnostics: [] },
 	});
@@ -1373,7 +1382,7 @@ test("the anchor stops re-scrolling for good once both feeds have answered", () 
 	};
 	try {
 		const props = { model, anchor: "caps" as const, onClose: () => {} };
-		const container = mount(<ModelInspector {...props} stateSeq={0} />);
+		const container = mount(<ModelInspector currencySymbol="$" {...props} stateSeq={0} />);
 		expect(landings).toContain("inspector-caps-section");
 
 		const answer = () => {
@@ -1394,7 +1403,7 @@ test("the anchor stops re-scrolling for good once both feeds have answered", () 
 		// A state push bumps stateSeq (readiness drops), then fresh answers land:
 		// no further scroll, in either window.
 		void act(() => {
-			render(<ModelInspector {...props} stateSeq={1} />, container);
+			render(<ModelInspector currencySymbol="$" {...props} stateSeq={1} />, container);
 		});
 		answer();
 		expect(landings).toEqual([]);
@@ -1415,6 +1424,7 @@ test("a slide-over with no field still lands focus inside itself, so Esc reaches
 	opener.focus();
 	const container = mount(
 		<ModelInspector
+			currencySymbol="$"
 			model={model}
 			stateSeq={0}
 			onClose={() => {

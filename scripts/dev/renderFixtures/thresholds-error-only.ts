@@ -17,7 +17,14 @@ const fixture: RenderFixture = {
 				...state,
 				settings: {
 					...state.settings,
-					usage: { statusBarMode: "always", statusBarScope: null, alertThresholds: [0.9], thresholdsScope: "global" },
+					usage: {
+						statusBarMode: "always",
+						statusBarScope: null,
+						alertThresholds: [0.9],
+						thresholdsScope: "global",
+						currencySymbol: "$",
+						currencySymbolScope: null,
+					},
 				},
 			},
 		},

@@ -92,6 +92,7 @@
 	"litellm.config.usage.pollInterval.description": "How often, in milliseconds, per-server spend and budget data are refreshed from each LiteLLM server. Default is 300000 (5 minutes). Set to 0 to disable polling entirely (no background usage requests and no budget alerts); the 'LiteLLM: Refresh Usage Now' command and the dashboard still fetch on demand.",
 	"litellm.config.usage.alertThresholds.description": "Budget fractions that trigger a usage alert, each above 0 and at most 1. Default is [0.8, 0.95]: alert at 80% and 95% of a server's effective budget. An empty array disables threshold alerts.",
 	"litellm.config.usage.statusBar.description": "When the usage status-bar item is shown: \"always\", \"alerts-only\" (only while a server has crossed a budget alert threshold), or \"off\".",
+	"litellm.config.usage.currencySymbol.description": "Prefix on every spend and price figure, e.g. \"EUR \". Display only: amounts are never converted - they render exactly as the server reports them. An empty string shows bare numbers.",
 	"litellm.config.ui.theme.description": "How the dashboard picks its colors. Auto follows the VS Code theme you are using, including high contrast.",
 	"litellm.config.ui.theme.auto": "Follow the VS Code theme",
 	"litellm.config.ui.theme.light": "Always light",

@@ -22,6 +22,8 @@ const fixture: RenderFixture = {
 						statusBarScope: null,
 						alertThresholds: [0.5, 0.8, 0.95],
 						thresholdsScope: "global",
+						currencySymbol: "$",
+						currencySymbolScope: null,
 					},
 				},
 			},

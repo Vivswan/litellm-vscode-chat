@@ -728,6 +728,9 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		failures.setBooleanSetting ??
 		failures.resetSetting ??
 		failures.setUsageAlertThresholds ??
+		failures.setUsageStatusBar ??
+		failures.setTokenEstimation ??
+		failures.setCurrencySymbol ??
 		failures.setUiTheme ??
 		failures.setUiAccent ??
 		failures.executeCommand;
@@ -789,6 +792,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 							servers={state.servers}
 							hidden={state.hiddenGroups}
 							usage={state.usage}
+							currencySymbol={state.settings.usage.currencySymbol}
 							now={now}
 							onShowModels={showServerModels}
 							onEditServer={(label) => openEdit({ kind: "edit", label })}
@@ -801,6 +805,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 					<ModelsSection
 						models={state.models}
 						serverCount={state.servers.length}
+						currencySymbol={state.settings.usage.currencySymbol}
 						scope={
 							serverScope !== undefined ? { label: serverScope, onClear: () => setServerScope(undefined) } : undefined
 						}
@@ -808,7 +813,12 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 					/>
 				</SectionPanel>
 				<SectionPanel section="usage" active={activeSection}>
-					<UsageSection usage={state.usage} serverCount={state.servers.length} now={now} />
+					<UsageSection
+						usage={state.usage}
+						serverCount={state.servers.length}
+						now={now}
+						currencySymbol={state.settings.usage.currencySymbol}
+					/>
 				</SectionPanel>
 				<SectionPanel section="settings" active={activeSection}>
 					<SettingsSection
@@ -827,6 +837,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 						diagnostics={state.diagnostics}
 						active={section === "diagnostics"}
 						stateSeq={stateSeq}
+						currencySymbol={state.settings.usage.currencySymbol}
 						onInspect={inspectModel}
 					/>
 				</SectionPanel>
@@ -839,6 +850,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 				<ModelInspector
 					model={inspectedModel}
 					stateSeq={stateSeq}
+					currencySymbol={state.settings.usage.currencySymbol}
 					anchor={inspecting?.anchor}
 					fallbackFocusId={`tab-${section}`}
 					onClose={() => setInspecting(undefined)}

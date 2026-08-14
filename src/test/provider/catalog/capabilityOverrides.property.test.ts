@@ -337,7 +337,7 @@ function assertAdvertisesEffective(info: PreAttachModelInfo, effective: Effectiv
 		reasoningGate(effective.fields),
 		"the reasoning control must follow the gate over the flag and the params list"
 	);
-	const expectedPricing = pricingFieldsFromEffective(effective.fields);
+	const expectedPricing = pricingFieldsFromEffective(effective.fields, "$");
 	for (const key of MODEL_PRICING_KEYS) {
 		assert.strictEqual(info[key], expectedPricing[key], `${key} must equal the effective-field derivation exactly`);
 	}

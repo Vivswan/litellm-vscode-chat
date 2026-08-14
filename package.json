@@ -540,6 +540,11 @@
 						],
 						"default": "always",
 						"description": "%litellm.config.usage.statusBar.description%"
+					},
+					"litellm-vscode-chat.usage.currencySymbol": {
+						"type": "string",
+						"default": "$",
+						"description": "%litellm.config.usage.currencySymbol.description%"
 					}
 				}
 			},

@@ -53,6 +53,7 @@ function mountEditPage(
 function mountSection(servers: Parameters<typeof ServersSection>[0]["servers"]) {
 	return mount(
 		<ServersSection
+			currencySymbol="$"
 			servers={servers}
 			now={Date.now()}
 			onEditServer={() => {}}

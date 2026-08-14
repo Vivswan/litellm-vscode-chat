@@ -587,6 +587,12 @@ function usageThresholdsDescription(): string {
 	);
 }
 
+function currencySymbolDescription(): string {
+	return l10n.t(
+		'Prefix on every spend and price figure, e.g. "EUR ". Amounts are never converted - they render exactly as the server reports them.'
+	);
+}
+
 function uiThemeDescription(): string {
 	return l10n.t("High contrast themes always follow the editor, whichever option is picked here.");
 }
@@ -977,6 +983,64 @@ function UsageThresholdsRow({
 	);
 }
 
+/**
+ * The usage.currencySymbol row: one short text box over the string setting.
+ * Any text is legal - the symbol is display-only and never sent anywhere - so
+ * there is no invalid state; clearing the box commits the empty string, which
+ * renders bare numbers. Commits on Enter or blur, like the thresholds pair,
+ * and the maxLength mirrors the intent schema's bound.
+ */
+function CurrencySymbolRow({
+	value,
+	configuredScope,
+	hidden,
+}: {
+	value: string;
+	configuredScope: SettingScope | null;
+	hidden: boolean;
+}) {
+	const [text, setText] = useState(value);
+	const syncKey = `${value}@${configuredScope ?? "default"}`;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: deliberately keyed on syncKey alone; the external value is read at sync time, not watched
+	useEffect(() => {
+		setText(value);
+	}, [syncKey]);
+	const inputId = "setting-usage.currencySymbol";
+	const commit = () => {
+		if (text !== value) {
+			sendRequest("setCurrencySymbol", { value: text });
+		}
+	};
+	return (
+		<SettingRow
+			settingId="usage.currencySymbol"
+			title={l10n.t("Currency symbol")}
+			titleFor={inputId}
+			description={currencySymbolDescription()}
+			configuredScope={configuredScope}
+			hidden={hidden}
+			control={
+				<Input
+					id={inputId}
+					type="text"
+					spellCheck={false}
+					className="w-[4.5rem]"
+					maxLength={12}
+					placeholder="$"
+					value={text}
+					onChange={(event) => setText(event.currentTarget.value)}
+					onBlur={commit}
+					onKeyDown={(event) => {
+						if (event.key === "Enter") {
+							commit();
+						}
+					}}
+				/>
+			}
+		/>
+	);
+}
+
 function SettingGroup({
 	title,
 	help,
@@ -1069,6 +1133,7 @@ function configuredScopes(settings: DashboardSettings): readonly (SettingScope |
 		settings.chat.tokenEstimationScope,
 		settings.usage.statusBarScope,
 		settings.usage.thresholdsScope,
+		settings.usage.currencySymbolScope,
 		settings.appearance.themeScope,
 		settings.appearance.accentScope,
 	];
@@ -1170,6 +1235,7 @@ export function SettingsSection({
 		usageThresholdsDescription(),
 		"usage.alertThresholds"
 	);
+	const currencyVisible = matches(l10n.t("Currency symbol"), currencySymbolDescription(), "usage.currencySymbol");
 	const themeVisible = matches(l10n.t("Dashboard theme"), uiThemeDescription(), "ui.theme");
 	const accentVisible = matches(l10n.t("Accent color"), uiAccentDescription(), "ui.accent");
 	// The Import & Export group filters like a scalar row: its title and button
@@ -1193,6 +1259,7 @@ export function SettingsSection({
 		!statusBarVisible &&
 		!tokenEstimationVisible &&
 		!thresholdsVisible &&
+		!currencyVisible &&
 		!themeVisible &&
 		!accentVisible;
 	const booleanExtras: Partial<Record<BooleanSettingId, ReactNode>> = {
@@ -1260,7 +1327,7 @@ export function SettingsSection({
 							tailVisible={
 								(isModelsGroup && (paramsVisible || capsVisible)) ||
 								(isChatGroup && tokenEstimationVisible) ||
-								(isUsageGroup && (statusBarVisible || thresholdsVisible)) ||
+								(isUsageGroup && (statusBarVisible || thresholdsVisible || currencyVisible)) ||
 								(isUiGroup && (themeVisible || accentVisible))
 							}
 							tail={
@@ -1309,6 +1376,11 @@ export function SettingsSection({
 											onPick={(value) => sendRequest("setUsageStatusBar", { value })}
 											configuredScope={settings.usage.statusBarScope}
 											hidden={!statusBarVisible}
+										/>
+										<CurrencySymbolRow
+											value={settings.usage.currencySymbol}
+											configuredScope={settings.usage.currencySymbolScope}
+											hidden={!currencyVisible}
 										/>
 									</>
 								) : isUiGroup ? (

@@ -61,7 +61,7 @@ Add and Edit open the same form as a destination in the main pane, with the rail
 
 **Headers** - a row editor for the entry's `headers` object: extra HTTP headers on every request to this server (routing tags, tracing headers). The entry's own [auth](servers.md#authentication) headers win conflicts, so a custom `Authorization` cannot clobber the configured credential. Header values are settings, not secrets - they sit in plain text in settings.json; credentials belong in the auth forms, which can live in secret storage.
 
-**Budget** - a manual USD budget that drives [usage alerts](usage.md#budgets).
+**Budget** - a manual budget, in the server's billing currency, that drives [usage alerts](usage.md#budgets).
 
 **Test connection**, beside the Base URL it probes, tries the draft before you commit it - one discovery call with the URL and credentials as currently entered, answering "Connected - 12 models" or the exact error, and saving nothing. The probe honors the draft's expected failures and declared models, so a discovery-less gateway reports what it would serve instead of a hard failure. Failures the extension recognizes as setup problems (a wrong base URL, an unreachable proxy, a rejected key) add a link to the matching section of the [troubleshooting guide](troubleshooting.md#common-issues) under the message.
 

@@ -766,7 +766,14 @@ function thresholdBoxes(root: ParentNode): { warning: HTMLInputElement; error: H
 
 function settingsWithThresholds(alertThresholds: readonly number[]) {
 	return makeSettings({
-		usage: { statusBarMode: "always", statusBarScope: null, alertThresholds, thresholdsScope: null },
+		usage: {
+			statusBarMode: "always",
+			statusBarScope: null,
+			alertThresholds,
+			thresholdsScope: null,
+			currencySymbol: "$",
+			currencySymbolScope: null,
+		},
 	});
 }
 
@@ -884,6 +891,8 @@ test("a hand-written list of 3+ values renders read-only with the values, the hi
 			statusBarScope: null,
 			alertThresholds: [0.5, 0.8, 0.95],
 			thresholdsScope: "global",
+			currencySymbol: "$",
+			currencySymbolScope: null,
 		},
 	});
 	const root = mount(<SettingsSection settings={settings} models={[]} />);
@@ -896,6 +905,30 @@ test("a hand-written list of 3+ values renders read-only with the values, the hi
 	// would let a blur destroy the hand-written values.
 	expect(row.querySelector("input")).toBeNull();
 	expect(row.querySelector("button[aria-label='Open Usage alert thresholds in settings.json']")).not.toBeNull();
+});
+
+test("the currency-symbol row renders the stored value and commits an edit on blur or Enter", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const input = settingInput(root, "usage.currencySymbol");
+	expect(input.value).toBe("$");
+
+	fireInput(input, "EUR ");
+	fireBlur(input);
+	expect(postedCalls()).toEqual([{ method: "setCurrencySymbol", payload: { value: "EUR " } }]);
+
+	// A draft equal to the stored value posts nothing on commit.
+	resetPosted();
+	fireInput(input, "$");
+	fireKeyDown(input, "Enter");
+	expect(postedMessages).toEqual([]);
+});
+
+test("clearing the currency-symbol box commits the empty string (bare numbers), not a reset", () => {
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const input = settingInput(root, "usage.currencySymbol");
+	fireInput(input, "");
+	fireKeyDown(input, "Enter");
+	expect(postedCalls()).toEqual([{ method: "setCurrencySymbol", payload: { value: "" } }]);
 });
 
 test("the status-bar mode select posts setUsageStatusBar on change", () => {

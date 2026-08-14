@@ -183,6 +183,7 @@ export const DASHBOARD_ENDPOINTS = {
 	setModelCapabilities: { outcome: "acked", channel: "chained" },
 	setUsageStatusBar: { outcome: "fire-and-forget", channel: "chained" },
 	setTokenEstimation: { outcome: "fire-and-forget", channel: "chained" },
+	setCurrencySymbol: { outcome: "fire-and-forget", channel: "chained" },
 	setUiTheme: { outcome: "fire-and-forget", channel: "chained" },
 	setUiAccent: { outcome: "fire-and-forget", channel: "chained" },
 	setUsageAlertThresholds: { outcome: "fire-and-forget", channel: "chained" },
@@ -271,6 +272,8 @@ interface DashboardEndpointIO {
 	setModelCapabilities: { request: { readonly value: Record<string, Record<string, unknown>> } };
 	setUsageStatusBar: { request: { readonly value: UsageStatusBarModeSetting } };
 	setTokenEstimation: { request: { readonly value: TokenEstimationMode } };
+	/** Any short string, the empty string included (bare numbers); the extension bounds the length at the schema. */
+	setCurrencySymbol: { request: { readonly value: string } };
 	setUiTheme: { request: { readonly value: UiTheme } };
 	setUiAccent: { request: { readonly value: UiAccent } };
 	/** Values must be fractions in (0, 1]; the extension re-validates and refuses out-of-range entries. */

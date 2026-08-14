@@ -102,7 +102,7 @@ LiteLLM 状态栏项 (右下角) 一眼展示连接状态 - 对勾 (`$(check) Li
 
 ### 设置预算并在耗尽前收到提醒
 
-给条目一个以美元计的预算; 警报和状态栏负责其余部分:
+给条目一个以服务器计费货币计的预算; 警报和状态栏负责其余部分:
 
 ```jsonc
 { "label": "prod", "baseUrl": "https://litellm.example.com", "budget": 50 }

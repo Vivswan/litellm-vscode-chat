@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import type { BooleanSettingId, NumberSettingId } from "../../shared/config/settingSpec";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import {
+	CURRENCY_SYMBOL_SETTING_KEY,
 	MODEL_CAPABILITIES_SETTING_KEY,
 	SERVERS_SETTING_KEY,
 	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
@@ -76,6 +77,13 @@ export function wireServers(
 				// Capability overrides are applied where models attach, outside the
 				// discovery cache, so a notify alone suffices: no cache clear, no
 				// network.
+				notifyModelsChanged.schedule();
+			}
+			if (affects(CURRENCY_SYMBOL_SETTING_KEY)) {
+				// The picker's pricing labels rebuild where models attach: the
+				// verified fast path compares the stored label against a rebuild
+				// under the new symbol, mismatches, and re-derives it - so a notify
+				// alone heals every served model, like the capabilities case above.
 				notifyModelsChanged.schedule();
 			}
 			if (affects(OPENROUTER_CATALOG_SETTING_ID)) {

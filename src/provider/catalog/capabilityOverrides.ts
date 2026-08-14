@@ -21,6 +21,7 @@ import type {
 } from "../../shared/config/capabilityResolution";
 import { CAPABILITY_FIELDS, CAPABILITY_LEVEL_ORDER, capabilityField } from "../../shared/config/capabilityResolution";
 import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
+import { getCurrencySymbol } from "../../shared/config/settings";
 import type { ServerConfig } from "../../shared/servers";
 import type { PreAttachModelInfo } from "./groupModels";
 import type { PerTokenCosts } from "./modelCatalog";
@@ -117,7 +118,7 @@ const REGISTRATION_CONSUMED_FIELDS: readonly string[] = [
  * cost whose other side reported 0 past the baseline guard - and either way
  * the user said "free", so it prices as genuinely free on purpose.
  */
-export function pricingFieldsFromEffective(fields: EffectiveCapabilityFields): ModelPricing {
+export function pricingFieldsFromEffective(fields: EffectiveCapabilityFields, currencySymbol: string): ModelPricing {
 	const costs: { -readonly [K in keyof PerTokenCosts]?: number } = {};
 	for (const name of COST_CAPABILITY_FIELDS) {
 		const value = capabilityField(fields, name)?.value;
@@ -125,7 +126,7 @@ export function pricingFieldsFromEffective(fields: EffectiveCapabilityFields): M
 			costs[name] = value;
 		}
 	}
-	return pricingFromCosts(costs, { zeroPairMeansUndeclared: false });
+	return pricingFromCosts(costs, currencySymbol, { zeroPairMeansUndeclared: false });
 }
 
 /** Walk order as ranks for reasoningGate's which-field-wins comparison, derived from the walk's own order declaration. */
@@ -259,7 +260,11 @@ function advertisesPricing(info: ModelPricing, expected: ModelPricing): boolean 
  * rebuild forever or freeze a stale value, so every rebuilt artifact has its
  * clause.
  */
-function advertisesEffective(info: PreAttachModelInfo, effective: EffectiveCapabilities): boolean {
+function advertisesEffective(
+	info: PreAttachModelInfo,
+	effective: EffectiveCapabilities,
+	currencySymbol: string
+): boolean {
 	const fields = effective.fields;
 	return (
 		info.maxInputTokens === fields.max_input_tokens.value &&
@@ -270,7 +275,7 @@ function advertisesEffective(info: PreAttachModelInfo, effective: EffectiveCapab
 		info.litellm.supportsPromptCaching === promptCachingFrom(fields) &&
 		info.litellm.outputLimitSource === effective.outputLimitSource &&
 		advertisesReasoningMenu(info.configurationSchema, fields) &&
-		advertisesPricing(info, pricingFieldsFromEffective(fields))
+		advertisesPricing(info, pricingFieldsFromEffective(fields, currencySymbol))
 	);
 }
 
@@ -297,6 +302,10 @@ export function applyCapabilityOverrides(
 ): readonly PreAttachModelInfo[] {
 	let changed = false;
 	const logDiagnostics = diagnosticLogger(opts);
+	// Read once per pass: every rebuilt pricing label carries the same symbol,
+	// and a symbol change since registration fails advertisesPricing's exact
+	// compare, so the verified fast path itself heals stale labels here.
+	const currencySymbol = getCurrencySymbol();
 	const out = infos.map((info) => {
 		const rawModelId = rawModelIdFromExposed(info.id, server.id);
 		const effective = opts.resolution.resolveCapabilities(server.id, rawModelId, {
@@ -314,7 +323,7 @@ export function applyCapabilityOverrides(
 			const field = capabilityField(fields, name);
 			return field !== undefined && LEVEL_TRIGGERS_REBUILD[field.level];
 		});
-		if (!needsRebuild && effective.directive === undefined && advertisesEffective(info, effective)) {
+		if (!needsRebuild && effective.directive === undefined && advertisesEffective(info, effective, currencySymbol)) {
 			// Nothing matched and the entry already says what the walk resolves
 			// (see advertisesEffective for why that is verified, not assumed).
 			return info;
@@ -339,7 +348,7 @@ export function applyCapabilityOverrides(
 				toolCalling: fields.supports_function_calling.value,
 				imageInput: fields.supports_vision.value,
 			},
-			...pricingFieldsFromEffective(fields),
+			...pricingFieldsFromEffective(fields, currencySymbol),
 			...(reasoningGate(fields)
 				? { configurationSchema: reasoningEffortSchema(effectiveReasoningLevels(fields)) }
 				: {}),
@@ -378,6 +387,8 @@ export function synthesizeDeclaredModels(
 	opts: CapabilityOverrideOptions
 ): DeclaredModelSynthesis {
 	const logDiagnostics = diagnosticLogger(opts);
+	// Same one-read-per-pass rule as applyCapabilityOverrides.
+	const currencySymbol = getCurrencySymbol();
 	// Exact IDs, inert when discovered, config-rebuilt every serve; a
 	// duplicated ID synthesizes once.
 	const specs = [...new Set(opts.entryDeclaredModels ?? [])].map((rawId) => ({ rawId, layer: "entry" as const }));
@@ -421,7 +432,7 @@ export function synthesizeDeclaredModels(
 			// The same effective-field reads as applyCapabilityOverrides, over the
 			// declared baseline (no server level at all): a user cost record prices
 			// a declared model, and the caching and reasoning gates apply alike.
-			...pricingFieldsFromEffective(fields),
+			...pricingFieldsFromEffective(fields, currencySymbol),
 			...(reasoningGate(fields)
 				? { configurationSchema: reasoningEffortSchema(effectiveReasoningLevels(fields)) }
 				: {}),

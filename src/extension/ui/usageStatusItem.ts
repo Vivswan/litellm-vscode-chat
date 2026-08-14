@@ -39,9 +39,13 @@ function usableThresholds(thresholds: readonly number[]): number[] {
 	return [...new Set(usable)].sort((a, b) => a - b);
 }
 
-/** A dollar amount as every usage surface prints it; budgets are USD by contract. */
-function money(amount: number): string {
-	return `$${amount.toFixed(2)}`;
+/**
+ * An amount as every usage surface prints it, prefixed with the configured
+ * usage.currencySymbol (display only - the server's numbers are never
+ * converted; the empty symbol renders the bare number).
+ */
+function money(amount: number, currencySymbol: string): string {
+	return `${currencySymbol}${amount.toFixed(2)}`;
 }
 
 /** A spend fraction as the integer percent the item and tooltip show; past 100% the literal number (112%). */
@@ -67,7 +71,7 @@ function relativeTime(thenMs: number, nowMs: number): string {
 }
 
 /** The two tooltip lines for one server with spend data; the detail line notes staleness explicitly. */
-function serverTooltipLines(state: ServerUsageState, nowMs: number, fresh: boolean): string[] {
+function serverTooltipLines(state: ServerUsageState, nowMs: number, fresh: boolean, currencySymbol: string): string[] {
 	const { budget } = state;
 	const spend = budget.spend;
 	if (spend === undefined) {
@@ -81,14 +85,20 @@ function serverTooltipLines(state: ServerUsageState, nowMs: number, fresh: boole
 				? l10n.t(
 						"{0}: {1} of {2} ({3}%) - key reports {4}",
 						state.label,
-						money(spend),
-						money(budget.effectiveBudget),
+						money(spend, currencySymbol),
+						money(budget.effectiveBudget, currencySymbol),
 						percent,
-						money(budget.keyBudget)
+						money(budget.keyBudget, currencySymbol)
 					)
-				: l10n.t("{0}: {1} of {2} ({3}%)", state.label, money(spend), money(budget.effectiveBudget), percent);
+				: l10n.t(
+						"{0}: {1} of {2} ({3}%)",
+						state.label,
+						money(spend, currencySymbol),
+						money(budget.effectiveBudget, currencySymbol),
+						percent
+					);
 	} else {
-		headline = l10n.t("{0}: {1} spent, no budget", state.label, money(spend));
+		headline = l10n.t("{0}: {1} spent, no budget", state.label, money(spend, currencySymbol));
 	}
 	const details: string[] = [];
 	if (budget.budgetResetAt !== undefined) {
@@ -123,7 +133,8 @@ export function renderUsageStatus(
 	nowMs: number,
 	pollIntervalMs: number,
 	thresholds: readonly number[],
-	mode: UsageStatusBarMode
+	mode: UsageStatusBarMode,
+	currencySymbol: string
 ): UsageStatusView | "hidden" {
 	if (mode === "off") {
 		return "hidden";
@@ -147,7 +158,7 @@ export function renderUsageStatus(
 	}
 
 	const tooltipLines = states.flatMap((state) =>
-		serverTooltipLines(state, nowMs, freshByLabel.get(state.label) === true)
+		serverTooltipLines(state, nowMs, freshByLabel.get(state.label) === true, currencySymbol)
 	);
 	if (lowest !== undefined) {
 		// The item's number is one server's ratio; the count keeps the other
@@ -173,6 +184,7 @@ export interface UsageStatusBarOptions {
 	readonly getMode: () => UsageStatusBarMode;
 	readonly getThresholds: () => readonly number[];
 	readonly getPollIntervalMs: () => number;
+	readonly getCurrencySymbol: () => string;
 	readonly clock?: Clock;
 	readonly timer?: Timer;
 }
@@ -217,7 +229,14 @@ export class UsageStatusBar implements vscode.Disposable {
 		const nowMs = this.clock.now();
 		const pollIntervalMs = this.options.getPollIntervalMs();
 		const states = this.options.store.getStates();
-		const view = renderUsageStatus(states, nowMs, pollIntervalMs, this.options.getThresholds(), this.options.getMode());
+		const view = renderUsageStatus(
+			states,
+			nowMs,
+			pollIntervalMs,
+			this.options.getThresholds(),
+			this.options.getMode(),
+			this.options.getCurrencySymbol()
+		);
 		if (view === "hidden") {
 			this.options.item.hide();
 		} else {

@@ -4,6 +4,8 @@ import { INTERNAL_CMD } from "../../shared/config/commandIds";
 import type { NumberSettingId } from "../../shared/config/settingSpec";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import {
+	CURRENCY_SYMBOL_SETTING_KEY,
+	getCurrencySymbol,
 	getUsageAlertThresholds,
 	getUsagePollIntervalMs,
 	getUsageStatusBarMode,
@@ -86,6 +88,7 @@ export function wireUsageSurfaces(
 		getMode: getUsageStatusBarMode,
 		getThresholds: () => getUsageAlertThresholds(),
 		getPollIntervalMs: () => getUsagePollIntervalMs(),
+		getCurrencySymbol,
 	});
 	context.subscriptions.push(
 		usageStatusBar,
@@ -99,10 +102,11 @@ export function wireUsageSurfaces(
 			if (
 				affects(USAGE_POLL_INTERVAL_SETTING_ID) ||
 				affects(USAGE_ALERT_THRESHOLDS_SETTING_KEY) ||
-				affects(USAGE_STATUS_BAR_SETTING_KEY)
+				affects(USAGE_STATUS_BAR_SETTING_KEY) ||
+				affects(CURRENCY_SYMBOL_SETTING_KEY)
 			) {
-				// The item re-reads mode, thresholds, and the freshness window at
-				// render time; a re-render is the whole reaction.
+				// The item re-reads mode, thresholds, the currency symbol, and the
+				// freshness window at render time; a re-render is the whole reaction.
 				usageStatusBar.applyConfiguration();
 			}
 		})

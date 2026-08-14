@@ -44,7 +44,7 @@ test("the sort control picks the key and the toggle picks the direction, and bot
 		makeModel({ id: "c", name: "Charlie", maxInputTokens: 100 }),
 		makeModel({ id: "a", name: "Alpha", maxInputTokens: 300 }),
 	];
-	const root = mount(<ModelsSection models={models} serverCount={1} onInspect={() => {}} />);
+	const root = mount(<ModelsSection currencySymbol="$" models={models} serverCount={1} onInspect={() => {}} />);
 	// Unsorted is a real choice - the order the servers reported - so it is a
 	// value of the control, and there is no direction to flip while it holds.
 	expect(sortSelect(root).value).toBe("discovered");
@@ -78,7 +78,7 @@ test("models without a price sort last in both directions", () => {
 		makeModel({ id: "cheap", name: "Cheap", inputCost: 1 }),
 		makeModel({ id: "dear", name: "Dear", inputCost: 10 }),
 	];
-	const root = mount(<ModelsSection models={models} serverCount={1} onInspect={() => {}} />);
+	const root = mount(<ModelsSection currencySymbol="$" models={models} serverCount={1} onInspect={() => {}} />);
 	fireSelect(sortSelect(root), "price");
 	expect(firstColumn(root)).toEqual(["Cheap", "Dear", "Unpriced"]);
 	fireClick(sortDirection(root));
@@ -99,7 +99,9 @@ function scrollTo(container: HTMLElement, top: number): void {
 }
 
 test("past the threshold the table windows: spacers stand in for off-screen rows and scrolling moves the window", () => {
-	const root = mount(<ModelsSection models={manyModels(200)} serverCount={1} onInspect={() => {}} />);
+	const root = mount(
+		<ModelsSection currencySymbol="$" models={manyModels(200)} serverCount={1} onInspect={() => {}} />
+	);
 	const container = root.querySelector(".table-scroll") as HTMLElement;
 	expect(container.classList.contains("windowed")).toBe(true);
 
@@ -126,7 +128,9 @@ test("past the threshold the table windows: spacers stand in for off-screen rows
 });
 
 test("sorting while scrolled deep re-fills the window from the new order without leaving range", () => {
-	const root = mount(<ModelsSection models={manyModels(200)} serverCount={1} onInspect={() => {}} />);
+	const root = mount(
+		<ModelsSection currencySymbol="$" models={manyModels(200)} serverCount={1} onInspect={() => {}} />
+	);
 	const container = root.querySelector(".table-scroll") as HTMLElement;
 	scrollTo(container, ROW * 150);
 	expect(firstColumn(root)).toContain("Model 150");
@@ -145,7 +149,9 @@ test("sorting while scrolled deep re-fills the window from the new order without
 });
 
 test("a filter that shrinks the list under a deep scroll clamps the window back into range", () => {
-	const root = mount(<ModelsSection models={manyModels(200)} serverCount={1} onInspect={() => {}} />);
+	const root = mount(
+		<ModelsSection currencySymbol="$" models={manyModels(200)} serverCount={1} onInspect={() => {}} />
+	);
 	const container = root.querySelector(".table-scroll") as HTMLElement;
 	scrollTo(container, ROW * 150);
 
@@ -156,7 +162,7 @@ test("a filter that shrinks the list under a deep scroll clamps the window back 
 });
 
 test("under the threshold every row renders with no scrollport", () => {
-	const root = mount(<ModelsSection models={manyModels(50)} serverCount={1} onInspect={() => {}} />);
+	const root = mount(<ModelsSection currencySymbol="$" models={manyModels(50)} serverCount={1} onInspect={() => {}} />);
 	expect(firstColumn(root).length).toBe(50);
 	expect((root.querySelector(".table-scroll") as HTMLElement).classList.contains("windowed")).toBe(false);
 	expect(root.querySelectorAll("li.spacer").length).toBe(0);
@@ -168,7 +174,9 @@ test("one row past the threshold windows, with or without the server on the rows
 	// the trailing spacer with it, and neither side of serverCount > 1 changes
 	// that - the rows have no column count left to shear.
 	for (const serverCount of [1, 2]) {
-		const root = mount(<ModelsSection models={manyModels(51)} serverCount={serverCount} onInspect={() => {}} />);
+		const root = mount(
+			<ModelsSection currencySymbol="$" models={manyModels(51)} serverCount={serverCount} onInspect={() => {}} />
+		);
 		expect((root.querySelector(".table-scroll") as HTMLElement).classList.contains("windowed")).toBe(true);
 		expect(root.querySelectorAll("li.spacer").length).toBe(1);
 		cleanup();
@@ -180,7 +188,12 @@ test("a row is a disclosure plus its two controls, and the Inspect action is not
 	// the row's other controls must sit outside it: a button cannot contain a
 	// button, and nesting them would make the copy action unreachable.
 	const root = mount(
-		<ModelsSection models={[makeModel({ id: "gpt-4o", name: "Omni" })]} serverCount={1} onInspect={() => {}} />
+		<ModelsSection
+			currencySymbol="$"
+			models={[makeModel({ id: "gpt-4o", name: "Omni" })]}
+			serverCount={1}
+			onInspect={() => {}}
+		/>
 	);
 	const row = root.querySelector("li.model-row") as HTMLElement;
 	const disclosure = row.querySelector("button.model-disclosure") as HTMLElement;
@@ -250,7 +263,7 @@ test("a row is a disclosure plus its two controls, and the Inspect action is not
 });
 
 test("one row opens at a time, and its detail is wired to the disclosure that opened it", () => {
-	const root = mount(<ModelsSection models={manyModels(3)} serverCount={1} onInspect={() => {}} />);
+	const root = mount(<ModelsSection currencySymbol="$" models={manyModels(3)} serverCount={1} onInspect={() => {}} />);
 	const rows = () => Array.from(root.querySelectorAll("li.model-row"));
 	const disclosure = (index: number) => rows()[index]?.querySelector("button.model-disclosure") as HTMLElement;
 
@@ -286,7 +299,7 @@ test("the open row is remembered by identity, so sorting does not move the detai
 		makeModel({ id: "c", name: "Charlie" }),
 		makeModel({ id: "a", name: "Alpha" }),
 	];
-	const root = mount(<ModelsSection models={models} serverCount={1} onInspect={() => {}} />);
+	const root = mount(<ModelsSection currencySymbol="$" models={models} serverCount={1} onInspect={() => {}} />);
 	const openRowName = () =>
 		(root.querySelector("li.model-row:has(.model-detail) .model-name-text")?.textContent ?? "").trim();
 
@@ -356,7 +369,9 @@ test("the open row's measured detail is accounted for at every scroll position, 
 	// of the window - which is precisely the boundary this walks across.
 	const DETAIL = 120;
 	withMeasuredLayout(ROW, DETAIL, () => {
-		const root = mount(<ModelsSection models={manyModels(200)} serverCount={1} onInspect={() => {}} />);
+		const root = mount(
+			<ModelsSection currencySymbol="$" models={manyModels(200)} serverCount={1} onInspect={() => {}} />
+		);
 		const container = root.querySelector(".table-scroll") as HTMLElement;
 		const total = () => claimedHeight(root, ROW, DETAIL);
 
@@ -406,7 +421,9 @@ test("a detail that resizes while it is scrolled out of the window is re-measure
 		},
 	});
 	try {
-		const root = mount(<ModelsSection models={manyModels(200)} serverCount={1} onInspect={() => {}} />);
+		const root = mount(
+			<ModelsSection currencySymbol="$" models={manyModels(200)} serverCount={1} onInspect={() => {}} />
+		);
 		const container = root.querySelector(".table-scroll") as HTMLElement;
 		fireClick(root.querySelectorAll("button.model-disclosure")[2] as HTMLElement);
 		expect(claimedHeight(root, ROW, detailHeight)).toBe(200 * ROW + 100);
@@ -447,7 +464,7 @@ test("two provider groups sharing a label keep separate rows: opening one does n
 		makeModel({ id: "gpt-4o", name: "Omni", serverLabel: "Shared", scopeKey: "s1" }),
 		makeModel({ id: "gpt-4o", name: "Omni", serverLabel: "Shared", scopeKey: "s2" }),
 	];
-	const root = mount(<ModelsSection models={models} serverCount={2} onInspect={() => {}} />);
+	const root = mount(<ModelsSection currencySymbol="$" models={models} serverCount={2} onInspect={() => {}} />);
 	const rows = Array.from(root.querySelectorAll("li.model-row"));
 	expect(rows.length).toBe(2);
 
@@ -468,7 +485,12 @@ test("the row's copy action writes the model ID to the clipboard and flashes a c
 	Object.defineProperty(navigator, "clipboard", { value: clipboard, configurable: true });
 
 	const root = mount(
-		<ModelsSection models={[makeModel({ id: "gpt-4o", name: "Omni" })]} serverCount={1} onInspect={() => {}} />
+		<ModelsSection
+			currencySymbol="$"
+			models={[makeModel({ id: "gpt-4o", name: "Omni" })]}
+			serverCount={1}
+			onInspect={() => {}}
+		/>
 	);
 	const copy = root.querySelector("button[aria-label='Copy model ID gpt-4o from Prod']") as HTMLButtonElement;
 	expect(copy).not.toBeNull();
@@ -485,7 +507,7 @@ test("one raw model ID on two servers renders two rows with distinct accessible 
 		makeModel({ id: "gpt-4o", name: "Omni", serverLabel: "Prod" }),
 		makeModel({ id: "gpt-4o", name: "Omni", serverLabel: "Staging" }),
 	];
-	const root = mount(<ModelsSection models={models} serverCount={2} onInspect={() => {}} />);
+	const root = mount(<ModelsSection currencySymbol="$" models={models} serverCount={2} onInspect={() => {}} />);
 	const button = (server: string) =>
 		root.querySelector(`button[aria-label='Copy model ID gpt-4o from ${server}']`) as HTMLButtonElement;
 	expect(button("Prod")).not.toBeNull();
@@ -501,7 +523,7 @@ test("the windowed scrollport publishes its own page offset, re-measured, so its
 	// this element, tuned against the page it shared and inherited unchanged when
 	// models became a destination of its own. The stylesheet reads a custom
 	// property now, and this pins the half that JavaScript owns.
-	const root = mount(<ModelsSection models={manyModels(60)} serverCount={1} onInspect={() => {}} />);
+	const root = mount(<ModelsSection currencySymbol="$" models={manyModels(60)} serverCount={1} onInspect={() => {}} />);
 	const scrollport = root.querySelector(".table-scroll.windowed") as HTMLElement;
 	expect(scrollport).not.toBeNull();
 

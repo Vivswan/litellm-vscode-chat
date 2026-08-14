@@ -65,6 +65,7 @@ function render(
 		pollIntervalMs: number;
 		thresholds: readonly number[];
 		mode: "always" | "alerts-only" | "off";
+		currencySymbol: string;
 	}> = {}
 ) {
 	return renderUsageStatus(
@@ -72,7 +73,8 @@ function render(
 		overrides.nowMs ?? NOW,
 		overrides.pollIntervalMs ?? POLL_INTERVAL_MS,
 		overrides.thresholds ?? DEFAULT_THRESHOLDS,
-		overrides.mode ?? "always"
+		overrides.mode ?? "always",
+		overrides.currencySymbol ?? "$"
 	);
 }
 
@@ -207,6 +209,18 @@ suite("extension/ui usageStatusItem renderUsageStatus", () => {
 			assert.ok(tooltip.includes("prod: $42.00 of $50.00 (84%) - key reports $100.00"), tooltip);
 		});
 
+		test("prints amounts with the configured currency symbol verbatim; the empty symbol leaves bare numbers", () => {
+			const states = [usageState("prod", { spend: 42, effectiveBudget: 50, keyBudget: 50 })];
+			const euro = expectVisible(render(states, { currencySymbol: "EUR " }));
+			assert.ok(
+				euro.tooltipLines.join("\n").includes("prod: EUR 42.00 of EUR 50.00 (84%)"),
+				euro.tooltipLines.join("\n")
+			);
+
+			const bare = expectVisible(render(states, { currencySymbol: "" }));
+			assert.ok(bare.tooltipLines.join("\n").includes("prod: 42.00 of 50.00 (84%)"), bare.tooltipLines.join("\n"));
+		});
+
 		test("notes stale servers and budget-less spend instead of dropping their rows", () => {
 			const fresh = usageState("alpha", { spend: 21, effectiveBudget: 50 });
 			const stale = usageState("beta", {
@@ -272,6 +286,7 @@ suite("extension/ui usageStatusItem UsageStatusBar", () => {
 			getMode: () => mode,
 			getThresholds: () => thresholds,
 			getPollIntervalMs: () => POLL_INTERVAL_MS,
+			getCurrencySymbol: () => "$",
 			clock: { now: () => clock.nowMs },
 			timer: {
 				set: (callback, ms) => {

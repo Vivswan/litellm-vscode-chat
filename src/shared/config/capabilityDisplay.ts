@@ -100,27 +100,29 @@ export function parameterCountText(count: number): string {
 }
 
 /**
- * A per-token cost as dollars per million tokens: "$5.00", "$0.50", "$6.25",
- * "$37.50". Zero (LiteLLM's "genuinely free" after resolution) is "$0".
+ * A per-token cost per million tokens: "$5.00", "$0.50", "$6.25", "$37.50".
+ * Zero (LiteLLM's "genuinely free" after resolution) is "$0". The symbol is
+ * the configured usage.currencySymbol, prefixed verbatim (after the sign);
+ * the empty string renders the bare number.
  *
- * Rounding rules, pinned by tests: values of a dollar and up round to cents
- * (exactly two decimals); sub-dollar values keep three significant digits,
+ * Rounding rules, pinned by tests: values of a unit and up round to cents
+ * (exactly two decimals); sub-unit values keep three significant digits,
  * then trim trailing zeros but never below two decimals, so sub-cent prices
  * like $0.0004 survive. Everything goes through toFixed-family math - wire
  * values arrive in scientific notation (5e-7) and String() would echo it.
  */
-export function formatCostPerMillion(perTokenCost: number): string {
-	const dollars = perTokenCost * 1e6;
-	if (dollars === 0) {
-		return "$0";
+export function formatCostPerMillion(perTokenCost: number, currencySymbol: string): string {
+	const perMillion = perTokenCost * 1e6;
+	if (perMillion === 0) {
+		return `${currencySymbol}0`;
 	}
-	const sign = dollars < 0 ? "-" : "";
-	const abs = Math.abs(dollars);
+	const sign = perMillion < 0 ? "-" : "";
+	const abs = Math.abs(perMillion);
 	// The scaling can overflow for astronomically priced nonsense (validated
 	// costs are finite, but finite * 1e6 need not be); format the per-token
 	// magnitude in plain digits rather than echoing an Infinity glyph.
 	if (!Number.isFinite(abs)) {
-		return `${sign}$${Math.abs(perTokenCost).toLocaleString("en-US", {
+		return `${sign}${currencySymbol}${Math.abs(perTokenCost).toLocaleString("en-US", {
 			useGrouping: false,
 			maximumFractionDigits: 0,
 		})}000000`;
@@ -129,16 +131,17 @@ export function formatCostPerMillion(perTokenCost: number): string {
 	// Intl always writes digits. Costs this size are configuration nonsense,
 	// but the formatter must never emit scientific notation for them.
 	if (abs >= 1e15) {
-		return `${sign}$${abs.toLocaleString("en-US", {
+		return `${sign}${currencySymbol}${abs.toLocaleString("en-US", {
 			useGrouping: false,
 			minimumFractionDigits: 2,
 			maximumFractionDigits: 2,
 		})}`;
 	}
 	// Decimals for three significant digits, floored at cents: $1+ rounds to
-	// exactly two decimals, sub-dollar values extend ($0.0004 needs six). The
-	// cap is toFixed's own limit; anything smaller than 1e-98 $/M renders as
-	// a plain $0.00 (denormal-scale prices are not distinguishable in text).
+	// exactly two decimals, sub-unit values extend ($0.0004 needs six). The
+	// cap is toFixed's own limit; anything smaller than 1e-98 per million
+	// renders as a plain $0.00 (denormal-scale prices are not distinguishable
+	// in text).
 	const magnitude = Math.floor(Math.log10(abs));
 	const decimals = Math.min(100, Math.max(2, 2 - magnitude));
 	let text = abs.toFixed(decimals);
@@ -151,5 +154,17 @@ export function formatCostPerMillion(perTokenCost: number): string {
 			text = text.padEnd(text.length + 2 - fraction, "0");
 		}
 	}
-	return `${sign}$${text}`;
+	return `${sign}${currencySymbol}${text}`;
+}
+
+/**
+ * The unit label beside a block of per-million prices ("$ per million
+ * tokens"), shared by the models table's pricing tip and the inspector's
+ * pricing section so the two never name the unit differently. The symbol is
+ * trimmed - "EUR " reads as "EUR per million tokens" - and the empty symbol
+ * drops the currency claim entirely.
+ */
+export function costUnitLabel(currencySymbol: string): string {
+	const symbol = currencySymbol.trim();
+	return symbol.length === 0 ? l10n.t("per million tokens") : l10n.t("{0} per million tokens", symbol);
 }

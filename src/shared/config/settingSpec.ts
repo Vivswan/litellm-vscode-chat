@@ -25,6 +25,7 @@ export const MODEL_PARAMETERS_SETTING_KEY = "models.parameters";
 export const SERVERS_SETTING_KEY = "servers";
 export const USAGE_ALERT_THRESHOLDS_SETTING_KEY = "usage.alertThresholds";
 export const USAGE_STATUS_BAR_SETTING_KEY = "usage.statusBar";
+export const CURRENCY_SYMBOL_SETTING_KEY = "usage.currencySymbol";
 export const UI_THEME_SETTING_KEY = "ui.theme";
 export const UI_ACCENT_SETTING_KEY = "ui.accent";
 
@@ -68,6 +69,15 @@ export const TOKEN_ESTIMATION_MODES = ["auto", "heuristic", "o200k_base", "cl100
 export type TokenEstimationMode = (typeof TOKEN_ESTIMATION_MODES)[number];
 
 export const DEFAULT_TOKEN_ESTIMATION_MODE: TokenEstimationMode = "auto";
+
+/**
+ * The prefix every spend and cost figure renders with (usage.currencySymbol).
+ * Display only, never a conversion: LiteLLM reports plain numbers, and a
+ * proxy configured to account in another currency still reports them
+ * unchanged - this symbol is how the display stops claiming dollars. The
+ * empty string renders the bare number.
+ */
+export const DEFAULT_CURRENCY_SYMBOL = "$";
 
 /** The floor both timeout settings clamp to; sub-second timeouts would abort requests before they leave. */
 export const MIN_TIMEOUT_MS = 1000;
@@ -114,9 +124,9 @@ export type BooleanSettingId = keyof typeof BOOLEAN_SETTING_SPECS;
 
 /**
  * The settings under the config section with no scalar spec: the object and
- * array settings plus the enum strings (chat.tokenEstimation,
- * usage.statusBar, ui.theme, ui.accent). Their value grammars
- * live with their readers; this list only names the keys.
+ * array settings plus the free and enum strings (chat.tokenEstimation,
+ * usage.statusBar, usage.currencySymbol, ui.theme, ui.accent). Their value
+ * grammars live with their readers; this list only names the keys.
  */
 export const STRUCTURED_SETTING_KEYS = [
 	SERVERS_SETTING_KEY,
@@ -125,6 +135,7 @@ export const STRUCTURED_SETTING_KEYS = [
 	TOKEN_ESTIMATION_SETTING_KEY,
 	USAGE_ALERT_THRESHOLDS_SETTING_KEY,
 	USAGE_STATUS_BAR_SETTING_KEY,
+	CURRENCY_SYMBOL_SETTING_KEY,
 	UI_THEME_SETTING_KEY,
 	UI_ACCENT_SETTING_KEY,
 ] as const;

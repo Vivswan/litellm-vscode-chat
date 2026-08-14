@@ -1,4 +1,5 @@
 import type { LanguageModelChatInformation } from "vscode";
+import { getCurrencySymbol } from "../../shared/config/settings";
 import type { ServerWithKey } from "../../shared/servers";
 import { normalizeCostPerToken } from "../../shared/util/numbers";
 import type { PreAttachModelInfo } from "./groupModels";
@@ -135,6 +136,7 @@ function configurationSchemaFor(
  */
 export function pricingFromCosts(
 	costs: PerTokenCosts,
+	currencySymbol: string,
 	opts?: { readonly zeroPairMeansUndeclared?: boolean }
 ): ModelPricing {
 	// LiteLLM (observed on v1.93) stamps input/output_cost_per_token: 0 onto
@@ -203,7 +205,10 @@ export function pricingFromCosts(
 		(fields.inputCost > 0 || fields.outputCost > 0 || zeroPair)
 	) {
 		fields.priceCategory = priceCategoryFor(fields.inputCost, fields.outputCost);
-		fields.pricing = `$${fields.inputCost} in / $${fields.outputCost} out per 1M tokens`;
+		// The label takes the configured usage.currencySymbol verbatim (display
+		// only, never a conversion; empty renders bare numbers), like every
+		// other cost surface.
+		fields.pricing = `${currencySymbol}${fields.inputCost} in / ${currencySymbol}${fields.outputCost} out per 1M tokens`;
 	}
 	return fields;
 }
@@ -253,6 +258,11 @@ export function buildModelInfos(
 	log: (message: string) => void
 ): RegistrationResult {
 	const { detail, namePrefix, tooltip } = serverDisplayContext(server, serverCount);
+	// Read once per build, not per model: every pricing label in one pass
+	// carries the same symbol. A change between passes heals at attach time -
+	// advertisesPricing sees the label mismatch and rebuilds (a settings
+	// change schedules the notify that re-attaches).
+	const currencySymbol = getCurrencySymbol();
 	const common = {
 		detail,
 		...COMMON_MODEL_FIELDS,
@@ -301,7 +311,7 @@ export function buildModelInfos(
 							toolCalling: supportsTools(provider),
 							imageInput: vision,
 						},
-						...pricingFromCosts(provider),
+						...pricingFromCosts(provider, currencySymbol),
 						...configurationSchemaFor([provider]),
 						litellm: {
 							supportsPromptCaching: provider.supports_prompt_caching === true,
@@ -417,7 +427,7 @@ export function buildModelInfos(
 							toolCalling: true,
 							imageInput: vision,
 						},
-						...pricingFromCosts(p),
+						...pricingFromCosts(p, currencySymbol),
 						...configurationSchemaFor([p]),
 						litellm: {
 							supportsPromptCaching: p.supports_prompt_caching === true,

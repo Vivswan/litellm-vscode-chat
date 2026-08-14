@@ -11,7 +11,8 @@ Four settings drive it all, each detailed in context below:
 | [`usage.pollInterval`](settings.md#reference) | `300000` ms | how often spend is fetched in the background; `0` = off ([Polling](#polling)) |
 | [`usage.alertThresholds`](settings.md#reference) | `[0.8, 0.95]` | budget fractions that trigger a notification ([Alerts](#alerts)) |
 | [`usage.statusBar`](settings.md#reference) | `"always"` | `always` / `alerts-only` / `off` ([The status bar](#the-status-bar)) |
-| the entry's [`budget`](servers.md#entry-reference) | unset | a manual budget in USD, per server ([Budgets](#budgets)) |
+| [`usage.currencySymbol`](settings.md#reference) | `"$"` | the prefix on every spend and price figure, e.g. `"EUR "`; display only, never a conversion |
+| the entry's [`budget`](servers.md#entry-reference) | unset | a manual budget in the server's own billing currency, per server ([Budgets](#budgets)) |
 
 ## Requirements
 
@@ -44,7 +45,7 @@ Availability is per endpoint as well as per server: a server (or your key on it)
 A budget can come from two places:
 
 - **Key-reported**: the `max_budget` LiteLLM stores on the key itself, set server-side when the key was created. `/key/info` reports it along with the current spend.
-- **The entry's `budget` field**: a manual number (USD, greater than 0) on the [server entry](servers.md#entry-reference):
+- **The entry's `budget` field**: a manual number (in the server's billing currency, greater than 0) on the [server entry](servers.md#entry-reference):
 
 ```jsonc
 "litellm-vscode-chat.servers": [

@@ -91,7 +91,7 @@ function mountDiagnostics(options: {
 	};
 	// Mounting posts the readResolvedModels request; answering it through the
 	// window delivers the view exactly like the extension would.
-	const root = mount(<DiagnosticsSection {...props} />);
+	const root = mount(<DiagnosticsSection currencySymbol="$" {...props} />);
 	respondTo(lastRequest("readResolvedModels"), { view: options.view ?? makeView() });
 	return { root };
 }
@@ -100,6 +100,7 @@ describe("Configuration diagnostics", () => {
 	function mountConfig(diagnostics: readonly ConfigDiagnosticView[]) {
 		return mount(
 			<DiagnosticsSection
+				currencySymbol="$"
 				servers={[]}
 				modelCount={0}
 				legacyServerCount={0}
@@ -533,6 +534,7 @@ describe("Resolved models", () => {
 	test("requests only while the tab is active", () => {
 		mount(
 			<DiagnosticsSection
+				currencySymbol="$"
 				servers={[]}
 				modelCount={0}
 				legacyServerCount={0}

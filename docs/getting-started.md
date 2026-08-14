@@ -102,7 +102,7 @@ The declared models register as if discovery had found them, and the server stay
 
 ### Set a budget and get warned before it runs out
 
-Give the entry a budget in USD; alerts and the status bar do the rest:
+Give the entry a budget in the server's billing currency; alerts and the status bar do the rest:
 
 ```jsonc
 { "label": "prod", "baseUrl": "https://litellm.example.com", "budget": 50 }

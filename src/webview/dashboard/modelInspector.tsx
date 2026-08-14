@@ -47,6 +47,7 @@ import type { DashboardModel } from "../../dashboard/viewModels";
 import {
 	COST_CAPABILITY_FIELDS,
 	capabilityDisplayLabel,
+	costUnitLabel,
 	formatCostPerMillion,
 	isCostCapabilityField,
 	parameterCountText,
@@ -395,13 +396,13 @@ function FieldName({ name }: { name: string }) {
  * plain, and everything else (strings, arrays, objects - open fields carry any
  * JSON) as compact JSON, truncated by the stylesheet rather than chopped here.
  */
-function formatValue(name: string, value: CapabilityJsonValue): string {
+function formatValue(name: string, value: CapabilityJsonValue, currencySymbol: string): string {
 	if (typeof value === "boolean") {
 		return value ? l10n.t("yes") : l10n.t("no");
 	}
 	if (typeof value === "number") {
 		if (isCostCapabilityField(name)) {
-			return formatCostPerMillion(value);
+			return formatCostPerMillion(value, currencySymbol);
 		}
 		return TOKEN_FIELDS.has(name) ? formatTokens(value) : String(value);
 	}
@@ -548,13 +549,21 @@ function ParameterRow({
 }
 
 /** The capability Source column's naming: the precedence level that set the value plus its winning key. */
-function CapShadowedLine({ name, shadow }: { name: string; shadow: ShadowedCapabilityValue }) {
+function CapShadowedLine({
+	name,
+	shadow,
+	currencySymbol,
+}: {
+	name: string;
+	shadow: ShadowedCapabilityValue;
+	currencySymbol: string;
+}) {
 	// A beaten value keeps its directive too: a fallback fill or a catalog match
 	// that lost still has to say WHY it was in the running at all.
 	const { source, mark } = capabilityProvenance(shadow.level, shadow.key);
 	return (
 		<ShadowedRow
-			value={formatValue(name, shadow.value)}
+			value={formatValue(name, shadow.value, currencySymbol)}
 			numeric={typeof shadow.value === "number"}
 			source={source}
 			mark={mark}
@@ -566,12 +575,15 @@ function FieldRow({
 	name,
 	field,
 	serverLabel,
+	currencySymbol,
 	onEditField,
 }: {
 	name: string;
 	field: EffectiveCapabilityField;
 	/** Names the entry an entry-level row belongs to, for the jump's accessible label. */
 	serverLabel: string;
+	/** The configured cost prefix (usage.currencySymbol); the cost rows' values read it. */
+	currencySymbol: string;
 	/** The per-row jump to the record that owns the value; renders only on record-sourced rows. */
 	onEditField?: ((level: CapabilityLevel, key: string) => void) | undefined;
 }) {
@@ -589,7 +601,7 @@ function FieldRow({
 				<td className="res-name">
 					<FieldName name={name} />
 				</td>
-				<ValueCell text={formatValue(name, field.value)} numeric={typeof field.value === "number"} />
+				<ValueCell text={formatValue(name, field.value, currencySymbol)} numeric={typeof field.value === "number"} />
 				<td className="res-source">
 					<Provenance source={source} /> {mark !== undefined ? <Mark mark={mark} /> : null}{" "}
 					{field.inheritedFrom !== undefined ? (
@@ -607,7 +619,12 @@ function FieldRow({
 				</td>
 			</tr>
 			{field.shadowed.map((shadow) => (
-				<CapShadowedLine key={`${shadow.level}/${shadow.key ?? ""}`} name={name} shadow={shadow} />
+				<CapShadowedLine
+					key={`${shadow.level}/${shadow.key ?? ""}`}
+					name={name}
+					shadow={shadow}
+					currencySymbol={currencySymbol}
+				/>
 			))}
 		</>
 	);
@@ -742,11 +759,14 @@ function Subhead({ title, meta, action }: { title: string; meta?: ReactNode; act
 function SupportedParamsBlock({
 	fields,
 	serverLabel,
+	currencySymbol,
 	onEditField,
 }: {
 	fields: EffectiveCapabilities["fields"];
 	/** Names the entry an entry-level value belongs to, for the jump's accessible label. */
 	serverLabel: string;
+	/** Threaded so every capability value renders through the one formatter. */
+	currencySymbol: string;
 	onEditField?: ((level: CapabilityLevel, key: string) => void) | undefined;
 }) {
 	const field = capabilityField(fields, "supported_openai_params");
@@ -789,7 +809,7 @@ function SupportedParamsBlock({
 			{field.shadowed.map((shadow) => (
 				<p className="params-shadow" key={`${shadow.level}/${shadow.key ?? ""}`}>
 					<span className="visually-hidden">{l10n.t("Overridden value")}</span>{" "}
-					<del>{formatValue("supported_openai_params", shadow.value)}</del>{" "}
+					<del>{formatValue("supported_openai_params", shadow.value, currencySymbol)}</del>{" "}
 					<Provenance source={capabilityProvenance(shadow.level, shadow.key).source} />
 				</p>
 			))}
@@ -819,6 +839,7 @@ function AbsentNote({ reason }: { reason: string }) {
 export function ModelInspector({
 	model,
 	stateSeq,
+	currencySymbol,
 	anchor,
 	fallbackFocusId = "models-section",
 	onClose,
@@ -826,6 +847,8 @@ export function ModelInspector({
 	onEditEntry,
 }: {
 	model: DashboardModel;
+	/** The configured cost prefix (usage.currencySymbol); every price on the panel renders through it. */
+	currencySymbol: string;
 	/** Bumped on every state push; the inspector re-requests both feeds so an open panel follows configuration edits. */
 	stateSeq: number;
 	/** Which section the panel scrolls to on open (the Diagnostics jump links); absent, it opens at the top. */
@@ -1043,7 +1066,12 @@ export function ModelInspector({
 					    capability on the wire, so it rides the capability feed and
 					    renders as soon as THAT answer lands. */}
 					{caps !== undefined ? (
-						<SupportedParamsBlock fields={caps.fields} serverLabel={model.serverLabel} onEditField={editCapField} />
+						<SupportedParamsBlock
+							fields={caps.fields}
+							serverLabel={model.serverLabel}
+							currencySymbol={currencySymbol}
+							onEditField={editCapField}
+						/>
 					) : null}
 					{maxTokens !== undefined ? (
 						<p className="max-tokens">
@@ -1178,6 +1206,7 @@ export function ModelInspector({
 													name={name}
 													field={field}
 													serverLabel={model.serverLabel}
+													currencySymbol={currencySymbol}
 													onEditField={editCapField}
 												/>
 											);
@@ -1198,6 +1227,7 @@ export function ModelInspector({
 														name={name}
 														field={field}
 														serverLabel={model.serverLabel}
+														currencySymbol={currencySymbol}
 														onEditField={editCapField}
 													/>
 												);
@@ -1247,15 +1277,7 @@ export function ModelInspector({
 				{/* The section stands whether or not the answer has landed: a pricing
 				    section that simply is not there while capabilities resolve is the
 				    same vanishing act the absence state exists to prevent. */}
-				<Section
-					id="inspector-pricing"
-					level={4}
-					title={l10n.t("Pricing")}
-					meta={l10n.t({
-						message: "$ per million tokens",
-						comment: ["Section summary: the unit every price in the section is stated in"],
-					})}
-				>
+				<Section id="inspector-pricing" level={4} title={l10n.t("Pricing")} meta={costUnitLabel(currencySymbol)}>
 					{answeredCaps === undefined ? (
 						<p className="hint" role="status">
 							{l10n.t("Resolving capabilities...")}
@@ -1275,6 +1297,7 @@ export function ModelInspector({
 											name={name}
 											field={field}
 											serverLabel={model.serverLabel}
+											currencySymbol={currencySymbol}
 											onEditField={editCapField}
 										/>
 									);
