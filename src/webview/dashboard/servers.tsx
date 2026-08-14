@@ -622,7 +622,7 @@ function usageDiagnostics(
 						"{0}'s spend numbers didn't refresh: the last check failed; it retries automatically with increasing delay.",
 						label
 					),
-			details: detailLines(keyInfoDetail(card, spend.pollingOff, spend.discoveryTimeoutMs)),
+			details: detailLines(keyInfoDetail(card, spend.discoveryTimeoutMs)),
 			actions: refreshNow("usage-refresh-failed-refresh"),
 		});
 	}
@@ -764,7 +764,7 @@ function pillTone(server: DashboardServer, worst: DiagnosticSeverity | undefined
  * focusable tip wrapper inside a button is the same nesting fault as a button
  * in a button. Everything the tips used to say lives where a click reaches it
  * instead - each verdict's story is the diagnostic line under the row, and the
- * unchecked row's next step is its drawer's Last checked fact.
+ * unchecked row's next step is its drawer's Discovery last checked fact.
  */
 function pillVerdict(server: DashboardServer): string {
 	if (server.origin === "misconfigured") {
@@ -871,7 +871,7 @@ function SpendUnit({
 	// maximum, and an unmarked 112% right beneath it read as the header
 	// contradicting the page. The word is a unit qualifier, not the story -
 	// the cause (a failed refresh, a denied key, mere age) lives in the
-	// diagnostic line or the drawer's Last updated fact.
+	// diagnostic line or the drawer's Spend last updated fact.
 	const note = usage.fresh ? null : <span className="spend-note text-warn text-[0.85em]">{l10n.t("stale")}</span>;
 	// The number says what it is only to someone who can read the meter under
 	// it; the hidden noun says it to a screen reader. In hidden text rather
@@ -926,7 +926,7 @@ function SpendUnit({
 
 /**
  * Why a server has never reported spend at all, per the /key/info standing:
- * the reason the "Last updated" fact carries in place of an age. Reasons are
+ * the reason the "Spend last updated" fact carries in place of an age. Reasons are
  * lowercase clauses across the whole drawer - they annotate a dash, they are
  * not sentences of their own.
  */
@@ -999,10 +999,14 @@ function forbiddenLine(path: string, status: number | undefined): string {
  * users paste these lines into issue reports, and every term is protocol
  * vocabulary - endpoint path, HTTP status, setting ID. Built from closed
  * enums and numbers only; response text never exists here by construction.
+ *
+ * A failed standing reaches a reader only under the advisory headline (the
+ * drawer drops this line for an error, since the row's diagnostic carries
+ * it), and that headline already says whether a retry is automatic - so no
+ * branch here states the retry story a second time.
  */
-function keyInfoDetail(server: UsageServerView, pollingOff: boolean, discoveryTimeoutMs: number): string | undefined {
+function keyInfoDetail(server: UsageServerView, discoveryTimeoutMs: number): string | undefined {
 	const standing = server.keyInfo;
-	const retry = pollingOff ? "use Refresh now to retry" : "retries with increasing delay";
 	switch (standing.kind) {
 		case "ok":
 			return server.spend === undefined ? "LiteLLM /key/info: OK, no spend field" : undefined;
@@ -1016,7 +1020,7 @@ function keyInfoDetail(server: UsageServerView, pollingOff: boolean, discoveryTi
 					}; request stats still update`;
 		case "error": {
 			if (standing.classification === "timeout") {
-				return `LiteLLM /key/info: timed out after ${discoveryTimeoutMs}ms (whole-call bound incl. retries); ${retry}. If the server is just slow, raise the discovery.timeout setting.`;
+				return `LiteLLM /key/info: timed out after ${discoveryTimeoutMs}ms (whole-call bound incl. retries). If the server is just slow, raise the discovery.timeout setting.`;
 			}
 			const how =
 				standing.status !== undefined
@@ -1024,7 +1028,7 @@ function keyInfoDetail(server: UsageServerView, pollingOff: boolean, discoveryTi
 					: standing.classification === "network"
 						? "network error"
 						: "request failed";
-			return `LiteLLM /key/info: ${how} on the last attempt; ${retry}`;
+			return `LiteLLM /key/info: ${how} on the last attempt`;
 		}
 	}
 }
@@ -1233,7 +1237,7 @@ function UsageFacts({
 				)}
 			</Fact>
 			<RequestFacts server={server} />
-			<Fact label={l10n.t("Last updated")}>
+			<Fact label={l10n.t("Spend last updated")}>
 				{server.lastUpdatedAt === undefined ? (
 					<Absent reason={neverUpdated === spendReason ? undefined : neverUpdated} />
 				) : (
@@ -1285,7 +1289,7 @@ function DeniedUsageFacts({ card }: { card: UsageForbiddenServerView }) {
 			<Fact label={l10n.t("Cache hit rate")}>
 				<Absent />
 			</Fact>
-			<Fact label={l10n.t("Last updated")}>
+			<Fact label={l10n.t("Spend last updated")}>
 				<Absent />
 			</Fact>
 		</>
@@ -1333,7 +1337,7 @@ function ServerDrawer({
 					numbers.keyInfo.kind === "error" ||
 						(numbers.keyInfo.kind === "unavailable" && numbers.keyInfo.reason === "forbidden")
 						? undefined
-						: keyInfoDetail(numbers, pollingOff, discoveryTimeoutMs),
+						: keyInfoDetail(numbers, discoveryTimeoutMs),
 					numbers.dailyActivity.kind === "unavailable" && numbers.dailyActivity.reason === "forbidden"
 						? undefined
 						: activityDetail(numbers)
@@ -1387,7 +1391,7 @@ function ServerDrawer({
 						l10n.t("{0} models", server.modelCount)
 					)}
 				</Fact>
-				<Fact label={l10n.t("Last checked")}>
+				<Fact label={l10n.t("Discovery last checked")}>
 					{server.lastChecked !== undefined && server.state !== "unchecked" ? (
 						(relativeTime(server.lastChecked, now) ?? l10n.t("just now"))
 					) : (

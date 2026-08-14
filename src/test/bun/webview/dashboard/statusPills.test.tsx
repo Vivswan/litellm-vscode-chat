@@ -77,7 +77,7 @@ test("each server state renders its pill tone, verdict, and relative check time"
 	expect(unchecked?.querySelector(".pill-time")).toBeNull();
 	// No tip on the pill: it sits inside the row's disclosure button, where a
 	// focusable tip wrapper would be a nested interactive. The unchecked row's
-	// next step lives in its drawer's Last checked fact instead.
+	// next step lives in its drawer's Discovery last checked fact instead.
 	expect(unchecked?.closest(".tip-wrap")).toBeNull();
 });
 

@@ -5,7 +5,7 @@
  * key leaves without usage numbers (locked-down - entry facts only, with the
  * degraded diagnostic carrying the denial below). The point of the shot is
  * the absence rendering - a dim dash plus the reason in place, never a zero -
- * and the entry facts (Base URL, Authentication, Models, Last checked)
+ * and the entry facts (Base URL, Authentication, Models, Discovery last checked)
  * leading the usage inventory.
  */
 import type { RenderFixture } from "../render-dashboard.ts";

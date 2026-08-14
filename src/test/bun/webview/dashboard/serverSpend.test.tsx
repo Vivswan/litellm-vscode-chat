@@ -127,7 +127,7 @@ describe("the spend unit", () => {
 		// The header's clause is "worst FRESH budget", so an unmarked stale
 		// number right beneath it read as the header contradicting the page.
 		// The word is a unit qualifier; the cause stays in the diagnostic line
-		// or the drawer's Last updated fact.
+		// or the drawer's Spend last updated fact.
 		const stale = mountServers(makeUsage({ servers: [makeUsageServer({ label: "Prod", fresh: false })] }));
 		expect(textOf(stale, ".spend-note")).toBe("stale");
 		cleanup();
@@ -180,7 +180,7 @@ describe("the drawer", () => {
 		expect(factOf(row, "Authentication")).toBe("API key");
 		expect(factOf(row, "Models")).toBe("3 models");
 		// Unchecked: no time to show, and the way forward in place.
-		expect(factOf(row, "Last checked")).toContain("no discovery pass has seen it yet");
+		expect(factOf(row, "Discovery last checked")).toContain("no discovery pass has seen it yet");
 		expect(factOf(row, "Spend")).toBe("$40.00");
 		// Both budgets stay in view when the entry's value wins (docs/usage.md#budgets).
 		expect(factOf(row, "Budget")).toContain("$50.00");
@@ -188,7 +188,7 @@ describe("the drawer", () => {
 		expect(factOf(row, "Requests, 30 days")).toBe("1,841");
 		expect(factOf(row, "Success rate")).toBe("98%");
 		expect(factOf(row, "Cache hit rate")).toBe("37%");
-		expect(factOf(row, "Last updated")).toBe("1 min ago");
+		expect(factOf(row, "Spend last updated")).toBe("1 min ago");
 
 		// And it closes again.
 		fireClick(line);
@@ -255,7 +255,7 @@ describe("the drawer", () => {
 		});
 		const root = mountServers(usage);
 		expect(textOf(root, ".spend-note")).toBe("stale");
-		const updated = factOf(openRow(root), "Last updated");
+		const updated = factOf(openRow(root), "Spend last updated");
 		expect(updated).toContain("possibly stale");
 		expect(updated).toContain("25 min ago");
 	});
@@ -268,7 +268,7 @@ describe("the drawer", () => {
 				],
 			});
 		const transientRow = openRow(mountServers(neverLoaded({ kind: "error", classification: "network" })));
-		expect(factOf(transientRow, "Last updated")).toContain("spend hasn't loaded for this server yet");
+		expect(factOf(transientRow, "Spend last updated")).toContain("spend hasn't loaded for this server yet");
 		expect(factOf(transientRow, "Spend")).toContain(
 			"the last check failed; it retries automatically with increasing delay"
 		);
@@ -276,7 +276,7 @@ describe("the drawer", () => {
 		const unsupportedRow = openRow(
 			mountServers(neverLoaded({ kind: "unavailable", reason: "unsupported", status: 404 }))
 		);
-		expect(factOf(unsupportedRow, "Last updated")).toContain("this server doesn't report spend");
+		expect(factOf(unsupportedRow, "Spend last updated")).toContain("this server doesn't report spend");
 		expect(factOf(unsupportedRow, "Spend")).toContain("this server doesn't report spend for this key");
 		expect(textOf(unsupportedRow, ".usage-detail")).toContain("not served on this server (HTTP 404)");
 	});
@@ -352,7 +352,7 @@ describe("the drawer", () => {
 		const row = openRow(mountServers(usage));
 		expect(factOf(row, "Spend")).toContain("this key isn't allowed to read its spend");
 		expect(factOf(row, "Requests, 30 days")).toContain("this key isn't allowed to read request statistics");
-		for (const label of ["Budget", "Next reset", "Success rate", "Cache hit rate", "Last updated"]) {
+		for (const label of ["Budget", "Next reset", "Success rate", "Cache hit rate", "Spend last updated"]) {
 			expect(factOf(row, label)).toBe("-not reported");
 		}
 		// Mixed cards keep the per-endpoint truth: an unsupported partner reads
@@ -508,7 +508,7 @@ describe("the usage diagnostics", () => {
 		expect(line.classList.contains("sev-advisory")).toBe(true);
 		expect(line.textContent).toContain("Prod's spend numbers didn't refresh");
 		expect(line.textContent).toContain("retries automatically with increasing delay");
-		expect(textOf(line, ".row-diagnostic-detail")).toContain("LiteLLM /key/info: HTTP 429 on the last attempt");
+		expect(textOf(line, ".row-diagnostic-detail")).toBe("LiteLLM /key/info: HTTP 429 on the last attempt");
 		resetPosted();
 		fireClick(buttonByText(line, "Refresh now"));
 		expect(postedCalls()).toEqual([{ method: "refreshUsage", payload: null }]);
@@ -523,6 +523,9 @@ describe("the usage diagnostics", () => {
 		});
 		const line = mountServers(usage).querySelector(".row-diagnostic") as HTMLElement;
 		expect(line.textContent).toContain("background polling is off - use Refresh now to try again");
+		// The headline owns the retry story on both branches; the detail under it
+		// states the endpoint fact alone rather than saying it a second time.
+		expect(textOf(line, ".row-diagnostic-detail")).toBe("LiteLLM /key/info: request failed on the last attempt");
 	});
 
 	test("a timeout detail prints the whole-call bound and the setting to raise", () => {
