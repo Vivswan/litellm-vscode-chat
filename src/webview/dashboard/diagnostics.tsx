@@ -78,6 +78,14 @@ import { Section } from "./ui/section";
 import { sendRequest } from "./vscodeApi";
 
 /**
+ * The page's one measure. ONE right edge per surface: all three section
+ * headers wear this cap, and the body caps in dashboard.css
+ * (.config-diagnostics, .resolved-scroll) state the same width -
+ * measure.test.ts holds the two spellings together.
+ */
+const DIAGNOSTICS_MEASURE = "max-w-[64rem]";
+
+/**
  * How much a problem costs the reader, which is the only thing that should
  * decide how loud it looks. The same three tiers the server rows rank their
  * problems by, read against this page's subject - configuration rather than
@@ -617,7 +625,7 @@ function ConfigDiagnostics({ diagnostics }: { diagnostics: readonly ConfigDiagno
 							: l10n.t("{0} need attention", actionable)
 						: l10n.t("{0} of {1} need attention", actionable, problems.length)
 			}
-			headerClassName="max-w-[64rem]"
+			headerClassName={DIAGNOSTICS_MEASURE}
 		>
 			{problems.length === 0 ? (
 				// One clause. Where a server's own problems render is a fact about
@@ -1037,7 +1045,7 @@ function ResolvedModels({
 					? undefined
 					: l10n.t("showing {0} of {1}", rows.length, view.rows.length)
 			}
-			headerClassName="max-w-[64rem]"
+			headerClassName={DIAGNOSTICS_MEASURE}
 		>
 			{/* No standing paragraph: the tree and the table ARE the explanation,
 			    and a reader who wants the concept rather than their own data has
@@ -1310,7 +1318,7 @@ function Support({
 			title={l10n.t("Support")}
 			help={helpSupportSection()}
 			docs={{ href: DOCS_LINK_GETTING_STARTED, label: l10n.t("Open the getting-started guide") }}
-			headerClassName="max-w-[64rem]"
+			headerClassName={DIAGNOSTICS_MEASURE}
 		>
 			<div className="toolbar">
 				<Button
