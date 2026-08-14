@@ -196,12 +196,14 @@ function headingByTitle(root: ParentNode, title: string): HTMLElement {
 
 /**
  * The header LINE a section's trailing glyphs hang off, beside the heading
- * rather than inside it. The Section primitive spells that line `.section-head`
- * and the hand-rolled headings spell it `.head-with-icons`.
+ * rather than inside it. Every SECTION header spells that line `.section-head`,
+ * whether ui/section.tsx built it or a page rolled its own. The settings group
+ * head and the inspector's subhead are their own lines with their own rules -
+ * they carry no docs anchor, so they never reach this helper.
  */
 function headOf(root: ParentNode, title: string): HTMLElement {
 	const heading = headingByTitle(root, title);
-	return (heading.closest(".section-head, .head-with-icons") as HTMLElement | null) ?? heading;
+	return (heading.closest(".section-head") as HTMLElement | null) ?? heading;
 }
 
 test("each section heading links its docs page", () => {
@@ -225,7 +227,7 @@ test("the server form links the entry-fields section of the servers guide", () =
 	const heading = document.getElementById("server-form-title");
 	expect(heading?.tagName).toBe("H3");
 	expect(heading?.querySelector("a.docs-link")).toBeNull();
-	docsLinkIn(heading?.closest(".head-with-icons") ?? null, DOCS_LINK_SERVER_FORM, "Open the server fields guide");
+	docsLinkIn(heading?.closest(".section-head") ?? null, DOCS_LINK_SERVER_FORM, "Open the server fields guide");
 });
 
 test("the params-inactive line links the troubleshooting remedy", () => {

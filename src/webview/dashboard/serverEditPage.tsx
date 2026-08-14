@@ -321,7 +321,7 @@ function FormSection({
 			    heading's - "Connection" would announce as "Connection Help:
 			    Connection", once per section, to the heading navigation a screen
 			    reader user skims with. */}
-			<div className="head-with-icons mb-0.5 items-baseline gap-2">
+			<div className="section-head mb-0.5">
 				<h4
 					className={cn(
 						"m-0 flex items-baseline gap-2 text-[13px] font-semibold",
@@ -1565,10 +1565,10 @@ function ServerForm({
 			<BackToServers onRequestClose={onRequestClose} />
 			{/* The docs anchor is the heading's sibling, so neither the page's
 			    accessible name nor the heading's own carries the anchor's label.
-			    The margins move to the wrapper with it: they were the h3 rule's
-			    24px/8px, and a heading zeroed inside an unspaced row would slide
-			    up into the breadcrumb above it. */}
-			<div className="head-with-icons mt-6 mb-2">
+			    The 24px above is the h3 rule's, written here because this row
+			    opens no <section> for it to come from, and a heading zeroed
+			    inside an unspaced row would slide up into the breadcrumb. */}
+			<div className="section-head mt-6">
 				<h3 className="m-0" id="server-form-title">
 					{target.kind === "add" ? l10n.t("Add server") : l10n.t("Edit {0}", target.original.label)}
 				</h3>

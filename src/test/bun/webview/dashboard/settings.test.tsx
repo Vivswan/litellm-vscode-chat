@@ -406,7 +406,10 @@ test("settings-row help glyphs are named for their setting, so a button list is 
 	expect(glyphOf("chat.promptCaching")?.getAttribute("aria-label")).toBe("Help: Prompt caching");
 	// The section's own glyph is named by the Section primitive, for the same
 	// reason: a button called "Settings" that performs no action is a trap.
-	const sectionGlyph = root.querySelector(".section-head button.help");
+	// Addressed through its own heading, because the record editors below carry
+	// the same header-line class and a bare selector would take whichever came
+	// first in the DOM.
+	const sectionGlyph = root.querySelector(".section-head:has(> .section-title) button.help");
 	expect(sectionGlyph?.getAttribute("aria-label")).toBe("Help: Settings");
 });
 
@@ -685,8 +688,16 @@ test("the record editors live inside the Models group, mirroring the manifest's 
 	// heading's accessible name is not three button labels long.
 	expect(headings).toContain("Model parameters");
 	expect(headings).toContain("Model capabilities");
-	// The editors sit after the catalog row inside the group, and nowhere else.
-	expect(root.querySelectorAll(".head-with-icons").length).toBe(2);
+	// Each editor appears once, and inside the Models group. Counted by their own
+	// heading rather than by the header-line class, which every section on the
+	// page now shares: the question is how many editors there are, not how many
+	// headers.
+	const editorHeads = Array.from(root.querySelectorAll(".section-head")).filter((head) => {
+		const heading = (head.querySelector("h3")?.textContent ?? "").trim();
+		return heading === "Model parameters" || heading === "Model capabilities";
+	});
+	expect(editorHeads.length).toBe(2);
+	expect(editorHeads.every((head) => modelsGroup.contains(head))).toBe(true);
 });
 
 /** The two threshold boxes, addressed by their stable ids. */

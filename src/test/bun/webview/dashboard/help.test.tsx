@@ -202,13 +202,15 @@ test("each section heading carries its own help", () => {
 	};
 	// The glyph hangs off the header LINE, as a sibling of the heading rather
 	// than inside it, so a button's accessible name never folds into the
-	// heading's. The Section primitive spells that line `.section-head` and the
-	// hand-rolled headings spell it `.head-with-icons`; resolve whichever this
-	// section uses, and fall back to the heading itself so the contract reads
-	// the same for any that have not moved yet.
+	// heading's. Every SECTION header spells that line `.section-head`, whether
+	// ui/section.tsx built it or a page rolled its own; the settings group head
+	// and the inspector's subhead are their own lines and are not asked for
+	// here. Falling back to the heading rather than throwing keeps the failure
+	// on the contract this test is about: a head that lost the class fails on
+	// the missing glyph below.
 	const headOf = (title: string): HTMLElement => {
 		const heading = headingByTitle(title);
-		return (heading.closest(".section-head, .head-with-icons") as HTMLElement | null) ?? heading;
+		return (heading.closest(".section-head") as HTMLElement | null) ?? heading;
 	};
 	helpIn(headOf("Servers"), helpServersSection());
 	helpIn(headOf("Models"), helpModelsSection());
@@ -467,8 +469,8 @@ test("no heading anywhere on the page contains an interactive control", () => {
 	// reads those names aloud.
 	//
 	// The fix is placement: the controls are the heading's SIBLINGS on a header
-	// line (`.section-head` from the Section primitive, `.head-with-icons` for
-	// the hand-rolled ones). This sweeps the whole rendered page rather than
+	// line - `.section-head` for a section's, and the group head and inspector
+	// subhead for theirs. This sweeps the whole rendered page rather than
 	// naming the headings that had the problem, because the next one will be
 	// somewhere else - it found seven of the eleven itself, in a file the sweep
 	// had not set out to touch.

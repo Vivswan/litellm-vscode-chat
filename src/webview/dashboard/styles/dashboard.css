@@ -937,19 +937,6 @@
 		margin: 1px 0 0;
 		cursor: pointer;
 	}
-	/* A heading and the icons that belong beside it (help, docs, settings.json
-		   jump), spaced at the same 8px rhythm the section h2s use. The rule is on
-		   the ROW rather than on the heading because the icons are the heading's
-		   siblings: a button nested inside a heading folds its own accessible name
-		   into the heading's, so "Model parameters" would announce as "Model
-		   parameters Help: Model parameters Open the model parameters guide Open
-		   models.parameters in settings.json". ui/section.tsx arranges the same
-		   pair the same way. */
-	.head-with-icons {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-	}
 
 	/* The hidden-groups line under the servers table: one muted sentence
 		   stating the count, and a quiet row per group when expanded. */
@@ -1247,9 +1234,6 @@
 		padding-top: 14px;
 		border-top: 1px solid var(--border);
 		scroll-margin-top: 12px;
-	}
-	.model-inspector .section-head {
-		margin: 0 0 8px;
 	}
 	.model-inspector .section-title {
 		margin: 0;
@@ -1808,17 +1792,31 @@
 		outline: none;
 	}
 
-	/* The section header line. This rule is what makes the header a LINE: the
-		   help glyph, the docs link, the meta text and the actions are siblings of
-		   the heading, not children of it, so without a flex row they stack into
-		   three rows and the header grows instead of shrinking. Baseline
-		   alignment because the parts are text of different sizes. */
+	/* The section header line, whether ui/section.tsx built it or a page rolled
+		   its own. This rule is what makes the header a LINE: the help glyph, the
+		   docs link, the settings.json jump, the meta text and the actions are
+		   siblings of the heading, not children of it, so without a flex row they
+		   stack into three rows and the header grows instead of shrinking.
+		   Siblings rather than children because a control nested inside a heading
+		   folds its own accessible name into the heading's - "Model parameters"
+		   would announce as "Model parameters Help: Model parameters Open the
+		   model parameters guide Open Model parameters in settings.json".
+		   Baseline alignment because the parts are text of different sizes, and
+		   wrapping because a row that cannot wrap overflows the pane instead.
+
+		   Bottom margin only. The h3 rule's 24px top does not belong to the LINE:
+		   a section's header is its first child, so that margin collapses into
+		   `section { margin-top: 32px }` and never showed - except in the model
+		   inspector, whose sections open with padding and a border that block the
+		   collapse, and which therefore had to zero it again. Off the rule, both
+		   cases need nothing, and the one row that does want the 24px asks for it
+		   (the server form's title, which opens no section of its own). */
 	.section-head {
 		display: flex;
 		flex-wrap: wrap;
 		align-items: baseline;
 		gap: 8px;
-		margin: 24px 0 8px;
+		margin: 0 0 8px;
 	}
 	.section-head .section-title {
 		margin: 0;

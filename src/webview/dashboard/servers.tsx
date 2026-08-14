@@ -1027,8 +1027,9 @@ export function ServersSection({
 		<section>
 			{/* The glyph and the anchor are the heading's siblings, so the h2's
 			    accessible name is "Servers" and not three button labels. The 8px
-			    below comes from the h2 rule the zeroed heading gives up. */}
-			<div className="head-with-icons mb-2">
+			    below comes from .section-head, which is the same 8px the zeroed
+			    heading gives up. */}
+			<div className="section-head">
 				<h2 className="m-0">{serversTitle}</h2>
 				<Help text={helpServersSection()} name={l10n.t("Help: {0}", serversTitle)} below />
 				<DocsLink href={DOCS_LINK_SERVERS} label={l10n.t("Open the servers guide")} />
