@@ -894,8 +894,8 @@ function ThresholdBox({
 			/>
 			{/* The label TRAILS its input, in the unit's position, so the pair's
 			    first control sits at the shared control edge like every other
-			    row's - a leading "Warning at" pushed the input to an x of its
-			    own. Still a <label>, so clicking it focuses the box. */}
+			    row's - a leading label pushed the input to an x of its own.
+			    Still a <label>, so clicking it focuses the box. */}
 			<label className="setting-unit text-muted-foreground" htmlFor={id}>
 				{label}
 			</label>
@@ -904,13 +904,13 @@ function ThresholdBox({
 }
 
 /**
- * The usage.alertThresholds row: two inputs over the list setting - "Warning
- * at" and "Error at", the two-threshold shape the defaults use. Both set
- * writes [low, high] (sorted; equal values collapse to one); one set writes a
- * single-element list, which the alerts treat as the error threshold; both
- * empty writes [] (alerts off). A stored list these two boxes cannot
- * represent (3+ values, hand-written) renders read-only with the reveal
- * button, so the dashboard never destroys it.
+ * The usage.alertThresholds row: two inputs over the list setting, each with a
+ * trailing "warning" / "error" label, the two-threshold shape the defaults
+ * use. Both set writes [low, high] (sorted; equal values collapse to one);
+ * one set writes a single-element list, which the alerts treat as the error
+ * threshold; both empty writes [] (alerts off). A stored list these two boxes
+ * cannot represent (3+ values, hand-written) renders read-only with the
+ * reveal button, so the dashboard never destroys it.
  */
 function UsageThresholdsRow({
 	values,

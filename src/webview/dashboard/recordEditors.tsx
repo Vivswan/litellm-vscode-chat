@@ -2500,19 +2500,22 @@ export function RecordMatcherTable({
 						{editable ? (
 							/* An auto inline-start margin keeps the pencil at the row's end
 							   once the row wraps. It reads like an unconditional alignment
-							   change and is not one: flex-1 on the chip list already consumes
-							   the free space whenever there is room, so the margin has none
-							   left to take - at a 1300px viewport the pencil measures 8px
-							   from the row's end with or without this, byte for byte. It acts
-							   only on a wrapped row, where without it the pencil lands
-							   mid-line: measured 161px and 255px in from the end on two rows
-							   while their unwrapped siblings sat at 8px.
+							   change and is not one: at wide widths the row is a subgrid of
+							   .record-table, where the pencil sits in its own max-content
+							   track (justify-self: end) and the chip list's minmax(0, 1fr)
+							   track consumes the free space, so the margin has none to take
+							   - at a 1300px viewport the pencil measures 8px from the row's
+							   end with or without this, byte for byte. It acts only under
+							   the sub-620px flex fallback, where the row wraps and without
+							   it the pencil lands mid-line: measured 161px and 255px in
+							   from the end on two rows while their unwrapped siblings sat
+							   at 8px.
 
 							   The vocabulary it states: a row's action sits at the row's END,
 							   at the same distance, whatever the content does. This is the
 							   only row that wraps, so it is the only one that needs saying in
-							   a margin - the model and usage rows hold their actions in a
-							   fixed final track and cannot wrap at all.
+							   a margin - the model and server rows hold their actions in a
+							   reserved final track and cannot wrap at all.
 
 							   ms- rather than ml-: the row is a flex line, so the margin
 							   belongs to the main axis, and a physical left margin points the

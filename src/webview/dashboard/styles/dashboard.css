@@ -1198,8 +1198,9 @@
 		   per-row template below applies - the pre-alignment layout. The input
 		   tracks carry no fixed floors (minmax(0, ...)): the action column sizes
 		   to its content, and a floor on the inputs could push the track sum past
-		   the panel's content box; the inputs shrink instead, and below 500px the
-		   media block stacks the rows before they get too cramped to use. */
+		   the panel's content box; the inputs shrink instead, and below the 700px
+		   pane tier the container block at the file's tail stacks the rows before
+		   they get too cramped to use. */
 	.rows {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) max-content max-content;
@@ -1248,7 +1249,8 @@
 	/* The flag cell takes its own full line under the row (see the
 		   directive-flag rules below), which would auto-place the row action after
 		   it, onto a lonely line; pin the action to the input line. Declared
-		   before the 500px media block so its grid-row: auto reset can win there. */
+		   before the 700px container block so its grid-row: auto reset can win
+		   there. */
 	.row > button {
 		grid-row: 1;
 	}
