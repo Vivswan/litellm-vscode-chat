@@ -13,6 +13,16 @@
  * The @max-[560px]/pane clause keeps the action painted where hover does not
  * exist (touch, narrow panes), keyed to the stylesheet's 560px tier, and the
  * transition stands down under reduced motion.
+ *
+ * The bordered modes refuse the hover-reveal quietness trade outright: OS
+ * forced colors and both high-contrast themes draw every control's box at
+ * rest, so a resting-invisible action is a stretch of bare boxes appearing
+ * and vanishing under the pointer - dashboard.css's .server-actions cluster
+ * makes the same call. Those clauses live in theme.css against the
+ * data-slot below (its forced-colors block and the HC body-class twins,
+ * the same shape the button hand-back reset uses), because opacity-0 is a
+ * utility and only an unlayered rule reliably beats one; theme.test.ts pins
+ * them.
  */
 
 import type { ReactNode } from "react";
@@ -42,6 +52,7 @@ export function Reveal({
 }) {
 	return (
 		<span
+			data-slot="reveal"
 			className={cn(
 				"inline-flex opacity-0 transition-opacity duration-[120ms] ease-out @max-[560px]/pane:opacity-100 motion-reduce:transition-none",
 				REVEAL_WITHIN[within],

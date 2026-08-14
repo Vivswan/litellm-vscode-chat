@@ -827,7 +827,9 @@
 		 separator that ran past both. Visible, the cluster's own bordered
 		 buttons are row content sharing the row's right edge, exactly what the
 		 models list's always-visible Inspect shows there; hover-reveal is a
-		 quietness trade these modes already refuse everywhere else. */
+		 quietness trade these modes refuse everywhere - the Reveal primitive
+		 stands its actions up the same way (theme.css's [data-slot="reveal"]
+		 rules). */
 	@media (forced-colors: active) {
 		.server-actions {
 			column-gap: 8px;
@@ -3843,14 +3845,19 @@
 		}
 	}
 	/* A header action strip holding a real control (the settings filter) is
-	 not a rigid line: at the unpinning tier it also learns to shrink and
-	 wrap, or the filter input's fixed width would push past a narrow pane's
-	 edge (min-width: 0 lets the strip yield below its content's minimum, and
-	 the wrap gives the input a line of its own - the input's own
-	 @max-[640px]/pane:w-full is what makes it fill that line, since a width
-	 utility can only be beaten from its own layer). */
+	 not a rigid line: at the unpinning tier it also learns to shrink, wrap,
+	 and GROW, or the filter input's fixed width would push past a narrow
+	 pane's edge (min-width: 0 lets the strip yield below its content's
+	 minimum, and the wrap gives the input a line of its own). The grow is
+	 what makes that line BE the row: a flex item's auto width is
+	 content-sized, so without it the input's own @max-[640px]/pane:w-full -
+	 still needed, since a width utility can only be beaten from its own
+	 layer - filled a content-sized box and stopped 70px short of a 384px
+	 row. On a strip that still shares its line, growth only stretches the
+	 invisible box; the children keep their own sizes. */
 	@container pane (width < 640px) {
 		.section-head .section-actions {
+			flex: 1 1 auto;
 			flex-wrap: wrap;
 			min-width: 0;
 			max-width: 100%;

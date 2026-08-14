@@ -383,7 +383,12 @@ function SettingRow({
 				// same family as the rail's selected-tab bar, while amber is what
 				// the severity edges mean by "needs attention" - one shape carrying
 				// both readings taught the reader to triage their own choices.
-				configuredScope !== null ? "modified border-l-accent-hue" : "border-l-transparent"
+				// The var-shorthand form reads the RUNTIME --accent-hue chain
+				// directly (the theme/accent blocks re-point it per accent and
+				// surface): a named color utility here needs a @theme alias, and
+				// the last one was deleted as orphaned - the utility then compiled
+				// to nothing and the bar silently fell back to currentColor grey.
+				configuredScope !== null ? "modified border-l-(--accent-hue)" : "border-l-transparent"
 			)}
 			hidden={hidden}
 		>

@@ -1759,7 +1759,11 @@ function ServerForm({
 				{storedApiKeyOrphan || storedVkOrphan || storedOauthSecretOrphan ? (
 					<>
 						<FieldSpan className="mt-2">
-							<p className="m-0 text-[11.5px] font-semibold text-warn">{l10n.t("Stored credentials")}</p>
+							{/* The tone-text register (state-warn), not utility spellings of
+							    the same color and weight: one register keeps the heading and
+							    its lines in one voice, and carries the forced-colors squiggle
+							    the utilities lack. */}
+							<p className="state-warn m-0 text-[11.5px]">{l10n.t("Stored credentials")}</p>
 							{storedApiKeyOrphan ? (
 								<p className="hint state-warn m-0 text-[11.5px]">
 									{l10n.t("A stored API key is still attached and still sent as a bearer token.")}

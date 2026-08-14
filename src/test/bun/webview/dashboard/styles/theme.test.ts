@@ -101,6 +101,12 @@ const REQUIRED_UTILITIES = [
 	// settings row's actions measure text-to-text like every other cluster.
 	"mx-(--btn-mx)",
 	"gap-4.5",
+	// The settings gutter's modified mark, reading the runtime --accent-hue
+	// chain directly. It is spelled as a var-shorthand utility precisely
+	// because its previous spelling died silently: the named color utility's
+	// @theme alias was deleted as orphaned and the bar fell back to
+	// currentColor grey with every test green.
+	"border-l-(--accent-hue)",
 ] as const;
 
 /** A utility name as it appears escaped in a compiled selector. */
@@ -129,6 +135,46 @@ test("the source scan compiles every utility the ui components depend on", async
 	expect(output).toContain("GrayText");
 	expect(output).toContain(".chip-field.invalid");
 	expect(output).toContain(".chip-field.hinted");
+});
+
+test("forced colors rank the two chip marks: shared width, and the hint takes the advisory dash", async () => {
+	// Width alone made the rejected chip and the maybe-a-typo chip one 2px
+	// box, so the hinted chip adds border-style as the second channel - the
+	// severity rules' own solid-vs-dashed rank. Pinned as compiled rules in
+	// the unlayered, unconditional forced-colors context, because a layered
+	// or width-scoped copy is the rule silently dying, and a dropped
+	// border-style hands the two marks back as one.
+	const output = await compileTheme();
+	// The forced-colors media must be the ONLY condition on these rules: a
+	// width- or container-scoped copy stops existing at every other width.
+	const onlyForced = (rule: StyleRule): boolean =>
+		rule.context.filter((prelude) => /^@(?:media|container|supports)\b/.test(prelude)).join("") === FORCED_COLORS_QUERY;
+	const marked = rulesFor(output, ".chip-field.invalid").filter((rule) => rule.context.includes(FORCED_COLORS_QUERY));
+	expect(marked).toHaveLength(1);
+	// Exact selector-list membership, not a substring: ".chip-field.hintedly"
+	// would satisfy toContain while the real hinted chip lost its width.
+	expect(marked[0]?.selectorList.split(",").map((part) => part.trim())).toContain(".chip-field.hinted");
+	expect(marked[0]?.declarations).toContain("border-width: 2px");
+	expect(marked[0]?.unlayered).toBe(true);
+	expect(marked[0] === undefined || onlyForced(marked[0])).toBe(true);
+	const hinted = rulesFor(output, ".chip-field.hinted").filter(
+		(rule) => rule.context.includes(FORCED_COLORS_QUERY) && rule.declarations.includes("border-style")
+	);
+	expect(hinted).toHaveLength(1);
+	expect(hinted[0]?.declarations).toContain("border-style: dashed");
+	expect(hinted[0]?.selectorList, "the dash is the hint's own; on the invalid chip it would unrank the marks").toBe(
+		".chip-field.hinted"
+	);
+	expect(hinted[0]?.unlayered).toBe(true);
+	expect(hinted[0] === undefined || onlyForced(hinted[0])).toBe(true);
+	// The dash must come after the shared width rule: both set the border
+	// shorthand's longhands at equal specificity, so source order is what
+	// keeps the hinted chip's 2px AND dashed.
+	expect(hinted[0]?.start ?? 0).toBeGreaterThan(marked[0]?.start ?? 0);
+	// And no rule dashes the invalid chip.
+	for (const rule of rulesFor(output, ".chip-field.invalid")) {
+		expect(rule.declarations).not.toContain("dashed");
+	}
 });
 
 test("the reveal primitive carries the whole idiom, reduced motion included", async () => {
@@ -932,4 +978,59 @@ test("tone text keeps a second channel under forced colors: the editor's squiggl
 	// The squiggle is the PROBLEM mark, so the ok register must never wear it:
 	// a forced-colors rule decorating .state-ok would dress a pass as a fault.
 	expect(forced).not.toContain(".state-ok");
+});
+
+test("the squiggle survives source order: no tone-text rule may declare a decoration of its own", async () => {
+	// The squiggle rule compiles BEFORE the unlayered tone-text block, and
+	// both are unlayered at equal specificity, so any text-decoration the
+	// tone block ever gained would beat the squiggle by source order alone -
+	// under exactly the mode where the squiggle is the second channel. The
+	// compiled sheet cannot promise "squiggle later" (the blocks' order is
+	// the source's), so it pins the only formulation that keeps the computed
+	// decoration wavy: the squiggle rule is the ONLY rule for these selectors
+	// that declares text-decoration at all, and any other rule that ever
+	// gains one must compile before the squiggle to leave it standing.
+	const output = await compileTheme();
+	const squiggleStart = Math.min(
+		...rulesFor(output, ".error").flatMap((candidate) =>
+			candidate.context.includes(FORCED_COLORS_QUERY) && candidate.declarations.includes("underline wavy")
+				? [candidate.start]
+				: []
+		)
+	);
+	expect(squiggleStart, "no forced-colors squiggle rule for .error").toBeLessThan(Number.POSITIVE_INFINITY);
+	for (const selector of [".error", ".state-warn", ".state-ok"] as const) {
+		for (const candidate of rulesFor(output, selector)) {
+			if (candidate.context.includes(FORCED_COLORS_QUERY) && candidate.declarations.includes("underline wavy")) {
+				continue;
+			}
+			expect(
+				candidate.declarations.includes("text-decoration") && candidate.start > squiggleStart,
+				`a ${selector} rule after the squiggle declares its own text-decoration and silently overrides it`
+			).toBe(false);
+		}
+	}
+});
+
+test("the bordered modes keep the reveal primitive painted", async () => {
+	// ui/reveal.tsx rests its action at opacity-0 by utility and hands the
+	// reveal to hover and focus - a quietness trade the bordered modes
+	// refuse: forced colors and both HC themes draw every control's box at
+	// rest, so a resting-invisible action is a bare box appearing and
+	// vanishing under the pointer (dashboard.css's .server-actions cluster
+	// makes the same refusal). Unlayered because opacity-0 is a utility and
+	// only an unlayered rule beats one; unconditional because the boxes are
+	// drawn at every width. Nothing else can catch a regression here:
+	// happy-dom runs no cascade and no forced-colors mode, and the class
+	// names on the element are right either way.
+	const output = await compileTheme();
+	const blocks = forcedColorsBlocks(output).filter((block) => block.text.includes('[data-slot="reveal"]'));
+	expect(blocks).toHaveLength(1);
+	expect(blocks[0]?.unlayered).toBe(true);
+	expect(blocks[0]?.unconditional).toBe(true);
+	expect(blocks[0]?.text).toMatch(/\[data-slot="reveal"\] \{\s*opacity: 1;\s*\}/);
+	const hc = highContrastTwin(output, '[data-slot="reveal"]');
+	expect(hc.declarations).toContain("opacity: 1");
+	expect(hc.unlayered).toBe(true);
+	expect(hc.unconditional).toBe(true);
 });

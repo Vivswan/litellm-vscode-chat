@@ -124,6 +124,15 @@
 	.setting-actions {
 		gap: 6px;
 	}
+	/* The hover-reveal primitive (ui/reveal.tsx) rests invisible by utility,
+		 and this mode draws every control's box at rest - a resting-invisible
+		 action is a bare box appearing and vanishing under the pointer, so the
+		 reveal stays painted, the same refusal dashboard.css's .server-actions
+		 cluster makes. Unlayered because opacity-0 is a utility, and only an
+		 unlayered rule beats one. */
+	[data-slot="reveal"] {
+		opacity: 1;
+	}
 	[data-slot="badge"] {
 		border: 1px solid;
 	}
@@ -154,10 +163,19 @@
 	 two chips from reading as one run of words. But that hands every chip a
 	 box, and the invalid and hinted chips' red and amber borders repaint to
 	 the same colour as everyone else's; width is the channel the mode leaves
-	 alone (the danger buttons' rule above), so the marked chips take it. */
+	 alone (the danger buttons' rule above), so the marked chips take it.
+	 Width alone cannot rank the two marks, though - a rejected chip and a
+	 maybe-a-typo chip collapsed into one 2px box - so the hinted chip adds
+	 the advisory tier's own stroke style (dashboard.css
+	 .row-diagnostic.sev-advisory's dash): 2px solid reads invalid, 2px
+	 dashed reads hint, the same solid-vs-dashed rank the severity rules
+	 already teach. */
 	.chip-field.invalid,
 	.chip-field.hinted {
 		border-width: 2px;
+	}
+	.chip-field.hinted {
+		border-style: dashed;
 	}
 	/* The settings gutter marks a modified row with its left border, and spells
 	 the unmodified state as a TRANSPARENT one. Forced colours repaint a border
@@ -202,6 +220,13 @@ body.vscode-high-contrast-light [data-slot="button"] {
 body.vscode-high-contrast .setting-actions,
 body.vscode-high-contrast-light .setting-actions {
 	gap: 6px;
+}
+/* The reveal's HC twin, for the reason the forced-colors rule above gives:
+	 both HC themes draw every control's box at rest through --control-outline,
+	 so the revealed actions stay painted here too. */
+body.vscode-high-contrast [data-slot="reveal"],
+body.vscode-high-contrast-light [data-slot="reveal"] {
+	opacity: 1;
 }
 
 /* Tone TEXT, the app-wide presentation of .error, .state-warn, and .state-ok:
