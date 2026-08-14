@@ -1203,6 +1203,16 @@
 	.catalog-results button.active {
 		background: var(--vscode-list-hoverBackground);
 	}
+	/* Forced colours discard that fill, which is the keyboard-highlighted
+		   option's ONLY mark - the option Enter will pick went unmarked. The
+		   platform's own selected-option pair survives exactly where the fill
+		   dies. Hover needs nothing: the pointer is its own mark. */
+	@media (forced-colors: active) {
+		.catalog-results button.active {
+			background: Highlight;
+			color: HighlightText;
+		}
+	}
 	/* The ID on its own line, the display name muted beneath: every item
 		   reads the same regardless of how long either half is. */
 	.catalog-results .catalog-id {
@@ -1936,9 +1946,14 @@
 		min-width: 260px;
 	}
 	/* The active server scope as a chip beside the filter input: same quiet
-		   chrome as a badge, plus its clear button riding inside. */
+		   chrome as a badge, plus its clear button riding inside. The label is
+		   the same user free text the filter pills truncate, so it gets the same
+		   escape: the chip may shrink to its line, its label ellipsizes (the
+		   title carries the full text), and the clear button never gives up a
+		   pixel - min-width: auto protects its own content. */
 	.chip {
 		display: inline-flex;
+		box-sizing: border-box;
 		align-items: center;
 		gap: 4px;
 		padding: 1px 2px 1px 8px;
@@ -1946,6 +1961,12 @@
 		border-radius: 9px;
 		font-size: 0.9em;
 		white-space: nowrap;
+		min-width: 0;
+		max-width: 100%;
+	}
+	.chip .chip-label {
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 	/* The structured filters: one row of toggle pills between the toolbar and
 		   the list, wrapping freely at narrow, claiming no space the columnar
@@ -1970,16 +1991,24 @@
 		padding: 0;
 		border: 0;
 		min-width: 0;
+		max-width: 100%;
 	}
 	/* A pill is the chip's chrome as a toggle: outlined at rest, the chip
 		   fill plus foreground text and a muted-foreground border when pressed,
 		   so active reads as filled-vs-outline in the vocabulary the page
 		   already speaks. aria-pressed carries the state for readers who see
 		   none of it; the forced-colors block below is where the fill stops
-		   surviving. */
+		   surviving. Server labels are user free text, so a pill ellipsizes
+		   instead of stretching the row sideways: capped at 40ch so one long
+		   label cannot claim the whole row at wide tiers, and at 100% so it
+		   never outgrows the row at narrow ones (the title attribute carries
+		   the full label). Inline-block, not inline-flex: text-overflow only
+		   clips a block container's own text, and the content is one line of
+		   text with nothing to flex. */
 	.filter-pill {
-		display: inline-flex;
-		align-items: center;
+		display: inline-block;
+		box-sizing: border-box;
+		max-width: min(100%, 40ch);
 		padding: 1px 8px;
 		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
 		border-radius: 9px;
@@ -1988,6 +2017,8 @@
 		font-family: inherit;
 		font-size: 0.9em;
 		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 		cursor: pointer;
 		transition:
 			background-color 120ms ease-out,
@@ -2893,6 +2924,27 @@
 	.rail-icon {
 		display: none;
 	}
+	/* Forced colours discard the selected tab's fill (bg-accent-soft) and
+	 repaint its text, leaving font weight as the only selection mark at full
+	 width - no mark at a glance. So the edge bar is drawn under forced colours
+	 at EVERY width, in a system colour, inside the tab's own rounded box; the
+	 narrow block below re-places its geometry onto the rail's edge, and wins
+	 by coming later. */
+	@media (forced-colors: active) {
+		.rail-nav .rail-tab[aria-selected="true"] {
+			position: relative;
+		}
+		.rail-nav .rail-tab[aria-selected="true"]::before {
+			content: "";
+			position: absolute;
+			top: 4px;
+			bottom: 4px;
+			left: 0;
+			width: 2px;
+			border-radius: 0 2px 2px 0;
+			background: Highlight;
+		}
+	}
 	.server-label-text {
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -3392,10 +3444,12 @@
 			 put the panel over that border column. */
 			width: min(680px, calc(100% - 49px));
 		}
-		/* Forced colours discard author backgrounds, which is where the collapsed
-		 rail's active mark lives: the edge bar is the selected item's only copy
-		 here, so it is redrawn in a system colour. The verdict dot needs nothing
-		 of its own - the shared pill repaint above already covers it. */
+		/* Forced colours discard author backgrounds, and the narrow geometry rule
+		 above re-set this bar to the accent hue after the every-width forced-
+		 colors rule at the head of this region painted it Highlight - so the
+		 system colour is restated here, later than the geometry, to win the
+		 argument back. The verdict dot needs nothing of its own - the shared
+		 pill repaint above already covers it. */
 		@media (forced-colors: active) {
 			.rail-nav .rail-tab[aria-selected="true"]::before {
 				background: Highlight;

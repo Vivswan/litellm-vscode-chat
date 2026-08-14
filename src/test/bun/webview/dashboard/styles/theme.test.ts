@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { compileTheme, dashboardEntry, forcedColorsBlocks, themeEntry } from "./compileStyles";
+import { compileDashboard, compileTheme, dashboardEntry, forcedColorsBlocks, themeEntry } from "./compileStyles";
 
 /**
  * Load-bearing utilities the ui components consume: each one must compile
@@ -429,6 +429,33 @@ test("the meter's axis carries no alpha of its own", async () => {
 			.matchAll(/--axis:/g),
 	]);
 	expect(declarations).toHaveLength(1);
+});
+
+test("the selected rail tab keeps its forced-colors mark at every width", async () => {
+	// Forced colours discard the selected tab's fill (bg-accent-soft) and
+	// repaint its text, so the Highlight edge bar is the selection's only
+	// surviving mark - and it was first written inside the collapsed rail's
+	// width query, where it stopped existing at full width and font weight
+	// carried the selection alone. Two pins, one per half of the fix: the bar
+	// must live in a forced-colors block OUTSIDE every width query so it
+	// paints at every width, and the narrow re-placement (which re-sets the
+	// bar to the accent hue after that block) must restate the system colour
+	// from a LATER narrow forced-colors block - one flat layer, so whichever
+	// background comes last wins the collapsed rail's mark.
+	const output = await compileDashboard();
+	const selector = '.rail-nav .rail-tab[aria-selected="true"]:before';
+	const blocks = forcedColorsBlocks(output).filter((block) => block.text.includes(selector));
+	const everyWidth = blocks.filter((block) => block.unconditional);
+	expect(everyWidth).toHaveLength(1);
+	expect(everyWidth[0]?.text).toContain('content: ""');
+	expect(everyWidth[0]?.text).toContain("background: highlight;");
+	const narrow = blocks.filter((block) => !block.unconditional);
+	expect(narrow).toHaveLength(1);
+	expect(narrow[0]?.text).toContain("background: highlight;");
+	const narrowAt = output.indexOf(narrow[0]?.text ?? "");
+	const geometryAt = output.indexOf("left: -4px;");
+	expect(geometryAt, "the collapsed rail's edge-bar geometry rule").toBeGreaterThan(-1);
+	expect(narrowAt, "the narrow Highlight restatement must follow the accent-hue geometry").toBeGreaterThan(geometryAt);
 });
 
 test("the settings gutter marks the modified row alone, under forced colors too", async () => {

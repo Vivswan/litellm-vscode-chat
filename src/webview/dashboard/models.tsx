@@ -354,10 +354,23 @@ function SortControl({
 /**
  * One filter pill: a toggle button in the chip vocabulary - outline at rest,
  * the soft chip fill when pressed - with aria-pressed carrying the state.
+ * Free-text pills (family, server) pass `title` so a truncated label survives
+ * on hover; the fixed-vocabulary pills leave it off, or every reader would be
+ * fed a description repeating the name it just announced.
  */
-function FilterPill({ pressed, label, onToggle }: { pressed: boolean; label: string; onToggle: () => void }) {
+function FilterPill({
+	pressed,
+	label,
+	title,
+	onToggle,
+}: {
+	pressed: boolean;
+	label: string;
+	title?: string;
+	onToggle: () => void;
+}) {
 	return (
-		<button type="button" className="filter-pill" aria-pressed={pressed} onClick={onToggle}>
+		<button type="button" className="filter-pill" aria-pressed={pressed} title={title} onClick={onToggle}>
 			{label}
 		</button>
 	);
@@ -402,6 +415,7 @@ function FilterPills({
 					key={family}
 					pressed={active.families.has(family)}
 					label={family}
+					title={family}
 					onToggle={() => onChange((filter) => toggleFamily(filter, family))}
 				/>
 			)),
@@ -419,6 +433,7 @@ function FilterPills({
 						key={server.scopeKey}
 						pressed={active.servers.has(server.scopeKey)}
 						label={server.display}
+						title={server.display}
 						onToggle={() => onChange((filter) => toggleServer(filter, server.scopeKey, server.label))}
 					/>
 				)),
@@ -775,7 +790,9 @@ export function ModelsSection({
 						/>
 						{scope !== undefined ? (
 							<span className="chip">
-								{l10n.t("Server: {0}", scope.label)}
+								<span className="chip-label" title={l10n.t("Server: {0}", scope.label)}>
+									{l10n.t("Server: {0}", scope.label)}
+								</span>
 								<Button
 									variant="secondary"
 									size="compact"
