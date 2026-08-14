@@ -1,7 +1,15 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { compileDashboard, compileTheme, dashboardEntry, forcedColorsBlocks, themeEntry } from "./compileStyles";
+import {
+	compileDashboard,
+	compileTheme,
+	dashboardEntry,
+	forcedColorsBlocks,
+	rulesFor,
+	type StyleRule,
+	themeEntry,
+} from "./compileStyles";
 
 /**
  * Load-bearing utilities the ui components consume: each one must compile
@@ -85,6 +93,13 @@ const REQUIRED_UTILITIES = [
 	// group, same regression mode as the /row and /head entries.
 	"group-hover/setting:opacity-100",
 	"group-focus-within/setting:opacity-100",
+	// The Button primitive's layout hand-back, and the one action-cluster gap
+	// that is a utility rather than a stylesheet rule. Both are load-bearing
+	// slots a scan regression would empty in silence: without the hand-back
+	// every button's box parts from its ink, and gap-4.5 is what makes the
+	// settings row's actions measure text-to-text like every other cluster.
+	"mx-(--btn-mx)",
+	"gap-4.5",
 ] as const;
 
 /** A utility name as it appears escaped in a compiled selector. */
@@ -590,6 +605,123 @@ test("the settings gutter marks the modified row alone, under forced colors too"
 	// second declaration it is.
 	expect(occurrences(output, ".setting-row:not(.modified)")).toBe(1);
 	expect(occurrences(output, ".setting-row.modified")).toBe(1);
+});
+
+/**
+ * The ONE rule both high-contrast selectors open together for `selector`.
+ *
+ * Both are looked up as rules and their selector lists compared, rather than
+ * one being looked up and the other searched for as text: a substring match is
+ * satisfied by `...-light .thing:hover`, or by the light selector under some
+ * ancestor, which leaves the resting HC-light state unstyled while the pin
+ * stays green.
+ */
+function highContrastTwin(css: string, selector: string): StyleRule {
+	const dark = rulesFor(css, `body.vscode-high-contrast ${selector}`);
+	const light = rulesFor(css, `body.vscode-high-contrast-light ${selector}`);
+	// Exactly one each, because the caller then reads ONE rule's declarations and
+	// context: a second copy further down - inside a width query, say - is the
+	// one the browser would apply at the width it names, and the assertions
+	// below would be describing the rule it beat.
+	expect(dark, `expected one high-contrast rule for ${selector}`).toHaveLength(1);
+	expect(light, `expected one high-contrast-light rule for ${selector}`).toHaveLength(1);
+	if (dark[0] === undefined || light[0] === undefined) {
+		throw new Error(`no high-contrast twin for ${selector}`);
+	}
+	expect(light[0].selectorList, `the two high-contrast rules for ${selector} are not one rule`).toBe(
+		dark[0].selectorList
+	);
+	return dark[0];
+}
+
+test("the bordered modes drop the button hand-back as a property, never as a margin", async () => {
+	// Both Button sizes hand their horizontal padding back to the layout so a
+	// container's gap measures ink to ink, and the modes that draw every
+	// button's box at rest have to take that back or adjacent boxes merge into
+	// one segmented control. Spelling the repair as `margin-inline: 0` also
+	// flattens any margin a CALL SITE set - margin-inline writes both longhands
+	// - and the record matcher's pencil rides ms-auto to stay at the row's end
+	// once the row wraps, so the push died in exactly the modes that draw the
+	// box it aligns. Zeroing the property composes instead. Nothing else can
+	// catch a regression here: happy-dom runs no cascade and no forced-colors
+	// mode, and the class names on the element are right either way.
+	const output = await compileTheme();
+	const blocks = forcedColorsBlocks(output).filter((block) => block.text.includes('[data-slot="button"]'));
+	expect(blocks).toHaveLength(1);
+	const block = blocks[0];
+	// Unlayered, because the value it overrules is set by a utility and only an
+	// unlayered rule beats one; unconditional, because a button's box is drawn
+	// at every width.
+	expect(block?.unlayered).toBe(true);
+	expect(block?.unconditional).toBe(true);
+	expect(block?.text).toMatch(/\[data-slot="button"\] \{\s*--btn-mx: 0px;\s*\}/);
+	expect(block?.text).not.toContain("margin-inline");
+	// The high-contrast twin says the same thing the same way: both HC themes
+	// light --control-outline up, so they draw the same boxes.
+	const hc = highContrastTwin(output, '[data-slot="button"]');
+	expect(hc.declarations).toContain("--btn-mx: 0px");
+	expect(hc.declarations).not.toContain("margin-inline");
+	expect(hc.unlayered).toBe(true);
+	expect(hc.unconditional).toBe(true);
+	// And the other half of the pencil's alignment, in the ORDINARY themes: the
+	// hand-back is a margin-inline shorthand and ms-auto a start longhand at
+	// equal specificity, so the push survives only because Tailwind emits the
+	// longhand later. Reordered, the pencil lands mid-line at narrow with every
+	// component test green.
+	const handBack = output.indexOf(escapedSelector("mx-(--btn-mx)"));
+	expect(handBack).toBeGreaterThan(-1);
+	expect(output.indexOf(escapedSelector("ms-auto"))).toBeGreaterThan(handBack);
+});
+
+/**
+ * The action clusters whose bordered-mode fallback is TIGHT: their gap is
+ * stated in ink, and the box separation they fall back to where a mode draws
+ * every button's box is the small number below. Left alone, such a cluster
+ * silently grows by the padding its gap was spanning - 12px per adjacent
+ * compact pair - and each of these four sits inside a measured budget it would
+ * then overrun.
+ *
+ * Not every ink-stated container is here. `.confirm-actions`, and the `.chip`
+ * and `.toast` paddings, are ink-stated too and drift the same way, but they
+ * drift into MORE room inside a dialog or a pill that has it: a fallback that
+ * only ever loosens cannot merge two boxes, which is the defect the twins
+ * exist for.
+ *
+ * `unlayered` is per cluster because it is decided by what the twin overrules:
+ * the settings slot's gap is a Tailwind utility and can only be beaten from
+ * outside the layers, while the other three overrule plain stylesheet rules in
+ * the components layer.
+ */
+const INK_GAP_CLUSTERS = [
+	{ selector: ".setting-actions", sheet: "theme", declaration: "gap: 6px", unlayered: true },
+	{ selector: ".model-row-actions", sheet: "dashboard", declaration: "gap: 6px", unlayered: false },
+	{ selector: ".server-actions", sheet: "dashboard", declaration: "column-gap: 8px", unlayered: false },
+	{ selector: ".row-diagnostic-actions", sheet: "dashboard", declaration: "column-gap: 4px", unlayered: false },
+] as const;
+
+test("every ink-stated action cluster keeps its bordered-mode box gap", async () => {
+	const sheets = { theme: await compileTheme(), dashboard: await compileDashboard() };
+	for (const cluster of INK_GAP_CLUSTERS) {
+		const output = sheets[cluster.sheet];
+		const blocks = forcedColorsBlocks(output).filter((block) => block.text.includes(`${cluster.selector} {`));
+		expect(blocks, `no forced-colors gap for ${cluster.selector}`).toHaveLength(1);
+		expect(blocks[0]?.text).toContain(cluster.declaration);
+		// Unconditional: a twin written inside a width query stops existing at
+		// every other width, and the narrow tiers are where these clusters have
+		// the least room to grow into.
+		expect(blocks[0]?.unconditional, `${cluster.selector}'s twin sits inside a query`).toBe(true);
+		expect(blocks[0]?.unlayered, `${cluster.selector}'s twin is in the wrong layer`).toBe(cluster.unlayered);
+		// The high-contrast themes draw the same boxes, so they take the same
+		// number - read as the one rule both selectors open, carrying the
+		// declaration itself, because a selector that merely occurs somewhere
+		// proves neither that it states the gap nor that its sibling exists.
+		const hc = highContrastTwin(output, cluster.selector);
+		expect(hc.declarations, `the high-contrast twin for ${cluster.selector} states another gap`).toContain(
+			cluster.declaration
+		);
+		expect(hc.unconditional).toBe(true);
+		expect(hc.unlayered).toBe(cluster.unlayered);
+	}
 });
 
 test("the status text aliases are declared on :root alone, never on body", () => {

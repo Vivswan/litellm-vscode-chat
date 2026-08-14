@@ -56,22 +56,60 @@ export interface ForcedColorsBlock {
 	readonly unconditional: boolean;
 }
 
+/** One compiled rule: its own declarations, plus the same placement facts. */
+export interface StyleRule {
+	/** The rule's whole selector list, as the printer wrote it. */
+	readonly selectorList: string;
+	readonly declarations: string;
+	readonly context: readonly string[];
+	readonly unlayered: boolean;
+	readonly unconditional: boolean;
+}
+
 const FORCED_COLORS = "@media (forced-colors: active)";
 
+/** One brace block of a compiled sheet: what opened it, and what is inside. */
+interface Block {
+	readonly prelude: string;
+	readonly body: string;
+	readonly text: string;
+	readonly context: readonly string[];
+}
+
+/** Outside every cascade layer, which is what it takes to beat a utility. */
+const isUnlayered = (context: readonly string[]): boolean => !context.some((prelude) => prelude.startsWith("@layer"));
+
+/** Inside no width, container, or feature query, so it applies everywhere. */
+const isUnconditional = (context: readonly string[]): boolean =>
+	!context.some((prelude) => /^@(?:media|container|supports)\b/.test(prelude));
+
 /**
- * Every forced-colors block in a compiled sheet, with the at-rules around it.
+ * Every brace block in a compiled sheet, with the at-rules around it.
  *
  * A brace walk rather than a parser: the alternative is a CSS parser dependency
- * for four assertions. String literals are stepped over rather than assumed
- * away, since a `content: "{"` would otherwise unbalance the stack and take
- * every later block's address with it.
+ * for a handful of assertions. Comments and string literals are stepped over
+ * rather than assumed away, since a `content: "{"` or a `{` inside a banner
+ * would otherwise unbalance the stack and take every later block's address with
+ * it.
  */
-export function forcedColorsBlocks(css: string): readonly ForcedColorsBlock[] {
-	const blocks: ForcedColorsBlock[] = [];
-	const open: { readonly prelude: string; readonly at: number; readonly context: readonly string[] }[] = [];
+function blocks(css: string): readonly Block[] {
+	const found: Block[] = [];
+	const open: {
+		readonly prelude: string;
+		readonly at: number;
+		readonly bodyStart: number;
+		readonly context: readonly string[];
+	}[] = [];
 	let preludeStart = 0;
 	for (let i = 0; i < css.length; i++) {
 		const char = css[i];
+		if (char === "/" && css[i + 1] === "*") {
+			const end = css.indexOf("*/", i + 2);
+			// An unterminated comment swallows the rest of the sheet, which is
+			// what a browser does with one too.
+			i = end === -1 ? css.length : end + 1;
+			continue;
+		}
 		if (char === '"' || char === "'") {
 			for (i++; i < css.length && css[i] !== char; i++) {
 				if (css[i] === "\\") {
@@ -81,31 +119,67 @@ export function forcedColorsBlocks(css: string): readonly ForcedColorsBlock[] {
 			continue;
 		}
 		if (char === "{") {
-			// Comments out of the prelude: the bundler puts a file banner ahead of
-			// the at-rule it opens, and a prelude carrying one answers to no
-			// pattern - which would report a block nested in a width query as
-			// applying everywhere.
+			// Comments out of the prelude TEXT as well: the bundler puts a file
+			// banner ahead of the at-rule it opens, and a prelude carrying one
+			// answers to no pattern - which would report a block nested in a width
+			// query as applying everywhere.
 			const prelude = css
 				.slice(preludeStart, i)
 				.replace(/\/\*[\s\S]*?\*\//g, "")
 				.trim();
-			open.push({ prelude, at: preludeStart, context: open.map((entry) => entry.prelude) });
+			open.push({ prelude, at: preludeStart, bodyStart: i + 1, context: open.map((entry) => entry.prelude) });
 			preludeStart = i + 1;
 		} else if (char === "}") {
 			const closed = open.pop();
 			preludeStart = i + 1;
-			if (closed?.prelude !== FORCED_COLORS) {
+			if (closed === undefined) {
 				continue;
 			}
-			blocks.push({
+			found.push({
+				prelude: closed.prelude,
+				body: css.slice(closed.bodyStart, i),
 				text: css.slice(closed.at, i + 1).trim(),
 				context: closed.context,
-				unlayered: closed.context.length === 0,
-				unconditional: !closed.context.some((prelude) => /^@(?:media|container|supports)\b/.test(prelude)),
 			});
 		} else if (char === ";") {
 			preludeStart = i + 1;
 		}
 	}
-	return blocks;
+	return found;
+}
+
+/** Every forced-colors block in a compiled sheet, with the at-rules around it. */
+export function forcedColorsBlocks(css: string): readonly ForcedColorsBlock[] {
+	return blocks(css)
+		.filter((block) => block.prelude === FORCED_COLORS)
+		.map((block) => ({
+			text: block.text,
+			context: block.context,
+			// The two questions are asked separately on purpose: what a rule can
+			// BEAT is a layer question and WHEN it applies is a query one, and one
+			// field answering both reads as whichever the caller assumed.
+			unlayered: isUnlayered(block.context),
+			unconditional: isUnconditional(block.context),
+		}));
+}
+
+/**
+ * Every rule whose selector list NAMES `selector` exactly, with its own
+ * declarations and its placement.
+ *
+ * The list is split rather than searched, so a longer selector ending in this
+ * one is the different rule it is rather than a second copy of it - the trap a
+ * substring match falls into, and how a pin ends up passing off a rule it was
+ * never written about.
+ */
+export function rulesFor(css: string, selector: string): readonly StyleRule[] {
+	return blocks(css)
+		.filter((block) => block.prelude.split(",").some((part) => part.trim() === selector))
+		.map((block) => ({
+			selectorList: block.prelude,
+			declarations: block.body,
+			context: block.context,
+			unlayered: isUnlayered(block.context),
+			unconditional: isUnconditional(block.context),
+		}));
 }
