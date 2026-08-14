@@ -492,6 +492,10 @@ function buildServers(
 				...(view.budget !== undefined ? { budget: view.budget } : {}),
 			},
 			...(notices.length > 0 ? { notices } : {}),
+			// The classification itself, apart from its per-family notices: the
+			// webview's declare offers key on this, because the notices exist only
+			// for the field families the entry happens to configure.
+			...(entryFieldsInactive ? { entryFieldsInactive: true as const } : {}),
 			...outcome,
 		});
 	});

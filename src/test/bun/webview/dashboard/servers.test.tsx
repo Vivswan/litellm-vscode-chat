@@ -1556,17 +1556,45 @@ test("the status-evidence hint names the missing endpoint rather than a wait", (
 	expect(line?.textContent).toContain('"expectedFailures": ["modelInfo"]');
 });
 
-test("no declare hint on a row whose entry fields are inactive: the declaration could not reach the group", () => {
+test("no declare button on a row whose entry fields are inactive, but the advisory still diagnoses the probe", () => {
 	const root = mountSection([
 		makeDeclaredServer({
 			label: "Ollama",
+			modelCount: 3,
 			modelInfoUnsupported: "timeout",
+			entryFieldsInactive: true,
 			notices: ["entry-capabilities-inactive"],
 		}),
 	]);
 	expect(root.textContent).not.toContain("Declare expected failure");
-	// The entry-inactive line still owns the row's fix.
-	expect(root.querySelector(".row-diagnostic")?.textContent).toContain("may not be applying its");
+	// The diagnosis stays: the probe's timeout cost is real whatever the join
+	// pass said, so hiding the whole advisory would trade an inert button for
+	// silence.
+	expect(root.textContent).toContain("model-info probe never answers");
+	// The entry-inactive line still owns the row's fix, and says the identity
+	// sentence exactly once: the advisory's withheld case repeats it only when
+	// this line is absent.
+	expect(root.textContent).toContain("may not be applying its");
+	const fixMentions = (root.textContent ?? "").split("may not carry the entry's labeled identity").length - 1;
+	expect(fixMentions).toBe(1);
+});
+
+test("the withheld declare button on an unproven-identity row leaves the advisory with the identity fix in its details", () => {
+	// The notices exist only for the field families the entry configures; an
+	// entry configuring none of them has the identical identity problem with no
+	// entry-inactive line to explain it. The advisory renders either way, and
+	// the withheld case carries the identity fix where the button would be.
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Ollama",
+			modelCount: 3,
+			modelInfoUnsupported: "timeout",
+			entryFieldsInactive: true,
+		}),
+	]);
+	expect(root.textContent).not.toContain("Declare expected failure");
+	expect(root.textContent).toContain("model-info probe never answers");
+	expect(root.textContent).toContain("may not carry the entry's labeled identity");
 });
 
 test("a models-listing-unserved error offers the declare action writing modelListing", () => {
@@ -1595,6 +1623,26 @@ test("a discovery error without the endpoint classification offers no declare ac
 		}),
 	]);
 	expect(root.textContent).not.toContain("Declare expected failure");
+});
+
+test("a models-listing-unserved error withholds the declare action on an unproven-identity row, keeping the guide", () => {
+	// Same rule as the model-info advisory: writing expectedFailures on an
+	// entry whose group did not join by its identity may change nothing, so
+	// the one-click write is withheld while the docs link stays - and the
+	// details say why with the identity fix, because the error's own headline
+	// still advises the declaration in words.
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Gateway",
+			state: "error",
+			error: "The models listing failed, but this server answers",
+			classification: { kind: "http", status: 404, unsupportedEndpoint: "modelListing" },
+			entryFieldsInactive: true,
+		}),
+	]);
+	expect(root.textContent).not.toContain("Declare expected failure");
+	expect(root.querySelector("a[aria-label='Open the OpenAI-compatible servers guide']")).not.toBeNull();
+	expect(root.textContent).toContain("may not carry the entry's labeled identity");
 });
 
 test("several inactive surfaces on one row share a single line naming them all", () => {

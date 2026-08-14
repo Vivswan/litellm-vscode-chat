@@ -289,6 +289,7 @@ function serverDiagnostics(
 		});
 	}
 	const error = server.error;
+	const inactive = INACTIVE_NOTICES.filter((notice) => server.notices?.includes(notice) === true);
 	if (error !== undefined && server.origin !== "misconfigured") {
 		const declared = server.declaredModelCount ?? 0;
 		const expected = server.expected === true;
@@ -298,13 +299,24 @@ function serverDiagnostics(
 			// it is degraded rather than blocking; one that has nothing serves
 			// nothing.
 			const serving = server.state === "ok" || server.modelCount > 0;
+			// The headline's declaration advice with no one-click form beside it
+			// needs the why: the identity fix rides the details wherever the
+			// declare action is withheld - unless the entry-inactive line below
+			// renders and says the same sentence itself.
+			const declareWithheld =
+				server.origin === "declared" &&
+				server.classification?.unsupportedEndpoint === "modelListing" &&
+				server.entryFieldsInactive === true;
 			found.push({
 				key: "discovery-error",
 				severity: serving ? "degraded" : "blocking",
 				headline: serving
 					? l10n.t("{0} is serving its last known models; the newest sync failed: {1}", server.label, headline)
 					: l10n.t("{0} is serving no models: {1}", server.label, headline),
-				details: detailLines(statusErrorDetail(error)),
+				details: detailLines(
+					statusErrorDetail(error),
+					declareWithheld && inactive.length === 0 ? entryInactiveFixText() : undefined
+				),
 				actions: [
 					{
 						kind: "button",
@@ -342,8 +354,12 @@ function serverDiagnostics(
 						? [
 								// The error's own headline already carries the declaration
 								// advice (transport proved the shape); this is its one-click
-								// form, writing exactly the category the headline names.
-								...declareActions("modelListing"),
+								// form, writing exactly the category the headline names -
+								// withheld when the group did not join by the entry's identity
+								// (the details then carry the identity fix), because the
+								// written declaration may not reach it (the same
+								// classification the advisory tier keys on).
+								...(declareWithheld ? [] : declareActions("modelListing")),
 								openAiCompatibleGuide,
 							]
 						: []),
@@ -434,26 +450,22 @@ function serverDiagnostics(
 			});
 		}
 	}
-	const inactive = INACTIVE_NOTICES.filter((notice) => server.notices?.includes(notice) === true);
-	if (
-		server.state === "ok" &&
-		server.modelInfoUnsupported !== undefined &&
-		server.origin === "declared" &&
-		// An inactive entry cannot receive the declaration until its group is
-		// recreated, and ANY inactive surface is evidence of that: the notices
-		// flag whichever entry fields the group failed to carry, so which ones
-		// appear depends on what this entry happens to configure - an entry with
-		// inactive headers but no capability record has the identical identity
-		// problem without the capabilities notice. That row's entry-inactive
-		// line already owns the fix.
-		inactive.length === 0
-	) {
+	if (server.state === "ok" && server.modelInfoUnsupported !== undefined && server.origin === "declared") {
 		// The quiet tier on purpose: the models serve and the configuration
 		// applies as written - the declaration marks the failing probe as normal
 		// (single attempt, info-level log, no hint). It does NOT shorten the
 		// probe's wait: a hanging endpoint still spends one discovery timeout
 		// per sync, and only a lower discovery.timeout shortens that - so the
 		// copy promises the marking, never speed.
+		//
+		// The diagnosis renders whatever the join pass said - the probe's cost
+		// is real either way - but the one-click write is withheld when the
+		// group did not join by the entry's identity (the classification
+		// itself, not the inactive notices: those exist only for the field
+		// families the entry happens to configure). The withheld case says why
+		// in its details with the identity fix, unless the entry-inactive line
+		// below renders and says the same sentence itself.
+		const withheld = server.entryFieldsInactive === true;
 		found.push({
 			key: "model-info-unsupported",
 			severity: "advisory",
@@ -467,14 +479,15 @@ function serverDiagnostics(
 							"{0} serves its models without LiteLLM's model-info endpoint (capability and pricing metadata). Declaring the failure expected marks that as normal for this server.",
 							server.label
 						),
-			// English by policy, like every detail: the exact endpoints and the
-			// declaration the action writes.
-			details: [
+			// English by policy for the endpoint facts; the identity fix rides
+			// localized, like the entry-inactive line it comes from.
+			details: detailLines(
 				server.modelInfoUnsupported === "timeout"
 					? 'GET /model/info times out; GET /models succeeds. The action writes "expectedFailures": ["modelInfo"] on this entry.'
 					: 'GET /model/info answers HTTP 404/405; GET /models succeeds. The action writes "expectedFailures": ["modelInfo"] on this entry.',
-			],
-			actions: [...declareActions("modelInfo"), openAiCompatibleGuide],
+				withheld && inactive.length === 0 ? entryInactiveFixText() : undefined
+			),
+			actions: [...(withheld ? [] : declareActions("modelInfo")), openAiCompatibleGuide],
 		});
 	}
 	if (inactive.length > 0) {
@@ -493,11 +506,7 @@ function serverDiagnostics(
 			// the only place these facts were written: which file, and that saving
 			// under a new label works instead. They ride the line rather than dying
 			// with it, behind a cause sentence the headline no longer carries.
-			details: [
-				l10n.t(
-					"The provider group serving this entry may not carry the entry's labeled identity. Delete the group's object from the models file (chatLanguageModels.json), reload the window, then run Sync models - or save the entry under a new label instead."
-				),
-			],
+			details: [entryInactiveFixText()],
 			actions: [
 				{
 					kind: "button",
@@ -723,6 +732,18 @@ function inactiveSurfacesText(server: DashboardServer): string {
 	return INACTIVE_NOTICES.filter((notice) => server.notices?.includes(notice) === true)
 		.map((notice) => INACTIVE_NOTICE_PRESENTATION[notice].surface())
 		.join(", ");
+}
+
+/**
+ * The identity fix, spelled once: the entry-inactive line's detail sentence,
+ * reused by every diagnostic that withholds a one-click entry write because
+ * the group may not carry the entry's labeled identity - the words that
+ * explain the missing button are the words that fix its cause.
+ */
+function entryInactiveFixText(): string {
+	return l10n.t(
+		"The provider group serving this entry may not carry the entry's labeled identity. Delete the group's object from the models file (chatLanguageModels.json), reload the window, then run Sync models - or save the entry under a new label instead."
+	);
 }
 
 /**

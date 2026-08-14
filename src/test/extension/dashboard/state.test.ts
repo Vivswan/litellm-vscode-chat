@@ -757,6 +757,11 @@ suite("extension/dashboard/state", () => {
 			assert.deepStrictEqual(byLabel.get("Prod")?.notices, ["entry-params-inactive"]);
 			assert.strictEqual(byLabel.get("Prod")?.state, "ok", "the notice never degrades the live status");
 			assert.strictEqual(byLabel.get("Staging")?.notices, undefined, "no entry parameters, nothing to flag");
+			// The classification itself rides both rows: the notices exist only for
+			// configured field families, but Staging's identity problem is the same,
+			// and the webview's declare offers key on the flag, not the evidence.
+			assert.strictEqual(byLabel.get("Prod")?.entryFieldsInactive, true);
+			assert.strictEqual(byLabel.get("Staging")?.entryFieldsInactive, true);
 		});
 
 		test("an entry with modelParameters joined by its exact labeled identity carries no notice", () => {
@@ -786,6 +791,7 @@ suite("extension/dashboard/state", () => {
 			);
 
 			assert.strictEqual(state.servers[0]?.notices, undefined, "a labeled group serves the entry's parameters");
+			assert.strictEqual(state.servers[0]?.entryFieldsInactive, undefined, "an identity join carries no flag");
 		});
 
 		test("an entry with modelParameters joined by the label-and-URL fallback still flags them", () => {

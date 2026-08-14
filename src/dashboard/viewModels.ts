@@ -157,6 +157,17 @@ export type DashboardServer = DashboardServerBase &
 				readonly adoptHandle?: undefined;
 				/** Warning classifications for the row, when any apply; see DeclaredServerNotice. */
 				readonly notices?: readonly DeclaredServerNotice[] | undefined;
+				/**
+				 * The live group did not join by this entry's exact labeled identity,
+				 * so an entry-only field written NOW (a declare action's
+				 * expectedFailures included) may not reach the group either until it
+				 * is recreated. The InactiveEntryNotice members carry the same
+				 * classification but only for the field families the entry already
+				 * configures, so a guard on entry-only WRITES must key on this flag,
+				 * not on the notices: an entry configuring none of them has the
+				 * identical identity problem and no notice to show for it.
+				 */
+				readonly entryFieldsInactive?: true | undefined;
 				readonly provenance?: undefined;
 				readonly hideable?: undefined;
 				readonly problems?: undefined;
@@ -179,6 +190,7 @@ export type DashboardServer = DashboardServerBase &
 				readonly config?: undefined;
 				readonly adoptHandle?: undefined;
 				readonly notices?: undefined;
+				readonly entryFieldsInactive?: undefined;
 				readonly provenance?: undefined;
 				readonly hideable?: undefined;
 		  }
@@ -196,6 +208,7 @@ export type DashboardServer = DashboardServerBase &
 				readonly adoptHandle: string;
 				readonly config?: undefined;
 				readonly notices?: undefined;
+				readonly entryFieldsInactive?: undefined;
 				/** Why the group exists, when a removal or rename explains it; see ExternalServerProvenance. */
 				readonly provenance?: ExternalServerProvenance | undefined;
 				/**
