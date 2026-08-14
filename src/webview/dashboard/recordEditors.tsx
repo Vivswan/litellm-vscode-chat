@@ -2313,7 +2313,10 @@ export function RecordMatcherTable({
 						className="record-row group/row -mx-2 rounded-md px-2 py-1.5 hover:bg-accent-soft focus-within:bg-accent-soft"
 						key={`${groupKey}#${groupOrdinal}`}
 					>
-						<span className="matcher-cell flex min-w-[104px] shrink-0 flex-wrap items-baseline gap-2">
+						{/* Shrinkable on purpose: the wide tier's grid ignores flex-shrink, and in
+						    the sub-620px flex rows a max-content cell would carry a long regex key
+						    past the pane; min-w-[104px] still floors the collapse. */}
+						<span className="matcher-cell flex min-w-[104px] flex-wrap items-baseline gap-2">
 							{/* The matcher wears the chip chrome OUTLINED where the field
 							    chips are FILLED: one radius system, two fills - identity
 							    reads as a container, data as contents. */}
