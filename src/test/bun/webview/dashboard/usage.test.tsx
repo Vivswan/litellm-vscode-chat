@@ -1,12 +1,12 @@
 /**
  * The Usage tab (docs/usage.md#the-usage-panel): the one-line-per-server
  * list, the inventory each line opens onto, the absence rules (a dim dash
- * plus the reason, never a zero), the refresh-now gate, the empty states, and
- * the bar presentation math.
+ * plus the reason, never a zero), the refresh-now gate, and the empty states.
+ * The pure formatter suite lives in spendFormat.test.ts with the formatters.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { UsageServerView } from "../../../../dashboard/viewModels";
-import { barPresentation, formatMoney, formatPercent, UsageSection } from "../../../../webview/dashboard/usage";
+import { UsageSection } from "../../../../webview/dashboard/usage";
 import { makeForbiddenUsageServer, makeUsage, makeUsageServer } from "../fixtures";
 import { buttonByText, cleanup, fireClick, mount, postedCalls, resetPosted, textOf } from "../harness";
 
@@ -39,45 +39,6 @@ function factOf(row: ParentNode, label: string): string {
 	}
 	return (value.textContent ?? "").trim();
 }
-
-describe("barPresentation", () => {
-	test("tones scale to the configured thresholds, crossing at >=", () => {
-		expect(barPresentation(0.5, [0.8, 0.95]).tone).toBe("ok");
-		expect(barPresentation(0.8, [0.8, 0.95]).tone).toBe("warn");
-		expect(barPresentation(0.95, [0.8, 0.95]).tone).toBe("error");
-	});
-
-	test("a single-threshold list goes straight to error", () => {
-		expect(barPresentation(0.5, [0.5]).tone).toBe("error");
-	});
-
-	test("an empty list never escalates and the fill clamps at 100%", () => {
-		const over = barPresentation(1.12, []);
-		expect(over.tone).toBe("ok");
-		expect(over.widthPercent).toBe(100);
-	});
-});
-
-describe("formatting", () => {
-	test("percentages show the literal number past 100", () => {
-		expect(formatPercent(1.12)).toBe("112%");
-	});
-
-	test("money amounts keep cents below 1000 and take the configured symbol verbatim", () => {
-		expect(formatMoney(12.5, "$")).toBe("$12.50");
-		expect(formatMoney(1500, "$")).toBe("$1,500");
-	});
-
-	test("a multi-character symbol prefixes verbatim, spacing included", () => {
-		expect(formatMoney(12.5, "EUR ")).toBe("EUR 12.50");
-		expect(formatMoney(1500, "EUR ")).toBe("EUR 1,500");
-	});
-
-	test("the empty symbol renders the bare number with no stray space", () => {
-		expect(formatMoney(12.5, "")).toBe("12.50");
-		expect(formatMoney(1500, "")).toBe("1,500");
-	});
-});
 
 describe("UsageSection", () => {
 	test("renders one line per usage server with spend against budget, and the percentage", () => {

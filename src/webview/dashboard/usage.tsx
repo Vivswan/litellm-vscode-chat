@@ -36,64 +36,12 @@ import type {
 import { DOCS_LINK_USAGE } from "./docsLinks";
 import { helpUsageSection } from "./helpText";
 import { IconChevronRight } from "./icons";
+import { barPresentation, formatMoney, formatPercent, TONE_FILL, TONE_TEXT } from "./spendFormat";
 import { relativeTime } from "./time";
 import { Button } from "./ui/button";
 import { cn } from "./ui/cn";
 import { Section } from "./ui/section";
 import { sendRequest } from "./vscodeApi";
-
-/**
- * An amount as the panel prints it: the configured currency symbol verbatim
- * (display only, never a conversion; the empty symbol renders the bare
- * number), two decimals below 1000, whole units above.
- */
-export function formatMoney(amount: number, currencySymbol: string): string {
-	return amount >= 1000
-		? `${currencySymbol}${Math.round(amount).toLocaleString()}`
-		: `${currencySymbol}${amount.toFixed(2)}`;
-}
-
-/** The literal percentage, past 100 included (Q3: over-budget shows the real number). */
-export function formatPercent(fraction: number): string {
-	return `${Math.round(fraction * 100)}%`;
-}
-
-/** The bar's fill and tone: fills at 100%, warning past the lowest threshold, error past the highest. */
-export function barPresentation(
-	fraction: number,
-	thresholds: readonly number[]
-): { widthPercent: number; tone: "ok" | "warn" | "error" } {
-	const widthPercent = Math.max(0, Math.min(100, fraction * 100));
-	if (thresholds.length === 0) {
-		return { widthPercent, tone: "ok" };
-	}
-	const lowest = thresholds[0] ?? 1;
-	const highest = thresholds[thresholds.length - 1] ?? 1;
-	// Reaching a threshold counts as crossing it (Q3: >=).
-	const tone = fraction >= highest ? "error" : fraction >= lowest ? "warn" : "ok";
-	return { widthPercent, tone };
-}
-
-/** The severity a tone paints text with; the meter fill reads the same scale. */
-const TONE_TEXT: Readonly<Record<"ok" | "warn" | "error", string>> = {
-	ok: "text-ok",
-	warn: "text-warn",
-	error: "text-err",
-};
-
-/**
- * The meter's fill takes the fill tier, not the text tier: a bar is a shape, so
- * 3:1 carries it, while the same colour as a word has to clear AA and darkens
- * further for it. Both tiers move only on light surfaces, where the raw hues
- * were tuned for a dark editor - the healthy green measured 2.0:1 on the light
- * page before that correction. The `-fill` names are the explicit ones on
- * purpose: `bg-ok` still compiles and would paint the meter in the text colour.
- */
-const TONE_FILL: Readonly<Record<"ok" | "warn" | "error", string>> = {
-	ok: "bg-ok-fill",
-	warn: "bg-warn-fill",
-	error: "bg-err-fill",
-};
 
 /**
  * Why a server has never reported spend at all, per the /key/info standing:

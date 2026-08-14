@@ -25,10 +25,10 @@ import { helpServersSection } from "./helpText";
 import { useIntentOutcome } from "./hooks";
 import { IconAdd } from "./icons";
 import { troubleshootingLink } from "./serverEditPage";
+import { barPresentation, formatMoney, formatPercent } from "./spendFormat";
 import { relativeTime } from "./time";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { barPresentation, formatMoney, formatPercent } from "./usage";
 import { sendRequest } from "./vscodeApi";
 
 /**

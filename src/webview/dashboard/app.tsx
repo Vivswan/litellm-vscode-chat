@@ -20,10 +20,11 @@ import { ServerEditPage } from "./serverEditPage";
 import { ServersSection } from "./servers";
 import type { EditRecordRequest } from "./settings";
 import { SettingsSection } from "./settings";
+import { barPresentation, formatPercent } from "./spendFormat";
 import { relativeTime, useNow } from "./time";
 import { Button } from "./ui/button";
 import { ConfirmDialog } from "./ui/dialog";
-import { barPresentation, formatPercent, UsageSection } from "./usage";
+import { UsageSection } from "./usage";
 import { sendRequest } from "./vscodeApi";
 
 /** The section tabs; the ID list lives in the view-model module because focusSection deep-links name them. */
