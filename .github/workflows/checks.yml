@@ -181,6 +181,34 @@ jobs:
           DOCKER_ONLY: ${{ matrix.labels }}
         run: xvfb-run -a bun run test:docker --only "$DOCKER_ONLY"
 
+  # The dashboard overflow sweep: every render fixture must fit sideways at
+  # every width the stylesheet declares (exit 1 is a page that does not fit,
+  # exit 2 a fixture that never ran - a stale step is its own failure). One
+  # Linux leg only: the runners ship Chrome and the harness drives it over
+  # raw CDP, so no other setup exists to vary by OS.
+  check-overflow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Set up development environment
+        run: bash scripts/env/setup-env.sh
+
+      - name: Sweep the render fixtures for horizontal overflow
+        env:
+          # The image ships Chromium and Chrome both and discovery prefers the
+          # first it finds; pin the one whose sandbox the runner's AppArmor
+          # profile covers, so a failure can only ever mean layout.
+          CHROME_BIN: /usr/bin/google-chrome
+        run: bun run check-overflow
+
   # Live-URL schema watch for the OpenRouter capability catalog: the fetch
   # script's --check mode validates the live payload and the mapping without
   # writing dist/, so payload drift is caught here instead of by users. The
