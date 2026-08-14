@@ -1451,3 +1451,80 @@ test("a failure no mounted row claims falls back to one section-top line", () =>
 		"The last change did not apply: the write was refused"
 	);
 });
+
+test("two methods' failures on one row keep the latest, not the method-list order", () => {
+	// A row can post two kinds of write (its value and its Reset); when both
+	// stand failed, the newer failure is the one the reader acted on last.
+	// Without the seq comparison, resetSetting's later position in the method
+	// list let an OLDER failed reset overwrite a newer failed write.
+	const configured = makeSettings();
+	const settings = {
+		...configured,
+		configuredScopes: {
+			...configured.configuredScopes,
+			numbers: { ...configured.configuredScopes.numbers, "usage.pollInterval": "global" as const },
+		},
+	};
+	const root = mount(<SettingsSection settings={settings} models={[]} />);
+	const input = settingInput(root, "usage.pollInterval");
+	fireInput(input, "45000");
+	fireBlur(input);
+	const write = postedMessages.filter((message) => message.method === "setNumberSetting").pop();
+	const reset = root.querySelector("button[aria-label='Remove the User value of Usage poll interval']");
+	if (!(reset instanceof HTMLButtonElement)) {
+		throw new Error("no reset button on the configured row");
+	}
+	fireClick(reset);
+	const resetPost = postedMessages.filter((message) => message.method === "resetSetting").pop();
+	expect(write).toBeDefined();
+	expect(resetPost).toBeDefined();
+	cleanup();
+
+	const withBoth = mount(
+		<SettingsSection
+			settings={settings}
+			models={[]}
+			writeFailures={{
+				resetSetting: { seq: 3, id: resetPost?.id ?? "", message: "the older reset failure" },
+				setNumberSetting: { seq: 9, id: write?.id ?? "", message: "the newer write failure" },
+			}}
+		/>
+	);
+	const row = rowOf(settingInput(withBoth, "usage.pollInterval"));
+	const notice = row.querySelector(".row-diagnostic.sev-blocking");
+	expect(notice?.textContent).toContain("the newer write failure");
+	expect(notice?.textContent).not.toContain("the older reset failure");
+});
+
+test("a failure whose owning row the filter hides routes to the section-top line instead of a hidden notice", () => {
+	// The filter hides rows without unmounting them, so a claimed notice under
+	// a hidden row would be placed and invisible at once - the worst of both.
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const input = settingInput(root, "chat.timeout");
+	fireInput(input, "45000");
+	fireBlur(input);
+	const posted = postedMessages.filter((message) => message.method === "setNumberSetting").pop();
+	cleanup();
+
+	const withFailure = mount(
+		<SettingsSection
+			settings={makeSettings()}
+			models={[]}
+			writeFailures={{ setNumberSetting: { seq: 1, id: posted?.id ?? "", message: "the write was refused" } }}
+		/>
+	);
+	// Visible row: the notice stands under it.
+	expect(withFailure.querySelector(".row-diagnostic.sev-blocking")).not.toBeNull();
+	expect(withFailure.querySelector("p.error[role='alert']")).toBeNull();
+
+	// Filter the owning row away: the notice moves to the always-visible line.
+	const filter = withFailure.querySelector('input[aria-label="Filter settings"]');
+	if (!(filter instanceof HTMLInputElement)) {
+		throw new Error("no settings filter");
+	}
+	fireInput(filter, "currency");
+	expect(withFailure.querySelector(".row-diagnostic.sev-blocking")).toBeNull();
+	expect(withFailure.querySelector("p.error[role='alert']")?.textContent).toContain(
+		"The last change did not apply: the write was refused"
+	);
+});

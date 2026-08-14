@@ -1594,10 +1594,35 @@ export function SettingsSection({
 	};
 	const scopes = configuredScopes(settings);
 	const modifiedCount = scopes.filter((scope) => scope !== null).length;
+	// Whether the row a failure would land on is actually on screen: the tail
+	// rows carry the named verdicts above, every scalar row the shared one. A
+	// hidden row still renders (the filter hides, never unmounts), so a notice
+	// placed there would be claimed and invisible at once.
+	const rowVisible = (row: SettingRowId): boolean => {
+		switch (row) {
+			case "chat.tokenEstimation":
+				return tokenEstimationVisible;
+			case "chat.additionalToolSchemaKeywords":
+				return toolSchemaKeywordsVisible;
+			case "usage.alertThresholds":
+				return thresholdsVisible;
+			case "usage.statusBar":
+				return statusBarVisible;
+			case "usage.currencySymbol":
+				return currencyVisible;
+			case "ui.theme":
+				return themeVisible;
+			case "ui.accent":
+				return accentVisible;
+			default:
+				return isVisible(row);
+		}
+	};
 	// Each standing failure lands by scope: the row whose remembered write id
-	// the failure echoes owns it; anything unclaimed (an id no mounted row
-	// posted - the panel was reopened since, or a newer write is in flight)
-	// falls back to one section-top line, latest first.
+	// the failure echoes owns it, latest seq winning when two methods' failures
+	// share one row (a failed Reset beside a failed write); anything unclaimed
+	// - an id no mounted row posted, or an owning row the filter has hidden -
+	// falls back to one always-visible section-top line, latest first.
 	const rowFailures: Partial<Record<SettingRowId, SettingWriteFailure>> = {};
 	let unclaimedFailure: SettingWriteFailure | undefined;
 	for (const method of SETTING_WRITE_METHODS) {
@@ -1606,8 +1631,11 @@ export function SettingsSection({
 			continue;
 		}
 		const write = lastSettingWrites.get(method);
-		if (write !== undefined && write.id === failure.id) {
-			rowFailures[write.row] = failure;
+		if (write !== undefined && write.id === failure.id && rowVisible(write.row)) {
+			const standing = rowFailures[write.row];
+			if (standing === undefined || failure.seq > standing.seq) {
+				rowFailures[write.row] = failure;
+			}
 		} else if (unclaimedFailure === undefined || failure.seq > unclaimedFailure.seq) {
 			unclaimedFailure = failure;
 		}
