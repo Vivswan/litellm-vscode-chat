@@ -81,6 +81,66 @@ function declared(pattern: RegExp, what: string): number {
 	return Number(found[1]);
 }
 
+/** Is `.rail` one of this selector list's own parts, rather than the tail of a descendant? */
+function selectsRailItself(selectorList: string): boolean {
+	return selectorList.split(",").some((part) => part.trim() === ".rail");
+}
+
+/**
+ * The window width the rail collapses at, read from the media block that
+ * actually contains the rail's own rule.
+ *
+ * Brace-matched rather than pattern-anchored, because the anchor this replaces
+ * could not tell membership from adjacency: `@media (...) \{[^@]*?\.rail \{`
+ * lets the gap run straight through a closing brace, so a decoy width query
+ * with no at-rule between it and the next `.rail \{` captured the decoy's
+ * number - and both readers of this number believed it. One above the rail's
+ * top-level rule put 235 in the band's floor where 735 belongs.
+ *
+ * The walk answers the question in the form it is actually asked. A rule counts
+ * only when it opens at depth 1 of the block, so a rule NESTED in another one
+ * (`.decoy { .rail { } }`, which means `.decoy .rail`) is not the rail's own,
+ * and only when `.rail` is a whole member of its selector list, so `.decoy
+ * .rail` is not either - on one line or broken across two, which a pattern over
+ * text cannot tell apart but a walk over structure never has to.
+ *
+ * Comments come out first, for the reason paneQueries strips them too: a brace
+ * or a selector inside prose is text, and counting it as structure is the same
+ * membership-for-text mistake one level down. What is left is CSS's own brace
+ * grammar, not a tokenizer - a brace inside a quoted value would still count,
+ * and neither stylesheet has one.
+ *
+ * One reader would be enough to matter; there are two, and they used to spell
+ * the pattern separately. Now they cannot disagree.
+ */
+function railCollapseWidth(): number {
+	const css = stylesheet().replace(/\/\*.*?\*\//gs, "");
+	for (const match of css.matchAll(/@media \(width < (\d+)px\) \{/g)) {
+		const open = match.index + match[0].length - 1;
+		let depth = 0;
+		let selectorStart = open + 1;
+		for (let index = open; index < css.length; index++) {
+			const char = css[index];
+			if (char === "{") {
+				depth += 1;
+				if (depth === 2 && selectsRailItself(css.slice(selectorStart, index))) {
+					return Number(match[1]);
+				}
+				selectorStart = index + 1;
+			} else if (char === "}") {
+				depth -= 1;
+				selectorStart = index + 1;
+				if (depth === 0) {
+					break;
+				}
+			} else if (char === ";") {
+				selectorStart = index + 1;
+			}
+		}
+	}
+	throw new Error("could not read the rail's collapse width from dashboard.css");
+}
+
 /**
  * The band of PANE widths that occur on both sides of the rail's collapse.
  *
@@ -93,16 +153,14 @@ function declared(pattern: RegExp, what: string): number {
 function reversalBand(): { readonly low: number; readonly high: number } {
 	const railWidth = declared(/\.rail \{[^}]*flex: 0 0 (\d+)px/s, "the rail's width");
 	const collapsedWidth = declared(/\.rail \{\s*flex: 0 0 (\d+)px;\s*\}/s, "the collapsed rail's width");
-	// Both anchored to the block they belong to. Unanchored, each takes the
-	// FIRST match in the file, so a second width media query or another padding
-	// pair would quietly re-point the arithmetic at someone else's rule.
+	// Anchored to the block it belongs to. Unanchored, this takes the FIRST
+	// padding pair in the file, which would quietly re-point the arithmetic at
+	// someone else's rule.
 	const panePadding = declared(
-		/\.pane \{[^}]*container-name: pane[^}]*\}/s.source.length > 0
-			? /\.pane \{[^}]*padding: \d+px (\d+)px[^}]*container-name: pane/s
-			: /$^/,
+		/\.pane \{[^}]*padding: \d+px (\d+)px[^}]*container-name: pane/s,
 		"the pane's horizontal padding"
 	);
-	const collapseAt = declared(/@media \(width < (\d+)px\) \{[^@]*?\.rail \{/s, "the rail's collapse width");
+	const collapseAt = railCollapseWidth();
 	// One border on the rail's trailing edge, at both widths.
 	const border = 1;
 	return {
@@ -266,7 +324,7 @@ test("the rail's collapse width is the same number in its stylesheet and in its 
 	// CSS decides what the rail looks like; the component decides what it can do
 	// (whether the fleet's verdict is worth a tab stop). Neither can read the
 	// other, so the only thing keeping them together is this.
-	const inCss = declared(/@media \(width < (\d+)px\)/, "the rail's collapse width");
+	const inCss = railCollapseWidth();
 	expect(RAIL_COLLAPSE_QUERY).toBe(`(width < ${inCss}px)`);
 	// And the utilities that give the collapsed rail its geometry.
 	const railSource = readFileSync(join(WEBVIEW, "rail.tsx"), "utf8");
