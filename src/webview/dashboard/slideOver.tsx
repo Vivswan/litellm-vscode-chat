@@ -1,10 +1,9 @@
 /**
- * The right-side slide-over the server forms open in: a scrim over the page,
- * a focus-trapped dialog panel, Esc and scrim-click to close. Closing is a
- * REQUEST: the section owning the form decides what it means (close, or ask
- * to confirm discarding edits) and renders the confirm bar through the
- * `confirming` props, so the keyboard path, the scrim, the X, and the form's
- * own Cancel all share one policy.
+ * The right-side slide-over the dashboard's overlay panels open in (the model
+ * inspector, the record editors' matcher overlay): a scrim over the page, a
+ * focus-trapped dialog panel, Esc and scrim-click to close. Closing is a
+ * REQUEST: the section owning the panel decides what it means, so the
+ * keyboard path, the scrim, and the X all share one policy.
  *
  * Radix Dialog supplies the parts that are hard to get right by hand - the
  * focus trap, the nesting-aware Esc layer stack, and aria-hidden on the rest
@@ -21,11 +20,10 @@
  *   place in the section's DOM; nothing here depends on escaping a stacking
  *   context.
  *
- * `Dialog.Root` gets no `onOpenChange`: the section owns whether the form
+ * `Dialog.Root` gets no `onOpenChange`: the section owns whether the panel
  * exists at all, so Radix's open state is always true and every close travels
  * through onRequestClose below. Wiring onOpenChange as well would give a
- * dismissal two routes to the same request, and a doubled request reads as
- * Esc-then-keep-editing - the discard bar would appear and vanish in one key.
+ * dismissal two routes to the same request.
  */
 
 import * as Dialog from "@radix-ui/react-dialog";
@@ -45,29 +43,22 @@ const FOCUSABLE =
 export function SlideOver({
 	labelledBy,
 	fallbackFocusId,
-	confirming,
 	onRequestClose,
-	onKeepEditing,
-	onDiscard,
 	children,
 }: {
-	/** The id of the heading naming this dialog (the form's own h3). */
+	/** The id of the heading naming this dialog (the panel's own h3). */
 	labelledBy: string;
-	/** Where focus lands on close when the opener no longer exists (e.g. the guided start's CTA after the first save). */
+	/** Where focus lands on close when the opener no longer exists (e.g. a matcher row the editor itself removed). */
 	fallbackFocusId: string;
-	/** Render the discard-confirm bar; Esc got a dirty form and the owner wants a decision. */
-	confirming: boolean;
 	onRequestClose: () => void;
-	onKeepEditing: () => void;
-	onDiscard: () => void;
 	children: ReactNode;
 }) {
 	const panelRef = useRef<HTMLDivElement>(null);
 
 	// Focus moves into the panel on open (the first field, not the X, so
 	// typing can start immediately) and returns to the opener on close - or,
-	// when the opener left the page with the form (the guided start's CTA
-	// unmounts once a server exists), to the stable fallback element. Radix's
+	// when the opener no longer exists (the panel's own action may have
+	// removed the row that opened it), to the stable fallback element. Radix's
 	// own open/close autofocus is declined below so this stays the one policy,
 	// which makes the fallback load-bearing: a panel with no field at all (the
 	// model inspector) would otherwise strand focus on the opener the dialog
@@ -96,8 +87,7 @@ export function SlideOver({
 			    have Esc and the Close button, so the scrim stays out of the Tab
 			    order and out of the accessibility tree. It carries the close
 			    request itself because Radix's outside-interaction dismissal is
-			    declined below - routing both would fire the request twice and
-			    toggle the discard bar straight back off. */}
+			    declined below - routing both would fire the request twice. */}
 			<button type="button" className="scrim" tabIndex={-1} aria-hidden="true" onClick={onRequestClose} />
 			<Dialog.Content
 				className="slide-over"
@@ -121,9 +111,9 @@ export function SlideOver({
 						return;
 					}
 					event.preventDefault();
-					// Panels can nest (the record editors' matcher overlay opens
-					// above the server form's slide-over); the key must close only
-					// the panel that received it, never the one beneath.
+					// Nothing nests slide-overs today, but the key still stops
+					// here so an Esc that closed this panel can never also reach
+					// an ancestor's handler and close something beneath it.
 					event.stopPropagation();
 					onRequestClose();
 				}}
@@ -138,19 +128,6 @@ export function SlideOver({
 					<IconClose />
 				</Button>
 				{children}
-				{confirming ? (
-					<div className="discard-confirm" role="alert">
-						<span>{l10n.t("Discard unsaved changes?")}</span>
-						{/* Keep editing is the default rank and Discard the danger one:
-						    this is the one place the user is asked to choose between
-						    losing work and not, so the safe answer cannot be the
-						    quieter of the two. */}
-						<Button onClick={onKeepEditing}>{l10n.t("Keep editing")}</Button>
-						<Button variant="danger" onClick={onDiscard}>
-							{l10n.t("Discard")}
-						</Button>
-					</div>
-				) : null}
 			</Dialog.Content>
 		</Dialog.Root>
 	);

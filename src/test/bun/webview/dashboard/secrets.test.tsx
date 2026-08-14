@@ -559,6 +559,11 @@ test("a stored secret whose form is not selected states the same two things the 
 	// The API-key form is selected, so the OAuth secret has no input of its
 	// own - only where it lives and the gesture that takes it away.
 	expect(hintOf()).toBe("In secret storage.");
+	// The checkbox is the row's only control, so it carries the same
+	// described-by wiring to the hint/error span the input-bearing rows have.
+	expect(removeLabel()?.querySelector("input")?.getAttribute("aria-describedby")).toBe(
+		"server-oauthClientSecret-error"
+	);
 	fireCheck(removeLabel()?.querySelector("input") as HTMLInputElement, true);
 	expect(hintOf()).toBe("Removed on save.");
 });

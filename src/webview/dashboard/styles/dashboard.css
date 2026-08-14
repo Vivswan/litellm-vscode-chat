@@ -1704,24 +1704,6 @@
 		display: block;
 		margin-top: 2px;
 	}
-	/* The discard confirm pins to the panel's bottom edge so it is in view
-		   wherever the Esc that raised it was pressed. */
-	.discard-confirm {
-		position: sticky;
-		z-index: 2;
-		bottom: -20px;
-		display: flex;
-		gap: 8px;
-		align-items: center;
-		flex-wrap: wrap;
-		margin: 16px -20px -20px;
-		padding: 12px 20px;
-		background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
-		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
-	}
-	.discard-confirm span {
-		font-weight: 600;
-	}
 	/* The navigation guard's confirm modal (ui/dialog.tsx): the question a
 		   dirty-form navigation raises, centered over its own scrim rather than
 		   tucked into the save bar, because leaving is a decision about the
@@ -1943,12 +1925,12 @@
 		border: 0;
 		min-width: 0;
 	}
-	/* A pill is the chip's chrome as a toggle: outline at rest, the badge's
-		   soft fill when pressed, so active reads as filled-vs-outline in the
-		   vocabulary the page already speaks. Pressed is triple-coded - fill,
-		   foreground text, and a border stepped up to the muted-foreground token
-		   - because the fill alone is a 14% wash that high contrast may flatten,
-		   and aria-pressed carries the state for readers who see none of it. */
+	/* A pill is the chip's chrome as a toggle: outlined at rest, the chip
+		   fill plus foreground text and a muted-foreground border when pressed,
+		   so active reads as filled-vs-outline in the vocabulary the page
+		   already speaks. aria-pressed carries the state for readers who see
+		   none of it; the forced-colors block below is where the fill stops
+		   surviving. */
 	.filter-pill {
 		display: inline-flex;
 		align-items: center;

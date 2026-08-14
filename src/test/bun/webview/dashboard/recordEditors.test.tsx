@@ -284,8 +284,8 @@ test("a row's inheritance mark reads everything, nothing, the listed keys, or cu
 
 test("the popover's edge flip measures where it would hang, so a flip holds instead of oscillating", () => {
 	// The flip itself needs layout, which this runtime does not have - the
-	// render fixtures record-popover-flip and form-popover-flip are what
-	// prove it in a real viewport. What IS provable here is the decision: the
+	// record-popover-flip render fixture is what proves it in a real
+	// viewport. What IS provable here is the decision: the
 	// popover watches its own box while open, stops when it closes, and -
 	// measured against where it WOULD hang rather than where it sits - stays
 	// flipped through a second measurement instead of flicking back over the

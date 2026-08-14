@@ -948,14 +948,7 @@ export function ModelInspector({
 	const fieldCount = capabilityNames.length + extraNames.length;
 
 	return (
-		<SlideOver
-			labelledBy="model-inspector-title"
-			fallbackFocusId={fallbackFocusId}
-			confirming={false}
-			onRequestClose={onClose}
-			onKeepEditing={onClose}
-			onDiscard={onClose}
-		>
+		<SlideOver labelledBy="model-inspector-title" fallbackFocusId={fallbackFocusId} onRequestClose={onClose}>
 			<div className="model-inspector">
 				<h3 id="model-inspector-title">{model.name}</h3>
 				<p className="inspector-identity">

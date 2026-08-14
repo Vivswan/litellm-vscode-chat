@@ -371,10 +371,6 @@ function FormSection({
  * hint beside it - or, when the field has a problem, the error in the hint's
  * place. A `wide` control (record tables, header rows, a textarea) takes the
  * hint column too and carries its own hint underneath.
- *
- * A fragment, not a wrapper: the three cells are direct children of the
- * section's grid, which is what makes the gutter shared rather than
- * per-field.
  */
 function FieldRow({
 	htmlFor,
@@ -831,6 +827,8 @@ function StoredSecretRow({ field, props }: { field: SecretFieldId; props: FieldR
 				<Checkbox
 					checked={value.clear}
 					disabled={props.disabled}
+					aria-invalid={problem !== undefined}
+					aria-describedby={`server-${field}-error`}
 					onChange={(event) => patchSecret({ clear: event.currentTarget.checked })}
 				/>
 				{l10n.t("Remove the stored {0} on save", serverFormFieldLabel(field))}

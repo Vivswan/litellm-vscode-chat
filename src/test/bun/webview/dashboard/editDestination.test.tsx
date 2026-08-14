@@ -112,7 +112,6 @@ test("Esc on a dirty page asks before discarding, and Esc never destroys: only t
 	expect(openConfirmDialog().textContent).toContain("Discard unsaved changes?");
 	// The question is not part of the page's own save bar any more.
 	expect(page(root).querySelector(".confirm-dialog")).toBeNull();
-	expect(page(root).querySelector(".discard-confirm")).toBeNull();
 
 	// A second Esc reads as "keep editing" (a reflexive Esc-Esc must not
 	// destroy a half-typed draft). The modal holds focus, so the second press

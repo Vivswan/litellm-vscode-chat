@@ -2618,14 +2618,7 @@ export function RecordMatcherEditorOverlay({
 		}
 	};
 	return (
-		<SlideOver
-			labelledBy={titleId}
-			fallbackFocusId={fallbackFocusId}
-			confirming={false}
-			onRequestClose={onClose}
-			onKeepEditing={onClose}
-			onDiscard={onClose}
-		>
+		<SlideOver labelledBy={titleId} fallbackFocusId={fallbackFocusId} onRequestClose={onClose}>
 			<div className="matcher-editor">
 				<h3 id={titleId}>{kind === "params" ? l10n.t("Edit parameter matcher") : l10n.t("Edit capability matcher")}</h3>
 				<p className="hint">{note}</p>
