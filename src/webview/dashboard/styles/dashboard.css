@@ -1949,6 +1949,101 @@
 		}
 	}
 
+	/* ---- the wide pane: the sentence becomes columns -------------------------
+	 Past this width the two-line row was spending a third of the pane and
+	 leaving the rest empty, so it unfolds: one line, five columns, the actions
+	 still at the end. The gain is not the space, it is the ALIGNMENT - the
+	 figures stack down the page, and comparing what four models cost or hold
+	 stops being a matter of reading four sentences.
+
+	 What makes them stack is that every row solves the SAME track arithmetic,
+	 not that the tracks are rigid. Every row is its own grid (the disclosure is
+	 one button per row), so a track sized to its own row's content would settle
+	 somewhere different in each one and the columns would not line up at all -
+	 which is the entire point. Declared widths make the list read as one table
+	 without making it one grid, which the windowing would not survive.
+
+	 The widths are measured, in place, so the figures keep the mono face their
+	 column gives them: 166px of limits, 173 of price, 181 of capabilities, and
+	 390 of name and meta (github_copilot/claude-haiku-4.5, declared, from a long
+	 server label). Each column's minimum is its measurement plus slack: the
+	 figures rounded onto the sheet's 8px rhythm with a step to spare
+	 (176/184/192), and the identity column 400.
+	 That 10px matters more than it looks. An fr track is sized to its share of
+	 the WHOLE space and then floored at its minimum, not given its minimum plus
+	 a share of what is left - so a column whose share falls below its floor sits
+	 exactly ON the floor and takes none of the surplus. At the threshold that is
+	 the identity column: 2/5 of the space is less than 400, so it is 400 exactly
+	 while the figures take the slack, and it only starts growing about 30px of
+	 pane later (at 1167, where 2/5 of the flexible space passes 400). Its whole margin for a name longer than the one measured is
+	 those 10px, which is why they are in the floor rather than left to the
+	 arithmetic.
+
+	 The threshold follows: 16 padding + 14 chevron + 400 + 176 + 184 + 192 +
+	 44 gaps + 93 actions = 1119 of ROW. Add 10 for the scrollbar - past 50
+	 models this list is windowed into a scrollport of its own
+	 (.table-scroll.windowed, overflow-y: auto) and the editor gives a webview a
+	 classic 10px bar, so the row gets 10px less than the container query
+	 measured - and the floor is 1129. 1136 is the next step on the rhythm above
+	 it, which leaves 7px for a locale whose labels run longer than the English
+	 these were measured in. The renders cannot check
+	 the scrollbar term: the harness runs Chrome with --hide-scrollbars, so it is
+	 arithmetic here rather than a screenshot.
+
+	 Below the threshold the sentence form is still the honest layout, because
+	 these columns would have to start truncating the one thing a row cannot
+	 lose, its name. The number sits well clear of the rail's reversal band, and
+	 it needs no partner: this tier and its own absence divide every width
+	 between them, because `>=` takes exactly what `<` would have left. That is
+	 why the guard admits `>=` at all - the pair cannot overlap at N the way a
+	 `max-width` and a `min-width` at one number do. */
+	@container pane (width >= 1136px) {
+		button.model-disclosure {
+			/* The columns divide the whole flexible space 2:1:1:1, each floored at
+			 its measured minimum. Giving it all to the identity column instead
+			 puts the model's name against the far left and its figures against
+			 the far right with a quarter of the pane of nothing between them,
+			 which is the complaint this tier exists to answer wearing a different
+			 shape. Divided, the leftover reads as breathing room after each
+			 column, and the columns still line up because every row divides it
+			 the same way. */
+			grid-template-columns: auto minmax(400px, 2fr) minmax(176px, 1fr) minmax(184px, 1fr) minmax(192px, 1fr);
+			align-items: baseline;
+		}
+		/* The chevron spans two rows in the stacked form and there is only one
+		 here; centred rather than seated on the baseline, because it is a mark,
+		 not a word. */
+		.model-chevron {
+			grid-row: 1;
+			align-self: center;
+		}
+		/* The second line stops being a line: `display: contents` hands its
+		 segments to the row's own grid so each becomes a column, while its font
+		 size and colour still inherit through it. */
+		.model-line-2 {
+			display: contents;
+		}
+		/* The separators belong to the sentence, and this tier has none: a dash
+		 alone in a grid cell is punctuation with nothing to punctuate. It costs
+		 the announcement its dashes, which the base rule kept deliberately - the
+		 segments stay separate grid items, so they are still announced apart,
+		 and what is lost is the punctuation between them rather than the seam. */
+		.model-line-2 .model-sep {
+			display: none;
+		}
+		/* Each segment now owns the clipping the line used to do for all three.
+		 Scoped under .model-line-2 like every other rule for these classes, so
+		 the narrow tier's rules cannot outrank this tier's by specificity if the
+		 two ever meet. `white-space` is not repeated: it inherits, and the line
+		 keeps its computed value through `display: contents`. */
+		.model-line-2 .model-limits,
+		.model-line-2 .model-cost,
+		.model-line-2 .model-caps {
+			overflow: hidden;
+			text-overflow: ellipsis;
+		}
+	}
+
 	/* === R4 diagnostics, records === */
 	.failure-note p {
 		margin: 2px 0;
@@ -2401,8 +2496,9 @@
 		   `@container pane (width < Npx)`, while `max-width: Npx` is `<= N`, so
 		   a rule and a variant at the same number disagree at exactly N and the
 		   page takes half of each layout for one pixel. narrowThresholds.test.ts
-		   reports any other spelling, on either side, and carries the rest of the
-		   reasoning. */
+		   admits one pair, `width < N` and `width >= N`, which partition at N,
+		   and reports any other spelling on either side; it carries the rest of
+		   the reasoning. */
 	@container pane (width < 700px) {
 		/* Below the width where two input tracks stay usable, every panel's
 			   key/value rows stack to one column - the server form's header rows

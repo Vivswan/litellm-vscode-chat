@@ -23,18 +23,23 @@
  * because the two rules sat on surfaces that never meet: an exemption resting on
  * where a rule happens to live, which expires the day a component moves.
  *
- * So the third test does not enumerate the bad spellings - `max-width` is only
- * the first of them, and `620px >= width`, `max-inline-size`, `@max-lg/pane:`
- * and `@max-[620px]:` are all valid and all either inclusive or a second way to
- * write the legal one. It names the good spelling instead and reports the rest:
- * `@container pane (width < Npx)` in a stylesheet, `@max-[Npx]/pane:` in a class
- * string. "One spelling per number" then holds because there is only one
- * spelling at all.
+ * What the third test enforces is therefore not "one spelling" but ONE PAIR:
+ * `width < N` and `width >= N`, which partition at N - every pane width belongs
+ * to exactly one of them, so no width can wear half of each layout. A tier that
+ * starts at a width (the models list's columnar form) needs the second, and it
+ * is safe for the same reason the first is.
+ *
+ * Everything else is reported, for one of two reasons. `max-width: N` and
+ * `620px >= width` and `max-inline-size: N` are `<= N`, so they OVERLAP the
+ * `>= N` side at exactly N: that is the bug itself. `min-width: N` overlaps
+ * nothing - it is exactly `width >= N` - and is reported for the other reason,
+ * that a second way to write a form already spelled is how two rules at one
+ * number stop looking like two rules at one number.
  *
  * The two halves are strict in different ways, which is worth knowing before
  * reading a failure. The stylesheet half judges only queries that constrain the
  * PANE's width, so a differently named container and a `style()` query pass
- * untouched, and it judges the prelude WHOLE - the legal form has no compound
+ * untouched, and it judges the prelude WHOLE - neither legal form has a compound
  * spelling, so a query mixing a legal width with anything else is still
  * reported. The component half judges every container variant it finds,
  * including one naming another container, because an unnamed variant lands on
@@ -169,9 +174,12 @@ function reversalBand(): { readonly low: number; readonly high: number } {
 	};
 }
 
-/** The one form a pane width query may take in a stylesheet, and the one a component may use. */
-const LEGAL_CSS_QUERY = /^@container pane \(width < (\d+)px\)$/;
-const LEGAL_VARIANT = /^@max-\[(\d+)px\]\/pane:$/;
+/**
+ * The pair a pane width query may be spelled as, and the pair a component may
+ * use. `<` and `>=` at the same number partition; anything else is reported.
+ */
+const LEGAL_CSS_QUERY = /^@container pane \(width (?:<|>=) (\d+)px\)$/;
+const LEGAL_VARIANT = /^@(?:max|min)-\[(\d+)px\]\/pane:$/;
 
 interface PaneQuery {
 	/** The threshold, when the query is spelled legally; absent when it is not. */
@@ -225,7 +233,7 @@ function constrainsPaneWidth(text: string): boolean {
  * full of `max-width` as a sheet with no thresholds in it, and every assertion
  * below passes over the empty list. So the stylesheet half takes every
  * `@container` prelude and the component half every `@`-run ending in a colon,
- * and each is judged against the one legal form afterwards.
+ * and each is judged against the legal pair afterwards.
  *
  * It is regexes over source, not a parser over the bundle, so it does not see
  * CSS built by a template literal or a container variant minted by a `@variant`
@@ -471,7 +479,7 @@ test("the rail's collapse width is the same number in its stylesheet and in its 
 	}
 });
 
-test("every pane query is spelled the one legal way", () => {
+test("every pane query is spelled one of the two legal ways", () => {
 	const queries = paneQueries();
 	// A floor before the judgement, because every assertion here is "this derived
 	// list is empty" and an empty INPUT satisfies all of them. One floor per side,
@@ -482,8 +490,9 @@ test("every pane query is spelled the one legal way", () => {
 	expect(queries.filter((query) => query.side === "stylesheet").length).toBeGreaterThan(4);
 	expect(queries.filter((query) => query.side === "component").length).toBeGreaterThan(12);
 	// Both sides of the pane's one-pixel argument, in one list: a stylesheet
-	// query that is not `width < Npx` and a variant that is not `@max-[Npx]/pane:`
-	// fail the same way, because they are the same mistake seen from two files.
+	// query outside the pair `width < Npx` / `width >= Npx`, and a variant
+	// outside `@max-[Npx]/pane:` / `@min-[Npx]/pane:`, fail the same way,
+	// because they are the same mistake seen from two files.
 	const illegal = queries.filter((query) => query.value === undefined).map((query) => `${query.source}: ${query.text}`);
 	expect(illegal).toEqual([]);
 });
