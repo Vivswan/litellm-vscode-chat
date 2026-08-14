@@ -348,8 +348,9 @@ test("a server row's model count scopes the models list, and the chip's clear re
 	expect(document.activeElement?.id).toBe("models-section");
 	const chip = root.querySelector(".chip");
 	expect((chip?.textContent ?? "").trim()).toContain("Server: Staging");
-	// The denominator follows the scope: one of Staging's one model.
-	expect(root.textContent).toContain("showing 1 of 1");
+	// The scope moves the denominator, not the numerator: unfiltered, the
+	// count would only read "1 of 1", so the header stays quiet.
+	expect(root.textContent).not.toContain("showing");
 
 	fireClick(chip?.querySelector("button[aria-label='Clear the server filter']") as HTMLElement);
 	expect(root.querySelector(".chip")).toBeNull();

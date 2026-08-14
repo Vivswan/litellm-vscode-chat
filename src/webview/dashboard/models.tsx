@@ -384,14 +384,15 @@ function FilterPill({
  * capabilities - so the pills read as a legend for the rows under them.
  *
  * Which pills exist is the options' business (see modelFilterOptions); this
- * component only draws what it is handed, plus the clear-all action once
- * anything is pressed. The server group additionally follows the rows' own
- * rule: one server serving means no server names anywhere on this page.
+ * component only draws what it is handed, the clear-all action included
+ * (showClear). The server group additionally follows the rows' own rule: one
+ * server serving means no server names anywhere on this page.
  */
 function FilterPills({
 	options,
 	active,
 	showServers,
+	showClear,
 	onChange,
 	onClearAll,
 }: {
@@ -399,6 +400,14 @@ function FilterPills({
 	active: ModelFilter;
 	/** The rows' serverCount > 1 rule; the options' own two-server rule still applies under it. */
 	showServers: boolean;
+	/**
+	 * Whether this row carries the clear-all action. The parent decides, not
+	 * isFilterActive alone: when the pressed pills empty the list, the empty
+	 * state directly below renders its own "Clear filters" beside the sentence
+	 * that needs it, and two identical controls a line apart read as two
+	 * different actions.
+	 */
+	showClear: boolean;
 	/**
 	 * Takes an updater, never a computed state: two toggles in one React batch
 	 * would otherwise both derive from the same stale `active` and the second
@@ -475,7 +484,7 @@ function FilterPills({
 					{group.pills}
 				</fieldset>
 			))}
-			{isFilterActive(active) ? (
+			{showClear ? (
 				<Button variant="secondary" size="compact" onClick={onClearAll}>
 					{l10n.t("Clear filters")}
 				</Button>
@@ -659,12 +668,14 @@ export function ModelsSection({
 	}, [scopeLabel]);
 
 	// Keyed to the server count, not the distinct labels: two groups can share
-	// a label, and their models must stay attributable.
-	const showServerColumn = serverCount > 1;
+	// a label, and their models must stay attributable. Scope-aware on top:
+	// under the server chip every row's label would only repeat the chip, so a
+	// scoped list is a one-server list whatever the fleet's count.
+	const showServerColumn = scopeLabel === undefined && serverCount > 1;
 	// Three independent conditions compose AND, narrowing in this order: the
-	// scope (the server chip), then the pills, then the text. The "showing N of
-	// M" line reads sorted.length over scoped.length, so pills and text both
-	// move N live while the scope moves M.
+	// scope (the server chip), then the pills, then the text. The header's
+	// "showing N of M" count reads sorted.length over scoped.length, so pills
+	// and text both move N live while the scope moves M.
 	// Memoized for identity, not for the filter's cost: pillOptions below keys
 	// on this list, and a fresh array every render (every scroll event is one)
 	// would make that memo a no-op whenever a scope is active.
@@ -753,10 +764,33 @@ export function ModelsSection({
 			title={l10n.t("Models")}
 			help={helpModelsSection()}
 			docs={{ href: DOCS_LINK_MODELS, label: l10n.t("Open the models guide") }}
-			// The rows carry no header to sort by, so the control lives on the
-			// header line. Nothing to sort when there are no models.
+			// The count belongs to the title, not to a line of its own beside the
+			// filter input - and only while the pills or the text are narrowing:
+			// "showing 64 of 64" at rest is a tautology (the rule the Resolution
+			// header already follows). The scope moves the denominator instead of
+			// the numerator, so a scoped-but-unfiltered list stays quiet too.
+			meta={sorted.length === scoped.length ? undefined : l10n.t("showing {0} of {1}", sorted.length, scoped.length)}
+			// The filter's one home is the header line, the same slot the Settings
+			// filter lives in: it governs the whole page the way the header's other
+			// actions do, and a box floating between the header and the rows read
+			// as belonging to nothing. The rows carry no header to sort by, so the
+			// sort control shares the line. Nothing to filter or sort when there
+			// are no models.
 			actions={
-				models.length === 0 ? undefined : <SortControl sort={sort} showServer={showServerColumn} onChange={setSort} />
+				models.length === 0 ? undefined : (
+					<>
+						<Input
+							type="text"
+							ref={filterInputRef}
+							className="w-[16rem] min-w-0 max-w-full shrink"
+							placeholder={l10n.t("Filter by name, family, or server")}
+							aria-label={l10n.t("Filter models")}
+							value={filter}
+							onChange={(event) => setFilter(event.currentTarget.value)}
+						/>
+						<SortControl sort={sort} showServer={showServerColumn} onChange={setSort} />
+					</>
+				)
 			}
 		>
 			{models.length === 0 ? (
@@ -780,16 +814,12 @@ export function ModelsSection({
 				</div>
 			) : (
 				<>
-					<div className="filterbar">
-						<Input
-							type="text"
-							ref={filterInputRef}
-							placeholder={l10n.t("Filter by name, family, or server")}
-							aria-label={l10n.t("Filter models")}
-							value={filter}
-							onChange={(event) => setFilter(event.currentTarget.value)}
-						/>
-						{scope !== undefined ? (
+					{/* The active scope as its own quiet line under the header: the
+					    filter input and the count moved onto the header line, but the
+					    chip is a STATE, not an action - it narrows what the whole page
+					    below it shows, so it stands where that narrowing starts. */}
+					{scope !== undefined ? (
+						<div className="filterbar">
 							<span className="chip">
 								<span className="chip-label" title={l10n.t("Server: {0}", scope.label)}>
 									{l10n.t("Server: {0}", scope.label)}
@@ -803,13 +833,13 @@ export function ModelsSection({
 									<IconClose />
 								</Button>
 							</span>
-						) : null}
-						<span className="hint">{l10n.t("showing {0} of {1}", sorted.length, scoped.length)}</span>
-					</div>
+						</div>
+					) : null}
 					<FilterPills
 						options={pillOptions}
 						active={pills}
 						showServers={showServerColumn}
+						showClear={isFilterActive(pills) && sorted.length > 0}
 						onChange={setPills}
 						onClearAll={clearFilters}
 					/>

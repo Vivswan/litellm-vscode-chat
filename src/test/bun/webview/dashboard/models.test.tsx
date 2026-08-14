@@ -183,6 +183,8 @@ test("filter narrows rows by name, id, family, and server label and updates 'sho
 		);
 
 	expect(visibleNames()).toEqual(["Omni", "Sonnet"]);
+	// At rest the header carries no count: "showing 2 of 2" is a tautology.
+	expect(root.textContent).not.toContain("showing");
 
 	fireInput(filter, "omni"); // name
 	expect(visibleNames()).toEqual(["Omni"]);
@@ -192,7 +194,8 @@ test("filter narrows rows by name, id, family, and server label and updates 'sho
 	expect(visibleNames()).toEqual(["Omni"]);
 	fireInput(filter, "staging"); // server label
 	expect(visibleNames()).toEqual(["Sonnet"]);
-	expect(root.textContent).toContain("showing 1 of 2");
+	// The count lives in the header's meta slot, beside the title it belongs to.
+	expect(root.querySelector(".section-meta")?.textContent).toBe("showing 1 of 2");
 
 	fireInput(filter, "no-such-model");
 	expect(visibleNames()).toEqual([]);
@@ -238,15 +241,22 @@ test("a server scope narrows the rows before the text filter and renders as a cl
 			(row.querySelector(".model-name-text")?.textContent ?? "").trim()
 		);
 
-	// The scope alone: only Prod's models, and the denominator follows it.
+	// The scope alone: only Prod's models, no count - the scope moves the
+	// denominator, not the numerator, so an unfiltered scoped list is still
+	// "everything", and a count would only say "2 of 2".
 	expect(visibleNames()).toEqual(["Omni", "Omni B"]);
-	expect(root.textContent).toContain("showing 2 of 2");
+	expect(root.textContent).not.toContain("showing");
 	expect((root.querySelector(".chip")?.textContent ?? "").trim()).toContain("Server: Prod");
+	// Under the chip the rows drop the server suffix: every row's meta would
+	// only repeat the label the chip already states.
+	expect(root.querySelector(".model-meta")?.textContent).toBe("gpt");
 
-	// The text filter composes on top of the scope, never around it.
+	// The text filter composes on top of the scope, never around it - and the
+	// count's denominator follows the scope.
 	const filter = root.querySelector("input[aria-label='Filter models']") as HTMLInputElement;
 	fireInput(filter, "sonnet");
 	expect(visibleNames()).toEqual([]);
+	expect(root.textContent).toContain("showing 0 of 2");
 	expect(root.textContent).toContain("No models match the filter.");
 
 	// Clearing is the owner's job: the chip's button only reports back.
@@ -295,16 +305,18 @@ test("the Inspect action reports the clicked row's full identity to the inspecto
 	expect(opened).toEqual([{ scopeKey: "s3", rawId: "gpt-4", serverLabel: "Prod" }]);
 });
 
-test("filter pills sit between the toolbar and the list, dimension groups in the columns' order", () => {
+test("filter pills sit between the header and the list, dimension groups in the columns' order", () => {
 	const models = [
 		makeModel({ id: "a", family: "gpt", scopeKey: "s1", serverLabel: "Prod", inputCost: 1, toolCalling: true }),
 		makeModel({ id: "b", family: "claude", scopeKey: "s2", serverLabel: "Staging", toolCalling: false }),
 	];
 	const root = mount(<ModelsSection currencySymbol="$" models={models} serverCount={2} onInspect={() => {}} />);
 	const pills = root.querySelector(".filter-pills") as HTMLElement;
-	// Between the toolbar and the list: the row claims no space the columnar
-	// tier uses, in either tier.
-	expect(pills.previousElementSibling?.className).toBe("filterbar");
+	// Between the header line and the list: the filter input lives in the
+	// header's actions slot (the Settings filter's home), so nothing floats
+	// between the header and the rows but the pills themselves.
+	expect(root.querySelector(".section-actions input[aria-label='Filter models']")).not.toBeNull();
+	expect(pills.previousElementSibling?.classList.contains("section-head")).toBe(true);
 	expect(pills.nextElementSibling?.classList.contains("table-scroll")).toBe(true);
 	// Groups follow the columnar tier's column order: the identity column's two
 	// facts (family, then server), then price, then capabilities.
@@ -337,16 +349,17 @@ test("a pill toggles with aria-pressed, narrows the rows, and moves the live cou
 		);
 	const pill = buttonByText(root.querySelector(".filter-pills") as HTMLElement, "tools");
 
-	expect(root.textContent).toContain("showing 2 of 2");
+	expect(root.textContent).not.toContain("showing");
 	fireClick(pill);
 	expect(pill.getAttribute("aria-pressed")).toBe("true");
 	expect(visibleNames()).toEqual(["Tools"]);
 	expect(root.textContent).toContain("showing 1 of 2");
-	// A toggle, one by one: pressing again clears exactly this pill.
+	// A toggle, one by one: pressing again clears exactly this pill, and the
+	// count retires with the narrowing.
 	fireClick(pill);
 	expect(pill.getAttribute("aria-pressed")).toBe("false");
 	expect(visibleNames()).toEqual(["Tools", "Bare"]);
-	expect(root.textContent).toContain("showing 2 of 2");
+	expect(root.textContent).not.toContain("showing");
 });
 
 test("pills compose with the text filter and the server scope", () => {
@@ -420,7 +433,9 @@ test("a pressed server pill survives the fleet dropping to one server, so its fi
 	const pill = buttonByText(root.querySelector("[aria-label='Filter by server']") as HTMLElement, "staging");
 	expect(pill.getAttribute("aria-pressed")).toBe("true");
 	fireClick(pill);
-	expect(root.textContent).toContain("showing 1 of 1");
+	// Nothing narrows anymore: the row is back and the count retires with it.
+	expect(root.querySelectorAll("li.model-row").length).toBe(1);
+	expect(root.textContent).not.toContain("showing");
 	// Nothing pressed anywhere anymore, so the one-server rule hides the group again.
 	expect(root.querySelector("[aria-label='Filter by server']")).toBeNull();
 });
@@ -440,7 +455,8 @@ test("Clear filters clears every pill and the text at once", () => {
 	expect(root.textContent).toContain("showing 1 of 2");
 
 	fireClick(buttonByText(pillRow(), "Clear filters"));
-	expect(root.textContent).toContain("showing 2 of 2");
+	expect(root.querySelectorAll("li.model-row").length).toBe(2);
+	expect(root.textContent).not.toContain("showing");
 	expect(input.value).toBe("");
 	for (const pill of Array.from(root.querySelectorAll("button.filter-pill"))) {
 		expect(pill.getAttribute("aria-pressed")).toBe("false");
@@ -465,7 +481,15 @@ test("an all-filtered list is one sentence plus a clear action that brings the m
 	const empty = root.querySelector("p.empty") as HTMLElement;
 	expect(empty.textContent).toContain("No models match the filter.");
 
+	// EXACTLY one clear control: the pill row has its own solo case, but with
+	// the empty sentence carrying a clear beside it, a second identical button
+	// a line above read as a different action.
+	const clears = Array.from(root.querySelectorAll("button")).filter((b) => b.textContent === "Clear filters");
+	expect(clears.length).toBe(1);
+	expect(empty.contains(clears[0] as HTMLElement)).toBe(true);
+
 	fireClick(buttonByText(empty, "Clear filters"));
 	expect(root.querySelector("p.empty")).toBeNull();
-	expect(root.textContent).toContain("showing 2 of 2");
+	expect(root.querySelectorAll("li.model-row").length).toBe(2);
+	expect(root.textContent).not.toContain("showing");
 });

@@ -1626,6 +1626,13 @@
 		padding: 3px 10px 3px 0;
 		vertical-align: baseline;
 	}
+	/* The 10px is an inter-column gap, so the last column hands it back: with
+		 it, the source cell's right-floated "edit" stopped 10px short of the
+		 rules above, and the panel's tables read as having two right edges. */
+	.model-inspector table.resolution th:last-child,
+	.model-inspector table.resolution td:last-child {
+		padding-right: 0;
+	}
 	/* The column names, said once and quietly: a badge column that never says
 		   "source" reads as decoration. */
 	.model-inspector table.resolution thead th {
@@ -1834,6 +1841,15 @@
 		padding: 5px 8px;
 		border-radius: 4px;
 		background: var(--chip);
+	}
+	/* Forced colours repaint that fill to Canvas, which was the strip's ONLY
+		 separation from the table above it - the one line every request obeys
+		 dissolved into the page. A border restates the box in the channel the
+		 mode keeps. */
+	@media (forced-colors: active) {
+		.model-inspector .max-tokens {
+			border: 1px solid CanvasText;
+		}
 	}
 	.model-inspector .max-tokens-name {
 		font-weight: 600;
@@ -3618,10 +3634,10 @@
 			}
 		}
 	}
-	/* A 260px floor plus a scope chip plus a count does not fit a 400px pane,
-	 and a floor cannot yield: the input ran off the right edge instead of
-	 shrinking. Below this width the field takes the line it is already
-	 wrapping onto and gives up the floor. */
+	/* The filterbar input's 260px floor (the Resolution table's filter) cannot
+	 yield, so at a narrow pane it ran off the right edge instead of
+	 shrinking. Below this width the field takes a line of its own and gives
+	 up the floor. */
 	@container pane (width < 560px) {
 		.filterbar input {
 			min-width: 0;
