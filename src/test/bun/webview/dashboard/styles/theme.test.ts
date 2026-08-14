@@ -64,19 +64,20 @@ const REQUIRED_UTILITIES = [
 	"sr-only",
 	"has-[:checked]:outline-foreground",
 	"forced-color-adjust-none",
-	// The copy action's reveal wrapper (models.tsx): the whole class set,
-	// because the reveal is invisible to the component suites (happy-dom
-	// runs no cascade) and a scan regression would strand the copy button
-	// hidden forever - or painted forever - with every test green.
+	// The reveal primitive's whole class set (ui/reveal.tsx, models.tsx's row
+	// scope included): the reveal is invisible to the component suites
+	// (happy-dom runs no cascade), so a scan regression would strand every
+	// revealed action hidden forever - or painted forever - with every test
+	// green.
 	"opacity-0",
 	"transition-opacity",
 	"motion-reduce:transition-none",
 	"group-hover/row:opacity-100",
 	"group-focus-within/row:opacity-100",
 	"@max-[560px]/pane:opacity-100",
-	// The record editors' settings.json jump (recordEditors.tsx) reveals on
-	// its heading's hover band the same way: a scan regression would strand
-	// the jump painted only below 560px, with every component test green.
+	// The record editors' settings.json jump reveals on its heading's hover
+	// band (ui/reveal.tsx's "head" scope): a scan regression would strand the
+	// jump painted only below 560px, with every component test green.
 	"group-hover/head:opacity-100",
 	"group-focus-within/head:opacity-100",
 	// The settings rows' actions slot (ui/reveal.tsx's "setting" scope):
@@ -112,6 +113,37 @@ test("the source scan compiles every utility the ui components depend on", async
 	expect(output).toContain("GrayText");
 	expect(output).toContain(".chip-field.invalid");
 	expect(output).toContain(".chip-field.hinted");
+});
+
+test("the reveal primitive carries the whole idiom, reduced motion included", async () => {
+	// The idiom's contract lives in one wrapper (ui/reveal.tsx) so it cannot
+	// fork again, and its motion-reduce clause is unrenderable: the harness
+	// cannot emulate prefers-reduced-motion, and happy-dom runs no cascade, so
+	// this source-plus-compile pin is the clause's only enforcement.
+	const source = readFileSync(path.resolve(import.meta.dir, "../../../../../webview/dashboard/ui/reveal.tsx"), "utf8");
+	for (const clause of [
+		"opacity-0",
+		"transition-opacity",
+		"@max-[560px]/pane:opacity-100",
+		"motion-reduce:transition-none",
+	]) {
+		expect(source).toContain(clause);
+	}
+	// Every group scope reveals on hover AND focus-within: visibility-based
+	// spellings (which drop the control from the tab order) and hover-only
+	// scopes are the two forks this primitive exists to prevent.
+	const scopes = [...source.matchAll(/group-hover\/([a-z]+):opacity-100/g)].map((match) => match[1] ?? "");
+	expect(scopes.length).toBeGreaterThanOrEqual(3);
+	for (const scope of scopes) {
+		expect(source).toContain(`group-focus-within/${scope}:opacity-100`);
+	}
+	// And the transition really stands down in the compiled sheet: the utility
+	// must sit inside the prefers-reduced-motion media query, not merely appear
+	// as a class name in the source.
+	const output = await compileTheme();
+	expect(output).toMatch(
+		/@media \(prefers-reduced-motion: reduce\) \{\s*\.motion-reduce\\:transition-none \{\s*transition-property: none;/
+	);
 });
 
 test("the palette and radius resets keep Tailwind's defaults unreachable", async () => {

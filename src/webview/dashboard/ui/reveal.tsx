@@ -27,6 +27,8 @@ const REVEAL_WITHIN = {
 	setting: "group-hover/setting:opacity-100 group-focus-within/setting:opacity-100",
 	/** A header line (`group/head` on the section head). */
 	head: "group-hover/head:opacity-100 group-focus-within/head:opacity-100",
+	/** A list row (`group/row` on the row element - the models list's rows). */
+	row: "group-hover/row:opacity-100 group-focus-within/row:opacity-100",
 } as const;
 
 export function Reveal({
