@@ -2545,6 +2545,22 @@ suite("extension/dashboard/state", () => {
 			assert.notStrictEqual(validateNumberSetting("usage.pollInterval", null), undefined);
 		});
 
+		test("validateNumberSetting refuses fractions for integer-only settings", () => {
+			// The message schema admits any finite number, so this host-side gate
+			// is what keeps a crafted webview payload from writing a fraction into
+			// a settings.json field whose contribution declares "integer". Driven
+			// by the spec's integer flag, the same source the getter floors on.
+			const refused = validateNumberSetting("chat.maxToolsPerRequest", 2.5);
+			assert.ok(refused !== undefined, "a fractional tool cap is refused");
+			assert.ok(refused.split("\n")[1]?.includes("chat.maxToolsPerRequest"), refused);
+			assert.strictEqual(validateNumberSetting("chat.maxToolsPerRequest", 129), undefined);
+			assert.strictEqual(
+				validateNumberSetting("chat.timeout", 1000.5),
+				undefined,
+				"non-integer settings still accept fractions"
+			);
+		});
+
 		test("number-setting refusals are two-part: a headline, then a detail line naming the setting id", () => {
 			// The banner is page-global and names no field, so the detail line
 			// must carry the setting id; the headline carries the unit-aware

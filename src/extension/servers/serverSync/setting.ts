@@ -415,6 +415,14 @@ function acceptEntries(
 		if (record.models !== undefined && !isRecord(record.models)) {
 			report("has a models value that is not an object, ignored");
 		} else if (isRecord(record.models)) {
+			// Named on purpose, like the unknown auth keys: a typo silently
+			// reading as "no per-entry records" would be invisible. Key names are
+			// structural configuration, never values.
+			for (const key of Object.keys(record.models)) {
+				if (key !== "parameters" && key !== "capabilities") {
+					report(`has an unknown models key "${key}", ignored`);
+				}
+			}
 			const modelParameters = normalizeModelParameters(record.models.parameters);
 			if (Object.keys(modelParameters).length > 0) {
 				entry.modelParameters = modelParameters;
@@ -429,6 +437,14 @@ function acceptEntries(
 			report("has a discovery value that is not an object, ignored");
 		} else if (isRecord(record.discovery)) {
 			const discovery = record.discovery;
+			// Named on purpose: a typo silently reading as "no expected failures"
+			// or "nothing declared" would be invisible. Key names are structural
+			// configuration, never values.
+			for (const key of Object.keys(discovery)) {
+				if (key !== "expectedFailures" && key !== "declared") {
+					report(`has an unknown discovery key "${key}", ignored`);
+				}
+			}
 			if (Array.isArray(discovery.expectedFailures)) {
 				const knownCategories = discovery.expectedFailures.filter(isExpectedFailureCategory);
 				if (knownCategories.length < discovery.expectedFailures.length) {

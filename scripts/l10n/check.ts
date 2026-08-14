@@ -643,13 +643,16 @@ const PRESERVED_TOKENS: readonly { readonly what: string; readonly pattern: RegE
 ];
 
 /**
- * No two bundle keys may share one base message. The repo rule is that a
- * repeated message uses the identical t() form (plain, or {message, comment}
- * with the same comment) at every occurrence; editing the comment at only one
- * of a repeated message's call sites silently forks the key, and the fork
- * only surfaces as an untranslated string at runtime. This catches the fork
- * at the gate: a bare key plus a composite "message/comment" key, or two
- * composites with different comments, for the same message.
+ * A bare key may never coexist with composite keys for the same base message.
+ * The repo rule: a repeated message either uses the identical plain t() form
+ * everywhere (one bare key), or every call site carries a distinguishing
+ * comment (all-composite, a deliberate split so translations can diverge -
+ * the "tools" chip label vs the "tools" count suffix). What this refuses is
+ * the mix: editing the comment at only SOME of a repeated message's call
+ * sites silently forks the key, and the fork only surfaces as an
+ * untranslated string at runtime. An all-composite fork is still gated -
+ * extraction drift and the key-set checks make every new key a translation
+ * obligation.
  */
 function checkBaseMessageCollisions(bundle: BundleFile): void {
 	const keysByMessage = new Map<string, string[]>();
@@ -663,11 +666,11 @@ function checkBaseMessageCollisions(bundle: BundleFile): void {
 		}
 	}
 	for (const [message, keys] of keysByMessage) {
-		if (keys.length > 1) {
+		if (keys.length > 1 && keys.includes(message)) {
 			fail(
 				`${rel(BUNDLE_PATH)}: message ${JSON.stringify(message)} is minted under ${keys.length} keys ` +
-					`(${keys.map((key) => JSON.stringify(key)).join(", ")}); use the identical t() form ` +
-					"(same comment, or none) at every occurrence of a repeated message."
+					`(${keys.map((key) => JSON.stringify(key)).join(", ")}); use the identical t() form at every ` +
+					"occurrence of a repeated message, or give every occurrence a distinguishing comment."
 			);
 		}
 	}

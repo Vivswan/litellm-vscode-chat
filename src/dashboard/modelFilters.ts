@@ -30,7 +30,13 @@ import type { DashboardModel } from "./viewModels";
  * also the cheaper read: a scanning eye wants what a model CAN do.
  */
 export const CAPABILITY_FLAGS = [
-	["supports_function_calling", "toolCalling", () => l10n.t("tools")],
+	// A key of its own, apart from the max-tools count suffix "tools": a chip
+	// label may translate differently from a suffix after a number.
+	[
+		"supports_function_calling",
+		"toolCalling",
+		() => l10n.t({ message: "tools", comment: ["Capability chip: the model supports tool calling."] }),
+	],
 	["supports_vision", "imageInput", () => l10n.t("vision")],
 	["supports_prompt_caching", "promptCaching", () => l10n.t("caching")],
 	["supports_reasoning", "reasoning", () => l10n.t("reasoning")],

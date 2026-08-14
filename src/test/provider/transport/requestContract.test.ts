@@ -616,6 +616,47 @@ suite("provider/request contract", () => {
 			assert.strictEqual(body.temperature, undefined);
 		});
 
+		test("a keyword listed in chat.additionalToolSchemaKeywords survives into the wire tool schemas", async () => {
+			const tools = [
+				{
+					name: "lookup",
+					description: "a tool",
+					inputSchema: {
+						type: "object",
+						properties: { key: { type: "string" } },
+						propertyNames: { pattern: "^[a-z]+$" },
+					},
+				},
+			];
+			const opts = {
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
+				tools,
+			} as unknown as vscode.ProvideLanguageModelChatResponseOptions;
+			const parametersOf = (body: Record<string, unknown>) =>
+				(body.tools as readonly { function: { parameters: Record<string, unknown> } }[])[0]?.function.parameters;
+
+			const defaultBody = await withConfig({}, () =>
+				captureRequestBody(makeProvider(TEST_BASE_URL), attachedModelInfo, opts)
+			);
+			const defaultParameters = parametersOf(defaultBody);
+			assert.ok(defaultParameters, "the tool must ride the request");
+			assert.ok(
+				!("propertyNames" in defaultParameters),
+				"propertyNames is outside the built-in allowlist and must be pruned at the default"
+			);
+
+			const extendedBody = await withConfig({ "chat.additionalToolSchemaKeywords": ["propertyNames"] }, () =>
+				captureRequestBody(makeProvider(TEST_BASE_URL), attachedModelInfo, opts)
+			);
+			const extendedParameters = parametersOf(extendedBody);
+			assert.ok(extendedParameters, "the tool must ride the request");
+			assert.deepStrictEqual(
+				extendedParameters.propertyNames,
+				{ pattern: "^[a-z]+$" },
+				"a configured extra keyword must reach LiteLLM unchanged"
+			);
+		});
+
 		test("sends the chat request to /v1/chat/completions on the configured server", async () => {
 			let chatUrl = "";
 			const provider = createConfiguredProvider();
@@ -1248,6 +1289,24 @@ suite("provider/request contract", () => {
 				/Too many chat tools are enabled/
 			);
 			assert.deepStrictEqual(requests, [], "Requests over the tool limit must be rejected before any network call");
+		});
+
+		test("a chat.maxToolsPerRequest raised above 128 lets a 129-tool request reach the wire", async () => {
+			// The counterpart of the default-cap refusal above: the setting is not
+			// a display nicety, it decides what the request path sends.
+			const tools = Array.from({ length: 129 }, (_, i) => ({
+				name: `tool_${i}`,
+				description: "a tool",
+				inputSchema: { type: "object", properties: {} },
+			}));
+			const body = await withConfig({ "chat.maxToolsPerRequest": 129 }, () =>
+				captureRequestBody(makeProvider(TEST_BASE_URL), attachedModelInfo, {
+					toolMode: vscode.LanguageModelChatToolMode.Auto,
+					tools,
+				} as unknown as vscode.ProvideLanguageModelChatResponseOptions)
+			);
+			const wireTools = body.tools as readonly { function: { name: string } }[];
+			assert.strictEqual(wireTools.length, 129, "all 129 tools must ride the request under the raised cap");
 		});
 	});
 

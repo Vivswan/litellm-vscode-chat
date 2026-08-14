@@ -370,10 +370,9 @@ export function numberSettingPresentation(id: NumberSettingId): NumberSettingPre
 			return {
 				label: l10n.t("Max tools per request"),
 				description: l10n.t("Requests carrying more tools are refused before sending; most servers cap at 128."),
-				// The same message the capability chips use, deliberately without a
-				// distinguishing comment: l10n:check refuses one message minted
-				// under two keys.
-				unit: l10n.t("tools"),
+				// A key of its own, apart from the capability chip's "tools": a
+				// count suffix may need a measure word where a chip label does not.
+				unit: l10n.t({ message: "tools", comment: ["Unit suffix after the max-tools count input."] }),
 			};
 		case "discovery.timeout":
 			return {

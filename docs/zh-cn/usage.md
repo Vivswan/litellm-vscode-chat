@@ -9,6 +9,9 @@
 | 设置 | 默认值 | 一句话 |
 |---|---|---|
 | [`usage.pollInterval`](settings.md#参考) | `300000` 毫秒 | 后台多久获取一次支出; `0` = 关闭 ([轮询](#轮询)) |
+| [`usage.initialRefreshDelay`](settings.md#参考) | `5000` 毫秒 | 扩展启动后多久运行首次用量轮询 ([轮询](#轮询)) |
+| [`usage.serversChangeRefreshDelay`](settings.md#参考) | `2000` 毫秒 | `servers` 设置变更后多久刷新用量数据 ([轮询](#轮询)) |
+| [`usage.pollingOffFreshnessWindow`](settings.md#参考) | `600000` 毫秒 | 轮询关闭时按需获取的用量数据算作新鲜的时长; `0` = 从不 ([轮询](#轮询)) |
 | [`usage.alertThresholds`](settings.md#参考) | `[0.8, 0.95]` | 触发通知的预算比例 ([警报](#警报)) |
 | [`usage.statusBar`](settings.md#参考) | `"always"` | `always` / `alerts-only` / `off` ([状态栏](#状态栏)) |
 | [`usage.currencySymbol`](settings.md#参考) | `"$"` | 每个支出和价格数字前的前缀, 例如 `"EUR "`; 仅用于显示, 从不换算 |

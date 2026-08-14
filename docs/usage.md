@@ -9,6 +9,9 @@ A handful of settings drive it all, each detailed in context below:
 | Setting | Default | One line |
 |---|---|---|
 | [`usage.pollInterval`](settings.md#reference) | `300000` ms | how often spend is fetched in the background; `0` = off ([Polling](#polling)) |
+| [`usage.initialRefreshDelay`](settings.md#reference) | `5000` ms | how long after extension startup the first usage poll runs ([Polling](#polling)) |
+| [`usage.serversChangeRefreshDelay`](settings.md#reference) | `2000` ms | how long after a `servers` change usage data refreshes ([Polling](#polling)) |
+| [`usage.pollingOffFreshnessWindow`](settings.md#reference) | `600000` ms | how long on-demand usage data counts as fresh while polling is off; `0` = never ([Polling](#polling)) |
 | [`usage.alertThresholds`](settings.md#reference) | `[0.8, 0.95]` | budget fractions that trigger a notification ([Alerts](#alerts)) |
 | [`usage.statusBar`](settings.md#reference) | `"always"` | `always` / `alerts-only` / `off` ([The status bar](#the-status-bar)) |
 | [`usage.currencySymbol`](settings.md#reference) | `"$"` | the prefix on every spend and price figure, e.g. `"EUR "`; display only, never a conversion |

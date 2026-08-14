@@ -316,6 +316,7 @@
 	"Enter a parameter name": "Enter a parameter name",
 	"Enter a positive whole number of tokens": "Enter a positive whole number of tokens",
 	"Enter a unique label for this server (e.g., 'Production', 'Local Dev')": "Enter a unique label for this server (e.g., 'Production', 'Local Dev')",
+	"Enter a whole number.": "Enter a whole number.",
 	"Enter an OpenRouter model ID, e.g. openai/gpt-4o": "Enter an OpenRouter model ID, e.g. openai/gpt-4o",
 	"Enter the API key (leave empty if not required)": "Enter the API key (leave empty if not required)",
 	"Enter the LiteLLM base URL": "Enter the LiteLLM base URL",
@@ -1243,6 +1244,7 @@
 	"set on this entry - the key reports {0}": "set on this entry - the key reports {0}",
 	"setting {0}, minimum {1}": "setting {0}, minimum {1}",
 	"setting {0}: allowed range {1}": "setting {0}: allowed range {1}",
+	"setting {0}: fractional values are not accepted": "setting {0}: fractional values are not accepted",
 	"setting {0}: no value given; the setting is not clearable": "setting {0}: no value given; the setting is not clearable",
 	"settings": "settings",
 	"settings (visible)": "settings (visible)",
@@ -1263,7 +1265,18 @@
 	"the window reports no prompt tokens": "the window reports no prompt tokens",
 	"this label is already in use": "this label is already in use",
 	"token limit exceeded before send: local estimate {0} tokens (messages + tools), input limit {1}": "token limit exceeded before send: local estimate {0} tokens (messages + tools), input limit {1}",
-	"tools": "tools",
+	"tools/Capability chip: the model supports tool calling.": {
+		"message": "tools",
+		"comment": [
+			"Capability chip: the model supports tool calling."
+		]
+	},
+	"tools/Unit suffix after the max-tools count input.": {
+		"message": "tools",
+		"comment": [
+			"Unit suffix after the max-tools count input."
+		]
+	},
 	"updated {0}": "updated {0}",
 	"usage access denied": "usage access denied",
 	"vision": "vision",

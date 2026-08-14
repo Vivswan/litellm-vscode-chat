@@ -9,6 +9,9 @@
 | 設定 | 預設值 | 一句話 |
 |---|---|---|
 | [`usage.pollInterval`](settings.md#參考) | `300000` 毫秒 | 背景多久擷取一次支出; `0` = 關閉 ([輪詢](#輪詢)) |
+| [`usage.initialRefreshDelay`](settings.md#參考) | `5000` 毫秒 | 延伸模組啟動後多久執行首次用量輪詢 ([輪詢](#輪詢)) |
+| [`usage.serversChangeRefreshDelay`](settings.md#參考) | `2000` 毫秒 | `servers` 設定變更後多久重新整理用量資料 ([輪詢](#輪詢)) |
+| [`usage.pollingOffFreshnessWindow`](settings.md#參考) | `600000` 毫秒 | 輪詢關閉時隨需取得的用量資料算作新鮮的時長; `0` = 從不 ([輪詢](#輪詢)) |
 | [`usage.alertThresholds`](settings.md#參考) | `[0.8, 0.95]` | 觸發通知的預算比例 ([警示](#警示)) |
 | [`usage.statusBar`](settings.md#參考) | `"always"` | `always` / `alerts-only` / `off` ([狀態列](#狀態列)) |
 | [`usage.currencySymbol`](settings.md#參考) | `"$"` | 每個支出與價格數字前的前綴, 例如 `"EUR "`; 僅用於顯示, 從不換算 |

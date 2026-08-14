@@ -21,6 +21,7 @@ import {
 	ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY,
 	CONFIG_SECTION,
 	CURRENCY_SYMBOL_SETTING_KEY,
+	isIntegerSetting,
 	NUMBER_SETTING_SPECS,
 	TOKEN_ESTIMATION_SETTING_KEY,
 	UI_ACCENT_SETTING_KEY,
@@ -181,6 +182,13 @@ export function validateNumberSetting(setting: NumberSettingId, value: number | 
 			setting,
 			minimum
 		)}`;
+	}
+	// The schema layer admits any finite number (the webview is outside the
+	// trust boundary), so the spec's integer-only rule is re-enforced here:
+	// without it a crafted message would write a fraction into a settings.json
+	// field whose contribution declares "integer".
+	if (isIntegerSetting(setting) && !Number.isInteger(value)) {
+		return `${l10n.t("Enter a whole number.")}\n${l10n.t("setting {0}: fractional values are not accepted", setting)}`;
 	}
 	return undefined;
 }

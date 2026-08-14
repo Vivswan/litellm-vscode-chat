@@ -13,6 +13,7 @@ import {
 	DEFAULT_TOKEN_ESTIMATION_MODE,
 	DEFAULT_UI_ACCENT,
 	DEFAULT_UI_THEME,
+	isIntegerSetting,
 	MIN_TIMEOUT_MS,
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
@@ -64,22 +65,31 @@ function getBooleanSetting(id: BooleanSettingId): boolean {
 
 /**
  * Validate a configured number setting: non-finite values fall back to the
- * default, finite values are clamped to the minimum. Logs whenever the
- * effective value differs from the configured one.
+ * default, integer-only settings floor fractions (the contribution says
+ * integer, but settings.json is free text), and finite values are clamped to
+ * the minimum. Logs whenever the effective value differs from the configured
+ * one.
  */
-function clampNumber(raw: unknown, fallback: number, minimum: number, name: string, log?: LogFn): number {
+function clampNumber(
+	raw: unknown,
+	fallback: number,
+	minimum: number,
+	integer: boolean,
+	name: string,
+	log?: LogFn
+): number {
 	const candidate = typeof raw === "number" && Number.isFinite(raw) ? raw : fallback;
-	const clamped = Math.max(minimum, candidate);
+	const clamped = Math.max(minimum, integer ? Math.floor(candidate) : candidate);
 	if (clamped !== raw) {
 		log?.(`Invalid ${name} configuration, using clamped value`, { configured: raw, clamped });
 	}
 	return clamped;
 }
 
-/** The number settings share the clamping read; each one's default and floor come from its spec. */
+/** The number settings share the clamping read; each one's default, floor, and integer rule come from its spec. */
 function getClampedNumberSetting(id: NumberSettingId, log?: LogFn): number {
 	const spec = NUMBER_SETTING_SPECS[id];
-	return clampNumber(getNumberSetting(id), spec.default, spec.minimum, id, log);
+	return clampNumber(getNumberSetting(id), spec.default, spec.minimum, isIntegerSetting(id), id, log);
 }
 
 export function getDiscoveryTimeout(log?: LogFn): number {
@@ -132,19 +142,11 @@ export function isPromptCachingEnabled(): boolean {
 /**
  * How many tools one chat request may carry before it is refused locally
  * instead of sent (chat.maxToolsPerRequest). Values below 1 clamp to 1;
- * fractions floor (the contribution says integer, but settings.json is free
- * text); non-finite values fall back to the default.
+ * fractions floor and non-finite values fall back to the default (the spec's
+ * `integer` flag, applied by the shared clamping read).
  */
 export function getMaxToolsPerRequest(log?: LogFn): number {
-	const clamped = getClampedNumberSetting("chat.maxToolsPerRequest", log);
-	const floored = Math.floor(clamped);
-	if (floored !== clamped) {
-		log?.("Invalid chat.maxToolsPerRequest configuration, using clamped value", {
-			configured: clamped,
-			clamped: floored,
-		});
-	}
-	return floored;
+	return getClampedNumberSetting("chat.maxToolsPerRequest", log);
 }
 
 /**

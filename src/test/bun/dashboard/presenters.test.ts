@@ -6,6 +6,7 @@ import {
 	overallStatusText,
 	serverOutcomeParts,
 	serverOutcomeText,
+	unitBehavior,
 } from "../../../dashboard/presenters";
 import type { DashboardServer } from "../../../dashboard/viewModels";
 import type { CapabilityJsonValue, CapabilityValueKind } from "../../../shared/config/capabilityResolution";
@@ -14,6 +15,8 @@ import {
 	CONSUMED_CAPABILITY_FIELDS,
 	capabilityField,
 } from "../../../shared/config/capabilityResolution";
+import type { NumberSettingId } from "../../../shared/config/settingSpec";
+import { isIntegerSetting, NUMBER_SETTING_SPECS } from "../../../shared/config/settingSpec";
 
 /**
  * Wording pins for the shared diagnostics renderers. These lines are what
@@ -379,5 +382,23 @@ describe("dashboard/presenters renderers", () => {
 			assert.strictEqual(capabilityField(bag, "constructor"), undefined);
 			assert.strictEqual(capabilityField(bag, "__proto__"), undefined);
 		});
+	});
+});
+
+describe("dashboard/presenters number-unit grammars", () => {
+	test("a setting's draft grammar refuses fractions exactly when its spec is integer-only", () => {
+		// The integer-only fact has one source, the spec's `integer` flag: the
+		// settings reader floors on it and the manifest type mirrors it
+		// (settingSpec.test.ts). This pin keeps the dashboard's draft grammar
+		// on the same source, so a new integer setting cannot ship a unit
+		// whose input accepts values the host would silently floor.
+		for (const id of Object.keys(NUMBER_SETTING_SPECS) as NumberSettingId[]) {
+			const fractionReading = unitBehavior(id).parseDraft("1.5");
+			assert.strictEqual(
+				fractionReading === undefined,
+				isIntegerSetting(id),
+				`${id}: the draft grammar and the spec's integer flag disagree about fractions`
+			);
+		}
 	});
 });

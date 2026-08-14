@@ -2121,6 +2121,33 @@ suite("extension/servers/serverSync: the nested entry shape", () => {
 			);
 		});
 
+		test("unknown discovery keys are named (a typo must not silently read as nothing configured)", () => {
+			// The same per-key precision as the unknown auth keys: the report names
+			// the structural key, so "expectedFailure" cannot silently read as "no
+			// expected failures". Diagnostic only - the entry stays usable.
+			const { entries, problems } = parseOne({
+				discovery: { expectedFailure: ["modelInfo"], declared: ["deepseek-r1"] },
+			});
+			assert.strictEqual(entries.length, 1, "an unknown discovery key is a diagnostic, not a rejection");
+			assert.ok(!("expectedFailures" in (entries[0] ?? {})), "the typo must not apply as expectedFailures");
+			assert.deepStrictEqual(entries[0]?.declaredModels, ["deepseek-r1"], "the known sibling key still applies");
+			assert.deepStrictEqual(problems, ['entry 1 has an unknown discovery key "expectedFailure", ignored']);
+		});
+
+		test("unknown models keys are named (a typo must not silently read as no per-entry records)", () => {
+			const { entries, problems } = parseOne({
+				models: { parameter: { "*": { temperature: 0 } }, capabilities: { "*": { supports_vision: true } } },
+			});
+			assert.strictEqual(entries.length, 1, "an unknown models key is a diagnostic, not a rejection");
+			assert.ok(!("modelParameters" in (entries[0] ?? {})), "the typo must not apply as models.parameters");
+			assert.deepStrictEqual(
+				entries[0]?.modelCapabilities,
+				{ "*": { supports_vision: true } },
+				"the known sibling key still applies"
+			);
+			assert.deepStrictEqual(problems, ['entry 1 has an unknown models key "parameter", ignored']);
+		});
+
 		test("an invalid budget is a diagnostic and is ignored; the entry stays usable (it is not auth)", () => {
 			const invalid = parseOne({ budget: 0 });
 			assert.strictEqual(invalid.entries.length, 1);

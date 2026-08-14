@@ -544,8 +544,9 @@ export interface UsageServerView {
 	readonly baseUrl: string;
 	/**
 	 * Whether the data is fresh under the polling rule (last fetch OK and
-	 * younger than two poll intervals; ten minutes with polling off). Stale
-	 * data still renders, labeled with its age.
+	 * younger than two poll intervals; with polling off, younger than the
+	 * usage.pollingOffFreshnessWindow setting). Stale data still renders,
+	 * labeled with its age.
 	 */
 	readonly fresh: boolean;
 	/** The /key/info standing: why spend numbers are missing or not updating. */

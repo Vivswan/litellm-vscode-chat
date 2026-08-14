@@ -9,8 +9,10 @@ import {
 	CURRENCY_SYMBOL_SETTING_KEY,
 	DEFAULT_CURRENCY_SYMBOL,
 	DEFAULT_TOKEN_ESTIMATION_MODE,
+	isIntegerSetting,
 	MIN_TIMEOUT_MS,
 	NUMBER_SETTING_SPECS,
+	type NumberSettingId,
 	STRUCTURED_SETTING_KEYS,
 	TOKEN_ESTIMATION_MODES,
 	TOKEN_ESTIMATION_SETTING_KEY,
@@ -145,13 +147,25 @@ suite("shared/config/settingSpec: package.json drift guard", () => {
 		}
 	});
 
-	test("number settings carry the spec's default and minimum", () => {
+	test("number settings carry the spec's default, minimum, and integer-ness", () => {
 		const properties = allProperties();
 		for (const [id, spec] of Object.entries(NUMBER_SETTING_SPECS)) {
 			const schema = settingSchema(properties, id);
 			assert.strictEqual(schema.default, spec.default, `${id} default`);
 			assert.strictEqual(schema.minimum, spec.minimum, `${id} minimum`);
 			assert.strictEqual(schemaTypes(schema).includes("null"), spec.nullable, `${id} nullability`);
+			// The spec's `integer` flag is the one source of the integer-only
+			// fact; the manifest's scalar type must mirror it exactly, and an
+			// integer-flagged spec's own numbers must satisfy the rule they
+			// declare (a fractional minimum would make the clamping read return
+			// a fraction from an "integer" setting).
+			const integer = isIntegerSetting(id as NumberSettingId);
+			const scalarTypes = schemaTypes(schema).filter((type) => type !== "null");
+			assert.deepStrictEqual(scalarTypes, [integer ? "integer" : "number"], `${id} type`);
+			if (integer) {
+				assert.ok(spec.default === null || Number.isInteger(spec.default), `${id} default must be an integer`);
+				assert.ok(Number.isInteger(spec.minimum), `${id} minimum must be an integer`);
+			}
 		}
 	});
 

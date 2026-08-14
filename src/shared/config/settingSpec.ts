@@ -86,11 +86,16 @@ export const MIN_TIMEOUT_MS = 1000;
 /**
  * The value contract of one number setting, exactly what package.json
  * declares for it. Nullable settings may default to null ("unset, derive
- * it"); non-nullable ones always carry a number.
+ * it"); non-nullable ones always carry a number. `integer` marks a setting
+ * that counts discrete things: it is the one source of the integer-only
+ * fact - the manifest declares `"type": "integer"` (settingSpec.test.ts pins
+ * the mirror), the settings reader floors fractions, and the dashboard's
+ * count grammar refuses them (presenters.test.ts pins that coupling).
  */
-export type NumberSettingValueSpec =
+export type NumberSettingValueSpec = { readonly integer?: true } & (
 	| { readonly default: number; readonly minimum: number; readonly nullable: false }
-	| { readonly default: number | null; readonly minimum: number; readonly nullable: true };
+	| { readonly default: number | null; readonly minimum: number; readonly nullable: true }
+);
 
 /** The value contract of one boolean setting. */
 export interface BooleanSettingValueSpec {
@@ -102,7 +107,7 @@ export const NUMBER_SETTING_SPECS = {
 	"chat.timeout": { default: 300000, minimum: MIN_TIMEOUT_MS, nullable: false },
 	// A tool count, not milliseconds: how many tools one request may carry
 	// before it is refused locally instead of sent.
-	"chat.maxToolsPerRequest": { default: 128, minimum: 1, nullable: false },
+	"chat.maxToolsPerRequest": { default: 128, minimum: 1, nullable: false, integer: true },
 	"discovery.timeout": { default: 30000, minimum: MIN_TIMEOUT_MS, nullable: false },
 	// A zero TTL is legal: it disables serving from the discovery cache.
 	"discovery.cacheTtl": { default: 3600000, minimum: 0, nullable: false },
@@ -124,6 +129,17 @@ export const NUMBER_SETTING_SPECS = {
 } as const satisfies Record<string, NumberSettingValueSpec>;
 
 export type NumberSettingId = keyof typeof NUMBER_SETTING_SPECS;
+
+/**
+ * Whether one number setting is integer-only. The single reader of the spec's
+ * `integer` flag: the settings getter's floor, the intent boundary's
+ * refusal, and the drift-guard tests all ask this predicate instead of
+ * re-spelling the property probe the literal spec types force.
+ */
+export function isIntegerSetting(id: NumberSettingId): boolean {
+	const spec = NUMBER_SETTING_SPECS[id];
+	return "integer" in spec && spec.integer === true;
+}
 
 /** The boolean litellm-vscode-chat.* settings, keyed by their setting names. */
 export const BOOLEAN_SETTING_SPECS = {
