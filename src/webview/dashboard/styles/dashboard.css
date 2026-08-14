@@ -544,18 +544,13 @@
 	.server-count .count-plain {
 		font-variant-numeric: tabular-nums;
 	}
-	/* A server row's spend-at-a-glance: the Usage tab's numbers and severity
-		   tokens (its warn is editorWarning, not the pill yellow), row-sized. */
-	.usage-cell {
-		font-variant-numeric: tabular-nums;
-		font-weight: 600;
-		white-space: nowrap;
-	}
 	/* ---- the server list ---------------------------------------------------
-	   One line per server with its problems indented underneath, replacing a
-	   seven-column table. The row's cells label themselves ("6 models"), which
-	   is what let the header row go: a header that only ever said "Models" over
-	   a number is a line of chrome per page for a word the cell can carry. */
+	   One row per server: a disclosure button carrying the readable block (name,
+	   verdict, and the meta facts), the actions cluster beside it, the row's
+	   problems always visible underneath, and the full inventory behind the
+	   disclosure. The row's cells label themselves ("6 models"), which is what
+	   let the header row go: a header that only ever said "Models" over a
+	   number is a line of chrome per page for a word the cell can carry. */
 	/* The LIST owns the column model, and the rows inherit it through subgrid.
 		 Giving each row its own grid was the obvious thing and it was wrong: auto
 		 tracks then size against that row's content alone, so a server with no
@@ -563,9 +558,20 @@
 		 up down the page. Comparing spend and model counts across servers is why
 		 those cells are on the row at all, and min-width floors cannot fix it -
 		 they stop a cell shrinking, they do not make two rows agree. */
+	/* Eight tracks: chevron, name, url, status, count, spend, badges, actions.
+		 The actions track is FIXED at the width of its resting pair (Edit beside
+		 Remove), and the wider ARMED pair ("Confirm remove?" beside Cancel)
+		 WRAPS inside that same width instead of stretching it: the track
+		 belongs to the list, so letting the widest state size it on demand
+		 would shift every row's columns at the moment the reader arms a remove
+		 - under the pointer that is about to confirm it. Wrapped, arming grows
+		 only the armed row's own height by one button line. Fixed rather than
+		 minmax(_, auto), because an auto track re-measures per state: even a
+		 capped armed pair contributed a few pixels more than the resting one
+		 and nudged every column on arm. */
 	.server-list {
 		display: grid;
-		grid-template-columns: minmax(7em, 12em) minmax(0, 1fr) auto auto auto auto minmax(7em, auto);
+		grid-template-columns: auto minmax(7em, 12em) minmax(0, 1fr) auto auto auto auto 10em;
 		list-style: none;
 		margin: 0;
 		padding: 0;
@@ -579,29 +585,66 @@
 	.server-item + .server-item {
 		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
 	}
-	/* Seven cells - name, url, status, count, usage, badges, actions - taking
-		 their widths from the list above rather than from this row. The actions
-		 get a track of their own rather than an overlay: reserved space means
-		 revealing them cannot reflow the row, so hovering never moves the line you
-		 are reading.
-		 Each cell names its own column instead of falling where the DOM order puts
-		 it, because the two orders differ on purpose: the row reads name, status,
-		 url in the document (a screen reader should hear the verdict before the
-		 host string) and name, url, status across the page, and at narrow widths
-		 the same cells fold onto two lines. Explicit placement is what lets one
-		 markup carry all three without a second row component. */
+	/* The non-interactive wrapper: it spans the list and hands the shared tracks
+		 down to its two children - the disclosure button and the actions cluster -
+		 through a second subgrid hop. It exists because those two must be
+		 SIBLINGS (a button cannot contain a button) while still sharing one set
+		 of list-owned columns. */
 	.server-row {
 		display: grid;
 		grid-template-columns: subgrid;
 		grid-column: 1 / -1;
+		border-radius: 4px;
+	}
+	/* The hover and open wash paints the WHOLE row - the disclosure button AND
+		 the actions column beside it - which is why it lives here rather than on
+		 the button: the button's span stops short of the actions track, and a
+		 wash that stopped with it cut every row into two boxes with a bare
+		 gutter between them, three right edges in one view. :has() rather than
+		 :hover on the row itself, so pointing at the actions cluster does not
+		 claim the row is about to open - only the button is the disclosure. */
+	.server-row:has(> .server-line:hover),
+	.server-row:has(> .server-line[aria-expanded="true"]) {
+		background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12));
+	}
+	/* The readable block is ONE disclosure button spanning every track but the
+		 actions', AT EVERY TIER - the folds below recompose its INSIDE and never
+		 its span, so the click target and the keyboard contract are the same at
+		 320px as at 1500px. Nested subgrid on purpose: the button's cells take
+		 the list's tracks, so the verdicts and figures still line up down the
+		 page; giving the button a grid of its own was the models list's trade
+		 and is explicitly refused here - it buys nothing and loses the
+		 cross-row alignment these columns exist for.
+		 Each cell names its own column instead of falling where the DOM order
+		 puts it, because the two orders differ on purpose: the row reads name,
+		 status, url in the document (a screen reader should hear the verdict
+		 before the host string) and name, url, status across the page, and at
+		 narrow widths the same cells fold onto extra lines. Explicit placement
+		 is what lets one markup carry every shape without a second row
+		 component. Visual chrome (border, hover wash, focus ring) rides the
+		 component's utility classes, like the model rows' disclosure. */
+	.server-line {
+		grid-column: 1 / -2;
+		display: grid;
+		grid-template-columns: subgrid;
 		align-items: center;
 		gap: 4px 14px;
 		padding: 5px 8px;
-		border-radius: 4px;
 	}
-	.server-row:hover,
-	.server-item:focus-within .server-row {
-		background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12));
+	/* The row's state mark, the same disclosure vocabulary as the model rows
+		 (.model-chevron): resting it points right, open it points down. */
+	.server-chevron {
+		display: inline-flex;
+		color: var(--muted-foreground);
+		transition: transform 120ms ease;
+	}
+	.server-line[aria-expanded="true"] .server-chevron {
+		transform: rotate(90deg);
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.server-chevron {
+			transition: none;
+		}
 	}
 	/* The label truncates; the tag beside it never does. They were one text run
 		 before, so a narrow pane ate "not in use" first and left an ellipsis where
@@ -630,22 +673,60 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+	/* The https:// scheme stops being painted at EVERY width, and stays in the
+		 row: the text is still there for a screen reader, a copy and a
+		 find-in-page, and the drawer's Base URL fact prints the whole address -
+		 so the URL a reader gets is always the URL the setting holds. Eight
+		 characters at the FRONT of an ellipsizing run are spent on the part
+		 every reader assumes, and at the wide tier's floor they were most of
+		 what survived: the ellipsis ate the host, the one part that says which
+		 server this is. An http:// URL keeps its scheme on screen everywhere -
+		 insecure is news, and its hosts are short. */
+	.server-url .url-scheme.quiet {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		margin: -1px;
+		padding: 0;
+		overflow: hidden;
+		clip: rect(0 0 0 0);
+		white-space: nowrap;
+		border: 0;
+	}
 	.server-count,
 	.server-usage {
 		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
 		text-align: right;
 	}
-	/* Floors, so the numbers line up down the page even though every row is its
-		 own grid. Without them a row with no budget lets its neighbours' figures
-		 slide sideways, and comparing spend across servers - the reason the column
-		 is on the row at all - turns into reading each line separately. */
+	/* Floors, so the numbers line up down the page even when a neighbour has no
+		 badge or no budget: they stop the auto tracks collapsing under an empty
+		 cell, which would slide the figures sideways between rows. */
 	.server-count {
 		min-width: 6.5em;
 		color: var(--vscode-descriptionForeground);
 	}
 	.server-usage {
 		min-width: 3.5em;
+	}
+	/* The spend-at-a-glance: the percentage over its 3px meter, stacked as one
+		 unit (the meter is a rule under the number it explains), with the
+		 staleness note as a third line when the numbers are merely old. The
+		 severity tones and the meter's axis-and-fill treatment ride the
+		 component's utility classes (spendFormat.ts's shared tables). */
+	.spend-unit {
+		display: inline-grid;
+		justify-items: end;
+		gap: 2px;
+		font-weight: 600;
+	}
+	/* One meter length for every row, not the width of the number above it: the
+		 meters are compared DOWN the page, and a bar that sized to its own label
+		 gave "42%" and "112%" different extents - both edges wobbling a few
+		 pixels row to row, which reads as sloppiness on the one element whose
+		 whole job is comparability. */
+	.spend-unit .spend-meter {
+		width: 3.4em;
 	}
 	.server-badges {
 		display: flex;
@@ -660,18 +741,30 @@
 	/* OPACITY, never visibility. visibility:hidden takes descendants out of the
 		   tab order, so these buttons could not be focused, so :focus-within could
 		   never fire FOR them - the reveal would depend on some other focusable
-		   element happening to sit in the same row, and a healthy row with no
-		   credential, no count link and no problem has none. Its Edit and Remove
-		   were unreachable by keyboard entirely. This is the same rule the icon
-		   actions above already use, and the :focus-visible clause is what lets
-		   the buttons reveal themselves rather than waiting to be revealed. */
+		   element happening to sit in the same row, and every row's disclosure
+		   button would have been that element by accident rather than by design.
+		   This is the same rule the icon actions above already use, and the
+		   :focus-visible clause is what lets the buttons reveal themselves rather
+		   than waiting to be revealed. */
 	.server-actions {
+		grid-column: -2 / -1;
 		display: flex;
+		flex-wrap: wrap;
+		max-width: 10em;
 		gap: 8px;
 		align-items: center;
+		align-self: center;
+		justify-self: end;
 		justify-content: flex-end;
+		padding-right: 8px;
 		opacity: 0;
 		transition: opacity 120ms ease-out;
+	}
+	/* The cluster wraps between buttons, never inside one: a button broken
+		 mid-phrase reads as two controls. Under the cap above, the armed pair
+		 is what wraps - two stacked whole buttons, Cancel beneath the commit. */
+	.server-actions button {
+		white-space: nowrap;
 	}
 	.server-row:hover .server-actions,
 	.server-item:focus-within .server-actions,
@@ -684,11 +777,27 @@
 			transition: none;
 		}
 	}
-	/* One quiet line above the list, deliberately not a banner: it says how
-		   much is wrong, and the rows say what. */
-	.server-summary {
-		margin: 0 0 6px;
-		color: var(--vscode-descriptionForeground);
+	/* The opened inventory, dressed like the model rows' detail (.model-detail):
+		 indented under its opener with the accent edge tying the pair together.
+		 It spans every track the list shares, so its own content would otherwise
+		 be charged to them; min-width 0 keeps a long host from widening the
+		 whole list, and the fact grid inside wraps its own values. */
+	.server-drawer {
+		grid-column: 1 / -1;
+		min-width: 0;
+		padding: 10px 14px 14px;
+		margin: 4px 8px 10px 12px;
+		border-left: 2px solid var(--vscode-focusBorder);
+		border-radius: 0 3px 3px 0;
+		background: var(--vscode-textBlockQuote-background, rgba(128, 128, 128, 0.07));
+	}
+	/* The one fact whose value is an identifier rather than a number: a
+		 60-character host has no break opportunity, and a grid item's own minimum
+		 is its content, so the drawer would push the page sideways rather than
+		 wrapping. The numbers beside it keep their rule - a "128,000" split
+		 across two lines reads as two values. */
+	.server-facts .fact-url {
+		overflow-wrap: anywhere;
 	}
 	/* ---- a row's problems --------------------------------------------------
 	   Indented under the row that owns them, behind a severity rule. The rule's
@@ -785,7 +894,12 @@
 	.row-diagnostic-actions {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 16px;
+		/* The row gap is its own, smaller number: the 16px column gap is sized
+			 for the margin hand-back below, which is horizontal-only, and at the
+			 320px floor a wrapped action sat a full 16px under its sibling -
+			 far enough to read as a separate paragraph rather than the same
+			 cluster on a second line. */
+		gap: 4px 16px;
 		align-items: center;
 		margin-top: 6px;
 	}
@@ -2169,6 +2283,24 @@
 		gap: 12px;
 		margin-left: auto;
 	}
+	/* Default-size buttons hand their 0.625rem horizontal padding back to the
+		 layout (Button's -mx-2.5), so adjacent border boxes overhang the flex
+		 gap by 1.25rem per pair. Invisible in the ordinary themes; every
+		 BORDERED mode draws the boxes - forced colors repaints all borders, and
+		 the two high-contrast themes light border-control-outline up through
+		 the contrast token - and the header's Add server and Refresh now
+		 rendered as one malformed control. Widen the gap by exactly the
+		 overhang in the modes that draw it - the same repair the toolbar rule
+		 above makes for the same reason. */
+	@media (forced-colors: active) {
+		.section-head .section-actions {
+			gap: calc(12px + 1.25rem);
+		}
+	}
+	body.vscode-high-contrast .section-head .section-actions,
+	body.vscode-high-contrast-light .section-head .section-actions {
+		gap: calc(12px + 1.25rem);
+	}
 	.section-head .section-meta {
 		color: var(--muted-foreground);
 	}
@@ -2611,40 +2743,6 @@
 	.chip-key {
 		overflow-wrap: anywhere;
 	}
-	/* The one fact in the expanded usage panel whose value is an identifier
-		   rather than a number: a 60-character host has no break opportunity, and
-		   a grid item's own minimum is its content, so the panel pushed the page
-		   sideways rather than wrapping. The numbers beside it keep their rule -
-		   a "128,000" split across two lines reads as two values. */
-	.usage-facts .usage-url {
-		overflow-wrap: anywhere;
-	}
-	/* The usage row's state mark, the same disclosure vocabulary as the model
-		   rows (.model-chevron): resting it points right, open it points down. */
-	.usage-chevron {
-		display: inline-flex;
-		color: var(--muted-foreground);
-		transition: transform 120ms ease;
-	}
-	.usage-line[aria-expanded="true"] .usage-chevron {
-		transform: rotate(90deg);
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.usage-chevron {
-			transition: none;
-		}
-	}
-	/* The opened inventory, dressed like the model rows' detail
-		   (.model-detail): indented under its opener with the accent edge tying
-		   the pair together. Unlike the models list nothing here measures the
-		   row's height, so the air below the box may be margin. */
-	.usage-panel {
-		padding: 10px 14px 14px;
-		margin: 4px 8px 10px;
-		border-left: 2px solid var(--vscode-focusBorder);
-		border-radius: 0 3px 3px 0;
-		background: var(--vscode-textBlockQuote-background, rgba(128, 128, 128, 0.07));
-	}
 	/* The anchor wraps a chip and its popover, so outside-press detection and
 		   the popover's position share one element. */
 	.chip-anchor {
@@ -3024,30 +3122,34 @@
 	.server-meta {
 		display: contents;
 	}
-	/* Row AND column, for every cell. A cell that names only its column leaves
-	 its row to auto-placement, and auto-placement never moves backwards: the
-	 status cell sits in the document before the URL cell and claims column 3,
-	 after which column 2 is behind the cursor and the URL starts a second row.
-	 The whole row silently became two lines at full width. */
-	.server-name {
+	/* Row AND column, for every cell of the disclosure button. A cell that
+	 names only its column leaves its row to auto-placement, and auto-placement
+	 never moves backwards: the status cell sits in the document before the URL
+	 cell and claims its column, after which the URL's column is behind the
+	 cursor and the URL starts a second row. The whole row silently became two
+	 lines at full width. The line numbers are the BUTTON's: its subgrid spans
+	 the list's tracks 1 through 7 (chevron, name, url, status, count, spend,
+	 badges) and renumbers them from 1; the actions cluster is the button's
+	 sibling and holds the list's last track from the base rule. */
+	.server-chevron {
 		grid-area: 1 / 1;
 	}
-	.server-url {
+	.server-name {
 		grid-area: 1 / 2;
 	}
-	.server-status {
+	.server-url {
 		grid-area: 1 / 3;
 	}
-	.server-count {
+	.server-status {
 		grid-area: 1 / 4;
 	}
-	.server-usage {
+	.server-count {
 		grid-area: 1 / 5;
 	}
-	.server-badges {
+	.server-usage {
 		grid-area: 1 / 6;
 	}
-	.server-actions {
+	.server-badges {
 		grid-area: 1 / 7;
 	}
 
@@ -3062,7 +3164,7 @@
 		}
 	}
 	/* ---- the server row, two lines -------------------------------------------
-	 920px is where the seven-column row stops being a row. It does not stop at
+	 920px is where the one-line row stops being a row. It does not stop at
 	 the width where the cells collide - the URL is the flexible column, so it
 	 is the one that pays, and it pays by starving: at a 850px pane the host
 	 rendered as an empty cell between two full ones, a column of nothing down
@@ -3077,7 +3179,8 @@
 	 it holds (line two), and what you can do about it (a cluster beside both,
 	 so the two lines read as one row). The columns still belong to the LIST,
 	 so the verdicts line up down the page and the actions sit under each
-	 other; only the shape of a row changed. */
+	 other, and the disclosure button keeps its constant 1/-2 span - only its
+	 INSIDE recomposes. */
 	@container pane (width < 920px) {
 		/* The name track takes its width from the names, capped; the ACTIONS
 		 track takes the slack. Giving the slack to the name instead pushed
@@ -3092,48 +3195,59 @@
 		 at its own minimum - one button wide, so Edit and Remove stacked on
 		 every healthy row. fit-content sizes to the names and stops there,
 		 capped so one very long label cannot take the row; the actions track
-		 takes the slack, which is what right-aligns the cluster, and never
-		 gives up its own content (a plain 1fr has a zero minimum, and at 500px
-		 the buttons then printed straight over the verdict beside them). */
+		 takes the slack, which is what right-aligns the cluster. Its 9em floor
+		 is the no-shift contract at this tier: the floor covers the armed
+		 pair's widest button ("Confirm remove?", nowrap here), so arming a
+		 remove can never raise the track's minimum and shift the columns the
+		 whole list shares - the same promise the wide tier's fixed track
+		 makes. */
 		.server-list {
-			grid-template-columns: fit-content(10em) auto minmax(min-content, 1fr);
+			grid-template-columns: auto fit-content(10em) auto minmax(9em, 1fr);
 		}
-		.server-row {
+		.server-line {
 			align-items: start;
 			gap: 1px 10px;
 			padding: 7px 8px;
 		}
+		/* Centred against line one alone, not the whole folded block: it is a
+		 mark, not a word, and it belongs beside the name it opens. */
+		.server-chevron {
+			grid-area: 1 / 1;
+			align-self: center;
+		}
 		.server-name {
 			grid-row: 1;
-			grid-column: 1;
-			/* A floor the second line cannot argue with. The meta line spans all
-			 three tracks, so ITS content is charged to them too - and a URL long
-			 enough (they are single unbreakable tokens) collapsed this column to
-			 nothing on EVERY row at once, since the tracks belong to the list.
-			 The name is the row's identity; it gives up characters to an
-			 ellipsis, never its whole column. */
+			grid-column: 2;
+			/* A floor the second line cannot argue with. The meta line spans the
+			 button's tracks, so ITS content is charged to them too - and a URL
+			 long enough (they are single unbreakable tokens) collapsed this
+			 column to nothing on EVERY row at once, since the tracks belong to
+			 the list. The name is the row's identity; it gives up characters to
+			 an ellipsis, never its whole column. */
 			min-width: 5em;
 		}
 		.server-status {
 			grid-row: 1;
-			grid-column: 2;
+			grid-column: 3;
 		}
+		/* The second line stops SHORT of the actions column: it lives inside the
+		 disclosure button, whose constant span ends where the actions track
+		 begins. That costs the line nothing it still needs - the URL WRAPS at
+		 this tier rather than ellipsizing (the rule below), so a host too long
+		 for the line takes a line of its own inside its row instead of asking
+		 the actions' ~100px to save it from an ellipsis. */
 		.server-meta {
 			display: flex;
 			grid-row: 2;
-			grid-column: 1 / -1;
+			grid-column: 2 / -1;
 			flex-wrap: wrap;
 			align-items: baseline;
 			gap: 1px 9px;
-			/* Zero, so this line asks the row's columns for nothing: it spans them
-			 all, and a spanning item's content is otherwise charged to the tracks
-			 it crosses. */
+			/* Zero, so this line asks the button's columns for nothing: it spans
+			 them, and a spanning item's content is otherwise charged to the
+			 tracks it crosses. */
 			min-width: 0;
 		}
-		/* The second line runs the row's full width, under the actions as well as
-		 under the name: the actions have a whole line's height beside them
-		 already, and the ~100px they would otherwise reserve on line two is
-		 exactly what the URL needs to stop ellipsizing its host. */
 		/* The tag is a wide-width nicety, and it is the one thing on the row that
 		 is said twice: the pill beside it reads "Misconfigured" and the line
 		 below it opens "... is switched off until this entry is fixed". At this
@@ -3157,22 +3271,8 @@
 		 are one sentence about the server - where it is, what it holds, what it
 		 costs, how it authenticates - and the URL is the only member that gives
 		 up width, because a truncated host still identifies the server while a
-		 wrapped count and a wrapped badge are debris. */
-		/* The https:// scheme stops being painted, and stays in the row: the text
-		 is still there for a screen reader, a copy and a find-in-page, so the
-		 URL a reader gets is always the URL the setting holds. An http:// URL
-		 keeps its scheme on screen - insecure is news, and its hosts are short. */
-		.server-url .url-scheme.quiet {
-			position: absolute;
-			width: 1px;
-			height: 1px;
-			margin: -1px;
-			padding: 0;
-			overflow: hidden;
-			clip: rect(0 0 0 0);
-			white-space: nowrap;
-			border: 0;
-		}
+		 wrapped count and a wrapped badge are debris. The quiet https:// scheme
+		 is already unpainted at every width (the base rule above the folds). */
 		/* Three arrangements were measured here and this is the only one that
 		 costs nothing shared. A URL that GROWS pins the facts to the trailing
 		 edge, where they start at a different x on every row - the ragged look
@@ -3187,8 +3287,8 @@
 			/* It WRAPS here rather than ellipsizing, and that is what keeps a long
 			 host from costing the whole list: a URL is one unbreakable token, so
 			 as nowrap text its max-content is its full length - and this line
-			 spans every one of the row's columns, so that length was charged to
-			 tracks the whole list shares. A 60-character host pushed the page
+			 spans every one of the button's columns, so that length was charged
+			 to tracks the whole list shares. A 60-character host pushed the page
 			 into a horizontal scrollbar and squeezed every row's NAME. Allowed to
 			 break, it costs one row one extra line and nothing else, and the
 			 reader gets the whole address instead of an ellipsis. */
@@ -3201,6 +3301,9 @@
 			flex: none;
 			min-width: 0;
 			text-align: left;
+		}
+		.spend-unit {
+			justify-items: start;
 		}
 		.server-badges {
 			flex: none;
@@ -3218,27 +3321,15 @@
 		 "Cancel") does reach at 500px, and which is the right thing to spend a
 		 line on for the state a reader is looking straight at. */
 		.server-actions {
-			grid-row: 1;
-			grid-column: 3;
+			/* Wider than the wide tier's cap: beside a two-line row an extra
+			 button width costs the URL nothing it was not already giving up,
+			 and the armed pair reaching a second line here is the state a
+			 reader is looking straight at. */
 			max-width: 13em;
-			/* The cap is why this is needed: an item that cannot stretch to fill
-			 its track is placed at the track's START, so the cluster sat at a
-			 fixed offset from the name and left up to 380px of empty row to its
-			 right at a 900px pane - the row froze at its 500px shape while the
-			 rule beneath it and the diagnostic block below ran the full width.
-			 The cluster belongs on the row's trailing edge at every width in
-			 this range. */
-			justify-self: end;
-			flex-wrap: wrap;
-			justify-content: flex-end;
 			opacity: 1;
+			padding-right: 0;
 		}
-		/* The cluster wraps between buttons, never inside one: a button broken
-		 mid-phrase reads as two controls. */
-		.server-actions button {
-			white-space: nowrap;
-		}
-		/* Tighter under a two-line row: the rule and its indent were sized
+		/* Tighter under a two-line row: the rules and their indents were sized
 		 against a one-line row above them. The per-tier padding-left keeps
 		 absorbing the rule-width difference at this size too, against this
 		 tier's 8px base. */
@@ -3258,43 +3349,9 @@
 				padding-left: 6px;
 			}
 		}
-	}
-	/* ---- the usage line, folded ----------------------------------------------
-	 Six columns do not survive a 400px pane: the money truncates to "$21.1..."
-	 while a decorative meter keeps its 8rem, which is the wrong thing to spend
-	 width on by any reading.
-	 Folded, the row keeps every one of its facts and ranks them by line: who
-	 and how close to the budget (line one), how much of how much and the fact
-	 that qualifies it (line two), and the meter as a rule beneath the facts,
-	 where a 3px bar is a better shape than a 3px stub. The chevron holds the
-	 left edge beside the name, centred rather than seated on the baseline,
-	 because it is a mark, not a word.
-	 The row's tracks come from the component's own utility list - a utility
-	 always beats this layer, so the template has to live where the rest of the
-	 row's geometry does - and the placements live here, with the composition
-	 they belong to. Both are keyed to the same 620px. */
-	@container pane (width < 620px) {
-		.usage-chevron {
-			grid-area: 1 / 1;
-			align-self: center;
-		}
-		.usage-label {
-			grid-area: 1 / 2;
-		}
-		.usage-spend {
-			grid-area: 2 / 2;
-		}
-		.usage-percent {
-			grid-area: 1 / 3;
-		}
-		.usage-tail {
-			grid-area: 2 / 3;
-			text-align: right;
-		}
-		.usage-meter {
-			grid-area: 3 / 2 / auto / span 2;
-			width: 100%;
-			margin-top: 3px;
+		.server-drawer {
+			margin-left: 8px;
+			padding: 8px 10px 10px;
 		}
 	}
 	/* ---- the narrowest two-line rows: the time yields first ------------------
@@ -3309,7 +3366,7 @@
 		 the row for a screen reader and for a copy of the line. */
 	@container pane (width < 560px) {
 		.server-list {
-			grid-template-columns: fit-content(14em) auto minmax(min-content, 1fr);
+			grid-template-columns: auto fit-content(14em) auto minmax(9em, 1fr);
 		}
 		.server-status .pill-time {
 			position: absolute;
@@ -3329,23 +3386,25 @@
 	 pane they take the line between them and the NAME is what gets squeezed to
 	 nothing. A row that has lost its server's name has lost the one thing that
 	 says which server it is; a row that has spent one more line has lost
-	 nothing. So the verdict takes a line of its own here, and the row reads
-	 name (with its actions), then how it is, then what it holds. */
+	 nothing. So the verdict takes a line of its own here, and the button reads
+	 name, then how it is, then what it holds, with the actions centred in
+	 their own column beside all three. */
 	@container pane (width < 400px) {
-		/* The name takes the whole first line and the actions drop to the
-		 verdict's, because at this width the name is what was losing: sharing
-		 line one with a nowrap cluster left it four characters. */
-		.server-name {
-			/* To the third track, not through it: spanning the flexible track hands
-			 it the label's whole nowrap width as a minimum, and a 40-character
-			 label then took the page into a horizontal scrollbar. Stopping short
-			 leaves the label ellipsizing inside the space it has, which is what
-			 it does at every other width. */
-			grid-area: 1 / 1 / auto / 3;
+		/* The 9em no-shift floor yields here, and only here: at the 320px floor
+		 it is 17px more than the pane has, and this is also the one tier whose
+		 armed buttons may break their labels (the rule below) - a broken label
+		 has no wide nowrap minimum to reserve against, so the floor would buy
+		 a horizontal scrollbar and protect nothing. */
+		.server-list {
+			grid-template-columns: auto fit-content(14em) auto minmax(min-content, 1fr);
 		}
-		.server-actions {
-			grid-area: 2 / 3;
-			align-self: center;
+		/* The name takes the button's whole first line, because at this width
+		 the name is what was losing: sharing line one with the verdict pill
+		 left it four characters. The button's span already stops short of the
+		 actions track, so nothing here can hand the label's nowrap width to
+		 the flexible column the way the old full-row span could. */
+		.server-name {
+			grid-area: 1 / 2 / auto / -1;
 		}
 		.server-meta {
 			grid-row: 3;
@@ -3355,9 +3414,9 @@
 		.server-url {
 			flex-basis: 100%;
 		}
-		/* Spanning the empty middle column rather than paying for its gap. */
+		/* Under the name, spanning the same tracks. */
 		.server-status {
-			grid-area: 2 / 1 / auto / 3;
+			grid-area: 2 / 2 / auto / -1;
 		}
 		/* Here, and only here, a button may break its own label. Everywhere else
 		 that reads as two controls, but at this width the two-step confirm

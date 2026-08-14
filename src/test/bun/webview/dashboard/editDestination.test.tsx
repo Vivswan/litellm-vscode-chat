@@ -155,21 +155,21 @@ test("a rail click is a navigation the guard sees first, and the answer decides 
 
 	// Dirty: the click raises the question instead of navigating, and the
 	// draft is still there behind it.
-	fireClick(document.getElementById("tab-usage") as HTMLElement);
+	fireClick(document.getElementById("tab-models") as HTMLElement);
 	expect(root.querySelector(".server-edit-page")).not.toBeNull();
 	expect(confirmDialog()).not.toBeNull();
 
 	// Keeping goes nowhere: the reader stays on the page they were editing.
 	fireClick(buttonByText(openConfirmDialog(), "Keep editing"));
 	expect(root.querySelector(".server-edit-page")).not.toBeNull();
-	expect(document.getElementById("tab-usage")?.getAttribute("aria-selected")).toBe("false");
+	expect(document.getElementById("tab-models")?.getAttribute("aria-selected")).toBe("false");
 
 	// Discarding takes them where they asked to go, not back to the list.
-	fireClick(document.getElementById("tab-usage") as HTMLElement);
+	fireClick(document.getElementById("tab-models") as HTMLElement);
 	fireClick(buttonByText(openConfirmDialog(), "Discard"));
 	expect(root.querySelector(".server-edit-page")).toBeNull();
-	expect(document.getElementById("tab-usage")?.getAttribute("aria-selected")).toBe("true");
-	expect(document.activeElement?.id).toBe("tab-usage");
+	expect(document.getElementById("tab-models")?.getAttribute("aria-selected")).toBe("true");
+	expect(document.activeElement?.id).toBe("tab-models");
 });
 
 test("a rail click on a clean page just navigates, with no question in sight", () => {
@@ -304,7 +304,7 @@ test("an entry deleted while the question stands takes the question with it", ()
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
 	fireClick(buttonByText(root, "Edit"));
 	fireInput(inputByLabel(page(root), "Base URL"), "http://localhost:9999");
-	fireClick(document.getElementById("tab-usage") as HTMLElement);
+	fireClick(document.getElementById("tab-models") as HTMLElement);
 	expect(confirmDialog()).not.toBeNull();
 
 	pushToWebview(statePush(makeState({ servers: [] })));
@@ -321,8 +321,8 @@ test("keeping the page answers the navigation too: the abandoned destination doe
 	fireClick(buttonByText(root, "Edit"));
 	fireInput(inputByLabel(page(root), "Base URL"), "http://localhost:9999");
 
-	// Ask to go to Usage, then say no.
-	fireClick(document.getElementById("tab-usage") as HTMLElement);
+	// Ask to go to Models, then say no.
+	fireClick(document.getElementById("tab-models") as HTMLElement);
 	fireClick(buttonByText(openConfirmDialog(), "Keep editing"));
 
 	// Leaving through the page's own control now goes back where the reader
@@ -330,7 +330,7 @@ test("keeping the page answers the navigation too: the abandoned destination doe
 	fireClick(buttonByText(page(root), "Discard changes"));
 	fireClick(buttonByText(openConfirmDialog(), "Discard"));
 	expect(root.querySelector(".server-edit-page")).toBeNull();
-	expect(document.getElementById("tab-usage")?.getAttribute("aria-selected")).toBe("false");
+	expect(document.getElementById("tab-models")?.getAttribute("aria-selected")).toBe("false");
 	expect(document.getElementById("tab-overview")?.getAttribute("aria-selected")).toBe("true");
 });
 
@@ -341,7 +341,7 @@ test("a question raised from the rail returns focus to the page on keep editing,
 	fireInput(inputByLabel(page(root), "Base URL"), "http://localhost:9999");
 
 	// The click leaves focus on the rail item and raises the question there.
-	const railItem = document.getElementById("tab-usage") as HTMLElement;
+	const railItem = document.getElementById("tab-models") as HTMLElement;
 	// Focusing the rail blurs the field, which the form reacts to; act keeps
 	// that update inside the test's own render pass.
 	void act(() => railItem.focus());
@@ -490,7 +490,7 @@ test("a second navigation changes where the reader is going, it does not answer 
 	fireClick(buttonByText(root, "Edit"));
 	fireInput(inputByLabel(page(root), "Base URL"), "http://localhost:9999");
 
-	fireClick(document.getElementById("tab-usage") as HTMLElement);
+	fireClick(document.getElementById("tab-models") as HTMLElement);
 	expect(confirmDialog()).not.toBeNull();
 	// A different destination arriving while the question stands (the rail is
 	// behind the scrim, but a deep link still gets through) is a new intent,
@@ -593,11 +593,11 @@ test("a deep link still asks a dirty page before taking the reader off it", () =
 	fireClick(buttonByText(root, "Edit"));
 	fireInput(inputByLabel(page(root), "Base URL"), "http://localhost:9999");
 
-	pushToWebview({ kind: "focusSection", section: "usage" });
+	pushToWebview({ kind: "focusSection", section: "models" });
 	expect(root.querySelector(".server-edit-page")).not.toBeNull();
 	expect(confirmDialog()).not.toBeNull();
 	fireClick(buttonByText(openConfirmDialog(), "Discard"));
-	expect(document.getElementById("tab-usage")?.getAttribute("aria-selected")).toBe("true");
+	expect(document.getElementById("tab-models")?.getAttribute("aria-selected")).toBe("true");
 });
 
 test("a deep link that beats the first state push is remembered, not dropped", () => {
@@ -606,12 +606,12 @@ test("a deep link that beats the first state push is remembered, not dropped", (
 	// is still the loading skeleton, so there is no guard to route it through
 	// yet and nothing to apply it to.
 	const root = mount(<App />);
-	pushToWebview({ kind: "focusSection", section: "usage" });
+	pushToWebview({ kind: "focusSection", section: "models" });
 	expect(root.querySelector(".rail")).not.toBeNull();
 
 	pushToWebview(statePush(makeState()));
-	expect(document.getElementById("tab-usage")?.getAttribute("aria-selected")).toBe("true");
-	expect((document.getElementById("panel-usage") as HTMLElement).hidden).toBe(false);
+	expect(document.getElementById("tab-models")?.getAttribute("aria-selected")).toBe("true");
+	expect((document.getElementById("panel-models") as HTMLElement).hidden).toBe(false);
 });
 
 test("a deep link that arrives with the push that deleted the entry lands where it asked", () => {
@@ -627,12 +627,12 @@ test("a deep link that arrives with the push that deleted the entry lands where 
 
 	void act(() => {
 		window.dispatchEvent(new MessageEvent("message", { data: statePush(makeState({ servers: [] })) }));
-		window.dispatchEvent(new MessageEvent("message", { data: { kind: "focusSection", section: "usage" } }));
+		window.dispatchEvent(new MessageEvent("message", { data: { kind: "focusSection", section: "models" } }));
 	});
 
 	expect(root.querySelector(".server-edit-page")).toBeNull();
 	expect(confirmDialog()).toBeNull();
-	expect(document.getElementById("tab-usage")?.getAttribute("aria-selected")).toBe("true");
+	expect(document.getElementById("tab-models")?.getAttribute("aria-selected")).toBe("true");
 });
 
 test("the question is a real modal: alertdialog semantics, a scrim, and the safe answer holding focus", () => {
@@ -745,7 +745,7 @@ test("a hover tip left open under the modal cannot steal its Esc: one press answ
 
 	// A deep link raises the question with the hover-held tip still open: the
 	// pointer never moved, so nothing told the tip to close.
-	pushToWebview({ kind: "focusSection", section: "usage" });
+	pushToWebview({ kind: "focusSection", section: "models" });
 	const dialog = openConfirmDialog();
 
 	fireKeyDown(document.activeElement as HTMLElement, "Escape");

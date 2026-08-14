@@ -70,8 +70,9 @@ export function refreshUsageCommandTitle(): string {
  * dashboard Diagnostics tab's Open-output-log action), openSettingKey
  * opens the user settings.json at one litellm-vscode-chat.* key (the
  * dashboard's revealSetting intent), and openUsage opens the dashboard on
- * its Usage section (the usage status bar item's click target and the
- * budget alert toasts' action). The palette shows only the manage hub
+ * its Servers section, where each row carries its spend (the usage status
+ * bar item's click target and the budget alert toasts' action). The palette
+ * shows only the manage hub
  * (see registerManageCommand). The litellm._test.* harness commands are
  * deliberately not mapped here: they are test-mode-only, and their ids
  * double as oracle strings in the suites.

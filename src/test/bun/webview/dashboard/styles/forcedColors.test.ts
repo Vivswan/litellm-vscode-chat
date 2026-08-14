@@ -93,18 +93,6 @@ const TRANSPARENT_BORDERS: readonly TransparentBorder[] = [
 		},
 	},
 	{
-		file: "dashboard/usage.tsx",
-		text: "border-b-transparent",
-		count: 1,
-		disposition: {
-			kind: "named",
-			sheet: "theme",
-			selector: String.raw`.forced-colors\:border-b-\[color\:Canvas\]`,
-			declaration: "border-bottom-color: Canvas;",
-			why: "the open usage line retracts its bottom edge toward its panel, the model rows' retraction on the disclosure it shares",
-		},
-	},
-	{
 		file: "dashboard/styles/dashboard.css",
 		text: "border-top-color: transparent",
 		count: 1,

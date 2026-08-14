@@ -4,12 +4,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AckedMethod, NotifyingMethod } from "../../dashboard/endpoints";
 import { failuresAfterStatePush, isAckedMethod } from "../../dashboard/endpoints";
 import { classifyOverall, latestCheckedMs } from "../../dashboard/presenters";
-import type { DashboardSectionId, DashboardServer, DashboardState, DashboardUsage } from "../../dashboard/viewModels";
+import type { DashboardSectionId, DashboardServer, DashboardState } from "../../dashboard/viewModels";
 import { DASHBOARD_SECTION_IDS } from "../../dashboard/viewModels";
 import { DiagnosticsSection, pageConfigDiagnostics } from "./diagnostics";
 import { FailureText } from "./failureText";
 import { asExtensionMessage } from "./hooks";
-import { IconClose, IconGear, IconModels, IconPulse, IconServers, IconUsage } from "./icons";
+import { IconClose, IconGear, IconModels, IconPulse, IconServers } from "./icons";
 import type { InspectorSection } from "./modelInspector";
 import { ModelInspector } from "./modelInspector";
 import { ModelsSection } from "./models";
@@ -20,11 +20,9 @@ import { ServerEditPage } from "./serverEditPage";
 import { ServersSection } from "./servers";
 import type { EditRecordRequest } from "./settings";
 import { SettingsSection } from "./settings";
-import { barPresentation, formatPercent } from "./spendFormat";
 import { relativeTime, useNow } from "./time";
 import { Button } from "./ui/button";
 import { ConfirmDialog } from "./ui/dialog";
-import { UsageSection } from "./usage";
 import { sendRequest } from "./vscodeApi";
 
 /** The section tabs; the ID list lives in the view-model module because focusSection deep-links name them. */
@@ -38,8 +36,6 @@ function sectionLabel(section: SectionId): string {
 			return l10n.t("Servers");
 		case "models":
 			return l10n.t("Models");
-		case "usage":
-			return l10n.t("Usage");
 		case "settings":
 			return l10n.t("Settings");
 		case "diagnostics":
@@ -58,8 +54,6 @@ function sectionIcon(section: SectionId): ReactElement {
 			return <IconServers />;
 		case "models":
 			return <IconModels />;
-		case "usage":
-			return <IconUsage />;
 		case "settings":
 			return <IconGear />;
 		case "diagnostics":
@@ -207,11 +201,10 @@ function lastSync(servers: readonly DashboardServer[], now: number): string | un
  * strip could only say where you are - so each one is the number a reader
  * would go to that destination to find out.
  *
- * Absence is deliberate everywhere: no budget to measure against means no
- * usage figure rather than a zero, no diagnostics means no badge, and an empty
- * fleet or an empty catalogue counts nothing rather than counting zero, because
- * those destinations explain themselves in words instead. A count that is
- * always present stops being information.
+ * Absence is deliberate everywhere: no diagnostics means no badge, and an
+ * empty fleet or an empty catalogue counts nothing rather than counting zero,
+ * because those destinations explain themselves in words instead. A count
+ * that is always present stops being information.
  */
 function railSections(state: DashboardState): readonly RailSection<SectionId>[] {
 	const counts: Readonly<Record<SectionId, { count?: string; countLabel?: string; countTone?: "warn" | "err" }>> = {
@@ -235,7 +228,6 @@ function railSections(state: DashboardState): readonly RailSection<SectionId>[] 
 						countLabel:
 							state.models.length === 1 ? l10n.t("1 model") : l10n.t("{0} models", String(state.models.length)),
 					},
-		usage: worstBudget(state.usage),
 		// Tinted only when there is something to fix: a diagnostics badge that is
 		// always there is furniture, and one that is always tinted is an alarm.
 		// Advisories are informational - the configuration applies as written -
@@ -266,47 +258,6 @@ function diagnosticsCount(diagnostics: DashboardState["diagnostics"]): {
 		count: String(diagnostics.length),
 		countLabel: diagnostics.length === 1 ? l10n.t("1 problem") : l10n.t("{0} problems", String(diagnostics.length)),
 		...(actionable ? { countTone: "warn" as const } : {}),
-	};
-}
-
-/**
- * The rail's usage figure: the worst FRESH server's spend against its budget,
- * as a percentage - deliberately not a total.
- *
- * Spends cannot be summed. Two entries may authenticate with the same key, in
- * which case both report that key's spend and a total counts it twice; stale
- * and never-loaded servers would fold into the sum as though they were current.
- * The status bar already resolves this the same way, taking a maximum and never
- * a sum (docs/usage.md), so this reads the same number the status bar does and
- * the two cannot disagree about the same fleet.
- *
- * A server with spend but no budget has nothing to be a percentage of, so it
- * contributes nothing here; the Usage tab is where its bare spend lives.
- */
-function worstBudget(usage: DashboardUsage): {
-	count?: string;
-	countLabel?: string;
-	countTone?: "warn" | "err";
-} {
-	const fractions = usage.servers.flatMap((server) =>
-		server.kind === "usage" &&
-		server.fresh &&
-		server.spend !== undefined &&
-		server.effectiveBudget !== undefined &&
-		server.effectiveBudget > 0
-			? [server.spend / server.effectiveBudget]
-			: []
-	);
-	if (fractions.length === 0) {
-		return {};
-	}
-	const worst = Math.max(...fractions);
-	const tone = barPresentation(worst, usage.thresholds).tone;
-	return {
-		count: formatPercent(worst),
-		countLabel: l10n.t("{0} of budget", formatPercent(worst)),
-		...(tone === "error" ? { countTone: "err" as const } : {}),
-		...(tone === "warn" ? { countTone: "warn" as const } : {}),
 	};
 }
 
@@ -812,14 +763,6 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 							serverScope !== undefined ? { label: serverScope, onClear: () => setServerScope(undefined) } : undefined
 						}
 						onInspect={inspectModel}
-					/>
-				</SectionPanel>
-				<SectionPanel section="usage" active={activeSection}>
-					<UsageSection
-						usage={state.usage}
-						serverCount={state.servers.length}
-						now={now}
-						currencySymbol={state.settings.usage.currencySymbol}
 					/>
 				</SectionPanel>
 				<SectionPanel section="settings" active={activeSection}>

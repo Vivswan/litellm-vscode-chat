@@ -112,12 +112,32 @@ function visibleModelNames(root: ParentNode): string[] {
 	);
 }
 
-test("five rail items in reading order, servers selected by default, and panels wired by aria", () => {
+/** Open a server row's drawer and click its model-count link (the drawer is where the link lives). */
+function clickCountLink(root: ParentNode, label: string): void {
+	const link = () => root.querySelector(`button[aria-label='Show models from ${label}']`);
+	if (link() === null) {
+		const line = Array.from(root.querySelectorAll("#panel-overview button.server-line")).find(
+			(candidate) => (candidate.querySelector(".server-label-text")?.textContent ?? "").trim() === label
+		);
+		if (!(line instanceof HTMLElement)) {
+			throw new Error(`no server row named ${label}`);
+		}
+		fireClick(line);
+	}
+	const found = link();
+	if (!(found instanceof HTMLElement)) {
+		throw new Error(`no model-count link for ${label}`);
+	}
+	fireClick(found);
+}
+
+test("four rail items in reading order, servers selected by default, and panels wired by aria", () => {
 	const root = mountApp();
 	const tabs = Array.from(root.querySelectorAll("[role='tab']"));
-	// Order is the rail's order: the two you look at, then the one that tells
-	// you something is wrong, then the one you visit on purpose.
-	expect(tabs.map(labelOf)).toEqual(["Servers", "Models", "Usage", "Diagnostics", "Settings"]);
+	// Order is the rail's order: the two you look at (spend now rides the
+	// Servers page), then the one that tells you something is wrong, then the
+	// one you visit on purpose.
+	expect(tabs.map(labelOf)).toEqual(["Servers", "Models", "Diagnostics", "Settings"]);
 	// A count inside the button would otherwise announce as "Servers & Models
 	// 4" - a number with no noun - and the tabpanel inherits that name too. So
 	// an item carrying a count names itself in words, with the visible label
@@ -147,11 +167,10 @@ test("five rail items in reading order, servers selected by default, and panels 
 	const overview = tab(root, "Servers");
 	expect(overview.getAttribute("aria-selected")).toBe("true");
 	expect(overview.tabIndex).toBe(0);
-	expect(tab(root, "Usage").tabIndex).toBe(-1);
 	expect(tab(root, "Settings").tabIndex).toBe(-1);
 	expect(tab(root, "Diagnostics").tabIndex).toBe(-1);
 
-	for (const section of ["overview", "models", "usage", "settings", "diagnostics"]) {
+	for (const section of ["overview", "models", "settings", "diagnostics"]) {
 		const pane = panel(root, section);
 		expect(pane.getAttribute("role")).toBe("tabpanel");
 		expect(pane.getAttribute("aria-labelledby")).toBe(`tab-${section}`);
@@ -176,11 +195,11 @@ test("servers and models are separate destinations, each holding only its own li
 test("a server's model count navigates to Models filtered to that server", () => {
 	// The jump used to scroll down a shared page. Across destinations it has to
 	// navigate, carry the filter, and move focus - otherwise Tab continues from
-	// a link on a panel that is no longer visible.
+	// a link on a panel that is no longer visible. The link lives in the row's
+	// drawer now: the row itself is one disclosure button, and a button cannot
+	// contain a button.
 	const root = mountApp();
-	const countLink = panel(root, "overview").querySelector(".server-list .count-link") as HTMLElement | null;
-	expect(countLink).not.toBeNull();
-	fireClick(countLink as HTMLElement);
+	clickCountLink(root, "Prod");
 	expect(tab(root, "Models").getAttribute("aria-selected")).toBe("true");
 	expect(panel(root, "models").hidden).toBe(false);
 	// The scope chip names the server the reader came from.
@@ -216,21 +235,20 @@ test("clicking a tab switches the visible panel and aria-selected follows", () =
 	expect(panel(root, "settings").hidden).toBe(true);
 });
 
-test("the Usage tab renders the pushed usage snapshot's cards", () => {
+test("the servers page renders the pushed usage snapshot's spend on its rows", () => {
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(
 			makeState({
 				servers: [makeDeclaredServer()],
-				usage: makeUsage({ servers: [makeUsageServer({ label: "Prod", spend: 12.5 })] }),
+				usage: makeUsage({ servers: [makeUsageServer({ label: "Prod", spend: 12.5, spentFraction: 0.25 })] }),
 			})
 		)
 	);
-	fireClick(tab(root, "Usage"));
-	const usagePanel = panel(root, "usage");
-	expect(usagePanel.hidden).toBe(false);
-	expect(usagePanel.querySelector(".usage-row")).not.toBeNull();
-	expect(usagePanel.textContent).toContain("Prod");
+	const overview = panel(root, "overview");
+	expect(overview.hidden).toBe(false);
+	expect(overview.querySelector(".spend-unit")).not.toBeNull();
+	expect(overview.textContent).toContain("25%");
 });
 
 test("a focusSection push switches the active tab: the litellm.showDiagnostics deep link", () => {
@@ -248,6 +266,13 @@ test("a focusSection push naming an unknown section is dropped instead of blanki
 
 	expect(panel(root, "overview").hidden).toBe(false);
 	expect(tab(root, "Servers").getAttribute("aria-selected")).toBe("true");
+
+	// The retired "usage" id rides this same guard, and it is load-bearing: the
+	// usage status bar item's command outlives a running webview, so a stale
+	// deep link can still name the destination that no longer exists.
+	pushToWebview({ kind: "focusSection", section: "usage" });
+	expect(panel(root, "overview").hidden).toBe(false);
+	expect(tab(root, "Servers").getAttribute("aria-selected")).toBe("true");
 });
 
 test("arrow keys move selection with wrap-around; Home and End jump", () => {
@@ -259,8 +284,6 @@ test("arrow keys move selection with wrap-around; Home and End jump", () => {
 
 	fireKeyDown(tablist, "ArrowDown");
 	expect(tab(root, "Models").getAttribute("aria-selected")).toBe("true");
-	fireKeyDown(tablist, "ArrowDown");
-	expect(tab(root, "Usage").getAttribute("aria-selected")).toBe("true");
 	fireKeyDown(tablist, "ArrowDown");
 	expect(tab(root, "Diagnostics").getAttribute("aria-selected")).toBe("true");
 	fireKeyDown(tablist, "ArrowDown");
@@ -318,7 +341,7 @@ test("a server row's model count scopes the models list, and the chip's clear re
 	pushToWebview(statePush(scopedState()));
 	expect(visibleModelNames(root)).toEqual(["Alpha", "Bravo", "Charlie"]);
 
-	fireClick(root.querySelector("button[aria-label='Show models from Staging']") as HTMLElement);
+	clickCountLink(root, "Staging");
 	expect(visibleModelNames(root)).toEqual(["Charlie"]);
 	// The jump moves the keyboard position with the viewport: focus lands on
 	// the models section, so Tab continues into the filter and the table.
@@ -337,14 +360,14 @@ test("the server scope and the text filter compose, and switching scope replaces
 	const root = mount(<App />);
 	pushToWebview(statePush(scopedState()));
 
-	fireClick(root.querySelector("button[aria-label='Show models from Prod']") as HTMLElement);
+	clickCountLink(root, "Prod");
 	const filter = root.querySelector("input[aria-label='Filter models']") as HTMLInputElement;
 	fireInput(filter, "bra");
 	expect(visibleModelNames(root)).toEqual(["Bravo"]);
 	expect(root.textContent).toContain("showing 1 of 2");
 
 	// A second count link retargets the one scope; the typed filter stays.
-	fireClick(root.querySelector("button[aria-label='Show models from Staging']") as HTMLElement);
+	clickCountLink(root, "Staging");
 	expect(root.querySelectorAll(".chip").length).toBe(1);
 	expect((root.querySelector(".chip")?.textContent ?? "").trim()).toContain("Server: Staging");
 	expect(visibleModelNames(root)).toEqual([]);
@@ -354,7 +377,7 @@ test("the server scope and the text filter compose, and switching scope replaces
 test("the scope clears itself when the scoped server leaves the list", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(scopedState()));
-	fireClick(root.querySelector("button[aria-label='Show models from Staging']") as HTMLElement);
+	clickCountLink(root, "Staging");
 	expect(root.querySelector(".chip")).not.toBeNull();
 
 	const remaining = makeState({
@@ -369,7 +392,7 @@ test("the scope clears itself when the scoped server leaves the list", () => {
 	expect(visibleModelNames(root)).toEqual(["Alpha", "Bravo"]);
 });
 
-test("a zero model count renders as plain text, not a scope link", () => {
+test("a zero model count renders as plain text in the drawer, not a scope link", () => {
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(
@@ -379,6 +402,9 @@ test("a zero model count renders as plain text, not a scope link", () => {
 			})
 		)
 	);
+	// Open the row's drawer, where the count lives; an empty scoped list has
+	// nothing to show, so the count stays words.
+	fireClick(root.querySelector("#panel-overview button.server-line") as HTMLElement);
 	expect(root.querySelector("button[aria-label='Show models from Fresh']")).toBeNull();
 	expect(root.textContent).toContain("No models discovered yet.");
 });
@@ -414,7 +440,7 @@ test("scoping rewinds a deeply scrolled windowed table to the new list's top", (
 
 	// The scope jump lands at the new list's first row, not at an inherited
 	// scroll offset partway through it.
-	fireClick(root.querySelector("button[aria-label='Show models from Staging']") as HTMLElement);
+	clickCountLink(root, "Staging");
 	expect(scrollport.scrollTop).toBe(0);
 	expect(visibleModelNames(root)[0]).toBe("B 00");
 });
@@ -427,13 +453,13 @@ test("arrow keys move focus with selection, and only the selected item is tabbab
 	const root = mountApp();
 	const tablist = root.querySelector("[role='tablist']") as HTMLElement;
 	const tabIndexes = () => Array.from(root.querySelectorAll("[role='tab']")).map((t) => (t as HTMLElement).tabIndex);
-	expect(tabIndexes()).toEqual([0, -1, -1, -1, -1]);
+	expect(tabIndexes()).toEqual([0, -1, -1, -1]);
 
 	fireKeyDown(tablist, "ArrowDown");
-	expect(tabIndexes()).toEqual([-1, 0, -1, -1, -1]);
+	expect(tabIndexes()).toEqual([-1, 0, -1, -1]);
 	expect(document.activeElement).toBe(tab(root, "Models"));
 
 	fireKeyDown(tablist, "End");
-	expect(tabIndexes()).toEqual([-1, -1, -1, -1, 0]);
+	expect(tabIndexes()).toEqual([-1, -1, -1, 0]);
 	expect(document.activeElement).toBe(tab(root, "Settings"));
 });

@@ -66,9 +66,10 @@ export function wireDashboard(
 /**
  * The usage surfaces over the poller's store: the status bar item beside
  * the connection item, the budget alert toasts, and the deep link both
- * click through to the dashboard's Usage section. Wired after the dashboard
- * because the click target needs it. The item's configuration reaction lives
- * here with the item (the engines' reactions stay in wireServers).
+ * click through to the dashboard's Servers section, where each row carries
+ * its spend. Wired after the dashboard because the click target needs it.
+ * The item's configuration reaction lives here with the item (the engines'
+ * reactions stay in wireServers).
  */
 export function wireUsageSurfaces(
 	context: vscode.ExtensionContext,
@@ -97,7 +98,7 @@ export function wireUsageSurfaces(
 	context.subscriptions.push(
 		usageStatusBar,
 		new UsageAlerts(usagePoller.store),
-		vscode.commands.registerCommand(INTERNAL_CMD.openUsage, () => dashboard.open("usage")),
+		vscode.commands.registerCommand(INTERNAL_CMD.openUsage, () => dashboard.open("overview")),
 		// The coarse "pass done" push: the dashboard's usage section re-renders
 		// after every completed poll pass (the poller isolates its listeners).
 		usagePoller.onDidRefresh(() => dashboard.refresh()),

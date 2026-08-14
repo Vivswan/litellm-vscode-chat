@@ -19,19 +19,13 @@ import type { BooleanSettingId, NumberSettingId } from "../../shared/config/sett
 
 export function helpServersSection(): string {
 	return l10n.t(
-		"The LiteLLM servers this extension fetches models from, saved in the litellm-vscode-chat.servers user setting. Edit on an external row adopts that VS Code-managed group into the setting."
+		"The LiteLLM servers this extension fetches models from, saved in the litellm-vscode-chat.servers user setting. Spend and budget read each key's own /key/info; spend tracking needs a database-backed proxy."
 	);
 }
 
 export function helpModelsSection(): string {
 	return l10n.t(
 		"Every model your servers report, as registered with Copilot Chat. Lists are cached; run Sync models to ask the servers again now."
-	);
-}
-
-export function helpUsageSection(): string {
-	return l10n.t(
-		"Spend against budget per server: the key's own server-side total, read from /key/info. Only servers whose LiteLLM tracks spend (a database-backed proxy) appear here."
 	);
 }
 
@@ -143,7 +137,7 @@ export function serverFieldHelp(field: ServerFormField): string {
 			);
 		case "budget":
 			return l10n.t(
-				"A manual budget, e.g. 50, in the server's own billing currency, driving usage alerts. Outranks the key's own max_budget; the Usage tab shows both."
+				"A manual budget, e.g. 50, in the server's own billing currency, driving usage alerts. Outranks the key's own max_budget; the server row's drawer shows both."
 			);
 	}
 }

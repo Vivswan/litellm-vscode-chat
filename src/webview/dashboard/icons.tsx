@@ -66,16 +66,6 @@ export function IconModels() {
 	);
 }
 
-/** Axes and a trend line: the Usage destination. */
-export function IconUsage() {
-	return (
-		<StrokeSvg>
-			<path d="M2.6 2.2v11.2h11.2" />
-			<path d="M4.8 10.8l2.7-3.3 2.2 2 3.3-4.3" />
-		</StrokeSvg>
-	);
-}
-
 /** A pulse trace: the Diagnostics destination. */
 export function IconPulse() {
 	return (

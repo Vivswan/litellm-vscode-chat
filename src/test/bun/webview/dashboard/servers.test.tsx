@@ -14,15 +14,7 @@ import { helpEntryModelParameterPrefix } from "../../../../webview/dashboard/hel
 import type { ServerEditRequest } from "../../../../webview/dashboard/serverEditPage";
 import { ServerEditPage } from "../../../../webview/dashboard/serverEditPage";
 import { ServersSection } from "../../../../webview/dashboard/servers";
-import {
-	makeDeclaredServer,
-	makeExternalServer,
-	makeForbiddenUsageServer,
-	makeState,
-	makeUsage,
-	makeUsageServer,
-	statePush,
-} from "../fixtures";
+import { makeDeclaredServer, makeExternalServer, makeState, statePush } from "../fixtures";
 import {
 	buttonByText,
 	cleanup,
@@ -69,32 +61,44 @@ function mountSection(servers: readonly DashboardServer[]) {
 	);
 }
 
-test("a server row keeps the four-part shape the narrow stylesheet folds", () => {
-	// Every narrow rule keys off this structure: four direct children of
-	// .server-row, with the second line's members inside .server-meta, which is
-	// `display: contents` at full width and a flex line once the row folds. Move
-	// a badge out of the meta wrapper, or rename a part, and the fold silently
-	// stops working at every width - with this suite still green, because
-	// happy-dom has no cascade and no layout to notice. Nothing else can catch
-	// it short of a human looking at a render.
+test("a server row keeps the shape the narrow stylesheet folds: one disclosure button beside the actions", () => {
+	// Every narrow rule keys off this structure: the row is a non-interactive
+	// wrapper holding exactly the disclosure button (the readable block) and the
+	// actions cluster as SIBLINGS - a button cannot contain a button - with the
+	// second line's members inside .server-meta, which is `display: contents`
+	// at full width and a flex line once the row folds. Move a badge out of the
+	// meta wrapper, or rename a part, and the fold silently stops working at
+	// every width - with this suite still green, because happy-dom has no
+	// cascade and no layout to notice. Nothing else can catch it short of a
+	// human looking at a render.
 	const root = mountSection([makeDeclaredServer({ label: "Prod", modelCount: 2 })]);
 	const row = root.querySelector(".server-row");
 	expect(row).not.toBeNull();
 	expect(Array.from(row?.children ?? []).map((child) => child.className.split(" ")[0])).toEqual([
+		"server-line",
+		"server-actions",
+	]);
+	const line = row?.querySelector("button.server-line");
+	expect(line).not.toBeNull();
+	expect(Array.from(line?.children ?? []).map((child) => child.className.split(" ")[0])).toEqual([
+		"server-chevron",
 		"server-name",
 		"server-status",
 		"server-meta",
-		"server-actions",
 	]);
-	const meta = row?.querySelector(".server-meta");
+	const meta = line?.querySelector(".server-meta");
 	expect(meta?.querySelector(".server-url")).not.toBeNull();
 	expect(meta?.querySelector(".server-count")).not.toBeNull();
 	expect(meta?.querySelector(".server-usage")).not.toBeNull();
 	expect(meta?.querySelector(".server-badges")).not.toBeNull();
+	// No focusable element may ride inside the disclosure button: a nested
+	// interactive is invalid content there, and the count link and the hover
+	// tips moved into the drawer for exactly that reason.
+	expect(line?.querySelector("button, a, [tabindex]")).toBeNull();
 });
 
 test("a row's URL keeps its exact configured text, with only the https scheme marked for hiding", () => {
-	// The narrow row stops PAINTING "https://" so the ellipsis cannot eat the
+	// The row stops PAINTING "https://" so the ellipsis cannot eat the
 	// host, and the way it does that has to leave the row's text alone: what a
 	// screen reader announces, what a copy of the line yields and what a
 	// find-in-page matches must all still be the URL the setting holds. So the
@@ -193,17 +197,18 @@ function chipFor(root: HTMLElement, key: string): HTMLButtonElement {
 	return chip as HTMLButtonElement;
 }
 
-test("the toolbar renders only once a server exists, and holds only the add entry point", () => {
+test("the header actions render only once a server exists: Add server and the usage Refresh now", () => {
 	// First run: the guided card is the only affordance, no strip of dead
 	// controls above it.
 	const empty = mountSection([]);
-	expect(empty.querySelector(".toolbar")).toBeNull();
+	expect(empty.querySelector(".section-actions")).toBeNull();
 
 	// Test connection and the diagnostics view live on the Diagnostics tab,
-	// and the native editor is not a destination: Add server stands alone.
+	// and the native editor is not a destination: Add server plus the usage
+	// refresh stand alone on the header line.
 	const populated = mountSection([makeDeclaredServer()]);
-	const buttons = [...populated.querySelectorAll(".toolbar button")].map((el) => el.textContent?.trim());
-	expect(buttons).toEqual(["Add server"]);
+	const buttons = [...populated.querySelectorAll(".section-actions button")].map((el) => el.textContent?.trim());
+	expect(buttons).toEqual(["Add server", "Refresh now"]);
 });
 
 test("with no servers the guided start renders and its call to action opens the add form", () => {
@@ -239,7 +244,7 @@ test("a noticed entry states its inactive surfaces under its own row, not in a s
 	// summary count, telling a reader whose parameters may not be applied that
 	// nothing needs attention.
 	expect(line.classList.contains("sev-degraded")).toBe(true);
-	expect(root.querySelector(".server-summary")?.textContent).toContain("1 server needs attention");
+	expect(root.querySelector(".section-meta")?.textContent).toContain("1 needs attention");
 	// The remedy the retired banner spelled out survives on the line.
 	expect(line.textContent).toContain("chatLanguageModels.json");
 	expect(line.textContent).toContain("under a new label");
@@ -253,8 +258,9 @@ test("a noticed entry states its inactive surfaces under its own row, not in a s
 test("without a notice a healthy row carries no diagnostic line at all", () => {
 	const root = mountSection([makeDeclaredServer()]);
 	expect(root.querySelector(".row-diagnostic")).toBeNull();
-	// And no summary line: a permanent "0 problems" is furniture.
-	expect(root.querySelector(".server-summary")).toBeNull();
+	// And no attention clause in the header meta: a permanent "0 problems" is
+	// furniture.
+	expect(root.querySelector(".section-meta")?.textContent).not.toContain("needs attention");
 });
 
 test("the edit form round-trips per-entry model parameters into the save intent", () => {
@@ -711,7 +717,10 @@ test("without hidden groups no hidden-groups line renders; with them it renders 
 	expect(onlyHidden.querySelector(".hidden-groups")?.textContent).toContain("Show 1 hidden group");
 });
 
-test("the external badge tip renders the provenance classification, or the honest default", () => {
+test("an external row's drawer states the provenance classification, or the honest default", () => {
+	// The story used to be the badge's hover tip; the badge sits inside the
+	// disclosure button now, where a focusable tip wrapper would be a nested
+	// interactive, so the drawer's Origin fact carries it instead.
 	const root = mountSection([
 		makeExternalServer({
 			label: "Old",
@@ -728,22 +737,37 @@ test("the external badge tip renders the provenance classification, or the hones
 		makeExternalServer({ label: "Native", baseUrl: "http://c.test", adoptHandle: "handle-native" }),
 	]);
 
-	const tips = [...root.querySelectorAll("span[data-slot='badge']")]
-		.filter((el) => el.textContent?.trim() === "external")
-		.map((el) => el.closest(".tip-wrap")?.querySelector(".tip-bubble")?.textContent ?? "");
-	expect(tips.length).toBe(3);
-	const removedTip = tips.find((tip) => tip.includes('removed entry "Old"'));
+	// The badge itself stays visible and tip-free on every row.
+	const badges = [...root.querySelectorAll("span[data-slot='badge']")].filter(
+		(el) => el.textContent?.trim() === "external"
+	);
+	expect(badges.length).toBe(3);
+	for (const badge of badges) {
+		expect(badge.closest(".tip-wrap")).toBeNull();
+	}
+
+	for (const line of root.querySelectorAll("button.server-line")) {
+		fireClick(line as HTMLElement);
+	}
+	const origins = [...root.querySelectorAll(".server-facts dt")]
+		.filter((dt) => (dt.textContent ?? "").trim() === "Origin")
+		.map((dt) => dt.nextElementSibling?.textContent ?? "");
+	expect(origins.length).toBe(3);
+	const removedTip = origins.find((tip) => tip.includes('removed entry "Old"'));
 	expect(removedTip).toContain("Leftover");
-	const renamedTip = tips.find((tip) => tip.includes('renaming "Renamed" to "Fresh"'));
+	const renamedTip = origins.find((tip) => tip.includes('renaming "Renamed" to "Fresh"'));
 	expect(renamedTip).toContain("Leftover");
-	const defaultTip = tips.find((tip) => tip.includes("predates"));
+	const defaultTip = origins.find((tip) => tip.includes("predates"));
 	expect(defaultTip).toContain("added outside this extension");
 });
 
-test("the model count is a scope link only when the section is given onShowModels", () => {
-	// Direct mounts without the callback (and zero-count rows) keep the count
-	// as plain text: a link that scopes to nothing helps nobody.
+test("the drawer's model count is a scope link only when the section is given onShowModels", () => {
+	// The link lives in the drawer now - the row is one disclosure button and a
+	// button cannot contain a button. Direct mounts without the callback (and
+	// zero-count rows) keep the count as plain text: a link that scopes to
+	// nothing helps nobody.
 	const plain = mountSection([makeDeclaredServer({ label: "Prod", modelCount: 3 })]);
+	fireClick(plain.querySelector("button.server-line") as HTMLElement);
 	expect(plain.querySelector("button[aria-label='Show models from Prod']")).toBeNull();
 
 	const labels: string[] = [];
@@ -758,6 +782,12 @@ test("the model count is a scope link only when the section is given onShowModel
 			onShowModels={(label) => labels.push(label)}
 		/>
 	);
+	// The collapsed row keeps the count as plain text either way.
+	expect(root.querySelector(".server-count .count-plain")?.textContent).toBe("3 models");
+	expect(root.querySelector("button[aria-label='Show models from Prod']")).toBeNull();
+	for (const line of root.querySelectorAll("button.server-line")) {
+		fireClick(line as HTMLElement);
+	}
 	expect(root.querySelector("button[aria-label='Show models from Empty']")).toBeNull();
 	fireClick(root.querySelector("button[aria-label='Show models from Prod']") as HTMLElement);
 	expect(labels).toEqual(["Prod"]);
@@ -1701,89 +1731,6 @@ test("add matcher then cancel is a no-op: the pristine sweep leaves the form cle
 	expect(closes).toHaveLength(1);
 });
 
-test("the usage column shows the spend percentage with the Usage tab's severity tone", () => {
-	const server = makeDeclaredServer({ label: "Prod", baseUrl: "http://localhost:4000" });
-	const root = mount(<App />);
-	const usageFor = (spentFraction: number) =>
-		makeUsage({
-			servers: [makeUsageServer({ label: "Prod", baseUrl: "http://localhost:4000", spend: 21, spentFraction })],
-		});
-
-	pushToWebview(statePush(makeState({ servers: [server], usage: usageFor(0.42) })));
-	const cell = () => root.querySelector(".server-list .usage-cell") as HTMLElement;
-	/** The figure without the hidden noun that names it for a screen reader. */
-	const shown = () => (cell().lastChild?.textContent ?? "").trim();
-	// The header row is gone, so the cell says what its number is - but only to
-	// a screen reader. Sighted readers get the same noun from the hover tip.
-	expect(cell().querySelector(".visually-hidden")?.textContent).toContain("Budget spent");
-	expect(shown()).toBe("42%");
-	expect(cell().classList.contains("tone-ok")).toBe(true);
-
-	// Reaching a threshold counts as crossing it, exactly as the Usage tab
-	// colors its percentage (the fixture thresholds are 0.8 and 0.95).
-	pushToWebview(statePush(makeState({ servers: [server], usage: usageFor(0.8) })));
-	expect(shown()).toBe("80%");
-	expect(cell().classList.contains("tone-warn")).toBe(true);
-
-	// Over budget shows the literal percentage in the error tone.
-	pushToWebview(statePush(makeState({ servers: [server], usage: usageFor(1.12) })));
-	expect(shown()).toBe("112%");
-	expect(cell().classList.contains("tone-error")).toBe(true);
-});
-
-test("spend without a budget renders as the plain amount, never a percentage", () => {
-	const usage = makeUsage({
-		servers: [
-			makeUsageServer({
-				label: "Prod",
-				baseUrl: "http://localhost:4000",
-				spend: 3.07,
-				effectiveBudget: undefined,
-				keyBudget: undefined,
-				budgetSource: "none",
-				spentFraction: undefined,
-			}),
-		],
-	});
-	const root = mount(<App />);
-	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()], usage })));
-	const cell = root.querySelector(".server-list .usage-cell") as HTMLElement;
-	expect(cell.querySelector(".visually-hidden")?.textContent).toContain("Spent");
-	expect((cell.lastChild?.textContent ?? "").trim()).toBe("$3.07");
-	// No severity tone: there is no budget for the amount to be a fraction of.
-	expect(cell.className).toBe("usage-cell");
-});
-
-test("a server without usage data gets an empty usage cell, not an unknown marker", () => {
-	// The usage snapshot tracks a different entry (usage joins by the store's
-	// label key), so this row has no numbers to show - and says nothing.
-	const usage = makeUsage({
-		servers: [makeUsageServer({ label: "Other", baseUrl: "http://other.example:4000" })],
-	});
-	const root = mount(<App />);
-	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()], usage })));
-	// The cell exists and is empty, rather than being absent or carrying a
-	// placeholder. There is no header row to label it any more: each cell on the
-	// compact row says what it is, and an empty one says nothing at all.
-	const usageCell = root.querySelector(".server-row .server-usage") as HTMLElement;
-	expect(usageCell).not.toBeNull();
-	expect(usageCell.textContent).toBe("");
-	expect(root.textContent).not.toContain("unknown");
-});
-
-test("a forbidden-usage card leaves its server row's usage cell empty", () => {
-	// The reduced forbidden card carries no numbers, so the servers-table join
-	// skips it: the row renders an empty cell and the Usage tab tells the story.
-	const usage = makeUsage({
-		servers: [makeForbiddenUsageServer({ label: "Prod", baseUrl: "http://localhost:4000" })],
-	});
-	const root = mount(<App />);
-	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })], usage })));
-	const usageCell = root.querySelector(".server-row .server-usage") as HTMLElement;
-	expect(usageCell.textContent).toBe("");
-	expect(usageCell.querySelector(".usage-cell")).toBeNull();
-});
-
 /** The entry form's capability key input inside the open matcher editor overlay, with its listbox options. */
 function capabilityKeyOptions(root: HTMLElement): string[] {
 	fireClick(buttonByText(root, "Add capability matcher"));
@@ -2047,6 +1994,7 @@ test("the list carries one polite live region, so a sync's outcome is announced"
 		)
 	);
 	expect(region.textContent).toContain("All servers are healthy");
-	// And the visible summary stays absent when there is nothing to report.
-	expect(root.querySelector(".server-summary")).toBeNull();
+	// And the header meta stays free of an attention clause when there is
+	// nothing to report.
+	expect(root.querySelector(".section-meta")?.textContent).not.toContain("needs attention");
 });

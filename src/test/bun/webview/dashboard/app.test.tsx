@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { App } from "../../../../webview/dashboard/app";
-import { makeDeclaredServer, makeModel, makeState, makeUsage, makeUsageServer, statePush } from "../fixtures";
+import { makeDeclaredServer, makeModel, makeState, statePush } from "../fixtures";
 import {
 	buttonByText,
 	cleanup,
@@ -245,7 +245,9 @@ test("the Diagnostics table's inspector opens in place over the tab and closing 
 
 test("the rail counts what each destination holds, and says nothing when it holds nothing", () => {
 	// Every number here is one a reader would go to that destination to find
-	// out, and every absence is a fact rather than a gap.
+	// out, and every absence is a fact rather than a gap. Spend is no longer a
+	// rail figure: the Usage destination dissolved into the Servers page, whose
+	// header meta carries the worst fresh budget instead.
 	const root = mount(<App />);
 
 	// An install with no servers: the destination shows a guided start with no
@@ -255,37 +257,20 @@ test("the rail counts what each destination holds, and says nothing when it hold
 	});
 	expect(railCounts(root).Servers).toBeUndefined();
 	expect(railCounts(root).Models).toBeUndefined();
-	expect(railCounts(root).Usage).toBeUndefined();
 	expect(railCounts(root).Diagnostics).toBeUndefined();
+	expect(railCounts(root)).not.toContainKey("Usage");
 
-	// Spend is reported against a budget on one fresh server and a stale one:
-	// the figure is the worst FRESH budget fraction, never a sum, because two
-	// entries can authenticate with the same key.
 	act(() => {
 		pushToWebview(
 			statePush(
 				makeState({
 					servers: [makeDeclaredServer({ label: "a" })],
 					models: [makeModel({ id: "m1" }), makeModel({ id: "m2" })],
-					usage: makeUsage({
-						thresholds: [0.8, 0.95],
-						servers: [
-							{ ...makeUsageServer({ label: "a" }), spend: 45, effectiveBudget: 100, fresh: true },
-							// A second FRESH server, so a sum and a maximum give different
-							// answers: without it the assertion below cannot tell them apart.
-							{ ...makeUsageServer({ label: "c" }), spend: 30, effectiveBudget: 100, fresh: true },
-							{ ...makeUsageServer({ label: "b" }), spend: 900, effectiveBudget: 100, fresh: false },
-						],
-					}),
 				})
 			)
 		);
 	});
-	const withUsage = railCounts(root);
-	expect(withUsage.Servers).toBe("1");
-	expect(withUsage.Models).toBe("2");
-	// The worst fresh fraction: 45%. A sum would say 75%, and folding the stale
-	// server in would say 975% - two entries can authenticate with the same key,
-	// so spends cannot be added.
-	expect(withUsage.Usage).toBe("45%");
+	const counts = railCounts(root);
+	expect(counts.Servers).toBe("1");
+	expect(counts.Models).toBe("2");
 });

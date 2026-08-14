@@ -533,7 +533,7 @@ export type UsageEndpointStandingView =
 	  };
 
 /**
- * One server's usage facts as the Usage tab renders them: numbers, epoch
+ * One server's usage facts as its server row renders them: numbers, epoch
  * timestamps, user-configured identity, and closed endpoint-standing enums
  * only (the spend client already narrowed everything response-derived away).
  * Servers whose proxy serves no usage endpoints never appear here at all.
@@ -599,10 +599,10 @@ export interface UsageForbiddenServerView {
 	readonly dailyActivity: UsageEndpointStandingView;
 }
 
-/** One Usage tab card: full usage facts, or the reduced forbidden card. */
+/** One server's usage card: full usage facts, or the reduced forbidden card. */
 export type UsageServerCardView = UsageServerView | UsageForbiddenServerView;
 
-/** The Usage tab's whole snapshot; pushed with every state like the rest. */
+/** The usage snapshot the Servers page joins onto its rows; pushed with every state like the rest. */
 export interface DashboardUsage {
 	readonly servers: readonly UsageServerCardView[];
 	/** The normalized alert thresholds, ascending; empty = alerts off. */
@@ -820,7 +820,7 @@ export interface DashboardState {
 	 */
 	readonly observedModelInfoKeys?: readonly string[] | undefined;
 	readonly settings: DashboardSettings;
-	/** The Usage tab's snapshot; see DashboardUsage. */
+	/** The Servers page's usage snapshot (spend units, drawers, diagnostics); see DashboardUsage. */
 	readonly usage: DashboardUsage;
 	/** Configuration problems found in the settings; see ConfigDiagnosticView. */
 	readonly diagnostics: readonly ConfigDiagnosticView[];
@@ -834,15 +834,13 @@ export interface DashboardState {
 }
 
 /**
- * The dashboard's top-level sections, one tab each. Servers and models share
- * the overview tab (they are one workflow: connect a server, see its models);
- * the settings form and the Diagnostics page get pages of their own. Declared
- * here because deep links cross the boundary: the extension's focusSection
- * message names a tab by ID (litellm.showDiagnostics lands on "diagnostics"),
- * and the webview's tab bar renders exactly this list.
+ * The dashboard's top-level sections, one tab each. Declared here because
+ * deep links cross the boundary: the extension's focusSection message names a
+ * tab by ID (litellm.showDiagnostics lands on "diagnostics"), and the
+ * webview's rail renders exactly this list.
  */
-// Order is the rail's order, top to bottom: the three you look at (what is
-// connected, what it can run, what it costs), then the one that tells you
+// Order is the rail's order, top to bottom: the two you look at (what is
+// connected and what it costs, what it can run), then the one that tells you
 // something is wrong, then the one you visit on purpose. Settings last because
 // you go there deliberately; diagnostics above it because it competes for
 // attention.
@@ -853,6 +851,14 @@ export interface DashboardState {
 // and the models table had to virtualize into an inner scrollport with a height
 // budget hand-tuned against whatever chrome sat above it. A destination of its
 // own gets the viewport, and the rail keeps both one click apart.
-export const DASHBOARD_SECTION_IDS = ["overview", "models", "usage", "diagnostics", "settings"] as const;
+//
+// Usage is NOT a destination, for the opposite reason: every usage card is one
+// declared server's, so a page of its own was a second copy of the server list
+// whose header counted a different total than the page beside it. Spend rides
+// each server's row instead, and the row's drawer holds the inventory. The
+// retired "usage" id can still arrive in stale deep links (the usage status
+// bar item's command outlives a running webview); the shell's unknown-section
+// guard drops those, which a test pins.
+export const DASHBOARD_SECTION_IDS = ["overview", "models", "diagnostics", "settings"] as const;
 
 export type DashboardSectionId = (typeof DASHBOARD_SECTION_IDS)[number];
