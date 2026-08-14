@@ -215,9 +215,9 @@ One idiom for detail that opens in place:
 - There is no preflight. Every control states what a UA stylesheet would
   otherwise supply - margin, box-sizing, font - and shared resets live once in
   theme.css's base layer, never as per-component patches (theme.css:19-56).
-  The UA's checkbox margin (ui/checkbox.tsx:9-13), the rail's content-box
-  drift (dashboard.css:68-73), and the 49-not-48 arithmetic above are what
-  forgetting this costs.
+  The UA's checkbox margin (now a base-layer rule there), the rail's
+  content-box drift (dashboard.css:68-73), and the 49-not-48 arithmetic above
+  are what forgetting this costs.
 
 ## 8. Empty, loading, and error states
 

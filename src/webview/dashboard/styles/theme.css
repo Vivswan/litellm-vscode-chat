@@ -43,6 +43,12 @@
 		background-color: transparent;
 		color: inherit;
 	}
+	/* Chrome's UA sheet gives a checkbox `margin: 3px 3px 3px 4px`, which pushed
+		 every checkbox 4px right of the column its siblings sit on (the reset
+		 lived on ui/checkbox.tsx as m-0 before it moved here). */
+	input[type="checkbox"] {
+		margin: 0;
+	}
 	/* The dashboard paints its own surface. VS Code's webview default styles set
 		 `body { background-color: transparent }` and let the editor area show
 		 through, which is right until the reader forces a theme: the forced
