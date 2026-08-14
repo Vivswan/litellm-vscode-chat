@@ -965,7 +965,6 @@
 		cursor: default;
 	}
 	button:focus-visible,
-	summary:focus-visible,
 	a:focus-visible {
 		outline: 1px solid var(--vscode-focusBorder);
 		outline-offset: 1px;
@@ -2104,16 +2103,6 @@
 		background: var(--vscode-notifications-background, var(--vscode-editorWidget-background));
 		color: var(--vscode-notifications-foreground, var(--vscode-foreground));
 		box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.35));
-	}
-	details {
-		margin: 8px 0;
-	}
-	summary {
-		cursor: pointer;
-		color: var(--vscode-descriptionForeground);
-	}
-	details[open] summary {
-		margin-bottom: 4px;
 	}
 
 	.filterbar {
