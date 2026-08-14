@@ -2333,13 +2333,14 @@ export function RecordMatcherTable({
 						    flex-wrap is for, and the chips still wrap among themselves
 						    inside it.
 
-						    The trade is that painted overflow becomes structural: the row
-						    now has a hard floor of one chip's min-content, which for a long
-						    field name plus a 14em value plus its marks is 350-450px, and
-						    below that the pane scrolls horizontally instead of the text
-						    colliding. That is the better failure - a scrollbar says what
-						    happened and the words stay readable - but it is a floor with no
-						    responsive escape, so a narrow pane cannot get under it.
+						    The row's floor used to be structural and unescapable: one chip's
+						    min-content, which for a long field name plus a 14em value plus
+						    its marks was 350-450px, and under that the pane scrolled
+						    horizontally instead of the text colliding. A chip now wraps its
+						    own parts and its key may break anywhere, so the floor is a
+						    chip's longest UNBREAKABLE piece rather than its whole line, and
+						    a narrow pane gets under it. `bun run check-overflow` is what
+						    holds that: it fails at the widths this used to scroll at.
 
 						    One dormant consequence: dashboard.css used to carry a slide-over
 						    adaptation for this list (a relative `.chip-list` as the chip
@@ -2348,7 +2349,7 @@ export function RecordMatcherTable({
 						    only scrolls rightward). It was deleted as dead during the layer
 						    merge: nothing renders this table inside a slide-over. If a panel
 						    ever hosts it again, the adaptation must be REBUILT, not
-						    un-deleted, and it has two hazards to answer: this floor lets the
+						    un-deleted, and it has two hazards to answer: the row's floor lets the
 						    popover's containing block outgrow the panel and re-opens the
 						    clipping, and a static anchor with no relatively positioned
 						    ancestor resolves the popover against the FIXED panel itself, so
@@ -2385,7 +2386,7 @@ export function RecordMatcherTable({
 								// against the resting state.
 								const unmarked = issue?.problem === undefined && issue?.hint === undefined && !openHere;
 								const chipClass = cn(
-									"chip-field inline-flex items-baseline gap-1.5 rounded-sm border border-transparent px-1 font-mono text-[12px] text-muted-foreground",
+									"chip-field inline-flex flex-wrap items-baseline gap-1.5 rounded-sm border border-transparent px-1 font-mono text-[12px] text-muted-foreground",
 									unmarked && "forced-colors:border-[color:Canvas]",
 									// Quiet at rest, a field on approach: the hairline and
 									// the fill arrive with the pointer or with focus, which

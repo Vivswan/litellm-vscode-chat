@@ -10,13 +10,22 @@
  *   bun scripts/dev/render-dashboard.ts --fixture scripts/dev/renderFixtures/example.ts --out /tmp/shot.png
  *     [--width 1300] [--height 950] [--theme <host theme>]
  *     [--hover <css selector>] [--clip-viewport] [--html-out /tmp/page.html] [--no-theme]
+ *     [--widths 320,999,1000] [--pane-widths 559,560]
  *
  * --theme overrides the fixture's own hostTheme, so any fixture can be shot in
  * light and dark without a second fixture file; the dashboard has to read well
  * in both.
  *
- * CHROME_BIN overrides Chrome discovery. Exit code 0 only when the PNG was
- * written and is larger than 10 KB.
+ * Every run asserts the page does not scroll sideways at its own width.
+ * --widths asserts the same at each WINDOW width it names; --pane-widths names
+ * PANE widths instead and converts each to the window width that produces it,
+ * measuring the rail and padding rather than assuming them, which is what the
+ * dashboard's container-query breakpoints are actually about. Either flag makes
+ * --out optional: check-overflow.ts sweeps the whole fixture set that way.
+ *
+ * CHROME_BIN overrides Chrome discovery. Exit code 0 only when nothing
+ * overflowed and, unless the run is measuring alone, the PNG was written and is
+ * larger than 10 KB.
  *
  * One rule governs every change to this file: when the harness and the editor
  * disagree about how the page is assembled, fix the harness FIRST, watch it
@@ -81,6 +90,16 @@ export interface RenderFixture {
 	/** How long to wait after the ready handshake before steps and capture; default 300. */
 	readonly settleMs?: number;
 	/**
+	 * Opts the fixture out of the width sweep, keeping the assertion at its own
+	 * width. For a fixture whose state was MEASURED when it was built: a chip
+	 * popover picks the side it opens on by measuring its anchor at open time,
+	 * so narrowing the viewport afterwards leaves it on a side the component
+	 * would never have chosen, and the sweep would be reporting a page the
+	 * dashboard cannot produce. The narrow behaviour of these surfaces belongs
+	 * to a fixture opened AT the narrow width, not to a resize after the fact.
+	 */
+	readonly measuredAtOwnWidth?: boolean;
+	/**
 	 * The host theme the page emulates: the token set in harness.css plus the
 	 * body class VS Code stamps. "light" and "dark" are the two ordinary
 	 * themes and the dashboard must read well in both; the two high-contrast
@@ -103,12 +122,19 @@ export interface RenderFixture {
 }
 
 const REPO_ROOT = path.resolve(__dirname, "../..");
+/**
+ * Where a --pane-widths search starts, from each side of the rail's collapse:
+ * narrow enough that the rail is an icon rail, and wide enough that it is not.
+ * Starting points only - the search corrects itself from what it measures.
+ */
+const NARROW_PROBE_WIDTH = 320;
+const WIDE_PROBE_WIDTH = 1920;
 const READY_TIMEOUT_MS = 15000;
 const MIN_PNG_BYTES = 10 * 1024;
 
 function usage(): never {
 	console.error(
-		"usage: bun scripts/dev/render-dashboard.ts --fixture <fixture.ts> --out <shot.png>" +
+		"usage: bun scripts/dev/render-dashboard.ts --fixture <fixture.ts> (--out <shot.png> | --widths N,N)" +
 			" [--width N] [--height N] [--theme <host theme>]" +
 			" [--accent blue|violet|teal|amber] [--app-theme auto|light|dark]" +
 			" [--hover <css selector>] [--clip-viewport] [--html-out <page.html>] [--no-theme]"
@@ -856,6 +882,166 @@ function buildPageHtml(
 	return html.replace(bundleTag, `${stubScript(nonce, messages, respond)}\n\t${bundleTag}`);
 }
 
+/**
+ * Reports the page's horizontal overflow, or null when there is none.
+ *
+ * The page-level number is the whole claim: a document whose scrollWidth beats
+ * its clientWidth scrolls sideways, which is the one thing every narrow rule
+ * here exists to prevent. The names under it are a diagnostic and only that,
+ * built from two questions because the answers fail in opposite directions.
+ *
+ * Which boxes reach past the edge names a too-wide element, and only that: an
+ * unbreakable text run spills out of a block whose own border box stays inside,
+ * so the case `.server-url` was written for (a 60-character host) reports no
+ * box at all. Which boxes overflow THEMSELVES names that one, and the ancestor
+ * holding a min-width, which the first question can never reach because the
+ * deepest-offender filter drops every ancestor.
+ *
+ * Anything inside a scroller is skipped in both. A deliberate overflow-x is
+ * someone's decision and contributes nothing to the document's own scroll, so
+ * its children are six confident wrong answers.
+ */
+const OVERFLOW_PROBE = `(() => {
+	const root = document.documentElement;
+	const overflow = root.scrollWidth - root.clientWidth;
+	if (overflow <= 0) {
+		return null;
+	}
+	const scrolls = (node) => getComputedStyle(node).overflowX !== "visible";
+	const inScroller = (node) => {
+		for (let parent = node.parentElement; parent !== null && parent !== root; parent = parent.parentElement) {
+			if (scrolls(parent)) {
+				return true;
+			}
+		}
+		return false;
+	};
+	const limit = root.clientWidth + 0.5;
+	const past = [];
+	const spilling = [];
+	for (const node of document.querySelectorAll("body *")) {
+		if (inScroller(node)) {
+			continue;
+		}
+		const rect = node.getBoundingClientRect();
+		if (rect.width > 0 && rect.right > limit) {
+			past.push(node);
+		}
+		if (!scrolls(node) && node.scrollWidth - node.clientWidth > 0.5) {
+			spilling.push(node);
+		}
+	}
+	const name = (node, why) => {
+		const classes = typeof node.className === "string" ? node.className.trim().split(/\\s+/).slice(0, 2) : [];
+		const tag = node.tagName.toLowerCase() + (classes.length > 0 ? "." + classes.join(".") : "");
+		return why === "past"
+			? tag + " reaches to " + Math.round(node.getBoundingClientRect().right)
+			: tag + " holds " + Math.round(node.scrollWidth - node.clientWidth) + "px it cannot show";
+	};
+	const deepest = past.filter((node) => !past.some((other) => other !== node && node.contains(other)));
+	const culprits = [
+		...deepest.slice(0, 4).map((node) => name(node, "past")),
+		...spilling.slice(0, 4).map((node) => name(node, "spilling")),
+	];
+	return JSON.stringify({ overflow, clientWidth: root.clientWidth, culprits });
+})()`;
+
+/** Throws when the page scrolls sideways at the width it is currently set to. */
+async function assertNoHorizontalOverflow(cdp: CdpConnection, width: number): Promise<void> {
+	const found = (await evaluate(cdp, OVERFLOW_PROBE)) as string | null;
+	if (found === null) {
+		return;
+	}
+	const { overflow, clientWidth, culprits } = JSON.parse(found) as {
+		overflow: number;
+		clientWidth: number;
+		culprits: readonly string[];
+	};
+	throw new Error(
+		`The page scrolls sideways at ${width}px: ${overflow}px past a ${clientWidth}px viewport.\n  ` +
+			culprits.join("\n  ")
+	);
+}
+
+/** Applies a viewport width and lets two frames settle under it. */
+async function setWidth(cdp: CdpConnection, width: number, height: number): Promise<void> {
+	await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+	await evaluate(cdp, "new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))", true);
+}
+
+/**
+ * The pane's width as its container queries see it: the CONTENT box.
+ *
+ * `container-type: inline-size` asks about the content box, and the pane holds
+ * 24px of padding on each side - so a border-box measurement aims every sweep
+ * 48px away from the breakpoint it was trying to test, and confirms itself with
+ * the same wrong ruler.
+ */
+async function measurePane(cdp: CdpConnection): Promise<number> {
+	const measured = await evaluate(
+		cdp,
+		`(() => {
+			const pane = document.querySelector(".pane");
+			if (pane === null) {
+				return 0;
+			}
+			const style = getComputedStyle(pane);
+			return Math.round(pane.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight));
+		})()`
+	);
+	return typeof measured === "number" ? measured : 0;
+}
+
+/**
+ * The window widths that put the PANE at each of the given widths.
+ *
+ * The dashboard's breakpoints are container queries on the pane, and the pane
+ * is what is left of the window after the rail, the padding, and its own
+ * max-width - so a sweep that set the window to a pane threshold would test a
+ * width no breakpoint cares about. Rather than model any of that, each target
+ * is SOLVED: set a width, measure, correct by the difference, repeat. The
+ * relation is a slope of one wherever it is not capped, so it converges in a
+ * step or two, and where it is capped or discontinuous it fails to converge and
+ * is reported instead of guessed.
+ *
+ * From both ends, because the rail's collapse takes about 170px of the offset
+ * with it: a pane width reachable only with the rail collapsed is invisible to
+ * a search that starts wide, and the reverse.
+ */
+async function windowWidthsForPanes(
+	cdp: CdpConnection,
+	panes: readonly number[],
+	height: number
+): Promise<{ readonly pane: number; readonly window: number; readonly landed: boolean }[]> {
+	const resolved: { pane: number; window: number; landed: boolean }[] = [];
+	for (const pane of panes) {
+		const found = new Set<number>();
+		for (const start of [NARROW_PROBE_WIDTH, WIDE_PROBE_WIDTH]) {
+			let candidate = start;
+			for (let attempt = 0; attempt < 5; attempt++) {
+				await setWidth(cdp, candidate, height);
+				const measured = await measurePane(cdp);
+				if (measured === pane) {
+					found.add(candidate);
+					break;
+				}
+				const next = candidate + (pane - measured);
+				if (next < 1 || next === candidate) {
+					break;
+				}
+				candidate = next;
+			}
+		}
+		for (const window of found) {
+			resolved.push({ pane, window, landed: true });
+		}
+		if (found.size === 0) {
+			resolved.push({ pane, window: 0, landed: false });
+		}
+	}
+	return resolved;
+}
+
 async function main(): Promise<void> {
 	const { values } = parseArgs({
 		options: {
@@ -870,9 +1056,12 @@ async function main(): Promise<void> {
 			theme: { type: "string" },
 			accent: { type: "string" },
 			"app-theme": { type: "string" },
+			widths: { type: "string" },
+			"pane-widths": { type: "string" },
 		},
 	});
-	if (values.fixture === undefined || values.out === undefined) {
+	const measuring = values.widths !== undefined || values["pane-widths"] !== undefined;
+	if (values.fixture === undefined || (values.out === undefined && !measuring)) {
 		usage();
 	}
 	const fixture = await loadFixture(values.fixture);
@@ -881,7 +1070,24 @@ async function main(): Promise<void> {
 	if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
 		throw new Error(`Viewport must be positive integers; got ${width}x${height}`);
 	}
-	const outPath = path.resolve(values.out);
+	// --widths sweeps the page for horizontal overflow at each width before
+	// capturing, and makes --out optional: measuring every fixture at every
+	// breakpoint boundary should not also cost a full-page screenshot each.
+	const positiveIntegers = (list: string | undefined, flag: string): number[] =>
+		(list ?? "")
+			.split(",")
+			.map((piece) => piece.trim())
+			.filter((piece) => piece.length > 0)
+			.map((piece) => {
+				const parsed = Number(piece);
+				if (!Number.isInteger(parsed) || parsed <= 0) {
+					throw new Error(`${flag} takes positive integers; got ${piece}`);
+				}
+				return parsed;
+			});
+	const sweepWidths = positiveIntegers(values.widths, "--widths");
+	const paneWidths = positiveIntegers(values["pane-widths"], "--pane-widths");
+	const outPath = values.out === undefined ? undefined : path.resolve(values.out);
 
 	const chromeBin = findChrome();
 	console.log(`chrome: ${chromeBin}`);
@@ -1029,6 +1235,59 @@ async function main(): Promise<void> {
 			console.warn("warning: no <main> h1 found; the page is likely still on the loading skeleton");
 		}
 
+		// Every render is also an overflow assertion. A page that scrolls
+		// sideways is the one failure this vocabulary calls broken outright
+		// rather than a matter of taste, it is invisible in a full-page capture
+		// (which photographs the overflow as though it were the page), and it
+		// has shipped twice. Measured at the fixture's own width first, then at
+		// every width the flags name, which is how the breakpoint boundaries get
+		// swept without a fixture per width.
+		//
+		// Through an explicit override rather than through whatever
+		// --window-size left: a platform with a minimum window width silently
+		// gives back a wider viewport than was asked for, so the number in a
+		// failure would not be the number under test.
+		await setWidth(cdp, width, height);
+		await assertNoHorizontalOverflow(cdp, width);
+		const sweeping = fixture.measuredAtOwnWidth !== true;
+		if (!sweeping && (sweepWidths.length > 0 || paneWidths.length > 0)) {
+			console.log("skipped the width sweep: this fixture's state was measured at its own width");
+		}
+		const aimed = sweeping && paneWidths.length > 0 ? await windowWidthsForPanes(cdp, paneWidths, height) : [];
+		const failures: string[] = [
+			...aimed
+				.filter((entry) => !entry.landed)
+				.map((entry) => `No viewport width puts the pane at ${entry.pane}px, so that breakpoint went untested`),
+		];
+		const sweep = [
+			...(sweeping ? sweepWidths : []).map((sweepWidth) => ({
+				window: sweepWidth,
+				pane: undefined as number | undefined,
+			})),
+			...aimed.filter((entry) => entry.landed).map((entry) => ({ window: entry.window, pane: entry.pane })),
+		];
+		for (const at of sweep) {
+			await setWidth(cdp, at.window, height);
+			try {
+				await assertNoHorizontalOverflow(cdp, at.window);
+			} catch (error) {
+				// Collected rather than thrown: one report naming every width
+				// that fails beats a bisect through the list one run at a time.
+				const where = at.pane === undefined ? "" : ` (aimed at a ${at.pane}px pane)`;
+				failures.push((error instanceof Error ? error.message : String(error)) + where);
+			}
+		}
+		if (sweep.length > 0) {
+			await setWidth(cdp, width, height);
+			console.log(`swept ${sweep.length} width(s): ${failures.length === 0 ? "no overflow" : "SEE BELOW"}`);
+		}
+		if (failures.length > 0) {
+			throw new Error(failures.join("\n"));
+		}
+		if (outPath === undefined) {
+			return;
+		}
+
 		const captureBeyondViewport = values["clip-viewport"] !== true && fixture.clipViewport !== true;
 		await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
 		if (captureBeyondViewport) {
@@ -1036,7 +1295,7 @@ async function main(): Promise<void> {
 			// viewport metrics. A full-page capture photographs the whole
 			// document through the fixture's small viewport, and a
 			// position: sticky element paints where the CURRENT offset puts it -
-			// so the tab bar lands wherever a step's scrollIntoView resolved to.
+			// so the rail lands wherever a step's scrollIntoView resolved to.
 			// That offset is not stable: layout is still settling around it (the
 			// models table re-measures row height after paint), so the same bytes
 			// photograph differently run to run. At offset 0 a sticky element is

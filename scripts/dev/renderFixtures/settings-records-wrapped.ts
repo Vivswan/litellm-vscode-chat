@@ -29,10 +29,12 @@
  * suggests: 432px of pane is still under several rows' unwrapped width. Re-measure
  * rather than reason if the row's contents or the rail change again.
  *
- * Expect the PNG to come out wider than the viewport. That same min-content
- * floor means a long field name plus its value overflows the pane horizontally
- * here, and a full-page capture is as wide as the document. The dead strip on
- * the right is the overflow being honest, not the harness misbehaving.
+ * This shot used to come out wider than its viewport, and the paragraph here
+ * said so: a chip could not shrink below its own contents, so a long field name
+ * plus its value pushed the page sideways and the capture came back with a dead
+ * strip on the right. A chip now wraps its own parts and its key may break, so
+ * the page fits and the capture is the viewport's width. The overflow sweep
+ * asserts that rather than a comment promising it.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";

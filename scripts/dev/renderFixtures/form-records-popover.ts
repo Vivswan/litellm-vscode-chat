@@ -36,6 +36,10 @@ const fixture: RenderFixture = {
 	],
 	viewport: { width: 1300, height: 950 },
 	settleMs: 400,
+	// Opened by a step that MEASURED its anchor, so the side it hangs on
+	// belongs to this width; a sweep that narrowed the viewport afterwards
+	// would judge a page the dashboard never builds.
+	measuredAtOwnWidth: true,
 };
 
 export default fixture;

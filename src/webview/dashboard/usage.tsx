@@ -300,12 +300,12 @@ function tailFact(server: UsageServerView, thresholds: readonly number[]): { tex
 	return { text: l10n.t("no request statistics"), tone: "muted" };
 }
 
-/** One fact row: the label column never changes, so a half-reported server keeps the same shape. */
+/** One fact row: every fact has the same shape, so a half-reported server reads like a full one. */
 function Fact({ label, children }: { label: string; children: ReactNode }) {
 	return (
 		<>
-			<dt className="text-muted-foreground">{label}</dt>
-			<dd className="m-0 font-mono text-[0.92em] tabular-nums">{children}</dd>
+			<dt className="text-muted-foreground @max-[560px]/pane:text-[0.92em]">{label}</dt>
+			<dd className="m-0 font-mono text-[0.92em] tabular-nums @max-[560px]/pane:mb-1">{children}</dd>
 		</>
 	);
 }
@@ -432,8 +432,17 @@ function UsagePanel({
 	const neverUpdated = neverUpdatedText(server);
 	return (
 		<>
-			<dl className="usage-facts m-0 grid max-w-[46rem] grid-cols-[11rem_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-[0.95em]">
-				<Fact label={l10n.t("Server")}>{server.baseUrl}</Fact>
+			{/* Two columns until the pane cannot hold both. The label column is a
+			    fixed 11rem and a value cannot shrink below its longest word, so
+			    under about 560px of pane the pair asked for more room than the
+			    pane had and the page paid for it by scrolling sideways - which
+			    the floor promises does not happen. Stacked, each fact reads as
+			    its label and then its value, and the dd's own bottom margin is
+			    what keeps the next label from joining the value above it. */}
+			<dl className="usage-facts m-0 grid max-w-[46rem] grid-cols-[11rem_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-[0.95em] @max-[560px]/pane:grid-cols-[minmax(0,1fr)] @max-[560px]/pane:gap-y-0">
+				<Fact label={l10n.t("Server")}>
+					<span className="usage-url">{server.baseUrl}</span>
+				</Fact>
 				<Fact label={l10n.t("Spend")}>
 					{server.spend !== undefined ? formatUsd(server.spend) : <Absent reason={spendReason} />}
 				</Fact>

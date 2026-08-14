@@ -2317,6 +2317,23 @@
 		white-space: nowrap;
 		border: 0;
 	}
+	/* A record key is a wire identifier with no break opportunity of its own,
+		   and the vocabulary is open: supports_parallel_function_calling is a
+		   real one and is wider than a narrow pane. The chip around it can wrap
+		   its parts but cannot shrink one of them, so the page scrolled sideways
+		   instead. Allowed to break, the key costs its chip a second line at
+		   widths where nothing else fits on one either. */
+	.chip-key {
+		overflow-wrap: anywhere;
+	}
+	/* The one fact in the expanded usage panel whose value is an identifier
+		   rather than a number: a 60-character host has no break opportunity, and
+		   a grid item's own minimum is its content, so the panel pushed the page
+		   sideways rather than wrapping. The numbers beside it keep their rule -
+		   a "128,000" split across two lines reads as two values. */
+	.usage-facts .usage-url {
+		overflow-wrap: anywhere;
+	}
 	/* The anchor wraps a chip and its popover, so outside-press detection and
 		   the popover's position share one element. */
 	.chip-anchor {
