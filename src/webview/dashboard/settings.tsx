@@ -17,7 +17,8 @@
 
 import * as l10n from "@vscode/l10n";
 import type { FocusEvent, ReactNode } from "react";
-import { useEffect, useId, useState } from "react";
+import { createContext, useContext, useEffect, useId, useState } from "react";
+import type { RequestPayload } from "../../dashboard/endpoints";
 import { WIRE_LIMITS } from "../../dashboard/endpoints";
 import {
 	booleanSettingPresentation,
@@ -48,6 +49,7 @@ import type {
 } from "../../shared/config/settingSpec";
 import { NUMBER_SETTING_SPECS, TOKEN_ESTIMATION_MODES, UI_ACCENTS, UI_THEMES } from "../../shared/config/settingSpec";
 import { DOCS_LINK_OPENROUTER_CATALOG, DOCS_LINK_SETTINGS } from "./docsLinks";
+import { FailureText } from "./failureText";
 import { DocsLink, Help } from "./help";
 import {
 	helpCurrencySymbol,
@@ -86,6 +88,69 @@ import { sendRequest } from "./vscodeApi";
  */
 export interface EditRecordRequest extends ExternalRecordEdit {
 	readonly kind: "parameters" | "capabilities";
+}
+
+/**
+ * The scalar-write methods this page posts, whose failures come back as
+ * standing notices in App's fire-and-forget store (the state push is their
+ * success signal). Declared here because placement is this page's job: each
+ * notice lands under the row that posted the failed write, or on the
+ * section-top fallback line when no mounted row claims its id.
+ */
+export const SETTING_WRITE_METHODS = [
+	"setNumberSetting",
+	"setBooleanSetting",
+	"resetSetting",
+	"setUsageAlertThresholds",
+	"setUsageStatusBar",
+	"setTokenEstimation",
+	"setAdditionalToolSchemaKeywords",
+	"setCurrencySymbol",
+	"setUiTheme",
+	"setUiAccent",
+] as const;
+export type SettingWriteMethod = (typeof SETTING_WRITE_METHODS)[number];
+
+/** One standing write failure as this page places it; App projects its store entry into this shape. */
+export interface SettingWriteFailure {
+	/** Distinguishes repeated failures with the same text; keys the notice so role="alert" re-announces. */
+	readonly seq: number;
+	/** The failed request's correlation id, which is what names the owning row. */
+	readonly id: string;
+	readonly message: string;
+}
+
+/**
+ * The last write each method posted and the row that posted it. The fail
+ * envelope echoes the request id but never the payload, so this registry is
+ * what turns "setNumberSetting failed" into "the Request timeout row's write
+ * failed". Module state rather than React state on purpose: it is written
+ * inside commit handlers and only read while placing a failure that quotes
+ * the same id, and ids are minted fresh per post, so a stale entry can never
+ * claim anything.
+ */
+const lastSettingWrites = new Map<SettingWriteMethod, { readonly id: string; readonly row: SettingRowId }>();
+
+/** Post one scalar write, remembering which row posted it (see lastSettingWrites). */
+function postSettingWrite<K extends SettingWriteMethod>(
+	method: K,
+	payload: RequestPayload<K>,
+	row: SettingRowId
+): void {
+	lastSettingWrites.set(method, { id: sendRequest(method, payload), row });
+}
+
+/** Each row's standing write failure, keyed by the owning row; SettingRow reads its own. */
+const SettingFailuresContext = createContext<Partial<Record<SettingRowId, SettingWriteFailure>>>({});
+
+/** The one frame every misplaced-write notice wears, row-level and fallback alike. */
+function writeFailureText(failure: SettingWriteFailure): ReactNode {
+	return (
+		<FailureText
+			message={failure.message}
+			frame={(headline) => l10n.t("The last change did not apply: {0}", headline)}
+		/>
+	);
 }
 
 /**
@@ -211,7 +276,7 @@ function ResetButton({ title, scope, settingId }: { title: string; scope: Settin
 				size="compact"
 				className="reset"
 				aria-label={action}
-				onClick={() => sendRequest("resetSetting", { setting: settingId })}
+				onClick={() => postSettingWrite("resetSetting", { setting: settingId }, settingId)}
 			>
 				{l10n.t("Reset")}
 			</Button>
@@ -282,6 +347,9 @@ function SettingRow({
 	configuredScope: SettingScope | null;
 	hidden: boolean;
 }) {
+	// The standing failure of this row's own last write, when the host refused
+	// it; App's store retires it on the next state push (the success signal).
+	const writeFailure = useContext(SettingFailuresContext)[settingId];
 	return (
 		<div
 			className={cn(
@@ -293,9 +361,12 @@ function SettingRow({
 				// frames share one edge. pr-3 without the margin left the row's
 				// content 12px short of everything below it.
 				"-mr-2 pr-2",
-				configuredScope !== null
-					? "modified border-l-[var(--vscode-settings-modifiedItemIndicator,var(--vscode-focusBorder))]"
-					: "border-l-transparent"
+				// The modified mark is the ACCENT, not the host's amber
+				// modifiedItemIndicator: "you set this" is selection semantics, the
+				// same family as the rail's selected-tab bar, while amber is what
+				// the severity edges mean by "needs attention" - one shape carrying
+				// both readings taught the reader to triage their own choices.
+				configuredScope !== null ? "modified border-l-accent-hue" : "border-l-transparent"
 			)}
 			hidden={hidden}
 		>
@@ -338,14 +409,19 @@ function SettingRow({
 						<ModifiedNote scope={configuredScope} defaultText={defaultText} />
 					</>
 				) : null}
-				{/* A no-break space binds the glyph to the word before it, so a
-				    sentence that exactly fills the measure cannot orphan a lone
-				    "?" onto its own line. */}
+				{/* The glyph is glued to the word before it by a nowrap span that
+				    carries the no-break space INSIDE it. The bare NBSP was not
+				    enough: the glyph is an atomic inline (the help wrapper is
+				    inline-flex), and Chrome allows a line break before an atomic
+				    inline even directly after a no-break space - so a sentence that
+				    exactly filled the measure orphaned a lone "?" onto its own
+				    line. Inside the nowrap span that boundary cannot break, and the
+				    word-to-NBSP boundary before the span never could. */}
 				{help !== undefined ? (
-					<>
+					<span className="whitespace-nowrap">
 						{"\u00a0"}
 						<Help text={help} name={l10n.t("Help: {0}", title)} />
-					</>
+					</span>
 				) : null}
 				{configuredScope === "global" ? (
 					<>
@@ -375,6 +451,17 @@ function SettingRow({
 				{configuredScope !== null ? <ResetButton title={title} scope={configuredScope} settingId={settingId} /> : null}
 				<RevealButton title={title} settingId={settingId} />
 			</div>
+			{/* A write the host refused, standing under the row that posted it (the
+			    charter's row-level placement) until the next state push retires it.
+			    Not the description slot: that slot's covering contract is sized for
+			    the row's own short parse errors, while the host's message carries a
+			    technical detail line of arbitrary length. The seq keys the block so
+			    a repeat of the same failure re-mounts and role="alert" re-announces. */}
+			{writeFailure !== undefined ? (
+				<div key={writeFailure.seq} className="row-diagnostic sev-blocking" role="alert">
+					<p className="row-diagnostic-headline">{writeFailureText(writeFailure)}</p>
+				</div>
+			) : null}
 		</div>
 	);
 }
@@ -432,12 +519,12 @@ function NumberField({
 		}
 		if (parse.kind === "clear") {
 			if (value !== null) {
-				sendRequest("setNumberSetting", { setting: id, value: null });
+				postSettingWrite("setNumberSetting", { setting: id, value: null }, id);
 			}
 			return;
 		}
 		if (parse.value !== value) {
-			sendRequest("setNumberSetting", { setting: id, value: parse.value });
+			postSettingWrite("setNumberSetting", { setting: id, value: parse.value }, id);
 		}
 	};
 	// Blur and Enter both mean "done typing": commit a valid draft, and let a
@@ -535,7 +622,9 @@ function BooleanField({
 					<Checkbox
 						id={inputId}
 						checked={value}
-						onChange={(event) => sendRequest("setBooleanSetting", { setting: id, value: event.currentTarget.checked })}
+						onChange={(event) =>
+							postSettingWrite("setBooleanSetting", { setting: id, value: event.currentTarget.checked }, id)
+						}
 					/>
 				}
 			/>
@@ -618,7 +707,7 @@ function CatalogRow({ catalog, enabled, now }: { catalog: CatalogStatusView; ena
  * finds without showing, or shows without finding.
  */
 function usageStatusBarDescription(): string {
-	return l10n.t("When the spend status bar item shows; the worst fresh server's percentage.");
+	return l10n.t("When the spend status bar item shows; the number is the worst fresh server's percentage.");
 }
 
 function tokenEstimationDescription(): string {
@@ -630,8 +719,17 @@ function toolSchemaKeywordsDescription(): string {
 	return l10n.t("Extra JSON-Schema keywords kept in tool definitions.");
 }
 
-function usageThresholdsDescription(): string {
-	return l10n.t("Enter 80% or 0.8; the lower value warns, the higher errors. Clear both fields to turn alerts off.");
+/**
+ * The thresholds row's explanation, per branch: the two-box branch instructs
+ * (those are its fields), while the read-only custom branch describes what the
+ * hand-written list does - it renders no fields, so "clear both fields" would
+ * instruct gestures the row cannot take. Branch-keyed here because the filter
+ * matches on the same text the row shows (see the note above).
+ */
+function usageThresholdsDescription(custom: boolean): string {
+	return custom
+		? l10n.t("Alerts fire as spend crosses each value.")
+		: l10n.t("Enter 80% or 0.8; the lower value warns, the higher errors. Clear both fields to turn alerts off.");
 }
 
 function currencySymbolDescription(): string {
@@ -806,7 +904,7 @@ function UiAccentRow({
 								value={candidate}
 								checked={accent === candidate}
 								aria-label={uiAccentLabel(candidate)}
-								onChange={() => sendRequest("setUiAccent", { value: candidate })}
+								onChange={() => postSettingWrite("setUiAccent", { value: candidate }, "ui.accent")}
 							/>
 							{/* forced-color-adjust: the swatch IS the information, so it keeps
 								its own color where the OS would repaint all four identically. */}
@@ -968,7 +1066,7 @@ function UsageThresholdsRow({
 			return;
 		}
 		if (parsed.join(",") !== values.join(",")) {
-			sendRequest("setUsageAlertThresholds", { values: parsed });
+			postSettingWrite("setUsageAlertThresholds", { values: parsed }, "usage.alertThresholds");
 		}
 	};
 
@@ -976,8 +1074,17 @@ function UsageThresholdsRow({
 	// The 3+ shape only the settings file can write; the two boxes cannot
 	// round-trip it, so the row shows it instead of editing it.
 	const custom = values.length > 2;
-	const semanticsHint =
-		parsed === undefined
+	// What the CURRENT configuration does, per branch. The custom branch reads
+	// the stored list - its boxes do not exist, so their empty drafts must not
+	// speak for it (they once printed "Alerts are off." beside a live list);
+	// the editable branch reads the live draft the boxes hold.
+	const semanticsHint = custom
+		? l10n.t(
+				"Warns from {0}; errors at {1}.",
+				percentText(values[0] as number),
+				percentText(values[values.length - 1] as number)
+			)
+		: parsed === undefined
 			? undefined
 			: parsed.length === 0
 				? l10n.t("Alerts are off.")
@@ -991,11 +1098,13 @@ function UsageThresholdsRow({
 			titleFor={custom ? undefined : warningId}
 			description={
 				<>
-					{usageThresholdsDescription()}
+					{usageThresholdsDescription(custom)}
 					{semanticsHint !== undefined ? <span className="ml-1 text-foreground">{semanticsHint}</span> : null}
 				</>
 			}
-			error={parsed === undefined ? l10n.t("Thresholds run from above 0% to 100%: enter 80% or 0.8.") : undefined}
+			error={
+				custom || parsed !== undefined ? undefined : l10n.t("Thresholds run from above 0% to 100%: enter 80% or 0.8.")
+			}
 			errorId={problemId}
 			configuredScope={configuredScope}
 			hidden={hidden}
@@ -1075,7 +1184,7 @@ function CurrencySymbolRow({
 			: undefined;
 	const commit = () => {
 		if (error === undefined && text !== value) {
-			sendRequest("setCurrencySymbol", { value: text });
+			postSettingWrite("setCurrencySymbol", { value: text }, "usage.currencySymbol");
 		}
 	};
 	return (
@@ -1172,7 +1281,7 @@ function ToolSchemaKeywordsRow({
 			return;
 		}
 		if (parsed.join(",") !== values.join(",")) {
-			sendRequest("setAdditionalToolSchemaKeywords", { values: parsed });
+			postSettingWrite("setAdditionalToolSchemaKeywords", { values: parsed }, "chat.additionalToolSchemaKeywords");
 		}
 	};
 
@@ -1206,8 +1315,12 @@ function ToolSchemaKeywordsRow({
 						type="text"
 						spellCheck={false}
 						// Full control-column width: keyword lists grow sideways, unlike
-						// the intrinsic-width number inputs above.
-						className="w-full max-w-full"
+						// the intrinsic-width number inputs above. The 20rem cap IS the
+						// control column (the row grid's minmax(0,20rem) track), stated
+						// on the input so the stacked tier keeps the same width policy:
+						// one track there means max-w-full is the whole pane, and this
+						// input alone went full-bleed while every sibling held its width.
+						className="w-full max-w-[20rem]"
 						aria-invalid={error !== undefined}
 						aria-describedby={error === undefined ? undefined : errorId}
 						placeholder={l10n.t("e.g. propertyNames, patternProperties")}
@@ -1368,6 +1481,7 @@ export function SettingsSection({
 	observedModelInfoKeys,
 	now,
 	editRecordRequest,
+	writeFailures,
 }: {
 	settings: DashboardSettings;
 	models: readonly DashboardModel[];
@@ -1377,6 +1491,8 @@ export function SettingsSection({
 	now?: number;
 	/** The inspectors' configure-jump into one of the record editors; see EditRecordRequest. */
 	editRecordRequest?: EditRecordRequest | undefined;
+	/** The standing scalar-write failures from App's store, for this page to place by owning row. */
+	writeFailures?: Partial<Record<SettingWriteMethod, SettingWriteFailure>> | undefined;
 }) {
 	const [filter, setFilter] = useState("");
 	const filterId = useId();
@@ -1430,7 +1546,7 @@ export function SettingsSection({
 	);
 	const thresholdsVisible = matches(
 		l10n.t("Usage alert thresholds"),
-		usageThresholdsDescription(),
+		usageThresholdsDescription(settings.usage.alertThresholds.length > 2),
 		"usage.alertThresholds"
 	);
 	const currencyVisible = matches(
@@ -1478,198 +1594,237 @@ export function SettingsSection({
 	};
 	const scopes = configuredScopes(settings);
 	const modifiedCount = scopes.filter((scope) => scope !== null).length;
+	// Each standing failure lands by scope: the row whose remembered write id
+	// the failure echoes owns it; anything unclaimed (an id no mounted row
+	// posted - the panel was reopened since, or a newer write is in flight)
+	// falls back to one section-top line, latest first.
+	const rowFailures: Partial<Record<SettingRowId, SettingWriteFailure>> = {};
+	let unclaimedFailure: SettingWriteFailure | undefined;
+	for (const method of SETTING_WRITE_METHODS) {
+		const failure = writeFailures?.[method];
+		if (failure === undefined) {
+			continue;
+		}
+		const write = lastSettingWrites.get(method);
+		if (write !== undefined && write.id === failure.id) {
+			rowFailures[write.row] = failure;
+		} else if (unclaimedFailure === undefined || failure.seq > unclaimedFailure.seq) {
+			unclaimedFailure = failure;
+		}
+	}
 	return (
-		<Section
-			id="settings"
-			title={l10n.t("Settings")}
-			help={helpSettingsSection()}
-			docs={{ href: DOCS_LINK_SETTINGS, label: l10n.t("Open the settings guide") }}
-			meta={[
-				...(modifiedCount === 0
-					? []
-					: [modifiedCount === 1 ? l10n.t("1 modified") : l10n.t("{0} modified", modifiedCount)]),
-				scopeSummary(scopes),
-			].join(" - ")}
-			actions={
-				<>
-					{/* The filter's one home is the header line: it governs the whole
+		<SettingFailuresContext.Provider value={rowFailures}>
+			<Section
+				id="settings"
+				title={l10n.t("Settings")}
+				help={helpSettingsSection()}
+				docs={{ href: DOCS_LINK_SETTINGS, label: l10n.t("Open the settings guide") }}
+				meta={[
+					...(modifiedCount === 0
+						? []
+						: [modifiedCount === 1 ? l10n.t("1 modified") : l10n.t("{0} modified", modifiedCount)]),
+					scopeSummary(scopes),
+				].join(" - ")}
+				actions={
+					<>
+						{/* The filter's one home is the header line: it governs the whole
 					    page the way the header's other actions do, and a floating box
 					    between the header and the first group read as belonging to
 					    nothing. */}
-					<Input
-						id={filterId}
-						type="text"
-						className="w-[16rem] min-w-0 max-w-full shrink"
-						placeholder={l10n.t("Filter settings, e.g. timeout")}
-						aria-label={l10n.t("Filter settings")}
-						value={filter}
-						onChange={(event) => setFilter(event.currentTarget.value)}
-					/>
-					<Button
-						variant="secondary"
-						className="whitespace-nowrap"
-						onClick={() => sendRequest("executeCommand", { command: "openSettings" })}
-					>
-						{l10n.t("Open in Settings editor")}
-					</Button>
-				</>
-			}
-		>
-			{nothingMatches ? <p className="empty">{l10n.t("No settings match the filter.")}</p> : null}
-			<div className="settings-groups">
-				{SETTING_GROUPS.map((group, index) => {
-					// Four groups carry non-scalar tails: Models gets the two record
-					// editors (mirroring the manifest's grouping - they are model
-					// settings, not a page of their own), Chat gets the
-					// token-estimation enum and the tool-schema-keywords list, Usage
-					// gets the status bar mode enum and the alert-thresholds row.
-					const isModelsGroup = group.booleans.includes("models.openRouterCatalog");
-					const isChatGroup = group.numbers.includes("chat.timeout");
-					const isUsageGroup = group.numbers.includes("usage.pollInterval");
-					const isUiGroup = group.booleans.includes("ui.maskSecretInputs");
-					return (
-						<SettingGroup
-							// biome-ignore lint/suspicious/noArrayIndexKey: the group list is a fixed literal; position is the identity
-							key={index}
-							{...group}
-							settings={settings}
-							isVisible={isVisible}
-							booleanExtras={booleanExtras}
-							tailVisible={
-								(isModelsGroup && (paramsVisible || capsVisible)) ||
-								(isChatGroup && (tokenEstimationVisible || toolSchemaKeywordsVisible)) ||
-								(isUsageGroup && (statusBarVisible || thresholdsVisible || currencyVisible)) ||
-								(isUiGroup && (themeVisible || accentVisible))
-							}
-							tail={
-								isModelsGroup ? (
-									<>
-										{/* The one statement of the editors' save model, above both
+						<Input
+							id={filterId}
+							type="text"
+							// 16rem beside the button while the header line holds both;
+							// below the strip's 640px wrapping tier (dashboard.css's
+							// .section-actions rule) the wrap gives this input a line of
+							// its own, and w-full is what makes it BE that line - a fixed
+							// width can only shrink, so the wrapped input stopped at
+							// 256px inside a wider row.
+							className="w-[16rem] @max-[640px]/pane:w-full min-w-0 max-w-full shrink"
+							placeholder={l10n.t("Filter settings, e.g. timeout")}
+							aria-label={l10n.t("Filter settings")}
+							value={filter}
+							onChange={(event) => setFilter(event.currentTarget.value)}
+						/>
+						<Button
+							variant="secondary"
+							className="whitespace-nowrap"
+							onClick={() => sendRequest("executeCommand", { command: "openSettings" })}
+						>
+							{l10n.t("Open in Settings editor")}
+						</Button>
+					</>
+				}
+			>
+				{/* The fallback for a failure no mounted row claims; a claimed one
+			    renders under its own row instead (see SettingRow). */}
+				{unclaimedFailure !== undefined ? (
+					<p key={unclaimedFailure.seq} className="error" role="alert">
+						{writeFailureText(unclaimedFailure)}
+					</p>
+				) : null}
+				{nothingMatches ? <p className="empty">{l10n.t("No settings match the filter.")}</p> : null}
+				<div className="settings-groups">
+					{SETTING_GROUPS.map((group, index) => {
+						// Four groups carry non-scalar tails: Models gets the two record
+						// editors (mirroring the manifest's grouping - they are model
+						// settings, not a page of their own), Chat gets the
+						// token-estimation enum and the tool-schema-keywords list, Usage
+						// gets the status bar mode enum and the alert-thresholds row.
+						const isModelsGroup = group.booleans.includes("models.openRouterCatalog");
+						const isChatGroup = group.numbers.includes("chat.timeout");
+						const isUsageGroup = group.numbers.includes("usage.pollInterval");
+						const isUiGroup = group.booleans.includes("ui.maskSecretInputs");
+						return (
+							<SettingGroup
+								// biome-ignore lint/suspicious/noArrayIndexKey: the group list is a fixed literal; position is the identity
+								key={index}
+								{...group}
+								settings={settings}
+								isVisible={isVisible}
+								booleanExtras={booleanExtras}
+								tailVisible={
+									(isModelsGroup && (paramsVisible || capsVisible)) ||
+									(isChatGroup && (tokenEstimationVisible || toolSchemaKeywordsVisible)) ||
+									(isUsageGroup && (statusBarVisible || thresholdsVisible || currencyVisible)) ||
+									(isUiGroup && (themeVisible || accentVisible))
+								}
+								tail={
+									isModelsGroup ? (
+										<>
+											{/* The one statement of the editors' save model, above both
 										    (never the same paragraph twice): the rows below are
 										    drafts until Apply, unlike the scalar rows above. */}
-										<p className="hint record-editors-note" hidden={!paramsVisible && !capsVisible}>
-											{l10n.t(
-												"Rows in the two editors below apply together via their Apply button; the settings above save each change on its own."
-											)}
-										</p>
-										<ModelParametersEditor
-											scoped={settings.modelParameters}
-											models={models}
-											hidden={!paramsVisible}
-											external={editRecordRequest?.kind === "parameters" ? editRecordRequest : undefined}
-										/>
-										<ModelCapabilitiesEditor
-											scoped={settings.modelCapabilities}
-											models={models}
-											observedKeys={observedModelInfoKeys}
-											hidden={!capsVisible}
-											external={editRecordRequest?.kind === "capabilities" ? editRecordRequest : undefined}
-										/>
-									</>
-								) : isChatGroup ? (
-									<>
-										<EnumSettingRow
-											settingId="chat.tokenEstimation"
-											title={l10n.t("Token estimation")}
-											description={tokenEstimationDescription()}
-											help={helpTokenEstimation()}
-											value={settings.chat.tokenEstimation}
-											options={TOKEN_ESTIMATION_MODES}
-											optionLabel={tokenEstimationLabel}
-											onPick={(value) => sendRequest("setTokenEstimation", { value })}
-											configuredScope={settings.chat.tokenEstimationScope}
-											hidden={!tokenEstimationVisible}
-										/>
-										<ToolSchemaKeywordsRow
-											values={settings.chat.additionalToolSchemaKeywords}
-											lossy={settings.chat.additionalToolSchemaKeywordsLossy}
-											configuredScope={settings.chat.additionalToolSchemaKeywordsScope}
-											hidden={!toolSchemaKeywordsVisible}
-										/>
-									</>
-								) : isUsageGroup ? (
-									<>
-										<UsageThresholdsRow
-											values={settings.usage.alertThresholds}
-											configuredScope={settings.usage.thresholdsScope}
-											hidden={!thresholdsVisible}
-										/>
-										<EnumSettingRow
-											settingId="usage.statusBar"
-											title={l10n.t("Usage status bar")}
-											description={usageStatusBarDescription()}
-											value={settings.usage.statusBarMode}
-											options={USAGE_STATUS_BAR_MODES}
-											optionLabel={statusBarModeLabel}
-											onPick={(value) => sendRequest("setUsageStatusBar", { value })}
-											configuredScope={settings.usage.statusBarScope}
-											hidden={!statusBarVisible}
-										/>
-										<CurrencySymbolRow
-											value={settings.usage.currencySymbol}
-											configuredScope={settings.usage.currencySymbolScope}
-											hidden={!currencyVisible}
-										/>
-									</>
-								) : isUiGroup ? (
-									<>
-										<EnumSettingRow
-											settingId="ui.theme"
-											title={l10n.t("Dashboard theme")}
-											description={uiThemeDescription()}
-											help={helpUiTheme()}
-											value={settings.appearance.theme}
-											options={UI_THEMES}
-											optionLabel={uiThemeLabel}
-											onPick={(value) => sendRequest("setUiTheme", { value })}
-											configuredScope={settings.appearance.themeScope}
-											hidden={!themeVisible}
-										/>
-										<UiAccentRow
-											accent={settings.appearance.accent}
-											configuredScope={settings.appearance.accentScope}
-											hidden={!accentVisible}
-										/>
-									</>
-								) : undefined
-							}
+											<p className="hint record-editors-note" hidden={!paramsVisible && !capsVisible}>
+												{l10n.t(
+													"Rows in the two editors below apply together via their Apply button; the settings above save each change on its own."
+												)}
+											</p>
+											<ModelParametersEditor
+												scoped={settings.modelParameters}
+												models={models}
+												hidden={!paramsVisible}
+												external={editRecordRequest?.kind === "parameters" ? editRecordRequest : undefined}
+											/>
+											<ModelCapabilitiesEditor
+												scoped={settings.modelCapabilities}
+												models={models}
+												observedKeys={observedModelInfoKeys}
+												hidden={!capsVisible}
+												external={editRecordRequest?.kind === "capabilities" ? editRecordRequest : undefined}
+											/>
+										</>
+									) : isChatGroup ? (
+										<>
+											<EnumSettingRow
+												settingId="chat.tokenEstimation"
+												title={l10n.t("Token estimation")}
+												description={tokenEstimationDescription()}
+												help={helpTokenEstimation()}
+												value={settings.chat.tokenEstimation}
+												options={TOKEN_ESTIMATION_MODES}
+												optionLabel={tokenEstimationLabel}
+												onPick={(value) => postSettingWrite("setTokenEstimation", { value }, "chat.tokenEstimation")}
+												configuredScope={settings.chat.tokenEstimationScope}
+												hidden={!tokenEstimationVisible}
+											/>
+											<ToolSchemaKeywordsRow
+												values={settings.chat.additionalToolSchemaKeywords}
+												lossy={settings.chat.additionalToolSchemaKeywordsLossy}
+												configuredScope={settings.chat.additionalToolSchemaKeywordsScope}
+												hidden={!toolSchemaKeywordsVisible}
+											/>
+										</>
+									) : isUsageGroup ? (
+										<>
+											<UsageThresholdsRow
+												values={settings.usage.alertThresholds}
+												configuredScope={settings.usage.thresholdsScope}
+												hidden={!thresholdsVisible}
+											/>
+											<EnumSettingRow
+												settingId="usage.statusBar"
+												title={l10n.t("Usage status bar")}
+												description={usageStatusBarDescription()}
+												value={settings.usage.statusBarMode}
+												options={USAGE_STATUS_BAR_MODES}
+												optionLabel={statusBarModeLabel}
+												onPick={(value) => postSettingWrite("setUsageStatusBar", { value }, "usage.statusBar")}
+												configuredScope={settings.usage.statusBarScope}
+												hidden={!statusBarVisible}
+											/>
+											<CurrencySymbolRow
+												value={settings.usage.currencySymbol}
+												configuredScope={settings.usage.currencySymbolScope}
+												hidden={!currencyVisible}
+											/>
+										</>
+									) : isUiGroup ? (
+										<>
+											<EnumSettingRow
+												settingId="ui.theme"
+												title={l10n.t("Dashboard theme")}
+												description={uiThemeDescription()}
+												help={helpUiTheme()}
+												value={settings.appearance.theme}
+												options={UI_THEMES}
+												optionLabel={uiThemeLabel}
+												onPick={(value) => postSettingWrite("setUiTheme", { value }, "ui.theme")}
+												configuredScope={settings.appearance.themeScope}
+												hidden={!themeVisible}
+											/>
+											<UiAccentRow
+												accent={settings.appearance.accent}
+												configuredScope={settings.appearance.accentScope}
+												hidden={!accentVisible}
+											/>
+										</>
+									) : undefined
+								}
+							/>
+						);
+					})}
+					{otherNumbers.length + otherBooleans.length > 0 ? (
+						<SettingGroup
+							title={() => l10n.t("Other")}
+							numbers={otherNumbers}
+							booleans={otherBooleans}
+							settings={settings}
+							isVisible={isVisible}
 						/>
-					);
-				})}
-				{otherNumbers.length + otherBooleans.length > 0 ? (
-					<SettingGroup
-						title={() => l10n.t("Other")}
-						numbers={otherNumbers}
-						booleans={otherBooleans}
-						settings={settings}
-						isVisible={isVisible}
-					/>
-				) : null}
-				{/* The trailing Import & Export group: no settings rows, just two
+					) : null}
+					{/* The trailing Import & Export group: no settings rows, just two
 				    actions invoking the export/import commands over the same
 				    executeCommand post the header's Report a bug uses. Rendered
 				    after every other group so file transfer never sits between
 				    rows. */}
-				<SettingGroup
-					title={() => l10n.t("Import & Export")}
-					help={helpImportExportGroup}
-					numbers={[]}
-					booleans={[]}
-					settings={settings}
-					isVisible={isVisible}
-					tailVisible={importExportVisible}
-					tail={
-						<div className="toolbar">
-							<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "exportSettings" })}>
-								{l10n.t("Export settings")}
-							</Button>
-							<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "importSettings" })}>
-								{l10n.t("Import settings")}
-							</Button>
-						</div>
-					}
-				/>
-			</div>
-		</Section>
+					<SettingGroup
+						title={() => l10n.t("Import & Export")}
+						help={helpImportExportGroup}
+						numbers={[]}
+						booleans={[]}
+						settings={settings}
+						isVisible={isVisible}
+						tailVisible={importExportVisible}
+						tail={
+							<div className="toolbar">
+								<Button
+									variant="secondary"
+									onClick={() => sendRequest("executeCommand", { command: "exportSettings" })}
+								>
+									{l10n.t("Export settings")}
+								</Button>
+								<Button
+									variant="secondary"
+									onClick={() => sendRequest("executeCommand", { command: "importSettings" })}
+								>
+									{l10n.t("Import settings")}
+								</Button>
+							</div>
+						}
+					/>
+				</div>
+			</Section>
+		</SettingFailuresContext.Provider>
 	);
 }

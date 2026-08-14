@@ -65,7 +65,14 @@ test("a row's help glyph trails the description inline, a sibling of the prose s
 	expect(hint).not.toBeNull();
 	const help = hint?.querySelector("button.help");
 	expect(help).not.toBeNull();
-	expect(help?.closest(".help-wrap")?.parentElement).toBe(hint as HTMLElement);
+	// The glyph rides inside a nowrap glue span (Chrome breaks before an
+	// atomic inline even after a no-break space, so the NBSP alone let a lone
+	// "?" orphan onto its own line); the SPAN is the hint cell's child, and
+	// the glyph still stays outside the description span the error overlay
+	// hides.
+	const glue = help?.closest(".help-wrap")?.parentElement;
+	expect(glue?.classList.contains("whitespace-nowrap")).toBe(true);
+	expect(glue?.parentElement).toBe(hint as HTMLElement);
 	expect(hint?.querySelector(".setting-desc")?.querySelector("button.help")).toBeNull();
 	// The cell owns wrapping and breaking (one unbroken token must not push out
 	// of the column), and caps its prose at a reading measure inside the
@@ -983,6 +990,14 @@ test("a hand-written list of 3+ values renders read-only with the values, the hi
 	) as HTMLElement;
 	expect(row.textContent).toContain("50%, 80%, 95%");
 	expect(row.textContent).toContain("Custom list - edit in settings.json.");
+	// The description and hint describe THIS branch: the stored list's own
+	// semantics, never the two boxes' empty drafts - which once printed
+	// "Alerts are off." beside a live 50/80/95 list - and no instruction to
+	// clear fields the branch does not render.
+	expect(row.textContent).toContain("Alerts fire as spend crosses each value.");
+	expect(row.textContent).toContain("Warns from 50%; errors at 95%.");
+	expect(row.textContent).not.toContain("Alerts are off.");
+	expect(row.textContent).not.toContain("Clear both fields");
 	// No inputs: the two boxes cannot represent the list, and rendering them
 	// would let a blur destroy the hand-written values.
 	expect(row.querySelector("input")).toBeNull();
@@ -1390,4 +1405,49 @@ test("the settings filter finds a row by its description and its id, whichever k
 	// And a needle matching nothing still says so.
 	fireInput(filter, "zzzzz-no-such-setting");
 	expect(root.textContent).toContain("No settings match the filter.");
+});
+
+test("a failed write reports under the row that posted it, as the row-level diagnostic", () => {
+	// The fail envelope echoes the request id and never the payload, so the
+	// page remembers which row posted each write and places the standing
+	// notice there - hoisting every scalar failure to the pane top left a
+	// reader hunting for which of thirty rows refused.
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const input = settingInput(root, "chat.timeout");
+	fireInput(input, "5000");
+	fireBlur(input);
+	const posted = postedMessages.filter((message) => message.method === "setNumberSetting").pop();
+	expect(posted).toBeDefined();
+	cleanup();
+
+	const failure = { seq: 1, id: posted?.id ?? "", message: "the write was refused\nsetting detail line" };
+	const withFailure = mount(
+		<SettingsSection settings={makeSettings()} models={[]} writeFailures={{ setNumberSetting: failure }} />
+	);
+	const row = rowOf(settingInput(withFailure, "chat.timeout"));
+	const notice = row.querySelector(".row-diagnostic.sev-blocking");
+	expect(notice?.textContent).toContain("The last change did not apply: the write was refused");
+	// The two-part message keeps its dimmed technical detail line.
+	expect(notice?.querySelector(".failure-detail")?.textContent).toContain("setting detail line");
+	// Announced: a refusal after a quiet blur commit is otherwise invisible.
+	expect(notice?.getAttribute("role")).toBe("alert");
+	// Claimed by its row, so no section-top fallback doubles it.
+	expect(withFailure.querySelectorAll(".row-diagnostic").length).toBe(1);
+	expect(withFailure.querySelector("p.error[role='alert']")).toBeNull();
+});
+
+test("a failure no mounted row claims falls back to one section-top line", () => {
+	// An id the registry does not hold (the panel reopened since the write, or
+	// a newer write is already in flight) still has to surface somewhere.
+	const root = mount(
+		<SettingsSection
+			settings={makeSettings()}
+			models={[]}
+			writeFailures={{ setUsageStatusBar: { seq: 2, id: "id-no-row-posted", message: "the write was refused" } }}
+		/>
+	);
+	expect(root.querySelector(".row-diagnostic")).toBeNull();
+	expect(root.querySelector("p.error[role='alert']")?.textContent).toContain(
+		"The last change did not apply: the write was refused"
+	);
 });

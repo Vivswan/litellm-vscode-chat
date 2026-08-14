@@ -556,7 +556,6 @@ html:where(:not(:has(body.vscode-high-contrast, body.vscode-high-contrast-light)
 		--vscode-panelTitle-activeForeground: #cccccc !important;
 		--vscode-panelTitle-inactiveForeground: #9d9d9d !important;
 		--vscode-progressBar-background: #0078d4 !important;
-		--vscode-settings-modifiedItemIndicator: #bb800966 !important;
 		--vscode-statusBarItem-errorBackground: #b90f07 !important;
 		--vscode-statusBarItem-errorForeground: #ffffff !important;
 		--vscode-testing-iconPassed: #73c991 !important;
@@ -645,7 +644,6 @@ html:where(:not(:has(body.vscode-high-contrast, body.vscode-high-contrast-light)
 		--vscode-panelTitle-activeForeground: #3b3b3b !important;
 		--vscode-panelTitle-inactiveForeground: #3b3b3b !important;
 		--vscode-progressBar-background: #005fb8 !important;
-		--vscode-settings-modifiedItemIndicator: #bb800966 !important;
 		--vscode-statusBarItem-errorBackground: #c72e0f !important;
 		--vscode-statusBarItem-errorForeground: #ffffff !important;
 		/* The workbench registry's LIGHT value, not the dark one: #73c991 is a

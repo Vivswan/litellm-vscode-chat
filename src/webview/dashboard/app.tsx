@@ -18,8 +18,8 @@ import { Rail } from "./rail";
 import type { ServerEditRequest } from "./serverEditPage";
 import { ServerEditPage } from "./serverEditPage";
 import { ServersSection } from "./servers";
-import type { EditRecordRequest } from "./settings";
-import { SettingsSection } from "./settings";
+import type { EditRecordRequest, SettingWriteFailure, SettingWriteMethod } from "./settings";
+import { SETTING_WRITE_METHODS, SettingsSection } from "./settings";
 import { relativeTime, useNow } from "./time";
 import { Button } from "./ui/button";
 import { ConfirmDialog } from "./ui/dialog";
@@ -63,10 +63,13 @@ function sectionIcon(section: SectionId): ReactElement {
 
 /**
  * One reported intent failure as the standing store holds it; `seq`
- * distinguishes repeated failures with the same text.
+ * distinguishes repeated failures with the same text, and `id` echoes the
+ * failed request's correlation id so the settings page can place the notice
+ * under the row that posted the write.
  */
 interface IntentFailure {
 	readonly seq: number;
+	readonly id: string;
 	readonly message: string;
 	/** Whether the intent's durable write committed before the failure; see the fail envelope's failureKind. */
 	readonly kind: "validation" | "operation";
@@ -449,7 +452,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 				// it; the standing store holds only push-retired notices.
 				return;
 			}
-			const failure: IntentFailure = { seq, message: message.message, kind: message.failureKind };
+			const failure: IntentFailure = { seq, id: message.id, message: message.message, kind: message.failureKind };
 			setFailures((current) => ({ ...current, [message.method]: failure }));
 		};
 		window.addEventListener("message", onMessage);
@@ -664,10 +667,11 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		openEdit({ kind: "edit", label });
 	};
 
-	// The single-shot setting writes share one failure surface: every one of
-	// these rows (numbers, booleans, resets, command kicks, and the usage
-	// alert-thresholds editor) commits on its own without a draft to reopen,
-	// so the last failed write reports here.
+	// The scalar setting writes report their standing failures on the settings
+	// page itself, placed by owning row over the request id (SettingsSection's
+	// writeFailures prop). Only executeCommand keeps the pane-top line: it is
+	// posted from every tab (Report a bug, Open output, the settings toolbar)
+	// and owns no row anywhere.
 	// The section actually on screen. A deep link recorded on the way in shows
 	// immediately rather than after the effect below has run, so the command
 	// does not paint the Servers page for a frame first; while the edit
@@ -675,18 +679,14 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	// rather than a move.
 	const activeSection = pendingFocusSection !== undefined && editing === undefined ? pendingFocusSection : section;
 
-	const scalarFailure =
-		failures.setNumberSetting ??
-		failures.setBooleanSetting ??
-		failures.resetSetting ??
-		failures.setUsageAlertThresholds ??
-		failures.setUsageStatusBar ??
-		failures.setTokenEstimation ??
-		failures.setAdditionalToolSchemaKeywords ??
-		failures.setCurrencySymbol ??
-		failures.setUiTheme ??
-		failures.setUiAccent ??
-		failures.executeCommand;
+	const commandFailure = failures.executeCommand;
+	const settingWriteFailures: Partial<Record<SettingWriteMethod, SettingWriteFailure>> = {};
+	for (const method of SETTING_WRITE_METHODS) {
+		const failure = failures[method];
+		if (failure !== undefined) {
+			settingWriteFailures[method] = failure;
+		}
+	}
 	return (
 		<main
 			className="shell"
@@ -715,10 +715,10 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 				synced={lastSync(state.servers, now)}
 			/>
 			<div className="pane">
-				{scalarFailure !== undefined ? (
+				{commandFailure !== undefined ? (
 					<p className="error">
 						<FailureText
-							message={scalarFailure.message}
+							message={commandFailure.message}
 							frame={(headline) => l10n.t("The last change did not apply: {0}", headline)}
 						/>
 					</p>
@@ -772,6 +772,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 						observedModelInfoKeys={state.observedModelInfoKeys}
 						now={now}
 						editRecordRequest={editRecordRequest}
+						writeFailures={settingWriteFailures}
 					/>
 				</SectionPanel>
 				<SectionPanel section="diagnostics" active={activeSection}>

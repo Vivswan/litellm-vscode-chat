@@ -3812,7 +3812,9 @@
 	 not a rigid line: at the unpinning tier it also learns to shrink and
 	 wrap, or the filter input's fixed width would push past a narrow pane's
 	 edge (min-width: 0 lets the strip yield below its content's minimum, and
-	 the wrap gives the input a line of its own to be 100% of). */
+	 the wrap gives the input a line of its own - the input's own
+	 @max-[640px]/pane:w-full is what makes it fill that line, since a width
+	 utility can only be beaten from its own layer). */
 	@container pane (width < 640px) {
 		.section-head .section-actions {
 			flex-wrap: wrap;

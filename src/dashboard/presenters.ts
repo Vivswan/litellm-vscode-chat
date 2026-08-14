@@ -369,7 +369,9 @@ export function numberSettingPresentation(id: NumberSettingId): NumberSettingPre
 		case "chat.maxToolsPerRequest":
 			return {
 				label: l10n.t("Max tools per request"),
-				description: l10n.t("Requests carrying more tools are refused before sending; most servers cap at 128."),
+				description: l10n.t(
+					"The most tools one request may carry; anything larger is refused before sending. Most servers cap at 128."
+				),
 				// A key of its own, apart from the capability chip's "tools": a
 				// count suffix may need a measure word where a chip label does not.
 				unit: l10n.t({ message: "tools", comment: ["Unit suffix after the max-tools count input."] }),

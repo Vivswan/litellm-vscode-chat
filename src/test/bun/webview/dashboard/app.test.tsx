@@ -102,7 +102,10 @@ test("unknown message types and non-object event data are ignored without crashi
 	expect(root.textContent).not.toContain("Kept");
 });
 
-test("a setNumberSetting intentFailed renders the scalar failure line and the next state push retires it", () => {
+test("a setNumberSetting intentFailed lands on the Settings page and the next state push retires it", () => {
+	// Scalar-write failures render inside the settings section (placed by
+	// owning row, or its top line for an unclaimed id like this one) rather
+	// than on the shared pane top; the store still retires them on push.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 	pushToWebview({
@@ -112,7 +115,25 @@ test("a setNumberSetting intentFailed renders the scalar failure line and the ne
 		message: "the write was refused",
 		failureKind: "validation",
 	});
-	expect(root.textContent).toContain("The last change did not apply: the write was refused");
+	const notice = root.querySelector("#panel-settings p.error[role='alert']");
+	expect(notice?.textContent).toContain("The last change did not apply: the write was refused");
+
+	pushToWebview(statePush(makeState()));
+	expect(root.textContent).not.toContain("The last change did not apply");
+});
+
+test("an executeCommand intentFailed keeps the pane-top line: it is posted from every tab and owns no row", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState()));
+	pushToWebview({
+		kind: "fail",
+		id: "req-9",
+		method: "executeCommand",
+		message: "the command bounced",
+		failureKind: "operation",
+	});
+	const notice = root.querySelector(".pane > p.error");
+	expect(notice?.textContent).toContain("The last change did not apply: the command bounced");
 
 	pushToWebview(statePush(makeState()));
 	expect(root.textContent).not.toContain("The last change did not apply");
