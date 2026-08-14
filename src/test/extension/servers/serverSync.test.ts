@@ -1992,13 +1992,50 @@ suite("extension/servers/serverSync: the nested entry shape", () => {
 			});
 			assert.deepStrictEqual(entries, []);
 			assert.ok(
-				problems.some((problem) => problem.includes("companions belong inside the oauth object")),
+				problems.some((problem) => problem.includes("has auth.apiKey beside auth.oauth; move it to auth.oauth.apiKey")),
 				`${problems}`
 			);
 			assert.ok(
 				problems.some((problem) => problem.includes("misconfigured")),
 				`${problems}`
 			);
+
+			const virtualKeyBeside = parseOne({
+				auth: {
+					oauth: { tokenUrl: "https://idp.test/token", clientId: "c1" },
+					virtualKey: { header: "x-vk", value: "vk-1" },
+				},
+			});
+			assert.deepStrictEqual(virtualKeyBeside.entries, []);
+			assert.ok(
+				virtualKeyBeside.problems.some((problem) =>
+					problem.includes("has auth.virtualKey beside auth.oauth; move it to auth.oauth.virtualKey")
+				),
+				`${virtualKeyBeside.problems}`
+			);
+			// Per-key precision: only the offending key is named.
+			assert.ok(
+				!virtualKeyBeside.problems.some((problem) => problem.includes("has auth.apiKey beside")),
+				`${virtualKeyBeside.problems}`
+			);
+
+			// Both companions beside oauth: one problem per offending key.
+			const bothBeside = parseOne({
+				auth: {
+					oauth: { tokenUrl: "https://idp.test/token", clientId: "c1" },
+					apiKey: "sk-1",
+					virtualKey: { header: "x-vk", value: "vk-1" },
+				},
+			});
+			assert.deepStrictEqual(bothBeside.entries, []);
+			for (const key of ["apiKey", "virtualKey"]) {
+				assert.ok(
+					bothBeside.problems.some((problem) =>
+						problem.includes(`has auth.${key} beside auth.oauth; move it to auth.oauth.${key}`)
+					),
+					`${bothBeside.problems}`
+				);
+			}
 		});
 
 		test("misconfigured auth: shape-incomplete oauth and virtualKey (config-shape errors never guess)", () => {

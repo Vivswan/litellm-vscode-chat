@@ -77,7 +77,7 @@ export const MISCONFIGURED_SERVER: DashboardServer = {
 	state: "error",
 	error: "misconfigured entry; not used until its configuration is fixed",
 	errorEnglish: "misconfigured entry; not used until its configuration is fixed",
-	problems: ["sets another auth form beside oauth; companions belong inside the oauth object"],
+	problems: ["has auth.apiKey beside auth.oauth; move it to auth.oauth.apiKey"],
 };
 
 export const EXTERNAL_SERVER: DashboardServer = {

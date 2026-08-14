@@ -52,7 +52,7 @@ const state: DashboardState = baseState({
 			kind: "entry",
 			label: "broken",
 			position: 3,
-			problems: ["sets another auth form beside oauth; companions belong inside the oauth object"],
+			problems: ["has auth.apiKey beside auth.oauth; move it to auth.oauth.apiKey"],
 			misconfigured: true,
 			rowOwned: true,
 			severity: "warning",

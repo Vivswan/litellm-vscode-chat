@@ -178,7 +178,7 @@ Do not guess - open the dashboard's Models section and check the model's paramet
 - **A broader key is not flowing in.** By default the most specific matching record wins wholesale - a `"*"` or `"gpt-5*"` value reaches a more specific match only when marked `_inheritable` (and no `_inherit_from: false` barrier sits between); a server entry's record beats the global setting field by field. Check the inheritance tree in the Diagnostics section, then see [Models - matching](models.md#which-record-applies).
 - **Runtime options outrank you.** Options passed at request time (by Copilot or a chat tool) and the [picker's per-model configuration](models.md#the-picker) beat configured records. To pin a field regardless, mark it forced: `"gpt-5*": { "_force": ["temperature"], "temperature": 1 }`. See [Models: parameters](models.md#parameters).
 - **Even a forced field needs its record to apply.** `_force` beats runtime options only when the record carrying it takes part in the model's resolution: when a more specific record wins and does not inherit the forced field, the force never reaches the request - the Diagnostics tree shows where it stopped. And provider-owned keys (`model`, `messages`, `stream`, ...) cannot be forced at all; such a `_force` is reported and ignored.
-- **The entry's records are inactive.** If the server's dashboard row says the entry's per-server configuration is being ignored, see [below](#per-server-model-parameters-are-inactive).
+- **The entry's records may be inactive.** If the server's dashboard row says the entry's per-server configuration may not be applying, see [below](#per-server-model-parameters-are-inactive).
 
 ### "The model produced only reasoning output, which this version of VS Code could not display"
 
@@ -234,7 +234,7 @@ A hidden group returns on its own when you re-add an entry with the same label a
 
 ## Per-server model parameters are inactive
 
-The dashboard puts a diagnostic line under a server's row - "ignores its per-server model parameters: the group serving this entry predates its label or a rename" - when the entry carries per-entry `models.parameters` but the VS Code provider group serving that server does not carry the entry's labeled identity. That happens when the group predates entry labels, or when a rename or base URL edit left a stale group behind; requests through such a group get only the global `models.parameters` setting. The same line names every other affected surface too: an entry's `models.capabilities`, `discovery.declared`, and `discovery.expectedFailures`, its custom `headers`, and its `apiVersion` override (requests fall back to the auto rule); all have the same fixes.
+The dashboard puts a diagnostic line under a server's row - "may not be applying its per-server model parameters" - when the entry carries per-entry `models.parameters` but the VS Code provider group serving that server may not carry the entry's labeled identity. That happens when the group predates entry labels, or when a rename or base URL edit left a stale group behind; requests through such a group may get only the global `models.parameters` setting. The same line names every other affected surface too: an entry's `models.capabilities`, `discovery.declared`, and `discovery.expectedFailures`, its custom `headers`, and its `apiVersion` override (requests fall back to the auto rule); all have the same fixes.
 
 Two ways to fix it:
 

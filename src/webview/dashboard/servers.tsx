@@ -437,25 +437,21 @@ function serverDiagnostics(
 	if (inactive.length > 0) {
 		// One line for every inactive surface on this row: the cause and the fix
 		// are identical for all of them, so per-surface twins would only repeat
-		// themselves. Degraded rather than advisory: the server answers, but it
-		// is running WITHOUT settings the user wrote, and only they can decide
+		// themselves. Degraded rather than advisory: the group may be serving
+		// this entry WITHOUT settings the user wrote, and only they can decide
 		// whether that matters. Advisory would also have kept these rows out of
-		// the summary count, quietly telling a reader whose parameters are being
-		// ignored that nothing needs attention.
+		// the summary count, quietly telling a reader whose parameters may not
+		// be applied that nothing needs attention.
 		found.push({
 			key: "entry-inactive",
 			severity: "degraded",
-			headline: l10n.t(
-				"{0} ignores its {1}: the group serving this entry predates its label or a rename.",
-				server.label,
-				inactiveSurfacesText(server)
-			),
+			headline: l10n.t("{0} may not be applying its {1}.", server.label, inactiveSurfacesText(server)),
 			// The retired banner spelled the remedy out as numbered steps, and was
 			// the only place these facts were written: which file, and that saving
 			// under a new label works instead. They ride the line rather than dying
-			// with it.
+			// with it, behind a cause sentence the headline no longer carries.
 			detail: l10n.t(
-				"Delete the group's object from the models file (chatLanguageModels.json), reload the window, then run Sync models - or save the entry under a new label instead."
+				"The provider group serving this entry may not carry the entry's labeled identity. Delete the group's object from the models file (chatLanguageModels.json), reload the window, then run Sync models - or save the entry under a new label instead."
 			),
 			actions: [
 				{

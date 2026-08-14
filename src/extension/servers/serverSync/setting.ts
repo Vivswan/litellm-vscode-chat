@@ -121,7 +121,11 @@ function parseAuth(raw: unknown): { fields: FlatAuthFields } | { problems: strin
 		problems.push("has an auth object that configures no form (expected one of apiKey, oauth, virtualKey)");
 	}
 	if (hasOAuth && (hasApiKey || hasVirtualKey)) {
-		problems.push("sets another auth form beside oauth; companions belong inside the oauth object");
+		for (const key of ["apiKey", "virtualKey"] as const) {
+			if (raw[key] !== undefined) {
+				problems.push(`has auth.${key} beside auth.oauth; move it to auth.oauth.${key}`);
+			}
+		}
 	}
 	if (problems.length > 0) {
 		return { problems };

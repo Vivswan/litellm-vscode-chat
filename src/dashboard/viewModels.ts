@@ -64,7 +64,7 @@ interface DashboardServerConfig extends NonSecretOptionalFields {
  * expectedFailures; custom headers; the apiVersion override), but the live
  * group serving it did not join by the entry's exact labeled identity - it
  * predates entry labels, predates a rename, or carries someone else's label -
- * so the request path's label-and-URL check does not apply those fields.
+ * so the request path's label-and-URL check may not apply those fields.
  * Recreating the group activates them. One classification per field family so
  * a row can name exactly what is inactive; the webview derives every badge
  * and banner phrase from this union, so a new member fails compilation until

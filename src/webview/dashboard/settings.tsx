@@ -582,7 +582,9 @@ function tokenEstimationDescription(): string {
 }
 
 function usageThresholdsDescription(): string {
-	return l10n.t("Warning at 80% and error at 95% by default; enter 80% or 0.8. Empty both to turn alerts off.");
+	return l10n.t(
+		"Warning at 80% and error at 95% by default; enter 80% or 0.8. Clear both threshold fields to turn alerts off."
+	);
 }
 
 function uiThemeDescription(): string {

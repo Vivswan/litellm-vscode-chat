@@ -1641,7 +1641,7 @@ function ServerForm({
 							})
 						}
 					>
-						<option value="auto">{l10n.t("Auto - detect, default /{0}", DEFAULT_API_VERSION)}</option>
+						<option value="auto">{l10n.t("Auto-detect, default /{0}", DEFAULT_API_VERSION)}</option>
 						<option value="none">{l10n.t("No version - use the URL as-is")}</option>
 						<option value="custom">{l10n.t("Custom...")}</option>
 					</Select>

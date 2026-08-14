@@ -233,9 +233,9 @@ test("a noticed entry states its inactive surfaces under its own row, not in a s
 	expect(line.textContent).toContain("Prod");
 	expect(line.textContent).not.toContain("Quiet");
 	expect(line.textContent).toContain("per-server model parameters");
-	// Degraded, not advisory: the server answers, but it is running WITHOUT
+	// Degraded, not advisory: the group may be serving this entry WITHOUT
 	// settings the user wrote. Advisory would also have kept this row out of the
-	// summary count, telling a reader whose parameters are being ignored that
+	// summary count, telling a reader whose parameters may not be applied that
 	// nothing needs attention.
 	expect(line.classList.contains("sev-degraded")).toBe(true);
 	expect(root.querySelector(".server-summary")?.textContent).toContain("1 server needs attention");
@@ -1532,7 +1532,7 @@ test("no declare hint on a row whose entry fields are inactive: the declaration 
 	]);
 	expect(root.textContent).not.toContain("Declare expected failure");
 	// The entry-inactive line still owns the row's fix.
-	expect(root.querySelector(".row-diagnostic")?.textContent).toContain("ignores its");
+	expect(root.querySelector(".row-diagnostic")?.textContent).toContain("may not be applying its");
 });
 
 test("a models-listing-unserved error offers the declare action writing modelListing", () => {
