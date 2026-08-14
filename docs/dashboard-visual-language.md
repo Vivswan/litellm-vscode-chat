@@ -199,7 +199,9 @@ One idiom for detail that opens in place:
   (dashboard.css:3372-3395).
 - Range syntax only: `width < N` and `width >= N` partition at N, where
   `max-width: N` and a `< N` variant disagree for exactly one pixel
-  (dashboard.css:2883-2894). The spelling is enforced, and every threshold is
+  (dashboard.css:2883-2894). Components spell the same pair as the
+  `@max-[Npx]/pane:` and `@min-[Npx]/pane:` variants, which compile to the two
+  legal forms. The spelling is enforced, and every threshold is
   kept out of the band the rail's collapse makes ambiguous, by
   `src/test/bun/webview/dashboard/narrowThresholds.test.ts`.
 - Reuse the existing tiers before minting a new one: 400, 560, 620, 640, 700,
@@ -241,12 +243,15 @@ One idiom for detail that opens in place:
 ## 9. Tone parity and forced colors
 
 - Every member of a tone vocabulary carries comparable perceptual weight at the
-  same nominal size, and no state rests on a sub-2px stroke as its only
-  carrier. The warn triangle's scale compensation (dashboard.css:255-264) and
-  the forced-colors 6px double rule - where 4px `double` renders lighter than a
-  2px solid (dashboard.css:718-727 and 751-770) - are the precedents; severity
-  rides hue, wash, AND geometry so it survives both forced colors and a reader
-  who cannot separate red from amber (dashboard.css:698-704).
+  same nominal size: the warn triangle scales up because a triangle inside a
+  circle's box reads a size smaller (dashboard.css:255-264), and severity rides
+  hue, wash, AND geometry so it survives a reader who cannot separate red from
+  amber (dashboard.css:698-704). A thin stroke may carry a state only as part
+  of an ensemble beside its words (the muted ring, dashboard.css:268-271; the
+  advisory dash, dashboard.css:738-750) - and a stroke that must survive forced
+  colors never falls below 2px per strand, which is why the blocking tier's 4px
+  `double` (two ~1.3px strands reading lighter than degraded's 2px solid)
+  widens to 6px there (dashboard.css:718-727 and 751-770).
 - Under forced colors, author colour is not a channel: every state that must
   survive there carries at least one of width, weight, shape, spacing, or a
   system colour keyword. The keyword clause is not a hedge -
