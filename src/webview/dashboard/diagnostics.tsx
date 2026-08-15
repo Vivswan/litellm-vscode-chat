@@ -57,7 +57,7 @@ import {
 import type { FeedbackUrl } from "./feedbackLinks";
 import { FEEDBACK_LINK_FEATURE_REQUEST, FEEDBACK_LINK_RATE, FEEDBACK_LINK_REPOSITORY } from "./feedbackLinks";
 import { DocsLink, HoverTip } from "./help";
-import { helpConfigDiagnosticsSection, helpResolutionSection, helpSupportSection } from "./helpText";
+import { helpConfigDiagnosticsSection, helpDiagnosticsTools, helpResolutionSection } from "./helpText";
 import { useRpc } from "./hooks";
 import {
 	IconBook,
@@ -1320,7 +1320,9 @@ function DiagnosticsActions({
 
 /**
  * The places to take what the page's tools collected: the docs and the three
- * GitHub destinations, one wrapping line of quiet links.
+ * GitHub destinations, one wrapping line of quiet links. No "?" of its own -
+ * the links name their destinations, and the tools' explanation lives on the
+ * page header beside the tools themselves.
  */
 function Support() {
 	return (
@@ -1328,7 +1330,6 @@ function Support() {
 			id="support"
 			title={l10n.t("Support")}
 			level={3}
-			help={helpSupportSection()}
 			docs={{ href: DOCS_LINK_GETTING_STARTED, label: l10n.t("Open the getting-started guide") }}
 		>
 			{/* No standing paragraph: the links name their destinations, and what
@@ -1375,6 +1376,10 @@ export function DiagnosticsSection({
 		<Section
 			id="diagnostics"
 			title={l10n.t("Diagnostics")}
+			help={helpDiagnosticsTools()}
+			// The trigger sits at the very top of the document, where a tip
+			// placed above it clips.
+			helpBelow
 			actions={
 				<DiagnosticsActions
 					servers={servers}

@@ -70,6 +70,7 @@ function makeInput(overrides: Partial<UsageViewInput> = {}): UsageViewInput {
 		pollingOffWindowMs: 600000,
 		discoveryTimeoutMs: 30000,
 		refreshing: false,
+		refreshingExplicitly: false,
 		now: 1_754_000_000_000,
 		isFresh: () => true,
 		...overrides,

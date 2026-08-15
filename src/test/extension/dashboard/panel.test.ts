@@ -110,6 +110,8 @@ interface Harness {
 	/** Every searchCatalog query, with catalogResults as the canned answer. */
 	catalogQueries: string[];
 	catalogResults: CatalogModelSummary[];
+	/** How many staleness-gated usage kicks open() fired (refreshUsageIfStale). */
+	usageStaleKicks: number;
 	/** When set, every updateSetting call rejects with this error. */
 	failUpdates?: Error;
 	/** When set, storeServerSecret rejects with this error on deletes (value === undefined). */
@@ -156,6 +158,9 @@ function makeHarness(): Harness {
 		getParkedGlobalHeaders: () => undefined,
 		refreshCatalogNow: () => {},
 		refreshUsageNow: () => {},
+		refreshUsageIfStale: () => {
+			harness.usageStaleKicks += 1;
+		},
 		searchCatalog: (query) => {
 			harness.catalogQueries.push(query);
 			return harness.catalogResults;
@@ -238,6 +243,7 @@ function makeHarness(): Harness {
 		entryCapabilities: {},
 		catalogQueries: [],
 		catalogResults: [],
+		usageStaleKicks: 0,
 	};
 	return harness;
 }
@@ -273,6 +279,18 @@ suite("extension/dashboard/panel", () => {
 		harness.controller.open();
 
 		assert.strictEqual(harness.panels.length, 1);
+	});
+
+	test("open kicks the staleness-gated usage refresh, never the unconditional one", () => {
+		// The GATE lives in the poller (refreshIfStale decides from the last
+		// completed pass); the panel's job is only to ask the gated seam on
+		// every open - the poller's own tests pin that a fresh open fetches
+		// nothing.
+		const harness = makeHarness();
+		harness.controller.open();
+		harness.controller.open();
+
+		assert.strictEqual(harness.usageStaleKicks, 2);
 	});
 
 	test("the ready handshake triggers a state push", async () => {

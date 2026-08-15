@@ -287,6 +287,34 @@ const STATE_PAIRS: readonly StatePair[] = [
 			`.opacity === "1"`,
 	},
 	{
+		// The Servers header's Refresh now button during an explicit in-flight
+		// pass: the busy label swaps in over a reserved width twin (both labels
+		// stay mounted in one grid cell), so flipping to "Refreshing..." must
+		// not resize the button, move Add server beside it, or move the header
+		// line. The toggle re-dispatches the fixture's own state push with the
+		// two usage flags set, the exact message a real explicit refresh
+		// delivers.
+		name: "servers-refresh-busy",
+		fixture: "servers-spend.ts",
+		targets: [
+			"#servers-section > .section-head .section-actions",
+			"#servers-section > .section-head .section-actions > button:first-child",
+			"button.refresh-usage",
+		],
+		toggle: [
+			`(() => {
+				const push = structuredClone(window.__fixtureMessages.find((message) => message.kind === "push"));
+				push.state.usage.refreshing = true;
+				push.state.usage.refreshingExplicitly = true;
+				window.dispatchEvent(new MessageEvent("message", { data: push }));
+			})()`,
+		],
+		restVerify: `document.querySelector("button.refresh-usage").disabled === false`,
+		verify:
+			`document.querySelector("button.refresh-usage").disabled === true && ` +
+			`getComputedStyle(document.querySelector("button.refresh-usage .spinner")).visibility === "visible"`,
+	},
+	{
 		// A record chip's invalid mark is a border-color change on a border that
 		// is always there, and the popover holding the message is out of flow -
 		// going invalid must not change the chip's or its chip line's height or

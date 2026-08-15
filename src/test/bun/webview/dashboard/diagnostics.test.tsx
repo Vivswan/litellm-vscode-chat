@@ -402,11 +402,13 @@ test("the external rows link the pinned destinations with decorative glyphs", ()
 	expect(support.querySelectorAll(".feedback-links .hint")).toHaveLength(0);
 	expect(support.textContent).not.toContain("Leave a review");
 	expect(support.textContent).not.toContain("Source code, releases");
-	// The Support section's own standing paragraph went the same way; what
-	// Copy diagnostics collects lives on the header's help affordance. Scoped
-	// to the body, since the help tip legitimately carries that sentence.
+	// The Support section's own standing paragraph went the same way; the
+	// tools' explanation lives on the PAGE header's help affordance, beside
+	// the tools it describes.
 	expect(support.querySelectorAll("p.hint")).toHaveLength(0);
-	expect(support.querySelector(".section-head .tip-bubble")?.textContent).toContain("Copy diagnostics");
+	expect(support.querySelector(".section-head .tip-bubble")).toBeNull();
+	const pageHead = root.querySelector("#diagnostics-section > .section-head") as HTMLElement;
+	expect(pageHead.querySelector(".tip-bubble")?.textContent).toContain("Copy diagnostics");
 	// The page's four tools live on the PAGE header's actions slot at the top
 	// of the destination - the reader grabbing the output log or a report must
 	// not scroll past every table to find them - and the Support section keeps

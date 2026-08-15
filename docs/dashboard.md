@@ -106,7 +106,7 @@ It renders from the same resolver the registration path runs, so what it shows i
 
 Spend against budget lives on each server's row: the collapsed row carries the percentage and meter, and opening the row lists every number the extension holds - the effective and key-reported budgets when they differ, the budget's next reset date, and, where the server serves daily activity data, request count, success rate, and cache hit rate. A field the server does not report renders as a dim dash plus the reason in place, never as a zero. Servers whose LiteLLM tracks no spend (no database) simply show an empty spend cell; a key denied its usage data keeps its row and states the denial as a problem line under it. The heading's Refresh now button fetches immediately (disabled while a fetch is in flight); stale data stays visible, marked with its cause when one is known ("possibly stale" beside the number, or a problem line naming the failed refresh or the denial). When an explicit refresh fails on every server, one warning toast says so; the per-server detail stays on the rows.
 
-Opening the dashboard always fetches fresh usage data, even when background polling is off. The depth - what the extension reads and from where, how the two budget sources interact, polling and freshness, alert thresholds, the status bar item - lives on the [Usage and budgets](usage.md) page.
+Opening the dashboard fetches usage data only when the stored numbers are stale (older than the poll interval, or none this session); a fresh open just renders them. The depth - what the extension reads and from where, how the two budget sources interact, polling and freshness, alert thresholds, the status bar item - lives on the [Usage and budgets](usage.md) page.
 
 ## Settings
 

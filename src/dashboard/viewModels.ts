@@ -626,6 +626,14 @@ export interface DashboardUsage {
 	readonly discoveryTimeoutMs: number;
 	/** Whether a usage refresh pass is in flight (one serialized engine); disables Refresh now. */
 	readonly refreshing: boolean;
+	/**
+	 * Whether that pass was explicitly requested (the Refresh now button or
+	 * the palette command). Only an explicit pass wears the busy label:
+	 * scheduled polls and open-triggered staleness passes update the numbers
+	 * silently, because a spinner on background work read as the app doing
+	 * something the user never asked for.
+	 */
+	readonly refreshingExplicitly: boolean;
 	/** When this snapshot was computed (epoch ms); ages render against it. */
 	readonly generatedAt: number;
 }

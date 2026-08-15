@@ -162,6 +162,12 @@ export interface DashboardControllerEnv extends IntentEnvironment {
 	getUsage(): DashboardUsage;
 	/** The PARKED_GLOBAL_HEADERS_KEY globalState value, for the parked-headers legacy hint. */
 	getParkedGlobalHeaders(): unknown;
+	/**
+	 * One usage pass only when the stored numbers are stale (the poller's
+	 * refreshIfStale); open() fires it, so revealing the panel serves the
+	 * stored numbers instead of re-probing the fleet on every focus.
+	 */
+	refreshUsageIfStale(): void;
 	/** Search the catalog snapshot for the picker; the panel bounds the result list before it crosses. */
 	searchCatalog(query: string): readonly CatalogModelSummary[];
 	settingsReader(): SettingsReader;
@@ -275,10 +281,11 @@ export class DashboardController implements vscode.Disposable {
 	/** Open the dashboard, or bring the existing panel to the front, optionally landing on a section. */
 	open(section?: DashboardSectionId): void {
 		this._pendingFocusSection = section;
-		// Opening always fetches fresh usage data, polling on or off
-		// (docs/usage.md); fire-and-forget - the poller's completion re-push
-		// lands the numbers.
-		this.env.refreshUsageNow();
+		// Opening serves the stored numbers and re-fetches only when they are
+		// stale (docs/usage.md): re-focusing an open panel or opening twice in
+		// a minute must not re-probe the fleet. Fire-and-forget - the poller's
+		// completion re-push lands the numbers when a pass does run.
+		this.env.refreshUsageIfStale();
 		if (this._panel !== undefined) {
 			this._panel.reveal();
 			this.pushState();
@@ -937,6 +944,7 @@ export function registerDashboardCommand(
 				pollingOffWindowMs: getUsagePollingOffFreshnessWindowMs(),
 				discoveryTimeoutMs: getDiscoveryTimeout(),
 				refreshing: usagePoller.isRefreshing(),
+				refreshingExplicitly: usagePoller.isRefreshingExplicitly(),
 				now: Date.now(),
 				isFresh: isUsageFresh,
 			}),
@@ -954,6 +962,12 @@ export function registerDashboardCommand(
 				.refreshNow()
 				.then(notifyUsageRefreshFailure)
 				.finally(() => controller.refresh());
+		},
+		// The open-triggered pass: staleness-gated, and never toasted - the
+		// total-failure acknowledgment belongs to the EXPLICIT refresh the user
+		// asked for, not to a background pass opening happened to start.
+		refreshUsageIfStale: () => {
+			void usagePoller.refreshIfStale()?.finally(() => controller.refresh());
 		},
 		searchCatalog: (query) => searchCatalogModels(catalog.snapshot(), query),
 		// One snapshot per reader: a dashboard build makes many reads and must

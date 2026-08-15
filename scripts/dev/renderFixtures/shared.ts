@@ -206,6 +206,7 @@ export const USAGE: DashboardUsage = {
 	pollIntervalMs: 300000,
 	discoveryTimeoutMs: 30000,
 	refreshing: false,
+	refreshingExplicitly: false,
 	generatedAt: NOW,
 };
 

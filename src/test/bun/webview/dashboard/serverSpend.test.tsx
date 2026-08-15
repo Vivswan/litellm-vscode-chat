@@ -613,22 +613,50 @@ describe("the header", () => {
 
 	test("Refresh now posts the intent and disables while a pass is in flight", () => {
 		const root = mountServers(makeUsage({ servers: [makeUsageServer({ label: "Prod" })] }));
-		fireClick(buttonByText(root, "Refresh now"));
+		fireClick(root.querySelector("button.refresh-usage") as HTMLButtonElement);
 		expect(postedCalls()).toEqual([{ method: "refreshUsage", payload: null }]);
 		cleanup();
-		const busy = mountServers(makeUsage({ refreshing: true, servers: [makeUsageServer({ label: "Prod" })] }));
-		const refreshing = Array.from(busy.querySelectorAll("button")).find((button) =>
-			(button.textContent ?? "").includes("Refreshing")
+		// An EXPLICIT pass wears the busy label (and keeps the idle label
+		// mounted invisible as its width twin, so the swap cannot resize the
+		// button); disabled either way.
+		const busy = mountServers(
+			makeUsage({ refreshing: true, refreshingExplicitly: true, servers: [makeUsageServer({ label: "Prod" })] })
 		);
-		expect(refreshing?.disabled).toBe(true);
+		const button = busy.querySelector("button.refresh-usage") as HTMLButtonElement;
+		expect(button.disabled).toBe(true);
+		const busyLabel = button.querySelector(".refresh-busy-label") as HTMLElement;
+		expect(busyLabel.classList.contains("invisible")).toBe(false);
+		expect(busyLabel.querySelector(".spinner")).not.toBeNull();
+		expect((button.querySelector(".refresh-idle-label") as HTMLElement).classList.contains("invisible")).toBe(true);
+	});
+
+	test("a background pass disables Refresh now without impersonating asked-for work", () => {
+		// Scheduled polls, backoff retries, and open-triggered staleness passes
+		// set only `refreshing`: the button must stay on its resting label (no
+		// spinner) - a busy label on unprompted work read as the app doing
+		// something the user never asked - while still refusing a second post.
+		const root = mountServers(
+			makeUsage({ refreshing: true, refreshingExplicitly: false, servers: [makeUsageServer({ label: "Prod" })] })
+		);
+		const button = root.querySelector("button.refresh-usage") as HTMLButtonElement;
+		expect(button.disabled).toBe(true);
+		expect((button.querySelector(".refresh-busy-label") as HTMLElement).classList.contains("invisible")).toBe(true);
+		expect((button.querySelector(".refresh-idle-label") as HTMLElement).classList.contains("invisible")).toBe(false);
+		// The fleet-wide announcement is for explicit refreshes only.
+		const announcing = [...root.querySelectorAll('[role="status"]')].filter((region) =>
+			(region.textContent ?? "").includes("Refreshing usage data")
+		);
+		expect(announcing).toHaveLength(0);
 	});
 
 	test("a fleet-wide refresh announces through exactly one status region, however many rows it flips", () => {
 		// The refreshing flag rewords every row's Refresh now at once; a status
 		// region per actions cluster would announce every unrelated label once
-		// per row. The busy announcement is the section's, text only, once.
+		// per row. The busy announcement is the section's, text only, once,
+		// and only for an explicitly requested pass.
 		const usage = makeUsage({
 			refreshing: true,
+			refreshingExplicitly: true,
 			servers: [
 				makeUsageServer({ label: "Prod", keyInfo: { kind: "error", classification: "network" } }),
 				makeUsageServer({ label: "Gateway", keyInfo: { kind: "error", classification: "network" } }),

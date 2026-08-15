@@ -689,6 +689,7 @@ export const EMPTY_USAGE_VIEW: DashboardUsage = {
 	pollIntervalMs: 0,
 	discoveryTimeoutMs: 0,
 	refreshing: false,
+	refreshingExplicitly: false,
 	generatedAt: 0,
 };
 

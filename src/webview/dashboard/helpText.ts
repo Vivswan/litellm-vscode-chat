@@ -303,7 +303,8 @@ export function helpResolutionSection(): string {
 	);
 }
 
-export function helpSupportSection(): string {
+/** The Diagnostics page header's "?": it explains the header's own tools, which is where they live. */
+export function helpDiagnosticsTools(): string {
 	return l10n.t(
 		"Evidence about this install, e.g. Copy diagnostics puts your connections and configuration problems on the clipboard as English text. Report a bug pre-fills a GitHub issue."
 	);

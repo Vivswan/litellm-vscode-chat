@@ -26,6 +26,8 @@ export interface UsageViewInput {
 	readonly discoveryTimeoutMs: number;
 	/** Whether a refresh pass is in flight (UsagePoller.isRefreshing). */
 	readonly refreshing: boolean;
+	/** Whether that pass was explicitly requested (UsagePoller.isRefreshingExplicitly). */
+	readonly refreshingExplicitly: boolean;
 	readonly now: number;
 	/** The shared freshness rule (extension/servers/usage/freshness.ts). */
 	readonly isFresh: (
@@ -144,6 +146,7 @@ export function buildUsageView(input: UsageViewInput): DashboardUsage {
 		pollIntervalMs: input.pollIntervalMs,
 		discoveryTimeoutMs: input.discoveryTimeoutMs,
 		refreshing: input.refreshing,
+		refreshingExplicitly: input.refreshingExplicitly,
 		generatedAt: input.now,
 	};
 }

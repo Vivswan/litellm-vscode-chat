@@ -205,10 +205,16 @@ test("the header actions render only once a server exists: Add server and the us
 
 	// Test connection and the diagnostics view live on the Diagnostics tab,
 	// and the native editor is not a destination: Add server plus the usage
-	// refresh stand alone on the header line.
+	// refresh stand alone on the header line. The refresh button mounts BOTH
+	// its labels (the hidden one holds the width so the busy swap cannot
+	// resize it); the visible resting label is Refresh now.
 	const populated = mountSection([makeDeclaredServer()]);
-	const buttons = [...populated.querySelectorAll(".section-actions button")].map((el) => el.textContent?.trim());
-	expect(buttons).toEqual(["Add server", "Refresh now"]);
+	const buttons = [...populated.querySelectorAll(".section-actions button")];
+	expect(buttons.map((el) => el.textContent?.trim())).toEqual(["Add server", "Refreshing...Refresh now"]);
+	const refresh = buttons[1] as HTMLButtonElement;
+	expect(refresh.classList.contains("refresh-usage")).toBe(true);
+	expect((refresh.querySelector(".refresh-idle-label") as HTMLElement).classList.contains("invisible")).toBe(false);
+	expect((refresh.querySelector(".refresh-busy-label") as HTMLElement).classList.contains("invisible")).toBe(true);
 });
 
 test("with no servers the guided start renders and its call to action opens the add form", () => {

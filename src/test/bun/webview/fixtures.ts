@@ -80,6 +80,7 @@ export function makeUsage(overrides: Partial<DashboardUsage> = {}): DashboardUsa
 		pollIntervalMs: 300000,
 		discoveryTimeoutMs: 30000,
 		refreshing: false,
+		refreshingExplicitly: false,
 		generatedAt: Date.now(),
 		...overrides,
 	};

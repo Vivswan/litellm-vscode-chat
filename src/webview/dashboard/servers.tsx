@@ -206,6 +206,8 @@ function serverDiagnostics(
 		readonly onRefreshUsage?: () => void;
 		/** A usage refresh is in flight; every Refresh now states it and refuses a second post. */
 		readonly refreshing?: boolean;
+		/** That pass was explicitly requested; only then does a Refresh now wear its busy label. */
+		readonly refreshingExplicitly?: boolean;
 	}
 ): readonly RowDiagnostic[] {
 	// The two-step declare control: the plain button arms, the armed pair
@@ -567,10 +569,16 @@ function usageDiagnostics(
 	label: string,
 	card: UsageServerCardView,
 	spend: SpendContext,
-	actions: { readonly onRefreshUsage?: () => void; readonly refreshing?: boolean }
+	actions: {
+		readonly onRefreshUsage?: () => void;
+		readonly refreshing?: boolean;
+		readonly refreshingExplicitly?: boolean;
+	}
 ): readonly RowDiagnostic[] {
 	// The fix every usage problem shares: an immediate fleet-wide re-fetch and
 	// re-probe (the refreshUsage intent, the same one the section header posts).
+	// Disabled during ANY pass (one serialized engine); the busy label only
+	// for an explicit one, like the header button.
 	const refreshNow = (id: string): DiagnosticAction[] =>
 		actions.onRefreshUsage === undefined
 			? []
@@ -578,13 +586,13 @@ function usageDiagnostics(
 					{
 						kind: "button",
 						id,
-						label: actions.refreshing === true ? l10n.t("Refreshing...") : l10n.t("Refresh now"),
+						label: actions.refreshingExplicitly === true ? l10n.t("Refreshing...") : l10n.t("Refresh now"),
 						ariaLabel:
-							actions.refreshing === true
+							actions.refreshingExplicitly === true
 								? l10n.t("Refreshing usage data")
 								: l10n.t("Refresh usage data for {0}", label),
 						disabled: actions.refreshing === true,
-						busy: actions.refreshing === true,
+						busy: actions.refreshingExplicitly === true,
 						onClick: actions.onRefreshUsage,
 					},
 				];
@@ -1554,6 +1562,7 @@ function ServerRow({
 	onDeclareExpected,
 	declaring,
 	refreshing,
+	refreshingExplicitly,
 }: {
 	server: DashboardServer;
 	/** The server's usage card, denied cards included; absent when the proxy serves no usage data. */
@@ -1578,6 +1587,8 @@ function ServerRow({
 	declaring: boolean;
 	/** A usage refresh is in flight; every Refresh now states it and refuses a second post. */
 	refreshing: boolean;
+	/** That pass was explicitly requested; only then does a Refresh now wear its busy label. */
+	refreshingExplicitly: boolean;
 }) {
 	const confirmRemove = () => {
 		sendRequest("removeServerSetting", { label: server.label });
@@ -1605,6 +1616,7 @@ function ServerRow({
 		retrying,
 		syncBusy,
 		refreshing,
+		refreshingExplicitly,
 		onRefreshUsage: () => sendRequest("refreshUsage", null),
 		...(server.origin === "declared"
 			? { onDeclareExpected, armedDeclare, onArmDeclare: setArmedDeclare, declaring }
@@ -2115,19 +2127,41 @@ export function ServersSection({
 						{/* The usage re-fetch and availability re-probe, fleet-wide (the
 						    same intent the diagnostic lines' Refresh now posts). Native
 						    disabled is fine here: the header never collapses to an
-						    icon-only control, so the label always explains itself. */}
+						    icon-only control, so the label always explains itself.
+						    Disabled during ANY pass (one serialized engine), but the
+						    busy label shows only for an EXPLICIT one: a spinner on
+						    every scheduled poll read as the app doing something the
+						    user never asked for. Both labels stay mounted in one grid
+						    cell, the hidden one holding the width (the ModifiedNote
+						    spacing-twin idiom), so the swap cannot resize the button
+						    and shove Add server sideways; check-geometry's
+						    servers-refresh-busy pair holds that. */}
 						<Button
 							variant="secondary"
+							className="refresh-usage"
 							disabled={usage?.refreshing === true || noServers}
 							onClick={() => sendRequest("refreshUsage", null)}
 						>
-							{usage?.refreshing === true ? (
-								<>
+							<span className="grid">
+								<span
+									className={cn(
+										"refresh-busy-label col-start-1 row-start-1 inline-flex items-center justify-center gap-1",
+										usage?.refreshingExplicitly === true ? undefined : "invisible"
+									)}
+									aria-hidden={usage?.refreshingExplicitly === true ? undefined : true}
+								>
 									<span className="spinner" aria-hidden="true" /> {l10n.t("Refreshing...")}
-								</>
-							) : (
-								l10n.t("Refresh now")
-							)}
+								</span>
+								<span
+									className={cn(
+										"refresh-idle-label col-start-1 row-start-1 inline-flex items-center justify-center",
+										usage?.refreshingExplicitly === true && "invisible"
+									)}
+									aria-hidden={usage?.refreshingExplicitly === true ? true : undefined}
+								>
+									{l10n.t("Refresh now")}
+								</span>
+							</span>
 						</Button>
 					</>
 				)
@@ -2306,7 +2340,7 @@ export function ServersSection({
 							pendingDeclare !== undefined
 								? l10n.t("Declaring the expected failure for {0}", pendingDeclare.label)
 								: undefined,
-							usage?.refreshing === true ? l10n.t("Refreshing usage data") : undefined,
+							usage?.refreshingExplicitly === true ? l10n.t("Refreshing usage data") : undefined,
 						]
 							.filter((line): line is string => line !== undefined)
 							.join("; ")}
@@ -2357,6 +2391,7 @@ export function ServersSection({
 								}}
 								declaring={pendingDeclare?.label === server.label}
 								refreshing={usage?.refreshing === true}
+								refreshingExplicitly={usage?.refreshingExplicitly === true}
 							/>
 						))}
 					</ul>

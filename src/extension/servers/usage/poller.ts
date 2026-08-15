@@ -185,13 +185,18 @@ export class UsagePoller {
 	private readonly clock: Clock;
 	private readonly abort = new AbortController();
 	private running: Promise<UsageRefreshOutcome | undefined> | undefined;
+	/** Whether the running pass was explicitly requested; isRefreshingExplicitly reads it. */
+	private runningExplicit = false;
 	private queued:
 		| {
 				force: boolean;
+				explicit: boolean;
 				promise: Promise<UsageRefreshOutcome | undefined>;
 				resolve: (outcome: UsageRefreshOutcome | undefined) => void;
 		  }
 		| undefined;
+	/** When the last pass ran to completion (epoch ms); refreshIfStale's staleness reads it. */
+	private lastCompletedPassAt: number | undefined;
 	/** A pending availability re-probe (servers changed) the next scheduled pass consumes. */
 	private probePending = false;
 	/**
@@ -227,6 +232,19 @@ export class UsagePoller {
 	/** Whether a refresh pass is in flight; the dashboard's Refresh now button disables on it (one serialized engine). */
 	isRefreshing(): boolean {
 		return this.running !== undefined;
+	}
+
+	/**
+	 * Whether the pass in flight (or queued behind one) was explicitly
+	 * requested - the palette command or a dashboard Refresh now. Scheduled
+	 * polls, backoff retries, servers-change probes, and open-triggered
+	 * staleness passes all stay false: the Refresh-now button wears its
+	 * busy label only for work the user asked that button's intent to do,
+	 * because a spinner on every background pass read as the app doing
+	 * something unprompted.
+	 */
+	isRefreshingExplicitly(): boolean {
+		return (this.running !== undefined && this.runningExplicit) || this.queued?.explicit === true;
 	}
 
 	/**
@@ -279,7 +297,36 @@ export class UsagePoller {
 	 * (cancellation must stay silent).
 	 */
 	refreshNow(): Promise<UsageRefreshOutcome | undefined> {
-		return this.refresh(true);
+		return this.refresh(true, true);
+	}
+
+	/**
+	 * The dashboard-open refresh: one pass only when the stored numbers are
+	 * actually stale - no completed pass yet this session, or the last one
+	 * older than the effective poll interval (the interval's spec default
+	 * stands in as the staleness floor while polling is off, so an open can
+	 * never turn into an unbounded re-probe). A pass in flight or queued
+	 * counts as about-to-be-fresh and starts nothing, so re-focusing the
+	 * panel or opening twice in a minute never re-probes the fleet. Forced
+	 * like an explicit refresh (a stale open re-probes availability, the
+	 * behavior opening always had) but NOT explicit: the Refresh-now button
+	 * stays quiet. Returns the pass it started, or undefined when the data
+	 * is fresh enough that none was needed.
+	 */
+	refreshIfStale(): Promise<UsageRefreshOutcome | undefined> | undefined {
+		if (this.disposed || this.running !== undefined || this.queued !== undefined) {
+			return undefined;
+		}
+		if (this.lastCompletedPassAt !== undefined) {
+			const interval = this.env.pollIntervalMs();
+			const staleAfterMs = interval > 0 ? interval : NUMBER_SETTING_SPECS["usage.pollInterval"].default;
+			const elapsedMs = this.clock.now() - this.lastCompletedPassAt;
+			// A clock that jumped backwards fails open, like shouldAttempt's.
+			if (elapsedMs >= 0 && elapsedMs < staleAfterMs) {
+				return undefined;
+			}
+		}
+		return this.refresh(true, false);
 	}
 
 	dispose(): void {
@@ -301,31 +348,34 @@ export class UsagePoller {
 		this.scheduled.arm(() => {
 			const probe = this.probePending;
 			this.probePending = false;
-			void this.refresh(probe);
+			void this.refresh(probe, false);
 		}, ms);
 	}
 
-	private async refresh(force: boolean): Promise<UsageRefreshOutcome | undefined> {
+	private async refresh(force: boolean, explicit: boolean): Promise<UsageRefreshOutcome | undefined> {
 		if (this.running !== undefined) {
 			if (this.queued === undefined) {
 				let resolve!: (outcome: UsageRefreshOutcome | undefined) => void;
 				const promise = new Promise<UsageRefreshOutcome | undefined>((resolvePromise) => {
 					resolve = resolvePromise;
 				});
-				this.queued = { force, promise, resolve };
+				this.queued = { force, explicit, promise, resolve };
 			}
 			this.queued.force ||= force;
+			this.queued.explicit ||= explicit;
 			return this.queued.promise;
 		}
+		this.runningExplicit = explicit;
 		this.running = this.runOnce(force);
 		try {
 			return await this.running;
 		} finally {
 			this.running = undefined;
+			this.runningExplicit = false;
 			const queued = this.queued;
 			this.queued = undefined;
 			if (queued !== undefined) {
-				void this.refresh(queued.force).then(queued.resolve, () => queued.resolve(undefined));
+				void this.refresh(queued.force, queued.explicit).then(queued.resolve, () => queued.resolve(undefined));
 			}
 		}
 	}
@@ -345,6 +395,14 @@ export class UsagePoller {
 			// stores themselves misbehaving. Never rethrown: refreshes run from
 			// timers and commands.
 			this.env.log("Usage refresh pass failed", { error: error instanceof Error ? error.name : typeof error });
+		}
+		if (outcome !== undefined) {
+			// Only a pass that ran to completion counts for staleness: an
+			// interrupted one (disposal mid-pass) proved nothing about the data.
+			// A pass whose servers all FAILED still counts - the numbers are as
+			// fresh as the fleet allows, and re-fetching on every open is the
+			// behavior refreshIfStale exists to end.
+			this.lastCompletedPassAt = this.clock.now();
 		}
 		for (const listener of this.refreshListeners) {
 			try {

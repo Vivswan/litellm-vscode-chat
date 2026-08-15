@@ -1016,4 +1016,117 @@ suite("extension/servers/usage poller", () => {
 			"a discarded pass must not log a recovery"
 		);
 	});
+
+	test("refreshIfStale runs a pass when nothing completed yet, and none while the last pass is younger than the interval", async () => {
+		const h = makeHarness();
+
+		// No completed pass this session: stale by definition.
+		const first = h.poller.refreshIfStale();
+		assert.ok(first !== undefined, "the first open must fetch");
+		await settle();
+		assert.strictEqual(h.client.calls.keyInfo, 1);
+
+		// Re-opening a minute later: the numbers are younger than the interval,
+		// so the open serves them as they are.
+		h.advanceClock(60_000);
+		assert.strictEqual(h.poller.refreshIfStale(), undefined, "a fresh open must not re-probe the fleet");
+		await settle();
+		assert.strictEqual(h.client.calls.keyInfo, 1);
+
+		// Past the interval the same open fetches again.
+		h.advanceClock(300_000);
+		assert.ok(h.poller.refreshIfStale() !== undefined, "a stale open must fetch");
+		await settle();
+		assert.strictEqual(h.client.calls.keyInfo, 2);
+	});
+
+	test("with polling off, refreshIfStale uses the interval's spec default as its staleness floor", async () => {
+		const h = makeHarness({ intervalMs: 0 });
+
+		assert.ok(h.poller.refreshIfStale() !== undefined, "no pass yet: the open fetches, polling off or not");
+		await settle();
+		assert.strictEqual(h.client.calls.keyInfo, 1);
+
+		// Inside the default five-minute interval: fresh enough.
+		h.advanceClock(200_000);
+		assert.strictEqual(h.poller.refreshIfStale(), undefined);
+		await settle();
+		assert.strictEqual(h.client.calls.keyInfo, 1);
+
+		// Past it: stale, even though no poll will ever run on its own.
+		h.advanceClock(200_000);
+		assert.ok(h.poller.refreshIfStale() !== undefined);
+		await settle();
+		assert.strictEqual(h.client.calls.keyInfo, 2);
+	});
+
+	test("refreshIfStale starts nothing while a pass is in flight or queued", async () => {
+		const h = makeHarness();
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		h.client.fetchKeyInfo = async () => {
+			h.client.calls.keyInfo += 1;
+			await gate;
+			return KEY_OK;
+		};
+
+		const running = h.poller.refreshNow();
+		assert.strictEqual(h.poller.refreshIfStale(), undefined, "an in-flight pass is about-to-be-fresh");
+		const queued = h.poller.refreshNow();
+		assert.strictEqual(h.poller.refreshIfStale(), undefined, "a queued follow-up already covers the open");
+		release();
+		await running;
+		await queued;
+		await settle();
+		assert.strictEqual(h.client.calls.keyInfo, 2, "exactly the running pass and its one queued follow-up");
+	});
+
+	test("only explicit passes read as refreshing explicitly; scheduled and open-triggered ones stay quiet", async () => {
+		const h = makeHarness({ initialRefreshDelayMs: 5_000 });
+		// Every keyInfo call blocks until released, one release per call, so the
+		// test can observe each pass mid-flight (a shared gate would unblock a
+		// queued pass it never meant to).
+		const releases: (() => void)[] = [];
+		h.client.fetchKeyInfo = async () => {
+			h.client.calls.keyInfo += 1;
+			await new Promise<void>((resolve) => releases.push(resolve));
+			return KEY_OK;
+		};
+		const release = async () => {
+			// Settle FIRST: the pass reaches the gate a few microtasks after it
+			// starts, and a release fired before the resolver exists would leave
+			// the gate closed forever (the shift is a no-op on an empty queue).
+			await settle();
+			releases.shift()?.();
+			await settle();
+		};
+
+		// A scheduled poll: in flight, but not explicit.
+		h.poller.start();
+		h.timer.firePending();
+		await Promise.resolve();
+		assert.strictEqual(h.poller.isRefreshing(), true);
+		assert.strictEqual(h.poller.isRefreshingExplicitly(), false, "a scheduled poll must not wear the busy label");
+		// An explicit refresh queued behind it flips the explicit reading at once.
+		const explicit = h.poller.refreshNow();
+		assert.strictEqual(h.poller.isRefreshingExplicitly(), true, "a queued explicit refresh is asked-for work");
+		await release();
+		assert.strictEqual(h.poller.isRefreshingExplicitly(), true, "the queued explicit pass is now the running one");
+		await release();
+		await explicit;
+		await settle();
+		assert.strictEqual(h.poller.isRefreshing(), false);
+		assert.strictEqual(h.poller.isRefreshingExplicitly(), false);
+
+		// An open-triggered staleness pass: in flight, never explicit.
+		h.advanceClock(600_000);
+		const stale = h.poller.refreshIfStale();
+		assert.ok(stale !== undefined);
+		assert.strictEqual(h.poller.isRefreshing(), true);
+		assert.strictEqual(h.poller.isRefreshingExplicitly(), false, "an open-triggered pass is background work");
+		await release();
+		await stale;
+	});
 });
