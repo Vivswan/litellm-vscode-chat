@@ -387,7 +387,6 @@
 		column-gap: 8px;
 		background: transparent;
 		border: none;
-		border-radius: 2px;
 		padding: 0;
 		margin: 0;
 		cursor: pointer;
@@ -628,7 +627,7 @@
 		display: grid;
 		grid-template-columns: subgrid;
 		grid-column: 1 / -1;
-		border-radius: 4px;
+		border-radius: var(--radius);
 	}
 	/* The hover and open wash paints the WHOLE row - the disclosure button AND
 		 the actions column beside it - which is why it lives here rather than on
@@ -1938,7 +1937,7 @@
 		gap: 4px 8px;
 		margin: 14px 0 4px;
 		padding: 5px 8px;
-		border-radius: 4px;
+		border-radius: var(--radius);
 		background: var(--chip);
 	}
 	/* Forced colours repaint that fill to Canvas, which was the strip's ONLY
@@ -2148,7 +2147,7 @@
 		background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
 		color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
 		border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
-		border-radius: 4px;
+		border-radius: var(--radius);
 		box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.35));
 		animation: confirm-in 120ms ease-out;
 	}
@@ -2250,7 +2249,7 @@
 		gap: 14px;
 		padding: 4px 18px 4px 12px;
 		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
-		border-radius: 4px;
+		border-radius: var(--radius);
 		margin: 8px 0;
 		max-width: 640px;
 	}
@@ -2312,7 +2311,7 @@
 		gap: 14px;
 		padding: 6px 12px;
 		border: 1px solid var(--vscode-notifications-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
-		border-radius: 4px;
+		border-radius: var(--radius);
 		background: var(--vscode-notifications-background, var(--vscode-editorWidget-background));
 		color: var(--vscode-notifications-foreground, var(--vscode-foreground));
 		box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.35));
@@ -2514,7 +2513,7 @@
 	}
 	.empty-block {
 		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
-		border-radius: 4px;
+		border-radius: var(--radius);
 		padding: 8px 16px;
 		margin: 8px 0;
 	}
@@ -2526,7 +2525,7 @@
 	.empty-start {
 		max-width: 560px;
 		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
-		border-radius: 4px;
+		border-radius: var(--radius);
 		padding: 16px 24px 20px;
 		margin: 16px 0;
 		background: var(--vscode-editorWidget-background, transparent);
@@ -2550,7 +2549,7 @@
 	.notice {
 		box-sizing: border-box;
 		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
-		border-radius: 4px;
+		border-radius: var(--radius);
 		padding: 8px 16px;
 		margin: 8px 0;
 		background: var(--vscode-editorWidget-background, transparent);

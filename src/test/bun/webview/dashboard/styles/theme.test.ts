@@ -227,6 +227,9 @@ test("the palette and radius resets keep Tailwind's defaults unreachable", async
 	// And the near-pill literal stays minted once: a 9px radius written into
 	// the dashboard sheet is a fork of --radius-pill.
 	expect(readFileSync(dashboardEntry, "utf8")).not.toContain("border-radius: 9px");
+	// The base shape literal is retired the same way: a 4px radius written
+	// into the dashboard sheet is a fork of --radius.
+	expect(readFileSync(dashboardEntry, "utf8")).not.toContain("border-radius: 4px");
 });
 
 test("the cascade puts the dashboard stylesheet below utilities", async () => {
