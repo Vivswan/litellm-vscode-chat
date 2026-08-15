@@ -119,20 +119,28 @@ One idiom for actions that rest hidden on a row, and it has one home:
   pre-exists to cover, the message's line is reserved outright: every record
   row and field row mounts its one status slot whether or not it speaks
   (`dashboard.css .record-table .record-status`; the field rows'
-  `dashboard.css .row .row-status`), and a note whose sentence is known at
-  rest holds its own box as an invisible spacing twin until it speaks -
-  aria-hidden where opacity holds the box (`settings.tsx ModifiedNote`), or
-  visibility-hidden, which removes the words from the accessibility tree
-  itself (the server form's connection note,
-  `serverEditPage.tsx connectionEdited`). In a prose zone
+  `dashboard.css .row .row-status`), the matcher editor's grammar reading and
+  the JSON side door's verdict share the same rule
+  (`dashboard.css .matcher-status`; `dashboard.css .json-status`), and a note
+  whose sentence is known at rest holds its own box as an invisible spacing
+  twin until it speaks - aria-hidden where opacity holds the box
+  (`settings.tsx ModifiedNote`), or visibility-hidden, which removes the words
+  from the accessibility tree itself (the server form's connection note,
+  `serverEditPage.tsx connectionEdited`, and its label consequence notes,
+  `serverEditPage.tsx rename-note`). In a prose zone
   the transient trails what is visible: nothing visible follows the "?" at
   rest, so the settings row's hover-only note renders after the glyph rather
-  than holding a gap open mid-sentence (`settings.tsx ModifiedNote`).
+  than holding a gap open mid-sentence (`settings.tsx ModifiedNote`) - and
+  while an overlay covers the zone, its help glyph re-homes to the covering
+  sentence's own tail (`settings.tsx glyphTrail`), because a glyph painted
+  through the overlay collides with the error's text in every theme and is
+  buried whole under forced colors' text backplate.
 - One placement per element class, zero exceptions within the class: an element
   class has exactly one home on its surface. Row actions sit in the reserved
   trailing track (`dashboard.css .server-row`; the settings rows' actions slot,
   `settings.tsx setting-actions`), section actions trail the header line
-  (`dashboard.css .section-head .section-actions`), and the heading
+  (`dashboard.css .section-head .section-actions`; the settings groups' copy of
+  the same geometry, `settings.tsx settings-group-actions`), and the heading
   settings.json jump sits directly after the heading it opens, everywhere
   (`recordEditors.tsx HeadingRevealButton`).
 
