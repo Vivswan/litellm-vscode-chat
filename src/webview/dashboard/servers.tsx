@@ -38,13 +38,6 @@ import { Section } from "./ui/section";
 import { sendRequest } from "./vscodeApi";
 
 /**
- * The page's one measure. ONE right edge per surface: the section header and
- * the server list wear this same cap, so the header's rule cannot run past
- * the rows it announces (measure.test.ts holds header and body to it).
- */
-const SERVERS_MEASURE = "max-w-[64rem]";
-
-/**
  * Every inactive notice's user-facing phrase in one table, so a new notice
  * cannot ship half-wired (the satisfies clause fails to compile until the
  * table names it). Zero-arg functions, so the strings resolve after the l10n
@@ -2107,10 +2100,6 @@ export function ServersSection({
 			helpBelow
 			docs={{ href: DOCS_LINK_SERVERS, label: l10n.t("Open the servers guide") }}
 			meta={noServers ? undefined : serversMeta(servers.length, attentionCount, usage, staleSpendVisible)}
-			// The header line caps at the list's own measure: a rule running
-			// 200px past the last row reads as page furniture rather than as
-			// this section's header.
-			headerClassName={SERVERS_MEASURE}
 			// First run shows the guided card alone; a header full of disabled
 			// controls would put dead buttons before the guidance.
 			actions={
@@ -2318,7 +2307,7 @@ export function ServersSection({
 							.filter((line): line is string => line !== undefined)
 							.join("; ")}
 					</p>
-					<ul className={cn("server-list", SERVERS_MEASURE)}>
+					<ul className="server-list">
 						{servers.map((server) => (
 							// Keyed identity (the error banner's idiom: origin plus the
 							// external row's opaque handle or the row's unique label -

@@ -150,14 +150,17 @@
 		padding-left: calc(var(--rail-inset) + var(--rail-glyph) + var(--rail-gap));
 		color: var(--muted-foreground);
 	}
-	/* The width policy: LISTS run full-bleed to this generous cap - the tables
-		   are the width driver (the models table's capabilities column and action
-		   links) - while FORMS are measured: the form and prose surfaces re-cap
-		   themselves below at their own readable measure (the settings page, the
-		   server edit page, usage cards, banners, notices). One table is
-		   measured too: the diagnostics resolution table (.resolved-scroll),
-		   because every sibling on its page wears the 64rem measure and it was
-		   the page's one uncapped right edge.
+	/* The width policy: STRUCTURE runs full-bleed to this generous cap - the
+		   models table, the server list, the diagnostics problem list and
+		   resolution table all fill the pane at every window size - while FORMS
+		   are measured: the form and prose surfaces re-cap themselves below at
+		   their own readable measure (the server edit page, usage cards,
+		   banners), and prose inside a full-bleed block keeps its own reading
+		   cap (p.hint's 72ch, .row-diagnostic-headline's 84ch). The diagnostics
+		   page once capped its lists at 64rem; a user review at a ~2000px window
+		   read the dead pane beside the resolution table as a defect, so the
+		   structural surfaces now share the settings page's full-bleed ruling
+		   (measure.test.ts pins it).
 		   The pane also supplies the page padding the body used to. The bottom
 		   gutter is a custom property because it has a second reader: anything
 		   sizing itself against the fold has to leave exactly this much room
@@ -2501,19 +2504,17 @@
 		margin: 6px 0;
 	}
 	/* One-time informational callout (e.g. the post-adoption duplicate-group
-		   note): quiet card, no alarm colors. The card wears the section's own
-		   64rem measure - border-box, so its border sits ON the measure line the
-		   header rule and the server list share, instead of minting a second
-		   right edge 400px short of it. The prose inside keeps its own reading
-		   cap (the diagnostics' 84ch), so a wide card does not stretch its
-		   sentences to the border. */
+		   note): quiet card, no alarm colors. The card runs full-bleed with the
+		   server list - border-box, so its border sits ON the right edge the
+		   rows share, instead of minting a second edge short of it. The prose
+		   inside keeps its own reading cap (the diagnostics' 84ch), so a wide
+		   card does not stretch its sentences to the border. */
 	.notice {
 		box-sizing: border-box;
 		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
 		border-radius: 4px;
 		padding: 8px 16px;
 		margin: 8px 0;
-		max-width: 64rem;
 		background: var(--vscode-editorWidget-background, transparent);
 	}
 	.notice p {
@@ -2700,10 +2701,6 @@
 		list-style: none;
 		margin: 8px 0 0;
 		padding-left: 0;
-		/* The page's measure, matching the section header line. A tint running
-			 240px past the longest sentence in it reads as a coloured page rather
-			 than as a marked block. */
-		max-width: 64rem;
 	}
 	.config-diagnostics li {
 		margin: 0 0 8px;
@@ -2870,14 +2867,11 @@
 			border-color: GrayText;
 		}
 	}
-	/* The resolution table at the page's measure: the section headers and the
-		   problem list wear the same 64rem cap, and the table stretching past
-		   them put the Inspect column on a right edge nothing else shared. (The
-		   trees need no cap of their own: their lines end where their text
+	/* The resolution table runs full-bleed to the pane, like the settings rows
+		   and the models table: its siblings (the problem list, the headers) share
+		   that same right edge, so the page keeps one edge at every window size.
+		   (The trees need no rule of their own: their lines end where their text
 		   ends.) */
-	.resolved-scroll {
-		max-width: 64rem;
-	}
 	/* The table's own filter binds to the table, not to the trees above it:
 		   equidistant margins read as a control floating between the two
 		   figures. */
