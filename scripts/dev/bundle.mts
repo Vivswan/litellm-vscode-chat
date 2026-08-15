@@ -8,6 +8,7 @@ import {
 	DASHBOARD_STYLESHEET_FILENAME,
 	WEBVIEW_DIST_SEGMENTS,
 } from "../../src/shared/webviewPaths.ts";
+import { tailwindCliBin } from "../../src/test/bun/webview/dashboard/styles/tailwindCliBin.ts";
 
 const watchMode = process.argv.includes("--watch");
 const production = process.argv.includes("--production");
@@ -60,8 +61,13 @@ async function tailwindCss(id: string, entrySource: string): Promise<string> {
 		// means the scan broke, not that the entry stopped shipping Tailwind.
 		throw new Error(`[CSS_ERROR] No package imports found in Tailwind entry ${id}; the notices scan cannot credit it`);
 	}
+	// The installed CLI, invoked by path through the shared resolver (the
+	// compiled-sheet suites spawn the same binary): `bun x @tailwindcss/cli`
+	// re-resolved the package against the npm registry on every run, which made
+	// each CI bundle hostage to a registry blip (an ETIMEDOUT here failed a
+	// green tree).
 	const proc = Bun.spawn({
-		cmd: [process.execPath, "x", "@tailwindcss/cli", "--input", id, ...(production ? ["--minify"] : [])],
+		cmd: [process.execPath, tailwindCliBin(), "--input", id, ...(production ? ["--minify"] : [])],
 		stdout: "pipe",
 		stderr: "pipe",
 	});

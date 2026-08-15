@@ -7,6 +7,7 @@
  * prevent: what ships is the compiled sheet, so that is what a pin reads.
  */
 import path from "node:path";
+import { tailwindCliBin } from "./tailwindCliBin";
 
 const stylesDir = path.resolve(import.meta.dir, "../../../../../webview/dashboard/styles");
 export const themeEntry = path.join(stylesDir, "theme.css");
@@ -15,7 +16,7 @@ export const dashboardEntry = path.join(stylesDir, "dashboard.css");
 /** The Tailwind entry, through the same CLI `scripts/dev/bundle.mts` invokes. */
 export async function compileTheme(): Promise<string> {
 	const proc = Bun.spawn({
-		cmd: [process.execPath, "x", "@tailwindcss/cli", "--input", themeEntry],
+		cmd: [process.execPath, tailwindCliBin(), "--input", themeEntry],
 		stdout: "pipe",
 		stderr: "pipe",
 	});
