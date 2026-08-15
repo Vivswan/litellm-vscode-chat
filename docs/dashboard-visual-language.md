@@ -57,8 +57,9 @@ Three surface classes, each with one owner of its geometry.
 ### Form rows (slide-over panels, the server form)
 
 - `.rows` owns the column tracks and each `.row` subgrids onto them
-  (`dashboard.css .rows`; the matcher editor's copy at
-  `dashboard.css .matcher-editor .rows`).
+  (`dashboard.css .rows`); the matcher editor's field rows ride those same
+  shared tracks, and its own `dashboard.css .matcher-editor .rows` adjusts
+  only spacing, never the template.
 - Rows stack to one column below the 700px pane tier
   (`dashboard.css .slide-over .rows`, in the `width < 700px` container block).
 
@@ -164,6 +165,14 @@ job each:
   (`dashboard.css .chip-prov`, `dashboard.css .model-inspector .prov`, and
   `dashboard.css .row-diagnostic-where`).
 - Field chip: a record row's key/value cell (`recordEditors.tsx chip-field`).
+  The registers' one ruled carve-out: these chips carry mono machine text on
+  the soft fill, because they are controls, not labels - the fill is what says
+  "these are the fields", and pointer or focus brings the border and input
+  fill that prove the row editable (`recordEditors.tsx chipClass`). Outline
+  plus mono stays the rule for inert machine text. The chip's two marks rank
+  by the severity rules' own solid-vs-dashed channel where forced colors
+  repaint their red and amber borders: 2px solid reads invalid, 2px dashed
+  reads hint (`theme.css .chip-field.hinted`).
 
 Chip radius never mints a fresh literal. The named tokens live in theme.css
 (`theme.css --radius-chip`, `theme.css --radius-pill`,
@@ -217,6 +226,15 @@ One idiom for detail that opens in place:
     (`serverEditPage.tsx errorId`);
   - row-level is a `.row-diagnostic` under the owning row
     (`dashboard.css .row-diagnostic`);
+  - a refused setting write follows a fallback chain so it stays visible from
+    any tab: the owning row first, matched by the request id the row's write
+    posted (`settings.tsx writeFailures`); a section-top line when no mounted
+    row claims the id or the owning row is filter-hidden
+    (`settings.tsx unclaimedFailure`); and a pane-top line while another tab
+    is active, because a hidden subtree neither paints nor announces
+    (`app.tsx awaySettingFailure`). Only executeCommand keeps a pane-top line
+    always: it is posted from every tab and owns no row anywhere
+    (`app.tsx PaneFailureLine`);
   - operation-level is a dismissible banner with `role="alert"`
     (`servers.tsx banner-error`; `dashboard.css .banner`);
   - success is a transient toast only where nothing updates in place - the
@@ -226,18 +244,25 @@ One idiom for detail that opens in place:
 
 ## 7. Width
 
-- Lists run full-bleed to the surface measure; forms and prose are measured
-  (the width-policy note on `dashboard.css .pane`). Hints and setting
-  descriptions share the 72ch measure (`dashboard.css p.hint`;
-  `settings.tsx setting-hint`); a prose surface with its own reading problem
-  states its own cap and why (the diagnostic headline's 84ch,
-  `dashboard.css .row-diagnostic-headline`).
-- ONE right edge per surface: either a shared measure worn by header and body
-  together (the diagnostics page's 64rem, `diagnostics.tsx DIAGNOSTICS_MEASURE`
-  and `dashboard.css .resolved-scroll`), or a trailing actions track on a
-  full-bleed surface - reserved on the server list
+- Structure runs full-bleed to the pane; forms and prose are measured (the
+  width-policy note on `dashboard.css .pane`, whose own 1560px cap is the one
+  structural bound). Hints and setting descriptions share the 72ch measure
+  (`dashboard.css p.hint`; `settings.tsx setting-hint`); a prose surface with
+  its own reading problem states its own cap and why (the diagnostic
+  headline's 84ch, `dashboard.css .row-diagnostic-headline`; the notice
+  card's, `dashboard.css .notice p`).
+- ONE right edge per surface, and for structural content that edge is the
+  pane's: header and body share it by both running full-bleed - tables,
+  lists, and rows fill the pane at every window size - with a trailing
+  actions track where a row needs one, reserved on the server list
   (`dashboard.css .server-list`), fixed on the settings rows so clean and
   modified rows share one explanation edge (`settings.tsx SETTING_ROW_GRID`).
+  The surface measure is retired for page bodies: the diagnostics page's
+  64rem cap left ~500px of dead pane beside the resolution table at a ~2000px
+  window, and `src/test/bun/webview/dashboard/styles/measure.test.ts` fails
+  closed on its return - a resurrected `_MEASURE` constant, a capped section
+  header, or a max-width landing on a structural surface - while pinning the
+  prose reading caps still present.
 - Breakpoints are container queries on the pane, never viewport media queries
   (`dashboard.css .pane`). The one exception is the rail, whose question is the
   window's own width - and asking the pane would be circular
@@ -294,14 +319,25 @@ One idiom for detail that opens in place:
   same nominal size: the warn triangle scales up because a triangle inside a
   circle's box reads a size smaller (`dashboard.css .pill.tone-warn .dot`), and
   severity rides hue, wash, AND geometry so it survives a reader who cannot
-  separate red from amber (`dashboard.css .row-diagnostic`). A thin stroke may
-  carry a state only as part of an ensemble beside its words (the muted ring,
-  `dashboard.css .pill.tone-muted .dot`; the advisory dash,
-  `dashboard.css .row-diagnostic.sev-advisory`) - and a stroke that must
-  survive forced colors never falls below 2px per strand, which is why the
-  blocking tier's 4px `double` (two ~1.3px strands reading lighter than
-  degraded's 2px solid) widens to 6px there
-  (`dashboard.css .row-diagnostic.sev-blocking`, base and forced-colors rules).
+  separate red from amber (`dashboard.css .row-diagnostic`).
+- The severity rules rank by stroke geometry alone - 6px double, 2px solid,
+  1px dashed, the same in EVERY palette
+  (`dashboard.css .row-diagnostic.sev-blocking`,
+  `dashboard.css .row-diagnostic.sev-degraded`,
+  `dashboard.css .row-diagnostic.sev-advisory`): more ink and a different
+  shape per tier, so the ranking never asks hue or wash to carry it and
+  survives forced colors unchanged. Blocking is 6px because `double` cuts the
+  width into three equal parts: a 4px double is two ~1.33px antialiased
+  strands that read LIGHTER than degraded's crisp 2px solid - the loudest
+  tier rendering quietest - in ordinary themes exactly as under forced colors
+  (the derivation above `dashboard.css .row-diagnostic.sev-blocking`).
+- The 2px state floor: a stroke that carries a state by itself never falls
+  below 2px per strand, because thinner snaps to a hairline at some display
+  densities - the muted ring meets it (`dashboard.css .pill.tone-muted .dot`),
+  as does each strand of blocking's double. A stroke under the floor carries
+  a state only as part of an ensemble beside its words: the advisory tier's
+  1px dash under its ranked sentence
+  (`dashboard.css .row-diagnostic.sev-advisory`).
 - Under forced colors, author colour is not a channel: every state that must
   survive there carries at least one of width, weight, shape, spacing, or a
   system colour keyword. The keyword clause is not a hedge -
@@ -310,7 +346,10 @@ One idiom for detail that opens in place:
   2px border plus weight
   (`theme.css [data-slot="button"][data-variant="danger"]`), the pressed filter
   pill's border width (`dashboard.css .filter-pill[aria-pressed="true"]`), the
-  one-shape-per-tone dots (`dashboard.css .pill .dot`), the severity rules'
+  one-shape-per-tone dots (`dashboard.css .pill .dot`), the problem tone-text
+  registers' wavy underline - the editor's own problem mark, worn by `.error`
+  and `.state-warn`, never by `.state-ok`, because ok is not a problem
+  (`theme.css .state-warn`) - the severity rules'
   stroke geometry (`dashboard.css .row-diagnostic.sev-blocking`), and the
   selected rail tab's Highlight edge bar
   (`dashboard.css .rail-nav .rail-tab[aria-selected="true"]`).
@@ -318,6 +357,12 @@ One idiom for detail that opens in place:
   high-contrast readers are sighted. Screen-reader text keeps the accessible
   tree whole when paint changes (the collapse contract in `rail.tsx`); a defect
   in the paint is fixed in the paint.
+- A standing failure is spoken once per failure, however many surfaces render
+  its line: a bare `role="alert"` re-announces on every remount, so the role
+  rides only the first render of each failure seq and stands down after - the
+  visible line always renders, only the announcement dedupes
+  (`announceOnce.tsx useAlertOnce`; carriers remount by keying the line on
+  the seq, `app.tsx PaneFailureLine`).
 
 ## 10. Deliberate deviations
 
