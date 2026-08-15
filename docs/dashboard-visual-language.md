@@ -115,7 +115,16 @@ One idiom for actions that rest hidden on a row, and it has one home:
   reserved track so revealing them cannot reflow the row
   (`dashboard.css .server-row`), a settings error covers the description
   instead of displacing it (`settings.tsx SettingRow`), and the reveal wrapper
-  itself keeps the hidden control's box (opacity, not display). In a prose zone
+  itself keeps the hidden control's box (opacity, not display). Where nothing
+  pre-exists to cover, the message's line is reserved outright: every record
+  row and field row mounts its one status slot whether or not it speaks
+  (`dashboard.css .record-table .record-status`; the field rows'
+  `dashboard.css .row .row-status`), and a note whose sentence is known at
+  rest holds its own box as an invisible spacing twin until it speaks -
+  aria-hidden where opacity holds the box (`settings.tsx ModifiedNote`), or
+  visibility-hidden, which removes the words from the accessibility tree
+  itself (the server form's connection note,
+  `serverEditPage.tsx connectionEdited`). In a prose zone
   the transient trails what is visible: nothing visible follows the "?" at
   rest, so the settings row's hover-only note renders after the glyph rather
   than holding a gap open mid-sentence (`settings.tsx ModifiedNote`).
@@ -187,8 +196,13 @@ makes filled-vs-outline read as a toggle rather than a chip.
 One idiom for detail that opens in place:
 
 - A leading chevron rotates 90 degrees in 120ms and stands down under reduced
-  motion (`dashboard.css .model-chevron`; the server rows' copy at
-  `dashboard.css .server-chevron`).
+  motion, and the behavior has ONE embodiment: rotation, timing, and the
+  reduced-motion stand-down all live on `dashboard.css .disclosure-chevron`,
+  keyed off the disclosure button's own aria-expanded
+  (`ui/disclosureChevron.tsx DisclosureChevron`).
+  `dashboard.css .model-chevron` and `dashboard.css .server-chevron` are grid
+  seats only, and the hidden-groups line under the server list is the idiom's
+  third member (`dashboard.css .hidden-groups`).
 - The whole readable block is the button, styled out of button chrome - the
   chevron is the part that says it opens
   (`dashboard.css button.model-disclosure`).
@@ -221,8 +235,9 @@ One idiom for detail that opens in place:
 - Error placement follows scope:
   - field-level stands in the description's slot: where the surface promises
     stable height it covers the still-present description
-    (`settings.tsx SettingRow`), and the server form swaps hint for error under
-    the same id so the field's advice stays announced
+    (`settings.tsx SettingRow`), and the server form covers the still-present
+    hint the same way under one id, so the field's advice stays announced at
+    rest and the error alone is announced while it stands
     (`serverEditPage.tsx errorId`);
   - row-level is a `.row-diagnostic` under the owning row
     (`dashboard.css .row-diagnostic`);
