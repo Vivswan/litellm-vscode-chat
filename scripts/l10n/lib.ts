@@ -367,6 +367,34 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 ];
 
 /**
+ * Which of `names` this source file DECLARES as a top-level function or
+ * variable - the census-integrity check's evidence that a LAZY_L10N_HELPERS
+ * entry still names something real. Through the AST rather than a substring,
+ * because the name in a comment or a string literal is not a declaration;
+ * top-level statements only, since every census helper is a module-level
+ * declaration.
+ */
+export function declaredCensusNames(contents: string, fileName: string, names: readonly string[]): Set<string> {
+	const wanted = new Set(names);
+	const found = new Set<string>();
+	const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+	const sourceFile = ts.createSourceFile(fileName, contents, ts.ScriptTarget.Latest, false, kind);
+	for (const statement of sourceFile.statements) {
+		if (ts.isFunctionDeclaration(statement) && statement.name !== undefined && wanted.has(statement.name.text)) {
+			found.add(statement.name.text);
+		}
+		if (ts.isVariableStatement(statement)) {
+			for (const declaration of statement.declarationList.declarations) {
+				if (ts.isIdentifier(declaration.name) && wanted.has(declaration.name.text)) {
+					found.add(declaration.name.text);
+				}
+			}
+		}
+	}
+	return found;
+}
+
+/**
  * Line numbers (1-based) of module-scope localization calls: l10n.t,
  * vscode.l10n.t, or a LAZY_L10N_HELPERS name evaluated while the module
  * loads, before l10n.config has run, freezing the English text. A real parse

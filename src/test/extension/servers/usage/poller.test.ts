@@ -1132,6 +1132,29 @@ suite("extension/servers/usage poller", () => {
 		assert.strictEqual(refreshingAtDone, false);
 	});
 
+	test("a completion listener that disposes the poller stops the detached follow-up from starting", async () => {
+		// The teardown detaches the queued follow-up before the listeners run,
+		// so dispose() can no longer settle it - refresh()'s own disposed guard
+		// must resolve it undefined instead of starting a phantom pass (and
+		// announcing its start) after disposal.
+		const h = makeHarness();
+		let starts = 0;
+		h.poller.onDidStartRefresh(() => {
+			starts += 1;
+		});
+		h.poller.onDidRefresh(() => {
+			h.poller.dispose();
+		});
+
+		const first = h.poller.refreshNow();
+		const queued = h.poller.refreshNow();
+		await first;
+		assert.strictEqual(await queued, undefined, "the queued follow-up settles undefined after disposal");
+		await settle();
+		assert.strictEqual(starts, 1, "no pass starts after a listener disposed the poller");
+		assert.strictEqual(h.client.calls.keyInfo, 1, "the follow-up never reached the network");
+	});
+
 	test("a completion firing with an explicit follow-up queued never publishes 'idle but explicit'", async () => {
 		// isRefreshingExplicitly reads the QUEUE too, so the completion
 		// listeners must run after the follow-up detaches: caught mid-teardown,

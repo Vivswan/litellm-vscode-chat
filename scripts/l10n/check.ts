@@ -27,6 +27,7 @@ import {
 	type BundleFile,
 	bundleMessage,
 	bundleSchema,
+	declaredCensusNames,
 	extractBundle,
 	LAZY_L10N_HELPERS,
 	moduleScopeL10nOffenses,
@@ -226,13 +227,22 @@ const GUARD_FIXTURES: readonly { readonly name: string; readonly source: string;
 function checkModuleScopeLocalization(sources: readonly SourceFile[]): void {
 	// The census only guards what it can find: an entry naming a deleted or
 	// renamed helper is a silently disarmed guard (helpSupportSection outlived
-	// its helper once), so every entry must still resolve to a declaration
-	// somewhere in the shipped source.
+	// its helper once), so every entry must still resolve to a top-level
+	// declaration somewhere in the shipped source - judged through the AST,
+	// because the name in a comment or a string is not a declaration.
+	const declared = new Set<string>();
+	for (const { file, contents } of sources) {
+		// A substring pre-filter keeps the parse off files that cannot declare
+		// any census name; the AST decides for the candidates.
+		if (!LAZY_L10N_HELPERS.some((helper) => contents.includes(helper))) {
+			continue;
+		}
+		for (const name of declaredCensusNames(contents, file, LAZY_L10N_HELPERS)) {
+			declared.add(name);
+		}
+	}
 	for (const helper of LAZY_L10N_HELPERS) {
-		const declared = sources.some(
-			({ contents }) => contents.includes(`function ${helper}(`) || contents.includes(`const ${helper} =`)
-		);
-		if (!declared) {
+		if (!declared.has(helper)) {
 			fail(`LAZY_L10N_HELPERS names "${helper}", which no shipped source declares; rename or remove the entry.`);
 		}
 	}

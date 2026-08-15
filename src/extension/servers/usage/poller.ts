@@ -378,6 +378,14 @@ export class UsagePoller {
 	}
 
 	private async refresh(force: boolean, explicit: boolean): Promise<UsageRefreshOutcome | undefined> {
+		// Checked here, not only in the pass: the teardown detaches a queued
+		// follow-up before the completion listeners run, so a listener that
+		// disposes the poller has no queue entry left for dispose() to settle -
+		// this guard is what stops the detached follow-up starting a phantom
+		// pass (and announcing its start) after disposal.
+		if (this.disposed) {
+			return undefined;
+		}
 		if (this.running !== undefined) {
 			if (this.queued === undefined) {
 				let resolve!: (outcome: UsageRefreshOutcome | undefined) => void;
