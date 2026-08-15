@@ -20,8 +20,9 @@ import type { DashboardModel } from "../../dashboard/viewModels";
 import { capabilityDisplayLabel, costUnitLabel } from "../../shared/config/capabilityDisplay";
 import { DOCS_LINK_MODELS } from "./docsLinks";
 import { helpModelsSection } from "./helpText";
-import { IconArrowUp, IconCheck, IconChevronRight, IconClose, IconCopy } from "./icons";
+import { IconArrowUp, IconCheck, IconClose, IconCopy } from "./icons";
 import { Button } from "./ui/button";
+import { DisclosureChevron } from "./ui/disclosureChevron";
 import { Input } from "./ui/input";
 import { Reveal } from "./ui/reveal";
 import { Section } from "./ui/section";
@@ -899,9 +900,7 @@ export function ModelsSection({
 												{/* The row's state mark. Without it a row that opens looks
 												    exactly like one that does not, and the only way to find
 												    out is to click. */}
-												<span className="model-chevron">
-													<IconChevronRight />
-												</span>
+												<DisclosureChevron className="model-chevron" />
 												<span className="model-line-1">
 													{/* The stylesheet's ellipsis cap for pathological names; the
 													    full name stays in the DOM, only its rendering trims. */}

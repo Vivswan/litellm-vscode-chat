@@ -26,7 +26,7 @@ import { FailureText } from "./failureText";
 import { DocsLink } from "./help";
 import { helpServersSection } from "./helpText";
 import { useIntentOutcome } from "./hooks";
-import { IconAdd, IconChevronRight } from "./icons";
+import { IconAdd } from "./icons";
 import { troubleshootingLink } from "./serverEditPage";
 import { type DiagnosticSeverity, SEVERITY_ORDER, severityLabel } from "./severity";
 import { barPresentation, formatMoney, formatPercent, TONE_FILL, TONE_TEXT } from "./spendFormat";
@@ -34,6 +34,7 @@ import { relativeTime } from "./time";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { cn } from "./ui/cn";
+import { DisclosureChevron } from "./ui/disclosureChevron";
 import { Section } from "./ui/section";
 import { sendRequest } from "./vscodeApi";
 
@@ -1636,9 +1637,7 @@ function ServerRow({
 					aria-controls={open ? drawerId : undefined}
 					onClick={() => setOpen(!open)}
 				>
-					<span className="server-chevron">
-						<IconChevronRight />
-					</span>
+					<DisclosureChevron className="server-chevron" />
 					<span className="server-name">
 						<span className="server-label-text">{server.label}</span>
 						{server.origin === "misconfigured" ? <span className="server-tag">{l10n.t("not in use")}</span> : null}
@@ -1814,9 +1813,7 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 				    chevron). Decoration only - aria-expanded already announces the
 				    state - but without it this was the page's one aria-expanded
 				    control with no visible state mark. */}
-				<span className="disclosure-chevron" aria-hidden="true">
-					<IconChevronRight />
-				</span>
+				<DisclosureChevron />
 				{label}
 			</Button>
 			{expanded ? (

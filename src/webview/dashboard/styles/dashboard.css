@@ -394,19 +394,27 @@
 		font: inherit;
 		text-align: left;
 	}
-	.model-chevron {
-		grid-row: 1 / span 2;
+	/* The disclosure state mark, ONE vocabulary for every row that opens - the
+		 model rows (.model-chevron), the server rows (.server-chevron), and the
+		 hidden-groups line (ui/disclosureChevron.tsx): resting points right,
+		 open points down. Keyed off the disclosure button's own aria-expanded,
+		 so the mark can never disagree with what the control announces. */
+	.disclosure-chevron {
 		display: inline-flex;
 		color: var(--muted-foreground);
 		transition: transform 120ms ease;
 	}
-	.model-row.is-open .model-chevron {
+	button[aria-expanded="true"] .disclosure-chevron {
 		transform: rotate(90deg);
 	}
 	@media (prefers-reduced-motion: reduce) {
-		.model-chevron {
+		.disclosure-chevron {
 			transition: none;
 		}
+	}
+	/* The mark's seat in the model rows' grid: beside both text lines. */
+	.model-chevron {
+		grid-row: 1 / span 2;
 	}
 	button.model-disclosure:hover {
 		background: transparent;
@@ -663,21 +671,6 @@
 		align-items: center;
 		gap: 4px 14px;
 		padding: 5px 8px;
-	}
-	/* The row's state mark, the same disclosure vocabulary as the model rows
-		 (.model-chevron): resting it points right, open it points down. */
-	.server-chevron {
-		display: inline-flex;
-		color: var(--muted-foreground);
-		transition: transform 120ms ease;
-	}
-	.server-line[aria-expanded="true"] .server-chevron {
-		transform: rotate(90deg);
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.server-chevron {
-			transition: none;
-		}
 	}
 	/* The label truncates; the tag beside it never does. They were one text run
 		 before, so a narrow pane ate "not in use" first and left an ellipsis where
@@ -1227,26 +1220,27 @@
 	}
 
 	/* The hidden-groups line under the servers table: one muted sentence
-		   stating the count, and a quiet row per group when expanded. */
+		   stating the count, and a quiet row per group when expanded. Its
+		   disclosure mark is the shared .disclosure-chevron; the 8px inset is
+		   the server rows' own (.server-line's padding), so this line's mark
+		   sits on the same x as every row mark above it. */
 	.hidden-groups {
 		margin: 4px 0 8px;
+		padding-left: 8px;
 		color: var(--vscode-descriptionForeground);
 	}
-	/* The disclosure's state mark, the server and model rows' vocabulary
-		 (.server-chevron): resting points right, open points down. Keyed off the
-		 button's own aria-expanded, so the mark can never disagree with what the
-		 control announces. */
-	.hidden-groups button[aria-expanded] .disclosure-chevron {
-		display: inline-flex;
-		transition: transform 120ms ease;
-	}
-	.hidden-groups button[aria-expanded="true"] .disclosure-chevron {
-		transform: rotate(90deg);
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.hidden-groups button[aria-expanded] .disclosure-chevron {
-			transition: none;
+	/* The bordered modes zero the disclosure Button's hand-back (theme.css's
+		 --btn-mx rules), so its compact 6px padding stops cancelling and the
+		 mark slides 6px right of where the default modes measured it; 2px is
+		 what still sums to the server rows' 8px there. */
+	@media (forced-colors: active) {
+		.hidden-groups {
+			padding-left: 2px;
 		}
+	}
+	body.vscode-high-contrast .hidden-groups,
+	body.vscode-high-contrast-light .hidden-groups {
+		padding-left: 2px;
 	}
 	.hidden-groups ul {
 		list-style: none;
