@@ -221,29 +221,40 @@ const SETTING_GROUPS: readonly {
  * clean rows different explanation edges. Fixed, every description ends at
  * one right edge and the settings.json jump sits at one x down the page.
  *
- * Narrow: the four tracks become one. A description column twenty characters
- * wide is not a column, it is a word per line, and the title's right edge
- * stops meaning anything once nothing lines up beside it. Stacked, the row
- * reads title, control, description - the order it is spoken in - and the
- * actions pin to the row's top-right corner instead of becoming a fourth
- * line. The PANE decides, not the window: this pane can be narrow inside a
- * wide window whenever the editor is split. The threshold sits at 910, clear
- * of a band the rail's collapse creates: collapsing the rail hands the pane
- * 168px, so a window growing through 1000px drops the pane from ~902 to ~736
- * and grows again - every pane width in between happens TWICE, and a
- * breakpoint inside it fires in reverse as the window widens. A reader
- * dragging a splitter rightward would have watched this page collapse.
+ * Narrow: the four tracks become two, and the row costs two lines instead of
+ * three. The title keeps its control beside it - a checkbox, a number input
+ * with its unit and conversion, an enum select are all compact enough to
+ * share the title's line - and the description takes the line below, spanning
+ * both tracks; the actions pin to the row's top-right corner instead of
+ * becoming a line of their own. Title-then-control is the wide tier's own
+ * reading order, so nothing reorders at the threshold. The control cell, the
+ * line's tail, carries the corner reserve (pr-24) the title used to: a long
+ * control would otherwise run under the pinned actions.
+ *
+ * Below the 400px tier the pair gives the line back up and the row stacks to
+ * one column, the control's own line clear of the pinned corner: the shell's
+ * 320px floor leaves a ~223px pane, and a 144px number input plus the 96px
+ * corner reserve cannot share it with any title. The two stacked tiers are
+ * spelled as exclusive bands (@min/@max pairs), not as two @max rules whose
+ * winner would hang on compiled rule order.
+ *
+ * The PANE decides, not the window: this pane can be narrow inside a wide
+ * window whenever the editor is split. The threshold sits at 910, clear of a
+ * band the rail's collapse creates: collapsing the rail hands the pane 168px,
+ * so a window growing through 1000px drops the pane from ~902 to ~736 and
+ * grows again - every pane width in between happens TWICE, and a breakpoint
+ * inside it fires in reverse as the window widens. A reader dragging a
+ * splitter rightward would have watched this page collapse.
  */
 const SETTING_ROW_GRID =
-	"grid grid-cols-[10rem_minmax(0,20rem)_minmax(0,1fr)_5.5rem] gap-x-4 @max-[910px]/pane:grid-cols-1 @max-[910px]/pane:gap-x-0";
+	"grid grid-cols-[10rem_minmax(0,20rem)_minmax(0,1fr)_5.5rem] gap-x-4 @min-[400px]/pane:@max-[910px]/pane:grid-cols-[auto_minmax(0,1fr)] @max-[400px]/pane:grid-cols-1";
 
 /**
  * The label cell, which turns at the same width the tracks do: right-aligned
- * against the control while there is a column to align to, left-aligned once
- * the row is one track and there is not. Stacked, it also reserves the row's
- * top-right corner (pr-24): the actions slot pins there absolutely, and a
- * long or translated title would otherwise run under Reset and the
- * settings.json jump - which are ALWAYS painted below the 560px tier.
+ * against the control while there is a fixed gutter to align in, left-aligned
+ * once the control sits directly beside it on a shared first line. In the
+ * one-column tier below 400px the title is the top line's only occupant
+ * again, so it takes the corner reserve back from the control cell.
  *
  * A constant because the row renders the label two ways - a `label` when it has
  * a control to name, a `span` when it does not - and the threshold spelled once
@@ -251,7 +262,7 @@ const SETTING_ROW_GRID =
  * interpolated out: Tailwind compiles the variants it can read whole, so
  * `@max-[910px]/pane:` has to appear in the source as itself.
  */
-const SETTING_TITLE = "setting-title text-right font-semibold @max-[910px]/pane:text-left @max-[910px]/pane:pr-24";
+const SETTING_TITLE = "setting-title text-right font-semibold @max-[910px]/pane:text-left @max-[400px]/pane:pr-24";
 
 /**
  * The settings.json jump every row carries: a quiet icon button posting the
@@ -397,6 +408,7 @@ function SettingRow({
 	defaultText,
 	configuredScope,
 	hidden,
+	hintClassName,
 }: {
 	settingId: SettingRowId;
 	title: string;
@@ -412,6 +424,8 @@ function SettingRow({
 	defaultText?: string | undefined;
 	configuredScope: SettingScope | null;
 	hidden: boolean;
+	/** Extra placement on the description cell - the catalog row widens its status cluster's track with this. */
+	hintClassName?: string | undefined;
 }) {
 	// The standing failure of this row's own last write, when the host refused
 	// it; App's store retires it on the next state push (the success signal).
@@ -504,7 +518,14 @@ function SettingRow({
 					{title}
 				</label>
 			)}
-			<div className="setting-control flex flex-wrap items-center gap-2">{control}</div>
+			{/* The line's tail in the two-column stacked band, so it carries the
+			    top-right corner reserve there: the actions pin over the row's
+			    first line, and a long control would otherwise run under them.
+			    Below 400px the control has a line of its own, clear of the
+			    corner, and the reserve goes back to the title. */}
+			<div className="setting-control flex flex-wrap items-center gap-2 @min-[400px]/pane:@max-[910px]/pane:pr-24">
+				{control}
+			</div>
 			{/* The error does not replace the description in the flow, it covers
 			    it: the resting content stays, merely invisible, so the cell keeps
 			    the height it had and no row below moves while you type. The
@@ -531,7 +552,14 @@ function SettingRow({
 			    second structural edge: only structure goes full-bleed, prose
 			    stops where lines stay readable. */}
 			<div
-				className="setting-hint relative min-w-0 max-w-[72ch] break-words text-[0.95em] text-muted-foreground"
+				className={cn(
+					"setting-hint relative min-w-0 max-w-[72ch] break-words text-[0.95em] text-muted-foreground",
+					// The second line of the two-column stacked band, under the
+					// title-and-control line; the one-column tier below 400px places
+					// it by flow.
+					"@min-[400px]/pane:@max-[910px]/pane:col-span-2",
+					hintClassName
+				)}
 				ref={hintRef}
 				onFocusCapture={(event) => {
 					glyphHadFocus.current = event.target instanceof HTMLElement && event.target.matches("button.help");
@@ -604,12 +632,15 @@ function SettingRow({
 			{/* The row's one actions slot, at the pane's right edge: Reset when a
 			    scope sets a value, then the settings.json jump, always in that
 			    order and always last - the anatomy's fourth track, so the pair
-			    lands at the same x on every row. Stacked, the slot pins to the
-			    row's top-right corner (the row is relative for exactly this)
-			    instead of stacking as a lone fourth line. gap-4.5 is ink-to-ink
-			    (the compact buttons hand their padding back at the Button
-			    primitive): the visible spacing the slot has always shown. */}
-			<div className="setting-actions flex items-center justify-end gap-4.5 self-start justify-self-end @max-[910px]/pane:absolute @max-[910px]/pane:top-1.5 @max-[910px]/pane:right-2">
+			    lands at the same x on every row. Placed explicitly rather than by
+			    auto-flow, because a description cell that spans onto a second row
+			    (the catalog row's status cluster) would otherwise drag the auto
+			    cursor down there with it. Stacked, the slot pins to the row's
+			    top-right corner (the row is relative for exactly this) instead of
+			    stacking as a lone line. gap-4.5 is ink-to-ink (the compact buttons
+			    hand their padding back at the Button primitive): the visible
+			    spacing the slot has always shown. */}
+			<div className="setting-actions flex items-center justify-end gap-4.5 self-start justify-self-end @min-[910px]/pane:col-start-4 @min-[910px]/pane:row-start-1 @max-[910px]/pane:absolute @max-[910px]/pane:top-1.5 @max-[910px]/pane:right-2">
 				{configuredScope !== null ? <ResetButton title={title} scope={configuredScope} settingId={settingId} /> : null}
 				<RevealButton title={title} settingId={settingId} />
 			</div>
@@ -773,6 +804,19 @@ function BooleanField({
 			help={settingRowHelp(id)}
 			configuredScope={configuredScope}
 			hidden={hidden}
+			// A status cluster is not reading prose, so it sheds the hint's 72ch
+			// measure - the cap wrapped "Refresh" onto a line of its own while
+			// half the description track sat empty. Below the models list's
+			// 1136px columnar tier (reused, not minted) even the whole track is
+			// too little: the fixed tracks and gaps eat 616px of pane, leaving
+			// the description under the cluster's one-line width, so the cluster
+			// takes the idle control track too and starts beside the checkbox's
+			// column on a line of its own instead of wrapping mid-cluster.
+			hintClassName={
+				meta === undefined
+					? undefined
+					: "max-w-none @min-[910px]/pane:@max-[1136px]/pane:col-start-2 @min-[910px]/pane:@max-[1136px]/pane:col-span-2"
+			}
 			control={
 				<Checkbox
 					id={inputId}
@@ -1530,7 +1574,6 @@ function SettingGroup({
 	settings,
 	isVisible,
 	booleanMeta,
-	actions,
 	tail,
 	tailVisible,
 }: {
@@ -1543,11 +1586,9 @@ function SettingGroup({
 	isVisible: (id: NumberSettingId | BooleanSettingId) => boolean;
 	/** Status content replacing specific boolean rows' descriptions (the catalog row's cluster). */
 	booleanMeta?: Partial<Record<BooleanSettingId, ReactNode>>;
-	/** Trailing actions on the heading line - the group-scale copy of ui/section.tsx's actions slot. */
-	actions?: ReactNode;
 	/** Rows appended after the scalar rows (the Usage group's enum and list rows). */
 	tail?: ReactNode;
-	/** Whether anything beyond the scalar rows survives the filter (tail rows, header actions); keeps the heading alive for it. */
+	/** Whether anything beyond the scalar rows survives the filter (tail rows); keeps the heading alive for it. */
 	tailVisible?: boolean;
 }) {
 	const empty = numbers.every((id) => !isVisible(id)) && booleans.every((id) => !isVisible(id)) && tailVisible !== true;
@@ -1563,10 +1604,7 @@ function SettingGroup({
 			    inside a heading folds its accessible name into the heading's, so
 			    the group would announce as "Import & Export Help: Import &
 			    Export". The rule and the spacing belong to the line, so they sit
-			    on the wrapper and the heading carries neither. The actions slot
-			    mirrors the section header's anatomy at group scale: trailing on
-			    the heading line, pushed to the far end, so a group's actions
-			    never stand as a strip of buttons where its rows belong. */}
+			    on the wrapper and the heading carries neither. */}
 			<div className="settings-group-head mt-0 mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 border-border border-b pb-1">
 				<h3 className="settings-group-title m-0 font-semibold text-[0.95em]">{title()}</h3>
 				{/* Behind the glyph, not above the rows. A group's explanation is
@@ -1575,9 +1613,6 @@ function SettingGroup({
 				    telling a returning reader nothing. The "?" is where the rows
 				    below already put their own detail. */}
 				{help !== undefined ? <Help text={help()} name={l10n.t("Help: {0}", title())} /> : null}
-				{actions !== undefined ? (
-					<div className="settings-group-actions ms-auto flex items-baseline gap-3">{actions}</div>
-				) : null}
 			</div>
 			{numbers.map((id) => (
 				<NumberField
@@ -2048,12 +2083,13 @@ export function SettingsSection({
 					) : null}
 					{/* The trailing Import & Export group: no settings rows, just two
 				    actions invoking the export/import commands over the same
-				    executeCommand post the header's Report a bug uses. They ride
-				    the group head's actions slot (the section header anatomy at
-				    group scale), not a strip under the heading where rows belong.
-				    Rendered after every other group so file transfer never sits
-				    between rows. Compact, because the head line is the group's
-				    0.95em register and a full-height button out-ranks it. */}
+				    executeCommand post the header's Report a bug uses. They ARE
+				    this group's content - it holds nothing else - so they stand
+				    in its body where every other group puts its rows, at full
+				    button size: parked in the heading's far-right actions slot
+				    they read as tucked-away chrome on an empty section. Rendered
+				    after every other group so file transfer never sits between
+				    rows. */}
 					<SettingGroup
 						title={() => l10n.t("Import & Export")}
 						help={helpImportExportGroup}
@@ -2062,23 +2098,21 @@ export function SettingsSection({
 						settings={settings}
 						isVisible={isVisible}
 						tailVisible={importExportVisible}
-						actions={
-							<>
+						tail={
+							<div className="settings-transfer flex flex-wrap items-center gap-x-3.5 gap-y-1 py-2">
 								<Button
 									variant="secondary"
-									size="compact"
 									onClick={() => sendRequest("executeCommand", { command: "exportSettings" })}
 								>
 									{l10n.t("Export settings")}
 								</Button>
 								<Button
 									variant="secondary"
-									size="compact"
 									onClick={() => sendRequest("executeCommand", { command: "importSettings" })}
 								>
 									{l10n.t("Import settings")}
 								</Button>
-							</>
+							</div>
 						}
 					/>
 				</div>

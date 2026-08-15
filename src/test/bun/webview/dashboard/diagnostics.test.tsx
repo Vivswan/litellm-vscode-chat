@@ -133,8 +133,12 @@ test("the per-server outcome grid is gone: the server rows own every fact it rep
 	expect(panel.textContent).not.toContain("http://localhost:4001");
 	expect(panel.textContent).not.toContain("Servers configured");
 	expect(panel.textContent).not.toContain("Last checked");
-	// The destination opens on what the reader can act on, not on a summary.
-	const headings = Array.from(panel.querySelectorAll("h2")).map((h) => (h.textContent ?? "").trim());
+	// The destination opens on what the reader can act on, not on a summary:
+	// one page-level header carrying the tools, then the sections one step
+	// under it.
+	const pageHeadings = Array.from(panel.querySelectorAll("h2")).map((h) => (h.textContent ?? "").trim());
+	expect(pageHeadings).toEqual(["Diagnostics"]);
+	const headings = Array.from(panel.querySelectorAll("h3")).map((h) => (h.textContent ?? "").trim());
 	expect(headings).toEqual(["Configuration", "Resolution", "Support"]);
 });
 
@@ -403,9 +407,12 @@ test("the external rows link the pinned destinations with decorative glyphs", ()
 	// to the body, since the help tip legitimately carries that sentence.
 	expect(support.querySelectorAll("p.hint")).toHaveLength(0);
 	expect(support.querySelector(".section-head .tip-bubble")?.textContent).toContain("Copy diagnostics");
-	// The section-level actions live on the header's actions slot, like every
-	// other section's; the strip of buttons beneath the header was the
-	// pre-convergence shape ui/section.tsx exists to end.
+	// The page's four tools live on the PAGE header's actions slot at the top
+	// of the destination - the reader grabbing the output log or a report must
+	// not scroll past every table to find them - and the Support section keeps
+	// only its links.
 	expect(support.querySelector(".toolbar")).toBeNull();
-	expect(support.querySelectorAll(".section-head .section-actions button")).toHaveLength(4);
+	expect(support.querySelectorAll(".section-head .section-actions button")).toHaveLength(0);
+	const page = root.querySelector("#diagnostics-section") as HTMLElement;
+	expect(page.querySelectorAll(":scope > .section-head .section-actions button")).toHaveLength(4);
 });

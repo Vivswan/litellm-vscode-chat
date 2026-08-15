@@ -1048,6 +1048,23 @@
 		display: inline-flex;
 		flex: none;
 	}
+	/* The two glyph boxes a line can end with - the "?" wrapper and the
+		 icon-only docs link - share one seat, stated once for both contexts they
+		 sit in. Inline flow: both are 14px atomic inlines seated on the
+		 surrounding text's text-bottom (the icon-only anchor has no text
+		 baseline, so its default seat put its bottom edge ON the baseline and
+		 rode the icon a descent higher than the "?" beside it). The
+		 baseline-aligned flex header lines (.section-head and its copies):
+		 align-self centers both boxes on the line instead, because a text glyph
+		 and a baseline-less icon box cannot agree on a baseline there. Each
+		 property is inert in the other context, so one rule covers both. The
+		 glyph-trails render fixture asserts the shared centerline, so a new
+		 seat variant fails the sweep instead of shipping. */
+	.help-wrap,
+	a.docs-link.glyph-only {
+		vertical-align: text-bottom;
+		align-self: center;
+	}
 	button.help {
 		display: inline-flex;
 		flex: none;
@@ -1065,7 +1082,6 @@
 		line-height: 1;
 		cursor: help;
 		user-select: none;
-		vertical-align: text-bottom;
 	}
 	button.help:hover {
 		color: var(--vscode-foreground);
@@ -1166,18 +1182,19 @@
 		color: var(--vscode-textLink-activeForeground);
 		text-decoration: underline;
 	}
-	/* The Diagnostics destination's reference links: one action plus its muted
-		   one-liner. The connection block that used to sit above them - verdict,
-		   facts list, and a per-server outcome grid - is gone: every fact in it
-		   now renders on the server's own row, where the fix is. */
-	/* One link per line, no gloss: the labels name their destinations, and a
-		   muted sentence beside each was four more lines to skip. */
+	/* The Diagnostics destination's reference links: quiet labeled anchors, no
+		   gloss - the labels name their destinations, and a muted sentence beside
+		   each was four more lines to skip. One wrapping line rather than a
+		   stack: four short links are a shelf, not a list, and stacked they held
+		   a page-height column of air. The column gap is deliberately wider than
+		   the links' own icon gaps, so neighbours cannot read as one label. */
 	.feedback-links {
+		display: flex;
+		flex-wrap: wrap;
+		column-gap: 28px;
+		row-gap: 8px;
 		list-style: none;
 		padding: 0;
-		margin: 8px 0;
-	}
-	.feedback-links li {
 		margin: 8px 0;
 	}
 	/* Wrappers for tips over non-interactive inline content (badges, status
@@ -1541,7 +1558,11 @@
 		display: grid;
 		grid-template-columns: subgrid;
 		align-items: baseline;
-		row-gap: 4px;
+		/* 2px, not the chip lines' own 4px: the reserved status line below the
+			 content is empty air on a quiet row, so every pixel between the two
+			 reads as row depth - a single-line row measured 51px tall before this
+			 gap and the row's paddings were cut down to its one line of content. */
+		row-gap: 2px;
 	}
 	.record-table .matcher-cell {
 		grid-column: 1;

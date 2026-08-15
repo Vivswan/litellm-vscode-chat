@@ -580,6 +580,9 @@ function ConfigDiagnostics({ diagnostics }: { diagnostics: readonly ConfigDiagno
 		<Section
 			id="config-diagnostics"
 			title={l10n.t("Configuration")}
+			// One step under the page's own header, like every section inside a
+			// destination.
+			level={3}
 			help={helpConfigDiagnosticsSection()}
 			// The trigger sits near the top of the document, where a tip placed
 			// above it clips.
@@ -1008,6 +1011,7 @@ function ResolvedModels({
 		<Section
 			id="resolution"
 			title={l10n.t("Resolution")}
+			level={3}
 			help={helpResolutionSection()}
 			docs={{ href: DOCS_LINK_RESOLVED_MODELS, label: l10n.t("Open the resolved-models guide") }}
 			// The count belongs to the title, not to a line of its own beside the
@@ -1248,11 +1252,14 @@ function LinkRow({ href, icon, label }: { href: FeedbackUrl | DocsUrl; icon: Rea
 }
 
 /**
- * The ways out: the tools that collect evidence about this installation, then
- * the places to take it. Copy diagnostics is the only surviving reader of the
- * connection facts this page used to draw as a grid.
+ * The page's four tools, in the Diagnostics header's actions slot: the three
+ * that collect evidence about this installation, then the escalation that
+ * takes it somewhere. They live at the top of the page - the reader who opens
+ * Diagnostics to grab the output log or a report should not have to scroll
+ * past every table to find the buttons - in the same header slot Servers and
+ * Settings keep their own page-level actions.
  */
-function Support({
+function DiagnosticsActions({
 	servers,
 	modelCount,
 	legacyServerCount,
@@ -1287,38 +1294,44 @@ function Support({
 	};
 	const copied = copiedAt > 0;
 	return (
+		<>
+			<Button
+				variant="secondary"
+				// Registry-only installs get no offer to test: the legacy registry's
+				// serving path retires with this release train, so with no server
+				// rows there is nothing a connection test could durably reach.
+				disabled={servers.length === 0}
+				onClick={() => sendRequest("executeCommand", { command: "testConnection" })}
+			>
+				<IconPlug /> {l10n.t("Test connection")}
+			</Button>
+			<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "openOutput" })}>
+				<IconOutput /> {l10n.t("Open output log")}
+			</Button>
+			<Button variant="secondary" onClick={copyDiagnostics}>
+				{copied ? <IconCheck /> : <IconCopy />} {l10n.t("Copy diagnostics")}
+			</Button>
+			<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "reportIssue" })}>
+				<IconBug /> {l10n.t("Report a bug")}
+			</Button>
+		</>
+	);
+}
+
+/**
+ * The places to take what the page's tools collected: the docs and the three
+ * GitHub destinations, one wrapping line of quiet links.
+ */
+function Support() {
+	return (
 		<Section
 			id="support"
 			title={l10n.t("Support")}
+			level={3}
 			help={helpSupportSection()}
 			docs={{ href: DOCS_LINK_GETTING_STARTED, label: l10n.t("Open the getting-started guide") }}
-			// The header's actions slot, like every other section: a strip of
-			// buttons beneath the header was the pre-convergence shape.
-			actions={
-				<>
-					<Button
-						variant="secondary"
-						// Registry-only installs get no offer to test: the legacy registry's
-						// serving path retires with this release train, so with no server
-						// rows there is nothing a connection test could durably reach.
-						disabled={servers.length === 0}
-						onClick={() => sendRequest("executeCommand", { command: "testConnection" })}
-					>
-						<IconPlug /> {l10n.t("Test connection")}
-					</Button>
-					<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "openOutput" })}>
-						<IconOutput /> {l10n.t("Open output log")}
-					</Button>
-					<Button variant="secondary" onClick={copyDiagnostics}>
-						{copied ? <IconCheck /> : <IconCopy />} {l10n.t("Copy diagnostics")}
-					</Button>
-					<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "reportIssue" })}>
-						<IconBug /> {l10n.t("Report a bug")}
-					</Button>
-				</>
-			}
 		>
-			{/* No standing paragraph: the buttons name what they do, and what
+			{/* No standing paragraph: the links name their destinations, and what
 			    Copy diagnostics collects is a question for the help tip rather
 			    than a line under every visit. */}
 			<ul className="feedback-links">
@@ -1354,18 +1367,26 @@ export function DiagnosticsSection({
 	/** Open a model's inspector overlay in place; App renders the merged panel over the active tab, scrolled to the section. */
 	onInspect: (target: { scopeKey: string; rawId: string; serverLabel: string }, section: InspectorSection) => void;
 }) {
-	// Ordered by what the reader can act on: what is wrong, then how the
-	// records resolved, then the ways to get help.
+	// One page-level header, the anatomy every other destination already has,
+	// with the page's tools in its actions slot. The sections below are ordered
+	// by what the reader can act on: what is wrong, then how the records
+	// resolved, then the ways to get help.
 	return (
-		<>
+		<Section
+			id="diagnostics"
+			title={l10n.t("Diagnostics")}
+			actions={
+				<DiagnosticsActions
+					servers={servers}
+					modelCount={modelCount}
+					legacyServerCount={legacyServerCount}
+					diagnostics={diagnostics}
+				/>
+			}
+		>
 			<ConfigDiagnostics diagnostics={diagnostics} />
 			<ResolvedModels active={active} stateSeq={stateSeq} currencySymbol={currencySymbol} onInspect={onInspect} />
-			<Support
-				servers={servers}
-				modelCount={modelCount}
-				legacyServerCount={legacyServerCount}
-				diagnostics={diagnostics}
-			/>
-		</>
+			<Support />
+		</Section>
 	);
 }

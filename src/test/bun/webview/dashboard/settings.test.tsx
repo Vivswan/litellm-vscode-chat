@@ -764,12 +764,17 @@ test("the title's stacked flip shares the row grid's threshold, read off the gri
 	// Re-homed from the deleted catalog-grid test: SETTING_TITLE's stacked
 	// variant is its own class string (Tailwind compiles only whole variants),
 	// and nothing but this stops the label flipping left at one width while
-	// the columns collapse at another. The prefix is derived from the row's
-	// own stacked override, so the two tiers cannot drift apart by one edit.
+	// the columns turn two-track at another. The prefix is derived from the
+	// row's own stacked override, so the two tiers cannot drift apart by one
+	// edit. The two-track template lives in an exclusive band (it hands the
+	// narrowest tier back to one column), so the stack threshold is the
+	// band's own @max half.
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const row = root.querySelector(".setting-row") as HTMLElement;
 	const tracks = Array.from(row.classList).filter((name) => name.includes("grid-cols-"));
-	const stacked = tracks.find((name) => name.endsWith("grid-cols-1"))?.replace("grid-cols-1", "") ?? "";
+	const stackedTemplate = "grid-cols-[auto_minmax(0,1fr)]";
+	const band = tracks.find((name) => name.startsWith("@") && name.endsWith(stackedTemplate)) ?? "";
+	const stacked = /(@max-\[\d+px\]\/pane:)/.exec(band)?.[1] ?? "";
 	expect(stacked).toMatch(/^@max-\[\d+px\]\/pane:$/);
 	const title = root.querySelector(".setting-title") as HTMLElement;
 	expect(title.classList.contains(`${stacked}text-left`)).toBe(true);

@@ -19,6 +19,7 @@ import * as l10n from "@vscode/l10n";
 import type { ReactNode } from "react";
 import type { DocsUrl } from "./docsLinks";
 import { IconLinkExternal } from "./icons";
+import { cn } from "./ui/cn";
 import { TipBubble, useTip } from "./ui/tip";
 
 /**
@@ -27,11 +28,14 @@ import { TipBubble, useTip } from "./ui/tip";
  * constants, so no call site can pass a built string. The webview host opens
  * plain anchors externally, so no message plumbing and no CSP grant are
  * involved. Icon-only unless children supply visible text; the aria-label
- * carries the destination either way.
+ * carries the destination either way. The icon-only form is marked, because
+ * it is a bare 14px box with no text baseline and dashboard.css seats it
+ * with the "?" glyph's own rule (the glyph-seat rule beside .help-wrap);
+ * a link with visible text aligns by that text like any other anchor.
  */
 export function DocsLink({ href, label, children }: { href: DocsUrl; label: string; children?: ReactNode }) {
 	return (
-		<a className="docs-link" href={href} aria-label={label}>
+		<a className={cn("docs-link", children === undefined && "glyph-only")} href={href} aria-label={label}>
 			{children}
 			<IconLinkExternal />
 		</a>

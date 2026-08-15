@@ -2504,8 +2504,13 @@ export function RecordMatcherTable({
 					// only for the empty edge): an index key would remount the row
 					// when a state push reorders the record, dropping an open add
 					// popover's half-typed field with it.
+					// Top-heavy padding on purpose: the reserved status line at the
+					// row's foot is empty air on a quiet row and already reads as
+					// bottom padding, so a symmetric py doubled the quiet row's
+					// depth - the strip plus its own thin cushion is the visual
+					// bottom.
 					<li
-						className="record-row group/row -mx-2 rounded-md px-2 py-1.5 hover:bg-accent-soft focus-within:bg-accent-soft"
+						className="record-row group/row -mx-2 rounded-md px-2 pt-1 pb-0.5 hover:bg-accent-soft focus-within:bg-accent-soft"
 						key={`${groupKey}#${groupOrdinal}`}
 					>
 						{/* Shrinkable on purpose: the wide tier's grid ignores flex-shrink, and in

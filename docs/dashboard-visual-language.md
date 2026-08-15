@@ -44,7 +44,11 @@ Three surface classes, each with one owner of its geometry.
 - One full-bleed template: a right-aligned label in a fixed gutter, the control
   column, the explanation column growing with the pane, and a fixed trailing
   actions slot at the pane's right edge (`settings.tsx SETTING_ROW_GRID` and
-  `settings.tsx SETTING_TITLE`).
+  `settings.tsx SETTING_TITLE`). Below the stack threshold the row costs two
+  lines, not three: the label turns left and keeps its control beside it, the
+  description takes the line under them, and the actions pin to the row's
+  top-right corner. Only under the 400px tier, where the shell's floor leaves
+  no line the pair can share, does the row stack to one column.
 - The description wears the hint measure, 72ch (`dashboard.css p.hint`'s own),
   as a reading cap inside its growing track: structure goes full-bleed, prose
   stops where lines stay readable (`settings.tsx setting-hint`).
@@ -139,8 +143,10 @@ One idiom for actions that rest hidden on a row, and it has one home:
   class has exactly one home on its surface. Row actions sit in the reserved
   trailing track (`dashboard.css .server-row`; the settings rows' actions slot,
   `settings.tsx setting-actions`), section actions trail the header line
-  (`dashboard.css .section-head .section-actions`; the settings groups' copy of
-  the same geometry, `settings.tsx settings-group-actions`), and the heading
+  (`dashboard.css .section-head .section-actions`) - except that a section
+  whose ONLY content is its actions renders them as its body, because parked
+  in the header slot of an otherwise empty section they read as tucked-away
+  chrome (`settings.tsx settings-transfer`) - and the heading
   settings.json jump sits directly after the heading it opens, everywhere
   (`recordEditors.tsx HeadingRevealButton`).
 
@@ -395,9 +401,10 @@ only its craft layer (alignment, rhythm, restraint) applies here. Two of its
 common defaults are deliberately not followed:
 
 - Labels sit in a right-aligned gutter beside their controls, the host Settings
-  editor's idiom, not above the inputs; above-the-input appears only when the
-  pane is too narrow for the gutter (`settings.tsx SETTING_TITLE`;
-  `serverEditPage.tsx label-row`).
+  editor's idiom, not above the inputs. When the pane is too narrow for the
+  gutter, a setting row turns its label left and keeps the control beside it on
+  one line (`settings.tsx SETTING_TITLE`), while the forms stack the label
+  above the input (`serverEditPage.tsx label-row`).
 - Skeletons are for content and button spinners are for actions - two different
   jobs, not two treatments of one job (`app.tsx LoadingSkeleton`;
   `dashboard.css .spinner`).
