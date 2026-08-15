@@ -1107,19 +1107,29 @@ suite("extension/servers/usage poller", () => {
 		const h = makeHarness({ initialRefreshDelayMs: 5_000 });
 		let starts = 0;
 		let refreshingAtStart: boolean | undefined;
+		let refreshingAtDone: boolean | undefined;
 		h.poller.onDidStartRefresh(() => {
 			starts += 1;
 			refreshingAtStart = h.poller.isRefreshing();
+		});
+		h.poller.onDidRefresh(() => {
+			refreshingAtDone = h.poller.isRefreshing();
 		});
 
 		h.poller.start();
 		h.timer.firePending();
 		assert.strictEqual(starts, 1, "a scheduled pass announces its start");
-		assert.strictEqual(refreshingAtStart, true, "the listener observes the engine already busy");
+		assert.strictEqual(refreshingAtStart, true, "the start listener observes the engine already busy");
 		await settle();
+		// The completion listener must observe the engine IDLE: the dashboard
+		// re-publishes engine state from it, and a completion push still
+		// reading "in flight" froze Refresh now disabled until an unrelated
+		// push happened by.
+		assert.strictEqual(refreshingAtDone, false, "the completion listener observes the engine idle again");
 
 		await h.poller.refreshNow();
 		assert.strictEqual(starts, 2, "an explicit pass announces its start too");
+		assert.strictEqual(refreshingAtDone, false);
 	});
 
 	test("only explicit passes read as refreshing explicitly; scheduled and open-triggered ones stay quiet", async () => {

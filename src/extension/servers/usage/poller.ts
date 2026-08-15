@@ -406,6 +406,18 @@ export class UsagePoller {
 		} finally {
 			this.running = undefined;
 			this.runningExplicit = false;
+			// Completion is announced AFTER the engine reads idle, so a listener
+			// that re-publishes engine state (the dashboard push) reports the
+			// button re-enabled instead of freezing it on a stale "in flight" -
+			// and before any queued follow-up starts, whose own start
+			// notification then reports busy again in the right order.
+			for (const listener of this.refreshListeners) {
+				try {
+					listener();
+				} catch (error) {
+					this.env.log("Usage refresh listener failed", { error: error instanceof Error ? error.name : typeof error });
+				}
+			}
 			const queued = this.queued;
 			this.queued = undefined;
 			if (queued !== undefined) {
@@ -438,17 +450,11 @@ export class UsagePoller {
 			// behavior refreshIfStale exists to end.
 			this.lastCompletedPassAt = this.clock.now();
 		}
-		for (const listener of this.refreshListeners) {
-			try {
-				listener();
-			} catch (error) {
-				this.env.log("Usage refresh listener failed", { error: error instanceof Error ? error.name : typeof error });
-			}
-		}
 		// Rescheduled at every exit so the cadence survives pass failures; a
 		// mid-pass interval edit is honored here. A probe that became pending
 		// while this pass ran must not be postponed to the full interval, so
-		// the delay honors it (see nextTickDelayMs).
+		// the delay honors it (see nextTickDelayMs). Completion listeners fire
+		// in refresh()'s finally instead, after the engine reads idle.
 		this.schedule(this.nextTickDelayMs());
 		return outcome;
 	}
