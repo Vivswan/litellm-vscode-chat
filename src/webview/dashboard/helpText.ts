@@ -70,7 +70,7 @@ export function helpAdoptionSection(): string {
 
 export function helpModelParametersSection(): string {
 	return l10n.t(
-		"Request parameters sent to matching models, e.g. temperature 0.2 for every gpt-4 model. Only parameters you set are sent; runtime options win over these unless a field is forced with _force."
+		"Request parameters sent to matching models, e.g. temperature 0.2 for gpt-4*. Unlike the settings above, rows apply together via Apply; only parameters you set are sent, and runtime options win unless forced with _force."
 	);
 }
 
@@ -238,7 +238,7 @@ export function helpInheritFromControl(): string {
 
 export function helpModelCapabilitiesSection(): string {
 	return l10n.t(
-		"Corrects or completes what servers report for matching models, e.g. context_length 128000. Your values beat server-reported ones unless a row is marked fallback."
+		"Corrects or completes what servers report for matching models, e.g. context_length 128000. Unlike the settings above, rows apply together via Apply; your values beat the server's unless a row is marked fallback."
 	);
 }
 
@@ -263,9 +263,9 @@ export function helpCurrencySymbol(): string {
 	);
 }
 
-/** The ui.theme row's "?": the one exception to the pick. */
+/** The ui.theme row's "?": the Auto pick's meaning and the one exception. */
 export function helpUiTheme(): string {
-	return l10n.t("High contrast themes always follow the editor, whichever option is picked here.");
+	return l10n.t("Auto follows the editor's theme; high contrast themes always do, whichever option is picked here.");
 }
 
 /** The ui.accent row's "?": what the accent deliberately does NOT recolor. */
@@ -273,6 +273,16 @@ export function helpUiAccent(): string {
 	return l10n.t(
 		"Status colors stay green, yellow and red whatever you pick, and high contrast themes keep their own accent."
 	);
+}
+
+/** The usage.statusBar row's "?": what the item's number means, moved out of the description. */
+export function helpUsageStatusBar(): string {
+	return l10n.t("The number shown is the worst fresh server's spend as a percentage of its budget, e.g. 80%.");
+}
+
+/** The usage.alertThresholds boxes' "?": the entry grammar and the off gesture, moved out of the description. */
+export function helpUsageThresholds(): string {
+	return l10n.t("Enter a percentage or a fraction, e.g. 80% or 0.8; clear both fields to turn alerts off.");
 }
 
 export function helpCapsInspector(): string {
@@ -307,11 +317,13 @@ export function helpSupportSection(): string {
  */
 export const SETTING_ROW_HELP_IDS: readonly (NumberSettingId | BooleanSettingId)[] = [
 	"chat.timeout",
+	"chat.maxToolsPerRequest",
 	"discovery.timeout",
 	"discovery.cacheTtl",
 	"discovery.staleServeWindow",
 	"usage.pollInterval",
 	"chat.promptCaching",
+	"models.openRouterCatalog",
 ];
 
 /** Per-setting help for the ids in SETTING_ROW_HELP_IDS; undefined for rows whose description is enough. */
@@ -323,6 +335,10 @@ export function settingRowHelp(id: NumberSettingId | BooleanSettingId): string |
 					"A hard bound on the whole chat call, streaming included; type 5m, 90s, or plain ms. Requests are never retried, so raise it if long runs get cut off.",
 				comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
 			});
+		case "chat.maxToolsPerRequest":
+			return l10n.t(
+				"A request carrying more, e.g. 200 tools against a 128 cap, is refused before sending. Most servers cap at 128."
+			);
 		case "discovery.timeout":
 			return l10n.t({
 				message:
@@ -336,7 +352,7 @@ export function settingRowHelp(id: NumberSettingId | BooleanSettingId): string |
 		case "discovery.staleServeWindow":
 			return l10n.t({
 				message:
-					"Counted from the last successful sync, and the held models wear a stale warning in the picker; e.g. 1h suits a homelab proxy that sleeps. Type 1h, 30m, or plain ms.",
+					"Counted from the last successful sync; held models wear a stale warning, e.g. 1h suits a homelab proxy that sleeps. Type 1h, 30m, or plain ms; 0 drops them at once.",
 				comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
 			});
 		case "usage.pollInterval":
@@ -347,7 +363,16 @@ export function settingRowHelp(id: NumberSettingId | BooleanSettingId): string |
 			});
 		case "chat.promptCaching":
 			return l10n.t(
-				"Support currently means Anthropic Claude models (the supports_prompt_caching capability); the reused prefix bills at the provider's cache rate instead of full price."
+				"Applies only on models that advertise support, currently Anthropic Claude models (supports_prompt_caching); the reused prefix bills at the cache rate instead of full price."
+			);
+		case "models.openRouterCatalog":
+			// Opens with the row's displaced static description (the user-facing
+			// sentence presenters.ts still declares); the filter reads THIS tip
+			// and the live status, never that invisible description - two keys
+			// translate independently, so identity across them cannot be relied
+			// on outside English.
+			return l10n.t(
+				"Fill missing model capabilities from the OpenRouter catalog, refreshed weekly. Off, only explicit _openrouter_model directives read the cached snapshot."
 			);
 		default:
 			return undefined;

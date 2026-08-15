@@ -1823,16 +1823,19 @@ test("model parameters: invalid JSON in the overlay blocks Apply; fixing it appl
 	expect(postedRecordWrites()).toEqual([{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2 } } }]);
 });
 
-test("the seam between the two save models is stated once, above both editors, never per editor", () => {
+test("the editors' apply-together save model is stated by each editor's own help tip, never as a floating line", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
-	// One note for the pair: the same paragraph repeated under each heading
-	// was the duplicated helper the redesign removed.
-	const notes = Array.from(root.querySelectorAll(".record-editors-note"));
-	expect(notes.length).toBe(1);
-	expect(notes[0]?.textContent).toContain("apply together via their Apply button");
-	expect(sectionByHeading(root, "Model parameters").textContent).not.toContain("apply together");
-	expect(sectionByHeading(root, "Model capabilities").textContent).not.toContain("apply together");
+	// The free-standing paragraph between the rows is gone: each editor's "?"
+	// states its own apply-together behavior instead, so the words sit where
+	// the reader asks, not between unrelated rows. The contrast the paragraph
+	// drew - the scalar settings above save each change on its own - survives
+	// as each tip's "Unlike the settings above".
+	expect(root.querySelector(".record-editors-note")).toBeNull();
+	for (const heading of ["Model parameters", "Model capabilities"]) {
+		const tip = sectionByHeading(root, heading).querySelector(".section-head .tip-bubble");
+		expect(tip?.textContent, heading).toContain("Unlike the settings above, rows apply together via Apply");
+	}
 });
 
 test("Edit as JSON: the textarea seeds from the record, and a valid edit applies through the same parse", () => {

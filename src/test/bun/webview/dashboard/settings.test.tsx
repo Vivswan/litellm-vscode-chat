@@ -12,6 +12,7 @@ import { isBoundViolation, parseNumberDraft } from "../../../../dashboard/presen
 import { NUMBER_SETTING_IDS } from "../../../../dashboard/viewModels";
 import { AnnounceOnceScope } from "../../../../webview/dashboard/announceOnce";
 import { App } from "../../../../webview/dashboard/app";
+import { settingRowHelp } from "../../../../webview/dashboard/helpText";
 import { SettingsSection } from "../../../../webview/dashboard/settings";
 import { makeSettings, makeState, statePush } from "../fixtures";
 import {
@@ -594,6 +595,18 @@ test("the filter matches a row's help text", () => {
 	expect(rowOf(settingInput(root, "discovery.timeout")).hidden).toBe(true);
 });
 
+test("the filter matches a record editor's own help, which is where its save model moved", () => {
+	// An editor matched through its header help is one visible unit whose "?"
+	// carries the match - the same reading as a scalar row matched through its
+	// help, not a group kept alive by group-level help.
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const filter = root.querySelector<HTMLInputElement>('input[aria-label="Filter settings"]') as HTMLInputElement;
+	fireInput(filter, "apply together");
+	expect(editorSection(root, "Model parameters").hidden).toBe(false);
+	expect(editorSection(root, "Model capabilities").hidden).toBe(false);
+	expect(rowOf(settingInput(root, "chat.timeout")).hidden).toBe(true);
+});
+
 test("zero hits show the no-match line, and a dirty draft survives being filtered away and back", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const filter = root.querySelector<HTMLInputElement>('input[aria-label="Filter settings"]') as HTMLInputElement;
@@ -668,6 +681,21 @@ test("the page runs full-bleed: no measure cap on the header or the groups, one 
 	expect(template).toMatch(/_[\d.]+rem\]$/);
 });
 
+test("the title's stacked flip shares the row grid's threshold, read off the grid itself", () => {
+	// Re-homed from the deleted catalog-grid test: SETTING_TITLE's stacked
+	// variant is its own class string (Tailwind compiles only whole variants),
+	// and nothing but this stops the label flipping left at one width while
+	// the columns collapse at another. The prefix is derived from the row's
+	// own stacked override, so the two tiers cannot drift apart by one edit.
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const row = root.querySelector(".setting-row") as HTMLElement;
+	const tracks = Array.from(row.classList).filter((name) => name.includes("grid-cols-"));
+	const stacked = tracks.find((name) => name.endsWith("grid-cols-1"))?.replace("grid-cols-1", "") ?? "";
+	expect(stacked).toMatch(/^@max-\[\d+px\]\/pane:$/);
+	const title = root.querySelector(".setting-title") as HTMLElement;
+	expect(title.classList.contains(`${stacked}text-left`)).toBe(true);
+});
+
 test("every settings row anchors its actions in one trailing slot: Reset then the settings.json jump", () => {
 	// The fail-closed structural pin behind the "{} renders in two different
 	// positions" defect: the slot is the row template's LAST cell, the jump is
@@ -717,46 +745,59 @@ test("every settings row anchors its actions in one trailing slot: Reset then th
 	}
 });
 
-test("the catalog row adopts the settings row grid instead of restating the gutter", () => {
-	// The row used to indent itself with an 11rem padding - the label track
-	// plus the gap, restated as one literal that would silently drift the
-	// moment either changed. Now it wears the same template as every setting
-	// row and places its content in the control and explanation tracks, so
-	// one number owns the gutter.
+test("the catalog status renders inside the row's own description slot, with the moved prose in the row's ?", () => {
+	// The cluster used to be a second grid line under the row; it now lives in
+	// the row's hint cell where every other row shows its text, so the row
+	// reads label, checkbox, status, "?" - and the sentence the status
+	// displaced is the tip's.
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
-	const row = root.querySelector(".catalog-row") as HTMLElement;
-	expect(Array.from(row.classList).some((name) => name.startsWith("pl-["))).toBe(false);
-	expect(row.classList.contains("grid")).toBe(true);
-	// Every track declaration the setting row wears, the catalog row wears too:
-	// the template AND its stacked override, read off the setting row rather
-	// than spelled again here, so the threshold keeps a single owner.
-	const settingRow = root.querySelector(".setting-row") as HTMLElement;
-	const tracks = Array.from(settingRow.classList).filter((name) => name.includes("grid-cols-"));
-	expect(tracks.length).toBeGreaterThanOrEqual(2);
-	for (const track of tracks) {
-		expect(row.classList.contains(track)).toBe(true);
-	}
-	// The stacked variant's prefix, taken from the override itself - the same
-	// number, so the two tiers cannot drift apart by one edit.
-	const stacked = tracks.find((name) => name.endsWith("grid-cols-1"))?.replace("grid-cols-1", "") ?? "";
-	expect(stacked).toMatch(/^@max-\[\d+px\]\/pane:$/);
-	const content = row.firstElementChild as HTMLElement;
-	// Wide, the content starts past the label gutter and fills the two tracks
-	// beyond it; without the span it would sit in the control column and the
-	// explanation track would go empty.
-	expect(content.classList.contains("col-start-2")).toBe(true);
-	expect(content.classList.contains("col-span-2")).toBe(true);
-	// Stacked, the grid is one track: a start or a span past the first would
-	// mint implicit tracks and indent the line into nothing.
-	expect(content.classList.contains(`${stacked}col-start-1`)).toBe(true);
-	expect(content.classList.contains(`${stacked}col-span-1`)).toBe(true);
-	// The label's alignment turns at the same width the tracks do. It is its own
-	// class string - Tailwind only compiles variants it can read whole, so the
-	// threshold cannot be interpolated from the grid's - and nothing but this
-	// stops the label flipping to the left at one width while the columns
-	// collapse at another.
-	const title = root.querySelector(".setting-title") as HTMLElement;
-	expect(title.classList.contains(`${stacked}text-left`)).toBe(true);
+	const row = rowOf(settingInput(root, "models.openRouterCatalog"));
+	const status = row.querySelector(".catalog-status") as HTMLElement;
+	expect(status).not.toBeNull();
+	expect(status.closest(".setting-hint")).not.toBeNull();
+	// No free-standing second line remains anywhere on the page.
+	expect(root.querySelector(".catalog-row")).toBeNull();
+	// The row's help tip carries the description that moved out of the row.
+	const tip = row.querySelector(".setting-hint .tip-bubble") as HTMLElement;
+	expect(tip.textContent).toBe(settingRowHelp("models.openRouterCatalog") ?? "");
+	expect(tip.textContent).toContain("Fill missing model capabilities from the OpenRouter catalog");
+	// With the description <label> displaced by the status, the checkbox must
+	// still carry its name - the row's title, stated directly on the input -
+	// while a label-named checkbox carries no second, competing name.
+	const checkbox = settingInput(root, "models.openRouterCatalog");
+	expect(checkbox.getAttribute("aria-label")).toBe("OpenRouter catalog");
+	expect(settingInput(root, "ui.maskSecretInputs").hasAttribute("aria-label")).toBe(false);
+});
+
+test("the filter matches the catalog row's live status text, which is what its description slot shows", () => {
+	// The static description moved into the tip; the slot shows the status
+	// cluster, so its words are the row's haystack ("no refreshes" while off,
+	// "bundled snapshot" while on) - a needle finds what it can see.
+	const base = makeSettings();
+	const off = makeSettings({ booleans: { ...base.booleans, "models.openRouterCatalog": false } });
+	const root = mount(<SettingsSection settings={off} models={[]} />);
+	const filter = root.querySelector<HTMLInputElement>('input[aria-label="Filter settings"]') as HTMLInputElement;
+	fireInput(filter, "no refreshes");
+	expect(rowOf(settingInput(root, "models.openRouterCatalog")).hidden).toBe(false);
+	expect(root.textContent).not.toContain("No settings match the filter.");
+
+	cleanup();
+	const bundled = makeSettings({ catalog: { modelCount: 100, lastSuccessAt: undefined, refreshing: false } });
+	const onRoot = mount(<SettingsSection settings={bundled} models={[]} />);
+	const onFilter = onRoot.querySelector<HTMLInputElement>('input[aria-label="Filter settings"]') as HTMLInputElement;
+	fireInput(onFilter, "bundled snapshot");
+	expect(rowOf(settingInput(onRoot, "models.openRouterCatalog")).hidden).toBe(false);
+	fireInput(onFilter, "no refreshes");
+	expect(rowOf(settingInput(onRoot, "models.openRouterCatalog")).hidden).toBe(true);
+	// The static description is OUT of this row's haystack (isVisible matches
+	// the row on its tip and live status only - two independently translated
+	// keys cannot be trusted to stay identical outside English). Its words
+	// still find the row, through the tip that visibly opens with them; in
+	// English the description is a prefix of the tip, so no render-level
+	// needle can tell the two apart - the exclusion lives in isVisible's
+	// catalog branch and its comment.
+	fireInput(onFilter, "refreshed weekly");
+	expect(rowOf(settingInput(onRoot, "models.openRouterCatalog")).hidden).toBe(false);
 });
 
 test("the catalog row states the snapshot's size and age, and Refresh posts refreshCatalog", () => {
@@ -765,7 +806,7 @@ test("the catalog row states the snapshot's size and age, and Refresh posts refr
 		catalog: { modelCount: 321, lastSuccessAt: now - 5 * 60 * 1000, refreshing: false },
 	});
 	const root = mount(<SettingsSection settings={settings} models={[]} now={now} />);
-	const row = root.querySelector(".catalog-row") as HTMLElement;
+	const row = rowOf(settingInput(root, "models.openRouterCatalog"));
 	expect(row.textContent).toContain("321 catalog models");
 	expect(row.textContent).toContain("updated 5 min ago");
 
@@ -779,12 +820,12 @@ test("the catalog row states the snapshot's size and age, and Refresh posts refr
 test("the catalog row without a refresh yet names the bundled snapshot; a running refresh disables the button", () => {
 	const bundled = makeSettings({ catalog: { modelCount: 100, lastSuccessAt: undefined, refreshing: false } });
 	const root = mount(<SettingsSection settings={bundled} models={[]} />);
-	expect((root.querySelector(".catalog-row") as HTMLElement).textContent).toContain("bundled snapshot");
+	expect(rowOf(settingInput(root, "models.openRouterCatalog")).textContent).toContain("bundled snapshot");
 
 	cleanup();
 	const refreshing = makeSettings({ catalog: { modelCount: 100, lastSuccessAt: undefined, refreshing: true } });
 	const busyRoot = mount(<SettingsSection settings={refreshing} models={[]} />);
-	const busyRow = busyRoot.querySelector(".catalog-row") as HTMLElement;
+	const busyRow = rowOf(settingInput(busyRoot, "models.openRouterCatalog"));
 	const busy = Array.from(busyRow.querySelectorAll("button")).find((button) =>
 		(button.textContent ?? "").includes("Refreshing...")
 	) as HTMLButtonElement;
@@ -792,17 +833,18 @@ test("the catalog row without a refresh yet names the bundled snapshot; a runnin
 	expect(busy.disabled).toBe(true);
 });
 
-test("the catalog status line hides with the row it belongs to", () => {
-	// It renders after the row rather than inside it, so the row's own hidden
-	// attribute does not cover it; a filter that hides the setting must not
-	// leave its status and Refresh button stranded under another group.
+test("the catalog status hides with the row it belongs to", () => {
+	// The cluster renders inside the row's own hint cell, so the row's hidden
+	// attribute covers it: a filter that hides the setting can no longer leave
+	// its status and Refresh button stranded under another group.
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const filter = root.querySelector<HTMLInputElement>('input[aria-label="Filter settings"]') as HTMLInputElement;
-	const catalogRow = () => (root.querySelector(".catalog-row") as HTMLElement).closest("[hidden]");
-	expect(catalogRow()).toBeNull();
+	const row = rowOf(settingInput(root, "models.openRouterCatalog"));
+	expect(row.contains(buttonByText(row, "Refresh"))).toBe(true);
+	expect(row.hidden).toBe(false);
 	fireInput(filter, "timeout");
 	expect(rowOf(settingInput(root, "chat.timeout")).hidden).toBe(false);
-	expect(catalogRow()).not.toBeNull();
+	expect(row.hidden).toBe(true);
 });
 
 test("with the catalog setting off the row shows the inert hint instead of the status and Refresh", () => {
@@ -811,9 +853,12 @@ test("with the catalog setting off the row shows the inert hint instead of the s
 		booleans: { ...base.booleans, "models.openRouterCatalog": false },
 	});
 	const root = mount(<SettingsSection settings={settings} models={[]} />);
-	const row = root.querySelector(".catalog-row") as HTMLElement;
+	const row = rowOf(settingInput(root, "models.openRouterCatalog"));
 	expect(row.textContent).toContain("Catalog off:");
-	expect(row.textContent).toContain("_openrouter_model");
+	// The off-state consequence moved into the row's "?" with the description;
+	// asserted on the tip element itself, not row.textContent, which would
+	// pass merely because the hidden bubble stays mounted.
+	expect(row.querySelector(".setting-hint .tip-bubble")?.textContent).toContain("_openrouter_model");
 	expect(Array.from(row.querySelectorAll("button")).map((b) => (b.textContent ?? "").trim())).not.toContain("Refresh");
 });
 
@@ -827,8 +872,13 @@ test("a standing catalog failure renders in the row with its classification, nev
 		},
 	});
 	const root = mount(<SettingsSection settings={settings} models={[]} />);
-	const row = root.querySelector(".catalog-row") as HTMLElement;
-	expect(row.querySelector(".error")?.textContent).toBe("Last refresh failed (HTTP 503); serving the cached snapshot.");
+	const row = rowOf(settingInput(root, "models.openRouterCatalog"));
+	const failure = row.querySelector(".error") as HTMLElement;
+	expect(failure.textContent).toBe("Last refresh failed (HTTP 503); serving the cached snapshot.");
+	// The failure starts a line of its own - the break before it - while the
+	// error span itself stays inline, so the row's trailing "?" can glue to
+	// its last word instead of stranding alone on the next line.
+	expect(failure.previousElementSibling?.tagName).toBe("BR");
 	expect(document.querySelector(".toast")).toBeNull();
 });
 

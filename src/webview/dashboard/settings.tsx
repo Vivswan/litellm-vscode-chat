@@ -56,11 +56,15 @@ import { DocsLink, Help } from "./help";
 import {
 	helpCurrencySymbol,
 	helpImportExportGroup,
+	helpModelCapabilitiesSection,
+	helpModelParametersSection,
 	helpSettingsSection,
 	helpTokenEstimation,
 	helpToolSchemaKeywords,
 	helpUiAccent,
 	helpUiTheme,
+	helpUsageStatusBar,
+	helpUsageThresholds,
 	settingRowHelp,
 } from "./helpText";
 import { IconBraces } from "./icons";
@@ -654,116 +658,140 @@ function NumberField({
 /**
  * A boolean setting. The title is plain text on purpose: only the checkbox
  * and its explanation toggle, so a click on the label gutter cannot silently
- * write settings.json. `extra` renders under the row - the OpenRouter catalog
- * row's status line and Refresh button ride there.
+ * write settings.json. `meta` fills the description slot for a row whose
+ * status IS its description - the OpenRouter catalog
+ * row's count, age, and Refresh ride there, with the row's "?" carrying the
+ * prose - and is never label-wrapped, because a click on a Refresh button
+ * must not also toggle the checkbox.
  */
 function BooleanField({
 	id,
 	value,
 	configuredScope,
 	hidden,
-	extra,
+	meta,
 }: {
 	id: BooleanSettingId;
 	value: boolean;
 	configuredScope: SettingScope | null;
 	hidden: boolean;
-	extra?: ReactNode;
+	meta?: ReactNode;
 }) {
 	const presentation = booleanSettingPresentation(id);
 	const inputId = `setting-${id}`;
 	return (
-		<>
-			<SettingRow
-				settingId={id}
-				title={presentation.label}
-				description={
+		<SettingRow
+			settingId={id}
+			title={presentation.label}
+			description={
+				meta ?? (
 					<label className="cursor-pointer" htmlFor={inputId}>
 						{presentation.description}
 					</label>
-				}
-				help={settingRowHelp(id)}
-				configuredScope={configuredScope}
-				hidden={hidden}
-				control={
-					<Checkbox
-						id={inputId}
-						checked={value}
-						onChange={(event) =>
-							postSettingWrite("setBooleanSetting", { setting: id, value: event.currentTarget.checked }, id)
-						}
-					/>
-				}
-			/>
-			{/* Hidden with the row it belongs to: a filter that hides the catalog
-			    setting must not leave its status line and Refresh button behind. */}
-			{extra !== undefined ? <div hidden={hidden}>{extra}</div> : null}
-		</>
+				)
+			}
+			help={settingRowHelp(id)}
+			configuredScope={configuredScope}
+			hidden={hidden}
+			control={
+				<Checkbox
+					id={inputId}
+					checked={value}
+					// A meta row has no description <label> to name the checkbox, so
+					// the title names it directly; label-named rows must not carry a
+					// second, competing name.
+					aria-label={meta !== undefined ? presentation.label : undefined}
+					onChange={(event) =>
+						postSettingWrite("setBooleanSetting", { setting: id, value: event.currentTarget.checked }, id)
+					}
+				/>
+			}
+		/>
 	);
 }
 
 /**
- * The OpenRouter catalog row's status line (docs/dashboard.md#settings): the
- * snapshot's size and last refresh, a Refresh button (the same action as the
- * "LiteLLM: Refresh OpenRouter Catalog" command), a standing failure in the
- * row status - never a toast - and an inert hint while the setting is off.
- * It adopts the shared row grid and starts at the control zone's own edge, a
- * structured second line of the row above rather than a floater; the failure
- * takes a line of its own instead of jamming red text beside Refresh.
+ * The catalog row's status text, in one place for the row AND the filter: the
+ * row shows exactly these strings (CatalogMeta), and the filter matches on
+ * them (SettingsSection's isVisible), so a needle like "no refreshes" or
+ * "bundled snapshot" always finds the row that visibly says it - the same
+ * no-drift rule the non-scalar description functions below follow.
  */
-function CatalogRow({ catalog, enabled, now }: { catalog: CatalogStatusView; enabled: boolean; now: number }) {
+function catalogStatusParts(
+	catalog: CatalogStatusView,
+	enabled: boolean,
+	now: number
+): { readonly off?: string; readonly summary?: string; readonly failure?: string | undefined } {
+	if (!enabled) {
+		return { off: l10n.t("Catalog off: no refreshes and no implicit ID matching.") };
+	}
 	const updated =
 		catalog.lastSuccessAt !== undefined
 			? (relativeTime(new Date(catalog.lastSuccessAt).toISOString(), now) ?? l10n.t("just now"))
 			: undefined;
+	const count = catalog.modelCount === 1 ? l10n.t("1 catalog model") : l10n.t("{0} catalog models", catalog.modelCount);
+	const age = updated !== undefined ? l10n.t("updated {0}", updated) : l10n.t("bundled snapshot");
+	return {
+		summary: `${count} - ${age}`,
+		// The classification is a fixed English vocabulary ("HTTP 503",
+		// "network error"), protocol-ish like header names.
+		failure:
+			catalog.lastFailure !== undefined
+				? l10n.t("Last refresh failed ({0}); serving the cached snapshot.", catalog.lastFailure.classification)
+				: undefined,
+	};
+}
+
+/**
+ * The OpenRouter catalog row's status cluster (docs/dashboard.md#settings),
+ * rendered in the row's own description slot where every other row puts its
+ * text: the snapshot's size and last refresh, a Refresh button (the same
+ * action as the "LiteLLM: Refresh OpenRouter Catalog" command), a standing
+ * failure starting on a line of its own - never a toast - and a short inert
+ * line while the setting is off. The prose that used to stand here lives in
+ * the row's "?" (settingRowHelp), so the row reads label, checkbox, status,
+ * "?".
+ */
+function CatalogMeta({ catalog, enabled, now }: { catalog: CatalogStatusView; enabled: boolean; now: number }) {
+	const parts = catalogStatusParts(catalog, enabled, now);
+	if (parts.off !== undefined) {
+		return <span className="catalog-status">{parts.off}</span>;
+	}
 	return (
-		<div className={cn("catalog-row", SETTING_ROW_GRID, "pt-1 pb-1 text-[0.95em]")}>
-			<div
-				className={cn(
-					"col-start-2 col-span-2 flex flex-wrap items-center gap-x-3 gap-y-1",
-					// Stacked, the grid is one track; starting at a second column
-					// would mint an implicit one and indent this line into nothing.
-					"@max-[910px]/pane:col-span-1 @max-[910px]/pane:col-start-1"
-				)}
+		// Plain inline flow, not inline-flex: an inline-flex box is atomic, so
+		// the moment its content has to wrap it takes the whole column and
+		// strands the row's trailing "?" alone on the line below it. Inline,
+		// the glyph glues to the last word wherever the cluster breaks; the
+		// button's margins restate the breathing room the old flex gap drew.
+		<span className="catalog-status">
+			<span>{parts.summary}</span>{" "}
+			<Button
+				variant="secondary"
+				size="compact"
+				className="mx-2"
+				disabled={catalog.refreshing}
+				onClick={() => sendRequest("refreshCatalog", null)}
 			>
-				{enabled ? (
+				{catalog.refreshing ? (
 					<>
-						<span className="hint">
-							{catalog.modelCount === 1 ? l10n.t("1 catalog model") : l10n.t("{0} catalog models", catalog.modelCount)}
-							{updated !== undefined ? ` - ${l10n.t("updated {0}", updated)}` : ` - ${l10n.t("bundled snapshot")}`}
-						</span>
-						<Button
-							variant="secondary"
-							size="compact"
-							disabled={catalog.refreshing}
-							onClick={() => sendRequest("refreshCatalog", null)}
-						>
-							{catalog.refreshing ? (
-								<>
-									<span className="spinner" aria-hidden="true" /> {l10n.t("Refreshing...")}
-								</>
-							) : (
-								l10n.t("Refresh")
-							)}
-						</Button>
-						<DocsLink href={DOCS_LINK_OPENROUTER_CATALOG} label={l10n.t("Open the OpenRouter catalog guide")} />
-						{catalog.lastFailure !== undefined ? (
-							<span className="error basis-full">
-								{/* The classification is a fixed English vocabulary ("HTTP 503",
-							    "network error"), protocol-ish like header names. */}
-								{l10n.t("Last refresh failed ({0}); serving the cached snapshot.", catalog.lastFailure.classification)}
-							</span>
-						) : null}
+						<span className="spinner" aria-hidden="true" /> {l10n.t("Refreshing...")}
 					</>
 				) : (
-					<span className="hint">
-						{l10n.t(
-							"Catalog off: no refreshes and no implicit ID matching; explicit _openrouter_model directives keep answering from the cached snapshot."
-						)}
-					</span>
+					l10n.t("Refresh")
 				)}
-			</div>
-		</div>
+			</Button>{" "}
+			<DocsLink href={DOCS_LINK_OPENROUTER_CATALOG} label={l10n.t("Open the OpenRouter catalog guide")} />
+			{parts.failure !== undefined ? (
+				<>
+					{/* The break gives the failure a line start of its own without
+					    jamming red text beside Refresh, while the error itself stays
+					    INLINE: a block box would break after itself too and strand
+					    the row's trailing "?" alone on the next line. */}
+					<br />
+					<span className="error">{parts.failure}</span>
+				</>
+			) : null}
+		</span>
 	);
 }
 
@@ -774,7 +802,8 @@ function CatalogRow({ catalog, enabled, now }: { catalog: CatalogStatusView; ena
  * finds without showing, or shows without finding.
  */
 function usageStatusBarDescription(): string {
-	return l10n.t("When the spend status bar item shows; the number is the worst fresh server's percentage.");
+	// What the shown number means lives in the row's "?" (helpUsageStatusBar).
+	return l10n.t("When the spend status bar item shows.");
 }
 
 function tokenEstimationDescription(): string {
@@ -787,16 +816,18 @@ function toolSchemaKeywordsDescription(): string {
 }
 
 /**
- * The thresholds row's explanation, per branch: the two-box branch instructs
- * (those are its fields), while the read-only custom branch describes what the
- * hand-written list does - it renders no fields, so "clear both fields" would
- * instruct gestures the row cannot take. Branch-keyed here because the filter
- * matches on the same text the row shows (see the note above).
+ * The thresholds row's explanation, per branch: the two-box branch states the
+ * pair's semantics (the entry grammar and the clearing gesture live in that
+ * branch's "?", helpUsageThresholds), while the read-only custom branch
+ * describes what the hand-written list does - it renders no fields, so
+ * "clear both fields" would instruct gestures the row cannot take.
+ * Branch-keyed here because the filter matches on the same text the row shows
+ * (see the note above).
  */
 function usageThresholdsDescription(custom: boolean): string {
 	return custom
 		? l10n.t("Alerts fire as spend crosses each value.")
-		: l10n.t("Enter 80% or 0.8; the lower value warns, the higher errors. Clear both fields to turn alerts off.");
+		: l10n.t("The lower value warns, the higher errors.");
 }
 
 function currencySymbolDescription(): string {
@@ -804,7 +835,9 @@ function currencySymbolDescription(): string {
 }
 
 function uiThemeDescription(): string {
-	return l10n.t("Whether the dashboard renders light or dark; Auto follows the editor.");
+	// The Auto option names its own behavior ("Follow the editor"), and the
+	// row's "?" (helpUiTheme) states it with the high-contrast exception.
+	return l10n.t("Whether the dashboard renders light or dark.");
 }
 
 function uiAccentDescription(): string {
@@ -1169,6 +1202,9 @@ function UsageThresholdsRow({
 					{semanticsHint !== undefined ? <span className="ml-1 text-foreground">{semanticsHint}</span> : null}
 				</>
 			}
+			// The tip instructs the two boxes, so it renders only where they do:
+			// the custom branch has no fields to enter or clear.
+			help={custom ? undefined : helpUsageThresholds()}
 			error={
 				custom || parsed !== undefined ? undefined : l10n.t("Thresholds run from above 0% to 100%: enter 80% or 0.8.")
 			}
@@ -1413,7 +1449,7 @@ function SettingGroup({
 	booleans,
 	settings,
 	isVisible,
-	booleanExtras,
+	booleanMeta,
 	tail,
 	tailVisible,
 }: {
@@ -1424,8 +1460,8 @@ function SettingGroup({
 	settings: DashboardSettings;
 	/** The filter's verdict per row; a group whose rows are all hidden collapses whole (heading included). */
 	isVisible: (id: NumberSettingId | BooleanSettingId) => boolean;
-	/** Extra content under specific boolean rows (the catalog row's status line). */
-	booleanExtras?: Partial<Record<BooleanSettingId, ReactNode>>;
+	/** Status content replacing specific boolean rows' descriptions (the catalog row's cluster). */
+	booleanMeta?: Partial<Record<BooleanSettingId, ReactNode>>;
 	/** Rows appended after the scalar rows (the Usage group's enum and list rows). */
 	tail?: ReactNode;
 	/** Whether any tail row survives the filter; keeps the group heading alive for them. */
@@ -1470,7 +1506,7 @@ function SettingGroup({
 					value={settings.booleans[id]}
 					configuredScope={settings.configuredScopes.booleans[id]}
 					hidden={!isVisible(id)}
-					extra={booleanExtras?.[id]}
+					meta={booleanMeta?.[id]}
 				/>
 			))}
 			{tail}
@@ -1505,7 +1541,12 @@ function configuredScopes(settings: DashboardSettings): readonly (SettingScope |
 	];
 }
 
-/** One scalar row's searchable text: its label and description, the two lines the row itself shows. */
+/**
+ * One scalar row's searchable text: its label and description - the two lines
+ * the row itself shows, except the catalog row, whose description slot shows
+ * the status cluster instead; isVisible matches that row on its live status
+ * and its tip, never on the invisible description.
+ */
 function scalarText(id: NumberSettingId | BooleanSettingId): { label: string; description: string } {
 	return Object.hasOwn(NUMBER_SETTING_SPECS, id)
 		? numberSettingPresentation(id as NumberSettingId)
@@ -1514,20 +1555,24 @@ function scalarText(id: NumberSettingId | BooleanSettingId): { label: string; de
 
 /**
  * Whether a record editor matches the filter: by its heading (as scalar rows
- * match their labels) or by any key it holds in any scope - the record's own
- * keys plus, for modelParameters, the parameter names nested one level down.
- * Store keys only, deliberately: a dirty draft's rows live inside the editor,
- * which the filter hides but never unmounts.
+ * match their labels), by its own header help - the editor is one visible
+ * unit with the "?" carrying the match, the same reading as a scalar row
+ * matched through its help, not a group kept alive by group-level help - or
+ * by any key it holds in any scope: the record's own keys plus, for
+ * modelParameters, the parameter names nested one level down. Store keys
+ * only, deliberately: a dirty draft's rows live inside the editor, which the
+ * filter hides but never unmounts.
  */
 function recordEditorMatches(
 	needle: string,
 	title: string,
+	help: string,
 	scoped: {
 		readonly value: Readonly<Record<string, unknown>>;
 		readonly otherScopes: readonly { readonly value: Readonly<Record<string, unknown>> }[];
 	}
 ): boolean {
-	if (title.toLowerCase().includes(needle)) {
+	if (title.toLowerCase().includes(needle) || help.toLowerCase().includes(needle)) {
 		return true;
 	}
 	const records = [scoped.value, ...scoped.otherScopes.map((other) => other.value)];
@@ -1574,13 +1619,30 @@ export function SettingsSection({
 	const needle = filter.trim().toLowerCase();
 	const matches = (...haystack: string[]): boolean =>
 		needle.length === 0 || haystack.some((text) => text.toLowerCase().includes(needle));
+	// One clock reading for the whole render: the filter haystack and the
+	// rendered status cluster must speak the same age - two Date.now() calls
+	// straddling a minute boundary would let a needle match "5 min ago" while
+	// the row shows 6.
+	const nowMs = now ?? Date.now();
 	// Row-level help is part of a row's haystack: the "?" glyph is visible at
 	// rest and its tip carries the matching words, so a reader can always see
 	// why the row survived - and the help is where the searchable synonyms
 	// went when the long explanations moved out of the descriptions ("stale"
-	// finds discovery.staleServeWindow again).
+	// finds discovery.staleServeWindow again). The catalog row's haystack is
+	// what that row SHOWS - the live status cluster plus its tip - and its
+	// static description stays out entirely: the description renders nowhere,
+	// and while its English text is the tip's first sentence, a translated
+	// bundle renders the two keys through two independent translations, so
+	// only excluding it makes "the haystack holds what the row shows" hold in
+	// every locale by construction.
+	const catalogTexts = Object.values(
+		catalogStatusParts(settings.catalog, settings.booleans["models.openRouterCatalog"], nowMs)
+	).filter((text): text is string => text !== undefined);
 	const isVisible = (id: NumberSettingId | BooleanSettingId): boolean => {
 		const { label, description } = scalarText(id);
+		if (id === "models.openRouterCatalog") {
+			return matches(label, id, settingRowHelp(id) ?? "", ...catalogTexts);
+		}
 		return matches(label, description, id, settingRowHelp(id) ?? "");
 	};
 
@@ -1589,16 +1651,23 @@ export function SettingsSection({
 	const otherBooleans = BOOLEAN_SETTING_IDS.filter((id) => !placed.has(id));
 
 	const paramsVisible =
-		needle.length === 0 || recordEditorMatches(needle, modelParametersTitle(), settings.modelParameters);
+		needle.length === 0 ||
+		recordEditorMatches(needle, modelParametersTitle(), helpModelParametersSection(), settings.modelParameters);
 	const capsVisible =
-		needle.length === 0 || recordEditorMatches(needle, modelCapabilitiesTitle(), settings.modelCapabilities);
+		needle.length === 0 ||
+		recordEditorMatches(needle, modelCapabilitiesTitle(), helpModelCapabilitiesSection(), settings.modelCapabilities);
 	const anyScalarVisible = [...NUMBER_SETTING_IDS, ...BOOLEAN_SETTING_IDS].some(isVisible);
 	// The non-scalar rows filter by the same rule as the scalar ones - name,
 	// explanation, setting id, and the row's own help where it carries one -
 	// so a needle cannot find one kind and miss the other. Hoisted because the
 	// empty-state verdict below has to see them: a filter matching only a tail
 	// row used to render that row under a "nothing matched" line.
-	const statusBarVisible = matches(l10n.t("Usage status bar"), usageStatusBarDescription(), "usage.statusBar");
+	const statusBarVisible = matches(
+		l10n.t("Usage status bar"),
+		usageStatusBarDescription(),
+		"usage.statusBar",
+		helpUsageStatusBar()
+	);
 	const tokenEstimationVisible = matches(
 		l10n.t("Token estimation"),
 		tokenEstimationDescription(),
@@ -1611,10 +1680,14 @@ export function SettingsSection({
 		"chat.additionalToolSchemaKeywords",
 		helpToolSchemaKeywords()
 	);
+	const thresholdsCustom = settings.usage.alertThresholds.length > 2;
+	// The editable branch's help joins its haystack only while that branch
+	// renders it: a needle from the tip must not keep the custom row alive.
 	const thresholdsVisible = matches(
 		l10n.t("Usage alert thresholds"),
-		usageThresholdsDescription(settings.usage.alertThresholds.length > 2),
-		"usage.alertThresholds"
+		usageThresholdsDescription(thresholdsCustom),
+		"usage.alertThresholds",
+		...(thresholdsCustom ? [] : [helpUsageThresholds()])
 	);
 	const currencyVisible = matches(
 		l10n.t("Currency symbol"),
@@ -1650,13 +1723,9 @@ export function SettingsSection({
 		!currencyVisible &&
 		!themeVisible &&
 		!accentVisible;
-	const booleanExtras: Partial<Record<BooleanSettingId, ReactNode>> = {
+	const booleanMeta: Partial<Record<BooleanSettingId, ReactNode>> = {
 		"models.openRouterCatalog": (
-			<CatalogRow
-				catalog={settings.catalog}
-				enabled={settings.booleans["models.openRouterCatalog"]}
-				now={now ?? Date.now()}
-			/>
+			<CatalogMeta catalog={settings.catalog} enabled={settings.booleans["models.openRouterCatalog"]} now={nowMs} />
 		),
 	};
 	const scopes = configuredScopes(settings);
@@ -1780,7 +1849,7 @@ export function SettingsSection({
 								{...group}
 								settings={settings}
 								isVisible={isVisible}
-								booleanExtras={booleanExtras}
+								booleanMeta={booleanMeta}
 								tailVisible={
 									(isModelsGroup && (paramsVisible || capsVisible)) ||
 									(isChatGroup && (tokenEstimationVisible || toolSchemaKeywordsVisible)) ||
@@ -1790,14 +1859,10 @@ export function SettingsSection({
 								tail={
 									isModelsGroup ? (
 										<>
-											{/* The one statement of the editors' save model, above both
-										    (never the same paragraph twice): the rows below are
-										    drafts until Apply, unlike the scalar rows above. */}
-											<p className="hint record-editors-note" hidden={!paramsVisible && !capsVisible}>
-												{l10n.t(
-													"Rows in the two editors below apply together via their Apply button; the settings above save each change on its own."
-												)}
-											</p>
+											{/* The editors' apply-together save model is stated by each
+										    editor's own "?" (helpModelParametersSection and
+										    helpModelCapabilitiesSection), not by a free-standing
+										    paragraph between the rows. */}
 											<ModelParametersEditor
 												scoped={settings.modelParameters}
 												models={models}
@@ -1844,6 +1909,7 @@ export function SettingsSection({
 												settingId="usage.statusBar"
 												title={l10n.t("Usage status bar")}
 												description={usageStatusBarDescription()}
+												help={helpUsageStatusBar()}
 												value={settings.usage.statusBarMode}
 												options={USAGE_STATUS_BAR_MODES}
 												optionLabel={statusBarModeLabel}

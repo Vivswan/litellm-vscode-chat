@@ -369,9 +369,9 @@ export function numberSettingPresentation(id: NumberSettingId): NumberSettingPre
 		case "chat.maxToolsPerRequest":
 			return {
 				label: l10n.t("Max tools per request"),
-				description: l10n.t(
-					"The most tools one request may carry; anything larger is refused before sending. Most servers cap at 128."
-				),
+				// The refusal behavior and the common server cap live in the row's
+				// "?" (settingRowHelp); the visible line stays the one essential.
+				description: l10n.t("The most tools one request may carry."),
 				// A key of its own, apart from the capability chip's "tools": a
 				// count suffix may need a measure word where a chip label does not.
 				unit: l10n.t({ message: "tools", comment: ["Unit suffix after the max-tools count input."] }),
@@ -385,23 +385,25 @@ export function numberSettingPresentation(id: NumberSettingId): NumberSettingPre
 		case "discovery.cacheTtl":
 			return {
 				label: l10n.t("Discovery cache lifetime"),
-				description: l10n.t("How long discovered model lists are reused; 0 asks the server on every refresh."),
+				// The zero reading lives in the row's "?" and in the "= every
+				// refresh" equivalence beside the input.
+				description: l10n.t("How long discovered model lists are reused."),
 				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
 				zeroMeaning: l10n.t("every refresh"),
 			};
 		case "discovery.staleServeWindow":
 			return {
 				label: l10n.t("Stale-list grace"),
-				description: l10n.t(
-					"How long an unreachable server's last known models stay in the picker; 0 drops them at once."
-				),
+				// The zero reading lives in the row's "?" (settingRowHelp).
+				description: l10n.t("How long an unreachable server's last known models stay in the picker."),
 				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
 				zeroMeaning: l10n.t("no stale serving"),
 			};
 		case "usage.pollInterval":
 			return {
 				label: l10n.t("Usage poll interval"),
-				description: l10n.t("How often per-server spend and budget data refresh; 0 turns polling off."),
+				// The zero reading lives in the row's "?" (settingRowHelp).
+				description: l10n.t("How often per-server spend and budget data refresh."),
 				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
 				zeroMeaning: l10n.t("polling off"),
 			};
@@ -532,7 +534,8 @@ export function booleanSettingPresentation(id: BooleanSettingId): BooleanSetting
 		case "chat.promptCaching":
 			return {
 				label: l10n.t("Prompt caching"),
-				description: l10n.t("Reuse the cached prompt prefix between turns on models that advertise support."),
+				// The support gate and the billing effect live in the row's "?".
+				description: l10n.t("Reuse the cached prompt prefix between turns."),
 			};
 		case "ui.maskSecretInputs":
 			return {
@@ -542,6 +545,12 @@ export function booleanSettingPresentation(id: BooleanSettingId): BooleanSetting
 		case "models.openRouterCatalog":
 			return {
 				label: l10n.t("OpenRouter catalog"),
+				// Not rendered and not filtered: the dashboard row shows the live
+				// status cluster in the description slot, its "?" (settingRowHelp)
+				// opens with this sentence, and the filter reads only what the row
+				// shows - translated bundles render this key and the tip's through
+				// two independent translations, so the filter must never match a
+				// key with no visible carrier.
 				description: l10n.t("Fill missing model capabilities from the OpenRouter catalog, refreshed weekly."),
 			};
 	}
