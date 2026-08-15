@@ -49,7 +49,7 @@
  "(no matcher)": "(无匹配键)",
  "(no own fields)": "(无自有字段)",
  "(unnamed)": "(未命名)",
- "0 stops only the background timer - opening the dashboard or running Refresh Usage Now still fetches on demand. Type 5m, 90s, or plain ms./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": "0 只停止后台定时器: 打开仪表板或运行「立即刷新用量」仍会按需获取。可输入 5m、90s 或纯 ms。",
+ "0 stops only the background timer - Refresh Usage Now still fetches on demand, and opening the dashboard fetches when the numbers are older than this interval (or its 5m default at 0). Type 5m, 90s, or plain ms./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": "0 只停止后台定时器: 「立即刷新用量」仍会按需获取; 打开仪表板仅在数据早于此间隔时才获取(为 0 时以默认 5m 为准)。可输入 5m、90s 或纯 ms。",
  "1 alert threshold was dropped: a threshold must be inside (0, 1].": "已丢弃 1 个警报阈值: 阈值必须落在 (0, 1] 范围内。",
  "1 catalog model": "1 个目录模型",
  "1 day ago": "1 天前",

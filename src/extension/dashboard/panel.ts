@@ -965,9 +965,11 @@ export function registerDashboardCommand(
 		},
 		// The open-triggered pass: staleness-gated, and never toasted - the
 		// total-failure acknowledgment belongs to the EXPLICIT refresh the user
-		// asked for, not to a background pass opening happened to start.
+		// asked for, not to a background pass opening happened to start. No
+		// completion chaining either: the poller's own start and completion
+		// notifications already re-push the dashboard.
 		refreshUsageIfStale: () => {
-			void usagePoller.refreshIfStale()?.finally(() => controller.refresh());
+			void usagePoller.refreshIfStale();
 		},
 		searchCatalog: (query) => searchCatalogModels(catalog.snapshot(), query),
 		// One snapshot per reader: a dashboard build makes many reads and must

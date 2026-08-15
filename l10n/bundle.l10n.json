@@ -49,8 +49,8 @@
 	"(no matcher)": "(no matcher)",
 	"(no own fields)": "(no own fields)",
 	"(unnamed)": "(unnamed)",
-	"0 stops only the background timer - opening the dashboard or running Refresh Usage Now still fetches on demand. Type 5m, 90s, or plain ms./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {
-		"message": "0 stops only the background timer - opening the dashboard or running Refresh Usage Now still fetches on demand. Type 5m, 90s, or plain ms.",
+	"0 stops only the background timer - Refresh Usage Now still fetches on demand, and opening the dashboard fetches when the numbers are older than this interval (or its 5m default at 0). Type 5m, 90s, or plain ms./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {
+		"message": "0 stops only the background timer - Refresh Usage Now still fetches on demand, and opening the dashboard fetches when the numbers are older than this interval (or its 5m default at 0). Type 5m, 90s, or plain ms.",
 		"comment": [
 			"Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."
 		]

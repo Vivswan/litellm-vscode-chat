@@ -224,6 +224,18 @@ const GUARD_FIXTURES: readonly { readonly name: string; readonly source: string;
 
 /** The lazy-catalog guard: no module-scope localization calls anywhere in the shipped source. */
 function checkModuleScopeLocalization(sources: readonly SourceFile[]): void {
+	// The census only guards what it can find: an entry naming a deleted or
+	// renamed helper is a silently disarmed guard (helpSupportSection outlived
+	// its helper once), so every entry must still resolve to a declaration
+	// somewhere in the shipped source.
+	for (const helper of LAZY_L10N_HELPERS) {
+		const declared = sources.some(
+			({ contents }) => contents.includes(`function ${helper}(`) || contents.includes(`const ${helper} =`)
+		);
+		if (!declared) {
+			fail(`LAZY_L10N_HELPERS names "${helper}", which no shipped source declares; rename or remove the entry.`);
+		}
+	}
 	for (const fixture of GUARD_FIXTURES) {
 		const flagged = moduleScopeL10nOffenses(fixture.source, "fixture.ts").length > 0;
 		if (flagged !== fixture.flagged) {

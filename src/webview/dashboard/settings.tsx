@@ -231,12 +231,25 @@ const SETTING_GROUPS: readonly {
  * line's tail, carries the corner reserve (pr-24) the title used to: a long
  * control would otherwise run under the pinned actions.
  *
- * Below the 400px tier the pair gives the line back up and the row stacks to
- * one column, the control's own line clear of the pinned corner: the shell's
- * 320px floor leaves a ~223px pane, and a 144px number input plus the 96px
- * corner reserve cannot share it with any title. The two stacked tiers are
- * spelled as exclusive bands (@min/@max pairs), not as two @max rules whose
- * winner would hang on compiled rule order.
+ * The stacked band's second track is a bare 1fr ON PURPOSE - grid shorthand
+ * for minmax(auto, 1fr), whose auto minimum reserves the control cell's
+ * min-content (its widest piece plus the pr-24 corner reserve) before the
+ * title's auto track takes anything. Spelled minmax(0,1fr), a long title
+ * ("Polling-off freshness window") absorbed its max-content first and left a
+ * 144px number input ~70px of track, running it under the pinned actions;
+ * the settings-band-floor fixture asserts the non-overlap at the band's
+ * floor.
+ *
+ * That auto minimum is also what sets the band's 560px floor (an existing
+ * tier, not minted): the widest control's min-content - the token-estimation
+ * select at ~230px - plus the 96px corner reserve, the 16px gap, and a
+ * wrappable title's longest word outruns panes much under ~450px, where the
+ * reserved minimum would overflow the pane instead of overlapping the
+ * actions. Below 560 such a row gives the shared line back up and stacks to
+ * one column, the control's own line clear of the pinned corner; 560 is
+ * also the tier below which the actions are always painted. The two stacked
+ * tiers are spelled as exclusive bands (@min/@max pairs), not as two @max
+ * rules whose winner would hang on compiled rule order.
  *
  * The PANE decides, not the window: this pane can be narrow inside a wide
  * window whenever the editor is split. The threshold sits at 910, clear of a
@@ -247,13 +260,13 @@ const SETTING_GROUPS: readonly {
  * splitter rightward would have watched this page collapse.
  */
 const SETTING_ROW_GRID =
-	"grid grid-cols-[10rem_minmax(0,20rem)_minmax(0,1fr)_5.5rem] gap-x-4 @min-[400px]/pane:@max-[910px]/pane:grid-cols-[auto_minmax(0,1fr)] @max-[400px]/pane:grid-cols-1";
+	"grid grid-cols-[10rem_minmax(0,20rem)_minmax(0,1fr)_5.5rem] gap-x-4 @min-[560px]/pane:@max-[910px]/pane:grid-cols-[auto_1fr] @max-[560px]/pane:grid-cols-1";
 
 /**
  * The label cell, which turns at the same width the tracks do: right-aligned
  * against the control while there is a fixed gutter to align in, left-aligned
  * once the control sits directly beside it on a shared first line. In the
- * one-column tier below 400px the title is the top line's only occupant
+ * one-column tier below 560px the title is the top line's only occupant
  * again, so it takes the corner reserve back from the control cell.
  *
  * A constant because the row renders the label two ways - a `label` when it has
@@ -262,7 +275,7 @@ const SETTING_ROW_GRID =
  * interpolated out: Tailwind compiles the variants it can read whole, so
  * `@max-[910px]/pane:` has to appear in the source as itself.
  */
-const SETTING_TITLE = "setting-title text-right font-semibold @max-[910px]/pane:text-left @max-[400px]/pane:pr-24";
+const SETTING_TITLE = "setting-title text-right font-semibold @max-[910px]/pane:text-left @max-[560px]/pane:pr-24";
 
 /**
  * The settings.json jump every row carries: a quiet icon button posting the
@@ -429,12 +442,12 @@ function SettingRow({
 	hintClassName?: string | undefined;
 	/**
 	 * The control is small enough (a checkbox) to share the title's line at
-	 * EVERY stacked width: the sub-400px one-column fallback exists for the
-	 * 144px inputs plus the corner reserve, which no floor-width pane can
-	 * seat beside a title - a 16px checkbox always can, and a checkbox alone
-	 * on a line was the original complaint. tailwind-merge resolves these
-	 * against the base template's own sub-400 classes (same variant, later
-	 * input wins).
+	 * EVERY stacked width: the sub-560px one-column fallback exists for the
+	 * wide controls - a ~230px select or a 144px input plus the corner
+	 * reserve, which a floor-width pane cannot seat beside a title - and a
+	 * 16px checkbox always fits, while a checkbox alone on a line was the
+	 * original complaint. tailwind-merge resolves these against the base
+	 * template's own sub-560 classes (same variant, later input wins).
 	 */
 	compactControl?: boolean;
 }) {
@@ -520,29 +533,29 @@ function SettingRow({
 				// to nothing and the bar silently fell back to currentColor grey.
 				configuredScope !== null ? "modified border-l-(--accent-hue)" : "border-l-transparent",
 				// A compact control keeps the two-column line at every stacked
-				// width; the base template's sub-400 fallback yields to it
+				// width; the base template's sub-560 fallback yields to it
 				// (tailwind-merge, same variant, later wins).
-				compactControl === true && "@max-[400px]/pane:grid-cols-[auto_minmax(0,1fr)]"
+				compactControl === true && "@max-[560px]/pane:grid-cols-[auto_1fr]"
 			)}
 			hidden={hidden}
 		>
 			{titleFor === undefined ? (
-				<span className={cn(SETTING_TITLE, compactControl === true && "@max-[400px]/pane:pr-0")}>{title}</span>
+				<span className={cn(SETTING_TITLE, compactControl === true && "@max-[560px]/pane:pr-0")}>{title}</span>
 			) : (
-				<label className={cn(SETTING_TITLE, compactControl === true && "@max-[400px]/pane:pr-0")} htmlFor={titleFor}>
+				<label className={cn(SETTING_TITLE, compactControl === true && "@max-[560px]/pane:pr-0")} htmlFor={titleFor}>
 					{title}
 				</label>
 			)}
 			{/* The line's tail in the two-column stacked band, so it carries the
 			    top-right corner reserve there: the actions pin over the row's
 			    first line, and a long control would otherwise run under them.
-			    Below 400px the control has a line of its own, clear of the
+			    Below 560px the control has a line of its own, clear of the
 			    corner, and the reserve goes back to the title - except beside a
 			    compact control, which keeps the shared line and the reserve. */}
 			<div
 				className={cn(
-					"setting-control flex flex-wrap items-center gap-2 @min-[400px]/pane:@max-[910px]/pane:pr-24",
-					compactControl === true && "@max-[400px]/pane:pr-24"
+					"setting-control flex flex-wrap items-center gap-2 @min-[560px]/pane:@max-[910px]/pane:pr-24",
+					compactControl === true && "@max-[560px]/pane:pr-24"
 				)}
 			>
 				{control}
@@ -576,10 +589,10 @@ function SettingRow({
 				className={cn(
 					"setting-hint relative min-w-0 max-w-[72ch] break-words text-[0.95em] text-muted-foreground",
 					// The second line of the two-column stacked band, under the
-					// title-and-control line; the one-column tier below 400px places
+					// title-and-control line; the one-column tier below 560px places
 					// it by flow, except under a compact control's kept line.
-					"@min-[400px]/pane:@max-[910px]/pane:col-span-2",
-					compactControl === true && "@max-[400px]/pane:col-span-2",
+					"@min-[560px]/pane:@max-[910px]/pane:col-span-2",
+					compactControl === true && "@max-[560px]/pane:col-span-2",
 					hintClassName
 				)}
 				ref={hintRef}

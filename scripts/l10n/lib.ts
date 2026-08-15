@@ -350,7 +350,7 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"helpCapsInspector",
 	"helpConfigDiagnosticsSection",
 	"helpResolutionSection",
-	"helpSupportSection",
+	"helpDiagnosticsTools",
 	"usageStatusBarDescription",
 	"tokenEstimationDescription",
 	"toolSchemaKeywordsDescription",

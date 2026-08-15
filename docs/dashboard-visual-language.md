@@ -47,11 +47,16 @@ Three surface classes, each with one owner of its geometry.
   `settings.tsx SETTING_TITLE`). Below the stack threshold the row costs two
   lines, not three: the label turns left and keeps its control beside it, the
   description takes the line under them, and the actions pin to the row's
-  top-right corner. Only under the 400px tier, where the shell's floor leaves
-  no line the pair can share, does the row stack to one column.
+  top-right corner. Only under the 560px tier, where the widest controls
+  cannot share a line with any title without overflowing the pane, does a
+  row with such a control stack to one column; a compact control (a
+  checkbox) keeps the title's line at every width.
 - The description wears the hint measure, 72ch (`dashboard.css p.hint`'s own),
   as a reading cap inside its growing track: structure goes full-bleed, prose
-  stops where lines stay readable (`settings.tsx setting-hint`).
+  stops where lines stay readable (`settings.tsx setting-hint`). The one
+  carve-out is a STATUS cluster standing in the description slot (the catalog
+  row's counts, Refresh, and verdict): status is not prose, so it sheds the
+  reading cap rather than wrap its own controls.
 - The gutter marker is always present and transparent when clean, so marking a
   row modified never shifts it (`settings.tsx SettingRow`).
 - An error COVERS the description, never displaces it: the description stays in

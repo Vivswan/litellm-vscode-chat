@@ -772,7 +772,7 @@ test("the title's stacked flip shares the row grid's threshold, read off the gri
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const row = root.querySelector(".setting-row") as HTMLElement;
 	const tracks = Array.from(row.classList).filter((name) => name.includes("grid-cols-"));
-	const stackedTemplate = "grid-cols-[auto_minmax(0,1fr)]";
+	const stackedTemplate = "grid-cols-[auto_1fr]";
 	const band = tracks.find((name) => name.startsWith("@") && name.endsWith(stackedTemplate)) ?? "";
 	const stacked = /(@max-\[\d+px\]\/pane:)/.exec(band)?.[1] ?? "";
 	expect(stacked).toMatch(/^@max-\[\d+px\]\/pane:$/);

@@ -512,7 +512,7 @@ test("the settings rows' fixed tracks leave the description a working column at 
 	// tail pins the stacked template too, so a redesign of either tier moves
 	// this test with it deliberately.
 	const grid =
-		/SETTING_ROW_GRID =\s*"grid grid-cols-\[(\d+(?:\.\d+)?)rem_minmax\(0,(\d+(?:\.\d+)?)rem\)_minmax\(0,1fr\)_(\d+(?:\.\d+)?)rem\] gap-x-4[\s\S]{0,80}?@max-\[(\d+)px\]\/pane:grid-cols-\[auto_minmax\(0,1fr\)\]/.exec(
+		/SETTING_ROW_GRID =\s*"grid grid-cols-\[(\d+(?:\.\d+)?)rem_minmax\(0,(\d+(?:\.\d+)?)rem\)_minmax\(0,1fr\)_(\d+(?:\.\d+)?)rem\] gap-x-4[\s\S]{0,80}?@max-\[(\d+)px\]\/pane:grid-cols-\[auto_1fr\]/.exec(
 			source
 		);
 	if (grid?.[1] === undefined || grid[2] === undefined || grid[3] === undefined || grid[4] === undefined) {

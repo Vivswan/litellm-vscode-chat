@@ -406,11 +406,17 @@ export class UsagePoller {
 		} finally {
 			this.running = undefined;
 			this.runningExplicit = false;
+			// The queued follow-up detaches BEFORE the completion listeners run:
+			// isRefreshingExplicitly reads the queue, and a listener firing with
+			// an explicit follow-up still attached published the contradiction
+			// "idle but explicitly refreshing" - an enabled button wearing the
+			// spinner. Detached first, completion publishes plain idle, and the
+			// follow-up's own start notification reports busy again in order.
+			const queued = this.queued;
+			this.queued = undefined;
 			// Completion is announced AFTER the engine reads idle, so a listener
 			// that re-publishes engine state (the dashboard push) reports the
-			// button re-enabled instead of freezing it on a stale "in flight" -
-			// and before any queued follow-up starts, whose own start
-			// notification then reports busy again in the right order.
+			// button re-enabled instead of freezing it on a stale "in flight".
 			for (const listener of this.refreshListeners) {
 				try {
 					listener();
@@ -418,8 +424,6 @@ export class UsagePoller {
 					this.env.log("Usage refresh listener failed", { error: error instanceof Error ? error.name : typeof error });
 				}
 			}
-			const queued = this.queued;
-			this.queued = undefined;
 			if (queued !== undefined) {
 				void this.refresh(queued.force, queued.explicit).then(queued.resolve, () => queued.resolve(undefined));
 			}

@@ -49,7 +49,7 @@
  "(no matcher)": "(無比對鍵)",
  "(no own fields)": "(無自有欄位)",
  "(unnamed)": "(未命名)",
- "0 stops only the background timer - opening the dashboard or running Refresh Usage Now still fetches on demand. Type 5m, 90s, or plain ms./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": "0 只停止背景計時器: 開啟儀表板或執行「立即重新整理用量」仍會按需擷取。可輸入 5m、90s 或純 ms。",
+ "0 stops only the background timer - Refresh Usage Now still fetches on demand, and opening the dashboard fetches when the numbers are older than this interval (or its 5m default at 0). Type 5m, 90s, or plain ms./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": "0 只停止背景計時器: 「立即重新整理用量」仍會按需擷取; 開啟儀表板僅在資料早於此間隔時才擷取(為 0 時以預設 5m 為準)。可輸入 5m、90s 或純 ms。",
  "1 alert threshold was dropped: a threshold must be inside (0, 1].": "已捨棄 1 個警示閾值: 閾值必須落在 (0, 1] 範圍內。",
  "1 catalog model": "1 個目錄模型",
  "1 day ago": "1 天前",

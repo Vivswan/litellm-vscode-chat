@@ -1132,6 +1132,40 @@ suite("extension/servers/usage poller", () => {
 		assert.strictEqual(refreshingAtDone, false);
 	});
 
+	test("a completion firing with an explicit follow-up queued never publishes 'idle but explicit'", async () => {
+		// isRefreshingExplicitly reads the QUEUE too, so the completion
+		// listeners must run after the follow-up detaches: caught mid-teardown,
+		// a listener once published refreshing: false with refreshingExplicitly
+		// still true - an enabled button wearing the spinner.
+		const h = makeHarness({ initialRefreshDelayMs: 5_000 });
+		const releases: (() => void)[] = [];
+		h.client.fetchKeyInfo = async () => {
+			h.client.calls.keyInfo += 1;
+			await new Promise<void>((resolve) => releases.push(resolve));
+			return KEY_OK;
+		};
+		const observed: { refreshing: boolean; explicitly: boolean }[] = [];
+		h.poller.onDidRefresh(() => {
+			observed.push({ refreshing: h.poller.isRefreshing(), explicitly: h.poller.isRefreshingExplicitly() });
+		});
+
+		h.poller.start();
+		h.timer.firePending();
+		await settle();
+		const explicit = h.poller.refreshNow();
+		releases.shift()?.();
+		await settle();
+		releases.shift()?.();
+		await settle();
+		await explicit;
+
+		assert.strictEqual(observed.length, 2, "both passes announce completion");
+		for (const [index, snapshot] of observed.entries()) {
+			assert.strictEqual(snapshot.refreshing, false, `completion ${index} observes the engine idle`);
+			assert.strictEqual(snapshot.explicitly, false, `completion ${index} never reads 'idle but explicit'`);
+		}
+	});
+
 	test("only explicit passes read as refreshing explicitly; scheduled and open-triggered ones stay quiet", async () => {
 		const h = makeHarness({ initialRefreshDelayMs: 5_000 });
 		// Every keyInfo call blocks until released, one release per call, so the

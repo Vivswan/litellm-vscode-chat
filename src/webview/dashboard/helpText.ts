@@ -359,7 +359,7 @@ export function settingRowHelp(id: NumberSettingId | BooleanSettingId): string |
 		case "usage.pollInterval":
 			return l10n.t({
 				message:
-					"0 stops only the background timer - opening the dashboard or running Refresh Usage Now still fetches on demand. Type 5m, 90s, or plain ms.",
+					"0 stops only the background timer - Refresh Usage Now still fetches on demand, and opening the dashboard fetches when the numbers are older than this interval (or its 5m default at 0). Type 5m, 90s, or plain ms.",
 				comment: ["Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters."],
 			});
 		case "chat.promptCaching":

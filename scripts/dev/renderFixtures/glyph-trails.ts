@@ -4,12 +4,12 @@
  * fixture ASSERTS it instead of photographing it - the two boxes drifted a
  * descent apart per-site before the rule existed, and a screenshot cannot
  * fail. The step measures every adjacent pair on the page (section heads and
- * the catalog row's inline trail), so check-overflow's width sweep re-proves
- * the centerline at every declared width; pairs a narrow width wraps onto
- * different lines stop being adjacent and are skipped, because a wrapped
- * trail is a different claim than a misaligned one. Fail-closed: fewer than
- * two measured pairs means the page under the probe is not the page this
- * fixture thinks it shows.
+ * the catalog row's inline trail) at this fixture's OWN width - the harness
+ * runs steps once, before the width sweep, which re-asserts only overflow.
+ * Pairs a layout wraps onto different lines stop being adjacent and are
+ * skipped, because a wrapped trail is a different claim than a misaligned
+ * one. Fail-closed: fewer than two measured pairs means the page under the
+ * probe is not the page this fixture thinks it shows.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";
