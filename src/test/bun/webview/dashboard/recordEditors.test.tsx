@@ -1115,6 +1115,39 @@ test("the key track pins while focus is inside the field grid and refits once it
 	expect(pinOf()).toBe("");
 });
 
+test("the overlay's field rows carry reserved status lines: empty at rest, marked when the verdict lands", () => {
+	// The per-row verdict re-renders per keystroke inside the overlay, so its
+	// line is mounted whether or not it speaks (the record rows' .record-status
+	// idiom): a status inserted only alongside a problem pushed the rows below
+	// and the footer down on the first bad character.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
+	const editor = openEditorFor(sectionByHeading(root, "Model parameters"), "gpt-4");
+	const row = editor.querySelector(".rows .row");
+	const status = () => row?.querySelector(".row-status");
+	expect(status()).not.toBeNull();
+	expect(status()?.textContent).toBe("");
+	expect(status()?.classList.contains("error")).toBe(false);
+	fireInput(row?.querySelector("input.value") as HTMLInputElement, "not json");
+	expect(status()?.classList.contains("error")).toBe(true);
+	expect(status()?.textContent).toContain("Not valid JSON");
+	cleanup();
+
+	// The capabilities editor speaks the same rule through the same slot.
+	const capsRoot = mount(<App />);
+	pushToWebview(
+		statePush(makeState({ settings: settingsWithCaps({ "gpt-4": { supported_openai_params: ["temperature"] } }) }))
+	);
+	const capsEditor = openEditorFor(sectionByHeading(capsRoot, "Model capabilities"), "gpt-4");
+	const capsRow = capsEditor.querySelector(".rows .row");
+	const capsStatus = () => capsRow?.querySelector(".row-status");
+	expect(capsStatus()).not.toBeNull();
+	expect(capsStatus()?.textContent).toBe("");
+	fireInput(capsRow?.querySelector("input.value") as HTMLInputElement, "not json");
+	expect(capsStatus()?.classList.contains("error")).toBe(true);
+	expect(capsStatus()?.textContent).not.toBe("");
+});
+
 test("Add model matcher opens the overlay on a fresh group; closing it pristine sweeps the empty row", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "*": { top_p: 0.9 } }) })));
@@ -1474,14 +1507,38 @@ test("an intentFailed after Apply reopens the draft dirty with the failure note"
 		kind: "fail",
 		id: lastRequestId(),
 		method: "setModelParameters",
-		message: "gpt-4: refused by validation.",
+		message: "gpt-4: refused by validation.\ntechnical detail the reserved line must not carry",
 		failureKind: "validation",
 	});
 	// The draft returns dirty and retryable; a failed write must not render as
-	// applied. Headline and the extension's message render as separate lines.
-	expect(section().textContent).toContain("Saving failed - your edits are kept. Fix the problem and Apply again.");
-	expect(section().textContent).toContain("gpt-4: refused by validation.");
+	// applied. The note is the frame's reserved one-line slot: it carries the
+	// edits-kept frame with the extension's HEADLINE, the arbitrary-length
+	// detail part stays off the reserved LINE (the covered slots' rule) but
+	// survives without geometry - in the title for pointer readers and an
+	// sr-only span for assistive tech, this slot being the failure's only
+	// surface - and the standing role announces the async arrival.
+	const note = section().querySelector(".failure-note");
+	expect(note?.classList.contains("error")).toBe(true);
+	expect(note?.firstChild?.textContent).toBe("Saving failed - your edits are kept: gpt-4: refused by validation.");
+	expect(note?.querySelector(".sr-only")?.textContent).toContain("technical detail the reserved line must not carry");
+	expect(note?.getAttribute("title")).toBe(
+		"gpt-4: refused by validation.\ntechnical detail the reserved line must not carry"
+	);
+	expect(note?.getAttribute("role")).toBe("alert");
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(false);
+});
+
+test("the failure slot is reserved: mounted empty on a clean editor, before any failure exists", () => {
+	// The refusal lands async under the rows (the charter's
+	// transients-never-move-anything clause): the slot holds its line whether
+	// or not it speaks, so the action bar cannot move when the envelope lands.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
+	const section = () => sectionByHeading(root, "Model parameters");
+	const note = section().querySelector(".failure-note");
+	expect(note).not.toBeNull();
+	expect(note?.textContent).toBe("");
+	expect(note?.classList.contains("error")).toBe(false);
 });
 
 test("a draft edited back to the store value counts as unchanged: Apply and Discard disable, nothing posts", () => {
@@ -1653,8 +1710,7 @@ test("Apply feedback: a failure ends the Applying... window along with reopening
 		failureKind: "validation",
 	});
 	expect(section().querySelector(".apply-status")?.textContent).toBe("");
-	expect(section().textContent).toContain("Saving failed - your edits are kept.");
-	expect(section().textContent).toContain("refused.");
+	expect(section().textContent).toContain("Saving failed - your edits are kept: refused.");
 });
 
 test("a foreign ack or foreign failure leaves an applying draft alone; only its own outcome resolves it", () => {

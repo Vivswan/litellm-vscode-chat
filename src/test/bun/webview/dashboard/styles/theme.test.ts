@@ -961,7 +961,7 @@ test("tone text is one unlayered presentation: severity color plus the weight ch
 	}
 	// And dashboard.css may not fork it: no bare .error, .state-warn, or
 	// .state-ok rule at all over there - the rules that PLACE tone text
-	// (.row .error and friends) are longer selectors and stay.
+	// (.row .row-status and friends) are longer selectors and stay.
 	const dashboard = await compileDashboard();
 	expect(rulesFor(dashboard, ".error")).toHaveLength(0);
 	expect(rulesFor(dashboard, ".state-warn")).toHaveLength(0);

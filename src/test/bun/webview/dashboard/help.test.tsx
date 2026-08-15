@@ -260,7 +260,7 @@ test("every server form field carries its help glyph, trailing and named for the
 		expect(description?.contains(button)).toBe(false);
 		const labelCell = document.querySelector(`label[for="server-${id}"]`)?.parentElement;
 		expect(labelCell?.contains(button)).toBe(false);
-		expect(description?.parentElement?.nextElementSibling?.contains(button)).toBe(true);
+		expect(description?.nextElementSibling?.contains(button)).toBe(true);
 		afterItsControl(document.getElementById(`server-${id}`), button, label);
 	};
 	// The tab-order pin, and the one assertion that has to hold for a row with

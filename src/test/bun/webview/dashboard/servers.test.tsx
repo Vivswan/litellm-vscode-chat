@@ -535,9 +535,14 @@ test("Custom with no text blocks Save with the version-segment problem, in view 
 	fireClick(buttonByText(root, "Save"));
 	expect(postedMessages).toEqual([]);
 	expect(root.textContent).toContain("Cannot save: fix API version");
-	// The problem renders in the row's own hint column, reachable with no
-	// gesture at all: the page has nothing that can hide a field.
-	expect(root.querySelector("#server-apiVersion-error")?.textContent).toBe("Enter the version segment, e.g. v2");
+	// The problem renders as the overlay covering the row's own hint column,
+	// reachable with no gesture at all: the page has nothing that can hide a
+	// field. The hint stays mounted under it, invisible, holding the cell's
+	// height (the covered-description mechanism).
+	expect(root.querySelector("#server-apiVersion-error .error")?.textContent).toBe("Enter the version segment, e.g. v2");
+	const coveredHint = root.querySelector("#server-apiVersion-error span:not(.error)");
+	expect(coveredHint?.classList.contains("invisible")).toBe(true);
+	expect(coveredHint?.textContent).toBe("Just the segment, no slashes.");
 	expect(root.querySelectorAll("details").length).toBe(0);
 });
 
@@ -1784,6 +1789,52 @@ test("every problem is in view without a gesture: the page holds no fold that co
 	fireClick(buttonByText(root, "Save"));
 	expect(postedMessages).toEqual([]);
 	expect(root.textContent).toContain("Cannot save: fix");
+});
+
+test("the form's transient slots are reserved: the error covers the hint, the connection note holds its box", () => {
+	// The charter's transients-never-move-anything clause, on the edit form's
+	// three movers: a field problem renders as an overlay COVERING the row's
+	// still-mounted hint (the settings rows' covered-description mechanism), the
+	// connection-consequence note holds its box as an invisible twin until a
+	// connection edit makes it speak, and every custom-header row carries its
+	// one status line whether or not it has anything to say.
+	const root = mountEditPage([makeDeclaredServer({ label: "Prod" })]);
+
+	// The connection note's twin is mounted on the pristine edit form,
+	// invisible: the sentence reserves its own wrapped height at every width.
+	const note = () =>
+		[...root.querySelectorAll("p")].find((p) => (p.textContent ?? "").includes("keeps the old connection"));
+	expect(note()).not.toBeUndefined();
+	expect(note()?.classList.contains("invisible")).toBe(true);
+
+	// A connection edit makes the same element speak - nothing mounts.
+	fireInput(inputByLabel(root, "Base URL"), "not a url");
+	expect(note()?.classList.contains("invisible")).toBe(false);
+
+	// The URL problem is the overlay in the same cell the (empty) hint slot
+	// reserves; the id announces only the visible voice.
+	const cell = root.querySelector("#server-baseUrl-error");
+	expect(cell?.querySelector(".error")?.textContent).toContain("Must be a usable http(s) URL");
+
+	// A rename outranks the note (the rename toast carries the remediation):
+	// the twin goes back to holding the box, not to unmounting.
+	fireInput(inputByLabel(root, "Label"), "Renamed");
+	expect(note()?.classList.contains("invisible")).toBe(true);
+
+	// Every header row's status line is the same mounted element in every
+	// state: speaking on the fresh (empty-name) row, empty but still holding
+	// its line once the name is valid, and speaking again when it goes bad.
+	fireClick(buttonByText(root, "Add header"));
+	const headerRow = root.querySelector("#server-edit-page .row");
+	const status = headerRow?.querySelector(".row-status");
+	expect(status?.textContent).toBe("Enter a header name");
+	const name = headerRow?.querySelector("input[aria-label='Header name']") as HTMLInputElement;
+	fireInput(name, "x-test");
+	expect(status?.textContent).toBe("");
+	expect(status?.classList.contains("error")).toBe(false);
+	fireInput(name, "bad name");
+	expect(status?.classList.contains("error")).toBe(true);
+	expect(status?.textContent).toBe("Not a valid HTTP header name");
 });
 
 test("add matcher then cancel is a no-op: the pristine sweep leaves the form clean, nothing to ask about", () => {

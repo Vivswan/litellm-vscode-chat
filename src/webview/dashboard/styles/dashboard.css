@@ -1347,10 +1347,20 @@
 	.row > button {
 		grid-row: 1;
 	}
-	.row .error {
+	/* Every field row's one status line - problem or non-blocking hint, worst
+		   first - reserved whether or not it speaks (the record rows'
+		   .record-status idiom): the verdict lands per keystroke, and a line
+		   mounted only alongside a problem pushed the rows below down on the
+		   first bad character. min-height is one line of its own text; a message
+		   that wraps at extreme widths still grows the row, which is the accepted
+		   edge - the reservation is sized for the parse sentences the editors
+		   actually emit. The tone classes (.error, .hint) ride the same span, so
+		   the paint stays the tone registers'. */
+	.row .row-status {
 		grid-column: 1 / -1;
 		font-size: 0.9em;
 		margin: 0;
+		min-height: 1lh;
 	}
 	/* The per-row force/fallback/inheritable marks: muted checkboxes on their
 		   own full line under the row's inputs, the same position on every row. */
@@ -1369,13 +1379,6 @@
 	.rows > .row {
 		grid-column: 1 / -1;
 		grid-template-columns: subgrid;
-		margin: 0;
-	}
-	/* A capability row's non-blocking hint (unknown key) rides under the row
-		   like an error line, in the muted tone. */
-	.row .hint {
-		grid-column: 1 / -1;
-		font-size: 0.9em;
 		margin: 0;
 	}
 	/* The boolean capability control keeps only its name here: its layout and
@@ -2721,7 +2724,13 @@
 	}
 
 	/* === R4 diagnostics, records === */
-	.failure-note p {
+	/* The record editors' failure line, reserved whether or not it speaks (the
+		   record rows' .record-status idiom): the refusal lands async under the
+		   rows, and as an inserted block it pushed the action bar down when it
+		   arrived. One line, headline only - an arbitrary-length technical detail
+		   never rides a reserved slot. */
+	.failure-note {
+		min-height: 1lh;
 		margin: 2px 0;
 	}
 	/* The two-part errors' technical detail line: its own line under the
@@ -3257,8 +3266,7 @@
 		grid-row: 1;
 		justify-self: end;
 	}
-	.matcher-editor .row .error,
-	.matcher-editor .row .hint {
+	.matcher-editor .row .row-status {
 		grid-column: 1 / -1;
 	}
 	/* Below the width where two input tracks stay usable, rows stack back to
@@ -3287,7 +3295,7 @@
 		.slide-over .row .cell.key,
 		.slide-over .row .cell.value,
 		.slide-over .row > button,
-		.slide-over .row .error {
+		.slide-over .row .row-status {
 			grid-column: 1;
 			grid-row: auto;
 			justify-self: start;
@@ -3320,8 +3328,7 @@
 		.matcher-editor .row .cell.value,
 		.matcher-editor .row .directive-flag,
 		.matcher-editor .row > button,
-		.matcher-editor .row .error,
-		.matcher-editor .row .hint {
+		.matcher-editor .row .row-status {
 			grid-column: 1;
 			grid-row: auto;
 			justify-self: start;

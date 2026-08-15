@@ -1,10 +1,10 @@
 /**
- * A FailureNote in the Model parameters record editor: the fixed headline
- * ("Saving failed - your edits are kept...") with the extension's message
- * rendered verbatim as its own line through FailureText. The steps make the
- * draft dirty and Apply it; the respond map answers the posted
- * setModelParameters with its correlated fail envelope, which returns the
- * draft dirty and renders the note.
+ * A FailureNote in the Model parameters record editor: the frame's reserved
+ * one-line failure slot speaking - the edits-kept frame around the
+ * extension's message HEADLINE (the detail part stays off the reserved line).
+ * The steps make the draft dirty and Apply it; the respond map answers the
+ * posted setModelParameters with its correlated fail envelope, which returns
+ * the draft dirty and marks the slot.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";

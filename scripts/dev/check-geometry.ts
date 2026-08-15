@@ -150,10 +150,23 @@ const THRESHOLDS_ROW = '.setting-row:has([id="setting-usage.alertThresholds-warn
  * induces.
  */
 const THRESHOLDS_PARSE_ERROR = `${THRESHOLDS_ROW} .setting-hint span.error[id="setting-usage.alertThresholds-problem"]`;
+/**
+ * The same row's write-REFUSAL overlay: the covered slot's other tenant,
+ * identified by NOT carrying the parse error's id (only the parse error is
+ * pointed at by the inputs' aria-describedby; err-scalar.ts pins the same
+ * disambiguation).
+ */
+const THRESHOLDS_REFUSAL = `${THRESHOLDS_ROW} .setting-hint > span.error:not([id])`;
 /** The first server row's home; its next sibling is the second row. */
 const FIRST_SERVER_ITEM = ".server-list > li.server-item:first-child";
 /** The chip whose popover is open - the one chip a state toggle can address across both measurements. */
 const OPEN_CHIP = ".chip-anchor:has(.chip-popover) > button.chip-field";
+/** The server edit form's first custom-header row (the only .row users on that page are the header rows). */
+const FIRST_HEADER_ROW = "#server-edit-page .row";
+/** The settings page's Model parameters frame, anchored by its own add button's id. */
+const PARAMS_FRAME = ".record-frame:has(#params-add-matcher)";
+/** The record row whose chips the popover fixtures open; its next sibling holds the row below. */
+const GPT5_RECORD_ROW = `.record-row:has(button[aria-label='Open the full editor for "gpt-5*"'])`;
 
 /** Writes a value into a React-controlled input through the native setter, then fires the events React listens to. */
 function reactType(selector: string, value: string): string {
@@ -286,20 +299,183 @@ const STATE_PAIRS: readonly StatePair[] = [
 		intended: { [OPEN_CHIP]: ["width", "x"] },
 	},
 	{
-		// The server form's field problem takes the hint's place in the SAME
-		// grid cell - the input must not move and the form must not change
-		// height when a field goes invalid.
+		// The server form's field problem is an overlay COVERING the row's
+		// reserved hint slot (the settings rows' covered-description mechanism),
+		// and the connection-consequence note under Test connection holds its box
+		// as an invisible twin until a connection edit makes it speak - a field
+		// going invalid must not move the input or grow the form.
 		name: "form-url-error",
 		fixture: "form-apikey.ts",
 		targets: ["#server-baseUrl", "#server-edit-page"],
 		toggle: [reactType("#server-baseUrl", "not a url")],
-		restVerify: `!document.querySelector('[id="server-baseUrl-error"]').classList.contains("error")`,
-		verify: `document.querySelector('[id="server-baseUrl-error"].error') !== null`,
-		expectedDrift: {
-			reason:
-				"the URL problem re-flows the form on today's main (+40px of form height, the input itself pushed " +
-				"2px): the error does not yet render in a reserved slot the way the settings rows' overlay does",
-			where: ["#server-baseUrl y", "#server-edit-page height"],
+		restVerify: `document.querySelector('[id="server-baseUrl-error"] .error') === null`,
+		verify: `document.querySelector('[id="server-baseUrl-error"] .error') !== null`,
+	},
+	{
+		// A custom-header row's parse verdict lands per keystroke in the row's
+		// reserved status line (the .row .row-status reservation) - the row, the
+		// row below, and the form must not move when a name goes invalid.
+		name: "form-header-row-error",
+		fixture: "form-apikey.ts",
+		targets: [FIRST_HEADER_ROW, "#server-edit-page"],
+		siblingOf: FIRST_HEADER_ROW,
+		toggle: [reactType(`${FIRST_HEADER_ROW} input[aria-label="Header name"]`, "bad header")],
+		restVerify: `document.querySelector("#server-edit-page .row .row-status.error") === null`,
+		verify: `document.querySelector("#server-edit-page .row .row-status.error") !== null`,
+	},
+	{
+		// The matcher editor overlay's per-row verdict lands per keystroke in the
+		// row's reserved status line - the row, the rows grid, and the Add action
+		// under it (the grid's next sibling) must not move when a value goes
+		// invalid. The parameters editor is toggled here; the capability twin
+		// below drives the same shared machinery from the caps side.
+		name: "record-overlay-row-error",
+		fixture: "record-overlay.ts",
+		targets: [".matcher-editor .rows > .row", ".matcher-editor .rows"],
+		siblingOf: ".matcher-editor .rows",
+		toggle: [reactType(".matcher-editor .rows input.value", "not json")],
+		restVerify: `document.querySelector(".matcher-editor .row-status.error") === null`,
+		verify: `document.querySelector(".matcher-editor .row-status.error") !== null`,
+	},
+	{
+		// The capability editor's twin of the pair above, inside the server
+		// form's overlay: its rows also carry standing HINTS at rest (the
+		// unknown-key advisories), so this pair proves a problem landing beside
+		// them holds the grid and the overlay footer still.
+		name: "form-caps-overlay-row-error",
+		fixture: "form-caps-open.ts",
+		targets: [".matcher-editor .rows", ".matcher-editor .editor-footer"],
+		siblingOf: ".matcher-editor .rows",
+		toggle: [
+			`(() => {
+				const rows = [...document.querySelectorAll(".matcher-editor .rows > .row")];
+				const row = rows.find((r) => r.querySelector("input.key")?.value === "supported_openai_params");
+				if (row === undefined) { throw new Error(${marker("SETUP", ": no supported_openai_params row in the overlay")}); }
+				const input = row.querySelector("input.value");
+				if (input === null) { throw new Error(${marker("SETUP", ": the supported_openai_params row offers no value input")}); }
+				const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+				input.focus({ preventScroll: true });
+				setter.call(input, "not json");
+				input.dispatchEvent(new Event("input", { bubbles: true }));
+				input.blur();
+			})()`,
+		],
+		restVerify: `document.querySelector(".matcher-editor .row-status.error") === null`,
+		verify: `document.querySelector(".matcher-editor .row-status.error") !== null`,
+	},
+	{
+		// A refused record Apply lands in the frame's reserved one-line failure
+		// slot (headline only) - the frame, its action bar, and the Add action
+		// must not move when the refusal arrives. The toggle drives the real
+		// flow: Apply posts the dirty draft, and the fail envelope quotes the
+		// posted request's id off the harness stub, like err-recordeditor.ts.
+		name: "record-apply-failure-note",
+		fixture: "settings.ts",
+		setup: [
+			// A dirty draft first: open the "*" row's temperature chip, change the
+			// value, close the popover. The rest state is the dirty-but-unrefused
+			// editor, the state the refusal actually lands on.
+			`(() => {
+				const chips = [...document.querySelectorAll("button.chip-field")]
+					.filter((chip) => chip.querySelector(".chip-key")?.textContent === "temperature");
+				if (chips.length === 0) { throw new Error(${marker("SETUP", ": no temperature chip to open")}); }
+				chips[0].click();
+			})()`,
+			reactType(".chip-popover input.value", "0.9"),
+			`document.querySelector(${JSON.stringify(OPEN_CHIP)}).click()`,
+		],
+		targets: [PARAMS_FRAME, `${PARAMS_FRAME} .toolbar.editor-actions`, "#params-add-matcher"],
+		toggle: [
+			`(() => {
+				const frame = document.querySelector(${JSON.stringify(PARAMS_FRAME)});
+				[...frame.querySelectorAll("button")].find((b) => b.textContent.trim() === "Apply").click();
+				const posted = window.__posted.filter((m) => m.method === "setModelParameters").pop();
+				if (posted === undefined) { throw new Error(${marker("SETUP", ": Apply posted no setModelParameters request")}); }
+				window.dispatchEvent(
+					new MessageEvent("message", {
+						data: {
+							kind: "fail",
+							id: posted.id,
+							method: "setModelParameters",
+							message: "The write to models.parameters was refused by the configuration target.",
+							failureKind: "validation",
+						},
+					})
+				);
+			})()`,
+		],
+		restVerify: `document.querySelector(${JSON.stringify(`${PARAMS_FRAME} .failure-note.error`)}) === null`,
+		verify:
+			`document.querySelector(${JSON.stringify(`${PARAMS_FRAME} .failure-note.error`)})` +
+			`?.textContent.includes("refused by the configuration target") === true`,
+	},
+	{
+		// A refused settings write covers the posting row's description slot (the
+		// parse errors' covered-description mechanism; err-scalar.ts drives the
+		// same flow for its shot) - the row and the row below must not move when
+		// the refusal lands. Sibling pair of settings-row-error-overlay, which
+		// toggles the slot's OTHER tenant.
+		name: "settings-write-failure-overlay",
+		fixture: "settings.ts",
+		targets: [THRESHOLDS_ROW],
+		siblingOf: THRESHOLDS_ROW,
+		toggle: [
+			`(() => {
+				const box = document.getElementById("setting-usage.alertThresholds-warning");
+				const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+				box.focus({ preventScroll: true });
+				setter.call(box, "70%");
+				box.dispatchEvent(new Event("input", { bubbles: true }));
+				box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+				const posted = window.__posted.filter((m) => m.method === "setUsageAlertThresholds").pop();
+				if (posted === undefined) { throw new Error(${marker("SETUP", ": Enter posted no setUsageAlertThresholds request")}); }
+				window.dispatchEvent(
+					new MessageEvent("message", {
+						data: {
+							kind: "fail",
+							id: posted.id,
+							method: "setUsageAlertThresholds",
+							message: "Alert thresholds must be above 0% and at most 100% - enter values like 80% or 0.8.",
+							failureKind: "validation",
+						},
+					})
+				);
+			})()`,
+		],
+		restVerify: `document.querySelector(${JSON.stringify(THRESHOLDS_REFUSAL)}) === null`,
+		verify: `document.querySelector(${JSON.stringify(THRESHOLDS_REFUSAL)}) !== null`,
+	},
+	{
+		// A record row's reserved one-line status slot (.record-status) speaks
+		// when its popover closes over an invalid draft - the row, the row below,
+		// and the table must not move when the verdict lands in it.
+		name: "record-row-status",
+		fixture: "record-popover.ts",
+		targets: [GPT5_RECORD_ROW, ".record-table"],
+		siblingOf: GPT5_RECORD_ROW,
+		toggle: [
+			reactType(".chip-popover input.value", "not json"),
+			`document.querySelector(${JSON.stringify(OPEN_CHIP)}).click()`,
+		],
+		restVerify: `document.querySelector(${JSON.stringify(`${GPT5_RECORD_ROW} .record-status.error`)}) === null`,
+		verify: `document.querySelector(${JSON.stringify(`${GPT5_RECORD_ROW} .record-status.error`)}) !== null`,
+	},
+	{
+		// The chip popover's verdict lands in its reserved status slot AFTER the
+		// actions - Remove field must not move down under the pointer when the
+		// value goes invalid. Width is INTENDED on both: the popover hugs its
+		// content (width: max-content) and the value input echoes the draft's
+		// text, so a longer draft widens the box by design - the claim this pair
+		// holds is the vertical one.
+		name: "chip-popover-status",
+		fixture: "record-popover.ts",
+		targets: [".chip-popover", ".chip-popover .chip-popover-actions"],
+		toggle: [reactType(".chip-popover input.value", "not json")],
+		restVerify: `document.querySelector(".chip-popover-status .error") === null`,
+		verify: `document.querySelector(".chip-popover-status .error") !== null`,
+		intended: {
+			".chip-popover": ["width"],
+			".chip-popover .chip-popover-actions": ["width"],
 		},
 	},
 ];

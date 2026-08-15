@@ -53,6 +53,10 @@ docker/.copilot-token/*
 # Local screenshot output from the render harness (design review material)
 /renders/
 
+# Agent scratch probes (throwaway measurement fixtures/scripts); cleaned up
+# after use, ignored so a forgotten one can never land in a commit
+.probe*
+
 # END REPOSITORY LOCAL
 
 # BEGIN REPO-PLATFORM MANAGED

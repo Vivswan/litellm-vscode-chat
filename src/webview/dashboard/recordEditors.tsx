@@ -34,8 +34,8 @@ import {
 } from "../../shared/config/capabilityResolution";
 import { FORCE_DIRECTIVE } from "../../shared/config/parameterResolution";
 import { INHERIT_FROM_DIRECTIVE, INHERITABLE_DIRECTIVE } from "../../shared/config/recordResolution";
+import { statusErrorDetail, statusErrorHeadline } from "../../shared/util/errorText";
 import { DOCS_LINK_MODEL_CAPABILITIES, DOCS_LINK_MODEL_PARAMETERS } from "./docsLinks";
-import { FailureText } from "./failureText";
 import { DocsLink, Help } from "./help";
 import {
 	helpCapabilityName,
@@ -264,22 +264,35 @@ export interface ExternalRecordEdit {
 export type IntentFailureOutcome = Extract<IntentOutcome, { result: "fail" }>;
 
 function FailureNote({ failure, dirty }: { failure: IntentFailureOutcome | undefined; dirty: boolean }) {
-	if (failure === undefined || !dirty) {
-		return null;
-	}
-	// Headline first, the extension's own message verbatim as its own line:
-	// interpolating it into the sentence produced run-ons whenever the inner
-	// message lacked a trailing period. No direction word - the note renders
-	// under the rows, so "below" pointed away from the failing row it meant.
-	// The message stays webview-only (the panel boundary logs classification
-	// tokens, never this text).
+	// One line, reserved whether or not it speaks (dashboard.css .failure-note):
+	// the refusal lands async under the rows, and as an inserted block it pushed
+	// the action bar and everything below it 36px down. The frame keeps the
+	// edits-kept fact and the extension's HEADLINE only - the covered slots'
+	// rule: an arbitrary-length technical detail never rides a reserved line
+	// (statusErrorHeadline is the same extraction the host notifier's toasts
+	// use). The detail is not lost: this surface is the failure's only home
+	// (no toast backs it up), so the full message rides the title for pointer
+	// readers and an sr-only span for assistive tech, both costing zero
+	// geometry. No direction word - the note renders under the rows, so
+	// "below" pointed away from the failing row it meant. The message stays
+	// webview-only (the panel boundary logs classification tokens, never this
+	// text). role="alert" on the ALWAYS-MOUNTED slot: the refusal arrives
+	// async, and a live region only announces changes to an element that
+	// already exists - one announcement per failure, none on the empty rest
+	// state.
+	const spoken = dirty ? failure : undefined;
+	const detail = spoken !== undefined ? statusErrorDetail(spoken.message) : undefined;
 	return (
-		<div className="error failure-note">
-			<p>{l10n.t("Saving failed - your edits are kept. Fix the problem and Apply again.")}</p>
-			<p>
-				<FailureText message={failure.message} />
-			</p>
-		</div>
+		<p
+			className={cn("failure-note", spoken !== undefined && "error")}
+			role="alert"
+			{...(spoken !== undefined ? { title: spoken.message } : {})}
+		>
+			{spoken !== undefined
+				? l10n.t("Saving failed - your edits are kept: {0}", statusErrorHeadline(spoken.message))
+				: ""}
+			{detail !== undefined ? <span className="sr-only"> {detail}</span> : null}
+		</p>
 	);
 }
 
@@ -738,6 +751,8 @@ function ParamGroupsFields({
 									}
 									const removeLabel =
 										param.key.trim().length > 0 ? l10n.t('Remove "{0}"', param.key.trim()) : l10n.t("Remove");
+									const rowProblem = problems[groupIndex]?.params[paramIndex]?.message;
+									const rowHint = hints?.[groupIndex]?.params[paramIndex];
 									return (
 										// biome-ignore lint/suspicious/noArrayIndexKey: rows are positional while being edited (see useFocusedRow); the index is the identity
 										<div className="row" key={paramIndex} {...focusHold.rowFocusProps(groupIndex, paramIndex)}>
@@ -857,12 +872,20 @@ function ParamGroupsFields({
 											>
 												<IconTrash />
 											</Button>
-											{problems[groupIndex]?.params[paramIndex] !== undefined ? (
-												<span className="error">{problems[groupIndex]?.params[paramIndex]?.message}</span>
-											) : null}
-											{hints?.[groupIndex]?.params[paramIndex] !== undefined ? (
-												<span className="hint">{hints[groupIndex]?.params[paramIndex]}</span>
-											) : null}
+											{/* The row's one status line, reserved whether or not it
+										    speaks (dashboard.css .row .row-status; the record rows'
+										    .record-status idiom): the verdict lands per keystroke,
+										    and mounted only alongside a problem it pushed the rows
+										    below down 17px on the first bad character. Worst first,
+										    one message at a time - a problem outranks a hint. */}
+											<span
+												className={cn(
+													"row-status",
+													rowProblem !== undefined ? "error" : rowHint !== undefined && "hint"
+												)}
+											>
+												{rowProblem ?? rowHint}
+											</span>
 										</div>
 									);
 								})}
@@ -1549,8 +1572,17 @@ function CapabilityGroupsFields({
 											>
 												<IconTrash />
 											</Button>
-											{issue?.problem !== undefined ? <span className="error">{issue.problem.message}</span> : null}
-											{issue?.hint !== undefined ? <span className="hint">{issue.hint}</span> : null}
+											{/* The parameters editor's reserved status line, same idiom,
+										    same worst-first pick between the row's problem and its
+										    non-blocking hint. */}
+											<span
+												className={cn(
+													"row-status",
+													issue?.problem !== undefined ? "error" : issue?.hint !== undefined && "hint"
+												)}
+											>
+												{issue?.problem?.message ?? issue?.hint}
+											</span>
 										</div>
 									);
 								})}

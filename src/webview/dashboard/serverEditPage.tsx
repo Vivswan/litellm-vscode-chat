@@ -433,30 +433,46 @@ function FieldRow({
 			</div>
 			{wide === true ? null : (
 				// The hint carries the field's id whether it reads as a hint or as
-				// the error that replaced it: a description that only exists while
+				// the error covering it: a description that only exists while
 				// something is wrong leaves the storage advice - the most
 				// consequential line on the page - unannounced.
-				// The description is the TEXT, and only the text: an id that covers
-				// the help button too makes every field announce "Help: Base URL"
-				// as part of its own description, and puts a control inside one.
+				// The id sits on the CELL, and the two voices are its children: the
+				// hint stays in flow (invisible while a problem stands, so the cell
+				// keeps the height it reserved) and the problem is an absolute
+				// overlay in the same box - the settings rows' covered-description
+				// mechanism, so a field going invalid never moves the input or the
+				// rows below (the charter's transients-never-move-anything clause).
+				// min-height reserves one line where the field has no hint to hold
+				// the box open; a longer message overflows the reserved box into the
+				// row gap instead of re-flowing the form. Only visible text reaches
+				// the field's announcement: a hidden child is excluded from the
+				// description the id carries.
 				<span
+					id={errorId}
 					className={cn(
-						"col-start-3 row-start-1 flex items-baseline gap-1.5 text-[11.5px]",
+						"relative col-start-3 row-start-1 flex min-h-[1lh] items-baseline gap-1.5 text-[11.5px]",
 						"@max-[700px]/pane:col-start-1 @max-[700px]/pane:col-span-2 @max-[700px]/pane:row-start-3"
 					)}
 				>
 					<span
-						id={errorId}
 						className={cn(
 							// One register at a time: stacking text-muted-foreground under
 							// state-warn shipped muted for as long as the tone rules could
 							// lose to a utility, and still reads as muted in the source now
-							// that they cannot.
-							showProblem ? "error" : hintTone === "warn" ? "state-warn" : "text-muted-foreground"
+							// that they cannot. The covering error hides this span whole,
+							// so the two registers never paint together.
+							hintTone === "warn" ? "state-warn" : "text-muted-foreground",
+							showProblem && "invisible"
 						)}
 					>
-						{showProblem ? problem : hint}
+						{hint}
 					</span>
+					{showProblem ? (
+						// pointer-events-none like the settings overlay: what it covers
+						// is visibility-hidden and untouchable anyway, and the overlay
+						// must never eat clicks aimed at the row.
+						<span className="error pointer-events-none absolute inset-0">{problem}</span>
+					) : null}
 				</span>
 			)}
 			{/* Last in the DOM, so Tab reaches a field's control before its help
@@ -916,9 +932,14 @@ function HeaderRowsEditor({
 					>
 						<IconTrash /> {l10n.t("Remove")}
 					</Button>
-					{problems[index] !== undefined ? (
-						<span className="error basis-full text-[11.5px]">{problems[index]}</span>
-					) : null}
+					{/* The row's one status line, reserved whether or not it speaks
+					    (the record rows' .record-status idiom; min-height 1lh from the
+					    shared .row .row-status rule): the parse verdict lands per
+					    keystroke, and a line mounted only alongside a problem pushed
+					    the row below down on the first bad character. */}
+					<span className={cn("row-status basis-full text-[11.5px]", problems[index] !== undefined && "error")}>
+						{problems[index]}
+					</span>
 				</div>
 			))}
 			<div>
@@ -1635,13 +1656,20 @@ function ServerForm({
 						</span>
 					) : null}
 				</FieldUnderRow>
-				{target.kind === "edit" && !renaming && connectionEdited ? (
+				{target.kind === "edit" ? (
 					<FieldUnderRow>
 						{/* A rename gets the full three-step remediation from the toast
 						    the sync engine raises on save; a connection edit raises no
 						    toast, so this line is the only place the reader is told,
-						    and it has to name every step or it strands them. */}
-						<p className="hint state-warn m-0 text-[11.5px]">
+						    and it has to name every step or it strands them.
+						    The row is mounted on every edit form and the sentence holds
+						    its own box invisibly until it speaks (the spacing-twin
+						    idiom; visibility keeps the box and removes the words from
+						    the accessibility tree): the note lands on the first
+						    connection keystroke, and inserting it then pushed every row
+						    below down 36px mid-edit. While a rename stands, the rename
+						    note carries the remediation and this line stays silent. */}
+						<p className={cn("hint state-warn m-0 text-[11.5px]", (renaming || !connectionEdited) && "invisible")}>
 							{l10n.t(
 								"VS Code keeps the old connection until you remove this server from the models file, reload, and run Sync Models Now."
 							)}

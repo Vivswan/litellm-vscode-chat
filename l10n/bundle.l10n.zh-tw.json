@@ -728,7 +728,7 @@
  "Saved": "已儲存",
  "Saved as plain text in settings.json.": "將以純文字儲存在 settings.json 中。",
  "Saved to {0}": "儲存至 {0}",
- "Saving failed - your edits are kept. Fix the problem and Apply again.": "儲存失敗 - 您的編輯已保留。請修正問題後再次套用。",
+ "Saving failed - your edits are kept: {0}": "儲存失敗 - 您的編輯已保留: {0}",
  "Saving the server failed:": "儲存伺服器失敗:",
  "Saving...": "儲存中...",
  "Search the OpenRouter catalog by name or ID, e.g. gpt-4o. Picking an entry fills capability fields the row leaves unset.": "依名稱或 ID 搜尋 OpenRouter 目錄, 例如 gpt-4o。選取項目會填入該列未設定的能力欄位。",

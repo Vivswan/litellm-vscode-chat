@@ -129,11 +129,11 @@ test("the storage line says the one thing the reader cannot see, and stays quiet
 
 	// Nothing stored and nothing typed: there is no current value to keep, so
 	// the field says nothing rather than promising one.
-	// Read as the whole cell, not the leading text node: the help glyph is a
-	// SIBLING of the description span, and a change that moved it back inside
-	// would put "Help: API key" into what the field announces about itself.
-	// Reading the text node in front of it would hide exactly that.
-	const hintOf = () => document.getElementById("server-apiKey-error")?.textContent ?? "";
+	// Scoped to the hint SPAN, the cell's first element: the id sits on the
+	// cell that also hosts the covering error overlay, and reading the whole
+	// cell would concatenate the two voices if a problem ever stood in one of
+	// these states.
+	const hintOf = () => document.getElementById("server-apiKey-error")?.firstElementChild?.textContent ?? "";
 	expect(hintOf()).toBe("");
 
 	// A typed value bound for secret storage is the ordinary case and says
@@ -144,7 +144,9 @@ test("the storage line says the one thing the reader cannot see, and stays quiet
 	const settings = [...root.querySelectorAll<HTMLInputElement>("input[name='server-apiKey-where']")][1];
 	fireCheck(settings as HTMLInputElement, true);
 	expect(hintOf()).toBe("Saved as plain text in settings.json.");
-	expect(document.getElementById("server-apiKey-error")?.className).toContain("state-warn");
+	// The tone rides the hint SPAN inside the id-carrying cell (the cell also
+	// hosts the covering error overlay, which has its own register).
+	expect(document.getElementById("server-apiKey-error")?.firstElementChild?.className).toContain("state-warn");
 	expectNowhere(SENTINEL);
 });
 
@@ -507,8 +509,11 @@ test("the storage line is right in every state it renders in, not just the commo
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [declaredWithSecrets({ apiKey: "settings" })] })));
 	openEdit(root);
-	const hintOf = () => document.getElementById("server-apiKey-error")?.textContent ?? "";
-	const toneOf = () => document.getElementById("server-apiKey-error")?.className ?? "";
+	// Scoped to the hint SPAN: the id sits on the cell that also hosts the
+	// covering error overlay, and reading the whole cell would concatenate
+	// the two voices if a problem ever stood in one of these states.
+	const hintOf = () => document.getElementById("server-apiKey-error")?.firstElementChild?.textContent ?? "";
+	const toneOf = () => document.getElementById("server-apiKey-error")?.firstElementChild?.className ?? "";
 
 	// Stored inline, prefill not yet delivered: where it lives, and how to
 	// keep it.
@@ -550,7 +555,7 @@ test("a stored secret whose form is not selected states the same two things the 
 		statePush(makeState({ servers: [declaredWithSecrets({ apiKey: "secure", oauthClientSecret: "secure" })] }))
 	);
 	openEdit(root);
-	const hintOf = () => document.getElementById("server-oauthClientSecret-error")?.textContent ?? "";
+	const hintOf = () => document.getElementById("server-oauthClientSecret-error")?.firstElementChild?.textContent ?? "";
 	const removeLabel = () =>
 		[...page(root).querySelectorAll<HTMLLabelElement>(".secret-remove")].find((label) =>
 			(label.textContent ?? "").includes("OAuth client secret")
