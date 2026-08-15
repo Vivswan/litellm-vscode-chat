@@ -648,6 +648,7 @@
 		"docker:logs": "bun scripts/stack/compose.ts logs -f",
 		"dev": "bun scripts/dev/dev.ts",
 		"check-overflow": "bun run bundle:dev && bun scripts/dev/check-overflow.ts",
+		"check-geometry": "bun run bundle:dev && bun scripts/dev/check-geometry.ts",
 		"generate-config": "bun scripts/stack/generate-litellm-config.ts",
 		"copilot-login": "bun scripts/stack/copilot-login.ts",
 		"test": "bun run test:host",

@@ -38,6 +38,16 @@ const fixture: RenderFixture = {
 			);
 			box.scrollIntoView({ block: "center" });
 		})()`,
+		// The shot's own subject, asserted: the refused write's failure block
+		// must stand under the thresholds row, or the render exits green while
+		// photographing a page without the thing it exists to show.
+		`(() => {
+			const row = document.querySelector('.setting-row:has([id="setting-usage.alertThresholds-warning"])');
+			const headline = row === null ? null : row.querySelector(".row-diagnostic.sev-blocking .row-diagnostic-headline");
+			if (headline === null || headline.textContent.length === 0) {
+				throw new Error("The refused write's failure block never rendered under the thresholds row");
+			}
+		})()`,
 	],
 	viewport: { width: 1300, height: 900 },
 	settleMs: 500,

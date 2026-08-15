@@ -209,6 +209,36 @@ jobs:
           CHROME_BIN: /usr/bin/google-chrome
         run: bun run check-overflow
 
+  # The geometry-drift sweep, check-overflow's sibling: every registered state
+  # pair must keep its element's geometry across the state change (a modified
+  # mark, a hover/focus reveal, a validation error), and every registered
+  # surface must reach its declared right edge at 2000px (exit 1 is geometry
+  # that moved, exit 2 a pair that never ran or a stale expectedDrift marker -
+  # a stale entry is its own failure). Same one-Linux-leg reasoning as the
+  # overflow sweep: the runners ship Chrome and the harness drives raw CDP.
+  check-geometry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Set up development environment
+        run: bash scripts/env/setup-env.sh
+
+      - name: Sweep the state pairs for geometry drift
+        env:
+          # The image ships Chromium and Chrome both and discovery prefers the
+          # first it finds; pin the one whose sandbox the runner's AppArmor
+          # profile covers, so a failure can only ever mean layout.
+          CHROME_BIN: /usr/bin/google-chrome
+        run: bun run check-geometry
+
   # Live-URL schema watch for the OpenRouter capability catalog: the fetch
   # script's --check mode validates the live payload and the mapping without
   # writing dist/, so payload drift is caught here instead of by users. The
