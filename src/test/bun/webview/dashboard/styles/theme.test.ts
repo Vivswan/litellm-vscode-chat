@@ -521,7 +521,10 @@ test("a forced theme redefines every host token the stylesheets read", () => {
 			}
 		}
 	}
-	expect(read.size).toBeGreaterThan(40);
+	// A floor as the extraction's positive control, not a count: it was 40
+	// until the consumerless token chains left theme.css and took seven
+	// distinct host-token reads with them (46 down to 39).
+	expect(read.size).toBeGreaterThan(35);
 	for (const theme of ["dark", "light"] as const) {
 		const defined = new Set(
 			[...forcedBlock(theme).matchAll(/^\s*(--vscode-[A-Za-z0-9-]+):/gm)].map((match) => match[1] ?? "")

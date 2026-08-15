@@ -264,13 +264,7 @@ body.vscode-high-contrast-light [data-slot="reveal"] {
 	--background: var(--vscode-editor-background, var(--vscode-panel-background));
 	--foreground: var(--vscode-foreground);
 	--card: var(--vscode-editorWidget-background);
-	--card-foreground: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
-	--popover: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background));
-	--popover-foreground: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
 	--primary: var(--vscode-button-background);
-	--primary-foreground: var(--vscode-button-foreground);
-	--secondary: var(--vscode-button-secondaryBackground, var(--vscode-toolbar-hoverBackground));
-	--secondary-foreground: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
 	--muted: var(--vscode-textBlockQuote-background, var(--vscode-editorWidget-background));
 	/* The spend meter's baseline: the 100% extent, drawn as a 1px rule UNDER the
 	   bar rather than as a track behind it. It names no alpha OF ITS OWN - mixed
@@ -293,9 +287,6 @@ body.vscode-high-contrast-light [data-slot="reveal"] {
 	--axis: color-mix(in srgb, var(--foreground) 65%, var(--background));
 	--muted-foreground: var(--vscode-descriptionForeground);
 	--accent: var(--vscode-list-hoverBackground);
-	--accent-foreground: var(--vscode-list-hoverForeground, var(--vscode-foreground));
-	--destructive: var(--vscode-statusBarItem-errorBackground);
-	--destructive-foreground: var(--vscode-statusBarItem-errorForeground);
 	--border: var(--vscode-widget-border, var(--vscode-panel-border));
 	--input: var(--vscode-input-border, var(--vscode-widget-border, var(--vscode-panel-border)));
 	--ring: var(--vscode-focusBorder);
@@ -319,8 +310,6 @@ body.vscode-high-contrast-light [data-slot="reveal"] {
 	/* VS Code publishes explicit state and per-control colors that shadcn's
 		 alpha-blended hover conventions cannot derive, so they get their own
 		 semantic tokens instead of opacity tricks on the base ones. */
-	--primary-hover: var(--vscode-button-hoverBackground, var(--vscode-button-background));
-	--secondary-hover: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-secondaryBackground));
 	--ghost-hover: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
 	--input-background: var(--vscode-input-background);
 	--input-foreground: var(--vscode-input-foreground);
@@ -471,7 +460,6 @@ body.vscode-high-contrast-light {
 	 theme published a focus color of its own. */
 :root {
 	--accent-hue: var(--hue-blue);
-	--accent-on: var(--vscode-button-foreground, #ffffff);
 }
 
 /* Every rule either setting drives hangs off this one guard, so "high contrast
@@ -491,17 +479,14 @@ html:where(:not(:has(body.vscode-high-contrast, body.vscode-high-contrast-light)
 		 other three take with them because focus is on the accent's list. */
 	&[data-accent="violet"] {
 		--accent-hue: var(--hue-violet);
-		--accent-on: #ffffff;
 		--ring: var(--hue-violet);
 	}
 	&[data-accent="teal"] {
 		--accent-hue: var(--hue-teal);
-		--accent-on: #ffffff;
 		--ring: var(--hue-teal);
 	}
 	&[data-accent="amber"] {
 		--accent-hue: var(--hue-amber);
-		--accent-on: #ffffff;
 		--ring: var(--hue-amber);
 	}
 
@@ -759,7 +744,6 @@ html:where(:not(:has(body.vscode-high-contrast, body.vscode-high-contrast-light)
 :root,
 body {
 	--accent-soft: color-mix(in srgb, var(--accent-hue) var(--state-mix), transparent);
-	--accent-line: color-mix(in srgb, var(--accent-hue) 45%, transparent);
 	/* The accent AS A PERMANENT LABEL. --accent-hue is tuned to be seen, not
 		 read: on the rail's own surface it measures 3.6:1 for blue and violet,
 		 under AA, and the selected rail item is the most-read text in the shell -
@@ -825,10 +809,6 @@ body.vscode-high-contrast-light {
 	--ring: var(--vscode-contrastActiveBorder, var(--vscode-focusBorder));
 	--primary: var(--vscode-button-background, var(--vscode-editor-background));
 	--accent: var(--vscode-list-hoverBackground, var(--vscode-editor-background));
-	--secondary: var(--vscode-editor-background);
-	--secondary-foreground: var(--vscode-foreground);
-	--primary-hover: var(--vscode-button-hoverBackground, var(--primary));
-	--secondary-hover: var(--secondary);
 	--ghost-hover: transparent;
 	--dropdown: var(--vscode-contrastBorder);
 	--disabled: var(--vscode-editor-background);
@@ -838,7 +818,6 @@ body.vscode-high-contrast-light {
 		 button color that high contrast paints black. */
 	--hue-blue: var(--vscode-textLink-foreground, var(--vscode-contrastActiveBorder, var(--vscode-focusBorder)));
 	--accent-hue: var(--vscode-textLink-foreground, var(--vscode-contrastActiveBorder, var(--vscode-focusBorder)));
-	--accent-on: var(--vscode-editor-background);
 }
 
 /* Inline so utilities bake in the var() chains directly; a non-inline theme
@@ -851,25 +830,14 @@ body.vscode-high-contrast-light {
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
 	--color-card: var(--card);
-	--color-card-foreground: var(--card-foreground);
-	--color-popover: var(--popover);
-	--color-popover-foreground: var(--popover-foreground);
 	--color-primary: var(--primary);
-	--color-primary-foreground: var(--primary-foreground);
-	--color-secondary: var(--secondary);
-	--color-secondary-foreground: var(--secondary-foreground);
 	--color-muted: var(--muted);
 	--color-axis: var(--axis);
 	--color-muted-foreground: var(--muted-foreground);
 	--color-accent: var(--accent);
-	--color-accent-foreground: var(--accent-foreground);
-	--color-destructive: var(--destructive);
-	--color-destructive-foreground: var(--destructive-foreground);
 	--color-border: var(--border);
 	--color-input: var(--input);
 	--color-ring: var(--ring);
-	--color-primary-hover: var(--primary-hover);
-	--color-secondary-hover: var(--secondary-hover);
 	--color-ghost-hover: var(--ghost-hover);
 	--color-input-background: var(--input-background);
 	--color-input-foreground: var(--input-foreground);
@@ -905,9 +873,7 @@ body.vscode-high-contrast-light {
 	--color-hue-violet: var(--hue-violet);
 	--color-hue-teal: var(--hue-teal);
 	--color-hue-amber: var(--hue-amber);
-	--color-accent-on: var(--accent-on);
 	--color-accent-soft: var(--accent-soft);
-	--color-accent-line: var(--accent-line);
 	--color-control-outline: var(--control-outline);
 	--color-disabled: var(--disabled);
 	--color-disabled-foreground: var(--disabled-foreground);
@@ -915,6 +881,5 @@ body.vscode-high-contrast-light {
 	--radius-xs: 1px;
 	--radius-sm: calc(var(--radius) - 2px);
 	--radius-md: var(--radius);
-	--radius-lg: calc(var(--radius) + 2px);
 	--radius-full: calc(infinity * 1px);
 }
