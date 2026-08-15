@@ -1277,20 +1277,33 @@
 		   their text as intrinsic size (field-sizing below) - and the value
 		   track takes what remains. An even split handed the narrow track to
 		   the longer content: six of eleven capability names clipped mid-token
-		   beside value boxes sitting near-empty. The fit-content cap and the
-		   value track's minmax(0, ...) keep the sum inside the panel's content
-		   box - the inputs shrink instead, and the
-		   `@container pane (width < 700px)` block near the end of the full-width
-		   region stacks the rows before they get too cramped to use. */
+		   beside value boxes sitting near-empty. The value track's 10em floor
+		   is the other half of that bargain: with no minimum, one long name
+		   (supported_openai_params) squeezed every value box to ~115px and a
+		   token count read as a few digits - identity and value legibility
+		   share the squeeze instead, the key track shrinking under its
+		   fit-content cap (the cells' min-width: 0 lets it). The fit-content
+		   cap and the floor keep the sum inside the panel's content box - the
+		   inputs shrink instead, and the `@container pane (width < 700px)`
+		   block near the end of the full-width region stacks the rows before
+		   they get too cramped to use.
+
+		   --key-track is the typing freeze (recordEditors.tsx useKeyTrackFreeze):
+		   while a key input is focused, the editor pins the key track at the
+		   width it had on focus, because a content-sized track re-solves per
+		   keystroke and every letter typed shoved the value column sideways
+		   under the user's eyes. Unset (the resting state), the track sizes to
+		   the committed names as before; blur commits the name and the track
+		   refits once. */
 	.rows {
 		display: grid;
-		grid-template-columns: fit-content(60%) minmax(0, 1fr) max-content max-content;
+		grid-template-columns: var(--key-track, fit-content(60%)) minmax(10em, 1fr) max-content max-content;
 		gap: 4px 8px;
 		margin: 4px 0 8px;
 	}
 	.row {
 		display: grid;
-		grid-template-columns: fit-content(60%) minmax(0, 1fr) auto auto;
+		grid-template-columns: var(--key-track, fit-content(60%)) minmax(10em, 1fr) auto auto;
 		gap: 4px 8px;
 		align-items: center;
 		margin: 4px 0;
@@ -1547,8 +1560,19 @@
 		grid-column: 4;
 		justify-self: end;
 	}
-	.record-table .record-row > .error {
+	/* Every record row's one status line, reserved whether or not it has
+		   anything to say (the charter's transients-never-move-anything clause):
+		   a validation verdict arrives per keystroke, and when this line was
+		   mounted only alongside a problem, the first bad character grew the
+		   page 17px and shoved every row below down - the settings rows' covered
+		   description, restated for a row with no description to cover, so the
+		   slot's height is reserved explicitly instead. min-height is one line
+		   of its own 11.5px text; a message that wraps at extreme widths still
+		   grows the row, which is the accepted edge - the reservation is sized
+		   for the parse sentences the editors actually emit. */
+	.record-table .record-status {
 		grid-column: 1 / -1;
+		min-height: 1lh;
 	}
 	/* Another scope's record, rendered with the same row grid but inert. */
 	.other-scope {
@@ -3077,10 +3101,26 @@
 		gap: 8px;
 		align-items: center;
 	}
+	/* The popover's one status line, after the actions and reserved at one
+		   line whether or not it speaks (the record rows' slot, popover-sized):
+		   the live parse verdict used to mount between the flags and the
+		   actions, so the first bad keystroke shoved Remove field 19px down
+		   under the pointer. Below the actions, a message that wraps past the
+		   reservation grows the popover's bottom edge only - an anchored
+		   overlay's growth displaces nothing, and PopoverShell's own
+		   ResizeObserver re-judges the flip. */
+	.chip-popover-status {
+		min-height: 1lh;
+		font-size: 0.9em;
+	}
 	.chip-popover .error,
 	.chip-popover .hint {
 		margin: 0;
 		font-size: 0.9em;
+	}
+	.chip-popover-status .error,
+	.chip-popover-status .hint {
+		font-size: inherit;
 	}
 	/* The popover's small control labels ("Value"; "Parameter"/"Capability"
 		   in the add popover), so a bare input never floats unlabeled. The
@@ -3183,8 +3223,9 @@
 		margin: 0;
 	}
 	/* The column heads' wrapper dissolves into the grid at full width (each
-		   head lands in its input's track) and regroups as one legend line when
-		   the rows stack, so the key/value help never disappears. */
+		   head lands in its input's track); when the rows stack it hides and the
+		   per-cell labels below take over, so the key/value help never
+		   disappears. */
 	.matcher-editor .rows-head {
 		display: contents;
 	}
@@ -3195,6 +3236,15 @@
 		font-size: 0.85em;
 		font-weight: 600;
 		color: var(--vscode-descriptionForeground);
+	}
+	/* Each cell's own label, mounted always and painted only at the stacked
+		   tier (below): two column heads over a single stacked column read as
+		   headers of columns that no longer exist, so once the tracks dissolve
+		   every field labels itself, the way the popover's popover-labels do.
+		   Each label keeps its column's help glyph, so stacking never costs the
+		   help its reachability. */
+	.matcher-editor .cell-label {
+		display: none;
 	}
 	.matcher-editor .row .cell.key {
 		grid-column: 1;
@@ -3256,11 +3306,22 @@
 		.matcher-editor .rows > .row {
 			grid-template-columns: 1fr;
 		}
+		/* Stacked, the shared tracks the heads labeled are gone, and one legend
+			   line over a single column read as headers sitting on the wrong
+			   layout; the per-cell labels take over (each with its help glyph). */
 		.matcher-editor .rows-head {
-			display: flex;
-			gap: 16px;
+			display: none;
+		}
+		.matcher-editor .cell-label {
+			display: inline-flex;
 			align-items: center;
+			gap: 6px;
 			grid-column: 1;
+			justify-self: start;
+			margin-top: 2px;
+			font-size: 0.85em;
+			font-weight: 600;
+			color: var(--vscode-descriptionForeground);
 		}
 		.matcher-editor .row .cell.key,
 		.matcher-editor .row .cell.value,

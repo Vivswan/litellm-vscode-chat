@@ -1,5 +1,5 @@
 import * as l10n from "@vscode/l10n";
-import type { FocusEvent, KeyboardEvent, ReactNode } from "react";
+import type { CSSProperties, FocusEvent, KeyboardEvent, ReactNode } from "react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { settingScopeLabel } from "../../dashboard/presenters";
 import type {
@@ -535,6 +535,69 @@ function useFocusedRow(groups: readonly PrefixGroup[]): {
 }
 
 /**
+ * The key track's typing freeze. The field grid's key column is content-sized
+ * (dashboard.css .rows: fit-content fed by field-sizing), so the tracks
+ * re-solve on every keystroke and typing a name visibly shoved the value
+ * column sideways, letter by letter. While focus is anywhere in the grid
+ * (armed by a key input taking it), the track is pinned at the width it had
+ * when the key input was focused (the --key-track custom property the
+ * stylesheet's template reads first); leaving the grid commits the names and
+ * the track refits once, after the editing is done. The pin holds across
+ * focus moving WITHIN the grid - key to key, and key to the same row's value
+ * input, because releasing on that move re-solved the track at the exact
+ * moment focus landed on the input the reflow would displace. Two things do
+ * drop it: a structural change (a row added or removed re-solves the tracks
+ * anyway and fires no blur when it removes the focused input - the
+ * useFocusedRow epoch reasoning, without the per-row addressing), and a
+ * window resize (a pinned px track measured in a wide pane has no cap, so
+ * surviving a narrowing it would push the grid past the panel's edge).
+ */
+function useKeyTrackFreeze(groups: readonly PrefixGroup[]): {
+	style: CSSProperties | undefined;
+	onFocusCapture: (event: FocusEvent) => void;
+	onBlurCapture: (event: FocusEvent) => void;
+} {
+	const [frozen, setFrozen] = useState<number | undefined>(undefined);
+	const shape = groups.map((group) => group.params.length).join(",");
+	// biome-ignore lint/correctness/useExhaustiveDependencies: deliberately keyed on the row-count shape alone; any structural change drops the pin
+	useEffect(() => {
+		setFrozen(undefined);
+	}, [shape]);
+	useEffect(() => {
+		if (frozen === undefined) {
+			return undefined;
+		}
+		const release = () => setFrozen(undefined);
+		window.addEventListener("resize", release, { passive: true });
+		return () => window.removeEventListener("resize", release);
+	}, [frozen]);
+	return {
+		style: frozen === undefined ? undefined : ({ "--key-track": `${frozen}px` } as CSSProperties),
+		onFocusCapture: (event: FocusEvent) => {
+			if (!(event.target instanceof HTMLInputElement) || !event.target.classList.contains("key")) {
+				return;
+			}
+			// The cell spans the key track exactly, so its width IS the track's.
+			// Guarded above zero: an unlaid-out environment (happy-dom) measures
+			// nothing, and a 0px pin would collapse the column instead of holding
+			// it still.
+			const cell = event.target.closest(".cell.key");
+			const width = cell instanceof HTMLElement ? cell.getBoundingClientRect().width : 0;
+			if (width > 0) {
+				setFrozen((current) => current ?? width);
+			}
+		},
+		onBlurCapture: (event: FocusEvent) => {
+			const next = event.relatedTarget;
+			if (next instanceof Node && event.currentTarget instanceof Node && event.currentTarget.contains(next)) {
+				return;
+			}
+			setFrozen(undefined);
+		},
+	};
+}
+
+/**
  * The model-parameter group rows themselves: one group per model prefix, one
  * row per request parameter, values entered as JSON, problems row-aligned
  * from parseGroups. Purely presentational (edits go through onChange). Since
@@ -587,6 +650,7 @@ function ParamGroupsFields({
 		onChange(groups.map((group, i) => (i === index ? { ...group, ...patch } : group)));
 	};
 	const focusHold = useFocusedRow(groups);
+	const keyFreeze = useKeyTrackFreeze(groups);
 	return (
 		<>
 			{groups.map((group, groupIndex) => {
@@ -650,7 +714,12 @@ function ParamGroupsFields({
 						</div>
 						<div className="editor-section">
 							<span className="editor-label">{l10n.t("Fields")}</span>
-							<div className="rows">
+							<div
+								className="rows"
+								style={keyFreeze.style}
+								onFocusCapture={keyFreeze.onFocusCapture}
+								onBlurCapture={keyFreeze.onBlurCapture}
+							>
 								{anyRowVisible ? (
 									<div className="rows-head">
 										<span className="col-head">
@@ -672,6 +741,17 @@ function ParamGroupsFields({
 									return (
 										// biome-ignore lint/suspicious/noArrayIndexKey: rows are positional while being edited (see useFocusedRow); the index is the identity
 										<div className="row" key={paramIndex} {...focusHold.rowFocusProps(groupIndex, paramIndex)}>
+											{/* The stacked tier's per-cell labels (painted only there;
+											    dashboard.css .cell-label): the column heads above label
+											    TRACKS, and once the rows stack there are no tracks left
+											    to label - each field names itself instead, keeping the
+											    column help reachable per cell. The word is aria-hidden
+											    (the input already carries it as its accessible name, so
+											    AT would hear it twice); the help button stays exposed. */}
+											<span className="cell-label">
+												<span aria-hidden="true">{l10n.t("Parameter")}</span>
+												<Help text={helpModelParameterName()} />
+											</span>
 											<span className="cell key">
 												<SuggestInput
 													value={param.key}
@@ -688,6 +768,10 @@ function ParamGroupsFields({
 													}
 													onEnter={onEnter}
 												/>
+											</span>
+											<span className="cell-label">
+												<span aria-hidden="true">{l10n.t("Value")}</span>
+												<Help text={helpModelParameterValue()} />
 											</span>
 											<span className="cell value">
 												<Input
@@ -1247,6 +1331,7 @@ function CapabilityGroupsFields({
 		onChange(groups.map((group, i) => (i === index ? { ...group, ...patch } : group)));
 	};
 	const focusHold = useFocusedRow(groups);
+	const keyFreeze = useKeyTrackFreeze(groups);
 	return (
 		<>
 			{groups.map((group, groupIndex) => {
@@ -1314,7 +1399,12 @@ function CapabilityGroupsFields({
 						</div>
 						<div className="editor-section">
 							<span className="editor-label">{l10n.t("Fields")}</span>
-							<div className="rows">
+							<div
+								className="rows"
+								style={keyFreeze.style}
+								onFocusCapture={keyFreeze.onFocusCapture}
+								onBlurCapture={keyFreeze.onBlurCapture}
+							>
 								{anyRowVisible ? (
 									<div className="rows-head">
 										<span className="col-head">
@@ -1343,6 +1433,13 @@ function CapabilityGroupsFields({
 									return (
 										// biome-ignore lint/suspicious/noArrayIndexKey: rows are positional while being edited (see useFocusedRow); the index is the identity
 										<div className="row" key={paramIndex} {...focusHold.rowFocusProps(groupIndex, paramIndex)}>
+											{/* The stacked tier's per-cell labels, the parameters
+											    editor's rule (dashboard.css .cell-label; words aria-hidden
+											    there too - the inputs carry the same accessible names). */}
+											<span className="cell-label">
+												<span aria-hidden="true">{l10n.t("Capability")}</span>
+												<Help text={helpCapabilityName()} />
+											</span>
 											<span className="cell key">
 												<SuggestInput
 													value={param.key}
@@ -1362,6 +1459,10 @@ function CapabilityGroupsFields({
 													}}
 													onEnter={onEnter}
 												/>
+											</span>
+											<span className="cell-label">
+												<span aria-hidden="true">{l10n.t("Value")}</span>
+												<Help text={helpCapabilityValue()} />
 											</span>
 											{kind === "boolean" ? (
 												<label className="cell value capability-flag">
@@ -1880,6 +1981,10 @@ function FieldChipPopover({
 }) {
 	const group = groups[groupIndex];
 	const row = group?.params[rowIndex];
+	// The status slot's id, so the value input can point at the verdict
+	// (aria-describedby): the slot renders after the actions for layout, and
+	// the association keeps DOM order irrelevant to assistive tech.
+	const statusId = useId();
 	if (group === undefined || row === undefined) {
 		return null;
 	}
@@ -1929,6 +2034,7 @@ function FieldChipPopover({
 					step={numberProps?.step}
 					className="value"
 					aria-invalid={valueInvalid}
+					aria-describedby={issue?.problem !== undefined || issue?.hint !== undefined ? statusId : undefined}
 					aria-label={l10n.t('Value for "{0}"', key)}
 					placeholder={numberProps?.placeholder ?? l10n.t("JSON value, e.g. 0.2")}
 					value={row.valueText}
@@ -1995,12 +2101,23 @@ function FieldChipPopover({
 					/>
 				</div>
 			) : null}
-			{issue?.problem !== undefined ? <p className="error">{issue.problem.message}</p> : null}
-			{issue?.hint !== undefined ? <p className="hint">{issue.hint}</p> : null}
+			{/* The one status line, in reserved space AFTER the actions: the verdict
+			    re-renders per keystroke, and mounted between the flags and the
+			    actions it shoved Remove field 19px down under the pointer on the
+			    first bad character (the charter's transients-never-move-anything
+			    clause). Worst first, one message at a time - a problem outranks a
+			    hint, and the slot is sized for one line (chip-popover-status). */}
 			<div className="chip-popover-actions">
 				<Button variant="danger" size="compact" disabled={disabled} onClick={removeRow}>
 					<IconTrash /> {l10n.t("Remove field")}
 				</Button>
+			</div>
+			<div className="chip-popover-status" id={statusId}>
+				{issue?.problem !== undefined ? (
+					<p className="error">{issue.problem.message}</p>
+				) : issue?.hint !== undefined ? (
+					<p className="hint">{issue.hint}</p>
+				) : null}
 			</div>
 		</PopoverShell>
 	);
@@ -2038,6 +2155,8 @@ function AddFieldPopover({
 	// directive rows already say about this key" (a literal `_force: true`
 	// covers the new field the moment it lands, and the box must show that).
 	const [flagOverrides, setFlagOverrides] = useState<Partial<Record<FieldDirective, boolean>>>({});
+	// The status slot's id, the edit popover's aria-describedby rule.
+	const statusId = useId();
 	const group = groups[groupIndex];
 	if (group === undefined) {
 		return null;
@@ -2118,6 +2237,7 @@ function AddFieldPopover({
 					min={numberProps?.min}
 					step={numberProps?.step}
 					className="value"
+					aria-describedby={problem !== undefined ? statusId : undefined}
 					aria-label={l10n.t("New field value")}
 					placeholder={numberProps?.placeholder ?? l10n.t("JSON value, e.g. 0.2")}
 					value={valueText}
@@ -2173,11 +2293,16 @@ function AddFieldPopover({
 					<Help text={helpInheritableFlag()} />
 				</div>
 			) : null}
-			{problem !== undefined ? <p className="error">{problem}</p> : null}
+			{/* The edit popover's reserved status line, in the same after-the-actions
+			    slot: the candidate verdict also re-renders per keystroke, and Add
+			    field must not walk away from the pointer while the row is typed. */}
 			<div className="chip-popover-actions">
 				<Button disabled={disabled || !canAdd} onClick={commit}>
 					<IconAdd /> {l10n.t("Add field")}
 				</Button>
+			</div>
+			<div className="chip-popover-status" id={statusId}>
+				{problem !== undefined ? <p className="error">{problem}</p> : null}
 			</div>
 		</PopoverShell>
 	);
@@ -2605,12 +2730,21 @@ export function RecordMatcherTable({
 								<IconEdit />
 							</Button>
 						) : null}
-						{issueView?.prefix !== undefined ? (
-							<span className="error basis-full text-[11.5px]">{issueView.prefix}</span>
-						) : null}
-						{/* The first field-level problem in the row, as words. The
-						    chip's own red border says WHERE; only this says what. */}
-						{rowProblem !== undefined ? <span className="error basis-full text-[11.5px]">{rowProblem}</span> : null}
+						{/* The row's one status line, reserved whether or not it speaks
+						    (dashboard.css .record-status): the verdict lands per keystroke
+						    from the open popover, and a line mounted only alongside a
+						    problem grew the page 17px on the first bad character. Worst
+						    first, one message at a time - the matcher's own problem
+						    outranks a field's, and the chip's red border still says
+						    WHERE while this line says what. */}
+						<span
+							className={cn(
+								"record-status basis-full text-[11.5px]",
+								(issueView?.prefix ?? rowProblem) !== undefined && "error"
+							)}
+						>
+							{issueView?.prefix ?? rowProblem}
+						</span>
 					</li>
 				);
 			})}

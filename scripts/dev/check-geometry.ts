@@ -142,6 +142,14 @@ interface StatePair {
 const THEME_ROW = '.setting-row:has([id="setting-ui.theme"])';
 /** The usage-thresholds row, whose error contract is "the overlay never changes the row's height". */
 const THRESHOLDS_ROW = '.setting-row:has([id="setting-usage.alertThresholds-warning"])';
+/**
+ * That row's PARSE-error overlay, named by the id its inputs' aria-describedby
+ * points at rather than by `.setting-hint .error`: a refused write now renders
+ * its own overlay in the same covered slot with the same class, and a pair
+ * whose guards cannot tell the two apart has stopped naming the state it
+ * induces.
+ */
+const THRESHOLDS_PARSE_ERROR = `${THRESHOLDS_ROW} .setting-hint span.error[id="setting-usage.alertThresholds-problem"]`;
 /** The first server row's home; its next sibling is the second row. */
 const FIRST_SERVER_ITEM = ".server-list > li.server-item:first-child";
 /** The chip whose popover is open - the one chip a state toggle can address across both measurements. */
@@ -224,8 +232,8 @@ const STATE_PAIRS: readonly StatePair[] = [
 		targets: [THRESHOLDS_ROW],
 		siblingOf: THRESHOLDS_ROW,
 		toggle: [reactType('[id="setting-usage.alertThresholds-warning"]', "abc")],
-		restVerify: `document.querySelector(${JSON.stringify(`${THRESHOLDS_ROW} .setting-hint .error`)}) === null`,
-		verify: `document.querySelector(${JSON.stringify(`${THRESHOLDS_ROW} .setting-hint .error`)}) !== null`,
+		restVerify: `document.querySelector(${JSON.stringify(THRESHOLDS_PARSE_ERROR)}) === null`,
+		verify: `document.querySelector(${JSON.stringify(THRESHOLDS_PARSE_ERROR)}) !== null`,
 	},
 	{
 		// The server row's actions cluster occupies a reserved track and reveals

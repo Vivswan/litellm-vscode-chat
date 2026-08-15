@@ -442,6 +442,66 @@ test("popover validation: a bad value marks the chip and blocks Apply; the messa
 	expect(section().textContent).toContain("Not valid JSON");
 });
 
+test("both message slots are reserved: every row carries a status line, and the popover's sits after the actions", () => {
+	// The verdicts land per keystroke, so their space is held whether or not
+	// they speak (the charter's transients-never-move-anything clause): the
+	// row's status line is mounted empty on a clean row - it used to mount
+	// only alongside a problem, and the first bad character grew the page
+	// 17px - and the popover's slot sits AFTER the actions, where a message
+	// (even one that wraps past the slot's one-line reservation) can never
+	// shove Remove field down under the pointer again.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
+	const section = () => sectionByHeading(root, "Model parameters");
+
+	// Clean: the slot exists on every row, empty and unmarked.
+	const cleanRows = Array.from(section().querySelectorAll(".record-row"));
+	expect(cleanRows.length).toBeGreaterThan(0);
+	for (const row of cleanRows) {
+		const status = row.querySelector(".record-status");
+		expect(status).not.toBeNull();
+		expect(status?.textContent).toBe("");
+		expect(status?.classList.contains("error")).toBe(false);
+	}
+
+	fireClick(chipFor(section(), "temperature"));
+	const popover = popoverOf(section());
+	fireInput(popover.querySelector("input.value") as HTMLInputElement, "not json");
+	// The popover's message renders in its reserved status slot, and the slot
+	// follows the actions in document order.
+	const status = popoverOf(section()).querySelector(".chip-popover-status");
+	expect(status?.querySelector(".error")?.textContent).toContain("Not valid JSON");
+	const actions = popoverOf(section()).querySelector(".chip-popover-actions");
+	expect(actions).not.toBeNull();
+	expect(
+		actions !== null && status !== null && actions.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING
+	).toBeTruthy();
+
+	// Closed, the row's slot speaks - same element, now marked.
+	fireClick(chipFor(section(), "temperature"));
+	const rowStatus = chipFor(section(), "temperature").closest(".record-row")?.querySelector(".record-status");
+	expect(rowStatus?.classList.contains("error")).toBe(true);
+	expect(rowStatus?.textContent).toContain("Not valid JSON");
+});
+
+test("the row's status slot speaks worst first: the matcher's own problem outranks a field's", () => {
+	// One slot, one message: with both standing, the structural problem (the
+	// matcher key) is the one to fix first, and the invalid chip's red border
+	// still marks the field for later.
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 }, " ": { top_p: 1 } }) }))
+	);
+	const section = () => sectionByHeading(root, "Model parameters");
+	const row = chipFor(section(), "top_p").closest(".record-row");
+	fireClick(chipFor(section(), "top_p"));
+	fireInput(popoverOf(section()).querySelector("input.value") as HTMLInputElement, "not json");
+	fireClick(chipFor(section(), "top_p"));
+	const status = row?.querySelector(".record-status");
+	expect(status?.textContent).toContain("Enter a model matcher");
+	expect(status?.textContent).not.toContain("Not valid JSON");
+});
+
 test("no chip suppresses the forced-colors border repaint, and an invalid mark survives the popover closing", () => {
 	// The chips are FILLED at rest and forced colours flatten the fill into
 	// the page, so the repainted transparent border is the resting boundary -
@@ -964,6 +1024,95 @@ test("a group whose rows are all absorbed renders no field column heads", () => 
 	const editor = openEditorFor(section(), "gpt-4");
 	expect(editor.querySelectorAll(".col-head").length).toBe(0);
 	expect(buttonByText(editor, "Add parameter")).not.toBeNull();
+});
+
+test("every field row carries its own stacked-tier cell labels, each with the column's help glyph", () => {
+	// The wide tier's column heads label TRACKS; when the rows stack below the
+	// 700px pane tier there are no tracks left, and one legend line over a
+	// single column read as headers on the wrong layout. Each cell therefore
+	// carries its own label (painted only at the stacked tier - dashboard.css
+	// .cell-label - which happy-dom cannot observe), and each label keeps its
+	// column's help glyph so stacking never costs the help its reachability.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2, top_p: 0.9 } }) })));
+	const section = () => sectionByHeading(root, "Model parameters");
+
+	const editor = openEditorFor(section(), "gpt-4");
+	const rows = Array.from(editor.querySelectorAll(".rows .row"));
+	expect(rows.length).toBe(2);
+	for (const row of rows) {
+		const labels = Array.from(row.querySelectorAll(".cell-label"));
+		expect(labels.map((label) => label.firstChild?.textContent)).toEqual(["Parameter", "Value"]);
+		for (const label of labels) {
+			expect(label.querySelector("button.help")).not.toBeNull();
+		}
+		// Each label directly precedes the cell it names.
+		expect(labels[0]?.nextElementSibling?.classList.contains("key")).toBe(true);
+		expect(labels[1]?.nextElementSibling?.classList.contains("value")).toBe(true);
+	}
+	// The wide tier's legend still renders alongside them.
+	expect(editor.querySelectorAll(".col-head").length).toBe(2);
+	cleanup();
+
+	// The capabilities editor speaks the same rule with its own words.
+	const capsRoot = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithCaps({ "gpt-4": { context_length: 128000 } }) })));
+	const capsEditor = openEditorFor(sectionByHeading(capsRoot, "Model capabilities"), "gpt-4");
+	const capsLabels = Array.from(capsEditor.querySelectorAll(".rows .row .cell-label"));
+	expect(capsLabels.map((label) => label.firstChild?.textContent)).toEqual(["Capability", "Value"]);
+	for (const label of capsLabels) {
+		expect(label.querySelector("button.help")).not.toBeNull();
+		// The word is aria-hidden (the input carries the same accessible name);
+		// only the help button speaks.
+		expect(label.querySelector("span[aria-hidden='true']")).not.toBeNull();
+	}
+});
+
+test("the key track pins while focus is inside the field grid and refits once it leaves", () => {
+	// The key column is content-sized per keystroke (field-sizing), so without
+	// the pin every letter typed shoved the value column sideways. The pin
+	// arms on a key input taking focus, holds across typing AND across focus
+	// moving within the grid (releasing on key-to-value re-solved the track at
+	// the exact moment focus landed on the input the reflow would displace),
+	// and drops when focus leaves the grid or a row is added or removed (a
+	// removal fires no blur). happy-dom lays nothing out, so the cell's rect
+	// is stubbed; the same zero-measure fact is why the guard leaves the
+	// track unpinned when measurement returns nothing.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2, top_p: 0.9 } }) })));
+	const section = () => sectionByHeading(root, "Model parameters");
+	const editor = openEditorFor(section(), "gpt-4");
+	const rows = () => editor.querySelector(".rows") as HTMLElement;
+	const keyInput = () => rows().querySelector(".cell.key input") as HTMLInputElement;
+	const pinOf = () => rows().style.getPropertyValue("--key-track");
+
+	// Unmeasurable (the happy-dom default): focusing arms nothing.
+	fireFocus(keyInput());
+	expect(pinOf()).toBe("");
+	fireBlur(keyInput());
+
+	const cell = keyInput().closest(".cell.key") as HTMLElement;
+	const rect = { width: 200, height: 20, left: 0, top: 0, right: 200, bottom: 20, x: 0, y: 0, toJSON: () => ({}) };
+	cell.getBoundingClientRect = () => rect as DOMRect;
+	fireFocus(keyInput());
+	expect(pinOf()).toBe("200px");
+	// Typing does not re-measure: the pin is the whole point.
+	fireInput(keyInput(), "temperature_with_a_much_longer_name");
+	expect(pinOf()).toBe("200px");
+	// Focus moving to the same row's value input keeps the pin.
+	const valueInput = rows().querySelector(".cell.value input") as HTMLInputElement;
+	fireBlur(keyInput(), valueInput);
+	expect(pinOf()).toBe("200px");
+	// Focus leaving the grid releases it: the track refits once, after editing.
+	fireBlur(valueInput);
+	expect(pinOf()).toBe("");
+
+	// Re-armed, a structural change drops the pin without any blur event.
+	fireFocus(keyInput());
+	expect(pinOf()).toBe("200px");
+	const remove = rows().querySelector("button[aria-label^='Remove']") as HTMLButtonElement;
+	fireClick(remove);
+	expect(pinOf()).toBe("");
 });
 
 test("Add model matcher opens the overlay on a fresh group; closing it pristine sweeps the empty row", () => {

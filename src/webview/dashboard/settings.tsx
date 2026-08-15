@@ -48,6 +48,7 @@ import type {
 	UiTheme,
 } from "../../shared/config/settingSpec";
 import { NUMBER_SETTING_SPECS, TOKEN_ESTIMATION_MODES, UI_ACCENTS, UI_THEMES } from "../../shared/config/settingSpec";
+import { statusErrorHeadline } from "../../shared/util/errorText";
 import { useAlertOnce } from "./announceOnce";
 import { DOCS_LINK_OPENROUTER_CATALOG, DOCS_LINK_SETTINGS } from "./docsLinks";
 import { FailureText } from "./failureText";
@@ -305,8 +306,31 @@ function ResetButton({ title, scope, settingId }: { title: string; scope: Settin
  * whether Reset is worth pressing), while a workspace-scope value names its
  * scope at rest, because "my user setting is not what applies here" is the
  * one case the bar alone cannot disambiguate.
+ *
+ * A null scope renders the User-scope note's SPACING TWIN: the reveal idiom
+ * holds its box at rest (opacity, never display), so a modified row's
+ * description flow carries the note's width even while it is invisible - and
+ * where that width wraps the line, the row is one line taller than its clean
+ * self, which is a state change moving layout (measured +15px on two rows at
+ * a 480px pane). The clean row therefore reserves the same box: the same
+ * text at permanent opacity-0, aria-hidden because it is spacing, not
+ * information - a clean row's value IS the default, so the note would only
+ * misinform. It deliberately skips the Reveal primitive: no hover reveal, no
+ * sub-560px paint, and none of the bordered modes' at-rest reveals
+ * (theme.css keys those to data-slot="reveal", which this twin does not
+ * wear).
  */
-function ModifiedNote({ scope, defaultText }: { scope: SettingScope; defaultText?: string | undefined }) {
+function ModifiedNote({ scope, defaultText }: { scope: SettingScope | null; defaultText?: string | undefined }) {
+	if (defaultText !== undefined && scope === null) {
+		return (
+			<span className="setting-modified-note inline-flex opacity-0" aria-hidden="true">
+				{l10n.t("default: {0}", defaultText)}
+			</span>
+		);
+	}
+	if (scope === null) {
+		return null;
+	}
 	if (scope === "global") {
 		return defaultText === undefined ? null : (
 			<Reveal within="setting" className="setting-modified-note">
@@ -362,11 +386,30 @@ function SettingRow({
 }) {
 	// The standing failure of this row's own last write, when the host refused
 	// it; App's store retires it on the next state push (the success signal).
+	// It renders in the covered-description slot below, exactly like the row's
+	// parse errors: the old placement was a diagnostic block inserted under the
+	// row, which moved every row below it when the refusal landed - the one
+	// unreserved transient this page still had. The slot shows the framed
+	// HEADLINE only (the host notifier's toast rule): the technical detail
+	// line is arbitrary-length and the covering contract keeps the cell at the
+	// description's own height. A live parse error outranks it while both
+	// stand - the error describes the draft under the user's fingers, the
+	// failure the commit before it - and the failure resurfaces when the draft
+	// parses clean again.
 	const writeFailure = useContext(SettingFailuresContext)[settingId];
 	// Announced once per failure seq: the pane-top away line renders the same
 	// failure whenever this page is hidden, and whichever surface was visible
-	// when it landed has already spoken it.
-	const writeFailureRole = useAlertOnce(writeFailure?.seq);
+	// when it landed has already spoken it. The seq reaches the hook only
+	// while the failure branch actually renders (no live parse error), because
+	// the hook records what it is handed: fed unconditionally, a failure
+	// arriving while a parse error held the slot was marked spoken with no
+	// visible line having spoken it, and surfaced silent once the error
+	// cleared.
+	const writeFailureRole = useAlertOnce(error === undefined ? writeFailure?.seq : undefined);
+	const failureText =
+		writeFailure === undefined
+			? undefined
+			: l10n.t("The last change did not apply: {0}", statusErrorHeadline(writeFailure.message));
 	return (
 		<div
 			className={cn(
@@ -419,7 +462,9 @@ function SettingRow({
 			    second structural edge: only structure goes full-bleed, prose
 			    stops where lines stay readable. */}
 			<div className="setting-hint relative min-w-0 max-w-[72ch] break-words text-[0.95em] text-muted-foreground">
-				<span className={cn("setting-desc", error !== undefined && "invisible")}>{description}</span>
+				<span className={cn("setting-desc", (error !== undefined || failureText !== undefined) && "invisible")}>
+					{description}
+				</span>
 				{/* An AT-REST note (a workspace override) precedes the glyph, so
 				    the "?" stays the resting description's last element on every
 				    row. The hover-only User-scope note trails it instead: at rest
@@ -445,7 +490,10 @@ function SettingRow({
 						<Help text={help} name={l10n.t("Help: {0}", title)} />
 					</span>
 				) : null}
-				{configuredScope === "global" ? (
+				{/* The User-scope note - or, on a clean row that HAS a default to
+				    name, its invisible spacing twin (see ModifiedNote), so marking
+				    the row modified never re-wraps the description line. */}
+				{configuredScope === "global" || (configuredScope === null && defaultText !== undefined) ? (
 					<>
 						{" "}
 						<ModifiedNote scope={configuredScope} defaultText={defaultText} />
@@ -458,6 +506,14 @@ function SettingRow({
 				{error !== undefined ? (
 					<span className="error pointer-events-none absolute inset-0" id={errorId}>
 						{error}
+					</span>
+				) : failureText !== undefined && writeFailure !== undefined ? (
+					/* The write failure in the same covered slot. The seq keys the
+					   span so a repeat of the same failure re-mounts and announces
+					   afresh; the role dedupes to one announcement per seq
+					   (useAlertOnce). */
+					<span key={writeFailure.seq} className="error pointer-events-none absolute inset-0" role={writeFailureRole}>
+						{failureText}
 					</span>
 				) : null}
 			</div>
@@ -473,18 +529,6 @@ function SettingRow({
 				{configuredScope !== null ? <ResetButton title={title} scope={configuredScope} settingId={settingId} /> : null}
 				<RevealButton title={title} settingId={settingId} />
 			</div>
-			{/* A write the host refused, standing under the row that posted it (the
-			    charter's row-level placement) until the next state push retires it.
-			    Not the description slot: that slot's covering contract is sized for
-			    the row's own short parse errors, while the host's message carries a
-			    technical detail line of arbitrary length. The seq keys the block so
-			    a repeat of the same failure re-mounts and announces afresh; the
-			    role dedupes to one announcement per seq (useAlertOnce). */}
-			{writeFailure !== undefined ? (
-				<div key={writeFailure.seq} className="row-diagnostic sev-blocking" role={writeFailureRole}>
-					<p className="row-diagnostic-headline">{writeFailureText(writeFailure)}</p>
-				</div>
-			) : null}
 		</div>
 	);
 }

@@ -1,12 +1,12 @@
 /**
- * A refused scalar write, standing where placement puts it: under the row
- * that posted it. The steps drive the real flow - type a value into the
- * thresholds box, commit with Enter, read the posted request's id off the
- * harness stub, and answer it with a fail envelope quoting that id - so the
- * shot proves the id-to-row claim rather than photographing a hand-placed
- * line. The two-part message keeps its rendering: the localized frame
- * carries the headline, the technical detail renders as its own dimmed line
- * beneath.
+ * A refused scalar write, standing where placement puts it: in the posting
+ * row's covered description slot. The steps drive the real flow - type a
+ * value into the thresholds box, commit with Enter, read the posted request's
+ * id off the harness stub, and answer it with a fail envelope quoting that id
+ * - so the shot proves the id-to-row claim rather than photographing a
+ * hand-placed line. The slot carries the framed headline only, over the
+ * description it covers (the row keeps its height; the detail line stays off
+ * this surface, the host notifier's toast rule).
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";
@@ -38,14 +38,26 @@ const fixture: RenderFixture = {
 			);
 			box.scrollIntoView({ block: "center" });
 		})()`,
-		// The shot's own subject, asserted: the refused write's failure block
-		// must stand under the thresholds row, or the render exits green while
-		// photographing a page without the thing it exists to show.
+		// The shot's own subject, asserted: the refusal must stand in the
+		// thresholds row's covered description slot, or the render exits green
+		// while photographing a page without the thing it exists to show. The
+		// overlay is identified by NOT carrying the row's parse-error id: the
+		// two share the slot and the .error class, and only the parse error is
+		// pointed at by the inputs' aria-describedby. Asserting on the injected
+		// message rather than the localized frame keeps the guard to this
+		// fixture's own fail envelope and off the translated string.
 		`(() => {
 			const row = document.querySelector('.setting-row:has([id="setting-usage.alertThresholds-warning"])');
-			const headline = row === null ? null : row.querySelector(".row-diagnostic.sev-blocking .row-diagnostic-headline");
-			if (headline === null || headline.textContent.length === 0) {
-				throw new Error("The refused write's failure block never rendered under the thresholds row");
+			const overlay = row === null ? null : row.querySelector(".setting-hint > span.error:not([id])");
+			if (overlay === null || !overlay.textContent.includes("Alert thresholds must be above 0%")) {
+				throw new Error("The refused write never rendered in the thresholds row's description slot");
+			}
+			const description = row.querySelector(".setting-hint > .setting-desc");
+			if (description === null || !description.classList.contains("invisible")) {
+				throw new Error("The refused write did not cover the thresholds row's description");
+			}
+			if (overlay.textContent.includes("allowed range")) {
+				throw new Error("The refused write's technical detail line leaked into the covered slot");
 			}
 		})()`,
 	],

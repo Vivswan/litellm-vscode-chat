@@ -10,6 +10,7 @@ import type { RpcRequest } from "../../../../dashboard/endpoints";
 import { WIRE_LIMITS } from "../../../../dashboard/endpoints";
 import { isBoundViolation, parseNumberDraft } from "../../../../dashboard/presenters";
 import { NUMBER_SETTING_IDS } from "../../../../dashboard/viewModels";
+import { AnnounceOnceScope } from "../../../../webview/dashboard/announceOnce";
 import { App } from "../../../../webview/dashboard/app";
 import { SettingsSection } from "../../../../webview/dashboard/settings";
 import { makeSettings, makeState, statePush } from "../fixtures";
@@ -26,6 +27,7 @@ import {
 	postedCalls,
 	postedMessages,
 	pushToWebview,
+	render,
 	resetPosted,
 } from "../harness";
 
@@ -404,10 +406,19 @@ test("annotation earns its place by being news: a workspace override speaks at r
 	// A User-scope boolean has no default worth revealing and no scope worth
 	// naming: the bar is the whole annotation.
 	expect(noteOf("ui.maskSecretInputs")).toBeNull();
-	// Unmodified rows carry no note at all, and the note lives in the hint
-	// column after the description, so its coming and going never moves the
-	// label or the control.
-	expect(noteOf("discovery.timeout")).toBeNull();
+	// An unmodified number row reserves the note's box as an invisible,
+	// aria-hidden spacing twin: the revealed note holds in-flow space on a
+	// modified row (opacity, never display), so without the twin, marking a
+	// row modified re-wrapped its description line and the row grew - a state
+	// change moving layout. The twin never reveals (no reveal variants, no
+	// data-slot for the bordered modes' at-rest reveal) and says nothing to
+	// assistive tech: a clean row's value IS the default.
+	const phantom = noteOf("discovery.timeout");
+	expect(phantom?.getAttribute("aria-hidden")).toBe("true");
+	expect(phantom?.textContent).toBe("default: 30 s");
+	expect(phantom?.classList.contains("opacity-0")).toBe(true);
+	expect(phantom?.classList.contains("group-hover/setting:opacity-100")).toBe(false);
+	expect(phantom?.getAttribute("data-slot")).toBeNull();
 	expect(noteOf("chat.timeout")?.closest(".setting-hint")).not.toBeNull();
 	expect(noteOf("chat.timeout")?.previousElementSibling).not.toBeNull();
 });
@@ -1407,11 +1418,17 @@ test("the settings filter finds a row by its description and its id, whichever k
 	expect(root.textContent).toContain("No settings match the filter.");
 });
 
-test("a failed write reports under the row that posted it, as the row-level diagnostic", () => {
+test("a failed write reports under the row that posted it, covering the description slot", () => {
 	// The fail envelope echoes the request id and never the payload, so the
 	// page remembers which row posted each write and places the standing
 	// notice there - hoisting every scalar failure to the pane top left a
-	// reader hunting for which of thirty rows refused.
+	// reader hunting for which of thirty rows refused. Placement is the
+	// covered-description slot the row's parse errors already use, not a
+	// block inserted under the row: an inserted block moved every row below
+	// it when the refusal landed (the charter's transients-never-move-anything
+	// clause). The slot carries the framed HEADLINE only - the technical
+	// detail line is arbitrary-length and the covering contract keeps the
+	// cell at the description's own height.
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const input = settingInput(root, "chat.timeout");
 	fireInput(input, "5000");
@@ -1424,16 +1441,93 @@ test("a failed write reports under the row that posted it, as the row-level diag
 	const withFailure = mount(
 		<SettingsSection settings={makeSettings()} models={[]} writeFailures={{ setNumberSetting: failure }} />
 	);
-	const row = rowOf(settingInput(withFailure, "chat.timeout"));
-	const notice = row.querySelector(".row-diagnostic.sev-blocking");
-	expect(notice?.textContent).toContain("The last change did not apply: the write was refused");
-	// The two-part message keeps its dimmed technical detail line.
-	expect(notice?.querySelector(".failure-detail")?.textContent).toContain("setting detail line");
+	const hint = rowOf(settingInput(withFailure, "chat.timeout")).querySelector(".setting-hint");
+	const notice = hint?.querySelector(".error");
+	expect(notice?.textContent).toBe("The last change did not apply: the write was refused");
+	// Headline only: the detail line stays off this surface (the host
+	// notifier's toast rule), because the covered cell cannot grow for it.
+	expect(notice?.textContent).not.toContain("setting detail line");
+	// Covered, not inserted: the description keeps the cell's height and the
+	// notice overlays it, so the refusal landing moves nothing.
+	expect(hint?.querySelector(".setting-desc")?.classList.contains("invisible")).toBe(true);
+	expect(notice?.classList.contains("absolute")).toBe(true);
+	expect(notice?.classList.contains("inset-0")).toBe(true);
 	// Announced: a refusal after a quiet blur commit is otherwise invisible.
 	expect(notice?.getAttribute("role")).toBe("alert");
-	// Claimed by its row, so no section-top fallback doubles it.
-	expect(withFailure.querySelectorAll(".row-diagnostic").length).toBe(1);
+	// No inserted diagnostic block anywhere, and no section-top double.
+	expect(withFailure.querySelector(".row-diagnostic")).toBeNull();
 	expect(withFailure.querySelector("p.error[role='alert']")).toBeNull();
+});
+
+test("a live parse error outranks the standing write failure in the covered slot", () => {
+	// The error describes the draft under the user's fingers, the failure the
+	// commit before it; both at once would be two sentences in one cell. The
+	// failure resurfaces when the draft parses clean again.
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const input = settingInput(root, "chat.timeout");
+	fireInput(input, "5000");
+	fireBlur(input);
+	const posted = postedMessages.filter((message) => message.method === "setNumberSetting").pop();
+	cleanup();
+
+	const withFailure = mount(
+		<SettingsSection
+			settings={makeSettings()}
+			models={[]}
+			writeFailures={{ setNumberSetting: { seq: 1, id: posted?.id ?? "", message: "the write was refused" } }}
+		/>
+	);
+	const failedInput = settingInput(withFailure, "chat.timeout");
+	const hint = () => rowOf(failedInput).querySelector(".setting-hint");
+	expect(hint()?.querySelector(".error")?.textContent).toContain("the write was refused");
+	fireInput(failedInput, "not a number");
+	fireBlur(failedInput);
+	expect(hint()?.querySelector(".error")?.textContent).toContain("Not a duration");
+	expect(hint()?.textContent).not.toContain("the write was refused");
+	fireInput(failedInput, "5000");
+	expect(hint()?.querySelector(".error")?.textContent).toContain("the write was refused");
+});
+
+test("a failure arriving while a parse error holds the slot still announces when it surfaces", () => {
+	// The announce-once registry records what the hook is handed: fed the seq
+	// unconditionally, a failure landing behind a live parse error was marked
+	// spoken with no visible line having spoken it, and surfaced silent once
+	// the error cleared. The seq reaches the hook only while the failure
+	// branch renders, so the first render that SHOWS it is the one that
+	// speaks it - and exactly once (the registry dedupes the next render).
+	const container = mount(
+		<AnnounceOnceScope>
+			<SettingsSection settings={makeSettings()} models={[]} />
+		</AnnounceOnceScope>
+	);
+	const input = settingInput(container, "chat.timeout");
+	fireInput(input, "5000");
+	fireBlur(input);
+	const posted = postedMessages.filter((message) => message.method === "setNumberSetting").pop();
+	const hint = () => rowOf(settingInput(container, "chat.timeout")).querySelector(".setting-hint");
+
+	// A live parse error holds the slot when the refusal lands.
+	fireInput(settingInput(container, "chat.timeout"), "not a number");
+	fireBlur(settingInput(container, "chat.timeout"));
+	render(
+		<AnnounceOnceScope>
+			<SettingsSection
+				settings={makeSettings()}
+				models={[]}
+				writeFailures={{ setNumberSetting: { seq: 1, id: posted?.id ?? "", message: "the write was refused" } }}
+			/>
+		</AnnounceOnceScope>,
+		container
+	);
+	expect(hint()?.querySelector(".error")?.textContent).toContain("Not a duration");
+	// The draft parses clean again: the failure surfaces AND announces.
+	fireInput(settingInput(container, "chat.timeout"), "5000");
+	const surfaced = hint()?.querySelector(".error");
+	expect(surfaced?.textContent).toContain("the write was refused");
+	expect(surfaced?.getAttribute("role")).toBe("alert");
+	// Spoken once: the registry stands the role down on the next render.
+	fireInput(settingInput(container, "chat.timeout"), "6000");
+	expect(hint()?.querySelector(".error")?.getAttribute("role")).toBeNull();
 });
 
 test("a failure no mounted row claims falls back to one section-top line", () => {
@@ -1446,7 +1540,7 @@ test("a failure no mounted row claims falls back to one section-top line", () =>
 			writeFailures={{ setUsageStatusBar: { seq: 2, id: "id-no-row-posted", message: "the write was refused" } }}
 		/>
 	);
-	expect(root.querySelector(".row-diagnostic")).toBeNull();
+	expect(root.querySelector(".setting-hint .error")).toBeNull();
 	expect(root.querySelector("p.error[role='alert']")?.textContent).toContain(
 		"The last change did not apply: the write was refused"
 	);
@@ -1491,7 +1585,7 @@ test("two methods' failures on one row keep the latest, not the method-list orde
 		/>
 	);
 	const row = rowOf(settingInput(withBoth, "usage.pollInterval"));
-	const notice = row.querySelector(".row-diagnostic.sev-blocking");
+	const notice = row.querySelector(".setting-hint .error");
 	expect(notice?.textContent).toContain("the newer write failure");
 	expect(notice?.textContent).not.toContain("the older reset failure");
 });
@@ -1520,7 +1614,7 @@ test("a newer write on the same method does not un-claim an older standing failu
 		/>
 	);
 	const row = rowOf(settingInput(withFailure, "chat.timeout"));
-	expect(row.querySelector(".row-diagnostic.sev-blocking")?.textContent).toContain(
+	expect(row.querySelector(".setting-hint .error")?.textContent).toContain(
 		"The last change did not apply: the write was refused"
 	);
 	expect(withFailure.querySelector("p.error[role='alert']")).toBeNull();
@@ -1543,8 +1637,8 @@ test("a failure whose owning row the filter hides routes to the section-top line
 			writeFailures={{ setNumberSetting: { seq: 1, id: posted?.id ?? "", message: "the write was refused" } }}
 		/>
 	);
-	// Visible row: the notice stands under it.
-	expect(withFailure.querySelector(".row-diagnostic.sev-blocking")).not.toBeNull();
+	// Visible row: the notice stands in its covered slot.
+	expect(withFailure.querySelector(".setting-hint .error")).not.toBeNull();
 	expect(withFailure.querySelector("p.error[role='alert']")).toBeNull();
 
 	// Filter the owning row away: the notice moves to the always-visible line.
@@ -1553,7 +1647,7 @@ test("a failure whose owning row the filter hides routes to the section-top line
 		throw new Error("no settings filter");
 	}
 	fireInput(filter, "currency");
-	expect(withFailure.querySelector(".row-diagnostic.sev-blocking")).toBeNull();
+	expect(withFailure.querySelector(".setting-hint .error")).toBeNull();
 	expect(withFailure.querySelector("p.error[role='alert']")?.textContent).toContain(
 		"The last change did not apply: the write was refused"
 	);
