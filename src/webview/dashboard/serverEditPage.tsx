@@ -331,7 +331,9 @@ function FormSection({
 				{...(aside !== undefined ? { meta: aside } : {})}
 				className={cn("form-section-head mb-0.5", quiet === true && "text-muted-foreground")}
 			/>
-			<div className="mt-2 mb-3 h-px bg-border" />
+			{/* The rule's only paint is a fill, which forced colours repaint to
+			    Canvas - the section seam vanished; restated in ink there. */}
+			<div className="mt-2 mb-3 h-px bg-border forced-colors:bg-[CanvasText]" />
 			{/* The section owns the tracks and every row adopts them through
 			    subgrid, so one gutter and one set of control edges run down the
 			    whole scroll. Rows cannot each own a grid instead: the last track

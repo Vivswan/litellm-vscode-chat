@@ -1,7 +1,14 @@
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { compileDashboard, compileTheme, forcedColorsBlocks } from "./compileStyles";
+import {
+	blocks,
+	compileDashboard,
+	compileTheme,
+	FORCED_COLORS_QUERY,
+	forcedColorsBlocks,
+	rulesFor,
+} from "./compileStyles";
 
 const webviewDir = path.resolve(import.meta.dir, "../../../../../webview");
 
@@ -341,5 +348,475 @@ test("every transparent border named as handled compiles to a forced-colors rule
 		// and hands the off state back its system colour with the suite green.
 		expect(bodies.length, where).toBe(1);
 		expect(bodies[0], where).toContain(normalize(site.disposition.declaration));
+	}
+});
+
+/**
+ * What forced colours do to one separating background fill.
+ *
+ * `twinned` means a forced-colors rule restates the boundary in a channel the
+ * mode keeps - a border, or a system-colour repaint - and the selector and
+ * declaration are the compiled shape of that rule. `insideBorder` means the
+ * fill only tints inside a border the same component already draws, and
+ * borders survive the mode. `welcome` means losing the fill costs nothing a
+ * reader needs: hover feedback the pointer marks itself, a state another
+ * channel carries, a control the mode restyles in its own vocabulary, or an
+ * alpha wash the mode preserves. Each carries its reason.
+ */
+type FillDisposition =
+	| {
+			readonly kind: "twinned";
+			/** The compiled selector of the forced-colors rule that restates the boundary. */
+			readonly selector: string;
+			/** Its declaration, which has to be inside that same rule. */
+			readonly declaration: string;
+			readonly why: string;
+	  }
+	| { readonly kind: "insideBorder"; readonly why: string }
+	| { readonly kind: "welcome"; readonly why: string };
+
+interface SeparatingFill {
+	/**
+	 * The rule's compiled selector list, whitespace-collapsed, verbatim -
+	 * prefixed by the at-rule preludes wrapping it when there are any, because
+	 * a rule's address is half of it: a fill that moves into a width query is
+	 * a different claim than the same fill everywhere.
+	 */
+	readonly selector: string;
+	/** The compiled background declaration, whitespace-collapsed. */
+	readonly declaration: string;
+	/** How many times that selector paints that exact fill. */
+	readonly count: number;
+	readonly disposition: FillDisposition;
+}
+
+/**
+ * Every background fill the dashboard sheet paints, and what an OS
+ * forced-colors mode makes of it.
+ *
+ * This is the transparent-border registry's inverse. The mode repaints every
+ * author background to Canvas (keeping only its alpha), so a component whose
+ * ONLY separation channel is a fill dissolves into the page. That happened
+ * before anyone looked - the inspector's max_tokens strip sat on var(--chip)
+ * alone and the one line every request obeys lost its box - which is why this
+ * is a list rather than one fix: a new fill-separated rule fails this suite
+ * until someone says which of the three things it is.
+ *
+ * The scope is the compiled dashboard sheet's own rules, and background paint
+ * is the only channel censused. theme.css's tokens and utilities carry their
+ * own forced-colors discipline (the explicit high-contrast overrides the
+ * theme suite pins), and a fill a component wears as a utility class is
+ * invisible to this scan by construction - the fill-separated one this sweep
+ * found is named in UTILITY_FILLS below and pinned from both ends, but the
+ * census of that channel is a reviewer's job. box-shadow is the mode's other
+ * casualty, and a separator with no fill at all is likewise invisible to
+ * this scan.
+ *
+ * Mutation-checked, both ways, by hand while this list was built: deleting
+ * the .max-tokens twin fails the twin test on that entry, and adding an
+ * unregistered `.mutation-check { background: var(--chip) }` rule fails the
+ * scan test naming it. Neither can regress silently.
+ */
+const SEPARATING_FILLS: readonly SeparatingFill[] = [
+	{
+		selector: ".rail",
+		declaration: "background: var(--card)",
+		count: 1,
+		disposition: {
+			kind: "insideBorder",
+			why: "the rail's border-right is its seam with the pane and survives; the fill is a surface tint behind it",
+		},
+	},
+	{
+		selector: ".pill .dot",
+		declaration: "background: currentColor",
+		count: 1,
+		disposition: {
+			kind: "twinned",
+			selector: ".pill .dot",
+			declaration: "background: CanvasText;",
+			why: "currentColor is not a system colour, so the mode repaints the dot's only paint to Canvas and every verdict mark vanishes; the twin inks it back, and the one-shape-per-tone rules keep the tones apart",
+		},
+	},
+	{
+		selector: ".model-row:hover .model-row-line",
+		declaration: "background: var(--vscode-list-hoverBackground, #80808014)",
+		count: 1,
+		disposition: { kind: "welcome", why: "hover feedback: the pointer is its own mark" },
+	},
+	{
+		selector: ".model-row.is-open .model-row-line",
+		declaration: "background: var(--vscode-list-hoverBackground, #80808014)",
+		count: 1,
+		disposition: {
+			kind: "welcome",
+			why: "the open state is told twice without it - the rotated chevron and the opened detail block - and the border registry's named rule retracts the row's divider so the pair still reads as one block",
+		},
+	},
+	{
+		selector: ".model-detail",
+		declaration: "background: var(--vscode-textBlockQuote-background, #80808012)",
+		count: 1,
+		disposition: {
+			kind: "insideBorder",
+			why: "the accent-rail idiom: the 2px border-left ties the detail to its opener and survives; the fill tints inside it",
+		},
+	},
+	{
+		selector: ".server-row:has( > .server-line:hover)",
+		declaration: "background: var(--vscode-list-hoverBackground, #8080801f)",
+		count: 1,
+		disposition: { kind: "welcome", why: "hover feedback: the pointer is its own mark" },
+	},
+	{
+		selector: '.server-row:has( > .server-line[aria-expanded="true"])',
+		declaration: "background: var(--vscode-list-hoverBackground, #8080801f)",
+		count: 1,
+		disposition: {
+			kind: "welcome",
+			why: "the open state is the rotated chevron and the opened drawer; the wash is reinforcement",
+		},
+	},
+	{
+		selector: ".server-drawer",
+		declaration: "background: var(--vscode-textBlockQuote-background, #80808012)",
+		count: 1,
+		disposition: { kind: "insideBorder", why: "the same accent rail as .model-detail, the idiom's one geometry" },
+	},
+	{
+		selector: ".row-diagnostic.sev-blocking",
+		declaration: "background: color-mix(in srgb, var(--err) 10%, transparent)",
+		count: 1,
+		disposition: {
+			kind: "insideBorder",
+			why: "the severity rules' geometry (6px double against 2px solid against 1px dashed) ranks the tiers alone by design; the wash only says toned, and the rules' own comment already plans for the mode discarding it",
+		},
+	},
+	{
+		selector: ".row-diagnostic.sev-degraded",
+		declaration: "background: color-mix(in srgb, var(--warn) 7%, transparent)",
+		count: 1,
+		disposition: { kind: "insideBorder", why: "the same ladder's middle rung: the 2px solid rule carries the rank" },
+	},
+	{
+		selector: "tbody tr:hover",
+		declaration: "background: var(--vscode-list-hoverBackground, transparent)",
+		count: 1,
+		disposition: { kind: "welcome", why: "hover feedback: the pointer is its own mark" },
+	},
+	{
+		selector: ".tip-bubble",
+		declaration: "background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background))",
+		count: 1,
+		disposition: { kind: "insideBorder", why: "the bubble's 1px hover-widget border is its outline and survives" },
+	},
+	{
+		selector: ".catalog-results",
+		declaration: "background: var(--vscode-editorHoverWidget-background)",
+		count: 1,
+		disposition: { kind: "insideBorder", why: "the dropdown's 1px hover-widget border is its outline" },
+	},
+	{
+		selector: ".catalog-results button:hover, .catalog-results button.active",
+		declaration: "background: var(--vscode-list-hoverBackground)",
+		count: 1,
+		disposition: {
+			kind: "twinned",
+			selector: ".catalog-results button.active",
+			declaration: "background: Highlight;",
+			why: "the fill is the keyboard-highlighted option's ONLY mark - the option Enter will pick - so it repaints in the platform's own selection pair; the hover half needs nothing, the pointer marks itself",
+		},
+	},
+	{
+		selector: ".group",
+		declaration: "background: var(--vscode-editorWidget-background, transparent)",
+		count: 1,
+		disposition: { kind: "insideBorder", why: "the card's 1px border is the box; the fill tints inside it" },
+	},
+	{
+		selector: ".record-frame",
+		declaration: "background: var(--vscode-editorWidget-background, transparent)",
+		count: 1,
+		disposition: { kind: "insideBorder", why: "the frame's 1px border is the box, same chrome as .group" },
+	},
+	{
+		selector: ".record-json textarea",
+		declaration: "background: var(--vscode-input-background)",
+		count: 1,
+		disposition: {
+			kind: "insideBorder",
+			why: "a field: its always-present border repaints from its transparent fallback (the border registry's welcome case), a field that looks like a field",
+		},
+	},
+	{
+		selector: ".model-inspector .max-tokens",
+		declaration: "background: var(--chip)",
+		count: 1,
+		disposition: {
+			kind: "twinned",
+			selector: ".model-inspector .max-tokens",
+			declaration: "border: 1px solid CanvasText;",
+			why: "the strip's fill was its ONLY separation from the table above it, and the one line every request obeys dissolved into the page - the instance that showed the class this list guards",
+		},
+	},
+	{
+		selector: ".scrim",
+		declaration: "background: #00000073",
+		count: 1,
+		disposition: {
+			kind: "welcome",
+			why: "the mode keeps a background's alpha, so the wash goes on dimming the inert page (toward Canvas instead of black); ranking the modal above it is its panel's border's job",
+		},
+	},
+	{
+		selector: ".slide-over",
+		declaration: "background: var(--vscode-editor-background, var(--vscode-panel-background))",
+		count: 1,
+		disposition: {
+			kind: "twinned",
+			selector: ".slide-over",
+			declaration: "border-left: 1px solid CanvasText;",
+			why: "elevation is the shadow alone, and the mode forces shadows off while repainting the fill - a Canvas panel over a Canvas page with no edge of its own; the border restates the one edge that meets the page, the confirm dialog's own answer",
+		},
+	},
+	{
+		selector: ".confirm-dialog",
+		declaration: "background: var(--vscode-editorWidget-background, var(--vscode-editor-background))",
+		count: 1,
+		disposition: {
+			kind: "insideBorder",
+			why: "its 1px border is there for exactly this mode, as its own comment says",
+		},
+	},
+	{
+		selector: ".banner-error",
+		declaration: "background: var(--vscode-inputValidation-errorBackground, transparent)",
+		count: 1,
+		disposition: {
+			kind: "insideBorder",
+			why: "the banner's 1px border (severity-coloured here) is the box; the tint reinforces inside it",
+		},
+	},
+	{
+		selector: ".toast",
+		declaration: "background: var(--vscode-notifications-background, var(--vscode-editorWidget-background))",
+		count: 1,
+		disposition: { kind: "insideBorder", why: "the toast's 1px notifications border is the box" },
+	},
+	{
+		selector: ".filter-pill:hover",
+		declaration: "background: var(--ghost-hover)",
+		count: 1,
+		disposition: { kind: "welcome", why: "hover feedback: the pointer is its own mark" },
+	},
+	{
+		selector: '.filter-pill[aria-pressed="true"]',
+		declaration: "background: var(--chip)",
+		count: 1,
+		disposition: {
+			kind: "twinned",
+			selector: '.filter-pill[aria-pressed="true"]',
+			declaration: "border-width: 2px;",
+			why: "pressed reads as filled-vs-outline and the mode flattens both; border thickness is the channel it leaves alone, with the padding handing the extra pixel back",
+		},
+	},
+	{
+		selector: ".empty-start",
+		declaration: "background: var(--vscode-editorWidget-background, transparent)",
+		count: 1,
+		disposition: { kind: "insideBorder", why: "the guided-start card's 1px border is the box" },
+	},
+	{
+		selector: ".notice",
+		declaration: "background: var(--vscode-editorWidget-background, transparent)",
+		count: 1,
+		disposition: { kind: "insideBorder", why: "the callout's 1px border is the box" },
+	},
+	{
+		selector: ".skeleton",
+		declaration: "background: var(--vscode-foreground)",
+		count: 1,
+		disposition: {
+			kind: "twinned",
+			selector: ".skeleton",
+			declaration: "border: 1px solid GrayText;",
+			why: "12% of a repainted Canvas fill over Canvas is nothing, so the loading page rendered blank; the mode's inert colour outlines the placeholder at full opacity instead",
+		},
+	},
+	{
+		selector: "button:disabled",
+		declaration: "background: var(--vscode-button-secondaryBackground, #80808040)",
+		count: 1,
+		disposition: {
+			kind: "welcome",
+			why: "the mode restyles buttons in its own vocabulary and says disabled with GrayText itself; the author fill's job is done for it",
+		},
+	},
+	{
+		selector: ".chip-popover",
+		declaration: "background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background))",
+		count: 1,
+		disposition: { kind: "insideBorder", why: "the popover's 1px hover-widget border is its outline" },
+	},
+	{
+		selector: ".matcher-editor .editor-footer",
+		declaration: "background: var(--vscode-editor-background, var(--vscode-panel-background))",
+		count: 1,
+		disposition: {
+			kind: "insideBorder",
+			why: "the border-top draws the seam; the fill's second job - occluding rows scrolling under the sticky footer - survives, because the forced fill keeps this opaque value's alpha",
+		},
+	},
+	{
+		selector: '@media (max-width: 999.999px) .rail-nav .rail-tab[aria-selected="true"]:before',
+		declaration: "background: var(--accent-hue)",
+		count: 1,
+		disposition: {
+			kind: "twinned",
+			selector: '.rail-nav .rail-tab[aria-selected="true"]:before',
+			declaration: "background: Highlight;",
+			why: "the collapsed rail's active bar is fill-only; the unconditional twin paints it Highlight at every width, and the narrow block's later restatement only wins the geometry argument back",
+		},
+	},
+];
+
+/**
+ * Background declarations that carry paint: the shorthand and the two
+ * longhands the mode acts on (it repaints colours and forces non-url()
+ * background images to none, gradients included; a url() image survives,
+ * which an entry for one would have to reckon with). The positioning
+ * longhands paint nothing.
+ */
+const FILL_DECLARATION = /^background(?:-color|-image)?:/;
+
+/**
+ * Every background fill in the compiled dashboard sheet, as
+ * `address :: declaration` counts, where the address is the rule's selector
+ * prefixed by any at-rule preludes wrapping it (a fill that moves into a
+ * width query is news, not the same entry).
+ *
+ * The COMPILED sheet rather than the source, and through the comment-aware
+ * brace walk rather than a text grep: the compiler's spelling is the one the
+ * browser gets (a bare transparent prints as `none`, `rgba()` as hex,
+ * `width < 1000px` as `max-width: 999.999px`), a commented-out declaration
+ * paints nothing, and the walk knows which rules sit inside forced-colors
+ * blocks. Those are the twins themselves, so they are not fills to rule on;
+ * `background: none` paints nothing and separates nothing (a transparent
+ * value that matters lands on a border, and the registry above has every one
+ * of those).
+ */
+function scanForSeparatingFills(css: string): Map<string, number> {
+	const found = new Map<string, number>();
+	for (const block of blocks(css)) {
+		if (block.prelude.startsWith("@") || block.context.includes(FORCED_COLORS_QUERY)) {
+			continue;
+		}
+		for (const declaration of block.body.split(";")) {
+			const text = declaration.replace(/\s+/g, " ").trim();
+			if (!FILL_DECLARATION.test(text) || /^background(?:-color|-image)?: none$/.test(text)) {
+				continue;
+			}
+			const address = [...block.context.filter((prelude) => !prelude.startsWith("@layer")), block.prelude]
+				.join(" ")
+				.replace(/\s+/g, " ")
+				.trim();
+			const key = `${address} :: ${text}`;
+			found.set(key, (found.get(key) ?? 0) + 1);
+		}
+	}
+	return found;
+}
+
+test("every separating background fill in the dashboard sheet is one this list has ruled on", async () => {
+	// Fails closed: a new background fill, or one more copy of a known one,
+	// lands here as an unexplained site rather than as a box that quietly
+	// stops existing the first time someone turns forced colours on. When
+	// this fails, update SEPARATING_FILLS above with the new selector and an
+	// honest disposition - twinned (and write the forced-colors rule),
+	// insideBorder, or welcome.
+	const found = scanForSeparatingFills(await compileDashboard());
+	const declared = new Map(SEPARATING_FILLS.map((site) => [`${site.selector} :: ${site.declaration}`, site.count]));
+	expect(
+		Object.fromEntries([...found].sort()),
+		"a fill SEPARATING_FILLS has not ruled on, or one it claims that no longer compiles: update the list in forcedColors.test.ts"
+	).toEqual(Object.fromEntries([...declared].sort()));
+});
+
+test("every fill named as twinned compiles to a forced-colors rule restating its boundary", async () => {
+	// The other half, the same contract as the border registry's second test:
+	// the list may not claim a twin that does not exist, so deleting one (the
+	// mutation check run while this was built) fails here by name. Twins are
+	// read from blocks unconditional apart from the forced-colors query
+	// itself, because a twin nested in a width query is a boundary that stops
+	// existing at every other width. What this cannot prove is which rule the
+	// browser ends up using - the uniqueness check is the reach of the claim,
+	// one qualifying rule per selector.
+	const compiled = await compileDashboard();
+	for (const site of SEPARATING_FILLS) {
+		if (site.disposition.kind !== "twinned") {
+			continue;
+		}
+		const where = `${site.selector} :: ${site.declaration}`;
+		const twins = rulesFor(compiled, site.disposition.selector).filter(
+			(rule) =>
+				rule.context.includes(FORCED_COLORS_QUERY) &&
+				rule.context.every((prelude) => prelude.startsWith("@layer") || prelude === FORCED_COLORS_QUERY)
+		);
+		expect(twins.length, where).toBe(1);
+		for (const twin of twins) {
+			expect(normalize(twin.declarations), where).toContain(normalize(site.disposition.declaration));
+		}
+	}
+});
+
+/**
+ * Separating fills in the UTILITY channel: a fill a component wears as a
+ * Tailwind class never appears in the dashboard sheet, so the scan above
+ * cannot see it - the sheet-side registry names the component here instead,
+ * and the twin is proven from both ends. The source must pair the fill with
+ * its `forced-colors:` twin in one class list (deleting either side fails the
+ * count), and the twin must compile into the theme sheet's forced-colors
+ * block (Tailwind emits only utilities somebody wrote, so a typo'd variant
+ * stops compiling and fails here rather than shipping as a class that styles
+ * nothing).
+ */
+interface UtilityFill {
+	/** Path under src/webview/. */
+	readonly file: string;
+	/** The class list pairing the fill with its twin, verbatim. */
+	readonly text: string;
+	/** How many times that exact text appears in that file. */
+	readonly count: number;
+	/** The twin utility's compiled selector in the theme sheet. */
+	readonly twinSelector: string;
+	/** Its declaration, inside that selector's forced-colors rule. */
+	readonly twinDeclaration: string;
+	readonly why: string;
+}
+
+const UTILITY_FILLS: readonly UtilityFill[] = [
+	{
+		file: "dashboard/serverEditPage.tsx",
+		text: '"mt-2 mb-3 h-px bg-border forced-colors:bg-[CanvasText]"',
+		count: 1,
+		twinSelector: String.raw`.forced-colors\:bg-\[CanvasText\]`,
+		twinDeclaration: "background-color: CanvasText;",
+		why: "the form-section seam is a 1px rule whose only paint is the fill; repainted to Canvas it vanished under every section header at once",
+	},
+];
+
+test("every utility-channel separating fill pairs its twin in source and the twin compiles", async () => {
+	for (const site of UTILITY_FILLS) {
+		const where = `${site.file} :: ${site.text}`;
+		const source = readFileSync(path.join(webviewDir, site.file), "utf8");
+		expect(source.split(site.text).length - 1, where).toBe(site.count);
+	}
+	const theme = await compileTheme();
+	for (const site of UTILITY_FILLS) {
+		const twins = rulesFor(theme, site.twinSelector).filter((rule) => rule.context.includes(FORCED_COLORS_QUERY));
+		expect(twins.length, site.twinSelector).toBe(1);
+		for (const twin of twins) {
+			expect(normalize(twin.declarations), site.twinSelector).toContain(normalize(site.twinDeclaration));
+		}
 	}
 });

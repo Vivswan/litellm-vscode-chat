@@ -2057,6 +2057,20 @@
 			animation: none;
 		}
 	}
+	/* Elevation here is the shadow alone, and forced colours discard both of
+		 the panel's channels at once: shadows are forced off and the fill
+		 repaints to Canvas, over a page that is also Canvas - a modal surface
+		 with no edge of its own, since the scrim survives only as a dim wash
+		 (the mode keeps a background's alpha and nothing else). The confirm
+		 dialog already carries a border for exactly this moment; this panel
+		 gets the same answer on the one edge that meets the page. 1px like the
+		 max-tokens strip's twin, because a boundary is structure and 2px is
+		 this sheet's pressed/danger mark. */
+	@media (forced-colors: active) {
+		.slide-over {
+			border-left: 1px solid CanvasText;
+		}
+	}
 	/* The panel's own close. The offsets place the BORDER BOX, which is only
 		   true because the call site pins mx-0 (slideOver.tsx): with the Button
 		   primitive's layout hand-back left on, an absolute inset lands the ink
@@ -2552,6 +2566,19 @@
 		border-radius: var(--radius-chip);
 		background: var(--vscode-foreground);
 		opacity: 0.12;
+	}
+	/* Forced colours repaint that fill to Canvas, and 12% of Canvas over
+		 Canvas is nothing: the loading page rendered blank. The mode's own
+		 inert colour outlines the placeholder instead, at full opacity,
+		 because a GrayText hairline dimmed to 12% is still nothing. border-box
+		 so the border sits inside the inline heights the placeholders carry,
+		 instead of growing each one 2px. */
+	@media (forced-colors: active) {
+		.skeleton {
+			box-sizing: border-box;
+			border: 1px solid GrayText;
+			opacity: 1;
+		}
 	}
 
 	/* Narrow panels drop columns instead of demanding a horizontal scroll
