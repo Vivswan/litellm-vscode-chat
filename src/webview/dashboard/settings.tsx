@@ -17,7 +17,7 @@
 
 import * as l10n from "@vscode/l10n";
 import type { FocusEvent, ReactNode } from "react";
-import { createContext, useContext, useEffect, useId, useState } from "react";
+import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { RequestPayload } from "../../dashboard/endpoints";
 import { WIRE_LIMITS } from "../../dashboard/endpoints";
 import {
@@ -352,6 +352,31 @@ function ModifiedNote({ scope, defaultText }: { scope: SettingScope | null; defa
 }
 
 /**
+ * The row's help glyph at the tail of whichever sentence is visible: the
+ * resting description, or the covering error while one stands. The glyph is
+ * glued to the word before it by a nowrap span that carries the no-break
+ * space INSIDE it. The bare NBSP was not enough: the glyph is an atomic
+ * inline (the help wrapper is inline-flex), and Chrome allows a line break
+ * before an atomic inline even directly after a no-break space - so a
+ * sentence that exactly filled the measure orphaned a lone "?" onto its own
+ * line. Inside the nowrap span that boundary cannot break, and the
+ * word-to-NBSP boundary before the span never could. The overlay's copy
+ * restores pointer-events (its cover disables them wholesale) so the "?"
+ * stays hoverable while the error stands.
+ */
+function glyphTrail(title: string, help: string | undefined, placement: "rest" | "cover" = "rest") {
+	if (help === undefined) {
+		return null;
+	}
+	return (
+		<span className={cn("whitespace-nowrap", placement === "cover" && "pointer-events-auto")}>
+			{"\u00a0"}
+			<Help text={help} name={l10n.t("Help: {0}", title)} />
+		</span>
+	);
+}
+
+/**
  * One settings row, whatever it holds: the label gutter, the control, and the
  * explanation column that a live error takes over. A row whose setting is
  * explicitly configured in some scope wears the theme's modified accent in
@@ -414,6 +439,39 @@ function SettingRow({
 		writeFailure === undefined
 			? undefined
 			: l10n.t("The last change did not apply: {0}", statusErrorHeadline(writeFailure.message));
+	const covered = error !== undefined || failureText !== undefined;
+	// The slot's visible tenant by IDENTITY, not just "covered": a repeat
+	// failure remounts the keyed cover (the seq is its key, so it re-announces),
+	// and swapping one cover for another destroys a focused glyph exactly like
+	// covering did - the focus hand-off below must run for every change of who
+	// holds the slot, not only for covered flipping.
+	const coverKey = error !== undefined ? "error" : writeFailure !== undefined ? `failure-${writeFailure.seq}` : "rest";
+	// Focus continuity across the glyph swap: the resting "?" and the cover's
+	// are two mounts of one control, and a swap can land while the reader is
+	// ON it (a write failure arrives after they tabbed to the help; a state
+	// push retires one while the cover's glyph has focus). A hidden or removed
+	// element cannot keep focus, so the visible twin takes it - before paint
+	// (useLayoutEffect runs ahead of the browser's own focus fixup), so the
+	// keyboard never lands on the body in between. The ref remembers whether a
+	// glyph in THIS cell held focus, because the unmount direction has already
+	// dropped focus to the body by the time the effect runs; a blur toward any
+	// real element clears it, and the activeElement guard keeps the effect from
+	// stealing focus away from the input the reader is typing in.
+	const hintRef = useRef<HTMLDivElement | null>(null);
+	const glyphHadFocus = useRef(false);
+	useLayoutEffect(() => {
+		const cell = hintRef.current;
+		if (!glyphHadFocus.current || cell === null) {
+			return;
+		}
+		const active = document.activeElement;
+		if (active !== null && active !== document.body && active.isConnected && !cell.contains(active)) {
+			return;
+		}
+		cell
+			.querySelector<HTMLElement>(coverKey === "rest" ? ".setting-rest button.help" : ".setting-cover button.help")
+			?.focus({ preventScroll: true });
+	}, [coverKey]);
 	return (
 		<div
 			className={cn(
@@ -448,16 +506,23 @@ function SettingRow({
 			)}
 			<div className="setting-control flex flex-wrap items-center gap-2">{control}</div>
 			{/* The error does not replace the description in the flow, it covers
-			    it: the description stays, merely invisible, so the cell keeps the
-			    height it had and no row below moves while you type.
+			    it: the resting content stays, merely invisible, so the cell keeps
+			    the height it had and no row below moves while you type. The
+			    covering is one wrapper over the WHOLE resting flow - description,
+			    notes, and glyph together - because covering only the description
+			    left the glyph and the notes painting through the overlay's text
+			    (forced colors draws an opaque backplate behind the error, which
+			    buried the glyph outright there and collided with it everywhere
+			    else). display: contents keeps the wrapper out of layout, so the
+			    inline flow is exactly what it was without it.
 
 			    The help glyph trails the description INLINE, inside the same
 			    prose flow, so it sits where the words end on every row instead of
-			    holding a phantom column at the pane's far edge. It stays the
-			    description span's SIBLING rather than its child, because the
-			    error overlay hides the description with visibility - and a row
-			    explaining what you typed wrong is the worst moment to make its
-			    help unreachable.
+			    holding a phantom column at the pane's far edge. While an overlay
+			    covers the cell, the SAME glyph re-renders at the overlay text's
+			    own tail (glyphTrail below, pointer-events restored): the visible
+			    sentence is what the "?" must trail, and a row explaining what you
+			    typed wrong is the worst moment to make its help unreachable.
 
 			    The cell owns breaking because it owns wrapping: a description
 			    with one unbroken token would otherwise set its own min-content
@@ -465,59 +530,74 @@ function SettingRow({
 			    own measure) is a READING cap inside the growing track, not a
 			    second structural edge: only structure goes full-bleed, prose
 			    stops where lines stay readable. */}
-			<div className="setting-hint relative min-w-0 max-w-[72ch] break-words text-[0.95em] text-muted-foreground">
-				<span className={cn("setting-desc", (error !== undefined || failureText !== undefined) && "invisible")}>
-					{description}
+			<div
+				className="setting-hint relative min-w-0 max-w-[72ch] break-words text-[0.95em] text-muted-foreground"
+				ref={hintRef}
+				onFocusCapture={(event) => {
+					glyphHadFocus.current = event.target instanceof HTMLElement && event.target.matches("button.help");
+				}}
+				onBlurCapture={(event) => {
+					// A blur toward a real element is the reader leaving; so is a
+					// null-target blur from a still-connected glyph (Escape, a click
+					// on the page background) - the hand-off must not steal focus
+					// back on the next tenant swap after either. What must NOT clear
+					// the flag is the swap itself: removal of a focused element
+					// fires no blur at all, and the covering direction's hand-off
+					// runs before the browser's hidden-element fixup can.
+					if (event.relatedTarget !== null || (event.target instanceof HTMLElement && event.target.isConnected)) {
+						glyphHadFocus.current = false;
+					}
+				}}
+			>
+				<span className={cn("setting-rest contents", covered && "invisible")}>
+					<span className="setting-desc">{description}</span>
+					{/* An AT-REST note (a workspace override) precedes the glyph, so
+					    the "?" stays the resting description's last element on every
+					    row. The hover-only User-scope note trails it instead: at rest
+					    nothing visible follows the glyph, and rendering the invisible
+					    note before it would hold a blank gap open mid-sentence. */}
+					{configuredScope !== null && configuredScope !== "global" ? (
+						<>
+							{" "}
+							<ModifiedNote scope={configuredScope} defaultText={defaultText} />
+						</>
+					) : null}
+					{glyphTrail(title, help)}
+					{/* The User-scope note - or, on a clean row that HAS a default to
+					    name, its invisible spacing twin (see ModifiedNote), so marking
+					    the row modified never re-wraps the description line. */}
+					{configuredScope === "global" || (configuredScope === null && defaultText !== undefined) ? (
+						<>
+							{" "}
+							<ModifiedNote scope={configuredScope} defaultText={defaultText} />
+						</>
+					) : null}
 				</span>
-				{/* An AT-REST note (a workspace override) precedes the glyph, so
-				    the "?" stays the resting description's last element on every
-				    row. The hover-only User-scope note trails it instead: at rest
-				    nothing visible follows the glyph, and rendering the invisible
-				    note before it would hold a blank gap open mid-sentence. */}
-				{configuredScope !== null && configuredScope !== "global" ? (
-					<>
-						{" "}
-						<ModifiedNote scope={configuredScope} defaultText={defaultText} />
-					</>
-				) : null}
-				{/* The glyph is glued to the word before it by a nowrap span that
-				    carries the no-break space INSIDE it. The bare NBSP was not
-				    enough: the glyph is an atomic inline (the help wrapper is
-				    inline-flex), and Chrome allows a line break before an atomic
-				    inline even directly after a no-break space - so a sentence that
-				    exactly filled the measure orphaned a lone "?" onto its own
-				    line. Inside the nowrap span that boundary cannot break, and the
-				    word-to-NBSP boundary before the span never could. */}
-				{help !== undefined ? (
-					<span className="whitespace-nowrap">
-						{"\u00a0"}
-						<Help text={help} name={l10n.t("Help: {0}", title)} />
-					</span>
-				) : null}
-				{/* The User-scope note - or, on a clean row that HAS a default to
-				    name, its invisible spacing twin (see ModifiedNote), so marking
-				    the row modified never re-wraps the description line. */}
-				{configuredScope === "global" || (configuredScope === null && defaultText !== undefined) ? (
-					<>
-						{" "}
-						<ModifiedNote scope={configuredScope} defaultText={defaultText} />
-					</>
-				) : null}
-				{/* pointer-events-none because the overlay spans the whole cell,
-				    glyph included: without it a row with an error has an
-				    unhoverable "?" - exactly when its help is most wanted. What it
-				    covers is `visibility: hidden` and so untouchable anyway. */}
+				{/* The covering overlays. pointer-events-none on the cover because
+				    it spans the whole cell; what it covers is visibility-hidden and
+				    untouchable anyway. The glyph inside restores pointer-events for
+				    itself, so the row's help stays hoverable and clickable while
+				    the error stands. The .error span holds ONLY the message text
+				    and keeps the id: aria-describedby reads the referenced node's
+				    subtree, and a glyph inside it would append its own accessible
+				    name to every announcement of the field's problem. */}
 				{error !== undefined ? (
-					<span className="error pointer-events-none absolute inset-0" id={errorId}>
-						{error}
+					<span className="setting-cover pointer-events-none absolute inset-0">
+						<span className="error" id={errorId}>
+							{error}
+						</span>
+						{glyphTrail(title, help, "cover")}
 					</span>
 				) : failureText !== undefined && writeFailure !== undefined ? (
 					/* The write failure in the same covered slot. The seq keys the
-					   span so a repeat of the same failure re-mounts and announces
+					   cover so a repeat of the same failure re-mounts and announces
 					   afresh; the role dedupes to one announcement per seq
 					   (useAlertOnce). */
-					<span key={writeFailure.seq} className="error pointer-events-none absolute inset-0" role={writeFailureRole}>
-						{failureText}
+					<span key={writeFailure.seq} className="setting-cover pointer-events-none absolute inset-0">
+						<span className="error" role={writeFailureRole}>
+							{failureText}
+						</span>
+						{glyphTrail(title, help, "cover")}
 					</span>
 				) : null}
 			</div>
@@ -1450,6 +1530,7 @@ function SettingGroup({
 	settings,
 	isVisible,
 	booleanMeta,
+	actions,
 	tail,
 	tailVisible,
 }: {
@@ -1462,9 +1543,11 @@ function SettingGroup({
 	isVisible: (id: NumberSettingId | BooleanSettingId) => boolean;
 	/** Status content replacing specific boolean rows' descriptions (the catalog row's cluster). */
 	booleanMeta?: Partial<Record<BooleanSettingId, ReactNode>>;
+	/** Trailing actions on the heading line - the group-scale copy of ui/section.tsx's actions slot. */
+	actions?: ReactNode;
 	/** Rows appended after the scalar rows (the Usage group's enum and list rows). */
 	tail?: ReactNode;
-	/** Whether any tail row survives the filter; keeps the group heading alive for them. */
+	/** Whether anything beyond the scalar rows survives the filter (tail rows, header actions); keeps the heading alive for it. */
 	tailVisible?: boolean;
 }) {
 	const empty = numbers.every((id) => !isVisible(id)) && booleans.every((id) => !isVisible(id)) && tailVisible !== true;
@@ -1480,8 +1563,11 @@ function SettingGroup({
 			    inside a heading folds its accessible name into the heading's, so
 			    the group would announce as "Import & Export Help: Import &
 			    Export". The rule and the spacing belong to the line, so they sit
-			    on the wrapper and the heading carries neither. */}
-			<div className="settings-group-head mt-0 mb-2 flex items-baseline gap-x-2 border-border border-b pb-1">
+			    on the wrapper and the heading carries neither. The actions slot
+			    mirrors the section header's anatomy at group scale: trailing on
+			    the heading line, pushed to the far end, so a group's actions
+			    never stand as a strip of buttons where its rows belong. */}
+			<div className="settings-group-head mt-0 mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 border-border border-b pb-1">
 				<h3 className="settings-group-title m-0 font-semibold text-[0.95em]">{title()}</h3>
 				{/* Behind the glyph, not above the rows. A group's explanation is
 				    read once and then never again, so as a standing paragraph it
@@ -1489,6 +1575,9 @@ function SettingGroup({
 				    telling a returning reader nothing. The "?" is where the rows
 				    below already put their own detail. */}
 				{help !== undefined ? <Help text={help()} name={l10n.t("Help: {0}", title())} /> : null}
+				{actions !== undefined ? (
+					<div className="settings-group-actions ms-auto flex items-baseline gap-3">{actions}</div>
+				) : null}
 			</div>
 			{numbers.map((id) => (
 				<NumberField
@@ -1959,9 +2048,12 @@ export function SettingsSection({
 					) : null}
 					{/* The trailing Import & Export group: no settings rows, just two
 				    actions invoking the export/import commands over the same
-				    executeCommand post the header's Report a bug uses. Rendered
-				    after every other group so file transfer never sits between
-				    rows. */}
+				    executeCommand post the header's Report a bug uses. They ride
+				    the group head's actions slot (the section header anatomy at
+				    group scale), not a strip under the heading where rows belong.
+				    Rendered after every other group so file transfer never sits
+				    between rows. Compact, because the head line is the group's
+				    0.95em register and a full-height button out-ranks it. */}
 					<SettingGroup
 						title={() => l10n.t("Import & Export")}
 						help={helpImportExportGroup}
@@ -1970,21 +2062,23 @@ export function SettingsSection({
 						settings={settings}
 						isVisible={isVisible}
 						tailVisible={importExportVisible}
-						tail={
-							<div className="toolbar">
+						actions={
+							<>
 								<Button
 									variant="secondary"
+									size="compact"
 									onClick={() => sendRequest("executeCommand", { command: "exportSettings" })}
 								>
 									{l10n.t("Export settings")}
 								</Button>
 								<Button
 									variant="secondary"
+									size="compact"
 									onClick={() => sendRequest("executeCommand", { command: "importSettings" })}
 								>
 									{l10n.t("Import settings")}
 								</Button>
-							</div>
+							</>
 						}
 					/>
 				</div>

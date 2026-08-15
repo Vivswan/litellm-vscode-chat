@@ -264,7 +264,7 @@ function serverDiagnostics(
 		id: "openai-compatible-guide",
 		href: DOCS_LINK_OPENAI_COMPATIBLE,
 		label: l10n.t("Learn more"),
-		ariaLabel: l10n.t("Open the OpenAI-compatible servers guide"),
+		ariaLabel: l10n.t("Learn more: the OpenAI-compatible servers guide"),
 	};
 	const found: RowDiagnostic[] = [];
 	if (server.origin === "misconfigured") {
@@ -289,7 +289,7 @@ function serverDiagnostics(
 					id: "learn-more",
 					label: l10n.t("Learn more"),
 					href: DOCS_LINK_AUTHENTICATION,
-					ariaLabel: l10n.t("Open the authentication guide"),
+					ariaLabel: l10n.t("Learn more: the authentication guide"),
 				},
 			],
 		});
@@ -385,13 +385,15 @@ function serverDiagnostics(
 								{
 									kind: "docs" as const,
 									id: "troubleshoot",
-									// The helper's `label` is the accessible name (it names the
-									// specific guide); the visible text is the short verb. Do
-									// not spread the helper over these - it carries its own
+									// The helper's `label` is a whole sentence for surfaces that
+									// SHOW it; here the visible text is the short verb, so the
+									// accessible name must lead with that verb (Label in Name)
+									// and the helper's `topic` supplies the distinguishing tail.
+									// Do not spread the helper over these - it carries its own
 									// `label` and would put the long sentence on screen.
 									href: troubleshootingLink(server.classification.setupHint).href,
 									label: l10n.t("Troubleshoot"),
-									ariaLabel: troubleshootingLink(server.classification.setupHint).label,
+									ariaLabel: l10n.t("Troubleshoot: {0}", troubleshootingLink(server.classification.setupHint).topic),
 								},
 							]
 						: []),
@@ -538,6 +540,11 @@ function serverDiagnostics(
 					id: "learn-more",
 					label: l10n.t("Learn more"),
 					href: DOCS_LINK_PARAMS_INACTIVE,
+					// Every docs action's accessible name LEADS with its visible
+					// verb (Label in Name - a speech-input user activates the link
+					// by saying what the screen shows), with the destination as the
+					// distinguishing tail. A screen reader's link list then groups
+					// these under the same verbs the eye groups them by.
 					ariaLabel: l10n.t("Learn more in the troubleshooting guide"),
 				},
 			],

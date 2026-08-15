@@ -267,9 +267,10 @@ test("source order keeps every narrow override after the full-width rule it beat
 		["flex: 0 0 216px", "flex: 0 0 48px"],
 		// the slide-over's resting width, then its collapsed-rail width
 		["width: min(680px, 94vw)", "width: min(680px, calc(100% - 49px))"],
-		// the server actions hidden at rest, then the folded cluster's
-		// always-painted state - the very opacity collision being guarded
-		["opacity: 0;\n\t\ttransition: opacity 120ms ease-out;", "max-width: 13em;\n\t\t\topacity: 1;"],
+		// the server actions hidden at rest, then the sub-560 tier's
+		// always-painted state (the reveal idiom's one threshold) - the very
+		// opacity collision being guarded
+		["opacity: 0;\n\t\ttransition: opacity 120ms ease-out;", ".server-actions {\n\t\t\topacity: 1;\n\t\t}"],
 		// the rail icons unpainted at full width, then painted collapsed
 		[".rail-icon {\n\t\tdisplay: none;", ".rail-icon {\n\t\t\tdisplay: flex;"],
 		// the server name's full-width placement, then its three-line re-place

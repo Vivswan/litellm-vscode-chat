@@ -174,19 +174,25 @@ type TestState =
  * by the draft-test footer and the servers error banner, so a classified
  * failure links the same section wherever it surfaces.
  */
-export function troubleshootingLink(hint: SetupHintKind): { href: DocsUrl; label: string } {
+export function troubleshootingLink(hint: SetupHintKind): { href: DocsUrl; label: string; topic: string } {
 	switch (hint) {
 		case "proxy-not-running":
-			return { href: DOCS_LINK_PROXY_NOT_RUNNING, label: l10n.t("Open the troubleshooting guide: unable to connect") };
+			return {
+				href: DOCS_LINK_PROXY_NOT_RUNNING,
+				label: l10n.t("Open the troubleshooting guide: unable to connect"),
+				topic: l10n.t("unable to connect"),
+			};
 		case "configure-api-key":
 			return {
 				href: DOCS_LINK_CONFIGURE_API_KEY,
 				label: l10n.t("Open the troubleshooting guide: authentication failed"),
+				topic: l10n.t("authentication failed"),
 			};
 		case "check-base-url":
 			return {
 				href: DOCS_LINK_CHECK_BASE_URL,
 				label: l10n.t("Open the troubleshooting guide: the server answered 404"),
+				topic: l10n.t("the server answered 404"),
 			};
 	}
 }
@@ -507,13 +513,21 @@ function FieldSpan({ children, className }: { children: ReactNode; className?: s
 
 /**
  * The line marking off an auth form's companions - second credentials sent
- * beside the chosen form's own. A label, not a fold: there is nothing to open,
- * and the Authentication "?" says what a companion is.
+ * beside the chosen form's own. A real heading on the shared header anatomy,
+ * with "optional" in the meta slot like the four form sections around it (a
+ * hand-spelled paragraph baked the meta into the title, so it read as prose
+ * and announced "(optional)" as part of the name); still not a fold - there
+ * is nothing to open, and the Authentication "?" says what a companion is.
  */
 function CompanionNote() {
 	return (
 		<FieldSpan className="mt-2">
-			<p className="m-0 text-[11.5px] font-semibold text-muted-foreground">{l10n.t("Companions (optional)")}</p>
+			<SectionHeader
+				level={5}
+				title={l10n.t("Companions")}
+				meta={l10n.t("optional")}
+				className="companions-head mb-0"
+			/>
 		</FieldSpan>
 	);
 }
@@ -1591,20 +1605,30 @@ function ServerForm({
 			/>
 			<FormSection title={l10n.t("Connection")} help={helpConnectionSection()}>
 				<TextField field="label" placeholder={l10n.t("e.g. Production")} props={props} />
-				{renaming && (parse.ok || parse.problems.label === undefined) ? (
-					<FieldUnderRow>
-						<p className="hint m-0 text-[11.5px]">
+				{/* The label's consequence line, mounted on every form and holding
+				    its box invisibly until it speaks (the connection note's
+				    spacing-twin idiom below; visibility keeps the box and removes
+				    the words from the accessibility tree): the sentence lands on
+				    the first keystroke that renames (edit) or collides (add), and
+				    inserting it then pushed every row below down under the typing
+				    hand. Each form kind has exactly one sentence, so one reserved
+				    line covers both. */}
+				<FieldUnderRow>
+					{target.kind === "edit" ? (
+						<p
+							className={cn(
+								"rename-note hint m-0 text-[11.5px]",
+								!(renaming && (parse.ok || parse.problems.label === undefined)) && "invisible"
+							)}
+						>
 							{l10n.t("Renaming creates a new server; the old name serves until you delete it from the models file.")}
 						</p>
-					</FieldUnderRow>
-				) : null}
-				{collides ? (
-					<FieldUnderRow>
-						<p className="hint m-0 text-[11.5px]">
+					) : (
+						<p className={cn("collides-note hint m-0 text-[11.5px]", !collides && "invisible")}>
 							{l10n.t("An entry with this label already exists; saving replaces it.")}
 						</p>
-					</FieldUnderRow>
-				) : null}
+					)}
+				</FieldUnderRow>
 				<TextField field="baseUrl" mono={true} placeholder={l10n.t("e.g. http://localhost:4000")} props={props} />
 				{/* The probe belongs to the URL it probes, not to the save bar:
 				    testing is not committing, and the two were read as one action
@@ -1647,7 +1671,14 @@ function ServerForm({
 								<>
 									{" "}
 									<span className="test-hint">
-										<DocsLink {...troubleshootingLink(testState.classification.setupHint)}>
+										{/* The accessible name leads with the visible verb (Label
+										    in Name); the helper's whole-sentence label buries
+										    "Troubleshoot" inside "troubleshooting", a token speech
+										    input cannot match. */}
+										<DocsLink
+											href={troubleshootingLink(testState.classification.setupHint).href}
+											label={l10n.t("Troubleshoot: {0}", troubleshootingLink(testState.classification.setupHint).topic)}
+										>
 											{l10n.t("Troubleshoot")}
 										</DocsLink>
 									</span>

@@ -882,7 +882,7 @@ test("a failed test with a setup hint renders the troubleshooting link inside th
 	// The error message renders as before; the link rides inside the alert
 	// element (one live-region announcement covers both) and targets the
 	// troubleshooting-guide section matching the setup-hint id, with short
-	// visible text and the fuller per-cause accessible label.
+	// visible text and an accessible label that leads with it (Label in Name).
 	const alert = root.querySelector(".test-result.error");
 	expect(alert?.getAttribute("role")).toBe("alert");
 	// Full text pinned: message, the copy-selection space, then the link
@@ -890,7 +890,7 @@ test("a failed test with a setup hint renders the troubleshooting link inside th
 	expect(alert?.textContent).toBe("the server answered 404 Troubleshoot");
 	const anchor = alert?.querySelector<HTMLAnchorElement>(".test-hint a.docs-link");
 	expect(anchor?.getAttribute("href")).toBe(DOCS_LINK_CHECK_BASE_URL);
-	expect(anchor?.getAttribute("aria-label")).toBe("Open the troubleshooting guide: the server answered 404");
+	expect(anchor?.getAttribute("aria-label")).toBe("Troubleshoot: the server answered 404");
 	expect(anchor?.textContent).toContain("Troubleshoot");
 
 	// A classification without a setup hint renders no link line either.
@@ -943,17 +943,17 @@ test("classified refresh failures carry a Troubleshoot link on their own row; un
 	expect(lines[2]?.textContent).toContain("answered 404");
 
 	// Two classified failures, two links, each targeting the
-	// troubleshooting-guide section matching its own setup-hint id, with the
-	// fuller per-cause accessible label - the same links the draft-test footer
-	// renders.
+	// troubleshooting-guide section matching its own setup-hint id, with an
+	// accessible label that LEADS with the visible verb (Label in Name) and
+	// carries the same per-cause topic the draft-test footer's links name.
 	const anchors = [...root.querySelectorAll<HTMLAnchorElement>(".row-diagnostic a.docs-link")];
 	expect(anchors.map((anchor) => anchor.getAttribute("href"))).toEqual([
 		DOCS_LINK_PROXY_NOT_RUNNING,
 		DOCS_LINK_CHECK_BASE_URL,
 	]);
 	expect(anchors.map((anchor) => anchor.getAttribute("aria-label"))).toEqual([
-		"Open the troubleshooting guide: unable to connect",
-		"Open the troubleshooting guide: the server answered 404",
+		"Troubleshoot: unable to connect",
+		"Troubleshoot: the server answered 404",
 	]);
 	// The VISIBLE text is the short verb - the long sentence is the accessible
 	// name. Spreading the link helper over the label put that sentence on screen
@@ -1677,7 +1677,7 @@ test("a models-listing-unserved error withholds the declare action on an unprove
 		}),
 	]);
 	expect(root.textContent).not.toContain("Declare expected failure");
-	expect(root.querySelector("a[aria-label='Open the OpenAI-compatible servers guide']")).not.toBeNull();
+	expect(root.querySelector("a[aria-label='Learn more: the OpenAI-compatible servers guide']")).not.toBeNull();
 	expect(root.textContent).toContain("may not carry the entry's labeled identity");
 });
 

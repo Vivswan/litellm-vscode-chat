@@ -378,7 +378,7 @@ function revealTarget(setting: string): RevealableSettingId {
 	return setting === "models.capabilities" ? "models.capabilities" : "models.parameters";
 }
 
-/** The guide a problem's Learn more opens. The visible text rides the accessible name, as Label in Name requires. */
+/** The guide a problem's Learn more opens. The accessible name leads with the visible verb - Label in Name: a speech-input user activates the link by saying what the screen shows - and the trailing subject keeps the links-list entries distinct while they group under the same verb the eye groups them by. */
 function docsAction(href: DocsUrl, subject: string): DiagnosticAction {
 	return { kind: "docs", label: l10n.t("Learn more"), href, ariaLabel: l10n.t("Learn more: {0}", subject) };
 }

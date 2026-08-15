@@ -33,9 +33,10 @@ export interface SectionHeaderProps {
 	/**
 	 * Heading level. A section heading is an h2; a sub-header inside a page
 	 * whose section heading is already an h2 has to be an h3 or an h4, and the
-	 * surfaces this replaces use all three.
+	 * surfaces this replaces use all three. 5 is the server form's Companions
+	 * sub-head, one step under its h4 sections.
 	 */
-	level?: 2 | 3 | 4;
+	level?: 2 | 3 | 4 | 5;
 	/** Help tip text; renders the "?" affordance when present. */
 	help?: string;
 	/** Place the tip below its trigger - for headers near the top, where above would clip. */

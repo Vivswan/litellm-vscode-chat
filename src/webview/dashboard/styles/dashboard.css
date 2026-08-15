@@ -1597,7 +1597,14 @@
 		outline: 1px solid var(--vscode-focusBorder);
 		outline-offset: -1px;
 	}
-	.record-json .error {
+	/* The side door's one reserved status line under the textarea (the
+		   .row-status idiom): the parse verdict lands per keystroke, and a line
+		   mounted only alongside a problem pushed the mode buttons and the
+		   commit bar down on the first bad character. The .error class rides
+		   the same element while a verdict stands, so the paint stays the tone
+		   register's. */
+	.record-json .json-status {
+		min-height: 1lh;
 		font-size: 0.9em;
 		margin: 4px 0;
 	}
@@ -2503,6 +2510,19 @@
 	.form-section-head .section-meta {
 		font-size: 11px;
 	}
+	/* The Companions sub-head inside the Authentication section, one more step
+		   down the same anatomy: a real heading with "optional" in the meta
+		   slot, like the four form sections around it, at the row hints' own
+		   11.5px and their muted color - it labels a run of rows inside one
+		   section, not a section of its own. */
+	.companions-head .section-title {
+		font-size: 11.5px;
+		font-weight: 600;
+		color: var(--vscode-descriptionForeground);
+	}
+	.companions-head .section-meta {
+		font-size: 11px;
+	}
 
 	.empty {
 		color: var(--vscode-descriptionForeground);
@@ -3182,18 +3202,22 @@
 	.matcher-editor .matcher-line .suggest-input {
 		flex: 1;
 	}
-	/* The live reading of the matcher grammar (exact ID, prefix match, ...),
-		   the record table's annotation under the input it describes. */
-	.matcher-editor .matcher-kind {
+	/* The matcher's one reserved status line, mounted whether or not it speaks
+		   (the .row-status idiom): the live reading of the matcher grammar
+		   (exact ID, prefix match, ...) at rest, the parse's verdict in the same
+		   slot while one stands. As two separate spans, a typed matcher that
+		   collided grew a second line under its kind reading, and the empty-to-
+		   typed swap traded a 0.9em verdict for a 0.85em reading - both moved
+		   the Inherits and Fields sections under the typing hand. One slot, one
+		   size; the .error register (unlayered, theme.css) supplies the
+		   verdict's paint over this muted rest color, and the min-height is the
+		   backstop for a state with nothing to say. */
+	.matcher-editor .matcher-status {
 		display: block;
-		margin-top: 3px;
-		font-size: 0.85em;
-		color: var(--vscode-descriptionForeground);
-	}
-	.matcher-editor .editor-section > .error {
-		display: block;
+		min-height: 1lh;
 		margin: 3px 0 0;
 		font-size: 0.9em;
+		color: var(--vscode-descriptionForeground);
 	}
 	/* The Inherits section: label above, the select and keys input on one line. */
 	.matcher-editor .inherit-from {
@@ -3622,21 +3646,23 @@
 		 read as one row, and an actions line of its own would make every server
 		 three lines tall and put two buttons a reader rarely uses on the same
 		 footing as the row's facts.
-		 Always painted at these widths, since hover is not a thing a touch
-		 device can express. The cap and the wrap are what keep the ROW inside
-		 the pane: an unwrapped cluster's minimum is both its buttons side by
-		 side, and a row whose minimum exceeds the pane does not truncate, it
-		 puts a horizontal scrollbar under the whole page. Wrapped, the minimum
-		 is one button - which the two-step confirm ("Confirm remove?" beside
-		 "Cancel") does reach at 500px, and which is the right thing to spend a
-		 line on for the state a reader is looking straight at. */
+		 Still hover-revealed at this tier: painted-at-rest is the reveal
+		 idiom's 560 call (ui/reveal.tsx's @max-[560px]/pane clause, the rule
+		 below), not this fold's - the fold is about line composition, and a
+		 920 paint here forked the idiom's one threshold. The cap and the wrap
+		 are what keep the ROW inside the pane: an unwrapped cluster's minimum
+		 is both its buttons side by side, and a row whose minimum exceeds the
+		 pane does not truncate, it puts a horizontal scrollbar under the whole
+		 page. Wrapped, the minimum is one button - which the two-step confirm
+		 ("Confirm remove?" beside "Cancel") does reach at 500px, and which is
+		 the right thing to spend a line on for the state a reader is looking
+		 straight at. */
 		.server-actions {
 			/* Wider than the wide tier's track: beside a two-line row an extra
 			 button width costs the URL nothing it was not already giving up,
 			 and the armed pair reaching a second line here is the state a
 			 reader is looking straight at. */
 			max-width: 13em;
-			opacity: 1;
 			padding-right: 0;
 		}
 		/* Tighter under a two-line row: the paddings were sized against a
@@ -3673,6 +3699,14 @@
 	@container pane (width < 560px) {
 		.server-list {
 			grid-template-columns: auto fit-content(14em) auto minmax(9em, 1fr);
+		}
+		/* Painted at rest from here down, where hover does not exist (touch,
+		 narrow panes): the reveal idiom's ONE threshold, keyed to the same
+		 560 tier as ui/reveal.tsx's @max-[560px]/pane clause - this cluster
+		 spelled its own 920 for a while, and the charter's exact-copy clause
+		 exists so an embodiment cannot fork the number again. */
+		.server-actions {
+			opacity: 1;
 		}
 		.server-status .pill-time {
 			position: absolute;

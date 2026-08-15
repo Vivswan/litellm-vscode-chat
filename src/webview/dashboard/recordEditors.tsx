@@ -706,12 +706,16 @@ function ParamGroupsFields({
 									onEnter={onEnter}
 								/>
 							</div>
-							{group.prefix.trim().length > 0 ? (
-								<span className="matcher-kind">{matcherKindLabel(matcherKind(group.prefix))}</span>
-							) : null}
-							{problems[groupIndex]?.prefix !== undefined ? (
-								<span className="error">{problems[groupIndex]?.prefix}</span>
-							) : null}
+							{/* The matcher's reserved status line (dashboard.css
+							    .matcher-status): the grammar reading at rest, the parse's
+							    verdict in the same one-size slot while one stands - as two
+							    spans, a colliding matcher grew a second line and the
+							    empty-to-typed swap changed heights, both moving the
+							    sections below under the typing hand. */}
+							<span className={cn("matcher-status", problems[groupIndex]?.prefix !== undefined && "error")}>
+								{problems[groupIndex]?.prefix ??
+									(group.prefix.trim().length > 0 ? matcherKindLabel(matcherKind(group.prefix)) : null)}
+							</span>
 						</div>
 						<div className="editor-section">
 							<InheritFromControl
@@ -1401,12 +1405,12 @@ function CapabilityGroupsFields({
 									onEnter={onEnter}
 								/>
 							</div>
-							{group.prefix.trim().length > 0 ? (
-								<span className="matcher-kind">{matcherKindLabel(matcherKind(group.prefix))}</span>
-							) : null}
-							{issues[groupIndex]?.prefix !== undefined ? (
-								<span className="error">{issues[groupIndex]?.prefix}</span>
-							) : null}
+							{/* The reserved status line, the parameters editor's rule (see
+							    the twin above dashboard.css .matcher-status). */}
+							<span className={cn("matcher-status", issues[groupIndex]?.prefix !== undefined && "error")}>
+								{issues[groupIndex]?.prefix ??
+									(group.prefix.trim().length > 0 ? matcherKindLabel(matcherKind(group.prefix)) : null)}
+							</span>
 						</div>
 						<div className="editor-section">
 							<InheritFromControl
@@ -3114,7 +3118,13 @@ export function ModelParametersEditor({
 								}
 							}}
 						/>
-						{jsonParse !== undefined && !jsonParse.ok ? <p className="error">{jsonParse.problem}</p> : null}
+						{/* The side door's reserved status line (dashboard.css
+						    .json-status): the parse verdict lands per keystroke, and
+						    mounted only alongside a problem it pushed the mode buttons
+						    and the commit bar down on the first bad character. */}
+						<p className={cn("json-status", jsonParse !== undefined && !jsonParse.ok && "error")}>
+							{jsonParse !== undefined && !jsonParse.ok ? jsonParse.problem : null}
+						</p>
 					</div>
 				) : (
 					<>
@@ -3388,7 +3398,11 @@ export function ModelCapabilitiesEditor({
 								}
 							}}
 						/>
-						{jsonParse !== undefined && !jsonParse.ok ? <p className="error">{jsonParse.problem}</p> : null}
+						{/* The reserved status line, the parameters door's rule (see the
+						    twin above dashboard.css .json-status). */}
+						<p className={cn("json-status", jsonParse !== undefined && !jsonParse.ok && "error")}>
+							{jsonParse !== undefined && !jsonParse.ok ? jsonParse.problem : null}
+						</p>
 					</div>
 				) : (
 					<>

@@ -48,16 +48,20 @@ const fixture: RenderFixture = {
 		// fixture's own fail envelope and off the translated string.
 		`(() => {
 			const row = document.querySelector('.setting-row:has([id="setting-usage.alertThresholds-warning"])');
-			const overlay = row === null ? null : row.querySelector(".setting-hint > span.error:not([id])");
+			const overlay = row === null ? null : row.querySelector(".setting-hint .setting-cover > span.error:not([id])");
 			if (overlay === null || !overlay.textContent.includes("Alert thresholds must be above 0%")) {
 				throw new Error("The refused write never rendered in the thresholds row's description slot");
 			}
-			const description = row.querySelector(".setting-hint > .setting-desc");
-			if (description === null || !description.classList.contains("invisible")) {
-				throw new Error("The refused write did not cover the thresholds row's description");
+			const rest = row.querySelector(".setting-hint > .setting-rest");
+			if (rest === null || !rest.classList.contains("invisible")) {
+				throw new Error("The refused write did not cover the thresholds row's resting description flow");
 			}
 			if (overlay.textContent.includes("allowed range")) {
 				throw new Error("The refused write's technical detail line leaked into the covered slot");
+			}
+			const glyph = row.querySelector(".setting-hint .setting-cover button.help");
+			if (glyph === null || glyph.getBoundingClientRect().width <= 0) {
+				throw new Error("The covered slot's help glyph is not painted at the overlay text's tail");
 			}
 		})()`,
 	],

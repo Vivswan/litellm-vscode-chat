@@ -55,27 +55,29 @@ function rowOf(input: HTMLElement): HTMLElement {
 	return row;
 }
 
-test("a row's help glyph trails the description inline, a sibling of the prose so an error cannot hide it", () => {
+test("a row's help glyph trails the description inline, inside the resting flow an overlay covers whole", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	// The glyph used to hold a phantom column past a 46ch prose box, which put
 	// a lone "?" at a different distance from every sentence. It now flows
 	// INLINE after the description's last word - same position relative to the
-	// words on every row - while staying the description SPAN's sibling: the
-	// error overlay hides the span with visibility, and the glyph must survive
-	// that (a row explaining what you typed wrong is the worst moment to lose
-	// its help).
+	// words on every row - inside the .setting-rest wrapper that an overlay
+	// hides whole (the glyph re-renders at the overlay's own tail then; the
+	// covered test below pins that half).
 	const hint = rowOf(settingInput(root, "discovery.cacheTtl")).querySelector(".setting-hint");
 	expect(hint).not.toBeNull();
 	const help = hint?.querySelector("button.help");
 	expect(help).not.toBeNull();
 	// The glyph rides inside a nowrap glue span (Chrome breaks before an
 	// atomic inline even after a no-break space, so the NBSP alone let a lone
-	// "?" orphan onto its own line); the SPAN is the hint cell's child, and
-	// the glyph still stays outside the description span the error overlay
-	// hides.
+	// "?" orphan onto its own line); the span lives in the resting-flow
+	// wrapper, which is display: contents so it adds no box to the inline
+	// flow, and the glyph still stays outside the description span itself.
 	const glue = help?.closest(".help-wrap")?.parentElement;
 	expect(glue?.classList.contains("whitespace-nowrap")).toBe(true);
-	expect(glue?.parentElement).toBe(hint as HTMLElement);
+	const rest = glue?.parentElement;
+	expect(rest?.classList.contains("setting-rest")).toBe(true);
+	expect(rest?.classList.contains("contents")).toBe(true);
+	expect(rest?.parentElement).toBe(hint as HTMLElement);
 	expect(hint?.querySelector(".setting-desc")?.querySelector("button.help")).toBeNull();
 	// The cell owns wrapping and breaking (one unbroken token must not push out
 	// of the column), and caps its prose at a reading measure inside the
@@ -86,30 +88,104 @@ test("a row's help glyph trails the description inline, a sibling of the prose s
 	expect(Array.from(hint?.classList ?? []).some((name) => name.startsWith("grid"))).toBe(false);
 });
 
-test("an error covers the hint cell without taking its height or the help glyph's clicks", () => {
-	// The three rules that keep the form still while you type, none of which
+test("an error covers the hint cell without taking its height, and carries the glyph at its own tail", () => {
+	// The rules that keep the form still while you type, none of which
 	// happy-dom can observe by measuring, and all of which sit in the cell this
-	// change reorganized: the description stays in flow (invisible, not
-	// removed) so the row keeps the height it had, the error is absolute inside
-	// the relative cell so it adds none, and it lets clicks through - it spans
-	// the glyph too, and a row explaining what you typed wrong is the worst
-	// moment to make its help unreachable.
+	// change reorganized: the resting flow stays in flow (invisible, not
+	// removed) so the row keeps the height it had, the error rides an absolute
+	// cover inside the relative cell so it adds none, the cover lets clicks
+	// through, and the help glyph re-renders at the error text's tail with its
+	// own pointer-events restored - painted through the overlay it collided
+	// with the words in dark and vanished under forced colors' backplate.
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const input = settingInput(root, "discovery.cacheTtl");
 	fireInput(input, "not a number");
 	const hint = rowOf(input).querySelector(".setting-hint");
-	const desc = hint?.querySelector(".setting-desc");
+	const rest = hint?.querySelector(".setting-rest");
 	const error = hint?.querySelector(".error");
+	const cover = error?.closest(".setting-cover");
 
 	expect(error?.textContent).toContain("Not a duration");
-	expect(desc).not.toBeNull();
-	expect(desc?.classList.contains("invisible")).toBe(true);
+	expect(rest).not.toBeNull();
+	expect(rest?.querySelector(".setting-desc")).not.toBeNull();
+	expect(rest?.classList.contains("invisible")).toBe(true);
 	expect(hint?.classList.contains("relative")).toBe(true);
-	expect(error?.classList.contains("absolute")).toBe(true);
-	expect(error?.classList.contains("inset-0")).toBe(true);
-	expect(error?.classList.contains("pointer-events-none")).toBe(true);
-	// The glyph is still there to be reached.
-	expect(hint?.querySelector("button.help")).not.toBeNull();
+	expect(cover?.classList.contains("absolute")).toBe(true);
+	expect(cover?.classList.contains("inset-0")).toBe(true);
+	expect(cover?.classList.contains("pointer-events-none")).toBe(true);
+	// The error span holds the message alone (the field's aria-describedby
+	// reads its subtree, so a glyph inside it would announce its own name with
+	// every problem); the glyph is its cover-mate, clickable again.
+	expect(error?.querySelector("button.help")).toBeNull();
+	const coverGlyph = cover?.querySelector("button.help");
+	expect(coverGlyph).not.toBeNull();
+	expect(coverGlyph?.closest(".pointer-events-auto")).not.toBeNull();
+});
+
+test("the help glyph hands focus to its visible twin when an overlay lands and when it clears", () => {
+	// The resting "?" and the cover's are two mounts of one control, and a
+	// swap can land while the reader is ON it: a hidden or removed element
+	// cannot keep focus, so without the hand-off the keyboard falls to the
+	// body mid-read. check-geometry's settings-write-failure-overlay pair
+	// asserts the same hand-off in a real browser.
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const input = settingInput(root, "discovery.cacheTtl");
+	const hint = () => rowOf(input).querySelector(".setting-hint") as HTMLElement;
+	const restGlyph = hint().querySelector(".setting-rest button.help") as HTMLButtonElement;
+	// Real focus (activeElement moves), act-wrapped because the tip primitive
+	// updates state on focus.
+	void act(() => restGlyph.focus());
+	expect(document.activeElement).toBe(restGlyph);
+
+	fireInput(input, "not a number");
+	const coverGlyph = hint().querySelector(".setting-cover button.help");
+	expect(coverGlyph).not.toBeNull();
+	expect(document.activeElement).toBe(coverGlyph as HTMLElement);
+
+	fireInput(input, "5000");
+	expect(hint().querySelector(".setting-cover")).toBeNull();
+	expect(document.activeElement).toBe(hint().querySelector(".setting-rest button.help") as HTMLElement);
+});
+
+test("a repeat failure's remounted cover keeps the focused glyph's keyboard", () => {
+	// The cover is keyed on the failure seq (a repeat must re-announce), so a
+	// second refusal REPLACES the cover while covered never flips - the
+	// hand-off has to follow the slot's tenant identity, not just the flag,
+	// or the destroyed glyph drops focus to the document between failures.
+	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
+	const input = settingInput(root, "chat.timeout");
+	fireInput(input, "5000");
+	fireBlur(input);
+	const posted = postedMessages.filter((message) => message.method === "setNumberSetting").pop();
+	const failureAt = (seq: number) =>
+		render(
+			<SettingsSection
+				settings={makeSettings()}
+				models={[]}
+				writeFailures={{ setNumberSetting: { seq, id: posted?.id ?? "", message: `refused (attempt ${seq})` } }}
+			/>,
+			root
+		);
+	failureAt(1);
+	const hint = () => rowOf(settingInput(root, "chat.timeout")).querySelector(".setting-hint") as HTMLElement;
+	const firstGlyph = hint().querySelector(".setting-cover button.help") as HTMLButtonElement;
+	void act(() => firstGlyph.focus());
+	expect(document.activeElement).toBe(firstGlyph);
+
+	failureAt(2);
+	const secondGlyph = hint().querySelector(".setting-cover button.help") as HTMLButtonElement;
+	expect(hint().textContent).toContain("refused (attempt 2)");
+	expect(secondGlyph.isConnected).toBe(true);
+	expect(document.activeElement).toBe(secondGlyph);
+
+	// The negative half: a deliberate blur (Escape, a click on the page
+	// background - a null relatedTarget from a still-connected glyph) means
+	// the reader LEFT, and the next tenant swap must not steal focus back.
+	void act(() => secondGlyph.blur());
+	expect(document.activeElement).not.toBe(secondGlyph);
+	failureAt(3);
+	expect(hint().textContent).toContain("refused (attempt 3)");
+	expect(document.activeElement).toBe(document.body);
 });
 
 test("a group with no help renders no glyph in its head", () => {
@@ -147,7 +223,10 @@ test("a User-scope modified number row keeps its words on demand: the default no
 	const note = hint?.querySelector(".setting-modified-note");
 	expect(note?.textContent).toBe("default: 1 h");
 	expect(note?.textContent).not.toContain("Modified");
-	expect(note?.parentElement).toBe(hint as HTMLElement);
+	// Inside the resting-flow wrapper (display: contents, so it is still the
+	// hint cell's own inline flow), after the glyph.
+	expect(note?.parentElement?.classList.contains("setting-rest")).toBe(true);
+	expect(note?.parentElement?.parentElement).toBe(hint as HTMLElement);
 	expect(note?.classList.contains("opacity-0")).toBe(true);
 	expect(note?.classList.contains("group-hover/setting:opacity-100")).toBe(true);
 	expect(note?.classList.contains("group-focus-within/setting:opacity-100")).toBe(true);
@@ -1497,11 +1576,14 @@ test("a failed write reports under the row that posted it, covering the descript
 	// Headline only: the detail line stays off this surface (the host
 	// notifier's toast rule), because the covered cell cannot grow for it.
 	expect(notice?.textContent).not.toContain("setting detail line");
-	// Covered, not inserted: the description keeps the cell's height and the
-	// notice overlays it, so the refusal landing moves nothing.
-	expect(hint?.querySelector(".setting-desc")?.classList.contains("invisible")).toBe(true);
-	expect(notice?.classList.contains("absolute")).toBe(true);
-	expect(notice?.classList.contains("inset-0")).toBe(true);
+	// Covered, not inserted: the resting flow keeps the cell's height and the
+	// notice's cover overlays it, so the refusal landing moves nothing - and
+	// the row's help glyph rides the cover at the notice's own tail.
+	expect(hint?.querySelector(".setting-rest")?.classList.contains("invisible")).toBe(true);
+	const cover = notice?.closest(".setting-cover");
+	expect(cover?.classList.contains("absolute")).toBe(true);
+	expect(cover?.classList.contains("inset-0")).toBe(true);
+	expect(cover?.querySelector("button.help")).not.toBeNull();
 	// Announced: a refusal after a quiet blur commit is otherwise invisible.
 	expect(notice?.getAttribute("role")).toBe("alert");
 	// No inserted diagnostic block anywhere, and no section-top double.

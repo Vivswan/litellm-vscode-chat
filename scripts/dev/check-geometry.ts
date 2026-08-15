@@ -154,9 +154,14 @@ const THRESHOLDS_PARSE_ERROR = `${THRESHOLDS_ROW} .setting-hint span.error[id="s
  * The same row's write-REFUSAL overlay: the covered slot's other tenant,
  * identified by NOT carrying the parse error's id (only the parse error is
  * pointed at by the inputs' aria-describedby; err-scalar.ts pins the same
- * disambiguation).
+ * disambiguation). Both tenants live inside a .setting-cover wrapper, which
+ * carries the positioning while the .error span holds only the message text -
+ * the row's help glyph rides the cover as the error span's sibling, so the
+ * description the id names never includes the glyph's own accessible name.
  */
-const THRESHOLDS_REFUSAL = `${THRESHOLDS_ROW} .setting-hint > span.error:not([id])`;
+const THRESHOLDS_REFUSAL = `${THRESHOLDS_ROW} .setting-hint .setting-cover > span.error:not([id])`;
+/** The covered slot's help glyph while an overlay stands: the "?" re-homed to the visible sentence's tail. */
+const THRESHOLDS_COVER_GLYPH = `${THRESHOLDS_ROW} .setting-hint .setting-cover button.help`;
 /** The first server row's home; its next sibling is the second row. */
 const FIRST_SERVER_ITEM = ".server-list > li.server-item:first-child";
 /** The chip whose popover is open - the one chip a state toggle can address across both measurements. */
@@ -165,6 +170,8 @@ const OPEN_CHIP = ".chip-anchor:has(.chip-popover) > button.chip-field";
 const FIRST_HEADER_ROW = "#server-edit-page .row";
 /** The settings page's Model parameters frame, anchored by its own add button's id. */
 const PARAMS_FRAME = ".record-frame:has(#params-add-matcher)";
+/** The same frame in JSON mode, where the add button (the resting anchor) is replaced by the side door. */
+const JSON_PARAMS_FRAME = '.record-frame:has(textarea[aria-label="Model parameters as JSON"])';
 /** The record row whose chips the popover fixtures open; its next sibling holds the row below. */
 const GPT5_RECORD_ROW = `.record-row:has(button[aria-label='Open the full editor for "gpt-5*"'])`;
 
@@ -239,14 +246,20 @@ const STATE_PAIRS: readonly StatePair[] = [
 	{
 		// A settings row's parse error COVERS the description (the description
 		// stays, invisible, so the cell keeps its height) - the row must not
-		// grow while you type something wrong.
+		// grow while you type something wrong. The verify also holds the covered
+		// slot's help glyph: the "?" re-homes to the error's own tail while one
+		// stands (dark collided the two, forced colors buried the glyph under
+		// the error text's backplate), so a cover without a painted glyph is the
+		// regression this pair now names.
 		name: "settings-row-error-overlay",
 		fixture: "settings.ts",
 		targets: [THRESHOLDS_ROW],
 		siblingOf: THRESHOLDS_ROW,
 		toggle: [reactType('[id="setting-usage.alertThresholds-warning"]', "abc")],
 		restVerify: `document.querySelector(${JSON.stringify(THRESHOLDS_PARSE_ERROR)}) === null`,
-		verify: `document.querySelector(${JSON.stringify(THRESHOLDS_PARSE_ERROR)}) !== null`,
+		verify:
+			`document.querySelector(${JSON.stringify(THRESHOLDS_PARSE_ERROR)}) !== null && ` +
+			`(document.querySelector(${JSON.stringify(THRESHOLDS_COVER_GLYPH)})?.getBoundingClientRect().width ?? 0) > 0`,
 	},
 	{
 		// The server row's actions cluster occupies a reserved track and reveals
@@ -429,6 +442,13 @@ const STATE_PAIRS: readonly StatePair[] = [
 				box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
 				const posted = window.__posted.filter((m) => m.method === "setUsageAlertThresholds").pop();
 				if (posted === undefined) { throw new Error(${marker("SETUP", ": Enter posted no setUsageAlertThresholds request")}); }
+				// The reader tabs to the row's help before the refusal lands: the
+				// swap must hand focus to the cover's glyph (the verify holds it),
+				// because the resting one goes visibility-hidden and a hidden
+				// control cannot keep the keyboard.
+				const glyph = document.querySelector(${JSON.stringify(`${THRESHOLDS_ROW} .setting-rest button.help`)});
+				if (glyph === null) { throw new Error(${marker("SETUP", ": no resting help glyph on the thresholds row")}); }
+				glyph.focus({ preventScroll: true });
 				window.dispatchEvent(
 					new MessageEvent("message", {
 						data: {
@@ -443,7 +463,117 @@ const STATE_PAIRS: readonly StatePair[] = [
 			})()`,
 		],
 		restVerify: `document.querySelector(${JSON.stringify(THRESHOLDS_REFUSAL)}) === null`,
-		verify: `document.querySelector(${JSON.stringify(THRESHOLDS_REFUSAL)}) !== null`,
+		verify:
+			`document.querySelector(${JSON.stringify(THRESHOLDS_REFUSAL)}) !== null && ` +
+			`(document.querySelector(${JSON.stringify(THRESHOLDS_COVER_GLYPH)})?.getBoundingClientRect().width ?? 0) > 0 && ` +
+			`document.activeElement === document.querySelector(${JSON.stringify(THRESHOLDS_COVER_GLYPH)})`,
+	},
+	{
+		// The server form's rename note holds its box as an invisible spacing
+		// twin under the Label row (the connection note's idiom) - the first
+		// renaming keystroke used to INSERT it and push every row below down
+		// under the typing hand. err-serverform.ts opens the edit form with a
+		// field error already standing, so this also proves the note speaks
+		// without disturbing the covered-slot error above it.
+		name: "form-rename-note",
+		fixture: "err-serverform.ts",
+		targets: ["#server-label", "#server-baseUrl", "#server-edit-page"],
+		toggle: [reactType("#server-label", "prod-eu")],
+		restVerify:
+			`getComputedStyle(document.querySelector("#server-edit-page .rename-note"))` + `.visibility === "hidden"`,
+		verify: `getComputedStyle(document.querySelector("#server-edit-page .rename-note"))` + `.visibility === "visible"`,
+	},
+	{
+		// The add form's twin of the rename note: typing a label that matches a
+		// declared entry speaks the collides note in the same reserved line
+		// under the Label row - as an inserting hint, the first colliding
+		// keystroke pushed the whole form down. form-apiversion-auto opens the
+		// ADD form (the only state that renders .collides-note; the edit form
+		// renders .rename-note in the same slot), and "prod" is a declared
+		// label in the shared base state, so the toggle is a real collision.
+		name: "form-collides-note",
+		fixture: "form-apiversion-auto.ts",
+		targets: ["#server-label", "#server-baseUrl", "#server-edit-page"],
+		toggle: [reactType("#server-label", "prod")],
+		restVerify:
+			`getComputedStyle(document.querySelector("#server-edit-page .collides-note"))` + `.visibility === "hidden"`,
+		verify:
+			`getComputedStyle(document.querySelector("#server-edit-page .collides-note"))` + `.visibility === "visible"`,
+	},
+	{
+		// The matcher editor's own status line under the matcher input: the
+		// grammar reading at rest, the parse verdict while one stands - one
+		// reserved line (dashboard.css .matcher-status), so a verdict landing
+		// must not move the Inherits control, the field rows, or the footer.
+		// Before the merge these were two spans, and a typed matcher that
+		// collided grew a second line under the kind reading - this toggle
+		// (a reserved name, so the kind reading and the verdict apply at once)
+		// is exactly the state that used to paint both.
+		name: "record-overlay-prefix-error",
+		fixture: "record-overlay.ts",
+		targets: [".matcher-editor .matcher-line", ".matcher-editor .rows", ".matcher-editor .editor-footer"],
+		siblingOf: ".matcher-editor .editor-section",
+		toggle: [reactType(".matcher-editor .matcher-line input.key", "__proto__")],
+		restVerify: `document.querySelector(".matcher-editor .matcher-status.error") === null`,
+		verify: `document.querySelector(".matcher-editor .matcher-status.error") !== null`,
+	},
+	{
+		// The same slot's other swap, from the other resting state: an EMPTY
+		// matcher's status line speaks the parse's own verdict ("Enter a model
+		// matcher"), and the first keystroke swaps it for the grammar reading -
+		// as two spans those wore two different font sizes, so the swap moved
+		// the sections below by a rounding step on every keystroke into an
+		// empty matcher. The setup drives the editor into the empty state the
+		// fixture never rests in.
+		name: "record-overlay-empty-matcher-status",
+		fixture: "record-overlay.ts",
+		setup: [reactType(".matcher-editor .matcher-line input.key", "")],
+		targets: [".matcher-editor .matcher-line", ".matcher-editor .rows", ".matcher-editor .editor-footer"],
+		siblingOf: ".matcher-editor .editor-section",
+		toggle: [reactType(".matcher-editor .matcher-line input.key", "gpt-4")],
+		restVerify: `document.querySelector(".matcher-editor .matcher-status.error") !== null`,
+		verify:
+			`document.querySelector(".matcher-editor .matcher-status.error") === null && ` +
+			`(document.querySelector(".matcher-editor .matcher-status")?.textContent.length ?? 0) > 0`,
+	},
+	{
+		// The Edit-as-JSON side door's parse verdict lands in its reserved line
+		// under the textarea (dashboard.css .json-status) - the frame, the
+		// textarea, and the action bar must not move on the first bad character.
+		name: "record-json-status",
+		fixture: "settings.ts",
+		setup: [
+			`(() => {
+				const frame = document.querySelector(${JSON.stringify(PARAMS_FRAME)});
+				if (frame === null) { throw new Error(${marker("SETUP", ": no element matches ")} + ${JSON.stringify(PARAMS_FRAME)}); }
+				const door = [...frame.querySelectorAll("button")].find((b) => b.textContent.trim() === "Edit as JSON");
+				if (door === undefined) { throw new Error(${marker("SETUP", ": no Edit as JSON button in the params frame")}); }
+				door.click();
+			})()`,
+		],
+		// JSON_PARAMS_FRAME, not PARAMS_FRAME: the side door replaces the Add
+		// action the resting anchor rides on, so the frame is re-anchored by
+		// the door's own textarea for every measurement after setup.
+		targets: [
+			JSON_PARAMS_FRAME,
+			`${JSON_PARAMS_FRAME} .record-json textarea`,
+			`${JSON_PARAMS_FRAME} .toolbar.editor-actions`,
+		],
+		toggle: [
+			`(() => {
+				const box = document.querySelector(${JSON.stringify(`${JSON_PARAMS_FRAME} .record-json textarea`)});
+				if (box === null) { throw new Error(${marker("SETUP", ": no JSON side-door textarea")}); }
+				const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
+				box.focus({ preventScroll: true });
+				setter.call(box, "not json");
+				box.dispatchEvent(new Event("input", { bubbles: true }));
+				box.blur();
+			})()`,
+		],
+		restVerify: `document.querySelector(${JSON.stringify(`${JSON_PARAMS_FRAME} .json-status.error`)}) === null`,
+		verify:
+			`document.querySelector(${JSON.stringify(`${JSON_PARAMS_FRAME} .json-status.error`)})` +
+			`?.textContent.length > 0`,
 	},
 	{
 		// A record row's reserved one-line status slot (.record-status) speaks

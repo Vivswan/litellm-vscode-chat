@@ -63,6 +63,16 @@ function mountSection(servers: Parameters<typeof ServersSection>[0]["servers"]) 
 	);
 }
 
+/** The Companions sub-head: a real heading with "optional" in its meta slot, the form sections' anatomy. */
+function companionsHead(root: ParentNode): HTMLElement | null {
+	const head = Array.from(root.querySelectorAll(".companions-head")).find(
+		(candidate) =>
+			candidate.querySelector(".section-title")?.textContent === "Companions" &&
+			candidate.querySelector(".section-meta")?.textContent === "optional"
+	);
+	return head instanceof HTMLElement ? head : null;
+}
+
 /** The auth selector's radio whose visible label text matches exactly. */
 function authRadio(root: ParentNode, text: string): HTMLInputElement {
 	const label = Array.from(root.querySelectorAll(".auth-selector label")).find(
@@ -89,7 +99,7 @@ test("the auth selector reveals exactly the picked form's fields", () => {
 	fireCheck(authRadio(root, "API key (bearer)"), true);
 	expect(root.querySelector("#server-apiKey")).not.toBeNull();
 	expect(root.querySelector("#server-oauthTokenUrl")).toBeNull();
-	expect(root.textContent).toContain("Companions (optional)");
+	expect(companionsHead(root)).not.toBeNull();
 	expect(root.querySelector("#server-virtualKeyHeader")).not.toBeNull();
 
 	// Virtual key header: the pair alone.
@@ -104,7 +114,7 @@ test("the auth selector reveals exactly the picked form's fields", () => {
 	expect(root.querySelector("#server-oauthClientId")).not.toBeNull();
 	expect(root.querySelector("#server-oauthClientSecret")).not.toBeNull();
 	expect(root.querySelector("#server-oauthScopes")).not.toBeNull();
-	expect(root.textContent).toContain("Companions (optional)");
+	expect(companionsHead(root)).not.toBeNull();
 	expect(root.querySelector("#server-apiKey")).not.toBeNull();
 	expect(root.querySelector("#server-virtualKeyHeader")).not.toBeNull();
 });
