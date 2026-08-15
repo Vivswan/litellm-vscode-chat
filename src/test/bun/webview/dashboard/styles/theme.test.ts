@@ -366,7 +366,7 @@ function onlyRuleBody(css: string, selector: string): string {
 	// Anchored after a brace or semicolon, so a longer selector ending in this
 	// one (`.rail-state .rail-status .dot` beside `.rail-status .dot`) is the
 	// different rule it is rather than a second copy of this one.
-	const opener = new RegExp(String.raw`[{};]\s*${selector.replace(/\./g, "\\.")}\s*\{([^}]*)\}`, "g");
+	const opener = new RegExp(String.raw`[{};]\s*${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\s*\{([^}]*)\}`, "g");
 	const bodies = [...css.matchAll(opener)].map((match) => match[1] ?? "");
 	expect(bodies, `expected exactly one \`${selector}\` rule`).toHaveLength(1);
 	return bodies[0] ?? "";
