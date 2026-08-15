@@ -181,6 +181,7 @@ export class UsagePoller {
 	readonly store: UsageStore;
 
 	private readonly refreshListeners = new Set<() => void>();
+	private readonly startListeners = new Set<() => void>();
 	private readonly scheduled: PendingCall;
 	private readonly clock: Clock;
 	private readonly abort = new AbortController();
@@ -258,6 +259,18 @@ export class UsagePoller {
 	}
 
 	/**
+	 * Notified when a refresh pass STARTS, per-listener isolated; the
+	 * dashboard re-pushes on it so an already-open panel's Refresh now
+	 * disables the moment ANY pass begins - scheduled polls included, which
+	 * would otherwise render an enabled button the engine will not honor
+	 * until the completion push.
+	 */
+	onDidStartRefresh(listener: () => void): { dispose(): void } {
+		this.startListeners.add(listener);
+		return { dispose: () => this.startListeners.delete(listener) };
+	}
+
+	/**
 	 * Re-read the poll interval after a configuration change: rewires the
 	 * pending tick (interval 0 cancels it outright). Deliberately NO crossing
 	 * recomputation here: alerts evaluate on fetches only (docs/usage.md), so
@@ -310,11 +323,23 @@ export class UsagePoller {
 	 * panel or opening twice in a minute never re-probes the fleet. Forced
 	 * like an explicit refresh (a stale open re-probes availability, the
 	 * behavior opening always had) but NOT explicit: the Refresh-now button
-	 * stays quiet. Returns the pass it started, or undefined when the data
-	 * is fresh enough that none was needed.
+	 * stays quiet. A pending servers-change probe overrides the whole gate
+	 * (see below). Returns the pass it started or joined, or undefined when
+	 * the data is fresh enough that none was needed.
 	 */
 	refreshIfStale(): Promise<UsageRefreshOutcome | undefined> | undefined {
-		if (this.disposed || this.running !== undefined || this.queued !== undefined) {
+		if (this.disposed) {
+			return undefined;
+		}
+		// A pending availability probe (the servers setting changed) overrides
+		// every freshness reading: the stored numbers may describe servers or
+		// credentials that no longer exist, and with polling off nothing else
+		// would ever run the probe. refresh() serializes behind any pass in
+		// flight, and a forced pass consumes the pending flag.
+		if (this.probePending) {
+			return this.refresh(true, false);
+		}
+		if (this.running !== undefined || this.queued !== undefined) {
 			return undefined;
 		}
 		if (this.lastCompletedPassAt !== undefined) {
@@ -367,6 +392,15 @@ export class UsagePoller {
 		}
 		this.runningExplicit = explicit;
 		this.running = this.runOnce(force);
+		for (const listener of this.startListeners) {
+			try {
+				listener();
+			} catch (error) {
+				this.env.log("Usage refresh start listener failed", {
+					error: error instanceof Error ? error.name : typeof error,
+				});
+			}
+		}
 		try {
 			return await this.running;
 		} finally {

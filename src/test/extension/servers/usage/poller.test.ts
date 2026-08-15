@@ -1083,6 +1083,45 @@ suite("extension/servers/usage poller", () => {
 		assert.strictEqual(h.client.calls.keyInfo, 2, "exactly the running pass and its one queued follow-up");
 	});
 
+	test("a pending servers-change probe overrides the staleness gate outright", async () => {
+		// With polling OFF the pending probe waits for the next explicit
+		// refresh - and an open counts: the stored numbers may describe a
+		// server or credentials that no longer exist, so a fresh timestamp
+		// must not talk the open out of the probe.
+		const h = makeHarness({ intervalMs: 0 });
+		await h.poller.refreshNow();
+		assert.strictEqual(h.client.calls.keyInfo, 1);
+
+		h.advanceClock(10_000);
+		assert.strictEqual(h.poller.refreshIfStale(), undefined, "fresh and unchanged: no pass");
+
+		h.setServers([{ label: "alpha", baseUrl: "http://two.test", apiKey: "sk-2" }]);
+		h.poller.applyServersChange();
+		const probe = h.poller.refreshIfStale();
+		assert.ok(probe !== undefined, "a pending probe must run on open, however fresh the timestamp");
+		await probe;
+		assert.strictEqual(h.client.calls.keyInfo, 2);
+	});
+
+	test("onDidStartRefresh fires when any pass begins, scheduled ones included", async () => {
+		const h = makeHarness({ initialRefreshDelayMs: 5_000 });
+		let starts = 0;
+		let refreshingAtStart: boolean | undefined;
+		h.poller.onDidStartRefresh(() => {
+			starts += 1;
+			refreshingAtStart = h.poller.isRefreshing();
+		});
+
+		h.poller.start();
+		h.timer.firePending();
+		assert.strictEqual(starts, 1, "a scheduled pass announces its start");
+		assert.strictEqual(refreshingAtStart, true, "the listener observes the engine already busy");
+		await settle();
+
+		await h.poller.refreshNow();
+		assert.strictEqual(starts, 2, "an explicit pass announces its start too");
+	});
+
 	test("only explicit passes read as refreshing explicitly; scheduled and open-triggered ones stay quiet", async () => {
 		const h = makeHarness({ initialRefreshDelayMs: 5_000 });
 		// Every keyInfo call blocks until released, one release per call, so the

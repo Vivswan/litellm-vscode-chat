@@ -409,6 +409,7 @@ function SettingRow({
 	configuredScope,
 	hidden,
 	hintClassName,
+	compactControl,
 }: {
 	settingId: SettingRowId;
 	title: string;
@@ -426,6 +427,16 @@ function SettingRow({
 	hidden: boolean;
 	/** Extra placement on the description cell - the catalog row widens its status cluster's track with this. */
 	hintClassName?: string | undefined;
+	/**
+	 * The control is small enough (a checkbox) to share the title's line at
+	 * EVERY stacked width: the sub-400px one-column fallback exists for the
+	 * 144px inputs plus the corner reserve, which no floor-width pane can
+	 * seat beside a title - a 16px checkbox always can, and a checkbox alone
+	 * on a line was the original complaint. tailwind-merge resolves these
+	 * against the base template's own sub-400 classes (same variant, later
+	 * input wins).
+	 */
+	compactControl?: boolean;
 }) {
 	// The standing failure of this row's own last write, when the host refused
 	// it; App's store retires it on the next state push (the success signal).
@@ -507,14 +518,18 @@ function SettingRow({
 				// surface): a named color utility here needs a @theme alias, and
 				// the last one was deleted as orphaned - the utility then compiled
 				// to nothing and the bar silently fell back to currentColor grey.
-				configuredScope !== null ? "modified border-l-(--accent-hue)" : "border-l-transparent"
+				configuredScope !== null ? "modified border-l-(--accent-hue)" : "border-l-transparent",
+				// A compact control keeps the two-column line at every stacked
+				// width; the base template's sub-400 fallback yields to it
+				// (tailwind-merge, same variant, later wins).
+				compactControl === true && "@max-[400px]/pane:grid-cols-[auto_minmax(0,1fr)]"
 			)}
 			hidden={hidden}
 		>
 			{titleFor === undefined ? (
-				<span className={SETTING_TITLE}>{title}</span>
+				<span className={cn(SETTING_TITLE, compactControl === true && "@max-[400px]/pane:pr-0")}>{title}</span>
 			) : (
-				<label className={SETTING_TITLE} htmlFor={titleFor}>
+				<label className={cn(SETTING_TITLE, compactControl === true && "@max-[400px]/pane:pr-0")} htmlFor={titleFor}>
 					{title}
 				</label>
 			)}
@@ -522,8 +537,14 @@ function SettingRow({
 			    top-right corner reserve there: the actions pin over the row's
 			    first line, and a long control would otherwise run under them.
 			    Below 400px the control has a line of its own, clear of the
-			    corner, and the reserve goes back to the title. */}
-			<div className="setting-control flex flex-wrap items-center gap-2 @min-[400px]/pane:@max-[910px]/pane:pr-24">
+			    corner, and the reserve goes back to the title - except beside a
+			    compact control, which keeps the shared line and the reserve. */}
+			<div
+				className={cn(
+					"setting-control flex flex-wrap items-center gap-2 @min-[400px]/pane:@max-[910px]/pane:pr-24",
+					compactControl === true && "@max-[400px]/pane:pr-24"
+				)}
+			>
 				{control}
 			</div>
 			{/* The error does not replace the description in the flow, it covers
@@ -556,8 +577,9 @@ function SettingRow({
 					"setting-hint relative min-w-0 max-w-[72ch] break-words text-[0.95em] text-muted-foreground",
 					// The second line of the two-column stacked band, under the
 					// title-and-control line; the one-column tier below 400px places
-					// it by flow.
+					// it by flow, except under a compact control's kept line.
 					"@min-[400px]/pane:@max-[910px]/pane:col-span-2",
+					compactControl === true && "@max-[400px]/pane:col-span-2",
 					hintClassName
 				)}
 				ref={hintRef}
@@ -804,6 +826,8 @@ function BooleanField({
 			help={settingRowHelp(id)}
 			configuredScope={configuredScope}
 			hidden={hidden}
+			// A checkbox shares the title's line at every width (compactControl).
+			compactControl
 			// A status cluster is not reading prose, so it sheds the hint's 72ch
 			// measure - the cap wrapped "Refresh" onto a line of its own while
 			// half the description track sat empty. Below the models list's

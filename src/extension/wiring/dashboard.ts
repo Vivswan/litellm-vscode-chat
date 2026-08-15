@@ -75,7 +75,7 @@ export function wireUsageSurfaces(
 	context: vscode.ExtensionContext,
 	logger: Logger,
 	deps: {
-		usagePoller: Pick<UsagePoller, "store" | "onDidRefresh">;
+		usagePoller: Pick<UsagePoller, "store" | "onDidRefresh" | "onDidStartRefresh">;
 		dashboard: Pick<DashboardController, "open" | "refresh">;
 	}
 ): void {
@@ -102,6 +102,10 @@ export function wireUsageSurfaces(
 		// The coarse "pass done" push: the dashboard's usage section re-renders
 		// after every completed poll pass (the poller isolates its listeners).
 		usagePoller.onDidRefresh(() => dashboard.refresh()),
+		// And the "pass started" push: an already-open panel must disable
+		// Refresh now the moment ANY pass begins (the engine is serialized), or
+		// a scheduled poll would leave an enabled button it will not honor.
+		usagePoller.onDidStartRefresh(() => dashboard.refresh()),
 		vscode.workspace.onDidChangeConfiguration((event) => {
 			const affects = (id: string) => event.affectsConfiguration(`${CONFIG_SECTION}.${id}`);
 			if (

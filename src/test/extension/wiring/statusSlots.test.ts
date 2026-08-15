@@ -54,7 +54,8 @@ suite("extension/wiring statusSlots", () => {
 				getStates: () => [],
 			},
 			onDidRefresh: () => ({ dispose() {} }),
-		} as unknown as Pick<UsagePoller, "store" | "onDidRefresh">;
+			onDidStartRefresh: () => ({ dispose() {} }),
+		} as unknown as Pick<UsagePoller, "store" | "onDidRefresh" | "onDidStartRefresh">;
 		try {
 			// The usage wiring registers the openUsage command, which the activated
 			// dev extension already owns in this host; capture instead of colliding.
