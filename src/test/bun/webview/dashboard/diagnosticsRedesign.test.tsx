@@ -619,6 +619,44 @@ describe("Resolved models", () => {
 		expect(chips).toEqual(["*", "gpt-5*"]);
 	});
 
+	test("an empty Parameters cell is the Absent idiom: a hidden dash with the reason for screen readers", () => {
+		// The claude-4 row resolves no parameters. A bare "-" reads as nothing to
+		// a screen reader, so the dash is decoration and the words carry the fact.
+		const { root } = mountDiagnostics({});
+		const rows = Array.from(root.querySelectorAll("table.resolved-models tbody tr"));
+		const cell = rows.find((row) => row.textContent?.includes("claude-4"))?.querySelector(".resolved-cells");
+		const absent = cell?.querySelector("span.hint");
+		expect(absent?.querySelector('[aria-hidden="true"]')?.textContent).toBe("-");
+		expect(absent?.querySelector(".sr-only")?.textContent).toBe("no parameters resolved");
+	});
+
+	test("an empty Capabilities cell says so the same way instead of rendering a silent gap", () => {
+		const { root } = mountDiagnostics({
+			view: makeView({
+				rows: [
+					{
+						serverLabel: "prod",
+						rawId: "bare-model",
+						scopeKey: "s0",
+						matchedKeys: [],
+						parameters: [],
+						capabilities: [],
+					},
+				],
+			}),
+		});
+		const row = Array.from(root.querySelectorAll("table.resolved-models tbody tr")).find((candidate) =>
+			candidate.textContent?.includes("bare-model")
+		);
+		const cells = Array.from(row?.querySelectorAll(".resolved-cells") ?? []);
+		// Both the Parameters and the Capabilities cell speak their absence.
+		expect(cells).toHaveLength(2);
+		for (const cell of cells) {
+			expect(cell.querySelector('span.hint [aria-hidden="true"]')?.textContent).toBe("-");
+		}
+		expect(cells[1]?.querySelector(".sr-only")?.textContent).toBe("no capabilities resolved");
+	});
+
 	test("cost cells collapse into one $/M pricing line with one badge when the source is uniform", () => {
 		const { root } = mountDiagnostics({
 			view: makeView({

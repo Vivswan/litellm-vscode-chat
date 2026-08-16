@@ -1168,7 +1168,9 @@
 		   No underline at rest, which is the opposite of the secondary button's
 		   dotted one, and the asymmetry is deliberate: these two say different
 		   things. A link is already visibly a link at rest - accent colour plus
-		   the external glyph - so its underline is hit feedback. A secondary
+		   the external glyph - so its underline is hit feedback. (The Diagnostics
+		   Support links below trade the accent for the muted register on
+		   purpose; the .feedback-links rule says why.) A secondary
 		   button had no resting identity at all, being muted grey text, which is
 		   what the dotted underline supplies. Same reason the glyph is here and
 		   never on an in-app action: it means this one leaves the app. */
@@ -1183,20 +1185,59 @@
 		color: var(--vscode-textLink-activeForeground);
 		text-decoration: underline;
 	}
-	/* The Diagnostics destination's reference links: quiet labeled anchors, no
-		   gloss - the labels name their destinations, and a muted sentence beside
-		   each was four more lines to skip. One wrapping line rather than a
-		   stack: four short links are a shelf, not a list, and stacked they held
-		   a page-height column of air. The column gap is deliberately wider than
-		   the links' own icon gaps, so neighbours cannot read as one label. */
-	.feedback-links {
+	/* The Diagnostics destination's eight page actions, one vertical list at
+		   the top of the page body - the page's whole subject is acting on this
+		   install, so its actions lead the body: the four tools that act on this
+		   install, then the four Support links that leave it. Both groups
+		   left-align as a column - the eight labels scan as one list - and the
+		   hairline on .feedback-links below is the only separator. */
+	.diagnostics-tools {
 		display: flex;
-		flex-wrap: wrap;
-		column-gap: 28px;
-		row-gap: 8px;
+		flex-direction: column;
+		align-items: flex-start;
+		row-gap: 6px;
 		list-style: none;
 		padding: 0;
+		margin: 8px 0 0;
+	}
+	/* The Support links continue the tools' stack one rank quieter: quiet
+		   labeled anchors, no gloss - the labels name their destinations. Muted
+		   at rest rather than link-blue, because the links are the page's escape
+		   hatches and a blue row under four grey tools outshone the actions it is
+		   subordinate to; hover restores the link colour as hit feedback, and the
+		   leading icon plus the external glyph keep saying "link" at rest. The
+		   6px icon gap matches the buttons' own, so the two groups share one
+		   icon column and one label edge down the whole stack. */
+	.feedback-links {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		row-gap: 6px;
+		list-style: none;
+		padding: 8px 0 0;
 		margin: 8px 0;
+		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+	}
+	.feedback-links a.docs-link {
+		gap: 6px;
+		color: var(--muted-foreground);
+	}
+	.feedback-links a.docs-link:hover {
+		color: var(--vscode-textLink-activeForeground);
+	}
+	/* The bordered modes zero the buttons' layout hand-back (theme.css), so
+		   the tools' ink starts a padding-width inside their drawn boxes; the
+		   links pad by the same 0.625rem (ui/button.tsx's default-size inline
+		   padding) to keep the stack's one icon column - the forced-colors twin
+		   plus the high-contrast pair, the .server-actions idiom. */
+	@media (forced-colors: active) {
+		.feedback-links a.docs-link {
+			padding-inline: 0.625rem;
+		}
+	}
+	body.vscode-high-contrast .feedback-links a.docs-link,
+	body.vscode-high-contrast-light .feedback-links a.docs-link {
+		padding-inline: 0.625rem;
 	}
 	/* Wrappers for tips over non-interactive inline content (badges, status
 		   pills): layout only - the bubble and its reveal are the tip primitive's. */
@@ -1974,14 +2015,15 @@
 		color: var(--muted-foreground);
 	}
 	/* ABSENCE, SAID OUT LOUD. A dim dash and the reason - never a zero, never a
-		   silently missing section. */
+		   silently missing section. The dash is the Absent primitive's aria-hidden
+		   span (ui/absent.tsx), so the dimming keys off that attribute. */
 	.model-inspector .absent {
 		display: flex;
 		gap: 8px;
 		margin: 6px 0;
 		color: var(--muted-foreground);
 	}
-	.model-inspector .absent-dash {
+	.model-inspector .absent > [aria-hidden="true"] {
 		opacity: 0.7;
 	}
 	/* The max_tokens derivation: always present, and the one line every request

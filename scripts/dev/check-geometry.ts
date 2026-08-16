@@ -176,6 +176,8 @@ const JSON_PARAMS_FRAME = '.record-frame:has(textarea[aria-label="Model paramete
 const GPT5_RECORD_ROW = `.record-row:has(button[aria-label='Open the full editor for "gpt-5*"'])`;
 /** The LAST record row, the one nearest the footer its card's verdict covers. */
 const LAST_RECORD_ROW = `.record-row:has(button[aria-label='Open the full editor for "claude-sonnet-4"'])`;
+/** The Copy diagnostics tool in the Diagnostics page's vertical action stack (third of the four tools). */
+const COPY_TOOL = ".diagnostics-tools li:nth-child(3) button";
 
 /** Writes a value into a React-controlled input through the native setter, then fires the events React listens to. */
 function reactType(selector: string, value: string): string {
@@ -262,6 +264,28 @@ const STATE_PAIRS: readonly StatePair[] = [
 		verify:
 			`document.querySelector(${JSON.stringify(THRESHOLDS_PARSE_ERROR)}) !== null && ` +
 			`(document.querySelector(${JSON.stringify(THRESHOLDS_COVER_GLYPH)})?.getBoundingClientRect().width ?? 0) > 0`,
+	},
+	{
+		// The Copy diagnostics check-mark flash swaps the button's leading glyph
+		// in place - same box, different paint: the flash must not resize the
+		// button or move the vertical action stack it sits in (the Support nav
+		// is the stack's next group, held through siblingOf). The rest glyph's
+		// path is stashed on the window so the verify proves the swap happened
+		// rather than comparing the state against itself.
+		name: "diagnostics-copy-flash",
+		fixture: "diagnostics.ts",
+		targets: [COPY_TOOL, ".diagnostics-tools"],
+		siblingOf: ".diagnostics-tools",
+		toggle: [`document.querySelector(${JSON.stringify(COPY_TOOL)}).click()`],
+		restVerify:
+			`(() => { const button = document.querySelector(${JSON.stringify(COPY_TOOL)}); ` +
+			`if (button === null || !button.textContent.includes("Copy diagnostics")) { return false; } ` +
+			`window.__copyGlyphAtRest = button.querySelector("svg path")?.getAttribute("d") ?? ""; ` +
+			`return window.__copyGlyphAtRest.length > 0; })()`,
+		verify:
+			`(() => { const path = document.querySelector(${JSON.stringify(COPY_TOOL)})` +
+			`?.querySelector("svg path")?.getAttribute("d") ?? ""; ` +
+			`return path.length > 0 && path !== window.__copyGlyphAtRest; })()`,
 	},
 	{
 		// The server row's actions cluster occupies a reserved track and reveals

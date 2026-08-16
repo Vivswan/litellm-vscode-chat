@@ -179,11 +179,10 @@ test("every charter citation resolves against today's source", () => {
 	const { citations, lineNumberForms } = parseCharter(charter);
 	expect(lineNumberForms).toEqual([]);
 	// The exact count, not a floor: deletion is the one rot this resolver is
-	// The exact count, not a floor: deletion is the one rot this resolver is
 	// structurally blind to - removing a citation only makes "every anchor
 	// resolves" greener - and it doubles as the parser's positive control. A
 	// deliberate charter edit moves the number with it.
-	expect(citations.length).toBe(154);
+	expect(citations.length).toBe(157);
 	const failures: string[] = [];
 	const sources = new Map<string, string | undefined>();
 	for (const citation of citations) {

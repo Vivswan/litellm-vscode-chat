@@ -31,6 +31,7 @@ import { troubleshootingLink } from "./serverEditPage";
 import { type DiagnosticSeverity, SEVERITY_ORDER, severityLabel } from "./severity";
 import { barPresentation, formatMoney, formatPercent, TONE_FILL, TONE_TEXT } from "./spendFormat";
 import { relativeTime } from "./time";
+import { AbsentDatum } from "./ui/absent";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { cn } from "./ui/cn";
@@ -1171,17 +1172,15 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /**
- * A number this server did not report: a dim dash plus the reason in place.
- * Never a zero - a zero is a measurement, and no measurement was taken. The
- * dash alone reads as nothing to a screen reader, so a fact with no reason of
- * its own carries the words instead.
+ * A number this server did not report, in the facts' muted register
+ * (ui/absent.tsx owns the dash-plus-words contract): a fact with a reason of
+ * its own says it visibly, as a Why in place.
  */
 function Absent({ reason }: { reason?: string | undefined }) {
 	return (
-		<span className="text-muted-foreground">
-			<span aria-hidden="true">-</span>
-			{reason === undefined ? <span className="sr-only">{l10n.t("not reported")}</span> : <Why text={reason} />}
-		</span>
+		<AbsentDatum className="text-muted-foreground">
+			{reason === undefined ? undefined : <Why text={reason} />}
+		</AbsentDatum>
 	);
 }
 

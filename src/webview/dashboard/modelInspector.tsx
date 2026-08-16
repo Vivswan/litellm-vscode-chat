@@ -88,6 +88,7 @@ import {
 } from "./provenance";
 import { RecordChainFigure } from "./recordChain";
 import { SlideOver } from "./slideOver";
+import { AbsentDatum } from "./ui/absent";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Section } from "./ui/section";
@@ -830,15 +831,12 @@ function SupportedParamsBlock({
 	);
 }
 
-/** A field the panel has nothing to show for: a dim dash and the reason, never a fabricated value. */
+/** A field the panel has nothing to show for: the Absent primitive in this panel's own register, the reason visible in place. */
 function AbsentNote({ reason }: { reason: string }) {
 	return (
-		<p className="absent">
-			<span className="absent-dash" aria-hidden="true">
-				-
-			</span>
+		<AbsentDatum className="absent">
 			<span>{reason}</span>
-		</p>
+		</AbsentDatum>
 	);
 }
 

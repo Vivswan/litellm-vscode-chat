@@ -134,9 +134,9 @@ test("the per-server outcome grid is gone: the server rows own every fact it rep
 	expect(panel.textContent).not.toContain("Servers configured");
 	expect(panel.textContent).not.toContain("Last checked");
 	// The destination opens on what the reader can act on, not on a summary:
-	// one page-level header carrying the tools, then the sections one step
-	// under it. Support is not a section: its four links ride the top of the
-	// page as a quiet nav under the header, so no heading announces them.
+	// one page-level header, then the vertical action stack, then the sections
+	// one step under it. Support is not a section: its four links close the
+	// stack as a quiet nav, so no heading announces them.
 	const pageHeadings = Array.from(panel.querySelectorAll("h2")).map((h) => (h.textContent ?? "").trim());
 	expect(pageHeadings).toEqual(["Diagnostics"]);
 	const headings = Array.from(panel.querySelectorAll("h3")).map((h) => (h.textContent ?? "").trim());
@@ -399,8 +399,9 @@ test("the external rows link the pinned destinations with decorative glyphs", ()
 	// Label plus icon plus external-link glyph names each destination, so the
 	// muted gloss beside each is gone. Pinned: a link list is where explanatory
 	// one-liners regrow. The links live in a heading-less nav (aria-label keeps
-	// the grouping), directly under the page header and BEFORE the sections -
-	// they moved to the top with the tools, one rank quieter, and the focus
+	// the grouping) that closes the page's vertical action stack - the eight
+	// actions stack as one list at the top of the body, tools first, because
+	// the page's whole subject is acting on this install - and the focus
 	// order follows that visual order.
 	const support = root.querySelector('#panel-diagnostics nav[aria-label="Support"]') as HTMLElement;
 	expect(support).not.toBeNull();
@@ -410,18 +411,29 @@ test("the external rows link the pinned destinations with decorative glyphs", ()
 	expect(support.textContent).not.toContain("Source code, releases");
 	// The Support section's own standing paragraph went the same way; the
 	// tools' explanation lives on the PAGE header's help affordance, beside
-	// the tools it describes.
+	// the heading of the page whose tools it describes.
 	expect(support.querySelectorAll("p.hint")).toHaveLength(0);
 	const pageHead = root.querySelector("#diagnostics-section > .section-head") as HTMLElement;
 	expect(pageHead.querySelector(".tip-bubble")?.textContent).toContain("Copy diagnostics");
-	// The page's four tools live on the PAGE header's actions slot at the top
-	// of the destination - the reader grabbing the output log or a report must
-	// not scroll past every table to find them - and the support nav keeps
-	// only its links, above the Configuration section in document order.
+	// The four tools open the stack as their own vertical list (plain <ul>:
+	// the buttons name themselves and list semantics carry the count) before
+	// the Support links, with the header's actions slot empty - the reader
+	// grabbing the output log or a report still finds them above every table.
+	expect(pageHead.querySelector(".section-actions")).toBeNull();
+	const tools = root.querySelector("#panel-diagnostics ul.diagnostics-tools") as HTMLElement;
+	expect(tools).not.toBeNull();
+	// One button per list item: the list-semantics claim (a reader hears
+	// "list, 4 items") holds only while each tool is its own <li>.
+	expect(tools.querySelectorAll(":scope > li")).toHaveLength(4);
+	expect(Array.from(tools.querySelectorAll("button")).map((button) => (button.textContent ?? "").trim())).toEqual([
+		"Test connection",
+		"Open output log",
+		"Copy diagnostics",
+		"Report a bug",
+	]);
 	expect(support.querySelector(".toolbar")).toBeNull();
 	expect(support.querySelectorAll("button")).toHaveLength(0);
-	const page = root.querySelector("#diagnostics-section") as HTMLElement;
-	expect(page.querySelectorAll(":scope > .section-head .section-actions button")).toHaveLength(4);
+	expect(tools.compareDocumentPosition(support) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 	const configuration = root.querySelector("#config-diagnostics-section");
 	expect(configuration).not.toBeNull();
 	expect(support.compareDocumentPosition(configuration as Element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

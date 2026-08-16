@@ -73,6 +73,7 @@ import {
 } from "./icons";
 import type { InspectorSection } from "./modelInspector";
 import { type DiagnosticSeverity, SEVERITY_ORDER, severityLabel } from "./severity";
+import { AbsentDatum } from "./ui/absent";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Section } from "./ui/section";
@@ -917,6 +918,11 @@ function CapabilityCells({ cells, currencySymbol }: { cells: readonly ResolvedCa
 	}
 	return (
 		<div className="resolved-cells">
+			{cells.length === 0 ? (
+				// A row with nothing resolved says so (ui/absent.tsx); a silently
+				// empty cell read as a rendering gap.
+				<AbsentDatum className="hint" reason={l10n.t("no capabilities resolved")} />
+			) : null}
 			{rest.map((cell) => (
 				<CapabilityCell key={cell.name} cell={cell} />
 			))}
@@ -1113,7 +1119,7 @@ function ResolvedModels({
 													    layout collapses. */}
 													<div className="resolved-cells">
 														{row.parameters.length === 0 ? (
-															<span className="hint">-</span>
+															<AbsentDatum className="hint" reason={l10n.t("no parameters resolved")} />
 														) : (
 															row.parameters.map((cell) => (
 																<span key={cell.name} className="resolved-cell">
@@ -1255,14 +1261,15 @@ function LinkRow({ href, icon, label }: { href: FeedbackUrl | DocsUrl; icon: Rea
 }
 
 /**
- * The page's four tools, in the Diagnostics header's actions slot: the three
- * that collect evidence about this installation, then the escalation that
- * takes it somewhere. They live at the top of the page - the reader who opens
- * Diagnostics to grab the output log or a report should not have to scroll
- * past every table to find the buttons - in the same header slot Servers and
- * Settings keep their own page-level actions.
+ * The page's four tools, a vertical list at the top of the page body - the
+ * page's whole subject is acting on this install, so its eight actions lead
+ * the body as one scannable stack, tools first: the three that collect
+ * evidence about this installation, then the escalation that takes it
+ * somewhere. A plain <ul>, no group label of its own - the buttons name
+ * themselves, list semantics give a reader the count and the boundaries, and
+ * the page heading directly above already scopes them.
  */
-function DiagnosticsActions({
+function DiagnosticsTools({
 	servers,
 	modelCount,
 	legacyServerCount,
@@ -1297,38 +1304,46 @@ function DiagnosticsActions({
 	};
 	const copied = copiedAt > 0;
 	return (
-		<>
-			<Button
-				variant="secondary"
-				// Registry-only installs get no offer to test: the legacy registry's
-				// serving path retires with this release train, so with no server
-				// rows there is nothing a connection test could durably reach.
-				disabled={servers.length === 0}
-				onClick={() => sendRequest("executeCommand", { command: "testConnection" })}
-			>
-				<IconPlug /> {l10n.t("Test connection")}
-			</Button>
-			<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "openOutput" })}>
-				<IconOutput /> {l10n.t("Open output log")}
-			</Button>
-			<Button variant="secondary" onClick={copyDiagnostics}>
-				{copied ? <IconCheck /> : <IconCopy />} {l10n.t("Copy diagnostics")}
-			</Button>
-			<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "reportIssue" })}>
-				<IconBug /> {l10n.t("Report a bug")}
-			</Button>
-		</>
+		<ul className="diagnostics-tools">
+			<li>
+				<Button
+					variant="secondary"
+					// Registry-only installs get no offer to test: the legacy registry's
+					// serving path retires with this release train, so with no server
+					// rows there is nothing a connection test could durably reach.
+					disabled={servers.length === 0}
+					onClick={() => sendRequest("executeCommand", { command: "testConnection" })}
+				>
+					<IconPlug /> {l10n.t("Test connection")}
+				</Button>
+			</li>
+			<li>
+				<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "openOutput" })}>
+					<IconOutput /> {l10n.t("Open output log")}
+				</Button>
+			</li>
+			<li>
+				<Button variant="secondary" onClick={copyDiagnostics}>
+					{copied ? <IconCheck /> : <IconCopy />} {l10n.t("Copy diagnostics")}
+				</Button>
+			</li>
+			<li>
+				<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "reportIssue" })}>
+					<IconBug /> {l10n.t("Report a bug")}
+				</Button>
+			</li>
+		</ul>
 	);
 }
 
 /**
  * The places to take what the page's tools collected: the docs and the three
- * GitHub destinations, one wrapping line of quiet links directly under the
- * page header. They ride at the top with the tools rather than parked after
- * every table (a user review asked for exactly that), one rank quieter: the
- * tools are the page's actions, these are its external escape hatches. No
- * heading of its own - four links are a shelf, not a section - so the nav's
- * aria-label keeps the grouping the heading used to announce, and no "?"
+ * GitHub destinations, continuing the tools' vertical list one rank quieter -
+ * the tools are the page's actions, these are its external escape hatches, so
+ * the links wear the muted register at rest (the stylesheet's rule on
+ * `.feedback-links`) instead of a link blue that outshone the actions above
+ * them. No heading of its own - four links are a shelf, not a section - so the
+ * nav's aria-label keeps the grouping the heading used to announce, and no "?"
  * either: the links name their destinations, and what Copy diagnostics
  * collects is the page header's help affordance's question.
  */
@@ -1368,10 +1383,13 @@ export function DiagnosticsSection({
 	/** Open a model's inspector overlay in place; App renders the merged panel over the active tab, scrolled to the section. */
 	onInspect: (target: { scopeKey: string; rawId: string; serverLabel: string }, section: InspectorSection) => void;
 }) {
-	// One page-level header, the anatomy every other destination already has,
-	// with the page's tools in its actions slot and the support links as the
-	// quieter line under it. The sections below are ordered by what the reader
-	// can act on: what is wrong, then how the records resolved.
+	// One page-level header, the anatomy every other destination already has.
+	// The page's eight actions - the four tools, then the four support links -
+	// open the body as one vertical list (settled user direction; the header's
+	// actions slot stays empty here), so the reader who opens Diagnostics for
+	// the output log or a report still finds them before any table. The
+	// sections below are ordered by what the reader can act on: what is wrong,
+	// then how the records resolved.
 	return (
 		<Section
 			id="diagnostics"
@@ -1380,15 +1398,13 @@ export function DiagnosticsSection({
 			// The trigger sits at the very top of the document, where a tip
 			// placed above it clips.
 			helpBelow
-			actions={
-				<DiagnosticsActions
-					servers={servers}
-					modelCount={modelCount}
-					legacyServerCount={legacyServerCount}
-					diagnostics={diagnostics}
-				/>
-			}
 		>
+			<DiagnosticsTools
+				servers={servers}
+				modelCount={modelCount}
+				legacyServerCount={legacyServerCount}
+				diagnostics={diagnostics}
+			/>
 			<Support />
 			<ConfigDiagnostics diagnostics={diagnostics} />
 			<ResolvedModels active={active} stateSeq={stateSeq} currencySymbol={currencySymbol} onInspect={onInspect} />

@@ -103,9 +103,9 @@
 	/* Both button sizes hand their horizontal padding back to the layout, so
 	 adjacent border boxes overhang the container's gap. Invisible while nothing
 	 paints a resting box; a mode that draws every box merges neighbours into one
-	 segmented control (the toolbar's four Support tools, the servers header's Add
-	 server and Refresh now). The hand-back is dropped here, once, instead of
-	 every container widening its own gap.
+	 segmented control (the servers header's Add server and Refresh now). The
+	 hand-back is dropped here, once, instead of every container widening its
+	 own gap.
 
 	 Zeroing the PROPERTY the primitive reads (ui/button.tsx's --btn-mx), not the
 	 margin: `margin-inline: 0` writes both longhands, so it also flattened any

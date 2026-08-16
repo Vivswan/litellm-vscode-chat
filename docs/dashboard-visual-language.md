@@ -165,7 +165,13 @@ One idiom for actions that rest hidden on a row, and it has one home:
   in the header slot of an otherwise empty section they read as tucked-away
   chrome (`settings.tsx settings-transfer`) - and the heading
   settings.json jump sits directly after the heading it opens, everywhere
-  (`recordEditors.tsx HeadingRevealButton`).
+  (`recordEditors.tsx HeadingRevealButton`). The Diagnostics page is the other
+  section-actions exception, because a destination whose whole subject is
+  acting on this install leads with its actions, and eight of them cannot
+  share a header line: they open the body as one vertical list, tools first,
+  with the Support links continuing the stack one rank quieter - muted at
+  rest, so the escape hatches never outshine the actions above them
+  (`diagnostics.tsx DiagnosticsSection`; `dashboard.css .feedback-links`).
 
 ## 3. Annotations: what is visible at rest
 
@@ -353,8 +359,9 @@ One idiom for detail that opens in place:
 - An in-flight action marks the control that started it: a busy Save or Adopt
   carries the spinner naming the work (`dashboard.css .spinner`), and an Apply
   says so beside itself (`recordEditors.tsx ApplyStatus`).
-- A missing datum is a dim dash plus its reason, never a zero
-  (`dashboard.css .model-inspector .absent`; `servers.tsx Absent`).
+- A missing datum is a dim dash plus its reason, never a zero - one embodiment,
+  `ui/absent.tsx AbsentDatum` (`dashboard.css .model-inspector .absent`;
+  `servers.tsx Absent` wraps the primitive in the facts' register).
 - Sections never appear or disappear under the reader: the clean state says so
   in a sentence rather than leaving a gap where a heading was
   (`diagnostics.tsx ConfigDiagnostics`).
