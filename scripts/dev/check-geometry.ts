@@ -112,6 +112,12 @@ interface StatePair {
 	readonly siblingOf?: string;
 	/** Steps run before the baseline measurement (open the popover the pair lives in). */
 	readonly setup?: readonly string[];
+	/**
+	 * A viewport width forced onto the pair's fixture, for a tier the
+	 * fixture's own width never reaches; the restVerify should then also prove
+	 * the tier engaged (a platform minimum can hand back something wider).
+	 */
+	readonly viewportWidth?: number;
 	/** Steps that induce the second state. */
 	readonly toggle: readonly string[];
 	/**
@@ -178,6 +184,34 @@ const GPT5_RECORD_ROW = `.record-row:has(button[aria-label='Open the full editor
 const LAST_RECORD_ROW = `.record-row:has(button[aria-label='Open the full editor for "claude-sonnet-4"'])`;
 /** The Copy diagnostics tool in the Diagnostics page's vertical action stack (third of the four tools). */
 const COPY_TOOL = ".diagnostics-tools li:nth-child(3) button";
+
+/**
+ * The armed cover's own claim, stated in the pair's verify because the pair
+ * itself cannot see it: the cover is out of flow, so one that fails to fill the
+ * row moves no target and every held dimension still passes. That is not
+ * hypothetical - the resting cluster aligns itself inside its grid area and an
+ * absolutely positioned box carries `align-self` into its own SIZING, so a
+ * cover left at the cluster's `center` shrink-to-fits into a button-high band
+ * parked mid-row, with the row's own cells legible above and below it.
+ *
+ * The BLOCK axis only. The inline twin of the trap is real (the cluster's
+ * resting `justify-self: end`, which the floor tier resets so the cover can
+ * span the whole row), but the floor tier cannot be measured here: a pair's
+ * steps run before the harness's asserted width, and a platform minimum window
+ * hands back a viewport far wider than 320px, so the tier never engages and the
+ * leg reads as never-ran. The compiled-stylesheet suite pins that rule instead
+ * (src/test/bun/webview/dashboard/styles/armedCover.test.ts).
+ */
+function coversTheRow(item: string): string {
+	return `(() => {
+		const cover = document.querySelector(${JSON.stringify(`${item} .server-actions.armed`)});
+		const row = document.querySelector(${JSON.stringify(`${item} .server-row`)});
+		if (cover === null || row === null) { return false; }
+		const box = cover.getBoundingClientRect();
+		const covered = row.getBoundingClientRect();
+		return box.top <= covered.top + 0.5 && box.bottom >= covered.bottom - 0.5;
+	})()`;
+}
 
 /** Writes a value into a React-controlled input through the native setter, then fires the events React listens to. */
 function reactType(selector: string, value: string): string {
@@ -339,6 +373,144 @@ const STATE_PAIRS: readonly StatePair[] = [
 		verify:
 			`document.querySelector("button.refresh-usage").disabled === true && ` +
 			`getComputedStyle(document.querySelector("button.refresh-usage .spinner")).visibility === "visible"`,
+	},
+	{
+		// Arming Remove swaps the resting pair for the two-step confirm, which
+		// leaves the flow and COVERS the row's own cells (.server-actions.armed)
+		// - arming must move NOTHING: not the armed row's own box or height, not
+		// its cells, not the row below. The cluster itself is deliberately not a
+		// target: becoming the cover changes its box by design.
+		name: "server-row-armed-cover",
+		fixture: "servers-spend.ts",
+		targets: [
+			`${FIRST_SERVER_ITEM} .server-row`,
+			`${FIRST_SERVER_ITEM} .server-line`,
+			`${FIRST_SERVER_ITEM} .server-name`,
+			`${FIRST_SERVER_ITEM} .server-usage`,
+		],
+		siblingOf: FIRST_SERVER_ITEM,
+		toggle: [
+			`(() => {
+				const remove = [...document.querySelectorAll(${JSON.stringify(`${FIRST_SERVER_ITEM} .server-actions button`)})]
+					.find((button) => button.textContent.trim() === "Remove");
+				if (remove === undefined) { throw new Error(${marker("SETUP", ": no Remove button on the first server row")}); }
+				remove.click();
+			})()`,
+		],
+		restVerify: `document.querySelector(${JSON.stringify(`${FIRST_SERVER_ITEM} .server-actions.armed`)}) === null`,
+		verify:
+			`document.querySelector(${JSON.stringify(`${FIRST_SERVER_ITEM} .server-actions.armed`)}) !== null && ` +
+			coversTheRow(FIRST_SERVER_ITEM),
+	},
+	{
+		// The folded tier's twin of the pair above, at the width where a cover
+		// that failed to fill the row left the most behind: below 920 the row is
+		// two lines, so a button-high band mid-row leaves the whole meta line -
+		// url, count, spend - readable under the confirm. Same holds as the wide
+		// pair, plus the same coverage claim in its verify; the restVerify also
+		// proves the tier really folded, since a platform minimum can hand back
+		// something wider than the width asked for.
+		name: "server-row-armed-cover-folded",
+		fixture: "servers-spend.ts",
+		viewportWidth: 500,
+		targets: [
+			`${FIRST_SERVER_ITEM} .server-row`,
+			`${FIRST_SERVER_ITEM} .server-line`,
+			`${FIRST_SERVER_ITEM} .server-name`,
+			`${FIRST_SERVER_ITEM} .server-usage`,
+		],
+		siblingOf: FIRST_SERVER_ITEM,
+		toggle: [
+			`(() => {
+				const remove = [...document.querySelectorAll(${JSON.stringify(`${FIRST_SERVER_ITEM} .server-actions button`)})]
+					.find((button) => button.textContent.trim() === "Remove");
+				if (remove === undefined) { throw new Error(${marker("SETUP", ": no Remove button on the first server row")}); }
+				remove.click();
+			})()`,
+		],
+		restVerify:
+			`document.querySelector(${JSON.stringify(`${FIRST_SERVER_ITEM} .server-actions.armed`)}) === null && ` +
+			`getComputedStyle(document.querySelector(".server-meta")).display === "flex"`,
+		verify:
+			`document.querySelector(${JSON.stringify(`${FIRST_SERVER_ITEM} .server-actions.armed`)}) !== null && ` +
+			coversTheRow(FIRST_SERVER_ITEM),
+	},
+	{
+		// The usage poll staling a row lands the "stale" qualifier INLINE before
+		// the spend figure - never a line of its own - and the .server-usage
+		// floor absorbs the word, so the mark arriving asynchronously must not
+		// move the row, the cell, or the row below. The setup first re-dispatches
+		// the push with every card fresh: the fixture ships research already
+		// stale, whose composition would pre-widen the shared track and let a
+		// dropped floor pass unmeasured. The spend unit's own width and x are
+		// INTENDED: "stale 42%" is more text than "42%", right-justified inside
+		// the held cell.
+		name: "server-spend-stale",
+		fixture: "servers-spend.ts",
+		setup: [
+			`(() => {
+				const push = structuredClone(window.__fixtureMessages.find((message) => message.kind === "push"));
+				for (const server of push.state.usage.servers) {
+					if (server.kind === "usage") { server.fresh = true; }
+				}
+				window.dispatchEvent(new MessageEvent("message", { data: push }));
+			})()`,
+		],
+		targets: [
+			`${FIRST_SERVER_ITEM} .server-row`,
+			`${FIRST_SERVER_ITEM} .server-usage`,
+			`${FIRST_SERVER_ITEM} .spend-unit`,
+		],
+		siblingOf: FIRST_SERVER_ITEM,
+		toggle: [
+			`(() => {
+				const push = structuredClone(window.__fixtureMessages.find((message) => message.kind === "push"));
+				for (const server of push.state.usage.servers) {
+					if (server.kind === "usage") { server.fresh = server.label !== "prod"; }
+				}
+				window.dispatchEvent(new MessageEvent("message", { data: push }));
+			})()`,
+		],
+		restVerify: `document.querySelector(".spend-note") === null`,
+		verify: `document.querySelector(${JSON.stringify(`${FIRST_SERVER_ITEM} .spend-note`)}) !== null`,
+		intended: { [`${FIRST_SERVER_ITEM} .spend-unit`]: ["width", "x"] },
+	},
+	{
+		// The folded tiers' twin of the pair above: below 920 the spend cell
+		// sits on a WRAPPING flex meta line, where the word arriving without
+		// the cell's reservation could re-wrap the line and grow the row. The
+		// unit is left-aligned there, so only its width is intended - its left
+		// edge, the cell, the row, and the row below must all hold. No all-fresh
+		// setup here, deliberately: the reservation under test is per-cell (no
+		// shared track at this tier), and the fixture's own stale research row
+		// keeps the header's "(stale rows excluded)" gloss - which wraps the
+		// 500px header - constant across both states. The restVerify also
+		// proves the tier really folded: a platform minimum widening the
+		// viewport would otherwise measure the wide tier twice.
+		name: "server-spend-stale-folded",
+		fixture: "servers-spend.ts",
+		viewportWidth: 500,
+		targets: [
+			`${FIRST_SERVER_ITEM} .server-row`,
+			`${FIRST_SERVER_ITEM} .server-usage`,
+			`${FIRST_SERVER_ITEM} .spend-unit`,
+		],
+		siblingOf: FIRST_SERVER_ITEM,
+		toggle: [
+			`(() => {
+				const push = structuredClone(window.__fixtureMessages.find((message) => message.kind === "push"));
+				const prod = push.state.usage.servers.find((server) => server.label === "prod");
+				if (prod === undefined) { throw new Error(${marker("SETUP", ": no prod usage card in the fixture push")}); }
+				prod.fresh = false;
+				window.dispatchEvent(new MessageEvent("message", { data: push }));
+			})()`,
+		],
+		restVerify:
+			`document.querySelector(${JSON.stringify(`${FIRST_SERVER_ITEM} .spend-note`)}) === null && ` +
+			`document.querySelector(".spend-note") !== null && ` +
+			`getComputedStyle(document.querySelector(".server-meta")).display === "flex"`,
+		verify: `document.querySelector(${JSON.stringify(`${FIRST_SERVER_ITEM} .spend-note`)}) !== null`,
+		intended: { [`${FIRST_SERVER_ITEM} .spend-unit`]: ["width"] },
 	},
 	{
 		// A record chip's invalid mark is a border-color change on a border that
@@ -1004,7 +1176,7 @@ interface SweepCase {
 	readonly name: string;
 	readonly fixture: string;
 	readonly steps: readonly string[];
-	/** A viewport width forced onto the fixture; pairs keep the fixture's own. */
+	/** A viewport width forced onto the fixture; pairs without one keep the fixture's own. */
 	readonly viewportWidth?: number;
 	/** Whether the case carries an expectedDrift marker (its probe then never exits green). */
 	readonly expectsDrift: boolean;
@@ -1015,6 +1187,7 @@ function pairCase(pair: StatePair): SweepCase {
 		name: pair.name,
 		fixture: pair.fixture,
 		steps: [...(pair.setup ?? []), measureStep(pair), ...pair.toggle, compareStep(pair)],
+		...(pair.viewportWidth === undefined ? {} : { viewportWidth: pair.viewportWidth }),
 		expectsDrift: pair.expectedDrift !== undefined,
 	};
 }

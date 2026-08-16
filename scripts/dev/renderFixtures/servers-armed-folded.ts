@@ -1,16 +1,16 @@
 /**
  * The armed remove state at the FOLDED tier: the same no-shift contract as
  * servers-armed.ts, measured where it is cheapest to break. Below the 920 fold
- * the actions live in the list's flexible track, whose 9em floor is what keeps
- * the armed pair's wider button from raising the track's minimum - without it,
- * arming a remove at a tight pane grew the grid past its container. 500px of
- * window (a ~400px pane, the collapsed rail beside it) presses the flexible
- * track down to that floor, which is exactly where the old
+ * the actions live in the list's flexible track, whose 9em floor covers only
+ * the RESTING pair - the armed pair leaves the flow and covers the row
+ * (.server-actions.armed), so it can never raise the track's minimum. 500px
+ * of window (a ~400px pane, the collapsed rail beside it) presses the
+ * flexible track down to that floor, which is exactly where the old
  * minmax(min-content, 1fr) template failed. At this tier the failure mode is
- * OVERFLOW rather than a leftward shift (the flexible track is the rightmost,
- * so a raised minimum pushes past the pane instead of dragging siblings), and
- * the harness's own no-sideways-scroll assertion on every render is the
- * sensor for that; the shared shift measurement still runs as a second net.
+ * OVERFLOW rather than a leftward shift (an out-of-flow cover wider than the
+ * row pokes past the pane's left edge instead of dragging siblings), and the
+ * harness's own no-sideways-scroll assertion on every render is the sensor
+ * for that; the shared shift measurement still runs as a second net.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { ARM_AND_ASSERT_NO_SHIFT } from "./servers-armed.ts";

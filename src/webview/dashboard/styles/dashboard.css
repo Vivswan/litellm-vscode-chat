@@ -596,15 +596,11 @@
 		 they stop a cell shrinking, they do not make two rows agree. */
 	/* Eight tracks: chevron, name, url, status, count, spend, badges, actions.
 		 The actions track is FIXED at the width of its resting pair (Edit beside
-		 Remove), and the wider ARMED pair ("Confirm remove?" beside Cancel)
-		 WRAPS inside that same width instead of stretching it: the track
-		 belongs to the list, so letting the widest state size it on demand
-		 would shift every row's columns at the moment the reader arms a remove
-		 - under the pointer that is about to confirm it. Wrapped, arming grows
-		 only the armed row's own height by one button line. Fixed rather than
-		 minmax(_, auto), because an auto track re-measures per state: even a
-		 capped armed pair contributed a few pixels more than the resting one
-		 and nudged every column on arm. */
+		 Remove); the wider ARMED pair leaves the flow and COVERS the row's own
+		 cells instead (.server-actions.armed below), so arming a remove resizes
+		 no track and moves no row. Fixed rather than minmax(_, auto), because an
+		 auto track re-measures per state: even a capped armed pair contributed a
+		 few pixels more than the resting one and nudged every column on arm. */
 	.server-list {
 		/* The actions column's one width, read by the track AND the cluster's
 			 own cap so the two cannot drift: sized to the resting pair's inks
@@ -635,6 +631,8 @@
 		display: grid;
 		grid-template-columns: subgrid;
 		grid-column: 1 / -1;
+		/* The armed actions cover positions against the row (the rule below). */
+		position: relative;
 		border-radius: var(--radius);
 	}
 	/* The hover and open wash paints the WHOLE row - the disclosure button AND
@@ -740,13 +738,24 @@
 	}
 	.server-usage {
 		text-align: right;
-		min-width: 3.5em;
+	}
+	/* 6em, not the digits' own ~3.5: the floor covers the widest shipped
+		 composition - the translated "stale" qualifier beside "888%" - so the
+		 mark landing asynchronously never widens the wide tier's track or
+		 re-wraps the folded tiers' meta line (the flexible URL column is what
+		 gives the reservation its width). On cells that HOLD a spend unit, so
+		 an empty cell never parks 6em of air mid-sentence in a folded row; the
+		 shared track still aligns every cell where any row reserves. */
+	.server-usage:has(.spend-unit) {
+		min-width: 6em;
 	}
 	/* The spend-at-a-glance: the percentage over its 3px meter, stacked as one
-		 unit (the meter is a rule under the number it explains), with the
-		 staleness note as a third line when the numbers are merely old. The
-		 severity tones and the meter's axis-and-fill treatment ride the
-		 component's utility classes (spendFormat.ts's shared tables). */
+		 unit (the meter is a rule under the number it explains). Two lines in
+		 every state: the staleness qualifier rides the FIGURE'S line (the JSX
+		 puts it there) - as a third line it arrived asynchronously when the
+		 poll staled a row and moved every row below it. The severity tones and
+		 the meter's axis-and-fill treatment ride the component's utility
+		 classes (spendFormat.ts's shared tables). */
 	.spend-unit {
 		display: inline-grid;
 		justify-items: end;
@@ -787,8 +796,8 @@
 		/* Column gap is ink-to-ink (the compact buttons hand their padding back
 			 to the layout at the Button primitive): 20px keeps the visible
 			 spacing the cluster showed when the buttons' boxes still padded the
-			 gap. The row gap is not: vertical padding stays in the box, so the
-			 armed pair's wrapped lines keep their own 8px. */
+			 gap. The row gap is not: vertical padding stays in the box, so a
+			 resting pair wrapped by a tight tier keeps its own 8px. */
 		gap: 8px 20px;
 		align-items: center;
 		align-self: center;
@@ -799,8 +808,7 @@
 		transition: opacity 120ms ease-out;
 	}
 	/* The cluster wraps between buttons, never inside one: a button broken
-		 mid-phrase reads as two controls. Under the cap above, the armed pair
-		 is what wraps - two stacked whole buttons, Cancel beneath the commit. */
+		 mid-phrase reads as two controls. */
 	.server-actions button {
 		white-space: nowrap;
 	}
@@ -809,6 +817,58 @@
 	.server-actions:focus-within,
 	.server-actions.armed {
 		opacity: 1;
+	}
+	/* The armed pair ("Confirm remove?" beside Cancel) is wider than the track,
+		 and every in-flow answer moves something: growing the track shifts every
+		 row's columns, wrapping inside it grows the armed row by a button line -
+		 both under the pointer that is about to confirm. So the pair leaves the
+		 flow and COVERS the row's own badge and spend cells, growing leftward
+		 from the track's edge, opaque over whatever it hides; the left padding
+		 keeps the cover's edge off the words beneath it.
+		 align-self is reset to stretch because the resting cluster centres itself
+		 in its grid area: an absolutely positioned box carries that alignment
+		 into its own sizing, where `center` shrink-to-fits the block axis and
+		 parks the result mid-row - inset-block: 0 then positions a button-high
+		 BAND, not a cover, and the folded tiers' second line stayed legible under
+		 it. Stretched, the box fills the row it covers; align-items above still
+		 centres the buttons inside it. The cluster's justify-self is the same
+		 trap on the inline axis, and it is reset where it bites: only a box with
+		 an AUTO size can be stretched, so it is inert against the max-content
+		 width here and live at the floor tier, which sizes the cover from its
+		 insets instead. */
+	.server-actions.armed {
+		position: absolute;
+		inset-block: 0;
+		right: 0;
+		width: max-content;
+		max-width: none;
+		align-self: stretch;
+		flex-wrap: nowrap;
+		padding-left: 14px;
+		background: var(--vscode-editor-background);
+	}
+	/* The cover's own copy of the row's name, dark at every tier but the floor
+		 (the rule down there stands it up): above the floor the cover leaves the
+		 row's name standing beside it, and a second copy would be the same word
+		 twice on one line. */
+	.armed-subject {
+		display: none;
+	}
+	/* The hover and open wash restated on the cover (it paints on the row
+		 UNDER the cover), so a washed row never shows a page-coloured hole. */
+	.server-row:has(> .server-line:hover) .server-actions.armed,
+	.server-row:has(> .server-line[aria-expanded="true"]) .server-actions.armed {
+		background: linear-gradient(
+				var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12)),
+				var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12))
+			)
+			var(--vscode-editor-background);
+	}
+	/* The bordered modes say "box" in ink, not wash: without an edge the
+		 opaque cover reads as the row simply ending where it begins. */
+	body.vscode-high-contrast .server-actions.armed,
+	body.vscode-high-contrast-light .server-actions.armed {
+		border: 1px solid var(--vscode-contrastBorder, var(--muted-foreground));
 	}
 	/* The bordered modes zero the buttons' layout hand-back (theme.css), so
 		 here the 20px ink gap would present as a 20px BOX gap on top of boxes
@@ -829,6 +889,18 @@
 		.server-actions {
 			column-gap: 8px;
 			opacity: 1;
+		}
+		/* The cover's ink edge, and its opacity in the mode's own vocabulary:
+			 backgrounds flatten to Canvas, so the fallback chain must not stand.
+			 The wash twins above are restated here rather than left to the cascade:
+			 their :has() selectors outrank a bare .server-actions.armed, so a
+			 hovered or expanded armed row would otherwise keep the editor-background
+			 chain and paint no system colour at all under the cover. */
+		.server-actions.armed,
+		.server-row:has(> .server-line:hover) .server-actions.armed,
+		.server-row:has(> .server-line[aria-expanded="true"]) .server-actions.armed {
+			border: 1px solid CanvasText;
+			background: Canvas;
 		}
 	}
 	body.vscode-high-contrast .server-actions,
@@ -2758,6 +2830,26 @@
 			display: none;
 		}
 	}
+	/* The floor tier: under 400px of pane even the two remaining segments
+		   overran the line, and the tail ellipsis cut the PRICE mid-template
+		   ("$1.75 in / ...") behind a dangling separator. Whole-segment sheds
+		   instead, per the separator design above: the capabilities go with the
+		   separator that precedes them (the element after the cost), and the
+		   price keeps only its input half - .price-secondary is worn only while
+		   the input half stands, so an output-only price never sheds to a bare
+		   unit, and the per-M unit goes with the shed ("$1.75 in per..." was
+		   the ellipsis's rendering of it at 320). The input price, the figure
+		   the list sorts on, renders entire; the full sentence stays one click
+		   away in the row's detail. */
+	@container pane (width < 400px) {
+		.model-line-2 .model-caps,
+		.model-line-2 .model-cost + .model-sep,
+		.model-line-2 .price-secondary,
+		.model-line-2 .price-sep,
+		.model-line-2 .price-per {
+			display: none;
+		}
+	}
 
 	/* ---- the wide pane: the sentence becomes columns -------------------------
 	 Past this width the two-line row was spending a third of the pane and
@@ -3659,11 +3751,9 @@
 		 every healthy row. fit-content sizes to the names and stops there,
 		 capped so one very long label cannot take the row; the actions track
 		 takes the slack, which is what right-aligns the cluster. Its 9em floor
-		 is the no-shift contract at this tier: the floor covers the armed
-		 pair's widest button ("Confirm remove?", nowrap here), so arming a
-		 remove can never raise the track's minimum and shift the columns the
-		 whole list shares - the same promise the wide tier's fixed track
-		 makes. */
+		 is the resting pair's own width, so Edit and Remove sit side by side
+		 on every healthy row; the armed pair never touches the track's minimum
+		 - it covers the row out of flow (the base .server-actions.armed). */
 		.server-list {
 			grid-template-columns: auto fit-content(10em) auto minmax(9em, 1fr);
 		}
@@ -3762,8 +3852,15 @@
 		.server-count,
 		.server-usage {
 			flex: none;
-			min-width: 0;
 			text-align: left;
+		}
+		/* The count sheds its wide-tier floor - the folded meta line is a
+			 sentence, not a column. The spend cell's :has floor deliberately
+			 stays: on this wrapping flex line the stale word arriving without a
+			 reservation could re-wrap the line and grow the row asynchronously,
+			 the exact reflow the floor exists to absorb. */
+		.server-count {
+			min-width: 0;
 		}
 		.spend-unit {
 			justify-items: start;
@@ -3779,18 +3876,15 @@
 		 idiom's 560 call (ui/reveal.tsx's @max-[560px]/pane clause, the rule
 		 below), not this fold's - the fold is about line composition, and a
 		 920 paint here forked the idiom's one threshold. The cap and the wrap
-		 are what keep the ROW inside the pane: an unwrapped cluster's minimum
-		 is both its buttons side by side, and a row whose minimum exceeds the
-		 pane does not truncate, it puts a horizontal scrollbar under the whole
-		 page. Wrapped, the minimum is one button - which the two-step confirm
-		 ("Confirm remove?" beside "Cancel") does reach at 500px, and which is
-		 the right thing to spend a line on for the state a reader is looking
-		 straight at. */
+		 are what keep the resting ROW inside the pane: an unwrapped cluster's
+		 minimum is both its buttons side by side, and a row whose minimum
+		 exceeds the pane does not truncate, it puts a horizontal scrollbar
+		 under the whole page. The armed pair asks the row for nothing at any
+		 tier - it covers the row out of flow (the base .server-actions.armed
+		 rule). */
 		.server-actions {
 			/* Wider than the wide tier's track: beside a two-line row an extra
-			 button width costs the URL nothing it was not already giving up,
-			 and the armed pair reaching a second line here is the state a
-			 reader is looking straight at. */
+			 button width costs the URL nothing it was not already giving up. */
 			max-width: 13em;
 			padding-right: 0;
 		}
@@ -3859,11 +3953,10 @@
 	 name, then how it is, then what it holds, with the actions centred in
 	 their own column beside all three. */
 	@container pane (width < 400px) {
-		/* The 9em no-shift floor yields here, and only here: at the 320px floor
-		 it is 17px more than the pane has, and this is also the one tier whose
-		 armed buttons may break their labels (the rule below) - a broken label
-		 has no wide nowrap minimum to reserve against, so the floor would buy
-		 a horizontal scrollbar and protect nothing. */
+		/* The 9em resting-pair floor yields here, and only here: at the 320px
+		 floor it is 17px more than the pane has, and the resting cluster's own
+		 minimum (one wrapped button) is all the track still needs - the armed
+		 pair covers the row out of flow and asks the track for nothing. */
 		.server-list {
 			grid-template-columns: auto fit-content(14em) auto minmax(min-content, 1fr);
 		}
@@ -3887,14 +3980,59 @@
 		.server-status {
 			grid-area: 2 / 2 / auto / -1;
 		}
-		/* Here, and only here, a button may break its own label. Everywhere else
-		 that reads as two controls, but at this width the two-step confirm
-		 ("Confirm remove?" beside a nowrap verdict pill) has a minimum wider
-		 than the pane, and an unbreakable button would take the whole page into
-		 a horizontal scroll - which is the one thing the floor promises does
-		 not happen above 320px. */
-		.server-actions button {
-			white-space: normal;
+		/* The cover takes the WHOLE row here, rather than growing leftward to
+		 its content's width. Everywhere else what it leaves uncovered is the
+		 row's identity - the name, the URL, the spend it is about to delete -
+		 and keeping that beside the question is the point. At this width the
+		 pair is nearly as wide as the pane, so a content-sized cover leaves
+		 about one character of each of the row's four lines standing in the
+		 gap beside it, which reads as text clipped by a bug rather than as a
+		 row held under a question. Nothing that narrow is identity worth
+		 keeping.
+		 Three declarations, because a grid item's inline size is decided the
+		 same way its block size was: grid-column moves the containing block
+		 out to the whole row, width: auto lets the insets size the box (a
+		 width would win over them and the start inset would be ignored), and
+		 justify-self: stretch is what lets a box with an auto size actually
+		 fill - left at the cluster's resting `end` it shrink-to-fits and parks
+		 at the row's right edge, which is the inline twin of the align-self
+		 trap the base rule documents, and is exactly what this rule looked
+		 like when it changed nothing at all.
+		 The pair wraps inside the cover, and the guarantee that buys is the
+		 INLINE axis: an unwrapped pair wider than the row does not truncate,
+		 it puts a horizontal scrollbar under the whole page. It buys nothing
+		 on the block axis - the insets and the stretch above make the cover's
+		 height DEFINITE at the row's, so content the box cannot hold does not
+		 grow it, it spills past the edges unbacked, over the rows above and
+		 below (both edges, since align-content centres the lines). Forcing an
+		 over-tall line in shows exactly that. This tier is sized for the two
+		 lines it has, the label over the pair. */
+		.server-actions.armed {
+			grid-column: 1 / -1;
+			inset-inline: 0;
+			width: auto;
+			justify-self: stretch;
+			flex-wrap: wrap;
+			/* The cover is as tall as the row it hides and holds two short lines;
+			 wrapped flex lines default to sharing that height between them, which
+			 spread the name and the buttons to opposite ends of an otherwise empty
+			 box. Centred, they read as one question. */
+			align-content: center;
+		}
+		/* Which server the question is about, since the cover now hides the row
+		 that used to answer that: a confirm alone in a blank strip asks the
+		 reader to trust that they armed the row they meant to. Its own line
+		 (the pair takes what is left of this width), ellipsized rather than
+		 wrapped, so a long label cannot push the buttons down a line or the
+		 cover past the row it covers. */
+		.server-actions.armed .armed-subject {
+			display: block;
+			flex: 1 0 100%;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+			font-weight: 600;
+			text-align: left;
 		}
 	}
 	/* ---- the rail at narrow widths -----------------------------------------

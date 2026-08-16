@@ -405,6 +405,29 @@ test("remove is two-step: Remove arms the row, Confirm posts removeServerSetting
 	expect(second.id).not.toBe(first.id);
 });
 
+test("the armed pair names the server it is about, in its buttons and in the cover's own line", () => {
+	// The pair covers the row it belongs to, and at the narrowest tier it
+	// covers all of it - so which server is being removed has to travel with
+	// the question rather than sit behind it. The buttons repeat down the page,
+	// which is the same reason the resting Remove names its server. Each
+	// accessible name leads with the button's own visible words, unedited,
+	// which is what Label in Name asks for.
+	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
+	fireClick(buttonByText(root, "Remove"));
+	const confirm = buttonByText(root, "Confirm remove?");
+	const cancel = buttonByText(root, "Cancel");
+	expect(confirm.getAttribute("aria-label")).toBe("Confirm remove? Prod");
+	expect(cancel.getAttribute("aria-label")).toBe("Cancel removing Prod");
+	for (const button of [confirm, cancel]) {
+		expect(button.getAttribute("aria-label")).toContain(button.textContent);
+	}
+	// The visible copy the floor tier stands up (the stylesheet decides where
+	// it paints; the markup is what has to carry it).
+	expect(root.querySelector(".server-actions.armed .armed-subject")?.textContent).toBe("Prod");
+	fireClick(buttonByText(root, "Cancel"));
+	expect(root.querySelector(".armed-subject")).toBeNull();
+});
+
 test("add-form save round trip: invalid posts nothing, the ack closes the form, failures follow their disposition", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));

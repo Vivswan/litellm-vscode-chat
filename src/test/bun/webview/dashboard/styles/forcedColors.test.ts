@@ -432,6 +432,41 @@ const SEPARATING_FILLS: readonly SeparatingFill[] = [
 		},
 	},
 	{
+		selector: ".server-actions.armed",
+		declaration: "background: var(--vscode-editor-background)",
+		count: 1,
+		disposition: {
+			kind: "twinned",
+			selector: ".server-actions.armed",
+			declaration: "border: 1px solid CanvasText;",
+			why: "the armed confirm covers the row's own cells and the fill is what hides them; the mode flattens it to Canvas (still opaque, so the cover keeps covering) and the twin draws the cover's edge in ink",
+		},
+	},
+	{
+		selector: ".server-row:has( > .server-line:hover) .server-actions.armed",
+		declaration:
+			"background: linear-gradient(var(--vscode-list-hoverBackground, #8080801f), var(--vscode-list-hoverBackground, #8080801f)) var(--vscode-editor-background)",
+		count: 1,
+		disposition: {
+			kind: "twinned",
+			selector: ".server-row:has( > .server-line:hover) .server-actions.armed",
+			declaration: "background: Canvas;",
+			why: "the wash itself is decoration the mode may drop, but the fill UNDER it is the cover's opacity, and this selector outranks the base cover rule - so the twin restates Canvas at this specificity rather than letting the editor-background chain stand, and carries the cover's ink edge with it",
+		},
+	},
+	{
+		selector: '.server-row:has( > .server-line[aria-expanded="true"]) .server-actions.armed',
+		declaration:
+			"background: linear-gradient(var(--vscode-list-hoverBackground, #8080801f), var(--vscode-list-hoverBackground, #8080801f)) var(--vscode-editor-background)",
+		count: 1,
+		disposition: {
+			kind: "twinned",
+			selector: '.server-row:has( > .server-line[aria-expanded="true"]) .server-actions.armed',
+			declaration: "background: Canvas;",
+			why: "the open-state wash restated on the cover, same argument as the hover half",
+		},
+	},
+	{
 		selector: ".server-drawer",
 		declaration: "background: var(--vscode-textBlockQuote-background, #80808012)",
 		count: 1,

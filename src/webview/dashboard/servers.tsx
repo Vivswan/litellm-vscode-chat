@@ -942,8 +942,13 @@ function SpendUnit({
 	// maximum, and an unmarked 112% right beneath it read as the header
 	// contradicting the page. The word is a unit qualifier, not the story -
 	// the cause (a failed refresh, a denied key, mere age) lives in the
-	// diagnostic line or the drawer's Spend last updated fact.
-	const note = usage.fresh ? null : <span className="spend-note text-warn text-[0.85em]">{l10n.t("stale")}</span>;
+	// diagnostic line or the drawer's Spend last updated fact. It leads the
+	// figure ON ITS LINE, never a line of its own: the mark lands
+	// asynchronously when a poll goes stale, and a third line moved every
+	// row below it (the .server-usage floor absorbs the word's width).
+	const note = usage.fresh ? null : (
+		<span className="spend-note font-sans text-[0.92em] text-warn">{l10n.t("stale")} </span>
+	);
 	// The number says what it is only to someone who can read the meter under
 	// it; the hidden noun says it to a screen reader. In hidden text rather
 	// than an aria-label, because a plain span has no role that supports one -
@@ -955,6 +960,7 @@ function SpendUnit({
 			<span className="spend-unit">
 				<span className={cn("font-mono text-[0.92em] tabular-nums", TONE_TEXT[bar.tone])}>
 					<span className="visually-hidden">{l10n.t("Budget spent:")} </span>
+					{note}
 					{formatPercent(usage.spentFraction)}
 				</span>
 				{/* A baseline, not a track. The unfilled remainder used to be a
@@ -980,7 +986,6 @@ function SpendUnit({
 						style={{ width: `${bar.widthPercent}%` }}
 					/>
 				</span>
-				{note}
 			</span>
 		);
 	}
@@ -988,9 +993,9 @@ function SpendUnit({
 		<span className="spend-unit">
 			<span className="font-mono text-[0.92em] tabular-nums">
 				<span className="visually-hidden">{l10n.t("Spent:")} </span>
+				{note}
 				{formatMoney(usage.spend, currencySymbol)}
 			</span>
-			{note}
 		</span>
 	);
 }
@@ -1706,9 +1711,23 @@ function ServerRow({
 				<span className={armed ? "server-actions armed" : "server-actions"}>
 					{armed ? (
 						<>
+							{/* Which server the question is about. The armed pair covers the
+							    row, and at the narrowest tier it covers ALL of it - so the
+							    name the reader is checking against goes inside the cover
+							    there, on its own wrapped line, ellipsized rather than
+							    widening anything. Painted only at that tier (the stylesheet
+							    hides it above), because everywhere else the row's own name
+							    is still standing beside the cover. The buttons carry the
+							    label in their accessible names at every tier, which is the
+							    same fact for a reader who never sees "beside" - each name
+							    LEADS with the button's own visible words, unedited, because
+							    Label in Name wants the visible label inside the accessible
+							    one. */}
+							<span className="armed-subject">{server.label}</span>
 							<Button
 								variant="danger"
 								size="compact"
+								aria-label={l10n.t("Confirm remove? {0}", server.label)}
 								onClick={() => {
 									// The same two-step confirm for every origin; only the intent
 									// differs (a declared or misconfigured entry is removed from
@@ -1724,7 +1743,12 @@ function ServerRow({
 							>
 								{l10n.t("Confirm remove?")}
 							</Button>
-							<Button variant="secondary" size="compact" onClick={() => onArmRemove(false)}>
+							<Button
+								variant="secondary"
+								size="compact"
+								aria-label={l10n.t("Cancel removing {0}", server.label)}
+								onClick={() => onArmRemove(false)}
+							>
 								{l10n.t("Cancel")}
 							</Button>
 						</>

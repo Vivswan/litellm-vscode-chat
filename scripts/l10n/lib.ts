@@ -273,7 +273,7 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"UsageAlerts",
 	// Webview component presenters that resolve l10n.t at call time.
 	"relativeTime",
-	"formatPricing",
+	"PriceParts",
 	"pricingNote",
 	"metaLine",
 	"detailFields",

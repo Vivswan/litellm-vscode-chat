@@ -42,30 +42,42 @@ function formatCost(cost: number, currencySymbol: string): string {
 	return `${currencySymbol}${Number(cost.toPrecision(3))}`;
 }
 
-function formatPricing(model: DashboardModel, currencySymbol: string): string {
-	if (model.inputCost === undefined && model.outputCost === undefined) {
-		return "-";
-	}
-	const parts: string[] = [];
-	if (model.inputCost !== undefined) {
-		parts.push(
-			l10n.t({
-				message: "{0} in",
-				args: [formatCost(model.inputCost, currencySymbol)],
-				comment: ["price per million input tokens; {0} is a currency amount"],
-			})
-		);
-	}
-	if (model.outputCost !== undefined) {
-		parts.push(
-			l10n.t({
-				message: "{0} out",
-				args: [formatCost(model.outputCost, currencySymbol)],
-				comment: ["price per million output tokens; {0} is a currency amount"],
-			})
-		);
-	}
-	return parts.join(" / ");
+/**
+ * The row's price phrase as SEPARATE segment elements, so the floor tier can
+ * shed the output half whole - "$1.75 in / ..." with the template cut mid-way
+ * was the ellipsis's rendering at 320px - with its own separator (the same
+ * disappears-with-its-segment idiom as the line's dashes). The output half is
+ * marked shedable only while the input half stands: an output-only price is
+ * the row's whole answer, and shedding it would leave a bare "per M".
+ */
+function PriceParts({ model, currencySymbol }: { model: DashboardModel; currencySymbol: string }) {
+	const inPart =
+		model.inputCost === undefined
+			? undefined
+			: l10n.t({
+					message: "{0} in",
+					args: [formatCost(model.inputCost, currencySymbol)],
+					comment: ["price per million input tokens; {0} is a currency amount"],
+				});
+	const outPart =
+		model.outputCost === undefined
+			? undefined
+			: l10n.t({
+					message: "{0} out",
+					args: [formatCost(model.outputCost, currencySymbol)],
+					comment: ["price per million output tokens; {0} is a currency amount"],
+				});
+	return (
+		<>
+			{inPart}
+			{inPart !== undefined && outPart !== undefined ? <span className="price-sep"> / </span> : null}
+			{outPart === undefined ? null : inPart === undefined ? (
+				outPart
+			) : (
+				<span className="price-secondary">{outPart}</span>
+			)}
+		</>
+	);
 }
 
 /**
@@ -923,8 +935,10 @@ export function ModelsSection({
 													<span className="model-cost">
 														{priced ? (
 															<>
-																<span className="model-price">{formatPricing(model, currencySymbol)}</span>{" "}
-																{l10n.t("per M")}
+																<span className="model-price">
+																	<PriceParts model={model} currencySymbol={currencySymbol} />
+																</span>
+																<span className="price-per"> {l10n.t("per M")}</span>
 															</>
 														) : (
 															l10n.t("price unknown")
