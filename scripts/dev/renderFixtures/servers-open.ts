@@ -6,7 +6,10 @@
  * degraded diagnostic carrying the denial below). The point of the shot is
  * the absence rendering - a dim dash plus the reason in place, never a zero -
  * and the entry facts (Base URL, Authentication, Models, Discovery last checked)
- * leading the usage inventory.
+ * leading the usage inventory. Two later tenants also land here: gateway's
+ * warn-tier budget sentence sits INSIDE its drawer (the collapsed row keeps
+ * only the tinted meter), and a declared entry's own model records list
+ * read-only under the facts.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import serversSpend from "./servers-spend.ts";

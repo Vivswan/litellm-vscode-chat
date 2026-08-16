@@ -127,11 +127,13 @@ One idiom for actions that rest hidden on a row, and it has one home:
 - Revealing something never moves anything. A transient either has its space
   reserved or covers what it replaces: the server row's actions occupy a
   reserved track so revealing them cannot reflow the row
-  (`dashboard.css .server-row`), a settings error covers the description
-  instead of displacing it (`settings.tsx SettingRow`), a record card's
-  validation verdict and its write refusal share an always-mounted slot over
-  the footer row's free space - zero flex basis, so a message mounting there
-  moves neither button group and a quiet footer stays exactly one row
+  (`dashboard.css .server-row`), the two-step remove confirm - wider than that
+  track - leaves the flow and covers the row's own cells rather than resizing
+  anything (`dashboard.css .server-actions.armed`), a settings error covers
+  the description instead of displacing it (`settings.tsx SettingRow`), a
+  record card's validation verdict and its write refusal share an always-mounted
+  slot over the footer row's free space - zero flex basis, so a message mounting
+  there moves neither button group and a quiet footer stays exactly one row
   (`dashboard.css .editor-status`), and the reveal wrapper
   itself keeps the hidden control's box (opacity, not display). Reserving is
   the answer only where a line has somewhere of its own to sit: a per-row
@@ -249,7 +251,14 @@ One idiom for detail that opens in place:
 - Collapsed, a row keeps its ranked problem lines painted beneath it
   (`servers.tsx ServerDiagnosticLine` renders what
   `servers.tsx serverDiagnostics` ranks); expanded, the drawer carries the full
-  inventory (`dashboard.css .server-drawer`).
+  inventory (`dashboard.css .server-drawer`). The warn-tier budget gloss is
+  its own line class with its own single home, the drawer: between the user's
+  warning and error thresholds the row's tinted meter already carries the
+  signal, so the sentence renders beside the spend facts it glosses, while a
+  crossed error threshold or an overrun budget keeps its line on the collapsed
+  surface, and a closed drawer keeps the gloss in the accessible tree - the
+  meter's tone is colour, which a screen reader never gets
+  (`servers.tsx drawerDiagnostics`).
 - Explanatory figures stay always open: a collapse nobody wants on the figure
   that explains the model is a click tax (`dashboard.css .record-tree-title`
   and `dashboard.css .model-inspector .page-section`).

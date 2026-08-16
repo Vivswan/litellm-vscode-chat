@@ -552,7 +552,7 @@ describe("the usage diagnostics", () => {
 		expect(detail).toContain("discovery.timeout");
 	});
 
-	test("budget pressure is a degraded line saying what the percentage cannot, and counts", () => {
+	test("budget pressure splits by the user's thresholds: error-tier lines stay collapsed, warn-tier moves to the drawer", () => {
 		const usage = makeUsage({
 			servers: [
 				makeUsageServer({ label: "Prod", spend: 28, effectiveBudget: 25, spentFraction: 1.12 }),
@@ -568,11 +568,39 @@ describe("the usage diagnostics", () => {
 			// The leading tier word is the shared severity vocabulary's hidden
 			// label (severityLabel, in this page's server subject): the rule's
 			// colour and geometry cannot reach a screen reader, so the headline
-			// speaks its rank.
+			// speaks its rank. Gateway's warn-tier sentence is NOT here: the
+			// collapsed row's tinted meter already signals it, so the sentence
+			// waits in the drawer (user-ruled placement).
 			{ severity: "sev-degraded", text: "Action needed: Prod is over its budget by $3.00." },
-			{ severity: "sev-degraded", text: "Action needed: Gateway is close to its budget: $6.50 left." },
 		]);
+		// The pill and the attention count still read the FULL ranked list -
+		// only the sentence moved.
 		expect(textOf(root, ".section-meta")).toContain("2 need attention");
+		// A closed drawer keeps the sentence in the ACCESSIBLE tree: the meter's
+		// tone is colour, which a screen reader never gets.
+		const gatewayItem = Array.from(root.querySelectorAll(".server-item"))[1] as HTMLElement;
+		const hiddenTwin = Array.from(gatewayItem.querySelectorAll(".visually-hidden")).find((node) =>
+			(node.textContent ?? "").includes("close to its budget")
+		);
+		expect((hiddenTwin?.textContent ?? "").trim()).toBe("Action needed: Gateway is close to its budget: $6.50 left.");
+		const gateway = openRow(root, 1);
+		expect(textOf(gateway, ".server-drawer .row-diagnostic")).toBe(
+			"Action needed: Gateway is close to its budget: $6.50 left."
+		);
+		// The visible drawer line replaces the twin; two copies would announce twice.
+		expect(
+			Array.from(gateway.querySelectorAll(".visually-hidden")).filter(
+				(node) => (node.textContent ?? "").includes("close to its budget") && node.closest(".server-drawer") === null
+			)
+		).toEqual([]);
+	});
+
+	test("past the error threshold the close-to-budget sentence stays on the collapsed row", () => {
+		const usage = makeUsage({
+			servers: [makeUsageServer({ label: "Prod", spend: 48.5, effectiveBudget: 50, spentFraction: 0.97 })],
+		});
+		const root = mountServers(usage);
+		expect(textOf(root, ".row-diagnostic")).toBe("Action needed: Prod is close to its budget: $1.50 left.");
 	});
 
 	test("a healthy budget raises no line at all", () => {

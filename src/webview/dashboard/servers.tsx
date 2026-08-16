@@ -2,7 +2,8 @@ import * as l10n from "@vscode/l10n";
 import type { ReactNode } from "react";
 import { Fragment, useEffect, useId, useState } from "react";
 import { latestCheckedMs } from "../../dashboard/presenters";
-import { sectionFailureText } from "../../dashboard/serverForm";
+import { parseCapabilityGroups, parseGroups, toGroups } from "../../dashboard/recordDraft";
+import { sectionFailureText, serverFormFieldLabel } from "../../dashboard/serverForm";
 import type {
 	DashboardServer,
 	DashboardUsage,
@@ -27,6 +28,7 @@ import { DocsLink } from "./help";
 import { helpServersSection } from "./helpText";
 import { useIntentOutcome } from "./hooks";
 import { IconAdd } from "./icons";
+import { capabilityIssueViews, type GroupIssueView, paramIssueViews, RecordMatcherTable } from "./recordEditors";
 import { troubleshootingLink } from "./serverEditPage";
 import { type DiagnosticSeverity, SEVERITY_ORDER, severityLabel } from "./severity";
 import { barPresentation, formatMoney, formatPercent, TONE_FILL, TONE_TEXT } from "./spendFormat";
@@ -157,6 +159,15 @@ interface RowDiagnostic {
 	 */
 	readonly details?: readonly string[] | undefined;
 	readonly actions: readonly DiagnosticAction[];
+	/**
+	 * Where the sentence renders: under the collapsed row (the default), or
+	 * inside the expanded drawer. Drawer placement is USER-RULED (2026-08-16)
+	 * for the budget-pressure line while it sits below the user's own error
+	 * threshold: the row's tinted meter and warn pill already signal it, so
+	 * the sentence is detail, not news. The diagnostic still ranks the pill
+	 * and the attention count either way - only the line moves.
+	 */
+	readonly placement?: "drawer" | undefined;
 }
 
 /** A single optional detail as the details list: [] renders nothing, exactly like the old absent field. */
@@ -687,17 +698,26 @@ function usageDiagnostics(
 				),
 				actions: [],
 			});
-		} else if (barPresentation(card.spentFraction, spend.thresholds).tone !== "ok") {
-			found.push({
-				key: "budget-pressure",
-				severity: "degraded",
-				headline: l10n.t(
-					"{0} is close to its budget: {1} left.",
-					label,
-					formatMoney(card.effectiveBudget - card.spend, spend.currencySymbol)
-				),
-				actions: [],
-			});
+		} else {
+			const tone = barPresentation(card.spentFraction, spend.thresholds).tone;
+			if (tone !== "ok") {
+				// The severity split follows the user's OWN thresholds: past the
+				// error one the sentence stays on the collapsed row like over-budget
+				// does; between warning and error it moves into the drawer, where
+				// the reader who wants the exact figure already is (the placement
+				// field's ruling).
+				found.push({
+					key: "budget-pressure",
+					severity: "degraded",
+					headline: l10n.t(
+						"{0} is close to its budget: {1} left.",
+						label,
+						formatMoney(card.effectiveBudget - card.spend, spend.currencySymbol)
+					),
+					actions: [],
+					...(tone === "warn" ? { placement: "drawer" as const } : {}),
+				});
+			}
 		}
 	}
 	return found;
@@ -1385,6 +1405,7 @@ function DeniedUsageFacts({ card }: { card: UsageForbiddenServerView }) {
 function ServerDrawer({
 	server,
 	usage,
+	notices,
 	pollingOff,
 	discoveryTimeoutMs,
 	now,
@@ -1394,6 +1415,8 @@ function ServerDrawer({
 	server: DashboardServer;
 	/** The row's usage card, denied cards included; absent for servers the snapshot does not cover. */
 	usage: UsageServerCardView | undefined;
+	/** The row's drawer-placed diagnostics (the warn-tier budget line); rendered beside the spend facts they gloss. */
+	notices: readonly RowDiagnostic[];
 	pollingOff: boolean;
 	discoveryTimeoutMs: number;
 	now: number;
@@ -1487,12 +1510,84 @@ function ServerDrawer({
 					<DeniedUsageFacts card={usage} />
 				) : null}
 			</dl>
+			{/* The drawer-placed diagnostics, directly under the spend facts they
+			    gloss: same component and severity dress as the collapsed lines. */}
+			{notices.map((notice) => (
+				<ServerDiagnosticLine key={notice.key} diagnostic={notice} />
+			))}
 			{details.map((detail) => (
 				<p key={detail} className="usage-detail mt-2 mb-0 font-mono text-[0.85em] text-muted-foreground">
 					{detail}
 				</p>
 			))}
+			{server.origin === "declared" ? (
+				<>
+					<DrawerRecords kind="params" value={server.config.modelParameters} server={server} />
+					<DrawerRecords kind="caps" value={server.config.modelCapabilities} server={server} />
+				</>
+			) : null}
 		</>
+	);
+}
+
+/**
+ * The entry's own model records, listed in the drawer in the settings
+ * editors' vocabulary (matcher key, kind, field chips) so expanding a server
+ * shows what the entry overrides without opening the edit page. Read-only on
+ * purpose: the setting and the edit page are the two write surfaces, and the
+ * drawer already carries Edit on its row. An entry without records renders
+ * nothing - per-push static state, not a transient, so no reservation.
+ */
+function DrawerRecords({
+	kind,
+	value,
+	server,
+}: {
+	kind: "params" | "caps";
+	value: Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined;
+	server: DashboardServer;
+}) {
+	if (value === undefined || Object.keys(value).length === 0) {
+		return null;
+	}
+	const groups = toGroups(value);
+	// Judged with the same parses the editors use, so an invalid stored FIELD
+	// wears the same chip mark here as in the edit page (matcher-level
+	// problems stay the edit page's job - this table renders no verdict line);
+	// the capability hints read this entry's own observed /model/info
+	// vocabulary, like the form does.
+	let issues: GroupIssueView[];
+	if (kind === "params") {
+		const parse = parseGroups(groups);
+		issues = paramIssueViews(groups, parse.ok ? [] : parse.problems, parse.hints);
+	} else {
+		const observed = server.observedModelInfoKeys;
+		const parse = parseCapabilityGroups(groups, observed === undefined ? undefined : new Set(observed));
+		issues = capabilityIssueViews(groups, parse.issues);
+	}
+	return (
+		<div className="drawer-records mt-3">
+			<h5 className="m-0 mb-1 font-semibold text-[0.92em] text-muted-foreground">
+				{serverFormFieldLabel(kind === "params" ? "modelParameters" : "modelCapabilities")}
+				{/* The caveat, on the table it qualifies. The row's own degraded line
+				    carries the cause and the fix, but it renders AFTER this drawer -
+				    so a reader who opened the server to see what it overrides met an
+				    authoritative-looking table and the doubt three lines later. The
+				    mark is the qualifier alone; the sentence stays where the fix is. */}
+				{server.notices?.includes(kind === "params" ? "entry-params-inactive" : "entry-capabilities-inactive") ===
+				true ? (
+					<Why
+						text={l10n.t({
+							message: "may not be applied",
+							comment: [
+								"Mark on the heading of a read-only table of per-server settings, when those settings may not be reaching the server.",
+							],
+						})}
+					/>
+				) : null}
+			</h5>
+			<RecordMatcherTable kind={kind} groups={groups} issues={issues} readOnly />
+		</div>
 	);
 }
 
@@ -1626,6 +1721,10 @@ function ServerRow({
 			? { onDeclareExpected, armedDeclare, onArmDeclare: setArmedDeclare, declaring }
 			: {}),
 	});
+	// The pill and the attention count read the FULL ranked list; only the
+	// lines split by placement, so a drawer-deferred warning still signals.
+	const rowDiagnostics = diagnostics.filter((diagnostic) => diagnostic.placement !== "drawer");
+	const drawerDiagnostics = diagnostics.filter((diagnostic) => diagnostic.placement === "drawer");
 	const url = urlParts(server.baseUrl);
 	const usageNumbers = usage?.kind === "usage" ? usage : undefined;
 	return (
@@ -1795,6 +1894,7 @@ function ServerRow({
 					<ServerDrawer
 						server={server}
 						usage={usage}
+						notices={drawerDiagnostics}
 						pollingOff={spend.pollingOff}
 						discoveryTimeoutMs={spend.discoveryTimeoutMs}
 						now={now}
@@ -1805,9 +1905,22 @@ function ServerRow({
 			) : null}
 			{/* OUTSIDE the disclosure, always visible: a problem carries actions,
 			    and an action behind a fold is an action most readers never find. */}
-			{diagnostics.map((diagnostic) => (
+			{rowDiagnostics.map((diagnostic) => (
 				<ServerDiagnosticLine key={diagnostic.key} diagnostic={diagnostic} />
 			))}
+			{/* A closed drawer keeps its notices in the ACCESSIBLE tree: the paint
+			    defers to the drawer by design (the row's tinted meter carries the
+			    signal), but the meter's tone is colour, which a screen reader
+			    never gets - the sanctioned keep-the-tree-whole case, not a repair
+			    of a visual defect. The open drawer renders the visible line, so
+			    the twin stands down with it. */}
+			{!open
+				? drawerDiagnostics.map((diagnostic) => (
+						<div key={diagnostic.key} className="visually-hidden">
+							{severityLabel(diagnostic.severity, "server")} {diagnostic.headline}
+						</div>
+					))
+				: null}
 		</li>
 	);
 }

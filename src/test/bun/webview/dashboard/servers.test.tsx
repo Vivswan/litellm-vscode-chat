@@ -34,6 +34,7 @@ import {
 	pushToWebview,
 	render,
 	resetPosted,
+	textOf,
 } from "../harness";
 
 beforeEach(() => {
@@ -760,6 +761,66 @@ test("without hidden groups no hidden-groups line renders; with them it renders 
 	);
 	expect(onlyHidden.querySelector(".empty-start")).not.toBeNull();
 	expect(onlyHidden.querySelector(".hidden-groups")?.textContent).toContain("Show 1 hidden group");
+});
+
+test("a declared row's drawer lists the entry's own records read-only; an entry without records lists nothing", () => {
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Prod",
+			config: {
+				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				modelParameters: { "gpt-5*": { temperature: 0.2, _force: ["temperature"] } },
+				modelCapabilities: { "*": { supports_reasoning: true } },
+			},
+		}),
+		makeDeclaredServer({ label: "Bare", baseUrl: "http://bare.test" }),
+	]);
+	for (const line of root.querySelectorAll("button.server-line")) {
+		fireClick(line as HTMLElement);
+	}
+	const [prod, bare] = [...root.querySelectorAll(".server-item")] as HTMLElement[];
+	if (prod === undefined || bare === undefined) {
+		throw new Error("expected two server rows");
+	}
+	// The settings editors' vocabulary, under the form's own section names.
+	expect([...prod.querySelectorAll(".drawer-records h5")].map((heading) => heading.textContent)).toEqual([
+		"Model parameters",
+		"Model capabilities",
+	]);
+	const params = prod.querySelector(".drawer-records") as HTMLElement;
+	expect(textOf(params, ".matcher-key")).toBe("gpt-5*");
+	expect(textOf(params, ".matcher-kind")).toBe("prefix match");
+	expect(textOf(params, ".chip-key")).toBe("temperature");
+	expect(textOf(params, ".chip-flag")).toBe("force");
+	// Read-only: chips are plain spans and no add or pencil affordance renders.
+	expect(params.querySelector("button.chip-field")).toBeNull();
+	expect(params.querySelector(".chip-add")).toBeNull();
+	expect(params.querySelector(".edit-cell")).toBeNull();
+	expect(bare.querySelector(".drawer-records")).toBeNull();
+});
+
+test("the drawer's records wear the inactive caveat, and only on the family the row's notices name", () => {
+	// The row's own degraded line says the same thing with its cause and fix,
+	// but it renders after the drawer - so the table has to carry the doubt
+	// itself, or a reader who opened the server meets an authoritative-looking
+	// list of overrides that may reach nothing.
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Prod",
+			entryFieldsInactive: true,
+			notices: ["entry-params-inactive"],
+			config: {
+				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				modelParameters: { "gpt-5*": { temperature: 0.2 } },
+				modelCapabilities: { "*": { supports_reasoning: true } },
+			},
+		}),
+	]);
+	fireClick(root.querySelector("button.server-line") as HTMLElement);
+	const [params, caps] = [...root.querySelectorAll(".drawer-records h5")] as HTMLElement[];
+	expect(params?.textContent).toContain("may not be applied");
+	// The capabilities family is not noticed here, so its table stands as read.
+	expect(caps?.textContent).toBe("Model capabilities");
 });
 
 test("an external row's drawer states the provenance classification, or the honest default", () => {

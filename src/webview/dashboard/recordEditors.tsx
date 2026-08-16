@@ -2501,6 +2501,42 @@ function popoverAlign(target: EventTarget | null): "start" | "end" {
 }
 
 /**
+ * The table's two shapes, as one discriminated union: a read-only display owns
+ * no writer, and an editing table cannot be built without one. Spelled as a
+ * union rather than an optional `onChange`, because the display sites used to
+ * hand over `() => undefined` - a writer written only to satisfy a type, at
+ * three call sites, each one indistinguishable from a real handler someone
+ * forgot to wire. Every key appears in both halves so the component can still
+ * destructure them.
+ */
+type RecordMatcherTableProps = {
+	kind: RecordEditorKind;
+	groups: readonly PrefixGroup[];
+	issues: readonly GroupIssueView[];
+} & (
+	| {
+			/** Render as a static display: plain chips, no popovers, no add or edit actions (the other-scope records, the server drawer's entry records). */
+			readOnly: true;
+			disabled?: undefined;
+			keySuggestions?: undefined;
+			onChange?: undefined;
+			onOpenEditor?: undefined;
+			onOpenFieldChange?: undefined;
+	  }
+	| {
+			readOnly?: false | undefined;
+			disabled?: boolean | undefined;
+			/** The add popover's field-name suggestions; the capability vocabulary fills in for the caps kind. */
+			keySuggestions?: readonly string[] | undefined;
+			onChange: (next: PrefixGroup[]) => void;
+			/** The pencil action; the owner opens the full matcher editor overlay on this draft index. */
+			onOpenEditor?: ((groupIndex: number) => void) | undefined;
+			/** Reports the open field popover as "groupIndex:rowIndex", so the card's verdict can skip the problem it states. */
+			onOpenFieldChange?: ((openField: string | undefined) => void) | undefined;
+	  }
+);
+
+/**
  * The compact matcher table both record editors and the server form render:
  * one row per matcher - the key, its inheritance, the fields as combined
  * chips, and the full-editor pencil. Rows display in precedence order,
@@ -2520,21 +2556,7 @@ export function RecordMatcherTable({
 	onChange,
 	onOpenEditor,
 	onOpenFieldChange,
-}: {
-	kind: RecordEditorKind;
-	groups: readonly PrefixGroup[];
-	issues: readonly GroupIssueView[];
-	/** Render as a static display: plain chips, no popovers, no add or edit actions (the other-scope records). */
-	readOnly?: boolean;
-	disabled?: boolean;
-	/** The add popover's field-name suggestions; the capability vocabulary fills in for the caps kind. */
-	keySuggestions?: readonly string[];
-	onChange: (next: PrefixGroup[]) => void;
-	/** The pencil action; the owner opens the full matcher editor overlay on this draft index. */
-	onOpenEditor?: ((groupIndex: number) => void) | undefined;
-	/** Reports the open field popover as "groupIndex:rowIndex", so the card's verdict can skip the problem it states. */
-	onOpenFieldChange?: ((openField: string | undefined) => void) | undefined;
-}) {
+}: RecordMatcherTableProps) {
 	const [popover, setPopover] = useState<ChipPopoverTarget | undefined>(undefined);
 	const tableId = useId();
 	// Said once: the open popover states its own field's problem beside the
@@ -2761,7 +2783,7 @@ export function RecordMatcherTable({
 												{issue.hint}
 											</span>
 										) : null}
-										{openHere && popover !== undefined ? (
+										{openHere && popover !== undefined && onChange !== undefined ? (
 											<FieldChipPopover
 												kind={kind}
 												groups={groups}
@@ -2795,7 +2817,7 @@ export function RecordMatcherTable({
 									>
 										<IconAdd />
 									</button>
-									{addOpen && popover !== undefined ? (
+									{addOpen && popover !== undefined && onChange !== undefined ? (
 										<AddFieldPopover
 											kind={kind}
 											groups={groups}
@@ -3271,13 +3293,7 @@ export function ModelParametersEditor({
 					<div className="other-scope" key={other.scope}>
 						<OtherScopeNote scope={other.scope} />
 						<div className="record-frame">
-							<RecordMatcherTable
-								kind="params"
-								groups={otherGroups}
-								issues={otherIssues}
-								readOnly
-								onChange={() => undefined}
-							/>
+							<RecordMatcherTable kind="params" groups={otherGroups} issues={otherIssues} readOnly />
 							{/* A read-only chip's mark is a border with no popover behind
 							    it, so the frame's own message row says what stands - the
 							    footer-position line, message alone (no write path, no
@@ -3563,13 +3579,7 @@ export function ModelCapabilitiesEditor({
 					<div className="other-scope" key={other.scope}>
 						<OtherScopeNote scope={other.scope} />
 						<div className="record-frame">
-							<RecordMatcherTable
-								kind="caps"
-								groups={otherGroups}
-								issues={otherIssues}
-								readOnly
-								onChange={() => undefined}
-							/>
+							<RecordMatcherTable kind="caps" groups={otherGroups} issues={otherIssues} readOnly />
 							{/* The params frames' rule above: a standing problem gets the
 							    frame's own message row, and a quiet frame closes flush. */}
 							{anyRecordProblem(otherIssues) ? (

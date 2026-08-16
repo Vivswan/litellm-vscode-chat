@@ -1165,6 +1165,12 @@
 	},
 	"matches all models": "matches all models",
 	"may be outdated: the last statistics fetch failed": "may be outdated: the last statistics fetch failed",
+	"may not be applied/Mark on the heading of a read-only table of per-server settings, when those settings may not be reaching the server.": {
+		"message": "may not be applied",
+		"comment": [
+			"Mark on the heading of a read-only table of per-server settings, when those settings may not be reaching the server."
+		]
+	},
 	"min({0}, model max) - a default, not declared": "min({0}, model max) - a default, not declared",
 	"min/Abbreviation for minutes (not minimum) in durations like '5 min'.": {
 		"message": "min",

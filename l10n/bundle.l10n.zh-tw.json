@@ -1005,6 +1005,7 @@
  "matched/Directive mark: the catalog entry was matched, not named": "比對",
  "matches all models": "比對所有模型",
  "may be outdated: the last statistics fetch failed": "可能已過期: 上次統計資料擷取失敗",
+ "may not be applied/Mark on the heading of a read-only table of per-server settings, when those settings may not be reaching the server.": "可能未套用",
  "min({0}, model max) - a default, not declared": "min({0}, 模型上限) - 預設值, 並非宣告值",
  "min/Abbreviation for minutes (not minimum) in durations like '5 min'.": "分鐘",
  "ms/Abbreviation for milliseconds; unit suffix after duration inputs.": "毫秒",
