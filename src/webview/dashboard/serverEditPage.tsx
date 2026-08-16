@@ -54,6 +54,7 @@ import {
 	DOCS_LINK_CONFIGURE_API_KEY,
 	DOCS_LINK_DECLARED_MODELS,
 	DOCS_LINK_MODEL_CAPABILITIES,
+	DOCS_LINK_MODEL_PARAMETERS,
 	DOCS_LINK_PROXY_NOT_RUNNING,
 	DOCS_LINK_SERVER_FORM,
 } from "./docsLinks";
@@ -356,11 +357,23 @@ function FormSection({
 			    narrows when the rail is there, when the panel is docked, and when
 			    the window is split, none of which the viewport width describes.
 			    Below it the rows stack, because the gutter stops being worth what
-			    it costs the fields - at 500px of pane the 150px gutter left a
-			    Base URL input too narrow to show its own value. */}
+			    it costs the fields - at 500px of pane the gutter left a Base URL
+			    input too narrow to show its own value.
+
+			    The gutter is the settings rows' 10rem floor, taken as a FLAT
+			    track (the form ran a 150px gutter before, a 10px drift). Flat on
+			    purpose where the settings page auto-grows: each FormSection owns
+			    its grid, so a content-sized track would be uniform across the
+			    six sections only while every label in every locale fit the
+			    floor - and the render harness shoots English alone, so no sweep
+			    can see a longer translation dragging one section's gutter off
+			    the others. Fixed, the edge is uniform by construction and a
+			    pathological label wraps inside the gutter, the same fallback
+			    the settings titles have at their cap. The form-records fixture
+			    guard pins the one label edge against the construction changing. */}
 			<div
 				className={cn(
-					"grid grid-cols-[150px_minmax(0,1.35fr)_minmax(0,1fr)_auto] gap-x-4 gap-y-2.5",
+					"grid grid-cols-[10rem_minmax(0,1.35fr)_minmax(0,1fr)_auto] gap-x-4 gap-y-2.5",
 					"@max-[700px]/pane:grid-cols-[auto_minmax(0,1fr)] @max-[700px]/pane:gap-x-1.5 @max-[700px]/pane:gap-y-1",
 					quiet === true && "[&_.label-row]:text-muted-foreground"
 				)}
@@ -375,7 +388,8 @@ function FormSection({
  * One row of the section grid: the label in the gutter, the control, and the
  * hint beside it - or, when the field has a problem, the error in the hint's
  * place. A `wide` control (record tables, header rows, a textarea) takes the
- * hint column too and carries its own hint underneath.
+ * hint column too and carries its own hint underneath; a help-less wide one
+ * runs through the glyph track as well.
  */
 function FieldRow({
 	htmlFor,
@@ -432,7 +446,12 @@ function FieldRow({
 					// Stacked, the control takes both tracks on its own line: the
 					// second track exists for the glyph beside the label.
 					"@max-[700px]/pane:col-start-1 @max-[700px]/pane:col-span-2 @max-[700px]/pane:row-start-2",
-					wide === true && "col-span-2 flex-col items-stretch gap-1"
+					// A wide row spans the hint track too; a help-less wide row (the
+					// record tables) runs through the glyph track as well, so the
+					// tables' trailing pencil column ends on the same edge the other
+					// rows' glyphs do instead of ~10px short of it.
+					wide === true && "flex-col items-stretch gap-1",
+					wide === true && (help === undefined ? "col-span-3" : "col-span-2")
 				)}
 			>
 				{children}
@@ -490,18 +509,22 @@ function FieldRow({
 			    row-level extra (a docs link once rode here) widens the section's
 			    own auto track and jogs its help column off every other
 			    section's - anything beyond the "?" belongs to the section
-			    header's docs slot. */}
-			<span
-				className={cn(
-					"col-start-4 flex items-baseline gap-1.5 self-center",
-					"@max-[700px]/pane:col-start-2 @max-[700px]/pane:row-start-1 @max-[700px]/pane:justify-self-start @max-[700px]/pane:pt-1.5",
-					// A wide row's control is tall (a textarea), and centring against
-					// it drops the glyph a line below the label it belongs to.
-					wide === true && "self-start pt-1"
-				)}
-			>
-				{help}
-			</span>
+			    header's docs slot. A help-less row mounts no cell at all: a wide
+			    one spans through the track (see the control above), and an empty
+			    span would block that span's grid area. */}
+			{help === undefined ? null : (
+				<span
+					className={cn(
+						"col-start-4 flex items-baseline gap-1.5 self-center",
+						"@max-[700px]/pane:col-start-2 @max-[700px]/pane:row-start-1 @max-[700px]/pane:justify-self-start @max-[700px]/pane:pt-1.5",
+						// A wide row's control is tall (a textarea), and centring against
+						// it drops the glyph a line below the label it belongs to.
+						wide === true && "self-start pt-1"
+					)}
+				>
+					{help}
+				</span>
+			)}
 		</div>
 	);
 }
@@ -1850,6 +1873,7 @@ function ServerForm({
 				title={serverFormFieldLabel("modelParameters")}
 				aside={matcherCountAside(draft.modelParameters.length)}
 				help={serverFieldHelp("modelParameters")}
+				docs={{ href: DOCS_LINK_MODEL_PARAMETERS, label: l10n.t("Open the model parameters guide") }}
 			>
 				<FieldRow label={l10n.t("Matchers")} wide={true}>
 					{draft.modelParameters.length > 0 ? (

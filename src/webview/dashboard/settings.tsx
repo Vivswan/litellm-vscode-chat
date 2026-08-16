@@ -4,15 +4,16 @@
  * writes - these rows and settings.json are two views of one file, never two
  * stores.
  *
- * Every row has the same full-bleed anatomy: a right-aligned label in a fixed
- * gutter, the control starting at one shared edge, the explanation growing
- * with the pane, and the row's actions in a reserved trailing slot at the
- * pane's right edge. The explanation column is also where a row states a
- * problem, so an error takes the hint's place instead of pushing every row
- * below it down - the form's height does not change while you type. Marking a
- * row modified, revealing its settings.json line, and resetting the scope
- * that sets it are the same three gestures on every kind of row, so the
- * vocabulary cannot drift between a number, a checkbox, an enum, and a color.
+ * Every row has the same full-bleed anatomy: a right-aligned label in a shared
+ * gutter sized to the longest visible title, the control starting at one
+ * shared edge, the explanation growing with the pane, and the row's actions
+ * in a reserved trailing slot at the pane's right edge. The explanation
+ * column is also where a row states a problem, so an error takes the hint's
+ * place instead of pushing every row below it down - the form's height does
+ * not change while you type. Marking a row modified, revealing its
+ * settings.json line, and resetting the scope that sets it are the same three
+ * gestures on every kind of row, so the vocabulary cannot drift between a
+ * number, a checkbox, an enum, and a color.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -213,16 +214,26 @@ const SETTING_GROUPS: readonly {
  * control column, the explanation column growing with the pane, and the
  * reserved actions slot at the pane's right edge. A constant rather than a
  * class string per row kind, because the catalog row used to restate the
- * gutter as padding (11rem, the track plus the gap) and a literal offset
- * drifts the moment either number changes.
+ * gutter as padding (the track plus the gap, back when both were literals)
+ * and a restated offset drifts the moment the real one changes - all the
+ * more so now that the label track has no literal width at all.
+ *
+ * The wide tier's TRACKS live on .settings-groups (SETTING_GRID_TRACKS) and
+ * every row adopts them through two levels of subgrid (group, then row), so
+ * the label gutter is ONE measured width for the whole page: it hugs the
+ * longest visible title instead of wrapping "Polling-off freshness window"
+ * inside a fixed 10rem while half the pane sat empty. Rows cannot each own
+ * the template - a per-row auto track sizes against its own label alone, and
+ * the shared control edge stops lining up down the page.
  *
  * The actions slot is a FIXED track on purpose: Reset renders only on
  * configured rows, so an auto track would size per row and hand modified and
  * clean rows different explanation edges. Fixed, every description ends at
  * one right edge and the settings.json jump sits at one x down the page.
  *
- * Narrow: the four tracks become two, and the row costs two lines instead of
- * three. The title keeps its control beside it - a checkbox, a number input
+ * Narrow: the shared tracks stop at the same 910px the rows leave them, and
+ * each row lays itself out - two tracks, and the row costs two lines instead
+ * of three. The title keeps its control beside it - a checkbox, a number input
  * with its unit and conversion, an enum select are all compact enough to
  * share the title's line - and the description takes the line below, spanning
  * both tracks; the actions pin to the row's top-right corner instead of
@@ -260,14 +271,33 @@ const SETTING_GROUPS: readonly {
  * splitter rightward would have watched this page collapse.
  */
 const SETTING_ROW_GRID =
-	"grid grid-cols-[10rem_minmax(0,20rem)_minmax(0,1fr)_5.5rem] gap-x-4 @min-[560px]/pane:@max-[910px]/pane:grid-cols-[auto_1fr] @max-[560px]/pane:grid-cols-1";
+	"grid @min-[910px]/pane:col-span-4 @min-[910px]/pane:grid-cols-subgrid gap-x-4 @min-[560px]/pane:@max-[910px]/pane:grid-cols-[auto_1fr] @max-[560px]/pane:grid-cols-1";
+
+/**
+ * The wide tier's shared tracks, owned by .settings-groups: the auto label
+ * gutter (10rem floor, so short locales keep the familiar gutter; the growth
+ * is capped by SETTING_TITLE's max-w, not here - minmax cannot clamp a
+ * max-content limit), the control column, the growing explanation, and the
+ * fixed actions slot. Applied only at the wide tier: below 910 the rows own
+ * their stacked templates and the container must stay a plain block, or a
+ * spanless row would land in the first track alone.
+ */
+const SETTING_GRID_TRACKS =
+	"@min-[910px]/pane:grid @min-[910px]/pane:grid-cols-[minmax(10rem,max-content)_minmax(0,20rem)_minmax(0,1fr)_5.5rem] @min-[910px]/pane:gap-x-4";
 
 /**
  * The label cell, which turns at the same width the tracks do: right-aligned
- * against the control while there is a fixed gutter to align in, left-aligned
+ * against the control while there is a shared gutter to align in, left-aligned
  * once the control sits directly beside it on a shared first line. In the
  * one-column tier below 560px the title is the top line's only occupant
  * again, so it takes the corner reserve back from the control cell.
+ *
+ * The wide tier's 13rem cap is the gutter's growth limit (every title cell
+ * caps, so the max-content track can never exceed it): a pathological
+ * translation wraps at 13rem instead of starving the control column - 13rem
+ * plus the 20rem control, the 5.5rem actions, and the three 1rem gaps is
+ * 664px, which still leaves the description ~246px at the 910px floor. The
+ * cap is wide-tier only: the stacked bands keep their own title wrapping.
  *
  * A constant because the row renders the label two ways - a `label` when it has
  * a control to name, a `span` when it does not - and the threshold spelled once
@@ -275,7 +305,8 @@ const SETTING_ROW_GRID =
  * interpolated out: Tailwind compiles the variants it can read whole, so
  * `@max-[910px]/pane:` has to appear in the source as itself.
  */
-const SETTING_TITLE = "setting-title text-right font-semibold @max-[910px]/pane:text-left @max-[560px]/pane:pr-24";
+const SETTING_TITLE =
+	"setting-title text-right font-semibold @min-[910px]/pane:max-w-[13rem] @max-[910px]/pane:text-left @max-[560px]/pane:pr-24";
 
 /**
  * The settings.json jump every row carries: a quiet icon button posting the
@@ -1233,7 +1264,11 @@ function ThresholdBox({
 	onCommit: (event?: FocusEvent) => void;
 }) {
 	return (
-		<>
+		// One flex ITEM per pair: the wrapping control cell may break between the
+		// two pairs at the 320px floor, but never inside one - loose siblings
+		// wrapped as "80% warning 95%" / "error", stranding a label alone. The
+		// inner gap-2 restates the cell's own, so the pair reads unchanged.
+		<span className="threshold-pair flex items-center gap-2">
 			<Input
 				id={id}
 				type="text"
@@ -1258,7 +1293,7 @@ function ThresholdBox({
 			<label className="setting-unit text-muted-foreground" htmlFor={id}>
 				{label}
 			</label>
-		</>
+		</span>
 	);
 }
 
@@ -1630,7 +1665,12 @@ function SettingGroup({
 }) {
 	const empty = numbers.every((id) => !isVisible(id)) && booleans.every((id) => !isVisible(id)) && tailVisible !== true;
 	return (
-		<div className="settings-group mt-6" hidden={empty}>
+		// The middle subgrid layer: the group hands .settings-groups' tracks down
+		// to its rows and spans them itself. Wide tier only, like the owner.
+		<div
+			className="settings-group mt-6 @min-[910px]/pane:col-span-4 @min-[910px]/pane:grid @min-[910px]/pane:grid-cols-subgrid"
+			hidden={empty}
+		>
 			{/* Sentence case, not an all-caps letterspaced eyebrow: the group
 			    heading separates by weight, space and the hairline, the same way
 			    the section header does one level up. Full-strength foreground
@@ -1642,7 +1682,7 @@ function SettingGroup({
 			    the group would announce as "Import & Export Help: Import &
 			    Export". The rule and the spacing belong to the line, so they sit
 			    on the wrapper and the heading carries neither. */}
-			<div className="settings-group-head mt-0 mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 border-border border-b pb-1">
+			<div className="settings-group-head @min-[910px]/pane:col-span-4 mt-0 mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 border-border border-b pb-1">
 				<h3 className="settings-group-title m-0 font-semibold text-[0.95em]">{title()}</h3>
 				{/* Behind the glyph, not above the rows. A group's explanation is
 				    read once and then never again, so as a standing paragraph it
@@ -1992,7 +2032,10 @@ export function SettingsSection({
 					</p>
 				) : null}
 				{nothingMatches ? <p className="empty">{l10n.t("No settings match the filter.")}</p> : null}
-				<div className="settings-groups">
+				{/* The wide tier's track owner (SETTING_GRID_TRACKS): groups and rows
+				    subgrid onto these columns, so the label gutter is one measured
+				    width for the whole page. */}
+				<div className={cn("settings-groups", SETTING_GRID_TRACKS)}>
 					{SETTING_GROUPS.map((group, index) => {
 						// Four groups carry non-scalar tails: Models gets the two record
 						// editors (mirroring the manifest's grouping - they are model
@@ -2019,7 +2062,7 @@ export function SettingsSection({
 								}
 								tail={
 									isModelsGroup ? (
-										<>
+										<div className="min-w-0 @min-[910px]/pane:col-span-4">
 											{/* The editors' apply-together save model is stated by each
 										    editor's own "?" (helpModelParametersSection and
 										    helpModelCapabilitiesSection), not by a free-standing
@@ -2037,7 +2080,7 @@ export function SettingsSection({
 												hidden={!capsVisible}
 												external={editRecordRequest?.kind === "capabilities" ? editRecordRequest : undefined}
 											/>
-										</>
+										</div>
 									) : isChatGroup ? (
 										<>
 											<EnumSettingRow
@@ -2136,7 +2179,7 @@ export function SettingsSection({
 						isVisible={isVisible}
 						tailVisible={importExportVisible}
 						tail={
-							<div className="settings-transfer flex flex-wrap items-center gap-x-3.5 gap-y-1 py-2">
+							<div className="settings-transfer @min-[910px]/pane:col-span-4 flex flex-wrap items-center gap-x-3.5 gap-y-1 py-2">
 								<Button
 									variant="secondary"
 									onClick={() => sendRequest("executeCommand", { command: "exportSettings" })}

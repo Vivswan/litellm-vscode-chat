@@ -20,6 +20,7 @@ import * as docsLinks from "../../../../webview/dashboard/docsLinks";
 import {
 	DOCS_LINK_CHECK_BASE_URL,
 	DOCS_LINK_CONFIGURE_API_KEY,
+	DOCS_LINK_MODEL_CAPABILITIES,
 	DOCS_LINK_MODEL_PARAMETERS,
 	DOCS_LINK_MODELS,
 	DOCS_LINK_PARAMS_INACTIVE,
@@ -185,7 +186,7 @@ function docsLinkIn(container: ParentNode | null, href: string, label: string): 
 }
 
 function headingByTitle(root: ParentNode, title: string): HTMLElement {
-	const heading = Array.from(root.querySelectorAll("h2, h3")).find((candidate) =>
+	const heading = Array.from(root.querySelectorAll("h2, h3, h4")).find((candidate) =>
 		(candidate.textContent ?? "").trim().startsWith(title)
 	);
 	if (heading === undefined) {
@@ -228,6 +229,12 @@ test("the server form links the entry-fields section of the servers guide", () =
 	expect(heading?.tagName).toBe("H3");
 	expect(heading?.querySelector("a.docs-link")).toBeNull();
 	docsLinkIn(heading?.closest(".section-head") ?? null, DOCS_LINK_SERVER_FORM, "Open the server fields guide");
+
+	// The form's two record sections carry the same docs anchors their
+	// settings-page twins do, on the section header line.
+	const page = document.getElementById("server-edit-page") as HTMLElement;
+	docsLinkIn(headOf(page, "Model parameters"), DOCS_LINK_MODEL_PARAMETERS, "Open the model parameters guide");
+	docsLinkIn(headOf(page, "Model capabilities"), DOCS_LINK_MODEL_CAPABILITIES, "Open the model capabilities guide");
 });
 
 test("the params-inactive line links the troubleshooting remedy", () => {

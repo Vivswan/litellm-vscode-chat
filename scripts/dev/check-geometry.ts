@@ -709,6 +709,12 @@ const WIDTH_SURFACES: readonly WidthSurface[] = [
 	{ name: "servers-list-full-bleed", fixture: "servers-spend.ts", selector: "ul.server-list" },
 	{ name: "diagnostics-problems-full-bleed", fixture: "diagnostics.ts", selector: ".config-diagnostics" },
 	{ name: "diagnostics-resolution-full-bleed", fixture: "diagnostics.ts", selector: ".resolved-scroll" },
+	// The settings rows adopt .settings-groups' shared tracks through subgrid,
+	// and the label track auto-grows to the longest title: whatever it takes,
+	// the fixed trailing actions slot must still land on the pane's content
+	// edge. The row's own box overhangs by 8px (the hover tint), so the claim
+	// is on the actions cell, which is where the CONTENT stops.
+	{ name: "settings-rows-full-bleed", fixture: "settings.ts", selector: ".setting-row .setting-actions" },
 ];
 
 /**
@@ -737,7 +743,6 @@ const UNGUARDED_FIXTURE_PINS: readonly (readonly [string, string])[] = [
 	["form-caps-open.ts", "8273f2c88f65"],
 	["form-oauth.ts", "d1121e72b575"],
 	["form-records-overlay.ts", "8273f2c88f65"],
-	["form-records.ts", "62f3c8e68bd2"],
 	["form-vk-storedkey.ts", "9be5ebf832e0"],
 	["hc-forced-record-invalid.ts", "e6f86d9eb7ab"],
 	["inspector-model-notes.ts", "5ef021c0554c"],

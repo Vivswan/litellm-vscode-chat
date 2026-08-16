@@ -497,35 +497,58 @@ test("every pane query is spelled one of the two legal ways", () => {
 	expect(illegal).toEqual([]);
 });
 
-test("the settings rows' fixed tracks leave the description a working column at the stack threshold", () => {
-	// The Settings page runs full-bleed on a four-track row - label, control,
-	// description, actions - and stacks on a pane query. The description is
-	// the one elastic track, so the middle state to guard against is a pane
-	// just above the threshold where the fixed tracks and gaps eat almost all
-	// of it and the description prints a word per line. That is arithmetic:
-	// fixed rem tracks plus the three 1rem gaps, against the px threshold.
-	// Both numbers are class strings no runtime assertion can see, so this
-	// reads them out of the source the way the spelling test does.
+test("the settings rows' shared tracks leave the description a working column at the stack threshold", () => {
+	// The Settings page runs full-bleed on four shared tracks - label, control,
+	// description, actions - owned by .settings-groups and adopted through
+	// subgrid, and stacks on a pane query. The label track auto-grows to the
+	// longest visible title under SETTING_TITLE's max-w cap, so the cap is the
+	// label's worst case; the description is the one elastic track, so the
+	// middle state to guard against is a pane just above the threshold where
+	// the cap, the fixed tracks, and the gaps eat almost all of it and the
+	// description prints a word per line. That is arithmetic: rem tracks plus
+	// the three 1rem gaps, against the px threshold. All the numbers are class
+	// strings no runtime assertion can see, so this reads them out of the
+	// source the way the spelling test does.
 	const source = readFileSync(join(WEBVIEW, "settings.tsx"), "utf8");
-	// Anchored to the constant's DECLARATION rather than to the first grid in
+	// Anchored to each constant's DECLARATION rather than to the first grid in
 	// the file, the same first-match hazard the rail arithmetic documents. The
-	// tail pins the stacked template too, so a redesign of either tier moves
-	// this test with it deliberately.
-	const grid =
-		/SETTING_ROW_GRID =\s*"grid grid-cols-\[(\d+(?:\.\d+)?)rem_minmax\(0,(\d+(?:\.\d+)?)rem\)_minmax\(0,1fr\)_(\d+(?:\.\d+)?)rem\] gap-x-4[\s\S]{0,80}?@max-\[(\d+)px\]\/pane:grid-cols-\[auto_1fr\]/.exec(
+	// row regex pins the subgrid adoption and the stacked template too, so a
+	// redesign of either tier moves this test with it deliberately.
+	const tracks =
+		/SETTING_GRID_TRACKS =\s*"@min-\[(\d+)px\]\/pane:grid @min-\[\d+px\]\/pane:grid-cols-\[minmax\((\d+(?:\.\d+)?)rem,max-content\)_minmax\(0,(\d+(?:\.\d+)?)rem\)_minmax\(0,1fr\)_(\d+(?:\.\d+)?)rem\]/.exec(
 			source
 		);
-	if (grid?.[1] === undefined || grid[2] === undefined || grid[3] === undefined || grid[4] === undefined) {
-		throw new Error("could not read the settings row tracks and stack threshold from SETTING_ROW_GRID in settings.tsx");
+	if (tracks?.[1] === undefined || tracks[2] === undefined || tracks[3] === undefined || tracks[4] === undefined) {
+		throw new Error("could not read the shared settings tracks from SETTING_GRID_TRACKS in settings.tsx");
 	}
+	const cap = /SETTING_TITLE =\s*"[^"]*@min-\[(\d+)px\]\/pane:max-w-\[(\d+(?:\.\d+)?)rem\]/.exec(source);
+	if (cap?.[1] === undefined || cap[2] === undefined) {
+		throw new Error("could not read the label cap from SETTING_TITLE in settings.tsx");
+	}
+	const row =
+		/SETTING_ROW_GRID =\s*"grid @min-\[(\d+)px\]\/pane:col-span-4 @min-\[\d+px\]\/pane:grid-cols-subgrid gap-x-4[\s\S]{0,80}?@max-\[(\d+)px\]\/pane:grid-cols-\[auto_1fr\]/.exec(
+			source
+		);
+	if (row?.[1] === undefined || row[2] === undefined) {
+		throw new Error("could not read the subgrid adoption and stack threshold from SETTING_ROW_GRID in settings.tsx");
+	}
+	// One threshold, spelled three ways: the shared tracks appear, the cap
+	// applies, and the rows leave the template at the same pane width - a
+	// drifted copy re-points the label column at one width and the rows at
+	// another.
+	const threshold = Number(row[2]);
+	expect(Number(tracks[1])).toBe(threshold);
+	expect(Number(cap[1])).toBe(threshold);
+	expect(Number(row[1])).toBe(threshold);
+	// The cap is the growth limit over the floor, not under it.
+	expect(Number(cap[2])).toBeGreaterThanOrEqual(Number(tracks[2]));
 	// The rem resolves against the ROOT font size, and the 16 below is the CSS
 	// default. That is a fact about the stylesheets rather than a constant, so
 	// it is checked: the tracks are rem and the threshold px, and a root font
 	// size other than the default moves one side of the comparison.
 	expect(rootFontSizeDeclarations()).toEqual([]);
 	const gaps = 3;
-	const fixed = (Number(grid[1]) + Number(grid[2]) + Number(grid[3]) + gaps) * 16;
-	const threshold = Number(grid[4]);
+	const fixed = (Number(cap[2]) + Number(tracks[3]) + Number(tracks[4]) + gaps) * 16;
 	// 240px is about 34 characters of 0.95em prose: a real column, not a sliver.
 	expect(threshold - fixed).toBeGreaterThanOrEqual(240);
 });

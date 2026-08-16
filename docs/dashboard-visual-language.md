@@ -41,10 +41,15 @@ Three surface classes, each with one owner of its geometry.
 
 ### Setting rows
 
-- One full-bleed template: a right-aligned label in a fixed gutter, the control
-  column, the explanation column growing with the pane, and a fixed trailing
-  actions slot at the pane's right edge (`settings.tsx SETTING_ROW_GRID` and
-  `settings.tsx SETTING_TITLE`). Below the stack threshold the row costs two
+- One full-bleed template: a right-aligned label in a shared gutter, the
+  control column, the explanation column growing with the pane, and a fixed
+  trailing actions slot at the pane's right edge. The PAGE owns the wide
+  tier's tracks and every row adopts them through subgrid
+  (`settings.tsx SETTING_GRID_TRACKS`; `settings.tsx SETTING_ROW_GRID`), so
+  the label gutter is one measured width that grows to the longest visible
+  title instead of wrapping it, capped by the label cell's max-width so a
+  pathological title cannot starve the control column
+  (`settings.tsx SETTING_TITLE`). Below the stack threshold the row costs two
   lines, not three: the label turns left and keeps its control beside it, the
   description takes the line under them, and the actions pin to the row's
   top-right corner. Only under the 560px tier, where the widest controls

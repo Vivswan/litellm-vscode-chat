@@ -753,11 +753,14 @@ test("the page runs full-bleed: no measure cap on the header or the groups, one 
 	for (const surface of [groups, header]) {
 		expect(Array.from(surface.classList).some((name) => name.startsWith("max-w-"))).toBe(false);
 	}
-	// The fixed actions track is what makes the edge one: every row wears the
-	// same template, and its last track is a rem length, not auto.
-	const row = root.querySelector(".setting-row") as HTMLElement;
-	const template = Array.from(row.classList).find((name) => name.startsWith("grid-cols-["));
+	// The fixed actions track is what makes the edge one: the wide tier's
+	// template lives on the groups container (the rows adopt it through
+	// subgrid, so the auto label track is one measured width for the page),
+	// and its last track is a rem length, not auto.
+	const template = Array.from(groups.classList).find((name) => name.includes("grid-cols-["));
 	expect(template).toMatch(/_[\d.]+rem\]$/);
+	const row = root.querySelector(".setting-row") as HTMLElement;
+	expect(Array.from(row.classList).some((name) => name.endsWith("grid-cols-subgrid"))).toBe(true);
 });
 
 test("the title's stacked flip shares the row grid's threshold, read off the grid itself", () => {
