@@ -32,7 +32,7 @@ Typical - a hosted gateway with a key kept out of the settings file:
 "litellm-vscode-chat.servers": [
   { "label": "prod", "baseUrl": "https://litellm.example.com" }
 ]
-// then: dashboard -> edit "prod" -> API key -> "store securely",
+// then: dashboard -> edit "prod" -> API key -> Store in: "secret storage",
 // or Command Palette -> "LiteLLM: Set Server Secret"
 ```
 
@@ -238,14 +238,14 @@ If your gateway simply does not serve one or both endpoints, say so and the exte
 The secret-capable fields - `auth.apiKey`, `auth.oauth.clientSecret`, `auth.virtualKey.value`, and the companions' key/value (OAuth's or the API-key form's) - each offer a per-entry choice:
 
 - **Inline** in settings.json, when a plaintext value in that file is acceptable.
-- **VS Code secret storage** (encrypted, per-machine), via the dashboard form's "store securely" option or "LiteLLM: Set Server Secret". The entry then simply omits the field.
+- **VS Code secret storage** (encrypted, per-machine), via the dashboard form's "Store in:" choice - "secret storage" (the default) over "settings (visible)" - or "LiteLLM: Set Server Secret". The entry then simply omits the field.
 - An inline value takes precedence over a stored one.
 
 A stored value has no marker in settings.json, so shape and storage combine: a stored `apiKey` activates the bearer whenever the entry's shape does not say otherwise - on an entry with no `auth` at all, on the API-key form, or beside a declared `virtualKey` (rank reads that as the API-key form with a companion). Under `oauth` it stays the companion: `Authorization` belongs to the OAuth bearer, and the stored key goes out as `X-API-Key` only. To stop sending a stored key, remove the stored value itself (the checkbox below) - deleting settings text alone does not reach it.
 
 What renders back into the dashboard: stored values never do - the form shows where a value lives, not what it is. Inline values do prefill the edit form (masked behind a Show toggle), since they already sit in plain text in your settings.json.
 
-A field can end up with both copies - a value stored securely first, then pasted inline later. Requests use the inline one, and the stored copy stays put: emptying the inline field falls back to the stored value rather than clearing it. To be rid of the stored copy, use the edit form's "Remove the stored ..." checkbox below.
+A field can end up with both copies - a value put in secret storage first, then pasted inline later. Requests use the inline one, and the stored copy stays put: emptying the inline field falls back to the stored value rather than clearing it. To be rid of the stored copy, use the edit form's "Remove the stored ..." checkbox below.
 
 When editing a saved entry:
 

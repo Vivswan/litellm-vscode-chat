@@ -21,7 +21,7 @@ The repository also ships a scriptable local proxy for trying things out; see [D
 3. Fill in the form:
    - **Label** - the name the model picker will show, e.g. `prod`.
    - **Base URL** - the server's root URL, e.g. `http://localhost:4000`. The extension appends `/v1` unless the URL already ends in a version segment (like `/v1` or `/v2`), which is used as-is.
-   - **Auth** - exactly one form: an API key (the common case), OAuth client credentials, or a key in a custom header. For a key, the form's "store securely" option puts it in VS Code [secret storage](servers.md#secrets-and-secret-storage) instead of your settings file - the default, and the right choice for anything you would not commit.
+   - **Auth** - exactly one form: an API key (the common case), OAuth client credentials, or a key in a custom header. For a key, the form's "Store in:" choice defaults to "secret storage", which puts it in VS Code [secret storage](servers.md#secrets-and-secret-storage) instead of your settings file - the right choice for anything you would not commit; "settings (visible)" writes it into settings.json.
 4. Click **Test connection**. It probes the draft exactly as entered and answers with the model count or the exact error, before anything is saved.
 5. Click **Save**.
 
@@ -32,7 +32,7 @@ The form writes the `litellm-vscode-chat.servers` setting, so the same server in
   {
     "label": "prod",
     "baseUrl": "http://localhost:4000",
-    "auth": { "apiKey": "sk-..." }   // or omit and store the key securely
+    "auth": { "apiKey": "sk-..." }   // or omit and keep the key in secret storage
   }
 ]
 ```
@@ -80,7 +80,7 @@ Parameters you set are sent with every request to the matching models - and only
 }
 ```
 
-A trailing `*` makes a key a family matcher. Every matching key applies, and for each individual field the most specific match wins - so `gpt-5-turbo` gets 0.3, `claude-4` gets 0.7. Details: [Models: parameters](models.md#parameters) and [model matching](models.md#model-matching).
+A trailing `*` makes a key a family matcher. By default the most specific matching record wins wholesale - so `gpt-5-turbo` gets 0.3, `claude-4` gets 0.7; a broader record's fields reach a more specific match only when marked `_inheritable` (or pulled in explicitly with `_inherit_from`). Details: [Models: parameters](models.md#parameters) and [model matching](models.md#model-matching).
 
 ### Connect a gateway that cannot list its models
 

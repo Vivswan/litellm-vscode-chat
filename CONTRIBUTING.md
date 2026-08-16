@@ -78,11 +78,12 @@ From the project directory:
 bun run lint:actions # lint GitHub Actions workflows
 bun run lint         # run Biome lint
 bun run compile      # compile TypeScript
+bun run typecheck    # type-check all four tsconfig projects (compile builds only the root one)
 bun run test         # run the VS Code extension tests
 bun run format       # format files with Biome
 ```
 
-A Husky pre-commit hook runs formatting, workflow linting, source linting, and tests when dependencies are installed.
+A Husky pre-commit hook runs formatting, workflow linting, a guard that `@types/vscode` does not outrun `engines.vscode`, source linting, `typecheck` over all four tsconfig projects, the localization gate (`l10n:check`), and the tests; it refuses the commit when dependencies are not installed.
 
 ## Code style
 
