@@ -238,7 +238,7 @@ If your gateway simply does not serve one or both endpoints, say so and the exte
 The secret-capable fields - `auth.apiKey`, `auth.oauth.clientSecret`, `auth.virtualKey.value`, and the companions' key/value (OAuth's or the API-key form's) - each offer a per-entry choice:
 
 - **Inline** in settings.json, when a plaintext value in that file is acceptable.
-- **VS Code secret storage** (encrypted, per-machine), via the dashboard form's "Store in:" choice - "secret storage" (the default) over "settings (visible)" - or "LiteLLM: Set Server Secret". The entry then simply omits the field.
+- **VS Code secret storage** (encrypted, per-machine), via the dashboard form's "Store in:" choice - "secret storage" (the default for a new value; editing an entry whose key already sits inline opens on "settings (visible)") - or "LiteLLM: Set Server Secret". The entry then simply omits the field.
 - An inline value takes precedence over a stored one.
 
 A stored value has no marker in settings.json, so shape and storage combine: a stored `apiKey` activates the bearer whenever the entry's shape does not say otherwise - on an entry with no `auth` at all, on the API-key form, or beside a declared `virtualKey` (rank reads that as the API-key form with a companion). Under `oauth` it stays the companion: `Authorization` belongs to the OAuth bearer, and the stored key goes out as `X-API-Key` only. To stop sending a stored key, remove the stored value itself (the checkbox below) - deleting settings text alone does not reach it.

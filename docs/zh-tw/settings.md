@@ -48,10 +48,10 @@
 | `litellm-vscode-chat.chat.maxToolsPerRequest` | `128` | 一次聊天請求最多可攜帶的工具數, 超過時延伸模組在本機拒絕該請求而不送出 (多數 OpenAI 相容伺服器強制 128)。調高到超出你的伺服器或模型接受的範圍, 只會把失敗移到伺服器端: 請求會被送出, 然後被伺服器拒絕。最小 1 |
 | `litellm-vscode-chat.chat.additionalToolSchemaKeywords` | `[]` | 工具輸入 schema 中額外保留的 JSON-Schema 關鍵字, 例如 `["propertyNames"]`。送出前工具 schema 會按內建關鍵字允許清單清理; 此處列出的關鍵字也會保留, 其值原樣透傳。內建允許清單始終生效。伺服器或模型不接受的關鍵字可能導致請求失敗或工具呼叫變差 |
 | `litellm-vscode-chat.chat.promptCaching` | `true` | 在宣告支援的模型上, 跨工作階段回合沿用提供者端的提示快取; [詳情見下](#提示快取) |
-| `litellm-vscode-chat.discovery.timeout` | `30000` | 單輪模型探索的硬性時間預算, 毫秒 - 含重試與 OAuth 權杖交換。最小 1000 |
+| `litellm-vscode-chat.discovery.timeout` | `30000` | 每個模型探索請求的硬性時間預算, 毫秒, 含該請求的重試。模型資訊清單、`/v1/models` 退回和 OAuth 權杖交換各自獲得一份新預算, 所以一輪探索最長可能耗時到它們之和。最小 1000 |
 | `litellm-vscode-chat.discovery.cacheTtl` | `3600000` | 已探索的模型清單沿用多久, 毫秒。VS Code 重新解析提供者很頻繁 (有時一秒好幾次); 快取把那擋在您的伺服器之外。`0` 表示每次都重新擷取 (負值箝制為 `0`); 失敗從不快取; 同時發生的重新整理共用一個請求; "LiteLLM: Sync Models Now" 略過它 |
 | `litellm-vscode-chat.discovery.staleServeWindow` | `600000` | 伺服器停止回應後, 其最後已知的模型繼續提供 (標記為過時) 的時長, 毫秒, 從最後一次成功探索起算。若伺服器休眠或重啟超過十分鐘, 可調高它; `0` 表示永不提供過時模型 (重新整理失敗立即清空該伺服器的清單)。詳情: [模型 - 探索](models.md#探索) |
-| `litellm-vscode-chat.usage.pollInterval` | `300000` | 背景支出/預算輪詢節奏, 毫秒。`0` = 關閉: 儀表板開啟時仍會擷取, 但沒有背景請求, 沒有警示。低於 `30000` 的非零值向上箝制到 30 秒。完整故事: [用量](usage.md) |
+| `litellm-vscode-chat.usage.pollInterval` | `300000` | 背景支出/預算輪詢節奏, 毫秒。`0` = 關閉: 沒有背景請求, 沒有警示; 儀表板開啟時只在一次擷取到期時才擷取 (本次工作階段還沒有完成過擷取、距上一次擷取已超過五分鐘, 或 `servers` 設定有變更)。低於 `30000` 的非零值向上箝制到 30 秒。完整故事: [用量](usage.md) |
 | `litellm-vscode-chat.usage.initialRefreshDelay` | `5000` | 延伸模組啟動後多久執行首次用量輪詢, 毫秒 |
 | `litellm-vscode-chat.usage.serversChangeRefreshDelay` | `2000` | `servers` 設定變更後多久重新整理用量資料, 毫秒; 足以合併 settings.json 中的連續按鍵 |
 | `litellm-vscode-chat.usage.pollingOffFreshnessWindow` | `600000` | 輪詢關閉時, 隨需取得的用量資料算作新鮮的時長, 毫秒 (輪詢開啟時, 視窗改為輪詢間隔的兩倍)。`0` 則從不算新鮮, [狀態列項目](usage.md#狀態列)會因此隱藏 |
