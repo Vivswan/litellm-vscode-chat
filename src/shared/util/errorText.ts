@@ -1,20 +1,16 @@
 /**
- * Splitting the redesigned two-part error messages (human headline, "\n",
- * technical detail) for surfaces that cannot render the raw newline: toasts
- * carry the headline only (VS Code notifications render newlines poorly), and
- * the dashboard renders the parts as separate elements. Only discovery-surface
- * messages reach these helpers - chat-surface messages join their parts with
- * the "Details:" lead-in instead (shared/mirroredError.ts) and render solely
- * in the chat UI. Pure string helpers, shared so the host notifier and the
- * webview extract the same parts; total on junk input - a message with no
- * content line passes through unchanged.
+ * Splitting the two-part discovery-surface error messages (headline, "\n",
+ * detail) for surfaces that cannot render the raw newline: toasts carry the
+ * headline only, and the dashboard renders the parts as separate elements.
+ * Chat-surface messages join their parts with the "Details:" lead-in instead.
+ * Total on junk input - a message with no content line passes through
+ * unchanged.
  */
 
 /**
- * Runs of whitespace (newlines included) collapsed to single spaces, trimmed:
- * the shared core that keeps a composed detail segment one physical line.
- * Callers own their own truncation - the caps (and whether they mark the cut)
- * differ per surface.
+ * Runs of whitespace collapsed to single spaces, trimmed, keeping a composed
+ * detail segment on one physical line. Callers own their own truncation: the
+ * caps differ per surface.
  */
 export function collapseWhitespace(text: string): string {
 	return text.replace(/\s+/g, " ").trim();
@@ -27,9 +23,9 @@ export function statusErrorHeadline(error: string): string {
 }
 
 /**
- * Everything after the headline line, trimmed: the technical detail of a
- * two-part message, or undefined for a single-part one. Inner newlines are
- * kept - a multi-line detail renders line-per-line under pre-line styling.
+ * Everything after the headline line, trimmed, or undefined for a single-part
+ * message. Inner newlines are kept - a multi-line detail renders line-per-line
+ * under pre-line styling.
  */
 export function statusErrorDetail(error: string): string | undefined {
 	const lines = error.split("\n");

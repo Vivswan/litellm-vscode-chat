@@ -128,10 +128,9 @@ suite("provider/catalog/discoveryCache", () => {
 	});
 
 	test("a fetch after clear() starts a fresh load instead of joining a pre-clear one", async () => {
-		// clear() is how explicit refreshes force a real round trip, so a
-		// post-clear fetch joining a pre-clear load would hand its caller
-		// stale results - and nothing would ever correct them, because the
-		// store guard only keeps the stale result out of the store.
+		// clear() is how explicit refreshes force a real round trip, so a post-clear
+		// fetch joining a pre-clear load would hand its caller stale results that
+		// nothing corrects - the store guard only keeps them out of the store.
 		const cache = new DiscoveryCache<string>(makeClock().now);
 		let releasePre: (() => void) | undefined;
 		const preGate = new Promise<void>((resolve) => {
@@ -202,9 +201,9 @@ suite("provider/catalog/discoveryCache", () => {
 			await gate;
 			return "fresh";
 		});
-		// The corrector's move: discard the stale stored value while the fresh
-		// reload is in flight. Unlike invalidate(), the reload keeps its right
-		// to cache - concurrent correctors must not suppress each other.
+		// The corrector's move: discard the stale stored value while the fresh reload
+		// is in flight. Unlike invalidate(), the reload keeps its right to cache so
+		// concurrent correctors do not suppress each other.
 		cache.dropStored("k");
 		assert.strictEqual(cache.lookup("k", Number.MAX_SAFE_INTEGER), undefined, "the stored entry is gone");
 		expectDefined(release)();

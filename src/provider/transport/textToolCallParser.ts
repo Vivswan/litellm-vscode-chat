@@ -65,9 +65,8 @@ export function isTruncatedToolCallText(text: string): boolean {
 	if (text.startsWith("<|") && text.includes("_section")) {
 		return true;
 	}
-	// One- and two-character prefixes ("<", "<|") are far more likely the tail
-	// of ordinary output than a truncated token, and dropping them saves the
-	// user from nothing; longer structural prefixes are unambiguous.
+	// One- and two-character prefixes ("<", "<|") are far more likely ordinary
+	// output than a truncated token; longer structural prefixes are unambiguous.
 	return [BEGIN, ARG_BEGIN, ARG_END, END].some(
 		(literal) => text.length >= 3 && text.length < literal.length && literal.startsWith(text)
 	);
@@ -93,10 +92,10 @@ function isPartialControlToken(tail: string): boolean {
 }
 
 /**
- * How many trailing characters must be held back because the chunk may end in
- * the middle of a control token: the begin token that opens a call, but also
- * the strippable shapes (section markers, stray end/argument tokens), which
- * would otherwise leak into visible text when split across chunk boundaries.
+ * How many trailing characters must be held back because the chunk may end
+ * mid control token: the begin token that opens a call, but also the
+ * strippable shapes (section markers, stray end/argument tokens), which would
+ * otherwise leak into visible text when split across chunk boundaries.
  */
 function controlTokenHold(data: string): number {
 	const lastLt = data.lastIndexOf("<");
@@ -223,7 +222,7 @@ export class TextToolCallParser {
 	 * Drain end-of-stream state. A text event carries any held-back partial
 	 * token text; provisionalCall carries a call still missing its end token.
 	 * While a call is active the buffer is call-internal (a partial end token),
-	 * never visible text, so it is discarded rather than emitted.
+	 * never visible text, so it is discarded.
 	 */
 	flush(): TextParseResult {
 		const events: TextParseEvent[] = this._buffer && !this._active ? [{ type: "text", text: this._buffer }] : [];

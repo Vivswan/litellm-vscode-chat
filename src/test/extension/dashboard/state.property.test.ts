@@ -1,13 +1,11 @@
 /**
- * Property coverage for the dashboard's trust boundary. Every message the
- * webview posts arrives as untrusted JSON, and panel.ts acts on nothing that
- * has not passed parseDashboardRequest (enqueueMessage). A hole in that parse
- * turns hostile webview data directly into extension action: settings writes,
- * SecretStorage writes, command execution. These properties pin that the
- * parse is total, that every table method's well-formed request is admitted,
- * that near-miss mutants (unknown keys, wrong-typed fields, oversized
- * correlation tokens) are refused, and that secretDirectiveSchema admits
- * exactly its documented shapes.
+ * Property coverage for the dashboard's trust boundary: panel.ts acts on
+ * nothing that has not passed parseDashboardRequest, so a hole in that parse
+ * turns hostile webview JSON into settings writes, SecretStorage writes, and
+ * command execution. Pins that the parse is total, that every table method's
+ * well-formed request is admitted, that near-miss mutants (unknown keys,
+ * wrong-typed fields, oversized correlation tokens) are refused, and that
+ * secretDirectiveSchema admits exactly its documented shapes.
  */
 
 import * as assert from "node:assert";
@@ -180,10 +178,9 @@ const validRequest: fc.Arbitrary<RawRequest> = fc.constantFrom(...METHODS).chain
 
 /**
  * Values invalid for every field the payload shapes declare: NaN fails even
- * z.number(); an array fails records, strict objects, and strings; the
- * one-key object fails strict shapes (unknown key, missing required fields),
- * both record fields (its value is neither a record nor a header scalar),
- * and strings. All three also fail the parameterless methods' literal null.
+ * z.number(); an array fails records, strict objects, and strings; the one-key
+ * object fails strict shapes, both record fields, and strings. All three also
+ * fail the parameterless methods' literal null.
  */
 const junkValue: fc.Arbitrary<unknown> = fc.constantFrom(Number.NaN, [], { unexpected: [] });
 
@@ -227,9 +224,8 @@ suite("extension/dashboard/state webview request schema properties", () => {
 					const mutant: Record<string, unknown> = { ...request };
 					const payload = request.payload;
 					if (kind === "unknown-key") {
-						// Strict shapes must refuse any key they do not declare, at the
-						// envelope and inside the payload alike. The suffix keeps the key
-						// genuinely unknown (and never a prototype setter).
+						// Strict shapes refuse any undeclared key, envelope and payload
+						// alike; the suffix keeps the key unknown, never a prototype setter.
 						const target = payload !== null && pick % 2 === 0 ? (payload as Record<string, unknown>) : mutant;
 						const key = Object.hasOwn(target, extraKey) || isUnsafeRecordKey(extraKey) ? `${extraKey}Extra` : extraKey;
 						if (target === mutant) {
@@ -246,8 +242,8 @@ suite("extension/dashboard/state webview request schema properties", () => {
 							const keys = Object.keys(record);
 							const key = keys[pick % keys.length] ?? "label";
 							// setUsageAlertThresholds.values and the schema-keywords list
-							// legally hold ANY bounded array of their element type (empty =
-							// off), so the array junk is not a wrong type there; NaN still is.
+							// legally hold any bounded array of their element type, so the
+							// array junk is not a wrong type there; NaN still is.
 							mutant.payload = { ...record, [key]: key === "values" && Array.isArray(junk) ? Number.NaN : junk };
 						}
 					} else {
@@ -276,8 +272,8 @@ suite("extension/dashboard/state webview request schema properties", () => {
 });
 
 /**
- * The schema by hand: strict keep/clear (no other key rides along), and set
- * with a location literal and a string value, nothing more. The property
+ * The schema by hand (the oracle): strict keep/clear with no other key riding
+ * along, and set with a location literal and a string value. The property
  * below holds the schema to this oracle in both directions.
  */
 function isLegalDirective(candidate: Record<string, unknown>): boolean {

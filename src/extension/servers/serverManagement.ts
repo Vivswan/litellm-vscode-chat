@@ -25,11 +25,11 @@ import {
 } from "./serverRegistry";
 
 /**
- * Whether the registry is still mutable in each UI mode. Only "groupsOnly"
- * (the migration emptied the registry) refuses: pre-migration modes stay
- * mutable because the migration consumes registry edits - renaming a skipped
- * server is how its skip marker lifts. Exhaustive by construction, so a mode
- * added to ManagementUiMode does not compile until it takes a side here.
+ * Whether the registry is still mutable in each UI mode. Only "groupsOnly" (the
+ * migration emptied the registry) refuses: pre-migration modes stay mutable
+ * because the migration consumes registry edits - renaming a skipped server is
+ * how its skip marker lifts. Exhaustive by construction, so a new
+ * ManagementUiMode does not compile until it takes a side here.
  */
 const REGISTRY_MUTABLE_IN_MODE: Record<ManagementUiMode, boolean> = {
 	legacy: true,
@@ -38,16 +38,13 @@ const REGISTRY_MUTABLE_IN_MODE: Record<ManagementUiMode, boolean> = {
 };
 
 /**
- * What the registry's mutation guard reports right now. "migrating" while the
- * provider-group migration is seeding groups: a racing edit would be marked
- * skipped for manual review and a racing add would wait a whole activation
- * for its group, so writes are refused with a try-again notice instead.
- * "retired" once the migration emptied the registry (see
- * REGISTRY_MUTABLE_IN_MODE): a write would edit legacy state nothing reads
- * anymore. Activation installs this as the registry's guard, so every
- * mutator enforces it at write time; the flows below also consult it before
- * prompting, as a courtesy, so the user does not type into a flow whose
- * write will be refused.
+ * What the registry's mutation guard reports right now. "migrating": a racing
+ * edit would be marked skipped for manual review and a racing add would wait a
+ * whole activation for its group, so writes are refused with a try-again
+ * notice. "retired": the migration emptied the registry, so a write would edit
+ * legacy state nothing reads anymore. Activation installs this as the
+ * registry's guard; the flows below also consult it before prompting, so the
+ * user does not type into a flow whose write will be refused.
  */
 export function registryMutationVerdict(getUiMode: () => ManagementUiMode): RegistryMutationVerdict {
 	if (isGroupMigrationRunning()) {
@@ -96,8 +93,8 @@ async function runRegistryMutation(mutate: () => Promise<void>): Promise<boolean
 
 /**
  * The three input prompts return their value already trimmed (undefined on
- * cancel), so callers store, log, and compare exactly the string the
- * validation checked.
+ * cancel), so callers store, log, and compare exactly the string the validation
+ * checked.
  */
 async function promptForServerLabel(
 	registry: ServerRegistry,
@@ -164,9 +161,8 @@ async function promptForApiKey(masked: boolean, initial?: string): Promise<strin
 
 /**
  * Renaming a server orphans modelParameters entries scoped to the old label
- * prefix ("OldLabel/model"). We warn instead of auto-migrating because the
- * setting may live in user or workspace scope and the user may prefer to keep
- * entries for a label they plan to reuse.
+ * prefix ("OldLabel/model"). We warn instead of auto-migrating: the setting may
+ * live in user or workspace scope, and the user may plan to reuse the label.
  */
 export function warnAboutOrphanedModelParameters(
 	oldLabel: string,
@@ -327,28 +323,24 @@ async function manageServerFlow(
 export const EXTENSION_SETTINGS_FILTER = "@ext:vivswan.litellm-vscode-chat";
 
 /**
- * Which UI the hub's server entry opens. "legacy" is the quick-pick server
- * flow over the registry, for a user whose registry still holds unmigrated
- * servers: editing there feeds the migration (a rename lifts a server's skip
- * marker), so the flow survives until isGroupMigrationComplete. The other two
- * open the dashboard's Servers view: "groupsWithRegistry" means the
- * registry was never populated (fresh installs), "groupsOnly" means the
- * migration retired it, so the quick pick would edit dead state.
+ * Which UI the hub's server entry opens. "legacy" is the quick-pick flow over
+ * the registry, for a user whose registry still holds unmigrated servers:
+ * editing there feeds the migration (a rename lifts a server's skip marker), so
+ * it survives until isGroupMigrationComplete. The other two open the
+ * dashboard's Servers view - "groupsWithRegistry" is a registry that was never
+ * populated, "groupsOnly" one the migration retired.
  */
 export type ManagementUiMode = "legacy" | "groupsWithRegistry" | "groupsOnly";
 
-/**
- * A hub entry either routes in-module ("servers" and "settings" carry
- * arguments or mode logic) or names the extension command it executes as-is.
- */
+/** A hub entry either routes in-module ("servers", "settings") or names the extension command it executes as-is. */
 interface HubItem extends vscode.QuickPickItem {
 	action: "servers" | "settings" | CommandId;
 }
 
 /**
- * The hub entries, resolved per open: a module-level constant would localize
- * before l10n.config and freeze English. Codicon prefixes stay inside the
- * literals so extraction keys match what the quick pick displays.
+ * Resolved per open: a module-level constant would localize before l10n.config
+ * and freeze English. Codicon prefixes stay inside the literals so extraction
+ * keys match what the quick pick displays.
  */
 function hubItems(): readonly HubItem[] {
 	return [
@@ -401,10 +393,10 @@ function hubItems(): readonly HubItem[] {
 }
 
 /**
- * The hub's server entry: the dashboard's Servers view where the
- * mode allows it, otherwise the legacy quick-pick flows over the registry
- * (see ManagementUiMode). Test Connection and Sync Models are not repeated in
- * the legacy list; the hub the user just came from carries both.
+ * The hub's server entry: the dashboard's Servers view where the mode allows
+ * it, otherwise the legacy quick-pick flows (see ManagementUiMode). Test
+ * Connection and Sync Models are not repeated in the legacy list; the hub the
+ * user just came from carries both.
  */
 async function openServerManagement(
 	registry: ServerRegistry,
@@ -451,14 +443,13 @@ async function openServerManagement(
 }
 
 /**
- * litellm.manage is the extension's front door: a hub quick pick that routes
- * to the server-management surface and the individually registered commands.
- * It holds no logic of its own beyond the server entry's UI-mode handling.
+ * litellm.manage is the extension's front door: a hub quick pick routing to the
+ * server-management surface and the individually registered commands.
  *
- * litellm.manageServers is the direct route to server management for callers
- * that promise configuration (the dashboard's manage intent): those must not
- * land a user on the hub menu. It stays out of package.json's
- * contributes.commands, so the palette shows only the hub.
+ * litellm.manageServers is the direct route for callers that promise
+ * configuration (the dashboard's manage intent) and must not land a user on the
+ * hub menu. It stays out of package.json's contributes.commands, so the palette
+ * shows only the hub.
  */
 export function registerManageCommand(
 	context: vscode.ExtensionContext,

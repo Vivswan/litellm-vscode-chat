@@ -20,9 +20,8 @@ import { fakeFingerprintSaltSession, makeExtensionStorage, withConfig } from "..
 import { resolveNls } from "../../util/nls";
 
 suite("extension/servers/serverManagement", () => {
-	// The activated extension already owns the litellm.manage command IDs, so
-	// every suite below captures the handlers through a stubbed registerCommand
-	// and invokes them directly.
+	// The activated extension already owns the litellm.manage command IDs, so the
+	// suites capture the handlers through a stubbed registerCommand and invoke them.
 	function captureManageHandlers(
 		registry: ServerRegistry,
 		logger: Logger,
@@ -142,8 +141,7 @@ suite("extension/servers/serverManagement", () => {
 		}
 
 		// "hub" selects the hub's server entry; "direct" invokes the unlisted
-		// litellm.manageServers command the dashboard's manage intent uses. Both
-		// exercise the mode-dependent dashboard-vs-legacy logic behind the entry.
+		// litellm.manageServers command the dashboard's manage intent uses.
 		async function runManageCommand(mode: ManagementUiMode, entry: "hub" | "direct" = "hub"): Promise<ManageRun> {
 			const storage = makeExtensionStorage();
 			const registry = new ServerRegistry(storage.memento, storage.secrets);
@@ -253,9 +251,8 @@ suite("extension/servers/serverManagement", () => {
 			/** Servers seeded into the registry before the walk: [label, baseUrl, apiKey]. */
 			seed?: readonly [string, string, string][];
 			/**
-			 * Input-box answers in prompt order; undefined cancels. A function
-			 * receives the prompt's options (so a test can flip state mid-prompt)
-			 * and returns the answer.
+			 * Input-box answers in prompt order; undefined cancels. A function receives
+			 * the prompt's options, so a test can flip state mid-prompt.
 			 */
 			inputs?: readonly (string | undefined | ((options: vscode.InputBoxOptions) => string | undefined))[];
 			/** Selects from each non-hub quick pick by visible label substring; undefined cancels. */
@@ -595,9 +592,8 @@ suite("extension/servers/serverManagement", () => {
 					"Racing",
 					"http://localhost:4000",
 					() => {
-						// The migration takes its module-level lock while the key
-						// prompt is open; the registry's write-time guard must refuse
-						// the racing add with the try-again notice.
+						// The migration takes its module-level lock while the key prompt is
+						// open; the write-time guard must refuse the racing add.
 						migration = migrateServersToProviderGroups(
 							migrationRegistry,
 							migrationStorage.memento,
@@ -692,8 +688,8 @@ suite("extension/servers/serverManagement", () => {
 			assert.deepStrictEqual(run.executed, ["litellm.openDashboard"]);
 			assert.deepStrictEqual(run.quickPicks, [], "the legacy quick pick would edit dead configuration");
 			assert.deepStrictEqual(run.inputOptions, []);
-			// Full no-mutation proof: same entry count, ids, labels, and URLs
-			// as the moment after seeding, and the key survives untouched.
+			// Full no-mutation proof: same entry count, ids, labels, and URLs as after
+			// seeding, and the key survives untouched.
 			assert.deepStrictEqual(
 				run.registry.getServers().map(({ id, label, baseUrl }) => ({ id, label, baseUrl })),
 				run.seeded
@@ -715,8 +711,7 @@ suite("extension/servers/serverManagement", () => {
 			const walkthroughs = (extension.packageJSON as { contributes: { walkthroughs: { steps: WalkthroughStep[] }[] } })
 				.contributes.walkthroughs;
 			// The host localizes the manifest's %key% references before exposing
-			// packageJSON; resolveNls passes resolved strings through and covers
-			// a host that hands back the raw manifest.
+			// packageJSON; resolveNls also covers a host handing back the raw manifest.
 			return expectDefined(walkthroughs[0]).steps.map((step) => ({
 				...step,
 				description: resolveNls(step.description),
@@ -727,10 +722,9 @@ suite("extension/servers/serverManagement", () => {
 			const steps = walkthroughSteps();
 			const fineTune = expectDefined(steps.find((step) => step.id === "litellm.walkthrough.fineTune"));
 
-			// The walkthrough renderer parses the link as a URI and JSON-decodes
-			// the query into the command's arguments; replicate that here so a
-			// typo on either side (button or hub) fails loudly instead of
-			// silently opening an unfiltered settings view.
+			// The walkthrough renderer parses the link as a URI and JSON-decodes the query
+			// into the command's arguments; replicating that makes a typo on either side
+			// fail loudly instead of silently opening an unfiltered settings view.
 			const match = expectDefined(
 				fineTune.description.match(/\(command:workbench\.action\.openSettings\?([^)]+)\)/) ?? undefined,
 				"the fine-tune step must carry an openSettings button with arguments"
@@ -813,10 +807,9 @@ suite("extension/servers/serverManagement", () => {
 			await new Promise((resolve) => setTimeout(resolve, 0));
 
 			assert.strictEqual(registryMutationVerdict(getUiMode), "migrating");
-			// The write-time enforcement: the mutators themselves refuse, so no
-			// prompt-flow interleaving can slip a write past the running
-			// migration. The migration's own removals go through the unguarded
-			// path and stay unaffected (the completed run below proves it).
+			// Write-time enforcement: the mutators themselves refuse, so no prompt-flow
+			// interleaving can slip a write past the running migration. The migration's
+			// own removals go through the unguarded path.
 			await assert.rejects(registry.addServer("Racing", "http://racing.test", ""), MigrationInProgressError);
 			await assert.rejects(registry.updateServer("id", "L", "http://x.test", undefined), MigrationInProgressError);
 			await assert.rejects(registry.removeServer("id"), MigrationInProgressError);

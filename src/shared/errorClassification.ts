@@ -1,10 +1,10 @@
 /**
- * Transport error classification shared across the layers. The kinds live
- * here rather than in provider/transport because consumers sit on both sides
- * of the layering boundary: ServerStatus (shared) and the dashboard protocol
- * (webview-reachable) may not import the provider layer. The module is pure
- * classification - enum ids and a status number, never message text - so its
- * values are safe on every surface: logs, the panel protocol, persistence.
+ * Transport error classification shared across the layers. The kinds live here
+ * rather than in provider/transport because consumers sit on both sides of the
+ * layering boundary: ServerStatus and the dashboard protocol may not import
+ * the provider layer. Pure classification - enum ids and a status number,
+ * never message text - so the values are safe on every surface: logs, the
+ * panel protocol, persistence.
  */
 
 export const TRANSPORT_ERROR_KINDS = [
@@ -22,17 +22,16 @@ export type TransportErrorKind = (typeof TRANSPORT_ERROR_KINDS)[number];
  * Setup-hint ids, assigned ONLY at RequestError construction sites that know
  * the advice is right. Never derive one from kind+status: the same pair means
  * different failures at different sites (an OAuth token-endpoint 404 is not a
- * wrong LiteLLM base URL; an upstream-auth 401 is not this client's key).
+ * wrong LiteLLM base URL).
  */
 export const SETUP_HINT_KINDS = ["check-base-url", "proxy-not-running", "configure-api-key"] as const;
 export type SetupHintKind = (typeof SETUP_HINT_KINDS)[number];
 
 /**
- * The failure shapes that read as "this server does not serve the endpoint":
- * a hang until the discovery timeout, or an HTTP 404/405. Discovery classifies
- * each endpoint's failure against this vocabulary to tell an unserved
- * endpoint (declare it in the entry's expectedFailures) from a genuinely slow
- * or broken one (retry, or raise the timeout).
+ * The failure shapes that read as "this server does not serve the endpoint": a
+ * hang until the discovery timeout, or an HTTP 404/405. Discovery classifies
+ * against this vocabulary to tell an unserved endpoint from a genuinely slow
+ * or broken one.
  */
 export type UnservedEndpointEvidence = "timeout" | "status";
 
@@ -44,9 +43,8 @@ export interface TransportErrorClassification {
 	/**
 	 * Discovery-only, assigned at the construction site like setupHint: the
 	 * models listing failed like an unserved endpoint while the model-info
-	 * probe answered (or was itself declared expected), so declaring
-	 * expectedFailures: ["modelListing"] on the entry fits better than
-	 * retrying. UI surfaces read it to offer that declaration as an action.
+	 * probe answered, so declaring expectedFailures: ["modelListing"] fits
+	 * better than retrying. UI surfaces offer that declaration as an action.
 	 */
 	readonly unsupportedEndpoint?: "modelListing" | undefined;
 }
@@ -61,14 +59,10 @@ function isSetupHintKind(value: unknown): value is SetupHintKind {
 
 /**
  * Extract a classification from an unknown thrown value. Duck-typed, not
- * instanceof: RequestError lives in the provider layer, and this extractor
- * serves callers behind `unknown` boundaries that may not import it (the
- * extension layer's issue reporter and dashboard panel; the provider's own
- * statusErrorTexts delegates here too, so there is exactly one extraction).
- * Total against hostile getters (same hardening as classificationOf in
- * shared/logger.ts); every field is validated - kind and setupHint against
- * the const arrays above, status as an integer - so junk values drop the
- * field, never poison a consumer.
+ * instanceof: RequestError lives in the provider layer, and callers behind
+ * `unknown` boundaries may not import it. Total against hostile getters, and
+ * every field is validated, so junk values drop the field rather than poison a
+ * consumer.
  */
 export function transportClassificationOf(error: unknown): TransportErrorClassification | undefined {
 	try {

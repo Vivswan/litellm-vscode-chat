@@ -29,17 +29,13 @@ import { assertOmits, assertShows, expectDefined } from "./pureHelpers";
 const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS);
 
 /**
- * Docker-stack test suite.
- *
- * Drives the extension through the real VS Code LM API against the dockerized
- * LiteLLM proxy (docker/docker-compose.yml), served through one declared
- * provider-group entry. The consolidated fake models (realistic aliases over
- * fake- upstreams, src/test/fakeStack/models.ts) are the primary surface:
- * response shapes are selected with the %play command against gpt-5.2-mini,
- * and every other command drives its own behavior. Compared to the in-process
- * capture suite this adds a real proxy hop: LiteLLM re-serializes requests
- * and streams, so these tests pin what survives the trip. Run via
- * `bun run test:docker`.
+ * Docker-stack suite: the extension through the real VS Code LM API against the
+ * dockerized LiteLLM proxy, served by one declared provider-group entry. Models
+ * come from src/test/fakeStack/models.ts; response shapes are selected with the
+ * %play command against gpt-5.2-mini, other commands drive their own behavior.
+ * Unlike the in-process capture suite, LiteLLM re-serializes requests and
+ * streams here, so these tests pin what survives the proxy hop.
+ * Run via `bun run test:docker`.
  */
 
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
@@ -99,7 +95,6 @@ suite("Docker LiteLLM stack", () => {
 		return collectStream(response);
 	}
 
-	/** One text turn to a model; the workhorse for command-driven tests. */
 	const say = (name: string, text: string, options: vscode.LanguageModelChatRequestOptions = {}) =>
 		send(name, [vscode.LanguageModelChatMessage.User(text)], options);
 
@@ -115,10 +110,9 @@ suite("Docker LiteLLM stack", () => {
 	}
 
 	/**
-	 * DataParts of one mime class from collected stream parts. Counting by
-	 * mime matters: every successful response also carries the end-of-stream
-	 * "usage" DataPart, so a total-count assertion would conflate media with
-	 * bookkeeping.
+	 * DataParts of one mime class. Counting by mime matters: every successful
+	 * response also carries the end-of-stream "usage" DataPart, so a total-count
+	 * assertion would conflate media with bookkeeping.
 	 */
 	function dataPartsOf(parts: unknown[], mimePrefix: string): vscode.LanguageModelDataPart[] {
 		return parts.filter(
@@ -128,11 +122,9 @@ suite("Docker LiteLLM stack", () => {
 	}
 
 	/**
-	 * The decoded end-of-stream "usage" DataPart, asserted to appear exactly
-	 * once. The extension always requests stream_options.include_usage, so the
-	 * proxy appends a trailer even when the backend scenario carries none.
-	 * LiteLLM may recount tokens in transit, so the three counts are pinned as
-	 * numbers, not as exact values.
+	 * The extension always requests stream_options.include_usage, so the proxy
+	 * appends a trailer even when the backend scenario carries none. LiteLLM may
+	 * recount tokens in transit, so the three counts are pinned as numbers.
 	 */
 	function expectUsagePart(parts: unknown[]): Record<string, unknown> {
 		const usageParts = dataPartsOf(parts, "usage").map(
@@ -152,8 +144,7 @@ suite("Docker LiteLLM stack", () => {
 		await ensureActivated();
 		await catalogOff();
 		// The stack's ids are fixed and the host exposes no group identity, so
-		// pre-existing copies would be indistinguishable from this entry's;
-		// fail fast instead of testing through a leftover group.
+		// pre-existing copies would be indistinguishable from this entry's.
 		await assertIdsUnserved(watchedIds);
 
 		await writeServerEntry({ label: entryLabel, baseUrl: BASE_URL, auth: { apiKey: API_KEY } }, 60000);
@@ -162,8 +153,7 @@ suite("Docker LiteLLM stack", () => {
 			assert.ok(registeredModelIds.includes(id), `LiteLLM did not register ${id}; check the generated proxy config`);
 		}
 
-		// Exactly one copy of each survivor and none of the blocked model,
-		// duplicates counted: the multiset wait pins what vscode.lm actually
+		// Duplicates counted: the multiset wait pins what vscode.lm actually
 		// exposes, not only the provider refresh result.
 		const models = await waitForHostModels(
 			60000,
@@ -187,8 +177,8 @@ suite("Docker LiteLLM stack", () => {
 		});
 
 		test("every survivor reaches the HOST model list", () => {
-			// The setup's multiset wait already pinned exact counts; this pins
-			// that each survivor's model object is usable from the map.
+			// The setup's multiset wait pinned exact counts; this pins that each
+			// survivor's model object is usable from the map.
 			for (const id of SURVIVOR_IDS) {
 				assert.ok(modelsByName.has(id), `${id} must reach the host`);
 			}
@@ -225,8 +215,7 @@ suite("Docker LiteLLM stack", () => {
 				);
 			}
 			// deepseek-r2 declares supports_<level>_reasoning_effort flags in the
-			// generated proxy config (src/test/fakeStack/models.ts), so its menu
-			// must be the server's list, forwarded through a real proxy.
+			// generated proxy config, so its menu must be the server's list.
 			assert.deepStrictEqual(
 				expectDefined(byId.get("deepseek-r2"), "deepseek-r2 in refreshEntryModels").configurationSchema,
 				reasoningEffortSchema(["low", "medium", "high", "max"]),
@@ -269,8 +258,7 @@ suite("Docker LiteLLM stack", () => {
 			);
 			// Both reads see the same forwarded request, so this cannot catch a
 			// lying reporter; what it guards is the command answering from a
-			// DIFFERENT routing attempt (e.g. a retry landing on the other
-			// deployment between the two reads).
+			// DIFFERENT routing attempt (a retry landing on the other deployment).
 			assert.strictEqual(text, `- deployment: \`${body.model}\``);
 		});
 
@@ -299,9 +287,9 @@ suite("Docker LiteLLM stack", () => {
 			assert.strictEqual(body.model, "fake-mini", "the playback target routes through its own upstream");
 		});
 
-		// LiteLLM v1.93 rejects array content deltas outright with a 500; only
-		// that specific failure is tolerated (the capture-mode host-fidelity
-		// suite covers the shape without a proxy). Anything else must fail.
+		// LiteLLM v1.93 rejects array content deltas outright with a 500; only that
+		// specific failure is tolerated (the capture-mode host-fidelity suite covers
+		// the shape without a proxy). Anything else must fail.
 		const KNOWN_ARRAY_DELTA_REJECTION = /LiteLLM 500[\s\S]*can only concatenate str/;
 
 		test("structured-content renders array text blocks when the proxy forwards them", async () => {
@@ -421,9 +409,9 @@ suite("Docker LiteLLM stack", () => {
 
 	suite("played reasoning scenarios through the proxy", () => {
 		// Calibrated against LiteLLM v1.93: reasoning_content, reasoning, and
-		// thinking_blocks survive the proxy; the nonstandard delta.thinking
-		// object does not. "proxy-dependent" scenarios only log, so a LiteLLM
-		// upgrade that starts forwarding them shows up without failing.
+		// thinking_blocks survive the proxy; the nonstandard delta.thinking object
+		// does not. "proxy-dependent" scenarios only log, so a LiteLLM upgrade that
+		// starts forwarding them shows up without failing.
 		const thinkingSurvival: Record<string, "survives" | "proxy-dependent"> = {
 			reasoning: "survives",
 			"reasoning-field": "survives",
@@ -475,10 +463,9 @@ suite("Docker LiteLLM stack", () => {
 		}
 
 		test("deliberate errors never cool the deployment down: the model answers immediately after", async () => {
-			// The exact failure the router_settings block exists for: without
+			// The failure the router_settings block exists for: without
 			// allowed_fails/cooldown_time, three failures sideline the single
-			// deployment ("No deployments available... Try again in 5 seconds")
-			// and poison every later test that touches the model.
+			// deployment and poison every later test that touches the model.
 			for (let i = 0; i < 3; i++) {
 				await assert.rejects(() => say("gpt-5.2-mini", `${COMMAND_SIGIL}error:429`));
 			}
@@ -546,9 +533,9 @@ suite("Docker LiteLLM stack", () => {
 		});
 
 		test("reasoning_effort reaches the backend through a reasoning-capable model", async () => {
-			// deepseek-r2 advertises supports_reasoning: true, the same capability
-			// data that puts the Reasoning Effort control in the model picker; a
-			// resolved picker choice travels as this exact wire key.
+			// deepseek-r2 advertises supports_reasoning: true, the capability data
+			// that puts the Reasoning Effort control in the model picker; a resolved
+			// picker choice travels as this exact wire key.
 			await say("deepseek-r2", `${COMMAND_SIGIL}echo:effort probe`, { modelOptions: { reasoning_effort: "high" } });
 			const body = await lastForwardedRequest();
 			assert.strictEqual(body.reasoning_effort, "high", "the proxy must forward the effort level to the backend");
@@ -609,12 +596,10 @@ suite("Docker LiteLLM stack", () => {
 
 		test("prompt-cache breakpoints on tools and messages survive the proxy", async () => {
 			// claude-opus-4-5 advertises supports_prompt_caching: true, so the
-			// extension places its cache breakpoints. LiteLLM must accept the
-			// request and forward the markers: last tool, first user message, and
+			// extension places its cache breakpoints: last tool, first user message,
 			// rolling last message (no system message reaches the provider from a
-			// plain sendRequest). This validates marker survival on the OpenAI
-			// path only; the proxy's Anthropic translation never runs against the
-			// fake backend.
+			// plain sendRequest). Marker survival is validated on the OpenAI path
+			// only; the proxy's Anthropic translation never runs here.
 			const messages = [
 				vscode.LanguageModelChatMessage.User("Task: audit the repository."),
 				vscode.LanguageModelChatMessage.Assistant("Starting with the README."),
@@ -650,8 +635,8 @@ suite("Docker LiteLLM stack", () => {
 		});
 
 		test("no cache markers reach the backend for a model without caching support", async () => {
-			// gpt-5.2 carries tools but not prompt caching: the tools-bearing
-			// caching-negative, so tool definitions flow while markers must not.
+			// gpt-5.2 is the tools-bearing caching-negative: tool definitions must
+			// flow while markers must not.
 			await say("gpt-5.2", "weather?", {
 				tools: [
 					{
@@ -705,8 +690,7 @@ suite("Docker LiteLLM stack", () => {
 			assert.strictEqual(pair.inputCost, 1.25);
 			assert.strictEqual(pair.outputCost, 10);
 			assert.strictEqual(pair.priceCategory, "medium", "blended (3*1.25+10)/4 = 3.4375 lands in the medium band");
-			// Flat pricing without caching means ALL six optional fields stay
-			// absent, not just a sample of them.
+			// Flat pricing without caching means ALL six optional fields stay absent.
 			assert.strictEqual(pair.cacheCost, undefined, "no cache read cost without advertised caching");
 			assert.strictEqual(pair.cacheWriteCost, undefined, "no cache write cost without advertised caching");
 			assert.strictEqual(pair.longContextInputCost, undefined, "flat pricing must not grow the input tier");
@@ -715,8 +699,8 @@ suite("Docker LiteLLM stack", () => {
 			assert.strictEqual(pair.longContextCacheWriteCost, undefined, "no long-context cache write tier");
 
 			// Undeclared pricing registers with NO pricing keys at host level -
-			// whether the proxy stamps zeros (v1.93's observed behavior, recorded
-			// in fakeStack/models.ts) or omits the fields outright.
+			// whether the proxy stamps zeros (v1.93's observed behavior) or omits
+			// the fields outright.
 			const scout = expectDefined(byId.get("llama-4-scout"));
 			assert.strictEqual(scout.inputCost, undefined);
 			assert.strictEqual(scout.outputCost, undefined);
@@ -820,9 +804,8 @@ suite("Docker LiteLLM stack", () => {
 	suite("four-anchor cache markers", () => {
 		test("a system message adds the fourth anchor when the host accepts role 3", async function () {
 			this.timeout(30000);
-			// Probe first: nothing in this repo had pushed a role-3 message
-			// through model.sendRequest before, so whether the HOST accepts it
-			// across marshalling is measured, not assumed.
+			// Probe: whether the HOST accepts a role-3 message across marshalling is
+			// measured, not assumed.
 			const systemMessage = new vscode.LanguageModelChatMessage(3 as vscode.LanguageModelChatMessageRole, [
 				new vscode.LanguageModelTextPart("System rules for the audit."),
 			]);
@@ -840,15 +823,13 @@ suite("Docker LiteLLM stack", () => {
 				(error: unknown) => ({ error })
 			);
 			if ("error" in outcome) {
-				// PROBE RESULT (contingency per plan): the host REJECTS role 3 for
-				// extensions without the languageModelSystem API proposal - the
-				// throw happens in host marshalling, before anything reaches the
-				// wire. Pin that exact rejection so a future host or manifest
-				// change that starts accepting system messages fails this test
-				// loudly and upgrades it to the four-anchor branch. Until then the
-				// docker suite pins three anchors (the plain-sendRequest test) and
-				// the four-anchor invariant stays covered by
-				// src/test/shared/conversion/promptCache.test.ts.
+				// Observed: the host REJECTS role 3 for extensions without the
+				// languageModelSystem API proposal, in host marshalling before
+				// anything reaches the wire. Pinning that rejection means a host or
+				// manifest change that starts accepting system messages fails loudly
+				// and upgrades this to the four-anchor branch. Until then the docker
+				// suite pins three anchors and the four-anchor invariant stays covered
+				// by src/test/shared/conversion/promptCache.test.ts.
 				assert.match(
 					String(outcome.error),
 					/languageModelSystem/,
@@ -869,9 +850,9 @@ suite("Docker LiteLLM stack", () => {
 
 	suite("generated media", () => {
 		test(`${COMMAND_SIGIL}image surfaces one DataPart with lossless bytes and keeps the hash line verbatim`, async () => {
-			// The hashes are the pinned literals next to the byte constants in
-			// fakeStack/commands.ts; matching them here proves the payload
-			// survived backend -> proxy -> extension -> host round-trip intact.
+			// The hashes are the pinned literals in fakeStack/commands.ts; matching
+			// them proves the payload survived the backend -> proxy -> extension ->
+			// host round-trip intact.
 			const parts = await say("gpt-5.2-mini", `${COMMAND_SIGIL}image`);
 			assert.strictEqual(extractText(parts), `Generated a PNG image, 69 bytes, sha256=${PNG_SHA256}.`);
 			const imageParts = dataPartsOf(parts, "image/");
@@ -884,8 +865,6 @@ suite("Docker LiteLLM stack", () => {
 
 		test(`${COMMAND_SIGIL}audio surfaces one DataPart with lossless bytes; transcript then hash line stream as text`, async () => {
 			const parts = await say("gpt-5.2-mini", `${COMMAND_SIGIL}audio`);
-			// The transcript streams as ordinary text ahead of the reply text,
-			// and the hash line itself stays byte-verbatim.
 			assert.strictEqual(extractText(parts), `fake audio clipGenerated a WAV clip, 52 bytes, sha256=${WAV_SHA256}.`);
 			const audioParts = dataPartsOf(parts, "audio/");
 			assert.strictEqual(audioParts.length, 1, "exactly one audio DataPart");
@@ -940,10 +919,9 @@ suite("Docker LiteLLM stack", () => {
 
 	suite("attachment wire fidelity", () => {
 		test("image and pdf attachments arrive byte-lossless on the vision+pdf flagship", async () => {
-			// The fixtures are the real bytes checked into this file; the test
-			// hashes the SOURCE bytes and compares against what the backend
-			// decoded from the wire - envelope re-encoding cannot fail this,
-			// payload corruption always does.
+			// The test hashes the SOURCE bytes and compares against what the backend
+			// decoded from the wire: envelope re-encoding cannot fail this, payload
+			// corruption always does.
 			const message = new vscode.LanguageModelChatMessage(vscode.LanguageModelChatMessageRole.User, [
 				new vscode.LanguageModelDataPart(PNG_DATA, "image/png"),
 				new vscode.LanguageModelDataPart(PDF_DATA, "application/pdf"),
@@ -967,10 +945,9 @@ suite("Docker LiteLLM stack", () => {
 			]);
 			const text = extractText(await send("gpt-5.2", [message]));
 			// Pinned from the capability gate in shared/conversion/messages.ts: image
-			// DataParts convert only for models whose registration carries
-			// imageInput, so on a non-vision model the image drops before the
-			// wire (with a classification log) and the surviving text rides as
-			// plain string content - the drop replacement, not a block array.
+			// DataParts convert only for models registered with imageInput, so here
+			// the image drops before the wire and the surviving text rides as plain
+			// string content - the drop replacement, not a block array.
 			const survivingText = Buffer.from(`${COMMAND_SIGIL}attachments`, "utf8");
 			assert.ok(
 				text.includes(`kind=text mime=- bytes=${survivingText.length} sha256=${sha256Hex(survivingText)}`),
@@ -1043,22 +1020,21 @@ suite("Docker LiteLLM stack", () => {
 		});
 
 		test("a slash-prefixed line is plain text end to end: /help gets the fallback", async () => {
-			// The intercepted-slash scenario: Copilot Chat normally eats "/help"
-			// before it reaches the model, and when the text does arrive (another
-			// client, a paste) the grammar must treat it as prose, not a command.
+			// Copilot Chat normally eats "/help" before it reaches the model; when
+			// the text does arrive the grammar must treat it as prose.
 			assert.strictEqual(extractText(await say("gpt-5.2-mini", "/help")), FALLBACK_TEXT);
 		});
 
 		test("a bang-prefixed line is plain text end to end: !help gets the fallback", async () => {
-			// The retired second sigil: agent CLIs (Claude Code) run a leading
-			// "!" as a shell command, so "!" lines are prose exactly like "/".
+			// Agent CLIs run a leading "!" as a shell command, so "!" lines are prose
+			// exactly like "/".
 			assert.strictEqual(extractText(await say("gpt-5.2-mini", "!help")), FALLBACK_TEXT);
 		});
 
 		test("a chat host's request envelope still dispatches end to end", async () => {
 			// Copilot Chat wraps the typed text in <userRequest>...</userRequest>
-			// with the closing tag as the message's last line; the grammar treats
-			// bare closing-tag lines as transparent so interactive commands work.
+			// with the closing tag as the last line; the grammar treats bare
+			// closing-tag lines as transparent so interactive commands work.
 			const wrapped = `<userRequest>\n${COMMAND_SIGIL}echo:enveloped\n</userRequest>`;
 			assert.strictEqual(extractText(await say("gpt-5.2-mini", wrapped)), "enveloped");
 		});
@@ -1122,8 +1098,8 @@ suite("Docker LiteLLM stack", () => {
 		});
 
 		test("an unknown model with no command gets the fixed fallback reply", async () => {
-			// No proxy alias routes to an unknown upstream, so this pins the
-			// backend's arm 4 directly over raw HTTP (non-streaming collapse).
+			// No proxy alias routes to an unknown upstream, so this pins the backend's
+			// arm 4 directly over raw HTTP (non-streaming collapse).
 			const response = await fetch(`${FAKE_URL}/v1/chat/completions`, {
 				method: "POST",
 				body: JSON.stringify({ model: "no-such-model", messages: [{ role: "user", content: "hello there" }] }),

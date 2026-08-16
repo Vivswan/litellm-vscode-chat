@@ -13,11 +13,10 @@ import { oauthCredentialFingerprint } from "../transport/auth";
 
 /**
  * Support for VS Code-managed provider groups. The host stores one
- * configuration object per named group and passes it to
- * provideLanguageModelChatInformation; it also hands the exact
+ * configuration object per named group and hands the exact
  * LanguageModelChatInformation objects a provider returned back to
- * provideLanguageModelChatResponse and provideTokenCount, so LiteLLM facts
- * ride on the model objects themselves.
+ * provideLanguageModelChatResponse and provideTokenCount, so LiteLLM facts ride
+ * on the model objects themselves.
  */
 
 /** Connection details resolved from a provider group's configuration. */
@@ -25,10 +24,9 @@ export interface GroupServer {
 	baseUrl: NormalizedBaseUrl;
 	apiKey: string;
 	/**
-	 * The declared settings entry this group mirrors; the sync engine writes it
-	 * into the group configuration, so external and pre-label groups lack it.
-	 * Non-secret. Part of the group's identity (see groupClientId) and the
-	 * status label, and it rides the attached server to the request path.
+	 * The declared settings entry this group mirrors, written into the group
+	 * configuration by the sync engine, so external and pre-label groups lack it.
+	 * Non-secret. Part of the group's identity (see groupClientId).
 	 */
 	label?: string;
 	/** Client-credentials authentication; present only when the configuration names a token URL and client ID. */
@@ -50,8 +48,8 @@ interface LiteLLMModelMetadataBase {
 	/**
 	 * True when the LiteLLM capability data listed audio among the model's
 	 * input modalities; gates the input_audio message conversion. Optional
-	 * because model objects round-trip through the host and entries written
-	 * by older extension versions lack it (absent reads as false).
+	 * because model objects round-trip through the host and older metadata
+	 * lacks it (absent reads as false).
 	 */
 	readonly supportsAudioInput?: boolean;
 	/** True for a declared model (an entry's discovery.declared; discovery does not list it). */
@@ -64,12 +62,10 @@ interface LiteLLMModelMetadataBase {
  * dashboard reads hold this type, and a group-attached copy (whose server
  * embeds the group's credentials) does not compile there.
  *
- * `serverDeclared` is registration's post-aggregation server baseline for
- * the capability resolver (overrides re-resolve against it; the dashboard's
- * inspector reads the same walk). Required, so a pre-attach entry without a
- * baseline is unrepresentable rather than silently empty; attach drops it -
- * the host round trip never needs it, the chat path reads only patched
- * values.
+ * `serverDeclared` is registration's post-aggregation server baseline for the
+ * capability resolver. Required, so a pre-attach entry without a baseline is
+ * unrepresentable rather than silently empty; attach drops it, since the chat
+ * path reads only patched values.
  */
 export interface PreAttachModelInfo extends LanguageModelChatInformation {
 	readonly litellm: LiteLLMModelMetadataBase & {
@@ -99,46 +95,38 @@ const GROUP_CLIENT_ID_PREFIX = "group:";
 /**
  * The labeled identity form's discriminator segment. It sits where the
  * unlabeled form carries its 32-hex fingerprint, and "labeled" is not a hex
- * string, so no unlabeled identity - whatever the API key contains - can
- * spell a labeled-form ID. That output-side separation is the point: the
- * unlabeled plain branch hashes the raw free-form API key, so any INPUT-side
- * encoding of the label could be forged by a bare key that is byte-for-byte
- * that encoding.
+ * string, so no unlabeled identity can spell a labeled-form ID. The separation
+ * must stay on the OUTPUT side: the unlabeled plain branch hashes the raw
+ * free-form API key, so any input-side encoding could be forged by a bare key
+ * that is byte-for-byte that encoding.
  */
 const GROUP_CLIENT_ID_LABELED_SEGMENT = "labeled:";
 
 /**
  * The unlabeled credentialed form's discriminator segment, same output-side
- * separation as GROUP_CLIENT_ID_LABELED_SEGMENT: it sits where the plain form
- * carries its 32-hex fingerprint, and "cred" is not a 32-hex string, so no
- * bare API key - whatever it contains - can spell a credentialed-form ID.
+ * separation: "cred" is not a 32-hex string, so no bare API key can spell a
+ * credentialed-form ID.
  */
 const GROUP_CLIENT_ID_CRED_SEGMENT = "cred:";
 
 /**
  * Two groups may point at one base URL with different credentials, so group
  * identity includes a non-secret fingerprint over the whole credential
- * material: API key, OAuth client credentials (delegated to
- * oauthCredentialFingerprint, the canonical enumeration of the OAuth
- * identity), and virtual key. Two DECLARED entries may even share the URL and
- * every credential, so the entry label the sync engine stamps into the
- * configuration joins the identity too - without it both entries would
- * collapse to one status-window identity and the second could never report.
+ * material: API key, OAuth client credentials, and virtual key. Two DECLARED
+ * entries may even share the URL and every credential, so the entry label
+ * joins the identity too - without it both entries would collapse to one
+ * status-window identity and the second could never report.
+ *
  * Labeled identities live in their own ID namespace
- * (group:labeled:<fingerprint>:<url>); see GROUP_CLIENT_ID_LABELED_SEGMENT
- * for why the separation is on the output side. Within a fingerprinted
- * branch the material is JSON-encoded before hashing - the API key is
- * free-form, so a delimiter join would let two different credential sets
- * serialize identically. The unlabeled plain branch hashes the raw API key
- * so those identities survive credential-field additions and encoding
- * changes unchanged (pinned by test), and the unlabeled credentialed branch
- * carries its own namespace segment (group:cred:<fingerprint>:<url>) so a
- * bare API key spelling that branch's JSON text cannot collide with it. A
- * plain group without a label (external, adopted, or created before labels
- * flowed) keeps the exact pre-label identity, so nobody else's identity
- * churns. Rotating any part mints a new identity: the group double-counts
- * in the status window for one cycle until the old identity ages out, which
- * self-heals.
+ * (group:labeled:<fingerprint>:<url>), and within a fingerprinted branch the
+ * material is JSON-encoded before hashing, since a delimiter join would let
+ * two different credential sets serialize identically. The unlabeled plain
+ * branch hashes the raw API key so those identities survive credential-field
+ * additions unchanged (pinned by test), and the unlabeled credentialed branch
+ * carries its own namespace segment so a bare API key spelling that branch's
+ * JSON text cannot collide with it. Rotating any part mints a new identity:
+ * the group double-counts in the status window for one cycle until the old
+ * identity ages out.
  */
 export function groupClientId(server: GroupServer): string {
 	if (server.label !== undefined) {
@@ -300,11 +288,10 @@ export function parseGroupConfiguration(configuration: unknown, log?: NarrowLog)
  * fills it with the group name.
  *
  * The destructure below is a canary, not round-trip safety: when GroupServer
- * grows an optional field (a required one already breaks every hand-written
- * copy through the return type), the `unconsumed` assignment stops compiling
- * and forces a visit to this seam. The real work then happens in the copies
- * that cannot carry such a guard - parseAttachedServer's re-narrowing below
- * and the ServerConnection copies on the request path.
+ * grows an optional field, the `unconsumed` assignment stops compiling and
+ * forces a visit to this seam. The real work then happens in the copies that
+ * cannot carry such a guard - parseAttachedServer and the ServerConnection
+ * copies on the request path.
  */
 export function attachGroupServer(info: PreAttachModelInfo, server: GroupServer): AttachedModelInfo {
 	const { detail: _detail, ...rest } = info;
@@ -328,13 +315,11 @@ export function attachGroupServer(info: PreAttachModelInfo, server: GroupServer)
  * failed serves its last known models with the picker's warning icon and a
  * hover banner instead of vanishing. The signature accepts and returns
  * AttachedModelInfo only, so decorated copies cannot enter the discovery
- * cache, the status window, or a dashboard snapshot - those hold
- * PreAttachModelInfo, and attachment happens on every read, so the next
- * successful sweep clears the decoration by construction. The banner is a
- * fixed classification plus the LAST SUCCESSFUL sync time: anchoring to the
- * success means repeated failures cannot make stale data look freshly
- * checked, and the failure's display string (response-derived text) never
- * rides model metadata into hovers.
+ * cache, the status window, or a dashboard snapshot, and the next successful
+ * sweep clears the decoration by construction. The banner is a fixed
+ * classification plus the LAST SUCCESSFUL sync time: anchoring to the success
+ * means repeated failures cannot make stale data look freshly checked, and the
+ * failure's display string never rides model metadata into hovers.
  */
 export function markStale(infos: readonly AttachedModelInfo[], lastSyncedDisplay: string): AttachedModelInfo[] {
 	const warningText = {
@@ -351,14 +336,13 @@ export function markStale(infos: readonly AttachedModelInfo[], lastSyncedDisplay
  * The LiteLLM facts of one model object, re-validated in a single pass. Model
  * objects come back across the host boundary, so only their shape is
  * trustworthy, not their type; this is the chat path's one parse of
- * `model.litellm`, and everything downstream reads the parsed result instead
- * of narrowing the model again.
+ * `model.litellm`.
  */
 export interface ParsedModelMetadata {
 	/**
 	 * The attached group server, or undefined when the model object carries
 	 * none - a state the provider never serves, which the request path fails
-	 * loudly on (see ChatClient.resolveConnection).
+	 * loudly on.
 	 */
 	readonly server: GroupServer | undefined;
 	readonly supportsPromptCaching: boolean;
@@ -371,11 +355,10 @@ export interface ParsedModelMetadata {
 
 /**
  * Parse a model object's LiteLLM metadata at the host boundary. The attached
- * server's base URL is re-normalized because identity surfaces (groupClientId,
- * the migrated-label lookup) require the normalized form, and the host round
- * trip could hand back anything string-shaped. OAuth and virtual-key
- * sub-objects get the same lenient narrowing as the group configuration:
- * malformed ones degrade to absent.
+ * server's base URL is re-normalized because identity surfaces require the
+ * normalized form and the host round trip could hand back anything
+ * string-shaped. OAuth and virtual-key sub-objects get the same lenient
+ * narrowing as the group configuration: malformed ones degrade to absent.
  */
 export function parseModelMetadata(model: LiteLLMModelInfo, log?: NarrowLog): ParsedModelMetadata {
 	return {
@@ -429,9 +412,7 @@ function modelSupportsAudioInput(model: LiteLLMModelInfo): boolean {
  * The provenance of model.maxOutputTokens, re-validated because model objects
  * come back across the host boundary: only the exact declared markers
  * ("provider" for server-declared, "user" for a capability override) lift the
- * request-side cap; anything else (a missing field, an older extension's
- * metadata) keeps it. Chat requests read this through parseModelMetadata's
- * single parse.
+ * request-side cap; anything else keeps it.
  */
 function modelOutputLimitSource(model: LiteLLMModelInfo): EffectiveOutputLimitSource {
 	const source: unknown = model.litellm?.outputLimitSource;

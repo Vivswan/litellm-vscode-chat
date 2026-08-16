@@ -1,14 +1,12 @@
 /**
  * The settings export/import command surface: the host flows over the pure
- * core in src/extension/settingsTransfer/ (envelope, secretSurgery,
- * exportBuild, importPlan, snapshot). Every dialog and side effect rides the
- * SettingsTransferEnv and prompts seams so the flows are fully fakeable.
+ * core in src/extension/settingsTransfer/. Every dialog and side effect rides
+ * the SettingsTransferEnv and prompts seams so the flows are fully fakeable.
  *
- * Secret rules pinned here: the pre-import snapshot serializes WHOLE
- * (settings half included - the recorded servers value can carry inline
- * secret text) into the one SecretStorage slot, never a file, never
- * globalState, never a log line. Logs stay English and carry classifications
- * and counts only; user-facing outcomes are localized notifications.
+ * Secret rules pinned here: the pre-import snapshot serializes WHOLE (settings
+ * half included - the recorded servers value can carry inline secret text)
+ * into the one SecretStorage slot, never a file, never globalState, never a
+ * log line. Logs stay English and carry classifications and counts only.
  */
 
 import * as os from "node:os";
@@ -414,13 +412,11 @@ function parseFailureMessage(reason: "not-json" | "not-an-export" | "newer-versi
 }
 
 /**
- * The apply step's servers unit, adopt-ordered (see dashboard/adopt.ts):
- * secret writes and stale-blob clears per label first, the single servers
- * array write LAST; on failure every recorded secret value is restored, and
- * a restore failure escalates. `settingsLanded` says whether the non-servers
- * writes before this unit committed, so the failure notice can say so - and
- * a clean rollback with no landed settings changed nothing at all, so it
- * offers no Undo (the caller then puts the previous snapshot back).
+ * The apply step's servers unit, adopt-ordered: secret writes and stale-blob
+ * clears per label first, the single servers array write LAST; on failure every
+ * recorded secret value is restored, and a restore failure escalates.
+ * `settingsLanded` says whether the non-servers writes committed, so a clean
+ * rollback that changed nothing at all can offer no Undo.
  */
 async function applyServersUnit(
 	env: SettingsTransferEnv,
@@ -441,9 +437,7 @@ async function applyServersUnit(
 				}
 				await env.updateServerSecret(write.label, field, value);
 				// Recorded only after the write landed: updateServerSecret's
-				// read-modify-write leaves the blob untouched when it throws, so a
-				// failed field needs no restore - and attempting one could fail
-				// again and escalate over a field that never changed.
+				// read-modify-write leaves the blob untouched when it throws.
 				overwritten.push({ label: write.label, field, previous: storedBefore[field] });
 			}
 		}
@@ -503,9 +497,8 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			await env.prompts.notify("error", l10n.t("LiteLLM: This file is too large to be a settings export (over 5 MB)."));
 			return;
 		}
-		// The leading byte-order mark an editor may add on a round trip is not
-		// part of the JSON grammar; a valid export must not read as "not an
-		// export" because of it.
+		// A leading byte-order mark an editor may add on a round trip is not part
+		// of the JSON grammar; a valid export must not read as "not an export".
 		const text = Buffer.from(await env.readFile(source))
 			.toString("utf8")
 			.replace(/^\uFEFF/, "");
@@ -609,10 +602,9 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 
 		const application = resolveImportPlan(plan, decisions);
 
-		// The merged servers array was computed against the value read before
-		// the prompts; a concurrent edit (another window, Settings Sync) during
-		// those modals would be silently overwritten by the stale merge, so a
-		// changed value aborts before anything is written.
+		// The merged servers array was computed against the value read before the
+		// prompts; a concurrent edit during those modals would be silently
+		// overwritten by the stale merge, so a changed value aborts.
 		if (
 			application.serversValue !== undefined &&
 			JSON.stringify(env.settings.readGlobal(SERVERS_SETTING_KEY)) !== JSON.stringify(currentServersRaw)
@@ -627,14 +619,11 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			return;
 		}
 
-		// A run that will write nothing (every entry skipped, no settings keys)
-		// must not touch the slot: overwriting it would destroy the only
-		// recovery path from the PREVIOUS import, in a run the user
-		// experienced as a no-op. It also gets no Undo action below.
+		// A run that will write nothing must not touch the slot: overwriting it
+		// would destroy the only recovery path from the PREVIOUS import.
 		const writesNothing = application.settingsWrites.length === 0 && application.serversValue === undefined;
-		// The slot as it was before this run: a run that ends up landing
-		// NOTHING (every write failed, or the servers unit rolled back clean
-		// with no settings landed) puts it back for the same reason.
+		// The slot as it was before this run: a run that lands NOTHING puts it
+		// back for the same reason.
 		let previousSlot: string | undefined;
 		const restorePreviousSlot = async () => {
 			try {
@@ -651,8 +640,7 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 		};
 		if (!writesNothing) {
 			previousSlot = await env.readSnapshotSlot();
-			// Snapshot FIRST: the whole pre-import state (key-absent recorded as
-			// absent, touched labels' previous blobs) into the one SecretStorage
+			// Snapshot FIRST: the whole pre-import state into the one SecretStorage
 			// slot. A failed snapshot write means nothing is applied.
 			const snapReader = env.settings.snapshotReader();
 			const snapshot = await buildPreImportSnapshot(
@@ -694,11 +682,9 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 				writtenSettings > 0
 			);
 			if (outcome !== "landed") {
-				// A clean rollback with no landed settings changed nothing: the
-				// fresh snapshot guards a state identical to the previous one, so
-				// the previous import's recovery path comes back. A failed
-				// rollback left secrets changed - the fresh snapshot stays, and
-				// the unit's notification already offered Undo.
+				// A clean rollback with no landed settings changed nothing, so the
+				// previous import's recovery path comes back. A failed rollback left
+				// secrets changed, so the fresh snapshot stays.
 				if (outcome === "rolled-back" && writtenSettings === 0) {
 					await restorePreviousSlot();
 				}
@@ -707,9 +693,8 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 		}
 		env.requestServerSync();
 
-		// Nothing survived (no servers in the file, every settings write
-		// failed): same as a no-op run, the previous snapshot comes back and
-		// there is nothing to undo.
+		// Nothing survived: same as a no-op run, the previous snapshot comes
+		// back and there is nothing to undo.
 		const landedAnything = writtenSettings > 0 || application.serversValue !== undefined;
 		if (!writesNothing && !landedAnything) {
 			await restorePreviousSlot();
@@ -789,8 +774,8 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 /**
  * Strict revalidation of the persisted snapshot slot: the slot is
  * extension-owned and only ever written by buildPreImportSnapshot, so ANY
- * deviation from that shape is corruption, and a corrupted snapshot must
- * never drive settings writes or blob deletions. Undefined means unusable.
+ * deviation is corruption, and a corrupted snapshot must never drive settings
+ * writes or blob deletions. Undefined means unusable.
  */
 function parseSnapshotSlot(serialized: string): PreImportSnapshot | undefined {
 	let parsed: unknown;
@@ -805,22 +790,19 @@ function parseSnapshotSlot(serialized: string): PreImportSnapshot | undefined {
 	const settings: Record<string, SnapshotEntry<unknown>> = {};
 	for (const [key, entry] of Object.entries(parsed.settings)) {
 		// The builder walks ALL_SETTING_KEYS exclusively; a key outside the
-		// vocabulary would drive writeGlobal on a configuration key VS Code
-		// does not know, failing identically on every retry.
+		// vocabulary would drive writeGlobal on a key VS Code does not know.
 		if (!ALL_SETTING_KEYS.includes(key) || !isRecord(entry) || typeof entry.present !== "boolean") {
 			return undefined;
 		}
-		// A present entry always carries its value and an absent one never does
-		// (settings values are JSON, never undefined); either mismatch would
-		// restore the opposite of what the snapshot recorded.
+		// A present entry always carries its value and an absent one never does;
+		// either mismatch would restore the opposite of what was recorded.
 		if (entry.present !== "value" in entry) {
 			return undefined;
 		}
 		settings[key] = entry.present ? { present: true, value: entry.value } : { present: false };
 	}
-	// The builder records EVERY vocabulary key (present or absent); a partial
-	// record is corruption, and restoring it would silently leave the missing
-	// keys at their import-written values.
+	// The builder records EVERY vocabulary key; a partial record is corruption,
+	// and restoring it would leave the missing keys at their import values.
 	for (const key of ALL_SETTING_KEYS) {
 		if (!Object.hasOwn(settings, key)) {
 			return undefined;
@@ -828,9 +810,8 @@ function parseSnapshotSlot(serialized: string): PreImportSnapshot | undefined {
 	}
 	const blobs: Record<string, SnapshotEntry<StoredServerSecrets>> = {};
 	for (const [label, entry] of Object.entries(parsed.blobs)) {
-		// Real labels are always trimmed, non-empty, and non-reserved
-		// (rawDeclaredLabels' rule); anything else would write a SecretStorage
-		// key no server entry can ever read.
+		// Real labels are always trimmed, non-empty, and non-reserved; anything
+		// else would write a SecretStorage key no server entry can ever read.
 		if (
 			label.length === 0 ||
 			label.trim() !== label ||
@@ -852,9 +833,9 @@ function parseSnapshotSlot(serialized: string): PreImportSnapshot | undefined {
 		if (!isRecord(entry.value)) {
 			return undefined;
 		}
-		// The builder only ever stores non-empty SECRET_FIELD_IDS strings, and
-		// records an empty blob as absent; anything else would restore a blob
-		// that never existed (or silently drop part of one that did).
+		// The builder only ever stores non-empty SECRET_FIELD_IDS strings and
+		// records an empty blob as absent; anything else would restore a blob that
+		// never existed.
 		const fields = Object.entries(entry.value);
 		if (fields.length === 0) {
 			return undefined;
@@ -910,12 +891,9 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 		if (!(await env.prompts.confirmUndo(snapshot.at))) {
 			return;
 		}
-		// What the restore reconnects, computed BEFORE anything changes: the
-		// pre-undo state against the snapshot's, each side over its own blobs
-		// (a label the import never touched keeps its current blob on both
-		// sides). The host group API is add-only, so a reverted connection
-		// change cannot be reconciled by the trailing sync - the affected row
-		// shows the recreate steps, and the summary says so up front.
+		// What the restore reconnects, computed BEFORE anything changes. The host
+		// group API is add-only, so a reverted connection change cannot be
+		// reconciled by the trailing sync - the affected row shows the steps.
 		const currentServersRaw = env.settings.readGlobal(SERVERS_SETTING_KEY);
 		const serversEntry = snapshot.settings[SERVERS_SETTING_KEY];
 		const targetServersRaw = serversEntry?.present === true ? serversEntry.value : undefined;
@@ -935,13 +913,9 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 		).length;
 
 		let failures = 0;
-		// Restore order mirrors the import's adopt ordering, for the same
-		// reason: SecretStorage writes never wake the sync engine, the servers
-		// settings write does. With the blobs restored first, the engine wakes
-		// (via the config-change listener) to a fully consistent pre-import
-		// state instead of restored entries over import-written secrets. The
-		// closing requestServerSync covers a settings write that fires no
-		// config event (an unchanged value) and blob-only restores.
+		// Restore order mirrors the import's adopt ordering: SecretStorage writes
+		// never wake the sync engine, the servers settings write does, so blobs
+		// restore first and the engine wakes to a consistent pre-import state.
 		for (const write of restore.blobWrites) {
 			try {
 				// Field by field, absent fields cleared, so the blob is restored WHOLE.
@@ -960,10 +934,9 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 			}
 		}
 		if (failures > 0) {
-			// Stop before the settings phase: writing the servers setting now
-			// would wake the sync engine against partially restored credentials,
-			// and nothing has woken it so far (blob writes fire no config event).
-			// The slot is kept, so a retry finishes the job.
+			// Stop before the settings phase: writing the servers setting now would
+			// wake the sync engine against partially restored credentials. The slot
+			// is kept, so a retry finishes the job.
 			env.log("Undo import: some blob restores failed; the settings phase was not started", { failures });
 			await notifyKeptSnapshot(env, failures);
 			return;

@@ -2,23 +2,19 @@ import { pbkdf2Sync } from "node:crypto";
 import { z } from "zod";
 
 /**
- * The branded output of fingerprint(). A compile-time guard only: it keeps
- * raw secret material out of fingerprint-typed fields (a plain apiKey string
- * cannot be assigned where a Fingerprint is required), while persisted
- * strings re-enter through this schema shape-checked exactly as loosely as
- * they always were - the brand asserts provenance in the type system, not a
- * runtime format.
+ * The branded output of fingerprint(). A compile-time guard only: it keeps raw
+ * secret material out of fingerprint-typed fields, while persisted strings
+ * re-enter shape-checked exactly as loosely as before. The brand asserts
+ * provenance in the type system, not a runtime format.
  */
 export const fingerprintSchema = z.string().brand<"Fingerprint">();
 
 export type Fingerprint = z.infer<typeof fingerprintSchema>;
 
 /**
- * The salt every fingerprint() call is keyed by. Set exactly once per
- * process: activation loads it from SecretStorage before anything computes a
- * fingerprint (see extension/fingerprintSalt.ts for the lifecycle, including
- * the never-regenerate rule and the session-only fallback). Never logged and
- * never readable back out of this module.
+ * The salt every fingerprint() call is keyed by. Set exactly once per process:
+ * activation loads it from SecretStorage before anything computes a
+ * fingerprint. Never logged and never readable back out of this module.
  */
 let activeSalt: string | undefined;
 

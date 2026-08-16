@@ -2,17 +2,14 @@
  * The Resolved-models view builder: the Diagnostics tab's two renderings of
  * the precomputed resolution - the matcher-key inheritance trees and the flat
  * per-model provenance table - computed extension-side from the SAME
- * resolvers the request path and registration run (through the provider's
- * shared flat table when the query carries one), so what the tab shows is
+ * resolvers the request path and registration run, so what the tab shows is
  * exactly what will be sent.
  *
- * The tree is drawn against the live model set (docs/dashboard.md's honesty
- * note): each record nests under the record that most often precedes it in
- * the per-model matching chains, models leaf under their most specific
- * match, and records no current model matches sit at the root with no
- * leaves. Everything out is serializable data for the resolvedModels
- * response; the view is local to the dashboard and never enters issue
- * reports.
+ * The tree is drawn against the live model set: each record nests under the
+ * record that most often precedes it in the per-model matching chains, models
+ * leaf under their most specific match, and records no current model matches
+ * sit at the root with no leaves. Everything out is serializable data; the
+ * view is local to the dashboard and never enters issue reports.
  */
 
 import { formatJsonValue } from "../../dashboard/presenters";
@@ -67,8 +64,7 @@ export interface ResolvedModelsQuery {
 	/**
 	 * The declared entries' own record maps, straight from the setting: the
 	 * entry TREES draw from these so an entry whose server currently serves
-	 * zero models still renders its records (with empty leaves) instead of
-	 * vanishing from the view.
+	 * zero models still renders its records (with empty leaves).
 	 */
 	readonly declared: readonly Pick<DeclaredServerView, "label" | "modelParameters" | "modelCapabilities">[];
 	readonly catalog: CapabilityCatalogLookup;
@@ -117,9 +113,8 @@ function nodeFields(parsed: ParsedRecord): RecordTreeNode["fields"] {
 /**
  * One record map's matching chain for a model, as the inspectors' inheritance
  * figure renders it: matchChain's order (broadest first, the winner last)
- * with each record's inheritance display facts. The readModelParameters and
- * readModelCapabilities responders reuse this so the figure cannot drift from
- * the Diagnostics trees, which read the same inheritDisplay.
+ * with each record's inheritance display facts. The read responders reuse
+ * this so the figure cannot drift from the Diagnostics trees.
  */
 function recordChainLinks(
 	rawId: string,
@@ -147,10 +142,9 @@ export interface ModelRecordChainsQuery {
 /**
  * One model's matching chains for the inspectors' inheritance figure, in the
  * figure's one reading direction - lower precedence first, winner last: the
- * global map's chain above the entry map's (entry beats global), each chain
- * itself broadest first. Maps that match nothing contribute no chain; a stale
- * scope key or a model no longer in its snapshot resolves to none, like the
- * responders.
+ * global map's chain above the entry map's, each chain itself broadest first.
+ * Maps that match nothing contribute no chain; a stale scope key or a model no
+ * longer in its snapshot resolves to none.
  */
 export function resolveModelRecordChains(
 	query: ModelRecordChainsQuery,
@@ -183,7 +177,7 @@ export function resolveModelRecordChains(
 					normalizeModelCapabilities(query.reader.get(MODEL_CAPABILITIES_SETTING_KEY)),
 					query.resolveEntryCapabilities(serverId),
 					// The capability resolver hands back only the record; the entry's
-					// label is the group's (the same join the resolver keys on).
+					// label is the group's.
 					labeled.snapshot.status.label,
 					(record: Readonly<Record<string, unknown>>) => parseCapabilityRecord(record),
 				] as const);
@@ -440,10 +434,9 @@ export function buildResolvedModelsView(query: ResolvedModelsQuery): ResolvedMod
 			)
 		);
 	}
-	// Entry trees draw from the DECLARED views, never from the live model
-	// set: an entry whose server serves zero models right now must still
-	// render its records (empty-leaved) rather than vanish. Its models, when
-	// any exist, join by the resolved entry label.
+	// Entry trees draw from the DECLARED views, never from the live model set:
+	// an entry whose server serves zero models right now must still render its
+	// records. Its models, when any exist, join by the resolved entry label.
 	let entryRecordCount = 0;
 	for (const view of query.declared) {
 		const entryModels = models.filter((candidate) => candidate.entryLabel === view.label).map((m) => ({ id: m.rawId }));

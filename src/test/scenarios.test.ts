@@ -3,10 +3,9 @@ import type { Scenario } from "./scenarios";
 import { isScenario, MAX_SCENARIO_ITEMS, MAX_STALL_MS } from "./scenarios";
 
 /**
- * Boundary pins for the PUT /_test/custom-scenario validator: every cap and
- * enum here is what keeps a runtime registration from wedging the fake
- * backend, so each boundary gets an accept on one side and a reject on the
- * other.
+ * Boundary pins for the PUT /_test/custom-scenario validator: every cap and enum
+ * here is what keeps a runtime registration from wedging the fake backend, so
+ * each boundary gets an accept on one side and a reject on the other.
  */
 
 const validRaw = {
@@ -80,9 +79,9 @@ suite("scenarios: isScenario boundaries", () => {
 	});
 
 	test("raw frames must be byte strings: entries with code points above 0xFF are rejected at registration", () => {
-		// Frames are written as latin1 (one char, one byte); a code point above
-		// 0xFF cannot be a byte and would silently mojibake on the wire. Authors
-		// pre-encode: Buffer.from(utf8).toString("latin1") passes.
+		// Frames are written as latin1, one char per byte, so a code point above
+		// 0xFF would silently mojibake on the wire. Authors pre-encode:
+		// Buffer.from(utf8).toString("latin1") passes.
 		assert.strictEqual(isScenario({ ...validRaw, frames: ["caf\u00e9"] }), true, "0xFF and below are bytes");
 		assert.strictEqual(isScenario({ ...validRaw, frames: ["caf\u0113"] }), false, "U+0113 is not a byte");
 		assert.strictEqual(isScenario({ ...validRaw, frames: ["ok", 42] }), false, "non-strings are rejected");

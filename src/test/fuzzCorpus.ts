@@ -1,11 +1,9 @@
 /**
- * Corpus of generated streams that once failed the fuzzer. Entries replay at
- * the start of every fuzz run, before the random iterations, so a bug found
- * by a nightly seed stays found after the generator itself changes.
- *
- * To add an entry: take the "minimal failing events" JSON from the failure
- * report (the fuzzer shrinks failures automatically) and append it here with
- * a name referencing the issue.
+ * Corpus of generated streams that once failed the fuzzer. Entries replay at the
+ * start of every fuzz run, before the random iterations, so a bug found by a
+ * nightly seed stays found after the generator itself changes. To add one, take
+ * the "minimal failing events" JSON from the failure report and append it here
+ * with a name referencing the issue.
  */
 
 export interface ExpectedToolCall {
@@ -24,9 +22,8 @@ export interface FuzzEvent {
 	/** Visible text this event appends, in stream order. */
 	text?: string;
 	/**
-	 * Thinking text this event must surface as thinking parts (the pinned
-	 * host exposes the thinking-part class, so reasoning deltas emit them).
-	 * Asserted only when at least one event of the stream declares it.
+	 * Thinking text this event must surface as thinking parts. Asserted only when
+	 * at least one event of the stream declares it.
 	 */
 	thinking?: string;
 	/** Tool calls this event must produce. */
@@ -42,9 +39,9 @@ export interface FuzzEvent {
 export interface CorpusEntry {
 	name: string;
 	/**
-	 * Which fuzz target may replay this entry. Direct-mode repros can carry
-	 * shapes the proxy rejects outright (lone surrogates, malformed chunks),
-	 * so a direct failure must never replay through the proxy.
+	 * Which fuzz target may replay this entry. Direct-mode repros can carry shapes
+	 * the proxy rejects outright, so a direct failure must never replay through
+	 * the proxy.
 	 */
 	mode: "proxy" | "direct" | "both";
 	events: FuzzEvent[];
@@ -57,10 +54,9 @@ function chunk(delta: Record<string, unknown>): unknown {
 
 export const FUZZ_CORPUS: CorpusEntry[] = [
 	{
-		// The #215 guard's false-positive direction, end to end: a stream that is
-		// nothing but reasoning must resolve cleanly (the pinned host displays
-		// thinking parts), never trip the reasoning-only error, and never leak
-		// reasoning into visible text. All three delta shapes ride along.
+		// The #215 guard's false-positive direction: a stream that is nothing but
+		// reasoning must resolve cleanly, never trip the reasoning-only error, and
+		// never leak reasoning into visible text. All three delta shapes ride along.
 		name: "issue-215-reasoning-only",
 		mode: "both",
 		events: [
@@ -80,10 +76,8 @@ export const FUZZ_CORPUS: CorpusEntry[] = [
 	},
 	{
 		// The exact wire shape the #215 report used: reasoning deltas with no
-		// top-level id/object and no choice index. parseChunk's leniency on this
-		// shape is pinned as unit examples; this replays it over a real socket.
-		// Direct only: the proxy normalizes chunk envelopes, so an id-less repro
-		// must never replay through it.
+		// top-level id/object and no choice index, replayed over a real socket.
+		// Direct only: the proxy normalizes chunk envelopes.
 		name: "issue-215-reasoning-no-chunk-id",
 		mode: "direct",
 		events: [
@@ -98,9 +92,9 @@ export const FUZZ_CORPUS: CorpusEntry[] = [
 		],
 	},
 	{
-		// Emission accounting: a stream whose only reportable output is a tool
-		// call (after reasoning) must resolve with the call, not trip the
-		// reasoning-only error. assemble() appends finish_reason "tool_calls".
+		// Emission accounting: a stream whose only reportable output is a tool call
+		// (after reasoning) must resolve with the call, not trip the
+		// reasoning-only error.
 		name: "issue-215-reasoning-then-tool-call-only",
 		mode: "both",
 		events: [
@@ -150,12 +144,10 @@ export const FUZZ_CORPUS: CorpusEntry[] = [
 ];
 
 /**
- * Corpus for the settings-redesign migration fuzzer
- * (extension/migrations/settingsRedesign.property.test.ts): old-world
- * configuration snapshots that once failed an invariant. Entries replay at
- * the start of every fuzz run, before the random iterations. To add one,
- * take the shrunken counterexample's snapshot from the failure report and
- * append it here with a name referencing the issue.
+ * Corpus for the settings-redesign migration fuzzer: old-world configuration
+ * snapshots that once failed an invariant, replayed before the random
+ * iterations. To add one, take the shrunken counterexample's snapshot from the
+ * failure report and append it with a name referencing the issue.
  */
 export interface MigrationCorpusEntry {
 	name: string;

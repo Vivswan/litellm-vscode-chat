@@ -1,11 +1,10 @@
 /**
- * The capability display helpers: the $/M cost formatter's rounding rules
- * (pinned - both inspectors render through it) and the consumed-field label
- * coverage. The formatter contract: zero is "$0", a dollar and up rounds to
- * cents, sub-dollar values keep three significant digits with trailing zeros
- * trimmed but never below two decimals, and NOTHING ever renders in
- * scientific notation - the raw wire values (5e-7) stringify exponentially,
- * which is exactly the regression this pins against.
+ * The capability display helpers: the $/M cost formatter's rounding rules (both
+ * inspectors render through it) and the consumed-field label coverage. The
+ * formatter contract: zero is "$0", a dollar and up rounds to cents, sub-dollar
+ * values keep three significant digits with trailing zeros trimmed but never
+ * below two decimals, and NOTHING ever renders in scientific notation - the raw
+ * wire values (5e-7) stringify exponentially, the regression this pins against.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";

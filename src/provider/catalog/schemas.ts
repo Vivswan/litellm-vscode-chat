@@ -8,20 +8,14 @@ import { z } from "zod";
  * only their name, and unknown keys pass through everywhere.
  */
 
-/**
- * Where a model's effective max output tokens came from: declared by the
- * server (safe to send as-is) or filled in by the configured defaults (a
- * guess, so requests stay under the conservative cap).
- */
+/** Server-declared (safe to send as-is) or filled from the defaults (a guess, so requests stay under the cap). */
 export type OutputLimitSource = "provider" | "defaults";
 
 /**
- * A single underlying provider (e.g., together, groq) for a model.
- * Capability metadata read from the LiteLLM API: what the model CAN do, not
- * what we ask it to do (request parameters come from the modelParameters
- * configuration). Only `provider` is validated on the wire; discovery
- * re-narrows the four base cost fields and authors the internal markers
- * (output_limit_source, long-context costs), and the remaining
+ * A single underlying provider (e.g. together, groq) for a model: capability
+ * metadata read from the LiteLLM API - what the model CAN do, not what we ask
+ * it to do. Only `provider` is validated on the wire; discovery re-narrows the
+ * four base cost fields and authors the internal markers, and the remaining
  * fields are typed reads of the passed-through entry.
  */
 export interface LiteLLMProvider {
@@ -35,45 +29,30 @@ export interface LiteLLMProvider {
 	max_output_tokens?: number | null | undefined;
 	/**
 	 * Set by deployment merging, which stores effective (possibly
-	 * defaults-derived) limits back into max_tokens/max_output_tokens: those
-	 * stored values keep the merged advertisement honest but only count as
-	 * server-declared when every merged deployment declared its own limit.
-	 * Absent on unmerged providers, whose limit fields are the server's.
+	 * defaults-derived) limits back into max_tokens/max_output_tokens; they
+	 * count as server-declared only when every merged deployment declared its
+	 * own. Absent on unmerged providers, whose limit fields are the server's.
 	 */
 	output_limit_source?: OutputLimitSource | undefined;
-	/** True if the upstream model advertises prompt caching support. */
 	supports_prompt_caching?: boolean | null | undefined;
-	/** True if the upstream model supports structured output / response_format schema. */
 	supports_response_schema?: boolean | null | undefined;
-	/** True if the upstream model supports reasoning/thinking. */
 	supports_reasoning?: boolean | null | undefined;
-	/** True if the upstream model supports PDF input. */
 	supports_pdf_input?: boolean | null | undefined;
-	/** List of OpenAI-compatible parameters the model supports. */
 	supported_openai_params?: string[] | null | undefined;
 	/**
-	 * The reasoning effort levels the report's per-level
-	 * `supports_<level>_reasoning_effort` flags mark true, synthesized by
-	 * discovery (reasoningEffortLevelsFromFlags in modelConfiguration.ts holds
-	 * the scan and order rules). Like the long-context costs these never pass
-	 * through raw: discovery authors them on every provider it normalizes, so
-	 * a wire entry cannot forge the list past the flags.
+	 * Synthesized by discovery from the report's per-level
+	 * `supports_<level>_reasoning_effort` flags. Never passes through raw, so a
+	 * wire entry cannot forge the list past the flags.
 	 */
 	reasoning_effort_levels?: string[] | null | undefined;
 	/** Cost per input token as LiteLLM reports it; registration converts it to a per-million display cost. */
 	input_cost_per_token?: number | null | undefined;
-	/** Cost per output token. */
 	output_cost_per_token?: number | null | undefined;
-	/** Cost per cached-read input token. */
 	cache_read_input_token_cost?: number | null | undefined;
-	/** Cost per cache-write input token. */
 	cache_creation_input_token_cost?: number | null | undefined;
 	/**
 	 * Long-context tier costs, synthesized by discovery from LiteLLM's
-	 * threshold-suffixed cost keys (input_cost_per_token_above_200k_tokens and
-	 * friends); longContextCosts in discovery.ts holds the selection rule.
-	 * Unlike the base costs above these never pass through raw: discovery
-	 * authors them on every provider it normalizes.
+	 * threshold-suffixed cost keys; never pass through raw.
 	 */
 	long_context_input_cost_per_token?: number | null | undefined;
 	long_context_output_cost_per_token?: number | null | undefined;
@@ -81,7 +60,6 @@ export interface LiteLLMProvider {
 	long_context_cache_creation_input_token_cost?: number | null | undefined;
 }
 
-/** Architecture information for a model. */
 export interface LiteLLMArchitecture {
 	input_modalities?: string[];
 	output_modalities?: string[];
@@ -104,11 +82,7 @@ export type ModelShape =
 	| { readonly kind: "bare" }
 	| { readonly kind: "group"; readonly providers: readonly [LiteLLMProvider, ...LiteLLMProvider[]] };
 
-/**
- * Normalized model entry used internally after discovery. Both discovery
- * endpoints are narrowed and normalized into this shape; `shape` carries the
- * registration-relevant provider data.
- */
+/** Normalized model entry after discovery; `shape` carries the registration-relevant provider data. */
 export interface LiteLLMModelItem {
 	id: string;
 	shape: ModelShape;
@@ -116,12 +90,9 @@ export interface LiteLLMModelItem {
 }
 
 /**
- * Whether a provider entry's capability data says the model can call tools.
  * Missing or null counts as supported - only an explicit false is a veto -
  * because pass-through entries rarely declare the flag and silently losing
- * tool calling is the worse failure. The one home of the
- * `supports_tools !== false` convention; supportsReasoningEffort in
- * modelConfiguration.ts explains why vetoes work this way.
+ * tool calling is the worse failure. The one home of that convention.
  */
 export function supportsTools(provider: LiteLLMProvider): boolean {
 	return provider.supports_tools !== false;
@@ -129,9 +100,8 @@ export function supportsTools(provider: LiteLLMProvider): boolean {
 
 /**
  * Raw models-listing entry from either endpoint: `id` must be a string and
- * `providers`, when present, must be an array (/v1/models items omit it).
- * Element contents stay unvalidated here; provider entries are narrowed
- * individually so one malformed entry drops alone.
+ * `providers`, when present, an array. Element contents stay unvalidated here;
+ * provider entries are narrowed individually so one malformed entry drops alone.
  */
 export const rawModelItemSchema = z.looseObject({
 	id: z.string(),
@@ -155,11 +125,7 @@ function firstNonEmptyString(...candidates: unknown[]): string | undefined {
 	return undefined;
 }
 
-/**
- * A declared field parses leniently: a malformed value degrades to undefined
- * instead of dropping the whole entry, preserving the never-lose-a-model rule
- * while keeping the reads downstream typed.
- */
+/** A malformed value degrades to undefined instead of dropping the whole entry, keeping downstream reads typed. */
 const lenient = <T extends z.ZodType>(schema: T) => schema.optional().catch(undefined);
 
 /** Capability flags arrive as booleans, or an explicit null meaning unknown. */
@@ -168,10 +134,8 @@ const lenientFlag = lenient(z.boolean().nullable());
 const lenientLimit = lenient(z.union([z.number(), z.string()]).nullable());
 /**
  * Per-token costs are JSON numbers; normalizeCostPerToken re-narrows sign and
- * finiteness at mapping. Long-context tiers arrive as threshold-suffixed
- * variants of the cost keys (e.g. input_cost_per_token_above_200k_tokens) and
- * are read dynamically from the loose pass-through, so they carry no
- * declarations here.
+ * finiteness at mapping. Long-context tiers are read dynamically from the
+ * loose pass-through, so they carry no declarations here.
  */
 const lenientCost = lenient(z.number().nullable());
 
@@ -181,9 +145,8 @@ const modelInfoFieldsSchema = z.looseObject({
 	/** True when the proxy has paused this deployment; blocked deployments must not register. */
 	blocked: lenientFlag,
 	/**
-	 * LiteLLM's endpoint discriminator (chat, embedding, image_generation,
-	 * ...). Discovery skips the provably non-chat values; absent or
-	 * unrecognized modes register as always.
+	 * LiteLLM's endpoint discriminator. Discovery skips the provably non-chat
+	 * values; absent or unrecognized modes register as always.
 	 */
 	mode: lenient(z.string()),
 	max_tokens: lenientLimit,
@@ -214,10 +177,9 @@ const modelInfoFieldsSchema = z.looseObject({
 });
 
 /**
- * Raw /v1/model/info entry: any object carrying at least one usable model
- * identifier among model_name, litellm_params.model, model_info.key, and
- * model_info.id, in that documented priority order. The transform resolves
- * that identifier once and carries it as `modelId`, so the mapping step is
+ * Raw /v1/model/info entry: any object carrying a usable identifier among
+ * model_name, litellm_params.model, model_info.key, model_info.id, in that
+ * priority order. The transform resolves it once as `modelId` so mapping is
  * total; every other declared field degrades to undefined when malformed
  * rather than dropping the entry.
  */
@@ -245,9 +207,9 @@ export const rawModelInfoItemSchema = z
 export type LiteLLMModelInfoItem = z.infer<typeof rawModelInfoItemSchema>;
 
 /**
- * The declared model_info fields without looseObject's pass-through index
- * signature. Test builders type against this so a renamed field fails the
- * build instead of silently becoming an unexercised pass-through key.
+ * The declared model_info fields without looseObject's index signature. Test
+ * builders type against this so a renamed field fails the build instead of
+ * silently becoming an unexercised pass-through key.
  */
 export type ModelInfoFields = Pick<
 	z.infer<typeof modelInfoFieldsSchema>,

@@ -2,9 +2,8 @@
  * The parameters-resolution unit pins: the two canonical worked examples from
  * docs/models.md#which-record-applies (the barrier family and the
  * exclusive-list bypass), the entry-over-global merge, `_force` across both
- * layers, the max_tokens derivation, and the inspector projection. The
- * matcher grammar and the inheritance engine have their own suites
- * (modelMatcher.test.ts, recordResolution.test.ts); the seed-pinned
+ * layers, the max_tokens derivation, and the inspector projection. The matcher
+ * grammar and the inheritance engine have their own suites; the seed-pinned
  * equivalence property pins the projection against buildRequestBody.
  */
 import { describe, test } from "bun:test";
@@ -19,10 +18,7 @@ import {
 	resolveModelParameters,
 } from "../../../../shared/config/parameterResolution";
 
-/**
- * The docs' worked example, verbatim: the same family configured two ways.
- * Every row of the results table below is pinned against this record.
- */
+/** The docs' worked example, verbatim: the same family configured two ways. */
 const WORKED_EXAMPLE: ModelParametersRecord = {
 	"*": { temperature: 0.7, top_p: 0.9, _inheritable: true },
 	"gpt-5*": { temperature: 0.3, _inheritable: true, _inherit_from: false },

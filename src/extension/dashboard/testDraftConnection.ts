@@ -1,18 +1,16 @@
 /**
  * The testServerDraft intent's apply path: resolve the draft's credentials
  * (secret directives included, so a "keep" reads the stored value exactly the
- * way a save would - the shared readKeepSources/resolveKeptSecret helpers in
- * saveServer.ts) and run one discovery probe against them.
+ * way a save would, through saveServer.ts's shared helpers) and run one
+ * discovery probe against them.
  *
  * Read-only by contract: no settings write, no provider-group or status
  * mutation, no cross-probe caching, and the resolved credential values flow
  * into the probe's request headers only - never a log line, never a message.
- * The probe itself (createDraftConnectionProbe) rides the production
- * discovery machinery: a throwaway ChatClient per call, which brings the
- * OAuth token exchange, the virtual-key header, the draft's custom headers
- * (the payload's parsed rows, exactly what a save would write), the
- * discovery.timeout hard bound, and the idempotent-GET retry budget - and
- * whose per-instance caches die with the call.
+ * The probe rides the production discovery machinery through a throwaway
+ * ChatClient per call, so the OAuth exchange, virtual-key header, custom
+ * headers, timeout, and retry budget are production's, and the per-instance
+ * caches die with the call.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -34,15 +32,10 @@ import { readKeepSources, resolveKeptSecret } from "./saveServer";
  */
 export interface DraftConnection {
 	readonly baseUrl: string;
-	/**
-	 * The draft's trimmed label, when it has one: what discovery's
-	 * endpoint-declaration hints may name. Identity and header resolution
-	 * never key on it - the probe's injected seams answer regardless.
-	 */
+	/** The draft's trimmed label, when it has one: what discovery's endpoint-declaration hints may name. */
 	readonly label?: string | undefined;
 	/**
-	 * The draft's apiVersion override, resolved through the probe's injected
-	 * per-entry seam like headers; "" is a real value (append nothing).
+	 * The draft's apiVersion override; "" is a real value (append nothing).
 	 * Absent when the draft leaves the mode on auto: the probe then tests the
 	 * auto rule, exactly what a save without the field would use.
 	 */
@@ -51,11 +44,7 @@ export interface DraftConnection {
 	readonly apiKey: string;
 	readonly oauth?: OAuthConfig | undefined;
 	readonly virtualKey?: VirtualKeyConfig | undefined;
-	/**
-	 * The custom headers the probe sends: the draft's parsed header rows
-	 * (empty means none), so the probe tests exactly the configuration a save
-	 * would send.
-	 */
+	/** The draft's parsed header rows (empty means none), so the probe sends what a save would. */
 	readonly headers?: Readonly<Record<string, string>> | undefined;
 	/** The draft's expectedFailures in discovery's per-endpoint shape: expected endpoints probe with a single attempt, like production. */
 	readonly expected?: ExpectedDiscoveryFailures | undefined;
@@ -70,10 +59,9 @@ function trimmedOptional(value: string | undefined): string | undefined {
 /**
  * A draft probe's outcome, for the success notice intents.ts composes.
  * "connected" carries the total the saved entry would register (discovered
- * plus declared models discovery does not list - inert declarations do
- * not double-count); "expected-failure" means discovery failed in a category
- * the draft's expectedFailures declares, so the outcome is the declared
- * models the entry would serve anyway, not a hard failure.
+ * plus declared models discovery does not list); "expected-failure" means
+ * discovery failed in a category the draft's expectedFailures declares, so
+ * the outcome is the declared models the entry would serve anyway.
  */
 export type DraftProbeOutcome =
 	| { readonly kind: "connected"; readonly modelCount: number; readonly declaredCount: number }
@@ -81,9 +69,8 @@ export type DraftProbeOutcome =
 
 /**
  * The declared model IDs the SAVED entry would carry: the payload's list
- * trimmed and deduplicated, exactly as the save stores it. The probe must
- * test the draft as typed (docs/dashboard.md: "honors the draft's expected
- * failures and declared models"), not the last-saved state.
+ * trimmed and deduplicated, exactly as the save stores it. The probe tests
+ * the draft as typed, not the last-saved state.
  */
 function draftDeclaredModelIds(payload: readonly string[]): readonly string[] {
 	return [...new Set(payload.map((id) => id.trim()).filter((id) => id.length > 0))];
@@ -96,14 +83,11 @@ function draftDeclaredModelIds(payload: readonly string[]): readonly string[] {
  * secure like the sync engine), enforce the same cross-field pairing rules a
  * save enforces (a partial OAuth or virtual-key configuration would probe
  * unauthenticated and report a lie), and hand the assembled connection to the
- * injected probe. Resolves to the probe outcome (model counts, with the
- * entry's declared models joining the total); a terminal discovery
- * failure in a category the draft's expectedFailures declares resolves to
- * the expected-failure outcome instead of throwing, and every other
- * transport failure is re-thrown as a validation-kind error carrying the
- * transport's specific user-facing message (the same text a server row's
- * error state renders), so the panel boundary logs a classification only,
- * never response text.
+ * injected probe. A terminal discovery failure in a declared expectedFailures
+ * category resolves to the expected-failure outcome instead of throwing;
+ * every other transport failure is re-thrown as a validation-kind error
+ * carrying the transport's user-facing message, so the panel boundary logs a
+ * classification only, never response text.
  */
 export async function applyTestServerDraft(
 	intent: RequestPayload<"testServerDraft">,
@@ -145,13 +129,12 @@ export async function applyTestServerDraft(
 
 	// The save path's pairing rules verbatim (applySaveServerSetting): OAuth is
 	// one unit and the virtual key is both-or-neither. The request path drops
-	// partial configurations silently, so probing one would report a PASS or
-	// FAIL for a configuration the saved entry would never send.
+	// partial configurations silently, so probing one would report a verdict
+	// for a configuration the saved entry would never send.
 	const oauthExtras = oauthClientSecret !== undefined || oauthScopes !== undefined;
 	if ((oauthClientId !== undefined || oauthExtras) && oauthTokenUrl === undefined) {
-		// The "fieldId:" prefix stays an ASCII identifier outside the
-		// translation: sectionFailureText matches it against the internal field
-		// names to route the failure onto the right form section.
+		// The "fieldId:" prefix stays an ASCII identifier outside the translation:
+		// sectionFailureText routes the failure onto the right form section by it.
 		throw new DashboardValidationError(`oauthTokenUrl: ${l10n.t("OAuth needs the token URL and client ID")}`);
 	}
 	if ((oauthTokenUrl !== undefined || oauthExtras) && oauthClientId === undefined) {
@@ -164,8 +147,7 @@ export async function applyTestServerDraft(
 		throw new DashboardValidationError(`virtualKeyHeader: ${l10n.t("name the header that carries the key")}`);
 	}
 
-	// The draft's headers, values normalized to strings as the setting parser
-	// stores them; see DraftConnection.headers.
+	// Header values normalized to strings as the setting parser stores them.
 	const draftHeaders: Readonly<Record<string, string>> = Object.fromEntries(
 		Object.entries(intent.server.headers).map(([name, value]) => [name, String(value)])
 	);
@@ -173,10 +155,9 @@ export async function applyTestServerDraft(
 	const connection: DraftConnection = {
 		baseUrl: intent.server.baseUrl.trim(),
 		// The label rides only so discovery's declaration hints can name the
-		// entry the user is editing; an unlabeled draft leaves it absent.
+		// entry being edited; an unlabeled draft leaves it absent.
 		...(trimmedOptional(intent.server.label) !== undefined ? { label: trimmedOptional(intent.server.label) } : {}),
-		// "" is a real override (append nothing) and must ride the probe;
-		// trimmed like the save writes it, so the probe tests the saved shape.
+		// "" is a real override (append nothing) and must ride the probe.
 		...(intent.server.apiVersion !== undefined ? { apiVersion: intent.server.apiVersion.trim() } : {}),
 		apiKey,
 		...(Object.keys(draftHeaders).length > 0 ? { headers: draftHeaders } : {}),
@@ -211,8 +192,7 @@ export async function applyTestServerDraft(
 		if (error instanceof RequestError) {
 			// A terminal discovery failure is a /models failure; when the draft
 			// expects that category, the outcome mirrors production's non-silent
-			// refresh contract - the declared models the entry would serve
-			// anyway, as a note instead of a hard failure.
+			// refresh contract - the declared models, as a note, not a failure.
 			if (intent.server.expectedFailures.includes("modelListing")) {
 				return {
 					kind: "expected-failure",
@@ -220,13 +200,11 @@ export async function applyTestServerDraft(
 				};
 			}
 			// The transport's message is user-facing by the same convention as a
-			// server row's error state, and forwards verbatim - both its lines,
-			// the human headline and the technical detail the transport composes,
-			// reach the form's test-result footer. Validation-kind because nothing
-			// durable changed (the probe is read-only), so the form stays
-			// editable. The classification (kind, status, setup hint - never text)
-			// rides along so the form can link the matching troubleshooting-guide
-			// section next to the message.
+			// server row's error state and forwards verbatim, both lines.
+			// Validation-kind because nothing durable changed (the probe is
+			// read-only), so the form stays editable. The classification (kind,
+			// status, setup hint - never text) rides along so the form can link
+			// the matching troubleshooting-guide section.
 			throw new DashboardValidationError(error.message, { classification: transportClassificationOf(error) });
 		}
 		throw error;
@@ -239,23 +217,19 @@ const DRAFT_PROBE_SERVER_ID = "dashboard-draft-probe";
 /**
  * The real probe implementation panel.ts wires into the intent environment:
  * one discovery pass through a throwaway ChatClient, so the OAuth exchange,
- * the entry's custom headers (injected below, exactly like activation
- * injects readEntryHeaders), timeout, and retry behavior are all production
- * discovery's, while the instance's client and token caches are discarded
- * with the call.
+ * the entry's custom headers, timeout, and retry behavior are all production
+ * discovery's, while the instance's caches are discarded with the call.
  *
  * Deliberately NO logger: discovery's own debug lines carry endpoint URLs and
  * truncated response snippets, which would land in the issue-report buffer
- * that opens public GitHub issues. The probe is not the provider's refresh
- * boundary, so it logs nothing here; the panel boundary logs the outcome
- * classification once (a validation-kind failure), exactly as it does for the
- * intent layer's other errors.
+ * that opens public GitHub issues. The panel boundary logs the outcome
+ * classification once instead.
  */
 export function createDraftConnectionProbe(
 	context: vscode.ExtensionContext
 ): (connection: DraftConnection) => Promise<readonly string[]> {
 	// The same User-Agent activation composes for the provider; recomputed here
-	// because the probe outlives no request and activation does not export it.
+	// because activation does not export it.
 	const extVersion: string = context.extension.packageJSON?.version ?? "unknown";
 	const userAgent = `litellm-vscode-chat/${extVersion} VSCode/${vscode.version}`;
 	return async (connection) => {
@@ -270,11 +244,9 @@ export function createDraftConnectionProbe(
 				label: DRAFT_PROBE_SERVER_ID,
 				baseUrl: connection.baseUrl,
 				apiKey: connection.apiKey,
-				// The header/apiVersion seams injected above answer whatever label
-				// they are asked about, so this carries the DRAFT's label - what a
-				// declaration hint may name. Empty means "no nameable entry"
-				// (FetchModelsRequest.entryLabel); the synthetic probe ID must
-				// never surface in a user-facing message.
+				// The DRAFT's label - what a declaration hint may name. Empty means
+				// "no nameable entry" (FetchModelsRequest.entryLabel); the synthetic
+				// probe ID must never surface in a user-facing message.
 				entryLabel: connection.label ?? "",
 				...(connection.oauth !== undefined ? { oauth: connection.oauth } : {}),
 				...(connection.virtualKey !== undefined ? { virtualKey: connection.virtualKey } : {}),

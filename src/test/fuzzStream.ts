@@ -4,20 +4,17 @@ import { expectDefined } from "./pureHelpers";
 
 /**
  * Shared stream-fuzzing machinery: the event generators, the assembly oracle,
- * and the seed resolver. Two consumers drive it: the docker fuzzer
- * (docker-fuzz.test.ts) feeds generated streams through a real LiteLLM proxy,
- * and the in-process property suites (streaming.dedup.property.test.ts,
- * streaming.sse.property.test.ts) drive StreamProcessor directly. Keeping the
- * generators and the oracle in one place means a shape either suite finds is
- * expressible as a FuzzEvent[] corpus entry for the other.
+ * and the seed resolver. The docker fuzzer feeds generated streams through a
+ * real LiteLLM proxy and the in-process property suites drive StreamProcessor
+ * directly; keeping generators and oracle together means a shape either suite
+ * finds is expressible as a FuzzEvent[] corpus entry for the other.
  */
 
 /**
  * The seed for fast-check property suites: FUZZ_SEED when set (so the nightly
- * workflow can explore fresh inputs and its issue carries the exact repro),
- * otherwise a pinned default so PR and pre-commit runs stay deterministic.
- * Logged once per process; the nightly failure report greps this line, whose
- * format is owned by fuzzSeed.ts and pinned by fuzzSeed.test.ts.
+ * workflow explores fresh inputs and its issue carries the exact repro),
+ * otherwise a pinned default so PR and pre-commit runs stay deterministic. The
+ * logged line's format is owned by fuzzSeed.ts and pinned by fuzzSeed.test.ts.
  */
 let loggedSeed = false;
 export function resolveFuzzSeed(): number {
@@ -79,9 +76,8 @@ export interface GeneratorState {
 
 export function newGeneratorState(allowSurrogateSplit: boolean): GeneratorState {
 	return {
-		// Loudly unseeded: every construction path must install its own PRNG
-		// (makePropertyEvent/makeTailEvent reseed per event; generateEvents
-		// builds its own state), so a silent fixed stream cannot slip in.
+		// Loudly unseeded: every construction path installs its own PRNG, so a
+		// silent fixed stream cannot slip in.
 		random: () => {
 			throw new Error("GeneratorState.random is unseeded; build events via makePropertyEvent/makeTailEvent");
 		},
@@ -93,10 +89,9 @@ export function newGeneratorState(allowSurrogateSplit: boolean): GeneratorState 
 
 /**
  * Split `text` into 1..4 random slices, possibly mid-token. Cuts between the
- * halves of a surrogate pair only when the mode allows it: the extension
- * reunites lone halves fine (proven in direct mode), but LiteLLM 500s the
+ * halves of a surrogate pair only when the mode allows it: LiteLLM 500s the
  * whole request when a tool-argument fragment carries a lone surrogate, and
- * real providers never emit one (they ASCII-escape unicode in arguments).
+ * real providers never emit one.
  */
 function randomSlices(state: GeneratorState, text: string): string[] {
 	const cuts = Math.floor(state.random() * 4);
@@ -124,8 +119,8 @@ function words(state: GeneratorState, count: number): string {
 
 function toolCallSpec(state: GeneratorState): ExpectedToolCall {
 	const name = expectDefined(TOOL_NAMES[Math.floor(state.random() * TOOL_NAMES.length)]);
-	// The seq field keeps every generated name+args pair unique, so the
-	// cross-channel dedup accounting never collapses two intended calls.
+	// The seq field keeps every generated name+args pair unique, so cross-channel
+	// dedup accounting never collapses two intended calls.
 	const args: Record<string, unknown> = {
 		[expectDefined(WORDS[Math.floor(state.random() * WORDS.length)])]: Math.floor(state.random() * 100),
 		seq: state.toolIndex,
@@ -164,12 +159,11 @@ function textEvent(state: GeneratorState): FuzzEvent {
 	const roll = state.random();
 	let text: string;
 	if (roll < 0.15) {
-		// Unicode: multi-byte characters must survive two serialization hops
-		// and arbitrary slicing (slices can split surrogate pairs into lone
-		// halves per chunk; the decoder must reunite them).
+		// Unicode: multi-byte characters must survive two serialization hops and
+		// arbitrary slicing, including surrogate pairs split across chunks.
 		text = `${expectDefined(UNICODE_WORDS[Math.floor(state.random() * UNICODE_WORDS.length)])} `;
 	} else if (roll < 0.25) {
-		// Long text: one big chunk plus slices, exercising the line buffer.
+		// One big chunk plus slices, exercising the line buffer.
 		text = `${words(state, 1)} `.repeat(50 + Math.floor(state.random() * 200));
 	} else {
 		text = `${words(state, 1 + Math.floor(state.random() * 4))} `;
@@ -192,8 +186,8 @@ function inlineToolEvent(state: GeneratorState): FuzzEvent {
 	const index = state.toolIndex++;
 	const pre = `${words(state, 1)} `;
 	const post = ` ${words(state, 1)} `;
-	// Sliced across chunks at arbitrary positions, including mid-token: the
-	// hold-back logic in the inline parser is exactly what this fuzzes.
+	// Sliced at arbitrary positions, including mid-token: the hold-back logic in
+	// the inline parser is exactly what this fuzzes.
 	const full = pre + inlineCallText(call, index) + post;
 	return {
 		label: "inline-tool",
@@ -238,9 +232,8 @@ function interleavedToolsEvent(state: GeneratorState): FuzzEvent {
 }
 
 function refusalEvent(state: GeneratorState): FuzzEvent {
-	// Direct-mode only: LiteLLM v1.93 drops refusal deltas entirely once the
-	// stream also carries regular content (pure-refusal streams forward fine;
-	// the docker scenario suite pins that).
+	// Direct-mode only: LiteLLM v1.93 drops refusal deltas once the stream also
+	// carries regular content (pure-refusal streams forward fine).
 	const parts = 1 + Math.floor(state.random() * 3);
 	const texts = Array.from({ length: parts }, () => `refused ${words(state, 1)} `);
 	return {
@@ -267,7 +260,7 @@ function citationEvent(state: GeneratorState): FuzzEvent {
  * Reasoning-only streams are legitimate generator output: every fuzz consumer
  * runs in the pinned extension-host build, which exposes
  * LanguageModelThinkingPart, so reasoning emits as thinking parts instead of
- * hitting the reasoning-only empty-response error a ctor-less host throws.
+ * the reasoning-only empty-response error a ctor-less host throws.
  */
 function reasoningEvent(state: GeneratorState): FuzzEvent {
 	const roll = state.random();
@@ -484,13 +477,11 @@ export function generateEvents(random: () => number, directMode: boolean): FuzzE
 // ── Deterministic per-kind construction for the fast-check property suites ───
 
 /**
- * The single source of event kinds and their weights: generateEvents draws
- * from it (direct mode admits the directOnly rows, matching the docker
- * fuzzer's historical distribution exactly), the property suites mirror it
- * through fc.oneof, and the PropertyEventKind union derives from it so a new
- * kind cannot exist without a weight row. Everything the direct docker
- * target generates is valid in-process too: StreamProcessor is the same code
- * with no proxy in front to reject lenient or malformed shapes.
+ * The single source of event kinds and their weights: generateEvents draws from
+ * it, the property suites mirror it through fc.oneof, and PropertyEventKind
+ * derives from it so a new kind cannot exist without a weight row. Everything
+ * the direct docker target generates is valid in-process too: StreamProcessor
+ * is the same code with no proxy in front to reject lenient shapes.
  */
 export const PROPERTY_EVENT_KIND_WEIGHTS = [
 	{ kind: "text", weight: 26, directOnly: false },
@@ -547,10 +538,9 @@ function buildEvent(kind: PropertyEventKind, state: GeneratorState): FuzzEvent {
 }
 
 /**
- * Build one event of the given kind from its own seed, sharing `state` so
- * tool and citation indices stay sequential across the whole stream. Kind and
- * seed are the shrinkable coordinates: fast-check drops whole events and
- * simplifies seeds while this stays a pure function of (kind, seed, position).
+ * Build one event of the given kind from its own seed, sharing `state` so tool
+ * and citation indices stay sequential across the stream. Kind and seed are the
+ * shrinkable coordinates: this stays a pure function of (kind, seed, position).
  */
 export function makePropertyEvent(kind: PropertyEventKind, seed: number, state: GeneratorState): FuzzEvent {
 	state.random = mulberry32(seed);
@@ -569,11 +559,10 @@ export interface AssembledStream {
 	expectedText: string;
 	expectedToolCalls: ExpectedToolCall[];
 	/**
-	 * Thinking text the stream must surface as thinking parts, joined in
-	 * stream order. Empty when no event declares an expectation, in which case
-	 * the oracle skips the thinking assertion (the random generators do not
-	 * declare one; deterministic corpus entries do, so deleting reasoning
-	 * extraction fails their replay instead of resolving quietly empty).
+	 * Thinking text the stream must surface as thinking parts, in stream order.
+	 * Empty when no event declares an expectation, in which case the oracle skips
+	 * the thinking assertion; corpus entries do declare one, so deleting
+	 * reasoning extraction fails their replay instead of resolving quietly empty.
 	 */
 	expectedThinking: string;
 }

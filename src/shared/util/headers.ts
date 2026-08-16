@@ -1,8 +1,7 @@
 /**
- * The header validity rules every surface shares: the request path (custom
- * headers, virtual keys, OAuth tokens) and the dashboard's header editor.
- * Pure by construction; the dashboard webview bundle imports these through
- * the dashboard protocol module, so nothing here may touch vscode or Node.
+ * The header validity rules every surface shares: the request path and the
+ * dashboard's header editor. Pure by construction - this rides into the
+ * webview bundle, so nothing here may touch vscode or Node.
  */
 
 /** A value legal in the headers setting: HTTP header values are scalars, stringified on the wire. */
@@ -11,17 +10,16 @@ export type HeaderScalar = string | number | boolean;
 /**
  * The JSON schema types the headers contribution admits for a value, one per
  * HeaderScalar member; settingSpec.test.ts pins package.json against this
- * list. The code is deliberately stricter than the schema: isHeaderScalar
- * refuses non-finite numbers, which JSON cannot carry anyway.
+ * list. The code is deliberately stricter: isHeaderScalar refuses non-finite
+ * numbers, which JSON cannot carry anyway.
  */
 export const HEADER_SCALAR_TYPES = ["string", "number", "boolean"] as const;
 
 /** Narrow an unknown settings value to a header scalar. */
 export function isHeaderScalar(value: unknown): value is HeaderScalar {
 	if (typeof value === "number") {
-		// Only finite numbers, matching what z.number() admitted before this
-		// predicate existed: NaN/Infinity must keep failing validation instead
-		// of stringifying into a header.
+		// NaN/Infinity must keep failing validation instead of stringifying
+		// into a header.
 		return Number.isFinite(value);
 	}
 	return typeof value === "string" || typeof value === "boolean";
@@ -35,10 +33,9 @@ export function isValidHeaderName(name: string): boolean {
 }
 
 /**
- * Whether a string can travel as an HTTP header value: tab, visible ASCII,
- * and RFC 9110 obs-text; no CR/LF/NUL or other control octets. Empty is
- * legal (RFC 9110 allows an empty field value); callers for whom a value is
- * a credential (virtual keys, OAuth tokens) require non-empty separately.
+ * Whether a string can travel as an HTTP header value: tab, visible ASCII, and
+ * RFC 9110 obs-text; no CR/LF/NUL or other control octets. Empty is legal;
+ * callers for whom a value is a credential require non-empty separately.
  * Values that fail this must never reach the platform's Headers, whose
  * TypeError embeds the full plaintext value.
  */

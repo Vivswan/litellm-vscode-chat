@@ -30,8 +30,8 @@ export interface ProviderWiring {
 	readonly provider: LiteLLMChatModelProvider;
 	/**
 	 * One debounced notify shared by every configuration-change branch, so a
-	 * multi-setting edit re-resolves models once. Errors are isolated like the
-	 * other notify call sites: a throw must not escape into the timer.
+	 * multi-setting edit re-resolves models once. A throw must not escape into
+	 * the timer.
 	 */
 	readonly notifyModelsChanged: DebouncedAction;
 	readonly hasDeclaredServers: () => boolean;
@@ -40,9 +40,9 @@ export interface ProviderWiring {
 
 /**
  * The provider's wiring: the OpenRouter catalog store, the provider itself
- * with its extension-injected seams, the shared debounced model-change
- * notify, and the configured-servers gates the status surfaces consult.
- * activate() registers the returned provider with the host AFTER awaiting the
+ * with its extension-injected seams, the shared debounced model-change notify,
+ * and the configured-servers gates the status surfaces consult. activate()
+ * registers the returned provider with the host AFTER awaiting the
  * pre-registration migrations.
  */
 export function wireProvider(
@@ -55,10 +55,9 @@ export function wireProvider(
 		groupRemovals: GroupRemovalStore;
 	}
 ): ProviderWiring {
-	// The OpenRouter capability catalog: bundled snapshot, globalStorage cache,
-	// weekly refresh. Created before the provider because the provider's
-	// catalog seam reads its lookup; the snapshot loads later (see
-	// wireCatalogRefresh), and lookups answer not-found until it lands.
+	// Created before the provider because the provider's catalog seam reads its
+	// lookup; the snapshot loads later, and lookups answer not-found until it
+	// lands.
 	const catalogStore = createOpenRouterCatalogStore({
 		extensionUri: context.extensionUri,
 		globalStorageUri: context.globalStorageUri,
@@ -67,8 +66,8 @@ export function wireProvider(
 		isEnabled: isOpenRouterCatalogEnabled,
 	});
 	context.subscriptions.push(catalogStore);
-	// The palette twin of the dashboard row's Refresh button: one immediate
-	// catalog refresh; outcomes report in the row status, never as a toast.
+	// The palette twin of the dashboard row's Refresh button; outcomes report in
+	// the row status, never as a toast.
 	context.subscriptions.push(
 		vscode.commands.registerCommand(CMD.refreshOpenRouterCatalog, () => catalogStore.refreshNow())
 	);
@@ -98,16 +97,14 @@ export function wireProvider(
 	// welcome toast can run before the first sync pass finishes.
 	const hasDeclaredServers = () =>
 		parseServersSetting(vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY)).entries.length > 0;
-	// The shared not-configured gate: declared servers-setting entries and
-	// live provider groups both mean "configured" before anything toasts.
+	// The shared not-configured gate: declared servers-setting entries and live
+	// provider groups both mean "configured" before anything toasts.
 	// hasSeenGroupConfiguration is the cold-start-honest signal: the host's
 	// groupless refresh reports an empty window before it re-resolves each
 	// group, so the live snapshot count alone would wrongly read as empty.
-	// Unmigrated registry servers count too: they serve nothing anymore, but
-	// mid-migration they are real configuration, and telling that user "not
-	// configured" while Manage Servers lists their servers would be false.
-	// Only until the migration completes: leftovers it deliberately retains
-	// afterwards are diagnostics material, not configuration.
+	// Unmigrated registry servers count too - mid-migration they are real
+	// configuration - but only until the migration completes; leftovers it
+	// deliberately retains afterwards are diagnostics material.
 	const hasConfiguredServers = () =>
 		provider.getServerSnapshots().length > 0 ||
 		provider.hasSeenGroupConfiguration() ||
@@ -118,11 +115,9 @@ export function wireProvider(
 }
 
 /**
- * The token-estimation wiring: applies chat.tokenEstimation to the shared
- * text-token counter at activation and re-applies on configuration change.
- * The controller owns the load policy (see extension/tokenCounting.ts); this
- * only feeds it the setting, so the mode is read once per change, never per
- * count.
+ * Applies chat.tokenEstimation to the shared text-token counter at activation
+ * and on configuration change. The controller owns the load policy; this only
+ * feeds it the setting, so the mode is read once per change, never per count.
  */
 export function wireTokenCounting(context: vscode.ExtensionContext, logger: Logger): void {
 	const controller = createTokenCountingController({
@@ -140,10 +135,7 @@ export function wireTokenCounting(context: vscode.ExtensionContext, logger: Logg
 	);
 }
 
-/**
- * The catalog snapshot's freshness wiring, called once the dashboard exists
- * (its inspector re-renders on catalog updates).
- */
+/** The catalog snapshot's freshness wiring, called once the dashboard exists (its inspector re-renders on updates). */
 export function wireCatalogRefresh(
 	context: vscode.ExtensionContext,
 	logger: Logger,
@@ -154,10 +146,9 @@ export function wireCatalogRefresh(
 	}
 ): void {
 	const { catalogStore, notifyModelsChanged, dashboard } = deps;
-	// A refreshed catalog snapshot must become visible without waiting for an
-	// unrelated refresh: the debounced notify re-attaches models (catalog
-	// levels re-resolve at attach) and the dashboard re-push re-renders the
-	// inspector's catalog rows.
+	// A refreshed snapshot must become visible without waiting for an unrelated
+	// refresh: the notify re-attaches models (catalog levels re-resolve at
+	// attach) and the re-push re-renders the inspector's catalog rows.
 	context.subscriptions.push(
 		catalogStore.onDidUpdate(() => {
 			notifyModelsChanged.schedule();
@@ -168,11 +159,9 @@ export function wireCatalogRefresh(
 			}
 		})
 	);
-	// Load the cached or bundled snapshot off the activation path (never
-	// throws), then notify exactly when something was installed: models the
-	// host resolved before the load must not keep the empty catalog until an
-	// unrelated refresh, while a dev build without the artifact changes
-	// nothing and must not fire a spurious re-resolve.
+	// Load the cached or bundled snapshot off the activation path (never throws),
+	// then notify only when something was installed: a dev build without the
+	// artifact must not fire a spurious re-resolve.
 	void catalogStore.initialize().then(() => {
 		if (catalogStore.snapshot().models.length > 0) {
 			notifyModelsChanged.schedule();

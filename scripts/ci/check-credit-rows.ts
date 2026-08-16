@@ -3,9 +3,9 @@
  * the ACKNOWLEDGMENTS.md being committed must have a row for every credited
  * login. Two callers: .husky/commit-msg passes the message file path (the
  * history guard in src/test/creditConvention.test.ts only sees committed
- * subjects, so this catches the crediting commit itself), and the checks.yml
- * PR-title job passes `--subject <title>` (squash-merge makes the PR title
- * the landing subject, which no local hook ever sees).
+ * subjects), and the checks.yml PR-title job passes `--subject <title>`
+ * (squash-merge makes the PR title the landing subject, which no local hook
+ * ever sees).
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -42,10 +42,8 @@ function main(): void {
 	if (credits.length === 0) {
 		return;
 	}
-	// The staged copy is what this commit will contain; the index has stage 0
-	// for every tracked file outside deletions and conflicts. Fail closed when
-	// it is unreadable - falling back to HEAD would wave a staged deletion
-	// through.
+	// The staged copy is what this commit will contain. Fail closed when it is
+	// unreadable - falling back to HEAD would wave a staged deletion through.
 	let acknowledgments: string;
 	try {
 		acknowledgments = execFileSync("git", ["show", `:${ACKNOWLEDGMENTS_FILE}`], {

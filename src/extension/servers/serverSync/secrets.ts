@@ -84,14 +84,14 @@ export async function deleteServerSecrets(secrets: SecretStore, label: string): 
 }
 
 /**
- * The inline (in-settings) secret values of a parsed entry: THE rule for
- * "this field is stored inline in the servers setting", and inline values
- * outrank the label's SecretStorage blob. One home, several consumers, so
- * they cannot drift: buildGroupArgs resolves each secret through it,
- * secretLocations reports "settings" exactly for its keys, the dashboard's
- * edit-form prefill (readInlineSecretValues) returns exactly it, and the
- * Set Server Secret palette warns about a dormant stored value exactly when
- * it holds the field. Values are secrets: never log or push them.
+ * The inline (in-settings) secret values of a parsed entry: THE rule for "this
+ * field is stored inline in the servers setting", and inline values outrank the
+ * label's SecretStorage blob. One home, several consumers, so they cannot
+ * drift: buildGroupArgs resolves each secret through it, secretLocations
+ * reports "settings" exactly for its keys, the dashboard's edit-form prefill
+ * returns exactly it, and the Set Server Secret palette warns about a dormant
+ * stored value exactly when it holds the field. Values are secrets: never log
+ * or push them.
  */
 export function inlineSecretValues(entry: DeclaredServer): Readonly<Partial<Record<SecretFieldId, string>>> {
 	const values: { -readonly [K in SecretFieldId]?: string } = {};

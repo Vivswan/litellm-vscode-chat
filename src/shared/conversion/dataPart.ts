@@ -10,10 +10,9 @@ export interface DataPartProbe {
 
 /**
  * LanguageModelDataPart is probed the same way as LanguageModelThinkingPart:
- * the class sits in current stable typings, but older hosts may lack it and
- * hosts have been observed exposing part classes behind throwing getters, so
- * the property read itself is guarded and its absence turns the media
- * feature off instead of crashing the stream.
+ * older hosts may lack the class, and hosts have been observed exposing part
+ * classes behind throwing getters, so the property read itself is guarded and
+ * its absence turns the media feature off instead of crashing the stream.
  */
 export function probeDataPartCtor(host: object): DataPartProbe {
 	try {
@@ -50,10 +49,9 @@ export function logMissingDataPartSupportOnce(log: (message: string) => void): v
 }
 
 /**
- * Log, once per session, that the constructor probe threw. Every
- * StreamProcessor construction reports here, so the guard keeps a host with a
- * throwing getter from being re-logged on each request. Tests inject the
- * error; production callers use the module probe result.
+ * Log, once per session, that the constructor probe threw, so a host with a
+ * throwing getter is not re-logged on each request. Tests inject the error;
+ * production callers use the module probe result.
  */
 export function logDataPartProbeErrorOnce(
 	log: (message: string, data?: unknown) => void,

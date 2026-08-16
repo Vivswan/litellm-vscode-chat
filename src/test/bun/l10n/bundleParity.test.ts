@@ -8,25 +8,21 @@ import { resolveNls } from "../../util/nls";
 import { REPO_ROOT } from "../../util/repoRoot";
 
 /**
- * Layer two of the l10n parity scheme (scripts/l10n/check.ts is layer one,
- * in pre-commit and CI's format-check job): every translated bundle and
- * package.nls file must mirror its English reference, so a plain
- * `bun run test` catches translation drift even when the script never runs.
- * Locale files are discovered from disk, so the suite passes before any
- * translation lands and tightens automatically as locales arrive; what it
- * refuses to tolerate is a locale shipping in one file family but not the
- * other, or a file whose keys, {0} placeholders, or typography drift from
- * the English reference.
+ * Layer two of the l10n parity scheme (scripts/l10n/check.ts is layer one, in
+ * pre-commit and CI): every translated bundle and package.nls file must mirror
+ * its English reference, so a plain `bun run test` catches translation drift
+ * even when the script never runs. Locale files are discovered from disk, so
+ * the suite tightens as locales arrive.
  */
 
 const englishBundlePath = path.join(REPO_ROOT, "l10n", "bundle.l10n.json");
 const englishNlsPath = path.join(REPO_ROOT, "package.nls.json");
 
 /**
- * Flat key-to-message view of one translation file. The English bundle's
- * values may be strings or {message, comment} objects (l10n.t with
- * translator comments mints the wrapped shape); every other file must be
- * flat strings, which this shape check enforces as a side effect.
+ * Flat key-to-message view of one translation file. The English bundle's values
+ * may be strings or {message, comment} objects (l10n.t with translator comments
+ * mints the wrapped shape); every other file must be flat strings, which this
+ * shape check enforces.
  */
 function messagesOf(file: string): Record<string, string> {
 	const raw: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -149,16 +145,11 @@ describe("l10n drift guard: translation-file parity", () => {
 
 describe("l10n drift guard: manage-command title", () => {
 	/**
-	 * The dashboard, toasts, and docs all tell the user to run the manage
-	 * command by its palette title, so per locale the title the palette shows
-	 * (package.nls.<locale>.json, native %key% substitution) must equal the
-	 * title messages interpolate (the bundle's translation). The manifest key
-	 * names belong to the externalization work and may change, so this guard
-	 * finds the manage command's nls key(s) by English VALUE, not by name;
-	 * the one coupling constant is the English title itself, read from
-	 * package.json's litellm.manage contribution and resolved through
-	 * package.nls.json. Deliberately NOT manageCommandTitle(): on a
-	 * non-English test host that returns a translated value and the compare
+	 * Per locale, the title the palette shows (package.nls.<locale>.json, native
+	 * %key% substitution) must equal the title messages interpolate (the bundle's
+	 * translation). Manifest key names may change, so the guard finds the manage
+	 * command's nls key(s) by English VALUE. Deliberately NOT manageCommandTitle():
+	 * on a non-English test host that returns a translated value and the compare
 	 * would mislead.
 	 */
 	test("per locale, the package.nls manage-command title equals the bundle's translation", () => {

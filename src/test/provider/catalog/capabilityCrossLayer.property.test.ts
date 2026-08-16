@@ -1,20 +1,14 @@
 /**
- * The cross-layer fuzzer for the open capability vocabulary: where the
- * capabilityResolution suite pins the resolver alone and the
- * capabilityOverrides suite pins the registration seam against the resolver,
- * this suite pins the invariants that only hold ACROSS the two layers - the
- * core-seven sublanguage is independent of every non-core field (records and
- * baseline alike), unknown fields are inert at registration down to the
- * identity fast path, the effective view resolves every field with the
- * provenance a naive full-walk reimplementation computes (directive, catalog,
- * and shadow stacks included), pricing never derives from catalog data, user
- * costs beat server costs per field with the 0/0 free-vs-undeclared split,
- * and the shared ModelResolutionTable is equivalent to the uncached walk
- * across cache-invalidation sequences. Generators reach the hostile
- * subspaces on purpose: prototype-named fields, own "__proto__" keys built
- * via JSON.parse/Object.fromEntries (never object literals), -0 costs, 0/0
- * cost pairs, ambiguous matchers, and every directive including the
- * wrong-record-type `_force`.
+ * Cross-layer fuzzer for the open capability vocabulary: the invariants that
+ * only hold ACROSS resolver and registration seam - the core seven are
+ * independent of every non-core field, unknown fields are inert at
+ * registration down to the identity fast path, the effective view matches a
+ * naive full-walk oracle (provenance and shadow stacks included), the catalog
+ * never prices, user costs beat server costs per field with the 0/0
+ * free-vs-undeclared split, and ModelResolutionTable equals the uncached walk
+ * across invalidation sequences. Generators aim at the hostile subspaces:
+ * prototype-named fields, own "__proto__" keys, -0 costs, 0/0 pairs,
+ * ambiguous matchers, and every directive.
  */
 import * as assert from "node:assert";
 import * as fc from "fast-check";
@@ -70,8 +64,7 @@ const BOOLEAN_FIELD_NAMES = FIELD_NAMES.filter(
 const CONSUMED_EXTRA_NAMES = Object.keys(CONSUMED_CAPABILITY_FIELDS).filter(
 	(name) => !Object.hasOwn(CAPABILITY_FIELDS, name)
 );
-// The hostile own-key surface: legal open fields that shadow Object.prototype
-// members, plus "__proto__", which the parse must drop as an underscore key.
+// Legal open fields that shadow Object.prototype members.
 const PROTOTYPE_NAMES = ["toString", "valueOf", "constructor", "hasOwnProperty"] as const;
 const USER_SET_LEVELS: readonly CapabilityLevel[] = ["entry", "global", "entry-fallback", "global-fallback"];
 
@@ -101,9 +94,8 @@ const MODEL_PRICING_KEYS = Object.keys({
 	pricing: true,
 } satisfies Record<keyof ModelPricing, true>) as readonly (keyof ModelPricing)[];
 
-// Slash-free so a scoped key can never collide with a plain key; colon-free
-// so cuts can never spell a synthetic ":cheapest" variant; underscore-free so
-// a random field name can never spell a directive.
+// Slash-free so a scoped key can never collide with a plain key, colon-free so
+// no cut spells ":cheapest", underscore-free so no field name spells a directive.
 const idChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789.-");
 const modelId = fc.string({ unit: idChar, minLength: 1, maxLength: 10 });
 
@@ -127,10 +119,8 @@ const validFieldsArb: fc.Arbitrary<Partial<CapabilityFieldValues>> = fc.record(
 	{ requiredKeys: [] }
 );
 
-// Values land on kind-matched and mismatched fields alike: valid numbers,
-// booleans, costs (0 and -0 included), params lists, and JSON noise
-// (objects, arrays, null, strings) keeping the invalid-value and
-// verbatim-extras paths common.
+// Values land on kind-matched and mismatched fields alike, keeping the
+// invalid-value and verbatim-extras paths common.
 const fieldValueArb = fc.oneof(
 	{ arbitrary: validNumber, weight: 3 },
 	{ arbitrary: fc.boolean(), weight: 3 },
@@ -148,28 +138,20 @@ const recordKeyArb = fc.oneof(
 	{ arbitrary: fc.constantFrom<string>(...PROTOTYPE_NAMES), weight: 1 }
 );
 
-// Keys and values guaranteed OUTSIDE the consumed vocabulary, for the two
-// injection properties that must stay behavior-neutral by construction
-// (modelId's alphabet has no underscore, so no consumed name or directive is
-// spellable, and the prototype names are legal open fields).
+// Keys and values guaranteed OUTSIDE the consumed vocabulary, so the two
+// injection properties stay behavior-neutral by construction.
 const extraFieldKeyArb = fc.oneof(modelId, fc.constantFrom<string>(...PROTOTYPE_NAMES));
 const extraFieldValueArb = fc.constantFrom<unknown>(true, 7, "text", ["a"], { nested: [1] }, null);
 
-/**
- * Build a record from entries via Object.fromEntries (CreateDataProperty, so
- * "__proto__" and prototype names become own keys, never a prototype write).
- */
+/** Object.fromEntries is CreateDataProperty, so "__proto__" becomes an own key, never a prototype write. */
 function recordFromEntries(entries: readonly (readonly [string, unknown])[]): Record<string, unknown> {
 	return Object.fromEntries(entries);
 }
 
 /**
- * One capability record: random fields, an optional own "__proto__" key
- * minted through JSON.parse (the one way a settings file can carry it), and
- * every directive - `_fallback` (true/list/false/invalid), `_inheritable`,
- * `_inherit_from` (naming "*", a bogus key, or an invalid shape),
- * `_openrouter_model` (hits, the guaranteed miss, and invalid), and the
- * wrong-record-type `_force`.
+ * One capability record: random fields, an optional own "__proto__" key minted
+ * through JSON.parse (the one way a settings file can carry it), and every
+ * directive including the wrong-record-type `_force`.
  */
 const capabilityRecordArb: fc.Arbitrary<Record<string, unknown>> = fc
 	.tuple(
@@ -243,9 +225,8 @@ function keyOf(spec: KeySpec, rawId: string, otherId: string): string {
 		return `${prefix}*`;
 	}
 	if (spec.kind === "regex") {
-		// Regex matchers anchor to the whole ID (parseMatcherKey wraps the body
-		// in ^(?:...)$), so a prefix needs the dot-star to match like a glob;
-		// the flag variant keeps the i-flag parse path alive.
+		// Regex matchers anchor to the whole ID (parseMatcherKey wraps the body in
+		// ^(?:...)$), so a prefix needs the dot-star to match like a glob.
 		const escaped = prefix.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 		return spec.iflag ? `/${escaped}.*/i` : `/${escaped}.*/`;
 	}
@@ -277,9 +258,8 @@ function makeCatalog(entries: Record<string, Partial<CapabilityFieldValues>>): C
 
 /**
  * Server baselines are resolver INPUT here, so unlike the seam's
- * discovery-built baselines they may carry hostile shapes on purpose: 0/0
- * cost pairs, -0 costs, and an own "__proto__" key - the resolver, not the
- * baseline builder, is under test.
+ * discovery-built baselines they may carry hostile shapes on purpose: the
+ * resolver, not the baseline builder, is under test.
  */
 const serverValuesArb: fc.Arbitrary<Partial<ServerCapabilityValues>> = fc
 	.tuple(
@@ -338,11 +318,9 @@ function valueForField(name: string): fc.Arbitrary<unknown> {
 
 /**
  * A guaranteed cross-layer collision: one field set by BOTH layers' exact
- * records with independent valid values, optionally `_fallback`-demoted on
- * one side. Without it the random records rarely fight over one field at 200
- * runs, and the precedence-sensitive properties would only exercise
- * single-layer wins (verified by mutation: a naive walk with entry and
- * global swapped survived the un-boosted generator).
+ * records, optionally `_fallback`-demoted on one side. Without it the random
+ * records rarely fight over one field at 200 runs, and the
+ * precedence-sensitive properties would only exercise single-layer wins.
  */
 interface OverlapSpec {
 	readonly name: string;
@@ -577,12 +555,10 @@ function withoutCostFields(records: ModelCapabilitiesRecord | undefined): ModelC
 suite("provider/catalog capability cross-layer properties", () => {
 	test("the core seven are independent of every non-core field: stripping them all changes no core outcome", () => {
 		// Stronger than extras-inertness (which only ADDS unknown keys): here
-		// every non-core field - consumed costs, caching and params fields, and
-		// extras alike - is REMOVED from both record layers and the server
-		// baseline, and the core-seven resolution (values, levels, keys, shadow
-		// stacks), the output-limit provenance, and the directive outcome must
-		// not move. This is the claim that the open vocabulary is a conservative
-		// extension of the closed world along every input axis.
+		// every non-core field is REMOVED from both record layers and the server
+		// baseline, and the core-seven resolution, the output-limit provenance,
+		// and the directive outcome must not move. The open vocabulary is a
+		// conservative extension of the closed world along every input axis.
 		const restrictRecords = (records: ModelCapabilitiesRecord | undefined): ModelCapabilitiesRecord | undefined =>
 			records === undefined
 				? undefined
@@ -624,13 +600,11 @@ suite("provider/catalog capability cross-layer properties", () => {
 	});
 
 	test("the effective view equals a naive full walk: every field, every level, exact provenance and shadows", () => {
-		// The whole-view twin of the resolver suite's extras-provenance property.
-		// The per-layer extraction is shared machinery (resolveCapabilityLayer),
-		// so what this pins is the eight-level layering ORDER, the resolved
-		// field-name universe, the backstops, and the full shadow stacks - on
-		// every field the walk serves, agreeing with resolveModelCapabilities on
-		// each field's value/level/key/inheritedFrom/shadowed sequence, which
-		// also proves completeness: every user-set field of any ring appears.
+		// The naive full-walk oracle. Per-layer extraction is shared machinery
+		// (resolveCapabilityLayer), so what this pins is the eight-level layering
+		// ORDER, the resolved field-name universe, the backstops, and the full
+		// shadow stacks - which also proves completeness: every user-set field of
+		// any ring appears.
 		fc.assert(
 			fc.property(resolverScenario, ({ input }) => {
 				const entry = resolveCapabilityLayer(input.rawModelId, input.entryCapabilities ?? {});
@@ -757,14 +731,12 @@ suite("provider/catalog capability cross-layer properties", () => {
 				}
 
 				const effective = resolveModelCapabilities(input);
-				// Compared WITHOUT copying, so deepStrictEqual's prototype check
-				// stays live: a lost "__proto__" skip in the walk would rewrite the
-				// result's prototype (the generators plant own __proto__ keys), and
-				// a spread here would launder that back to Object.prototype.
+				// Compared WITHOUT copying, so deepStrictEqual's prototype check stays
+				// live: a lost "__proto__" skip would rewrite the result's prototype,
+				// and a spread here would launder that back to Object.prototype.
 				assert.strictEqual(Object.getPrototypeOf(effective.fields), Object.prototype);
 				assert.deepStrictEqual(effective.fields, naiveFields);
-				// Completeness restated directly: every user-set field of any ring
-				// resolves - the chains' every field name appears in the view.
+				// Completeness: the chains' every field name appears in the view.
 				for (const name of [...entry.fields.keys(), ...global.fields.keys()]) {
 					assert.ok(capabilityField(effective.fields, name) !== undefined, `${name} is user-set and must resolve`);
 				}
@@ -820,10 +792,9 @@ suite("provider/catalog capability cross-layer properties", () => {
 
 	test("an extras-only configuration takes the identity fast path: the served array is the input array", () => {
 		// supports_pdf_input and supports_response_schema resolve and display but
-		// gate no registered artifact yet, so they ride with the unknown keys
-		// here: a configuration touching only non-registration-consumed fields
-		// must not rebuild anything - applyCapabilityOverrides returns the very
-		// same array object.
+		// gate no registered artifact yet, so they ride with the unknown keys: a
+		// configuration touching only non-registration-consumed fields must not
+		// rebuild anything.
 		const extrasRecordArb = fc
 			.tuple(
 				fc.array(fc.tuple(extraFieldKeyArb, extraFieldValueArb), { maxLength: 3 }),
@@ -850,11 +821,10 @@ suite("provider/catalog capability cross-layer properties", () => {
 						log: () => {},
 						logAdvisory: () => {},
 					};
-					// One normalizing pass: whatever registration under-advertised
-					// against the zero-config walk is rebuilt here, so the extras pass
-					// below starts from models that already advertise their baseline -
-					// and a second zero-config pass must already be the identity, or
-					// the fast path never engages in production at all.
+					// One normalizing pass so the extras pass below starts from models
+					// that already advertise their baseline; a second zero-config pass
+					// must already be the identity, or the fast path never engages in
+					// production at all.
 					const base = applyCapabilityOverrides(infos, SERVER, emptyOpts);
 					assert.strictEqual(
 						applyCapabilityOverrides(base, SERVER, emptyOpts),
@@ -903,14 +873,10 @@ suite("provider/catalog capability cross-layer properties", () => {
 	});
 
 	test("the catalog never prices: no costs anywhere means no pricing, and unjustified pricing strips", () => {
-		// Providers carry no usable costs (either no cost fields at all or the
-		// LiteLLM 0/0 stamp) and every record is cost-stripped, while the catalog
-		// stays rich and a directive may point into it: every served model must
-		// carry zero pricing fields. And a stale copy carrying price fields the
-		// walk does not derive (say, one an older extension version priced from
-		// the catalog) needs no marker: advertisesEffective's pricing clause
-		// catches the mismatch, the rebuild strips it, and the healed copy
-		// settles on the identity fast path.
+		// Providers carry no usable costs (absent, or the LiteLLM 0/0 stamp) and
+		// every record is cost-stripped while the catalog stays rich: no served
+		// model may carry pricing. And a stale copy carrying price fields the walk
+		// does not derive strips on re-serve, then settles.
 		const stampArb = fc.boolean();
 		fc.assert(
 			fc.property(seamScenario, stampArb, fc.boolean(), (s, zeroStamp, addDirective) => {
@@ -944,10 +910,8 @@ suite("provider/catalog capability cross-layer properties", () => {
 				const opts: CapabilityOverrideOptions = {
 					globalCapabilities,
 					entryCapabilities: withoutCostFields(s.entryCapabilities),
-					// The cost keys smuggled past the type are the point: the catalog
-					// interface carries core fields only, so a catalog that VIOLATES
-					// that contract must still never price - both the walk's core-only
-					// catalog read and its open-name construction keep them out.
+					// The cost keys smuggled past the type are the point: a catalog that
+					// VIOLATES the core-fields-only contract must still never price.
 					catalog: makeCatalog({
 						"cat/one": { max_output_tokens: 512, input_cost_per_token: 0.5, output_cost_per_token: 0.5 } as never,
 						[`imp/${s.specs.rawModelId}`]: { input_cost_per_token: 0.25, output_cost_per_token: 0.25 } as never,
@@ -963,12 +927,10 @@ suite("provider/catalog capability cross-layer properties", () => {
 						assert.strictEqual(info[key], undefined, `${info.id}: ${key} must stay unset without any cost source`);
 					}
 				}
-				// The stale-copy path: forge pricing the walk does not derive and
-				// re-serve it through the same pass - the verified rebuild strips
-				// it, and a second pass over the healed copies changes nothing
-				// (strict identity is asserted where the fast path is reachable:
-				// the extras-only property; here a directive or a matching record
-				// may legitimately keep the rebuild path).
+				// The stale-copy path: forge pricing the walk does not derive, and the
+				// verified rebuild strips it. Strict identity is asserted where the
+				// fast path is reachable (the extras-only property); here a directive
+				// or a matching record may legitimately keep the rebuild path.
 				const stale = served.map(
 					(info): PreAttachModelInfo => ({
 						...info,
@@ -1002,9 +964,9 @@ suite("provider/catalog capability cross-layer properties", () => {
 			.map((pairs) => Object.fromEntries(pairs) as Partial<Record<keyof PerTokenCosts, number>>);
 		fc.assert(
 			fc.property(seamScenario, userCostsArb, (s, userCosts) => {
-				// The generated records are cost-stripped and the catch-all entry
-				// record carries the user costs, so per field the effective cost is
-				// exactly: user record else the model's own server baseline.
+				// Records are cost-stripped and the catch-all entry record carries the
+				// user costs, so per field the effective cost is exactly: user record
+				// else the model's own server baseline.
 				const opts: CapabilityOverrideOptions = {
 					globalCapabilities: withoutCostFields(s.globalCapabilities) ?? {},
 					entryCapabilities: { "*": { ...userCosts } },
@@ -1021,7 +983,7 @@ suite("provider/catalog capability cross-layer properties", () => {
 					for (const name of COST_FIELD_NAMES) {
 						const user = userCosts[name];
 						// The parse canonicalizes a user-written -0 to +0 ("free" never
-						// rides a negative sign); mirror that documented rule here.
+						// rides a negative sign); mirror that rule here.
 						const fromUser = user !== undefined ? (user === 0 ? 0 : user) : undefined;
 						const fromServer =
 							baseline.kind === "discovered"
@@ -1032,9 +994,8 @@ suite("provider/catalog capability cross-layer properties", () => {
 							merged[name] = value;
 						}
 					}
-					// The production merge prices with the ambient usage.currencySymbol,
-					// so the expectation reads the same getter rather than assuming a
-					// suite left the setting at its default.
+					// Production prices with the ambient usage.currencySymbol, so the
+					// expectation reads the same getter rather than assuming a default.
 					const expected = pricingFromCosts(merged, getCurrencySymbol(), { zeroPairMeansUndeclared: false });
 					for (const key of MODEL_PRICING_KEYS) {
 						assert.ok(
@@ -1055,9 +1016,8 @@ suite("provider/catalog capability cross-layer properties", () => {
 		fc.assert(
 			fc.property(seamScenario, zero, zero, fc.boolean(), (s, zin, zout, userPair) => {
 				if (userPair) {
-					// The user writes the pair (possibly as -0): every served model is
-					// genuinely free - $0/$0 with the label and the category badge, and
-					// never a negative zero on the wire-facing fields.
+					// A user-written pair (possibly -0) is genuinely free: $0/$0 with the
+					// label and the cheapest badge, never a negative zero on the wire.
 					const opts: CapabilityOverrideOptions = {
 						globalCapabilities: withoutCostFields(s.globalCapabilities) ?? {},
 						entryCapabilities: { "*": { input_cost_per_token: zin, output_cost_per_token: zout } },
@@ -1074,8 +1034,8 @@ suite("provider/catalog capability cross-layer properties", () => {
 						assert.strictEqual(info.priceCategory, "low", `${info.id}: the free pair carries the cheapest badge`);
 					}
 				} else {
-					// The server stamps the pair (LiteLLM's undeclared-pricing shape,
-					// stray cache cost included): no pricing fields anywhere.
+					// The server stamps the pair (LiteLLM's undeclared-pricing shape):
+					// no pricing fields anywhere.
 					const stamped = (provider: LiteLLMProvider): LiteLLMProvider => ({
 						...provider,
 						input_cost_per_token: zin,
@@ -1139,8 +1099,8 @@ suite("provider/catalog capability cross-layer properties", () => {
 				// really changes what the queried model resolves to - the staleness a
 				// broken fingerprint or probe replay would serve.
 				const configs = specs.map((spec) => layerMaps({ ...spec, rawModelId: sharedId }));
-				// The miss leg must stay a distinct ID even when the generator
-				// collides the two (the suffix can never equal the bare sharedId).
+				// The miss leg must stay a distinct ID even when the generator collides
+				// the two.
 				const missId = extraId === sharedId ? `${sharedId}-x` : extraId;
 				const table = new ModelResolutionTable();
 				for (const step of steps) {

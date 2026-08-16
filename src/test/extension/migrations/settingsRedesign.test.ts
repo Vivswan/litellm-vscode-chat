@@ -23,10 +23,9 @@ import { assertOmits, expectDefined } from "../../pureHelpers";
 import { fakeFingerprintSaltSession, makeExtensionStorage } from "../../testUtils";
 import { applyPlanToSnapshot } from "./settingsRedesignOracle";
 
-// The legacy and new ids, re-declared here on purpose: the migration and its
-// test pin the literal identifiers independently (a typo in one side fails
-// instead of agreeing with itself), and the rename pairs mirror the docs'
-// rename table verbatim.
+// The legacy and new ids, re-declared here on purpose: the migration and its test
+// pin the literal identifiers independently (a typo on one side fails instead of
+// agreeing with itself), and the pairs mirror the docs' rename table verbatim.
 const RENAMES: readonly [string, string][] = [
 	["requestTimeout", "chat.timeout"],
 	["promptCaching.enabled", "chat.promptCaching"],
@@ -153,9 +152,9 @@ suite("extension/migrations/settingsRedesign: record renames", () => {
 		assert.deepStrictEqual(globalValueOf(after, "models.parameters"), {
 			"*": { temperature: 1 },
 			"gpt-5*": { top_p: 0.9, _force: ["top_p"] },
-			// A key with a literal star migrates to an escaped anchored-prefix
-			// regex (ruling): star-appending would mint an invalid matcher and
-			// verbatim would activate glob semantics over a superset.
+			// A key with a literal star migrates to an escaped anchored-prefix regex:
+			// star-appending would mint an invalid matcher and verbatim would
+			// activate glob semantics over a superset.
 			"/gpt-5\\*.*/": { seed: 1 },
 		});
 		assert.strictEqual(globalValueOf(after, "modelParameters"), undefined);
@@ -316,9 +315,8 @@ suite("extension/migrations/settingsRedesign: record renames", () => {
 	});
 
 	test("reserved record keys stay verbatim: starring would activate what the old readers dropped", () => {
-		// JSON.parse produces an OWN "__proto__" data property, exactly like a
-		// user's settings.json would; an object literal cannot (it sets the
-		// prototype), so the raw record is built the settings way.
+		// JSON.parse produces an OWN "__proto__" data property, exactly like a user's
+		// settings.json would; an object literal would set the prototype instead.
 		const rawGlobal = JSON.parse('{"constructor": {"temperature": 1}, "__proto__": {"seed": 1}, "gpt": {"top_p": 1}}');
 		const { after } = migrate({ modelParameters: { globalValue: rawGlobal } });
 		const migrated = globalValueOf(after, "models.parameters") as Record<string, unknown>;
@@ -328,10 +326,9 @@ suite("extension/migrations/settingsRedesign: record renames", () => {
 	});
 
 	test("a moved scoped key colliding with the entry's SAME key merges field by field, entry winning", () => {
-		// Identical keys match identical models, and the old runtime merged
-		// the entry record over the scoped one field by field - so the merge
-		// is lossless: entry fields keep their values, scoped-only fields
-		// fill in, and the scoped side's _force follows its surviving fields.
+		// Identical keys match identical models and the old runtime merged the entry
+		// record over the scoped one field by field, so the merge is lossless: entry
+		// fields keep their values and the scoped `_force` follows its survivors.
 		const before: SettingsSnapshot = {
 			servers: {
 				globalValue: [
@@ -373,9 +370,8 @@ suite("extension/migrations/settingsRedesign: record renames", () => {
 	});
 
 	test("a scoped mark follows its surviving field through an entry-side true expansion", () => {
-		// The entry's `true` expands to the ENTRY's own fields; the arriving
-		// scoped field keeps the level it had in the old world - here a
-		// fallback-marked scoped value must not surface as an override.
+		// The entry's `true` expands to the ENTRY's own fields; the arriving scoped
+		// field keeps its old-world level, so it must not surface as an override.
 		const before: SettingsSnapshot = {
 			servers: {
 				globalValue: [
@@ -430,9 +426,9 @@ suite("extension/migrations/settingsRedesign: record renames", () => {
 	});
 
 	test("expanding a scoped _force: true marks only the names the old rules could force", () => {
-		// The old `_force: true` refused provider-owned and underscore keys;
-		// expanding it into a list must not name them, or the migration would
-		// mint unforceable-key diagnostics the old world never produced.
+		// The old `_force: true` refused provider-owned and underscore keys; expanding
+		// it into a list must not name them, or the migration would mint diagnostics
+		// the old world never produced.
 		const before: SettingsSnapshot = {
 			servers: {
 				globalValue: [{ label: "a", baseUrl: "https://gw", modelParameters: { m: { top_p: 0.5 } } }],
@@ -591,9 +587,8 @@ suite("extension/migrations/settingsRedesign: entry restructure", () => {
 	}
 
 	test("a header-less virtualKey value drops instead of misconfiguring the entry (ruling)", () => {
-		// The parser refuses a headerless virtualKey, so carrying the value
-		// half would kill the whole entry's service; it drops (counted) and a
-		// stored blob under the label survives for a re-added header.
+		// The parser refuses a headerless virtualKey, so carrying the value half would
+		// kill the entry's service; it drops, and the stored blob survives.
 		const entry = migrateEntry({ label: "a", baseUrl: "https://gw", apiKey: "sk-x", virtualKeyValue: "vk-orphan" });
 		assert.deepStrictEqual(entry, { label: "a", baseUrl: "https://gw", auth: { apiKey: "sk-x" } });
 		const lone = migrateEntry({ label: "b", baseUrl: "https://gw", virtualKeyValue: "vk-orphan" });
@@ -630,9 +625,8 @@ suite("extension/migrations/settingsRedesign: entry restructure", () => {
 	});
 
 	test("apiKey beside virtualKey without oauth becomes the apiKey form with the virtualKey companion", () => {
-		// The settled primacy ruling: the old transport sent BOTH credentials
-		// (bearer + X-API-Key copy + the virtual-key header), and the apiKey
-		// form's virtualKey companion is that exact header set.
+		// The settled primacy ruling: the old transport sent BOTH credentials, and the
+		// apiKey form's virtualKey companion is that exact header set.
 		const entry = migrateEntry({
 			label: "a",
 			baseUrl: "https://gw",
@@ -655,10 +649,9 @@ suite("extension/migrations/settingsRedesign: entry restructure", () => {
 	});
 
 	test("lone oauth pieces drain: partial oauth never made a form and would misconfigure the entry", () => {
-		// Old runtime: hasOAuth required BOTH tokenUrl and clientId, so a lone
-		// piece was ignored and the entry served without it. Carrying it into
-		// auth.oauth would refuse the whole entry (structurally incomplete
-		// auth), so the never-honored piece drains like other junk values.
+		// Old runtime: hasOAuth required BOTH tokenUrl and clientId, so a lone piece
+		// was ignored. Carrying it into auth.oauth would refuse the whole entry as
+		// structurally incomplete, so the never-honored piece drains.
 		const { plan, after } = migrate({
 			servers: { globalValue: [{ label: "a", baseUrl: "https://gw", oauthClientId: "cid", apiKey: "sk-x" }] },
 		});
@@ -685,10 +678,8 @@ suite("extension/migrations/settingsRedesign: entry restructure", () => {
 	});
 
 	test("stored-only secrets never synthesize fields: no flat fields means no auth object at all", () => {
-		// An entry whose apiKey lives only in SecretStorage carried no flat
-		// field, so the restructure writes nothing - the stored value keeps
-		// working through its unchanged storage key and the stored-slot
-		// activation rule.
+		// An entry whose apiKey lives only in SecretStorage carried no flat field, so
+		// the restructure writes nothing and the stored value keeps working.
 		const before: SettingsSnapshot = { servers: { globalValue: [{ label: "a", baseUrl: "https://gw" }] } };
 		const plan = planSettingsRedesign(before);
 		assert.deepStrictEqual(plan.writes, [], "an entry without legacy fields needs no restructure");
@@ -768,9 +759,8 @@ suite("extension/migrations/settingsRedesign: entry restructure", () => {
 	});
 
 	test("a hand-mixed entry's existing auth wins WHOLESALE - flat pieces never fabricate a second form", () => {
-		// Merging a flat apiKey into an existing oauth object would produce a
-		// two-form auth (misconfigured, entry refused) or a companion the user
-		// never configured; the superseded flat credential drains instead.
+		// Merging a flat apiKey into an existing oauth object would produce a two-form
+		// auth (entry refused) or a companion the user never configured.
 		const entry = migrateEntry({
 			label: "a",
 			baseUrl: "https://gw",
@@ -797,12 +787,9 @@ suite("extension/migrations/settingsRedesign: entry restructure", () => {
 suite(
 	"extension/migrations/settingsRedesign: restructure output parses and keeps the wire (the parser round trip)",
 	() => {
-		// The seam the auth findings slipped through: nothing else feeds the
-		// transform's OUTPUT into the live parser. For every legacy auth combo,
-		// the restructured entry must be ACCEPTED by parseServersSetting, and its
-		// group args must match the flat original's byte for byte - except the
-		// ruled exceptions, where wire-inert fragments drop and only those keys
-		// may differ.
+		// The only place the transform's OUTPUT meets the live parser: for every legacy
+		// auth combo the restructured entry must be accepted by parseServersSetting with
+		// group args matching the flat original byte for byte, minus the ruled drops.
 		const roundTrip = (flat: Record<string, unknown>) => {
 			const restructured = restructureServers([flat]);
 			const raw = restructured.value as unknown[];
@@ -1064,10 +1051,9 @@ suite("extension/migrations/settingsRedesign: default token trio", () => {
 	});
 
 	test("the override-placed fill expands a user's _fallback: true instead of landing demoted", () => {
-		// defaultMaxInputTokens BEAT the server-reported value; leaving the
-		// record's `_fallback: true` to swallow the fill would demote it below
-		// the server. The expansion to the pre-existing valid fields is
-		// semantically identical for them, and the fill lands unmarked.
+		// defaultMaxInputTokens BEAT the server-reported value; letting the record's
+		// `_fallback: true` swallow the fill would demote it below the server. The
+		// expansion to the pre-existing valid fields leaves the fill unmarked.
 		const before: SettingsSnapshot = {
 			defaultContextLength: { globalValue: 200000 },
 			defaultMaxInputTokens: { globalValue: 150000 },
@@ -1558,13 +1544,9 @@ suite("extension/migrations/settingsRedesign: applier", () => {
 });
 
 suite("extension/migrations/settingsRedesign: migration wiring", () => {
-	// The applier end-to-end coverage (seeded legacy ids through the real
-	// configuration API, registered new ids read back) lives in
-	// activation/production.test.ts; this proves run(ctx) no-ops on a profile
-	// without legacy state and WRITES no storage doing so. run() legitimately
-	// READS globalState (the label map union and the pre-fold entry-copy
-	// ledger feed the folded label expansion) and the registry snapshot; only
-	// mutations are forbidden here.
+	// The applier's end-to-end coverage lives in activation/production.test.ts; this
+	// proves run(ctx) no-ops on a profile without legacy state and writes no storage
+	// doing so. Reads are legitimate; only mutations are forbidden here.
 	test("the registered pre-registration migration no-ops on a clean profile without writing storage", async () => {
 		const storage = makeExtensionStorage();
 		const writeForbidding = <T extends object>(name: string, target: T): T =>

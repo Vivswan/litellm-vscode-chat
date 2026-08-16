@@ -14,14 +14,13 @@ import {
 } from "../../fuzzStream";
 
 /**
- * Byte-level fuzzing of the SSE transport in processStreamingResponse: line
- * splitting, [DONE] handling, and the log-and-skip contract for malformed
- * lines. The docker fuzzer cannot reach this layer (the LiteLLM proxy
- * re-frames SSE itself), so framing is fuzzed here, in-process, on every PR.
+ * Byte-level fuzzing of the SSE transport in processStreamingResponse: line splitting,
+ * [DONE] handling, and the log-and-skip contract for malformed lines. The docker fuzzer
+ * cannot reach this layer (the LiteLLM proxy re-frames SSE itself), so framing is fuzzed
+ * here, in-process.
  *
- * A shrunk counterexample here is a byte layout, not a FuzzEvent[], so it
- * cannot go in fuzzCorpus.ts: pin regressions as example tests in the SSE
- * transport section of streaming.test.ts instead.
+ * A shrunk counterexample here is a byte layout, not a FuzzEvent[], so it cannot go in
+ * fuzzCorpus.ts: pin regressions as example tests in streaming.test.ts instead.
  */
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
@@ -119,11 +118,10 @@ function cutAt(bytes: Uint8Array, offsets: number[]): Uint8Array[] {
 const seedArb = fc.integer({ min: 0, max: 0x7fffffff });
 
 /**
- * Streams for framing properties: generated events with a fixed multi-byte
- * unicode text event up front, so every byte layout contains UTF-8 sequences
- * a cut can split. Tails are omitted here on purpose - their contract is
- * end-of-stream handling, and the framing properties re-terminate streams in
- * ways that would change what "end of stream" means for a tail event.
+ * Streams for framing properties: generated events led by a fixed multi-byte unicode text
+ * event, so every byte layout contains UTF-8 sequences a cut can split. Tails are omitted
+ * because the framing properties re-terminate streams in ways that would change what "end
+ * of stream" means for a tail event.
  */
 const framingEventsArb: fc.Arbitrary<FuzzEvent[]> = fc
 	.array(

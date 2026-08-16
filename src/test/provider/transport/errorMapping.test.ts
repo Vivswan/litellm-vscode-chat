@@ -25,9 +25,9 @@ const chatCtx: MapErrorContext = { surface: "chat", baseUrl: "http://litellm.tes
 const discoveryCtx: MapErrorContext = { surface: "discovery", baseUrl: "http://litellm.test", timeoutMs: 5000 };
 
 /**
- * Build the cause chain the SDK produces for transport failures: the SDK's
- * "Connection error." wrapper around undici's TypeError "fetch failed", which
- * carries the actionable socket/TLS/timeout error as its own cause.
+ * The cause chain the SDK produces for transport failures: its "Connection
+ * error." wrapper around undici's TypeError "fetch failed", which carries the
+ * actionable socket/TLS/timeout error as its own cause.
  */
 function connectionError(deepest: unknown): APIConnectionError {
 	return new APIConnectionError({
@@ -188,9 +188,9 @@ suite("provider/transport/errorMapping", () => {
 				),
 				chat.message
 			);
-			// The code is just the stringified status, so the detail carries only
-			// the type - never "LiteLLM 429 429". The chat surface separates the
-			// detail with the "Details:" lead-in (Copilot Chat flattens newlines).
+			// The code is just the stringified status, so the detail carries only the
+			// type, never "LiteLLM 429 429". The chat surface leads the detail with
+			// "Details:" (Copilot Chat flattens newlines).
 			assert.ok(
 				chat.message.endsWith(
 					"\n\nDetails: LiteLLM 429 budget_exceeded: Budget has been exceeded! Current cost: 0.40, Max budget: 0.37"
@@ -322,9 +322,8 @@ suite("provider/transport/errorMapping", () => {
 				mapped.message,
 				"Connection Error: Unable to connect to http://litellm.test. Please check that the server is running and the URL is correct."
 			);
-			// DNS failure does not establish the proxy is stopped (a mistyped
-			// hostname resolves nowhere with the proxy running fine), so the
-			// construction-site-certainty contract forbids the hint here.
+			// DNS failure does not establish the proxy is stopped (a mistyped hostname
+			// resolves nowhere with the proxy running fine), so no hint.
 			assert.strictEqual(mapped.setupHint, undefined);
 		});
 
@@ -472,10 +471,9 @@ suite("provider/transport/errorMapping", () => {
 		});
 
 		test("a classification-only MirroredError passes through unwrapped too", () => {
-			// The other valid EnglishRendering arm: no englishMessage, only the
-			// terse classification. Re-headlining it would fold its (possibly
-			// localized, body-quoting) display message into the tail's English
-			// mirror and land it on the output channel.
+			// The other valid EnglishRendering arm: no englishMessage, only the terse
+			// classification. Re-headlining would fold its possibly body-quoting
+			// display message into the English mirror and onto the output channel.
 			const err = new MirroredError("display quoting a response body", {
 				logClassification: "ValidationError(example)",
 			});
@@ -633,9 +631,8 @@ suite("provider/transport/errorMapping", () => {
 	suite("display/English split (localized display, English logs)", () => {
 		test("every localized mapSdkError site records an englishMessage identical to the English display", () => {
 			// Under the test host's English fallback, l10n.t returns the English
-			// template, so the localized display message and the hand-written
-			// English mirror must be the same string. A mismatch here means a
-			// site's English mirror drifted from its t() literal.
+			// template, so display and hand-written mirror must be the same string.
+			// A mismatch means a site's English mirror drifted from its t() literal.
 			const upstream401 = {
 				message: "litellm.AuthenticationError: AnthropicException - upstream key missing",
 				type: null,

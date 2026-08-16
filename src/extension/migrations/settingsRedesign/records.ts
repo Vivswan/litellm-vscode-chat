@@ -10,14 +10,14 @@ import { DECLARE_DIRECTIVE, isForceableKey } from "./legacyIds";
 
 /**
  * Old prefix key -> explicit matcher. The old catch-all aliases ("" and the
- * bare "*") collapse to "*"; a key containing a literal "*" of its own
- * becomes an escaped anchored-prefix REGEX (star-appending would mint an
- * invalid mid-star matcher, and riding verbatim would ACTIVATE glob
- * semantics over a superset of the old match set); every other key gains a
- * trailing glob. Each form keeps matching exactly the IDs the old literal
- * prefix matched - with one accepted caveat for the regex form: it ranks at
- * the regex tier (below globs), so overlapping keys can order differently
- * than the old longest-prefix rule in that pathological corner.
+ * bare "*") collapse to "*"; a key containing a literal "*" of its own becomes
+ * an escaped anchored-prefix REGEX (star-appending would mint an invalid
+ * mid-star matcher, and riding verbatim would ACTIVATE glob semantics over a
+ * superset of the old match set); every other key gains a trailing glob. Each
+ * form keeps matching exactly the IDs the old literal prefix matched, with one
+ * accepted caveat for the regex form: it ranks at the regex tier (below
+ * globs), so overlapping keys can order differently than the old
+ * longest-prefix rule.
  */
 function explicitMatcherKey(prefix: string): string {
 	if (prefix === "" || prefix === "*") {
@@ -30,9 +30,8 @@ function explicitMatcherKey(prefix: string): string {
 }
 
 /**
- * The lead's migrated-`_force` ruling: the migration freezes OLD
- * forceability, where max_tokens was provider-owned and unforceable, while
- * the new grammar deliberately allows forcing it (new-config power only). A
+ * The migration freezes OLD forceability, where max_tokens was provider-owned
+ * and unforceable, while the new grammar deliberately allows forcing it. A
  * migrated record whose `_force` would newly cover max_tokens is minimally
  * rewritten - `true` expands to the old-forceable literal list only when the
  * record sets max_tokens, and an explicit list drops the max_tokens name the
@@ -106,8 +105,8 @@ interface TransformedKey {
  * Assemble transformed keys into a record, resolving the one possible
  * collision: "" and "*" both map to "*", and the old prefix matching broke
  * that tie toward "*", so the "*" source's value wins and the "" source is
- * dropped (counted). Object.fromEntries defines own properties, so a
- * pathological "__proto__*" key stays inert data.
+ * dropped. Object.fromEntries defines own properties, so a pathological
+ * "__proto__*" key stays inert data.
  */
 function assembleRecord(transformed: readonly TransformedKey[]): { record: Record<string, unknown>; dropped: number } {
 	let dropped = 0;
@@ -141,11 +140,10 @@ export interface EntryRecordTransform {
 }
 
 /**
- * Transform one per-entry record (no scoping existed there): every key
- * becomes an explicit matcher, and capability records shed their `_declare`
- * directives into the returned `declared` list. A non-record value rides
- * verbatim - it was inert under the old readers and stays inert under the
- * new ones, and the user's text survives.
+ * Transform one per-entry record (no scoping existed there): every key becomes
+ * an explicit matcher, and capability records shed their `_declare` directives
+ * into the returned `declared` list. A non-record value rides verbatim - it
+ * was inert under the old readers and stays inert under the new ones.
  */
 export function transformEntryRecord(raw: unknown, kind: RecordKind): EntryRecordTransform {
 	if (!isRecord(raw)) {
@@ -160,7 +158,7 @@ export function transformEntryRecord(raw: unknown, kind: RecordKind): EntryRecor
 		if (isUnsafeRecordKey(key)) {
 			// The old normalization dropped reserved keys wholesale (inert), so
 			// starring one would ACTIVATE it; verbatim it stays dropped-inert
-			// under the new normalization too, and the user's text survives.
+			// under the new normalization too.
 			transformed.push({ sourceKey: key, newKey: key, value });
 			continue;
 		}
@@ -217,15 +215,14 @@ export interface GlobalRecordTransform {
 /**
  * Transform one global record. Unscoped keys become explicit matchers in
  * place; a URL-scoped key ("<baseUrl>/<model prefix>") moves into EVERY
- * declared entry whose normalized base URL prefixes it, because under the
- * old runtime every server at that URL read the key - each entry receives
- * the key's post-scope remainder as an explicit matcher. A scoped key no
- * declared entry matches is left VERBATIM: it matches no real model ID under
- * the new grammar (IDs never contain "://"), so it is inert exactly like the
- * old readers treated another server's keys, and collectLegacyHints reports
- * it to the dashboard. Global `_declare` directives declared only through a
- * scoped key's exact remainder; unscoped ones were diagnosed and inert, so
- * both strip - the scoped ones into the owning entries' declared lists.
+ * declared entry whose normalized base URL prefixes it, because under the old
+ * runtime every server at that URL read the key. A scoped key no declared
+ * entry matches is left VERBATIM: it matches no real model ID under the new
+ * grammar (IDs never contain "://"), so it is inert exactly like the old
+ * readers treated another server's keys, and collectLegacyHints reports it to
+ * the dashboard. Global `_declare` directives declared only through a scoped
+ * key's exact remainder; unscoped ones were diagnosed and inert, so both
+ * strip - the scoped ones into the owning entries' declared lists.
  */
 export function transformGlobalRecord(
 	raw: unknown,

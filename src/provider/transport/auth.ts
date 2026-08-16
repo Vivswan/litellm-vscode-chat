@@ -11,13 +11,12 @@ import { type MapErrorContext, RequestError } from "./errorMapping";
 
 /**
  * OAuth2 client-credentials authentication for gateways behind an identity
- * provider (issue #161): the extension exchanges a client ID and secret at a
- * token endpoint for a short-lived bearer token and sends that token as the
- * Authorization header on every request to the server.
+ * provider: the extension exchanges a client ID and secret at a token endpoint
+ * for a short-lived bearer token and sends it as the Authorization header on
+ * every request to the server.
  *
- * Error ownership follows the transport-module convention (AGENTS.md,
- * "Error ownership"). Token values and client secrets never appear in any
- * message.
+ * Error ownership follows the transport-module convention: construct and throw
+ * without logging. Token values and client secrets never appear in any message.
  */
 
 /** Client-credentials grant configuration; present as a whole or not at all. */
@@ -37,19 +36,17 @@ export interface VirtualKeyConfig {
 }
 
 /**
- * Which caller's error surface renders a token failure: the exchange itself
- * is the same on every path, but the two-part message join differs (chat gets
- * the "Details:" lead-in, discovery the plain "\n"), so every token request
- * states the surface it fails toward.
+ * Which caller's error surface renders a token failure: the exchange is the
+ * same on every path, but the two-part message join differs, so every token
+ * request states the surface it fails toward.
  */
 export type OAuthErrorSurface = MapErrorContext["surface"];
 
 /**
  * Both renderings of a two-part token-endpoint failure, joined per surface:
- * chat carries the "Details:" lead-in after a blank line (Copilot Chat's
- * error block flattens newlines), discovery the single "\n" the status
- * surfaces split on. The English mirror is byte-faithful to the English
- * display on both surfaces.
+ * chat carries the "Details:" lead-in after a blank line (Copilot Chat's error
+ * block flattens newlines), discovery the single "\n" the status surfaces
+ * split on. The English mirror is byte-faithful to the English display.
  */
 function twoPartTexts(
 	surface: OAuthErrorSurface,
@@ -65,18 +62,15 @@ function twoPartTexts(
 }
 
 /**
- * Non-secret identity of a credential set: the canonical enumeration of what
- * makes OAuth credentials "the same" (groupClientId composes group identity
- * from it). Rotating any part (secret included) changes the key, so caches
- * keyed by it self-invalidate. JSON-encoded before hashing: the fields are
- * free-form strings, so a delimiter join would let two different credential
- * sets serialize identically and share a cached token.
+ * Non-secret identity of a credential set: what makes OAuth credentials "the
+ * same". Rotating any part (secret included) changes the key, so caches keyed
+ * by it self-invalidate. JSON-encoded before hashing: the fields are free-form
+ * strings, so a delimiter join would let two different credential sets
+ * serialize identically and share a cached token.
  */
 export function oauthCredentialFingerprint(config: OAuthConfig): string {
-	// Every OAuthConfig field participates in the identity: the satisfies
-	// clause breaks the build when a field is added without extending `parts`,
-	// and hashing the whole object (not a hand-picked array) means extending
-	// `parts` is the same edit as extending the hash.
+	// The satisfies clause breaks the build when a field is added without
+	// extending `parts`, so every OAuthConfig field participates in the identity.
 	const parts = {
 		tokenUrl: config.tokenUrl,
 		clientId: config.clientId,
@@ -116,13 +110,9 @@ export class OAuthTokenSource {
 	 * The cached token while it is not yet due for refresh, otherwise a fresh
 	 * exchange bounded by `timeoutMs` (the discovery timeout: the exchange is
 	 * auth plumbing, not a chat call, even when a chat triggers it) and, when
-	 * given, by `signal` (the triggering call's cancellation and timeout, so
-	 * the user can interrupt the exchange). A caller that joins an exchange
-	 * another call started shares that call's bounds, except that its own
-	 * signal still stops its wait: the shared exchange continues for the
-	 * other waiters. `surface` shapes a failure's two-part message join; a
-	 * joiner shares the starter's exchange and therefore the starter's
-	 * surface shape when it rejects.
+	 * given, by `signal`. A caller that joins an exchange another call started
+	 * shares that call's bounds and surface shape, except that its own signal
+	 * still stops its wait while the shared exchange continues for the others.
 	 */
 	async getToken(
 		config: OAuthConfig,
@@ -155,11 +145,11 @@ export class OAuthTokenSource {
 	}
 
 	/**
-	 * Drop the cached token after the server rejected it (a 401 on a chat or
-	 * discovery call), so the next request performs a fresh exchange. The
-	 * rejected call itself is never retried. When the rejected token is known
-	 * and a fresh one has already replaced it, the fresh token is kept: a
-	 * straggling 401 earned by the old token must not discard its successor.
+	 * Drop the cached token after the server rejected it, so the next request
+	 * performs a fresh exchange; the rejected call itself is never retried.
+	 * When the rejected token is known and a fresh one has already replaced it,
+	 * the fresh token is kept: a straggling 401 earned by the old token must
+	 * not discard its successor.
 	 */
 	invalidate(config: OAuthConfig, rejectedToken?: string): void {
 		const key = oauthCredentialFingerprint(config);
@@ -286,11 +276,9 @@ function parseTokenResponse(
 	} catch {
 		parsed = undefined;
 	}
-	// Each malformed shape throws a localized headline (a whole sentence per
-	// part; translators never see composed fragments) over a fixed English
-	// detail line, joined per surface by twoPartTexts; these errors carry no
-	// logClassification, so the byte-faithful English mirror is what the
-	// diagnostics surfaces render.
+	// Each malformed shape throws a localized headline over a fixed English
+	// detail line; these errors carry no logClassification, so the
+	// byte-faithful English mirror is what the diagnostics surfaces render.
 	if (!isRecord(parsed) || typeof parsed.access_token !== "string" || parsed.access_token.length === 0) {
 		const detail = `OAuth token endpoint ${tokenUrl} answered 2xx without JSON containing a non-empty access_token.`;
 		const texts = twoPartTexts(
@@ -327,12 +315,10 @@ function parseTokenResponse(
 /**
  * POST the client-credentials grant to the token endpoint. Network failures
  * and 5xx responses are retried up to the discovery cap because the exchange
- * is idempotent (a lost token costs nothing); `timeoutMs` is a hard bound
- * across all attempts, and an abort of the caller's `signal` (cancellation,
- * or the triggering chat call's own timeout) interrupts the exchange and is
- * rethrown as-is so the caller attributes it truthfully. Credential
- * rejections (400/401/403) and malformed responses fail immediately with
- * distinct messages.
+ * is idempotent; `timeoutMs` is a hard bound across all attempts, and an abort
+ * of the caller's `signal` interrupts the exchange and is rethrown as-is so
+ * the caller attributes it truthfully. Credential rejections (400/401/403) and
+ * malformed responses fail immediately with distinct messages.
  */
 async function exchangeClientCredentials(
 	config: OAuthConfig,
@@ -392,9 +378,9 @@ async function exchangeClientCredentials(
 		const { status } = response;
 		const idpDetail = oauthErrorDetail(payload, config.clientSecret);
 		if (status >= 500) {
-			// `idpDetail` quotes the IdP's error/error_description (response-derived),
-			// so the detail line rides only the message and its English mirror; the
-			// classification is what public surfaces record.
+			// `idpDetail` quotes the IdP's error/error_description
+			// (response-derived), so it rides only the message and its English
+			// mirror; the classification is what public surfaces record.
 			const detailLine = collapseWhitespace(
 				`OAuth token endpoint ${status} at ${config.tokenUrl}${idpDetail === "" ? "" : `: ${idpDetail}`}`
 			);
@@ -487,11 +473,10 @@ async function exchangeClientCredentials(
 
 /**
  * The socket-level failure text with one level of cause unwrapped: under the
- * extension host's undici fetch, failures surface as a TypeError whose
- * message is literally "fetch failed" with the real reason (getaddrinfo
- * ENOTFOUND, ECONNREFUSED, TLS errors) in error.cause. Runtime error-object
- * text only - this must never be handed a response payload. Total by
- * construction: a hostile getter on cause/code/message must not replace the
+ * extension host's undici fetch, failures surface as a TypeError whose message
+ * is literally "fetch failed" with the real reason in error.cause. Runtime
+ * error-object text only - this must never be handed a response payload. Total
+ * by construction: a hostile getter on cause/code/message must not replace the
  * network error with its own throw.
  */
 function socketFailureDetail(failure: unknown): string {

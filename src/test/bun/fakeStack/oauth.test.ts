@@ -18,10 +18,10 @@ import {
 
 /**
  * Pins the fake identity provider's pure logic without a socket: tokens are
- * counter-numbered (deterministic), every grant outcome lands in the
- * counters, the bearer check accepts exactly the live tokens, and rejection
- * bodies never echo submitted material. The docker-serversync suite drives
- * the same logic over HTTP through scripts/stack/fake-openai-server.ts.
+ * counter-numbered (deterministic), every grant outcome lands in the counters,
+ * the bearer check accepts exactly the live tokens, and rejection bodies never
+ * echo submitted material. The docker-serversync suite drives the same logic
+ * over HTTP.
  */
 describe("fakeStack oauth provider logic", () => {
 	const goodParams = {

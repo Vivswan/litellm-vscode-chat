@@ -1,13 +1,12 @@
 #!/usr/bin/env bun
 // scripts/stack/fake-openai-server.ts
 //
-// OpenAI-compatible fake backend for the docker LiteLLM stack. The chat
-// input is the control surface: a "%" command on the last non-empty line
-// of the last user message selects the response (see
-// src/test/fakeStack/commands.ts for the grammar and for why the sigil is
-// "%" rather than "/" or "!"); anything else gets the fixed reply
-// pointing at %help. The model id routes nothing - one grammar serves every
-// fake- upstream.
+// OpenAI-compatible fake backend for the docker LiteLLM stack. The chat input
+// is the control surface: a "%" command on the last non-empty line of the last
+// user message selects the response (grammar in
+// src/test/fakeStack/commands.ts); anything else gets the fixed reply pointing
+// at %help. The model id routes nothing - one grammar serves every fake-
+// upstream.
 //
 // Routes:
 //   GET  /health                  liveness for the compose healthcheck
@@ -78,11 +77,10 @@ interface BoundedBody {
 }
 
 /**
- * Read a request body, giving up as soon as it exceeds maxBytes: buffering
- * stops right there instead of after the whole payload arrived. The remainder
+ * Read a request body, giving up as soon as it exceeds maxBytes. The remainder
  * is drained rather than the socket destroyed, because fetch clients cannot
- * read an early response over a killed connection - the 413 would surface as
- * a network error instead of a status.
+ * read an early response over a killed connection - the 413 would surface as a
+ * network error instead of a status.
  */
 function readBodyBounded(req: IncomingMessage, maxBytes: number): Promise<BoundedBody> {
 	return new Promise((resolve, reject) => {
@@ -127,9 +125,9 @@ function playResult(res: ServerResponse, result: CommandResult, stream: boolean)
 
 /**
  * One line per chat completion in the container log, carrying the exact line
- * the grammar dispatched on. This is the debugging surface for "I typed
- * %help and got the fallback": a chat host that appends context after the
- * typed text, or indents it, shows up right here.
+ * the grammar dispatched on: the debugging surface for "I typed %help and got
+ * the fallback", where a host that appends context after the typed text, or
+ * indents it, shows up.
  */
 function logChatRequest(context: CommandContext, stream: boolean, dispatched: boolean): void {
 	const rawModel = context.request.model;
@@ -143,9 +141,8 @@ function logChatRequest(context: CommandContext, stream: boolean, dispatched: bo
 /**
  * Verbose exchange logging for the dev launcher: the full inbound messages
  * array and the full outbound reply, one JSON line each so the ./logs/ tee
- * stays greppable. Streamed requests log the raw chunk list (what actually
- * goes out - reasoning, audio, and chunk boundaries included); non-streaming
- * requests log the collapsed body they receive. Never enabled by the test
+ * stays greppable. Streamed requests log the raw chunk list, non-streaming
+ * ones the collapsed body they receive. Never enabled by the test
  * orchestrator - the fuzz suites would multiply megabytes into the log.
  */
 function logChatExchange(context: CommandContext, result: CommandResult, stream: boolean): void {
@@ -197,11 +194,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise
 	}
 
 	// The /authed prefix is the bearer-guarded mirror of every route below: a
-	// live token (issued by /oauth/token and not yet revoked) strips the
-	// prefix and dispatches to the normal handlers, so the OAuth suites drive
-	// real discovery and chat over a real socket without a second port.
-	// Anything else gets the LiteLLM-shaped 401 the extension's error mapping
-	// classifies as an auth failure.
+	// live token strips the prefix and dispatches to the normal handlers, so the
+	// OAuth suites drive real discovery and chat over a real socket without a
+	// second port. Anything else gets the LiteLLM-shaped 401 the extension's
+	// error mapping classifies as an auth failure.
 	let pathname = url.pathname;
 	if (pathname === "/authed" || pathname.startsWith("/authed/")) {
 		if (req.method === "POST" && pathname === "/authed/v1/chat/completions") {

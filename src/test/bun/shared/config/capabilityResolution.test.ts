@@ -3,11 +3,9 @@
  * (parseCapabilityRecord: typed consumed fields, verbatim extras), the
  * override/fallback/directive layering, the full precedence walk
  * (entry > global > directive > server > fallbacks > catalog > floor), and
- * output-limit provenance - including the redesign's ruling that BOTH
- * catalog paths (the explicit `_openrouter_model` directive included) stay
- * clamped guesses. Matcher grammar and inheritance mechanics have their own
- * suites; here they appear only where they interact with capability
- * semantics (fallback markings riding, directives never inherited).
+ * output-limit provenance - including that BOTH catalog paths stay clamped
+ * guesses. Matcher grammar and inheritance have their own suites; here they
+ * appear only where they interact with capability semantics.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -181,7 +179,7 @@ describe("shared/config capabilityResolution parseCapabilityRecord", () => {
 
 	test("a leftover _declare key is an unknown underscore key: silently ignored", () => {
 		// Declaration moved to the entry's discovery.declared list; the retired
-		// directive parses like any reserved underscore key (ruling O4).
+		// directive parses like any reserved underscore key.
 		const parsed = parseCapabilityRecord({ _declare: true, context_length: 1000 });
 		assert.deepStrictEqual(parsed.diagnostics, []);
 		assert.strictEqual(parsed.fields.context_length, 1000);
@@ -416,8 +414,8 @@ describe("shared/config capabilityResolution resolveModelCapabilities walk", () 
 	});
 
 	test("a declared model has no server level and resolves from the remaining sources", () => {
-		// The model exists because the entry's discovery.declared names it; the
-		// walk sees only the "declared" baseline (no server values at all).
+		// The model exists because discovery.declared names it, so the walk sees no
+		// server values at all.
 		const effective = resolve({
 			rawModelId: "my-model",
 			globalCapabilities: { "*": { [FALLBACK_DIRECTIVE]: true, context_length: 64000 } },
@@ -461,10 +459,8 @@ describe("shared/config capabilityResolution resolveModelCapabilities walk", () 
 	});
 
 	test("within one layer a field is an override or a fallback, never both: the chain's winner decides", () => {
-		// "*" marks context_length _fallback and inheritable; the exact record
-		// overrides the same field, so the layer's view carries the override and
-		// the fallback candidate disappears with it - most specific wins per
-		// field even across markings.
+		// The exact record overrides the field the inheritable "*" marks _fallback,
+		// so the layer carries the override and the candidate disappears with it.
 		const effective = resolve({
 			globalCapabilities: {
 				"gpt-4": { context_length: 200000 },
@@ -530,9 +526,7 @@ describe("shared/config capabilityResolution open fields in the walk", () => {
 	});
 
 	test("an invalid consumed value in a higher layer never shadows a valid lower one", () => {
-		// The core fields pin this rule already; this is the non-core consumed
-		// ring's copy: the entry's invalid cost is diagnosed away, so the
-		// global layer's valid cost wins.
+		// The non-core consumed ring's copy of the core rule.
 		const effective = resolve({
 			globalCapabilities: { "gpt-4": { input_cost_per_token: 0.000003 } },
 			entryCapabilities: { "gpt-4": { input_cost_per_token: -1 } },
@@ -597,11 +591,8 @@ describe("shared/config capabilityResolution open fields in the walk", () => {
 	});
 
 	test("prototype-named extras are ordinary fields: no inherited Object member ever leaks into the walk", () => {
-		// Regression pin: reading a plain-object bag by a user-controlled name
-		// like "toString" must never surface Object.prototype's member (which
-		// crashed the walk before the own-property guard). Open-name reads go
-		// through the exported capabilityField accessor, exactly as
-		// EffectiveCapabilityFields documents.
+		// A user-controlled name like "toString" must never read Object.prototype's
+		// member, so open-name reads go through the capabilityField accessor.
 		const openField = (effective: EffectiveCapabilities, name: string) => capabilityField(effective.fields, name);
 		const resolved = resolve({
 			globalCapabilities: {
@@ -709,9 +700,9 @@ describe("shared/config capabilityResolution diagnostics", () => {
 
 describe("shared/config capabilityResolution advisory filter", () => {
 	test("filterUnrecognizedKeyDiagnostics drops consumed-vocabulary keys even when the set would keep them", () => {
-		// The backstop rule: the parse never emits unrecognized-key for a
-		// consumed field, but if the vocabulary ever drifted, the filter must
-		// not resurrect hints for keys the extension reads.
+		// The parse never emits unrecognized-key for a consumed field, but if the
+		// vocabulary drifted the filter must not resurrect hints for keys the
+		// extension reads.
 		const kept = filterUnrecognizedKeyDiagnostics(
 			[
 				{ kind: "unrecognized-key", recordKey: "r", key: "supports_vision" },
@@ -723,9 +714,8 @@ describe("shared/config capabilityResolution advisory filter", () => {
 	});
 
 	test("filterUnrecognizedKeyDiagnostics treats an empty set as no evidence, exactly like no set", () => {
-		// A /model/info listing with zero deployments proves nothing about
-		// the server's key vocabulary; hinting against it would flag every
-		// open field at once.
+		// A listing with zero deployments proves nothing about the server's key
+		// vocabulary; hinting against it would flag every open field.
 		const hints = [{ kind: "unrecognized-key" as const, recordKey: "r", key: "mystery_flag" }];
 		assert.deepStrictEqual(filterUnrecognizedKeyDiagnostics(hints, []), []);
 		assert.deepStrictEqual(filterUnrecognizedKeyDiagnostics(hints, undefined), []);

@@ -33,9 +33,8 @@ const nameChar = fc.constantFrom(..."abgtXZ049_-.");
 const toolName = fc.string({ unit: nameChar, minLength: 1, maxLength: 8 });
 
 // Plain-text pieces never contain ">", so text regions cannot accidentally
-// assemble a complete control token; complete strippable tokens are generated
-// deliberately as noise segments instead. Partial-token fragments are fair
-// game in text: surviving arbitrary chunk boundaries is the point.
+// assemble a complete control token; complete strippable tokens are generated as
+// noise segments instead.
 const plainPiece = fc.string({ maxLength: 12 }).map((s) => s.replace(/>/g, ""));
 const tokenFragmentPiece = fc.constantFrom(
 	"<",
@@ -55,9 +54,8 @@ const textSegment: fc.Arbitrary<Segment> = fc
 	.array(fc.oneof(plainPiece, tokenFragmentPiece), { maxLength: 6 })
 	.map((pieces) => ({ kind: "text", text: pieces.join("") }));
 
-// Complete tokens the parser strips from visible text: section markers and
-// stray end/argument tokens outside a call. They must vanish identically
-// whether they arrive whole or split across chunk boundaries.
+// Complete tokens the parser strips from visible text. They must vanish
+// identically whether they arrive whole or split across chunk boundaries.
 const sectionChar = fc.constantFrom(..."abgtXZ049_-");
 const sectionName = fc.string({ unit: sectionChar, minLength: 1, maxLength: 8 });
 const noiseSegment: fc.Arbitrary<Segment> = fc

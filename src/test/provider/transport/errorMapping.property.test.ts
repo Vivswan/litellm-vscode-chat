@@ -15,16 +15,14 @@ const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
 /**
- * Property suite for provider/errorMapping. Mapped messages are user-facing
- * and feed the issue-report buffer that opens public GitHub issues, so
- * mapSdkError must be total (always an Error, never a throw) and a 401 must
- * map to one of the two fixed classification strings, never to text derived
- * from the response body.
+ * Property suite for provider/errorMapping. Mapped messages are user-facing and feed the
+ * issue-report buffer that opens public GitHub issues, so mapSdkError must be total
+ * (always an Error, never a throw) and a 401 must map to one of the two fixed
+ * classification strings, never to response-derived text.
  *
- * authMessage and UPSTREAM_AUTH_MESSAGE are not exported by the source, so
- * the expected strings are mirrored here; the authMessage mirror is built
- * from the same manageCommandTitle() helper the source interpolates, lazily
- * for the same reason (it must resolve after any l10n configuration).
+ * authMessage and UPSTREAM_AUTH_MESSAGE are not exported, so the expected strings are
+ * mirrored here; the authMessage mirror is built lazily from the same
+ * manageCommandTitle() helper, after any l10n configuration.
  */
 function authMessage(): string {
 	return `Authentication failed: Your LiteLLM server requires an API key. Please run the "${manageCommandTitle()}" command to configure your API key.`;
@@ -58,9 +56,9 @@ const litellmMentionArb = fc.constantFrom(
 );
 
 /** Upstream-provider failures: a litellm exception name in the top-level message, no auth_error envelope. */
-// The nested-body expectations below lean on the openai SDK assigning the
-// parsed body to APIError.error verbatim (no error.error unwrapping); if the
-// SDK ever unwraps, the nested cases' expected classifications invert.
+// The nested-body expectations lean on the openai SDK assigning the parsed body
+// to APIError.error verbatim; if the SDK ever unwraps error.error, the nested
+// cases' expected classifications invert.
 const upstreamCaseArb: fc.Arbitrary<Auth401Case> = fc
 	.record({
 		marker: markerArb,
@@ -179,9 +177,9 @@ suite("provider/errorMapping properties", () => {
 					assert.strictEqual(mapped.kind, status === 401 ? "auth" : "http");
 					assert.notStrictEqual(mapped.kind, "network", "a status-bearing error must never classify as network");
 					if (status === 404) {
-						// 404 has its own guidance branch: chat leads with the
-						// removed-model advice; discovery leads with the base-URL
-						// advice (docs/troubleshooting.md quotes the discovery form).
+						// 404 has its own guidance branch: chat leads with the removed-model
+						// advice, discovery with the base-URL advice that
+						// docs/troubleshooting.md quotes.
 						const prefix =
 							ctx.surface === "chat"
 								? "The server did not recognize this request"
@@ -189,13 +187,10 @@ suite("provider/errorMapping properties", () => {
 						assert.ok(mapped.message.startsWith(prefix), mapped.message);
 						assert.strictEqual(mapped.setupHint, ctx.surface === "discovery" ? "check-base-url" : undefined);
 					} else if (status !== 401) {
-						// Two-part shape: a headline, then one compact detail line that
-						// keeps the status greppable ("LiteLLM {status}" when the body
-						// was LiteLLM's envelope, "HTTP {status}" on discovery
-						// otherwise) and never a re-serialized envelope. Chat separates
-						// the parts with a blank line and the "Details:" lead-in
-						// (Copilot Chat flattens newlines); discovery keeps the single
-						// newline the dashboard and tooltips split on.
+						// Two-part shape: a headline, then one compact detail line keeping
+						// the status greppable, never a re-serialized envelope. Chat
+						// separates the parts with a blank line and "Details:"; discovery
+						// keeps the single newline the dashboard splits on.
 						const lines = mapped.message.split("\n");
 						let detail: string;
 						if (ctx.surface === "chat") {

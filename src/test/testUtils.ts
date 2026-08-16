@@ -23,10 +23,9 @@ export function fakeFingerprintSaltSession(state: FingerprintSaltState = "durabl
 /**
  * Run `fn` with `vscode.workspace.getConfiguration` overridden for the
  * "litellm-vscode-chat" section. Keys present in `sectionValues` are returned
- * as-is (including explicit null); absent keys fall back to the caller's
- * default value, and inspect() reports them as globally configured (absent
- * keys inspect as untouched). Other sections delegate to the real
- * implementation. The original function is restored in a finally block.
+ * as-is (including explicit null); absent keys fall back to the caller's default
+ * value and inspect as untouched. Other sections delegate to the real
+ * implementation.
  */
 export async function withConfig<T>(
 	sectionValues: Record<string, unknown>,
@@ -52,9 +51,8 @@ export async function withConfig<T>(
 }
 
 /**
- * The group server makeProvider's injected configuration resolves to: the
- * label "Default" at TEST_BASE_URL with the default test key, mirroring what
- * parseGroupConfiguration produces from the injected configuration.
+ * The group server makeProvider's injected configuration resolves to, mirroring
+ * what parseGroupConfiguration produces.
  */
 export function testGroupServer(apiKey = "test-key"): GroupServer {
 	return { baseUrl: normalizeBaseUrl(TEST_BASE_URL), apiKey, label: "Default" };
@@ -63,15 +61,11 @@ export function testGroupServer(apiKey = "test-key"): GroupServer {
 /**
  * Create a provider that serves models the way the host does. With `baseUrl`,
  * configuration-less discovery calls are rewritten into the host's per-group
- * call for that server (label "Default"), so suites drive the real group
- * serve path without spelling the configuration at every call site; the
- * provider gets a discovery cache that never serves stored results, so every
- * discovery call in a test observes the handlers installed at that moment
- * (cache semantics have their own suites, which pass explicit caches and
- * configurations). Without `baseUrl` the provider is bare: configuration-less
- * calls exercise the group-agnostic contract (no models), and group suites
- * pass their own configuration explicitly. `overrides` merges into the
- * constructor options.
+ * call for that server, and the provider gets a discovery cache that never
+ * serves stored results, so every discovery call observes the handlers installed
+ * at that moment. Without `baseUrl` the provider is bare: configuration-less
+ * calls exercise the group-agnostic contract (no models), and group suites pass
+ * their own configuration explicitly.
  */
 export function makeProvider(
 	baseUrl?: string,
@@ -140,20 +134,20 @@ export interface CaptureRequestOverrides {
 	messages?: vscode.LanguageModelChatRequestMessage[];
 	discoveryPayload?: JsonBodyType;
 	/**
-	 * Send the chat request with the model object discovery returned (matched
-	 * by id) instead of the hand-built one, mirroring the host contract of
-	 * handing the provider's own info objects back. Required for behavior that
-	 * rides on the model object, such as prompt-caching support.
+	 * Send the chat request with the model object discovery returned (matched by
+	 * id), mirroring the host contract of handing the provider's own info objects
+	 * back. Required for behavior that rides on the model object, such as
+	 * prompt-caching support.
 	 */
 	useDiscoveredModel?: boolean;
 }
 
 /**
- * Run model discovery followed by a chat request against msw handlers:
- * discovery endpoints return `discoveryPayload` (default: a valid
- * "test-model" listing), and POST /v1/chat/completions captures the request
- * body and headers before answering with a minimal SSE stream. The calling
- * suite must have installed the msw lifecycle via useMsw().
+ * Run model discovery followed by a chat request against msw handlers: discovery
+ * endpoints return `discoveryPayload` (default: a valid "test-model" listing),
+ * and POST /v1/chat/completions captures the request body and headers before
+ * answering with a minimal SSE stream. The calling suite must have installed the
+ * msw lifecycle via useMsw().
  */
 export async function captureRequest(
 	provider: LiteLLMChatModelProvider,
@@ -183,10 +177,10 @@ export async function captureRequest(
 				`discovery returned no model with id "${model.id}"`
 			)
 		: undefined;
-	// A hand-built model without its own attached server gets the group server
-	// the injected configuration resolves to, mirroring the host contract:
-	// every served model carries its group's connection, and the request path
-	// routes by nothing else. Models a test attached itself keep their server.
+	// A hand-built model without its own attached server gets the group server the
+	// injected configuration resolves to, mirroring the host contract: every
+	// served model carries its group's connection, and the request path routes by
+	// nothing else.
 	const sent =
 		discovered ??
 		(model.litellm?.server !== undefined ? model : attachGroupServer(model as PreAttachModelInfo, testGroupServer()));
@@ -240,7 +234,7 @@ export function makeServerStatus(overrides: ServerStatusOverrides = {}): ServerS
 				state: "error",
 				error: overrides.error,
 				// Tests hand plain strings; the helper is the one place that brands
-				// them (publicErrorText on a string is the identity rendering).
+				// them.
 				logSafeError:
 					overrides.logSafeError !== undefined ? markLogSafe(overrides.logSafeError) : publicErrorText(overrides.error),
 				...(overrides.classification !== undefined ? { classification: overrides.classification } : {}),
@@ -310,13 +304,11 @@ type StorageOperation = "mementoUpdate" | "secretGet" | "secretStore" | "secretD
 /**
  * A fault-injecting view over a fake storage: each operation named in `failOn`
  * consults its trigger per call and rejects with the returned error, while
- * `undefined` lets the call through to `storage` (so triggers can fail once,
- * or only for one key). Secret operations fail before mutating;
- * `mementoUpdate` mutates first and then fails, mirroring VS Code's Memento,
- * which caches an update optimistically before the async write settles. `ops`
- * records every store/update/delete attempt in call order for
- * atomicity-ordering assertions. The backing maps are shared with `storage`,
- * so tests seed and inspect state through either.
+ * `undefined` lets the call through to `storage`. Secret operations fail before
+ * mutating; `mementoUpdate` mutates first and then fails, mirroring VS Code's
+ * Memento, which caches an update optimistically before the async write settles.
+ * `ops` records every store/update/delete attempt in call order. The backing
+ * maps are shared with `storage`.
  */
 export function failingStorage(
 	storage: FakeExtensionStorage,

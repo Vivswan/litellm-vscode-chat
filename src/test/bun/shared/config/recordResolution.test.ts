@@ -1,12 +1,11 @@
 /**
  * The inheritance engine's unit pins, driven through the parameters-record
- * parser (resolveParameterLayer - an open field vocabulary keeps the cases
- * readable; capabilityResolution.test.ts covers the capability-specific
- * parsing). Pinned here: the wholesale-winner default, pass-through
- * transparency, `_inheritable` (true and lists), `_inherit_from` in all four
- * forms, the barrier, the exclusive list's literal-fields/nearest-first/
- * bypass rules, markings riding with fields, the receiver re-marking ban,
- * and every directive diagnostic ruling (O1-O4).
+ * parser (capabilityResolution.test.ts covers the capability-specific parsing).
+ * Pinned here: the wholesale-winner default, pass-through transparency,
+ * `_inheritable` (true and lists), `_inherit_from` in all four forms, the
+ * barrier, the exclusive list's literal-fields/nearest-first/bypass rules,
+ * markings riding with fields, the receiver re-marking ban, and every directive
+ * diagnostic ruling (O1-O4).
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -217,9 +216,8 @@ describe("shared/config recordResolution markings and diagnostics", () => {
 	test("an inherited field keeps its source's _force marking; receivers cannot re-mark", () => {
 		const records = {
 			"*": { temperature: 1, top_p: 0.9, _force: ["temperature"], _inheritable: true },
-			// O2: a directive list may only name fields present in its own
-			// record - the receiver's attempt to force the inherited top_p is a
-			// diagnostic, and the inherited temperature stays forced.
+			// O2: a directive list may only name fields present in its own record,
+			// so forcing the inherited top_p is a diagnostic.
 			"gpt-5*": { seed: 3, _force: ["top_p"] },
 		};
 		const resolution = resolveParameterLayer("gpt-5.6", records);
@@ -232,8 +230,7 @@ describe("shared/config recordResolution markings and diagnostics", () => {
 		const records = {
 			"*": { top_p: 0.9, _inheritable: true },
 			"gpt*": { temperature: 0.5, _inheritable: true, _inherit_from: false },
-			// gpt-5* inherits gpt*'s FIELDS (with markings) but not its barrier:
-			// nothing here says _inherit_from, so the default flow applies to it.
+			// gpt-5* inherits gpt*'s FIELDS (with markings) but not its barrier.
 			"gpt-5*": { seed: 3 },
 		};
 		const resolution = resolveParameterLayer("gpt-5.6", records);

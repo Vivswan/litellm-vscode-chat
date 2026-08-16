@@ -16,16 +16,12 @@ const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
 /**
- * Robustness properties for the servers-setting entry parser (the nested
- * auth / headers / models / discovery / budget shape): parsing is total and
- * deterministic over user-authored garbage and never mutates its input,
- * acceptance matches an independently restated auth grammar (misconfigured
- * entries never surface as parsed entries, so nothing of theirs can reach
- * buildGroupArgs), and a parse -> serialize -> parse round trip is a fixed
- * point whose flattened group args are byte-identical - the persisted sync
- * fingerprints hash exactly that JSON rendering, so any drift here would
- * silently re-push every provider group. The flat-shape acceptance rules and
- * the descriptor-order contract live in serverSync.property.test.ts.
+ * Robustness properties for the servers-setting entry parser: parsing is total and
+ * deterministic over user-authored garbage and never mutates its input, acceptance
+ * matches an independently restated auth grammar, and a parse -> serialize -> parse round
+ * trip is a fixed point whose flattened group args are byte-identical - the persisted
+ * sync fingerprints hash exactly that JSON rendering, so drift here would silently
+ * re-push every provider group.
  */
 
 const labelPool = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"] as const;
@@ -210,13 +206,9 @@ const storedArb: fc.Arbitrary<StoredServerSecrets> = fc.dictionary(
 ) as fc.Arbitrary<StoredServerSecrets>;
 
 /**
- * A parsed entry rendered back to the nested settings shape (the same
- * assembly saveServer.ts applies): the flat credential fields fold into the
- * auth grammar by rank - oauth carries its companions inside its own object,
- * an apiKey rides beside a virtualKey sibling - and the extension-side fields
- * return to their headers/models/discovery/budget slots. The parser can only
- * produce complete units (an oauth pair, a virtual key with a header), so
- * every parsed entry is serializable.
+ * A parsed entry rendered back to the nested settings shape (the same assembly
+ * saveServer.ts applies): flat credential fields fold into the auth grammar by rank, and
+ * the extension-side fields return to their headers/models/discovery/budget slots.
  */
 function serializeEntry(entry: DeclaredServer): Record<string, unknown> {
 	const virtualKey =
@@ -288,12 +280,10 @@ function virtualKeyIsAcceptable(raw: unknown): boolean {
 }
 
 /**
- * The documented auth grammar (setting.ts's module docstring), restated
- * independently of parseAuth: exactly one form, ranked oauth > apiKey >
- * virtualKey, companions of strictly lower primacy only, unknown keys and
- * type errors misconfigure, and a missing secret VALUE is never
- * misconfiguration. This oracle shares no code with the parser, so the
- * facade-agreement checks below cannot all drift together.
+ * The documented auth grammar (setting.ts's module docstring), restated independently of
+ * parseAuth: exactly one form, ranked oauth > apiKey > virtualKey, companions of strictly
+ * lower primacy only, unknown keys and type errors misconfigure, and a missing secret
+ * VALUE is never misconfiguration. This oracle shares no code with the parser.
  */
 function authIsAcceptable(raw: unknown): boolean {
 	if (raw === undefined) {
@@ -340,10 +330,9 @@ function authIsAcceptable(raw: unknown): boolean {
 }
 
 /**
- * The raw indices the documented acceptance rules keep, end to end: an object
- * element with usable label and baseUrl, an unreserved label no earlier entry
- * claimed (a misconfigured entry still CLAIMS its label - the first entry
- * wins, and rawDeclaredLabels keeps it present), and an acceptable auth shape.
+ * The raw indices the documented acceptance rules keep: an object element with
+ * usable label and baseUrl, an unreserved label no earlier entry claimed (a
+ * misconfigured entry still CLAIMS its label), and an acceptable auth shape.
  */
 function expectedAcceptedIndices(raw: readonly unknown[]): number[] {
 	const seen = new Set<string>();
@@ -370,9 +359,9 @@ function expectedAcceptedIndices(raw: readonly unknown[]): number[] {
 suite("extension/servers/serverSync setting parser properties (nested shape)", () => {
 	test("parsing is total, deterministic, and never mutates its input", () => {
 		fc.assert(
-			// fc.clone yields two structurally identical instances, so the
-			// mutation check compares against a pristine twin instead of a
-			// structuredClone (which would normalize null-prototype objects).
+			// fc.clone yields two structurally identical instances, so the mutation
+			// check compares against a pristine twin instead of a structuredClone
+			// (which would normalize null-prototype objects).
 			fc.property(fc.clone(fc.oneof(rawSettingArb, fc.jsonValue(), fc.anything()), 2), ([raw, pristine]) => {
 				const first = parseServersSetting(raw);
 				const second = parseServersSetting(raw);
@@ -399,9 +388,8 @@ suite("extension/servers/serverSync setting parser properties (nested shape)", (
 				const reports = serverSettingReports(raw);
 				assert.strictEqual(reports.length, raw.length, "one verdict per raw element");
 
-				// The oracle shares no code with acceptEntries: a parser bug that
-				// accepted an ambiguous companion or a partial oauth unit would
-				// disagree here even though every parser facade agrees with itself.
+				// The oracle shares no code with acceptEntries: a parser bug accepting an
+				// ambiguous companion or a partial oauth unit would disagree here.
 				assert.deepStrictEqual(
 					reports.filter((report) => report.accepted).map((report) => report.index),
 					expectedAcceptedIndices(raw),
@@ -483,8 +471,7 @@ suite("extension/servers/serverSync setting parser properties (nested shape)", (
 					const roundTripped = reparsed[index] as DeclaredServer;
 					const args = buildGroupArgs(entry, stored);
 					// The negative half of the fingerprint contract (serverEntry.ts):
-					// headers, models.*, discovery.*, and budget must never reach the
-					// group args, whatever the entry carries.
+					// headers, models.*, discovery.*, and budget never reach group args.
 					for (const key of Object.keys(args)) {
 						assert.ok(canonicalKeys.includes(key), `group args must never carry "${key}"`);
 					}

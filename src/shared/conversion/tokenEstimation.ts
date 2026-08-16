@@ -7,22 +7,18 @@ import type { OpenAIFunctionToolDef } from "./wire";
 export const IMAGE_TOKEN_ESTIMATE = 765;
 export const PDF_TOKEN_ESTIMATE = 500;
 /**
- * Providers meter audio by duration, not bytes (OpenAI's gpt-4o audio input
- * runs about 10 tokens per second, Gemini 32 per second), and the duration is
- * not recoverable here without decoding the container. A fixed minute-scale
- * figure between those two rates keeps a typical voice clip from counting as
- * zero, which is the dangerous direction: an undercounted prompt is never
- * trimmed by the host's budget and overflows server-side instead.
+ * Providers meter audio by duration, not bytes, and the duration is not
+ * recoverable here without decoding the container. A fixed minute-scale figure
+ * keeps a typical voice clip from counting as zero, which is the dangerous
+ * direction: an undercounted prompt is never trimmed by the host's budget and
+ * overflows server-side instead.
  */
 export const AUDIO_TOKEN_ESTIMATE = 1000;
 
 /**
- * The same capability gates the message conversion runs under, resolved from
- * the model (registered imageInput capability, LiteLLM audio-input modality).
- * Estimation prices the same transmitted forms conversion produces for this
- * model - media at fixed heuristic figures, text through the installed
- * text-token counter (textTokens.ts) - and a part the gates exclude never
- * ships, so it counts zero.
+ * The same capability gates the message conversion runs under. Estimation
+ * prices the same transmitted forms conversion produces for this model, and a
+ * part the gates exclude never ships, so it counts zero.
  */
 export interface TokenEstimationOptions {
 	imageInput: boolean;
@@ -57,18 +53,13 @@ export function estimatePartTokens(
 				return wire satisfies never;
 		}
 	}
-	// Tool results wrap their output in a content array (no string value), so
-	// each entry prices what collectToolResultContent transmits for it:
-	// recognized part classes recurse through the same per-part estimates at
-	// the "toolResult" position (whose wire forms drop PDF and audio and gate
-	// images just like conversion), a bare string is transmitted verbatim and
-	// prices through the same text counter as other text, and anything else is
-	// JSON-stringified onto the wire, so that serialization's length is what
-	// counts - conversion's `+=` coerces a missing rendering (functions,
-	// symbols) to the literal "undefined", and only a THROWING serialization
-	// transmits nothing. In agent sessions tool output dominates the prompt;
-	// counting entries as 0 made the host's budget skip trimming until the
-	// request overflowed server-side.
+	// Tool results wrap their output in a content array, so each entry prices
+	// what collectToolResultContent transmits for it: recognized part classes
+	// recurse at the "toolResult" position, a bare string prices through the
+	// same text counter, and anything else is JSON-stringified onto the wire.
+	// In agent sessions tool output dominates the prompt; counting entries as 0
+	// made the host's budget skip trimming until the request overflowed
+	// server-side.
 	if (isToolResultPart(part)) {
 		let total = 0;
 		for (const inner of part.content ?? []) {
@@ -93,11 +84,10 @@ export function estimatePartTokens(
 		}
 		return total;
 	}
-	// Prompt-TSX parts transmit as extractPromptTsxText's rendering (the string
-	// value or, for object values, their JSON serialization); the estimate
-	// counts that same text. Values with no JSON rendering transmit nothing and
-	// price zero. A string value would also hit the generic fallback below, but
-	// an object value would otherwise score 0.
+	// Prompt-TSX parts transmit as extractPromptTsxText's rendering; the
+	// estimate counts that same text. Values with no JSON rendering transmit
+	// nothing and price zero. A string value would also hit the generic
+	// fallback below, but an object value would otherwise score 0.
 	if (part instanceof vscode.LanguageModelPromptTsxPart) {
 		const extracted = extractPromptTsxText(part);
 		return typeof extracted === "string" ? countTextTokens(extracted) : 0;
@@ -126,8 +116,7 @@ export function estimateMessagesTokens(
 	for (const m of msgs) {
 		// Everything but a user message takes the assistant position: mapRole
 		// treats system and unknown roles alike, and conversion sends binary
-		// blocks only for user messages, so the seam's assistant rule (text
-		// decodes, binary drops) covers all of them.
+		// blocks only for user messages.
 		const position: DataPartPosition = m.role === vscode.LanguageModelChatMessageRole.User ? "user" : "assistant";
 		for (const part of m.content) {
 			total += estimatePartTokens(part, options, position);

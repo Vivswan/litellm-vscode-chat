@@ -4,8 +4,8 @@ import { FUZZ_MODES, freshFuzzSeed, fuzzSeedLine, fuzzSeedPrefix, resolveDockerF
 
 describe("fuzzSeed contract", () => {
 	// nightly-fuzz.yml's extraction patterns, copied byte-for-byte from the
-	// workflow. If the emitted shapes ever stop satisfying them, the nightly
-	// issue ships without a reproduction seed - which is the whole point.
+	// workflow. Emitted shapes that stop satisfying them ship the nightly issue
+	// without a reproduction seed.
 	const workflowLine = /\[fuzz\] seed=[0-9]+[^"]*/;
 	const workflowSeed = /seed=[0-9]+/;
 	const workflowMode = /mode=[a-z-]+/;
@@ -21,9 +21,8 @@ describe("fuzzSeed contract", () => {
 	});
 
 	test("the monkey suite's mode is declared, so its seed lines reach the nightly grep", () => {
-		// docker-monkey.test.ts logs via logFuzzSeed(SEED, WALKS, "monkey"); a
-		// mode dropped from FUZZ_MODES would fail compilation there, and this
-		// pin keeps the intent visible next to the grep contract.
+		// docker-monkey.test.ts logs via logFuzzSeed(SEED, WALKS, "monkey"); this
+		// pin keeps that requirement next to the grep contract.
 		assert.ok((FUZZ_MODES as readonly string[]).includes("monkey"));
 	});
 

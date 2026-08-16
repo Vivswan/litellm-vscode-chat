@@ -1,10 +1,9 @@
 /**
  * The docker-stack orchestrator's suite labels in canonical execution order,
- * shared by scripts/docker-test.ts (which runs them) and the drift guards
- * (which pin the CI shard lists in checks.yml to this set). The order is
- * load-bearing: docker-monkey stays last because its walks deliberately
- * dirty host state that no later suite should inherit, so any --only
- * selection replays this order rather than the flag's.
+ * shared by the orchestrator and the drift guards that pin the CI shard lists
+ * to this set. The order is load-bearing: docker-monkey stays last because its
+ * walks deliberately dirty host state no later suite should inherit, so any
+ * --only selection replays this order rather than the flag's.
  */
 export const DOCKER_TEST_LABELS = [
 	"docker",
@@ -23,10 +22,8 @@ export const DOCKER_TEST_LABELS = [
 export type DockerTestLabel = (typeof DOCKER_TEST_LABELS)[number];
 
 /**
- * The orchestrator's --skip-* flag per skippable label, shared by
- * scripts/docker-test.ts (which parses them) and the nightly-fuzz drift
- * guard (which pins the workflow's unseeded leg to the complement of the
- * seeded labels through exactly these flags). The base `docker` label has no
+ * The orchestrator's --skip-* flag per skippable label, shared by the
+ * orchestrator and the nightly-fuzz drift guard. The base `docker` label has no
  * skip flag on purpose: the default full run always includes it.
  */
 export const DOCKER_SKIP_FLAGS: Readonly<Partial<Record<DockerTestLabel, string>>> = {
@@ -43,10 +40,10 @@ export const DOCKER_SKIP_FLAGS: Readonly<Partial<Record<DockerTestLabel, string>
 };
 
 /**
- * Parse a --only value (comma-separated labels) into the selection to run,
- * deduplicated and in canonical order. Unknown and empty labels throw with
- * the known set spelled out: a renamed label must break a CI shard loudly,
- * never degrade it into running nothing.
+ * Parse a --only value into the selection to run, deduplicated and in canonical
+ * order. Unknown and empty labels throw with the known set spelled out: a
+ * renamed label must break a CI shard loudly, never degrade it into running
+ * nothing.
  */
 export function parseOnlyLabels(value: string): DockerTestLabel[] {
 	const known: ReadonlySet<string> = new Set(DOCKER_TEST_LABELS);

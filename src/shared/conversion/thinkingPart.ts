@@ -50,10 +50,9 @@ export function logMissingThinkingPartSupportOnce(log: (message: string) => void
 }
 
 /**
- * Log, once per session, that the constructor probe threw. Every
- * StreamProcessor construction reports here, so the guard keeps a host with a
- * throwing getter from being re-logged on each request. Tests inject the
- * error; production callers use the module probe result.
+ * Log, once per session, that the constructor probe threw, so a host with a
+ * throwing getter is not re-logged on each request. Tests inject the error;
+ * production callers use the module probe result.
  */
 export function logThinkingPartProbeErrorOnce(
 	log: (message: string, data?: unknown) => void,

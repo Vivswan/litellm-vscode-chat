@@ -1,9 +1,7 @@
 /**
- * The shared one-shot timing seams every scheduler in the codebase injects:
- * the OpenRouter catalog store's weekly refresh, the usage poller's cadence,
- * the usage status bar's stale edge, and the notifier's grace deferral all
- * test against fake time through these instead of hand-rolling identical
- * Timer/Clock types and setTimeout wrappers.
+ * The shared one-shot timing seams every scheduler injects, so cadences test
+ * against fake time instead of hand-rolling identical Timer/Clock types and
+ * setTimeout wrappers.
  */
 
 /** One-shot timer effects, injectable so cadences are testable without real time. */
@@ -28,10 +26,8 @@ export interface Clock {
 export const SYSTEM_CLOCK: Clock = { now: () => Date.now() };
 
 /**
- * One re-armable pending call on a Timer: arming replaces any pending call,
- * firing clears the pending flag before the callback runs, and the holder
- * can ask whether one is pending. This is the `cancelScheduled` closure
- * bookkeeping the schedulers used to hand-roll - kept deliberately free of
+ * One re-armable pending call on a Timer: arming replaces any pending call and
+ * firing clears the pending flag before the callback runs. Deliberately free of
  * enabled/disposed policy, which stays with each owner.
  */
 export class PendingCall {
@@ -46,9 +42,9 @@ export class PendingCall {
 	/** Schedule `callback` after `ms`, replacing any pending call. */
 	arm(callback: () => void, ms: number): void {
 		this.cancel();
-		// A Timer may fire synchronously inside set() (fake timers in tests);
-		// the fired flag keeps the spent cancel closure from being written back
-		// over whatever the callback armed.
+		// A Timer may fire synchronously inside set() (fake timers in tests); the
+		// fired flag keeps the spent cancel closure from overwriting whatever the
+		// callback armed.
 		let fired = false;
 		const cancel = this.timer.set(() => {
 			fired = true;

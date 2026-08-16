@@ -11,15 +11,13 @@ import { catalogOff, ensureActivated } from "../../hostApiHelpers";
 import { serverPayload } from "./recordedEnv";
 
 /**
- * Integration over the REAL dashboard wiring: unlike panel.test.ts (fake env
- * closures), these tests activate the extension and drive
- * litellm._test.dashboardMessage, whose handler opens the real panel first -
- * so createRealPanel, createNonce, buildDashboardHtml, and the real env
- * closures (workspace configuration, SecretStorage, the sync engine) all
- * execute. Assertions read real side effects: configuration inspection, the
- * sync engine's declared views, and the injection outcome class. The real
- * webview's posted messages are not observable here; the webview suite and
- * panel.test.ts cover that half.
+ * Integration over the REAL dashboard wiring: these tests activate the
+ * extension and drive litellm._test.dashboardMessage, so createRealPanel,
+ * createNonce, buildDashboardHtml, and the real env closures (workspace
+ * configuration, SecretStorage, the sync engine) all execute. Assertions read
+ * real side effects - configuration inspection, the sync engine's declared
+ * views, the injection outcome class - since the real webview's posted
+ * messages are not observable here.
  */
 suite("extension/dashboard/panelIntegration", () => {
 	const CONFIG = "litellm-vscode-chat";
@@ -111,24 +109,20 @@ suite("extension/dashboard/panelIntegration", () => {
 
 	test("litellm._test.dashboardMessage opens the real dashboard panel and a ready message classifies ok", async function () {
 		this.timeout(20000);
-		// The command opens the panel through the real litellm.openDashboard
-		// path, so createRealPanel, createNonce, and buildDashboardHtml all
-		// execute against the real extension URI - a construction-time throw
-		// (bad Uri.joinPath, a template error) fails here. What this cannot
-		// see is the page actually loading: a wrong bundle filename or CSP
-		// still ships a blank webview (the packaged-file-list check and its
-		// bundle floor cover the filename; rendering stays manual F5).
+		// The command opens the panel through the real litellm.openDashboard path,
+		// so a construction-time throw in createRealPanel, createNonce, or
+		// buildDashboardHtml fails here. What it cannot see is the page loading: a
+		// wrong bundle filename or CSP still ships a blank webview.
 		assert.strictEqual(await inject(request("ready", null)), "ok");
 		// And the schema boundary still rejects junk after the panel exists.
 		assert.strictEqual(await inject({ type: "no-such-intent" }), "ignored-malformed");
 	});
 
 	test("the bundled stylesheet exists beside the bundle at the exact path createRealPanel resolves", () => {
-		// The webview suite renders source .tsx and never loads the bundled
-		// output, so a bundler regression that stops emitting the stylesheet
-		// would ship an unstyled dashboard with every test green. This stats
-		// the css through the same constants panel.ts joins into asWebviewUri,
-		// beside the bundle the suite's own build step already produced.
+		// The webview suite renders source .tsx and never loads the bundled output,
+		// so a bundler regression that stops emitting the stylesheet would ship an
+		// unstyled dashboard with every test green. This stats the css through the
+		// same constants panel.ts joins into asWebviewUri.
 		const extension = vscode.extensions.getExtension("vivswan.litellm-vscode-chat");
 		assert.ok(extension, "the extension under test must be present");
 		const distDir = vscode.Uri.joinPath(extension.extensionUri, ...WEBVIEW_DIST_SEGMENTS);
@@ -149,15 +143,12 @@ suite("extension/dashboard/panelIntegration", () => {
 
 	test("every endpoint table method's schema survives bundling and classifies its request", async function () {
 		this.timeout(20000);
-		// Runs against the bundled dist/extension.js this suite's build step
-		// produced: a bare-number payload fails every payload schema (each is
-		// z.null() or a strict object), so every probe must come back with its
-		// method's exact refusal class without reaching a handler - notifying
-		// methods answer validation-error, reads ignored-malformed. A method
-		// whose schema or table row went missing from the bundle throws or
-		// lands in the wrong class, failing by method name; a future schema
-		// that accepts the probe surfaces as "ok" and fails too instead of
-		// silently running a handler.
+		// Runs against the bundled dist/extension.js: a bare-number payload fails
+		// every payload schema, so each probe must come back with its method's
+		// exact refusal class without reaching a handler - notifying methods
+		// answer validation-error, reads ignored-malformed. A method whose schema
+		// or table row went missing from the bundle fails by name, and a schema
+		// that accepts the probe surfaces as "ok" instead of running a handler.
 		for (const [method, endpoint] of Object.entries(DASHBOARD_ENDPOINTS)) {
 			const outcome = await inject(request(method, 12345, `pi-survival-${method}`));
 			const expected = endpoint.outcome === "read" ? "ignored-malformed" : "validation-error";
@@ -317,22 +308,18 @@ suite("extension/dashboard/panelIntegration", () => {
 
 	test("an executeCommand intent dispatches through the real vscode.commands bridge", async function () {
 		this.timeout(20000);
-		// openOutput is a real registered command that shows the output channel:
-		// no network, no dialogs, and it stays dashboard-postable (syncing left
-		// the postable set when the acked syncModels wire method took over).
-		// Revealing the Output panel does steal focus in the shared host - the
-		// mildest side effect any postable command has; every alternative opens
-		// an editor, a dialog, or a quick-pick. What this proves is the bridge,
-		// not the command - a dead bridge would classify as a failure.
+		// openOutput is a real registered command with no network and no dialogs,
+		// and it stays dashboard-postable; revealing the Output panel does steal
+		// focus in the shared host, the mildest side effect any postable command
+		// has. What this proves is the bridge, not the command.
 		assert.strictEqual(await inject(request("executeCommand", { command: "openOutput" })), "ok");
 	});
 
 	test("a syncModels intent runs the real command and answers only once it has settled", async function () {
 		this.timeout(20000);
-		// The whole reason this method exists apart from executeCommand: its
-		// answer is a completion signal, so the outcome must not resolve until
-		// the command's own promise has. The real registered litellm.syncModels
-		// through the real bridge - what is pinned here is the awaiting.
+		// The whole reason this method exists apart from executeCommand: its answer
+		// is a completion signal, so the outcome must not resolve until the real
+		// litellm.syncModels promise has. What is pinned here is the awaiting.
 		let settled = false;
 		const outcome = inject(request("syncModels", null, "pi-sync-acked"));
 		void Promise.resolve(outcome).then(() => {
@@ -347,11 +334,10 @@ suite("extension/dashboard/panelIntegration", () => {
 
 	test("testServerDraft runs the real probe read-only: an unreachable draft fails the intent and mutates nothing", async function () {
 		this.timeout(20000);
-		// Port 1 on loopback refuses immediately, so the real discovery path
-		// (throwaway ChatClient, real fetch) fails fast without leaving a
-		// half-open socket for msw-guarded suites to trip on. What this proves
-		// is the env wiring end to end: schema, keep-resolution against the real
-		// stores, the probe, and the outcome class - with zero writes.
+		// Port 1 on loopback refuses immediately, so the real discovery path fails
+		// fast without leaving a half-open socket for msw-guarded suites. What this
+		// proves is the env wiring end to end - schema, keep-resolution against the
+		// real stores, the probe, and the outcome class - with zero writes.
 		const before = vscode.workspace.getConfiguration(CONFIG).inspect("servers")?.globalValue;
 		const outcome = await inject(
 			request(
@@ -391,10 +377,9 @@ suite("extension/dashboard/panelIntegration", () => {
 				"pi-adopt-1"
 			)
 		);
-		// Degrading instead of throwing is the contract: adoption must stay
-		// usable exactly when the group vanished. The caveat message rides the
-		// unobservable webview ack; what this can prove is the outcome class
-		// and the saved entry.
+		// Degrading instead of throwing is the contract: adoption must stay usable
+		// exactly when the group vanished. The caveat message rides the
+		// unobservable webview ack, so this pins the outcome class and the entry.
 		assert.strictEqual(outcome, "ok");
 		const globalValue = vscode.workspace.getConfiguration(CONFIG).inspect("servers")?.globalValue;
 		assert.ok(JSON.stringify(globalValue ?? {}).includes("PanelIT-Adopted"), "the adopted entry must be saved");

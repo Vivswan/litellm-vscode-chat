@@ -1,21 +1,15 @@
 /**
  * The OpenRouter capability catalog: the mapping from OpenRouter's /models
  * payload to the core capability vocabulary, the slimming that produces the
- * packaged dist/openrouter-models.json artifact, and the lookup the resolver
- * consumes (capabilityResolution's CapabilityCatalogLookup). The catalog maps
- * capabilities only - context_length, max_output_tokens, supports_vision,
- * supports_function_calling, supports_reasoning, plus id and name for the
- * directive picker; pricing deliberately never rides the catalog: LiteLLM's
- * /model/info is the only pricing source. Pure (no vscode, no zod, no Node)
- * and lenient by contract: the catalog is best-effort backfill data, so every
- * parser here degrades malformed input to absence instead of throwing - a
- * broken snapshot yields an empty catalog, never a broken activation. That
- * leniency also covers legacy artifacts: slim files cached or packaged while
- * slimming still kept OpenRouter's pricing block, parse unchanged (the mapping
- * ignores unmapped keys), and re-slimming them sheds the pricing keys.
- * Consumed by the runtime store (src/extension/openRouterCatalog.ts)
- * and the build-time fetch script (scripts/dev/fetch-openrouter-catalog.ts);
- * never imported anywhere reachable from src/webview/.
+ * packaged artifact, and the lookup the resolver consumes. The catalog maps
+ * capabilities only; pricing deliberately never rides it - LiteLLM's
+ * /model/info is the only pricing source. Lenient by contract: the catalog is
+ * best-effort backfill data, so every parser here degrades malformed input to
+ * absence instead of throwing - a broken snapshot yields an empty catalog,
+ * never a broken activation. That leniency also covers legacy artifacts:
+ * slim files that still carry OpenRouter's pricing block parse unchanged, and
+ * re-slimming them sheds the pricing keys. Never imported anywhere reachable
+ * from src/webview/.
  */
 
 import { isRecord } from "../util/json";
@@ -27,9 +21,8 @@ export const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 
 /**
  * The smallest model count a live payload may carry before the fetch script
- * calls it schema drift (the catalog has held well over 300 models for
- * years). The packaged-file-list CI check asserts the same floor on the
- * shipped artifact with jq; keep the two numbers in sync.
+ * calls it schema drift. The packaged-file-list CI check asserts the same
+ * floor on the shipped artifact with jq; keep the two numbers in sync.
  */
 export const CATALOG_MODEL_COUNT_FLOOR = 200;
 
@@ -93,15 +86,11 @@ function stringTokens(value: unknown): readonly string[] | undefined {
 }
 
 /**
- * Map one OpenRouter entry to the capability vocabulary:
- * context_length -> context_length, top_provider.max_completion_tokens ->
- * max_output_tokens, architecture.input_modalities containing "image" ->
- * supports_vision, supported_parameters containing "tools"/"reasoning" ->
- * supports_function_calling/supports_reasoning. A present modality or
- * parameter list is authoritative both ways
- * (its booleans are set true or false); an absent or malformed one leaves the
- * fields unset so lower precedence levels keep them. Entries without a
- * usable id map to undefined; nothing here throws.
+ * Map one OpenRouter entry to the capability vocabulary. A present modality or
+ * parameter list is authoritative both ways (its booleans are set true or
+ * false); an absent or malformed one leaves the fields unset so lower
+ * precedence levels keep them. Entries without a usable id map to undefined;
+ * nothing here throws.
  */
 export function mapOpenRouterEntry(entry: unknown): CatalogModel | undefined {
 	if (!isRecord(entry)) {
@@ -168,11 +157,10 @@ export function parseCatalogSnapshot(payload: unknown): OpenRouterCatalogSnapsho
 
 /**
  * Slim one entry to the wire subset the mapping consumes, normalizing as it
- * goes (numbers parsed, token lists reduced to the mapped tokens in a fixed
- * order) so the artifact is deterministic and mapping-equivalent to its
- * source: parsing the slimmed entry yields exactly what parsing the raw
- * entry did. Unmapped source keys - OpenRouter's pricing block among them -
- * never survive slimming.
+ * goes so the artifact is deterministic and mapping-equivalent to its source:
+ * parsing the slimmed entry yields exactly what parsing the raw entry did.
+ * Unmapped source keys - OpenRouter's pricing block among them - never
+ * survive slimming.
  */
 function slimEntry(entry: unknown): SlimOpenRouterModel | undefined {
 	const model = mapOpenRouterEntry(entry);
@@ -199,11 +187,10 @@ function slimEntry(entry: unknown): SlimOpenRouterModel | undefined {
 }
 
 /**
- * Slim a whole payload into the artifact shape: only mapped fields plus id
- * and name survive, duplicate ids keep their first occurrence, and entries
- * sort by id - so the artifact is byte-deterministic for a given payload and
- * diffs cleanly between fetches. Idempotent: slimming a slimmed file changes
- * nothing. Never throws.
+ * Slim a whole payload into the artifact shape: duplicate ids keep their first
+ * occurrence and entries sort by id, so the artifact is byte-deterministic for
+ * a given payload and diffs cleanly between fetches. Idempotent: slimming a
+ * slimmed file changes nothing. Never throws.
  */
 export function slimCatalogPayload(payload: unknown): SlimCatalogFile {
 	const slimmed = new Map<string, SlimOpenRouterModel>();
@@ -229,15 +216,13 @@ const NOT_FOUND: CatalogLookupResult = { kind: "not-found" };
 const AMBIGUOUS: CatalogLookupResult = { kind: "ambiguous" };
 
 /**
- * Build the resolver's catalog view over a snapshot. byExactId answers
- * `_openrouter_model` directives and always serves the snapshot. byRawModelId
- * is the implicit low-precedence lookup by a model's own raw ID: an exact
- * catalog-ID match wins; otherwise the post-"vendor/" suffix must match
- * exactly one catalog entry - two or more answer ambiguous (the walk skips
- * the level rather than guessing a vendor). With implicitLookup false (the
- * opt-out setting), byRawModelId answers not-found while byExactId keeps
- * serving: explicit directives are user intent and involve no network, so the
- * opt-out never breaks them.
+ * Build the resolver's catalog view over a snapshot. byRawModelId is the
+ * implicit lookup by a model's own raw ID: an exact catalog-ID match wins;
+ * otherwise the post-"vendor/" suffix must match exactly one catalog entry -
+ * two or more answer ambiguous rather than guessing a vendor. With
+ * implicitLookup false (the opt-out setting), byRawModelId answers not-found
+ * while byExactId keeps serving: explicit directives are user intent and
+ * involve no network, so the opt-out never breaks them.
  */
 export function createCatalogLookup(
 	snapshot: OpenRouterCatalogSnapshot,

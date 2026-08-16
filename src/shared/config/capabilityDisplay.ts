@@ -1,20 +1,16 @@
 /**
  * Presentation helpers for capability fields, shared by the capability
- * inspector (webview, through protocol.ts) and the Diagnostics tab's
- * resolved-models figure: the friendly display labels for every consumed
- * field and the $/M rendering of the per-token cost fields. Pure and
- * webview-safe; @vscode/l10n is the one l10n API both runtimes share.
- *
- * Display only: the value vocabulary itself (which keys are consumed, how
- * their values validate) stays in capabilityResolution.ts.
+ * inspector and the Diagnostics tab. Display only: the value vocabulary itself
+ * (which keys are consumed, how their values validate) stays in
+ * capabilityResolution.ts.
  */
 
 import * as l10n from "@vscode/l10n";
 
 /**
- * The eight cost fields in display order: the base tier, then the
- * long-context tier, input before output and cache read before cache write
- * within each. Both pricing surfaces group and order by this list.
+ * The eight cost fields in display order: the base tier, then the long-context
+ * tier, input before output and cache read before cache write within each.
+ * Both pricing surfaces group and order by this list.
  */
 export const COST_CAPABILITY_FIELDS = [
 	"input_cost_per_token",
@@ -38,10 +34,8 @@ export function isCostCapabilityField(name: string): name is CostCapabilityField
 
 /**
  * A capability field's human display label, resolved at call time (no
- * module-level localized constants): the core fields, the consumed booleans,
- * the params list, and the cost fields. Undefined for every other key - an
- * open field's wire key IS its name, and callers render it raw (monospace),
- * never localized.
+ * module-level localized constants). Undefined for every other key - an open
+ * field's wire key IS its name, and callers render it raw, never localized.
  */
 export function capabilityDisplayLabel(name: string): string | undefined {
 	switch (name) {
@@ -90,26 +84,20 @@ export function capabilityDisplayLabel(name: string): string | undefined {
 	}
 }
 
-/**
- * The localized "N parameters" reading of a supported_openai_params list;
- * the Diagnostics table keeps the full list one hover away, and the caps
- * inspector renders it whole on its own row.
- */
+/** The localized "N parameters" reading of a supported_openai_params list. */
 export function parameterCountText(count: number): string {
 	return count === 1 ? l10n.t("1 parameter") : l10n.t("{0} parameters", count);
 }
 
 /**
- * A per-token cost per million tokens: "$5.00", "$0.50", "$6.25", "$37.50".
- * Zero (LiteLLM's "genuinely free" after resolution) is "$0". The symbol is
- * the configured usage.currencySymbol, prefixed verbatim (after the sign);
- * the empty string renders the bare number.
+ * A per-token cost per million tokens. Zero is "$0". The symbol is the
+ * configured usage.currencySymbol, prefixed verbatim after the sign.
  *
  * Rounding rules, pinned by tests: values of a unit and up round to cents
- * (exactly two decimals); sub-unit values keep three significant digits,
- * then trim trailing zeros but never below two decimals, so sub-cent prices
- * like $0.0004 survive. Everything goes through toFixed-family math - wire
- * values arrive in scientific notation (5e-7) and String() would echo it.
+ * (exactly two decimals); sub-unit values keep three significant digits, then
+ * trim trailing zeros but never below two decimals, so sub-cent prices like
+ * $0.0004 survive. Everything goes through toFixed-family math - wire values
+ * arrive in scientific notation (5e-7) and String() would echo it.
  */
 export function formatCostPerMillion(perTokenCost: number, currencySymbol: string): string {
 	const perMillion = perTokenCost * 1e6;
@@ -118,9 +106,9 @@ export function formatCostPerMillion(perTokenCost: number, currencySymbol: strin
 	}
 	const sign = perMillion < 0 ? "-" : "";
 	const abs = Math.abs(perMillion);
-	// The scaling can overflow for astronomically priced nonsense (validated
-	// costs are finite, but finite * 1e6 need not be); format the per-token
-	// magnitude in plain digits rather than echoing an Infinity glyph.
+	// The scaling can overflow for astronomically priced nonsense (finite * 1e6
+	// need not be finite); format the per-token magnitude in plain digits
+	// rather than echoing an Infinity glyph.
 	if (!Number.isFinite(abs)) {
 		return `${sign}${currencySymbol}${Math.abs(perTokenCost).toLocaleString("en-US", {
 			useGrouping: false,
@@ -138,10 +126,8 @@ export function formatCostPerMillion(perTokenCost: number, currencySymbol: strin
 		})}`;
 	}
 	// Decimals for three significant digits, floored at cents: $1+ rounds to
-	// exactly two decimals, sub-unit values extend ($0.0004 needs six). The
-	// cap is toFixed's own limit; anything smaller than 1e-98 per million
-	// renders as a plain $0.00 (denormal-scale prices are not distinguishable
-	// in text).
+	// exactly two decimals, sub-unit values extend ($0.0004 needs six). The cap
+	// is toFixed's own limit; anything smaller renders as a plain $0.00.
 	const magnitude = Math.floor(Math.log10(abs));
 	const decimals = Math.min(100, Math.max(2, 2 - magnitude));
 	let text = abs.toFixed(decimals);
@@ -158,11 +144,10 @@ export function formatCostPerMillion(perTokenCost: number, currencySymbol: strin
 }
 
 /**
- * The unit label beside a block of per-million prices ("$ per million
- * tokens"), shared by the models table's pricing tip and the inspector's
- * pricing section so the two never name the unit differently. The symbol is
- * trimmed - "EUR " reads as "EUR per million tokens" - and the empty symbol
- * drops the currency claim entirely.
+ * The unit label beside a block of per-million prices, shared by the models
+ * table's pricing tip and the inspector's pricing section so the two never
+ * name the unit differently. The symbol is trimmed - "EUR " reads as "EUR per
+ * million tokens" - and the empty symbol drops the currency claim entirely.
  */
 export function costUnitLabel(currencySymbol: string): string {
 	const symbol = currencySymbol.trim();

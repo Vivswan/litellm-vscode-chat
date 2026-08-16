@@ -15,7 +15,7 @@ function capture(): { install: (salt: string) => void; installed: string[] } {
 	return { install: (salt) => installed.push(salt), installed };
 }
 
-/** Every tmpdir this file creates, removed in one teardown: mkdtemp cleans up nothing on its own, and these once accumulated in $TMPDIR indefinitely. */
+/** Every tmpdir this file creates, removed in one teardown: mkdtemp cleans up nothing, and these once leaked. */
 const createdTmpDirs: string[] = [];
 
 function makeTmpDir(): string {
@@ -39,12 +39,10 @@ function sleep(ms: number): Promise<void> {
 suite("extension/fingerprintSalt", () => {
 	suiteTeardown(() => {
 		for (const dir of createdTmpDirs) {
-			// Cleanup must never read as a test failure: a transient EPERM/EBUSY
-			// on removal loses to the run's verdict (same rule as .vscode-test.mjs).
 			try {
 				rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
 			} catch {
-				// A directory that will not delete is a leak, not a failure.
+				// A directory that will not delete is a leak, not a test failure.
 			}
 		}
 	});
@@ -88,9 +86,8 @@ suite("extension/fingerprintSalt", () => {
 
 	test("two racing first activations converge on ONE salt: the loser adopts the winner's", async () => {
 		// Both windows share the keychain and the globalStorage directory. The
-		// winner acquires the lock and its store is held open until the loser
-		// has started polling, so the interleaving the lock exists for really
-		// happens: the loser finds no salt, finds the lock, waits, and adopts.
+		// winner's store is held open until the loser polls, so the interleaving
+		// the lock exists for really happens: the loser waits, then adopts.
 		const storage = makeExtensionStorage();
 		const { uri } = tmpStorage();
 		let releaseStore!: () => void;
@@ -127,8 +124,8 @@ suite("extension/fingerprintSalt", () => {
 
 	test("an unwritable globalStorage degrades immediately instead of polling for a salt nobody writes", async () => {
 		// EEXIST is the one mkdir failure worth waiting on (someone holds the
-		// lock); anything else means nobody CAN hold it, and polling would
-		// stall activation every session, forever.
+		// lock); anything else means nobody CAN hold it, so polling would stall
+		// activation every session.
 		const storage = makeExtensionStorage();
 		let reads = 0;
 		const original = storage.secrets.get.bind(storage.secrets);
@@ -153,11 +150,10 @@ suite("extension/fingerprintSalt", () => {
 	});
 
 	test("a salt appearing while the lock is held is adopted, never overwritten", async () => {
-		// The winner re-reads immediately before storing: a winner whose
-		// keychain hung past the staleness bound can have its marker reclaimed
-		// and a second creator installed meanwhile, and storing now would
-		// overwrite that salt - the one ordering that could break the "never
-		// regenerated" rule.
+		// The winner re-reads immediately before storing: if its marker was
+		// reclaimed as stale and a second creator installed a salt meanwhile,
+		// storing now would overwrite it - the one ordering that could break
+		// the "never regenerated" rule.
 		const storage = makeExtensionStorage();
 		const { uri, lockPath } = tmpStorage();
 		let reads = 0;
@@ -220,9 +216,8 @@ suite("extension/fingerprintSalt", () => {
 	});
 
 	test("the value read back after the store is the one installed", async () => {
-		// Inside the lock this covers external mutation between store and
-		// read-back; the keychain's current value is what later sessions see,
-		// so it is what this session must key by.
+		// The keychain's current value is what later sessions see, so it is what
+		// this session must key by.
 		const storage = makeExtensionStorage();
 		const original = storage.secrets.store.bind(storage.secrets);
 		(storage.secrets as { store: typeof original }).store = async (key, value) => {
@@ -238,11 +233,9 @@ suite("extension/fingerprintSalt", () => {
 	});
 
 	test("confirmDurable catches a store mutated AFTER load and downgrades for good", async () => {
-		// What the creation lock cannot serialize: the stored salt changing
-		// later (an external write, a keychain restored mid-session). The
-		// downgrade happens at decision time - immediately before anything
-		// would persist a fingerprint - and sticks, because identities were
-		// computed under the superseded salt all session.
+		// What the creation lock cannot serialize: the stored salt changing later.
+		// The downgrade happens at decision time and sticks, because identities
+		// were computed under the superseded salt all session.
 		const storage = makeExtensionStorage();
 		const { logger, lines } = makeLogger();
 		const { install, installed } = capture();
@@ -277,8 +270,8 @@ suite("extension/fingerprintSalt", () => {
 
 	test("a failed read installs a session-only salt and must NOT store it", async () => {
 		// A failed read cannot tell "no salt yet" from "keychain unavailable";
-		// storing over a possibly existing salt would churn every identity
-		// permanently, so the session runs degraded instead.
+		// storing over a possibly existing salt would churn every identity, so
+		// the session runs degraded instead.
 		const storage = failingStorage(makeExtensionStorage(), {
 			failOn: { secretGet: () => new Error("keychain unavailable") },
 		});
@@ -302,9 +295,9 @@ suite("extension/fingerprintSalt", () => {
 		const storage = makeExtensionStorage();
 		const { uri, lockPath } = tmpStorage();
 		(storage.secrets as { store: (key: string, value: string) => Thenable<void> }).store = async (_key, value) => {
-			// The worst SecretStorage: the error's message AND name carry the
-			// stored value, and reading any OTHER property throws. The loader
-			// must log fixed strings only and still land on the degraded path.
+			// The worst SecretStorage: message AND name carry the stored value,
+			// and every other property read throws. The loader must log fixed
+			// strings only and still land on the degraded path.
 			const error = new Error(`keychain refused the value ${value}`);
 			error.name = `Refused(${value})`;
 			throw new Proxy(error, {

@@ -46,16 +46,15 @@ describe("shared/config/commandIds: package.json drift guard", () => {
 	});
 
 	test("the manage command is contributed under manageCommandTitle()", () => {
-		// User-facing messages interpolate the title when telling the user to
-		// run the command, so it must be exactly what the palette shows.
+		// User-facing messages interpolate the title when telling the user to run
+		// the command, so it must be exactly what the palette shows.
 		const entry = readPackageJson().contributes.commands.find((candidate) => candidate.command === CMD.manage);
 		assert.ok(entry?.title !== undefined, "the manage command is contributed with a title");
 		assert.strictEqual(resolveNls(entry.title), manageCommandTitle());
 	});
 
 	test("the sync-models command is contributed under syncModelsCommandTitle()", () => {
-		// Same contract as the manage title: the chat-404 guidance interpolates
-		// it, so it must be exactly what the palette shows.
+		// Same contract as the manage title: the chat-404 guidance interpolates it.
 		const entry = readPackageJson().contributes.commands.find((candidate) => candidate.command === CMD.syncModels);
 		assert.ok(entry?.title !== undefined, "the sync-models command is contributed with a title");
 		assert.strictEqual(resolveNls(entry.title), syncModelsCommandTitle());
@@ -82,9 +81,7 @@ describe("shared/config/commandIds: package.json drift guard", () => {
 	});
 
 	test("every contributed command title appears in the getting-started commands table", () => {
-		// docs/getting-started.md's Commands table mirrors contributes.commands;
-		// an added or retitled command must reach it. The docs pin the English
-		// titles, so the manifest's %key% references resolve through
+		// The docs pin the English titles, so %key% references resolve through
 		// package.nls.json first.
 		const text = fs.readFileSync(path.join(REPO_ROOT, "docs", "getting-started.md"), "utf8");
 		for (const entry of readPackageJson().contributes.commands) {

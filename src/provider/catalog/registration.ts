@@ -55,12 +55,8 @@ export type ModelPricing = Pick<
 /**
  * The picker's relative cost badge, derived from the converted base
  * per-million costs. The blend weights input over output 3:1, a typical
- * input-heavy chat workload. Threshold anchors (blended per-million dollars):
- * under 1 is "low" (gpt-4o-mini 0.26, gemini-flash 0.85), under 8 is "medium"
- * (gemini-2.5-pro 3.4, gpt-4o 4.4, sonnet 6), under 40 is "high" (opus 4.5 at
- * 10, opus 4.1 at 30), and "very_high" is the rest (gpt-4.5 93.75, o1-pro
- * 262.5). Only these four literals ever go out: the host renders any other
- * string through a capitalized "<Foo> cost" fallback.
+ * input-heavy chat workload. Only these four literals ever go out: the host
+ * renders any other string through a capitalized "<Foo> cost" fallback.
  */
 function priceCategoryFor(inputCost: number, outputCost: number): "low" | "medium" | "high" | "very_high" {
 	const blended = (3 * inputCost + outputCost) / 4;
@@ -76,16 +72,12 @@ function priceCategoryFor(inputCost: number, outputCost: number): "low" | "mediu
 /**
  * The Reasoning Effort picker control for an entry backed by the given
  * provider data, or nothing. Capability data decides whether the control
- * exists (the chosen value is a parameter and travels the request path):
- * entries whose every backing provider advertises reasoning support get the
- * schema, so an aggregate over mixed providers stays without it, as does a
- * merged deployment group whose intersection already demoted the flag. Bare
- * /v1/models entries have no provider data and never advertise the control.
- * The menu's levels are the server's flag-derived list when every backing
- * provider carries one (reportedReasoningLevels - the same rule the
- * capability baseline stores, so the walk's server level re-derives this
- * exact schema and the attach-side fast path holds), else the built-in
- * default list.
+ * exists: entries whose every backing provider advertises reasoning support
+ * get the schema, so an aggregate over mixed providers stays without it, as
+ * does a merged deployment group whose intersection already demoted the flag.
+ * Bare /v1/models entries have no provider data and never advertise it. The
+ * menu's levels are the server's flag-derived list when every backing provider
+ * carries one, else the built-in default list.
  */
 function configurationSchemaFor(
 	providers: readonly LiteLLMProvider[]
@@ -102,50 +94,41 @@ function configurationSchemaFor(
 /**
  * Pricing metadata for the model picker, converted to VS Code's
  * per-million-token unit. Only entries whose route pins the serving
- * deployment's cost carry pricing: sole model_info entries (deployment
- * merging already required exact per-field agreement) and per-provider
+ * deployment's cost carry pricing: sole model_info entries and per-provider
  * entries. The cheapest/fastest aggregates and the untooled base entry stay
- * without it because there the proxy's routing decides what a request
- * actually costs; the derived priceCategory badge rides in the same return,
- * so those entries carry no category for the same reason. Providers-array entries are lenient pass-throughs, so every
- * value is re-narrowed, and a field without a usable number is omitted
- * outright rather than set to undefined. Long-context tier costs (LiteLLM's
- * above-N-tokens keys, resolved to one tier at discovery) become the host's
- * longContext* fields under two extra rules. They ride only next to their
- * base field: the picker's cost table renders the long-context value beside
- * the default one, so a tier price without a base price would sit next to an
- * empty Default cell claiming the model has no standard cost. And they are
- * omitted when they equal the converted base cost: the host declares the
- * longContext* fields as present only when long-context pricing differs from
- * default pricing. The `pricing` display label rides beside the numeric
- * fields when both base costs are known: the model picker hover's numeric
- * cost table is entitlement-gated (Copilot usage-based billing), so for a
- * typical LiteLLM user the label is the only cost line that hover can show;
- * the Manage Models markdown hover renders label and numbers together, one
- * accepted duplicated line.
+ * without it (and so without the derived priceCategory badge) because there
+ * the proxy's routing decides what a request actually costs. Providers-array
+ * entries are lenient pass-throughs, so every value is re-narrowed and a field
+ * without a usable number is omitted outright.
+ *
+ * Long-context tier costs become the host's longContext* fields under two
+ * extra rules: they ride only next to their base field, since a tier price
+ * without a base price would sit beside an empty Default cell, and they are
+ * omitted when they equal the converted base cost, since the host declares
+ * them present only when long-context pricing differs. The `pricing` display
+ * label rides beside the numeric fields when both base costs are known: the
+ * picker hover's numeric cost table is entitlement-gated, so for a typical
+ * LiteLLM user the label is the only cost line that hover can show.
  *
  * `zeroPairMeansUndeclared` (default true) is the one semantic knob, for
  * capabilityOverrides' rebuild from EFFECTIVE fields: there a raw zero pair
- * can only be user-written configuration ("this model is genuinely free" -
- * the server's 0/0 stamp never enters the capability walk, see
- * serverCostValues), so under `false` the pair prices as $0/$0 with the
- * cheapest badge instead of reading as undeclared. A pair that merely ROUNDS
- * to 0/0 (sub-unit dust) still gets neither label nor badge under either
- * setting, so a server-derived rebuild stays byte-identical to what this
- * function produced at registration. Exported for that rebuild seam.
+ * can only be user-written configuration ("this model is genuinely free"), so
+ * under `false` the pair prices as $0/$0 with the cheapest badge instead of
+ * reading as undeclared. A pair that merely ROUNDS to 0/0 still gets neither
+ * label nor badge under either setting, so a server-derived rebuild stays
+ * byte-identical to registration's output.
  */
 export function pricingFromCosts(
 	costs: PerTokenCosts,
 	currencySymbol: string,
 	opts?: { readonly zeroPairMeansUndeclared?: boolean }
 ): ModelPricing {
-	// LiteLLM (observed on v1.93) stamps input/output_cost_per_token: 0 onto
-	// /model/info entries that declare no pricing at all, so a zero pair is
-	// "undeclared", not "free": rendering $0 would mislead the picker and any
-	// cost-based choice. Models genuinely priced 0/0 (LiteLLM's price map does
-	// this for local and self-hosted families like ollama/*) lose their $0
-	// display under this rule; behind LiteLLM that shape is indistinguishable
-	// from the stamp, and unknown-as-free is the worse failure.
+	// LiteLLM stamps input/output_cost_per_token: 0 onto /model/info entries
+	// that declare no pricing at all, so a zero pair is "undeclared", not
+	// "free": rendering $0 would mislead the picker and any cost-based choice.
+	// Models genuinely priced 0/0 lose their $0 display under this rule; behind
+	// LiteLLM that shape is indistinguishable from the stamp, and
+	// unknown-as-free is the worse failure.
 	const zeroPair =
 		normalizeCostPerToken(costs.input_cost_per_token) === 0 && normalizeCostPerToken(costs.output_cost_per_token) === 0;
 	if (zeroPair && (opts?.zeroPairMeansUndeclared ?? true)) {
@@ -188,17 +171,12 @@ export function pricingFromCosts(
 	);
 	// The relative-cost badge and the display label need both sides of the
 	// price (one-sided pricing is an incomplete signal) and derive from the
-	// base tier only: the longContext* costs describe an opt-in regime, not
-	// the headline cost. The converted values are already rounded to six
-	// decimals, so String() renders them without float noise; a positive cost
-	// too small for that unit has rounded to 0 above, and the label mirrors
-	// the numeric field's 0 rather than inventing a smaller unit. A pair that
-	// BOTH rounded to 0 gets neither label nor badge: it slipped past the raw
-	// 0/0 undeclared check on sub-unit dust, and "$0 in / $0 out" plus a "low"
-	// badge would present it as free. The `zeroPair` disjunct is reachable
-	// only under zeroPairMeansUndeclared: false (the default path returned {}
-	// above): a RAW zero pair kept by that option is user-written "free" and
-	// carries the $0 label and the cheapest badge on purpose.
+	// base tier only: the longContext* costs describe an opt-in regime, not the
+	// headline cost. A pair that BOTH rounded to 0 gets neither label nor badge:
+	// it slipped past the raw 0/0 undeclared check on sub-unit dust, and "$0 in
+	// / $0 out" plus a "low" badge would present it as free. The `zeroPair`
+	// disjunct is reachable only under zeroPairMeansUndeclared: false, where a
+	// raw zero pair is user-written "free" and carries both on purpose.
 	if (
 		fields.inputCost !== undefined &&
 		fields.outputCost !== undefined &&
@@ -206,8 +184,7 @@ export function pricingFromCosts(
 	) {
 		fields.priceCategory = priceCategoryFor(fields.inputCost, fields.outputCost);
 		// The label takes the configured usage.currencySymbol verbatim (display
-		// only, never a conversion; empty renders bare numbers), like every
-		// other cost surface.
+		// only, never a conversion), like every other cost surface.
 		fields.pricing = `${currencySymbol}${fields.inputCost} in / ${currencySymbol}${fields.outputCost} out per 1M tokens`;
 	}
 	return fields;
@@ -215,13 +192,12 @@ export function pricingFromCosts(
 
 /**
  * Fields every registered model carries. isBYOK marks the model as served
- * with user-supplied credentials; the host currently derives true for
- * non-builtin providers, and the explicit flag pins the value against a
- * future host default change. isUserSelectable must be an explicit true:
- * the host's MCP sampling-model picker and local chat sessions use plain
- * truthy checks, so an absent flag excluded these models there. Shared with
- * capabilityOverrides.ts, whose synthesized declared models must carry
- * the same registration-wide fields.
+ * with user-supplied credentials; the explicit flag pins the value against a
+ * future host default change. isUserSelectable must be an explicit true: the
+ * host's MCP sampling-model picker and local chat sessions use plain truthy
+ * checks, so an absent flag excluded these models there. Shared with
+ * capabilityOverrides.ts, whose synthesized declared models must carry the
+ * same registration-wide fields.
  */
 export const COMMON_MODEL_FIELDS = {
 	version: "1.0.0",
@@ -259,9 +235,7 @@ export function buildModelInfos(
 ): RegistrationResult {
 	const { detail, namePrefix, tooltip } = serverDisplayContext(server, serverCount);
 	// Read once per build, not per model: every pricing label in one pass
-	// carries the same symbol. A change between passes heals at attach time -
-	// advertisesPricing sees the label mismatch and rebuilds (a settings
-	// change schedules the notify that re-attaches).
+	// carries the same symbol. A change between passes heals at attach time.
 	const currencySymbol = getCurrencySymbol();
 	const common = {
 		detail,
@@ -274,18 +248,17 @@ export function buildModelInfos(
 		const rawModalities = m.architecture?.input_modalities;
 		// The server reported modalities only when the array is present, which
 		// is what the baseline keys its vision/audio presence on; the gates
-		// below read the empty stand-in instead, so an unreported modality is
-		// exactly a missing one and both flags stay strictly boolean.
+		// below read the empty stand-in, so an unreported modality is exactly a
+		// missing one and both flags stay strictly boolean.
 		const modalities = Array.isArray(rawModalities) ? rawModalities : undefined;
 		const reportedModalities = modalities ?? [];
 		const vision = reportedModalities.includes("image");
-		// LiteLLM capability data only (supports_audio_input via discovery, or a
-		// server-declared architecture); VS Code has no audio capability flag,
-		// so this rides the litellm metadata and gates message conversion.
+		// LiteLLM capability data only; VS Code has no audio capability flag, so
+		// this rides the litellm metadata and gates message conversion.
 		const audioInput = reportedModalities.includes("audio");
-		// Costs join the baseline only at the shapes this registration prices
-		// (the pricingFromCosts call sites below): the walk's server level must
-		// never offer a price the picker refused to advertise.
+		// Costs join the baseline only at the shapes this registration prices:
+		// the walk's server level must never offer a price the picker refused to
+		// advertise.
 		const baselineFor = (
 			providers: readonly LiteLLMProvider[],
 			toolCalling: boolean,

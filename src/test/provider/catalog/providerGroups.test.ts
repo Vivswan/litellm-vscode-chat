@@ -126,10 +126,9 @@ suite("provider groups", () => {
 	});
 
 	test("classified chat failures are thrown as LanguageModelError with the documented codes", async () => {
-		// Direct provider invocation: what a vscode.lm consumer receives after
-		// the host round trip is the reconstructed LanguageModelError with its
-		// code and message - the cause below is an in-process detail the host
-		// serialization drops, so only code and message are contract.
+		// What a vscode.lm consumer receives after the host round trip is the
+		// reconstructed LanguageModelError: only code and message are contract,
+		// since host serialization drops the cause.
 		const provider = makeProvider();
 		mswServer.use(...discoveryHandlers(DEFAULT_DISCOVERY_PAYLOAD));
 		const infos = await provider.provideLanguageModelChatInformation(
@@ -643,9 +642,8 @@ suite("provider groups", () => {
 	});
 
 	test("stale serving is bounded by the last successful discovery, not by the failure reports", async () => {
-		// Clock-injected like the discovery-cache tests: each failed refresh
-		// re-records the entry (refreshing its report timestamp), so only the
-		// success anchor can age the stale window out.
+		// Clock-injected: each failed refresh re-records the entry (refreshing its
+		// report timestamp), so only the success anchor can age the window out.
 		let nowMs = 1_000_000;
 		const provider = makeProvider(undefined, "test-key", undefined, { now: () => nowMs });
 		let fail = false;
@@ -740,8 +738,8 @@ suite("provider groups", () => {
 
 	test("raising discovery.staleServeWindow mid-outage restores serving after an out-of-window failure", async () => {
 		// The out-of-window failure report records an empty model list; the
-		// stale-serve source must survive it, or raising the setting after
-		// noticing the models vanished could never bring them back.
+		// stale-serve source must survive it, or raising the setting after the
+		// models vanished could never bring them back.
 		let nowMs = 1_000_000;
 		const provider = makeProvider(undefined, "test-key", undefined, { now: () => nowMs });
 		let fail = false;
@@ -756,10 +754,9 @@ suite("provider groups", () => {
 		await withConfig(config, async () => {
 			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
 
-			// Failing refreshes keep flowing (the host re-resolves on its own),
-			// so the entry's report timestamp stays fresh and only the success
-			// anchor ages: eviction never fires, exactly the outage a user
-			// watches before reaching for the setting.
+			// Failing refreshes keep flowing (the host re-resolves on its own), so
+			// the report timestamp stays fresh and only the success anchor ages:
+			// eviction never fires.
 			fail = true;
 			nowMs += 5 * 60_000;
 			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
@@ -802,9 +799,9 @@ suite("provider groups", () => {
 	});
 
 	test("a non-Error group failure is rebuilt with the log-safe rendering as its English mirror", async () => {
-		// Rejected from inside the group serve's try without ever being an
-		// Error: the rebuild must keep the display rendering for the UI and the
-		// log-safe rendering for every public log surface.
+		// Rejected from inside the group serve's try without ever being an Error:
+		// the rebuild must keep the display rendering for the UI and the log-safe
+		// rendering for every public log surface.
 		const hostile = {
 			toString: () => "display text with RESPONSE-BODY-MARKER",
 			logClassification: "InjectedFailure(non-Error)",
@@ -921,10 +918,9 @@ suite("provider groups", () => {
 	});
 
 	test("two labeled groups sharing a base URL AND key get their own statuses under their labels", async () => {
-		// The reported user scenario: two declared entries mirroring one server
-		// with one key. Their groups' configurations differ only in the label
-		// the sync engine stamped, and that label must be enough for each to
-		// keep its own status-window entry and render under its own name.
+		// Two declared entries mirroring one server with one key: their group
+		// configurations differ only in the label the sync engine stamped, and that
+		// label must be enough for each to keep its own status-window entry.
 		const provider = makeProvider();
 		const statuses: AggregatedStatus[] = [];
 		provider.setStatusCallback((status) => statuses.push(status));
@@ -956,12 +952,9 @@ suite("provider groups", () => {
 	});
 
 	test("identical sibling groups inside a groupless-marked sweep do not restart the status cycle", async () => {
-		// Two pre-label host groups can resolve to ONE identity (same URL, same
-		// key, no label). Within a host-driven sweep - one that begins with the
-		// group-agnostic call - the second sibling's report used to look like
-		// "re-seen within one cycle" and restarted the cycle mid-sweep, evicting
-		// entries the sweep had not re-reached yet; the other group's status
-		// would flicker out of the merged report until its own refresh landed.
+		// Two pre-label host groups can resolve to ONE identity (same URL, same key, no
+		// label). Within a host-driven sweep the second sibling's report must not read as
+		// "re-seen within one cycle" and evict entries the sweep has not reached yet.
 		const provider = makeProvider();
 		const statuses: AggregatedStatus[] = [];
 		provider.setStatusCallback((status) => statuses.push(status));
@@ -975,8 +968,7 @@ suite("provider groups", () => {
 			provider.provideLanguageModelChatInformation(groupOptions({ baseUrl }), cancellation());
 
 		// Each sweep: the group-agnostic call, both identical siblings, then the
-		// other group. In the buggy ordering the second sibling of sweep two
-		// restarted the cycle before the other group re-reported, evicting it.
+		// other group.
 		await groupless();
 		await fetchGroup(TEST_BASE_URL);
 		await fetchGroup(TEST_BASE_URL);
@@ -1383,8 +1375,8 @@ suite("provider groups: capability overrides and declared models", () => {
 			assert.ok(!("statusIcon" in declaredInfo), "declared models never carry the stale decoration");
 
 			// The window keeps discovered models only: a removed declared ID
-			// disappears immediately even mid-outage, and the projection is
-			// what the dashboard merges instead.
+			// disappears immediately even mid-outage, and the dashboard merges the
+			// projection instead.
 			const snapshot = expectDefined(provider.getServerSnapshots().find((s) => s.status.state === "error"));
 			assert.deepStrictEqual(
 				snapshot.models.map((info) => info.id),

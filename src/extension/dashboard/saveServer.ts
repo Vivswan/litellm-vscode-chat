@@ -16,8 +16,7 @@ import { DashboardOperationError, DashboardValidationError, rawServerEntries } f
 
 /**
  * How one save lands in the servers setting, computed once so the pairing
- * checks, the guarded apply, and the cleanup agree on it: a brand-new entry,
- * an in-place edit of the accepted entry, or a rename. A rename copies the
+ * checks, the guarded apply, and the cleanup agree on it. A rename copies the
  * old label's secret blob to the new label only when the old blob holds
  * anything (`willCopy`); that same flag decides whether a failed write
  * restores the new label's blob wholesale or field by field.
@@ -29,9 +28,8 @@ type SaveMode =
 
 /**
  * What one secret field does in this save, shared by the pairing checks, the
- * guarded apply, and the cleanup. "cleared" stays distinct from "absent" on
- * purpose: cleanup deletes the stored value (with a retry, failing the
- * intent if it sticks) only for cleared fields.
+ * guarded apply, and the cleanup. "cleared" stays distinct from "absent":
+ * cleanup deletes the stored value only for cleared fields.
  */
 type SecretPlan =
 	| { kind: "set-inline"; value: string }
@@ -48,14 +46,13 @@ function planResolves(plan: SecretPlan): boolean {
 
 /**
  * What "keep" directives resolve against for a draft that writes `label` over
- * the entry `targetLabel` names: the accepted entry being replaced (resolved
- * through acceptedEntry, so a rejected same-label sibling cannot shadow it)
- * and the secure-side blobs involved. `storedEffective` is the blob the saved
- * entry's label will read afterwards: a rename copies the old label's blob
- * only when it holds anything, so an empty old blob leaves an orphan blob
- * already sitting under the new label serving. Shared by the save apply and
- * the draft-connection test (testDraftConnection.ts), so "keep" cannot mean
- * two different values on the two paths.
+ * the entry `targetLabel` names: the accepted entry being replaced (so a
+ * rejected same-label sibling cannot shadow it) and the secure-side blobs
+ * involved. `storedEffective` is the blob the saved entry's label will read
+ * afterwards: a rename copies the old label's blob only when it holds
+ * anything, so an empty old blob leaves an orphan blob under the new label
+ * serving. Shared with the draft-connection test, so "keep" cannot mean two
+ * different values on the two paths.
  */
 export interface KeepSources {
 	readonly accepted: { readonly index: number; readonly entry: DeclaredServer } | undefined;
@@ -82,9 +79,8 @@ export async function readKeepSources(
 
 /**
  * The value one "keep" directive resolves to, and where it lives: inline
- * exactly when the sync engine reads it inline (the shared inlineSecretValues
- * rule, never a re-derivation), the effective secure blob otherwise,
- * undefined when the field holds nothing anywhere.
+ * exactly when the sync engine reads it inline (its own inlineSecretValues
+ * rule, never a re-derivation), the effective secure blob otherwise.
  */
 export function resolveKeptSecret(
 	existing: DeclaredServer | undefined,
@@ -109,20 +105,18 @@ export function resolveKeptSecret(
  *
  * If anything in the guarded unit throws, the entry in the setting is
  * unchanged and must keep resolving what it resolved before, so the secure
- * side is rolled back: a rename restores the new label's whole pre-copy blob
- * (which also revives an orphan blob the copy overwrote), otherwise each
- * overwritten field gets its previous value back. When any restore itself
- * fails, the durable state changed after all (a fresh secret survived the
- * rollback), so the intent fails as an operation-kind error instead of
- * rethrowing the original as if nothing landed.
+ * side is rolled back: a rename restores the new label's whole pre-copy blob,
+ * otherwise each overwritten field gets its previous value back. When a
+ * restore itself fails, the durable state changed after all, so the intent
+ * fails as an operation-kind error instead of rethrowing the original as if
+ * nothing landed.
  *
- * Cleanup failures after a landed write depend on what the failure leaves
- * behind. A cleared secret that survives its deletion is still effective (the
- * saved entry carries no inline value to outrank it), so after one retry the
- * intent fails with an actionable message; retrying the save converges, the
- * clear plan re-runs the delete. The stale secure copy behind a fresh
- * inline value and the old rename blob are dormant, so those failures log a
- * classification and the intent still succeeds.
+ * Cleanup failures after a landed write depend on what they leave behind. A
+ * cleared secret that survives its deletion is still effective, so after one
+ * retry the intent fails with an actionable message (retrying the save
+ * converges). The stale secure copy behind a fresh inline value and the old
+ * rename blob are dormant, so those failures log a classification and the
+ * intent still succeeds.
  */
 export async function applySaveServerSetting(
 	intent: RequestPayload<"saveServerSetting">,
@@ -133,12 +127,11 @@ export async function applySaveServerSetting(
 	// hit the same label the entry lookup resolves.
 	const targetLabel = (intent.replaceLabel ?? label).trim();
 	const entries = rawServerEntries(env.readServersSetting());
-	// Resolution agrees with the parsed world (acceptedEntry, via
-	// readKeepSources): the entry being edited is the one the dashboard row
-	// described, never a rejected same-label sibling sitting earlier in the raw
-	// array. The same helper also reads what the sync engine will read for this
-	// entry's label after the save (see KeepSources on the rename rules), so
-	// the pairing checks and the draft-connection test share one "keep" truth.
+	// The entry being edited is the one the dashboard row described, never a
+	// rejected same-label sibling sitting earlier in the raw array. The same
+	// helper reads what the sync engine will read for this label after the save
+	// (see KeepSources), so the pairing checks and the draft test share one
+	// "keep" truth.
 	const { accepted, storedOld, storedNew, storedEffective, willCopy } = await readKeepSources(
 		entries,
 		label,
@@ -154,8 +147,8 @@ export async function applySaveServerSetting(
 	if (renaming && acceptedEntry(entries, label) !== undefined) {
 		// The "fieldId:" prefix is what sectionFailureText matches against the
 		// internal field names to route the failure onto the right form section,
-		// so it stays an ASCII identifier outside the translation; only the body
-		// localizes. Same rule for every field-prefixed message below.
+		// so it stays an ASCII identifier outside the translation. Same rule for
+		// every field-prefixed message below.
 		throw new DashboardValidationError(`label: ${l10n.t("an entry with this label already exists")}`);
 	}
 
@@ -194,10 +187,9 @@ export async function applySaveServerSetting(
 
 	// The final entry, needed for the pairing checks below. This rebuild is
 	// the whole entry: any payload field not copied here is silently DELETED
-	// by the save (panelIntegration pins the round trip). The settings shape
-	// is nested (auth/headers/models/discovery/budget); the form still edits
-	// the flat credential fields, so this is where they assemble into the
-	// entry's auth object.
+	// by the save. The settings shape is nested (auth/headers/models/discovery/
+	// budget); the form still edits the flat credential fields, so this is
+	// where they assemble into the entry's auth object.
 	const newEntry: Record<string, unknown> = {
 		label,
 		baseUrl: intent.server.baseUrl.trim(),
@@ -216,8 +208,7 @@ export async function applySaveServerSetting(
 	const oauthScopes = usable(intent.server.oauthScopes);
 	const virtualKeyHeader = usable(intent.server.virtualKeyHeader);
 	// An empty record reads as absent everywhere (the parser omits it), so it
-	// is not written either; the saved entry stays as clean as a hand-written
-	// one.
+	// is not written either.
 	const models: Record<string, unknown> = {};
 	if (intent.server.modelParameters !== undefined && Object.keys(intent.server.modelParameters).length > 0) {
 		models.parameters = intent.server.modelParameters;
@@ -250,10 +241,9 @@ export async function applySaveServerSetting(
 		newEntry.budget = intent.server.budget;
 	}
 
-	// OAuth is one unit, mirroring serverForm's exact rules: the request path
-	// drops partial configurations silently, so anything OAuth-shaped (a token
-	// URL, a client ID, scopes, or a client secret that would resolve) requires
-	// the token URL and client ID pair.
+	// OAuth is one unit, mirroring serverForm's rules: the request path drops
+	// partial configurations silently, so anything OAuth-shaped requires the
+	// token URL and client ID pair.
 	const oauthExtras = planResolves(plans.oauthClientSecret) || oauthScopes !== undefined;
 	if ((oauthClientId !== undefined || oauthExtras) && oauthTokenUrl === undefined) {
 		throw new DashboardValidationError(`oauthTokenUrl: ${l10n.t("OAuth needs the token URL and client ID")}`);
@@ -273,11 +263,10 @@ export async function applySaveServerSetting(
 
 	/**
 	 * Assemble the entry's auth object from the flat fields once the plans'
-	 * inline values are known. Inline values are written into the nested
-	 * shape; values resting in secret storage stay omitted (the parser's
-	 * stored-slot resolution finds them at sync time). With oauth configured
-	 * the other credentials nest inside it as companions; without it an
-	 * apiKey and a virtualKey are the apiKey form and its sibling companion
+	 * inline values are known. Values resting in secret storage stay omitted
+	 * (the parser's stored-slot resolution finds them at sync time). With oauth
+	 * configured the other credentials nest inside it as companions; without it
+	 * an apiKey and a virtualKey are the apiKey form and its sibling companion
 	 * (forms rank oauth > apiKey > virtualKey).
 	 */
 	const applyAuth = (inline: Partial<Record<SecretFieldId, string>>): void => {
@@ -311,10 +300,9 @@ export async function applySaveServerSetting(
 		}
 	};
 
-	// Phases 1 and 2 as one guarded unit: the additive secret operations (a
-	// rename's blob copy, set-secure writes), then the settings write
-	// everything hinges on. Secure values the additive steps overwrite are
-	// remembered (pre-write state) for the rollback.
+	// Phases 1 and 2 as one guarded unit: the additive secret operations, then
+	// the settings write everything hinges on. Secure values the additive steps
+	// overwrite are remembered (pre-write state) for the rollback.
 	const overwritten = new Map<SecretFieldId, string | undefined>();
 	try {
 		if (mode.kind === "rename") {
@@ -351,10 +339,9 @@ export async function applySaveServerSetting(
 		// must too. A rename's copy replaced the new label's whole blob, so that
 		// blob is restored to its pre-copy state (deleting fields it never
 		// held), which also undoes any set-secure write on top of the copy;
-		// otherwise only the overwritten fields are touched. Fields no side
-		// ever held are skipped: neither the copy nor a write touched them, so
-		// "restoring" one is a no-op delete whose failure must not report a
-		// secret as changed.
+		// otherwise only the overwritten fields are touched. Fields no side ever
+		// held are skipped: "restoring" one is a no-op delete whose failure must
+		// not report a secret as changed.
 		const restores: [SecretFieldId, string | undefined][] =
 			mode.kind === "rename" && mode.willCopy
 				? SECRET_FIELD_IDS.filter(
@@ -373,15 +360,12 @@ export async function applySaveServerSetting(
 		if (restoreFailures.length > 0) {
 			// The durable state DID change: a freshly stored secret survived the
 			// rollback and now resolves for the unchanged entry, so this must not
-			// surface as "nothing landed" (which would reopen the form as if the
-			// draft were still the truth). The original error's name is logged as
-			// a classification before it is replaced. A sync is requested too: the
-			// failed settings write fires no configuration event, and the changed
-			// secure value must reach the provider group (the clean-rollback
+			// surface as "nothing landed". A sync is requested too: the failed
+			// settings write fires no configuration event, and the changed secure
+			// value must still reach the provider group (the clean-rollback
 			// rethrow below stays sync-free, nothing durable changed there).
-			// The detail line's field ids are structural configuration and the
-			// label is the user's own text - both webview-legal; neither reaches
-			// the log, which stays classification-only.
+			// The detail line's field ids and label are webview-legal; neither
+			// reaches the log, which stays classification-only.
 			env.log("A failed save left a secure value unrestored", {
 				error: error instanceof Error ? error.name : typeof error,
 			});
@@ -399,14 +383,12 @@ export async function applySaveServerSetting(
 		throw error;
 	}
 
-	// Phase 3, destructive cleanup, safe now that the write landed. What a
-	// failure leaves behind decides the outcome: a cleared secret that survives
-	// its deletion is still effective (the saved entry carries nothing inline
-	// to outrank it), so the delete retries once and a second failure fails the
-	// intent below; the stale secure copy behind a fresh inline value (a
-	// lingering one would silently take over if the inline value were later
-	// removed by hand) and the old rename blob are dormant, so their failures
-	// are log-only.
+	// Phase 3, destructive cleanup, safe now that the write landed. A cleared
+	// secret that survives its deletion is still effective, so the delete
+	// retries once and a second failure fails the intent below; the stale
+	// secure copy behind a fresh inline value (it would silently take over if
+	// the inline value were later removed by hand) and the old rename blob are
+	// dormant, so their failures are log-only.
 	let clearFailed = false;
 	for (const field of SECRET_FIELD_IDS) {
 		const plan = plans[field];

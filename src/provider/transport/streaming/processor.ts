@@ -34,9 +34,9 @@ import {
 import { knownUsageCounts, usageDataPartPayload } from "./usage";
 
 /**
- * Hands out tool-call ID numbers. Owned by the ChatClient and shared across
- * concurrent requests, so next() must advance state synchronously: two
- * overlapping streams may interleave calls but can never receive the same ID.
+ * Hands out tool-call ID numbers. Shared across concurrent requests, so next()
+ * must advance state synchronously: two overlapping streams may interleave
+ * calls but can never receive the same ID.
  */
 export interface ToolCallIdSource {
 	next(): number;
@@ -63,20 +63,18 @@ interface RequestState {
 	textParser: TextToolCallParser;
 	/** The tool-call dedup ledger: inline-replay tracking plus the cross-channel max(N, M) rule (see ToolCallLedger). */
 	ledger: ToolCallLedger;
-	/** Whether a refusal delta was already logged for this request. */
 	loggedRefusal: boolean;
-	/** Whether an undecodable generated-image entry was already logged for this request (no per-entry flood). */
+	/** One log per request, so a burst of bad entries cannot flood the issue-report buffer. */
 	loggedImageSkip: boolean;
 	/**
-	 * Citation URL to title, emitted once at end of stream. Collected from
-	 * annotation deltas, chunk-root citations/search_results, and the delta's
-	 * provider_specific_fields.search_results, all through one rule (see
-	 * recordSource).
+	 * Citation URL to title, emitted once at end of stream. Every source shape
+	 * (annotation deltas, chunk-root citations/search_results, the delta's
+	 * provider_specific_fields.search_results) feeds it through recordSource.
 	 */
 	citations: Map<string, string>;
 	/** The latest usage trailer observed on any chunk (the last one wins), emitted at end of stream. */
 	usage: Record<string, unknown> | undefined;
-	/** The generated audio being accumulated, or undefined when none is in flight (also after each flush). */
+	/** Accumulating generated audio; cleared on every flush. */
 	audioBuffer: AudioBuffer | undefined;
 	/** Set by every part handed to progress; the end-of-stream empty-response check reads it. */
 	reportedAnyPart: boolean;
@@ -153,8 +151,7 @@ export class StreamProcessor {
 	/**
 	 * Log the per-request drop aggregate once. Called from finishStream and
 	 * from the transport loop's cleanup, so a request that failed mid-stream
-	 * (in-band error frame, reader failure) still ties its lost reasoning to
-	 * the turn a user reports; the once-per-session support notice cannot.
+	 * still ties its lost reasoning to the turn a user reports.
 	 */
 	private logDroppedReasoningAggregate(): void {
 		const dropped = this._req.droppedReasoning;
@@ -202,10 +199,9 @@ export class StreamProcessor {
 				// request: LiteLLM streams `data: {"error": {...}}` when an
 				// upstream dies after the 200, and swallowing it would end the
 				// request as a silent truncation. This is NOT the log-and-skip
-				// path - that leniency covers unparseable junk, and an error
-				// frame is a perfectly parseable statement of failure. After
-				// [DONE] the response already completed, so a late frame must
-				// not turn success into failure.
+				// path, which covers unparseable junk only. After [DONE] the
+				// response already completed, so a late frame must not turn
+				// success into failure.
 				if (!sawDone && chunk.error && !(chunk.choices && chunk.choices.length > 0)) {
 					throw streamErrorFrame(chunk.error);
 				}
@@ -213,9 +209,8 @@ export class StreamProcessor {
 			}
 			this.endOfStream(progress, !token.isCancellationRequested);
 		} finally {
-			// A request that fails mid-stream (in-band error frame, reader
-			// failure) never reaches finishStream; its drop aggregate still logs
-			// here before the state resets.
+			// A request that fails mid-stream never reaches finishStream; its drop
+			// aggregate still logs here before the state resets.
 			this.logDroppedReasoningAggregate();
 			this._req = freshRequestState();
 		}
@@ -223,22 +218,19 @@ export class StreamProcessor {
 
 	/**
 	 * The post-loop end-of-stream run, the only run where the trailers may
-	 * emit. The transport loop calls this once its reader drains; a harness
-	 * that feeds processDelta directly calls it to mirror that loop.
+	 * emit. A harness that feeds processDelta directly calls it to mirror the
+	 * transport loop.
 	 */
 	endOfStream(progress: vscode.Progress<vscode.LanguageModelResponsePart>, finishedNormally = true): void {
 		this.finishStream(progress, finishedNormally, true);
 	}
 
 	/**
-	 * Record one source URL into the request's citations map, which the
-	 * end-of-stream Sources trailer renders. One rule for every source shape
-	 * (annotation deltas, chunk-root citations, search results): the first
-	 * REAL title wins, a URL without one titles itself as a placeholder, and a
-	 * later real title may upgrade that placeholder - the same source
-	 * routinely arrives titled on one field and bare on another. Truthiness,
-	 * not presence: an empty-string title is no title, so it can neither
-	 * label a source nor block a later upgrade.
+	 * Record one source URL for the end-of-stream Sources trailer. One rule for
+	 * every source shape: the first REAL title wins, a URL without one titles
+	 * itself as a placeholder, and a later real title may upgrade that
+	 * placeholder. Truthiness, not presence: an empty-string title is no title,
+	 * so it can neither label a source nor block a later upgrade.
 	 */
 	private recordSource(url: string | undefined, title: string | undefined): void {
 		if (!url) {
@@ -280,10 +272,9 @@ export class StreamProcessor {
 			this._req.usage = chunk.usage;
 		}
 
-		// Chunk-root sources (Perplexity via LiteLLM repeats them on every
-		// chunk, including choice-less ones) collect before the choice gate so
-		// none are lost; the delta's provider_specific_fields escape hatch
-		// feeds the same map below.
+		// Chunk-root sources (Perplexity via LiteLLM repeats them on every chunk,
+		// including choice-less ones) collect before the choice gate so none are
+		// lost.
 		this.collectSources(chunk.citations, chunk.search_results);
 
 		const choice = chunk.choices?.[0];
@@ -294,9 +285,9 @@ export class StreamProcessor {
 		this.collectSources(undefined, delta?.search_results);
 
 		// Thinking parts pass through as-is: the host merges adjacent thinking
-		// parts itself (empty chunks and non-thinking output separate runs) and
-		// mints an id when a part has none, so minting ids here would only risk
-		// colliding with wire ids or the host's thinking-title cache.
+		// parts itself and mints an id when a part has none, so minting ids here
+		// would only risk colliding with wire ids or the host's thinking-title
+		// cache.
 		const thinkingContents = extractThinking(choice, delta);
 		if (this._thinkingPartCtor) {
 			for (const thinking of thinkingContents) {
@@ -365,9 +356,8 @@ export class StreamProcessor {
 
 		if (delta?.audio) {
 			// The transcript is the model's textual output (a gpt-4o-audio turn
-			// has no delta.content), so it streams as ordinary text - fragment by
-			// fragment, like the data field, and independently of DataPart
-			// support, which only gates the binary clip.
+			// has no delta.content), so it streams as ordinary text, independently
+			// of DataPart support, which only gates the binary clip.
 			if (delta.audio.transcript) {
 				const res = this.processTextContent(delta.audio.transcript, progress);
 				if (res.emittedText) {
@@ -418,11 +408,8 @@ export class StreamProcessor {
 
 	/**
 	 * Emit one DataPart per decodable entry of a delta.images list, in stream
-	 * order relative to the surrounding text. A malformed entry (no data URL,
-	 * an unsafe or non-image mime, undecodable base64, or an empty payload) is
-	 * skipped and logged as a classification - once per request, so a burst of
-	 * bad entries cannot flood the issue-report buffer; the stream continues
-	 * either way.
+	 * order relative to the surrounding text. A malformed entry is skipped and
+	 * logged as a classification; the stream continues either way.
 	 */
 	private processImagesDelta(
 		images: NonNullable<ChunkDelta["images"]>,
@@ -438,8 +425,7 @@ export class StreamProcessor {
 			const decoded = url === undefined ? undefined : decodeBase64DataUrl(url);
 			// The image/* gate kills both a mislabeled DataPart and the
 			// second-order round-trip where a text-mime part's bytes would
-			// re-enter assistant text on the next turn. image/svg+xml passes
-			// the gate; whether to render it is the host's concern.
+			// re-enter assistant text on the next turn.
 			if (!decoded || decoded.bytes.length === 0 || !isImageMimeType(decoded.mime)) {
 				if (!this._req.loggedImageSkip) {
 					this._req.loggedImageSkip = true;
@@ -459,12 +445,11 @@ export class StreamProcessor {
 
 	/**
 	 * Generated audio accumulates instead of streaming out per delta: real
-	 * deployments fragment delta.audio.data into base64 pieces sharing an id,
-	 * and the pieces need not align to 4-character base64 groups, so only the
-	 * concatenation is decodable. One DataPart is emitted per audio id - when
-	 * a delta carrying a different id starts, or at end of stream. The mime
-	 * derives from the request's audio.format (the wire delta carries no
-	 * format field), falling back to audio/wav; see audioMimeForFormat.
+	 * deployments fragment delta.audio.data into base64 pieces that need not
+	 * align to 4-character groups, so only the concatenation is decodable. One
+	 * DataPart per audio id - when a delta carrying a different id starts, or
+	 * at end of stream. The mime derives from the request's audio.format (the
+	 * wire delta carries no format field); see audioMimeForFormat.
 	 */
 	private processAudioDelta(audio: ChunkAudio, progress: vscode.Progress<vscode.LanguageModelResponsePart>): boolean {
 		if (!this._dataPartCtor) {
@@ -489,7 +474,6 @@ export class StreamProcessor {
 		const buffer = this._req.audioBuffer;
 		this._req.audioBuffer = undefined;
 		if (buffer === undefined || buffer.base64 === "") {
-			// No data ever arrived (e.g. transcript-only deltas): nothing to report.
 			return false;
 		}
 		const bytes = decodeBase64Strict(buffer.base64);
@@ -647,12 +631,10 @@ export class StreamProcessor {
 	 * Single end-of-stream path shared by finish_reason, [DONE], and EOF.
 	 * finishedNormally is false only when the request was cancelled; a
 	 * cancelled stream downgrades unparseable leftovers to logged drops and
-	 * discards accumulated media instead of emitting it. `isFinal` is true
-	 * only for the post-loop EOF run - [DONE] is handled with `continue`, so
-	 * that run always happens last and is the only place the end-of-stream
-	 * trailers (the Sources list and the usage DataPart) may emit, after the
-	 * terminal validations pass; both the finish_reason and [DONE] runs can
-	 * still be followed by more chunks.
+	 * discards accumulated media instead of emitting it. `isFinal` is true only
+	 * for the post-loop EOF run, the only place the end-of-stream trailers (the
+	 * Sources list and the usage DataPart) may emit; the finish_reason and
+	 * [DONE] runs can still be followed by more chunks.
 	 */
 	private finishStream(
 		progress: vscode.Progress<vscode.LanguageModelResponsePart>,
@@ -682,8 +664,7 @@ export class StreamProcessor {
 			.join("");
 		if (trailingText) {
 			// Held-back text that turned out to be a truncated tool-call token is
-			// dropped as before; anything else is legitimate output the hold-back
-			// delayed (a one-shot parse of the full text would have emitted it).
+			// dropped; anything else is legitimate output the hold-back delayed.
 			if (isTruncatedToolCallText(trailingText)) {
 				// Classification only: the held-back text is response content.
 				this._log("Dropping trailing partial control token text at end of stream", {
@@ -697,7 +678,7 @@ export class StreamProcessor {
 		// Audio flushes only from a normally-finished stream: a cancelled
 		// request drops its partial accumulation rather than emit a truncated
 		// clip. Flushing clears the buffer, so the repeated finishStream runs
-		// (finish_reason, then [DONE], then EOF) cannot emit the audio twice.
+		// cannot emit the audio twice.
 		if (finishedNormally) {
 			this.flushAudioBuffer(progress);
 		} else {
@@ -708,8 +689,8 @@ export class StreamProcessor {
 
 		if (invalidCount > 0 && finishedNormally) {
 			// The English mirror is what the output channel and issue-report
-			// buffer record: distinctive, count-only, forever - tool names and
-			// argument snippets are response text and must never join it.
+			// buffer record: count only - tool names and argument snippets are
+			// response text and must never join it.
 			const detail =
 				invalidCount === 1
 					? l10n.t("1 tool call arrived with arguments that were not valid JSON")
@@ -726,10 +707,8 @@ export class StreamProcessor {
 		}
 
 		// A normally-finished stream that emitted nothing but did drop reasoning
-		// must fail loudly instead of resolving empty ("Sorry, no response was
-		// returned" with no trace). A stream that emitted nothing and dropped
-		// nothing resolves as before. The flag keeps the repeated finishStream
-		// runs (finish_reason, then [DONE], then EOF) from double-throwing.
+		// must fail loudly instead of resolving empty. The flag keeps the
+		// repeated finishStream runs from double-throwing.
 		if (
 			finishedNormally &&
 			!this._req.reportedAnyPart &&
@@ -740,15 +719,12 @@ export class StreamProcessor {
 			throw localizedError(reasoningOnlyResponseMessage(), REASONING_ONLY_RESPONSE_MESSAGE);
 		}
 
-		// One rule for the end-of-stream trailers (the Sources list, then the
-		// usage DataPart): they emit only here, on the single post-loop EOF run
-		// of a stream that finished normally and passed the terminal checks
-		// above. Earlier runs are premature - after finish_reason (and even
-		// after [DONE], which `continue`s back into the loop) more chunks may
-		// still deliver sources, title upgrades, or a later usage trailer, and
-		// last-wins must hold - and a cancelled or failed stream has no
-		// successful response to trail, so it ships neither the sources nor
-		// the accounting.
+		// The end-of-stream trailers emit only here, on the single post-loop EOF
+		// run of a stream that finished normally and passed the terminal checks
+		// above. Earlier runs are premature - more chunks may still deliver
+		// sources, title upgrades, or a later usage trailer, and last-wins must
+		// hold - and a cancelled or failed stream has no successful response to
+		// trail.
 		if (!isFinal || !finishedNormally) {
 			return;
 		}
@@ -763,22 +739,16 @@ export class StreamProcessor {
 				([url, title]) => `- [${escapeTitle(title)}](${escapeUrl(url)})`
 			);
 			// Reported directly, not through reportPart: the trailer decorates a
-			// response, it is not the response, so it must not satisfy the
-			// reasoning-only check above - a stream whose only visible output
-			// would be its sources still failed to deliver the reasoning it
-			// dropped.
+			// response, so it must not satisfy the reasoning-only check above.
 			progress.report(new vscode.LanguageModelTextPart(`\n\nSources:\n${lines.join("\n")}`));
 		}
 
 		// The retained usage trailer rides out as one DataPart with the bare
 		// mimeType "usage", the convention the host-side consumer decodes into
-		// its token accounting (context-window widget, cache and reasoning
-		// stats). Reported directly, not through reportPart: usage is
-		// bookkeeping, so a usage-only stream must still count as empty for the
-		// reasoning-only check above. A host without the DataPart class drops
-		// it silently - the pre-feature behavior, and
-		// logMissingDataPartSupportOnce's message is about generated media,
-		// which this is not.
+		// its token accounting. Reported directly, not through reportPart: usage
+		// is bookkeeping, so a usage-only stream must still count as empty for
+		// the reasoning-only check above. A host without the DataPart class
+		// drops it silently.
 		if (this._req.usage !== undefined) {
 			const payload = usageDataPartPayload(this._req.usage);
 			if (payload !== undefined && this._dataPartCtor) {

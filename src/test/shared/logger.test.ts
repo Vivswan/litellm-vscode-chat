@@ -157,10 +157,9 @@ suite("shared/logger", () => {
 	});
 
 	test("a localized message defers to its English mirror on the channel, and to the classification in the buffer", () => {
-		// The seam every localized transport error rides: the display message
-		// (possibly translated) reaches only the chat UI; the output channel
-		// renders the full English mirror, and the issue-report buffer records
-		// the terse classification when one exists.
+		// The seam every localized transport error rides: the display message reaches only
+		// the chat UI, the output channel renders the full English mirror, and the
+		// issue-report buffer records the terse classification when one exists.
 		const sinks = makeSinks();
 		const logger = new Logger(sinks.channel, sinks.recorder);
 		const err = Object.assign(new Error("LOCALIZED"), {

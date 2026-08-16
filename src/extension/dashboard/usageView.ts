@@ -1,9 +1,8 @@
 /**
- * The Servers page's usage projection: ServerUsageState (the poller's store,
- * already narrowed to numbers and user-configured identity) reduced to the
- * serializable DashboardUsage the state push carries. Pure; the freshness
- * predicate is injected so this module and the status bar item share one
- * rule without importing each other.
+ * The Servers page's usage projection: the poller's ServerUsageState reduced
+ * to the serializable DashboardUsage the state push carries. Pure; the
+ * freshness predicate is injected so this module and the status bar item
+ * share one rule without importing each other.
  */
 
 import type {
@@ -24,9 +23,9 @@ export interface UsageViewInput {
 	readonly pollingOffWindowMs: number;
 	/** The effective discovery.timeout; the card's timeout detail line prints it. */
 	readonly discoveryTimeoutMs: number;
-	/** Whether a refresh pass is in flight (UsagePoller.isRefreshing). */
+	/** UsagePoller.isRefreshing. */
 	readonly refreshing: boolean;
-	/** Whether that pass was explicitly requested (UsagePoller.isRefreshingExplicitly). */
+	/** UsagePoller.isRefreshingExplicitly. */
 	readonly refreshingExplicitly: boolean;
 	readonly now: number;
 	/** The shared freshness rule (extension/servers/usage/freshness.ts). */
@@ -40,8 +39,7 @@ export interface UsageViewInput {
 
 /**
  * The store's endpoint standing as the protocol carries it: the same closed
- * enums and status number, restated so the webview type stays self-contained
- * (nothing here is response-derived; the spend client guarantees that).
+ * enums and status number, restated so the webview type stays self-contained.
  */
 function endpointStandingView(state: UsageEndpointState): UsageEndpointStandingView {
 	switch (state.kind) {
@@ -64,9 +62,9 @@ function endpointStandingView(state: UsageEndpointState): UsageEndpointStandingV
 }
 
 /**
- * Whether a usage endpoint's standing blocks usage in a way the USER can fix:
- * a key the server refuses (401/403). Unsupported endpoints (a DB-less proxy)
- * are deliberately not "blocked" - there is no key change that unhides them.
+ * Whether a standing blocks usage in a way the USER can fix: a key the server
+ * refuses (401/403). Unsupported endpoints are deliberately not "blocked" - no
+ * key change unhides them.
  */
 function forbiddenStanding(state: UsageEndpointState): boolean {
 	return state.kind === "unavailable" && state.reason === "forbidden";
@@ -74,16 +72,10 @@ function forbiddenStanding(state: UsageEndpointState): boolean {
 
 /**
  * One store state as the Servers page's usage card, or undefined for servers
- * that do not surface. A server is shown in full while its usage availability
- * stands "available" (at least one endpoint answered and no permanent verdict
- * replaced it). A server without that - never probed successfully, or
- * downgraded when both endpoints went permanently unavailable - still gets a
- * reduced card when a forbidden standing is what blocks it: the user can act
- * on that (fix the key's permissions, Refresh now), and the poller already
- * dropped any retained numbers with the unavailable verdict. Unsupported-only
- * and still-probing servers stay hidden silently (DB-less proxies never
- * appear; see docs/usage.md#requirements). The rule: hidden states are only
- * ones the user cannot act on.
+ * that do not surface. Full card while availability stands "available", a
+ * reduced card when a forbidden standing blocks it. Unsupported-only and
+ * still-probing servers stay hidden: hidden states are only ones the user
+ * cannot act on (docs/usage.md#requirements).
  */
 function usageServerView(state: ServerUsageState, input: UsageViewInput): UsageServerCardView | undefined {
 	if (state.availability !== "available") {
@@ -121,11 +113,7 @@ function usageServerView(state: ServerUsageState, input: UsageViewInput): UsageS
 	return view;
 }
 
-/**
- * The reduced card for a server a forbidden standing leaves without readable
- * usage: identity plus the endpoint standings the detail lines print - no
- * spend, budget, or request numbers exist to carry.
- */
+/** The reduced card for a server a forbidden standing leaves without usage: identity plus endpoint standings. */
 function forbiddenServerView(state: ServerUsageState): UsageForbiddenServerView {
 	return {
 		kind: "forbidden",

@@ -1,17 +1,13 @@
 /**
  * Label-scoped modelParameters keys ("<label>/<model prefix>", the v0.3.1
- * scoping syntax) and the label map that decodes them. The standalone
- * rewrite migration is FOLDED into the settings-redesign pipeline: the pure
- * expansion below runs as the pipeline's pre-pass (transform.ts), writing
- * only old-world shapes - flat entry modelParameters fields and URL-scoped
- * global keys - that the very same plan then restructures, so the redesign
- * stays the one owner of URL-scoped key placement. Once the redesign has
- * renamed the legacy id away, the expansion finds nothing and the fold is a
- * permanent no-op.
+ * scoping syntax) and the label map that decodes them. The standalone rewrite
+ * migration is FOLDED into the settings-redesign pipeline: the pure expansion
+ * below runs as the pipeline's pre-pass, writing only old-world shapes that
+ * the same plan then restructures, so the redesign stays the one owner of
+ * URL-scoped key placement. Once the redesign has renamed the legacy id away,
+ * the expansion finds nothing and the fold is a permanent no-op.
  *
- * getMigratedServerLabels stays here as the label map's long-term reader
- * (registryToProviderGroups writes the map as each server seeds and must be
- * able to import this module).
+ * getMigratedServerLabels stays here as the label map's long-term reader.
  */
 
 import type * as vscode from "vscode";
@@ -38,13 +34,11 @@ export function getMigratedServerLabels(globalState: vscode.Memento): Record<str
 /**
  * baseUrl -> labels from BOTH sources the runtime label path used to serve:
  * the persisted map (servers already seeded into provider groups) and the
- * current registry snapshot (servers the group migration has not seeded -
- * deferred or skipped entries have no map entry, but their label and URL sit
- * right in the registry). A label mapping to more than one normalized URL
- * across the union is dropped everywhere - the same rule the group
- * migration's mergeLabelMap applies within the map - because its scoped keys
- * cannot be resolved to one server. URLs are normalized before comparison, so
- * a trailing-slash variant of the same server is not read as a conflict.
+ * current registry snapshot (servers the group migration has not seeded). A
+ * label mapping to more than one normalized URL across the union is dropped
+ * everywhere, because its scoped keys cannot be resolved to one server. URLs
+ * are normalized before comparison, so a trailing-slash variant of the same
+ * server is not read as a conflict.
  */
 export function unionLabelSources(
 	labelsByBaseUrl: Record<string, string[]>,
@@ -89,10 +83,9 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 /**
  * label -> normalized baseUrl. The map handed in only ever holds unambiguous
- * labels (the persisted map and unionLabelSources both guarantee it), so the
- * inversion is total. Normalization matters: the runtime scope is the group's
- * normalized base URL, so a raw map value (say, with a trailing slash) would
- * build a key that never matches.
+ * labels, so the inversion is total. Normalization matters: the runtime scope
+ * is the group's normalized base URL, so a raw map value would build a key
+ * that never matches.
  */
 function invertLabelMap(labelsByBaseUrl: Record<string, string[]>): Map<string, string> {
 	const urlByLabel = new Map<string, string>();
@@ -109,21 +102,17 @@ function invertLabelMap(labelsByBaseUrl: Record<string, string[]>): Map<string, 
  * the model prefix left when the label scope is stripped. Under the (long
  * removed) label-matching path each server's requests consulted only that
  * server's own pre-migration label, so when several mapped labels prefix one
- * key, each label was a live reading for its server and each is returned.
+ * key, each is returned.
  *
  * The guard is per label: label L produces no reading for a key already under
  * L's OWN base URL (or equal to it), because such a key needs nothing from L,
- * and when L is a URL-prefix of its own base URL (label "https://llm.corp"
- * for base URL "https://llm.corp/v1") the copies added on earlier activations
- * would otherwise re-match L and grow a new "/v1" segment every run. A key
- * under some OTHER server's base URL still gets L's reading: it was live for
- * L's server when the key was written.
+ * and when L is a URL-prefix of its own base URL the copies added on earlier
+ * activations would otherwise re-match L and grow a new segment every run. A
+ * key under some OTHER server's base URL still gets L's reading.
  *
  * Known corner, accepted: when L prefixes its own base URL, a key under that
- * base URL can itself be a genuine label reading (a model prefix that starts
- * with the URL's tail, "v1/..." above), but it is indistinguishable from a
- * copy an earlier run added, so no reading is reported and that residual
- * label reading is lost with the label-matching path.
+ * base URL can itself be a genuine label reading, but it is indistinguishable
+ * from a copy an earlier run added, so no reading is reported.
  */
 function labelReadings(
 	key: string,
@@ -154,12 +143,11 @@ function countLabelScopedKeys(layer: unknown, urlByLabel: ReadonlyMap<string, st
 }
 
 /**
- * The declared servers-setting entry a label reading lands in, when one
- * exists on this machine: the entry acceptedEntry resolves for the label,
- * and only when its normalized base URL is the label's mapped URL. A
- * same-label entry pointing elsewhere is a label reuse - the params were
- * scoped to the old server - so it gets nothing and the reading falls back
- * to the global base-URL copy.
+ * The declared servers-setting entry a label reading lands in, when one exists
+ * on this machine: the entry acceptedEntry resolves for the label, and only
+ * when its normalized base URL is the label's mapped URL. A same-label entry
+ * pointing elsewhere is a label reuse, so it gets nothing and the reading
+ * falls back to the global base-URL copy.
  */
 function declaredDestination(rawServers: unknown, label: string, mappedBaseUrl: string): { index: number } | undefined {
 	const match = acceptedEntry(rawServers, label);
@@ -174,8 +162,7 @@ const ledgerSchema = z.array(z.string());
 /**
  * The standalone rewrite's entry-copy ledger, read to honor a pre-redesign
  * deletion: a source key an EARLIER release already copied into an entry must
- * not be resurrected here if the user deleted the copy since. The applier
- * clears the obsolete ledger once the legacy id itself is gone.
+ * not be resurrected here if the user deleted the copy since.
  */
 export function readEntryCopyLedger(store: { get<T>(key: string): T | undefined }): ReadonlySet<string> {
 	const parsed = ledgerSchema.safeParse(store.get<unknown>(MIGRATED_ENTRY_PARAMETER_COPIES_KEY));
@@ -198,25 +185,21 @@ export interface LabelExpansionResult {
  * LEGACY modelParameters record to their post-label destinations, in memory,
  * as old-world shapes the rest of the plan consumes. The exact-semantics
  * destination is the declared servers-setting entry carrying the label: the
- * key's parameters land in that entry's FLAT modelParameters record under
- * the bare "<model prefix>" key (the entry restructure in the same plan
- * nests and stars it), so two same-URL labels with different parameters each
- * keep their own values. Existing entry keys win the merge and expanded keys
- * only fill gaps. Only when no declared entry carries the label (at the
- * label's own URL), or when the stripped prefix is an unsafe record key
- * ("__proto__" and friends), does the reading fall back to a
- * "<baseUrl>/<model prefix>" copy beside the source - which the plan's
- * scoped-key step then places (into a matching entry, or left inert with the
- * dashboard hint), keeping ONE owner for URL-scoped keys.
+ * key's parameters land in that entry's FLAT modelParameters record under the
+ * bare "<model prefix>" key, so two same-URL labels with different parameters
+ * each keep their own values. Existing entry keys win the merge and expanded
+ * keys only fill gaps. Only when no declared entry carries the label, or when
+ * the stripped prefix is an unsafe record key, does the reading fall back to a
+ * "<baseUrl>/<model prefix>" copy beside the source, keeping ONE owner for
+ * URL-scoped keys.
  *
  * The original keys are KEPT: a key like "openai/gpt-4o" may be a bare
  * model-prefix entry rather than a label scope, the two readings are
- * structurally indistinguishable, and both were simultaneously live at
- * runtime when the keys were written - the plan stars the originals into
- * explicit matchers like any other key. Workspace and folder layers are
- * never touched; label-scoped keys found there are counted in a log line.
- * Idempotent through the pipeline: the same plan deletes the legacy id, so a
- * rerun finds no record to expand.
+ * structurally indistinguishable, and both were simultaneously live at runtime
+ * when the keys were written. Workspace and folder layers are never touched;
+ * label-scoped keys found there are counted in a log line. Idempotent through
+ * the pipeline: the same plan deletes the legacy id, so a rerun finds no
+ * record to expand.
  */
 export function expandLabelScopedKeys(
 	snapshot: SettingsSnapshot,

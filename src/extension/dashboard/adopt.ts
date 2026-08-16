@@ -32,8 +32,8 @@ export type AdoptableGroupCredentials = OptionalEntryFields;
  * Resolve the still-external snapshot a row handle names, bound to the
  * intent's base URL. Shared by the adopt intent's credential resolution and
  * the hide intent's identity resolution: both re-derive the external set at
- * intent time, so a forged or stale handle can only ever land on a group that
- * is genuinely external right now, and cannot re-point at another host.
+ * intent time, so a forged or stale handle can only land on a group that is
+ * genuinely external right now, and cannot re-point at another host.
  */
 function resolveExternalSnapshot(
 	snapshots: readonly ServerModelsSnapshot[],
@@ -53,10 +53,9 @@ function resolveExternalSnapshot(
 /**
  * The identity of the external group a hide intent names: the status label
  * and base URL the removal tombstone is keyed by. Same resolution rules as
- * resolveExternalSnapshot, plus one extra gate: the snapshot must be a
- * provider group (`isGroupSnapshot`). A snapshot without a group has no
- * group the tombstone could silence, so "hiding" it would only make the
- * dashboard lie.
+ * resolveExternalSnapshot, plus one gate: the snapshot must be a provider
+ * group. A snapshot without a group has none a tombstone could silence, so
+ * "hiding" it would only make the dashboard lie.
  */
 export function resolveExternalGroupIdentity(
 	snapshots: readonly ServerModelsSnapshot[],
@@ -78,9 +77,8 @@ export function resolveExternalGroupIdentity(
  * set at intent time and binds the handle to the intent's base URL, so a
  * forged or stale intent cannot copy a DECLARED group's secure credential into
  * a settings entry, and cannot re-point a copied credential at another host.
- * Returns undefined when no still-external group at this URL matches or the
- * matching snapshot's group aged out of the status window; the
- * caller adopts the plain entry with a caveat in that case.
+ * Undefined when nothing still-external matches; the caller then adopts the
+ * plain entry with a caveat.
  */
 export function resolveAdoptableCredentials(
 	snapshots: readonly ServerModelsSnapshot[],
@@ -115,19 +113,17 @@ export function resolveAdoptableCredentials(
 
 /**
  * Apply one adoptServer intent: write the external group's configuration as a
- * new declared entry, with each resolved secret stored where the user chose.
- * The webview only ever names the group (by the opaque handle its row carried)
- * and the storage locations; the values come from the provider's in-memory
- * lookup here, extension-side, and only for a group that is still external. A
- * missing lookup (the group refreshed away or became declared) still writes
- * the plain entry and reports the caveat through
- * the returned notice, because the user asked for the entry either way.
+ * new declared entry, each resolved secret stored where the user chose. The
+ * webview names only the group (by the opaque handle its row carried) and the
+ * storage locations; the values come from the provider's in-memory lookup
+ * here, and only for a group that is still external. A missing lookup still
+ * writes the plain entry and reports the caveat, because the user asked for
+ * the entry either way.
  *
  * Failure ordering mirrors applySaveServerSetting's guarded unit: secure
  * writes and stale-blob clears first, then the settings write; if any step
- * fails, secure values changed under this label are restored so the (absent)
- * entry resolves nothing new. The stale clears are safe before the write
- * because no entry exists under the label yet.
+ * fails, secure values changed under this label are restored. The stale
+ * clears are safe before the write because no entry exists under the label yet.
  */
 export async function applyAdoptServer(
 	intent: RequestPayload<"adoptServer">,
@@ -135,9 +131,8 @@ export async function applyAdoptServer(
 ): Promise<string | undefined> {
 	const label = intent.label.trim();
 	if (label.length === 0) {
-		// The "fieldId:" prefix stays an ASCII identifier outside the
-		// translation: sectionFailureText matches it against the internal field
-		// names to route the failure onto the right form section.
+		// The "fieldId:" prefix stays an ASCII identifier outside the translation:
+		// sectionFailureText routes the failure onto the right form section by it.
 		throw new DashboardValidationError(`label: ${l10n.t("enter a label")}`);
 	}
 	if (isUnsafeRecordKey(label)) {
@@ -193,8 +188,7 @@ export async function applyAdoptServer(
 		}
 		if (restoreFailed) {
 			// A secure value under this label may no longer match its
-			// pre-adoption state; see the save path's matching case for why
-			// this must not read as "nothing landed".
+			// pre-adoption state, so this must not read as "nothing landed".
 			env.log("A failed adoption left a secure value unrestored", {
 				error: error instanceof Error ? error.name : typeof error,
 			});
@@ -202,8 +196,7 @@ export async function applyAdoptServer(
 			throw new DashboardOperationError(
 				// Not "Set Server Secret": that command lists declared entries
 				// only, and this label's entry never landed. Re-adding the label
-				// makes the entry editable, and the edit form's secret fields are
-				// what fix the leftover state.
+				// makes the entry editable, and its secret fields fix the leftover.
 				`${l10n.t("The adoption failed, and this label's stored secrets could not be restored.")}\n${l10n.t(
 					"Re-add a server under this label with the dashboard form, then edit the entry to set or remove the affected secrets."
 				)}`

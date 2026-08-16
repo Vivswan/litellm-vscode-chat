@@ -263,10 +263,8 @@ suite("extension/dashboard/intents", () => {
 		});
 
 		test("an edit's empty always-sent fields deliberately clear the stored configuration", async () => {
-			// The save rebuilds the whole entry from the payload, and the payload
-			// always carries every editable field (the schema requires them), so
-			// empty means clear - a payload that could omit one is rejected at the
-			// schema instead of silently deleting hand-written configuration.
+			// The save rebuilds the whole entry from the payload, which always
+			// carries every editable field, so an empty field means clear.
 			const recorded = makeEnv([
 				{
 					label: "Prod",
@@ -311,9 +309,8 @@ suite("extension/dashboard/intents", () => {
 		});
 
 		test("apiVersion lands in the written entry trimmed: omitted on auto, kept for none and custom", async () => {
-			// The three payload shapes the form's modes assemble to: absent
-			// (auto) writes no key, "" (none) and text (custom) both write it -
-			// "" is a real value, append nothing.
+			// The form's three modes: absent (auto) writes no key; "" (none) and
+			// text (custom) both write it - "" is a real value, append nothing.
 			const cases: readonly [string | undefined, string | undefined][] = [
 				[undefined, undefined],
 				["", ""],
@@ -388,11 +385,9 @@ suite("extension/dashboard/intents", () => {
 		});
 
 		test("the save target is the parser-accepted entry: a rejected same-label sibling is not edited", async () => {
-			// The first raw carrier of the label is rejected by parseServersSetting
-			// (no usable baseUrl), so the dashboard row - and therefore this edit -
-			// describes the second entry. The save must replace THAT one; the
-			// invalid sibling survives verbatim like any junk entry, and the
-			// keep-directive carries the accepted entry's inline key.
+			// The first label carrier is rejected by parseServersSetting (no usable
+			// baseUrl), so the row - and this edit - describes the second entry: the
+			// save must replace THAT one, and the invalid sibling survives verbatim.
 			const invalidSibling = { label: "Prod", auth: { apiKey: "sk-shadow" } };
 			const recorded = makeEnv([
 				invalidSibling,
@@ -576,8 +571,7 @@ suite("extension/dashboard/intents", () => {
 
 		test("a failed write whose rollback also fails reports an operation failure, not a clean validation one", async () => {
 			// The freshly stored secret survived the rollback and now resolves for
-			// the unchanged entry: durable state changed, so "nothing landed"
-			// (rethrowing the write error as validation-kind) would be a lie.
+			// the unchanged entry: durable state changed, so validation-kind would lie.
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
 			recorded.failWrites = new Error("disk full");
 			recorded.failUnstore = new Error("keychain locked");
@@ -609,9 +603,8 @@ suite("extension/dashboard/intents", () => {
 				save(recorded, { server: serverPayload({ label: "New", baseUrl: "http://prod.test" }), replaceLabel: "Old" }),
 				(error: unknown) =>
 					error instanceof DashboardOperationError &&
-					// Only the fields a side actually held are reported: the
-					// wholesale restore's no-op deletes must not name secrets that
-					// never existed.
+					// Only the fields a side actually held are reported: the wholesale
+					// restore's no-op deletes must not name secrets that never existed.
 					error.message.includes("could not restore apiKey") &&
 					!error.message.includes("oauthClientSecret") &&
 					!error.message.includes("virtualKeyValue")
@@ -1120,10 +1113,9 @@ suite("extension/dashboard/intents", () => {
 		});
 
 		test("a stale secure blob under the new label is cleared, never inherited", async () => {
-			// serverSync keeps a removed entry's blob on purpose (re-adding the
-			// label picks it up), but an adoption under that label asked for the
-			// GROUP's secrets, so leftovers from neither the group nor the user
-			// must not resolve for the new entry.
+			// serverSync keeps a removed entry's blob on purpose, but an adoption
+			// under that label asked for the GROUP's secrets, so leftovers from
+			// neither the group nor the user must not resolve for the new entry.
 			const recorded = makeEnv([]);
 			recorded.storedSecrets.set("Adopted", { apiKey: "sk-stale", virtualKeyValue: "vk-stale" });
 			recorded.adoptionCredentials = { apiKey: "sk-live" };

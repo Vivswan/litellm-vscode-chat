@@ -7,26 +7,20 @@ import type { Logger } from "../shared/logger";
 import { initFingerprintSalt } from "../shared/util/fingerprint";
 
 /**
- * Whether the salt fingerprint() is keyed by this session is the stored
- * per-install one ("durable") or a stand-in later sessions will not see
- * ("session-only"). Nothing may act on fingerprints in a way a LATER session
- * must recognize - persisting them, or creating a provider group whose only
- * proof of content is one - while the salt is session-only: the records
- * would match nothing once the real salt is back, which is exactly the
- * permanent wedge the salting must not introduce.
+ * Whether the salt fingerprint() is keyed by is the stored per-install one
+ * ("durable") or a stand-in later sessions will not see ("session-only").
+ * While it is session-only, nothing may act on fingerprints in a way a LATER
+ * session must recognize - persisting them, or creating a provider group whose
+ * only proof of content is one - because those records would match nothing once
+ * the real salt is back.
  */
 export type FingerprintSaltState = "durable" | "session-only";
 
 /**
- * The session's live view of the salt state. First-run creation is
- * serialized through the atomic filesystem lock in loadFingerprintSalt, so
- * concurrent first activations converge on one salt; confirmDurable() covers
- * what the lock cannot - the stored salt mutating later, from outside that
- * serialization (an external write, a keychain restored mid-session) - by
- * re-reading it at the moment of decision. The state only ever moves
- * durable -> session-only: identities were computed under this session's
- * installed salt from the start, so a salt that was ever unconfirmable
- * stays untrusted for the rest of the session.
+ * The session's live view of the salt state. confirmDurable() covers what the
+ * creation lock cannot - the stored salt mutating later from outside that
+ * serialization - by re-reading at the moment of decision. The state only ever
+ * moves durable -> session-only.
  */
 export interface FingerprintSaltSession {
 	/** The current state without touching the keychain; downgrade-only over time. */
@@ -34,10 +28,9 @@ export interface FingerprintSaltSession {
 	/**
 	 * Re-read the stored salt and report whether it still is this session's
 	 * installed one. Call immediately before EACH act a later session must
-	 * recognize - each fingerprint-map write, each provider-group seeding
-	 * step - not once per pass: a mutation detected mid-batch must stop the
-	 * remaining writes. Never throws: an unreadable or mismatched store
-	 * downgrades to session-only, logged once as a fixed classification.
+	 * recognize, not once per pass: a mutation detected mid-batch must stop the
+	 * remaining writes. Never throws; an unreadable or mismatched store
+	 * downgrades to session-only.
 	 */
 	confirmDurable(): Promise<FingerprintSaltState>;
 }
@@ -50,10 +43,8 @@ export interface SaltCreationTimings {
 	pollTimeoutMs: number;
 	/**
 	 * A lock marker older than this belongs to a winner that died before its
-	 * store completed (a completed store would have been found by the
-	 * pre-lock read). The finding session still degrades - never a second
-	 * salt on a guess - but removes the marker so the NEXT session can
-	 * create the salt cleanly.
+	 * store completed. The finding session still degrades - never a second salt
+	 * on a guess - but removes the marker for the NEXT session.
 	 */
 	staleLockMs: number;
 }
@@ -62,9 +53,9 @@ const DEFAULT_TIMINGS: SaltCreationTimings = { pollIntervalMs: 150, pollTimeoutM
 
 /**
  * The first-writer lock: mkdir without recursive is atomic on the local
- * filesystems globalStorage lives on, so exactly one window of a racing
- * first activation creates the salt while the others adopt it. The marker
- * holds no secret; its existence is the whole message.
+ * filesystems globalStorage lives on, so exactly one window of a racing first
+ * activation creates the salt while the others adopt it. The marker holds no
+ * secret; its existence is the whole message.
  */
 const LOCK_DIR_NAME = "fingerprint-salt.lock";
 
@@ -79,41 +70,28 @@ function sleep(ms: number): Promise<void> {
  * - An existing salt is NEVER regenerated: re-keying churns every stored
  *   credential identity at once. Any non-empty stored value is taken as-is.
  * - A salt is generated only when the read SUCCEEDED and found nothing, and
- *   only by the window that atomically acquired the creation lock under
- *   globalStorage; every other window waits for the winner's salt to appear
- *   and adopts it. A failed read must not write: it cannot tell "no salt
- *   yet" from "keychain unavailable", and storing over an existing salt
- *   would be the permanent churn the first rule exists to prevent.
+ *   only by the window that atomically acquired the creation lock; the others
+ *   wait for the winner's salt. A failed read must not write: it cannot tell
+ *   "no salt yet" from "keychain unavailable".
  * - A lock left by a winner that died mid-creation degrades the finding
- *   session to session-only; a marker older than the staleness bound is
- *   removed so the NEXT session can create the salt. A pre-store crash
- *   therefore costs up to two degraded sessions - one that waits out the
- *   still-fresh marker, one that clears the stale one - before a later
- *   session creates the salt. No path guesses its way to a second salt,
- *   and the winner re-reads the store immediately before writing so even
- *   a reclaimed marker's second creator is adopted, never overwritten.
- * - When the read, the store, the confirming read-back, or the lock
- *   machinery fails, the session runs on a salt that is not verifiably the
- *   stored one, reported as session-only: fingerprints still work for the
- *   session (caches, group identities), while everything that would persist
- *   them defers, mirroring how the sync engine treats unreadable secrets -
- *   degrade for the session, retry next session.
+ *   session to session-only, and a marker past the staleness bound is removed
+ *   for the next session. No path guesses its way to a second salt.
+ * - When the read, the store, the read-back, or the lock machinery fails, the
+ *   session runs on a salt that is not verifiably the stored one, reported as
+ *   session-only: fingerprints still work, while everything that would persist
+ *   them defers to the next session.
  *
- * The salt value never reaches a log line, and neither does ANYTHING read
- * off a foreign error: a hostile SecretStorage failure could echo the
- * stored value even from a property getter, and log lines feed the public
- * issue-report buffer, so every message here is a fixed string and no
- * catch below binds its error.
+ * The salt value never reaches a log line, and neither does ANYTHING read off a
+ * foreign error: a hostile SecretStorage failure could echo the stored value
+ * even from a property getter, and log lines feed the public issue-report
+ * buffer, so every message here is a fixed string and no catch binds its error.
  *
  * A salt lost outright (keychain wipe, profile reset) is regenerated by the
  * next session as if the install were fresh; every stored sync record then
- * matches nothing and each entry surfaces the actionable name-conflict text
- * until its group is removed natively - the same shape as losing globalState,
- * not a state this module can repair.
+ * matches nothing - not a state this module can repair.
  *
  * `install` and `timings` exist for tests only (initFingerprintSalt latches
- * process-global state, and the lock waits are real time); production
- * callers never pass them.
+ * process-global state, and the lock waits are real time).
  */
 export async function loadFingerprintSalt(
 	secrets: vscode.SecretStorage,
@@ -130,9 +108,8 @@ export async function loadFingerprintSalt(
 		try {
 			install(salt);
 		} catch {
-			// A conflicting earlier init keeps its salt; whatever that salt is,
-			// this call could not verify it against the store, so nothing may
-			// persist fingerprints on its account.
+			// A conflicting earlier init keeps its salt; this call could not
+			// verify it against the store, so nothing may persist fingerprints.
 			logger.log("Installing the fingerprint salt failed; treating the session's salt as session-only");
 			state = "session-only";
 		}
@@ -151,9 +128,8 @@ export async function loadFingerprintSalt(
 					return state;
 				}
 				if (current !== salt) {
-					// The store mutated outside the creation lock (an external write,
-					// a keychain restored mid-session); its value governs every later
-					// session, so nothing may be persisted under this one.
+					// The store mutated outside the creation lock; its value governs
+					// every later session, so nothing may be persisted under this one.
 					logger.log("The stored fingerprint salt changed under this session; downgrading to session-only");
 					state = "session-only";
 				}
@@ -183,13 +159,10 @@ export async function loadFingerprintSalt(
 		await mkdir(lockPath);
 		acquired = true;
 	} catch (error) {
-		// EEXIST is the one failure that means another window holds the lock;
-		// it is worth waiting for. Everything else (an unwritable
-		// globalStorage) means nobody can hold it: polling would stall
-		// activation for a salt nobody is writing, and generating without the
-		// lock would reopen the race, so the session degrades immediately.
-		// A node fs error, not a foreign SecretStorage one, so reading its
-		// code is safe.
+		// EEXIST is the one failure that means another window holds the lock.
+		// Everything else means nobody can hold it: polling would stall activation
+		// for a salt nobody is writing. A node fs error, not a foreign
+		// SecretStorage one, so reading its code is safe.
 		holderMayExist = (error as NodeJS.ErrnoException).code === "EEXIST";
 	}
 	if (!acquired && !holderMayExist) {
@@ -213,9 +186,8 @@ export async function loadFingerprintSalt(
 				return makeSession(current, "durable");
 			}
 		}
-		// No salt arrived: the lock holder is slow or dead. Never a second
-		// salt on a guess; a provably stale marker is cleared so the NEXT
-		// session can create the salt cleanly.
+		// No salt arrived: the lock holder is slow or dead. Never a second salt on
+		// a guess; a provably stale marker is cleared for the next session.
 		try {
 			const marker = await stat(lockPath);
 			if (Date.now() - marker.mtimeMs > staleLockMs) {
@@ -228,9 +200,9 @@ export async function loadFingerprintSalt(
 		return sessionOnly();
 	}
 
-	// Winner: generate, store, read back, release. The lock is released on
-	// every exit; a crash between store and release is harmless because the
-	// stored salt short-circuits every later session before the lock path.
+	// Winner: generate, store, read back, release. The lock is released on every
+	// exit; a crash between store and release is harmless because the stored salt
+	// short-circuits every later session before the lock path.
 	const releaseLock = async () => {
 		try {
 			await rm(lockPath, { recursive: true, force: true });
@@ -240,12 +212,10 @@ export async function loadFingerprintSalt(
 		}
 	};
 	const generated = randomBytes(32).toString("hex");
-	// One more read immediately before the store: a winner whose keychain
-	// hangs past the staleness bound can have its marker reclaimed and a
-	// second creator installed meanwhile, and its own late store would then
-	// overwrite that salt - the one ordering that could break the "never
-	// regenerated" rule. A salt that appeared while the lock was held is the
-	// stored truth, so it is adopted, not overwritten.
+	// One more read immediately before the store: a winner whose keychain hangs
+	// past the staleness bound can have its marker reclaimed and a second creator
+	// installed meanwhile, and its own late store would then overwrite that salt -
+	// the one ordering that could break the "never regenerated" rule.
 	let appeared: string | undefined;
 	try {
 		appeared = await secrets.get(FINGERPRINT_SALT_SECRET);

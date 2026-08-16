@@ -19,10 +19,9 @@ import type { NumberSettingId } from "../../../shared/config/settingSpec";
 import { isIntegerSetting, NUMBER_SETTING_SPECS } from "../../../shared/config/settingSpec";
 
 /**
- * Wording pins for the shared diagnostics renderers. These lines are what
- * users copy out of the Diagnostics tab into issue reports (the Show
- * Diagnostics dialog used to render the same functions), so the exact text
- * is pinned here once instead of per surface.
+ * Wording pins for the shared diagnostics renderers. These lines are what users
+ * copy out of the Diagnostics tab into issue reports, so the exact text is
+ * pinned once here instead of per surface.
  */
 
 type DeclaredServer = Extract<DashboardServer, { origin: "declared" }>;
@@ -124,9 +123,8 @@ describe("dashboard/presenters renderers", () => {
 		});
 
 		test("a misconfigured entry beside a healthy server stays neutral: connected, not degraded", () => {
-			// The status bar cannot see misconfigured entries (they never reach the
-			// host), so counting them here would split the headline from the bar;
-			// their signal is the Misconfigured pill and Configuration diagnostics.
+			// The status bar cannot see misconfigured entries, so counting them here
+			// would split the headline from the bar.
 			const servers = [misconfiguredServer(["auth must pick one form"]), declaredServer({ modelCount: 3 })];
 			assert.strictEqual(classifyOverall(servers), "connected");
 			assert.strictEqual(overallStatusText(servers, 3), "Connected (3 models)");
@@ -248,8 +246,8 @@ describe("dashboard/presenters renderers", () => {
 		});
 
 		test("an entry whose group cannot serve its per-entry parameters says so on a healthy line", () => {
-			// The row is healthy, which is exactly why the line must call the
-			// inactive parameters out: this is what users collect into reports.
+			// The row is healthy, which is why the line must call the inactive
+			// parameters out.
 			const line = serverOutcomeText(declaredServer({ modelCount: 2, notices: ["entry-params-inactive"] }));
 			assert.ok(line.startsWith("OK (2 models) - per-entry modelParameters are not applied"), line);
 			assert.ok(line.includes("run Sync Models Now"), line);
@@ -302,9 +300,9 @@ describe("dashboard/presenters renderers", () => {
 		});
 
 		test("the one-line form is exactly the composition of serverOutcomeParts", () => {
-			// The Diagnostics grid renders the decomposed parts; the pinned line
-			// is what lands in issue reports. Re-deriving one from the other here
-			// means neither surface can drift in wording.
+			// The Diagnostics grid renders the decomposed parts; the pinned line is
+			// what lands in issue reports. Re-deriving one from the other keeps the
+			// two surfaces from drifting.
 			const cases: DashboardServer[] = [
 				declaredServer({ modelCount: 3 }),
 				declaredServer({ modelCount: 2, error: "upsert refused" }),
@@ -368,7 +366,7 @@ describe("dashboard/presenters renderers", () => {
 	describe("capability vocabulary", () => {
 		test("the consumed vocabulary contains the registration-typed core", () => {
 			// The record editors key their inputs and validation hints off these
-			// constants (imported from the shared resolver module directly).
+			// constants.
 			for (const name of Object.keys(CAPABILITY_FIELDS)) {
 				assert.ok(Object.hasOwn(CONSUMED_CAPABILITY_FIELDS, name), `core field ${name} must be consumed`);
 			}
@@ -387,11 +385,9 @@ describe("dashboard/presenters renderers", () => {
 
 describe("dashboard/presenters number-unit grammars", () => {
 	test("a setting's draft grammar refuses fractions exactly when its spec is integer-only", () => {
-		// The integer-only fact has one source, the spec's `integer` flag: the
-		// settings reader floors on it and the manifest type mirrors it
-		// (settingSpec.test.ts). This pin keeps the dashboard's draft grammar
-		// on the same source, so a new integer setting cannot ship a unit
-		// whose input accepts values the host would silently floor.
+		// The integer-only fact has one source, the spec's `integer` flag, so a new
+		// integer setting cannot ship a unit whose input accepts values the host
+		// would silently floor.
 		for (const id of Object.keys(NUMBER_SETTING_SPECS) as NumberSettingId[]) {
 			const fractionReading = unitBehavior(id).parseDraft("1.5");
 			assert.strictEqual(

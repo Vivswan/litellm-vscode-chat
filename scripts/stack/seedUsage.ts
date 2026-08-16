@@ -1,13 +1,10 @@
 // scripts/stack/seedUsage.ts
 //
 // Deterministic, idempotent seeding of the stack's usage/budget fixture: one
-// virtual key with a max_budget, so LiteLLM's DB-backed spend endpoints
-// (/key/info, /user/daily/activity) have something to report. Both
-// stack-starting paths run it after the containers are healthy -
-// scripts/stack/compose.ts on a detached `up` (docker:up, dev) and
-// scripts/docker-test.ts - so a restarted stack always carries the key. The
-// key's identity lives in src/test/fakeStack/usage.ts, shared with the
-// docker-usage suite.
+// virtual key with a max_budget, so LiteLLM's DB-backed spend endpoints have
+// something to report. Both stack-starting paths run it after the containers
+// are healthy, so a restarted stack always carries the key. The key's identity
+// lives in src/test/fakeStack/usage.ts, shared with the docker-usage suite.
 
 import { USAGE_SEED_KEY } from "../../src/test/fakeStack/usage";
 import { composeSetting, readEnvFile, STACK_DEFAULTS } from "./litellmConfig";
@@ -19,7 +16,7 @@ const READY_POLL_MS = 1_000;
  * Wait for the proxy to answer its liveliness probe. Both callers start the
  * stack with compose --wait, so this normally returns on the first probe; it
  * exists for `up -d` without --wait and for the window where compose reports
- * healthy but a connection is not yet accepted.
+ * healthy before a connection is accepted.
  */
 async function waitForProxy(baseUrl: string): Promise<void> {
 	const deadline = Date.now() + READY_TIMEOUT_MS;
@@ -51,14 +48,13 @@ async function callAdmin(baseUrl: string, masterKey: string, route: string, body
 }
 
 /**
- * Ensure the seeded budget key exists with its declared fields. The
- * existence probe runs as the master key (GET /key/info?key=...), so a
- * transient proxy failure surfaces as an error instead of masquerading as
- * "missing" and driving /key/generate into a duplicate. When the key
- * survives from an earlier start, every declared field is re-pinned via
- * /key/update - identity included, so a reused dev database cannot drift -
- * but never the accumulated spend: the fixture's budget is deterministic,
- * its spend is the data under test.
+ * Ensure the seeded budget key exists with its declared fields. The existence
+ * probe runs as the master key, so a transient proxy failure surfaces as an
+ * error instead of masquerading as "missing" and driving /key/generate into a
+ * duplicate. A key surviving an earlier start has every declared field
+ * re-pinned - identity included, so a reused dev database cannot drift - but
+ * never its accumulated spend: the budget is deterministic, the spend is the
+ * data under test.
  */
 export async function seedUsageBudgetKey(baseUrl: string, masterKey: string): Promise<void> {
 	await waitForProxy(baseUrl);
@@ -85,10 +81,8 @@ export async function seedUsageBudgetKey(baseUrl: string, masterKey: string): Pr
 }
 
 /**
- * seedUsageBudgetKey against the running compose stack, resolving the port
- * and master key exactly as compose does (shell env over .env over the stack
- * defaults). Both stack-starting paths await it: scripts/stack/compose.ts
- * after a detached `up`, scripts/docker-test.ts after `up --wait`.
+ * seedUsageBudgetKey against the running compose stack, resolving the port and
+ * master key exactly as compose does (shell env over .env over the defaults).
  */
 export async function seedStackUsageBudgetKey(): Promise<void> {
 	const envFile = readEnvFile();

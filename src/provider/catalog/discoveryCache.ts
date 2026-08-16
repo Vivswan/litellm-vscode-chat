@@ -1,28 +1,21 @@
 /**
- * Single-flight + TTL cache for per-group model discovery. The host
- * re-resolves provider groups in bursts (several calls for one group within a
- * second), so concurrent loads for one key share a single network call and
- * completed results are served from memory until they age out.
+ * Single-flight + TTL cache for per-group model discovery: concurrent loads
+ * for one key share a single network call.
  *
- * Keys are group client IDs (see groupModels.ts), which fingerprint the base
- * URL and credentials: rotating a group's key mints a new cache key, so a
- * result fetched with old credentials is never served for new ones. prune()
- * drops the entries such a rotation leaves behind.
- *
- * Freshness is decided at read time: fetch() stores a successful result, and
- * lookup() applies the caller's TTL against the stored timestamp. Lowering
- * the TTL setting therefore takes effect immediately, and a TTL of 0 disables
- * serving from the store without disabling the request coalescing. Failed
- * loads are never stored, so the next call reaches the network again.
+ * Keys are group client IDs fingerprinting base URL and credentials, so a
+ * result fetched with old credentials is never served for new ones. Freshness
+ * is decided at read time - a lowered TTL takes effect immediately, and a TTL
+ * of 0 disables serving from the store without disabling coalescing - and
+ * failed loads are never stored.
  */
 export class DiscoveryCache<T> {
 	private readonly entries = new Map<string, { value: T; storedAt: number }>();
 	// storeAllowed: a load that started before an invalidate() of its key must
-	// not store its result afterwards, or an explicit "sync now" could be
-	// silently answered with pre-sync data for the rest of the TTL.
+	// not store its result, or an explicit "sync now" is answered with pre-sync
+	// data for the rest of the TTL.
 	private readonly inFlight = new Map<string, { promise: Promise<T>; guard: { storeAllowed: boolean } }>();
 
-	/** `now` is the only clock seam; tests inject a fake. The default reads Date.now at call time. */
+	/** The only clock seam; tests inject a fake. */
 	constructor(private readonly now: () => number = () => Date.now()) {}
 
 	/** The stored value for `key` when it is younger than `ttlMs`; undefined otherwise. Expired entries are dropped. */
@@ -40,10 +33,8 @@ export class DiscoveryCache<T> {
 
 	/**
 	 * Load `key`, sharing one in-flight `load` among concurrent callers; a
-	 * rejection propagates to every caller of the shared load. A load already
-	 * in flight is joined even by callers that just invalidated the key: it is
-	 * a live network call, not a stale stored result. Only clear() detaches
-	 * in-flight loads (see there).
+	 * rejection propagates to all of them. Callers that just invalidated the key
+	 * still join a live load; only clear() detaches in-flight loads.
 	 */
 	fetch(key: string, load: () => Promise<T>): Promise<T> {
 		const pending = this.inFlight.get(key);
@@ -61,9 +52,8 @@ export class DiscoveryCache<T> {
 			return value;
 		})();
 		this.inFlight.set(key, { promise, guard });
-		// Presence-checked cleanup: a clear() may have detached this load and a
-		// fresh one may already be in flight under the key; deleting
-		// unconditionally would orphan that newer load's coalescing.
+		// A clear() may have detached this load with a fresh one already in flight
+		// under the key; an unconditional delete would orphan its coalescing.
 		const cleanup = () => {
 			if (this.inFlight.get(key)?.guard === guard) {
 				this.inFlight.delete(key);
@@ -83,25 +73,20 @@ export class DiscoveryCache<T> {
 	}
 
 	/**
-	 * Drop ONLY the stored result for `key`, leaving in-flight loads storable.
-	 * For callers correcting a COMPLETED load whose result turned out to be
-	 * stale configuration (the discovery-root check): unlike invalidate(),
-	 * a sibling's already-started corrected reload keeps its right to cache,
-	 * so concurrent correctors converge on one stored fresh result instead of
-	 * suppressing each other's.
+	 * Drop ONLY the stored result for `key`, leaving in-flight loads storable:
+	 * for callers correcting a COMPLETED load whose result was stale
+	 * configuration, so concurrent correctors converge on one stored fresh
+	 * result instead of suppressing each other's.
 	 */
 	dropStored(key: string): void {
 		this.entries.delete(key);
 	}
 
 	/**
-	 * Drop every stored result AND detach in-flight loads. Detaching matters
-	 * because clear() is how explicit refreshes (Test Connection, Sync Models
-	 * Now) force a real round trip: a fetch after the clear must start a
-	 * fresh load, never join a load that began before it - the store guard
-	 * alone would only keep the stale result out of the store, not out of
-	 * the joiners' hands. Detached loads still resolve for their original
-	 * callers.
+	 * Drop every stored result AND detach in-flight loads: explicit refreshes
+	 * must start a real round trip, never join a load that began before the
+	 * clear, which the store guard alone would not prevent. Detached loads
+	 * still resolve for their original callers.
 	 */
 	clear(): void {
 		this.entries.clear();
@@ -109,11 +94,9 @@ export class DiscoveryCache<T> {
 	}
 
 	/**
-	 * Drop every stored result whose key is not in `keep`, mirroring the
-	 * provider's client pruning: entries for removed or re-keyed groups embed
-	 * the old plaintext credentials in their model objects and must not
-	 * outlive the group. In-flight loads are untouched (their callers are, by
-	 * definition, still interested).
+	 * Drop every stored result whose key is not in `keep`: entries for removed
+	 * or re-keyed groups embed the old plaintext credentials in their model
+	 * objects and must not outlive the group. In-flight loads are untouched.
 	 */
 	prune(keep: Iterable<string>): void {
 		const keepSet = new Set(keep);

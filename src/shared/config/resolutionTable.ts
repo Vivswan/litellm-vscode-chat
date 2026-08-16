@@ -2,24 +2,18 @@
  * The precomputed flat resolution table: per (server, model), the resolved
  * models.parameters merge and the effective capabilities, memoized so the
  * matcher-and-inheritance walk never runs per request. One instance is owned
- * by the provider and shared by every consumer - the chat request path, the
- * registration decorator, and the dashboard's inspectors all read the SAME
- * cache, so they cannot disagree.
+ * by the provider and shared by the chat request path, the registration
+ * decorator, and the dashboard's inspectors, so they cannot disagree.
  *
  * Invalidation is by input fingerprint, not by listener wiring: every lookup
  * passes the current inputs, and a changed fingerprint recomputes the entry.
- * The record maps and the server baseline are small JSON-shaped
- * configuration, fingerprinted by serialization; the catalog is a lookup
- * interface whose backing data can swap behind a stable facade (the store
- * replaces its inner snapshot on refresh), so a capability entry instead
- * records exactly the catalog queries its resolution made and replays them
- * against the current lookup on every hit - identical answers mean the
- * cached resolution is still exact, a changed answer recomputes. A settings
- * edit, an entry edit, a discovery change, or a catalog refresh therefore
- * reaches the very next lookup with no event plumbing to forget, while the
- * steady state costs one small serialization and a couple of map lookups
- * instead of a resolution walk. The seed-pinned equivalence property pins
- * table output == direct resolver output.
+ * The record maps and the server baseline fingerprint by serialization; the
+ * catalog is a lookup interface whose backing data can swap behind a stable
+ * facade, so a capability entry instead records exactly the catalog queries
+ * its resolution made and replays them against the current lookup on every
+ * hit - identical answers mean the cached resolution is still exact. A
+ * settings edit, an entry edit, a discovery change, or a catalog refresh
+ * therefore reaches the very next lookup with no event plumbing to forget.
  */
 
 import type {
@@ -67,11 +61,10 @@ interface CapabilityEntry {
 }
 
 /**
- * The record maps arrive as plain JSON-shaped configuration, so
- * JSON.stringify is a faithful fingerprint (key order rides along, which is
- * load-bearing: record order is part of the matcher's regex tie rule). A
- * spurious mismatch merely recomputes - stale reads are impossible by
- * construction.
+ * The record maps arrive as plain JSON-shaped configuration, so JSON.stringify
+ * is a faithful fingerprint. Key order rides along, which is load-bearing:
+ * record order is part of the matcher's regex tie rule. A spurious mismatch
+ * merely recomputes - stale reads are impossible by construction.
  */
 function fingerprintOf(parts: readonly unknown[]): string {
 	return JSON.stringify(parts);
@@ -100,9 +93,8 @@ function probesStillHold(probes: readonly CatalogProbe[], catalog: CapabilityCat
 }
 
 /**
- * Per-server model-entry bound: whole servers are pruned with the provider's
- * other caches, but a server can rotate model IDs indefinitely, so the
- * per-server map evicts its oldest entry past this bound (an evicted entry
+ * Per-server model-entry bound: a server can rotate model IDs indefinitely, so
+ * the per-server map evicts its oldest entry past this bound (an evicted entry
  * merely recomputes on its next lookup).
  */
 const MAX_MODELS_PER_SERVER = 512;

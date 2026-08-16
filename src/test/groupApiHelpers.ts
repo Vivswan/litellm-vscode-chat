@@ -1,18 +1,14 @@
 /**
- * Helpers for suites that drive VS Code-managed provider groups: the
- * host-fidelity suites and the docker suites.
+ * Helpers for suites that drive VS Code-managed provider groups. Two host facts
+ * shape every helper here:
  *
- * Two host facts shape every helper here:
- *
- * - Provider groups are ADD-ONLY for the host lifetime: there is no remove or
- *   update command, and re-adding a name is rejected (pinned by
- *   extension/hostGroupCommand.test.ts). Groups accumulate until the
+ * - Provider groups are ADD-ONLY for the host lifetime: no remove or update
+ *   command, and re-adding a name is rejected. Groups accumulate until the
  *   extension host exits, so names must be unique per test and model-list
  *   assertions must scope themselves to an explicit universe.
- * - vscode.lm model objects expose id/vendor/family/version/name but no group
- *   identity, so the only way a suite can attribute a model to the group that
- *   served it is a model ID unique to that group (host-fidelity-groups.test.ts
- *   pins that a duplicated ID surfaces as indistinguishable twin entries).
+ * - vscode.lm model objects expose no group identity, so the only way a suite
+ *   can attribute a model to the group that served it is a model ID unique to
+ *   that group.
  */
 
 import * as assert from "node:assert";
@@ -26,10 +22,7 @@ import { waitForHostModels } from "./hostApiHelpers";
 
 let nameCounter = 0;
 
-/**
- * A name no other test run in this add-only host can collide with: unique
- * per process and per call.
- */
+/** A name no other test run in this add-only host can collide with. */
 export function uniqueName(prefix: string): string {
 	nameCounter += 1;
 	return `${prefix}-${process.pid}-${nameCounter}`;
@@ -45,7 +38,7 @@ export interface ProviderGroupConfig {
  * Add a provider group through the host command, mirroring the declared-entry
  * sync chain: `label` rides inside the configuration and equals the name,
  * because the host echoes only the configuration back to the provider and the
- * label inside it is what gives the group its status identity.
+ * label inside it gives the group its status identity.
  */
 export async function addGroup(config: ProviderGroupConfig): Promise<void> {
 	await vscode.commands.executeCommand("lm.addLanguageModelsProviderGroup", {
@@ -63,13 +56,11 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * Wait until the provider's status window holds a status for `label` that
- * satisfies the predicate. The host resolves groups by calling the provider,
- * but ingests asynchronously and offers no completion signal, so the poll
- * nudges it with model queries between reads. Resolution is BY LABEL and
- * takes the first match: distinct credential material for one label (say, a
- * refreshEntryModels call after the entry's secret changed) mints a second
- * window identity under the same label, and this helper does not
- * disambiguate them.
+ * satisfies the predicate. The host ingests asynchronously and offers no
+ * completion signal, so the poll nudges it with model queries between reads.
+ * Resolution is BY LABEL and takes the first match: distinct credential material
+ * for one label mints a second window identity under the same label, and this
+ * helper does not disambiguate them.
  */
 export async function waitForGroupStatus(
 	label: string,
@@ -96,10 +87,9 @@ export async function waitForGroupStatus(
 export type ModelsPredicate = (models: readonly vscode.LanguageModelChat[]) => boolean;
 
 /**
- * Wait until the host's model list satisfies the predicate: the group
- * suites' predicate-first spelling of hostApiHelpers.waitForHostModels, so
- * there is exactly one polling loop (each poll's selectChatModels call
- * doubles as the resolution nudge).
+ * Wait until the host's model list satisfies the predicate: the group suites'
+ * predicate-first spelling of waitForHostModels, so there is exactly one polling
+ * loop (each poll's selectChatModels call doubles as the resolution nudge).
  */
 export async function waitForModels(
 	predicate: ModelsPredicate,
@@ -111,10 +101,9 @@ export async function waitForModels(
 
 /**
  * A predicate that holds when the models inside the caller's universe are
- * exactly `expectedIds`, duplicates counted (two group entries sharing one ID
- * must read as two). The universe is required, never implied: under an
- * add-only host, earlier tests' groups linger for the host lifetime, so a
- * whole-list exact match is meaningless - scope to the IDs this test minted.
+ * exactly `expectedIds`, duplicates counted. The universe is required, never
+ * implied: under an add-only host, earlier tests' groups linger for the host
+ * lifetime, so a whole-list exact match is meaningless.
  */
 export function scopedExact(
 	universe: (model: vscode.LanguageModelChat) => boolean,
@@ -146,11 +135,10 @@ export interface ServerSettingEntry {
 }
 
 /**
- * Drive the real group path for one declared entry (discovery, capability
- * resolution, registration) through the non-silent test seam and return the
- * host-facing registration surface. Throws like Test Connection on discovery
- * failure, except that an entry with matching expectedFailures and declared
- * models returns the declared set.
+ * Drive the real group path for one declared entry through the non-silent test
+ * seam and return the host-facing registration surface. Throws like Test
+ * Connection on discovery failure, except that an entry with matching
+ * expectedFailures and declared models returns the declared set.
  */
 export async function refreshEntryModels(label: string): Promise<vscode.LanguageModelChatInformation[]> {
 	return (await vscode.commands.executeCommand(
@@ -160,12 +148,10 @@ export async function refreshEntryModels(label: string): Promise<vscode.Language
 }
 
 /**
- * Fail fast when this host already serves any of `ids`. The docker stack's
- * model ids are fixed and the host exposes no group identity, so a leftover
- * group from a recycled user-data directory would be indistinguishable from
- * the suite's own and could silently absorb its waits and chats. A cleanly
- * torn-down prior run leaves none: restoreServersSettingAfterRun's closing
- * sync persists the removal tombstones that keep leftover groups dark.
+ * Fail fast when this host already serves any of `ids`. The docker stack's model
+ * ids are fixed and the host exposes no group identity, so a leftover group from
+ * a recycled user-data directory would be indistinguishable from the suite's own
+ * and could silently absorb its waits and chats.
  */
 export async function assertIdsUnserved(ids: readonly string[]): Promise<void> {
 	const models = await vscode.lm.selectChatModels({ vendor: VENDOR_ID });
@@ -178,13 +164,11 @@ export async function assertIdsUnserved(ids: readonly string[]): Promise<void> {
 }
 
 /**
- * Register hooks on the enclosing suite (or the root suite when called at
- * module top level) that snapshot the machine-scoped servers setting before
- * the first test and restore it after the last one: entries written by
- * writeServerEntry carry inline keys and must not outlive the run. The
- * closing sync pass reconciles the removals, so the persisted tombstones
- * keep the leftover add-only groups from serving into a recycled user-data
- * directory.
+ * Register hooks on the enclosing suite that snapshot the machine-scoped servers
+ * setting before the first test and restore it after the last: entries written
+ * by writeServerEntry carry inline keys and must not outlive the run. The
+ * closing sync pass reconciles the removals, so the persisted tombstones keep
+ * leftover add-only groups from serving into a recycled user-data directory.
  */
 export function restoreServersSettingAfterRun(): void {
 	let original: unknown;
@@ -230,11 +214,10 @@ async function waitForDeclared(
 }
 
 /**
- * Write one entry into the real litellm-vscode-chat.servers setting
- * (replacing any previous entry with the same label) and wait for the
- * declarative sync to settle: the entry accepted without a sync error, and
- * the host's per-group call for it recorded a status. Returns that status;
- * callers wanting a specific state assert on it or keep polling with
+ * Write one entry into the real servers setting (replacing any previous entry
+ * with the same label) and wait for the declarative sync to settle: accepted
+ * without a sync error, and the host's per-group call recorded a status.
+ * Returns that status; callers wanting a specific state keep polling with
  * waitForGroupStatus.
  */
 export async function writeServerEntry(entry: ServerSettingEntry, timeoutMs = 20000): Promise<ServerStatus> {
@@ -250,12 +233,11 @@ export async function writeServerEntry(entry: ServerSettingEntry, timeoutMs = 20
 }
 
 /**
- * Remove one entry from the servers setting and wait for the sync engine to
- * drop its declared view. Only the declaration leaves: the provider group
- * survives for the host lifetime (add-only host), but the engine publishes
- * its views only after removal reconciliation, so a departed view implies
- * the removal tombstone already suppresses the group (it reports as hidden,
- * serving no models, from the host's next refresh on).
+ * Remove one entry from the servers setting and wait for the sync engine to drop
+ * its declared view. Only the declaration leaves: the provider group survives
+ * for the host lifetime, but the engine publishes its views only after removal
+ * reconciliation, so a departed view implies the tombstone already suppresses
+ * the group.
  */
 export async function removeServerEntry(label: string, timeoutMs = 20000): Promise<void> {
 	const { config, entries } = serversSetting();

@@ -44,7 +44,6 @@ function problemsOf(draft: ServerFormDraft, context?: Parameters<typeof parseSer
 	return parse.ok ? {} : parse.problems;
 }
 
-/** The ok arm's intent; fails the test when the draft has problems. */
 function intentOf(draft: ServerFormDraft, originalLabel?: string): ServerFormIntent {
 	const parse = parseServerForm(draft, originalLabel !== undefined ? { originalLabel } : {});
 	if (!parse.ok) {
@@ -159,11 +158,10 @@ describe("dashboard/serverForm", () => {
 		});
 
 		test("a cleared virtual key with stale typed text saves as clear instead of blocking on a disabled input", () => {
-			// The regression the parse-once shape fixes: the old validator read the
-			// raw input text where assembly read the clear directive, so a value
-			// like "a\nb" left in the (disabled) input of a field marked remove
-			// blocked Save on a problem the user could not edit away. The directive
-			// says the value is going away; nothing about it can block.
+			// The parse-once shape's regression: validation once read the raw input
+			// text where assembly read the clear directive, so stale text in a
+			// disabled input blocked Save on a problem the user could not edit
+			// away. A value that is going away cannot block.
 			const parse = parseServerForm(
 				draft({ authForm: "virtualKey", virtualKeyValue: secret({ value: "a\nb", clear: true, existing: "secure" }) })
 			);
@@ -233,8 +231,6 @@ describe("dashboard/serverForm", () => {
 		});
 
 		test("a partial-OAuth draft's problems all sit on the OAuth form's own fields", () => {
-			// With label and baseUrl valid, every blocking problem of a partial
-			// OAuth draft must sit on a field the selected form renders.
 			const problems = problemsOf(draft({ authForm: "oauth", oauthTokenUrl: "https://idp.test/token" }));
 			const failing = SERVER_FORM_FIELD_ORDER.filter((field) => problems[field] !== undefined);
 			assert.ok(failing.length > 0);
@@ -247,9 +243,8 @@ describe("dashboard/serverForm", () => {
 	describe("parseServerForm intent", () => {
 		test("trims fields and omits empty optionals entirely", () => {
 			const intent = intentOf(draft({ label: " Prod ", baseUrl: " http://localhost:4000 ", oauthScopes: "  " }));
-			// The entry-record and list fields are the exception: they ride every
-			// intent, even empty, so the save can tell a deliberate clear from
-			// a payload that predates their editors.
+			// The entry-record and list fields ride every intent, even empty, so the
+			// save can tell a deliberate clear from a pre-editor payload.
 			assert.deepStrictEqual(intent.server, {
 				label: "Prod",
 				baseUrl: "http://localhost:4000",
@@ -380,8 +375,7 @@ describe("dashboard/serverForm", () => {
 		});
 
 		test("unknown-key hints ride a clean parse without blocking it, gated on the entry's observed evidence", () => {
-			// No evidence in the context: the hint stays suppressed (the host's
-			// advisory filter, mirrored live).
+			// No evidence in the context: the hint stays suppressed.
 			const silent = parseServerForm(
 				draft({ modelCapabilities: [{ prefix: "gpt-4", params: [{ key: "supports_web_search", valueText: "true" }] }] })
 			);
@@ -483,11 +477,9 @@ describe("dashboard/serverForm", () => {
 		});
 
 		test("an invalid stored inline virtual-key value blocks Save once prefilled, flagged on its own field", () => {
-			// Previously unreachable: the value input was always empty on edit, so
-			// a hand-written non-header-sendable inline value slid through. The
-			// prefill makes the stored value visible to validation; the problem
-			// must sit on the value field (not the header) and clear once the
-			// value is edited to something sendable.
+			// Previously unreachable: the value input was always empty on edit, so a
+			// hand-written non-sendable inline value slid through. The problem must
+			// sit on the value field, not the header, and clear once it is edited.
 			const base = draft({
 				authForm: "virtualKey",
 				virtualKeyHeader: "x-key",
@@ -504,14 +496,11 @@ describe("dashboard/serverForm", () => {
 		});
 
 		test("relocation race lifecycle: a location flip before the response arrives still relocates once it does", () => {
-			// The hazard the form's Save gate exists for: the user opens Edit,
-			// flips the inline key's radio to "secret storage", and hits Save
-			// before the prefill response lands. Assembling at that moment would
-			// read the empty field as "keep" and silently drop the relocation -
-			// pinned here - so servers.tsx holds the form in its prefill phase
-			// while the response is pending; once it arrives, the flipped location
-			// survives the prefill and the save assembles the relocation the user
-			// asked for.
+			// The hazard the form's Save gate exists for: flipping the inline key's
+			// radio to secret storage and saving before the prefill lands would
+			// read the empty field as "keep" and drop the relocation, so
+			// servers.tsx holds the form in its prefill phase until the response
+			// arrives; the flipped location then survives the prefill.
 			const flipped = draft({ authForm: "apiKey", apiKey: secret({ existing: "settings", location: "secure" }) });
 			assert.deepStrictEqual(
 				intentOf(flipped).secrets.apiKey,
@@ -559,8 +548,7 @@ describe("dashboard/serverForm", () => {
 			assert.ok(!parse.ok);
 			const full = parseServerForm(broken);
 			assert.ok(!full.ok);
-			// Field for field the same problems the save parse computes: one rule
-			// set, two gates.
+			// Field for field the same problems the save parse computes.
 			for (const field of CONNECTION_FIELDS) {
 				assert.strictEqual(parse.problems[field], full.problems[field], field);
 			}
@@ -572,9 +560,8 @@ describe("dashboard/serverForm", () => {
 				authForm: "oauth",
 				label: "Renamed",
 				apiKey: secret({ value: " sk-typed ", location: "settings" }),
-				// A stored OAuth secret resolves through "keep", so the pairing
-				// rules require its token URL and client ID - for a test exactly
-				// as for a save.
+				// A stored OAuth secret resolves through "keep", so the pairing rules
+				// require its token URL and client ID, for a test as for a save.
 				oauthTokenUrl: "https://idp.test/token",
 				oauthClientId: "client-1",
 				oauthClientSecret: secret({ existing: "secure" }),
@@ -592,13 +579,11 @@ describe("dashboard/serverForm", () => {
 		});
 
 		test("CONNECTION_FIELDS is exactly the field catalog minus label and the record, list, and budget fields", () => {
-			// The clear-on-edit rule and the field catalog cannot drift: a new
-			// connection-shaped field must join CONNECTION_FIELDS or this fails.
-			// modelCapabilities and expectedFailures stay out by design: they
-			// shape the probe's OUTCOME presentation (declared counts, expected
-			// downgrades), never the connection it tests - and declaredModels and
-			// budget follow the same rule. The auth-form pick and the header rows
-			// ARE connection-shaped: the probe sends exactly what they select.
+			// A new connection-shaped field must join CONNECTION_FIELDS or this
+			// fails. modelCapabilities, expectedFailures, declaredModels, and
+			// budget stay out by design: they shape the probe's OUTCOME
+			// presentation, never the connection it tests. The auth-form pick and
+			// the header rows ARE connection-shaped: the probe sends what they say.
 			const expected = SERVER_FORM_FIELD_ORDER.filter(
 				(field) =>
 					field !== "label" &&
@@ -670,9 +655,8 @@ describe("dashboard/serverForm", () => {
 
 		test("a translated message body behind the ASCII field prefix still routes to the field", () => {
 			// The intent boundary localizes only the body of a field-prefixed
-			// message; the "fieldId:" prefix stays an untranslated ASCII
-			// identifier, so the promotion must keep recognizing the field no
-			// matter what language the body arrives in.
+			// message; the "fieldId:" prefix stays untranslated ASCII, so the
+			// promotion must recognize the field in any language.
 			assert.strictEqual(
 				sectionFailureText("Saving the server failed:", "label: 此标签的条目已存在"),
 				"Label: 此标签的条目已存在"
@@ -716,8 +700,8 @@ describe("dashboard/serverForm", () => {
 				apiKey: secret({ existing: "secure", prefill: undefined, value: "sk-stored" }),
 			};
 			assert.deepStrictEqual(changedServerFormFields(rebadged, baseline), []);
-			// The three things the user CAN change each count (the storage pick
-			// on a field that actually holds a value; see the next test).
+			// The three things the user CAN change each count; the storage pick
+			// counts only on a field that holds a value (see the next test).
 			for (const patch of [{ value: "sk-other" }, { location: "settings" as const }, { clear: true }]) {
 				const edited = { ...baseline, apiKey: { ...baseline.apiKey, ...patch } };
 				assert.deepStrictEqual(changedServerFormFields(edited, baseline), ["apiKey"]);
@@ -745,17 +729,15 @@ describe("dashboard/serverForm", () => {
 		});
 
 		test("an inline prefill applied to draft and baseline alike counts as nothing to save", () => {
-			// What the form does when the readInlineSecrets response lands: the
-			// same transform runs over both, so a value the form filled in for
-			// the user is not an edit the user made.
+			// What the form does when the readInlineSecrets response lands: the same
+			// transform runs over both, so a value the form filled in is not an edit.
 			const opened = draft({ apiKey: secret({ existing: "settings" }) });
 			const values = { apiKey: "sk-inline" } as const;
 			assert.deepStrictEqual(
 				changedServerFormFields(applyInlinePrefill(opened, values), applyInlinePrefill(opened, values)),
 				[]
 			);
-			// A prefill that reached only the draft is a real difference, and
-			// says so rather than hiding a pending write.
+			// A prefill that reached only the draft is a real difference.
 			assert.deepStrictEqual(changedServerFormFields(applyInlinePrefill(opened, values), opened), ["apiKey"]);
 		});
 	});

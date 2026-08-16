@@ -7,12 +7,11 @@ const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
 /**
- * The threshold-crossing state drives budget alerts, so its dedup contract
- * gets property coverage: crossings are exactly the at-or-above thresholds,
- * a steady fraction never re-reports, and dropping below a threshold re-arms
- * it. The oracle below replays a fraction sequence with an independent
- * per-threshold armed flag and must agree with the store's set-difference
- * implementation event for event.
+ * The threshold-crossing state drives budget alerts, so its dedup contract gets
+ * property coverage: crossings are exactly the at-or-above thresholds, a steady
+ * fraction never re-reports, and dropping below a threshold re-arms it. The
+ * oracle below replays a fraction sequence with an independent per-threshold
+ * armed flag and must agree event for event.
  */
 
 /** Fractions as spend/budget produces them: mostly in range, some junk. */

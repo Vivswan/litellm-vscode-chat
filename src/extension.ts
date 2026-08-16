@@ -15,21 +15,18 @@ import { Logger } from "./shared/logger";
 
 /**
  * The composition root: activate() only constructs and orders the wiring
- * modules under src/extension/wiring/; each module owns its subscriptions
- * and reactions. The ordering constraints activate() itself owns are
- * commented at their call sites: l10n configuration first, pre-registration
- * migrations awaited before registerLanguageModelChatProvider,
- * post-registration migrations fire-and-forget after it, and the test seams
- * gated on non-production mode.
+ * modules under src/extension/wiring/; each module owns its subscriptions and
+ * reactions. The ordering constraints activate() owns are commented at their
+ * call sites: l10n configuration first, pre-registration migrations awaited
+ * before registerLanguageModelChatProvider, post-registration migrations
+ * fire-and-forget after it, test seams gated on non-production mode.
  */
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-	// The activation-production harness calls this compiled function itself
-	// with a fake Production-mode context while the real extension loaded into
-	// its host (Test mode under @vscode/test-cli) must stay inert:
-	// onStartupFinished would otherwise activate it first and every command
-	// registration would collide. The env flag is set only by
-	// .vscode-test.mjs's activation-production label, and the mode check keeps
-	// the harness's own Production-mode call running.
+	// The activation-production harness calls this compiled function itself with
+	// a fake Production-mode context, while the real extension loaded into its
+	// host must stay inert: onStartupFinished would otherwise activate it first
+	// and every command registration would collide. The mode check keeps the
+	// harness's own Production-mode call running.
 	if (
 		context.extensionMode !== vscode.ExtensionMode.Production &&
 		process.env.LITELLM_SUPPRESS_STARTUP_ACTIVATION === "1"
@@ -50,17 +47,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 	const issueReporter = new IssueReporter(createIssueReporterEnv(context.globalStorageUri));
 	const testMode = context.extensionMode !== vscode.ExtensionMode.Production;
-	// Non-production only: litellm._test.getSessionLogs reads the session's
-	// log lines losslessly through this tee (the production buffer behind it
-	// is a small rolling window a leak scan could race).
+	// Non-production only: litellm._test.getSessionLogs reads the session's log
+	// lines losslessly through this tee (the production buffer behind it is a
+	// small rolling window a leak scan could race).
 	const sessionLogTee = testMode ? new SessionLogTee(issueReporter) : undefined;
 	const logger = new Logger(outputChannel, sessionLogTee ?? issueReporter);
 	logger.log(`LiteLLM Extension activated (v${extVersion})`);
 
 	const storage = await wireStorage(context, logger);
 	// Token estimation serves the request path from the first request: mode
-	// applied now, tokenizer loads (if the mode wants one) settle off the
-	// activation path.
+	// applied now, tokenizer loads settle off the activation path.
 	wireTokenCounting(context, logger);
 	const { catalogStore, provider, notifyModelsChanged, hasDeclaredServers, hasConfiguredServers } = wireProvider(
 		context,
@@ -75,9 +71,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 	vscode.lm.registerLanguageModelChatProvider(VENDOR_ID, provider);
 
-	// One-shot seed dropped by `bun run dev`; development-mode only. It
-	// writes the servers-setting entry and the label's stored API key; the
-	// forced server sync pass below turns the entry into the provider group.
+	// One-shot seed dropped by `bun run dev`; development-mode only. The forced
+	// server sync pass below turns the seeded entry into the provider group.
 	let devSeed: DevSeed | undefined;
 	if (testMode) {
 		try {
@@ -107,13 +102,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	wireGroupRemovalReactions(logger, { groupRemovals: storage.groupRemovals, provider, dashboard });
 
 	// Test-only commands; registered after the sync engine and the dashboard
-	// exist because the docker-serversync suite reads the engine's declared
-	// views through them and the monkey fuzzer injects dashboard messages.
+	// exist because the suites read the engine's declared views through them
+	// and the monkey fuzzer injects dashboard messages.
 	if (sessionLogTee !== undefined) {
 		registerTestCommands(context, provider, issueReporter, servers.syncEngine, dashboard, sessionLogTee);
 	}
 	// The docker-resolution suite's deterministic catalog seeding (inert in
-	// production, like the commands above).
+	// production).
 	registerOpenRouterCatalogTestSeam(context, catalogStore);
 	// The first pass runs off the activation path: it may hit the host command
 	// (which validates groups against the provider) and the network. Forced,

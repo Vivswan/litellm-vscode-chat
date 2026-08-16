@@ -16,10 +16,10 @@ export interface StorageWiring {
 	readonly getManagementUiMode: () => ManagementUiMode;
 	readonly groupRemovals: GroupRemovalStore;
 	/**
-	 * The pre-registration migrations. The provider must not see a
-	 * half-migrated registry, so activate() awaits this before
-	 * registerLanguageModelChatProvider. Best-effort: a failed migration logs
-	 * and retries on the next activation.
+	 * The pre-registration migrations. The provider must not see a half-migrated
+	 * registry, so activate() awaits this before
+	 * registerLanguageModelChatProvider. Best-effort: a failed migration logs and
+	 * retries on the next activation.
 	 */
 	runPreRegistrationMigrations(): Promise<void>;
 	/**
@@ -31,36 +31,33 @@ export interface StorageWiring {
 }
 
 /**
- * The storage layer's wiring: the fingerprint salt, the legacy server
- * registry with its mutation guard, the group-removal tombstone store, and
- * the migration runners whose ordering activate() owns.
+ * The storage layer's wiring: the fingerprint salt, the legacy server registry
+ * with its mutation guard, the group-removal tombstone store, and the migration
+ * runners whose ordering activate() owns.
  */
 export async function wireStorage(context: vscode.ExtensionContext, logger: Logger): Promise<StorageWiring> {
-	// Before anything else: every credential identity in the process (group
-	// client IDs, cached clients, the sync engine's fingerprint map) is keyed
-	// by this salt, so it must be installed before migrations or the provider
-	// can compute a fingerprint.
+	// Before anything else: every credential identity in the process is keyed by
+	// this salt, so it must be installed before migrations or the provider can
+	// compute a fingerprint.
 	const fingerprintSalt = await loadFingerprintSalt(context.secrets, context.globalStorageUri, logger);
 	const registry = new ServerRegistry(context.globalState, context.secrets);
 	const isMigrated = () => isGroupMigrationComplete(context.globalState);
-	// The management UI mode: the dashboard once the registry is migrated or
-	// was never populated, the legacy quick-pick flows while the registry
-	// still holds unmigrated servers (see ManagementUiMode).
+	// The management UI mode: the dashboard once the registry is migrated or was
+	// never populated, the legacy quick-pick flows while it still holds servers.
 	const getManagementUiMode = (): ManagementUiMode => {
 		if (isMigrated()) {
 			return "groupsOnly";
 		}
 		return registry.getServers().length === 0 ? "groupsWithRegistry" : "legacy";
 	};
-	// The registry-side enforcement of the same verdict the prompt flows show
-	// notices for: mutators refuse with typed errors while the migration seeds
-	// groups or after it retired the registry; the migrations mutate through
-	// the unguarded methods.
+	// The registry-side enforcement of the verdict the prompt flows show notices
+	// for: mutators refuse with typed errors while the migration seeds groups or
+	// after it retired the registry; the migrations mutate through the unguarded
+	// methods.
 	registry.installMutationGuard(() => registryMutationVerdict(getManagementUiMode));
 	// Groups the user explicitly removed (the host command is add-only, so
 	// removal works by tombstoning): the provider consults the store on every
-	// group refresh, and tombstone changes fire the model-change event (see
-	// wireGroupRemovalReactions).
+	// group refresh, and tombstone changes fire the model-change event.
 	const groupRemovals = new GroupRemovalStore(context.globalState);
 	const migrationContext: MigrationContext = {
 		globalState: context.globalState,

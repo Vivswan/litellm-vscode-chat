@@ -10,14 +10,13 @@ function saltedRendering(text: string, salt: string): string {
 }
 
 describe("shared/util/fingerprint", () => {
-	// The fixed salt the preload installed before any test file loaded
-	// (see src/test/bun/preload.ts).
+	// The fixed salt the preload installed before any test file loaded.
 	const testSalt = FIXED_TEST_SALT;
 
 	test("distinguishes inputs that collide under 32-bit FNV-1a", () => {
-		// This pair collides under the FNV-1a hash the fingerprint used to be:
-		// a collision here would share one cached client (and its credentials)
-		// between two different API keys.
+		// This pair collides under the FNV-1a hash the fingerprint used to be; a
+		// collision shares one cached client, and its credentials, across two
+		// different API keys.
 		assert.notStrictEqual(fingerprint("s6czs01643wfz"), fingerprint("1360ljmt56q89"));
 	});
 
@@ -29,19 +28,16 @@ describe("shared/util/fingerprint", () => {
 
 	test("is keyed by the salt: same input, different salt, different fingerprint", () => {
 		assert.ok(testSalt.length > 0, "the harness must provide the fixed test salt");
-		// The output is exactly the salted PBKDF2 rendering under the active
-		// salt - so the salt provably participates - and a different salt
-		// yields a different identity, which is the entire defense: without
-		// the stored salt there is nothing to verify key guesses against.
+		// The output is exactly the salted PBKDF2 rendering under the active salt,
+		// so the salt provably participates - the defense against key guessing.
 		assert.strictEqual(fingerprint("sk-1234"), saltedRendering("sk-1234", testSalt));
 		assert.notStrictEqual(fingerprint("sk-1234"), saltedRendering("sk-1234", `${testSalt}-other`));
 	});
 
 	test("the salt is loaded once: a matching re-init is a no-op, a different one throws", () => {
-		// The first fingerprint() call above latched the harness salt; from
-		// then on the identity space is frozen for the process. Re-keying mid
-		// process would churn every credential identity at once, so only the
-		// idempotent re-init is allowed.
+		// The first fingerprint() call latched the harness salt, freezing the
+		// identity space for the process: re-keying mid process would churn every
+		// credential identity.
 		const before = fingerprint("stable");
 		initFingerprintSalt(testSalt);
 		assert.strictEqual(fingerprint("stable"), before, "a matching re-init changes nothing");

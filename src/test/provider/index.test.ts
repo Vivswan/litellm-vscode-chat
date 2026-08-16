@@ -21,21 +21,21 @@ const SEED = resolveFuzzSeed();
 
 suite("provider", () => {
 	test("hostRefreshDeadlineMs floors at 8s and follows the discovery timeout plus its margin", () => {
-		// The floor: a pathologically low discovery timeout (the reader clamps
-		// to 1000) must not make the host pass abandon almost instantly - the
-		// deadline also bounds the host's own re-resolve round trip.
+		// The floor: a pathologically low discovery timeout (clamped to 1000) must
+		// not make the host pass abandon almost instantly - the deadline also
+		// bounds the host's own re-resolve round trip.
 		assert.strictEqual(hostRefreshDeadlineMs(1000), 8000);
-		// At the default discovery timeout the margin applies: the deadline
-		// outlasts one full discovery attempt plus report plumbing, so raising
-		// discovery.timeout can never silently starve Sync Models Now's host pass.
+		// At the default timeout the margin outlasts one full discovery attempt
+		// plus report plumbing, so raising discovery.timeout can never starve
+		// Sync Models Now's host pass.
 		assert.strictEqual(hostRefreshDeadlineMs(30000), 32000);
 		assert.strictEqual(hostRefreshDeadlineMs(120000), 122000);
 	});
 
 	test("the default refresh deadline follows discovery.timeout, never chat.timeout", async () => {
-		// The wiring pin behind the pure-function test above: refreshViaHost's
-		// default branch reads the DISCOVERY timeout. A swap to the chat timeout
-		// would pass every other test (they all supply explicit deadlines).
+		// refreshViaHost's default branch reads the DISCOVERY timeout. A swap to
+		// the chat timeout would pass every other test, which all supply explicit
+		// deadlines.
 		await withConfig({ "discovery.timeout": 45000, "chat.timeout": 1000 }, async () => {
 			assert.strictEqual(defaultHostRefreshDeadlineMs(), 47000);
 		});
@@ -218,9 +218,9 @@ suite("provider", () => {
 		useMsw();
 
 		test("a non-silent refresh rethrows the ORIGINAL classified error, never one rebuilt from the display string", async () => {
-			// 400 responses are not retried, so the failure is immediate; the body
-			// carries a marker that must survive to the USER-FACING message while
-			// the classification keeps it out of anything that logs the throw.
+			// 400 responses are not retried, so the failure is immediate; the body's
+			// marker must survive to the USER-FACING message while the
+			// classification keeps it out of anything that logs the throw.
 			mswServer.use(
 				http.get(MODEL_INFO_URL, () => HttpResponse.json({ error: "internal-billing-host-MARKER" }, { status: 400 })),
 				http.get(MODELS_URL, () => HttpResponse.json({ error: "internal-billing-host-MARKER" }, { status: 400 }))
@@ -239,9 +239,9 @@ suite("provider", () => {
 		});
 
 		test("a non-Error failure reason is rebuilt with the log-safe rendering as its English mirror", async () => {
-			// Rejected from inside the group serve's try without ever being an
-			// Error: the rebuild must keep the display rendering for the UI and
-			// the log-safe rendering for every public log surface.
+			// Rejected from inside the group serve's try without ever being an Error:
+			// the rebuild must keep the display rendering for the UI and the log-safe
+			// rendering for every public log surface.
 			const hostile = {
 				toString: () => "display text with RESPONSE-BODY-MARKER",
 				logClassification: "InjectedFailure(non-Error)",
@@ -596,9 +596,8 @@ suite("provider", () => {
 			assert.ok(!("outputCost" in free), "a cost that overflows the per-million conversion is omitted, not Infinity");
 			assert.ok(!("priceCategory" in free), "one-sided pricing is an incomplete signal and derives no category");
 
-			// LiteLLM stamps 0/0 onto undeclared pricing (observed on v1.93), so
-			// the zero PAIR reads as undeclared and drops the whole block - even
-			// stray cache or long-context costs riding beside the stamp.
+			// LiteLLM stamps 0/0 onto undeclared pricing (observed on v1.93), so the
+			// zero PAIR reads as undeclared and drops the whole block.
 			const stamped = expectDefined(byId.get("stamped"));
 			for (const key of [
 				"inputCost",
@@ -869,9 +868,8 @@ suite("provider", () => {
 		});
 
 		test("open-field advisory notes bypass the issue-report buffer; record problems still consume it", async () => {
-			// The issue reporter's ring buffer holds 50 lines; open capability
-			// fields are a feature that logs on every serve pass, so their note
-			// must never evict real errors from an issue report.
+			// The issue reporter's ring buffer holds 50 lines; open capability fields
+			// log on every serve pass, so their note must never evict real errors.
 			const channelLines: string[] = [];
 			const bufferLines: string[] = [];
 			const logger = new Logger(
@@ -906,9 +904,8 @@ suite("provider", () => {
 		});
 
 		test("priceCategory bands follow the blended base cost, unmoved by long-context tiers", () => {
-			// Symmetric input/output costs make the blend equal the per-million
-			// cost itself ((3x + x) / 4 = x), so each case pins one band boundary
-			// exactly after the per-million conversion.
+			// Symmetric input/output costs make the blend equal the per-million cost
+			// itself ((3x + x) / 4 = x), so each case pins one band boundary exactly.
 			const boundaries: ReadonlyArray<[number, string]> = [
 				[0.99, "low"],
 				[1, "medium"],

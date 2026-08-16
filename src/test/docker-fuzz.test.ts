@@ -26,36 +26,28 @@ import {
 import { expectDefined } from "./pureHelpers";
 
 /**
- * Generative stream fuzzer for the docker LiteLLM stack. The event generators
- * and the assembly oracle live in fuzzStream.ts, shared with the in-process
- * property suites.
+ * Generative stream fuzzer for the docker LiteLLM stack. The event generators and the assembly oracle live in
+ * fuzzStream.ts, shared with the in-process property suites.
  *
- * Each iteration builds a random stream as a list of serializable events
- * (text, delta/inline/duplicated/interleaved tool calls, refusals, citations,
- * reasoning, junk), registers it on the fake backend, selects it by sending
- * %play:<name> as the user message, streams it through the VS Code LM API,
- * and asserts the exact expected outcome: text arrives verbatim (including
- * the space hint and citation trailer the extension adds), tool calls
- * reassemble exactly, and IDs stay unique.
+ * Each iteration builds a random stream as serializable events (text, delta/inline/duplicated/interleaved
+ * tool calls, refusals, citations, reasoning, junk), registers it on the fake backend, selects it by sending
+ * %play:<name> as the user message, streams it through the VS Code LM API, and asserts the exact expected
+ * outcome: text arrives verbatim (including the space hint and citation trailer the extension adds), tool
+ * calls reassemble exactly, and IDs stay unique.
  *
- * Two targets share the generator: through the LiteLLM proxy, and directly
- * against the fake backend. Direct mode additionally generates what the
- * proxy would reject (malformed chunks, multi-part refusals), fuzzing the
- * extension's leniency contract over a real socket. A third target runs the
- * direct shapes through a declared model on the fake backend's
- * no-discovery mirror, so every fuzzed stream also exercises the
- * declared-model registration and routing path. A random-cancellation
- * pass checks streams die promptly and silently when cancelled.
+ * Three targets share the generator: through the LiteLLM proxy; directly against the fake backend, which
+ * additionally generates what the proxy would reject (malformed chunks, multi-part refusals) to fuzz the
+ * extension's leniency contract over a real socket; and the direct shapes through a declared model on the
+ * fake backend's no-discovery mirror, exercising declared-model registration and routing. A
+ * random-cancellation pass checks streams die promptly and silently when cancelled.
  *
- * Failures shrink to a minimal failing event list before reporting, and the
- * corpus in fuzzCorpus.ts replays past failures first. Reproduce any run
- * with `FUZZ_SEED=<seed> bun run test:docker` (the seed is always logged).
+ * Failures shrink to a minimal failing event list before reporting, and the corpus in fuzzCorpus.ts replays
+ * past failures first. Reproduce any run with `FUZZ_SEED=<seed> bun run test:docker` (the seed is logged).
  */
 
 const BASE_URL = (process.env.LITELLM_DOCKER_BASE_URL || "").replace(/\/+$/, "");
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
-// Trailing slashes stripped: the prefix concatenation below must not mint a
-// double slash.
+// Trailing slashes stripped: the prefix concatenation below must not mint a double slash.
 const FAKE_URL = (process.env.LITELLM_DOCKER_FAKE_URL || "").replace(/\/+$/, "");
 // Explicit seeds reproduce exactly, including 0; anything unset or invalid
 // draws a fresh pid- and time-mixed seed (see src/test/fuzzSeed.ts).
@@ -96,9 +88,8 @@ async function runStream(model: vscode.LanguageModelChat, name: string, events: 
 	const ids = calls.map((c) => c.callId);
 	assert.strictEqual(new Set(ids).size, ids.length, `duplicate tool call IDs: ${ids.join(", ")}`);
 
-	// Only when the stream declares an expectation (corpus entries do): a
-	// reasoning stream that resolves with NO thinking parts must fail here,
-	// or deleting reasoning extraction would leave every entry green.
+	// Only when the stream declares an expectation (corpus entries do): a reasoning stream that resolves with NO
+	// thinking parts must fail here, or deleting reasoning extraction would leave every entry green.
 	if (assembled.expectedThinking.length > 0) {
 		const thinking = extractThinkingParts(parts)
 			.map((part) => part.value ?? "")
@@ -108,11 +99,9 @@ async function runStream(model: vscode.LanguageModelChat, name: string, events: 
 }
 
 /**
- * Shrink a failing event list to a minimal one that still fails: try removing
- * spans, halving the span size down to single events, bounded by
- * MAX_SHRINK_RUNS extra runs. A transient infrastructure failure during a
- * candidate run counts as a reproduction, so the bound also limits how far a
- * flake can distort the minimized output.
+ * Shrink a failing event list to a minimal one that still fails: remove spans, halving the span size down to
+ * single events, bounded by MAX_SHRINK_RUNS extra runs. A transient infrastructure failure during a candidate
+ * run counts as a reproduction, so the bound also limits how far a flake can distort the minimized output.
  */
 async function shrinkFailure(
 	model: vscode.LanguageModelChat,
@@ -179,7 +168,6 @@ interface FuzzTarget {
 	readonly directMode: boolean;
 	/** The declared servers-setting entry (unique label) whose group carries the fuzzed streams. */
 	readonly entry: ServerSettingEntry;
-	/** The model id every fuzzed stream is sent through. */
 	readonly modelId: string;
 	/** XORed into SEED so each target draws its own event sequences from the shared seed. */
 	readonly seedSalt: number;
@@ -193,9 +181,8 @@ function fuzzSuite(target: FuzzTarget): void {
 			this.timeout(90000);
 			await ensureActivated();
 			await catalogOff();
-			// The stack's ids are fixed, so a pre-existing copy of the target
-			// model would be indistinguishable from this entry's; fail fast
-			// instead of fuzzing through a leftover group.
+			// The stack's ids are fixed, so a pre-existing copy of the target model
+			// would be indistinguishable from this entry's; fail fast.
 			await assertIdsUnserved([target.modelId]);
 			await writeServerEntry(target.entry, 60000);
 			// Single-deployment targets on purpose: responses cannot vary by routing.
@@ -277,8 +264,8 @@ function fuzzSuite(target: FuzzTarget): void {
 			}
 			const elapsed = Date.now() - startedWaiting;
 			assert.ok(parts.length < texts.length / 2, `stream must stop early: got ${parts.length} of ${texts.length}`);
-			// A couple of parts may already be in flight when the cancel lands;
-			// a stream that keeps delivering beyond that ignored it.
+			// A couple of parts may already be in flight when the cancel lands; a stream that keeps delivering
+			// beyond that ignored it.
 			assert.ok(
 				parts.length - partsWhenCancelled <= 3,
 				`stream kept emitting after cancel: ${parts.length - partsWhenCancelled} extra parts`
@@ -297,8 +284,7 @@ if (!BASE_URL) {
 	/** The declared fuzz target's model: created only by its entry's declared list, never listed by discovery. */
 	const DECLARED_FUZZ_MODEL = "fake-declared-fuzz";
 
-	// Through the proxy: LiteLLM re-serializes everything, so only shapes it
-	// forwards faithfully are generated.
+	// Through the proxy: LiteLLM re-serializes everything, so only shapes it forwards faithfully are generated.
 	fuzzSuite({
 		title: "Docker LiteLLM stream fuzzer (proxy)",
 		directMode: false,
@@ -306,9 +292,8 @@ if (!BASE_URL) {
 		modelId: "gpt-5.2-mini",
 		seedSalt: 0,
 	});
-	// Directly against the fake backend (the extension treats it as a LiteLLM
-	// server via the /v1/models discovery fallback): adds the shapes the proxy
-	// rejects, fuzzing the extension's leniency contract over a real socket.
+	// Directly against the fake backend (the extension treats it as a LiteLLM server via the /v1/models
+	// discovery fallback): adds the shapes the proxy rejects.
 	fuzzSuite({
 		title: "Docker LiteLLM stream fuzzer (direct)",
 		directMode: true,
@@ -316,12 +301,10 @@ if (!BASE_URL) {
 		modelId: "fake-mini",
 		seedSalt: 0x5f375a86,
 	});
-	// The direct shapes again, but through a declared model on the fake
-	// backend's no-discovery mirror: discovery cannot list anything there, so
-	// every stream rides the declared-model registration and routes.
-	// Reasoning on to match the direct target's fake-mini (the direct-mode
-	// generator emits reasoning deltas); everything else rides the built-in
-	// floor (tools on), which is exactly what a bare declared ID gives a model.
+	// The direct shapes through a declared model on the fake backend's no-discovery mirror: discovery cannot
+	// list anything there, so every stream rides the declared-model registration and routes. Reasoning on to
+	// match the direct target's fake-mini (the direct-mode generator emits reasoning deltas); everything else
+	// rides the built-in floor (tools on), which is what a bare declared ID gives a model.
 	fuzzSuite({
 		title: "Docker LiteLLM stream fuzzer (declared)",
 		directMode: true,

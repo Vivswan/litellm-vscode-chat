@@ -8,10 +8,9 @@ import type { PreAttachModelInfo } from "./groupModels";
 import type { ServerModelsSnapshot } from "./statusWindow";
 
 /**
- * The label+URL identity entry configuration (modelCapabilities,
- * expectedFailures) resolves against for one served server; undefined when no
- * entry can match (an unlabeled group, or a server no longer in the status
- * window).
+ * The label+URL identity entry configuration resolves against for one served
+ * server; undefined when no entry can match (an unlabeled group, or a server
+ * no longer in the status window).
  */
 export interface EntryIdentity {
 	readonly label: string;
@@ -27,17 +26,17 @@ export interface ServedModelDecoratorOptions {
 	getCatalogLookup: () => CapabilityCatalogLookup;
 	/** The shared flat resolution table; the same cache requests and the dashboard read. */
 	resolution: ModelResolutionTable;
-	// Facade-bound log callbacks: this module never touches a logger directly
-	// (the provider facade is the single logging boundary).
+	// Facade-bound: this module never touches a logger directly, since the
+	// provider facade is the single logging boundary.
 	log: (message: string, data?: unknown) => void;
 	logAdvisory: (message: string, data?: unknown) => void;
 }
 
 /**
  * Model-info preparation for one serve pass: capability overrides and
- * declared-model synthesis applied to a discovery result and the CURRENT
- * configuration. Applied outside the discovery cache on purpose - a
- * configuration edit reaches the next serve without a cache clear, and a
+ * declared-model synthesis over a discovery result and the CURRENT
+ * configuration. Applied outside the discovery cache on purpose, so a
+ * configuration edit reaches the next serve without a cache clear and a
  * removed declared ID disappears immediately.
  */
 export class ServedModelDecorator {
@@ -48,11 +47,9 @@ export class ServedModelDecorator {
 	}
 
 	/**
-	 * The capability configuration one serve pass resolves against, assembled
-	 * from the injected seams. `entryLabel` names the declared entry candidate
-	 * (a group's configured label); the injected resolver answers only when
-	 * label and base URL identify the same declared entry, mirroring the
-	 * request path's entry-parameters match.
+	 * The capability configuration one serve pass resolves against. The injected
+	 * resolver answers only when `entryLabel` and the base URL identify the same
+	 * declared entry, mirroring the request path's entry-parameters match.
 	 */
 	capabilityOptions(server: ServerConfig, entryLabel: string | undefined): CapabilityOverrideOptions {
 		return {
@@ -64,18 +61,17 @@ export class ServedModelDecorator {
 			catalog: this._options.getCatalogLookup(),
 			resolution: this._options.resolution,
 			log: (message, data) => this._options.log(message, data),
-			// Advisory notes bypass the issue-report buffer; see Logger.advisory.
+			// Advisory notes bypass the issue-report buffer.
 			logAdvisory: (message, data) => this._options.logAdvisory(message, data),
 		};
 	}
 
 	/**
-	 * Everything a serve pass hands out, derived from one discovery result and
-	 * the CURRENT configuration: the discovered infos with capability
-	 * overrides applied, and the declared models discovery did not list
-	 * (inert against the discovered raw-ID set, suppressed on collision with a
-	 * registered ID). The status window records the overridden result;
-	 * declared models alone stay out of it.
+	 * Everything a serve pass hands out from one discovery result and the
+	 * CURRENT configuration: the discovered infos with capability overrides
+	 * applied, plus the declared models discovery did not list (inert against
+	 * the discovered raw-ID set, suppressed on collision with a registered ID).
+	 * The status window records the overridden result; declared models stay out.
 	 */
 	decorate(
 		discovered: { readonly infos: readonly PreAttachModelInfo[]; readonly discoveredRawIds: readonly string[] },
@@ -96,15 +92,11 @@ export class ServedModelDecorator {
 
 	/**
 	 * The declared models the current configuration synthesizes for one
-	 * status-window snapshot, for the dashboard's state builder:
-	 * snapshots stay discovered-only (declared models are config-rebuilt every
-	 * serve and never stored), so the dashboard merges this projection into
-	 * each server's model list. The composition mirrors the serve path exactly
-	 * - `identity` is the group's own configured label resolving the entry
-	 * layer (status labels can be display fallbacks) - so the dashboard shows
-	 * the same IDs, names, and entry-layer resolution the picker serves.
-	 * Display-only, so record problems and suppressions do not re-log on every
-	 * state push; the serve path already logged them.
+	 * status-window snapshot: snapshots stay discovered-only, so the dashboard
+	 * merges this projection into each server's model list. `identity` is the
+	 * group's own configured label resolving the entry layer, since status
+	 * labels can be display fallbacks, so the dashboard shows what the picker
+	 * serves. Display-only, so record problems do not re-log on every push.
 	 */
 	declaredModelsForSnapshot(
 		snapshot: ServerModelsSnapshot,

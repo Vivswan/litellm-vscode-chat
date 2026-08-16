@@ -1,16 +1,10 @@
 /**
- * The Report Issue command's troubleshoot-first gate: setup-shaped
- * diagnostics get one non-modal offer of the faster fix (dashboard, docs,
- * connection test) before GitHub opens. Report Anyway is always one click,
- * and the gate itself remembers nothing - rerunning the command re-offers
- * (the repeat-report ledger runReportIssue writes when a report opens is a
- * separate, ungated-path concern). Every entry
- * point (palette, dashboard, hub, and the toasts' Report Issue action)
- * funnels through the one registered command, so they all pass this gate;
- * a classified failure toast that already offered Troubleshooting Docs gets
- * the offer again here on purpose - the gate is the last defense before a
- * public issue, and the entry points are too many to track which already
- * showed it.
+ * The Report Issue command's troubleshoot-first gate: setup-shaped diagnostics
+ * get one non-modal offer of the faster fix before GitHub opens. Report Anyway
+ * is always one click, and the gate itself remembers nothing - rerunning the
+ * command re-offers. Every entry point funnels through the one registered
+ * command, so a toast that already offered Troubleshooting Docs gets the offer
+ * again on purpose: this is the last defense before a public issue.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -28,31 +22,22 @@ import {
 } from "./notifier";
 import type { ConnectionStatus } from "./status";
 
-/**
- * The hint ids are the setup verdicts; not-configured and hidden-groups (the
- * zero-model verdict explained by explicit removals) are the two
- * non-transport cases.
- */
+/** The hint ids are the setup verdicts; not-configured and hidden-groups are the two non-transport cases. */
 export type SetupProblem = SetupHintKind | "not-configured" | "hidden-groups";
 
 /**
- * The gate's verdict, read from the CURRENT connection status only - never
- * from the issue reporter's historical latestError, which is never cleared:
- * a healthy user must not be gated by an old failure. An error status
- * without a setup hint is treated as a real bug and goes straight to GitHub,
- * exactly like every healthy state - except the synthetic zero-model verdict
- * WHOLLY explained by hidden groups (every carried status is a hidden group
- * or an expected failure): that state is user-chosen configuration (the
- * groups answer empty because the user removed them), so the gate offers the
- * restore instead of a blank issue. A zero-model verdict a hidden group only
- * partly explains never gates: the server that answered with an empty
- * listing may be a real bug. One staleness window remains by design: at cold
- * start the status is last session's restored verdict until the first
- * refresh reports (and a status persisted by a pre-flag version restores
- * without hiddenByRemoval, so the hidden state can go ungated once), so a
- * since-fixed setup problem can gate once more - it self-corrects on that
- * refresh, costs one click, and the diagnostics snapshot reports the same
- * state, so the gate and the report never disagree.
+ * The gate's verdict, read from the CURRENT connection status only - never from
+ * the issue reporter's historical latestError, which is never cleared, so a
+ * healthy user must not be gated by an old failure. An error status without a
+ * setup hint is treated as a real bug and goes straight to GitHub, except the
+ * zero-model verdict WHOLLY explained by hidden groups: that state is
+ * user-chosen configuration, so the gate offers the restore instead. A
+ * zero-model verdict a hidden group only partly explains never gates - the
+ * server that answered empty may be a real bug.
+ *
+ * One staleness window is accepted: at cold start the status is last session's
+ * restored verdict until the first refresh, so a since-fixed setup problem can
+ * gate once more. It self-corrects on that refresh and costs one click.
  */
 export function detectSetupProblem(status: ConnectionStatus): SetupProblem | undefined {
 	switch (status.state) {
@@ -101,14 +86,12 @@ function gateMessage(problem: SetupProblem): string {
 }
 
 /**
- * Show the gate and act on the answer. Non-modal: Esc or dismissal does
- * nothing, and only Report Anyway opens an issue - with the snapshot the
- * command already built, so what gets reported is what the gate judged.
- * Callers must not await this from a serialized message chain; runReportIssue
- * documents why it voids the returned promise. Because of that void, a
- * failing report must surface here rather than die as an unhandled
- * rejection - the ungated path gets that for free from the command handler.
- * The other actions keep the toast idiom's semantics.
+ * Show the gate and act on the answer. Non-modal: only Report Anyway opens an
+ * issue, with the snapshot the command already built, so what gets reported is
+ * what the gate judged. Callers must not await this from a serialized message
+ * chain (runReportIssue documents why it voids the returned promise); because
+ * of that void, a failing report must surface here rather than die as an
+ * unhandled rejection.
  */
 export async function showSetupProblemGate(problem: SetupProblem, reportAnyway: () => Promise<void>): Promise<void> {
 	const reportAnywayAction: MessageAction = {
@@ -126,9 +109,8 @@ export async function showSetupProblemGate(problem: SetupProblem, reportAnyway: 
 		problem === "not-configured"
 			? [reconfigureAction(configureNowLabel()), reportAnywayAction]
 			: problem === "hidden-groups"
-				? // The dashboard's Servers view carries the hidden-groups
-					// line with the Unhide action; there is no docs section or
-					// connection test that fixes a deliberate removal.
+				? // No docs section or connection test fixes a deliberate removal;
+					// the dashboard's Servers view carries the Unhide action.
 					[reconfigureAction(l10n.t("Open Dashboard")), reportAnywayAction]
 				: [troubleshootingDocsAction(SETUP_HINT_DOCS_URLS[problem]), testConnectionAction(), reportAnywayAction];
 	await showActionableMessage("warning", gateMessage(problem), actions);

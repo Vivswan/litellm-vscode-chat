@@ -12,22 +12,19 @@ export interface MigrationContext {
 	registry: ServerRegistry;
 	logger: Logger;
 	/**
-	 * The session's fingerprint-salt view (see extension/fingerprintSalt.ts).
-	 * A migration that persists fingerprints - seeding provider groups - must
-	 * call confirmDurable() at decision time and defer unless it reports
-	 * "durable": records written under a salt later sessions will not see
-	 * would match nothing, which is exactly the permanent wedge those
-	 * migrations exist to prevent.
+	 * The session's fingerprint-salt view. A migration that persists
+	 * fingerprints must call confirmDurable() at decision time and defer unless
+	 * it reports "durable": records written under a salt later sessions will
+	 * not see would match nothing.
 	 */
 	fingerprintSalt: FingerprintSaltSession;
 }
 
 /**
  * "migrated": legacy state was found and moved forward (the runner logs the
- * migration's description). "nothing-to-do": the legacy state is absent, the
- * common case on every activation, so it stays silent. "in-progress": some
- * state moved but more remains for a later activation; the migration logs its
- * own progress lines.
+ * description). "nothing-to-do": the legacy state is absent, the common case,
+ * so it stays silent. "in-progress": some state moved but more remains for a
+ * later activation; the migration logs its own progress lines.
  */
 export type MigrationOutcome = "migrated" | "nothing-to-do" | "in-progress";
 
@@ -35,8 +32,7 @@ export type MigrationOutcome = "migrated" | "nothing-to-do" | "in-progress";
  * One legacy-state migration. There is no update hook and no reliable
  * last-run-version, so selection is state detection: every migration's run
  * executes on every activation and must detect its own legacy state, which
- * also makes reruns across many activations (draining deferred host
- * submissions, retrying secret deletions) the normal mode of operation.
+ * also makes reruns across many activations the normal mode of operation.
  */
 export interface ExtensionMigration {
 	/** Stable slug for the legacy state this migrates away from; logs and tests key on it. */
@@ -55,12 +51,10 @@ export interface ExtensionMigration {
 }
 
 /**
- * Chronological by sourceRelease, ties keeping registration order (a test
- * pins this); the per-file headers carry each migration's full story.
- * Registration order is execution order within each phase. The v0.3.1
+ * Chronological by sourceRelease, ties keeping registration order (a test pins
+ * this). Registration order is execution order within each phase. The v0.3.1
  * label-scoped modelParameters rewrite is folded into the settings-redesign
- * pipeline (see labelScopedModelParameters.ts), whose label-map union
- * already covers registry servers the group migration has not seeded.
+ * pipeline (see labelScopedModelParameters.ts).
  */
 export const MIGRATIONS: readonly ExtensionMigration[] = [
 	legacySingleServerMigration,

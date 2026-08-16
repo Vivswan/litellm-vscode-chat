@@ -1,15 +1,12 @@
 #!/usr/bin/env bun
 // scripts/docker-test.ts
 // Runs the docker-stack test suites against the dockerized LiteLLM proxy:
-// brings the compose stack up (postgres-backed, with the usage/budget
-// fixture key seeded), runs the `docker` label, then optionally the
-// `docker-usage`, `docker-transport`, `docker-serversync`,
-// `docker-resolution`, `docker-fuzz`, `docker-conversation`, and
-// `docker-group-path` labels, then the host-fidelity live suite pointed at
-// the stack and the capture-mode host-fidelity-groups suite, then the
-// `docker-monkey` label last (it deliberately dirties host state), and tears
-// everything down. --only replaces that selection with an explicit label
-// list (the CI shards use it); the order stays canonical either way.
+// brings the compose stack up (postgres-backed, with the usage/budget fixture
+// key seeded), runs the selected labels in the canonical order of
+// src/test/dockerTestLabels.ts (docker-monkey last - it deliberately dirties
+// host state), and tears everything down. --only replaces the default
+// selection with an explicit label list (the CI shards use it); the order
+// stays canonical either way.
 //
 // Usage:
 //   bun run test:docker                     every label in canonical order (see src/test/dockerTestLabels.ts)
@@ -49,18 +46,15 @@ const usageError = (message: string): never => {
 };
 
 // --skip-* carves legs out of the default full run; --only replaces the
-// selection outright (the CI shards use it), so combining the two has no
-// coherent meaning and errors. The flag-per-label mapping lives in
-// src/test/dockerTestLabels.ts (DOCKER_SKIP_FLAGS) so the nightly-fuzz
-// drift guard pins the workflow against the same source; the base `docker`
-// label has no skip flag.
+// selection outright, so combining the two has no coherent meaning and errors.
+// The flag-per-label mapping lives in src/test/dockerTestLabels.ts so the
+// nightly-fuzz drift guard reads the same source; `docker` has no skip flag.
 const KNOWN_SKIP_FLAGS: ReadonlySet<string> = new Set(Object.values(DOCKER_SKIP_FLAGS));
 
 /**
- * Reject any argv token this script does not understand. A mistyped skip
- * flag used to be ignored (the leg it meant to skip still ran), and extra
- * positionals after `--only a` were dropped without a word (`--only a b`
- * silently ran only `a`); both now exit 2 with the known vocabulary.
+ * Reject any argv token this script does not understand: a mistyped skip flag
+ * would otherwise run the leg it meant to skip, and extra positionals after
+ * `--only a` would be dropped without a word. Exit 2 names the vocabulary.
  */
 function validateArgs(): void {
 	// The value a bare `--only` consumes is validated by parseOnlyLabels, not
@@ -147,9 +141,9 @@ async function main(): Promise<void> {
 		run(`${compose} up -d --wait --wait-timeout 180 --force-recreate`);
 
 		// The usage/budget fixture key must exist before any suite runs: the
-		// docker-usage smoke suite reads it directly, and later usage suites
-		// spend through it. --force-recreate wiped the DB (tmpfs), so this
-		// always starts from spend 0.
+		// docker-usage smoke suite reads it directly, later usage suites spend
+		// through it, and --force-recreate wiped the DB (tmpfs), so this always
+		// starts from spend 0.
 		await seedStackUsageBudgetKey();
 
 		const suiteEnv = {
@@ -162,11 +156,9 @@ async function main(): Promise<void> {
 
 		// One entry per label, keyed on the full set (Record, not Partial) so a
 		// label added to DOCKER_TEST_LABELS cannot compile without a leg to run.
-		// Each label gets its own fresh extension host; that isolation is
-		// load-bearing for docker-serversync (its provider groups are add-only
-		// for the host lifetime) and docker-monkey (walks deliberately dirty
-		// host state), which is also why monkey sits last in the canonical
-		// order.
+		// Each label gets its own fresh extension host, which is load-bearing for
+		// docker-serversync (provider groups are add-only for the host lifetime)
+		// and docker-monkey (walks deliberately dirty host state).
 		const legs: Record<DockerTestLabel, { banner: string; env: Record<string, string> }> = {
 			docker: { banner: "Running the docker suite...", env: suiteEnv },
 			"docker-usage": { banner: "Running the usage/budget smoke suite...", env: suiteEnv },

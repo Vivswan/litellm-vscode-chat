@@ -4,9 +4,8 @@
 		"types": [
 			"bun"
 		],
-		// The webview project pins ES2022, but the ported pure suites pull
-		// host-side source (src/shared, src/provider) checked at ES2024 by the
-		// root project; this project spans both worlds, so it takes the union.
+		// The webview project pins ES2022 and the root project checks host-side
+		// source at ES2024; this project spans both worlds, so it takes the union.
 		"lib": [
 			"ES2024",
 			"DOM",
@@ -19,9 +18,9 @@
 		"./**/*",
 		"../../webview/**/*",
 		"../../dashboard/**/*",
-		// The host-side source this project pulls in (src/shared, src/provider)
-		// references the "vscode" module's augmented types; the ambient
-		// declarations must ride along or those imports fail to resolve.
+		// The host-side source this project pulls in references the "vscode"
+		// module's augmented types; the ambient declarations must ride along or
+		// those imports fail to resolve.
 		"../../vscodeApi.d.ts"
 	]
 }

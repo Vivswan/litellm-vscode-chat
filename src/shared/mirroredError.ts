@@ -1,12 +1,11 @@
 import * as l10n from "@vscode/l10n";
 
 /**
- * Compose a chat-surface two-part error message: headline, a paragraph break,
- * then a localized "Details:" lead-in before the technical detail. GitHub
- * Copilot Chat's error block flattens newlines, so the lead-in is the visible
- * boundary there; renderers that honor newlines get the paragraph break too.
- * Discovery-surface messages keep the plain "\n" join (the dashboard and
- * tooltips split on it).
+ * Compose a chat-surface two-part error message: headline, paragraph break,
+ * localized "Details:" lead-in, detail. GitHub Copilot Chat's error block
+ * flattens newlines, so the lead-in is the visible boundary there.
+ * Discovery-surface messages keep the plain "\n" join, which the dashboard and
+ * tooltips split on.
  */
 export function chatErrorMessage(headline: string, detail: string): string {
 	return `${headline}\n\n${l10n.t("Details: {0}", detail)}`;
@@ -21,19 +20,15 @@ export function englishChatErrorMessage(headline: string, detail: string): strin
  * The English rendering a boundary error must carry, at least one of:
  *
  * - `englishMessage`: the full English mirror of a localized display message,
- *   response-derived detail included. The output channel renders it instead
- *   of the message (the channel stays English by policy), and the public
- *   surfaces fall back to it when no classification applies.
- * - `logClassification`: the terse classification-only rendering that PUBLIC
- *   surfaces (the issue-report buffer and the latest-error prefill; see
- *   shared/logger.ts) record instead of the message. A site whose message
- *   embeds response-derived text (an HTTP error body, an IdP's
- *   error_description) must pass one; each site's string should be distinct
- *   enough that maintainers can tell the failure modes apart in an issue
- *   without the body.
+ *   response-derived detail included. The output channel renders it instead of
+ *   the message, and public surfaces fall back to it without a classification.
+ * - `logClassification`: the terse rendering PUBLIC surfaces (the issue-report
+ *   buffer and the latest-error prefill; see shared/logger.ts) record instead
+ *   of the message. Required of any site whose message embeds response-derived
+ *   text, and distinct enough per site to tell failure modes apart without it.
  *
- * The union makes omitting both a compile error, which is the whole point:
- * a boundary error cannot be constructed without an English channel.
+ * The union makes omitting both a compile error: a boundary error cannot be
+ * constructed without an English channel.
  */
 export type EnglishRendering =
 	| { readonly englishMessage: string; readonly logClassification?: string }
@@ -42,13 +37,10 @@ export type EnglishRendering =
 /**
  * Base class for every error whose display message may be localized and that
  * can cross into the status or provider-boundary log path. The constructor
- * requires an English rendering (EnglishRendering), so the AGENTS.md
- * localization invariant - no translated text in the output channel or public
- * issue reports - holds by construction, not by convention. shared/logger.ts
- * reads both fields duck-typed (a hostile proxy must not break logging), but
- * this class and its subclasses are the canonical producers. Lives in shared
- * so shared modules (validation.ts) can construct mirrored errors without
- * importing the provider layer.
+ * requires an EnglishRendering, so the localization invariant - no translated
+ * text in the output channel or public issue reports - holds by construction.
+ * shared/logger.ts still reads both fields duck-typed, since a logging
+ * boundary can be handed anything.
  */
 export class MirroredError extends Error {
 	readonly englishMessage?: string;

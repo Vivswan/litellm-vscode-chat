@@ -1,8 +1,6 @@
 /**
- * Shared fixtures for the executeDashboardIntent suites (intents.test.ts) and
- * the state/testServerDraft suites that still exercise intents from
- * state.test.ts: a recording IntentEnvironment fake plus the keep-everything
- * secrets directive.
+ * Shared fixtures for the executeDashboardIntent suites: a recording
+ * IntentEnvironment fake plus the keep-everything secrets directive.
  */
 
 import type { SaveServerPayload } from "../../../dashboard/endpoints";
@@ -17,9 +15,8 @@ export const KEEP_ALL = {
 } as const;
 
 /**
- * A full SaveServerPayload: the always-sent record and list fields empty (the
- * form's "none"), overridable per test. The schema requires those fields, so
- * every payload a test mints must carry them like the real form does.
+ * A full SaveServerPayload with the always-sent record and list fields empty.
+ * The schema requires those fields, so every minted payload must carry them.
  */
 export function serverPayload(
 	fields: Partial<SaveServerPayload> & Pick<SaveServerPayload, "label" | "baseUrl">

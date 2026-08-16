@@ -24,19 +24,17 @@ export type RequestErrorKind = TransportErrorKind;
  * user-facing string surfaced in the chat UI and the status callback.
  *
  * Extends MirroredError, so every construction site must pass at least one of
- * the two English renderings (see EnglishRendering in shared/mirroredError.ts)
- * - the choice stays PER CONSTRUCTION SITE, never derived from `kind`:
+ * the two English renderings, and the choice stays PER CONSTRUCTION SITE,
+ * never derived from `kind`:
  *
  * - `logClassification` when the message embeds response-derived text (an
  *   HTTP error body, an IdP's error_description).
- * - `englishMessage` when the message goes through l10n.t; a template-only
- *   site keeps its text useful in issues in every locale.
+ * - `englishMessage` when the message goes through l10n.t.
  *
- * `setupHint` is a per-construction-site opt-in: the id of the setup
- * advice UI surfaces may append (see shared/errorClassification.ts). Only a
- * site that knows the advice is right sets one - sites where the same
- * kind/status can mean something else (OAuth endpoints in auth.ts,
- * upstream-auth 401s, chat 404s) must NOT.
+ * `setupHint` is a per-construction-site opt-in: the id of the setup advice UI
+ * surfaces may append. Only a site that knows the advice is right sets one -
+ * sites where the same kind/status can mean something else (OAuth endpoints in
+ * auth.ts, upstream-auth 401s, chat 404s) must NOT.
  */
 export class RequestError extends MirroredError {
 	readonly kind: RequestErrorKind;
@@ -44,17 +42,15 @@ export class RequestError extends MirroredError {
 	readonly setupHint?: SetupHintKind;
 	/**
 	 * Discovery's endpoint-unsupported marker, assigned only at the discovery
-	 * construction site that proved it in one pass (the models listing failed
-	 * like an unserved endpoint while model-info answered or was declared
-	 * expected); see TransportErrorClassification.unsupportedEndpoint.
+	 * construction site that proved it in one pass; see
+	 * TransportErrorClassification.unsupportedEndpoint.
 	 */
 	readonly unsupportedEndpoint?: "modelListing";
 	/**
 	 * Set by auth.ts at the OAuth token-endpoint construction sites: the
 	 * failure happened during the token exchange, BEFORE the target endpoint
-	 * was called, so consumers judging the target endpoint from this error
-	 * (usage availability classification) must treat it as proving nothing
-	 * about that endpoint.
+	 * was called, so consumers judging the target endpoint from this error must
+	 * treat it as proving nothing about that endpoint.
 	 */
 	readonly oauthTokenEndpoint?: true;
 
@@ -93,13 +89,11 @@ export interface MapErrorContext {
 
 /**
  * Both renderings of a failed fetch for the error status, plus the
- * classification when the reason carries one (a classified RequestError):
- * `error` renders directly in the status bar and toasts, `logSafeError` is
- * what log lines carry (see ServerStatusError), and `classification` is the
- * enum-only shape UI surfaces branch on for setup hints (absent for
- * unclassified errors, and every consumer must render exactly today's UI
- * then). An empty message (new Error("")) is classified here, at the boundary
- * that constructs the status.
+ * classification when the reason carries one: `error` renders directly in the
+ * status bar and toasts, `logSafeError` is what log lines carry, and
+ * `classification` is the enum-only shape UI surfaces branch on for setup
+ * hints (absent for unclassified errors). An empty message is classified here,
+ * at the boundary that constructs the status.
  */
 export function statusErrorTexts(reason: unknown): {
 	error: string;
@@ -120,17 +114,15 @@ export function statusErrorTexts(reason: unknown): {
 
 /**
  * Wrap a classified transport failure in the stable LanguageModelError so
- * vscode.lm consumers can branch on the documented codes (NoPermissions for a
- * rejected key, Blocked for a rate limit, NotFound for a model the proxy no
- * longer serves) instead of matching message text. Only the taxonomy-backed
- * cases map; everything else - including CancellationError, which is never
- * wrapped or logged - passes through unchanged, and 401s keep their auth
- * classification rather than being re-wrapped as anything else. The message
- * is preserved because it renders in the chat UI. The original RequestError
- * rides as `cause` for in-process inspection only: the extension-host
- * boundary flattens a thrown error to name, message, stack, and code, so the
- * cause - and with it the RequestError's kind and status - does not survive
- * to vscode.lm consumers. The surviving contract is the code itself.
+ * vscode.lm consumers can branch on the documented codes instead of matching
+ * message text. Only the taxonomy-backed cases map; everything else -
+ * including CancellationError, which is never wrapped or logged - passes
+ * through unchanged, and 401s keep their auth classification rather than being
+ * re-wrapped as anything else. The message is preserved because it renders in
+ * the chat UI. The original RequestError rides as `cause` for in-process
+ * inspection only: the extension-host boundary flattens a thrown error to
+ * name, message, stack, and code, so the code itself is the surviving
+ * contract.
  */
 export function toLanguageModelError(err: unknown): unknown {
 	if (!(err instanceof RequestError)) {
@@ -153,9 +145,8 @@ export function toLanguageModelError(err: unknown): unknown {
 
 /**
  * Lazy so the l10n bundle lookup and the interpolated manage-command title
- * both resolve at 401 time, not module load. The paired *_ENGLISH constant
- * is the English mirror the output channel and the issue-report buffer
- * record instead of the (possibly localized) display message.
+ * both resolve at 401 time, not module load. The paired *_ENGLISH constant is
+ * the English mirror the log surfaces record.
  */
 function authMessage(): string {
 	return l10n.t(
@@ -183,14 +174,12 @@ const UPSTREAM_AUTH_MESSAGE_ENGLISH =
  * Whether a 401 body reports the proxy's own upstream call failing to
  * authenticate rather than this client's key being rejected. LiteLLM wraps
  * upstream failures in its exception names ("litellm.AuthenticationError:
- * AnthropicException - ...", sometimes module-qualified); its own gate
- * answers with an auth_error envelope ("Authentication Error, No api key
- * passed in."). The envelope type outranks the message text: an exception
- * name quoted inside an auth_error body is still the proxy rejecting this
- * client's key. Telling them apart matters: the proxy message tells the user
- * to fix the extension's key, which for an upstream failure is the wrong
- * credential entirely. Classification only; the body text itself is never
- * echoed anywhere.
+ * ..."); its own gate answers with an auth_error envelope. The envelope type
+ * outranks the message text: an exception name quoted inside an auth_error
+ * body is still the proxy rejecting this client's key. Telling them apart
+ * matters: the proxy message tells the user to fix the extension's key, the
+ * wrong credential entirely for an upstream failure. Classification only; the
+ * body text itself is never echoed anywhere.
  */
 function isUpstreamAuthFailure(error: unknown): boolean {
 	if (typeof error !== "object" || error === null) {
@@ -218,7 +207,7 @@ export function timeoutMessage(ctx: MapErrorContext): string {
 			);
 }
 
-/** English mirror of timeoutMessage: what the English-by-policy log surfaces record (issueReporter.test.ts pins the English form). */
+/** English mirror of timeoutMessage: what the English-by-policy log surfaces record. */
 function englishTimeoutMessage(ctx: MapErrorContext): string {
 	return ctx.surface === "chat"
 		? `LiteLLM request timed out after ${ctx.timeoutMs}ms. Increase the "${CONFIG_SECTION}.chat.timeout" setting if your model needs more time.`
@@ -266,10 +255,8 @@ function causeChain(err: unknown): ChainLink[] {
 
 /**
  * One compact diagnostic from the cause chain: the first message (trailing
- * period trimmed) plus the deepest distinct cause, e.g.
- * "fetch failed (cause: getaddrinfo EAI_AGAIN litellm.internal)". The detail
- * line both network branches put under their headline; compacted so a
- * multi-line cause cannot break the two-line message shape.
+ * period trimmed) plus the deepest distinct cause. Compacted so a multi-line
+ * cause cannot break the two-line message shape.
  */
 function chainDetail(chain: ChainLink[], fallbackMessage: string): string {
 	const fallback = typeof fallbackMessage === "string" ? fallbackMessage : "";
@@ -333,11 +320,11 @@ function recoveredSdkText(status: number, err: APIError, cap: number): string {
 }
 
 /**
- * The user-facing classes the generic HTTP branch (and the stream error
- * frame) sorts a status plus envelope into. A CLOSED set decided by this
- * classifier: budget_exceeded and context_window_exceeded ride the
- * logClassification (the isUpstreamAuthFailure precedent - classify FROM the
- * body, never quote it), so response text must never become a member.
+ * The user-facing classes the generic HTTP branch (and the stream error frame)
+ * sorts a status plus envelope into. A CLOSED set decided by this classifier:
+ * budget_exceeded and context_window_exceeded ride the logClassification
+ * (classify FROM the body, never quote it), so response text must never become
+ * a member.
  */
 type HttpErrorClass =
 	| "budget_exceeded"
@@ -510,12 +497,10 @@ function discoveryHttpHeadline(cls: HttpErrorClass): LocalizedText {
 }
 
 /**
- * Compact technical line for a chat-surface HTTP error, e.g.
- * "LiteLLM 429 budget_exceeded: Budget has been exceeded! ...". Never a
- * re-serialized JSON envelope and never the literal "undefined"; the type
- * outranks the code, and a code that is just the stringified status is
- * dropped (never "LiteLLM 429 429"). Response-derived, so it rides only in
- * message/englishMessage, never the logClassification.
+ * Compact technical line for a chat-surface HTTP error. Never a re-serialized
+ * JSON envelope and never the literal "undefined"; the type outranks the code,
+ * and a code that is just the stringified status is dropped. Response-derived,
+ * so it rides only in message/englishMessage, never the logClassification.
  */
 function chatHttpDetail(status: number, err: APIError, envelope: ErrorEnvelope | undefined): string {
 	const kind =
@@ -550,12 +535,12 @@ function discoveryHttpDetail(status: number, err: APIError, envelope: ErrorEnvel
 
 /**
  * An in-band error frame: a streamed `data: {"error": {...}}` payload, the
- * shape LiteLLM emits when an upstream dies after the 200 and the first
- * chunks already went out. Constructed here so the stream processor throws a
- * classified transport error instead of ending the request as a silent
- * truncation. There is no HTTP status - the response was already 200 - so
- * the RequestError carries none, and none may be derived from the envelope's
- * code: a synthesized status 429 would re-map the frame as Blocked.
+ * shape LiteLLM emits when an upstream dies after the 200. Constructed here so
+ * the stream processor throws a classified transport error instead of ending
+ * the request as a silent truncation. There is no HTTP status - the response
+ * was already 200 - so the RequestError carries none, and none may be derived
+ * from the envelope's code: a synthesized status 429 would re-map the frame as
+ * Blocked.
  */
 export function streamErrorFrame(error: Record<string, unknown>): RequestError {
 	const message = typeof error.message === "string" && error.message.trim() !== "" ? error.message : undefined;
@@ -605,14 +590,13 @@ export function streamErrorFrame(error: Record<string, unknown>): RequestError {
 /**
  * Map an error thrown by the openai SDK transport onto the provider's typed
  * errors. Every mapped message follows the two-part shape: a plain-language
- * headline (localized, stating what happened and what the user can do) plus
- * one compact English technical line - never a re-serialized response
- * envelope. The join is per surface: chat messages carry the "Details:"
- * lead-in after a blank line (chatErrorMessage - Copilot Chat's error block
+ * headline (localized) plus one compact English technical line - never a
+ * re-serialized response envelope. The join is per surface: chat messages
+ * carry the "Details:" lead-in after a blank line (Copilot Chat's error block
  * flattens newlines), discovery messages the single "\n" the dashboard and
- * tooltips split on. Network classification walks the full cause chain
- * because the SDK adds a wrapper level ("Connection error." -> TypeError
- * "fetch failed" -> the socket/TLS error that carries the actionable string).
+ * tooltips split on. Network classification walks the full cause chain because
+ * the SDK adds a wrapper level over the socket/TLS error that carries the
+ * actionable string.
  */
 export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 	if (err instanceof APIError && typeof err.status === "number") {
@@ -643,8 +627,7 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 			if (ctx.surface === "discovery") {
 				// The headline is quoted verbatim by docs/troubleshooting.md - only
 				// the detail line may change. It renders only when the body parsed
-				// as an error envelope with a message: an HTML 404 page or FastAPI's
-				// {"detail":"Not Found"} adds nothing the headline does not say.
+				// as an error envelope with a message.
 				const typeSeg = envelope?.type !== undefined ? ` ${envelope.type}` : "";
 				const detail =
 					envelope?.message !== undefined ? `\nLiteLLM 404${typeSeg}: ${compactText(envelope.message, 240)}` : "";
@@ -754,8 +737,8 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 			// The deepest chain link naming the certificate carries the
 			// socket-level diagnosis; the joined haystack is never rendered (it
 			// splices unrelated wrapper messages together). Node's
-			// hostname-mismatch text embeds the certificate's SAN list
-			// (server-supplied), so the public surfaces get the classification.
+			// hostname-mismatch text embeds the server-supplied SAN list, so the
+			// public surfaces get the classification.
 			const certLink =
 				[...chain]
 					.reverse()
@@ -840,12 +823,11 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 	if (err instanceof RequestError || err instanceof MirroredError || err instanceof CancellationError) {
 		return err;
 	}
-	// Errors shaped elsewhere but carrying the English mirror duck-typed (a
-	// foreign construction, not this process's MirroredError) also arrive
-	// already carrying their display/English pair; re-headlining them would
-	// double-wrap, and a socket term quoted in their text must not reclassify
-	// them, so this pass-through sits before the socket branch. The property
-	// read is guarded: a hostile getter must not escape mapSdkError.
+	// Errors shaped elsewhere but carrying the English mirror duck-typed already
+	// carry their display/English pair; re-headlining them would double-wrap,
+	// and a socket term quoted in their text must not reclassify them, so this
+	// pass-through sits before the socket branch. The property read is guarded:
+	// a hostile getter must not escape mapSdkError.
 	if (err instanceof Error) {
 		let mirrored = false;
 		try {
@@ -860,9 +842,8 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 
 	// A socket that dies AFTER headers surfaces from the body reader, not from
 	// the SDK transport: the SDK already returned the Response, so undici's
-	// bare TypeError ("terminated", cause SocketError "other side closed" /
-	// ECONNRESET) arrives here wrapped in no SDK error class. Without this
-	// branch the user would see the raw "terminated". The match requires a
+	// bare TypeError arrives here wrapped in no SDK error class, and the user
+	// would otherwise see the raw "terminated". The match requires a
 	// socket-level signature (or undici's exact top-level TypeError): a mere
 	// "terminated" inside some other error's message must not reclassify it.
 	if (err instanceof Error) {
@@ -913,11 +894,10 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 	}
 
 	// The truly anonymous tail: an Error no branch recognized, or a non-Error
-	// throw. errorMessageText is total (it falls back to the
-	// Object.prototype.toString tag when a hostile value's String() coercion
-	// throws); the name read is guarded the same way, and only an
-	// identifier-shaped name may enter the classification - an arbitrary name
-	// string is caller-controlled text and stays off the public log surfaces.
+	// throw. errorMessageText is total; the name read is guarded the same way,
+	// and only an identifier-shaped name may enter the classification - an
+	// arbitrary name string is caller-controlled text and stays off the public
+	// log surfaces.
 	let name: string;
 	if (err instanceof Error) {
 		try {

@@ -1,15 +1,15 @@
 /**
  * The inheritance fuzzer: random record trees with random `_inheritable`,
  * `_inherit_from`, `_force`, and `_fallback` placements, resolved for random
- * model IDs, against a NAIVE oracle that restates the documented semantics
- * directly (its own matcher, its own recursive walk - no code shared with
- * the engine). Directive values are generated well-formed; the malformed
- * shapes are unit-pinned in recordResolution.test.ts. On top of the oracle,
- * three targeted invariants: a barrier winner resolves to exactly its own
- * fields, an exclusive-list winner draws only from its own and the named
- * records' literal fields, and markings always ride from the writer. The
- * flat-table properties pin ModelResolutionTable == direct resolution, with
- * memo hits by identity and fingerprint invalidation on changed inputs.
+ * model IDs against a NAIVE oracle that restates the documented semantics from
+ * scratch (its own matcher, its own recursive walk, no code shared with the
+ * engine). Directive values are generated well-formed; the malformed shapes are
+ * unit-pinned in recordResolution.test.ts. Three targeted invariants ride on
+ * top: a barrier winner resolves to exactly its own fields, an exclusive-list
+ * winner draws only from its own and the named records' literal fields, and
+ * markings always ride from the writer. The flat-table properties pin
+ * ModelResolutionTable == direct resolution, with memo hits by identity and
+ * fingerprint invalidation on changed inputs.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -240,9 +240,9 @@ interface NaiveField {
 	marked: boolean; // _force (params) / _fallback (caps)
 }
 
-// The engine's unforceable set: provider-owned keys except max_tokens (the
-// one settable provider-owned key), plus underscore keys. The field pools
-// above never produce these, so this is spec restatement, not a live branch.
+// The engine's unforceable set: provider-owned keys except max_tokens, plus
+// underscore keys. The field pools never produce these, so this is spec
+// restatement, not a live branch.
 const UNFORCEABLE = new Set(["model", "messages", "stream", "stream_options", "tools", "tool_choice"]);
 
 function naiveOwnFields(
@@ -422,7 +422,7 @@ describe("shared/config resolutionTable equivalence", () => {
 				// Equal-but-not-identical inputs still hit the memo (fingerprinted).
 				const clone = JSON.parse(JSON.stringify(inputs));
 				assert.strictEqual(table.resolveParameters("srv", id, clone), viaTable);
-				// A changed record invalidates: the table answers the new resolution.
+				// A changed record invalidates.
 				const changed = { ...inputs, globalParameters: { ...records, "*": { temperature: "changed" } } };
 				assert.deepStrictEqual(
 					table.resolveParameters("srv", id, changed).params,
@@ -478,9 +478,8 @@ describe("shared/config resolutionTable equivalence", () => {
 		const table = new ModelResolutionTable();
 		const inputs = { globalParameters: { "*": { temperature: 0.5 } } };
 		const first = table.resolveParameters("kept", "model-0", inputs);
-		// Overflow the per-server bound: the oldest entry (model-0) is evicted
-		// and recomputes to an equal-but-new resolution; a younger entry
-		// survives as a memo hit.
+		// Overflow the per-server bound: the oldest entry (model-0) is evicted and
+		// recomputes to an equal-but-new resolution; a younger entry stays a hit.
 		for (let i = 1; i <= 512; i += 1) {
 			table.resolveParameters("kept", `model-${i}`, inputs);
 		}
@@ -490,7 +489,6 @@ describe("shared/config resolutionTable equivalence", () => {
 		const young = table.resolveParameters("kept", "model-512", inputs);
 		assert.strictEqual(table.resolveParameters("kept", "model-512", inputs), young, "younger entries survive");
 
-		// prune keeps listed servers and drops the rest.
 		const dropped = table.resolveParameters("dropped", "m", inputs);
 		table.prune(["kept"]);
 		assert.notStrictEqual(table.resolveParameters("dropped", "m", inputs), dropped, "a pruned server recomputes");
@@ -500,9 +498,8 @@ describe("shared/config resolutionTable equivalence", () => {
 	});
 
 	test("a catalog whose data swaps behind a stable facade still invalidates the cached capabilities", () => {
-		// The real store keeps one lookup object and replaces its inner
-		// snapshot on refresh, so the table must judge the catalog by its
-		// ANSWERS, never by object identity.
+		// The real store keeps one lookup object and swaps its inner snapshot on
+		// refresh, so the table must judge the catalog by its ANSWERS.
 		fc.assert(
 			fc.property(capsScenario, serverDeclaredArb, ({ id, records }, serverDeclared) => {
 				const table = new ModelResolutionTable();

@@ -1,17 +1,14 @@
 /**
- * Preload for the bun test tree (wired via bunfig.toml), loaded before any
- * test module. The tree's rule: suites that need no extension host live here
- * - the pure logic and property suites and the DOM component tests; real
- * network machinery (msw) stays host-side in the Mocha suites.
- * The process-global concerns live here so no suite can forget them:
+ * Preload for the bun test tree (wired via bunfig.toml), loaded before any test
+ * module. Tree rule: a suite belongs here only when its transitive runtime
+ * imports reach neither vscode nor msw (msw stays host-side in the Mocha
+ * suites). The process-global concerns live here so no suite can forget them:
  * happy-dom registration, the fixed fingerprint salt (suites here compute
- * fingerprints without running activation's salt load), the two DOM fidelity
- * patches below (happy-dom disagreeing with browsers about <details>), the
- * acquireVsCodeApi stub (vscodeApi.ts calls acquireVsCodeApi() at module top
- * level, so a component import without the stub is an import-time crash;
- * harmless for non-DOM suites), and the console.error gate below. The harness
- * is imported dynamically so the DOM registration above runs first (static
- * imports would hoist past it).
+ * fingerprints without activation's salt load), the <details> fidelity patches
+ * below, the acquireVsCodeApi stub (vscodeApi.ts calls it at module top level,
+ * so a component import without it crashes at import time), and the
+ * console.error gate. The harness import is dynamic so DOM registration runs
+ * first; a static import would hoist past it.
  */
 import { afterEach, beforeEach } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
@@ -80,10 +77,9 @@ Element.prototype.checkVisibility = function checkVisibility(this: Element, opti
 };
 
 // React reports real defects - duplicate keys, act() violations, controlled/
-// uncontrolled flips - through console.error and nothing else, so a warning
-// the runner discards is a defect the suite cannot see. The gate fails the
-// test that emitted one; a test that expects an error must stub console.error
-// itself (none does today).
+// uncontrolled flips - only through console.error, so a discarded warning is a
+// defect the suite cannot see. The gate fails the test that emitted one; a test
+// that expects an error must stub console.error itself.
 const reportedErrors: string[] = [];
 const originalConsoleError = console.error.bind(console);
 console.error = (...args: unknown[]): void => {

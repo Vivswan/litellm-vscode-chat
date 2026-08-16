@@ -1,18 +1,11 @@
 /**
- * The registration-side equivalence twin of the capabilityResolution property
- * suite: for generated LiteLLM discovery shapes (deployment, bare, and
- * providers-array models with random capability, limit, and cost fields) run
- * through the REAL registration path, and generated capability records (keys
- * cut from the raw IDs so matches are common, scoped and entry layers, cost
- * and params overrides, directives into a generated catalog), the models
- * applyCapabilityOverrides serves advertise exactly what
- * resolveModelCapabilities resolves - token limits, flags, the caching gate,
- * the reasoning gate, and the pricing block re-derived from the effective
- * cost fields - on the rebuilt path AND on the object-identity fast path,
- * which is the claim that lets untouched models skip the rebuild at all.
- * synthesizeDeclaredModels is pinned to the same walk over the declared
- * baseline, and the whole application is idempotent because the untouched
- * serverDeclared baseline rides each model.
+ * The registration-side equivalence twin of the capabilityResolution property suite: for
+ * generated discovery shapes run through the REAL registration path and generated
+ * capability records, the models applyCapabilityOverrides serves advertise exactly what
+ * resolveModelCapabilities resolves - on the rebuilt path AND on the object-identity fast
+ * path, which is the claim that lets untouched models skip the rebuild.
+ * synthesizeDeclaredModels is pinned to the same walk over the declared baseline, and the
+ * whole application is idempotent because the untouched baseline rides each model.
  */
 import * as assert from "node:assert";
 import * as fc from "fast-check";
@@ -50,8 +43,8 @@ const SERVER = { id: "srv1", label: "Default", baseUrl: "http://a.test", apiKey:
 const SCOPE = "http://a.test";
 
 // Slash-free so a scoped key "<scope>/<prefix>" can never collide with an
-// unscoped key or match a scope other than its own; ":" stays out so cuts of
-// a raw ID can never spell a synthetic ":cheapest" variant by accident.
+// unscoped key or match a foreign scope; colon-free so no cut of a raw ID
+// spells a synthetic ":cheapest" variant.
 const idChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789.-");
 const modelId = fc.string({ unit: idChar, minLength: 1, maxLength: 10 });
 
@@ -181,8 +174,7 @@ const capabilityRecordArb: fc.Arbitrary<Record<string, unknown>> = fc
 	.map(([base, declare, fallback, openrouterModel]) => ({
 		...base,
 		// The retired _declare directive stays as inert underscore-key noise;
-		// _fallback: true demotes every kept field below the server level, so
-		// the fallback walk levels stay covered.
+		// _fallback: true demotes every kept field below the server level.
 		...(declare !== undefined ? { _declare: declare } : {}),
 		...(fallback !== undefined ? { _fallback: fallback } : {}),
 		...(openrouterModel !== undefined ? { [OPENROUTER_MODEL_DIRECTIVE]: openrouterModel } : {}),
@@ -251,10 +243,9 @@ const scenario: fc.Arbitrary<Scenario> = fc
 	})
 	.map((spec) => {
 		const item = { ...spec.item, id: spec.rawModelId };
-		// A cut of the raw ID plus "*" is a matching glob; without the star it
-		// is an exact key (matching only on a full-length cut). The empty
-		// non-glob cut stays in the language as the invalid "" key, and the
-		// scoped form keeps pre-migration URL keys (now inert) alive.
+		// A cut of the raw ID plus "*" is a matching glob; without the star it is
+		// an exact key. The empty non-glob cut stays in the language as the
+		// invalid "" key, and the scoped form keeps the inert URL keys alive.
 		const prefixOf = (cut: number, foreign: boolean, glob: boolean) => {
 			const base = foreign ? spec.otherId : spec.rawModelId;
 			return `${base.slice(0, cut % (base.length + 1))}${glob ? "*" : ""}`;
@@ -338,9 +329,8 @@ function assertAdvertisesEffective(info: PreAttachModelInfo, effective: Effectiv
 		reasoningGate(effective.fields),
 		"the reasoning control must follow the gate over the flag and the params list"
 	);
-	// The production derivation prices with the ambient usage.currencySymbol,
-	// so the expectation reads the same getter rather than assuming a suite
-	// left the setting at its default.
+	// Production prices with the ambient usage.currencySymbol, so the expectation
+	// reads the same getter rather than assuming a default.
 	const expectedPricing = pricingFieldsFromEffective(effective.fields, getCurrencySymbol());
 	for (const key of MODEL_PRICING_KEYS) {
 		assert.strictEqual(info[key], expectedPricing[key], `${key} must equal the effective-field derivation exactly`);

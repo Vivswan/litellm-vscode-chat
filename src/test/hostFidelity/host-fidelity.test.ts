@@ -25,25 +25,17 @@ import { expectDefined } from "../pureHelpers";
 import { SLOW_STREAM_CHUNK_COUNT } from "../scenarios";
 
 /**
- * Host-fidelity test suite.
+ * Host-fidelity test suite: the extension through the real VS Code LM API
+ * (selectChatModels / sendRequest) rather than calling the provider directly.
+ * Every suite stands up its own provider group(s); groups are add-only for the
+ * host lifetime, so each suite mints per-group-unique model IDs and scopes its
+ * model-list assertions to that universe.
  *
- * Exercises the extension through the real VS Code LM API
- * (vscode.lm.selectChatModels / model.sendRequest) rather than
- * calling provideLanguageModelChatResponse() directly. Every suite stands up
- * its own VS Code-managed provider group(s): groups are add-only for the
- * host lifetime, so each suite mints per-group-unique model IDs and scopes
- * its model-list assertions to that universe (see groupApiHelpers).
- *
- * Two modes:
- *   1. Capture mode (default): backed by a deterministic local capture server.
- *      Validates the full host pipeline including message conversion,
- *      modelOptions filtering, and streaming response handling.
- *   2. Live mode: when LITELLM_REAL_LIVE=1, runs smoke tests against the
- *      real LiteLLM server named by LITELLM_REAL_BASE_URL through the host
- *      API. Live mode is an explicit opt-in: ambient LITELLM_REAL_* vars in
- *      a developer's shell must never silently turn `bun run test` (and
- *      every pre-commit run) into a live run with the capture suites
- *      collapsed to skip stubs.
+ * Capture mode (default) runs against a deterministic local capture server.
+ * Live mode (LITELLM_REAL_LIVE=1) smoke-tests the server named by
+ * LITELLM_REAL_BASE_URL. Live is an explicit opt-in so ambient LITELLM_REAL_*
+ * vars in a shell cannot silently turn `bun run test` into a live run with the
+ * capture suites collapsed to skip stubs.
  */
 
 const REAL_BASE_URL = process.env.LITELLM_REAL_BASE_URL || "";
@@ -138,11 +130,9 @@ suite("Host-Fidelity Tests (capture)", () => {
 		});
 
 		test("the host-preserved model exposes the pricing fields to consumers", () => {
-			// The capture fixture declares per-token costs precisely so this run
-			// pins, against a real host, that the pricing metadata registers
-			// without throwing (the capabilities.editTools gate is the
-			// precedent) and survives onto the LanguageModelChat object that
-			// selectChatModels() hands consumers.
+			// The capture fixture declares per-token costs so this pins, against a
+			// real host, that pricing metadata registers without throwing and
+			// survives onto the object selectChatModels() hands consumers.
 			assert.strictEqual(model.inputCost, 1.25, "per-token 0.00000125 converts to 1.25 per million");
 			assert.strictEqual(model.outputCost, 10);
 			assert.strictEqual(model.priceCategory, "medium", "blended (3*1.25+10)/4 = 3.4375 lands in the medium band");
@@ -275,7 +265,6 @@ suite("Host-Fidelity Tests (capture)", () => {
 			];
 			const { body } = await sendAndCapture(msgs);
 			const messages = body.messages as Array<{ role: string; content: string }>;
-			// Filter out any system messages the host may inject
 			const nonSystem = messages.filter((m) => m.role !== "system");
 			assert.ok(nonSystem.length >= 5, `Expected at least 5 non-system messages, got ${nonSystem.length}`);
 			assert.deepStrictEqual(
@@ -321,7 +310,6 @@ suite("Host-Fidelity Tests (capture)", () => {
 				0x21, 0xbc, 0x33, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
 			]);
 			const img1 = new vscode.LanguageModelDataPart(pngData, "image/png");
-			// Use same valid PNG for second image (with different MIME to verify both arrive)
 			const img2 = new vscode.LanguageModelDataPart(pngData, "image/png");
 			const msg = new vscode.LanguageModelChatMessage(vscode.LanguageModelChatMessageRole.User, [
 				new vscode.LanguageModelTextPart("Compare these:"),
@@ -394,7 +382,6 @@ suite("Host-Fidelity Tests (capture)", () => {
 			const messages = body.messages as Array<{ role: string; content: unknown }>;
 			const userMsg = messages.find((m) => m.role === "user");
 			assert.ok(userMsg, "Should have user message");
-			// JSON data part should be decoded as text, so content should be a string
 			assert.strictEqual(typeof userMsg.content, "string", "JSON data part should be decoded as inline text");
 			assert.ok((userMsg.content as string).includes('{"key":"value"}'), "Decoded JSON should be present in content");
 		});
@@ -422,7 +409,6 @@ suite("Host-Fidelity Tests (capture)", () => {
 			}>;
 			assert.ok(Array.isArray(messages), "messages should be an array");
 
-			// Find assistant message with tool_calls
 			const assistantMsg = messages.find((m) => m.role === "assistant" && Array.isArray(m.tool_calls));
 			assert.ok(assistantMsg, "Should have an assistant message with tool_calls");
 			const calls = expectDefined(assistantMsg.tool_calls);
@@ -432,7 +418,6 @@ suite("Host-Fidelity Tests (capture)", () => {
 			const args = JSON.parse(call.function.arguments);
 			assert.strictEqual(args.location, "Paris");
 
-			// Find tool result message
 			const toolMsg = messages.find((m) => m.role === "tool");
 			assert.ok(toolMsg, "Should have a tool result message");
 			assert.strictEqual(toolMsg.tool_call_id, "call_abc", "Tool result should reference the tool call ID");
@@ -606,8 +591,8 @@ suite("Host-Fidelity Tests (capture)", () => {
 					}
 				}
 			} catch {
-				// Cancellation may surface as a thrown error; the part count below
-				// is what proves the stream actually stopped early.
+				// Cancellation may surface as a thrown error; the part count below is
+				// what proves the stream actually stopped early.
 			}
 
 			assert.ok(
@@ -711,9 +696,9 @@ suite("Host-Fidelity Tests (multi-group)", () => {
 		return;
 	}
 
-	// Per-group-unique model IDs: the host exposes no group identity on the
-	// model object, so a unique ID is the only handle that attributes a model
-	// (and its chat traffic) to the group that serves it.
+	// Per-group-unique model IDs: the host exposes no group identity on the model
+	// object, so a unique ID is the only handle that attributes a model (and its
+	// chat traffic) to the group serving it.
 	const modelIdA = uniqueName("openai/hf-multi-a");
 	const modelIdB = uniqueName("openai/hf-multi-b");
 	const labelA = uniqueName("hf-multi-a");
@@ -761,8 +746,8 @@ suite("Host-Fidelity Tests (multi-group)", () => {
 
 	suite("model aggregation", () => {
 		test("each group serves exactly its own model with positive token limits", () => {
-			// The suiteSetup's scopedExact wait already pinned the exact multiset;
-			// this pins the per-model registration facts.
+			// The suiteSetup's wait already pinned the exact multiset; this pins the
+			// per-model registration facts.
 			for (const m of [modelA, modelB]) {
 				assert.ok(m.maxInputTokens > 0, `${m.id} maxInputTokens should be positive`);
 			}
@@ -888,10 +873,9 @@ suite("Host-Fidelity Tests (multi-group)", () => {
 					20000
 				);
 
-				// Both serving contracts on the host list, as an exact multiset: the
-				// healthy group's model stays served, and the dead group's last
-				// known model is served flagged stale (its last successful discovery
-				// is minutes old) instead of vanishing.
+				// Both serving contracts as an exact multiset: the healthy group's
+				// model stays served, and the dead group's last known model is served
+				// flagged stale instead of vanishing.
 				const models = await waitForModels(
 					scopedExact(inUniverse, [modelIdA, modelIdB]),
 					20000,
@@ -931,9 +915,8 @@ suite("Host-Fidelity Tests (declared models)", () => {
 	let declaredModel: vscode.LanguageModelChat;
 	let entryInfos: vscode.LanguageModelChatInformation[] = [];
 
-	// writeServerEntry edits the real machine-scoped servers setting; the
-	// helper's hooks restore it (with the reconciling sync pass) even when a
-	// test dies between the write and the teardown.
+	// writeServerEntry edits the real machine-scoped servers setting; the helper's
+	// hooks restore it even when a test dies between the write and the teardown.
 	restoreServersSettingAfterRun();
 
 	suiteSetup(async function () {
@@ -944,9 +927,9 @@ suite("Host-Fidelity Tests (declared models)", () => {
 
 		await ensureActivated();
 		await catalogOff();
-		// A real declared entry: discovery.declared lists a model discovery
-		// cannot list plus the DISCOVERED model (whose declaration must stay
-		// inert), and the entry's capability record patches the declared one.
+		// discovery.declared lists a model discovery cannot list plus the
+		// DISCOVERED model (whose declaration must stay inert), and the entry's
+		// capability record patches the declared one.
 		await writeServerEntry({
 			label,
 			baseUrl: `http://localhost:${server.port}`,
@@ -1047,7 +1030,7 @@ suite("Host-Fidelity Tests (live)", () => {
 		// The live label's host runs the capture suites as skip stubs, so this
 		// entry's group must be the only litellm group the host resolves; a
 		// leftover group in a recycled user-data directory would be
-		// indistinguishable from it, so fail fast.
+		// indistinguishable from it.
 		assert.strictEqual(
 			(await vscode.lm.selectChatModels({ vendor: "litellm" })).length,
 			0,
@@ -1059,9 +1042,8 @@ suite("Host-Fidelity Tests (live)", () => {
 			30000
 		);
 		// Set equality after dedupe, not containment: wildcard servers list
-		// duplicate IDs (the host deduplicates on registration), and containment
-		// alone could pass on a stale superset mid-propagation. The entry's own
-		// non-silent refresh supplies the expected set.
+		// duplicate IDs, and containment alone could pass on a stale superset
+		// mid-propagation.
 		const expectedIds = new Set((await refreshEntryModels(liveLabel)).map((info) => info.id));
 		assert.ok(expectedIds.size > 0, "Expected at least one litellm model from the real server");
 		allModels = await waitForModels(
@@ -1260,8 +1242,8 @@ suite("Host-Fidelity Tests (live)", () => {
 			let endedAt = 0;
 			let timedOut = false;
 
-			// VS Code's stream iterator may not terminate on cancellation,
-			// so race the entire operation against a timeout.
+			// VS Code's stream iterator may not terminate on cancellation, so race
+			// the whole operation against a timeout.
 			await Promise.race([
 				(async () => {
 					try {
@@ -1332,7 +1314,7 @@ suite("Host-Fidelity Tests (live)", () => {
 			const toolCalls = extractToolCalls(parts);
 			const text = extractText(parts);
 
-			// In auto mode, the model may choose to call the tool or answer directly; both are valid
+			// In auto mode the model may call the tool or answer directly; both are valid.
 			assert.ok(toolCalls.length > 0 || text.length > 0, "Should receive either a tool call or text response");
 			if (toolCalls.length > 0) {
 				const call = expectDefined(toolCalls[0]);

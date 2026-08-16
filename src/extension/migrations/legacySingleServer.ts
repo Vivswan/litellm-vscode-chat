@@ -51,11 +51,11 @@ async function finishCleanup(ctx: MigrationContext, orphanedSecretIds: readonly 
 }
 
 async function migrateLegacySingleServer(ctx: MigrationContext): Promise<MigrationOutcome> {
-	// A pending marker means the registry entry persisted in an earlier run
-	// but the deletions did not finish. They are retried before anything reads
-	// the registry: the group migration may have emptied it since, and an
-	// empty registry with lingering legacy secrets would otherwise re-import
-	// stale config as a new "Default" server.
+	// A pending marker means the registry entry persisted in an earlier run but
+	// the deletions did not finish. They are retried before anything reads the
+	// registry: the group migration may have emptied it since, and an empty
+	// registry with lingering legacy secrets would otherwise re-import stale
+	// config as a new "Default" server.
 	const marker = parseCleanupMarker(ctx.globalState.get<unknown>(LEGACY_CLEANUP_PENDING_KEY));
 	if (marker.pending) {
 		await finishCleanup(ctx, marker.orphanedSecretIds);
@@ -81,9 +81,9 @@ async function migrateLegacySingleServer(ctx: MigrationContext): Promise<Migrati
 		const apiKey = (await ctx.secrets.get(LEGACY_API_KEY_SECRET)) ?? "";
 		// Re-read after the secret read above, right before the write:
 		// getServers() adopts another window's strictly newer persisted
-		// registry, so a concurrent import that landed during the await is
-		// seen here. The legacy secrets are deleted only after the entry
-		// persists, so a failed addServer leaves them in place for a retry.
+		// registry, so a concurrent import that landed during the await is seen
+		// here. The legacy secrets are deleted only after the entry persists,
+		// so a failed addServer leaves them in place for a retry.
 		if (!hasLegacyEntry()) {
 			const imported = await ctx.registry.addServerUnguarded("Default", baseUrl, apiKey);
 			// Two windows can still interleave between the re-read and their

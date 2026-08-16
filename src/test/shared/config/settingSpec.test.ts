@@ -31,11 +31,9 @@ import { HEADER_SCALAR_TYPES } from "../../../shared/util/headers";
 import { resolveNls } from "../../util/nls";
 
 /**
- * Drift guards between the shared setting spec and its prose mirrors:
- * package.json's contributed configuration and the settings numbers in
- * docs/ and AGENTS.md. The spec is the code-side truth; these tests make the
- * mirrors CI-enforced. Tests run from out/test/shared/config, so the repo
- * root is four levels up.
+ * Drift guards between the shared setting spec and its prose mirrors: package.json's
+ * contributed configuration and the settings numbers in docs/ and AGENTS.md. The spec is
+ * the code-side truth. Tests run from out/test/shared/config, so the root is four up.
  */
 const repoRoot = path.resolve(__dirname, "..", "..", "..", "..");
 
@@ -126,10 +124,9 @@ suite("shared/config/settingSpec: package.json drift guard", () => {
 	});
 
 	test("every contributed scalar setting has a spec entry", () => {
-		// The reverse direction: a number or boolean setting added only to
-		// package.json must land in the spec too. Object, array, and enum-string
-		// settings (servers, models.parameters, usage.alertThresholds,
-		// usage.statusBar) have no scalar spec by design.
+		// The reverse direction: a number or boolean setting added only to package.json
+		// must land in the spec too. Object, array, and enum-string settings have no
+		// scalar spec by design.
 		for (const [key, schema] of Object.entries(allProperties())) {
 			const id = key.slice(`${CONFIG_SECTION}.`.length);
 			const types = schemaTypes(schema);
@@ -154,11 +151,9 @@ suite("shared/config/settingSpec: package.json drift guard", () => {
 			assert.strictEqual(schema.default, spec.default, `${id} default`);
 			assert.strictEqual(schema.minimum, spec.minimum, `${id} minimum`);
 			assert.strictEqual(schemaTypes(schema).includes("null"), spec.nullable, `${id} nullability`);
-			// The spec's `integer` flag is the one source of the integer-only
-			// fact; the manifest's scalar type must mirror it exactly, and an
-			// integer-flagged spec's own numbers must satisfy the rule they
-			// declare (a fractional minimum would make the clamping read return
-			// a fraction from an "integer" setting).
+			// The spec's `integer` flag is the one source of the integer-only fact; the
+			// manifest's scalar type must mirror it exactly, and an integer-flagged
+			// spec's own numbers must satisfy the rule they declare.
 			const integer = isIntegerSetting(id as NumberSettingId);
 			const scalarTypes = schemaTypes(schema).filter((type) => type !== "null");
 			assert.deepStrictEqual(scalarTypes, [integer ? "integer" : "number"], `${id} type`);
@@ -189,11 +184,9 @@ suite("shared/config/settingSpec: package.json drift guard", () => {
 	});
 
 	test("descriptions that state a default state the spec's number", () => {
-		// "Default is 300000ms (5 minutes)" and friends: the sentence may be
-		// rephrased freely, but the number it quotes must be the live default.
-		// The quoted digits are compared whole, so a spec default that is a
-		// prefix of a stale prose number cannot pass. The manifest holds %key%
-		// references, so the prose is the resolved package.nls.json value.
+		// "Default is 300000ms (5 minutes)" and friends: the sentence may be rephrased,
+		// but the number it quotes must be the live default. Quoted digits compare whole,
+		// so a spec default that is a prefix of a stale prose number cannot pass.
 		const properties = allProperties();
 		let checked = 0;
 		for (const [id, spec] of Object.entries(NUMBER_SETTING_SPECS)) {
@@ -260,10 +253,8 @@ suite("shared/config/settingSpec: package.json drift guard", () => {
 suite("shared/config/settingSpec: docs drift guard", () => {
 	test("every locale's settings-reference table covers every scalar setting and shows the spec's default", () => {
 		// Rows look like: | `litellm-vscode-chat.chat.timeout` | `300000` | ... |
-		// In every shipped locale, every spec'd number and boolean setting must
-		// have a row, and the row must show its default in the second column; a
-		// dropped row fails the set compare. This is what makes "the setting is
-		// documented" hold in zh-cn and zh-tw too, not only in English.
+		// In every shipped locale, every spec'd number and boolean setting must have a
+		// row showing its default in the second column; a dropped row fails the compare.
 		const defaults = new Map<string, string>();
 		for (const [id, spec] of [...Object.entries(NUMBER_SETTING_SPECS), ...Object.entries(BOOLEAN_SETTING_SPECS)]) {
 			defaults.set(id, String(spec.default));
@@ -330,12 +321,9 @@ suite("shared/config/settings: object-setting contributions drift guard", () => 
 	});
 
 	test("the servers setting is machine-scoped", () => {
-		// Load-bearing (see AGENTS.md, Storage): user settings only, so a
-		// workspace cannot re-point a label at another host to harvest its
-		// stored secrets. The dashboard panel's readServersSetting reads
-		// inspect(...).globalValue and writes ConfigurationTarget.Global, and
-		// the dev seed writes the Global scope too; both are correct only
-		// while this scope keeps workspace values out of the merge.
+		// Load-bearing (see AGENTS.md, Storage): user settings only, so a workspace
+		// cannot re-point a label at another host to harvest its stored secrets. The
+		// panel and dev seed read and write the Global scope on that basis.
 		const schema = settingSchema(allProperties(), SERVERS_SETTING_KEY);
 		assert.strictEqual(schema.scope, "machine");
 	});
@@ -403,10 +391,9 @@ suite("shared/config/settings: object-setting contributions drift guard", () => 
 	});
 
 	test("HEADER_SCALAR_TYPES names exactly the HeaderScalar member types", () => {
-		// Both directions hold at compile time: a listed name without a
-		// matching HeaderScalar member fails the first assignment, and a
-		// HeaderScalar member the list does not name maps to "unlisted" and
-		// fails the second.
+		// Both directions hold at compile time: a listed name without a matching
+		// HeaderScalar member fails the first assignment, and a HeaderScalar member the
+		// list does not name maps to "unlisted" and fails the second.
 		type TypeNameOf<T> = T extends string
 			? "string"
 			: T extends number

@@ -1,29 +1,20 @@
 /**
- * The one descriptor of a server entry's flat credential fields, shared by
- * the settings side (the parser flattens the entry's nested `auth` object
- * onto these fields; the SecretStorage blobs key on the secret ids), the
- * sync engine, and the dashboard protocol. Every field list elsewhere - the
- * provider-group args, the declared views, the dashboard payloads and their
- * schemas - derives from here, so adding a field means extending
- * OPTIONAL_ENTRY_FIELDS and following the compile errors.
- * The entry's extension-side-only fields (headers, models.parameters,
- * models.capabilities, discovery.*, budget) stay out of the descriptor
- * because they must never reach the provider-group args or their fingerprint
- * (see extension/servers/serverSync/setting.ts and engine.ts;
- * serverEntry.test.ts pins the schema split). Pure constants: no vscode,
- * no DOM, no Node (the dashboard protocol pulls this module into the
- * webview bundle).
+ * The one descriptor of a server entry's flat credential fields, shared by the
+ * settings parser, the sync engine, and the dashboard protocol. Every field
+ * list elsewhere derives from here, so adding a field means extending
+ * OPTIONAL_ENTRY_FIELDS and following the compile errors. The entry's
+ * extension-side-only fields (headers, models.*, discovery.*, budget) stay out
+ * of the descriptor because they must never reach the provider-group args or
+ * their fingerprint.
  */
 
 /**
- * The optional fields an entry may carry beyond label and baseUrl, secret
- * ones flagged (inline storage is legal for those; a SecretStorage blob is
- * the alternative). THE ORDER IS LOAD-BEARING: buildGroupArgs emits the
- * provider-group args in this order after name, vendor, and baseUrl, and the
- * sync engine persists a hash of JSON.stringify of that object as the entry's
- * fingerprint, so reordering silently invalidates every stored fingerprint
- * and re-pushes every group. Secrets and non-secrets interleave on purpose;
- * serverSync.test.ts pins the exact sequence.
+ * The optional fields an entry may carry beyond label and baseUrl, secret ones
+ * flagged (inline storage is legal for those; a SecretStorage blob is the
+ * alternative). THE ORDER IS LOAD-BEARING: buildGroupArgs emits the
+ * provider-group args in this order, and the sync engine fingerprints a
+ * JSON.stringify of that object, so reordering silently invalidates every
+ * stored fingerprint and re-pushes every group.
  */
 export const OPTIONAL_ENTRY_FIELDS = [
 	{ id: "apiKey", secret: true },
@@ -76,12 +67,11 @@ export function pickNonSecretOptionalFields(source: NonSecretOptionalFields): No
 export type SecretLocation = "settings" | "secure" | "none";
 
 /**
- * The discovery-endpoint failure categories an entry's `expectedFailures`
- * field may list: "modelListing" is GET /models, "modelInfo" is GET
- * /model/info. One list for the dashboard's checkbox set, the setting
- * parser, and the provider's single-attempt/info-severity demotion. Like an
- * entry's `modelParameters`, the field stays out of OPTIONAL_ENTRY_FIELDS:
- * it must never reach the provider-group args or their fingerprint.
+ * The discovery-endpoint failure categories an entry's `expectedFailures` may
+ * list: "modelListing" is GET /models, "modelInfo" is GET /model/info. Like
+ * the other extension-side-only fields, this one stays out of
+ * OPTIONAL_ENTRY_FIELDS: it must never reach the provider-group args or their
+ * fingerprint.
  */
 export const EXPECTED_FAILURE_CATEGORIES = ["modelListing", "modelInfo"] as const;
 

@@ -4,11 +4,10 @@ import { pathToFileURL } from "node:url";
 import { DOCKER_TEST_LABELS, parseOnlyLabels } from "./dockerTestLabels";
 
 /**
- * Pins the label grammar behind `bun run test:docker --only ...`, which the
- * CI shard matrices in checks.yml drive. The selection rules are contracts:
- * canonical order (docker-monkey last) regardless of flag order, loud
- * rejection of anything unknown, and a round-trip identity for the full set
- * so --only can never diverge from the default run's leg list.
+ * Pins the label grammar behind `bun run test:docker --only ...`, which the CI
+ * shard matrices drive: canonical order (docker-monkey last) regardless of flag
+ * order, loud rejection of anything unknown, and a round-trip identity for the
+ * full set so --only can never diverge from the default run's leg list.
  */
 
 suite("dockerTestLabels: parseOnlyLabels", () => {
@@ -58,12 +57,9 @@ suite("dockerTestLabels: parseOnlyLabels", () => {
 });
 
 suite("dockerTestLabels: .vscode-test.mjs mirror", () => {
-	// The orchestrator passes each selected label to `vscode-test --label`.
-	// .vscode-test.mjs maps its docker stanzas over DOCKER_TEST_LABELS, so a
-	// plain rename can no longer drift silently - but its host-fidelity
-	// exclusion filter and per-label options record sit outside the type
-	// system (an .mjs), so this pins the resolved config's label set to the
-	// canonical one from the outside.
+	// .vscode-test.mjs maps its docker stanzas over DOCKER_TEST_LABELS, but its
+	// exclusion filter and per-label options sit outside the type system (an
+	// .mjs), so this pins the resolved config's label set from the outside.
 	async function declaredLabels(): Promise<string[]> {
 		const configUrl = pathToFileURL(path.resolve(__dirname, "..", "..", ".vscode-test.mjs")).href;
 		const { default: config } = (await import(configUrl)) as { default: { tests: { label: string }[] } };

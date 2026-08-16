@@ -1,20 +1,15 @@
 /**
  * The FROZEN pre-redesign resolvers, pinned as test-local copies for the
- * migration fuzzer's old-world side (settingsRedesignOracle.ts). The live
+ * migration fuzzer's old-world side (settingsRedesignOracle.ts): the live
  * resolvers were rewritten for the matcher/inheritance redesign, so the old
- * prefix/scoped semantics survive only here - verbatim from the pre-redesign
- * shared/config sources, trimmed to what the oracle projects (values, forced
- * marks, fallback marks, declared IDs, the replaced-unscoped flag, and the
- * full walk for the token trio). Legacy semantics are quarantined in this
- * migrations test directory on purpose; nothing outside the oracle may
- * import it.
+ * prefix/scoped semantics survive only here, trimmed to what the oracle
+ * projects. Quarantined on purpose - nothing outside the oracle may import it.
  */
 
 import type { ServerDeclaredCapabilities } from "../../../shared/config/capabilityResolution";
 
-// The pre-redesign vocabulary and policy constants, frozen LOCALLY: importing
-// the live ones would let a future vocabulary or forceability change silently
-// mutate this oracle's old-world behavior.
+// The pre-redesign vocabulary and policy constants, frozen LOCALLY: importing the
+// live ones would let a later vocabulary change mutate this oracle's old-world behavior.
 const CAPABILITY_FIELDS = {
 	context_length: "number",
 	max_input_tokens: "number",
@@ -321,15 +316,12 @@ export interface OldResolvedCapabilityOverrides {
 }
 
 /**
- * The pre-redesign capability override/fallback resolution at value level:
- * the scoped-replaces-unscoped global merge, the entry-over-global field
- * chain, and the `_declare`+`_fallback` ban (a record whose declaration
- * creates the resolved model keeps its fields as overrides).
- * `liftDeclareFallbackBan` disables the ban: the redesign RETIRES it
- * (capability records are source-invariant by design, so `_fallback` fills
- * on declared models too), and the equivalence oracle compares the migrated
- * world against these ban-free old semantics while pinning the ban itself
- * as a documented divergence.
+ * The pre-redesign capability override/fallback resolution at value level: the
+ * scoped-replaces-unscoped global merge, the entry-over-global field chain, and
+ * the `_declare`+`_fallback` ban (a record whose declaration creates the resolved
+ * model keeps its fields as overrides). `liftDeclareFallbackBan` disables the ban,
+ * which the redesign RETIRES; the oracle compares against these ban-free semantics
+ * and pins the ban itself as a documented divergence.
  */
 export function resolveOldCapabilityOverrides(input: {
 	readonly rawModelId: string;
@@ -404,8 +396,7 @@ export interface OldWalkResult {
 	/**
 	 * Old USER_SET_LEVELS semantics: override and fallback levels are "user"
 	 * (uncapped on the wire), the server level is "provider" only under
-	 * outputDeclared, and the default-setting and floor levels stay "defaults"
-	 * (the min(4096, limit) clamp).
+	 * outputDeclared, and default-setting and floor stay "defaults" (min(4096, limit)).
 	 */
 	readonly outputLimitSource: "user" | "provider" | "defaults";
 }

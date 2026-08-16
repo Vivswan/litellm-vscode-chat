@@ -23,8 +23,8 @@ const OWNED_KEYS = ["model", "messages", "stream", "stream_options", "max_tokens
 const OWNED_KEY_SET: ReadonlySet<string> = new Set(OWNED_KEYS);
 
 // A small shared pool makes cross-source key collisions common: without it,
-// three records drawing from the wide alphabet essentially never share a key
-// and the precedence branch would go untested at any realistic run count.
+// three records drawing from the wide alphabet essentially never share a key and
+// the precedence branch would go untested.
 const SHARED_POOL_KEYS = ["temperature", "top_p", "presence_penalty", "reasoning_effort"] as const;
 
 const bodyKey = fc.oneof(

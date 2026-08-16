@@ -36,9 +36,8 @@ interface GroupSubmission {
 
 /**
  * Simulates the host side of lm.migrateLanguageModelsProviderGroup: accepted
- * group names persist, and re-submitting one is rejected the way the real
- * host rejects duplicates. `failOnce` injects one non-duplicate failure per
- * matching name.
+ * group names persist and re-submitting one is rejected as a duplicate.
+ * `failOnce` injects one non-duplicate failure per matching name.
  */
 function makeFakeHost(failOnce: ReadonlySet<string> = new Set()) {
 	const groups = new Set<string>();
@@ -218,10 +217,9 @@ suite("extension/migrations/registryToProviderGroups", () => {
 	});
 
 	test("the seeding pass defers entirely under a session-only fingerprint salt", async () => {
-		// Seeded records and the pending marker persist key fingerprints a
-		// LATER session must recognize, and the recovery path compares stored
-		// records against freshly computed ones. Under a session-only salt
-		// both would misfire, so nothing may be seeded, recorded, or skipped.
+		// Seeded records and the pending marker persist key fingerprints a LATER
+		// session must recognize, so under a session-only salt nothing may be
+		// seeded, recorded, or skipped.
 		const storage = makeExtensionStorage();
 		const registry = new ServerRegistry(storage.memento, storage.secrets);
 		await registry.addServer("Production", "http://prod.test", "prod-key");
@@ -250,8 +248,7 @@ suite("extension/migrations/registryToProviderGroups", () => {
 	});
 
 	test("a salt mutation detected mid-loop stops the remaining seeding", async () => {
-		// The salt is re-confirmed per server: each iteration persists a record
-		// or compares stored fingerprints, so a mutation landing mid-loop must
+		// The salt is re-confirmed per server, so a mutation landing mid-loop must
 		// stop the remaining writes; the rest retries next activation.
 		const storage = makeExtensionStorage();
 		const registry = new ServerRegistry(storage.memento, storage.secrets);
@@ -310,9 +307,8 @@ suite("extension/migrations/registryToProviderGroups", () => {
 	});
 
 	test("a finalization that fails after the durable-id write retries and completes", async () => {
-		// The completion flag is written LAST: were it written before the
-		// record clears, a failed clear would leave the completed fast path
-		// returning early forever with the finalization half done.
+		// The completion flag is written LAST: written before the record clears, a
+		// failed clear would leave the fast path returning early forever.
 		const storage = makeExtensionStorage();
 		storage.mementoStore.set(SEEDED_PROVIDER_GROUPS_KEY, [
 			{ id: "aaaa1111", name: "Production", label: "Production", baseUrl: "http://prod.test", keyFingerprint: "0" },
@@ -858,11 +854,9 @@ suite("extension/migrations/registryToProviderGroups", () => {
 	});
 
 	test("a surviving entry with no migration record is re-seeded, never swept", async () => {
-		// The completion flag alone must not authorize deletion: another window
-		// can set it while this window imports a server (the fresh-install
-		// race), and that server has no migration record. Completion also must
-		// not close the seeding path, or the entry would sit in a registry
-		// nothing serves in production.
+		// The completion flag alone must not authorize deletion: another window can
+		// set it while this window imports a recordless server (the fresh-install
+		// race), and completion must not close the seeding path either.
 		const storage = makeExtensionStorage({ [GROUP_MIGRATION_COMPLETE_KEY]: true });
 		const registry = new ServerRegistry(storage.memento, storage.secrets);
 		const server = await registry.addServer("Default", "http://legacy:4000", "legacy-key");
@@ -885,9 +879,8 @@ suite("extension/migrations/registryToProviderGroups", () => {
 	});
 
 	test("a re-added server reusing a migrated label and base URL is never swept as an orphan", async () => {
-		// Labels and base URLs recur when a user re-adds a server; only ids
-		// are unique. Matching on the historical (label, baseUrl) pair would
-		// delete the new server and its secret without any submission.
+		// Labels and base URLs recur when a user re-adds a server; only ids are unique,
+		// so matching the historical pair would delete the new server and its secret.
 		const storage = makeExtensionStorage({
 			[GROUP_MIGRATION_COMPLETE_KEY]: true,
 			[MIGRATED_SERVER_IDS_KEY]: ["oldid111"],
@@ -912,8 +905,7 @@ suite("extension/migrations/registryToProviderGroups", () => {
 
 	test("a skip marker for a server no longer in the registry lifts, unblocking completion", async () => {
 		// The skipped server was deleted via the manage UI, as the skip notice
-		// instructs; its marker must not block the fresh-install completion
-		// forever.
+		// instructs; its marker must not block fresh-install completion forever.
 		const storage = makeExtensionStorage({ [SKIPPED_MIGRATION_SERVERS_KEY]: ["gone1234"] });
 		const ctx = makeMigrationContext(storage);
 
@@ -933,9 +925,8 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		const bCtx = makeMigrationContext(shared);
 		assert.strictEqual(await legacySingleServerMigration.run(bCtx), "migrated");
 
-		// Window A raced it: its Memento still serves the pre-import registry
-		// blob (change broadcasts are asynchronous) while its secret reads see
-		// the post-deletion state, so every fresh-install guard passes.
+		// Window A raced it: its Memento still serves the pre-import registry blob
+		// while its secret reads see the post-deletion state, so every guard passes.
 		const staleMemento = {
 			get: (key: string, defaultValue?: unknown) =>
 				key === SERVER_REGISTRY_KEY ? undefined : shared.memento.get(key, defaultValue),
@@ -948,9 +939,8 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		await registryToProviderGroupsMigration.run(aCtx);
 		assert.strictEqual(isGroupMigrationComplete(shared.memento), true, "the race must really have happened");
 
-		// Window B's next engine pass sees the flag; without a migration
-		// record for the imported server, cleanup must leave it alone, and the
-		// reopened seeding pass must migrate it instead of stranding it.
+		// Window B's next engine pass sees the flag; with no migration record for the
+		// imported server, cleanup must leave it alone and the seeding pass migrate it.
 		const { logger, lines } = makeLogger();
 		const host = makeFakeHost();
 		const completed = await migrate(bCtx.registry, shared, logger, host.exec);
@@ -1042,12 +1032,9 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		});
 
 		test("a pass that merges new label-map entries needs no label-copy rerun: the fold's union already covers them", async () => {
-			// The label-scoped rewrite is folded into the settings-redesign
-			// pipeline (pre-registration), whose label union includes the
-			// REGISTRY SNAPSHOT - so every label this pass can merge into the
-			// map was already visible to the fold before registration, seeded
-			// or not. This pins the premise: the merged map adds nothing the
-			// union did not already carry.
+			// The label-scoped rewrite is folded into the settings-redesign pipeline,
+			// whose label union includes the REGISTRY SNAPSHOT. This pins the premise:
+			// the merged map adds nothing the union did not already carry.
 			const storage = makeExtensionStorage();
 			const registry = new ServerRegistry(storage.memento, storage.secrets);
 			await registry.addServer("Production", "http://prod.test", "key");
@@ -1089,9 +1076,8 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		});
 
 		test("a pending submission blocks completion even with an empty registry", async () => {
-			// Unlike a stale skip marker, an in-flight submission marker means a
-			// group may exist that no record accounts for yet, so completion
-			// must wait for the interrupted run to be recognized and finished.
+			// Unlike a stale skip marker, an in-flight submission marker means a group
+			// may exist that no record accounts for yet, so completion must wait.
 			const storage = makeExtensionStorage({
 				[PENDING_GROUP_SUBMISSION_KEY]: {
 					id: "aaaa1111",
@@ -1108,11 +1094,9 @@ suite("extension/migrations/registryToProviderGroups", () => {
 		});
 
 		test("a failed legacy migration cannot lead to the migrated server's deletion as an orphan", async () => {
-			// Activation 1: the (best-effort) legacy migration failed, so the
-			// registry is empty while legacy secrets still exist. Without the
-			// hasLegacyConfig guard, the fresh-install completion would set the
-			// flag here, and activation 2's orphan cleanup would then delete the
-			// just-migrated server and its secret.
+			// Activation 1: the legacy migration failed, so the registry is empty while
+			// legacy secrets exist. Without the hasLegacyConfig guard the fresh-install
+			// completion would fire here and activation 2 would sweep the server.
 			const storage = makeExtensionStorage();
 			storage.secretStore.set(LEGACY_BASE_URL_SECRET, "http://legacy:4000");
 			storage.secretStore.set(LEGACY_API_KEY_SECRET, "legacy-key");

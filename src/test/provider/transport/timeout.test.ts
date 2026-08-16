@@ -4,7 +4,7 @@ import { CONFIG_SECTION, MIN_TIMEOUT_MS, NUMBER_SETTING_SPECS } from "../../../s
 
 suite("Timeout Configuration", () => {
 	// The extension host registered package.json's contributed configuration;
-	// these tests pin the registered defaults to the shared setting spec
+	// these pin the registered defaults to the shared setting spec
 	// (settingSpec.test.ts pins the same numbers against the file on disk).
 	test("chat.timeout default matches the setting spec", () => {
 		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
@@ -23,7 +23,6 @@ suite("Timeout Configuration", () => {
 		const requestTimeout = config.get<number>("chat.timeout", NUMBER_SETTING_SPECS["chat.timeout"].default);
 		const discoveryTimeout = config.get<number>("discovery.timeout", NUMBER_SETTING_SPECS["discovery.timeout"].default);
 
-		// Verify defaults are sensible
 		assert.strictEqual(typeof requestTimeout, "number");
 		assert.strictEqual(typeof discoveryTimeout, "number");
 		assert.ok(requestTimeout >= MIN_TIMEOUT_MS);

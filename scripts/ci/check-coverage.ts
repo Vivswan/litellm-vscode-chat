@@ -9,8 +9,8 @@ type FileLines = Map<number, boolean>;
 /**
  * The two coverage runs and, for each, a source file only that runner can
  * load. The sentinels are drift guards: path-form or filter drift in either
- * report must fail loudly, never silently shrink the floor's denominator to
- * whichever report still parses (bun alone would pass the floor today).
+ * report must fail loudly, never shrink the floor's denominator to whichever
+ * report still parses.
  */
 const REPORTS = [
 	{ lcovPath: path.join("coverage", "lcov.info"), sentinel: "src/extension.ts" },
@@ -20,8 +20,8 @@ const REPORTS = [
 /**
  * Repo-relative path with forward slashes. Both runners emit repo-relative
  * lcov today; the absolute branch keeps a reporter that emits absolute paths
- * (as c8's json-summary did) from slipping past the src/ filter unstripped.
- * Slashes normalize first so a Windows path in either form strips the same.
+ * from slipping past the src/ filter unstripped. Slashes normalize first so a
+ * Windows path in either form strips the same.
  */
 function normalizePath(file: string): string {
 	const normalized = file.replaceAll("\\", "/");
@@ -64,9 +64,9 @@ async function main(): Promise<void> {
 		return;
 	}
 
-	// A line counts as covered when either run hit it. Line-level union is
-	// the only sound merge across runners: two 50% summaries can cover
-	// disjoint halves or the same half, so summaries cannot be combined.
+	// A line counts as covered when either run hit it: line-level union is the
+	// only sound merge across runners, since two 50% summaries can cover
+	// disjoint halves or the same half.
 	const merged = new Map<string, FileLines>();
 	for (const { lcovPath, sentinel } of REPORTS) {
 		let text: string;
@@ -92,11 +92,10 @@ async function main(): Promise<void> {
 		}
 	}
 
-	// The host runner's include/exclude filters apply to runtime script paths
-	// before sourcemap remapping, so covering the dist bundle also drags
-	// remapped node_modules sources into the report, and the bun run covers
-	// the test harness files themselves. The floor is over the repository's
-	// own non-test source files only.
+	// The floor is over the repository's own non-test source files only: the
+	// host runner's filters apply before sourcemap remapping, so covering the
+	// dist bundle drags remapped node_modules sources in, and the bun run
+	// covers the test harness files themselves.
 	let total = 0;
 	let covered = 0;
 	let fileCount = 0;

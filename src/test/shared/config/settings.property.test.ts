@@ -9,18 +9,14 @@ const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
 /**
- * normalizeCustomHeaders sits between user-typed settings and the platform's
- * Headers, whose TypeError on an invalid value embeds the full plaintext -
- * and header values can be secrets. So the headline property is totality:
- * whatever the setting holds, the function returns a record and never throws,
- * and everything it returns is sendable.
+ * The platform's Headers embeds the full plaintext in its TypeError, and header values can be
+ * secrets. So the headline property is totality: whatever the setting holds, normalizeCustomHeaders
+ * returns a record, never throws, and everything it returns is sendable.
  */
 
 /**
- * Header-name-ish keys: valid tokens, arbitrary code points (fast-check 4's
- * default string unit is ASCII-only, so the "binary" arm is what actually
- * supplies unicode, lone surrogates, and control characters), plus reserved
- * and deliberately malformed names.
+ * Header-name-ish keys. fast-check 4's default string unit is ASCII-only, so the "binary" arm is
+ * what supplies unicode, lone surrogates, and control characters.
  */
 const tokenChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!#$%&'*+-.^_`|~");
 const headerNameArb = fc.oneof(
@@ -79,10 +75,9 @@ suite("shared/config/settings normalizeCustomHeaders properties", () => {
 	});
 
 	test("padded names trim, and colliding names collapse to one header with the first winning", () => {
-		// headerNameSchema trims before matching, so a hand-authored padded name
-		// is sent under its trimmed form. Two names that collide after trimming
-		// (or that differ only by case) are one HTTP header: the first one in
-		// the object wins and the collision is reported as a diagnostic.
+		// headerNameSchema trims before matching, so a padded name is sent trimmed. Two names that
+		// collide after trimming (or differ only by case) are one HTTP header: the first in the
+		// object wins and the collision is reported as a diagnostic.
 		assert.deepStrictEqual(normalizeCustomHeaders({ " x": "1" }), { x: "1" });
 		assert.deepStrictEqual(normalizeCustomHeaders({ x: "a", " x": "b" }), { x: "a" });
 		assert.deepStrictEqual(normalizeCustomHeaders({ "X-Env": "a", "x-env": "b" }), { "X-Env": "a" });

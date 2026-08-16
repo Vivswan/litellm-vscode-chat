@@ -1,9 +1,7 @@
 /**
- * Programmable capture server for host-fidelity tests.
- *
- * Exports a factory function that returns a controllable HTTP server.
- * The server captures inbound request bodies and returns scenario-specific
- * SSE responses, enabling deterministic testing of the VS Code LM API path.
+ * Programmable capture server for host-fidelity tests: a controllable HTTP
+ * server that captures inbound request bodies and returns scenario-specific SSE
+ * responses.
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -31,10 +29,8 @@ const modelInfoFor = (modelId: string) => ({
 				supports_tool_choice: true,
 				supports_prompt_caching: false,
 				supports_vision: true,
-				// Declared pricing makes every capture run register a model
-				// carrying the numeric cost fields plus the derived priceCategory
-				// through the real host, pinning that the host accepts them
-				// (the capabilities.editTools throw is the precedent).
+				// Declared pricing makes every capture run register the numeric cost
+				// fields plus the derived priceCategory through the real host.
 				input_cost_per_token: 0.00000125,
 				output_cost_per_token: 0.00001,
 			},
@@ -94,9 +90,8 @@ export function createCaptureServer(options?: { modelId?: string }): CaptureServ
 			return sendJson(res, 200, { scenario: name });
 		}
 
-		// Recorded for every request past the _test introspection block above
-		// (unmatched paths included), so suites can prove which credential a
-		// discovery or chat request actually carried.
+		// Recorded for every request past the _test block above (unmatched paths
+		// included), so suites can prove which credential a request carried.
 		if (typeof req.headers.authorization === "string") {
 			seenAuthorizations.add(req.headers.authorization);
 		}
@@ -128,8 +123,8 @@ export function createCaptureServer(options?: { modelId?: string }): CaptureServ
 				return sendJson(res, 500, { error: { message: `No scenario configured` } });
 			}
 
-			// Always the streaming rendition: this fixture's host-fidelity callers
-			// stream every request, and the pre-refactor behavior never collapsed.
+			// Always the streaming rendition: this fixture's callers stream every
+			// request.
 			return playScenario(res, scenario, true);
 		}
 

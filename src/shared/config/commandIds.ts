@@ -4,8 +4,7 @@
  * (commandIds.test.ts pins the package.json mirror). The provider layer's
  * "litellm" strings are a different concept - a provider-name and model-family
  * fallback that happens to share the spelling - and deliberately stay literal
- * over there. No vscode, no Node; localization goes through @vscode/l10n so
- * the host, the provider layer, and the webview can all resolve the title.
+ * over there.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -31,51 +30,32 @@ export const CMD = {
 } as const;
 
 /**
- * CMD.manage's palette title, exactly as package.json contributes it
- * (commandIds.test.ts pins the mirror). User-facing messages that tell the
- * user to run the command interpolate this so they always name what the
- * palette really shows. A function, not a constant: it must resolve through
- * the l10n bundle at call time, after l10n.config has run.
+ * CMD.manage's palette title, exactly as package.json contributes it. A
+ * function, not a constant: it must resolve through the l10n bundle at call
+ * time, after l10n.config has run.
  */
 export function manageCommandTitle(): string {
 	return l10n.t("Manage LiteLLM Provider");
 }
 
-/**
- * CMD.syncModels' palette title, exactly as package.json contributes it
- * (commandIds.test.ts pins the mirror); same call-time-resolution contract as
- * manageCommandTitle above.
- */
+/** CMD.syncModels' palette title; same call-time-resolution contract. */
 export function syncModelsCommandTitle(): string {
 	return l10n.t("LiteLLM: Sync Models Now");
 }
 
-/**
- * CMD.refreshUsage's palette title, exactly as package.json contributes it
- * (commandIds.test.ts pins the mirror); same call-time-resolution contract as
- * manageCommandTitle above.
- */
+/** CMD.refreshUsage's palette title; same call-time-resolution contract. */
 export function refreshUsageCommandTitle(): string {
 	return l10n.t("LiteLLM: Refresh Usage Now");
 }
 
 /**
  * User-facing commands registered at runtime but kept out of
- * contributes.commands on purpose: manageServers is the server-management
- * route the hub's server entry and the dashboard's manage intent share
- * (the dashboard, or the legacy quick pick before migration), and
- * openGroupsFile opens the host's provider-groups JSON directly - the one
- * place a leftover provider group can be deleted, since no editor UI for it
- * is sanctioned. openOutput shows the extension's output channel (the
- * dashboard Diagnostics tab's Open-output-log action), openSettingKey
- * opens the user settings.json at one litellm-vscode-chat.* key (the
- * dashboard's revealSetting intent), and openUsage opens the dashboard on
- * its Servers section, where each row carries its spend (the usage status
- * bar item's click target and the budget alert toasts' action). The palette
- * shows only the manage hub
- * (see registerManageCommand). The litellm._test.* harness commands are
- * deliberately not mapped here: they are test-mode-only, and their ids
- * double as oracle strings in the suites.
+ * contributes.commands on purpose - the palette shows only the manage hub.
+ * openGroupsFile opens the host's provider-groups JSON directly: the one place
+ * a leftover provider group can be deleted, since no editor UI for it is
+ * sanctioned. The litellm._test.* harness commands are deliberately not mapped
+ * here: they are test-mode-only, and their ids double as oracle strings in the
+ * suites.
  */
 export const INTERNAL_CMD = {
 	manageServers: "litellm.manageServers",

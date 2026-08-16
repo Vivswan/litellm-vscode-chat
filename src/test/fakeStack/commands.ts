@@ -1,11 +1,9 @@
 /**
- * Command dispatch for the fake OpenAI backend: the chat input is the
- * control surface. The last non-empty line of the last user message, when it
- * starts with "%" and names a known verb, selects the response; nothing
- * else in the message does. Bare closing-tag lines are transparent to that
- * rule, because chat hosts wrap the typed request in an envelope (see
- * ENVELOPE_CLOSER). Everything here is deterministic - no clocks, no
- * Math.random - so identical conversations produce identical bytes.
+ * Command dispatch for the fake OpenAI backend: the chat input is the control
+ * surface. The last non-empty line of the last user message, when it starts
+ * with "%" and names a known verb, selects the response; nothing else does.
+ * Bare closing-tag lines are transparent to that rule (see ENVELOPE_CLOSER).
+ * Everything here is deterministic - no clocks, no Math.random.
  *
  * Why "%": both obvious sigils are intercepted before the text can reach
  * the model. VS Code Copilot Chat's input claims "/"-prefixed text for its
@@ -29,20 +27,17 @@
  * The module is dependency-free (node builtins only): the fake-openai
  * container runs it from a read-only repo mount without node_modules.
  *
- * Emission follows the realism-first principle: proper chunk envelopes
- * (deterministic id, fixed created, model, system_fingerprint,
- * service_tier), word-boundary delta chunking for prose, and a detailed
- * usage trailer gated on stream_options.include_usage. Observed against
- * LiteLLM v1.93: id, system_fingerprint, and service_tier transit VERBATIM
- * and only created is rewritten - assertions still belong on extracted
- * content, never raw bytes.
+ * Emission follows the realism-first principle: proper chunk envelopes,
+ * word-boundary delta chunking for prose, and a usage trailer gated on
+ * stream_options.include_usage. Observed against LiteLLM v1.93: id,
+ * system_fingerprint, and service_tier transit VERBATIM and only created is
+ * rewritten - assertions still belong on extracted content, never raw bytes.
  *
  * Human-facing diagnostic reports (%help and the introspection verbs) are
- * markdown: chat hosts render replies as markdown, where a single "\n" is a
- * soft break and multi-line plain text collapses into one paragraph. See the
- * "Markdown report formatting" section for the rules. Contract texts stay
- * byte-exact and unformatted: %echo, %play, usage strings, FALLBACK_TEXT,
- * the bad-arguments diagnostic, and the hash-bearing media sentences.
+ * markdown, since chat hosts render replies as markdown; see the "Markdown
+ * report formatting" section. Contract texts stay byte-exact and unformatted:
+ * %echo, %play, usage strings, FALLBACK_TEXT, the bad-arguments diagnostic,
+ * and the hash-bearing media sentences.
  */
 
 import { createHash } from "node:crypto";
@@ -87,10 +82,8 @@ const ERROR_STATUSES = new Set([400, 401, 403, 404, 408, 409, 422, 429, 500, 502
 
 /**
  * The command sigil: the mandatory first byte of a command line. The whole
- * grammar derives from this one constant (recognition, usage strings, help,
- * diagnostics, FALLBACK_TEXT), so swapping the sigil is a one-character edit
- * here plus the prose docs (docs/development.md, AGENTS.md) and the module
- * comments.
+ * grammar derives from this constant, so swapping it is a one-character edit
+ * here plus the prose docs (docs/development.md, AGENTS.md).
  */
 export const COMMAND_SIGIL = "%";
 
@@ -142,25 +135,17 @@ function lastUserIndex(messages: WireMessage[]): number {
 /**
  * A chat host's envelope closer: a line that is EXACTLY an unindented closing
  * tag. Copilot Chat rebuilds the typed request as
- * "<userRequest>\n%help\n</userRequest>", so the message's last line is the
- * closing tag and every interactively typed command would otherwise get the
- * fallback. Such lines are transparent to recognition. An INDENTED closing
- * tag (the usual shape inside pasted XML/HTML) is not transparent. The
- * accepted residue: pasted markup whose ROOT closer ends the message exposes
- * the line above it, which dispatches only if that line is itself an exact
- * command.
+ * "<userRequest>\n%help\n</userRequest>", so without transparency every
+ * interactively typed command would get the fallback. An INDENTED closing tag
+ * (the usual shape inside pasted markup) is not transparent.
  */
 const ENVELOPE_CLOSER = /^<\/[A-Za-z][A-Za-z0-9._-]*>$/;
 
 /**
  * The last non-empty, non-envelope-closer line with ONLY its trailing \r
  * stripped - never trimmed, so a leading space disqualifies the line from
- * being a command (the "%" SIGIL must be the line's first byte) and %echo
- * keeps trailing bytes. The verb AFTER the sigil keeps its trailing
- * tolerance only ("%help " and "%stream :50" dispatch) - a space right
- * after the sigil disqualifies, because %-comment languages write "% word"
- * at line start (see the header). Whitespace-only lines count as empty, and
- * bare closing-tag lines are skipped (see ENVELOPE_CLOSER).
+ * being a command and %echo keeps trailing bytes. Whitespace-only lines count
+ * as empty.
  */
 function lastNonEmptyLine(text: string): string | undefined {
 	const lines = text.split("\n");
@@ -184,11 +169,10 @@ function sha256Hex(data: string | Uint8Array): string {
 }
 
 /**
- * Deterministic per-request envelope: the id hashes the CANONICAL FULL
- * request body, so two requests differing in any field (temperature, tools,
- * stream flags) carry different ids while identical requests repeat theirs.
+ * Deterministic per-request envelope: the id hashes the CANONICAL FULL request
+ * body, so requests differing in any field carry different ids. Cached per
+ * request, not per chunk: large attachment bodies would hash quadratically.
  */
-/** One canonicalJson + sha256 per request, not per chunk: large attachment bodies would otherwise hash quadratically. */
 const envelopeCache = new WeakMap<object, Record<string, unknown>>();
 
 function envelope(context: CommandContext): Record<string, unknown> {
@@ -293,24 +277,16 @@ function numberedChunks(context: CommandContext, count: number): unknown[] {
 // ── Markdown report formatting ───────────────────────────────────────────────
 //
 // Diagnostic reports emit one "- " bullet per fact and blank lines between
-// logical sections, with every VARIABLE value (tool names, mime types, roles,
-// JSON fragments) inside a backtick code span. The span is dual-purpose:
-// bullets survive markdown rendering, and content-derived text cannot style
-// the report (a tool description containing "*" or "_" stays literal).
-// Single-sentence replies ("no tools offered", the zero-marker sentence) stay
-// bare - one sentence renders fine and their bytes are pinned by the suites.
+// logical sections, with every VARIABLE value inside a backtick code span, so
+// content-derived text cannot style the report. Single-sentence replies stay
+// bare - their bytes are pinned by the suites.
 
 /**
- * A code span around one variable value. Newlines collapse to single spaces
- * first: a code span cannot contain a line ending, so a value carrying
- * "\n\n# heading" would otherwise break the bullet, leave the span
- * unclosed, and inject real markdown structure. A value containing
- * backticks gets a longer span fence padded with spaces - CommonMark's own
- * escape for backticks inside code spans - so no value can close the span
- * early. An empty value renders as the fixed `(empty)` token: a bare "``"
- * is not a code span. Renderers strip one leading and one trailing space
- * per span (that is what closes over the pad); purely cosmetic for values
- * with edge spaces, and record lines never start with one.
+ * A code span around one variable value. Newlines collapse to spaces first (a
+ * code span cannot contain a line ending, so a value carrying "\n\n# heading"
+ * would inject real markdown structure). A value containing backticks gets a
+ * longer padded fence, CommonMark's own escape, so no value closes the span
+ * early. An empty value renders as `(empty)`: a bare "``" is not a code span.
  */
 function code(value: string): string {
 	const flat = value.replace(/\r\n?|\n/g, " ");
@@ -331,10 +307,9 @@ function bullet(fact: string): string {
 }
 
 /**
- * Structured record lines (part shapes, marker positions, hash lines) render
- * as bullets holding ONE code span each: the record's bytes stay grep- and
- * regex-extractable exactly as before (sha256 tokens stay bare hex), and no
- * fragment of the record can style the report.
+ * Structured record lines render as bullets holding ONE code span each, so the
+ * record's bytes stay grep- and regex-extractable (sha256 tokens stay bare hex)
+ * and no fragment of the record can style the report.
  */
 function recordBullets(records: string[]): string[] {
 	return records.map((record) => bullet(code(record)));
@@ -368,11 +343,10 @@ function parseSeed(text: string): number | undefined {
 }
 
 /**
- * The %echon escape decoder: exactly two escapes, "\n" to a newline and
- * "\\" to a literal backslash, scanned left to right so "\\n" stays a
- * literal backslash-n. Every other byte passes through untouched. %echo
- * stays the byte-exact oracle; this verb exists precisely so that contract
- * never gains interpretation.
+ * The %echon escape decoder: exactly two escapes, "\n" to a newline and "\\"
+ * to a literal backslash, scanned left to right so "\\n" stays a literal
+ * backslash-n. %echo stays the byte-exact oracle; this verb exists precisely
+ * so that contract never gains interpretation.
  */
 function decodeEchonEscapes(text: string): string {
 	return text.replace(/\\(n|\\)/g, (_, escaped: string) => (escaped === "n" ? "\n" : "\\"));
@@ -601,12 +575,10 @@ function cacheMarkerRecords(context: CommandContext): string[] {
 
 // ── Generated media payloads (%image, %audio) ────────────────────────────────
 
-// Observed against the live stack (LiteLLM v1.93): both media delta shapes
-// below - the delta.images list with a data URL, and the gpt-4o-style
-// delta.audio object - transit the proxy VERBATIM, full base64 payload
-// intact. The extension surfaces both as vscode.LanguageModelDataPart, so
-// LM-level tests assert DataPart byte fidelity against the pinned hashes
-// while raw SSE observation keeps pinning proxy transit itself.
+// Observed against LiteLLM v1.93: both media delta shapes below transit the
+// proxy VERBATIM, full base64 payload intact. The extension surfaces both as
+// vscode.LanguageModelDataPart, so LM-level tests assert DataPart byte fidelity
+// against the pinned hashes.
 
 /** 1x1 red PNG, byte-stable. */
 const PNG_BYTES = Buffer.from(
@@ -758,8 +730,7 @@ const COMMAND_TABLE: ReadonlyArray<{
 			if (offered.length === 0) {
 				return textResult(context, "no tools offered");
 			}
-			// Empty names and empty descriptions both take code()'s `(empty)`
-			// rendering - one rule, no special-cased bullet shapes.
+			// Empty names and descriptions both take code()'s `(empty)` rendering.
 			const lines = offered.map((tool) => bullet(`${code(tool.name)}: ${code(tool.description)}`));
 			return textResult(context, lines.join("\n"));
 		}),
@@ -792,8 +763,7 @@ const COMMAND_TABLE: ReadonlyArray<{
 				return textResult(context, "no cache_control markers received (none sent, or stripped by the proxy)");
 			}
 			// The total is a closing PARAGRAPH, not a bullet: a bullet after the
-			// blank line would turn the whole marker list loose in CommonMark,
-			// spacing every bullet as its own paragraph.
+			// blank line would turn the whole marker list loose in CommonMark.
 			return textResult(context, sections(recordBullets(markers), [`total: ${markers.length}`]));
 		}),
 	},
@@ -856,9 +826,8 @@ const COMMAND_TABLE: ReadonlyArray<{
 	{
 		verb: "tool",
 		usage: `${COMMAND_SIGIL}tool:<name> [json]`,
-		// Angle-bracket tokens in descriptions are backticked: a bare <name>
-		// renders unreliably across markdown renderers (HTML-allowing ones
-		// swallow it as a tag).
+		// Angle-bracket tokens are backticked: a bare <name> renders unreliably
+		// across markdown renderers (HTML-allowing ones swallow it as a tag).
 		description: "call the offered tool `<name>` with the JSON args; with a tool result present, summarize it",
 		run: runTool,
 	},
@@ -1071,11 +1040,9 @@ interface ParsedCommand {
 }
 
 /**
- * The exact line recognition reads (last non-empty, non-envelope-closer line
- * of the last user message), exposed for the fake server's request log: a
- * command that fails to dispatch is diagnosable from the log alone, because
- * leading whitespace, host-appended context, and typos are all visible in
- * that line. parseCommand consumes this, so log and dispatch cannot disagree.
+ * The exact line recognition reads, exposed for the fake server's request log:
+ * a command that fails to dispatch is diagnosable from the log alone.
+ * parseCommand consumes this, so log and dispatch cannot disagree.
  */
 export function dispatchLine(context: CommandContext): string | undefined {
 	const messages = requestMessages(context);
@@ -1085,16 +1052,10 @@ export function dispatchLine(context: CommandContext): string | undefined {
 
 /**
  * A command is recognized ONLY on the last non-empty line of the last user
- * message (bare closing-tag lines are transparent; see ENVELOPE_CLOSER),
- * with a mandatory leading "%". The verb (between the sigil and
- * the first colon, or end of line) matches case-insensitively and tolerates
- * trailing whitespace ONLY - trimEnd, never trim, so "%help " and
- * "%stream :50" dispatch while "% help" is plain text (see the module
- * header for the %-comment rationale). The argument is everything after the
- * first colon, case preserved (%echo is byte-exact after that colon;
- * numeric commands trim their pieces themselves). Lines starting with "/"
- * or "!" are ordinary text - chat surfaces intercept both before they can
- * reach the model, so they must never dispatch here either.
+ * message, with a mandatory leading "%". The verb matches case-insensitively
+ * and tolerates trailing whitespace ONLY - trimEnd, never trim, so "%help "
+ * and "%stream :50" dispatch while "% help" is plain text (see the header).
+ * The argument is everything after the first colon, case preserved.
  */
 function parseCommand(context: CommandContext): ParsedCommand | undefined {
 	const line = dispatchLine(context);

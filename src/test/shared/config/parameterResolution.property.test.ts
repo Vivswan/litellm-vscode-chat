@@ -1,17 +1,11 @@
 /**
- * The effective-values inspector's safety argument: the projection the
- * dashboard renders and the request body the transport sends are two reads
- * of one shared resolution, and this property pins that they cannot drift.
- * For random global records (exact, glob, and catch-all matchers with
- * `_force`, `_inheritable`, and `_inherit_from` directives), entry records,
- * raw IDs, and model limits: every key the projection marks sent appears in
- * buildRequestBody's output with the right value under the full chain
- * (forced > runtime > picker > entry > global), every non-provider-owned
- * body key appears in the projection as sent, and the projected max_tokens
- * equals the body's. A configuration property pins the live-settings read
- * (getModelParametersConfig) to the shared resolver's normalized input.
- * The inheritance semantics themselves have their own naive-oracle fuzzer
- * (recordResolution.property.test.ts).
+ * The effective-values inspector's safety argument: the projection the dashboard renders
+ * and the request body the transport sends are two reads of one shared resolution, and
+ * this property pins that they cannot drift. Every key the projection marks sent appears
+ * in buildRequestBody's output with the right value under the full chain
+ * (forced > runtime > picker > entry > global), every non-provider-owned body key appears
+ * in the projection as sent, and the projected max_tokens equals the body's. A
+ * configuration property pins the live-settings read to the resolver's normalized input.
  */
 import * as assert from "node:assert";
 import * as fc from "fast-check";
@@ -40,10 +34,9 @@ const RESERVED_KEYS = new Set(["constructor", "prototype"]);
 const idChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789.-");
 const rawIdArb = fc.string({ unit: idChar, minLength: 1, maxLength: 10 }).filter((key) => !RESERVED_KEYS.has(key));
 
-// A small shared pool makes cross-layer key collisions (the shadowing branch)
-// common; owned and underscore keys exercise the not-sent classifications,
-// and max_tokens exercises the derivation hand-off. "_force" is excluded from
-// the random underscore keys: the directive is generated deliberately below.
+// A small shared pool makes cross-layer key collisions (the shadowing branch) common;
+// owned and underscore keys exercise the not-sent classifications, and max_tokens the
+// derivation hand-off. "_force" is generated deliberately below, not at random.
 const paramKey = fc.oneof(
 	{ arbitrary: fc.constantFrom("temperature", "top_p", "seed", "max_tokens"), weight: 3 },
 	{ arbitrary: fc.constantFrom("model", "messages", "stream", "stream_options", "tools", "tool_choice"), weight: 1 },
@@ -239,10 +232,9 @@ suite("shared/config parameterResolution equivalence properties", () => {
 				}
 				for (const row of projection.rows) {
 					if (row.forced === true) {
-						// max_tokens is the one forceable provider-owned key: its value
-						// rides the derivation (numeric) or nothing (junk), never the
-						// pass-through body, so it is also the one forced row that can
-						// render as not sent.
+						// max_tokens is the one forceable provider-owned key: its value rides
+						// the derivation (numeric) or nothing (junk), never the pass-through
+						// body, so it is also the one forced row that can render as not sent.
 						if (row.name === "max_tokens") {
 							assert.ok(!row.sent, "a max_tokens row exists only when non-numeric, and never passes through");
 							continue;
@@ -262,10 +254,9 @@ suite("shared/config parameterResolution equivalence properties", () => {
 					}
 				}
 
-				// The derivation line states the body's exact max_tokens whenever the
-				// one thing the projection cannot know (a runtime numeric option) is
-				// absent from the request - and always when a forced value tops the
-				// chain, because forced beats runtime.
+				// The derivation line states the body's exact max_tokens whenever the one
+				// thing the projection cannot know (a runtime numeric option) is absent -
+				// and always when a forced value tops the chain, since forced beats runtime.
 				if (typeof resolved.forcedParams.max_tokens === "number" || typeof modelOptions?.max_tokens !== "number") {
 					assert.strictEqual(projection.maxTokens.value, body.max_tokens);
 				}

@@ -1,16 +1,15 @@
 /**
  * The entry restructure: pre-redesign `servers` entries carried flat
  * credential fields plus per-entry records; the redesigned shape groups them
- * under `auth`, `models`, and `discovery`. Pure functions over the raw
- * setting value - acceptance rules and secret semantics are deliberately
- * duplicated from the old parser here (quarantine), so the live parser can
- * be rewritten for the new shape without touching migration behavior.
+ * under `auth`, `models`, and `discovery`. Pure functions over the raw setting
+ * value - acceptance rules and secret semantics are deliberately duplicated
+ * from the old parser here (quarantine), so the live parser can be rewritten
+ * for the new shape without touching migration behavior.
  *
  * Secrets never appear: a field whose value lives only in SecretStorage was
- * simply absent from the flat entry and stays absent from the restructured
- * one - the stored value keeps working through its unchanged storage key and
- * the auth form's stored-slot activation rule. The migration reads no
- * secrets, writes no secrets, and synthesizes no placeholder fields.
+ * absent from the flat entry and stays absent from the restructured one - the
+ * stored value keeps working through its unchanged storage key. The migration
+ * reads no secrets, writes no secrets, and synthesizes no placeholder fields.
  */
 
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
@@ -37,9 +36,9 @@ function usableString(value: unknown): string | undefined {
 
 /**
  * The entries scoped keys and the global headers value may move into, under
- * the old acceptance rules (usable label and baseUrl, no reserved label,
- * first entry wins a repeated label): only accepted entries ever became
- * groups, so only they ever read a scoped key.
+ * the old acceptance rules (usable label and baseUrl, no reserved label, first
+ * entry wins a repeated label): only accepted entries ever became groups, so
+ * only they ever read a scoped key.
  */
 export function scopedMoveTargets(rawServers: unknown): ScopedMoveTarget[] {
 	if (!Array.isArray(rawServers)) {
@@ -119,24 +118,21 @@ function collectAuthFields(
 }
 
 /**
- * The flat fields' auth object under the settled primacy rule (oauth >
- * apiKey > virtualKey; a form carries strictly-lower-primacy companions):
- * a structurally usable oauth (BOTH tokenUrl and clientId, matching the old
+ * The flat fields' auth object under the settled primacy rule (oauth > apiKey
+ * > virtualKey; a form carries strictly-lower-primacy companions): a
+ * structurally usable oauth (BOTH tokenUrl and clientId, matching the old
  * runtime's hasOAuth gate) is the form and demotes apiKey and virtualKey to
- * companions; apiKey beside virtualKey is the apiKey form with the
- * virtualKey companion - exactly the header set the old transport sent for
- * each combination. Lone oauth pieces are DROPPED like other never-honored
- * values (counted by the caller): the old runtime ignored a partial oauth
- * entirely, while carrying it forward would make the whole entry
- * misconfigured (structurally incomplete auth is refused, ruling Q2 #3).
- * A SENDABLE virtualKey HEADER without its value keeps riding - the value
- * may rest in SecretStorage, and the parser accepts a header waiting for its
- * secret (ruling Q2 #4). A VALUE without its header, and a header that is
- * not a valid HTTP header name (the old runtime ignored the whole pair;
- * narrowVirtualKey's sendability rule), can never reach the wire - carrying
- * either forward would misconfigure the whole entry, so they drop like the
- * lone oauth pieces (counted; a stored blob under the label survives and a
- * re-added header finds it).
+ * companions; apiKey beside virtualKey is the apiKey form with the virtualKey
+ * companion - exactly the header set the old transport sent for each
+ * combination.
+ *
+ * Lone oauth pieces are DROPPED like other never-honored values: the old
+ * runtime ignored a partial oauth entirely, and carrying it forward would make
+ * the whole entry misconfigured. A SENDABLE virtualKey HEADER without its
+ * value keeps riding - the value may rest in SecretStorage. A VALUE without
+ * its header, and a header that is not a valid HTTP header name, can never
+ * reach the wire, so they drop like the lone oauth pieces (a stored blob under
+ * the label survives and a re-added header finds it).
  */
 function buildAuth(fields: Partial<Record<LegacyEntryAuthFieldId, string>>): {
 	auth: Record<string, unknown> | undefined;
@@ -194,11 +190,10 @@ function buildAuth(fields: Partial<Record<LegacyEntryAuthFieldId, string>>): {
 }
 
 /**
- * Restructure one raw entry record. Entries without any legacy flat field
- * are already new-world (or minimal) and ride verbatim. A hand-mixed entry
- * carrying both shapes merges with the nested side winning: nested values
- * are the newer intent, and the flat leftovers still drain so the entry
- * stops being detected as legacy.
+ * Restructure one raw entry record. Entries without any legacy flat field are
+ * already new-world and ride verbatim. A hand-mixed entry carrying both shapes
+ * merges with the nested side winning: nested values are the newer intent, and
+ * the flat leftovers still drain so the entry stops being detected as legacy.
  */
 function restructureEntry(record: Record<string, unknown>, counts: EntryRestructureCounts): Record<string, unknown> {
 	if (!LEGACY_ENTRY_FIELD_IDS.some((id) => Object.hasOwn(record, id))) {
@@ -240,9 +235,8 @@ function restructureEntry(record: Record<string, unknown>, counts: EntryRestruct
 	const flatDiscovery = discoveryPairs.length > 0 ? fromPairs(discoveryPairs) : undefined;
 
 	// `auth` never merges: exactly one form is legal, and mixing a flat
-	// credential into an existing auth object would fabricate a second form
-	// (or a companion the user never configured). The nested object is the
-	// newer intent and wins WHOLESALE; superseded flat pieces drain as junk.
+	// credential into an existing auth object would fabricate a second form.
+	// The nested object is the newer intent and wins WHOLESALE.
 	let mergedAuth: unknown;
 	if (record.auth === undefined) {
 		mergedAuth = flatAuth;
@@ -364,11 +358,10 @@ export function entryCanReceiveRecordKeys(entry: unknown, kind: "parameters" | "
 
 /**
  * The two list-shaped directives a colliding-record merge must reconcile;
- * everything else merges entry-wins. Each carries the eligibility rule its
- * own parser applies when expanding a `true` directive, so the merge cannot
- * mint names the old world never marked (and the diagnostics that would
- * come with them): `_force` refuses provider-owned and underscore keys,
- * `_fallback` accepts only validly-typed capability fields.
+ * everything else merges entry-wins. Each carries the eligibility rule its own
+ * parser applies when expanding a `true` directive, so the merge cannot mint
+ * names the old world never marked: `_force` refuses provider-owned and
+ * underscore keys, `_fallback` accepts only validly-typed capability fields.
  */
 const LIST_DIRECTIVES: readonly {
 	readonly name: string;
@@ -381,27 +374,22 @@ const LIST_DIRECTIVES: readonly {
 const LIST_DIRECTIVE_NAMES: readonly string[] = LIST_DIRECTIVES.map((directive) => directive.name);
 
 /**
- * Merge a moved scoped record into the entry's own record under the SAME
- * key - the one overlap the move can resolve losslessly, because identical
- * keys match identical models and the old runtime merged the entry record
- * over the scoped one field by field: entry fields win, scoped-only fields
- * fill in.
+ * Merge a moved scoped record into the entry's own record under the SAME key -
+ * the one overlap the move can resolve losslessly, because identical keys
+ * match identical models and the old runtime merged the entry record over the
+ * scoped one field by field: entry fields win, scoped-only fields fill in.
  *
  * The directives are the delicate half, because adding fields to a record
- * changes what its own `_force`/`_fallback` cover. Two rules keep each
- * field at the level it had:
+ * changes what its own `_force`/`_fallback` cover. Two rules keep each field
+ * at the level it had:
  *  - an entry-side `true` marked the ENTRY's fields only, so it expands to
- *    that literal list before scoped-only fields land (the same
- *    statement-for-fields trade the trio merge makes, and only when fields
- *    really land);
- *  - an entry-side list name that marked nothing (the entry does not set
- *    that field) is dropped when the scoped record supplies the field, so
- *    an inert mark cannot spring to life on a value that was never marked.
+ *    that literal list before scoped-only fields land;
+ *  - an entry-side list name that marked nothing is dropped when the scoped
+ *    record supplies the field, so an inert mark cannot spring to life on a
+ *    value that was never marked.
  * The scoped side's marks then follow its surviving fields. A scoped name
  * whose field the entry overrode is dropped rather than re-pointed at the
- * entry's value - the one residual of the old "a scoped-forced field beats
- * an unforced entry value" refinement, pinned in the divergence suite.
- * Returns undefined when nothing changes.
+ * entry's value. Returns undefined when nothing changes.
  */
 function mergeCollidingRecords(
 	existing: Record<string, unknown>,
@@ -428,17 +416,15 @@ function mergeCollidingRecords(
 					: [];
 		if (existingRaw !== undefined && existingRaw !== false && !Array.isArray(existingRaw)) {
 			if (existingRaw === true && arrivingNames.size > 0) {
-				// Expand before the arriving fields widen what `true` covers - and
-				// the scoped side's marks follow its surviving fields (a scoped
-				// fallback/force landed at its own level in the old world; the
-				// entry's `true` covered only the entry's own fields).
+				// Expand before the arriving fields widen what `true` covers; the
+				// scoped side's marks follow its surviving fields.
 				const surviving = additionNames.filter((name) => arrivingNames.has(name));
 				directiveChanges.push([directive, [...eligibleNames(existing, eligible), ...surviving]]);
 				continue;
 			}
 			// A `true` with nothing arriving (or a junk value) stays as written;
 			// junk cannot take additions without overwriting the user's text, so
-			// arriving marks are dropped with it (the stays-as-written trade).
+			// arriving marks are dropped with it.
 			continue;
 		}
 		// An entry-side name the entry itself does not set marked nothing; keep
@@ -460,11 +446,10 @@ function mergeCollidingRecords(
 /**
  * Add migrated record keys to one entry's `models.<kind>` record. A key the
  * entry does not have is added outright; a colliding key merges through
- * mergeCollidingRecords (entry fields win, scoped-only content fills in), so
- * reruns and user deletions never resurrect or overwrite anything. An
- * entry-side value the old normalization dropped (a non-record) is not
- * user configuration at all - the scoped record was what applied - so the
- * incoming record replaces it.
+ * mergeCollidingRecords, so reruns and user deletions never resurrect or
+ * overwrite anything. An entry-side value the old normalization dropped (a
+ * non-record) is not user configuration at all - the scoped record was what
+ * applied - so the incoming record replaces it.
  */
 export function withEntryRecordAdditions(
 	entry: Record<string, unknown>,
@@ -538,8 +523,7 @@ export function entryCanReceiveHeaders(entry: unknown): boolean {
 
 /**
  * Copy global header names into one entry's `headers`; existing entry names
- * win case-insensitively (HTTP header names compare that way, and the
- * entry's value is the newer intent).
+ * win case-insensitively (HTTP header names compare that way).
  */
 export function withEntryHeaders(
 	entry: Record<string, unknown>,

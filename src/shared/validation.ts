@@ -4,10 +4,9 @@ import { isToolResultPart } from "./conversion/messages";
 import { chatErrorMessage, englishChatErrorMessage, localizedError } from "./mirroredError";
 
 /**
- * English mirror of the tool-pairing headline. The call IDs in the detail
- * originate from earlier model output (response-derived), so the thrown
- * error also carries a count-only logClassification for the public log
- * surfaces; the full mirror rides only as englishMessage (output channel).
+ * English mirror of the tool-pairing headline. The call IDs in the detail are
+ * response-derived, so the thrown error also carries a count-only
+ * logClassification; the full mirror rides only as englishMessage.
  */
 const TOOL_PAIRING_HEADLINE_ENGLISH =
 	"This conversation is missing a tool result, so the request can't be sent. Start a new chat to continue; if it keeps happening, the extension driving this conversation is dropping tool results when it rebuilds history.";
@@ -21,8 +20,7 @@ function toolPairingHeadline(): string {
 
 /**
  * Validate the request message sequence for correct tool call/result pairing.
- * Diagnostic detail travels in the thrown error, following the
- * transport-module error-ownership convention (AGENTS.md, "Error ownership").
+ * Diagnostic detail travels in the thrown error, never logged here.
  */
 export function validateRequest(messages: readonly vscode.LanguageModelChatRequestMessage[]): void {
 	const lastMessage = messages[messages.length - 1];

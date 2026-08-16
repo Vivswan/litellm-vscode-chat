@@ -98,18 +98,14 @@ export class GroupDiscovery {
 	 * remembered outcome, so the merged status (and the cycle bookkeeping that
 	 * ages groups out) stays live across cached sweeps. Cache misses go through
 	 * the single-flight fetch, so a burst of host calls for one group costs one
-	 * request; every caller still reports status once, like it always did.
-	 * `bypassCache` (testKnownGroupConnections) drops the stored result first,
-	 * forcing the network, and the fresh result repopulates the cache.
+	 * request. `bypassCache` drops the stored result first, forcing the network.
 	 *
 	 * The cache holds pre-attach infos; the group server is attached on every
-	 * read, cached or fetched, so each sweep hands the host fresh objects and
-	 * nothing the host mutates in place (like the group-name detail) can be
-	 * pinned into later sweeps. Attaching the full group server (OAuth and
-	 * virtual-key credentials included) also means cached sweeps route chat
-	 * requests with the current credentials; the cache key is the group client
-	 * ID, which fingerprints those credentials, so rotating any of them lands
-	 * on a fresh cache entry.
+	 * read, so each sweep hands the host fresh objects and nothing the host
+	 * mutates in place can be pinned into later sweeps. Attaching the full group
+	 * server also means cached sweeps route chat requests with the current
+	 * credentials; the cache key fingerprints those credentials, so rotating any
+	 * of them lands on a fresh cache entry.
 	 */
 	async fetchGroupModels(groupServer: GroupServer, silent: boolean, bypassCache = false): Promise<LiteLLMModelInfo[]> {
 		const server: ServerConnection = {
@@ -127,12 +123,9 @@ export class GroupDiscovery {
 			infos.map((info) => attachGroupServer(info, groupServer));
 
 		// A group the user explicitly removed answers empty and never touches
-		// the network or the cache. Its status still reports (as healthy with
-		// zero models, flagged hiddenByRemoval so the presentation layers name
-		// the cause) so the status window ages it like any live group and the
-		// dashboard's hidden-groups view sees a coherent snapshot. Unhiding
-		// fires the change event; the host's re-resolution then lands back here
-		// with the predicate answering false.
+		// the network or the cache. Its status still reports (healthy with zero
+		// models, flagged hiddenByRemoval) so the status window ages it like any
+		// live group and the dashboard's hidden-groups view stays coherent.
 		if (this._options.isGroupSuppressed(server.label, groupServer.baseUrl)) {
 			this._options.log("Provider group is hidden by an explicit user removal; serving no models", {
 				baseUrl: server.baseUrl,
@@ -254,25 +247,21 @@ export class GroupDiscovery {
 			} else {
 				this._options.logError(`Failed to fetch models for provider group at ${server.baseUrl}`, error);
 			}
-			// Both status renderings are constructed at this boundary (see
-			// statusErrorTexts).
+			// Both status renderings are constructed at this boundary.
 			const texts = statusErrorTexts(error);
 			// The window's last known models ride along with the error status, so
 			// a group that just failed does not lose its last-served set: a silent
-			// refresh returns those models decorated as stale (warning icon plus
-			// hover banner) instead of making them vanish. Retention is anchored
-			// to the last SUCCESSFUL discovery (see staleServableModels); the
-			// banner names the same success time, so repeated failures cannot
-			// make the data look freshly checked either. Past the window the
-			// failure serves the empty list, as it always did. The window is the
-			// honest source here - it is this session's live state, unlike the
-			// extension layer's persisted status, which can be a stale prior
-			// session's. Declared models are rebuilt from the current
-			// configuration and merged in un-staled (they never depend on the
-			// success anchor and never enter the window); a declared ID the
-			// last discovery listed stays inert against the stale set. Test
-			// Connection (non-silent) still throws, except that an expected
-			// failure with declared models serves the declared set instead.
+			// refresh returns those models decorated as stale instead of making
+			// them vanish. Retention is anchored to the last SUCCESSFUL discovery,
+			// and the banner names the same success time, so repeated failures
+			// cannot make the data look freshly checked. Past the window the
+			// failure serves the empty list. The window is the honest source here:
+			// it is this session's live state, unlike the extension layer's
+			// persisted status. Declared models are rebuilt from the current
+			// configuration and merged in un-staled; a declared ID the last
+			// discovery listed stays inert against the stale set. Test Connection
+			// (non-silent) still throws, except that an expected failure with
+			// declared models serves the declared set instead.
 			const stale = this._options.window.staleServableModels(server.id);
 			const { overridden, declared } = this._options.decorator.decorate(
 				stale !== undefined

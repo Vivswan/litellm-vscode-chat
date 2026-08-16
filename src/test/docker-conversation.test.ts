@@ -16,22 +16,16 @@ import {
 import { expectDefined } from "./pureHelpers";
 
 /**
- * Multi-turn conversation property suite for the docker LiteLLM stack.
+ * Multi-turn conversation property suite for the docker LiteLLM stack: randomized-length conversations
+ * against gpt-5.2-mini (single deployment, deliberately: responses cannot vary by routing) through the real
+ * proxy. Turns mix %echo, %text, %think, %play of a runtime-registered custom scenario, and the two-turn
+ * %tool flow with a synthesized tool result fed back. Assertions target extracted content only - text, tool
+ * calls, tool-call/result pairing across turns - never raw bytes (LiteLLM stamps its own created on every
+ * chunk). %deployment is excluded: its oracle is relational and a directed docker test covers it.
  *
- * Each iteration generates a conversation of randomized length against
- * gpt-5.2-mini (single deployment, deliberately: responses cannot vary by
- * routing) through the real proxy. Turns mix %echo, %text, %think, %play of
- * a runtime-registered custom scenario, and the two-turn %tool flow with a
- * synthesized tool result fed back. Assertions target extracted content
- * only - text, tool calls, tool-call/result pairing across turns - never raw
- * bytes (LiteLLM stamps its own created on every chunk). %deployment is
- * excluded: its oracle is relational and a directed docker test covers it.
- *
- * The iteration budget is its own knob (CONVERSATION_ITERATIONS, default
- * 10) so nightly's FUZZ_ITERATIONS=500 cannot multiply multi-round-trip
- * conversations into the job budget. Reproduce any run with
- * FUZZ_SEED=<seed> (the seed knob is shared with the stream fuzzer); the
- * seed is always logged in nightly's grep format.
+ * The iteration budget is its own knob (CONVERSATION_ITERATIONS, default 10) so nightly's
+ * FUZZ_ITERATIONS=500 cannot multiply multi-round-trip conversations into the job budget. Reproduce any run
+ * with FUZZ_SEED=<seed> (the seed knob is shared with the stream fuzzer); the seed is always logged.
  */
 
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
@@ -43,7 +37,7 @@ const FAKE_URL = process.env.LITELLM_DOCKER_FAKE_URL || "";
 const SEED = resolveDockerFuzzSeed();
 const ITERATIONS = Math.max(1, Math.floor(Number(process.env.CONVERSATION_ITERATIONS)) || 10);
 
-/** Deterministic PRNG (mulberry32), same family as the stream fuzzer. */
+/** Deterministic PRNG, same family as the stream fuzzer. */
 function mulberry32(seed: number): () => number {
 	let state = seed >>> 0;
 	return () => {
@@ -63,7 +57,6 @@ const TOOL = {
 };
 
 interface TurnPlan {
-	/** The user message text for this turn. */
 	command: string;
 	/** Assert the turn's extracted content; returns the assistant text to append to history. */
 	check(parts: unknown[]): string;
@@ -128,9 +121,8 @@ suite("Docker LiteLLM multi-turn conversations", () => {
 		this.timeout(90000);
 		await ensureActivated();
 		await catalogOff();
-		// The stack's ids are fixed, so a pre-existing copy of the playback
-		// model would be indistinguishable from this entry's; fail fast instead
-		// of conversing through a leftover group.
+		// The stack's ids are fixed, so a pre-existing copy of the playback model
+		// would be indistinguishable from this entry's; fail fast.
 		await assertIdsUnserved([PLAYBACK_MODEL.alias]);
 		await writeServerEntry(
 			{ label: uniqueName("Docker conversations"), baseUrl: BASE_URL, auth: { apiKey: API_KEY } },
@@ -159,7 +151,6 @@ suite("Docker LiteLLM multi-turn conversations", () => {
 		const random = mulberry32(SEED ^ 0x2545f491);
 
 		for (let iteration = 0; iteration < ITERATIONS; iteration++) {
-			// One custom scenario per conversation, registered up front.
 			const registered = `conversation-${SEED}-${iteration}`;
 			const registration = await fetch(`${FAKE_URL}/_test/custom-scenario`, {
 				method: "PUT",

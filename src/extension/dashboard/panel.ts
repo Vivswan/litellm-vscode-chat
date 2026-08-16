@@ -2,8 +2,7 @@
  * The dashboard WebviewPanel wiring. DashboardController holds the panel
  * lifecycle and message dispatch against injected seams (panel factory,
  * snapshot source, settings access), so everything but the last-mile vscode
- * calls is unit-testable. registerDashboardCommand supplies the real vscode
- * implementations.
+ * calls is unit-testable. registerDashboardCommand supplies the real ones.
  *
  * The panel does not retain context when hidden: the webview is a stateless
  * view, so a fresh page asking for state (the "ready" handshake) rebuilds it
@@ -119,20 +118,19 @@ export interface DashboardPanel {
 }
 
 /**
- * The per-server resolver seams, grouped: how the dashboard answers
- * questions about one snapshot server's identity and configuration (plus the
- * shared resolution cache those answers read through). Every member resolves
- * through the provider's own machinery (the group lookup, the request path's
- * entry resolvers, the shared flat table), so the dashboard structurally
- * cannot diverge from registration and requests; the next per-server
- * resolver belongs here, not as another loose env member.
+ * The per-server resolver seams, grouped: how the dashboard answers questions
+ * about one snapshot server's identity and configuration. Every member
+ * resolves through the provider's own machinery (the group lookup, the request
+ * path's entry resolvers, the shared flat table), so the dashboard
+ * structurally cannot diverge from registration and requests; the next
+ * per-server resolver belongs here, not as another loose env member.
  */
 export interface ServerResolution {
-	/** Whether a snapshot belongs to a provider group (vs the legacy registry); see buildDashboardState. */
+	/** Whether a snapshot belongs to a provider group (vs the legacy registry). */
 	isGroupSnapshot(serverId: string): boolean;
-	/** The request path's per-entry modelParameters resolution for a snapshot's server; see entryParametersResolver. */
+	/** The request path's per-entry modelParameters resolution; see entryParametersResolver. */
 	resolveEntryParameters(serverId: string): EntryParametersResolution | undefined;
-	/** The declared entry's own modelCapabilities for a snapshot's server; the readModelCapabilities responder's entry layer. */
+	/** The declared entry's own modelCapabilities: the readModelCapabilities responder's entry layer. */
 	resolveEntryCapabilities(serverId: string): EntryCapabilitiesRecord | undefined;
 	/**
 	 * The provider's shared flat resolution table, so the capability inspector
@@ -168,7 +166,7 @@ export interface DashboardControllerEnv extends IntentEnvironment {
 	 * stored numbers instead of re-probing the fleet on every focus.
 	 */
 	refreshUsageIfStale(): void;
-	/** Search the catalog snapshot for the picker; the panel bounds the result list before it crosses. */
+	/** Search the catalog snapshot; the panel bounds the result list before it crosses. */
 	searchCatalog(query: string): readonly CatalogModelSummary[];
 	settingsReader(): SettingsReader;
 	log(message: string, data?: unknown): void;
@@ -184,15 +182,15 @@ export interface DashboardControllerEnv extends IntentEnvironment {
  */
 export type DashboardMessageOutcome = "ok" | "validation-error" | "ignored-malformed";
 
-/** One observed group identity as a set key, normalized exactly like the tombstone store's identities. */
+/** One observed group identity as a set key, normalized like the tombstone store's identities. */
 function observedIdentityKey(label: string, baseUrl: string): string {
 	return `${label}\n${normalizeBaseUrl(baseUrl)}`;
 }
 
-/** How many catalog search results one response may carry; the picker shows a short list, never the catalog. */
+/** How many catalog search results one response may carry; the picker shows a short list. */
 const CATALOG_RESULT_LIMIT = 20;
 
-/** A request whose method the table classifies as a read; see the guards below. */
+/** A request whose method the table classifies as a read. */
 type ReadRequest = Extract<RpcRequestType, { method: ReadMethod }>;
 
 /** Everything else: the handshake plus the acked and fire-and-forget intents. */
@@ -241,37 +239,33 @@ export class DashboardController implements vscode.Disposable {
 	/**
 	 * Mutating intents run one at a time: two concurrent saves would
 	 * read-modify-write the same servers array and lose one of the updates, so
-	 * every mutating message joins this chain (the CONCURRENT_MESSAGE_TYPES
-	 * reads run off it, and a malformed message is rejected before it reaches
-	 * it). The settled value is irrelevant to the chain itself (outcomes
-	 * matter only to injectMessageForTest).
+	 * every mutating message joins this chain (concurrent-channel reads run off
+	 * it, and a malformed message is rejected before reaching it).
 	 */
 	private _messageChain: Promise<unknown> = Promise.resolve();
 	/**
 	 * The deep-link target of the latest open call, held until the page proves
-	 * it can receive messages. Delivery is gated on the generation match below
-	 * because a loading or reloading page silently drops posts: a not-yet-ready
-	 * page keeps the target pending and the ready handshake flushes it.
-	 * Consumed once, so a later reload cannot replay a stale jump.
+	 * it can receive messages: a loading or reloading page silently drops
+	 * posts, so the ready handshake flushes it. Consumed once, so a later
+	 * reload cannot replay a stale jump.
 	 */
 	private _pendingFocusSection: DashboardSectionId | undefined;
 	/**
 	 * Group identities (label + normalized base URL) observed alive at some
-	 * point this session, accumulated from every state push's snapshots.
-	 * Session-sticky on purpose: snapshots age out of the status window after
-	 * minutes, but a suppressed group the host still holds must keep its
-	 * hidden-groups row all session, while a group deleted from the models
-	 * file before this session never reports and must not show a ghost row.
+	 * point this session. Session-sticky on purpose: snapshots age out of the
+	 * status window after minutes, but a suppressed group the host still holds
+	 * must keep its hidden-groups row all session, while a group deleted from
+	 * the models file before this session must not show a ghost row.
 	 */
 	private readonly _observedGroupIdentities = new Set<string>();
 	/**
 	 * The current page's generation, bumped whenever the page is torn down or
-	 * replaced: the panel hides (without retainContextWhenHidden the page dies
-	 * hidden and reloads on reveal) or the panel is disposed.
-	 * _readyGeneration records the generation whose ready handshake completed
-	 * - each handshake is judged against the generation current when it
-	 * ARRIVED, so one handled late, after its page died, cannot vouch for the
-	 * next page. The page is provably listening only while the two match.
+	 * replaced (the panel hides - without retainContextWhenHidden the page dies
+	 * hidden and reloads on reveal - or is disposed). _readyGeneration records
+	 * the generation whose ready handshake completed, judged against the
+	 * generation current when it ARRIVED, so a handshake handled late cannot
+	 * vouch for the next page. The page is provably listening only while the
+	 * two match.
 	 */
 	private _pageGeneration = 0;
 	private _readyGeneration: number | undefined;
@@ -282,9 +276,8 @@ export class DashboardController implements vscode.Disposable {
 	open(section?: DashboardSectionId): void {
 		this._pendingFocusSection = section;
 		// Opening serves the stored numbers and re-fetches only when they are
-		// stale (docs/usage.md): re-focusing an open panel or opening twice in
-		// a minute must not re-probe the fleet. Fire-and-forget - the poller's
-		// completion re-push lands the numbers when a pass does run.
+		// stale: re-focusing an open panel must not re-probe the fleet. The
+		// poller's completion re-push lands the numbers when a pass does run.
 		this.env.refreshUsageIfStale();
 		if (this._panel !== undefined) {
 			this._panel.reveal();
@@ -325,12 +318,8 @@ export class DashboardController implements vscode.Disposable {
 	/**
 	 * Test-only injection seam: run one raw message through the exact same
 	 * path a webview post takes - both callers share enqueueMessage, so an
-	 * injected message gets the same parse, the same routing (chain,
-	 * off-chain, or immediate malformed rejection), and the same ordering a
-	 * webview-posted one would, and cannot drift from the real handling.
-	 * Nothing is bypassed: the message meets parseDashboardRequest (the
-	 * envelope parse plus the per-method intent-schema map) precisely as a
-	 * webview-posted message would. Registered behind the non-production
+	 * injected message gets the same parse, routing, and ordering, and cannot
+	 * drift from the real handling. Registered behind the non-production
 	 * litellm._test.dashboardMessage command.
 	 */
 	injectMessageForTest(raw: unknown): Promise<DashboardMessageOutcome> {
@@ -340,23 +329,18 @@ export class DashboardController implements vscode.Disposable {
 	/**
 	 * The one enqueue path for every message, webview-posted or injected: the
 	 * schema parse happens here, once, so every routing decision below acts on
-	 * validated data - a malformed message resolves ignored-malformed before
-	 * anything routes on it. The parsed request joins the serialized chain, and
-	 * the chain's rejection handler (which also marks the outcome promise
-	 * handled for fire-and-forget callers) logs the failure. The page
-	 * generation is captured at arrival, not at handling: the chain may drain a
-	 * message after the page that sent it died, and a late ready must not vouch
-	 * for the next page.
+	 * validated data. The page generation is captured at arrival, not at
+	 * handling: the chain may drain a message after the page that sent it
+	 * died, and a late ready must not vouch for the next page.
 	 *
 	 * The channel column of the endpoint table routes the queue: "concurrent"
 	 * methods run OFF the chain - they never read-modify-write the servers
 	 * array (the only reason the chain serializes), and the draft-connection
-	 * probe among them can block on the network for a whole discovery timeout,
-	 * so chaining them would stall every later Save behind a slow or abandoned
-	 * probe. They still take the exact same handleRequest dispatch; only their
-	 * place in the queue differs. Their rejection guard mirrors the chain's so
-	 * a thrown handler cannot surface as an unhandled rejection for the
-	 * fire-and-forget webview caller.
+	 * probe among them can block for a whole discovery timeout, so chaining
+	 * them would stall every later Save behind a slow probe. They take the same
+	 * handleRequest dispatch; only their place in the queue differs, and their
+	 * rejection guard mirrors the chain's so a thrown handler cannot surface as
+	 * an unhandled rejection.
 	 */
 	private enqueueMessage(raw: unknown): Promise<DashboardMessageOutcome> {
 		const arrivalGeneration = this._pageGeneration;
@@ -365,10 +349,8 @@ export class DashboardController implements vscode.Disposable {
 			this.env.log("Ignoring malformed dashboard message", { issues: parsed.issues });
 			// A parse whose envelope frame survived still identifies the caller:
 			// answer a notifying method with a correlated refusal, or an editor
-			// waiting on this id (a save whose payload tripped a size bound)
-			// would stay pending forever with no message. Reads stay silent -
-			// their fail path does not exist on the wire, and their bounds are
-			// unreachable by extension-minted inputs.
+			// waiting on this id would stay pending forever. Reads stay silent -
+			// their fail path does not exist on the wire.
 			const frame = parsed.frame;
 			if (frame !== undefined && isNotifyingMethod(frame.method)) {
 				this.postToPanel({
@@ -428,8 +410,7 @@ export class DashboardController implements vscode.Disposable {
 		const declared = this.env.getDeclaredServers();
 		const entryReports = serverSettingReports(this.env.readServersSetting());
 		// The parked-headers hint stands only while externally managed groups
-		// exist (the R3 ruling); externality here is the same join the servers
-		// table renders from.
+		// exist; externality here is the same join the servers table renders.
 		const hasExternalGroups = joinDeclared(labeledSnapshots(snapshots), declared).unmatched.size > 0;
 		const removedGroups = this.env.getRemovedGroups();
 		const wasGroupObserved = (label: string, baseUrl: string) =>
@@ -455,9 +436,8 @@ export class DashboardController implements vscode.Disposable {
 					declared,
 					// The same list the servers section's hidden-groups line renders.
 					hiddenGroups: visibleHiddenGroups(removedGroups, wasGroupObserved),
-					// The advisory-hint evidence, from the same snapshots the state
-					// renders: per entry its own server's observed set, global records
-					// the cross-server union.
+					// The advisory-hint evidence: per entry its own server's observed
+					// set, global records the cross-server union.
 					observedKeysByEntry: observedKeysByEntryLabel(snapshots, declared),
 					observedKeysUnion: observedModelInfoKeysUnion(snapshots),
 				}),
@@ -485,8 +465,7 @@ export class DashboardController implements vscode.Disposable {
 	private readonly readResponders: ReadResponders = {
 		readInlineSecrets: (request) => ({
 			// The edit form's on-demand prefill: values only for fields stored
-			// inline in the servers setting (already plaintext there), read at
-			// request time.
+			// inline in the servers setting (already plaintext there).
 			kind: "response",
 			id: request.id,
 			method: "readInlineSecrets",
@@ -532,7 +511,7 @@ export class DashboardController implements vscode.Disposable {
 		},
 		readModelParameters: (request) => {
 			// The params inspector's read: resolved through the provider's shared
-			// flat table (the same cache requests read) and projected extension-side.
+			// flat table and projected extension-side.
 			const { scopeKey, rawId } = request.payload;
 			const parametersReader = this.env.settingsReader();
 			const answer = resolveDashboardModelParameters(
@@ -603,9 +582,8 @@ export class DashboardController implements vscode.Disposable {
 	 */
 	private readonly intentRunners: IntentRunners = {
 		ready: (_payload, context) => {
-			// Each handshake is judged against the generation current when it
-			// ARRIVED: one handled late, after its page died, cannot vouch for
-			// the next page.
+			// Judged against the generation current when the handshake ARRIVED:
+			// one handled late cannot vouch for the next page.
 			if (context.arrivalGeneration === this._pageGeneration) {
 				this._readyGeneration = context.arrivalGeneration;
 			}
@@ -684,17 +662,15 @@ export class DashboardController implements vscode.Disposable {
 			// notice is the webview's signal to surface the message and return the
 			// affected editor to a retryable draft. Validation and operation
 			// messages travel to the webview only: validation text can quote an
-			// entered key (a header name, a modelParameters prefix), and the log
-			// buffer feeds public issue reports, so the log gets classifications
-			// for every failure kind.
+			// entered key, and the log buffer feeds public issue reports, so the
+			// log gets classifications for every failure kind.
 			let message: string;
 			let failureKind: "validation" | "operation" = "validation";
 			let classification: TransportErrorClassification | undefined;
 			if (error instanceof DashboardValidationError) {
 				message = error.message;
-				// Classification only (enum ids and a status, from the transport's
-				// probe error) - protocol-legal and log-legal by the same rule, so
-				// it also rides the log line for issue-report triage.
+				// Classification only (enum ids and a status) - protocol-legal and
+				// log-legal, so it also rides the log line for issue-report triage.
 				classification = error.classification;
 				this.env.log("Dashboard intent rejected", {
 					method: request.method,
@@ -721,9 +697,8 @@ export class DashboardController implements vscode.Disposable {
 				...(classification !== undefined ? { classification } : {}),
 			});
 			// One class for every refused-or-failed intent: the outcome consumer
-			// (the monkey fuzzer) only needs "did not act as asked", and the
-			// validation/operation split already travels via the fail notice's
-			// failureKind.
+			// only needs "did not act as asked", and the validation/operation
+			// split already travels via the fail notice's failureKind.
 			return "validation-error";
 		}
 	}
@@ -790,14 +765,13 @@ function createRealPanel(extensionUri: vscode.Uri): DashboardPanel {
 /**
  * The dashboard's request-scope seam: what the request path would resolve as
  * a snapshot server's per-entry modelParameters. Deliberately composed from
- * the request path's own pieces - the group lookup the chat path's attached
- * server comes from, and the same (label, baseUrl) resolver call chat
- * requests make (readEntryModelParameters in production) - NOT from the
- * stricter labeled-identity join behind the entry-params-inactive notice: a
- * group with rotated credentials still carries the entry's label and URL, so
- * requests through it still receive the entry's parameters, and the
- * inspector must say so. Unlabeled groups and registry snapshots resolve to
- * nothing, matching the request path exactly.
+ * the request path's own pieces - the group lookup and the same (label,
+ * baseUrl) resolver call chat requests make - NOT from the stricter
+ * labeled-identity join behind the entry-params-inactive notice: a group with
+ * rotated credentials still carries the entry's label and URL, so requests
+ * through it still receive the entry's parameters, and the inspector must say
+ * so. Unlabeled groups and registry snapshots resolve to nothing, matching
+ * the request path exactly.
  */
 export function entryParametersResolver(
 	// Structurally GroupServer's label and baseUrl; unbranded because the
@@ -819,9 +793,9 @@ export function entryParametersResolver(
  * DeclaredServerView equivalents straight from the setting, for the window
  * right after activation when the sync engine's first pass has not landed
  * yet. Secret locations reflect only what the setting itself can prove: an
- * inline value (per the sync engine's own inlineSecretValues rule) reads as
- * "settings", anything else as "none" (a secure blob may exist, but checking
- * it is async and state pushes carry locations, never values).
+ * inline value reads as "settings", anything else as "none" (a secure blob
+ * may exist, but checking it is async and state pushes carry locations, never
+ * values).
  */
 export function declaredViewsFromSetting(raw: unknown): DeclaredServerView[] {
 	return parseServersSetting(raw).entries.map((entry) => {
@@ -851,8 +825,7 @@ export function declaredViewsFromSetting(raw: unknown): DeclaredServerView[] {
  * the declared-model projection appended to each server's model list.
  * Declared models never enter the status window (they are config-rebuilt on
  * every serve), so this merge is what keeps the dashboard's model list equal
- * to the set the picker serves; a snapshot with nothing declared passes
- * through unchanged.
+ * to the set the picker serves.
  */
 export function declaredMergedSnapshots(
 	provider: Pick<LiteLLMChatModelProvider, "getServerSnapshots" | "declaredModelsForSnapshot">
@@ -865,11 +838,10 @@ export function declaredMergedSnapshots(
 
 /**
  * Register litellm.openDashboard and litellm.showDiagnostics (the deep link
- * to the Diagnostics tab; the palette entry and notification actions run it)
- * and keep the panel in sync with the stores: configuration changes re-push
- * directly; provider status changes arrive via the returned controller's
- * refresh(), called from the status fan-out in wiring/ui.ts, and server sync
- * passes via the engine's onDidSync hook.
+ * to the Diagnostics tab) and keep the panel in sync with the stores:
+ * configuration changes re-push directly; provider status changes arrive via
+ * the returned controller's refresh(), called from the status fan-out in
+ * wiring/ui.ts, and server sync passes via the engine's onDidSync hook.
  */
 export function registerDashboardCommand(
 	context: vscode.ExtensionContext,
@@ -882,12 +854,9 @@ export function registerDashboardCommand(
 	// picker's search, the lookup feeds the capability inspector, the status
 	// feeds the settings row, and refreshNow backs the row's Refresh button.
 	catalog: Pick<OpenRouterCatalogStore, "lookup" | "snapshot" | "status" | "refreshNow">,
-	// The usage poller: its store feeds the Servers page's usage cards,
-	// refreshNow backs their Refresh button and the open-fetches-fresh rule.
 	usagePoller: UsagePoller,
 	// The same composed entry-capabilities resolver activation wires into the
-	// provider, so the inspector structurally cannot diverge from registration
-	// and requests.
+	// provider, so the inspector cannot diverge from registration and requests.
 	getEntryModelCapabilities: (label: string, baseUrl: string) => EntryCapabilitiesRecord | undefined
 ): DashboardController {
 	const serverResolution: ServerResolution = {
@@ -899,8 +868,7 @@ export function registerDashboardCommand(
 			readEntryModelParameters
 		),
 		// The entry layer resolves through the provider's own identity source
-		// (group label, or the registry sweep's recorded label) and the injected
-		// resolver.
+		// (group label, or the registry sweep's recorded label).
 		resolveEntryCapabilities: (serverId) => {
 			const identity = provider.capabilityEntryIdentity(serverId);
 			return identity !== undefined ? getEntryModelCapabilities(identity.label, identity.baseUrl) : undefined;
@@ -910,9 +878,6 @@ export function registerDashboardCommand(
 	const settingsAccess = createSettingsAccess();
 	const controller = new DashboardController({
 		createPanel: () => createRealPanel(context.extensionUri),
-		// Declared models never enter the status window (they are config-rebuilt
-		// on every serve), so the dashboard merges the provider's projection
-		// into each snapshot's model list - the same set the picker serves.
 		getSnapshots: () => declaredMergedSnapshots(provider),
 		getDeclaredServers: () => {
 			// The engine's declared view is authoritative once a pass has run;
@@ -950,11 +915,10 @@ export function registerDashboardCommand(
 				isFresh: isUsageFresh,
 			}),
 		getParkedGlobalHeaders: () => context.globalState.get<unknown>(PARKED_GLOBAL_HEADERS_KEY),
-		// Fire-and-forget kicks; both push state when they settle so the row
-		// status / Refresh-now button reflect the outcome. The catalog row stays
-		// toast-free; an explicit usage refresh in which NO server returned data
-		// acknowledges itself with one warning toast (partial failures render on
-		// the cards instead).
+		// Fire-and-forget kicks; both push state when they settle. The catalog
+		// row stays toast-free; an explicit usage refresh in which NO server
+		// returned data acknowledges itself with one warning toast (partial
+		// failures render on the cards instead).
 		refreshCatalogNow: () => {
 			void catalog.refreshNow().finally(() => controller.refresh());
 		},
@@ -965,10 +929,8 @@ export function registerDashboardCommand(
 				.finally(() => controller.refresh());
 		},
 		// The open-triggered pass: staleness-gated, and never toasted - the
-		// total-failure acknowledgment belongs to the EXPLICIT refresh the user
-		// asked for, not to a background pass opening happened to start. No
-		// completion chaining either: the poller's own start and completion
-		// notifications already re-push the dashboard.
+		// total-failure acknowledgment belongs to the EXPLICIT refresh. The
+		// poller's own notifications already re-push the dashboard.
 		refreshUsageIfStale: () => {
 			void usagePoller.refreshIfStale();
 		},
@@ -989,9 +951,9 @@ export function registerDashboardCommand(
 		deleteServerSecrets: (label) => deleteServerSecrets(context.secrets, label),
 		requestServerSync: () => syncEngine.requestSync(),
 		// The adopt intent's credential source: the provider's in-memory group
-		// lookup, resolved at intent time (against what is external at intent
-		// time) so the values never sit in dashboard state. They flow from here
-		// into the setting or SecretStorage only.
+		// lookup, resolved at intent time against what is external then, so the
+		// values never sit in dashboard state. They flow from here into the
+		// setting or SecretStorage only.
 		resolveAdoptionCredentials: (baseUrl, sourceHandle) =>
 			resolveAdoptableCredentials(
 				provider.getServerSnapshots(),
@@ -1001,9 +963,8 @@ export function registerDashboardCommand(
 				(serverId) => provider.getGroupServer(serverId)
 			),
 		// The hide intent's identity source: the same still-external resolution
-		// the adopt path uses, minus the credentials, and gated to group-backed
-		// snapshots (a legacy-registry row has no group a tombstone could
-		// silence, so it is not hideable).
+		// the adopt path uses, minus the credentials, gated to group-backed
+		// snapshots (a legacy-registry row has no group to silence).
 		resolveExternalGroup: (baseUrl, sourceHandle) =>
 			resolveExternalGroupIdentity(
 				provider.getServerSnapshots(),
@@ -1013,14 +974,14 @@ export function registerDashboardCommand(
 				serverResolution.isGroupSnapshot
 			),
 		// Tombstone writes fire the store's onDidChange, which the activation
-		// wiring points at the provider's model-change event: the host
-		// re-resolves and the hidden group's models leave (or return to) the
-		// picker without waiting for the next background refresh.
+		// wiring points at the provider's model-change event: the hidden group's
+		// models leave (or return to) the picker without waiting for the next
+		// background refresh.
 		hideGroup: (identity) => removals.addTombstone(identity),
 		unhideGroup: (identity) => removals.removeTombstone(identity),
 		// The draft-connection test's probe: one throwaway discovery pass, no
 		// mutation, no caching, and no logger (its discovery chatter would enter
-		// the issue-report buffer); see createDraftConnectionProbe.
+		// the issue-report buffer).
 		probeDraftConnection: createDraftConnectionProbe(context),
 		executeCommand: (command, ...args) => vscode.commands.executeCommand(command, ...args),
 		log: (message, data) => logger.log(message, data),

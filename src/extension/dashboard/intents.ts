@@ -50,16 +50,14 @@ import { applyTestServerDraft } from "./testDraftConnection";
  * A constraint violation detected by this module's own validation. Its
  * message may travel to the webview verbatim so the user sees which rule
  * failed, but never to the log: some messages quote an entered key (a header
- * name, a modelParameters prefix), the entered text can be anything the user
- * pasted, and the log buffer feeds public issue reports. The panel boundary
- * logs a classification only.
+ * name, a modelParameters prefix), and the log buffer feeds public issue
+ * reports. The panel boundary logs a classification only.
  */
 export class DashboardValidationError extends Error {
 	/**
 	 * The transport classification behind the failure, when a probe supplied
 	 * one: enum ids and a status number only, never message text, so it rides
-	 * both the fail envelope and the boundary's rejection log
-	 * line.
+	 * both the fail envelope and the boundary's rejection log line.
 	 */
 	readonly classification?: TransportErrorClassification;
 
@@ -74,10 +72,9 @@ export class DashboardValidationError extends Error {
 
 /**
  * An intent that partially applied: the durable write landed but a follow-up
- * effect the user asked for did not, so the intent must report failure with an
- * accurate way forward. Like DashboardValidationError, the message is written
- * to be safe for the webview (actionable, never a value) and the panel
- * boundary logs a classification only.
+ * effect did not, so the intent must report failure with an accurate way
+ * forward. Like DashboardValidationError, the message is webview-safe
+ * (actionable, never a value) and the panel boundary logs a classification.
  */
 export class DashboardOperationError extends Error {
 	constructor(message: string) {
@@ -108,16 +105,15 @@ export interface IntentEnvironment {
 	requestServerSync(): void;
 	/**
 	 * The live credentials of the external group an adopt intent names by its
-	 * opaque row handle, from the provider's in-memory status window. Resolves
-	 * only groups that are still external and still at `baseUrl` (see
-	 * resolveAdoptableCredentials). The returned values go straight into the
-	 * setting or SecretStorage and are never logged.
+	 * opaque row handle. Resolves only groups that are still external and still
+	 * at `baseUrl`. The returned values go straight into the setting or
+	 * SecretStorage and are never logged.
 	 */
 	resolveAdoptionCredentials(baseUrl: string, sourceHandle: string): AdoptableGroupCredentials | undefined;
 	/**
 	 * The identity (status label and base URL) of the external group a hide
 	 * intent names by its opaque row handle; same resolution rules as the
-	 * adopt path (still external, still at `baseUrl`), no credential material.
+	 * adopt path, no credential material.
 	 */
 	resolveExternalGroup(baseUrl: string, sourceHandle: string): { label: string; baseUrl: string } | undefined;
 	/** Persist one removed-group tombstone; the group answers with no models until unhidden. */
@@ -127,22 +123,20 @@ export interface IntentEnvironment {
 	/** Classification-only logging (the buffer feeds public issue reports); never a payload value. */
 	log(message: string, data?: unknown): void;
 	/**
-	 * One discovery probe against a fully resolved draft connection (the
-	 * testServerDraft intent). Read-only by contract - no settings write, no
-	 * group or status mutation, no caching across probes - bounded by the
-	 * discovery.timeout setting, and the connection's credential values are
-	 * never logged. Resolves to the discovered raw model IDs (the caller
-	 * counts them and checks declared-ID inertness against them); throws the
-	 * transport's classified error on failure.
+	 * One discovery probe against a fully resolved draft connection. Read-only
+	 * by contract - no settings write, no group or status mutation, no caching
+	 * across probes - bounded by the discovery.timeout setting, and the
+	 * connection's credential values are never logged. Resolves to the
+	 * discovered raw model IDs; throws the transport's classified error.
 	 */
 	probeDraftConnection(connection: DraftConnection): Promise<readonly string[]>;
 	/**
-	 * Kick one immediate OpenRouter catalog refresh (the settings row's
-	 * Refresh). Fire-and-forget from the intent's view: the wiring re-pushes
-	 * state when the refresh settles, and the row status carries the outcome.
+	 * Kick one immediate OpenRouter catalog refresh. Fire-and-forget: the
+	 * wiring re-pushes state when the refresh settles, and the row status
+	 * carries the outcome.
 	 */
 	refreshCatalogNow(): void;
-	/** Kick one immediate usage refresh (the Servers page's Refresh now); same fire-and-forget contract. */
+	/** Kick one immediate usage refresh; same fire-and-forget contract. */
 	refreshUsageNow(): void;
 }
 
@@ -161,8 +155,7 @@ const COMMANDS_BY_ID: Record<DashboardCommandId, { command: string; args: readon
  * number is not writable, or undefined when it is. Reasons are two-part - a
  * localized headline, then a technical detail line - and the detail names the
  * setting id because the failure banner is page-global and names no field;
- * the id stays an ASCII identifier outside the translation, like the form
- * messages' fieldId prefixes.
+ * the id stays an ASCII identifier outside the translation.
  */
 export function validateNumberSetting(setting: NumberSettingId, value: number | null): string | undefined {
 	const spec = NUMBER_SETTING_SPECS[setting];
@@ -253,11 +246,9 @@ function validateConnectionFields(
 /**
  * The value constraints on a saveServerSetting intent, mirroring the webview
  * form's field-level rules (serverForm.ts) for messages that bypassed it.
- * Cross-field pairing (OAuth's token URL and client ID, the virtual key's
- * header and value) is enforced in applySaveServerSetting, where the resolved
- * secrets context exists. Returns the reason the intent is not applicable, or
- * undefined when it is. Reasons name fields, never values: payloads carry
- * secrets, and the message is echoed to the webview.
+ * Cross-field pairing is enforced in applySaveServerSetting, where the
+ * resolved secrets context exists. Reasons name fields, never values: payloads
+ * carry secrets, and the message is echoed to the webview.
  */
 export function validateSaveServerSetting(
 	server: SaveServerPayload,
@@ -275,25 +266,23 @@ export function validateSaveServerSetting(
 		return connectionProblem;
 	}
 	if (server.modelParameters !== undefined) {
-		// The same reserved-key rules the global setModelParameters intent
-		// enforces; the message already names the offending rule.
 		const problem = validateModelParametersRecord(server.modelParameters);
 		if (problem !== undefined) {
 			return `modelParameters: ${problem}`;
 		}
 	}
-	// Same record-of-records shape, same reserved-key rules; capability
-	// vocabulary and value typing stay with the resolver's parse, which
-	// diagnoses rather than refuses (the setting is lenient by design).
+	// Same reserved-key rules; capability vocabulary and value typing stay with
+	// the resolver's parse, which diagnoses rather than refuses (the setting is
+	// lenient by design).
 	const capabilitiesProblem = validateModelParametersRecord(server.modelCapabilities);
 	if (capabilitiesProblem !== undefined) {
 		return `modelCapabilities: ${capabilitiesProblem}`;
 	}
-	// Mirrors the form's header-row rules (recordDraft's parse) and the
-	// request path's normalizeCustomHeaders acceptance: names and the value
-	// charset are refused here so a save can never "succeed" on a header the
-	// wire would drop. Header NAMES are structural configuration and may be
-	// echoed; values never are.
+	// Mirrors the form's header-row rules and the request path's
+	// normalizeCustomHeaders acceptance: names and the value charset are
+	// refused here so a save can never "succeed" on a header the wire would
+	// drop. Header NAMES are structural configuration and may be echoed;
+	// values never are.
 	const seenLower = new Set<string>();
 	for (const [name, value] of Object.entries(server.headers)) {
 		if (isUnsafeRecordKey(name)) {
@@ -322,9 +311,7 @@ export function validateSaveServerSetting(
 /**
  * The value constraints on a testServerDraft intent: the connection-relevant
  * subset of the save rules. The label deliberately goes unchecked (empty and
- * reserved labels probe fine; the label only addresses "keep" resolution),
- * and cross-field pairing is enforced in applyTestServerDraft, where the
- * resolved secrets exist - the same split the save path uses.
+ * reserved labels probe fine; the label only addresses "keep" resolution).
  */
 export function validateTestServerDraft(
 	server: SaveServerPayload,
@@ -344,12 +331,11 @@ export function rawServerEntries(raw: unknown): unknown[] {
 }
 
 /**
- * Whether a raw entry carries this label. Compared trimmed on both sides:
+ * Whether a raw entry carries this label, trimmed on both sides:
  * parseServersSetting trims labels, so a hand-written `" Prod "` entry
  * displays as "Prod" and its edits and removals must find it again. Removal
- * matches every raw carrier of the label on purpose; per-entry resolution
- * (the edit prefill, the save target) goes through acceptedEntry instead,
- * so it lands on the same entry the parsed views describe.
+ * matches every raw carrier of the label on purpose; per-entry resolution goes
+ * through acceptedEntry instead.
  */
 function entryHasLabel(entry: unknown, label: string): entry is Record<string, unknown> {
 	return isRecord(entry) && typeof entry.label === "string" && entry.label.trim() === label.trim();
@@ -358,13 +344,12 @@ function entryHasLabel(entry: unknown, label: string): entry is Record<string, u
 /**
  * One declared entry's inline secret values, for the edit form's on-demand
  * prefill (the readInlineSecrets request). The entry resolves through
- * acceptedEntry, so the values come from exactly the entry the dashboard
- * row describes (a rejected same-label sibling cannot shadow it, and a label
- * the parser rejects yields nothing), and the values come from
- * inlineSecretValues, the sync engine's own rule for what counts as inline -
- * so the prefilled fields are exactly the ones whose pushed location reads
- * "settings". Fields stored securely or absent get NO key: their values must
- * never reach the webview. The returned values are never logged.
+ * acceptedEntry, so the values come from exactly the entry the dashboard row
+ * describes, and inlineSecretValues (the sync engine's own rule for what
+ * counts as inline) decides which fields qualify - so the prefilled fields are
+ * exactly the ones whose pushed location reads "settings". Fields stored
+ * securely or absent get NO key: their values must never reach the webview.
+ * The returned values are never logged.
  */
 export function readInlineSecretValues(raw: unknown, label: string): Readonly<Partial<Record<SecretFieldId, string>>> {
 	const accepted = acceptedEntry(raw, label);
@@ -397,17 +382,15 @@ export async function executeDashboardIntent(
 		case "resetSetting":
 			// Removes the key from the highest-precedence scope that sets it
 			// (workspaceFolder > workspace > user), which is what the native
-			// Settings editor's reset does in that scope: the next scope's value
-			// or the default shows through, and repeated resets walk down the
-			// scopes. Deliberately not updateSetting's write-scope rule, which
-			// never targets the folder scope and would leave a folder value
-			// standing while removing a hidden lower-scope one.
+			// Settings editor's reset does in that scope. Deliberately not
+			// updateSetting's write-scope rule, which never targets the folder
+			// scope and would leave a folder value standing.
 			await env.removeSetting(intent.payload.setting);
 			return undefined;
 		case "revealSetting":
-			// The schema already pinned the setting to REVEALABLE_SETTING_IDS
-			// (only known ids cross the boundary); the command resolves the full
-			// "litellm-vscode-chat.<key>" itself and is best-effort by design.
+			// The schema already pinned the setting to REVEALABLE_SETTING_IDS; the
+			// command resolves the full "litellm-vscode-chat.<key>" itself and is
+			// best-effort by design.
 			await env.executeCommand(INTERNAL_CMD.openSettingKey, intent.payload.setting);
 			return undefined;
 		case "setModelParameters": {
@@ -420,7 +403,7 @@ export async function executeDashboardIntent(
 		}
 		case "setModelCapabilities": {
 			// The same reserved-key gate as the parameters record; the capability
-			// vocabulary itself stays with the resolver's lenient, diagnosing parse.
+			// vocabulary stays with the resolver's lenient, diagnosing parse.
 			const problem = validateModelParametersRecord(intent.payload.value);
 			if (problem !== undefined) {
 				throw new DashboardValidationError(problem);
@@ -429,12 +412,11 @@ export async function executeDashboardIntent(
 			return undefined;
 		}
 		case "setUsageStatusBar":
-			// The schema already pinned the value to the closed mode vocabulary.
 			await env.updateSetting(USAGE_STATUS_BAR_SETTING_KEY, intent.payload.value);
 			return undefined;
 		case "setTokenEstimation":
-			// Closed vocabulary, pinned by the schema; the tokenizer wiring reacts
-			// to the configuration change like a hand edit of settings.json.
+			// The tokenizer wiring reacts to the configuration change like a hand
+			// edit of settings.json.
 			await env.updateSetting(TOKEN_ESTIMATION_SETTING_KEY, intent.payload.value);
 			return undefined;
 		case "setCurrencySymbol":
@@ -443,9 +425,9 @@ export async function executeDashboardIntent(
 			await env.updateSetting(CURRENCY_SYMBOL_SETTING_KEY, intent.payload.value);
 			return undefined;
 		case "setAdditionalToolSchemaKeywords": {
-			// Empty and prototype-polluting names are refused here rather than
-			// silently dropped: the dashboard's editor already trims empties away,
-			// so anything else is a bypassing caller. Written deduplicated in the
+			// Empty and prototype-polluting names are refused rather than silently
+			// dropped: the dashboard's editor already trims empties away, so
+			// anything else is a bypassing caller. Written deduplicated in the
 			// given order - the canonical form normalization would produce anyway.
 			if (intent.payload.values.some((value) => value.length === 0 || isUnsafeRecordKey(value))) {
 				throw new DashboardValidationError(
@@ -460,19 +442,18 @@ export async function executeDashboardIntent(
 			return undefined;
 		}
 		case "setUiTheme":
-			// Closed vocabularies, pinned by the schema. Writing the setting is the
-			// whole intent: the configuration change re-pushes state, and the
-			// webview restamps the root element from it, so the picker and a hand
-			// edit of settings.json travel the same path.
+			// Writing the setting is the whole intent: the configuration change
+			// re-pushes state and the webview restamps the root element from it,
+			// so the picker and a hand edit travel the same path.
 			await env.updateSetting(UI_THEME_SETTING_KEY, intent.payload.value);
 			return undefined;
 		case "setUiAccent":
 			await env.updateSetting(UI_ACCENT_SETTING_KEY, intent.payload.value);
 			return undefined;
 		case "setUsageAlertThresholds": {
-			// Out-of-range values are refused here rather than silently dropped:
-			// the dashboard's editor validates the same rule, so anything else is
-			// a bypassing caller. Written sorted and deduplicated - the canonical
+			// Out-of-range values are refused rather than silently dropped: the
+			// dashboard's editor validates the same rule, so anything else is a
+			// bypassing caller. Written sorted and deduplicated - the canonical
 			// form normalization would produce anyway.
 			const invalid = intent.payload.values.some((value) => !(value > 0 && value <= 1));
 			if (invalid) {
@@ -510,8 +491,7 @@ export async function executeDashboardIntent(
 				throw new DashboardValidationError(problem);
 			}
 			const outcome = await applyTestServerDraft(intent.payload, env);
-			// Static classification plus counts, composed here so the webview
-			// renders it verbatim; never payload or response text.
+			// Static classification plus counts; never payload or response text.
 			if (outcome.kind === "expected-failure") {
 				return outcome.declaredCount === 1
 					? l10n.t("Discovery failed (expected) - serving 1 declared model")
@@ -543,8 +523,7 @@ export async function executeDashboardIntent(
 		}
 		case "declareExpectedFailure": {
 			const entries = rawServerEntries(env.readServersSetting());
-			// Resolution agrees with the parsed world (the saveServerSetting rule):
-			// the entry written is the one the dashboard row described, never a
+			// The entry written is the one the dashboard row described, never a
 			// rejected same-label sibling.
 			const accepted = acceptedEntry(entries, intent.payload.label);
 			const rawEntry = accepted !== undefined ? entries[accepted.index] : undefined;
@@ -557,16 +536,15 @@ export async function executeDashboardIntent(
 			const discovery = isRecord(rawEntry.discovery) ? rawEntry.discovery : {};
 			const declared = Array.isArray(discovery.expectedFailures) ? discovery.expectedFailures : [];
 			if (declared.includes(category)) {
-				// Already declared (a stale row, a double click): the ack is truthful
-				// with nothing written.
+				// Already declared (a stale row, a double click): the ack is
+				// truthful with nothing written.
 				return undefined;
 			}
 			// Everything else on the entry - junk keys included - is preserved
 			// verbatim; only discovery.expectedFailures grows by one category. The
-			// one deliberate exception: a non-record `discovery` or a non-array
-			// `expectedFailures` (shapes the setting parser already reports and
-			// ignores) is replaced by the valid shape, since preserving it would
-			// leave the declaration unable to land at all.
+			// one exception: a non-record `discovery` or a non-array
+			// `expectedFailures` is replaced by the valid shape, since preserving
+			// it would leave the declaration unable to land at all.
 			const next = [...entries];
 			next[accepted.index] = {
 				...rawEntry,
@@ -582,13 +560,12 @@ export async function executeDashboardIntent(
 			const baseUrl = intent.payload.baseUrl.trim();
 			if (baseUrl.length === 0 || !isUsableHttpUrl(baseUrl)) {
 				// The "fieldId:" prefix stays an ASCII identifier outside the
-				// translation: sectionFailureText matches it against the internal
-				// field names to route the failure onto the right form section.
+				// translation: sectionFailureText routes the failure by it.
 				throw new DashboardValidationError(`baseUrl: ${l10n.t("not a usable http(s) URL")}`);
 			}
-			// Resolution binds the opaque handle to a group that is external
-			// RIGHT NOW: a stale or forged intent cannot tombstone a declared
-			// group's identity or a group at another host.
+			// Resolution binds the opaque handle to a group that is external RIGHT
+			// NOW: a stale or forged intent cannot tombstone a declared group's
+			// identity or a group at another host.
 			const identity = env.resolveExternalGroup(baseUrl, intent.payload.sourceHandle);
 			if (identity === undefined) {
 				throw new DashboardValidationError(
@@ -621,14 +598,11 @@ export async function executeDashboardIntent(
 			return undefined;
 		}
 		case "syncModels": {
-			// The same registered command the palette and the status bar run,
-			// read from the shared command declarations, so there is one
-			// definition of what a sync is. What sets this method apart from
-			// executeCommand is its outcome class: executeCommand is
-			// fire-and-forget, while this ack answers only once the pass has
-			// settled - and a second caller arriving mid-pass joins the running
-			// one rather than being waved through, so the answer always
-			// describes a pass that ran.
+			// The same registered command the palette and the status bar run, so
+			// there is one definition of what a sync is. What sets this method
+			// apart from executeCommand is its outcome class: this ack answers
+			// only once the pass has settled, and a second caller arriving
+			// mid-pass joins the running one rather than being waved through.
 			await env.executeCommand(CMD.syncModels);
 			return undefined;
 		}

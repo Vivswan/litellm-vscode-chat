@@ -1,18 +1,13 @@
 # Bun's transpiler does not pick up jsx/jsxImportSource from the nested
-# src/test/bun/tsconfig.json (tsc does), so the react JSX runtime is
-# pinned here for the bun test tree. The same pin exists in
-# src/webview/tsconfig.json (typecheck) and scripts/dev/bundle.mts (bundle);
-# all three must agree. @types/bun tracks the packageManager bun version in
-# package.json - keep them aligned when bumping either.
+# src/test/bun/tsconfig.json (tsc does), so the react JSX runtime is pinned
+# here. src/webview/tsconfig.json and scripts/dev/bundle.mts pin it too; all
+# three must agree. @types/bun tracks the packageManager bun version.
 jsx = "react-jsx"
 jsxImportSource = "react"
 
-# src/test/bun is the only bun-test surface in this repository: the home for
-# suites that need no extension host - the pure logic and property suites plus
-# the happy-dom webview component suites. Every other suite is Mocha tdd
-# inside the extension host. `root` is load-bearing: without it a bare
-# `bun test` discovers the extension-host *.test.ts files, whose
-# suite()/test() globals crash under bun's runner.
+# `root` is load-bearing: without it a bare `bun test` discovers the
+# extension-host *.test.ts files, whose suite()/test() globals crash under
+# bun's runner. src/test/bun is the only bun-test surface in this repository.
 [test]
 root = "src/test/bun"
 preload = ["./src/test/bun/preload.ts"]

@@ -2,11 +2,10 @@
  * The single source of truth for the extension's configuration section, the
  * value side of its scalar settings (key names, defaults, and minimums), and
  * the object settings' key names. package.json's contributed configuration
- * mirrors this table (settingSpec.test.ts pins the mirror, docs numbers
- * included), the settings readers clamp against it, and the dashboard
- * protocol layers its presentation metadata on top. Pure constants: no
- * vscode, no Node, no zod (the dashboard protocol pulls this module into the
- * webview bundle, and the dev launcher loads it outside the host).
+ * mirrors this table (settingSpec.test.ts pins the mirror), the settings
+ * readers clamp against it, and the dashboard protocol layers its presentation
+ * metadata on top. Pure constants: no vscode, no Node, no zod (this module
+ * rides into the webview bundle and loads outside the host).
  */
 
 /** The configuration section every litellm-vscode-chat.* setting lives under. */
@@ -14,10 +13,8 @@ export const CONFIG_SECTION = "litellm-vscode-chat";
 
 /**
  * The object settings' keys under the config section. They have no scalar
- * spec; their readers (shared/config/settings.ts, the server sync engine,
- * the dashboard's editors, and the dev launcher's profile inspection) share
- * the key names through these constants, and settingSpec.test.ts pins the
- * package.json contributions against them.
+ * spec; their readers share the key names through these constants, and
+ * settingSpec.test.ts pins the package.json contributions against them.
  */
 export const ADDITIONAL_TOOL_SCHEMA_KEYWORDS_SETTING_KEY = "chat.additionalToolSchemaKeywords";
 export const TOKEN_ESTIMATION_SETTING_KEY = "chat.tokenEstimation";
@@ -36,10 +33,10 @@ export const UI_ACCENT_SETTING_KEY = "ui.accent";
  * theme the editor wears - high contrast and themes we have never seen
  * included. The other two pin our own palette instead.
  *
- * The vocabularies live here rather than beside their readers because the
- * HTML shell stamps them on the root element and this module is the only
- * settings module it can reach: the shell is pure string building so the
- * render harness can import it outside the extension host.
+ * The vocabularies live here rather than beside their readers because the HTML
+ * shell stamps them on the root element and this module is the only settings
+ * module it can reach: the shell is pure string building so the render harness
+ * can import it outside the extension host.
  */
 export const UI_THEMES = ["auto", "light", "dark"] as const;
 
@@ -58,12 +55,11 @@ export type UiAccent = (typeof UI_ACCENTS)[number];
 export const DEFAULT_UI_ACCENT: UiAccent = "blue";
 
 /**
- * How the local token budget prices text (chat.tokenEstimation). "auto"
- * starts from a script-aware heuristic and loads the o200k_base tokenizer
- * once the UI language or the counted text is CJK; "heuristic" is the plain
+ * How the local token budget prices text (chat.tokenEstimation). "auto" starts
+ * from a script-aware heuristic and loads the o200k_base tokenizer once the UI
+ * language or the counted text is CJK; "heuristic" is the plain
  * 4-characters-per-token rule and never loads tokenizer data; the explicit
- * encodings always load theirs. extension/tokenCounting.ts applies the mode
- * to the shared counter in shared/conversion/textTokens.ts.
+ * encodings always load theirs.
  */
 export const TOKEN_ESTIMATION_MODES = ["auto", "heuristic", "o200k_base", "cl100k_base"] as const;
 
@@ -73,10 +69,9 @@ export const DEFAULT_TOKEN_ESTIMATION_MODE: TokenEstimationMode = "auto";
 
 /**
  * The prefix every spend and cost figure renders with (usage.currencySymbol).
- * Display only, never a conversion: LiteLLM reports plain numbers, and a
- * proxy configured to account in another currency still reports them
- * unchanged - this symbol is how the display stops claiming dollars. The
- * empty string renders the bare number.
+ * Display only, never a conversion: a proxy accounting in another currency
+ * still reports plain numbers, and this symbol is how the display stops
+ * claiming dollars. The empty string renders the bare number.
  */
 export const DEFAULT_CURRENCY_SYMBOL = "$";
 
@@ -84,13 +79,11 @@ export const DEFAULT_CURRENCY_SYMBOL = "$";
 export const MIN_TIMEOUT_MS = 1000;
 
 /**
- * The value contract of one number setting, exactly what package.json
- * declares for it. Nullable settings may default to null ("unset, derive
- * it"); non-nullable ones always carry a number. `integer` marks a setting
- * that counts discrete things: it is the one source of the integer-only
- * fact - the manifest declares `"type": "integer"` (settingSpec.test.ts pins
- * the mirror), the settings reader floors fractions, and the dashboard's
- * count grammar refuses them (presenters.test.ts pins that coupling).
+ * The value contract of one number setting, exactly what package.json declares
+ * for it. Nullable settings may default to null ("unset, derive it").
+ * `integer` is the one source of the integer-only fact: the manifest declares
+ * `"type": "integer"`, the settings reader floors fractions, and the
+ * dashboard's count grammar refuses them.
  */
 export type NumberSettingValueSpec = { readonly integer?: true } & (
 	| { readonly default: number; readonly minimum: number; readonly nullable: false }
@@ -105,14 +98,13 @@ export interface BooleanSettingValueSpec {
 /** The number-valued litellm-vscode-chat.* settings, keyed by their setting names. */
 export const NUMBER_SETTING_SPECS = {
 	"chat.timeout": { default: 300000, minimum: MIN_TIMEOUT_MS, nullable: false },
-	// A tool count, not milliseconds: how many tools one request may carry
-	// before it is refused locally instead of sent.
+	// A tool count, not milliseconds.
 	"chat.maxToolsPerRequest": { default: 128, minimum: 1, nullable: false, integer: true },
 	"discovery.timeout": { default: 30000, minimum: MIN_TIMEOUT_MS, nullable: false },
 	// A zero TTL is legal: it disables serving from the discovery cache.
 	"discovery.cacheTtl": { default: 3600000, minimum: 0, nullable: false },
 	// Zero is legal: it disables stale serving, so a failed silent refresh
-	// serves the empty list immediately instead of the last known models.
+	// serves the empty list immediately.
 	"discovery.staleServeWindow": { default: 600000, minimum: 0, nullable: false },
 	// Milliseconds like the other cadence settings. Zero is legal and disables
 	// usage polling entirely (explicit refresh still works); negatives clamp
@@ -120,11 +112,10 @@ export const NUMBER_SETTING_SPECS = {
 	"usage.pollInterval": { default: 300000, minimum: 0, nullable: false },
 	// The first poll after activation: soon, but never on the activation path.
 	"usage.initialRefreshDelay": { default: 5000, minimum: 0, nullable: false },
-	// The refresh delay after a servers-setting change; long enough to coalesce
-	// settings.json keystroke bursts.
+	// Long enough to coalesce settings.json keystroke bursts.
 	"usage.serversChangeRefreshDelay": { default: 2000, minimum: 0, nullable: false },
-	// The usage freshness window while polling is off. Zero is legal: on-demand
-	// data then never counts as fresh, so the status bar aggregates nothing.
+	// Zero is legal: on-demand data then never counts as fresh, so the status
+	// bar aggregates nothing.
 	"usage.pollingOffFreshnessWindow": { default: 600000, minimum: 0, nullable: false },
 } as const satisfies Record<string, NumberSettingValueSpec>;
 
@@ -132,9 +123,8 @@ export type NumberSettingId = keyof typeof NUMBER_SETTING_SPECS;
 
 /**
  * Whether one number setting is integer-only. The single reader of the spec's
- * `integer` flag: the settings getter's floor, the intent boundary's
- * refusal, and the drift-guard tests all ask this predicate instead of
- * re-spelling the property probe the literal spec types force.
+ * `integer` flag, so the settings getter's floor, the intent boundary's
+ * refusal, and the drift guards all ask the same predicate.
  */
 export function isIntegerSetting(id: NumberSettingId): boolean {
 	const spec = NUMBER_SETTING_SPECS[id];
@@ -152,9 +142,8 @@ export type BooleanSettingId = keyof typeof BOOLEAN_SETTING_SPECS;
 
 /**
  * The settings under the config section with no scalar spec: the object and
- * array settings plus the free and enum strings (chat.tokenEstimation,
- * usage.statusBar, usage.currencySymbol, ui.theme, ui.accent). Their value
- * grammars live with their readers; this list only names the keys.
+ * array settings plus the free and enum strings. Their value grammars live
+ * with their readers; this list only names the keys.
  */
 export const STRUCTURED_SETTING_KEYS = [
 	SERVERS_SETTING_KEY,
@@ -170,11 +159,9 @@ export const STRUCTURED_SETTING_KEYS = [
 ] as const;
 
 /**
- * Every litellm-vscode-chat.* setting key: the structured settings plus the
- * scalar-spec'd number and boolean settings. settingSpec.test.ts pins this
- * list against package.json's contributed configuration properties, so a
- * future setting cannot silently escape the surfaces that walk the whole
- * vocabulary (the settings export walks exactly this list).
+ * Every litellm-vscode-chat.* setting key. settingSpec.test.ts pins this list
+ * against package.json's contributed configuration, so a future setting cannot
+ * silently escape the surfaces that walk the whole vocabulary.
  */
 export const ALL_SETTING_KEYS: readonly string[] = [
 	...STRUCTURED_SETTING_KEYS,

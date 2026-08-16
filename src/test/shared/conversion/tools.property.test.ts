@@ -14,9 +14,8 @@ function isPlainRecord(value: unknown): boolean {
 }
 
 /**
- * Recursive schema-shaped values: real JSON Schema keywords with nested
- * properties/items/$defs branches, salted with arbitrary JSON so unknown and
- * malformed keywords get exercised alongside meaningful ones.
+ * Recursive schema-shaped values: real JSON Schema keywords with nested branches, salted with
+ * arbitrary JSON so unknown and malformed keywords get exercised alongside meaningful ones.
  */
 const schemaShaped = fc.letrec<{ schema: unknown }>((tie) => ({
 	schema: fc.oneof(

@@ -168,9 +168,8 @@ suite("provider/catalog/discovery", () => {
 							// model_info keys were on the wire and must still count.
 							{ bogus: true, model_info: { malformed_entry_key: 1 } },
 							{ id: "listing-shaped", providers: [], model_info: { listing_shaped_key: 2 } },
-							// A non-record model_info contributes nothing (isRecord
-							// rejects arrays and strings), and an oversized key is
-							// dropped by the per-key length bound.
+							// A non-record model_info contributes nothing, and an oversized
+							// key is dropped by the per-key length bound.
 							{ model_name: "d", model_info: ["not", "a", "record"] },
 							{ model_name: "e", model_info: "not a record" },
 							{ model_name: "f", model_info: { ["k".repeat(129)]: 1 } },
@@ -181,10 +180,8 @@ suite("provider/catalog/discovery", () => {
 
 			const result = await fetchModels(request());
 
-			// Keys union across the RAW entries (blocked, malformed, and
-			// listing-shaped ones included - they were observed either way);
-			// entries without a model_info object add nothing. Sorted, so
-			// downstream displays are deterministic.
+			// Keys union across the RAW entries - blocked, malformed, and
+			// listing-shaped ones included - and sort, so displays are deterministic.
 			assert.deepStrictEqual(result.observedModelInfoKeys, [
 				"blocked",
 				"custom_field",
@@ -318,8 +315,7 @@ suite("provider/catalog/discovery", () => {
 
 		test("a non-JSON models response throws classified: the payload snippet stays off public surfaces", async () => {
 			// V8's SyntaxError quotes a snippet of the unparseable payload, so the
-			// thrown error's message is response-derived; the classification is
-			// what the issue-report buffer and prefill record instead.
+			// thrown message is response-derived; only the classification is public.
 			const marker = "internal-gateway-host-MARKER upstream capacity exhausted";
 			let modelsAttempts = 0;
 			mswServer.use(
@@ -348,10 +344,9 @@ suite("provider/catalog/discovery", () => {
 		});
 
 		test("a malformed application/json models body throws the same classification via the SDK's own parse", async () => {
-			// The SDK parses JSON itself when the content type advertises it, so
-			// its SyntaxError arrives at the dedicated rethrow branch rather than
-			// coerceJsonPayload; the two sites must stay indistinguishable on
-			// every rendering (classification, display, English mirror).
+			// The SDK parses JSON itself when the content type advertises it, so its
+			// SyntaxError arrives at a different rethrow branch than coerceJsonPayload;
+			// the two sites must stay indistinguishable on every rendering.
 			const body = '{"data": [MARKER-not-json';
 			let modelsAttempts = 0;
 			mswServer.use(
@@ -704,10 +699,8 @@ suite("provider/catalog/discovery", () => {
 		});
 
 		test("garbage plus blocked entries fail closed: empty list, no /v1/models fallback (deliberate)", async () => {
-			// A recognized-but-blocked entry counts as usable on purpose: falling
-			// back to /v1/models here would re-list the blocked model, so the
-			// garbage entry is skipped, the blocked one filtered, and the result
-			// stays empty.
+			// A recognized-but-blocked entry counts as usable on purpose: falling back
+			// to /v1/models here would re-list the blocked model.
 			let modelsEndpointCalled = false;
 			mswServer.use(
 				http.get(MODEL_INFO_URL, () =>
@@ -821,9 +814,8 @@ suite("provider/catalog/discovery", () => {
 		});
 
 		test("a deployment without an output limit caps the merged model at the built-in floor", async () => {
-			// One deployment has no output limit, so its standalone limit is the
-			// floor fill and bounds the merged model regardless of what the other
-			// deployment declares.
+			// One deployment has no output limit, so its floor fill bounds the merged
+			// model regardless of what the other declares.
 			mswServer.use(
 				...discoveryHandlers({
 					data: [
@@ -1169,9 +1161,9 @@ suite("provider/catalog/discovery", () => {
 			});
 
 			test("a 404 probe beside a 405 listing is still both-refused and takes the served-nothing verdict", async () => {
-				// Same evidence KIND (status), different codes: the same-kind rule
-				// only excludes the mixed timeout-beside-status pairs, and the 404
-				// carve-out reads the models leg alone.
+				// Same evidence KIND (status), different codes: the same-kind rule only
+				// excludes mixed timeout-beside-status pairs, and the 404 carve-out
+				// reads the models leg alone.
 				mswServer.use(
 					http.get(MODEL_INFO_URL, () => emptyErrorResponse(404)),
 					http.get(MODELS_URL, () => emptyErrorResponse(405))
@@ -1203,9 +1195,9 @@ suite("provider/catalog/discovery", () => {
 
 			test("mixed evidence keeps the plain timeout message: a 400 model-info failure proves nothing", async function () {
 				this.timeout(15000);
-				// 400 is not retryable, so the probe's verdict is its mapped HTTP
-				// class - no unserved evidence - and the stalled listing keeps the
-				// raise-the-timeout advice, which for a mixed pair may be right.
+				// 400 is not retryable, so the probe's verdict is its mapped HTTP class
+				// - no unserved evidence - and the stalled listing keeps the
+				// raise-the-timeout advice.
 				mswServer.use(
 					http.get(MODEL_INFO_URL, () => emptyErrorResponse(400)),
 					http.get(MODELS_URL, hangForever)
@@ -1280,11 +1272,9 @@ suite("provider/catalog/discovery", () => {
 		});
 
 		test("a merged deployment's baseline never claims more than the merge advertised", () => {
-			// Disagreeing per-deployment costs merge to unknown (agreedCost null)
-			// and a true+null flag merges to unknown (everyDeploymentSupports):
-			// the registered entry must not price the disagreeing field, and the
-			// capability baseline must leave both unreported so lower walk levels
-			// can still fill them.
+			// Disagreeing per-deployment costs merge to unknown and a true+null flag
+			// merges to unknown: the entry must not price the disagreeing field, and
+			// the baseline must leave both unreported so lower walk levels can fill.
 			const merged = mergeModelDeployments([
 				deployment({
 					input_cost_per_token: 0.000003,
@@ -1323,8 +1313,7 @@ suite("provider/catalog/discovery", () => {
 		test("merged token advertisement equals the minimum of the standalone advertisements (A/B case)", () => {
 			// A advertises input/output limits; B advertises only max_tokens, so
 			// standing alone B's input budget collapses to max(1, 8000 - 8000) = 1.
-			// A raw per-field merge would keep A's 128000 input alongside B's 8000
-			// output and advertise more than B could ever serve.
+			// A raw per-field merge would advertise more than B could ever serve.
 			const a = deployment({ max_input_tokens: 128000, max_output_tokens: 16000 });
 			const b = deployment({ max_tokens: 8000 });
 			const merged = mergeModelDeployments([a, b]);
@@ -1371,8 +1360,7 @@ suite("provider/catalog/discovery", () => {
 
 		test("limits no deployment reported are not stored back as if the server declared them", () => {
 			// A defaults-filled number stored as a provider field would occupy the
-			// capability walk's server level and block the catalog from
-			// backfilling it; the advertisement must not change either way.
+			// capability walk's server level and block the catalog from backfilling.
 			const merged = mergeModelDeployments([deployment({}), deployment({ supports_vision: true })]);
 			assert.strictEqual(merged.provider.context_length, undefined);
 			assert.strictEqual(merged.provider.max_output_tokens, undefined);
@@ -1398,11 +1386,9 @@ suite("provider/catalog/discovery", () => {
 		});
 
 		test("a passed-through output_limit_source can demote but never promote", () => {
-			// normalizeModelItem strips the marker from wire entries, so only
-			// discovery's own merged providers carry it; this pins the
-			// deriveTokenConstraints defense in depth: even a provider object that
-			// somehow claims "provider" without declared limit fields must not
-			// lift the cap.
+			// normalizeModelItem strips the marker from wire entries, so only merged
+			// providers carry it; this pins deriveTokenConstraints' defense in depth:
+			// a "provider" claim without declared limit fields must not lift the cap.
 			const spoofed = deriveTokenConstraints({ provider: "wire", status: "ok", output_limit_source: "provider" });
 			assert.strictEqual(spoofed.outputLimitSource, "defaults");
 

@@ -35,9 +35,9 @@ suite("IssueReporter", () => {
 	}
 
 	/**
-	 * Redaction assert: the host rides a parameter so a hostname literal never
-	 * sits at an includes() call, the shape CodeQL reads as
-	 * URL-sanitization-by-substring (js/incomplete-url-substring-sanitization).
+	 * The host rides a parameter so a hostname literal never sits at an
+	 * includes() call, the shape CodeQL reads as URL-sanitization-by-substring
+	 * (js/incomplete-url-substring-sanitization).
 	 */
 	function assertHostRedacted(text: string, host: string): void {
 		assert.ok(!text.includes(host), "Should not leak hostname");
@@ -125,9 +125,8 @@ suite("IssueReporter", () => {
 	});
 
 	test("buildBody keeps a multi-line error message inside its Message bullet", () => {
-		// Chat-surface messages separate headline and detail with a blank line
-		// ("Details:" lead-in); rendered raw, the blank line would end the
-		// markdown list and spill the detail out of the bullet.
+		// Chat-surface messages separate headline and detail with a blank line;
+		// rendered raw, that blank line would end the markdown list.
 		const reporter = new IssueReporter();
 		const body = reporter.buildBody(
 			makeSnapshot({
@@ -144,10 +143,9 @@ suite("IssueReporter", () => {
 
 	test("an http RequestError's response body never reaches the issue prefill", () => {
 		const reporter = new IssueReporter();
-		// Through the real mapping: a non-JSON body whose text contains both a
-		// marker and a line SHAPED like a stack frame (the reviewer-reproduced
-		// case: prefix-stripping by length must remove it; a frame-shape filter
-		// alone would keep it).
+		// Through the real mapping: a non-JSON body carrying both a marker and a
+		// line SHAPED like a stack frame - prefix-stripping by length must remove
+		// it, where a frame-shape filter alone would keep it.
 		const sdkError = new APIError(
 			422,
 			undefined,
@@ -599,15 +597,13 @@ suite("IssueReporter", () => {
 	});
 
 	test("redactSecrets over-redacts bare token mentions, deliberately erring toward safety", () => {
-		// "endpoint" here is prose, not a secret; the bare patterns cannot tell
-		// and redact it anyway. That is the accepted trade-off: never weaken the
-		// patterns to preserve prose.
+		// "endpoint" here is prose, not a secret; the bare patterns cannot tell.
+		// That is the accepted trade-off: never weaken them to preserve prose.
 		assert.equal(redactSecrets("access_token endpoint failed"), "access_token [REDACTED] failed");
 	});
 
-	// The repeat-report hint's fingerprint and globalState ledger: the
-	// fingerprint is the diagnostic signature only - enum ids, counts, and
-	// flags - so nothing response-derived can reach globalState through it.
+	// The repeat-report fingerprint is the diagnostic signature only (enum ids,
+	// counts, flags), so nothing response-derived can reach globalState.
 	suite("repeat-report fingerprint and ledger", () => {
 		test("the fingerprint is composed exactly from the diagnostic signature", () => {
 			const snapshot = makeSnapshot({

@@ -20,25 +20,20 @@ import type {
 import { providerEntrySchema, rawModelInfoItemSchema, rawModelItemSchema, supportsTools } from "./schemas";
 
 /**
- * The retry budget for discovery GETs. They are idempotent, so retrying is
- * safe; chat completions never retry. auth.ts reuses this for the equally
- * idempotent OAuth token exchange.
+ * The retry budget for discovery GETs: idempotent, so retrying is safe; chat
+ * completions never retry. auth.ts reuses this for the OAuth token exchange.
  */
 export const DISCOVERY_MAX_RETRIES = 2;
 
-/**
- * Accept an entry shaped like a models-listing item: `id` must be a string
- * and `providers`, when present, must be an array (/v1/models items omit it).
- */
+/** Accept an entry shaped like a models-listing item; /v1/models items omit `providers`. */
 export function isLiteLLMModelItem(value: unknown): value is RawModelItem {
 	return rawModelItemSchema.safeParse(value).success;
 }
 
 /**
- * Parse an entry shaped like a /v1/model/info item: at least one usable model
- * identifier among model_name, litellm_params.model, model_info.key, and
- * model_info.id. The parsed entry carries its resolved model id; malformed
- * fields degrade to undefined rather than dropping the entry.
+ * Parse a /v1/model/info entry, which needs at least one usable model
+ * identifier. Malformed fields degrade to undefined rather than dropping the
+ * entry.
  */
 export function parseModelInfoItem(value: unknown): LiteLLMModelInfoItem | undefined {
 	const parsed = rawModelInfoItemSchema.safeParse(value);
@@ -70,20 +65,14 @@ const TIERED_COST_KEY = new RegExp(`^(${Object.values(LONG_CONTEXT_FIELDS).join(
 
 /**
  * Read a model's long-context tier costs from LiteLLM's threshold-suffixed
- * keys, e.g. input_cost_per_token_above_200k_tokens (the price map currently
- * carries above_128k/200k/256k/272k/512k variants). VS Code's pricing
+ * keys, e.g. input_cost_per_token_above_200k_tokens. VS Code's pricing
  * metadata has exactly one long-context tier, so when a model declares more
- * than one threshold the lowest wins, and only fields declared at that
- * threshold are reported, so the four values always describe one boundary:
- * it is the first one a growing prompt crosses, so its prices are the ones a
- * user starts paying beyond the default tier. Only keys holding a usable
- * cost participate in that
- * selection, so a tier declared entirely in malformed values cannot mask a
- * well-formed higher one, and LiteLLM's non-tier variants (_priority keys,
- * above_1hr cache windows, per-character/image/audio/video costs) never
- * match the key pattern. All four fields come back explicitly (undefined
- * when absent) so spreading the result always overrides look-alike keys on
- * lenient pass-through entries.
+ * than one threshold the lowest wins (the first boundary a growing prompt
+ * crosses) and only fields declared at that threshold are reported. Only keys
+ * holding a usable cost participate in the selection, so a tier declared
+ * entirely in malformed values cannot mask a well-formed higher one. All four
+ * fields come back explicitly (undefined when absent) so spreading the result
+ * always overrides look-alike keys on lenient pass-through entries.
  */
 function longContextCosts(entry: unknown): LongContextCosts {
 	const tiered: { threshold: number; baseKey: string; cost: number }[] = [];
@@ -115,10 +104,9 @@ export function normalizeModelItem(raw: RawModelItem, log: FetchModelsRequest["l
 		if (isProviderEntry(entry)) {
 			// Pass-through entries keep their raw keys, but every field another
 			// stage trusts is authored after the spread: the internal
-			// `output_limit_source` marker (which feeds deriveTokenConstraints'
-			// demotion rule) is cleared so a wire entry cannot forge it,
-			// the four base costs are re-narrowed, and the long-context tier
-			// costs are synthesized (same selection rule as model_info entries).
+			// `output_limit_source` marker is cleared so a wire entry cannot forge
+			// it, the four base costs are re-narrowed, and the long-context tier
+			// costs are synthesized.
 			providers.push({
 				...entry,
 				output_limit_source: undefined,
@@ -152,11 +140,9 @@ function truncateForLog(value: unknown): string {
 }
 
 /**
- * One /v1/model/info entry after mapping: the resolved model id, the single
- * model_info-sourced provider built from its capability fields, and the input
- * modalities it advertises. A dedicated shape (rather than LiteLLMModelItem)
- * so deployment merging can rely on exactly one provider per entry at the
- * type level.
+ * One /v1/model/info entry after mapping. A dedicated shape (rather than
+ * LiteLLMModelItem) so deployment merging can rely on exactly one provider per
+ * entry at the type level.
  */
 export interface MappedModelInfo {
 	id: string;
@@ -167,11 +153,7 @@ export interface MappedModelInfo {
 /** A non-empty group of mapped entries sharing one model id. */
 export type ModelDeployments = readonly [MappedModelInfo, ...MappedModelInfo[]];
 
-/**
- * Map one parsed /v1/model/info entry to its MappedModelInfo. Total: the
- * parse already resolved the model id. Exported so tests can build deployment
- * entries through the same parse-and-map path production uses.
- */
+/** Exported so tests can build deployment entries through the same parse-and-map path production uses. */
 export function mapModelInfoEntry(item: LiteLLMModelInfoItem): MappedModelInfo {
 	const toolSupport = item.model_info?.supports_function_calling ?? item.model_info?.supports_tool_choice ?? true;
 	const providerName = item.model_info?.litellm_provider ?? "litellm";
@@ -248,46 +230,25 @@ function agreedCost(values: readonly (number | null | undefined)[]): number | nu
 }
 
 /**
- * Collapse the deployments of one load-balanced model_name into a single
- * entry advertising the conservative intersection of their capabilities.
- * LiteLLM reports one /v1/model/info entry per deployment, so without this a
- * load-balanced model would register duplicate ids and overwrite its own
- * routes.
+ * Collapse the deployments of one load-balanced model_name into a single entry
+ * advertising the conservative intersection of their capabilities. LiteLLM
+ * reports one /v1/model/info entry per deployment, so without this a
+ * load-balanced model would register duplicate ids and overwrite its own routes.
  *
- * Token limits: the deployments' provider entries collapse through
- * collapseTokenConstraints (the one home of the min-collapse rule, shared
- * with registration's aggregates), and the collapsed effective values are
- * stored on the merged provider - but a field is stored ONLY when some
- * deployment reported it: deriveTokenConstraints fills an absent field with
- * exactly the floor values the collapse would have used, so the merged
- * advertisement is identical either way, while the capability baseline
- * (discoveredCapabilityBaseline) can still tell a server-reported minimum
- * from a floor fill - a floor-filled number stored as if reported would
- * occupy the walk's server level and block the catalog from backfilling it.
- * This guarantees the merged advertisement never exceeds what any deployment
- * would have advertised on its own, whichever combination of raw limit
- * fields each one set. The stored input limit is stored whenever ANY limit
- * was reported: the collapse grounds a missing input limit in the reported
- * context and output, and re-deriving it from the collapsed pair can
- * overstate it. Because a floor-filled deployment can contribute the output
- * minimum, the merged provider also records whether the stored output limit
- * counts as server-declared (the collapse's outputLimitSource); without the
- * marker, storing effective values back into provider fields would launder
- * the floor guess into a declared limit.
- * Capability flags hold only when every deployment advertises them, and
- * input modalities, supported_openai_params, and the flag-derived
- * reasoning_effort_levels intersect. Pricing carries
- * over only when every
- * deployment advertises the identical per-field cost: with differing prices
- * the proxy's routing decides which deployment (and cost) actually serves a
- * request, so advertising either number would lie, and the merged entry
- * drops that field instead. Long-context tier costs follow the same
- * per-field rule on their already threshold-resolved values: the host never
- * displays the boundary, so numerically identical tier prices merge honestly
- * even when the deployments' thresholds differ. Non-constraint metadata
- * (provider name, status, parameter order) follows the first deployment;
- * registration surfaces the provider name as the model family, so a merged
- * model's family is its first deployment's litellm_provider.
+ * Token limits collapse through collapseTokenConstraints, and a field is stored
+ * ONLY when some deployment reported it: a floor-filled number stored as if
+ * reported would occupy the capability walk's server level and block catalog
+ * backfill. The input limit is stored whenever ANY limit was reported, because
+ * re-deriving it from the collapsed pair can overstate it. outputLimitSource
+ * records whether the stored output limit counts as server-declared, so a
+ * floor-filled contributor cannot launder its guess into a declared limit.
+ *
+ * Capability flags hold only when every deployment advertises them; modalities
+ * and the param lists intersect. Pricing carries over only when every
+ * deployment advertises the identical per-field cost - routing decides which
+ * deployment serves a request, so advertising either differing number would lie.
+ * Non-constraint metadata follows the first deployment, so a merged model's
+ * family is its first deployment's litellm_provider.
  */
 export function mergeModelDeployments(deployments: ModelDeployments): MappedModelInfo {
 	const [first, ...rest] = deployments;
@@ -341,17 +302,15 @@ export interface FetchModelsResult {
 	 * items, present ONLY when that listing succeeded (absent on the /models
 	 * fallback and on failure): downstream advisory hints must be able to tell
 	 * "the server reports these fields" from "nothing was observed". Collected
-	 * from the RAW entries, before parsing and the blocked/non-chat filters
-	 * (the keys were on the wire either way, even on an entry too malformed to
-	 * register), and capped at OBSERVED_MODEL_INFO_KEYS_MAX after the sort, so
-	 * a hostile payload cannot balloon the status window.
+	 * from the RAW entries, before parsing and the blocked/non-chat filters,
+	 * and capped at OBSERVED_MODEL_INFO_KEYS_MAX after the sort.
 	 */
 	observedModelInfoKeys?: readonly string[];
 	/**
-	 * Present when the model-info probe failed like an unserved endpoint
-	 * (timed out, or answered 404/405) while the /models fallback succeeded in
-	 * the same pass, and the entry did NOT declare the failure expected: the
-	 * server works without LiteLLM's model-info endpoint, so declaring
+	 * Present when the model-info probe failed like an unserved endpoint (timed
+	 * out, or answered 404/405) while the /models fallback succeeded in the same
+	 * pass, and the entry did NOT declare the failure expected: the server works
+	 * without LiteLLM's model-info endpoint, so declaring
 	 * expectedFailures: ["modelInfo"] fits better than raising the timeout.
 	 * Advisory only - the pass succeeded and the models serve either way.
 	 */
@@ -359,12 +318,9 @@ export interface FetchModelsResult {
 }
 
 /**
- * The caller's expected-failure declarations, per endpoint: an expected
- * endpoint gets exactly one attempt (its retry budget drops to zero - the
- * failure is anticipated, so retrying only stretches the whole-call timeout),
- * and the nonfatal /model/info fallback log carries the "(expected)"
- * classification. Which endpoint's failure is terminal never changes: only a
- * /models failure aborts discovery, expected or not.
+ * Per endpoint: an expected endpoint gets exactly one attempt, and the
+ * nonfatal /model/info fallback log carries the "(expected)" classification.
+ * Only a /models failure aborts discovery, expected or not.
  */
 export interface ExpectedDiscoveryFailures {
 	readonly modelInfo: boolean;
@@ -378,9 +334,8 @@ export interface FetchModelsRequest {
 	/**
 	 * The entry's apiVersion override the client was built with, so the logged
 	 * endpoint URLs match the client's real API root; "" and undefined follow
-	 * apiRootOf's rules. Requests themselves ride the client's relative paths.
-	 * Required so a caller cannot build the client on an overridden root and
-	 * silently log the auto one.
+	 * apiRootOf's rules. Required so a caller cannot build the client on an
+	 * overridden root and silently log the auto one.
 	 */
 	apiVersion: string | undefined;
 	/** Pre-validated by settings.getDiscoveryTimeout(); used as-is. */
@@ -388,11 +343,10 @@ export interface FetchModelsRequest {
 	/** Failure categories the server's entry declares expected; see ExpectedDiscoveryFailures. */
 	expected?: ExpectedDiscoveryFailures;
 	/**
-	 * The declared entry's label, when the server has one (the configured
-	 * label only - see ServerConnection.entryLabel), so the endpoint-unserved
-	 * hints can name the entry the declaration belongs on. Empty means "no
-	 * nameable entry" like undefined does (the draft probe resolves headers
-	 * under a label it must never name). Never used for matching here.
+	 * The declared entry's label, when the server has one, so the
+	 * endpoint-unserved hints can name the entry the declaration belongs on.
+	 * Empty means "no nameable entry" like undefined does. Never used for
+	 * matching here.
 	 */
 	entryLabel?: string | undefined;
 	/** Per-request headers resolved by the caller, e.g. a freshly exchanged OAuth bearer token. */
@@ -415,16 +369,15 @@ const UNPARSEABLE_MODELS_RESPONSE_CLASSIFICATION = "RequestError(http, unparseab
 const UNPARSEABLE_REASON_MAX_LENGTH = 100;
 
 /**
- * The one constructor for both unparseable-payload sites (coerceJsonPayload
- * and the SDK's own response.json() SyntaxError rethrow), so their
+ * The one constructor for both unparseable-payload sites, so their
  * classification, display message, and English mirror cannot drift apart.
  * V8's SyntaxError message quotes a snippet of the unparseable payload
  * (response-derived), so the classification keeps it off public surfaces
  * while the user-facing detail line keeps the diagnostic value.
  */
 function unparseableModelsResponse(endpointUrl: string, reason: string, cause: unknown): RequestError {
-	// V8's SyntaxError reason quotes the payload verbatim, newlines included;
-	// collapsing keeps the detail one physical line under the headline.
+	// The reason quotes the payload verbatim, newlines included; collapsing
+	// keeps the detail one physical line under the headline.
 	const detail = `Unparseable response from ${endpointUrl}: ${collapseWhitespace(reason).slice(
 		0,
 		UNPARSEABLE_REASON_MAX_LENGTH
@@ -445,8 +398,8 @@ function unparseableModelsResponse(endpointUrl: string, reason: string, cause: u
 /**
  * The SDK only parses JSON when the response advertises a JSON content type;
  * anything else arrives as a string. Servers that return JSON with a missing
- * or wrong content-type header worked with the old response.json() transport,
- * so a string payload gets one JSON.parse attempt here.
+ * or wrong content-type header still work, so a string payload gets one
+ * JSON.parse attempt here.
  */
 function coerceJsonPayload(value: unknown, endpointUrl: string): unknown {
 	if (typeof value !== "string") {
@@ -459,20 +412,13 @@ function coerceJsonPayload(value: unknown, endpointUrl: string): unknown {
 	}
 }
 
-/**
- * How the model-info probe's failure looked, kept for the same-pass verdict:
- * the /models leg reads it to tell "this server works without model-info"
- * (suggest the declaration) from "nothing OpenAI-shaped answers here at all".
- * `status` keeps the exact refused code for the detail lines.
- */
+/** How the model-info probe's failure looked, for the /models leg's same-pass verdict. */
 type EndpointFailureEvidence = { kind: "timeout" } | { kind: "status"; status: 404 | 405 };
 
 /**
- * The unserved-endpoint evidence a mapped discovery failure carries, if any:
- * a timeout (the endpoint never answered) or an HTTP 404/405 (the server
- * answered that it does not serve the path). Anything else - auth, network,
- * 5xx, unparseable payloads - proves nothing about endpoint support and
- * yields undefined.
+ * Only a timeout or an HTTP 404/405 proves an endpoint is unserved. Anything
+ * else - auth, network, 5xx, unparseable payloads - proves nothing and yields
+ * undefined.
  */
 function unservedEvidenceOf(mapped: Error): EndpointFailureEvidence | undefined {
 	if (!(mapped instanceof RequestError)) {
@@ -563,7 +509,7 @@ function modelListingUnservedError(mapped: Error, evidence: EndpointFailureEvide
  * per-endpoint declaration can help: this address does not serve an
  * OpenAI-compatible API. Replaces the raise-the-timeout advice a bare timeout
  * would carry - a bigger timeout only makes each refresh slower when the
- * endpoint never answers (issue #261's Ollama-on-11434 shape).
+ * endpoint never answers.
  */
 function noEndpointServedError(
 	mapped: Error,
@@ -572,10 +518,8 @@ function noEndpointServedError(
 	ctx: ModelsFailureContext
 ) {
 	const { kind: errorKind, status, token } = evidenceKind(evidence);
-	// The caller guarantees both evidences share a kind, so the pair is either
-	// two timeouts (nothing answered) or two refusal statuses (the server
-	// answered that it serves neither path) - the headline must match, because
-	// the detail line right below it names what each GET did.
+	// The caller guarantees both evidences share a kind, so the headline must
+	// match the detail line right below it, which names what each GET did.
 	const headline =
 		evidence.kind === "timeout"
 			? l10n.t(
@@ -604,16 +548,12 @@ function noEndpointServedError(
 }
 
 /**
- * The same-pass verdict over a failed models listing: an unserved-looking
- * failure becomes the declaration hint when model-info answered (or is
- * declared expected), or the not-OpenAI-compatible verdict when model-info
- * failed the same unserved way - the same evidence kind, because mixed
- * evidence (a 404 probe beside a stalled listing, say) does not prove the
- * address serves nothing. A models 404 keeps mapSdkError's discovery 404
- * message even then - that headline already gives this verdict and
- * docs/troubleshooting.md quotes it verbatim. Everything else (a listing
- * already declared expected, mixed or non-unserved failures) passes through
- * unchanged.
+ * The same-pass verdict over a failed models listing: the declaration hint when
+ * model-info answered (or is declared expected), the not-OpenAI-compatible
+ * verdict when model-info failed the SAME unserved way - mixed evidence does
+ * not prove the address serves nothing. A models 404 keeps mapSdkError's
+ * discovery 404 message even then, because docs/troubleshooting.md quotes that
+ * headline verbatim. Everything else passes through unchanged.
  */
 function refineModelsListingFailure(mapped: Error, ctx: ModelsFailureContext): Error {
 	const evidence = unservedEvidenceOf(mapped);
@@ -676,16 +616,15 @@ interface NarrowedModelInfoData {
 	observedModelInfoKeys: readonly string[];
 }
 
-/** Defensive bounds on the observed-key union: count (deterministic - sort first, then truncate) and per-key length (an oversized key is dropped, not clipped, so truncation can never alias two keys). Real model_info keys are a few dozen characters. */
+/** Defensive bounds on the observed-key union: sort first, then truncate, and drop (never clip) an oversized key so truncation cannot alias two keys. */
 const OBSERVED_MODEL_INFO_KEYS_MAX = 512;
 const OBSERVED_MODEL_INFO_KEY_MAX_LENGTH = 128;
 
 /**
- * model_info.mode values that provably serve a non-chat endpoint: selecting
- * such an entry in the chat picker could only ever fail, so it must not
- * register. Deliberately not the inverse (an allow-list of chat modes):
- * an absent, null, or unrecognized mode keeps registering - never lose a
- * model to a vocabulary this extension has not learned yet.
+ * Modes that provably serve a non-chat endpoint, so they must not register.
+ * Deliberately not the inverse (an allow-list of chat modes): an absent or
+ * unrecognized mode keeps registering, never losing a model to a vocabulary
+ * this extension has not learned yet.
  */
 const NON_CHAT_MODES: readonly string[] = [
 	"embedding",
@@ -697,12 +636,10 @@ const NON_CHAT_MODES: readonly string[] = [
 ];
 
 /**
- * Narrow a /v1/model/info payload element-wise. Entries with a model-info
- * identifier take the documented mapping (model_name first); entries shaped
- * like models-listing items pass through; anything else is skipped with a
- * log line instead of aborting the whole registration. Blocked (paused)
- * deployments and provably non-chat modes are dropped, and deployments
- * sharing one model id merge into a single model in first-seen order.
+ * Narrow a /v1/model/info payload element-wise: unrecognized entries are
+ * skipped with a log line instead of aborting the whole registration. Blocked
+ * (paused) deployments and provably non-chat modes are dropped, and deployments
+ * sharing one model id merge in first-seen order.
  */
 function narrowModelInfoData(data: unknown[], log: FetchModelsRequest["log"]): NarrowedModelInfoData {
 	let usableEntryCount = 0;
@@ -713,10 +650,9 @@ function narrowModelInfoData(data: unknown[], log: FetchModelsRequest["log"]): N
 	const slots: Slot[] = [];
 	const deploymentsById = new Map<string, [MappedModelInfo, ...MappedModelInfo[]]>();
 	for (const entry of data) {
-		// Raw keys, before any parsing: the union covers every entry that
-		// carries a model_info object on the wire - malformed entries (no
-		// usable model id) and listing-shaped entries included - because the
-		// keys were observed either way.
+		// Raw keys, before any parsing: the union covers every entry that carries
+		// a model_info object on the wire, malformed and listing-shaped entries
+		// included, because the keys were observed either way.
 		if (isRecord(entry) && isRecord(entry.model_info)) {
 			for (const key of Object.keys(entry.model_info)) {
 				if (key.length <= OBSERVED_MODEL_INFO_KEY_MAX_LENGTH) {
@@ -762,7 +698,7 @@ function narrowModelInfoData(data: unknown[], log: FetchModelsRequest["log"]): N
 	);
 	// Sort-then-slice keeps truncation deterministic but drops the alphabetic
 	// TAIL: an over-cap payload can make a really-reported key read as
-	// unobserved, letting a spurious unknown-key hint through downstream; the
+	// unobserved, letting a spurious unknown-key hint through downstream. The
 	// set never gains keys the server did not send.
 	const observedModelInfoKeys = [...observedKeys].sort().slice(0, OBSERVED_MODEL_INFO_KEYS_MAX);
 	return { models, usableEntryCount, observedModelInfoKeys };
@@ -781,8 +717,7 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 		// The per-request timeout keeps the SDK's own 600 s default from
 		// overriding ours; boundedBySignal makes the signal a hard whole-call
 		// bound across retries. Retries are safe here (idempotent GET) and stay
-		// off for chat requests - and off entirely for an endpoint whose failure
-		// the entry declares expected.
+		// off for an endpoint whose failure the entry declares expected.
 		const parsedInfo: unknown = coerceJsonPayload(
 			await boundedBySignal(
 				client.get(MODEL_INFO_PATH, {
@@ -817,23 +752,18 @@ export async function fetchModels(request: FetchModelsRequest): Promise<FetchMod
 			log("model/info response has no data array; falling back", { payload: truncateForLog(parsedInfo) });
 		}
 	} catch (error) {
-		// Response-derived text can echo credentials into the issue-report
-		// buffer (the raw SDK message and even mapped messages for non-401 API
-		// errors embed the body), so the log carries only the classification.
-		// When the entry declares this failure expected the same line carries
-		// the "(expected)" marker - discovery's one expected-failure log seam,
-		// because a /model/info failure is nonfatal and never reaches the
-		// provider boundary.
+		// Response-derived text can echo credentials into the issue-report buffer,
+		// so the log carries only the classification. This is discovery's one
+		// expected-failure log seam, because a /model/info failure is nonfatal and
+		// never reaches the provider boundary.
 		const mapped = mapSdkError(error, { surface: "discovery", baseUrl, timeoutMs: discoveryTimeout });
 		// The signal firing IS the timeout evidence even when the mapped error is
-		// not classified as one (AbortSignal.timeout's TimeoutError reaches
-		// mapSdkError as an anonymous throw and maps to the unhandled tail).
+		// not classified as one (AbortSignal.timeout's TimeoutError maps to the
+		// unhandled tail).
 		modelInfo.evidence = infoSignal.aborted ? { kind: "timeout" } : unservedEvidenceOf(mapped);
 		const expectedNote = expected?.modelInfo === true ? " (expected: modelInfo)" : "";
-		// The `error` field prefers the classification: the mapped error's name
-		// is a constant class name (RequestError, or CancellationError on a
-		// pass-through) that says nothing about what failed, while the
-		// classification names the shape - and it is never message text.
+		// The `error` field prefers the classification: it names the failure shape
+		// where the class name would not, and it is never message text.
 		log(`model/info failed, falling back to ${modelsUrl(baseUrl, apiVersion)}${expectedNote}`, {
 			error: classificationOf(mapped) ?? mapped.name,
 			...(mapped instanceof RequestError

@@ -1,12 +1,9 @@
 /**
- * The attach-side override application and declared-model synthesis: coherent
- * rebuilds (token constraints, capability flags, the reasoning gate over the
- * flag and the supported-params list, the caching gate, pricing re-derived
- * from the effective cost fields, outputLimitSource promotion, stale-pricing
- * healing), the object-identity fast path when no consumed configuration
- * matches, inertness against the DISCOVERED raw-ID set, and collision
- * suppression against reserved exposed IDs. The seed-pinned equivalence twin
- * lives in capabilityOverrides.property.test.ts.
+ * The attach-side override application and declared-model synthesis: coherent rebuilds
+ * (token constraints, capability flags, the reasoning and caching gates, pricing,
+ * outputLimitSource promotion, stale-pricing healing), the object-identity fast path when
+ * no consumed configuration matches, inertness against the DISCOVERED raw-ID set, and
+ * collision suppression against reserved exposed IDs.
  */
 import * as assert from "node:assert";
 import type { CapabilityOverrideOptions } from "../../../provider/catalog/capabilityOverrides";
@@ -83,8 +80,8 @@ suite("provider/catalog/capabilityOverrides", () => {
 
 		test("a stored copy overridden under an earlier configuration heals once the override is removed", () => {
 			// The status window's stale-served models were rebuilt under the OLD
-			// configuration; the fast path must verify the advertisement instead
-			// of freezing the removed override in place.
+			// configuration; the fast path must verify the advertisement instead of
+			// freezing the removed override in place.
 			const overridden = applyCapabilityOverrides(
 				[registered(DEPLOYMENT)],
 				SERVER,
@@ -98,10 +95,9 @@ suite("provider/catalog/capabilityOverrides", () => {
 		});
 
 		test("a fallback-provided field triggers the rebuild path, never the identity fast path", () => {
-			// The fast path's level classification is total over CapabilityLevel
-			// (LEVEL_TRIGGERS_REBUILD); this pins the fallback levels in it. The
-			// server declares no output limit, so registration advertised the
-			// floor fill, and the _fallback value must rebuild the model.
+			// The fast path's level classification is total over CapabilityLevel;
+			// this pins the fallback levels. The server declares no output limit, so
+			// registration advertised the floor fill and the _fallback must rebuild.
 			const undeclaredOutput: LiteLLMModelItem = {
 				id: "gpt-test",
 				shape: {
@@ -319,11 +315,9 @@ suite("provider/catalog/capabilityOverrides", () => {
 		});
 
 		test("a stored copy carrying pricing the walk does not derive is healed by the verified rebuild", () => {
-			// A stale-served window copy rebuilt under an earlier configuration
-			// can carry price fields the current walk no longer justifies. No
-			// marker is needed: advertisesEffective's pricing clause catches the
-			// mismatch, the rebuild strips and re-derives, and the healed copy
-			// settles on the fast path.
+			// A stale window copy rebuilt under an earlier configuration can carry
+			// price fields the current walk no longer justifies: the rebuild strips
+			// and re-derives, and the healed copy settles on the fast path.
 			const bare: LiteLLMModelItem = { id: "gpt-test", shape: { kind: "bare" } };
 			const info = registered(bare);
 			const stale = {
@@ -472,10 +466,9 @@ suite("provider/catalog/capabilityOverrides", () => {
 		});
 
 		test("a stored copy priced under a removed user cost record heals back to the server price", () => {
-			// The pricing clause of advertisesEffective exists for exactly this:
-			// a stale window copy rebuilt under an earlier configuration must
-			// re-price from the server once the record is gone, then settle on
-			// the identity fast path.
+			// A stale window copy rebuilt under an earlier configuration must
+			// re-price from the server once the record is gone, then settle on the
+			// identity fast path.
 			const priced = applyCapabilityOverrides(
 				[registered(DEPLOYMENT)],
 				SERVER,
@@ -493,10 +486,9 @@ suite("provider/catalog/capabilityOverrides", () => {
 		});
 
 		test("sub-unit dust re-derives byte-identical: no $0 label sneaks in through the rebuild", () => {
-			// Both costs are real but round to 0 per million; registration
-			// deliberately withholds the label and badge, and the effective-field
-			// rebuild must reproduce that exactly (the relaxed zero-pair rule is
-			// for RAW user-written 0/0 only), or the fast path could never hold.
+			// Both costs are real but round to 0 per million; registration withholds
+			// the label and badge, and the rebuild must reproduce that exactly (the
+			// relaxed zero-pair rule is for RAW user-written 0/0 only).
 			const dust: LiteLLMModelItem = {
 				id: "gpt-test",
 				shape: {
@@ -678,10 +670,9 @@ suite("provider/catalog/capabilityOverrides", () => {
 					logAdvisory: (message) => advisory.push(message),
 				})
 			);
-			// The unrecognized key is applied as-is (informational) and rides the
-			// advisory sink, which bypasses the issue reporter's ring-buffer
-			// budget; the invalid value is a real problem and keeps the budget.
-			// One line each, not one per model, and never a value.
+			// The unrecognized key applies as-is and rides the advisory sink, which
+			// bypasses the issue reporter's ring-buffer budget; the invalid value
+			// keeps the budget. One line each, never a value.
 			assert.deepStrictEqual(advisory, ["Applying an unrecognized capability field as-is"]);
 			assert.deepStrictEqual(logged, ["Ignoring a modelCapabilities record problem"]);
 		});

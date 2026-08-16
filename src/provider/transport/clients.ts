@@ -18,21 +18,19 @@ export interface ServerClientConfig {
 }
 
 /**
- * Never sent: with an Authorization header explicitly nulled out the SDK
- * omits auth entirely, and with a custom Authorization header configured the
- * default-headers merge overrides it. It only satisfies the SDK's
- * constructor-time credential check for keyless servers.
+ * Never sent: the SDK omits auth entirely when Authorization is nulled out,
+ * and a configured custom Authorization header wins the default-headers merge.
+ * It only satisfies the SDK's constructor-time credential check for keyless
+ * servers.
  */
 const KEYLESS_PLACEHOLDER = "keyless";
 
 /**
- * SDK request paths, relative to the client's base URL: the OpenAI-compatible
- * API root apiRootOf builds (the entry's apiVersion override, else a version
- * segment already in the URL, else /v1). The *Url helpers below state exactly
- * what the transport calls - required for the log lines that name endpoints,
- * which feed public issue reports and must not drift from the real requests -
- * so their apiVersion parameter is required: a caller cannot silently log the
- * auto root for a client built on an overridden one.
+ * SDK request paths, relative to the client's base URL. The *Url helpers state
+ * exactly what the transport calls - those log lines feed public issue reports
+ * and must not drift from the real requests - so their apiVersion parameter is
+ * required: a caller cannot silently log the auto root for a client built on
+ * an overridden one.
  */
 export const MODEL_INFO_PATH = "/model/info";
 export const MODELS_PATH = "/models";
@@ -59,10 +57,9 @@ function fingerprintOf(config: ServerClientConfig): string {
 		.sort(([a], [b]) => a.localeCompare(b))
 		.map(([key, value]) => `${key}:${value}`)
 		.join("\n");
-	// Joined on NUL (spelled as an escape so the file stays text-diffable):
-	// the byte cannot occur inside any of the parts, so the join is unambiguous.
-	// An unset apiVersion must not collide with the "" override (both would
-	// render as the empty string), so set values carry an "=" prefix.
+	// Joined on NUL (spelled as an escape so the file stays text-diffable): the
+	// byte cannot occur inside any part, so the join is unambiguous. An unset
+	// apiVersion must not collide with the "" override, so set values carry "=".
 	const apiVersionPart = config.apiVersion === undefined ? "" : `=${config.apiVersion}`;
 	return fingerprint(
 		[config.baseUrl, apiVersionPart, config.userAgent, headerPart, fingerprint(config.apiKey)].join("\u0000")
@@ -70,16 +67,14 @@ function fingerprintOf(config: ServerClientConfig): string {
 }
 
 /**
- * Default headers preserve the pre-SDK precedence: custom headers first, then
- * the extension's User-Agent, then auth. When an API key is set it owns both
- * auth headers (Authorization comes from the SDK's bearer auth, X-API-Key is
- * added here for gateway compatibility) and conflicting custom headers are
- * dropped. Keyless servers send no auth header at all unless the user
- * configured their own Authorization header. A null value means "send no such
- * header" (the SDK omits it; plain-fetch consumers skip it). Exported as the
- * one owner of this precedence rule: the extension-side usage client reuses
- * it for its root-level GETs, with an explicit Bearer Authorization since no
- * SDK adds one there.
+ * Default headers precedence: custom headers, then the extension's User-Agent,
+ * then auth. A set API key owns both auth headers (Authorization from the
+ * SDK's bearer auth, X-API-Key here for gateway compatibility) and conflicting
+ * custom headers are dropped; keyless servers send no auth header unless the
+ * user configured their own Authorization. A null value means "send no such
+ * header". Exported as the one owner of this precedence rule: the
+ * extension-side usage client reuses it for its root-level GETs, with an
+ * explicit Bearer Authorization since no SDK adds one there.
  */
 export function buildDefaultHeaders(
 	config: Pick<ServerClientConfig, "apiKey" | "userAgent" | "customHeaders">
@@ -104,24 +99,24 @@ export function createServerClient(config: ServerClientConfig): OpenAI {
 	return new OpenAI({
 		baseURL: apiRootOf(config.baseUrl, config.apiVersion),
 		apiKey: config.apiKey || KEYLESS_PLACEHOLDER,
-		// Strict parity with the previous fetch transport: the SDK default of 2
-		// would re-send chat prompts on 5xx. Discovery opts back in per request.
+		// The SDK default of 2 would re-send chat prompts on 5xx. Discovery opts
+		// back in per request.
 		maxRetries: 0,
 		defaultHeaders: buildDefaultHeaders(config),
-		// The ambient OPENAI_LOG variable must not turn on SDK logging: at debug
-		// level it logs request bodies (chat prompts) and custom headers, which
-		// may carry secrets the SDK's redaction does not know about.
+		// The ambient OPENAI_LOG must not turn on SDK logging: at debug level it
+		// logs request bodies and custom headers, which may carry secrets the
+		// SDK's redaction does not know about.
 		logLevel: "off",
 		// The SDK captures fetch at construction; reading globalThis.fetch per
-		// call keeps test-time fetch replacement (and future interceptors) working.
+		// call keeps test-time fetch replacement working.
 		fetch: (url, init) => globalThis.fetch(url, init),
 	});
 }
 
 /**
- * One client per server, rebuilt only when the server's client-relevant
- * config changes. Keyed by server ID; prune() drops entries for servers that
- * no longer exist so removed servers' keys and headers are not retained.
+ * One client per server, rebuilt only when the server's client-relevant config
+ * changes. prune() drops entries for servers that no longer exist, so removed
+ * servers' keys and headers are not retained.
  */
 export class ServerClientCache {
 	private readonly entries = new Map<string, { fingerprint: string; client: OpenAI }>();

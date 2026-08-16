@@ -8,8 +8,8 @@
  * - a localized string is resolved at module scope;
  * - a top-level helper or class reaching a localized string is missing from
  *   the lazy-helper census, or a census entry no longer names a declaration;
- * - shipped source default-exports anything (both census walks follow
- *   call-site names, and a default export lets every importer mint its own);
+ * - shipped source default-exports anything (it breaks the census walks'
+ *   name-following);
  * - the source localizes through vscode's l10n API instead of @vscode/l10n's
  *   canonical import form;
  * - a translation file's key set drifts from its English reference;
@@ -23,9 +23,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-// The typography and placeholder helpers are shared with the guard suites
-// under src/test; they live there because the extension-host tsconfig cannot
-// compile imports from scripts/.
+// Shared with the guard suites; they live under src/test because the
+// extension-host tsconfig cannot compile imports from scripts/.
 import { bannedTypography, placeholderCounts } from "../../src/test/util/l10n";
 import {
 	BUNDLE_PATH,
@@ -129,8 +128,8 @@ async function checkExtractionDrift(): Promise<BundleFile | undefined> {
 
 /**
  * The guard's own teeth, proven before it judges real files: each fixture is a
- * pattern the AST walk must classify correctly, so a guard regression fails
- * the gate instead of silently passing frozen-English catalogs.
+ * pattern the AST walk must classify correctly, so a guard regression fails the
+ * gate instead of silently passing frozen-English catalogs.
  */
 const GUARD_FIXTURES: readonly { readonly name: string; readonly source: string; readonly flagged: boolean }[] = [
 	{
@@ -239,10 +238,9 @@ const GUARD_FIXTURES: readonly { readonly name: string; readonly source: string;
 		flagged: true,
 	},
 	{
-		// This guard matches callee text, so `.call`/`.apply` and a destructured
-		// `t` slip past it - the residual its docstring names. Pinned here
-		// because vscodeL10nOffenses bans both shapes outright, making the
-		// split a documented division of labour rather than a gap.
+		// This guard matches callee text, so `.call` and a destructured `t` slip
+		// past it; vscodeL10nOffenses bans both shapes, making the split a
+		// documented division of labour rather than a gap.
 		name: "t invoked through .call at module scope (the one-API guard's job, not this one's)",
 		source: 'const TITLE = l10n.t.call(undefined, "x");\n',
 		flagged: false,
@@ -264,8 +262,7 @@ const GUARD_FIXTURES: readonly { readonly name: string; readonly source: string;
 		flagged: true,
 	},
 	{
-		// The SECOND parameter: a tag's first receives the strings array, so only
-		// a later one can fall back to its default.
+		// The SECOND parameter: a tag's first receives the strings array.
 		name: "a template tag's parameter default evaluates with the tag",
 		source: 'const FROZEN = ((strings, text = l10n.t("x")) => text)`y`;\n',
 		flagged: true,
@@ -400,10 +397,9 @@ const GUARD_FIXTURES: readonly { readonly name: string; readonly source: string;
 ];
 
 /**
- * The reverse census walk's own teeth: each fixture is a source set whose
- * expected findings the walk must produce exactly - names it must report as
- * missing from a given census, and shapes it must leave alone. expectedLines
- * pins WHERE a finding points, in the same name-sorted order as expected.
+ * The reverse census walk's own teeth: each fixture's expected findings are the
+ * exact set the walk must produce. expectedLines pins WHERE a finding points,
+ * in the same name-sorted order as expected.
  */
 const REVERSE_CENSUS_FIXTURES: readonly {
 	readonly name: string;
@@ -492,8 +488,8 @@ const REVERSE_CENSUS_FIXTURES: readonly {
 		expected: [],
 	},
 	{
-		// The boundary, pinned: these bind a name to a value in flight, which is
-		// data-flow analysis rather than a name-following walk.
+		// Binding a name to a value in flight is data-flow analysis, not a
+		// name-following walk.
 		name: "an argument bound to a parameter stays invisible (the documented limit)",
 		sources: [{ file: "a.ts", contents: "export const wraps = ((title) => () => title())(manageCommandTitle);\n" }],
 		census: ["manageCommandTitle"],
@@ -705,9 +701,8 @@ const REVERSE_CENSUS_FIXTURES: readonly {
 	},
 	// The two shapes the real registered classes have: neither runs l10n.t at
 	// `new`, and both are obligations because the roots `new` DOES evaluate are
-	// walked whole. Without these, tightening that walk to skip nested function
-	// literals would drop DashboardController and UsageAlerts with no fixture
-	// noticing.
+	// walked whole. Tightening that walk to skip nested function literals would
+	// drop DashboardController and UsageAlerts with no other fixture noticing.
 	{
 		name: "a class whose only evidence is a deferred thunk-table property is an obligation",
 		sources: [
@@ -949,12 +944,12 @@ function byName(left: { readonly name: string }, right: { readonly name: string 
 function checkModuleScopeLocalization(sources: readonly SourceFile[]): void {
 	// The census only guards what it can find: an entry naming a deleted or
 	// renamed helper is a silently disarmed guard, so every entry must still
-	// resolve to a top-level declaration in shipped source - through the AST,
-	// because a name in a comment or a string is not a declaration.
+	// resolve to a top-level declaration through the AST - a name in a comment
+	// or a string is not a declaration.
 	const declared = new Set<string>();
 	for (const { file, contents } of sources) {
-		// A substring pre-filter keeps the parse off files that cannot declare
-		// any census name; the AST decides for the candidates.
+		// A substring pre-filter keeps the parse off files that cannot declare a
+		// census name; the AST decides for the candidates.
 		if (!LAZY_L10N_HELPERS.some((helper) => contents.includes(helper))) {
 			continue;
 		}
@@ -1374,8 +1369,8 @@ const BUNDLE_READ_FILES = new Set(
 
 /**
  * The constructor-probe files pass the vscode module object into Reflect
- * probes; that value use carries no localization. Everything else in them
- * stays under the rule.
+ * probes; that value use carries no localization. Everything else in them stays
+ * under the rule.
  */
 const VSCODE_VALUE_USE_FILES = new Set(
 	["src/shared/conversion/dataPart.ts", "src/shared/conversion/thinkingPart.ts"].map((file) =>
@@ -1412,10 +1407,10 @@ function checkVscodeL10nUsage(sources: readonly SourceFile[]): void {
 
 /**
  * Non-prose token families beyond the {N} placeholders that a translated value
- * must carry verbatim, compared as multisets against the English source:
- * $(icon) codicons, command:<id> occurrences, and markdown link TARGETS
- * including percent-encoded ones (a reworded target breaks deep-links). The /g
- * literals are consumed only through matchAll, which iterates over a clone.
+ * must carry verbatim, compared as multisets: $(icon) codicons, command:<id>
+ * occurrences, and markdown link TARGETS including percent-encoded ones (a
+ * reworded target breaks deep-links). The /g literals are consumed only through
+ * matchAll, which iterates over a clone.
  */
 const PRESERVED_TOKENS: readonly { readonly what: string; readonly pattern: RegExp }[] = [
 	{ what: "$(codicon) tokens", pattern: /\$\(([a-z0-9~-]+)\)/g },
@@ -1424,11 +1419,10 @@ const PRESERVED_TOKENS: readonly { readonly what: string; readonly pattern: RegE
 ];
 
 /**
- * A bare key may never coexist with composite keys for the same base message:
- * a repeated message either uses the identical plain t() form everywhere (one
- * bare key) or carries a distinguishing comment at every call site
- * (all-composite, a deliberate split). The mix is what forks a key silently,
- * surfacing only as an untranslated string at runtime.
+ * A bare key may never coexist with composite keys for the same base message: a
+ * repeated message either uses the identical plain t() form everywhere (one
+ * bare key) or carries a distinguishing comment at every call site. The mix
+ * forks a key silently, surfacing only as an untranslated string at runtime.
  */
 function checkBaseMessageCollisions(bundle: BundleFile): void {
 	const keysByMessage = new Map<string, string[]>();
@@ -1540,8 +1534,8 @@ async function checkTranslationFiles(
 	for (const name of bundleFiles) {
 		const file = path.join(l10nDir, name);
 		// Strings only: the webview bootstrap drops a bundle with any non-string
-		// value, so a {message, comment} object here would revert the dashboard
-		// to English while the host stays translated.
+		// value, so a {message, comment} object here would revert the dashboard to
+		// English while the host stays translated.
 		const translated = await readTable(file, nlsSchema);
 		if (translated === undefined) {
 			continue;

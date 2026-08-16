@@ -1,10 +1,9 @@
 import type { UiAccent, UiTheme } from "../../shared/config/settingSpec";
 
 /**
- * The dashboard webview's HTML shell: a strict CSP, one nonce'd script tag
- * for the bundled React app, and a link to the bundled stylesheet. Pure
- * string building so the CSP and script wiring are unit-testable; panel.ts
- * supplies the nonce and the webview-translated script and style URIs.
+ * The dashboard webview's HTML shell: a strict CSP, one nonce'd script tag,
+ * one stylesheet link. Pure string building so the CSP and script wiring are
+ * unit-testable; panel.ts supplies the nonce and the webview-translated URIs.
  */
 
 export interface DashboardHtmlOptions {
@@ -12,19 +11,16 @@ export interface DashboardHtmlOptions {
 	readonly cspSource: string;
 	/** Nonce authorizing exactly this document's script tags. */
 	readonly nonce: string;
-	/** The dashboard bundle as a webview URI string. */
 	readonly scriptUri: string;
-	/** The dashboard stylesheet as a webview URI string. */
 	readonly styleUri: string;
-	/** The host's display language (vscode.env.language), rendered as the document's lang attribute. */
+	/** vscode.env.language, rendered as the document's lang attribute. */
 	readonly language: string;
-	/** The host-resolved l10n bundle (vscode.l10n.bundle) injected for @vscode/l10n; undefined under English. */
+	/** The host-resolved l10n bundle (vscode.l10n.bundle) for @vscode/l10n; undefined under English. */
 	readonly l10nBundle: Readonly<Record<string, string>> | undefined;
 	/**
-	 * The reader's theme choice. "auto" leaves every semantic token mapped onto
-	 * the host's --vscode-* variables, so the dashboard follows whatever theme
-	 * the editor is wearing - including high contrast, and including themes we
-	 * have never seen. "light" and "dark" pin our own palette instead.
+	 * "auto" leaves every semantic token mapped onto the host's --vscode-*
+	 * variables, so the dashboard follows any editor theme, high contrast
+	 * included; "light" and "dark" pin our own palette instead.
 	 */
 	readonly theme: UiTheme;
 	/** The accent hue, deployed on primary actions, selection, focus and links. */
@@ -36,10 +32,7 @@ function escapeHtml(value: string): string {
 	return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
 
-/**
- * JSON hardened for an inline script body: "<" cannot open "</script>" or
- * "<!--"; U+2028/U+2029 are escaped for defense-in-depth.
- */
+/** JSON hardened for an inline script body: "<" cannot open "</script>" or "<!--"; U+2028/U+2029 escaped too. */
 function inlineScriptJson(value: Readonly<Record<string, string>>): string {
 	return JSON.stringify(value)
 		.replaceAll("<", "\\u003c")
@@ -53,16 +46,14 @@ export function buildDashboardHtml(options: DashboardHtmlOptions): string {
 	const scriptUri = escapeHtml(options.scriptUri);
 	const styleUri = escapeHtml(options.styleUri);
 	const language = escapeHtml(options.language);
-	// The bundle rides an inline script so @vscode/l10n is configured before
-	// the dashboard bundle's first render; absent under English on purpose
-	// (t() then falls back to its inline message).
+	// Inline so @vscode/l10n is configured before the bundle's first render;
+	// absent under English (t() falls back to its inline message).
 	const bundleScript =
 		options.l10nBundle !== undefined
 			? `<script nonce="${nonce}">window.__l10nBundle = ${inlineScriptJson(options.l10nBundle)};</script>\n\t`
 			: "";
-	// The theme and accent ride the root element so the stylesheet can key its
-	// palettes off them without the bundle having to run first: a reader who
-	// pinned light never sees a dark frame while React boots.
+	// Stamped on the root so the stylesheet keys its palettes off them before
+	// the bundle runs: a reader who pinned light never sees a dark frame.
 	const theme = escapeHtml(options.theme);
 	const accent = escapeHtml(options.accent);
 	return `<!DOCTYPE html>

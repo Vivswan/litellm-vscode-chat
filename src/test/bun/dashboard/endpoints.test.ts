@@ -1,7 +1,7 @@
 /**
- * The endpoint table's WIRE_LIMITS against the surfaces that cannot import
- * it: package.json's manifest is JSON, so its currency-symbol maxLength
- * mirrors WIRE_LIMITS.currencySymbol by this pin instead of by reference.
+ * The endpoint table's WIRE_LIMITS against the surface that cannot import it:
+ * package.json is JSON, so its currency-symbol maxLength mirrors
+ * WIRE_LIMITS.currencySymbol by this pin instead of by reference.
  */
 import { expect, test } from "bun:test";
 import packageJson from "../../../../package.json";

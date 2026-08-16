@@ -1,7 +1,7 @@
 /**
- * Server-related types shared across the extension and provider layers.
- * They live here so the provider layer never imports from src/extension
- * (the dependency between layers is one-way: extension -> provider -> shared).
+ * Server-related types shared across the extension and provider layers, kept
+ * here so the provider layer never imports from src/extension (layering is
+ * one-way: extension -> provider -> shared).
  */
 
 import type { TransportErrorClassification, UnservedEndpointEvidence } from "./errorClassification";
@@ -22,7 +22,7 @@ interface ServerStatusCommon {
 	label: string;
 	baseUrl: string;
 	lastChecked: string;
-	/** Whether the server's configuration carries credentials (a static API key or OAuth client credentials); the secrets themselves never leave their store. */
+	/** Whether the configuration carries credentials; the secrets themselves never leave their store. */
 	hasApiKey?: boolean | undefined;
 }
 
@@ -30,20 +30,16 @@ interface ServerStatusOk extends ServerStatusCommon {
 	state: "ok";
 	modelCount: number;
 	/**
-	 * True when the group serves zero models because the user explicitly
-	 * removed (hid) it, not because the server listed none: suppression never
-	 * touches the network, so the outcome stays "ok" and this flag carries the
-	 * cause. Presentation layers (status bar, notifier, the issue-report gate)
-	 * read it to name the recovery instead of blaming the server.
+	 * True when the group serves zero models because the user hid it, not
+	 * because the server listed none: suppression never touches the network, so
+	 * the outcome stays "ok" and this flag carries the cause.
 	 */
 	hiddenByRemoval?: boolean | undefined;
 	/**
-	 * Present when this serve's discovery fell back to /models because the
-	 * model-info probe failed like an unserved endpoint (timeout or HTTP
-	 * 404/405) the entry does not declare expected: the models serve fine, but
-	 * every sync pays for the doomed probe first, so presentation surfaces
-	 * suggest declaring expectedFailures: ["modelInfo"]. Classification only
-	 * (the evidence shape), advisory only - nothing gates on it.
+	 * Present when discovery fell back to /models because the model-info probe
+	 * failed like an unserved endpoint the entry does not declare expected: the
+	 * models serve fine, but every sync pays for the doomed probe first.
+	 * Advisory only - nothing gates on it.
 	 */
 	modelInfoUnsupported?: UnservedEndpointEvidence | undefined;
 	error?: undefined;
@@ -52,29 +48,25 @@ interface ServerStatusOk extends ServerStatusCommon {
 export interface ServerStatusError extends ServerStatusCommon {
 	state: "error";
 	/**
-	 * Display rendering for UI surfaces only (status bar, toasts, the
-	 * dashboard): an http failure's text embeds the response body. NEVER
-	 * interpolate this into a log line, and never rebuild an Error from it
-	 * (rethrow the original so its classification survives) - log lines land
-	 * in the issue-report buffer, which prefills public GitHub issues; that
-	 * is what logSafeError is for.
+	 * Display rendering for UI surfaces only: an http failure's text embeds the
+	 * response body. NEVER interpolate this into a log line, and never rebuild
+	 * an Error from it (rethrow the original so its classification survives) -
+	 * log lines prefill public GitHub issues. That is what logSafeError is for.
 	 */
 	error: string;
 	/** The rendering for log lines; the brand makes a display string a compile error here (see LogSafeErrorText). */
 	logSafeError: LogSafeErrorText;
 	/**
 	 * Classification only (enum ids plus an integer status, never message
-	 * text), so unlike `error` it is log-legal and protocol-legal. UI surfaces
-	 * branch on it for setup hints; absent means the error was not classified
-	 * and every consumer renders exactly today's UI.
+	 * text), so unlike `error` it is log-legal and protocol-legal. Absent means
+	 * the error was not classified.
 	 */
 	classification?: TransportErrorClassification | undefined;
 	/**
 	 * True when the failure hit a category the entry's expectedFailures
 	 * declares. The outcome stays a truthful error (the stale anchor and
-	 * failure counting depend on it); presentation layers derive the
-	 * "(expected)" downgrade from this flag. Rides like classification:
-	 * absent means not expected.
+	 * failure counting depend on it); presentation derives the "(expected)"
+	 * downgrade from this flag.
 	 */
 	expected?: boolean | undefined;
 	/** How many declared models the server keeps serving despite the failure; absent means none. */
@@ -83,9 +75,8 @@ export interface ServerStatusError extends ServerStatusCommon {
 }
 
 /**
- * One server's discovery outcome. A discriminated union: a reachable server
- * carries its model count, a failed one carries its error message, and the
- * type makes an error-with-count or a message-less failure unrepresentable.
+ * One server's discovery outcome. The union makes an error-with-count or a
+ * message-less failure unrepresentable.
  */
 export type ServerStatus = ServerStatusOk | ServerStatusError;
 

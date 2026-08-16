@@ -1,14 +1,12 @@
 /**
- * The settings.json jump behind the dashboard's revealSetting intent: open
- * the USER settings.json and select the first occurrence of
+ * The settings.json jump behind the dashboard's revealSetting intent: open the
+ * USER settings.json and select the first occurrence of
  * "litellm-vscode-chat.<key>". The file is opened through the host's own
- * "Preferences: Open User Settings (JSON)" command (workbench.action.
- * openSettingsJson) rather than a derived filesystem path: the host resolves
- * the profile's real settings resource and creates the file when it does not
- * exist yet, where an openTextDocument on a guessed path fails on fresh
- * installs, named profiles, and remote/web hosts. Best-effort by contract:
- * a key the file does not contain (or a settings editor the host never made
- * active) leaves the plain opened file as the whole answer, never an error.
+ * "Preferences: Open User Settings (JSON)" command rather than a derived
+ * filesystem path, because the host resolves the profile's real settings
+ * resource and creates the file when it does not exist yet. Best-effort by
+ * contract: a key the file does not contain leaves the plain opened file as
+ * the whole answer.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -29,10 +27,9 @@ const OPEN_USER_SETTINGS_JSON = "workbench.action.openSettingsJson";
 const SETTING_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.]*$/;
 
 /**
- * The character range of the first `"litellm-vscode-chat.<key>"` occurrence
- * in the document text, quotes excluded (the selection covers the key the
- * user asked about, not its punctuation). Undefined when the file does not
- * mention the key - a clean settings.json is a normal answer, not an error.
+ * The character range of the first `"litellm-vscode-chat.<key>"` occurrence,
+ * quotes excluded. Undefined when the file does not mention the key - a clean
+ * settings.json is a normal answer, not an error.
  */
 export function findSettingKeyRange(text: string, key: string): { start: number; end: number } | undefined {
 	const needle = `"${CONFIG_SECTION}.${key}"`;
@@ -68,13 +65,11 @@ export async function openUserSettingAtKey(
 }
 
 /**
- * Where the profile keeps its user settings.json, derived like the
- * groups-file command derives chatLanguageModels.json: globalStorage/<ext-id>
- * sits directly under the profile's User directory (default and named
- * profiles alike), so the file is two levels up. The reveal compares the
- * opened editor against this path and stands down on a mismatch - a
- * workspace .vscode/settings.json that happens to win focus must never
- * receive the selection.
+ * Where the profile keeps its user settings.json: globalStorage/<ext-id> sits
+ * directly under the profile's User directory (default and named profiles
+ * alike), so the file is two levels up. The reveal compares the opened editor
+ * against this path and stands down on a mismatch - a workspace
+ * .vscode/settings.json that wins focus must never receive the selection.
  */
 export function resolveUserSettingsUri(globalStorageUri: vscode.Uri): vscode.Uri {
 	return vscode.Uri.joinPath(globalStorageUri, "..", "..", "settings.json");
@@ -83,9 +78,8 @@ export function resolveUserSettingsUri(globalStorageUri: vscode.Uri): vscode.Uri
 /**
  * The command body, exported so tests can drive it with an injected opener:
  * refuse anything but a dotted setting key before any open, then best-effort
- * reveal. Never throws to the caller: a failed open logs a classification -
- * the log buffer feeds public issue reports, so never the key or any file
- * text - and shows a plain error toast.
+ * reveal. Never throws to the caller; a failed open logs a classification -
+ * never the key or any file text - and shows a plain error toast.
  */
 export async function handleOpenSettingKey(
 	key: unknown,
@@ -104,11 +98,7 @@ export async function handleOpenSettingKey(
 	}
 }
 
-/**
- * Register the internal litellm.openSettingKey command (the dashboard's
- * revealSetting intent executes it with the bare key as its one argument),
- * wiring handleOpenSettingKey to the host's real settings-json opener.
- */
+/** Register litellm.openSettingKey, wiring handleOpenSettingKey to the host's settings-json opener. */
 export function registerOpenSettingKeyCommand(context: vscode.ExtensionContext, logger: Logger): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand(INTERNAL_CMD.openSettingKey, (key: unknown) =>
@@ -117,12 +107,10 @@ export function registerOpenSettingKeyCommand(context: vscode.ExtensionContext, 
 				async () => {
 					await vscode.commands.executeCommand(OPEN_USER_SETTINGS_JSON);
 					const editor = vscode.window.activeTextEditor;
-					// Select only in the document the command was asked to open (the
-					// profile's own user settings.json, compared by path so a scheme
-					// difference cannot defeat the check): if something else won the
-					// focus race - or the host resolved another profile's file - the
-					// plain open is the whole answer, never a selection scribbled
-					// into an unrelated document.
+					// Select only in the document the command was asked to open, compared
+					// by path so a scheme difference cannot defeat the check: if
+					// something else won the focus race, the plain open is the whole
+					// answer rather than a selection scribbled into another document.
 					const expectedPath = resolveUserSettingsUri(context.globalStorageUri).path;
 					if (editor === undefined || editor.document.uri.path !== expectedPath) {
 						return undefined;

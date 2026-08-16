@@ -16,13 +16,12 @@ import { catalogOff, ensureActivated } from "../hostApiHelpers";
 import { expectDefined } from "../pureHelpers";
 
 /**
- * Provider-group semantics probes, in their own extension host (the
- * host-fidelity-groups label): provider groups are add-only for the host
- * lifetime, so the groups created here serve models until the host exits,
- * and a suite with exact-set model waits could never share this host.
+ * Provider-group semantics probes, in their own extension host: groups are
+ * add-only for the host lifetime, so the groups created here serve models until
+ * the host exits and a suite with exact-set model waits could never share it.
  * Capture-mode only by construction - every probe stands up its own capture
- * server - so the label runs in the plain `bun run test` pass and in the
- * docker orchestration alike.
+ * server - so the label runs in `bun run test` and the docker orchestration
+ * alike.
  */
 suite("Host-Fidelity Tests (provider group semantics)", () => {
 	// writeServerEntry edits the real machine-scoped servers setting; restore
@@ -50,10 +49,9 @@ suite("Host-Fidelity Tests (provider group semantics)", () => {
 		try {
 			const labels = [uniqueName("litellm-label-probe-a"), uniqueName("litellm-label-probe-b")] as const;
 			for (const label of labels) {
-				// Mirrors the declared-entry sync chain (name === label). `label` is
-				// the schema-declared configuration property under empirical test:
-				// the per-entry identity design rests on the host echoing it back
-				// through options.configuration on the per-group refresh.
+				// `label` is the schema-declared configuration property under
+				// empirical test: the per-entry identity design rests on the host
+				// echoing it back through options.configuration on each refresh.
 				await addGroup({ name: label, baseUrl: `http://localhost:${server.port}`, apiKey: "probe-key" });
 			}
 
@@ -87,8 +85,7 @@ suite("Host-Fidelity Tests (provider group semantics)", () => {
 
 			const inUniverse = (model: vscode.LanguageModelChat) => model.id === sharedId;
 			// The host does NOT dedupe across groups: both groups' entries land in
-			// the picker (the exact-set wait counts duplicates, so anything but
-			// two would time out here).
+			// the picker, and the exact-set wait counts duplicates.
 			const models = await waitForModels(
 				scopedExact(inUniverse, [sharedId, sharedId]),
 				20000,
@@ -98,12 +95,11 @@ suite("Host-Fidelity Tests (provider group semantics)", () => {
 			assert.strictEqual(twins.length, 2);
 			const firstTwin = expectDefined(twins[0]);
 			const secondTwin = expectDefined(twins[1]);
-			// The twins are byte-for-byte indistinguishable through vscode.lm:
-			// the host namespaces models by group internally but exposes none of
-			// that on the API object. Design consequence: a suite can attribute a
-			// model to the group that served it ONLY through a model ID unique to
-			// that group - a duplicated ID is observable as a count, never as an
-			// identity - so group-driven suites must mint per-group model IDs.
+			// The twins are indistinguishable through vscode.lm: the host namespaces
+			// models by group internally but exposes none of that on the API object.
+			// Design consequence: a suite can attribute a model to the group that
+			// served it ONLY through a model ID unique to that group, so group-driven
+			// suites must mint per-group model IDs.
 			for (const field of ["id", "name", "family", "version", "vendor"] as const) {
 				assert.strictEqual(
 					firstTwin[field],
@@ -132,8 +128,8 @@ suite("Host-Fidelity Tests (provider group semantics)", () => {
 				label,
 				baseUrl: `http://localhost:${server.port}`,
 			});
-			// The wait carries the condition itself: writeServerEntry settles on
-			// the FIRST recorded status, which may predate discovery completion.
+			// The wait carries the condition itself: writeServerEntry settles on the
+			// FIRST recorded status, which may predate discovery completion.
 			await waitForGroupStatus(label, (status) => status.state === "ok", 20000);
 			// The entry declares no inline auth, so the seam's configuration can
 			// resolve an apiKey only through the engine's SecretStorage read.
@@ -145,8 +141,8 @@ suite("Host-Fidelity Tests (provider group semantics)", () => {
 				info,
 				`refreshEntryModels must return the entry's discovered model; got: ${infos.map((i) => i.id).join(", ")}`
 			);
-			// Registration metadata comes from the capture fixture through the
-			// real group path (discovery, capability resolution, registration).
+			// Registration metadata comes from the capture fixture through the real
+			// group path: discovery, capability resolution, registration.
 			assert.strictEqual(info.maxOutputTokens, 16000);
 			assert.strictEqual(info.family, "openai");
 			// The stored key was CONSUMED, not merely tolerated: the fixture does

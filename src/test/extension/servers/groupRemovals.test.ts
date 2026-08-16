@@ -103,10 +103,8 @@ suite("extension/servers/groupRemovals", () => {
 		});
 
 		test("a broken persisted version re-enters versioning at 0 instead of freezing adoption", async () => {
-			// Versions are decimal strings compared as BigInt; junk of any shape
-			// (a poisoned number, a non-decimal string) re-enters at 0 with the
-			// records kept, so no hand-edited value can park the protocol at an
-			// unexceedable version.
+			// Versions are decimal strings compared as BigInt; junk of any shape re-enters
+			// at 0 with the records kept, so no hand-edited value can park the protocol.
 			for (const broken of [Number.POSITIVE_INFINITY, Number.NaN, 1e20, -1, 1.5, "junk", "-1", "1.5", ""]) {
 				const { store, storage } = makeStore({
 					[REMOVED_GROUP_TOMBSTONES_KEY]: { version: broken, records: [{ label: "A", baseUrl: "http://host.test" }] },
@@ -129,14 +127,10 @@ suite("extension/servers/groupRemovals", () => {
 		});
 
 		test("a stale memento read cannot lose an awaited tombstone (#220)", async () => {
-			// The nightly monkey fuzzer caught removed groups' models never
-			// leaving the host list: globalState handed back a pre-update value
-			// after an awaited update (the hazard the sync engine's fingerprint
-			// session map documents), so a re-read inside the next add's
-			// read-modify-write dropped the earlier tombstone, and the provider's
-			// suppression read missed a just-written one. A reverted snapshot
-			// carries an older-or-equal version, so the in-memory list keeps
-			// serving reads and the next write rebuilds the store from it.
+			// globalState can hand back a pre-update value after an awaited update, which
+			// would drop an earlier tombstone in the next add's read-modify-write. A
+			// reverted snapshot carries an older-or-equal version, so the in-memory list
+			// keeps serving reads and the next write rebuilds the store from it.
 			const { store, storage } = makeStore();
 			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
 			// The storage layer reverts the key to its pre-add value.
@@ -173,9 +167,8 @@ suite("extension/servers/groupRemovals", () => {
 		});
 
 		test("another window's tombstone rides through this window's mutations", async () => {
-			// globalState is shared across windows: another window syncs before it
-			// mutates, so its write carries a strictly newer version plus this
-			// window's records, and is adopted here on the next read.
+			// globalState is shared across windows: another window syncs before it mutates,
+			// so its write is strictly newer and is adopted here on the next read.
 			const { store, storage } = makeStore();
 			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
 			storage.mementoStore.set(REMOVED_GROUP_TOMBSTONES_KEY, {
@@ -199,11 +192,9 @@ suite("extension/servers/groupRemovals", () => {
 		});
 
 		test("another window's store-level unhide is adopted, never re-clobbered", async () => {
-			// The version is what tells a genuine foreign clear apart from the
-			// reverted store read of #220: another window's dashboard Unhide
-			// synced first, so its blob is strictly newer and wins, while a revert
-			// is older-or-equal and loses. This window's next write then builds on
-			// the adopted view instead of re-asserting the cleared tombstone.
+			// The version tells a genuine foreign clear apart from the reverted store read
+			// of #220: another window's Unhide is strictly newer and wins, while a revert
+			// is older-or-equal and loses.
 			const { store, storage } = makeStore();
 			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
 			// Another window adopted version 1, unhid A, and persisted version 2.
@@ -232,10 +223,9 @@ suite("extension/servers/groupRemovals", () => {
 				return update(key, value);
 			};
 
-			// Persistence is best-effort: the in-memory list hides the group, the
-			// provider is notified, and the failure is reported instead of thrown
-			// (a thrown persist would make callers report the opposite of the
-			// effective state).
+			// Persistence is best-effort: the in-memory list hides the group and the
+			// failure is reported instead of thrown, since a thrown persist would make
+			// callers report the opposite of the effective state.
 			await store.addTombstone({ label: "A", baseUrl: "http://host.test" });
 			assert.strictEqual(store.isTombstoned("A", "http://host.test"), true, "the in-memory list hides the group");
 			assert.strictEqual(changes.length, 1, "the provider is notified despite the failed persist");
@@ -256,10 +246,9 @@ suite("extension/servers/groupRemovals", () => {
 		});
 
 		test("a foreign snapshot cannot drop records a failed persist left unwritten", async () => {
-			// After a rejected write, memory is ahead of storage, so adoption is
-			// suspended: a strictly newer foreign blob arriving in that window
-			// must not silently drop the unpersisted tombstone. The healing write
-			// versions above the skipped snapshot (last-write-wins).
+			// After a rejected write memory is ahead of storage, so adoption is suspended:
+			// a strictly newer foreign blob must not silently drop the unpersisted
+			// tombstone. The healing write versions above the skipped snapshot.
 			const { store, storage } = makeStore();
 			store.onPersistError = () => {};
 			const update = storage.memento.update.bind(storage.memento);
@@ -287,9 +276,8 @@ suite("extension/servers/groupRemovals", () => {
 		});
 
 		test("onDidChange listeners observe the mutated state, and the persist settles after", async () => {
-			// The activation wiring re-resolves models synchronously from the
-			// change event, so the in-memory list must already answer with the
-			// mutation when the listener runs.
+			// The activation wiring re-resolves models synchronously from the change
+			// event, so the in-memory list must already answer with the mutation.
 			const storage = makeExtensionStorage({});
 			const store = new GroupRemovalStore(storage.memento);
 			const seen: boolean[] = [];
@@ -316,11 +304,9 @@ suite("extension/servers/groupRemovals", () => {
 		});
 
 		test("serialized writes: a covered failure leaves no false dirty state, an uncovered one suspends adoption", async () => {
-			// Writes run serialized and each persists the records as of the
-			// moment it runs. Here the stalled first write lands AFTER both adds,
-			// so it persists A and B together; the second (identical) write's
-			// failure is covered and must NOT suspend adoption - a genuine
-			// foreign clear afterwards is honored, never overwritten.
+			// Writes run serialized, each persisting the records as of when it runs. The
+			// stalled first write lands AFTER both adds, so it persists A and B together
+			// and the second write's failure is covered: adoption must NOT suspend.
 			const { store, storage } = makeStore();
 			store.onPersistError = () => {};
 			const update = storage.memento.update.bind(storage.memento);
@@ -365,9 +351,8 @@ suite("extension/servers/groupRemovals", () => {
 		});
 
 		test("an earlier success cannot mark a later, uncovered failure as persisted", async () => {
-			// The mirror case: the first write is already in flight (holding only
-			// A) when B is committed, so its success covers A alone; the second
-			// write's failure leaves B genuinely unwritten and adoption suspended.
+			// The mirror case: the first write is in flight holding only A when B is
+			// committed, so its success covers A alone and B stays unwritten.
 			const { store, storage } = makeStore();
 			store.onPersistError = () => {};
 			const update = storage.memento.update.bind(storage.memento);
@@ -399,10 +384,9 @@ suite("extension/servers/groupRemovals", () => {
 		});
 
 		test("the version keeps advancing past every numeric boundary (BigInt, no overflow)", async () => {
-			// Number.MAX_SAFE_INTEGER and a 64-digit string are both boundaries a
-			// numeric or length-capped scheme would freeze or re-enter at; here
-			// each successor is exact, strictly newer, and round-trips through a
-			// fresh store, so cross-window adoption keeps working.
+			// Number.MAX_SAFE_INTEGER and a 64-digit string are both boundaries a numeric
+			// or length-capped scheme would freeze at; here each successor is exact,
+			// strictly newer, and round-trips through a fresh store.
 			for (const start of [BigInt(Number.MAX_SAFE_INTEGER), BigInt("9".repeat(64))]) {
 				const { store, storage } = makeStore({
 					[REMOVED_GROUP_TOMBSTONES_KEY]: {
@@ -423,8 +407,7 @@ suite("extension/servers/groupRemovals", () => {
 					},
 					`the successor of ${start} is exact and strictly newer`
 				);
-				// The written string version round-trips: a fresh store adopts it
-				// and keeps counting.
+				// The written string version round-trips: a fresh store adopts it and counts on.
 				const { store: reread, storage: rereadStorage } = makeStore(Object.fromEntries(storage.mementoStore.entries()));
 				await reread.addTombstone({ label: "C", baseUrl: "http://host.test" });
 				const blob = rereadStorage.mementoStore.get(REMOVED_GROUP_TOMBSTONES_KEY) as { version: string };

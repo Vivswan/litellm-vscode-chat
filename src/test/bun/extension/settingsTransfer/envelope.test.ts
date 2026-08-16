@@ -107,8 +107,8 @@ describe("extension/settingsTransfer/envelope", () => {
 	});
 
 	test("version leniency: any number at or below the format version parses", () => {
-		// The discriminant gates on "is a number" and "is not newer"; older or
-		// odd numbers stay readable rather than inventing a lower bound.
+		// The discriminant gates on "is a number" and "is not newer"; older or odd
+		// numbers stay readable rather than inventing a lower bound.
 		for (const version of [1, 0, 0.5, -3]) {
 			const result = parseEnvelope(JSON.stringify({ [CONFIG_SECTION]: version, settings: {} }));
 			assert.ok(result.ok, `version ${version} must parse`);

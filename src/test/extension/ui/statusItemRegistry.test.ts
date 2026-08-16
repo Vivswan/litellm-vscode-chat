@@ -1,9 +1,8 @@
 /**
- * The status-item slot registry's pins (the duplicate-status-item regression
- * class): the singleton-creation-points source scan, the one-live-item-per-slot
- * lifecycle, and the self-heal on double construction. The lifecycle tests
- * create REAL items on purpose - each ends with every created item disposed,
- * so nothing survives into the shared host's status bar.
+ * The status-item slot registry's pins: the singleton-creation-points source scan, the
+ * one-live-item-per-slot lifecycle, and the self-heal on double construction. The
+ * lifecycle tests create REAL items on purpose - each ends with every created item
+ * disposed, so nothing survives into the shared host's status bar.
  */
 
 import * as assert from "node:assert";
@@ -22,12 +21,10 @@ import { UsageStatusBar } from "../../../extension/ui/usageStatusItem";
 import { Logger } from "../../../shared/logger";
 
 /**
- * Each singleton vscode surface and the one file allowed to create it. A
- * second creation point would silently bypass the surface's ownership: a
- * status item outside the slot registry escapes the one-live-item-per-slot
- * invariant, a second output channel splits the log stream the issue-report
- * buffer taps, and a second webview panel escapes the dashboard controller's
- * one-panel lifecycle.
+ * Each singleton vscode surface and the one file allowed to create it. A second creation
+ * point bypasses the surface's ownership: a status item outside the slot registry escapes
+ * the one-live-item-per-slot invariant, a second output channel splits the log stream the
+ * issue-report buffer taps, and a second webview panel escapes the one-panel lifecycle.
  */
 const SINGLETON_CREATION_POINTS: readonly { readonly api: string; readonly file: string }[] = [
 	{ api: "createStatusBarItem", file: path.join("src", "extension", "ui", "status.ts") },
@@ -195,10 +192,9 @@ suite("extension/ui statusItemRegistry", () => {
 	});
 
 	test("a slot self-heal tears down the superseded OWNER: onDidDispose fires and stale writes no-op", () => {
-		// The registry disposing the stale ITEM is only half the fix - a
-		// superseded UsageStatusBar also holds a store subscription and a
-		// stale-edge timer, and without the hook it would keep rendering into a
-		// disposed vscode item forever.
+		// Disposing the stale ITEM is only half the fix: a superseded
+		// UsageStatusBar also holds a store subscription and a stale-edge timer,
+		// and without the hook it would keep rendering into a disposed item.
 		const first = new StatusItem({
 			slot: "usage",
 			alignment: vscode.StatusBarAlignment.Right,
@@ -260,8 +256,8 @@ suite("extension/ui statusItemRegistry", () => {
 			getPollingOffWindowMs: () => 600_000,
 			getCurrencySymbol: () => "$",
 		});
-		// A second construction into the slot (the historical double-activation
-		// shape) must tear the first owner down entirely.
+		// A second construction into the slot (the double-activation shape) must
+		// tear the first owner down entirely.
 		const replacement = new StatusItem({
 			slot: "usage",
 			alignment: vscode.StatusBarAlignment.Right,

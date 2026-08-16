@@ -10,17 +10,15 @@ export const CHAT_COMPLETIONS_URL = `${TEST_BASE_URL}/v1/chat/completions`;
 
 /**
  * The shared msw server for all unit suites. Suites opt in with useMsw() and
- * register per-test handlers via mswServer.use(); handlers reset between
- * tests, and unhandled requests fail loudly. Two permanent baseline handlers:
- * one absorbs refreshes of panelIntegration's leftover host provider group
- * (VS Code has no group-removal API), which the host may trigger during any
- * later suite (a null body because discovery GETs retry, see
- * emptyErrorResponse), and one absorbs any OpenRouter catalog refresh that
- * fires while msw is listening - the unit label's primary guard is the
- * catalog opt-out in util/fingerprintSalt.ts's mochaGlobalSetup, since msw
- * intercepts nothing between a file's close() and the next file's listen().
- * Initial handlers survive resetHandlers(), and per-test use() handlers
- * still take precedence.
+ * register per-test handlers via mswServer.use(); handlers reset between tests,
+ * and unhandled requests fail loudly. The two baseline handlers absorb refreshes
+ * of panelIntegration's leftover host provider group (VS Code has no
+ * group-removal API) and any OpenRouter catalog refresh that fires while msw is
+ * listening; both answer with a null body, which discovery retries require (see
+ * emptyErrorResponse). msw intercepts nothing between a file's close() and the
+ * next file's listen(), so the unit label's primary catalog guard stays the
+ * opt-out in util/fingerprintSalt.ts's mochaGlobalSetup. Initial handlers
+ * survive resetHandlers(), and per-test use() handlers still take precedence.
  */
 export const mswServer = setupServer(
 	http.all("http://localhost:49999/*", () => emptyErrorResponse(503)),
@@ -30,10 +28,10 @@ export const mswServer = setupServer(
 let activeSuites = 0;
 
 /**
- * Install the msw lifecycle on the calling suite. What keeps interceptors
- * away from fetch-mocking suites is that each file's suiteTeardown closes the
- * server before the next file runs; the counter only exists so two opted-in
- * suites within one file would share a single listen/close cycle.
+ * Install the msw lifecycle on the calling suite. What keeps interceptors away
+ * from fetch-mocking suites is that each file's suiteTeardown closes the server
+ * before the next file runs; the counter only exists so two opted-in suites
+ * within one file share a single listen/close cycle.
  */
 export function useMsw(): void {
 	suiteSetup(() => {

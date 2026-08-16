@@ -36,9 +36,8 @@ describe("provider/catalog modelCatalog exposed-ID properties", () => {
 			fc.property(id, id, fc.integer({ min: 0, max: 1 }), (rawId, serverId, serverCount) => {
 				const exposed = buildExposedModelId(rawId, serverId, serverCount);
 				assert.strictEqual(exposed, rawId);
-				// The documented ambiguity: a raw ID that itself begins with
-				// "<serverId>/" (which no LiteLLM route mints) would lose the prefix;
-				// every other ID passes through untouched.
+				// The documented ambiguity: a raw ID beginning with "<serverId>/"
+				// (which no LiteLLM route mints) would lose the prefix.
 				if (!rawId.startsWith(`${serverId}/`)) {
 					assert.strictEqual(rawModelIdFromExposed(exposed, serverId), rawId);
 				}

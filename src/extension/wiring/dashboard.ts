@@ -32,9 +32,8 @@ const USAGE_POLLING_OFF_WINDOW_SETTING_ID = "usage.pollingOffFreshnessWindow" sa
 
 /**
  * The dashboard panel controller and its commands. Also registers
- * litellm.showDiagnostics: the command deep-links to the dashboard's
- * Diagnostics tab, and the dashboard states the legacy registry's leftovers,
- * which is why it takes the registry.
+ * litellm.showDiagnostics, which deep-links to the Diagnostics tab; the
+ * dashboard states the legacy registry's leftovers, hence the registry dep.
  */
 export function wireDashboard(
 	context: vscode.ExtensionContext,
@@ -64,12 +63,11 @@ export function wireDashboard(
 }
 
 /**
- * The usage surfaces over the poller's store: the status bar item beside
- * the connection item, the budget alert toasts, and the deep link both
- * click through to the dashboard's Servers section, where each row carries
- * its spend. Wired after the dashboard because the click target needs it.
- * The item's configuration reaction lives here with the item (the engines'
- * reactions stay in wireServers).
+ * The usage surfaces over the poller's store: the status bar item beside the
+ * connection item, the budget alert toasts, and the deep link both click
+ * through to the dashboard's Servers section. Wired after the dashboard because
+ * the click target needs it; the item's configuration reaction lives here with
+ * the item, while the engines' reactions stay in wireServers.
  */
 export function wireUsageSurfaces(
 	context: vscode.ExtensionContext,
@@ -102,9 +100,9 @@ export function wireUsageSurfaces(
 		// The coarse "pass done" push: the dashboard's usage section re-renders
 		// after every completed poll pass (the poller isolates its listeners).
 		usagePoller.onDidRefresh(() => dashboard.refresh()),
-		// And the "pass started" push: an already-open panel must disable
-		// Refresh now the moment ANY pass begins (the engine is serialized), or
-		// a scheduled poll would leave an enabled button it will not honor.
+		// And the "pass started" push: an already-open panel must disable Refresh
+		// the moment ANY pass begins, or a scheduled poll would leave an enabled
+		// button it will not honor.
 		usagePoller.onDidStartRefresh(() => dashboard.refresh()),
 		vscode.workspace.onDidChangeConfiguration((event) => {
 			const affects = (id: string) => event.affectsConfiguration(`${CONFIG_SECTION}.${id}`);
@@ -125,8 +123,7 @@ export function wireUsageSurfaces(
 
 /**
  * A tombstone change must reach the picker and the dashboard at once: the
- * model-change event makes the host re-resolve every group (a hidden group
- * then answers empty; an unhidden one serves again), and the refresh
+ * model-change event makes the host re-resolve every group, and the refresh
  * re-renders the hidden-groups line.
  */
 export function wireGroupRemovalReactions(
@@ -139,10 +136,9 @@ export function wireGroupRemovalReactions(
 ): void {
 	const { groupRemovals, provider, dashboard } = deps;
 	groupRemovals.onDidChange = () => {
-		// Isolated like the status callback's consumers (see wireStatusFanout):
-		// one consumer throwing must not starve the other, and a throw escaping
-		// into the store would make its callers report a mutation that DID
-		// apply as failed.
+		// Isolated like the status callback's consumers: one consumer throwing must
+		// not starve the other, and a throw escaping into the store would make its
+		// callers report a mutation that DID apply as failed.
 		try {
 			provider.notifyModelInformationChanged();
 		} catch (error) {

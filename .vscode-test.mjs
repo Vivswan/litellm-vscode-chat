@@ -7,25 +7,20 @@ import { defineConfig } from "@vscode/test-cli";
 import { DOCKER_TEST_LABELS } from "./out/test/dockerTestLabels.js";
 
 /**
- * Where this run puts its per-label user-data directories, and the override
- * that relocates them. One presence test for both the layout and the cleanup
- * below: an empty string is not a location, and treating it as one here while
- * treating it as absent there would disable cleanup for directories this file
- * had in fact created.
+ * Relocates this run's per-label user-data directories and takes over their
+ * lifetime. One presence test for both the layout and the cleanup below: an
+ * empty string must not count as a location here while counting as absent
+ * there.
  */
 const userDataOverride = process.env.VSCODE_TEST_USER_DATA_DIR || undefined;
 
 /**
  * This run's user-data directories, under one parent so they can be removed as
  * one. VS Code's IPC socket lives inside a user-data dir and must fit macOS's
- * ~104-byte AF_UNIX path cap, so the layout is chosen to cost nothing:
- * `lvt/<pid>/<label>` is exactly as long as the `lvt-<pid>-<label>` it replaces.
- *
- * The parent exists because these leaked. Every label got a directory per run
- * and nothing removed any of them, so a machine running the suite accumulated
- * them until the disk filled - 8787 of them holding 227 GB, at which point the
- * failures look like anything but disk: ENOSPC inside a host-fidelity test, an
- * extension host that dies with no summary, a pre-commit hook failing in tsc.
+ * ~104-byte AF_UNIX path cap, so `lvt/<pid>/<label>` is exactly as long as the
+ * `lvt-<pid>-<label>` it replaces. The parent exists because these leaked:
+ * 8787 directories holding 227 GB, surfacing as ENOSPC inside a host-fidelity
+ * test, an extension host dying with no summary, or a pre-commit tsc failure.
  */
 const runsRoot = path.join(os.tmpdir(), "lvt");
 const runRoot = path.join(runsRoot, String(process.pid));
@@ -55,47 +50,39 @@ const remove = (dir) => {
 	try {
 		rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
 	} catch {
-		// Windows lock contention past maxRetries, most likely. Left for the
-		// next run's sweep rather than surfaced as an uncaught exception on a
-		// green run.
+		// Windows lock contention past maxRetries, most likely; left for the next
+		// run's sweep rather than surfaced on a green run.
 	}
 };
 
 if (userDataOverride === undefined) {
-	// Sweep first, delete-own second, in that order of importance. The sweep is
-	// what makes the leak unrepeatable: an exit handler only covers the exits it
-	// is given, and SIGKILL, a native crash and a power cut give it none - so
-	// cleanup cannot be the only mechanism, or every abnormal end leaks forever.
-	// A parent named by a pid nothing holds belongs to a run that is over.
+	// Sweep first, delete-own second. The sweep is what makes the leak
+	// unrepeatable: an exit handler only covers the exits it is given, and
+	// SIGKILL, a native crash and a power cut give it none. A parent named by a
+	// pid nothing holds belongs to a run that is over.
 	//
-	// Deliberately no signal handlers. Re-raising a signal from inside its own
-	// handler re-enters it, and SIGINT belongs to @vscode/test-electron, which
-	// implements a two-stage Ctrl+C and ends via `process.exit(1)` only while
-	// `listenerCount("SIGINT") === 0` - a listener of ours registered at config
-	// load would disable that escape hatch for the whole run. An interrupted
-	// run's directories wait for the next run's sweep instead.
+	// Deliberately no signal handlers: SIGINT belongs to @vscode/test-electron,
+	// whose two-stage Ctrl+C ends via `process.exit(1)` only while
+	// `listenerCount("SIGINT") === 0`, so a listener of ours would disable that
+	// escape hatch for the whole run.
 	for (const name of entriesIn(runsRoot)) {
 		if (/^\d+$/.test(name) && !alive(Number(name))) {
 			remove(path.join(runsRoot, name));
 		}
 	}
-	// The flat layout this parent replaced (`lvt-<pid>-<label>` directly in
-	// the tmpdir) is outside the sweep above, so directories leaked before
-	// the parent existed would otherwise sit there forever.
+	// The flat layout this parent replaced (`lvt-<pid>-<label>` directly in the
+	// tmpdir) is outside the sweep above.
 	for (const name of entriesIn(os.tmpdir())) {
 		const legacy = /^lvt-(\d+)-/.exec(name);
 		if (legacy !== null && !alive(Number(legacy[1]))) {
 			remove(path.join(os.tmpdir(), name));
 		}
 	}
-	// This pid's own parent, before anything writes to it: the sweep above
-	// cannot clear it, because the liveness test says a live process holds this
-	// pid - which is true, and it is us. Without this, a run that inherits a
-	// recycled pid inherits the dead run's VS Code state (its settings.json, its
-	// provider groups) and starts un-isolated.
+	// This pid's own parent, before anything writes to it: the sweep cannot
+	// clear it (a live process does hold this pid - us), and a run inheriting a
+	// recycled pid would otherwise inherit the dead run's VS Code state.
 	remove(runRoot);
-	// And on the way out, so an ordinary run leaves nothing at all rather than
-	// one parent waiting for its successor.
+	// And on the way out, so an ordinary run leaves nothing behind.
 	process.on("exit", () => remove(runRoot));
 }
 
@@ -167,12 +154,10 @@ export default defineConfig({
 			label: "unit",
 			// Positive globs and literals only: the installed @vscode/test-cli
 			// ignores "!" negations in files globs, so exclusion works by
-			// directory layout instead. Suites that need their own host
-			// (activation-production, host-fidelity) or a running stack (the
-			// docker suites at the out/test root, listed by literal name in
-			// their own labels) are simply never matched here. stackDrift's
-			// label-coverage guard walks out/test and fails the suite when a
-			// compiled test file is matched by zero labels or by more than one.
+			// directory layout instead - suites that need their own host or a
+			// running stack are simply never matched here. stackDrift's
+			// label-coverage guard fails when a compiled test file is matched by
+			// zero labels or by more than one.
 			files: [
 				"out/test/creditConvention.test.js",
 				"out/test/dockerTestLabels.test.js",
@@ -212,11 +197,9 @@ export default defineConfig({
 		{
 			// Its own label and host: the file calls the compiled activate() with a
 			// fake Production-mode context, which registers the real litellm.*
-			// command IDs - it can never share a host with the activated extension.
-			// onStartupFinished (the manifest's activation event) would activate
-			// the real dev-mode extension first and collide every registration,
-			// so this label suppresses host-initiated activation (see the guard
-			// at the top of activate()).
+			// command IDs, so it can never share a host with the activated
+			// extension - hence the flag suppressing host-initiated activation
+			// (see the guard at the top of activate()).
 			label: "activation-production",
 			files: "out/test/activation/production.test.js",
 			mocha: {

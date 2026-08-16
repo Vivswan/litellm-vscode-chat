@@ -4,10 +4,8 @@ import type { OpenAIChatMessage } from "../../shared/conversion/wire";
 import type { ModelConfigurationRequestParams } from "../catalog/modelConfiguration";
 
 // The matcher resolution, precedence merge, and max_tokens machinery live in
-// the shared module (the dashboard's inspector consumes the same functions),
-// and requests read the merged configured parameters through the provider's
-// memoized ModelResolutionTable; these re-exports keep this module the
-// transport-side entry point.
+// the shared module (the dashboard's inspector consumes the same functions);
+// these re-exports keep this module the transport-side entry point.
 export { DEFAULT_MAX_TOKENS_CAP, resolveMaxTokens } from "../../shared/config/parameterResolution";
 
 export interface RequestBodyParams {
@@ -26,12 +24,11 @@ export interface RequestBodyParams {
 
 /**
  * Builds the request body as a pure pass-through: only parameters the user
- * set are forwarded, never injected defaults, so the provider's own defaults
- * apply. User-set sources apply in ascending precedence: modelParameters
- * config (global, overridden by the declared entry's own; getModelParameters
- * merges the two into `modelParams`), then the model-picker configuration,
- * then runtime modelOptions, then the config records' `_force`d fields
- * (which is what "forced" means: not even runtime options override them).
+ * set are forwarded, never injected defaults. User-set sources apply in
+ * ascending precedence: modelParameters config, then the model-picker
+ * configuration, then runtime modelOptions, then the config records' `_force`d
+ * fields (which is what "forced" means: not even runtime options override
+ * them).
  */
 export function buildRequestBody(params: RequestBodyParams): Record<string, unknown> {
 	const {

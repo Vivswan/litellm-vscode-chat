@@ -212,8 +212,8 @@ suite("extension/ui/notifier", () => {
 	});
 
 	test("zero models explained by a hidden group names the removal and opens the dashboard, never blames the proxy", () => {
-		// The five-blank-issues state: the only group is hidden by an explicit
-		// removal; "Check your LiteLLM proxy configuration" was actively wrong.
+		// The only group is hidden by an explicit removal; "Check your LiteLLM
+		// proxy configuration" was actively wrong here.
 		const notifier = new Notifier(() => true);
 		notifier.handleAggregatedStatus({ serverStatuses: [hiddenGroupStatus()], totalModels: 0, silent: true });
 		assert.strictEqual(toasts.length, 1);
@@ -255,10 +255,9 @@ suite("extension/ui/notifier", () => {
 	});
 
 	test("all failures expected with nothing declared warns needs-declare, not 'returned no models'", () => {
-		// Discovery never returned a list here, so the toast mirrors the
-		// dashboard's and status bar's needs-declare verdict and points at the
-		// fix (the entry's discovery.declared list) instead of misdescribing
-		// the servers.
+		// Discovery never returned a list here, so the toast mirrors the dashboard
+		// and status bar's needs-declare verdict and points at the fix (the
+		// entry's discovery.declared list).
 		const notifier = new Notifier(() => true);
 		notifier.handleAggregatedStatus({
 			serverStatuses: [expectedErrorStatus("404 page not found")],
@@ -300,9 +299,8 @@ suite("extension/ui/notifier", () => {
 
 	suite("the cold-start ordering", () => {
 		test("empty groupless report, then the latch flips: no toast, ever", () => {
-			// The exact migrated-user sequence: the host's groupless refresh runs
-			// first and reports an empty window while the gate is still false (the
-			// per-group prepares that flip the latch have not happened yet).
+			// The migrated-user sequence: the host's groupless refresh reports an
+			// empty window while the gate is still false.
 			let configured = false;
 			const { notifier, elapseGrace, pendingCount } = makeNotifier(() => configured);
 			notifier.handleAggregatedStatus(noServers());
@@ -359,7 +357,7 @@ suite("extension/ui/notifier", () => {
 			notifier.handleAggregatedStatus(noServers());
 			// A user-initiated check while the claim is pending: its caller surfaces
 			// the outcome directly, so it neither arms nor withdraws the deferred
-			// background claim - the world is still empty, the claim still holds.
+			// background claim.
 			notifier.handleAggregatedStatus(noServers(false));
 			assert.strictEqual(pendingCount(), 1, "the non-silent report leaves the pending claim untouched");
 			elapseGrace();
@@ -433,14 +431,10 @@ suite("extension/ui/notifier", () => {
 		});
 
 		test("distinct causes sharing display text re-fire: DNS failure then connection refused", () => {
-			// Composed from real transport mappings so the shared-text premise
-			// cannot drift: ENOTFOUND and ECONNREFUSED deliberately render the
-			// same connection message, but only ECONNREFUSED carries
-			// proxy-not-running - a text-only signature would suppress the toast
-			// that first offers the docs action. Headline-keyed dedup keeps this
-			// safe in both directions: the connection branch is deliberately
-			// single-line today (headline == full text), and if it ever gains a
-			// detail line, the differing setupHint still re-fires the toast.
+			// Composed from real transport mappings so the shared-text premise cannot
+			// drift: ENOTFOUND and ECONNREFUSED render the same connection message, but
+			// only ECONNREFUSED carries proxy-not-running, so a text-only signature would
+			// suppress the toast offering the docs action.
 			const ctx = { surface: "discovery" as const, baseUrl: "http://litellm.test", timeoutMs: 5000 };
 			const connectionFailure = (deepest: string) =>
 				statusErrorTexts(
@@ -473,9 +467,8 @@ suite("extension/ui/notifier", () => {
 			);
 			assert.strictEqual(toasts.length, 1);
 			assert.strictEqual(expectDefined(toasts[0]).message, "LiteLLM: The server could not be reached.");
-			// The detail line carries variable server-derived text (spend
-			// figures, cause chains); its churn is not new information and must
-			// not re-fire a standing toast.
+			// The detail line carries variable server-derived text (spend figures,
+			// cause chains); its churn is not new information.
 			notifier.handleAggregatedStatus(
 				allFailed("The server could not be reached.\nGET http://litellm.test/v1/models: ETIMEDOUT")
 			);

@@ -3,26 +3,20 @@ import * as vscode from "vscode";
 import { createCaptureServer } from "../capture-server";
 
 /**
- * Pins the host-side semantics of lm.addLanguageModelsProviderGroup, which
- * serverSync's reconciliation model and the dashboard's adopt flow depend on.
- * Probed empirically (VS Code 1.130.0): the command is strictly additive and
- * REJECTS a second add under an existing name instead of upserting, and the
- * provider-group command family holds only add-shaped commands (no update or
- * removal; those live in the native UI alone). serverSync therefore treats a
- * duplicate rejection for an unchanged entry as in-sync and surfaces an
- * actionable error for a changed one; if either test here starts failing,
- * the host grew new semantics and that tolerance should be revisited.
+ * Pins the host semantics serverSync's reconciliation and the dashboard's adopt
+ * flow depend on, probed empirically (VS Code 1.130.0): the provider-group
+ * command family is add-only, and a second add under an existing name is
+ * REJECTED, never upserted. A failure here means the host grew new semantics
+ * and serverSync's add-only tolerance should be revisited.
  */
 suite("host provider-group command semantics", () => {
 	test("the host registers no update or removal command in the provider-group family", async () => {
 		const commands = await vscode.commands.getCommands(true);
 		const groupCommands = commands.filter((id) => /languagemodelsprovidergroup/i.test(id));
 		// Non-exhaustive on purpose: the pinned property is the ABSENCE of a
-		// mutation path, not the exact family roster - an exhaustive list would
-		// turn the required CI gate red the day the host ships an unrelated
-		// group command. Both known members are add-shaped: `add` creates a
-		// group from its arguments, `migrate` creates one from a legacy
-		// registry server (driven by extension/migrations/registryToProviderGroups.ts).
+		// mutation path, not the family roster - an exhaustive list would go red
+		// the day the host ships an unrelated group command. Both known members
+		// are add-shaped (`add` from arguments, `migrate` from a legacy server).
 		assert.ok(groupCommands.includes("lm.addLanguageModelsProviderGroup"), groupCommands.join(", "));
 		assert.ok(groupCommands.includes("lm.migrateLanguageModelsProviderGroup"), groupCommands.join(", "));
 		const mutators = groupCommands.filter((id) => /remove|delete|update/i.test(id));

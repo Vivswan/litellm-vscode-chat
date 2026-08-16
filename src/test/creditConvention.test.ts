@@ -12,13 +12,10 @@ import {
 
 /**
  * History guard for the crediting convention: every commit subject carrying
- * "(#N, thanks @login)" must have a row for that login in ACKNOWLEDGMENTS.md
- * (the file's header: a row here means the report changed the code). The
- * commit-msg hook (scripts/ci/check-credit-rows.ts) catches the crediting
- * commit itself, whose subject is not yet in `git log` when this runs; this
- * test is the safety net for anything that slipped past it - hooks bypassed
- * with --no-verify, subjects rewritten in the GitHub merge UI. Tests run
- * from out/test, so the repo root is two levels up.
+ * "(#N, thanks @login)" must have a row for that login in ACKNOWLEDGMENTS.md.
+ * The commit-msg hook catches the crediting commit itself (not yet in `git log`
+ * when this runs); this test is the safety net for what slipped past it. Tests
+ * run from out/test, so the repo root is two levels up.
  */
 const repoRoot = path.resolve(__dirname, "..", "..");
 
@@ -77,11 +74,8 @@ suite("credit convention guard: git history vs ACKNOWLEDGMENTS.md", () => {
 	test("every login credited in a commit subject since the file landed has a row", async function () {
 		this.timeout(30000);
 		// Shallow CI clones may not reach the boundary commit; scan whatever
-		// history is available then (at worst just HEAD's subject). Ancestry,
-		// not mere object existence: an unreachable boundary would make the
-		// range scan and the regex-rot canary below reason about the wrong
-		// history. The full range runs locally (pre-commit) and wherever
-		// fetch-depth is 0.
+		// history is available then. Ancestry, not mere object existence: an
+		// unreachable boundary would scan the wrong history.
 		const boundaryPresent = await git("merge-base", "--is-ancestor", ACKNOWLEDGMENTS_BOUNDARY, "HEAD").then(
 			() => true,
 			() => false
@@ -101,9 +95,8 @@ suite("credit convention guard: git history vs ACKNOWLEDGMENTS.md", () => {
 				);
 			}
 		}
-		// The strict grammar rejects near-miss credit forms ("thanks @x for the
-		// report", "thanks to @x") silently; make those loud instead of letting
-		// a malformed credit land unguarded.
+		// The strict grammar rejects near-miss credit forms silently; make those
+		// loud instead of letting a malformed credit land unguarded.
 		const nearMisses = subjects.filter(
 			(subject) => /thanks\s+@/i.test(subject) && extractSubjectCredits(subject).length === 0
 		);

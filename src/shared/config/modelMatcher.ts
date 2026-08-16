@@ -1,25 +1,18 @@
 /**
- * The model-matcher grammar shared by every model-keyed record (parameters
- * and capabilities, global and per-entry alike). Pure (no vscode, no DOM, no
- * Node) so both the request path and the dashboard consume the one
- * implementation.
+ * The model-matcher grammar shared by every model-keyed record (parameters and
+ * capabilities, global and per-entry alike). A key matches exactly unless it
+ * says otherwise:
  *
- * A key matches exactly unless it says otherwise:
+ * - `"gpt-5"` matches only the ID `gpt-5`, character for character,
+ *   case-sensitive, nothing trimmed.
+ * - `"gpt-5*"` is a trailing glob; a `*` anywhere but last is invalid.
+ * - `"/re/"` or `"/re/i"` matches the whole ID; `i` is the only supported
+ *   flag. An invalid pattern or another flag is a diagnostic, key ignored.
+ * - `"*"` is the catch-all; `""` is invalid (diagnostic, ignored).
  *
- * - `"gpt-5"` matches only the ID `gpt-5` (character for character, nothing
- *   trimmed, case-sensitive).
- * - `"gpt-5*"` is a trailing glob: every ID starting with `gpt-5`. The `*`
- *   must be last; a `*` anywhere else makes the key invalid.
- * - `"/re/"` or `"/re/i"` is a regular expression matched against the whole
- *   ID; `i` is the only supported flag. An invalid pattern or another flag is
- *   a diagnostic and the key is ignored.
- * - `"*"` is the catch-all: it matches every model.
- * - `""` is invalid (diagnostic, ignored).
- *
- * Specificity orders matching keys: exact > glob (longer literal prefix
- * wins) > regex (later in the record wins) > `"*"`. The tiers are strict -
- * any glob outranks any regex, and a match-everything regex (dot-star) still
- * outranks `"*"`: it ranks as a regex.
+ * Specificity orders matching keys: exact > glob (longer literal prefix wins)
+ * > regex (later in the record wins) > `"*"`. The tiers are strict - any glob
+ * outranks any regex, and a match-everything regex still outranks `"*"`.
  */
 
 /** A model-keyed record map: matcher key to one record object. The shape both settings and entry fields share. */
@@ -42,9 +35,8 @@ export type MatcherParse =
 
 /**
  * A key is regex-shaped when it starts with `/` and ends with `/` followed by
- * nothing but ASCII letters (the flags position). Everything else that starts
- * with `/` stays a literal key, so an exact ID with slashes inside
- * (`anthropic/claude-4`) still matches by plain equality.
+ * nothing but ASCII letters (the flags position), so an exact ID with slashes
+ * inside (`anthropic/claude-4`) still matches by plain equality.
  */
 const REGEX_SHAPED = /^\/(.+)\/([a-zA-Z]*)$/;
 
@@ -118,10 +110,8 @@ const TIER = { "catch-all": 0, regex: 1, glob: 2, exact: 3 } as const;
 
 /**
  * The strict specificity order between two matchers that both match one
- * model: negative when `a` is broader than `b`. Exact beats glob beats regex
- * beats the catch-all; between globs the longer literal prefix wins; between
- * regexes the one later in the record wins. Two distinct keys can never tie:
- * equal-prefix globs are the same key, and record positions differ.
+ * model: negative when `a` is broader than `b`. Two distinct keys can never
+ * tie: equal-prefix globs are the same key, and record positions differ.
  */
 export function compareSpecificity(
 	a: Pick<RecordMatch<unknown>, "matcher" | "position">,

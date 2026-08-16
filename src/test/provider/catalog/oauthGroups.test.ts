@@ -313,9 +313,9 @@ suite("provider groups with OAuth", () => {
 	});
 
 	test("a 401 with the virtual key on its own header still invalidates the bearer token that was sent", async () => {
-		// Guards the discriminating half of the sent-token capture: a virtual
-		// key on a non-Authorization header leaves the bearer entry in place,
-		// so the 401 concerns the sent token and must force a fresh exchange.
+		// Guards the discriminating half of the sent-token capture: a virtual key on
+		// a non-Authorization header leaves the bearer entry in place, so the 401
+		// concerns the sent token and must force a fresh exchange.
 		const provider = makeProvider();
 		const tokens = tokenEndpoint();
 		let chatAttempts = 0;
@@ -347,11 +347,9 @@ suite("provider groups with OAuth", () => {
 	});
 
 	test("a 401 when the virtual key overwrites the Authorization header does not discard the unsent OAuth token", async () => {
-		// The virtual key replaces the bearer entry - under any casing, since
-		// HTTP header names are case-insensitive - so no OAuth token went out
-		// and the 401 says nothing about the cached one: invalidating it anyway
-		// (the old header re-parse missed the overwrite) would force a needless
-		// exchange on every retry against a misconfigured gateway.
+		// The virtual key replaces the bearer entry under any casing, so no OAuth token
+		// went out and the 401 says nothing about the cached one: invalidating it anyway
+		// would force a needless exchange on every retry against a misconfigured gateway.
 		for (const spelling of ["Authorization", "authorization"]) {
 			const provider = makeProvider();
 			const tokens = tokenEndpoint();
@@ -447,10 +445,9 @@ suite("provider groups with OAuth", () => {
 	});
 
 	test('a chat-triggered token rejection carries the chat "Details:" lead-in end to end', async () => {
-		// Pins the surface wiring through ChatClient.send, not just
-		// OAuthTokenSource: expires_in 0 keeps the discovery token out of the
-		// cache, so the chat call performs its own exchange and its rejection
-		// must render with the chat-surface join.
+		// Pins the surface wiring through ChatClient.send, not just OAuthTokenSource:
+		// expires_in 0 keeps the discovery token out of the cache, so the chat call
+		// exchanges itself and its rejection must render with the chat-surface join.
 		const provider = makeProvider();
 		let exchanges = 0;
 		mswServer.use(

@@ -13,19 +13,16 @@ import { updateServerSecret } from "./servers/serverSync";
 import { createSettingsAccess } from "./settingsAccess";
 
 /**
- * One-shot development seeding for `bun run dev`: the launcher script
- * writes the seed file (shared/devSeed.ts owns the filename and shape) into
- * the extension development folder, and a development-mode activation
- * consumes it exactly once. The seed lands the same way a user-configured
- * server does: `litellm-vscode-chat.servers` entries in the user scope (the
- * setting is machine-scoped) with each API key inline in its entry - the
- * main entry carries the local stack's master key, the demo entries carry
- * the dev usage keys, and the inline form is what the dashboard edit form's
- * prefill exercises - and the server sync engine's forced activation pass
- * turns the entries into provider groups. The seed's global demo records
- * land in the models.parameters / models.capabilities user settings, owning
- * exactly the matcher keys the seed names (sibling keys survive verbatim).
- * Production activations never look for the file.
+ * One-shot development seeding for `bun run dev`: the launcher writes the seed
+ * file (shared/devSeed.ts owns the filename and shape) into the extension
+ * development folder, and a development-mode activation consumes it exactly
+ * once. The seed lands the same way a user-configured server does:
+ * `litellm-vscode-chat.servers` entries in the user scope with each API key
+ * inline in its entry, which the sync engine's forced pass turns into provider
+ * groups. Inline is deliberate - it is the case the dashboard edit form's
+ * prefill exercises. The seed's global demo records land in the
+ * models.parameters / models.capabilities settings, owning exactly the matcher
+ * keys the seed names. Production activations never look for the file.
  */
 
 const DEFAULT_SEED_LABEL = "Fake LiteLLM";
@@ -34,9 +31,8 @@ const DEFAULT_SEED_LABEL = "Fake LiteLLM";
 type DevSeedRecordKind = "parameters" | "capabilities";
 
 /**
- * Narrow a raw `models`-shaped value (entry-level or the global `records`)
- * to the record-of-records shape, with the same per-entry leniency the
- * settings readers use; an empty result reads as absent.
+ * Narrow a raw `models`-shaped value to the record-of-records shape, with the
+ * same per-entry leniency the settings readers use; empty reads as absent.
  */
 function parseSeedModels(raw: unknown): DevSeedModels | undefined {
 	if (!isRecord(raw)) {
@@ -53,8 +49,7 @@ function parseSeedModels(raw: unknown): DevSeedModels | undefined {
 
 /**
  * One extra seed entry, or undefined when the item is unusable. Lenient like
- * the rest of the dev-only path: a malformed item drops itself, never the
- * whole seed.
+ * the rest of the dev-only path: a malformed item drops itself, never the seed.
  */
 function parseSeedEntry(raw: unknown): DevSeedEntry | undefined {
 	if (!isRecord(raw)) {
@@ -134,19 +129,16 @@ const RECORD_SETTING_KEYS: Record<DevSeedRecordKind, string> = {
 export function createDevSeedEnv(secrets: vscode.SecretStorage): DevSeedEnv {
 	const settings = createSettingsAccess();
 	return {
-		// The effective value, matching what the sync engine reads. The setting is
-		// machine-scoped, so no workspace value can enter the merge; what an
-		// effective read adds over a global-scope read is the declared default
-		// ([]) and correct machine-scope resolution in remote windows.
-		// upsertSeedEntry replaces by label, so writing the merged array back to
-		// the global scope is safe.
+		// The effective value, matching what the sync engine reads: the setting is
+		// machine-scoped, so no workspace value can enter the merge. upsertSeedEntry
+		// replaces by label, so writing the merged array back to global is safe.
 		readServersSetting: () => settings.readEffective(SERVERS_SETTING_KEY),
 		writeServersSetting: (value) => settings.writeGlobal(SERVERS_SETTING_KEY, value),
 		clearApiKey: (label) => updateServerSecret(secrets, label, "apiKey", undefined),
-		// The GLOBAL value, not the effective one: unlike servers, the record
-		// settings are window-scoped, and the seed merges what it reads back
-		// into the global scope - an effective read could copy a workspace
-		// value into user settings.
+		// The GLOBAL value, not the effective one: the record settings are
+		// window-scoped and the seed merges what it reads back into the global
+		// scope, so an effective read could copy a workspace value into user
+		// settings.
 		readModelRecords: (kind) => settings.readGlobal(RECORD_SETTING_KEYS[kind]),
 		writeModelRecords: (kind, value) => settings.writeGlobal(RECORD_SETTING_KEYS[kind], value),
 	};
@@ -174,13 +166,9 @@ function mainEntryOf(seed: DevSeed): DevSeedEntry {
 }
 
 /**
- * The setting array with one seed entry in place. Entries other than the
- * seed entry's label survive verbatim (junk included); the seed's own entry
- * is replaced wholesale, so a changed port, key, or budget from a previous
- * run does not linger. Keys sit inline in the entries, visible in
- * settings.json like the rest of the seed: the main entry's is the local
- * stack's master key, the demo entries' are the dev usage keys, and inline
- * storage is the case the dashboard edit form's prefill exercises.
+ * The setting array with one seed entry in place. Entries under other labels
+ * survive verbatim (junk included); the seed's own entry is replaced wholesale,
+ * so a changed port, key, or budget from a previous run does not linger.
  */
 function upsertSeedEntry(raw: unknown, entry: DevSeedEntry): unknown[] {
 	const entries: unknown[] = Array.isArray(raw) ? [...raw] : [];
@@ -198,10 +186,8 @@ function upsertSeedEntry(raw: unknown, entry: DevSeedEntry): unknown[] {
 
 /**
  * The global demo records, merged over the current setting: the seed owns
- * exactly the matcher keys it names (re-pinned wholesale, like the entry's
- * label), and every key it does not name is a user record that survives
- * verbatim. No-op when the merge changes nothing, so an unchanged rerun
- * writes no settings.
+ * exactly the matcher keys it names and every other key survives verbatim.
+ * No-op when the merge changes nothing, so an unchanged rerun writes nothing.
  */
 async function applySeedRecords(records: DevSeedModels | undefined, env: DevSeedEnv): Promise<void> {
 	for (const kind of ["parameters", "capabilities"] as const) {
@@ -219,10 +205,9 @@ async function applySeedRecords(records: DevSeedModels | undefined, env: DevSeed
 }
 
 /**
- * The settings writes land first - entries, then the global demo records -
- * and previous runs' secure-side keys are cleared last: the inline keys
- * outrank the blobs, so a failed clear leaves only dormant stale leftovers
- * behind working entries, and cleanup never gates content.
+ * Settings writes land first, previous runs' secure-side keys are cleared last:
+ * the inline keys outrank the blobs, so a failed clear leaves only dormant
+ * leftovers behind working entries, and cleanup never gates content.
  */
 async function applySeed(seed: DevSeed, env: DevSeedEnv): Promise<void> {
 	const entries = [mainEntryOf(seed), ...(seed.entries ?? [])];
@@ -248,10 +233,9 @@ async function applySeed(seed: DevSeed, env: DevSeedEnv): Promise<void> {
 }
 
 /**
- * Consume the seed file if present. The delete is the one-shot guarantee, so
- * it happens before anything acts on the contents, and a failed delete
- * aborts the whole seed rather than risking a reseed on every activation.
- * Returns the parsed seed so the caller can act on openDashboard.
+ * Consume the seed file if present. The delete is the one-shot guarantee, so it
+ * happens before anything acts on the contents, and a failed delete aborts the
+ * seed rather than risking a reseed on every activation.
  */
 export async function consumeDevSeed(
 	extensionUri: vscode.Uri,

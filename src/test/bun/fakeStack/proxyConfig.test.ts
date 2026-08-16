@@ -12,12 +12,11 @@ import {
 } from "../../fakeStack/proxyConfig";
 
 /**
- * Pins the generated proxy config's load-bearing emission properties on
- * every CI OS without docker: the explicit tools-negatives (discovery
- * defaults a missing flag to true), byte-identical pricing across the
- * load-balanced pair (discovery's agreedCost silently nulls disagreement),
- * and plain-decimal cost literals (YAML floats do not guarantee scientific
- * notation).
+ * Pins the generated proxy config's load-bearing emission properties on every
+ * CI OS without docker: the explicit tools-negatives (discovery defaults a
+ * missing flag to true), byte-identical pricing across the load-balanced pair
+ * (discovery's agreedCost silently nulls disagreement), and plain-decimal cost
+ * literals (YAML floats do not guarantee scientific notation).
  */
 
 describe("fakeStack proxyConfig emission", () => {

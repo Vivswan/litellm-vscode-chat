@@ -11,18 +11,13 @@ const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
 
 /**
- * Provider-group chat path, in its own extension host (the docker-group-path
- * label): the host's provider-group command is add-only, so the group created
- * here serves models until the host exits, and no other docker suite could
- * share this host. This suite pins the VS Code-managed provider-group path
- * end to end against a proxy that REQUIRES the master key: group creation
- * through the host command IN THE NATIVE-EDITOR SHAPE (no `label` in the
- * configuration - every other suite goes through the declarative sync chain,
- * whose engine stamps one), model resolution through the per-group provider
- * call, and a chat whose credentials ride the model's litellm metadata across
- * the host round trip. A chat that loses the group credentials anywhere along
- * that path fails here (as a 401 if the key is dropped from the request, or
- * as a routing error if the metadata is stripped).
+ * Provider-group chat path, in its own extension host (the docker-group-path label): the host's
+ * provider-group command is add-only, so the group created here serves until the host exits and no other
+ * docker suite could share this host. Pins the VS Code-managed provider-group path end to end against a proxy
+ * that REQUIRES the master key: group creation through the host command IN THE NATIVE-EDITOR SHAPE (no
+ * `label` in the configuration; every other suite goes through the declarative sync chain, whose engine
+ * stamps one), model resolution through the per-group provider call, and a chat whose credentials ride the
+ * model's litellm metadata across the host round trip.
  */
 suite("Docker provider-group chat path", () => {
 	if (!BASE_URL) {
@@ -34,9 +29,8 @@ suite("Docker provider-group chat path", () => {
 		this.timeout(90000);
 		await ensureActivated();
 		await catalogOff();
-		// The playback alias is a fixed stack id; a leftover group in a recycled
-		// user-data directory would be indistinguishable from this one, so fail
-		// fast before adding the group.
+		// The playback alias is a fixed stack id: a leftover group in a recycled
+		// user-data directory would be indistinguishable, so fail fast.
 		await assertIdsUnserved([PLAYBACK_MODEL.alias]);
 		await vscode.commands.executeCommand("lm.addLanguageModelsProviderGroup", {
 			name: uniqueName("Docker Group Path"),

@@ -15,18 +15,16 @@ import { catalogOff, ensureActivated, extractText, waitForHostModels } from "./h
 import { expectDefined } from "./pureHelpers";
 
 /**
- * Transport-failure suite for the docker LiteLLM stack: streams that die
- * instead of finishing. The fake backend's transport verbs (%abort, %nodone,
- * %stall; src/test/fakeStack/commands.ts) and raw custom scenarios
- * (src/test/scenarios.ts) produce the failures; the tests pin how the
- * extension surfaces them through the real VS Code LM API.
+ * Transport-failure suite for the docker LiteLLM stack: streams that die instead
+ * of finishing. The fake backend's transport verbs (%abort, %nodone, %stall) and
+ * raw custom scenarios produce the failures; the tests pin how the extension
+ * surfaces them through the real VS Code LM API.
  *
- * Like the stream fuzzer, every scenario runs against two targets: through
- * the LiteLLM proxy (the playback model) and directly against the fake
- * backend. Directed tests only - no seeds. Assertions hold classifications
- * and user-facing message text, never raw response bytes. Raw-framing
- * scenarios run direct only: the proxy re-serializes streams, so malformed
- * bytes cannot survive the hop.
+ * Every scenario runs against two targets: through the LiteLLM proxy (the
+ * playback model) and directly against the fake backend. Directed tests only, no
+ * seeds. Assertions hold classifications and user-facing message text, never raw
+ * response bytes. Raw-framing scenarios run direct only: the proxy re-serializes
+ * streams, so malformed bytes cannot survive the hop.
  */
 
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";
@@ -77,13 +75,11 @@ const SSE_DONE = "data: [DONE]\n\n";
 const SSE_CONTENT_TYPE = { "Content-Type": "text/event-stream" };
 
 /**
- * One declared entry and resolved model per target (proxy/direct) for the
- * whole label host, shared deliberately by the transport and error-mapping
- * suites: the stack's model ids are fixed, so a second same-URL group would
- * serve indistinguishable twins and a later suite could silently bind to the
- * first group's model anyway. The memo key IS the target: each target's URL
- * and key are the module constants, derived here so the memo cannot disagree
- * with a caller's arguments.
+ * One declared entry and resolved model per target (proxy/direct) for the whole
+ * label host, shared by the transport and error-mapping suites: the stack's model
+ * ids are fixed, so a second same-URL group would serve indistinguishable twins.
+ * The memo key IS the target, and each target's URL and key are derived here so
+ * the memo cannot disagree with a caller's arguments.
  */
 const targetModels = new Map<string, Promise<vscode.LanguageModelChat>>();
 function resolveTargetModel(directMode: boolean): Promise<vscode.LanguageModelChat> {
@@ -138,11 +134,11 @@ function transportSuite(title: string, directMode: boolean): void {
 				const outcome = await runToOutcome(model, `${COMMAND_SIGIL}abort:3`);
 				assert.ok(outcome.error !== undefined, "a mid-stream destroy must surface as an error, not a clean completion");
 				assert.ok(outcome.elapsedMs < 30000, `the failure must be prompt, took ${outcome.elapsedMs}ms`);
-				// The playback's flush delay before the destroy tail lets the chunks
-				// reach the peer, so this is a genuine MID-STREAM death: all three
-				// chunks stream out, then the request fails. The body-read
-				// termination (undici's bare "terminated") maps to the classified
-				// mid-stream network message, never the raw TypeError.
+				// The playback's flush delay before the destroy tail makes this a
+				// genuine MID-STREAM death: all three chunks stream out, then the
+				// request fails. The body-read termination (undici's bare
+				// "terminated") maps to the classified mid-stream network message,
+				// never the raw TypeError.
 				assert.strictEqual(extractText(outcome.parts), "chunk1 chunk2 chunk3 ");
 				assert.match(
 					String(outcome.error),
@@ -151,10 +147,9 @@ function transportSuite(title: string, directMode: boolean): void {
 				assert.ok(!String(outcome.error).startsWith("TypeError"), "the raw undici error must never surface");
 			} else {
 				// Observed against LiteLLM v1.93: the proxy neither forwards the
-				// upstream's mid-stream death nor ends the client stream - the
-				// request just hangs. The extension's requestTimeout is the hard
-				// whole-call bound that makes the failure observable, so the test
-				// lowers it for this one request and pins the classified timeout.
+				// upstream's mid-stream death nor ends the client stream, so the
+				// request just hangs. requestTimeout is the hard whole-call bound that
+				// makes the failure observable, lowered here for this one request.
 				const configuration = vscode.workspace.getConfiguration("litellm-vscode-chat");
 				await configuration.update("chat.timeout", 10000, vscode.ConfigurationTarget.Global);
 				let outcome: StreamOutcome;
@@ -181,12 +176,10 @@ function transportSuite(title: string, directMode: boolean): void {
 		test(`${COMMAND_SIGIL}nodone:5 completes cleanly: EOF without [DONE] is tolerated end to end`, async function () {
 			this.timeout(60000);
 			const outcome = await runToOutcome(model, `${COMMAND_SIGIL}nodone:5`);
-			// Pinned from observation on both targets. Direct: the extension's
-			// stream loop treats plain EOF as end of stream (finishStream runs on
-			// reader exhaustion), so the request completes with every chunk's text
-			// and no error. Proxy: LiteLLM v1.93 tolerates the missing sentinel the
-			// same way - it forwards all five deltas and ends the client stream
-			// cleanly with its own [DONE].
+			// Pinned from observation on both targets. Direct: the stream loop treats
+			// plain EOF as end of stream (finishStream runs on reader exhaustion).
+			// Proxy: LiteLLM v1.93 tolerates the missing sentinel the same way,
+			// forwarding all five deltas and ending with its own [DONE].
 			assert.strictEqual(outcome.error, undefined, `clean EOF must not fail the request: ${String(outcome.error)}`);
 			assert.strictEqual(extractText(outcome.parts), "chunk1 chunk2 chunk3 chunk4 chunk5 ");
 			await assertModelStillAnswers();
@@ -242,19 +235,17 @@ function transportSuite(title: string, directMode: boolean): void {
 			});
 			const outcome = await runToOutcome(model, `${COMMAND_SIGIL}play:transport-html-503`);
 			assert.ok(outcome.error !== undefined, "a 503 must reject the request");
-			// The http classification carries the status in its user-facing
-			// message. Observed on both targets: the direct leg is the extension's
-			// own mapping, and LiteLLM v1.93 maps the upstream 503 to its
-			// ServiceUnavailableError, so the proxy answers 503 too. The HTML body
-			// text is deliberately NOT asserted anywhere; a later phase pins the
-			// log buffer instead.
+			// The http classification carries the status in its user-facing message.
+			// Observed on both targets: the direct leg is the extension's own mapping,
+			// and LiteLLM v1.93 maps the upstream 503 to its ServiceUnavailableError.
+			// The HTML body text is deliberately never asserted; the buffer-secrecy
+			// suite below pins its absence from the log buffer instead.
 			assert.match(String(outcome.error), /LiteLLM 503\b/);
 			await assertModelStillAnswers();
 		});
 
 		// -- Malformed SSE framing over a real socket (direct target only) --------
-		// The proxy re-serializes streams, so malformed bytes cannot survive the
-		// hop; these scenarios only exist against the fake backend directly.
+		// The proxy re-serializes streams, so malformed bytes cannot survive the hop.
 		if (directMode) {
 			suite("malformed SSE framing", () => {
 				test("a garbage non-JSON data line between two valid events is skipped", async function () {
@@ -325,18 +316,15 @@ function transportSuite(title: string, directMode: boolean): void {
 					// Pinned from observation: CRLF framing and the comment line are
 					// tolerated, and the no-space "data:" line is SKIPPED, not parsed -
 					// the stream loop reads only "data: " lines (the log-and-skip
-					// contract), so that event's text never surfaces and the stream
-					// still completes.
+					// contract), so that event's text never surfaces.
 					assert.strictEqual(extractText(outcome.parts), "crlf one crlf two");
 				});
 
 				test("a truncated final event then destroy fails observably with prior text intact", async function () {
 					this.timeout(60000);
 					// The frame delay is load-bearing: destroying right after the writes
-					// puts the RST in the same burst as the data, and the client then
-					// drops the never-read bytes - the "prior text" event must be read
-					// and emitted before the socket dies for the intact-text half of
-					// this test to observe anything.
+					// puts the RST in the same burst as the data and the client drops the
+					// never-read bytes, leaving the intact-text half nothing to observe.
 					await registerScenario("transport-truncated-destroy", {
 						type: "raw",
 						statusCode: 200,
@@ -352,10 +340,9 @@ function transportSuite(title: string, directMode: boolean): void {
 
 				test("an in-band error frame after valid chunks fails the request with prior text intact", async function () {
 					this.timeout(60000);
-					// The shape LiteLLM's own proxy emits when an upstream dies after
-					// the 200: valid chunks, an error frame, then a clean end with no
-					// [DONE]. Silently completing here would be an unobservable
-					// truncation.
+					// The shape LiteLLM's own proxy emits when an upstream dies after the
+					// 200: valid chunks, an error frame, then a clean end with no [DONE].
+					// Silently completing would be an unobservable truncation.
 					await registerScenario("transport-error-frame", {
 						type: "raw",
 						statusCode: 200,
@@ -379,26 +366,19 @@ function transportSuite(title: string, directMode: boolean): void {
 
 // -- Timeouts and error mapping through the real stack -----------------------
 //
-// The suites below extend the transport file with deliberate HTTP errors
-// (%error), the real whole-call timeout bound, a real key rejection from
-// LiteLLM's own master-key gate, and a closing sweep over the issue-report
-// log buffer.
 // Discovery-timeout e2e is deliberately skipped: the fake backend's command
-// grammar only controls chat completions, so /v1/models cannot be delayed
-// here, and the discovery surface's timeout mapping is already pinned by the
-// msw unit suites.
+// grammar only controls chat completions, so /v1/models cannot be delayed here,
+// and the discovery surface's timeout mapping is pinned by the msw unit suites.
 
 /** The statuses %error covers minus 400/401/429, which docker-litellm.test.ts already exercises through the proxy. */
 const ERROR_SWEEP = [403, 404, 408, 409, 422, 500, 502, 503, 504] as const;
 
 /**
- * What the proxy actually answers when the upstream returns each swept
- * status, pinned from observation against the docker stack (LiteLLM v1.93):
- * identity for all nine - LiteLLM wraps each upstream body in its own
- * exception envelope but forwards the status code unchanged. The direct
- * target always carries the exact upstream status; the proxy is asserted
- * against this record so a proxy upgrade that starts rewriting shows up as
- * a diff here, not a mystery failure.
+ * What the proxy answers when the upstream returns each swept status, pinned
+ * from observation against the docker stack (LiteLLM v1.93): identity for all
+ * nine - it wraps each upstream body in its own exception envelope but forwards
+ * the status unchanged. The direct target always carries the exact upstream
+ * status; pinning the proxy here turns a rewriting upgrade into a diff.
  */
 const PROXY_FORWARDED_STATUS: Readonly<Record<number, number>> = {
 	403: 403,
@@ -416,10 +396,10 @@ const PROXY_FORWARDED_STATUS: Readonly<Record<number, number>> = {
 const WRONG_MASTER_KEY = "sk-wrong-master-key-MARKER";
 
 /**
- * Every issue-report log line of this session, through the lossless test tee
- * (litellm._test.getSessionLogs): unlike the production buffer's 50-entry
- * rolling window, it cannot rotate a line out before the secrecy sweep reads
- * it, and it carries every error snapshot's public rendering too.
+ * Every issue-report log line of this session, through the lossless test tee:
+ * unlike the production buffer's 50-entry rolling window it cannot rotate a line
+ * out before the secrecy sweep reads it, and it carries every error snapshot's
+ * public rendering too.
  */
 async function sessionLogLines(): Promise<string[]> {
 	const batch = (await vscode.commands.executeCommand("litellm._test.getSessionLogs", 0)) as {
@@ -492,9 +472,8 @@ function errorMappingSuite(title: string, directMode: boolean): void {
 				assert.ok(outcome.error !== undefined, "the delayed reply must not outlive the timeout");
 				assert.match(String(outcome.error), /LiteLLM request timed out after 3000ms/);
 				assert.ok(outcome.elapsedMs >= 2900, `the timeout must not fire early: ${outcome.elapsedMs}ms`);
-				// The configured timeout is a hard whole-call bound: ~3s, never the
-				// 15s the backend would take. The ceiling leaves slack for slow CI
-				// runners while still proving the bound fired at 3s, not 15s.
+				// The configured timeout is a hard whole-call bound: ~3s, never the 15s
+				// the backend would take. The ceiling leaves slack for slow CI runners.
 				assert.ok(outcome.elapsedMs < 8000, `the bound must fire at ~3s, took ${outcome.elapsedMs}ms`);
 			});
 
@@ -518,25 +497,25 @@ function wrongMasterKeySuite(): void {
 
 		test("a declared entry with a rejected key syncs its group into a 401-classified error serving nothing", async function () {
 			this.timeout(90000);
-			// Sampled BEFORE the entry lands: the stack's model ids are fixed, so
-			// the only host-visible proof the rejected group serves nothing is
-			// its arrival leaving the copy count alone.
+			// Sampled BEFORE the entry lands: the stack's model ids are fixed, so the
+			// only host-visible proof the rejected group serves nothing is its
+			// arrival leaving the copy count alone.
 			const countProxyCopies = async () =>
 				(await vscode.lm.selectChatModels({ vendor: "litellm" })).filter((m) => m.id === "gpt-5.2-mini").length;
 			const before = await countProxyCopies();
-			// The entry syncs (the group add succeeds; credentials are opaque to
-			// the host), and the group's discovery then fails against the proxy's
-			// master-key gate: the silent per-group refresh resolves EMPTY rather
-			// than throwing, recording the truthful error status.
+			// The entry syncs (credentials are opaque to the host), then the group's
+			// discovery fails against the proxy's master-key gate: the silent
+			// per-group refresh resolves EMPTY rather than throwing, recording the
+			// truthful error status.
 			await writeServerEntry({ label, baseUrl: BASE_URL, auth: { apiKey: WRONG_MASTER_KEY } }, 60000);
 			const status = await waitForGroupStatus(label, (candidate) => candidate.state === "error", 30000);
 			assert.ok(status.state === "error", "narrowed by the wait");
 			assert.strictEqual(status.classification?.kind, "auth", "the gate's rejection classifies as auth");
 			assert.strictEqual(status.classification?.status, 401, "a 401 is never re-wrapped as a network error");
 			// Asserted across a settle window: the host ingests model lists
-			// asynchronously, so one clean sample could be a transient. Bounded
-			// above only - a healthy sibling's transient refresh dip must not be
-			// blamed on the rejected group; only GROWTH would prove it served.
+			// asynchronously, so one clean sample could be a transient. Bounded above
+			// only - a healthy sibling's refresh dip must not be blamed on the
+			// rejected group; only GROWTH would prove it served.
 			const settleDeadline = Date.now() + 2500;
 			while (Date.now() < settleDeadline) {
 				assert.ok((await countProxyCopies()) <= before, "a rejected group must never add models");
@@ -555,15 +534,13 @@ function wrongMasterKeySuite(): void {
 
 		test("the log buffer carries the auth classification and no key material or body text", async () => {
 			const logs = await sessionLogLines();
-			// Pinned from observation: THE PINNED LITELLM STACK (v1.93 in its
-			// database flavor, backed by the compose postgres service) rejects an
-			// unknown master key with a proper HTTP 401 on both /v1/model/info
-			// and /v1/models, so the group refresh's fetch failure logs the
-			// AUTH_MESSAGE template (englishMessage; the buffer is English-only).
-			// The DB-LESS v1.93 proxy answered 400 here instead (a
-			// BadRequestError wrapping an auth_error body) - if a stack change
-			// resurfaces that shape, this assertion fails loudly and should be
-			// repinned to the "RequestError(http, status 400)" classification.
+			// Pinned from observation: the pinned stack (LiteLLM v1.93 in its database
+			// flavor) rejects an unknown master key with an HTTP 401 on both
+			// /v1/model/info and /v1/models, so the refresh failure logs the
+			// AUTH_MESSAGE template (englishMessage; the buffer is English-only). The
+			// DB-LESS v1.93 proxy answered 400 instead (a BadRequestError wrapping an
+			// auth_error body); if a stack change resurfaces that shape, repin this to
+			// the "RequestError(http, status 400)" classification.
 			assert.ok(
 				logs.some(
 					(line) =>
@@ -586,8 +563,8 @@ function wrongMasterKeySuite(): void {
 function bufferSecrecySuite(): void {
 	suite("Docker issue-report buffer secrecy", () => {
 		test("no response bodies or credential markers ever reached the buffer", async () => {
-			// The sweep runs over every line any test in this file pushed through
-			// the issue-report stream, error snapshots included.
+			// The sweep runs over every line any test in this file pushed through the
+			// issue-report stream, error snapshots included.
 			const logs = await sessionLogLines();
 			assert.ok(logs.length > 0, "the suites above must have produced log traffic");
 			assert.ok(

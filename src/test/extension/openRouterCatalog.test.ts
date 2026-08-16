@@ -19,10 +19,9 @@ const MIN_DELAY_MS = 60_000;
 const fixtureText = catalogFixtureText();
 
 /**
- * A payload distinguishable from the fixture, in the live endpoint's shape,
- * over the runtime model-count floor. The live endpoint carries a pricing
- * block; the store's slimmed cache must never keep it (LiteLLM is the only
- * pricing source).
+ * A payload distinguishable from the fixture, in the live endpoint's shape, over
+ * the model-count floor. Its pricing block must never survive into the slimmed
+ * cache (LiteLLM is the only pricing source).
  */
 const refreshedPayload = {
 	data: Array.from({ length: 250 }, (_, index) => ({
@@ -44,9 +43,8 @@ interface ScheduledCall {
 }
 
 /**
- * A recording timer: long delays (the weekly/daily schedule, all >=
- * MIN_SCHEDULE_DELAY_MS) are captured for the test to fire; short delays (the
- * retry backoff sleeps inside one refresh) run on a microtask so awaited
+ * A recording timer: long delays (the weekly/daily schedule) are captured for
+ * the test to fire; short retry-backoff sleeps run on a microtask so awaited
  * refreshes complete without real time.
  */
 function makeTimer(): { timer: Timer; scheduled: ScheduledCall[] } {
@@ -248,8 +246,7 @@ suite("extension openRouterCatalog store", () => {
 		assert.strictEqual(harness.store.lookup.byExactId("refreshed/model-1").kind, "found");
 		assert.strictEqual(harness.store.lookup.byExactId("anthropic/claude-sonnet-4.5").kind, "not-found");
 
-		// The cache file is the slimmed artifact, parseable and complete, and
-		// the live payload's pricing blocks did not survive slimming.
+		// The cache file is the slimmed artifact: parseable, complete, pricing-free.
 		const writtenText = fs.readFileSync(harness.cachePath, "utf8");
 		const written = JSON.parse(writtenText) as { data: unknown[] };
 		assert.strictEqual(written.data.length, 250);
@@ -262,7 +259,6 @@ suite("extension openRouterCatalog store", () => {
 		assert.deepStrictEqual(harness.mementoStore.get(OPENROUTER_CATALOG_METADATA_KEY), {
 			lastSuccessAt: 1_000_000_000_000,
 		});
-		// The next weekly refresh is armed.
 		assert.deepStrictEqual(
 			pendingSchedules(harness.scheduled).map((call) => call.ms),
 			[WEEK_MS]
@@ -293,9 +289,8 @@ suite("extension openRouterCatalog store", () => {
 			pendingSchedules(harness.scheduled).map((call) => call.ms),
 			[DAY_MS]
 		);
-		// The dashboard row's status carries the standing failure - the fixed
-		// classification vocabulary, never response text - beside the snapshot
-		// facts. It stands until the next success clears it.
+		// The dashboard row's status carries the standing failure as the fixed
+		// classification vocabulary, never response text, until a success clears it.
 		const status: OpenRouterCatalogStatus = harness.store.status();
 		assert.strictEqual(status.modelCount, 6);
 		assert.strictEqual(status.lastSuccessAt, undefined);
@@ -325,12 +320,12 @@ suite("extension openRouterCatalog store", () => {
 		await harness.store.initialize();
 		await harness.store.refreshNow();
 
-		// The refreshed data serves this session...
+		// The refreshed data serves this session, but nothing claims durable
+		// success: a restart would fall back to the bundled snapshot, so the
+		// next attempt comes at the retry cadence.
 		assert.strictEqual(harness.updates, 1);
 		assert.strictEqual(harness.store.lookup.byExactId("refreshed/model-1").kind, "found");
 		assert.ok(harness.logLines.some((line) => line.includes("cache write failed")));
-		// ...but nothing claims durable success: a restart would fall back to
-		// the bundled snapshot, so the next attempt comes at the retry cadence.
 		assert.strictEqual(harness.mementoStore.get(OPENROUTER_CATALOG_METADATA_KEY), undefined);
 		assert.deepStrictEqual(
 			pendingSchedules(harness.scheduled).map((call) => call.ms),
@@ -352,8 +347,8 @@ suite("extension openRouterCatalog store", () => {
 		await harness.store.refreshNow();
 		assert.strictEqual(harness.fetchCalls, 1, "no retry after the opt-out");
 		assert.ok(!harness.logLines.some((line) => line.includes("refresh failed")));
-		// The config-change listener reacts to the same toggle by calling
-		// applyEnabledSetting, which drops the still-armed schedule.
+		// The config-change listener calls applyEnabledSetting, which drops the
+		// still-armed schedule.
 		harness.store.applyEnabledSetting();
 		assert.deepStrictEqual(pendingSchedules(harness.scheduled), []);
 	});
@@ -375,7 +370,6 @@ suite("extension openRouterCatalog store", () => {
 		assert.strictEqual(pendingSchedules(harness.scheduled).length, 1);
 		assert.strictEqual(harness.store.lookup.byRawModelId("gemma-7b").kind, "found");
 
-		// Disabling again cancels the pending refresh.
 		enabled = false;
 		harness.store.applyEnabledSetting();
 		assert.deepStrictEqual(pendingSchedules(harness.scheduled), []);
@@ -387,20 +381,18 @@ suite("extension openRouterCatalog store", () => {
 		await harness.store.initialize();
 		const [initial] = pendingSchedules(harness.scheduled);
 		assert.ok(initial !== undefined);
-		// The user disables, but the armed timer fires before the config
-		// listener runs: the refresh starts and bails on the disabled check,
-		// with its in-flight promise not yet settled.
+		// The user disables, but the armed timer fires first: the refresh starts
+		// and bails on the disabled check, its promise not yet settled.
 		enabled = false;
 		initial.cb();
 		harness.store.applyEnabledSetting();
-		// The user re-enables while that refresh is still settling. This must
-		// leave a timer pending or a refresh outstanding - previously the
-		// in-flight guard skipped scheduling and the bailed refresh armed no
-		// follow-up, killing the weekly cadence for the session.
+		// The user re-enables while that refresh is still settling: a timer must
+		// stay pending or a refresh outstanding, or the weekly cadence dies for
+		// the session.
 		enabled = true;
 		harness.store.applyEnabledSetting();
-		// Deliberately the same in-flight promise (nothing has yielded since
-		// cb()): this drains the settling refresh, never starts a new one.
+		// The same in-flight promise (nothing yielded since cb()): this drains
+		// the settling refresh, never starts a new one.
 		await harness.store.refreshNow();
 		assert.strictEqual(harness.fetchCalls, 0, "the disabled refresh reached the network");
 		assert.deepStrictEqual(

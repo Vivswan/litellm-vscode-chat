@@ -12,8 +12,7 @@ import { PendingCall, REAL_TIMER } from "../../shared/util/timer";
 import { zeroModelStatusTexts } from "./status";
 
 // The headline extraction lives in shared/util/errorText so the dashboard
-// webview splits messages the same way; re-exported here for the host-side
-// consumers that always imported it from the notifier.
+// webview splits messages the same way.
 export { statusErrorHeadline };
 
 export interface MessageAction {
@@ -23,11 +22,10 @@ export interface MessageAction {
 
 /**
  * The label every button that promises configuration shares; such a button
- * must route to reconfigureAction (or, for the raw showErrorMessage path
- * below, CMD.openDashboard directly), landing on the dashboard's Servers &
- * Models view - never on the hub menu or a native editor. A function, not a
- * constant: module-level localized constants would evaluate before
- * l10n.config and freeze English.
+ * must route to reconfigureAction (or CMD.openDashboard directly), landing on
+ * the dashboard's Servers & Models view - never on the hub menu or a native
+ * editor. A function, not a constant: module-level localized constants would
+ * evaluate before l10n.config and freeze English.
  */
 export function configureNowLabel(): string {
 	return l10n.t("Configure Now");
@@ -72,11 +70,10 @@ export function troubleshootingDocsAction(url: string, label = l10n.t("Troublesh
 }
 
 /**
- * The error-toast actions for surfaces without an output channel (the
- * notifier's background toasts): a hint-carrying classification earns the
- * Troubleshooting Docs button, deep-linked to that cause's docs section;
- * otherwise exactly today's pair. The message itself never changes - the
- * transport messages already carry their own advice, so the hint's whole
+ * The error-toast actions for surfaces without an output channel: a
+ * hint-carrying classification earns the Troubleshooting Docs button,
+ * deep-linked to that cause's docs section. The message itself never changes -
+ * the transport messages already carry their own advice, so the hint's whole
  * value on a toast is the docs link.
  */
 function notifierErrorActions(classification: TransportErrorClassification | undefined): MessageAction[] {
@@ -87,9 +84,8 @@ function notifierErrorActions(classification: TransportErrorClassification | und
 }
 
 /**
- * The error-toast actions for the command surfaces (test connection, model
- * sync): the same set as notifierErrorActions with View Output first in both
- * variants, so a hint never displaces access to the logs.
+ * The command surfaces' error-toast actions: the same set with View Output
+ * first, so a hint never displaces access to the logs.
  */
 export function commandErrorActions(
 	classification: TransportErrorClassification | undefined,
@@ -118,9 +114,9 @@ interface NotifiableCondition {
 }
 
 /**
- * What one aggregated report means for notification. The three notifiable
- * conditions are discriminated by tag, so consumers dispatch on the condition
- * itself instead of re-deriving it from the dedup signature string.
+ * What one aggregated report means for notification, discriminated by tag so
+ * consumers dispatch on the condition instead of re-deriving it from the dedup
+ * signature string.
  */
 type NotifierOutcome =
 	| ({ tag: "no-servers" | "all-failed" | "no-models" } & NotifiableCondition)
@@ -128,34 +124,25 @@ type NotifierOutcome =
 	| { tag: "suppressed" };
 
 /**
- * How long an empty status window may claim "no servers configured" before
- * the claim is believed. At cold start the host runs the groupless refresh
- * (which reports an empty window) before the per-group refreshes that prove
- * groups exist, so the claim needs evidence of absence: the gate is checked
- * again once the host has had time to hand over any groups it manages.
- *
- * The trade-off in this number: a genuinely-unconfigured user sees the setup
- * toast this long after cold start (they still have the welcome toast in the
- * meantime), while a host that is slow to re-resolve groups (loaded machine,
- * remote window, many groups) gets this much room before the wrong toast
- * could fire. If a host is slower still, the mistake self-heals: the first
- * per-group report evaluates as recovered and clears the dedup signature.
+ * How long an empty status window may claim "no servers configured" before the
+ * claim is believed. At cold start the host runs the groupless refresh (which
+ * reports an empty window) before the per-group refreshes that prove groups
+ * exist, so the claim needs evidence of absence: the gate is checked again
+ * once the host has had time to hand over any groups it manages. If a host is
+ * slower still, the mistake self-heals: the first per-group report evaluates
+ * as recovered and clears the dedup signature.
  */
 const NO_SERVERS_GRACE_MS = 15000;
 
 /**
  * Owns all toasts for provider refresh outcomes. Silent (background) refreshes
  * notify with once-per-condition dedup; non-silent refreshes never toast here
- * because the caller (test connection command or the model picker) surfaces
- * the outcome directly. `hasConfiguredServers` is the shared configured gate:
- * an empty status window on a configured install (the group-agnostic refresh
- * reports empty while provider groups serve fine) must not claim "no servers".
- * Because the gate's group latch flips only when a per-group refresh arrives -
- * after the groupless refresh already reported empty - the no-servers claim is
- * never toasted immediately: it is deferred by NO_SERVERS_GRACE_MS and
- * re-gated when the deferral expires, so group-configured users never see it
- * at cold start
- * while genuinely-unconfigured users still get it moments later.
+ * because the caller surfaces the outcome directly. `hasConfiguredServers` is
+ * the shared configured gate: an empty status window on a configured install
+ * must not claim "no servers". Because the gate's group latch flips only after
+ * the groupless refresh already reported empty, the no-servers claim is never
+ * toasted immediately: it is deferred by NO_SERVERS_GRACE_MS and re-gated when
+ * the deferral expires.
  */
 export class Notifier implements vscode.Disposable {
 	private _lastNotifiedSignature: string | undefined;
@@ -190,18 +177,16 @@ export class Notifier implements vscode.Disposable {
 		}
 		if (outcome.tag === "suppressed") {
 			// An empty status window on a configured install: the world is not
-			// fully known (the groupless refresh reports before the per-group
-			// refreshes), so no claim is made AND the dedup signature is left
-			// intact, or a prior error toast would read as recovered and re-fire on
-			// the next real failure. A pending claim armed before the gate flipped
-			// is withdrawn.
+			// fully known, so no claim is made AND the dedup signature is left
+			// intact, or a prior error toast would read as recovered and re-fire
+			// on the next real failure.
 			this.cancelPendingClaim();
 			return;
 		}
 		if (outcome.tag === "no-servers") {
 			// The claim needs evidence of absence, not absence of evidence; see
 			// the class comment. Non-silent refreshes do not arm it either: their
-			// caller surfaces the outcome directly, as with every other condition.
+			// caller surfaces the outcome directly.
 			if (status.silent) {
 				this.armNoServersClaim(outcome);
 			}
@@ -264,14 +249,11 @@ export class Notifier implements vscode.Disposable {
 				tag: "all-failed",
 				// The dedup signature is an internal English key, never displayed.
 				// It keys on the HEADLINE plus the setup hint, matching what the
-				// toast shows: the detail line carries variable server-derived
-				// text (spend figures, cause chains) whose churn is not new
-				// information, while the hint identifies the cause, and distinct
-				// causes can share display text (ENOTFOUND and ECONNREFUSED
-				// deliberately render the same connection message, but only the
-				// latter carries proxy-not-running), so a failure whose hint
-				// changes must re-fire the toast that first carries the
-				// Troubleshooting Docs action.
+				// toast shows: the detail line's server-derived churn is not new
+				// information, while distinct causes can share display text
+				// (ENOTFOUND and ECONNREFUSED render the same message, but only
+				// the latter carries proxy-not-running), so a failure whose hint
+				// changes must re-fire the toast carrying the docs action.
 				signature: `all-failed:${statusErrorHeadline(firstFailure.error)}:${firstFailure.classification?.setupHint ?? ""}`,
 				kind: "error",
 				message: l10n.t("LiteLLM: {0}", statusErrorHeadline(firstFailure.error)),
@@ -294,20 +276,18 @@ export class Notifier implements vscode.Disposable {
 				};
 			}
 			// Hidden groups explain the zero models: the toast names the real
-			// cause and the recovery instead of blaming the proxy configuration;
-			// the wording is shared with the status tooltip so the two surfaces
-			// cannot disagree. Only while nothing failed unexpectedly - a genuine
-			// failure in the mix must not be papered over with restore advice, so
-			// that mix keeps the plain no-models warning below.
+			// cause and the recovery instead of blaming the proxy configuration,
+			// sharing wording with the status tooltip. Only while nothing failed
+			// unexpectedly - a genuine failure in the mix must not be papered
+			// over with restore advice.
 			const zeroTexts = zeroModelStatusTexts(status.serverStatuses);
 			if (zeroTexts.hiddenCount > 0 && unexpectedFailures.length === 0) {
 				return {
 					tag: "no-models",
 					// Distinct from "no-models" ON PURPOSE, mirroring the all-failed
-					// signature's hint rule: a cause change is new information, so a
-					// generic zero-model state that becomes hidden-explained re-fires
-					// with the corrective wording. The count stays out of the key -
-					// hiding a second group is the same cause, not a new one.
+					// signature's hint rule: a cause change is new information. The
+					// count stays out of the key - hiding a second group is the same
+					// cause, not a new one.
 					signature: "no-models-hidden",
 					kind: "warning",
 					message: l10n.t("LiteLLM: {0}", zeroTexts.display),

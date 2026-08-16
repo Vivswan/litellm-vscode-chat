@@ -14,14 +14,10 @@ const MSW_RUNS_CAP = 2000;
 const SEED = resolveFuzzSeed();
 
 /**
- * Wire-payload properties for the spend client: usage responses embed hashed
- * key material, aliases, and user IDs, so the client's contract is that every
- * payload shape resolves to a typed outcome (never an exception escaping the
- * parse), unavailability classification is a pure function of the error's
- * structure, and NO response-derived text ever reaches an error message, an
- * error cause, a log line, or the parsed result (the store's contents reach
- * the dashboard webview). The unit suite (spendClient.test.ts) pins the happy
- * paths; these properties pin the same rules against arbitrary garbage.
+ * Wire-payload properties for the spend client: every payload shape resolves to a typed
+ * outcome (never an exception escaping the parse), unavailability classification is a
+ * pure function of the error's structure, and NO response-derived text reaches an error
+ * message, cause, log line, or the parsed result.
  */
 
 const KEY_INFO_URL = `${TEST_BASE_URL}/key/info`;
@@ -35,11 +31,9 @@ const MARKER = "sk-hashed-key-material-FUZZ";
 const connection = { label: "alpha", baseUrl: TEST_BASE_URL, apiKey: "sk-test", headers: {} } as const;
 
 /**
- * A client with a recording logger. The spend client's contract is to
- * construct errors and throw WITHOUT logging (the poller boundary logs one
- * classification), so the suites assert the recording stays EMPTY: any future
- * log call added to the client trips it, and a log line carrying response
- * text could never slip through unnoticed.
+ * A client with a recording logger. The spend client constructs errors and
+ * throws WITHOUT logging (the poller boundary logs one classification), so the
+ * suites assert the recording stays EMPTY.
  */
 function recordingClient(): { client: UsageClient; logs: string[] } {
 	const logs: string[] = [];
@@ -124,10 +118,9 @@ const junkFieldValue = fc.oneof(
 		[MARKER],
 		{ nested: { deep: MARKER } },
 		{ usd: 1 },
-		// Date-shaped strings for the epoch slots: valid ISO forms, an
-		// impossible calendar date, the Date range edges (one representable,
-		// one NaN), and a NUMERIC epoch - which must read as absent, because
-		// usageEpochMs only accepts strings. "user-1" populates hasUser.
+		// Date-shaped strings for the epoch slots, plus the Date range edges and a NUMERIC
+		// epoch - which must read as absent, because usageEpochMs only accepts strings.
+		// "user-1" populates hasUser.
 		"2026-09-01T00:00:00.000Z",
 		"2026-09-01",
 		"2026-02-30T00:00:00Z",
@@ -289,11 +282,9 @@ suite("extension/servers/usage spendClient payload properties", () => {
 						expectedTotals[field] = (expectedTotals[field] as number) + value;
 					}
 				}
-				// Totals are summed from the retained days, never trusted from the
-				// response metadata. The sum follows IEEE float semantics on purpose
-				// (two 1e308 days overflow to Infinity), because the documented
-				// contract is that the totals AGREE WITH THE DAYS SHOWN - but they
-				// can never go negative or NaN (every addend is >= 0).
+				// Totals are summed from the retained days, never trusted from the response
+				// metadata. The sum follows IEEE float semantics on purpose (the contract is
+				// that totals AGREE WITH THE DAYS SHOWN), but can never go negative or NaN.
 				assert.deepStrictEqual({ ...daily.totals }, expectedTotals);
 				for (const [field, total] of Object.entries(daily.totals)) {
 					assert.ok(!Number.isNaN(total) && (total as number) >= 0, `totals.${field} must be a non-negative number`);
@@ -352,11 +343,9 @@ suite("extension/servers/usage spendClient payload properties", () => {
 
 	test("non-OK statuses classify deterministically from the status alone; bodies never leak", async function () {
 		this.timeout(240000);
-		// 4xx fails on the first attempt, so the property stays cheap; 501 and
-		// 5xx ride the retry budget first (200ms+400ms backoff), so the retried
-		// path gets one pinned example below and the 500 exhaustion lives in the
-		// unit suite. The status-to-verdict mapping itself is pure and fully
-		// covered by the usageUnavailabilityOf property.
+		// 4xx fails on the first attempt, so the property stays cheap; 501 and 5xx ride
+		// the retry budget first, so the retried path gets one pinned example below.
+		// The status-to-verdict mapping is pure and covered by its own property.
 		let servedStatus = 400;
 		mswServer.use(
 			http.get(KEY_INFO_URL, () =>

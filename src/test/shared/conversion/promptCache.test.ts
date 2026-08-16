@@ -98,10 +98,9 @@ suite("shared/promptCache applyPromptCacheBreakpoints", () => {
 		const last = expectDefined(result.messages[3]);
 		assert.strictEqual(last.role, "tool");
 		assert.strictEqual(last.tool_call_id, "call_1");
-		// Message-level marker: LiteLLM copies it onto the top-level tool_result
-		// block, the only position Anthropic can cache. The content stays a
-		// string; a block-level marker would land on the nested sub-content and
-		// silently no-op.
+		// Message-level marker: LiteLLM copies it onto the top-level tool_result block, the only
+		// position Anthropic can cache. The content stays a string; a block-level marker would land
+		// on the nested sub-content and silently no-op.
 		assert.strictEqual(last.content, "file contents");
 		assert.deepStrictEqual(last.cache_control, EPHEMERAL);
 	});
@@ -124,11 +123,9 @@ suite("shared/promptCache applyPromptCacheBreakpoints", () => {
 	});
 
 	test("a trailing empty tool result walks the rolling anchor back onto a thinking assistant turn", () => {
-		// The agent-mode shape: the newest tool result is empty, so the anchor
-		// falls back to the assistant turn that carries text, tool calls, and
-		// replayed thinking blocks. Anthropic forbids cache_control on thinking
-		// blocks; the marker must sit on the text block and leave the thinking
-		// blocks byte-identical.
+		// The anchor falls back to an assistant turn carrying text, tool calls, and replayed
+		// thinking. Anthropic forbids cache_control on thinking blocks, so the marker sits on the
+		// text block and the thinking blocks stay byte-identical.
 		const thinkingAssistant: OpenAIChatMessage = {
 			role: "assistant",
 			content: "I will read the file next.",

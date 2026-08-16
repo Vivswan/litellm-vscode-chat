@@ -303,9 +303,8 @@ suite("extension/settingsTransfer/importPlan", () => {
 		});
 
 		test("storedSecrets under an Object.prototype member name resolves via hasOwn, never the prototype", () => {
-			// The blob record INHERITS a "toString" entry carrying a secret: a
-			// plain index read would find it and wrongly flag the collision;
-			// hasOwn sees no own blob for the label and compares clean sides.
+			// The blob record INHERITS a "toString" entry carrying a secret: a plain
+			// index read would find it and wrongly flag the collision.
 			const entry = server("toString");
 			const inherited = Object.create({ toString: { apiKey: "sk-ghost" } }) as Readonly<
 				Record<string, StoredServerSecrets>
@@ -411,9 +410,8 @@ suite("extension/settingsTransfer/importPlan", () => {
 		});
 
 		test("a baseUrl-less fragment never shadows a valid same-label sibling, matching the parser's claim rule", () => {
-			// parseServersSetting would ignore the fragment (no usable baseUrl,
-			// so it claims no label) and accept the later valid entry; the
-			// import must land the same entry the parser would act on.
+			// parseServersSetting would ignore the fragment (no usable baseUrl, so it
+			// claims no label); the import must land the entry the parser acts on.
 			const fragment = { label: "A", auth: { apiKey: "sk-frag" } };
 			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: [fragment, server("A", { budget: 7 })] }, undefined);
 			assert.strictEqual(plan.secretFieldCount, 0, "only the representative's inline secrets count");

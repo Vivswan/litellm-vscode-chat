@@ -11,13 +11,10 @@ const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
 /**
- * The pass-through invariant, end to end: request.property.test.ts pins
- * buildRequestBody in isolation, but the wire body is shaped by the whole
- * pipeline (modelParameters config, the picker's modelConfiguration mapping,
- * runtime modelOptions, tool conversion, max_tokens resolution). This suite
- * drives provideLanguageModelChatResponse through msw and asserts the captured
- * HTTP body carries exactly the provider-owned fields plus the user-set keys,
- * with runtime options over picker configuration over configured parameters.
+ * The pass-through invariant, end to end: this suite drives
+ * provideLanguageModelChatResponse through msw and asserts the captured HTTP body carries
+ * exactly the provider-owned fields plus the user-set keys, with runtime options > picker
+ * configuration > configured parameters.
  */
 
 const OWNED_KEYS = ["model", "messages", "stream", "stream_options", "max_tokens", "tools", "tool_choice"] as const;
@@ -30,9 +27,8 @@ const safeKeyChar = fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789.-")
 const safeKey = fc.string({ unit: safeKeyChar, minLength: 1, maxLength: 10 }).filter((key) => !RESERVED_KEYS.has(key));
 
 // A small shared pool makes cross-source collisions common enough for the
-// precedence branch to actually run; reasoning_effort collides with the
-// picker mapping on purpose. max_tokens stays out: its precedence is a
-// separate resolution step with its own property below.
+// precedence branch to run; reasoning_effort collides with the picker mapping on
+// purpose. max_tokens stays out: it has its own property below.
 const SHARED_POOL_KEYS = ["temperature", "top_p", "seed", "reasoning_effort"] as const;
 
 const bodyKey = fc.oneof(
@@ -151,10 +147,9 @@ suite("provider/request full-pipeline pass-through properties", () => {
 								...(optionsMax !== undefined ? { modelOptions: { max_tokens: optionsMax } } : {}),
 							})
 					);
-					// The hand-built model info carries no server-declared output
-					// limit, so the fallback stays under the 4096 cap (the declared
-					// uncapped arm is pinned by requestContract.test.ts, which needs
-					// the discovery-payload plumbing to mark a limit as declared).
+					// The hand-built model info carries no server-declared output limit,
+					// so the fallback stays under the 4096 cap; the declared-uncapped arm
+					// is pinned by requestContract.test.ts.
 					const expected = optionsMax ?? paramsMax ?? Math.min(4096, modelMax);
 					assert.strictEqual(body.max_tokens, expected);
 				}

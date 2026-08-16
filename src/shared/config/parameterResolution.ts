@@ -1,12 +1,9 @@
 /**
  * The single owner of the models.parameters resolution: the matcher-and-
  * inheritance walk (via recordResolution.ts), the entry-over-global merge,
- * the `_force` directive, and the max_tokens fallback branch. Pure (no
- * vscode, no DOM) on purpose: the request path (provider/transport) builds
- * requests from these functions, and the dashboard's effective-values
- * inspector renders its projection through the protocol module's re-exports
- * - one implementation, so the inspector cannot drift from what a request
- * actually carries. The equivalence property suite pins that claim against
+ * the `_force` directive, and the max_tokens fallback branch. Pure, so the
+ * request path and the dashboard's effective-values inspector run the one
+ * implementation; the equivalence property suite pins that against
  * buildRequestBody.
  *
  * Precedence: the entry record's resolution beats the global setting's field
@@ -35,9 +32,8 @@ export const DEFAULT_MAX_TOKENS_CAP = 4096;
 export type ModelParametersRecord = ModelRecordMap;
 
 /**
- * The request fields the extension owns. Configuration and runtime options
- * can never set them: buildRequestBody skips these keys on every pass-through
- * source, and the inspector renders them as not-sent for the same reason.
+ * The request fields the extension owns: buildRequestBody skips these keys on
+ * every pass-through source, and the inspector renders them as not-sent.
  * max_tokens belongs here too - it is provider-owned on the wire - but its
  * VALUE is special-cased: a numeric configured max_tokens feeds
  * resolveMaxTokens instead of passing through.
@@ -71,21 +67,19 @@ export function parameterSkipReason(key: string): ParameterSkipReason | undefine
 }
 
 /**
- * Marks all (`true`) or the listed parameter fields of its record as FORCED:
- * forced fields beat runtime modelOptions and the picker configuration on the
- * wire. Provider-owned and underscore keys are unforceable (diagnosed and
- * skipped) - with one exception: max_tokens is provider-owned on the wire but
- * user-settable by design (it feeds resolveMaxTokens), so it is forceable
- * like any set parameter, and a forced value tops the max_tokens chain.
+ * Marks all (`true`) or the listed parameter fields as FORCED: forced fields
+ * beat runtime modelOptions and the picker configuration on the wire.
+ * Provider-owned and underscore keys are unforceable (diagnosed and skipped),
+ * except max_tokens, which is provider-owned on the wire but user-settable by
+ * design, so a forced value tops the max_tokens chain.
  */
 export const FORCE_DIRECTIVE = "_force";
 
 /**
- * Whether `_force` may mark this key. Everything settable is forceable: of
- * the provider-owned keys only max_tokens is settable (its value feeds the
- * derivation instead of passing through), so it alone escapes the refusal.
- * The single source of truth - the record editors' force checkboxes consult
- * it too, so the editor and the wire cannot disagree about forceability.
+ * Whether `_force` may mark this key. Everything settable is forceable: of the
+ * provider-owned keys only max_tokens is settable, so it alone escapes the
+ * refusal. The record editors' force checkboxes consult it too, so the editor
+ * and the wire cannot disagree about forceability.
  */
 export function isForceableParameter(key: string): boolean {
 	return key === "max_tokens" || parameterSkipReason(key) === undefined;
@@ -106,12 +100,11 @@ export interface ParameterDiagnostic extends RecordDiagnostic {
  * Parse one parameters record into the engine's terms: every non-underscore
  * key is a pass-through field (the vocabulary stays open), `_force` marks
  * forced fields (refusing provider-owned and underscore names, and names the
- * record does not set), and the shared `_inheritable`/`_inherit_from`
- * directives parse in recordResolution. Capability directives are diagnosed
- * as the wrong record type; truly unknown underscore keys stay silently
- * ignored for forward compatibility. Exported for the record-level consumers
- * (the Diagnostics tab's tree view renders each record's own fields and
- * marks); resolution goes through resolveParameterLayer.
+ * record does not set), and the shared inheritance directives parse in
+ * recordResolution. Capability directives are diagnosed as the wrong record
+ * type; truly unknown underscore keys stay silently ignored for forward
+ * compatibility. Exported for the record-level consumers; resolution goes
+ * through resolveParameterLayer.
  */
 export function parseParameterRecord(record: Readonly<Record<string, unknown>>): ParsedRecord {
 	const fields: Record<string, unknown> = {};
@@ -176,21 +169,20 @@ export function resolveParameterLayer(rawModelId: string, records: ModelRecordMa
 }
 
 /**
- * Record-level lint of a parameters record map, independent of any model:
- * invalid matcher keys, malformed directives, unforceable `_force` names, and
- * `_inherit_from` entries naming keys the map does not hold. The Diagnostics
- * tab renders these for records no current model matches, which the per-model
- * chain resolution would never visit; the caller attributes the layer.
+ * Record-level lint of a parameters record map, independent of any model: it
+ * reaches records no current model matches, which the per-model chain
+ * resolution never visits and the Diagnostics tab must still flag. The caller
+ * attributes the layer.
  */
 export function lintParameterRecords(records: ModelRecordMap): readonly RecordDiagnostic[] {
 	return lintRecordMap(records, parseParameterRecord);
 }
 
 /**
- * Which configuration layer set a value, and under which record key, as the
- * dashboard's params inspector renders it. An entry-layer ref always names
- * the declared entry that owns the record (stamped by the projection), so a
- * consumer can never pair an entry value with the wrong label.
+ * Which configuration layer set a value, and under which record key. An
+ * entry-layer ref always names the declared entry that owns the record
+ * (stamped by the projection), so a consumer can never pair an entry value
+ * with the wrong label.
  */
 export type ParameterSourceRef =
 	| { readonly layer: "global"; readonly key: string }
@@ -211,8 +203,8 @@ interface ResolvedParameterSource {
 	readonly source: ResolvedSourceRef;
 	/**
 	 * Present exactly when the winning layer's record did not write the field
-	 * itself: the value was inherited, and this names the record it came from
-	 * (always equal to source.key - presence is the signal).
+	 * itself: it was inherited, and this names the record it came from (always
+	 * equal to source.key - presence is the signal).
 	 */
 	readonly inheritedFrom?: string;
 	/** Lower-precedence layers that also set this key; present only when one really did. */
@@ -233,9 +225,7 @@ export interface ResolvedModelParameters {
 	/**
 	 * The effective configured merge: each layer's resolved chain view, entry
 	 * over global key by key, then the forced winners on top (a globally
-	 * forced key beats an unforced entry value). Underscore keys never appear:
-	 * directives are instructions and unknown ones are reserved, so only
-	 * wire-shaped fields survive the parse.
+	 * forced key beats an unforced entry value). Underscore keys never appear.
 	 */
 	readonly params: Record<string, unknown>;
 	/**
@@ -252,12 +242,11 @@ export interface ResolvedModelParameters {
 
 /**
  * Resolve the configured models.parameters for one model, with attribution.
- * Each layer resolves its own matching chain (specificity plus inheritance;
- * see recordResolution.ts), the entry result overrides the global result key
- * by key, and forced fields win above both: a key the global chain FORCES
- * outranks an unforced entry value, and a forced entry value outranks
- * everything. getModelParameters and the resolution table delegate here, so
- * `params` plus `forcedParams` IS what requests carry.
+ * Each layer resolves its own matching chain, the entry result overrides the
+ * global result key by key, and forced fields win above both: a key the global
+ * chain FORCES outranks an unforced entry value, and a forced entry value
+ * outranks everything. getModelParameters and the resolution table delegate
+ * here, so `params` plus `forcedParams` IS what requests carry.
  */
 export function resolveModelParameters(input: ResolveModelParametersInput): ResolvedModelParameters {
 	const { rawModelId, globalParameters, entryParameters } = input;
@@ -315,8 +304,7 @@ export function resolveModelParameters(input: ResolveModelParametersInput): Reso
 		});
 	}
 
-	// Forced fields can never be underscore keys - parseParameterRecord bars
-	// them on the `true` path and the list path alike.
+	// Forced fields can never be underscore keys: parseParameterRecord bars them.
 	for (const [name, field] of global.fields) {
 		if (field.forced) {
 			forcedParams[name] = field.value;
@@ -355,12 +343,10 @@ export interface ResolveMaxTokensInput {
 }
 
 /**
- * The one home of the max_tokens fallback chain: forced configured value
- * (max_tokens is the one provider-owned key `_force` may mark, because it is
- * user-settable by design), runtime option, configured parameter, the
- * server-declared limit as-is, else min(cap, model max output) because a
- * defaults-derived guess must not escape the cap. chatClient.send consumes
- * the value; the inspector consumes value and source.
+ * The one home of the max_tokens fallback chain: forced configured value,
+ * runtime option, configured parameter, the server-declared limit as-is, else
+ * min(cap, model max output) because a defaults-derived guess must not escape
+ * the cap.
  */
 export function resolveMaxTokens(input: ResolveMaxTokensInput): { value: number; source: MaxTokensSource } {
 	if (typeof input.forcedMaxTokens === "number") {
@@ -422,17 +408,12 @@ export interface EffectiveParametersProjection {
  * The inspector's view of one model's request, computed from the same
  * resolution the request path runs. A numeric configured max_tokens never
  * appears as a row: it becomes the request's max_tokens value, which the
- * derivation reports with its attribution. A non-numeric one stays a row,
- * not sent, because buildRequestBody drops the provider-owned key and
- * resolveMaxTokens ignores non-numbers. The equivalence property pins: every
- * row marked sent appears in buildRequestBody's output with the same value
- * (forced rows even against runtime options and the picker), every
- * non-provider-owned body key appears here as sent, and the projected
- * max_tokens equals the body's.
+ * derivation reports with its attribution. A non-numeric one stays a row, not
+ * sent.
  *
- * Production consumers moved to projectResolvedParameters (fed by the shared
- * resolution table); this full-resolution form deliberately stays as the
- * NAIVE side of the seed-pinned equivalence property, not dead code.
+ * Production consumers moved to projectResolvedParameters; this
+ * full-resolution form deliberately stays as the NAIVE side of the
+ * seed-pinned equivalence property, not dead code.
  */
 export function projectEffectiveParameters(input: EffectiveParametersInput): EffectiveParametersProjection {
 	return projectResolvedParameters(
@@ -450,13 +431,11 @@ export function projectEffectiveParameters(input: EffectiveParametersInput): Eff
 }
 
 /**
- * The projection over an already-resolved merge: what the dashboard's params
- * inspector renders when the resolution comes from the provider's shared
- * flat table (the SAME cache requests read) instead of a fresh walk.
- * projectEffectiveParameters delegates here, so the two paths cannot diverge.
- * `entryLabel` names the declared entry whose record fed the resolution; it
- * is stamped onto every entry-layer ref and must be present whenever the
- * resolution used entry parameters.
+ * The projection over an already-resolved merge: what the params inspector
+ * renders when the resolution comes from the shared flat table (the SAME cache
+ * requests read). projectEffectiveParameters delegates here, so the two paths
+ * cannot diverge. `entryLabel` must be present whenever the resolution used
+ * entry parameters; it is stamped onto every entry-layer ref.
  */
 export function projectResolvedParameters(
 	resolved: ResolvedModelParameters,

@@ -36,39 +36,33 @@ function delay(ms: number): Promise<void> {
 }
 
 /**
- * The floor of refreshViaHost's default deadline. The deadline also bounds
- * the host's own re-resolve round trip (event fan-out plus one call per
- * group), which costs the same however low discovery.timeout is configured,
- * so a pathologically low timeout (the reader clamps to MIN_TIMEOUT_MS =
- * 1000) must not make the host pass abandon almost instantly; the floor
- * keeps the historical 8s bound as the minimum. hostRefreshDeadlineMs's
- * tests pin both the floor and the margin.
+ * The deadline also bounds the host's own re-resolve round trip, which costs
+ * the same however low discovery.timeout is configured, so a tiny timeout
+ * must not make the host pass abandon almost instantly.
  */
 const HOST_REFRESH_DEADLINE_FLOOR_MS = 8000;
 
 /**
- * Headroom added on top of the discovery timeout: a group report lands only
- * after the host's dispatch and the provider's post-fetch processing, which
- * are not covered by the per-request discovery timeout.
+ * Headroom on top of the discovery timeout: a group report lands only after
+ * the host's dispatch and the provider's post-fetch processing, neither
+ * covered by the per-request discovery timeout.
  */
 const HOST_REFRESH_DEADLINE_MARGIN_MS = 2000;
 
 /**
- * refreshViaHost's default deadline: long enough for one full discovery
- * attempt plus report plumbing, never below the floor. Derived from the
- * configured discovery timeout so raising discovery.timeout cannot silently
- * make the host pass give up while a slow server's fetch is still inside its
- * own budget. Exported for the drift tests that pin the derivation.
+ * refreshViaHost's default deadline: one full discovery attempt plus report
+ * plumbing, never below the floor. Derived from discovery.timeout so raising
+ * it cannot make the host pass give up while a slow fetch is still inside its
+ * own budget.
  */
 export function hostRefreshDeadlineMs(discoveryTimeoutMs: number): number {
 	return Math.max(HOST_REFRESH_DEADLINE_FLOOR_MS, discoveryTimeoutMs + HOST_REFRESH_DEADLINE_MARGIN_MS);
 }
 
 /**
- * The default deadline exactly as refreshViaHost derives it: the configured
- * DISCOVERY timeout (the host pass races discovery fetches, so chat.timeout
- * plays no part) through hostRefreshDeadlineMs. Split out so a test can pin
- * which setting the wiring reads without waiting a real deadline out.
+ * The default deadline exactly as refreshViaHost derives it. The host pass
+ * races discovery fetches, so it reads the DISCOVERY timeout and chat.timeout
+ * plays no part.
  */
 export function defaultHostRefreshDeadlineMs(log?: (message: string, data?: unknown) => void): number {
 	return hostRefreshDeadlineMs(getDiscoveryTimeout(log));
@@ -84,25 +78,21 @@ export interface LiteLLMChatModelProviderOptions {
 	/**
 	 * Registration-time resolver for a declared entry's per-entry
 	 * modelCapabilities, matched by label and normalized base URL exactly like
-	 * getEntryModelParameters. Injected by the extension layer; consumed where
-	 * capability overrides are applied to attached models.
+	 * getEntryModelParameters.
 	 */
 	getEntryModelCapabilities?: ((label: string, baseUrl: string) => ModelCapabilitiesRecord | undefined) | undefined;
 	/**
 	 * Request- and discovery-time resolver for a declared entry's custom
-	 * headers, matched by label and normalized base URL like
-	 * getEntryModelCapabilities and getExpectedFailures; injected by the
-	 * extension layer (headers live on the entry - there is no global headers
-	 * setting).
+	 * headers, matched like getEntryModelCapabilities. Headers live on the
+	 * entry - there is no global headers setting.
 	 */
 	getEntryHeaders?: ((label: string, baseUrl: string) => Readonly<Record<string, string>> | undefined) | undefined;
 	/**
 	 * Request- and discovery-time resolver for a declared entry's apiVersion
-	 * override (what apiRootOf appends to the base URL), matched by label and
-	 * normalized base URL exactly like getEntryHeaders. "" is a real value
-	 * (append nothing), distinct from undefined (auto-detect: keep a version
-	 * segment already in the URL, else /v1). Injected by the extension layer
-	 * (the setting lives on its side of the boundary).
+	 * override (what apiRootOf appends to the base URL), matched like
+	 * getEntryHeaders. "" is a real value (append nothing), distinct from
+	 * undefined (auto-detect: keep a version segment already in the URL, else
+	 * /v1).
 	 */
 	getEntryApiVersion?: ((label: string, baseUrl: string) => string | undefined) | undefined;
 	/**
@@ -122,21 +112,19 @@ export interface LiteLLMChatModelProviderOptions {
 		| ((label: string, baseUrl: string) => readonly ExpectedFailureCategory[] | undefined)
 		| undefined;
 	/**
-	 * The OpenRouter capability catalog as in-memory lookup data, injected by
-	 * the extension layer (the catalog store owns files, network, and the
-	 * opt-out; this layer only resolves). Read at serve time so a refreshed
-	 * snapshot reaches the next attach without a rebuild. Defaults to the
-	 * empty lookup: every catalog level answers not-found.
+	 * The OpenRouter capability catalog as in-memory lookup data (the catalog
+	 * store owns files, network, and the opt-out; this layer only resolves).
+	 * Read at serve time so a refreshed snapshot reaches the next attach
+	 * without a rebuild. Defaults to the empty lookup: every catalog level
+	 * answers not-found.
 	 */
 	getCatalogLookup?: (() => CapabilityCatalogLookup) | undefined;
 	/**
-	 * Whether a provider group was explicitly removed by the user (the
-	 * extension layer's tombstone store, injected here because this layer
-	 * cannot import it). Judged by the group's status label and normalized
-	 * base URL. A suppressed group answers with an empty model list and skips
-	 * the network entirely; its group-side status still reports, so the
-	 * status window and the dashboard stay coherent. Default: nothing is
-	 * suppressed.
+	 * Whether a provider group was explicitly removed by the user, judged by
+	 * the group's status label and normalized base URL. A suppressed group
+	 * answers with an empty model list and skips the network entirely; its
+	 * group-side status still reports, so the status window and the dashboard
+	 * stay coherent. Default: nothing is suppressed.
 	 */
 	isGroupSuppressed?: ((label: string, baseUrl: string) => boolean) | undefined;
 	/** Cache seam for tests (fake TTL clock); the provider owns a real one by default. */
@@ -146,11 +134,7 @@ export interface LiteLLMChatModelProviderOptions {
 }
 
 /**
- * The vscode-facing facade: it implements the LanguageModelChatProvider
- * surface and composes the focused pieces - GroupDiscovery (the per-group
- * discovery passes), ServedModelDecorator (model-info preparation), and
- * GroupStatusReporter (status snapshots) - around the shared ChatClient,
- * discovery cache, and resolution table.
+ * The vscode-facing facade.
  *
  * Error ownership lives here: transport and discovery modules construct
  * specific errors and throw without logging, and this facade is the SINGLE
@@ -162,9 +146,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	private readonly _client: ChatClient;
 	// Pre-attach group discovery results, keyed by group client ID. The host
 	// re-resolves groups in bursts, so cached sweeps must not hit the network.
-	// Explicit refreshes reach it anyway: refreshViaHost clears the cache (and
-	// clear() detaches in-flight loads, so they cannot re-store pre-clear data)
-	// before the host's re-resolution reads through and repopulates it, and
+	// Explicit refreshes reach it anyway: refreshViaHost clears the cache, and
 	// testKnownGroupConnections invalidates each group it probes. The group
 	// server is attached to the stored infos on every read, never cached.
 	private readonly _discoveryCache: DiscoveryCache<DiscoveredGroupModels>;
@@ -174,21 +156,16 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	private readonly _decorator: ServedModelDecorator;
 	private readonly _discovery: GroupDiscovery;
 	// Sticky evidence that the host has handed this session at least one provider
-	// group: the host passes each group's configuration at prepare time. Once
-	// seen it never resets, so the "not configured" surfaces stay silent for a
-	// group-configured user even between refresh cycles, when the live status
-	// window has aged its entries out. The groupless refresh runs before the
-	// per-group refreshes, so this is the honest "servers exist" signal that the
-	// live snapshot count cannot give at cold start.
+	// group. Once seen it never resets, so the "not configured" surfaces stay
+	// silent for a group-configured user even between refresh cycles, when the
+	// live status window has aged its entries out.
 	private _hasSeenGroupConfiguration = false;
 	private readonly _onDidChangeEmitter = new EventEmitter<void>();
 	/**
 	 * The precomputed flat resolution table: one instance shared by the chat
-	 * request path (via ChatClient), the registration decorator
-	 * (ServedModelDecorator), and the dashboard's inspectors (resolutionTable
-	 * below), so every consumer reads the same cache. Input-fingerprinted, so
-	 * settings, entry, and discovery changes reach the next lookup without
-	 * event plumbing; pruned with the other per-server caches.
+	 * request path, registration, and the dashboard's inspectors, so every
+	 * consumer reads the same cache. Input-fingerprinted, so settings, entry,
+	 * and discovery changes reach the next lookup without event plumbing.
 	 */
 	private readonly _resolution = new ModelResolutionTable();
 	/** Fired to make the host re-resolve the group-agnostic call and every group through this provider. */
@@ -207,8 +184,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		this._discoveryCache = options.discoveryCache ?? new DiscoveryCache();
 		this._statusWindow = new StatusWindow(
 			options.now ?? (() => Date.now()),
-			// Read per consumption so settings changes apply live; the facade owns
-			// the log boundary, so the clamp warning routes through its logger.
+			// Read per consumption so settings changes apply live; the clamp
+			// warning routes through the facade's logger.
 			() => getDiscoveryStaleServeWindow((message, data) => this.log(message, data))
 		);
 		this._reporter = new GroupStatusReporter(this._statusWindow);
@@ -251,7 +228,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		this.logger?.error(message, error);
 	}
 
-	/** The status window's current view for read-only consumers; see ServerModelsSnapshot. */
+	/** The status window's current view for read-only consumers. */
 	getServerSnapshots(): ServerModelsSnapshot[] {
 		return this._statusWindow.snapshots();
 	}
@@ -264,8 +241,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	/**
 	 * Whether the host has handed this session any provider-group configuration.
 	 * Sticky: the "not configured" surfaces consult it so a group-configured user
-	 * is never told they have no servers at cold start, when the groupless
-	 * refresh reports an empty window before the per-group refreshes arrive.
+	 * is never told they have no servers at cold start.
 	 */
 	hasSeenGroupConfiguration(): boolean {
 		return this._hasSeenGroupConfiguration;
@@ -293,9 +269,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 
 	/**
 	 * The declared models the current configuration synthesizes for one
-	 * status-window snapshot, for the dashboard's state builder; the entry
-	 * layer resolves through capabilityEntryIdentity, the same identity the
-	 * serve path uses. See ServedModelDecorator.declaredModelsForSnapshot.
+	 * status-window snapshot; the entry layer resolves through
+	 * capabilityEntryIdentity, the same identity the serve path uses.
 	 */
 	declaredModelsForSnapshot(snapshot: ServerModelsSnapshot): readonly PreAttachModelInfo[] {
 		return this._decorator.declaredModelsForSnapshot(snapshot, this.capabilityEntryIdentity(snapshot.status.serverId));
@@ -304,8 +279,7 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	/**
 	 * Evict per-server state for servers no longer being served: SDK clients
 	 * and cached discovery results move in lockstep, because both embed the
-	 * server's credentials (a rotated key mints a new group client ID, so the
-	 * old ID drops out of `keep` once its status ages out).
+	 * server's credentials (a rotated key mints a new group client ID).
 	 */
 	private pruneServerCaches(keep: readonly string[]): void {
 		this._client.pruneClients(keep);
@@ -332,17 +306,15 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		this._statusWindow.beginCycle();
 		this.log("Serving no models for the group-agnostic refresh; models are served per provider group");
 		this.pruneServerCaches(this._statusWindow.serverIds());
-		// The merged report keeps the status bar tracking group removals: once
-		// the last group ages out of the window, this reports empty.
+		// Keeps the status bar tracking group removals: once the last group ages
+		// out of the window, this reports empty.
 		this._reporter.reportMerged(options.silent);
 		return [];
 	}
 
 	/**
-	 * Serve one VS Code-managed provider group: fetch models from the server
-	 * named by the group's configuration and attach the resolved connection to
-	 * every entry. Model IDs are returned raw and display names unprefixed
-	 * because the host namespaces group models itself.
+	 * Serve one VS Code-managed provider group. Model IDs are returned raw and
+	 * display names unprefixed because the host namespaces group models itself.
 	 */
 	private async provideGroupModels(configuration: unknown, silent: boolean): Promise<LiteLLMModelInfo[]> {
 		const groupServer = parseGroupConfiguration(configuration, (message, data) => this.log(message, data));
@@ -363,34 +335,27 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 	}
 
 	/**
-	 * Fire the model-change event without the refresh round-trip bookkeeping:
-	 * the host re-resolves every group through this provider. Used when the
-	 * suppression predicate's answers change (a group was hidden or unhidden),
-	 * so the picker reflects the change immediately.
+	 * Fire the model-change event without the refresh round-trip bookkeeping.
+	 * Used when the suppression predicate's answers change, so the picker
+	 * reflects the change immediately.
 	 */
 	notifyModelInformationChanged(): void {
 		this._onDidChangeEmitter.fire();
 	}
 
 	/**
-	 * Ask the host to re-resolve this provider by firing the change event: the
-	 * host then makes the group-agnostic call and one call per configured
-	 * group, a real round trip in both eras. The wait is bounded and armed
-	 * only by per-group reports (the groupless report alone proves nothing
-	 * about groups), resolving once group reports have gone quiet for
-	 * `quietMs`, or at `deadlineMs`. Zero group reports by the deadline (the
-	 * event went nowhere, or the host only made the groupless call) falls back
-	 * to probing the group servers already observed in the status window.
-	 * The default deadline follows the configured discovery timeout (see
-	 * hostRefreshDeadlineMs), so Sync Models Now and Test Connection wait out
-	 * one full discovery attempt instead of abandoning the pass at a fixed 8s.
+	 * Ask the host to re-resolve this provider by firing the change event. The
+	 * wait is bounded and armed only by per-group reports (the groupless report
+	 * alone proves nothing about groups), resolving once group reports have gone
+	 * quiet for `quietMs`, or at `deadlineMs`. Zero group reports by the deadline
+	 * (the event went nowhere, or the host only made the groupless call) falls
+	 * back to probing the group servers already observed in the status window.
 	 */
 	async refreshViaHost(deadlineMs?: number, quietMs = 500): Promise<void> {
 		const deadline = deadlineMs ?? defaultHostRefreshDeadlineMs((message, data) => this.log(message, data));
-		// Every caller of this method wants a real round trip (Test Connection,
-		// Sync Models Now), so the discovery cache is dropped first; clear()
-		// detaches in-flight loads, so they cannot re-store pre-drop data. The
-		// host's re-resolution then reads through the empty cache and repopulates it.
+		// Every caller wants a real round trip (Test Connection, Sync Models Now),
+		// so the discovery cache is dropped first; clear() detaches in-flight
+		// loads, so they cannot re-store pre-drop data.
 		this._discoveryCache.clear();
 		const groupReportsBefore = this._reporter.groupReportCount;
 		this._onDidChangeEmitter.fire();
@@ -423,8 +388,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			try {
 				await this._discovery.fetchGroupModels(groupServer, false, true);
 			} catch {
-				// The failure is already logged and recorded in the merged status;
-				// the remaining group servers still get probed.
+				// Already logged and recorded in the merged status; the remaining
+				// group servers still get probed.
 			}
 		}
 	}
@@ -453,8 +418,8 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			if (!(err instanceof CancellationError)) {
 				this.logError("Chat request failed", err);
 			}
-			// The ORIGINAL error is logged above; only the throw is wrapped, so
-			// the boundary still logs exactly once and keeps the classification.
+			// Only the throw is wrapped, so the boundary still logs exactly once
+			// and keeps the classification.
 			throw toLanguageModelError(err);
 		}
 	}

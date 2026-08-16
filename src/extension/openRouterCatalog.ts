@@ -4,21 +4,19 @@
  * snapshot fresh on a weekly cadence.
  *
  * Data flows through a fallback chain in which the FILE is the truth: the
- * cached refresh under context.globalStorageUri wins, the packaged
- * dist/openrouter-models.json (written by scripts/dev/fetch-openrouter-catalog.ts
- * at prepublish; absent in dev builds) backs it, and an empty snapshot
- * backstops both - a missing or malformed catalog degrades lookups to
- * not-found, never activation. The globalState key holds only advisory
- * scheduling metadata (globalState is not transactional and can revert; a
- * lost timestamp costs one early refresh). Cache writes go temp-then-rename
- * so a crash mid-write can never leave a torn file as the truth.
+ * cached refresh under globalStorageUri wins, the packaged
+ * dist/openrouter-models.json backs it, and an empty snapshot backstops both -
+ * a missing or malformed catalog degrades lookups to not-found, never
+ * activation. The globalState key holds only advisory scheduling metadata
+ * (globalState is not transactional; a lost timestamp costs one early refresh).
+ * Cache writes go temp-then-rename so a crash mid-write cannot leave a torn
+ * file as the truth.
  *
  * The opt-out setting (read through the injected isEnabled) stops exactly two
- * things: the periodic refresh (all network) and the implicit byRawModelId
- * lookup. Explicit `_openrouter_model` directives keep answering byExactId
- * from the bundled/cached snapshot - they are user intent and cost no
- * network. Refresh failures log fixed classifications only, never
- * response-derived text (logs feed the public issue-report buffer).
+ * things: the periodic refresh and the implicit byRawModelId lookup. Explicit
+ * `_openrouter_model` directives keep answering byExactId from the existing
+ * snapshot - user intent, no network. Refresh failures log fixed
+ * classifications only, never response-derived text.
  */
 
 import * as vscode from "vscode";
@@ -47,16 +45,14 @@ const FAILURE_RETRY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * The soonest any refresh may run after scheduling: activation never pays for
- * catalog network, and a reverted/lost metadata timestamp (which schedules
- * "soon") still keeps the fetch off the startup path. Also the floor the
- * test-visible backoff sleeps must stay well under.
+ * catalog network, and a lost metadata timestamp (which schedules "soon") still
+ * keeps the fetch off the startup path. The backoff sleeps stay well under it.
  */
 const MIN_SCHEDULE_DELAY_MS = 60_000;
 
 /**
  * Per-attempt bound; the whole refresh stays hard-bounded at
- * (1 + DISCOVERY_MAX_RETRIES) attempts of this plus the fixed backoffs. A
- * background refresh has no caller waiting on the configured timeouts.
+ * (1 + DISCOVERY_MAX_RETRIES) attempts of this plus the fixed backoffs.
  */
 const REFRESH_FETCH_TIMEOUT_MS = 30_000;
 
@@ -92,9 +88,8 @@ export interface OpenRouterCatalogStore extends vscode.Disposable {
 
 /**
  * The catalog facts the dashboard's models.openRouterCatalog row states. The
- * failure classification is the same fixed vocabulary the log line carries
- * ("HTTP 503", "network error", "payload below the N-model floor") - never
- * response-derived text - and it stands until the next successful refresh.
+ * failure classification is the same fixed vocabulary the log line carries -
+ * never response-derived text - and it stands until the next success.
  */
 export interface OpenRouterCatalogStatus {
 	readonly modelCount: number;
@@ -121,9 +116,8 @@ async function fetchOpenRouterCatalog(signal: AbortSignal): Promise<unknown> {
 
 /**
  * A fixed-vocabulary rendering of a refresh failure for the log line: the
- * default fetch throws only `HTTP <status>` and `unparseable response`
- * markers, and anything else (DNS, TLS, abort races, an injected fetch's
- * surprises) collapses to "network error" - response-derived text never
+ * default fetch throws only `HTTP <status>` and `unparseable response`, and
+ * anything else collapses to "network error" - response-derived text never
  * reaches the log.
  */
 function classifyRefreshFailure(error: unknown): string {
@@ -265,11 +259,10 @@ class Store implements OpenRouterCatalogStore {
 	}
 
 	/**
-	 * Re-establish the scheduling invariant - enabled implies a pending timer
-	 * or a refresh in flight - by arming the metadata-based schedule when
-	 * neither exists. A refresh that bails early (disabled or disposed
-	 * mid-flight) arms no follow-up itself, so its completion funnels through
-	 * here; schedule() stays a no-op while disabled or disposed.
+	 * Re-establish the scheduling invariant - enabled implies a pending timer or
+	 * a refresh in flight - by arming the metadata-based schedule when neither
+	 * exists. A refresh that bails early arms no follow-up itself, so its
+	 * completion funnels through here.
 	 */
 	private ensureScheduled(): void {
 		if (!this.scheduled.pending && this.inFlight === undefined) {
@@ -354,9 +347,8 @@ class Store implements OpenRouterCatalogStore {
 			try {
 				return await this.fetchCatalog(this.abort.signal);
 			} catch (error) {
-				// Opting out mid-refresh stops the remaining attempts (the setting
-				// promises "no catalog network"), and dispose() resolves a pending
-				// backoff, so both are re-checked before every retry.
+				// Opting out mid-refresh stops the remaining attempts, and dispose()
+				// resolves a pending backoff, so both are re-checked before every retry.
 				if (this.disposed || !this.options.isEnabled() || attempt >= DISCOVERY_MAX_RETRIES) {
 					throw error;
 				}
@@ -380,9 +372,8 @@ class Store implements OpenRouterCatalogStore {
 
 	private async persist(text: string): Promise<boolean> {
 		const target = this.cacheUri();
-		// globalStorage is shared across VS Code windows, so the temp name is
-		// per-write unique: concurrent refreshes each rename their own complete
-		// file, never a torn interleaving.
+		// globalStorage is shared across windows, so the temp name is per-write
+		// unique: concurrent refreshes each rename their own complete file.
 		const temp = vscode.Uri.joinPath(
 			this.options.globalStorageUri,
 			`${CATALOG_FILE_NAME}.${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}.tmp`

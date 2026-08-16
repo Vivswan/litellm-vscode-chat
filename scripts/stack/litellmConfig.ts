@@ -2,21 +2,19 @@
 //
 // IO wrapper for the runtime LiteLLM proxy config: the pure emission lives
 // in src/test/fakeStack/proxyConfig.ts (source of truth:
-// src/test/fakeStack/models.ts); this module adds
-// the .env-aware wildcard lookup and the atomic write to docker/.generated/
-// (gitignored). Both stack-starting paths regenerate the file first -
-// scripts/stack/compose.ts on its `up` subcommand (docker:up, dev) and
-// scripts/docker-test.ts (which resolves the compose command itself) - so no
-// start can see a stale or missing config. Other compose subcommands (down,
-// logs) do not regenerate.
+// src/test/fakeStack/models.ts); this module adds the .env-aware wildcard
+// lookup and the atomic write to docker/.generated/ (gitignored). Both
+// stack-starting paths regenerate the file first - scripts/stack/compose.ts
+// on its `up` subcommand and scripts/docker-test.ts - so no start can see a
+// stale or missing config. Other compose subcommands do not regenerate.
 //
 // Wildcard routes to real providers are key-conditional: openai/* or
-// anthropic/* is emitted only when the matching API key is
-// non-empty at generation time (compose precedence: a set shell variable is
-// authoritative even when empty, .env fills in only unset ones), and the
-// bare "*" passthrough only with LITELLM_WILDCARD_ALL=1. The docker test
-// orchestrator generates with realProviders: false, so test runs see the
-// same fake-only model list everywhere regardless of local keys.
+// anthropic/* is emitted only when the matching API key is non-empty at
+// generation time (compose precedence: a set shell variable is authoritative
+// even when empty, .env fills in only unset ones), and the bare "*"
+// passthrough only with LITELLM_WILDCARD_ALL=1. The docker test orchestrator
+// generates with realProviders: false, so test runs see the same fake-only
+// model list everywhere regardless of local keys.
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -45,10 +43,9 @@ const COPILOT_FETCH_TIMEOUT_MS = 15_000;
 /**
  * The generation-time Copilot catalog fetch: cached device-flow token ->
  * short-lived Copilot key -> live model list. Returns [] when no login has
- * been seeded (the common case); every other failure - unreadable token,
- * provider outage, catalog drift - is loud but non-fatal, so nothing here
- * can brick stack startup: the stack still serves the fake catalog, just
- * without github_copilot routes.
+ * been seeded (the common case); every other failure is loud but non-fatal,
+ * so the stack still starts and serves the fake catalog without
+ * github_copilot routes.
  */
 export async function fetchCopilotModels(): Promise<CopilotModel[]> {
 	try {
@@ -98,10 +95,9 @@ export async function fetchCopilotModels(): Promise<CopilotModel[]> {
 }
 
 /**
- * Read and parse the stack's .env file with the compose-conformant grammar
- * in src/test/envFile.ts (which also names what is deliberately not
- * supported: multi-line quoted values and interpolation). The one shared
- * .env reader for scripts/ - docker-test.ts and dev.ts import it too.
+ * Read and parse the stack's .env file with the compose-conformant grammar in
+ * src/test/envFile.ts (which also names what is deliberately not supported).
+ * The one shared .env reader for scripts/.
  */
 export function readEnvFile(): Record<string, string> {
 	const envPath = path.join(process.cwd(), ".env");
@@ -129,12 +125,11 @@ export interface GeneratedConfig {
 }
 
 /**
- * Write the runtime config to docker/.generated/litellm-config.yaml,
- * creating the directory if needed (docker/.generated/ is gitignored, so a
- * fresh clone starts without it). The write is skipped when
- * the content is already on disk, and goes through a same-directory temp
- * file plus rename otherwise, so a concurrently starting container can never
- * read a half-written config.
+ * Write the runtime config to docker/.generated/litellm-config.yaml, creating
+ * the directory if needed (gitignored, so a fresh clone starts without it).
+ * The write is skipped when the content is already on disk, and goes through
+ * a same-directory temp file plus rename otherwise, so a concurrently
+ * starting container can never read a half-written config.
  */
 export function ensureGeneratedConfig(options: GenerateOptions): GeneratedConfig {
 	const configPath = path.join(process.cwd(), "docker", ".generated", "litellm-config.yaml");

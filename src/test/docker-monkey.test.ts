@@ -11,22 +11,15 @@ import type { MonkeyAction } from "./monkeyFuzz";
 import { generateWalk, MAX_SHRINK_RUNS, MonkeySession, monkeyFailureReport, shrinkMonkeyFailure } from "./monkeyFuzz";
 
 /**
- * Interaction (monkey) fuzzer for the docker LiteLLM stack: random walks
- * over the extension's whole management surface - the declarative servers
- * setting, SecretStorage, dashboard intents (valid and junk), settings
- * writes, chats, and cancellations - with a cross-cutting oracle checked
- * after every step and a probe bundle every few steps (responsiveness,
- * model-list floors, declared-view and settings agreement, secret hygiene,
- * storage-key hygiene). The alphabet, oracle, and executor live in
- * monkeyFuzz.ts.
+ * Interaction (monkey) fuzzer for the docker LiteLLM stack: random walks over the whole management surface -
+ * the declarative servers setting, SecretStorage, dashboard intents (valid and junk), settings writes, chats,
+ * cancellations - with a cross-cutting oracle after every step and a probe bundle every few steps. The
+ * alphabet, oracle, and executor live in monkeyFuzz.ts.
  *
- * The suite runs LAST in the docker orchestrator and in its own fresh
- * extension host: provider groups are add-only for the host lifetime, so
- * walks deliberately dirty host state that no later suite should inherit.
- * Pre-existing groups are tolerated via a baseline snapshot. Reproduce any
- * run with `FUZZ_SEED=<seed> bun run test:docker` (the seed is always
- * logged); failing walks shrink to a minimal action trace to pin in
- * monkeyCorpus.ts.
+ * Runs LAST in the docker orchestrator, in its own fresh extension host: provider groups are add-only for the
+ * host lifetime, so walks deliberately dirty host state that no later suite should inherit (pre-existing
+ * groups are tolerated via a baseline snapshot). Reproduce any run with `FUZZ_SEED=<seed> bun run
+ * test:docker`; failing walks shrink to a minimal action trace to pin in monkeyCorpus.ts.
  */
 
 const BASE_URL = process.env.LITELLM_DOCKER_BASE_URL || "";

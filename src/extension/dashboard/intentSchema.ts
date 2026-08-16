@@ -2,10 +2,8 @@
  * The zod schemas that guard the webview boundary. Extension-side only: zod
  * must never enter the webview bundle, so the endpoint table and its types
  * live in src/dashboard/endpoints.ts and the schemas here validate against
- * them from outside.
- *
- * One request schema per table method, mapped over DashboardMethod in both
- * directions: a method added to the table without a schema, or a schema
+ * them from outside. One request schema per table method, mapped over
+ * DashboardMethod in both directions: a method without a schema, or a schema
  * without a table row, fails compilation.
  */
 
@@ -31,8 +29,7 @@ import { recordFromKeys } from "../../shared/util/json";
 const asEnum = <T extends string>(values: readonly T[]) => z.enum(values as [T, ...T[]]);
 
 // The size bounds live in the endpoint table's WIRE_LIMITS declaration, so
-// both sides of the wire read the same numbers; this module only enforces
-// them.
+// both sides of the wire read the same numbers.
 const labelSchema = z.string().max(WIRE_LIMITS.label);
 
 /** Whether a parsed record serializes within the budget; cycles and pathological depth read as over it. */
@@ -72,15 +69,13 @@ export const secretDirectiveSchema: z.ZodType<SecretDirective> = z.discriminated
  * never ride along into the setting, and the record and list fields are
  * required - the form always sends them (empty means "none"), so a payload
  * that omits one is malformed rather than a signal to carry stored values
- * forward. The value constraints (usable URLs, header charset, paired OAuth
- * fields, reserved labels) live in validateSaveServerSetting, whose rules the
- * webview form shares through serverForm.ts.
+ * forward. The value constraints live in validateSaveServerSetting, whose
+ * rules the webview form shares through serverForm.ts.
  */
 const saveServerSchema = z.strictObject({
 	label: labelSchema,
 	baseUrl: z.string().max(WIRE_LIMITS.url),
-	// Bounded like every other webview-minted token: no honest version
-	// segment needs more.
+	// Bounded like every other webview-minted token.
 	apiVersion: z.string().max(256).optional(),
 	...recordFromKeys(NON_SECRET_OPTIONAL_FIELD_IDS, () => z.string().max(WIRE_LIMITS.textField).optional()),
 	modelParameters: recordMapSchema.optional(),
@@ -88,8 +83,8 @@ const saveServerSchema = z.strictObject({
 	// The categories are a closed enum, so any honest list fits in one of each.
 	expectedFailures: z.array(asEnum(EXPECTED_FAILURE_CATEGORIES)).max(EXPECTED_FAILURE_CATEGORIES.length),
 	// Header values are scalars (parseHeaderValue's contract); the charset and
-	// name rules live in validateSaveServerSetting. Sizes are bounded like
-	// every other webview-minted list: no honest entry needs more.
+	// name rules live in validateSaveServerSetting. Sizes bounded like every
+	// other webview-minted list.
 	headers: z
 		.record(z.string().max(256), z.union([z.string().max(4096), z.number(), z.boolean()]))
 		.refine((record) => Object.keys(record).length <= 64),
@@ -113,7 +108,7 @@ const REQUEST_ID_MAX_LENGTH = 128;
 
 const requestIdSchema = z.string().min(1).max(REQUEST_ID_MAX_LENGTH);
 
-/** The save and draft-test intents share one payload shape (same strict schemas, same value rules). */
+/** The save and draft-test intents share one payload shape. */
 const serverDraftPayloadSchema = z.strictObject({
 	server: saveServerSchema,
 	secrets: secretDirectivesSchema,
@@ -144,7 +139,7 @@ const payloadSchemas: { readonly [K in DashboardMethod]: z.ZodType<RequestPayloa
 	}),
 	setTokenEstimation: z.strictObject({ value: asEnum(TOKEN_ESTIMATION_MODES) }),
 	// Free text, but webview-minted and display-only: bounded so a hostile
-	// page cannot balloon the setting (12 covers a code plus a space, "EUR ").
+	// page cannot balloon the setting.
 	setCurrencySymbol: z.strictObject({ value: z.string().max(WIRE_LIMITS.currencySymbol) }),
 	// Bounded like every webview-minted list; the value constraints (non-empty
 	// keyword names) live in executeDashboardIntent.

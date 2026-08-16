@@ -1,26 +1,21 @@
 /**
- * Corpus of monkey walks that once failed the interaction fuzzer. Entries
- * replay at the start of every docker-monkey run, before the random walks,
- * so a bug found by a nightly seed stays found after the generator changes.
- *
- * To add an entry: take the "minimal failing corpus entry" JSON from the
- * failure report (the fuzzer shrinks failing walks automatically) and append
- * it here with a name referencing the issue. Labels inside actions are
- * abstract tokens; the executor mints fresh monkey-<seed>-<run>- labels on
- * every replay, so entries never collide with the host's add-only groups.
+ * Corpus of monkey walks that once failed the interaction fuzzer. Entries replay
+ * at the start of every docker-monkey run, before the random walks, so a bug
+ * found by a nightly seed stays found after the generator changes. To add one,
+ * take the "minimal failing corpus entry" JSON from the failure report and
+ * append it with a name referencing the issue. Labels inside actions are
+ * abstract tokens; the executor mints fresh labels on every replay, so entries
+ * never collide with the host's add-only groups.
  */
 
 import type { MonkeyCorpusEntry } from "./monkeyFuzz";
 
 export const MONKEY_CORPUS: MonkeyCorpusEntry[] = [
 	{
-		// FUZZ_SEED=1 walk 0, shrunk: the OAuth declare's forced sync pass added
-		// the group and persisted its fingerprint, but the debounced follow-up
-		// pass re-read a stale (pre-add) fingerprint map from globalState,
-		// re-added the group, and misclassified the duplicate rejection as a
-		// permanent foreign name conflict. Fixed by making the sync engine's
-		// in-memory fingerprint map the session truth; the chat stays in the
-		// trace because the failure was timing-dependent (the shrinker kept it).
+		// FUZZ_SEED=1 walk 0, shrunk: a debounced sync pass re-read a stale
+		// fingerprint map from globalState, re-added the group, and misclassified
+		// the duplicate rejection as a foreign name conflict. The chat stays in the
+		// trace because the failure was timing-dependent.
 		name: "oauth-declare-lost-fingerprint-update",
 		actions: [
 			{ kind: "chat", verb: "stream", a: 4, b: 0, pick: 633 },
@@ -28,16 +23,11 @@ export const MONKEY_CORPUS: MonkeyCorpusEntry[] = [
 		],
 	},
 	{
-		// FUZZ_SEED=575380 walk 0 (CI run 30684907448), re-expanded from the
-		// shrunk single bad-key declare: the group-removal feature tombstones an
-		// explicitly removed entry's provider group, so its models leave the
-		// host list, while the oracle's model-count floors kept counting every
-		// healthy ever-synced group forever. The prior run's cleanup removals
-		// poisoned the floors and every later walk failed its first probe. The
-		// oracle now moves removed labels to the hidden side of the floors;
-		// this trace replays the whole chain: a healthy fake group, its
-		// explicit removal (tombstoned and hidden), then another declare whose
-		// probes must accept the hidden group's absence.
+		// FUZZ_SEED=575380 walk 0, re-expanded: a removed entry's group is
+		// tombstoned and its models leave the host list, but the oracle's
+		// model-count floors kept counting every healthy ever-synced group. This
+		// trace replays the chain - a healthy group, its explicit removal, then a
+		// declare whose probes must accept the hidden group's absence.
 		name: "removed-entry-tombstone-hides-healthy-group",
 		actions: [
 			{ kind: "declare-server", label: "s1", credential: "oauth" },
@@ -46,18 +36,12 @@ export const MONKEY_CORPUS: MonkeyCorpusEntry[] = [
 		],
 	},
 	{
-		// FUZZ_SEED=466017 walk 21, shrunk (nightly run 30692494781, #220): the
-		// remove's sync pass resolved the removed label's base URL from a fresh
-		// globalState ledger read that had reverted to a pre-declare version,
-		// so the removal event carried no URL, no tombstone was written, and
-		// the removed group's models never left the host list. All three
-		// nightly shards hit the same class mid-session (the tombstone store's
-		// own read-modify-write lost entries the same way during multi-label
-		// cleanups). Fixed by making the engine's session ledger and the
-		// removal store's session caches the truth, like the fingerprint map;
-		// the failure was storage-timing-dependent, so this trace guards the
-		// sequence rather than deterministically reproducing the revert (the
-		// unit suites pin the revert itself with simulated stale reads).
+		// FUZZ_SEED=466017 walk 21, shrunk (#220): a remove's sync pass resolved the
+		// label's base URL from a reverted globalState ledger read, so the removal
+		// carried no URL, no tombstone was written, and the group's models never
+		// left the host list. Storage-timing-dependent, so this trace guards the
+		// sequence rather than reproducing the revert; the unit suites pin the
+		// revert itself with simulated stale reads.
 		name: "stale-ledger-remove-shortly-after-declare",
 		actions: [
 			{ kind: "sync-now" },
@@ -74,15 +58,10 @@ export const MONKEY_CORPUS: MonkeyCorpusEntry[] = [
 		],
 	},
 	{
-		// FUZZ_SEED=250710 walk 1, shrunk: the first walk over the widened
-		// action space (entry discovery blocks) caught the oracle claiming an
-		// entry-declared model must keep serving after a redeclare. It must
-		// not: the mutated base URL stops identifying the live group, so the
-		// entry's per-entry configuration - declared models included - no
-		// longer reaches it, exactly like per-entry parameters going
-		// inactive. The oracle now expects the declared model to LEAVE on a
-		// redeclare and only asserts presence while entry and group still
-		// match on label and base URL; this trace replays the sequence.
+		// FUZZ_SEED=250710 walk 1, shrunk: an entry-declared model must LEAVE on a
+		// redeclare - the mutated base URL stops identifying the live group, so the
+		// entry's per-entry configuration no longer reaches it, exactly like
+		// per-entry parameters going inactive.
 		name: "redeclare-detaches-entry-declared-model",
 		actions: [
 			{

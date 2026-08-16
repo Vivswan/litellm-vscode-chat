@@ -4,8 +4,8 @@ import * as path from "node:path";
 /**
  * The repository root, found by walking up to the nearest package.json. Both
  * runners share the test helpers but run suites from different depths - the
- * extension host from out/test and bun from src/test/bun - so any fixed
- * __dirname arithmetic is wrong for one of them; the walk is right for both.
+ * extension host from out/test, bun from src/test/bun - so any fixed __dirname
+ * arithmetic is wrong for one of them.
  */
 function findRepoRoot(): string {
 	let dir = __dirname;

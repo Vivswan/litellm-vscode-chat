@@ -1,24 +1,21 @@
 /**
- * .env parsing and variable resolution for the local docker stack, shared by
- * the scripts (config generation, docker-test, the dev launcher) and pinned
- * by the unit suite. The grammar follows what Docker Compose itself reads (the
- * godotenv subset the stack relies on): `export ` prefixes are stripped,
- * whole-value single or double quotes are removed, an unquoted value ends at
- * the first `#` that is preceded by whitespace (so `4100 # local` is "4100"
- * and `a#b` stays intact), a comment may follow a closing quote, and an
- * empty value with a trailing comment is empty. Quote stripping is ONE layer
- * only (`"'x'"` keeps its inner quotes, as compose does). Deliberately NOT
- * supported, so the shared blind spot is stated rather than discovered:
- * multi-line quoted values and variable interpolation inside values.
+ * .env parsing and variable resolution for the local docker stack, shared by the
+ * scripts and pinned by the unit suite. The grammar follows what Docker Compose
+ * itself reads: `export ` prefixes are stripped, whole-value single or double
+ * quotes are removed, an unquoted value ends at the first `#` preceded by
+ * whitespace (so `4100 # local` is "4100" and `a#b` stays intact), a comment may
+ * follow a closing quote, and an empty value with a trailing comment is empty.
+ * Quote stripping is ONE layer only. Deliberately NOT supported, so the shared
+ * blind spot is stated rather than discovered: multi-line quoted values and
+ * variable interpolation inside values.
  */
 
 /**
  * The docker stack's default connection settings, one per compose variable.
- * docker/docker-compose.yml restates each as a `${VAR:-default}` fallback (compose
- * cannot import TypeScript), and .env.example and docs/development.md restate
- * them as prose; src/test/stackDrift.test.ts pins all three mirrors. The
- * scripts and docker suites take their fallbacks from here, so a rotated
- * default changes every consumer at once.
+ * The compose file, .env.example, and docs/development.md restate them, and
+ * stackDrift.test.ts pins all three mirrors; the scripts and docker suites take
+ * their fallbacks from here, so a rotated default changes every consumer at
+ * once.
  */
 export const STACK_DEFAULTS = {
 	LITELLM_PORT: "4000",
@@ -27,9 +24,9 @@ export const STACK_DEFAULTS = {
 } as const;
 
 /**
- * Parse .env file content into key/value pairs (pure; no filesystem).
- * Diverging from compose here would make config generation disagree with
- * what the containers receive.
+ * Parse .env file content into key/value pairs (pure; no filesystem). Diverging
+ * from compose here would make config generation disagree with what the
+ * containers receive.
  */
 export function parseEnvFile(content: string): Record<string, string> {
 	const values: Record<string, string> = {};
@@ -62,17 +59,16 @@ function parseValue(rest: string): string {
 		}
 	}
 	// Unquoted: the value ends at the first '#' preceded by whitespace; a '#'
-	// glued to the value is part of it. `rest` is pre-trimmed, so a leading
-	// '#' means the whole value is a comment and the value is empty.
+	// glued to the value is part of it. `rest` is pre-trimmed, so a leading '#'
+	// means the whole value is a comment and the value is empty.
 	const comment = rest.search(/(^|\s)#/);
 	return (comment === -1 ? rest : rest.slice(0, comment)).trim();
 }
 
 /**
  * A variable with docker compose's `${VAR:-fallback}` semantics: the shell
- * environment wins over .env even when set to empty, and an empty resolved
- * value takes the fallback. Diverging from this (e.g. letting .env override
- * an empty shell variable) would make generation disagree with what the
+ * environment wins over .env even when set to empty, and an empty resolved value
+ * takes the fallback. Diverging would make generation disagree with what the
  * container actually receives.
  */
 export function composeSetting(

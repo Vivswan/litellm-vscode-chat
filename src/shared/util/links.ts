@@ -16,13 +16,8 @@ const GITHUB_TROUBLESHOOTING_DOC = `${GITHUB_REPO_URL}/blob/main/docs/troublesho
 /**
  * Where each setup hint's "Troubleshooting Docs" action lands. A Record over
  * the full hint union, so a new hint id fails to compile until it names its
- * docs target. This is the host-side derivation; the webview cannot consume
- * it (the layering rule plus docsLinks' literal-strings-only contract force
- * the dashboard to ship its own literal copies), so docsLinks.ts mirrors
- * these URLs and the cross-pin in docsLinks.test.tsx keeps the two sides
- * agreeing. The anchors are the common-issues sub-headings in
- * docs/troubleshooting.md, GitHub-slugged (docsLinks.test.tsx verifies each
- * resolves to a real heading).
+ * docs target. Host-side only: the webview ships its own literal copies in
+ * docsLinks.ts, cross-pinned by test.
  */
 export const SETUP_HINT_DOCS_URLS: Record<SetupHintKind, string> = {
 	// The doubled hyphens are github-slugger's rendering of the heading's

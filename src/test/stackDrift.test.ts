@@ -9,16 +9,13 @@ import { PLAYBACK_MODEL } from "./fakeStack/models";
 import { COPILOT_TOKEN_DIR, FAKE_BACKEND_PORT, REAL_PROVIDERS } from "./fakeStack/proxyConfig";
 
 /**
- * Drift guards for the docker stack's non-TypeScript mirrors. The constants
- * are the code-side truth (STACK_DEFAULTS in envFile.ts, FAKE_BACKEND_PORT
- * and REAL_PROVIDERS in fakeStack/proxyConfig.ts, PLAYBACK_MODEL in
- * fakeStack/models.ts, package.json's packageManager and engines fields);
- * docker/docker-compose.yml, .env.example, README.md, docs/development.md,
- * and the devcontainer cannot import them, so these tests turn every
- * restatement into a CI-enforced
- * mirror. Captured values are compared whole, never as substrings, so a
- * stale number that happens to prefix the live one still fails. Tests run
- * from out/test, so the repo root is two levels up.
+ * Drift guards for the docker stack's non-TypeScript mirrors. The TypeScript
+ * constants are truth; docker/docker-compose.yml, .env.example, README.md,
+ * docs/development.md, and the devcontainer cannot import them, so these tests
+ * turn every restatement into a CI-enforced mirror. Captured values are
+ * compared whole, never as substrings, so a stale number that happens to
+ * prefix the live one still fails. Tests run from out/test, so the repo root
+ * is two levels up.
  */
 const repoRoot = path.resolve(__dirname, "..", "..");
 
@@ -35,11 +32,9 @@ function read(name: string): string {
 
 suite("stack drift guard: docker/docker-compose.yml", () => {
 	/**
-	 * The indented body of one service under `services:` (from its 2-space
-	 * name line up to the next 2-space key). Checks anchor to a service block
-	 * so a variable attached to the WRONG container can never satisfy a guard
-	 * (an OPENAI_API_KEY under fake-openai is not a litellm passthrough), and
-	 * a service reorder cannot change which lines are compared.
+	 * The indented body of one service under `services:`. Anchoring to a service
+	 * block keeps a variable attached to the WRONG container from satisfying a
+	 * guard, and keeps a service reorder from changing which lines are compared.
 	 */
 	function serviceBlock(name: string): string {
 		const match = new RegExp(`^  ${name}:\\n((?:(?:    .*)?\\n)*)`, "m").exec(read("docker/docker-compose.yml"));
@@ -57,10 +52,8 @@ suite("stack drift guard: docker/docker-compose.yml", () => {
 	}
 
 	test("every VAR:-default compose fallback for a stack setting states the STACK_DEFAULTS value", () => {
-		// Host-side settings only: the litellm container-internal port 4000
-		// (the image's --port argument, the mapping's container side, and the
-		// litellm healthcheck URL) is compose-internal with no TypeScript
-		// mirror and stays deliberately unguarded.
+		// Host-side settings only: the litellm container-internal port 4000 has
+		// no TypeScript mirror and stays deliberately unguarded.
 		const fallbacks: Record<string, string> = {};
 		for (const match of read("docker/docker-compose.yml").matchAll(/\$\{([A-Z_]+):-([^}]*)\}/g)) {
 			const name = match[1] as string;
@@ -95,9 +88,9 @@ suite("stack drift guard: docker/docker-compose.yml", () => {
 	test("the litellm environment block passes through every env var the generated config reads", () => {
 		// The wildcard-route decision runs on the HOST at generation time, but
 		// os.environ/<VAR> in the emitted config resolves INSIDE the litellm
-		// container; that service's passthrough lines are the only conduit. A
-		// REAL_PROVIDERS entry without a litellm passthrough line generates a
-		// route whose key can never resolve.
+		// container, and that service's passthrough lines are the only conduit:
+		// a REAL_PROVIDERS entry without one generates a route whose key can
+		// never resolve.
 		const block = serviceBlock("litellm");
 		const passthrough: Record<string, string> = {};
 		for (const match of block.matchAll(/^ +([A-Z_]+): \$\{\1(?::-([^}]*))?\}$/gm)) {
@@ -116,10 +109,9 @@ suite("stack drift guard: docker/docker-compose.yml", () => {
 	});
 
 	test("every compose restatement of the copilot token dir matches COPILOT_TOKEN_DIR", () => {
-		// copilot-login seeds COPILOT_TOKEN_DIR on the host; compose cannot
-		// import the constant, so its copies would otherwise drift silently:
-		// the login would seed a directory nothing mounts, tests stay green,
-		// and the stack just has no github_copilot routes.
+		// compose cannot import COPILOT_TOKEN_DIR, so its copies would drift
+		// silently: the login seeds a directory nothing mounts, tests stay
+		// green, and the stack just has no github_copilot routes.
 		const litellm = serviceBlock("litellm");
 		assert.ok(litellm.includes(`- ./${COPILOT_TOKEN_DIR}:/copilot-token:ro`), "litellm mounts the token dir read-only");
 		assert.ok(litellm.includes("GITHUB_COPILOT_TOKEN_DIR: /copilot-token"), "the authenticator env names the mount");
@@ -170,8 +162,8 @@ suite("stack drift guard: docs/development.md", () => {
 	test("the fake-stack quick start names the stack defaults", () => {
 		// Accepted brittleness: the doc has several generic http://localhost
 		// examples, so the fake-stack instruction is selected by the phrases
-		// "base URL" and "API key" around the backticked values (any wording
-		// between them is fine). Rewording past that means updating this regex.
+		// "base URL" and "API key" around the backticked values. Rewording past
+		// that means updating this regex.
 		const match = /base URL `http:\/\/localhost:(\d+)`.*?API key `([^`]+)`/.exec(read("docs/development.md"));
 		assert.ok(
 			match,
@@ -182,9 +174,8 @@ suite("stack drift guard: docs/development.md", () => {
 	});
 
 	test("the host-fidelity example command targets the stack defaults and the playback model", () => {
-		// Anchored to the env assignments themselves (the values under guard),
-		// so the surrounding prose is free to change; only the documented
-		// invocation's arguments are pinned.
+		// Anchored to the env assignments themselves, so the surrounding prose is
+		// free to change; only the documented invocation's arguments are pinned.
 		const match =
 			/LITELLM_REAL_BASE_URL=http:\/\/localhost:(\d+) LITELLM_REAL_API_KEY=(\S+) LITELLM_REAL_MODEL=(\S+)/.exec(
 				read("docs/development.md")
@@ -213,11 +204,11 @@ suite("stack drift guard: .env.example", () => {
 
 suite("stack drift guard: checks.yml docker shards", () => {
 	/**
-	 * The shard matrices in checks.yml restate the orchestrator's label set
-	 * as quoted comma-separated strings the workflow cannot import. The
+	 * The shard matrices in checks.yml restate the orchestrator's label set as
+	 * quoted comma-separated strings the workflow cannot import. The
 	 * orchestrator exits 2 on an unknown label, but only when that shard
 	 * actually runs; these guards catch a rename or a new suite at unit-test
-	 * time instead. Same block-anchoring approach as the compose guards.
+	 * time instead.
 	 */
 	function jobBlock(name: string): string {
 		const match = new RegExp(`^  ${name}:\\n((?:(?:    .*)?\\n)*)`, "m").exec(read(".github/workflows/checks.yml"));
@@ -266,10 +257,9 @@ suite("stack drift guard: checks.yml docker shards", () => {
 	});
 
 	test("the fuzz-docker shards cover exactly the seeded fuzz labels", () => {
-		// The docker legs that draw a replay seed and take an iteration
-		// budget. The membership test above catches a rename; this catches a
-		// deleted shard, which would silently end that leg's elevated pass in
-		// the gate while every other guard stays green.
+		// The membership test above catches a rename; this catches a deleted
+		// shard, which would silently end that leg's elevated pass in the gate
+		// while every other guard stays green.
 		const sharded = shardLabels("fuzz-docker").flat().sort();
 		assert.deepStrictEqual(sharded, ["docker-conversation", "docker-fuzz", "docker-monkey"], "fuzz-docker shard union");
 	});
@@ -278,13 +268,12 @@ suite("stack drift guard: checks.yml docker shards", () => {
 suite("stack drift guard: nightly-fuzz legs", () => {
 	/**
 	 * nightly-fuzz.yml restates the orchestrator's label vocabulary twice: the
-	 * seeded docker legs name their labels through --only, and the unseeded
-	 * leg runs the complement through --skip-* flags. Neither list can import
+	 * seeded docker legs name their labels through --only, and the unseeded leg
+	 * runs the complement through --skip-* flags. Neither list can import
 	 * DOCKER_TEST_LABELS or DOCKER_SKIP_FLAGS, so without these guards a label
-	 * seeded in a new leg but not skipped in the unseeded one would run twice
-	 * per night (once unseeded at default iterations), and a seeded label
-	 * whose skip flag went stale after a rename would silently land in the
-	 * unseeded leg, unfuzzed.
+	 * seeded but not skipped would run twice per night, and a seeded label
+	 * whose skip flag went stale after a rename would land in the unseeded leg,
+	 * unfuzzed.
 	 */
 	const workflow = () => read(".github/workflows/nightly-fuzz.yml");
 
@@ -326,10 +315,9 @@ suite("stack drift guard: nightly-fuzz legs", () => {
 	test("the leg accounting matches the header's floors", () => {
 		// The header comment promises four unit legs and three seeded docker
 		// legs per night, and the complement equation below only holds with
-		// EXACTLY one unseeded docker row (a second one would run the
-		// complement twice; zero would drop it entirely). Floors, not exact
-		// counts, for the fuzzing legs: adding legs adds coverage, deleting
-		// one silently reduces a night's distinct-seed spread.
+		// EXACTLY one unseeded docker row. Floors, not exact counts, for the
+		// fuzzing legs: adding legs adds coverage, deleting one silently
+		// reduces a night's distinct-seed spread.
 		const rows = matrixRows();
 		assert.ok(
 			rows.filter((row) => row.family === "unit").length >= 4,
@@ -350,8 +338,8 @@ suite("stack drift guard: nightly-fuzz legs", () => {
 				`matrix row "${row.leg}" has family "${row.family}", which no fuzz step runs`
 			);
 			// Structural, not by count: the seeded/unseeded split is inferred
-			// from this value, so a typo ("yes", a dropped key) must fail here
-			// rather than quietly turn a seeded leg into a second unseeded run.
+			// from this value, so a typo must fail here rather than quietly turn
+			// a seeded leg into a second unseeded run.
 			if (row.family === "docker") {
 				assert.ok(
 					row.seeded === "true" || row.seeded === "false",
@@ -362,11 +350,10 @@ suite("stack drift guard: nightly-fuzz legs", () => {
 	});
 
 	test("the unseeded leg's skip flags are exactly the seeded labels' flags", () => {
-		// This is the coverage equation: the unseeded leg runs the complement
-		// of its skip flags, so skips == seeded labels means every label in
-		// DOCKER_TEST_LABELS runs at night exactly once - seeded legs fuzz
-		// their labels, the unseeded leg picks up everything else (including
-		// any label added later without touching the workflow).
+		// The coverage equation: the unseeded leg runs the complement of its
+		// skip flags, so skips == seeded labels means every label in
+		// DOCKER_TEST_LABELS runs at night exactly once, including any label
+		// added later without touching the workflow.
 		const seededLabels = new Set(
 			matrixRows()
 				.filter((row) => row.family === "docker" && row.seeded === "true")
@@ -397,12 +384,11 @@ suite("stack drift guard: nightly-fuzz legs", () => {
 suite("stack drift guard: test label coverage", () => {
 	/**
 	 * The installed @vscode/test-cli silently ignores "!" negations in files
-	 * globs, so .vscode-test.mjs holds only positive per-directory globs and
-	 * literal filenames. That layout has two failure modes a green run would
-	 * hide: a moved test file that no label matches (it just stops running)
-	 * and one that two labels match (it runs twice, as host-fidelity's
-	 * capture suite once did under the unit label). This walks every
-	 * compiled test file and pins the count of matching labels to one.
+	 * globs, so .vscode-test.mjs holds only positive globs and literal
+	 * filenames. That layout has two failure modes a green run would hide: a
+	 * moved test file no label matches (it stops running) and one two labels
+	 * match (it runs twice). This walks every compiled test file and pins the
+	 * count of matching labels to one.
 	 */
 	test("every compiled test file is matched by exactly one label's files list", async () => {
 		const configUrl = pathToFileURL(path.join(repoRoot, ".vscode-test.mjs")).href;
@@ -446,16 +432,14 @@ suite("stack drift guard: test label coverage", () => {
 
 suite("stack drift guard: bun-tree purity boundary", () => {
 	/**
-	 * The bun tree (src/test/bun) is the home for suites that need no
-	 * extension host. Neither direction fully self-enforces: a runtime
-	 * vscode import crashes bun's runner at load, but msw resolves and runs
-	 * there just fine, and nothing at all stops a pure suite from landing
-	 * host-side, where it boots a VS Code host for nothing. This guard
-	 * closes both: every unit-label suite must reach vscode or msw through
-	 * its transitive runtime imports or carry an entry below saying why it
-	 * stays, and no bun-tree suite may reach either. Docker, host-fidelity,
-	 * and activation suites are exempt by layout - their host need is the
-	 * stack or the host itself, not an import.
+	 * The bun tree (src/test/bun) is the home for suites that need no extension
+	 * host, and neither direction self-enforces: a runtime vscode import
+	 * crashes bun's runner at load, but msw runs there just fine, and nothing
+	 * stops a pure suite from landing host-side and booting a VS Code host for
+	 * nothing. So every unit-label suite must reach vscode or msw through its
+	 * transitive runtime imports or carry an entry below saying why it stays,
+	 * and no bun-tree suite may reach either. Docker, host-fidelity, and
+	 * activation suites are exempt by layout.
 	 */
 	const HOST_SIDE_PURE_SUITES = new Map<string, string>([
 		["src/test/creditConvention.test.ts", "meta-test: walks the repository's git history"],
@@ -485,10 +469,9 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 		["src/test/shared/logger.test.ts", "pure today; not yet ported to the bun tree"],
 	]);
 
-	// TypeScript AST scan: only value-position module references count as
-	// runtime edges; import type / export type statements, type-only named
-	// lists, and type-position import("...") nodes are erased by both tsc
-	// and bun, so they never make a suite host-bound.
+	// Only value-position module references count as runtime edges; type-only
+	// imports and type-position import("...") nodes are erased by both tsc and
+	// bun, so they never make a suite host-bound.
 	function runtimeImportSpecs(fileName: string, source: string): string[] {
 		const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
 		const specs: string[] = [];
@@ -562,9 +545,9 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 				return candidate;
 			}
 		}
-		// Fail closed: a spec this resolver cannot place would silently prune
-		// the walk, and a pruned subtree is exactly where a vscode or msw edge
-		// hides while every reachability guard below stays green.
+		// Fail closed: a spec this resolver cannot place would silently prune the
+		// walk, and a pruned subtree is where a vscode or msw edge hides while
+		// every guard below stays green.
 		throw new Error(
 			`${fromFile} imports "${spec}", which resolves to no file this scanner knows; teach resolveRelative the new shape`
 		);
@@ -653,11 +636,10 @@ suite("stack drift guard: bun-tree purity boundary", () => {
 	});
 
 	test("no bun-tree suite reaches vscode or msw", () => {
-		// vscode fails loudly there (no such package under bun), but msw
-		// resolves and runs; only this walk enforces that half of the rule.
-		// The preload files bunfig.toml names run before every bun suite, so
-		// they are seeded into the walk: a violation there would run
-		// everywhere while a suites-only walk stayed green.
+		// vscode fails loudly there (no such package under bun), but msw resolves
+		// and runs; only this walk enforces that half of the rule. The preload
+		// files bunfig.toml names run before every bun suite, so a violation in
+		// one would run everywhere while a suites-only walk stayed green.
 		const preloadList = /^preload = \[([^\]]*)\]/m.exec(read("bunfig.toml"));
 		assert.ok(preloadList, "bunfig.toml declares a preload list");
 		const preloads = [...(preloadList[1] as string).matchAll(/"([^"]+)"/g)].map((match) =>

@@ -2,11 +2,8 @@ import * as assert from "node:assert";
 import { USAGE_SEED_KEY } from "./fakeStack/usage";
 
 /**
- * Usage/budget smoke suite: proves the postgres-backed stack serves
- * LiteLLM's spend endpoints for the seeded fixture key. Deliberately tiny -
- * the real usage suites build on these endpoints; this leg only pins that
- * the stack provides them with the seeded shape. Raw fetch, no extension
- * host machinery: what is under test is the STACK, not the extension.
+ * Usage/budget smoke suite: pins that the postgres-backed stack serves LiteLLM's spend endpoints with the
+ * seeded fixture key's shape. Raw fetch, no extension host machinery: what is under test is the STACK.
  * Run via `bun run test:docker --only docker-usage`.
  */
 

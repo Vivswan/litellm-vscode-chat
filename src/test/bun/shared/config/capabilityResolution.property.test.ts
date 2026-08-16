@@ -1,18 +1,17 @@
 /**
  * The capability resolver's safety argument, mirrored from the
- * parameterResolution property suite: for random capability records (valid
- * and invalid consumed values, verbatim extras, directives, exact and glob
- * keys cut from generated raw IDs so matches are the common case, inert
- * pre-migration URL keys), the boundary parse is the only gate - invalid
- * consumed values contribute nothing anywhere, the full walk is total over
- * the core fields, an injected higher-precedence field always wins, and the
- * overrides resolution and the full walk can never disagree on a field the
- * overrides set. The open-vocabulary redesign is pinned three ways: a frozen
- * copy of the closed-world resolver agrees on core-only configurations,
- * arbitrary unknown-key extras never move a core field, and every user-set
- * extra resolves with exact provenance against a naive per-field walk.
- * Registration and the dashboard both consume resolveModelCapabilities, so
- * these pins are what keeps the two surfaces from drifting.
+ * parameterResolution property suite: over random capability records (valid and
+ * invalid consumed values, verbatim extras, directives, exact and glob keys cut
+ * from generated raw IDs so matches are the common case, inert pre-migration
+ * URL keys), the boundary parse is the only gate - invalid consumed values
+ * contribute nothing anywhere, the walk is total over the core fields, an
+ * injected higher-precedence field always wins, and the overrides resolution
+ * and the full walk never disagree on a field the overrides set. The open
+ * vocabulary is pinned three ways: a frozen copy of the closed-world resolver
+ * agrees on core-only configurations, unknown-key extras never move a core
+ * field, and every user-set extra resolves with exact provenance against a
+ * naive per-field walk. Registration and the dashboard consume the same
+ * resolveModelCapabilities, so these pins keep the two surfaces aligned.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -67,8 +66,7 @@ const CONSUMED_EXTRA_NAMES = Object.keys(CONSUMED_CAPABILITY_FIELDS).filter(
 	(name) => !Object.hasOwn(CAPABILITY_FIELDS, name)
 );
 const OVERRIDE_LEVELS: readonly CapabilityOverrideLevel[] = ["entry", "global", "directive"];
-// The redesign's clamp ruling: the directive level is NOT user-set - both
-// catalog paths stay guesses on the wire.
+// The directive level is NOT user-set: both catalog paths stay guesses on the wire.
 const USER_SET_LEVELS: readonly CapabilityLevel[] = ["entry", "global", "entry-fallback", "global-fallback"];
 
 // Slash-free so a pre-migration URL key can never collide with a plain key;
@@ -152,8 +150,8 @@ const capabilityRecordArb: fc.Arbitrary<Record<string, unknown>> = fc
 	)
 	.map(([base, declare, openrouterModel, fallback]) => ({
 		...base,
-		// The retired _declare directive stays in the generator as inert
-		// underscore-key noise: resolution must ignore it everywhere.
+		// _declare is retired; it stays as inert underscore-key noise that
+		// resolution must ignore everywhere.
 		...(declare !== undefined ? { _declare: declare } : {}),
 		...(openrouterModel !== undefined ? { [OPENROUTER_MODEL_DIRECTIVE]: openrouterModel } : {}),
 		...(fallback !== undefined ? { [FALLBACK_DIRECTIVE]: fallback } : {}),
@@ -275,9 +273,8 @@ const scenario: fc.Arbitrary<Scenario> = fc
  * The independent statement of what parseCapabilityRecord accepts, so the
  * fallthrough property below is not the parser checking itself: keep
  * kind-valid consumed fields, EVERY extra verbatim (the open vocabulary),
- * non-blank `_openrouter_model`, and boolean-or-array `_fallback` (its
- * element validation matches the parse: an element that is not a kept field
- * is diagnosed and skipped either way); drop only invalid consumed values.
+ * non-blank `_openrouter_model`, and boolean-or-array `_fallback`; drop only
+ * invalid consumed values.
  */
 function sanitizeRecord(record: Readonly<Record<string, unknown>>): Record<string, unknown> {
 	const sanitized: Record<string, unknown> = {};
@@ -324,11 +321,8 @@ function coreProjection(fields: EffectiveCapabilityFields): Record<string, Effec
 
 // --- The frozen closed-world resolver -------------------------------------
 // A local copy of the pre-redesign parse, layering, and walk over the core
-// seven, built on the unchanged shared chain engine (resolveRecordChain with
-// THIS file's frozen parser, so the live parseCapabilityRecord is not
-// checking itself). The restriction property compares the live resolver
-// against it on core-only configurations, so the open-vocabulary rewrite
-// cannot have moved the closed-world semantics.
+// seven, built on the shared chain engine with THIS file's frozen parser so
+// the live parseCapabilityRecord is not checking itself.
 
 interface FrozenParsed extends ParsedRecord {
 	readonly openrouterModel?: string | undefined;
@@ -625,11 +619,10 @@ describe("shared/config capabilityResolution properties", () => {
 			fc.property(scenario, injection, ({ input }, { name, number, boolean }) => {
 				const value: CapabilityFieldValues[CapabilityFieldName] =
 					CAPABILITY_FIELDS[name] === "number" ? number : boolean;
-				// The injected field must be an override, so any generated _fallback
-				// on the exact record is dropped (a fallback-demoted field sits
-				// below server by design and would not beat the walk), and so is a
-				// generated _inherit_from (an exclusive list could re-import a
-				// broader fallback marking onto the same field).
+				// The injected field must be an override, so a generated _fallback on
+				// the exact record is dropped (a fallback-demoted field sits below
+				// server), and so is a generated _inherit_from (an exclusive list
+				// could re-import a broader fallback marking onto the same field).
 				const {
 					[FALLBACK_DIRECTIVE]: _fallback,
 					_inherit_from: _inheritFrom,

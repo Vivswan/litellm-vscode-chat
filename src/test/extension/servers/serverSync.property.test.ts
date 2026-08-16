@@ -10,11 +10,10 @@ const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
 /**
- * The servers setting is user-authored JSON that decides which provider
- * groups exist and where credentials land, so its acceptance rules get
- * property coverage: parsing is total, labels are unique first-wins and never
- * reserved, acceptedEntry resolves exactly what parseServersSetting accepted
- * (the dashboard's per-entry reads and writes depend on that agreement), and
+ * The servers setting is user-authored JSON that decides which provider groups
+ * exist and where credentials land, so its acceptance rules get property
+ * coverage: parsing is total, labels are unique first-wins and never reserved,
+ * acceptedEntry resolves exactly what parseServersSetting accepted, and
  * buildGroupArgs emits its keys in the frozen descriptor order the persisted
  * sync fingerprints hash.
  */

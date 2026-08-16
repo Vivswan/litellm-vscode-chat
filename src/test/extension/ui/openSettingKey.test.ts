@@ -1,9 +1,8 @@
 /**
- * The settings.json jump behind the dashboard's revealSetting intent
- * (extension/ui/openSettingKey.ts): the pure key search, the reveal flow over
- * an injected editor, the command's registration, and its refusal of junk
- * arguments. The end-to-end open itself rides the host's own
- * workbench.action.openSettingsJson command, which the last test exercises
+ * The settings.json jump behind the dashboard's revealSetting intent: the pure
+ * key search, the reveal flow over an injected editor, the command's
+ * registration, and its refusal of junk arguments. The end-to-end open rides
+ * the host's workbench.action.openSettingsJson, which the last test exercises
  * for real against the test profile's settings.json.
  */
 import * as assert from "node:assert";
@@ -23,8 +22,8 @@ suite("extension/ui/openSettingKey", () => {
 			const globalStorage = vscode.Uri.file("/data/User/globalStorage/vivswan.litellm-vscode-chat");
 			const resolved = resolveUserSettingsUri(globalStorage);
 			assert.strictEqual(resolved.path, "/data/User/settings.json");
-			// A path still inside globalStorage means the ".." segments were not
-			// applied - the guard would then never match the opened editor.
+			// A path still inside globalStorage means ".." was not applied - the
+			// guard would then never match the opened editor.
 			assert.ok(!resolved.path.includes("globalStorage"), resolved.path);
 		});
 	});

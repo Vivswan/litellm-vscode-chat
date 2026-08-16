@@ -17,22 +17,15 @@ import {
 
 /**
  * In-process property fuzzing of StreamProcessor's tool-call accounting: the
- * cross-channel max(N, M) dedup, inline-replay suppression, and index
- * normalization. The docker fuzzer covers the same states through a real
- * socket but only runs where docker does; this suite runs on every PR.
+ * cross-channel max(N, M) dedup, inline-replay suppression, and index normalization.
+ * Chunks are narrowed through parseChunk first, so the input is exactly what the SSE
+ * transport would deliver; framing is fuzzed in streaming.sse.property.test.ts. A shrunk
+ * counterexample is a serializable FuzzEvent[]: pin it in fuzzCorpus.ts when it
+ * reproduces through the docker direct target, otherwise as an example test.
  *
- * Chunks are narrowed through parseChunk first, so the input is exactly what
- * the SSE transport would deliver; framing itself is fuzzed separately in
- * streaming.sse.property.test.ts. A shrunk counterexample here is a
- * serializable FuzzEvent[]: pin it in fuzzCorpus.ts when it reproduces
- * through the docker direct target, otherwise as an example test.
- *
- * StreamProcessor is built with its default, host-probed thinking ctor, and
- * the pinned test host exposes LanguageModelThinkingPart, so reasoning-only
- * generated streams emit thinking parts instead of hitting the
- * reasoning-only empty-response error a ctor-less host would throw. If a
- * host bump removes the proposed class, that error is the failure to look
- * for here.
+ * StreamProcessor uses its default host-probed thinking ctor and the pinned host exposes
+ * LanguageModelThinkingPart, so reasoning-only streams emit thinking parts. If a host
+ * bump removes that class, the reasoning-only empty-response error is the failure here.
  */
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
@@ -48,11 +41,9 @@ interface RunResult {
 }
 
 /**
- * Drive every assembled chunk through parseChunk and processDelta, then run
- * the post-loop end of stream, mirroring the transport loop's delta handling
- * plus its final run, where the trailers emit (the loop's in-band
- * error-frame guard sits a layer above and is covered by unit and docker
- * tests, not here).
+ * Drive every assembled chunk through parseChunk and processDelta, then run the post-loop
+ * end of stream, mirroring the transport loop's delta handling plus its final run, where
+ * the trailers emit.
  */
 function runChunks(chunks: unknown[]): RunResult {
 	const processor = new StreamProcessor(idSource(), () => {});
@@ -120,9 +111,8 @@ const eventsArb: fc.Arbitrary<FuzzEvent[]> = fc
 	});
 
 /**
- * Streams that always end in one delta-channel tool call (and never a tail),
- * so the index-invariance property has a numeric index to rewrite in every
- * run instead of comparing two byte-identical streams.
+ * Streams that always end in one delta-channel tool call (and never a tail), so
+ * the index-invariance property has a numeric index to rewrite in every run.
  */
 const eventsWithDeltaArb: fc.Arbitrary<FuzzEvent[]> = fc
 	.tuple(fc.array(eventSpecArb, { maxLength: 7 }), seedArb)

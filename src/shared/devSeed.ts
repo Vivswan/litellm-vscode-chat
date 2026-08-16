@@ -1,10 +1,9 @@
 /**
  * The dev-seed handshake between `bun run dev` and a development-mode
- * activation: the launcher (scripts/dev/dev.ts) writes this file into the
- * extension development folder, and src/extension/devSeed.ts consumes it
- * exactly once. Both sides import the filename and shape from here so the
- * contract cannot drift. Pure declarations: no vscode, no Node (the launcher
- * runs outside the extension host).
+ * activation: the launcher writes this file into the extension development
+ * folder and src/extension/devSeed.ts consumes it exactly once. Both sides
+ * import the filename and shape from here so the contract cannot drift. Pure
+ * declarations: no vscode, no Node (the launcher runs outside the host).
  */
 
 /** The seed file's name, resolved against the extension development folder. */
@@ -20,9 +19,9 @@ export interface DevSeedModels {
 }
 
 /**
- * One seeded server entry beyond the main one (the dev usage demo entries).
- * Upserted by label exactly like the main entry: the seed's own labels re-pin
- * wholesale on every run, every other entry survives verbatim.
+ * One seeded server entry beyond the main one. Upserted by label like the main
+ * entry: the seed's own labels re-pin wholesale every run, every other entry
+ * survives verbatim.
  */
 export interface DevSeedEntry {
 	readonly label: string;
@@ -35,10 +34,8 @@ export interface DevSeedEntry {
 }
 
 /**
- * The seed file's shape. The launcher writes exactly this; the extension side
- * reads it through parseDevSeed, which tolerates missing optionals (an empty
- * label falls back, apiKey defaults to "", openDashboard to false, and the
- * demo fields to absent).
+ * The seed file's shape. The launcher writes exactly this; parseDevSeed on the
+ * extension side tolerates missing optionals.
  */
 export interface DevSeed {
 	readonly label: string;
@@ -51,10 +48,9 @@ export interface DevSeed {
 	readonly entries?: readonly DevSeedEntry[];
 	/**
 	 * Global demo records for the models.parameters / models.capabilities
-	 * settings. Seeded-ness is tracked by the keys named here, the same way
-	 * the entry tracks it by label: the seed owns exactly these matcher keys
-	 * (re-pinned wholesale every run), and keys it does not name are user
-	 * records that survive verbatim.
+	 * settings. The seed owns exactly the matcher keys named here (re-pinned
+	 * wholesale every run); keys it does not name are user records that survive
+	 * verbatim.
 	 */
 	readonly records?: DevSeedModels;
 }

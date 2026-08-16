@@ -337,10 +337,9 @@ suite("extension/servers/usage poller", () => {
 	});
 
 	test("an activity success never advances the spend age: spendUpdatedAt follows /key/info only", async () => {
-		// Codex-found regression class: with /key/info failing and the activity
-		// endpoint answering, the shared last-updated stamp advanced and old
-		// spend rendered as "updated just now (stale)". The spend age is its
-		// own field, moved only by a key-info success.
+		// The spend age is its own field, moved only by a key-info success: sharing the
+		// last-updated stamp let an answering activity endpoint advance it and render
+		// old spend as "updated just now".
 		const h = makeHarness({ intervalMs: 0 });
 		h.client.keyInfoResult = unavailableError(500);
 		await h.poller.refreshNow();
@@ -542,10 +541,9 @@ suite("extension/servers/usage poller", () => {
 	});
 
 	test("applyConfiguration never alerts from cached data: crossings re-baseline on the next fetch", async () => {
-		// Alerts evaluate on fetches only (docs/usage.md): a threshold edit -
-		// especially with polling OFF - must not toast from data already in the
-		// store, so applyConfiguration leaves the stored crossings untouched
-		// and the next fetch diffs against them.
+		// Alerts evaluate on fetches only (docs/usage.md): a threshold edit must not
+		// toast from data already in the store, so applyConfiguration leaves the stored
+		// crossings untouched and the next fetch diffs against them.
 		const h = makeHarness({ intervalMs: 0 });
 		h.client.keyInfoResult = { ...KEY_OK, spend: 70, maxBudget: 100 };
 		await h.poller.refreshNow();
@@ -786,9 +784,8 @@ suite("extension/servers/usage poller", () => {
 		await tick(h, interval);
 		assert.strictEqual(h.client.calls.keyInfo, 7);
 
-		// Transitions only: one escalation line per multiplier per endpoint
-		// (2x, 4x, 8x, 16x for keyInfo and dailyActivity) plus the two initial
-		// error transitions - and NOTHING else, so a skipped attempt provably
+		// Transitions only: one escalation line per multiplier per endpoint, plus the two
+		// initial error transitions, and NOTHING else - so a skipped attempt provably
 		// logs nothing at all.
 		const escalations = h.logEntries.filter((entry) => entry.message.includes("backing off"));
 		assert.deepStrictEqual(
@@ -1084,10 +1081,9 @@ suite("extension/servers/usage poller", () => {
 	});
 
 	test("a pending servers-change probe overrides the staleness gate outright", async () => {
-		// With polling OFF the pending probe waits for the next explicit
-		// refresh - and an open counts: the stored numbers may describe a
-		// server or credentials that no longer exist, so a fresh timestamp
-		// must not talk the open out of the probe.
+		// With polling OFF the pending probe waits for the next explicit refresh, and an
+		// open counts: the stored numbers may describe a server or credentials that no
+		// longer exist, so a fresh timestamp must not talk the open out of the probe.
 		const h = makeHarness({ intervalMs: 0 });
 		await h.poller.refreshNow();
 		assert.strictEqual(h.client.calls.keyInfo, 1);
@@ -1122,9 +1118,8 @@ suite("extension/servers/usage poller", () => {
 		assert.strictEqual(refreshingAtStart, true, "the start listener observes the engine already busy");
 		await settle();
 		// The completion listener must observe the engine IDLE: the dashboard
-		// re-publishes engine state from it, and a completion push still
-		// reading "in flight" froze Refresh now disabled until an unrelated
-		// push happened by.
+		// re-publishes engine state from it, and a completion push still reading "in
+		// flight" freezes Refresh now disabled until an unrelated push happens by.
 		assert.strictEqual(refreshingAtDone, false, "the completion listener observes the engine idle again");
 
 		await h.poller.refreshNow();
@@ -1133,10 +1128,9 @@ suite("extension/servers/usage poller", () => {
 	});
 
 	test("a completion listener that disposes the poller stops the detached follow-up from starting", async () => {
-		// The teardown detaches the queued follow-up before the listeners run,
-		// so dispose() can no longer settle it - refresh()'s own disposed guard
-		// must resolve it undefined instead of starting a phantom pass (and
-		// announcing its start) after disposal.
+		// The teardown detaches the queued follow-up before the listeners run, so
+		// dispose() can no longer settle it: refresh()'s own disposed guard must resolve
+		// it undefined instead of starting (and announcing) a phantom pass.
 		const h = makeHarness();
 		let starts = 0;
 		h.poller.onDidStartRefresh(() => {
@@ -1156,10 +1150,9 @@ suite("extension/servers/usage poller", () => {
 	});
 
 	test("a completion firing with an explicit follow-up queued never publishes 'idle but explicit'", async () => {
-		// isRefreshingExplicitly reads the QUEUE too, so the completion
-		// listeners must run after the follow-up detaches: caught mid-teardown,
-		// a listener once published refreshing: false with refreshingExplicitly
-		// still true - an enabled button wearing the spinner.
+		// isRefreshingExplicitly reads the QUEUE too, so the completion listeners must run
+		// after the follow-up detaches: caught mid-teardown, a listener publishes
+		// refreshing: false with refreshingExplicitly still true.
 		const h = makeHarness({ initialRefreshDelayMs: 5_000 });
 		const releases: (() => void)[] = [];
 		h.client.fetchKeyInfo = async () => {

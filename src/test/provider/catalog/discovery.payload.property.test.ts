@@ -20,12 +20,10 @@ const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
 /**
- * Wire-payload properties for discovery's normalization layer: parsing is
- * total over arbitrary JSON, cost fields come out usable or absent, the
- * long-context tier selection cannot be confused by junk keys, internal
- * markers cannot be forged from the wire, and fetchModels never drops a model
- * with a usable id. The merge-level invariants live in
- * discovery.property.test.ts.
+ * Wire-payload properties for discovery's normalization layer: parsing is total over
+ * arbitrary JSON, cost fields come out usable or absent, the long-context tier selection
+ * cannot be confused by junk keys, internal markers cannot be forged from the wire, and
+ * fetchModels never drops a model with a usable id.
  */
 
 const noLog = () => {};
@@ -260,9 +258,8 @@ suite("provider/discovery fetchModels payload properties", () => {
 
 	test("no usable unblocked model is ever dropped, and blocked-only payloads yield an empty list", async function () {
 		this.timeout(120000);
-		// One stable handler pair reading mutable state: use() inside the
-		// property would stack a handler pair per run and never honor a high
-		// FUZZ_RUNS without unbounded handler growth.
+		// One stable handler pair reading mutable state: use() inside the property
+		// would stack a handler pair per run and grow unboundedly at high FUZZ_RUNS.
 		let servedEntries: unknown[] = [];
 		mswServer.use(
 			http.get(MODEL_INFO_URL, () => HttpResponse.json({ data: servedEntries })),

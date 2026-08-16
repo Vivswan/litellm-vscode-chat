@@ -14,9 +14,9 @@ import { countTextTokens, plainTextTokenEstimate, setTextTokenCounting } from ".
 const CHINESE = "请把这个函数重构成纯函数, 并为它补上完整的单元测试。";
 
 /**
- * A tokenizer with an unmistakable constant count, so installs are
- * observable - but only when the install forwarded allowedSpecial "all"
- * (special-token text is ordinary user text and must count, not throw).
+ * A tokenizer with an unmistakable constant count, so installs are observable -
+ * but only when the install forwarded allowedSpecial "all" (special-token text
+ * is ordinary user text and must count, not throw).
  */
 const FAKE_TOKENIZER: LoadedTokenizer = {
 	countTokens: (_text, options) => (options?.allowedSpecial === "all" ? 4242 : -1),
@@ -113,8 +113,8 @@ describe("extension/tokenCounting: the auto mode", () => {
 		assert.deepStrictEqual(harness.requested, []);
 		assert.strictEqual(countTextTokens("plain english text"), plainTextTokenEstimate("plain english text"));
 		assert.deepStrictEqual(harness.requested, []);
-		// The two-band interim prices the CJK fixture above the plain rule
-		// while the detection kicks off the one load.
+		// The two-band interim prices the CJK fixture above the plain rule while
+		// the detection kicks off the one load.
 		assert.ok(countTextTokens(CHINESE) > plainTextTokenEstimate(CHINESE));
 		countTextTokens(CHINESE);
 		assert.deepStrictEqual(harness.requested, ["o200k_base"]);

@@ -38,9 +38,9 @@ suite("extension/ui/setupGate", () => {
 	});
 
 	test("the zero-model verdict explained by a hidden group is the hidden-groups problem", () => {
-		// The five-blank-issues state: the only group is tombstone-suppressed, the
-		// rollup built the synthetic zero-model verdict, and Report Issue must
-		// route through the gate instead of opening a blank issue.
+		// The only group is tombstone-suppressed and the rollup built the
+		// synthetic zero-model verdict, so Report Issue must route through the
+		// gate instead of opening a blank issue.
 		const status = errorStatus({
 			totalModels: 0,
 			serverStatuses: [makeServerStatus({ modelCount: 0, hiddenByRemoval: true })],
@@ -49,9 +49,8 @@ suite("extension/ui/setupGate", () => {
 	});
 
 	test("a zero-model verdict from servers that answered empty is not a setup problem", () => {
-		// The server genuinely listed no models: that may be a real bug (or a
-		// proxy configuration question), so it goes straight to GitHub like any
-		// unclassified error.
+		// The server genuinely listed no models: that may be a real bug, so it
+		// goes straight to GitHub like any unclassified error.
 		const status = errorStatus({
 			totalModels: 0,
 			serverStatuses: [makeServerStatus({ modelCount: 0 })],
@@ -120,8 +119,8 @@ suite("extension/ui/setupGate", () => {
 
 	test("every gate message names its cause and carries its button set", async () => {
 		// Swapping two gateMessage branches would compile and pass every other
-		// test while telling users the wrong cause; the substrings pin each
-		// message to its verdict, and the labels pin each verdict's buttons.
+		// test while naming the wrong cause: the substrings pin each message to
+		// its verdict, and the labels pin each verdict's buttons.
 		const expected: Record<SetupProblem, { substring: string; labels: string[] }> = {
 			"not-configured": {
 				substring: "No server is configured yet",

@@ -18,13 +18,12 @@ import { BUILTIN_SCENARIOS, collapseChunks } from "../../scenarios";
 import { REPO_ROOT } from "../../util/repoRoot";
 
 /**
- * Pins the fake backend's command grammar: "%"-mandatory recognition on
- * the last non-empty line only, case rules, numeric argument domains, caps,
- * deterministic diagnostics, and byte-determinism. The docker suite proves
- * the same grammar through the real proxy; this suite pins the parsing edge
- * cases cheaply. "/"- and "!"-prefixed lines are deliberately ordinary
- * text: Copilot Chat intercepts "/" and agent CLIs intercept "!" in their
- * inputs, so neither can carry a command.
+ * Pins the fake backend's command grammar: "%"-mandatory recognition on the
+ * last non-empty line only, case rules, numeric argument domains, caps,
+ * deterministic diagnostics, and byte-determinism. "/"- and "!"-prefixed lines
+ * are deliberately ordinary text: Copilot Chat intercepts "/" and agent CLIs
+ * intercept "!", so neither can carry a command. The docker suite proves the
+ * same grammar through the real proxy.
  */
 
 const scenarios = new Map<string, Scenario>(Object.entries(BUILTIN_SCENARIOS));
@@ -58,25 +57,24 @@ describe("fakeStack commands: recognition", () => {
 	});
 
 	test("a slash-prefixed line is ordinary text: /help never dispatches", () => {
-		// The exact Copilot-intercepted shape: even when a literal "/help" DOES
-		// reach the model (pasted, or sent by a non-Copilot client), it is text.
+		// A literal "/help" that does reach the model (pasted, or from a
+		// non-Copilot client) is still text.
 		assert.strictEqual(dispatchCommand(makeContext("/help")), undefined);
 		assert.strictEqual(dispatchCommand(makeContext("/echo:x")), undefined);
 		assert.strictEqual(dispatchCommand(makeContext("/stream:5:50")), undefined);
 	});
 
 	test("a bang-prefixed line is ordinary text: !help never dispatches", () => {
-		// The retired second sigil: agent CLIs (Claude Code) run "!"-prefixed
-		// input as shell commands, so "!" lines are plain text like "/" lines.
+		// Agent CLIs run "!"-prefixed input as shell commands, so "!" lines are
+		// plain text like "/" lines.
 		assert.strictEqual(dispatchCommand(makeContext("!help")), undefined);
 		assert.strictEqual(dispatchCommand(makeContext("!echo:x")), undefined);
 		assert.strictEqual(dispatchCommand(makeContext("!stream:5:50")), undefined);
 	});
 
 	test("a doubled sigil is ordinary text: cell-magic and comment-marker shapes never dispatch", () => {
-		// Jupyter cell magics (%%), Erlang %% comments, and PostScript DSC
-		// lines all double the sigil - the second sigil is itself the
-		// protection, since "%verb" cannot start with another "%".
+		// Jupyter cell magics (%%), Erlang comments, and PostScript DSC lines all
+		// double the sigil; the second sigil is itself the protection.
 		assert.strictEqual(dispatchCommand(makeContext(`${COMMAND_SIGIL}${COMMAND_SIGIL}help`)), undefined);
 		assert.strictEqual(dispatchCommand(makeContext(`${COMMAND_SIGIL}${COMMAND_SIGIL}text`)), undefined);
 		assert.strictEqual(dispatchCommand(makeContext(`${COMMAND_SIGIL}${COMMAND_SIGIL}cache`)), undefined);
@@ -95,12 +93,9 @@ describe("fakeStack commands: recognition", () => {
 	});
 
 	test("trimEnd regression guard: a space after the sigil is plain text, never a command", () => {
-		// THE pin a future "be more lenient" refactor would silently undo:
-		// %-comment languages (MATLAB, LaTeX, Erlang, csh transcripts) write
-		// "% word" and "% word: args" at line start. Under full trim(),
-		// "% error: 429" once returned a real HTTP 429 that looked like a
-		// genuine proxy failure; under trimEnd() the comment class falls
-		// through to the fallback, which itself points at the help command.
+		// The pin a "be more lenient" refactor would silently undo: %-comment
+		// languages (MATLAB, LaTeX, Erlang) write "% word" and "% word: args" at
+		// line start, and under full trim() "% error: 429" returned a real 429.
 		assert.strictEqual(dispatchCommand(makeContext(`${COMMAND_SIGIL} help`)), undefined);
 		assert.strictEqual(dispatchCommand(makeContext(`${COMMAND_SIGIL} image`)), undefined);
 		assert.strictEqual(dispatchCommand(makeContext(`${COMMAND_SIGIL} error: 429`)), undefined);
@@ -115,18 +110,17 @@ describe("fakeStack commands: recognition", () => {
 	});
 
 	test("multi-word %-comment lines are ordinary text", () => {
-		// The comment corpus stays safe via the internal space even where the
-		// first word happens to be a verb.
+		// The internal space keeps the comment corpus safe even where the first
+		// word happens to be a verb.
 		assert.strictEqual(dispatchCommand(makeContext(`${COMMAND_SIGIL} TODO: fix this`)), undefined);
 		assert.strictEqual(dispatchCommand(makeContext(`${COMMAND_SIGIL} Error handling below`)), undefined);
 		assert.strictEqual(dispatchCommand(makeContext(`${COMMAND_SIGIL} echo hello`)), undefined);
 	});
 
 	test("known-benign keyword collisions dispatch by design: the bare text verb yields the diagnostic", () => {
-		// %text (Zeppelin's display system) and %help (Metakernel's line magic)
-		// are the two known real-world line-start collisions that ARE verbs;
-		// both are accepted by design - the reply is an obvious fake-model
-		// diagnostic or the help text, never a confusing stream shape.
+		// %text (Zeppelin) and %help (Metakernel) are the known real-world
+		// line-start collisions that ARE verbs; both dispatch by design, replying
+		// with a fake-model diagnostic or help text, never a confusing stream.
 		const text = runText(`${COMMAND_SIGIL}text`);
 		assert.ok(text?.startsWith(`Bad arguments for ${COMMAND_SIGIL}text`), `got: ${text}`);
 	});
@@ -149,8 +143,7 @@ describe("fakeStack commands: recognition", () => {
 	});
 
 	test("a chat host's request envelope is transparent: the closing tag does not eat the command", () => {
-		// The exact shape Copilot Chat sends (observed via /_test/last-request):
-		// context and reminder blocks, then the typed text inside <userRequest>.
+		// The exact shape Copilot Chat sends, observed via /_test/last-request.
 		const copilotShape = [
 			"<context>",
 			"The current date is 2026-07-28.",
@@ -173,8 +166,7 @@ describe("fakeStack commands: recognition", () => {
 	});
 
 	test("only EXACT bare closers are transparent: trailing space or a namespaced tag stays opaque", () => {
-		// The opacity boundary a future "be more lenient" refactor would erode:
-		// anything beyond a bare </name> line must keep blocking recognition.
+		// Anything beyond a bare </name> line must keep blocking recognition.
 		assert.strictEqual(dispatchCommand(makeContext(`${COMMAND_SIGIL}help\n</userRequest> `)), undefined);
 		assert.strictEqual(dispatchCommand(makeContext(`${COMMAND_SIGIL}help\n</ns:tag>`)), undefined);
 	});
@@ -340,9 +332,8 @@ describe("fakeStack commands: behavior", () => {
 		}
 		assert.ok(text.includes("\n\nPlay targets: "), "a blank line separates the play-target section");
 		assert.ok(text.includes("`text-only`"), "play targets are backticked scenario names");
-		// One hand-typed literal alongside the derived loop: the loop pins the
-		// bullet FORMAT from the table, so a description edit would slide
-		// through it - this line byte-anchors one full bullet on purpose.
+		// The loop pins the bullet FORMAT from the table, so a description edit
+		// would slide through it; this literal byte-anchors one full bullet.
 		assert.ok(
 			text.includes("- `%help` - list every command and the available %play scenarios"),
 			"the help entry's exact bullet bytes are pinned"
@@ -373,10 +364,9 @@ describe("fakeStack commands: behavior", () => {
 
 	test("report code spans neutralize content-derived markdown: emphasis, backticks, and newlines stay inert", () => {
 		// The injection guard: a tool description containing "*", "`", or a
-		// newline must not style the report, close its code span early, or
-		// break out of the bullet into real markdown structure. Backticks get
-		// a wider, space-padded span (CommonMark's escape), newlines collapse
-		// to spaces, and empty values render as the fixed (empty) token.
+		// newline must not style the report or break out of the bullet. Backticks
+		// get a wider, space-padded span, newlines collapse to spaces, and empty
+		// values render as the fixed token.
 		const tools = [
 			{ type: "function", function: { name: "starry", description: "*not italic* in the report" } },
 			{ type: "function", function: { name: "ticked", description: "has a `code span` inside" } },
@@ -397,10 +387,9 @@ describe("fakeStack commands: behavior", () => {
 	});
 
 	test("the zero-case sentences are pinned single sentences, not bullets", () => {
-		// The empty-request shapes cannot dispatch through the chat input (the
-		// command line is itself a message with content), so these runs call
-		// the COMMANDS entries directly - the sentences are each command's
-		// defensive floor and would otherwise rot unpinned.
+		// These empty-request shapes cannot dispatch through the chat input, so
+		// the runs call the COMMANDS entries directly; the sentences are each
+		// command's defensive floor.
 		const runVerb = (verb: string, request: Record<string, unknown>): string | undefined => {
 			const command = COMMANDS.find((entry) => entry.verb === verb);
 			assert.ok(command, `${verb} is in the dispatch table`);
@@ -540,11 +529,9 @@ describe("fakeStack commands: behavior", () => {
 		assert.strictEqual(text.choices[0]?.message.content, "chunk1 chunk2 chunk3 chunk4 chunk5 ");
 	});
 
-	// The transport verbs deliberately emit NO finish_reason chunk and no usage
-	// trailer: the point is a stream that never completes, so a well-formed
-	// ending would defeat the scenario.
+	// Transport verbs deliberately emit NO finish_reason chunk and no usage
+	// trailer: the point is a stream that never completes.
 	describe("transport verbs build sse-abort scenarios", () => {
-		/** Dispatch a transport verb and narrow to its sse-abort scenario. */
 		function abortScenario(input: string): { chunks: unknown[]; tail: string; stallMs?: number } {
 			const result = dispatchCommand(makeContext(input));
 			assert.ok(result, `${input} must dispatch`);
@@ -626,7 +613,7 @@ describe("fakeStack commands: behavior", () => {
 
 	test(`${COMMAND_SIGIL}echon decodes exactly two escapes into a multi-line reply; ${COMMAND_SIGIL}echo stays untouched`, () => {
 		// The single-line input grammar cannot carry a real newline, so %echon
-		// decodes "\n"; "\\" keeps a literal backslash-n expressible. %echo is
+		// decodes "\n" and "\\" keeps a literal backslash-n expressible. %echo is
 		// the byte-exact oracle and must never gain this interpretation.
 		assert.strictEqual(runText(`${COMMAND_SIGIL}echon:a\\nb`), "a\nb", "backslash-n becomes a newline");
 		assert.strictEqual(runText(`${COMMAND_SIGIL}echon:a\\n\\nb`), "a\n\nb", "doubled escape yields a blank line");
@@ -777,17 +764,15 @@ describe("fakeStack commands: tool flow", () => {
 
 describe("fakeStack commands: docs drift guard", () => {
 	// docs/development.md and AGENTS.md cannot import COMMAND_SIGIL, so this
-	// suite turns the two prose copies of the grammar into CI-enforced
-	// mirrors: verb coverage and the sigil byte are pinned; the surrounding
-	// sentences stay free to change.
+	// suite turns their prose copies of the grammar into CI-enforced mirrors:
+	// verb coverage and the sigil byte are pinned, the sentences stay free.
 	const sigilPattern = COMMAND_SIGIL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 	/**
 	 * The cheat-sheet rows: the fenced block containing a line that opens with
-	 * the help command, reduced to its sigil-leading lines. The first line of
-	 * each raw block is the fence info string (```text) or the empty remainder
-	 * of the bare ``` line, so it is always dropped; blank, grouping, and
-	 * comment lines inside the fence are tolerated as non-rows.
+	 * the help command, reduced to its sigil-leading lines. Each raw block's
+	 * first line is the fence info string, so it is always dropped; blank,
+	 * grouping, and comment lines inside the fence are tolerated as non-rows.
 	 */
 	function cheatSheetRows(): string[] {
 		const doc = fs.readFileSync(path.join(REPO_ROOT, "docs", "development.md"), "utf8");
@@ -800,9 +785,9 @@ describe("fakeStack commands: docs drift guard", () => {
 	}
 
 	test("the development doc cheat sheet's command column names exactly the dispatch table's verbs", () => {
-		// Verbs are read from each row's COMMAND COLUMN (before the 2+ space
-		// gap), never from description text - a missing command row must not
-		// be masked by a mention of its verb inside another row's description.
+		// Verbs are read from each row's COMMAND COLUMN (before the 2+ space gap),
+		// never from description text, so a missing command row cannot be masked
+		// by a mention of its verb in another row's description.
 		const verbPattern = new RegExp(`^${sigilPattern}([a-z]+)`);
 		const mentioned = new Set<string>();
 		for (const row of cheatSheetRows()) {
@@ -823,13 +808,10 @@ describe("fakeStack commands: docs drift guard", () => {
 	});
 
 	test("the development doc model-list table names exactly the catalog's aliases", () => {
-		// The intro line plus the table under it hand-write every alias in
-		// backticks, including the blocked gpt-4-turbo (whose absence from the
-		// picker is itself under test). Alias-shaped backtick tokens are
+		// The intro line plus its table hand-write every alias in backticks,
+		// including the blocked gpt-4-turbo. Alias-shaped backtick tokens are
 		// compared bidirectionally against FAKE_MODELS, so a catalog rename,
-		// addition, or removal fails here instead of leaving the doc naming a
-		// model the stack no longer serves. Non-alias tokens in the block (file
-		// paths, commands) do not match the alias shape and stay free to change.
+		// addition, or removal fails here; other tokens stay free to change.
 		const lines = fs.readFileSync(path.join(REPO_ROOT, "docs", "development.md"), "utf8").split("\n");
 		const start = lines.findIndex((line) => line.startsWith("The model list is deliberately small"));
 		assert.ok(start >= 0, "docs/development.md keeps the fake-stack model-list intro");
@@ -842,10 +824,8 @@ describe("fakeStack commands: docs drift guard", () => {
 		}
 		const paragraph = block.join("\n");
 		// Alias-shaped: the catalog's charset PLUS at least one dash or
-		// dot-digit, so a plain backticked word in the block (`bun`, a
-		// shortened `models.ts`) cannot become a phantom alias. The self-check
-		// keeps the shape in sync with the catalog: an alias the shape cannot
-		// capture would otherwise fail the bidirectional compare confusingly.
+		// dot-digit, so a plain backticked word cannot become a phantom alias.
+		// The self-check keeps the shape in sync with the catalog.
 		const aliasShape = /^(?=.*(?:-|\.\d))[a-z0-9][a-z0-9.-]*$/;
 		const declared = FAKE_MODELS.map((model) => model.alias);
 		for (const alias of declared) {

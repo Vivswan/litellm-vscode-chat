@@ -49,13 +49,10 @@ export interface LastIssueReport {
 
 /**
  * The diagnostic signature the repeat-report hint compares: the snapshot's
- * enum, count, and flag fields plus the latest error's classification (enum
- * ids and a status number, the same fields ErrorContext deems safe).
+ * enum, count, and flag fields plus the latest error's classification.
  * Deliberately NEVER the error message, stack, source, or log lines - the
  * source strings interpolate server labels and base URLs, and the rest is
- * response-derived - because this string lands in globalState. Two reports
- * fingerprint alike exactly when the diagnostics they would carry describe
- * the same state.
+ * response-derived - because this string lands in globalState.
  */
 export function reportFingerprint(snapshot: DiagnosticsSnapshot): string {
 	const classification = snapshot.latestError?.classification;
@@ -91,9 +88,9 @@ export async function rememberIssueReport(state: vscode.Memento, report: LastIss
 
 /**
  * Where the full diagnostics land when the issue URL had to be compacted,
- * derived once from the environment's capabilities in openIssue. "unknown"
- * is the plain URL-building path (buildIssueUrl), where no environment is in
- * play: nothing gets copied anywhere, so the hint promises nothing.
+ * derived once from the environment's capabilities in openIssue. "unknown" is
+ * the plain buildIssueUrl path: nothing gets copied anywhere, so the hint
+ * promises nothing.
  */
 type CompactedDiagnosticsSink = "clipboard" | "clipboard-and-file" | "unknown";
 
@@ -116,8 +113,7 @@ const SINK_TEXT: Record<CompactedDiagnosticsSink, { hint: string; action: string
 /**
  * Which body buildBody renders: the full one, or one of the compaction steps
  * with the sink hint its omission markers quote. "compact-logs" also compacts
- * the stack (it is the step after "compact-stack" in buildIssuePayload's
- * shrinking sequence) and always omits at least one line.
+ * the stack and always omits at least one line.
  */
 type BodyVariant =
 	| { kind: "full" }
@@ -197,9 +193,9 @@ export class IssueReporter {
 	}
 
 	recordError(source: string, error: unknown): void {
-		// The public renderings: an http RequestError's message (and the copy of
-		// it V8 prefixes onto the stack) embeds the response body, so both
-		// degrade to its classification; every other error keeps its text.
+		// An http RequestError's message (and the copy V8 prefixes onto the stack)
+		// embeds the response body, so both degrade to its classification; every
+		// other error keeps its text.
 		const classification = transportClassificationOf(error);
 		this._latestError = {
 			source,
@@ -365,9 +361,9 @@ export class IssueReporter {
 }
 
 /**
- * The Latest-error section's cause line: enum ids and an integer only,
- * English by policy (the issue body is diagnostics text), never anything
- * derived from a response.
+ * The Latest-error section's cause line: enum ids and an integer only, English
+ * by policy (the issue body is diagnostics text), never anything
+ * response-derived.
  */
 function classificationLine(classification: TransportErrorClassification): string {
 	const status = classification.status !== undefined ? ` ${classification.status}` : "";
@@ -377,9 +373,8 @@ function classificationLine(classification: TransportErrorClassification): strin
 
 /**
  * A multi-line message kept inside one markdown list item: blank lines are
- * dropped and continuation lines indented, because a blank line (the chat
- * messages' "Details:" paragraph break) would otherwise end the list and
- * spill the detail out of the bullet.
+ * dropped and continuation lines indented, because a blank line would end the
+ * list and spill the detail out of the bullet.
  */
 function bulletContinuation(text: string): string {
 	return text
@@ -456,9 +451,8 @@ function shortenLine(text: string, maxLength: number): string {
 export function redactSecrets(text: string): string {
 	return (
 		text
-			// JSON-encoded auth headers: "Authorization": "Bearer xxx" or "X-API-Key": "xxx".
-			// The value pattern consumes escaped sequences so an escaped quote
-			// inside the secret cannot end the match early and leak the suffix.
+			// JSON-encoded auth headers. The value pattern consumes escaped sequences
+			// so an escaped quote inside the secret cannot end the match early.
 			.replace(/("(?:Authorization|X-API-Key)":\s*")((?:Bearer\s+)?)(?:\\.|[^"\\])*(")/gi, "$1$2[REDACTED]$3")
 			// JSON-encoded OAuth material: "client_secret": "xxx" or "access_token": "xxx"
 			.replace(/("(?:client[_-]?secret|access[_-]?token)":\s*")(?:\\.|[^"\\])*(")/gi, "$1[REDACTED]$2")

@@ -3,10 +3,10 @@
 //
 // Thin CLI over the resolved compose runtime (Docker or Podman), so every
 // package.json script works on either: `bun scripts/stack/compose.ts up -d --wait`.
-// The `up` path regenerates the runtime LiteLLM config first - including the
-// generation-time GitHub Copilot catalog fetch when a login is seeded - so
-// no start can see a stale or missing docker/.generated/litellm-config.yaml;
-// other subcommands (down, logs) pass through untouched.
+// The `up` path regenerates the runtime LiteLLM config first - the
+// generation-time GitHub Copilot catalog fetch included when a login is seeded
+// - so no start can see a stale or missing config; other subcommands (down,
+// logs) pass through untouched.
 
 import { chmodSync, mkdirSync } from "node:fs";
 import path from "node:path";
@@ -33,11 +33,10 @@ async function main(): Promise<number> {
 	}
 	const code = runCompose(args);
 	// A detached `up` (docker:up, the dev launcher) also seeds the stack's
-	// usage/budget fixture key; a foreground `up` blocks above until
-	// teardown, so there is no stack left to seed by the time it returns.
-	// A seed failure warns instead of failing the start: the stack itself is
-	// up and serves everything except the usage fixture (the test
-	// orchestrator awaits the same seeding and DOES fail hard).
+	// usage/budget fixture key; a foreground `up` blocks above until teardown.
+	// A seed failure only warns: the stack is up and serves everything except
+	// the usage fixture (the test orchestrator awaits the same seeding and DOES
+	// fail hard).
 	if (args[0] === "up" && code === 0 && (args.includes("-d") || args.includes("--detach"))) {
 		try {
 			await seedStackUsageBudgetKey();

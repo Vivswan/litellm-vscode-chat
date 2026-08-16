@@ -4,8 +4,8 @@ import { isRecord } from "../../shared/util/json";
  * Streaming wire format for /v1/chat/completions SSE chunks, and the lenient
  * per-line narrowing the stream processor runs on the hot path. The rules are
  * deliberate: unknown or malformed fields are ignored rather than rejected,
- * numeric-string tool-call indexes are accepted, and only a non-object
- * payload yields undefined; never drop a chunk for fields we don't know.
+ * numeric-string tool-call indexes are accepted, and only a non-object payload
+ * yields undefined - never drop a chunk for fields we don't know.
  */
 
 /** Buffer used to accumulate streamed tool call parts until arguments are valid JSON. */
@@ -25,12 +25,10 @@ export type FinishReason =
 	| (string & Record<never, never>);
 
 /**
- * The finish reasons that end the stream's useful output: buffered state is
- * flushed as soon as one arrives, without waiting for the [DONE] sentinel.
- * Deliberately not every FinishReason: length, content_filter, and
- * function_call keep the long-standing behavior of flushing only at [DONE]
- * or EOF. Typed as a FinishReason list (not a literal tuple) so the stream
- * processor can membership-test any parsed finish_reason against it.
+ * The finish reasons that flush buffered state without waiting for the [DONE]
+ * sentinel. Deliberately not every FinishReason: length, content_filter, and
+ * function_call flush only at [DONE] or EOF. Typed as a FinishReason list (not
+ * a literal tuple) so any parsed finish_reason can be membership-tested.
  */
 export const TERMINAL_FINISH_REASONS: readonly FinishReason[] = ["stop", "tool_calls"];
 
@@ -43,9 +41,9 @@ export interface ThinkingBlock {
 
 /**
  * One entry of a thinking_blocks array, LiteLLM's mapping of Anthropic
- * extended thinking. "thinking" entries carry text plus the signature needed
- * to replay the block in a later turn; "redacted_thinking" entries carry only
- * opaque data.
+ * extended thinking: "thinking" entries carry text plus the signature needed
+ * to replay the block in a later turn, "redacted_thinking" entries only opaque
+ * data.
  */
 export interface ThinkingBlockDelta {
 	type?: string | undefined;
@@ -61,10 +59,10 @@ export interface ChunkAnnotation {
 }
 
 /**
- * One search-backed source, as Perplexity-style models surface them through
- * LiteLLM: at the chunk root as `search_results`, or on the delta under
- * `provider_specific_fields.search_results`. Only url and title narrow;
- * entries keep flowing without either (the collector skips URL-less ones).
+ * One search-backed source, at the chunk root as `search_results` or on the
+ * delta under `provider_specific_fields.search_results`. Only url and title
+ * narrow; entries keep flowing without either (the collector skips URL-less
+ * ones).
  */
 export interface ChunkSearchResult {
 	url?: string | undefined;
@@ -135,7 +133,6 @@ export interface ChatCompletionChunk {
 	model?: string | undefined;
 	choices?: ChunkChoice[] | undefined;
 	/**
-	/**
 	 * Chunk-root citation URLs, Perplexity's legacy sources shape forwarded by
 	 * LiteLLM's streaming pass-through; typically repeated on every chunk.
 	 */
@@ -144,17 +141,15 @@ export interface ChatCompletionChunk {
 	search_results?: ChunkSearchResult[] | undefined;
 	/**
 	 * Token usage trailer. The parser proves only that it is a record; the
-	 * stream processor reads the known numeric counts out of it, both for the
-	 * usage log line and for the sanitized end-of-stream usage DataPart, and
-	 * ignores everything else (arbitrary server keys stay out of logs and out
-	 * of the emitted payload).
+	 * stream processor reads the known numeric counts out of it and ignores the
+	 * rest, so arbitrary server keys stay out of logs and the emitted payload.
 	 */
 	usage?: Record<string, unknown> | undefined;
 	/**
-	 * In-band error envelope: a streamed `data: {"error": {...}}` payload,
-	 * which LiteLLM emits when an upstream fails after the 200 went out. Only
-	 * a record narrows; a non-record error value stays unknown junk under the
-	 * leniency rules.
+	 * In-band error envelope: a streamed `data: {"error": {...}}` payload, which
+	 * LiteLLM emits when an upstream fails after the 200 went out. Only a record
+	 * narrows; a non-record error value stays unknown junk under the leniency
+	 * rules.
 	 */
 	error?: Record<string, unknown> | undefined;
 }
@@ -261,9 +256,8 @@ function narrowContent(raw: unknown): string | ChunkContentBlock[] | null | unde
 	}
 	if (typeof raw === "object") {
 		// A non-array object carries no usable text, and String() on one can
-		// itself throw (a non-callable toString property), breaking
-		// parseChunk's never-throws contract; it narrows to absent instead of
-		// leaking "[object Object]" into the streamed output.
+		// itself throw (a non-callable toString property), breaking parseChunk's
+		// never-throws contract.
 		return undefined;
 	}
 	return typeof raw === "string" ? raw : String(raw);
@@ -316,10 +310,10 @@ function narrowChoice(raw: Record<string, unknown>): ChunkChoice {
 }
 
 /**
- * Leniently narrow a parsed SSE payload to the chunk contract. Unknown or
- * malformed fields are ignored rather than rejected; only a non-object
- * payload yields undefined. Hand-rolled rather than schema-driven: this runs
- * once per SSE line, and its leniency rules are the contract.
+ * Leniently narrow a parsed SSE payload to the chunk contract: malformed
+ * fields are ignored rather than rejected, and only a non-object payload
+ * yields undefined. Hand-rolled rather than schema-driven - this runs once per
+ * SSE line, and its leniency rules are the contract.
  */
 export function parseChunk(raw: unknown): ChatCompletionChunk | undefined {
 	if (!isRecord(raw)) {

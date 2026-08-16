@@ -11,11 +11,7 @@ import { DEV_SEED_FILENAME } from "../../shared/devSeed";
 import { makeLogger } from "../pureHelpers";
 import { makeExtensionStorage } from "../testUtils";
 
-/**
- * A DevSeedEnv over in-memory settings plus the fake SecretStorage, with the
- * real secret-blob helper in the middle so the tests exercise the same secure
- * path the extension wires up.
- */
+/** A DevSeedEnv over in-memory settings and the fake SecretStorage, with the real secret-blob helper in the middle. */
 function makeEnv(initialSetting?: unknown, initialRecords?: { parameters?: unknown; capabilities?: unknown }) {
 	const storage = makeExtensionStorage();
 	let setting = initialSetting;
@@ -148,9 +144,7 @@ suite("extension/devSeed", () => {
 				records: { parameters: {} },
 			})
 		);
-		// The one usable extra survives (its invalid budget dropped); empty or
-		// malformed models/records read as absent, so the parsed seed matches
-		// the minimal shape plus that entry.
+		// The one usable extra survives (invalid budget dropped); empty or malformed models/records read as absent.
 		assert.deepStrictEqual(seed, {
 			label: "Fake LiteLLM",
 			baseUrl: "http://localhost:4000",
@@ -165,9 +159,7 @@ suite("extension/devSeed", () => {
 			JSON.stringify({ label: "Seeded", baseUrl: "http://localhost:4000", apiKey: "sk-test", openDashboard: true })
 		);
 		const fake = makeEnv();
-		// A previous run's secure-side key: the seed must clear it so the inline
-		// key is unambiguously the one in effect (and the dashboard's edit form
-		// prefill sees a purely inline-stored key).
+		// A previous run's secure-side key: the seed must clear it so the inline key is unambiguously the one in effect.
 		await updateServerSecret(fake.secrets, "Seeded", "apiKey", "sk-previous-run");
 		const originalWrite = fake.env.writeServersSetting;
 		fake.env.writeServersSetting = async (value) => {
@@ -272,8 +264,8 @@ suite("extension/devSeed", () => {
 			parameters: {
 				// A user's own record under a key the seed does not name: never touched.
 				"my-model": { top_p: 0.5 },
-				// A previous run's seeded key the developer edited: the seed owns the
-				// key (like it owns its entry label), so it re-pins wholesale.
+				// A previous run's seeded key the developer edited: the seed owns
+				// the key, so it re-pins it wholesale.
 				"*": { temperature: 0.1 },
 			},
 		});
@@ -395,9 +387,8 @@ suite("extension/devSeed", () => {
 	});
 
 	test("the ignore files keep the seed file out of commits and the VSIX", () => {
-		// The seed carries the local stack's master key inline, so renaming
-		// DEV_SEED_FILENAME must not silently un-ignore a secret-bearing file.
-		// Tests run from out/test/extension, so the repo root is three levels up.
+		// The seed carries the local stack's master key inline: renaming DEV_SEED_FILENAME
+		// must not un-ignore a secret-bearing file. Tests run from out/test/extension.
 		const repoRoot = resolve(__dirname, "..", "..", "..");
 		for (const ignoreFile of [".gitignore", ".vscodeignore"]) {
 			const lines = fs.readFileSync(join(repoRoot, ignoreFile), "utf8").split(/\r?\n/);

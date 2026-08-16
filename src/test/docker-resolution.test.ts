@@ -35,36 +35,21 @@ import { expectDefined } from "./pureHelpers";
 const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS);
 
 /**
- * Docker resolution suite: catalog-ON capability backfill and the parameter
- * record directives, pinned end to end on a real host.
- *
- * Two deliberately separate worlds, one label:
+ * Docker resolution suite, two deliberately separate worlds under one label:
  *
  * 1. The OpenRouter catalog path. Every other docker host runs catalog-OFF
- *    for hermeticity (hostApiHelpers.catalogOff, called in every docker
- *    suiteSetup), so the catalog-ON behavior documented in
- *    docs/models.md#the-openrouter-catalog gets its
- *    deterministic coverage HERE: the suite seeds the pinned fixture
- *    (src/test/fixtures/openrouter-models.json) into the catalog store's
- *    globalStorage cache file through the non-production seam
- *    (litellm._test.seedOpenRouterCatalog reloads the store through its real
- *    cache-read path), opts this host in, and pins implicit exact-ID
- *    backfill, unambiguous post-vendor suffix backfill, ambiguity skipping
- *    the level, an explicit `_openrouter_model` directive beating the
- *    implicit match, and the min(4096, ...) wire clamp on catalog-derived
- *    output limits. The hermetic state (catalog off, cache file absent) is
- *    restored afterwards. The fake-stack canary
- *    (src/test/fakeStack/models.test.ts) guarantees no fake-stack model can
- *    collide with this fixture, so the suite's declared IDs are the only
- *    models the seeded catalog can touch.
+ *    for hermeticity, so the catalog-ON behavior is pinned HERE: the suite
+ *    seeds the pinned fixture into the catalog store's cache file through
+ *    litellm._test.seedOpenRouterCatalog, then pins implicit exact-ID and
+ *    unambiguous-suffix backfill, ambiguity skipping the level, an explicit
+ *    `_openrouter_model` directive beating the implicit match, and the
+ *    min(4096, ...) wire clamp. The hermetic state is restored afterwards.
  *
  * 2. The models.parameters record directives on the wire, catalog-OFF:
  *    `_force` beating runtime options (including an uncapped forced
- *    max_tokens), `_inheritable` fields reaching a more specific record,
- *    an `_inherit_from: false` barrier keeping broader fields out, and an
- *    entry record beating the global record - all configured through the
- *    real settings API and observed on the request LiteLLM forwarded
- *    (docs/models.md#which-record-applies, #forcing-parameters-_force).
+ *    max_tokens), `_inheritable` fields reaching a more specific record, an
+ *    `_inherit_from: false` barrier, and an entry record beating the global
+ *    record, all observed on the request LiteLLM forwarded.
  *
  * Run via `bun run test:docker` (label docker-resolution).
  */
@@ -159,22 +144,20 @@ suite("Docker resolution", () => {
 	}
 
 	let originalServersSetting: unknown;
-	// Torn down even when suiteSetup throws (Mocha runs suiteTeardown anyway);
-	// the optional-chained dispose keeps that path from burying the original
-	// failure.
+	// Torn down even when suiteSetup throws; the optional-chained dispose keeps
+	// that path from burying the original failure.
 	let catalogNetworkGuard: vscode.Disposable | undefined;
 
 	suiteSetup(async function () {
 		this.timeout(90000);
 		await ensureActivated();
 		await catalogOff();
-		// Enabling the catalog below arms the store's periodic refresh, and a
-		// live response replacing the seeded fixture mid-suite would be
-		// invisible flakiness.
+		// Enabling the catalog below arms the store's periodic refresh; a live
+		// response replacing the seeded fixture mid-suite would be invisible
+		// flakiness.
 		catalogNetworkGuard = blockCatalogNetwork();
-		// The suites below attribute chats and registrations to their own
-		// entries by fixed model ids; a leftover group serving any of them
-		// would be indistinguishable, so fail fast.
+		// The suites below attribute chats and registrations by fixed model ids,
+		// so a leftover group serving any of them would be indistinguishable.
 		await assertIdsUnserved([...DECLARED_IDS, ALIAS, "deepseek-r2", "llama-4-scout", "claude-opus-4-5", "gpt-5.2"]);
 		originalServersSetting = config().inspect(SERVERS_SETTING_KEY)?.globalValue;
 		await updateGlobal(SERVERS_SETTING_KEY, []);
@@ -191,8 +174,7 @@ suite("Docker resolution", () => {
 		await updateGlobal(MODEL_PARAMETERS_SETTING_KEY, undefined);
 		await updateGlobal(MODEL_CAPABILITIES_SETTING_KEY, undefined);
 		// Force the removal reconciliation now: the debounced pass may not run
-		// before host shutdown, and only a completed pass persists the
-		// tombstones that keep this run's groups dark in a recycled directory.
+		// before host shutdown, and only a completed pass persists the tombstones.
 		await vscode.commands.executeCommand(CMD.syncModels);
 	});
 
@@ -207,15 +189,14 @@ suite("Docker resolution", () => {
 				fixture
 			)) as number;
 			assert.strictEqual(installed, 6, "the pinned fixture parses to its six usable entries");
-			// The directive target for DIRECTIVE_ID; every other declared ID is
-			// deliberately record-free so only the catalog can describe it.
+			// Every other declared ID is deliberately record-free, so only the
+			// catalog can describe it.
 			await updateGlobal(MODEL_CAPABILITIES_SETTING_KEY, {
 				[DIRECTIVE_ID]: { _openrouter_model: "openai/gpt-4o-mini" },
 			});
-			// A real declared entry on the no-discovery mirror: discovery fails
-			// there (expectedly, so the non-silent refresh below serves the
-			// declared set instead of throwing), and the declared IDs are the
-			// entry's whole serve.
+			// Discovery fails on the no-discovery mirror (expectedly, so the
+			// non-silent refresh below serves the declared set instead of
+			// throwing), making the declared IDs the entry's whole serve.
 			await writeServerEntry(
 				{
 					label: CATALOG_LABEL,
@@ -235,10 +216,8 @@ suite("Docker resolution", () => {
 
 		suiteTeardown(async function () {
 			this.timeout(60000);
-			// Restore the hermetic state: catalog off and the seeded cache file
-			// deleted (a checkout carrying dist/openrouter-models.json falls back
-			// to that bundled artifact, which the opt-out keeps out of implicit
-			// matching anyway), records cleared, the entry removed (its group is
+			// Restore the hermetic state: catalog off, the seeded cache file
+			// deleted, records cleared, the entry removed (its group is
 			// tombstoned; the host cannot remove it).
 			await updateGlobal(OPENROUTER_CATALOG_SETTING_ID, false);
 			await vscode.commands.executeCommand("litellm._test.seedOpenRouterCatalog", undefined);
@@ -248,10 +227,9 @@ suite("Docker resolution", () => {
 
 		test("catalog off: implicit backfill stays dead while the explicit directive serves offline", async function () {
 			this.timeout(60000);
-			// The suiteSetup's catalogOff turned the catalog off; the fixture is
-			// already seeded. Implicit matches (exact and suffix) must resolve to
-			// the built-in floors, while the `_openrouter_model` directive keeps
-			// answering byExactId - stated user intent needs no opt-in.
+			// Implicit matches (exact and suffix) must resolve to the built-in
+			// floors, while the `_openrouter_model` directive keeps backfilling -
+			// stated user intent needs no opt-in.
 			const infos = await refreshInfos();
 			for (const id of [EXACT_ID, SUFFIX_ID, AMBIGUOUS_ID]) {
 				assert.strictEqual(infoFor(infos, id).maxInputTokens, FLOOR_MAX_INPUT, `${id} must sit on the floors`);
@@ -293,8 +271,7 @@ suite("Docker resolution", () => {
 
 		test("an ambiguous suffix skips the catalog level entirely", async () => {
 			// Two vendors serve llama-3-8b-instruct; guessing either would be
-			// observable (meta-llama: 8192 context and no tools; fireworks:
-			// 16384 context). The level is skipped, so the floors win.
+			// observable, so the level is skipped and the floors win.
 			const info = infoFor(await refreshInfos(), AMBIGUOUS_ID);
 			assert.strictEqual(info.maxInputTokens, FLOOR_MAX_INPUT, "neither vendor's entry may be guessed");
 			assert.strictEqual(info.maxOutputTokens, 16000);
@@ -302,9 +279,8 @@ suite("Docker resolution", () => {
 		});
 
 		test("an explicit _openrouter_model directive beats the implicit match", async () => {
-			// mistral-tiny implicitly matches mistralai/mistral-tiny (32000
-			// context, no completion limit, no modalities); the directive names
-			// openai/gpt-4o-mini and must win wholesale over that match.
+			// mistral-tiny implicitly matches mistralai/mistral-tiny; the directive
+			// names openai/gpt-4o-mini and must win wholesale over that match.
 			const info = infoFor(await refreshInfos(), DIRECTIVE_ID);
 			assert.strictEqual(info.maxInputTokens, GPT4O_MINI_MAX_INPUT, "the directive's entry, not the implicit match");
 			assert.strictEqual(info.maxOutputTokens, 16384);
@@ -313,16 +289,16 @@ suite("Docker resolution", () => {
 
 		test("catalog-derived output limits stay clamped at min(4096, ...) on the wire", async function () {
 			this.timeout(120000);
-			// Registration carries the catalog numbers (64000 and 16384 above),
-			// but both catalog paths - implicit match and explicit directive -
-			// count as guesses: the wire max_tokens stays at the 4096 clamp.
+			// Both catalog paths - implicit match and explicit directive - count
+			// as guesses, so the wire max_tokens stays at the 4096 clamp even
+			// though registration carries the catalog numbers.
 			for (const id of [EXACT_ID, SUFFIX_ID, DIRECTIVE_ID]) {
 				const reply = await chat(await hostModel(id), `${COMMAND_SIGIL}params`);
 				assert.strictEqual(reportedMaxTokens(reply), 4096, `${id} must carry the clamped guess, got: ${reply}`);
 			}
-			// The contrast arm: a max_output_tokens the USER writes on the same
-			// catalog-backed model counts as declared and lifts the clamp, so an
-			// implementation that always emits 4096 fails here.
+			// Contrast arm: a user-written max_output_tokens counts as declared
+			// and lifts the clamp, so an implementation that always emits 4096
+			// fails here.
 			await updateGlobal(MODEL_CAPABILITIES_SETTING_KEY, {
 				[DIRECTIVE_ID]: { _openrouter_model: "openai/gpt-4o-mini" },
 				[SUFFIX_ID]: { max_output_tokens: 9000 },
@@ -337,9 +313,8 @@ suite("Docker resolution", () => {
 	suite("parameter record directives on the wire", () => {
 		suiteSetup(async function () {
 			this.timeout(120000);
-			// One declared entry against the real proxy; its per-entry record is
-			// the entry-beats-global oracle. Everything else in this suite rides
-			// the global models.parameters record, rewritten per test.
+			// The entry's per-entry record is the entry-beats-global oracle;
+			// everything else rides the global record, rewritten per test.
 			const entry: ServersSettingEntry = {
 				label: ENTRY_LABEL,
 				baseUrl: BASE_URL,
@@ -370,8 +345,8 @@ suite("Docker resolution", () => {
 				"the forced value must beat the runtime option"
 			);
 
-			// The control arm: without _force the same runtime option wins, so
-			// the assertion above cannot pass by the record merely applying.
+			// Control arm: without _force the same runtime option wins, so the
+			// assertion above cannot pass by the record merely applying.
 			await updateGlobal(MODEL_PARAMETERS_SETTING_KEY, { "deepseek-r2": { temperature: 0.25 } });
 			await chat(model, `${COMMAND_SIGIL}params`, { modelOptions: { temperature: 0.9 } });
 			assert.strictEqual((await lastForwardedRequest()).temperature, 0.9, "an unforced record must lose to runtime");
@@ -380,8 +355,8 @@ suite("Docker resolution", () => {
 		test("a forced max_tokens beats runtime options and is never clamped", async function () {
 			this.timeout(60000);
 			// llama-4-scout declares no limits, so an unconfigured request would
-			// carry the min(4096, guess) cap - 50000 can only reach the wire as
-			// a user-set, forced, uncapped value.
+			// carry the min(4096, guess) cap: 50000 can only reach the wire as a
+			// user-set, forced, uncapped value.
 			await updateGlobal(MODEL_PARAMETERS_SETTING_KEY, {
 				"llama-4-scout": { max_tokens: 50000, _force: ["max_tokens"] },
 			});
@@ -389,9 +364,9 @@ suite("Docker resolution", () => {
 			await chat(model, `${COMMAND_SIGIL}params`, { modelOptions: { max_tokens: 123 } });
 			assert.strictEqual((await lastForwardedRequest()).max_tokens, 50000, "forced max_tokens: uncapped, over runtime");
 
-			// The control arm keeps the SAME record minus _force: runtime must
-			// win again, so the assertion above can only pass through the
-			// directive, never through configured max_tokens outranking runtime.
+			// Control arm: the SAME record minus _force, so the assertion above
+			// can only pass through the directive, never through configured
+			// max_tokens outranking runtime.
 			await updateGlobal(MODEL_PARAMETERS_SETTING_KEY, { "llama-4-scout": { max_tokens: 50000 } });
 			await chat(model, `${COMMAND_SIGIL}params`, { modelOptions: { max_tokens: 123 } });
 			assert.strictEqual((await lastForwardedRequest()).max_tokens, 123, "without _force, runtime wins as-is");
@@ -413,12 +388,10 @@ suite("Docker resolution", () => {
 
 		test("an _inherit_from: false barrier keeps broader fields out of the request", async function () {
 			this.timeout(60000);
-			// gpt-5.2-mini's own record is silent, so it inherits what reaches
-			// it: gpt-5*'s inheritable temperature crosses, the catch-all's
-			// top_p dies at the barrier. top_p on purpose: the inheritance test
-			// above proves that exact field DOES traverse the proxy when a
-			// barrier is absent, so these negatives cannot pass by the proxy
-			// dropping the field.
+			// gpt-5.2-mini's own record is silent, so it inherits what reaches it.
+			// top_p on purpose: the inheritance test above proves that exact
+			// field DOES traverse the proxy when a barrier is absent, so these
+			// negatives cannot pass by the proxy dropping the field.
 			await updateGlobal(MODEL_PARAMETERS_SETTING_KEY, {
 				"*": { top_p: 0.77, _inheritable: true },
 				"gpt-5*": { temperature: 0.2, _inheritable: true, _inherit_from: false },
@@ -439,9 +412,9 @@ suite("Docker resolution", () => {
 			assert.strictEqual(siblingWire.temperature, 0.2);
 			assert.strictEqual(siblingWire.top_p, undefined, "nothing broader flows past the barrier");
 
-			// And the positive control in the same configuration: a model the
-			// barrier does not match takes the catch-all wholesale, so the
-			// field provably still reaches the wire under this very record set.
+			// Positive control in the same configuration: a model the barrier does
+			// not match takes the catch-all wholesale, so the field provably
+			// still reaches the wire under this very record set.
 			const outsider = await hostModel("claude-opus-4-5");
 			await chat(outsider, `${COMMAND_SIGIL}params`);
 			assert.strictEqual(

@@ -24,24 +24,18 @@ import { expectDefined } from "../pureHelpers";
 import { makeExtensionStorage } from "../testUtils";
 
 /**
- * Production-mode activation, run in its own vscode-test label (see
- * .vscode-test.mjs): the compiled activate() is called ONCE with a fake
- * ExtensionContext whose extensionMode is Production, while the real
- * extension stays inactive. Hard limits of this harness: a second activate()
+ * Production-mode activation in its own vscode-test label: the compiled
+ * activate() is called ONCE with a fake ExtensionContext whose extensionMode is
+ * Production, while the real extension stays inactive. A second activate()
  * throws on duplicate command registration (the artifact-present suite at the
  * bottom re-activates only after disposing this activation wholesale), and
- * executing any contributed litellm.* command would implicitly activate the
- * real extension and collide the same way - so these tests only observe,
- * never dispatch commands. vscode.lm.registerLanguageModelChatProvider is
- * stubbed to capture the provider instance (keeping the host's vendor
- * registry untouched).
+ * executing any contributed litellm.* command would activate the real extension
+ * and collide the same way - so these tests only observe, never dispatch.
  *
  * Catalog inputs are controlled, never inherited: the fake context's
  * extensionUri and globalStorageUri are fresh tmpdirs, so whether
- * dist/openrouter-models.json exists is this file's choice per activation
- * (absent here, present in the re-activation suite) instead of whatever
- * artifact the checkout happens to carry, and the OpenRouter fetch is blocked
- * so the store's scheduled refresh can never swap a live snapshot in.
+ * dist/openrouter-models.json exists is this file's choice per activation, and
+ * the OpenRouter fetch is blocked so no live snapshot can swap in.
  */
 suite("production activation", () => {
 	const infoMessages: string[] = [];
@@ -54,13 +48,11 @@ suite("production activation", () => {
 	let storage: ReturnType<typeof makeExtensionStorage>;
 	let context: vscode.ExtensionContext | undefined;
 	let catalogNetworkGuard: vscode.Disposable | undefined;
-	// Counted from inside the registration stub, so any event activation
-	// itself owes is observed from the first possible moment; the
-	// artifact-absent test asserts on (and then disposes) this subscription.
+	// Counted from inside the registration stub, so any event activation itself
+	// owes is observed from the first possible moment.
 	let modelChangeEventsSinceRegistration = 0;
 	let modelChangeCounter: vscode.Disposable | undefined;
-	// Snapshot taken inside the registration stub: what the modelParameters
-	// setting held at the exact moment the provider registered.
+	// What the modelParameters setting held at the exact moment of registration.
 	let modelParametersAtRegistration: Record<string, unknown> | undefined;
 	let modelParametersBefore: Record<string, unknown> | undefined;
 
@@ -86,9 +78,8 @@ suite("production activation", () => {
 	/** A fake Production-mode ExtensionContext over fresh tmpdirs and the given storage. */
 	async function makeProductionContext(extensionStorage: ReturnType<typeof makeExtensionStorage>, tag: string) {
 		// Fresh tmpdirs per activation: extensionUri decides whether a bundled
-		// dist/openrouter-models.json exists, and globalStorageUri whether a
-		// catalog cache does - both must be this file's choice, never state a
-		// checkout or an earlier run left behind.
+		// dist/openrouter-models.json exists and globalStorageUri whether a
+		// catalog cache does, so neither can be inherited state.
 		const extensionDir = await fs.mkdtemp(path.join(os.tmpdir(), `lvt-activation-${tag}-ext-`));
 		const storageDir = await fs.mkdtemp(path.join(os.tmpdir(), `lvt-activation-${tag}-storage-`));
 		tempDirs.push(extensionDir, storageDir);
@@ -117,17 +108,15 @@ suite("production activation", () => {
 		testCommandsBefore = (await vscode.commands.getCommands(true)).filter((id) => id.startsWith("litellm."));
 		assert.deepStrictEqual(testCommandsBefore, [], "the suppressed real activation must register nothing");
 
-		// The catalog store arms its periodic refresh 60 seconds after
-		// activation; a slow run must never let a live openrouter.ai response
-		// install a snapshot mid-suite.
+		// The catalog store arms a periodic refresh 60 seconds after activation;
+		// a slow run must never let a live response install a snapshot mid-suite.
 		catalogNetworkGuard = blockCatalogNetwork();
 
 		// A label-scoped modelParameters key under the LEGACY id plus the
 		// persisted label map: the pre-registration migrations must rewrite the
-		// label scope AND rename the setting before the provider registers,
-		// which the registration stub below observes. Seeded through
-		// settings.json - the legacy id left the manifest, so the host refuses
-		// value writes to it (the uncontributed-id pin below).
+		// label scope AND rename the setting before the provider registers.
+		// Seeded through settings.json, since the host refuses value writes to
+		// the uncontributed legacy id.
 		const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 		modelParametersBefore = config.inspect<Record<string, unknown>>(MODEL_PARAMETERS_SETTING_KEY)?.globalValue;
 		await withExternalSettingsEdit(
@@ -192,9 +181,8 @@ suite("production activation", () => {
 	});
 
 	suiteTeardown(async () => {
-		// Dispose whichever activation is still live before touching its
-		// inputs (a no-op when the re-activation suite already spliced): the
-		// catalog store's refresh timer must die before the fetch guard lifts
+		// Dispose whichever activation is still live before touching its inputs:
+		// the catalog store's refresh timer must die before the fetch guard lifts
 		// and the tmpdirs vanish under it.
 		for (const disposable of context?.subscriptions.splice(0) ?? []) {
 			disposable.dispose();
@@ -213,11 +201,9 @@ suite("production activation", () => {
 	});
 
 	test("the manifest declares onStartupFinished so activation never depends on Copilot Chat", async () => {
-		// Without an activation event the extension only wakes when a chat
-		// client queries LM providers: a host without Copilot Chat (or with it
-		// activating late) would get no migrations, no status bar, and no usage
-		// surfaces. onStartupFinished is the deterministic path; the implicit
-		// provider/command events ride along.
+		// Without an activation event the extension only wakes when a chat client
+		// queries LM providers: a host without Copilot Chat would get no
+		// migrations, no status bar, and no usage surfaces.
 		const manifestPath = path.resolve(__dirname, "..", "..", "..", "package.json");
 		const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8")) as { activationEvents?: string[] };
 		assert.ok(
@@ -236,32 +222,24 @@ suite("production activation", () => {
 	});
 
 	test("activation with the default token-estimation mode loads no tokenizer rank data", () => {
-		// The default chat.tokenEstimation ("auto") under this host's English UI
-		// language defers the o200k_base load to the counter's non-Latin
-		// detection, so activation itself must not pull the multi-megabyte
-		// gpt-tokenizer modules into the process. The bundle side of the same
-		// promise - the encodings split into lazy chunks that dist/extension.js
-		// only reaches through dynamic import - is pinned by the packaged-file
-		// checks in format-check-reusable.yml.
+		// The default chat.tokenEstimation ("auto") under an English UI language
+		// defers the o200k_base load to the counter's non-Latin detection, so
+		// activation must not pull the multi-megabyte gpt-tokenizer modules in.
 		const loaded = Object.keys(require.cache).filter((id) => id.includes(`${path.sep}gpt-tokenizer${path.sep}`));
 		assert.deepStrictEqual(loaded, []);
 	});
 
 	test("activation installs a durable per-install fingerprint salt", () => {
-		// Every credential identity in the process is keyed by this salt, so
-		// activation must have generated and stored it (this context started
-		// with empty SecretStorage) before anything computed a fingerprint.
+		// Every credential identity in the process is keyed by this salt, and this
+		// context started with empty SecretStorage.
 		assert.match(storage.secretStore.get(FINGERPRINT_SALT_SECRET) ?? "", /^[0-9a-f]{64}$/);
 	});
 
 	test("activation claims each status-item slot exactly once", () => {
-		// The real composed wiring path, not the per-module composition the
-		// wiring statusSlots suite drives: after activate(), the slot registry
-		// holds exactly the connection and usage items (the suppressed real
-		// extension created none). A duplicated wiring call or a second
-		// construction path for either slot would self-heal into a replacement,
-		// leaving the count right but this session's log noisy - which is why
-		// the registry's replacement line must be absent too.
+		// The real composed wiring path: after activate(), the slot registry holds
+		// exactly the connection and usage items. A second construction path for
+		// either slot self-heals into a replacement, leaving the count right but
+		// the log noisy - which is why the replacement line must be absent too.
 		assert.deepStrictEqual([...liveStatusItemSlots()].sort(), ["connection", "usage"]);
 		assert.ok(
 			!channelLines.some((line) => line.includes("status-item slot replaced")),
@@ -270,11 +248,9 @@ suite("production activation", () => {
 	});
 
 	test("activation with hasShownWelcome pre-seeded skips the globalState re-write", () => {
-		// The load-bearing assertion: a regression to always-update would
-		// rewrite the flag on every activation. The toast check below is only
-		// belt and braces - the seeded registry server independently
-		// suppresses the welcome toast, so its absence cannot prove the
-		// hasShownWelcome gate on its own.
+		// The load-bearing assertion: a regression to always-update would rewrite
+		// the flag on every activation. The toast check is belt and braces - the
+		// seeded registry server suppresses the welcome toast independently.
 		assert.ok(
 			!mementoWrites.includes(HAS_SHOWN_WELCOME_KEY),
 			"the already-true welcome flag must not be rewritten on every activation"
@@ -286,14 +262,11 @@ suite("production activation", () => {
 	});
 
 	test("the label-scoped rewrite and the settings rename complete before the provider registers", () => {
-		// The load-bearing half of the pre-registration phase: the label-copy
-		// pass and the settings-redesign rename are awaited before
+		// The label-copy pass and the settings-redesign rename are awaited before
 		// registerLanguageModelChatProvider, so the session's first request can
-		// never race them. The stub captured models.parameters at registration
-		// time: the label rewrite added the base-URL copy on the LEGACY id,
-		// then the rename moved both keys here - the label key star-appended
-		// into an explicit matcher, the URL-scoped copy left verbatim (inert,
-		// no declared entry matches it).
+		// never race them. The label rewrite added the base-URL copy on the
+		// LEGACY id, then the rename moved both keys: the label key star-appended
+		// into an explicit matcher, the URL-scoped copy left verbatim and inert.
 		const captured = expectDefined(
 			modelParametersAtRegistration,
 			"the registration stub must have captured the setting"
@@ -306,12 +279,10 @@ suite("production activation", () => {
 		assert.strictEqual(registeredVendor, "litellm");
 		const registered = expectDefined(provider, "activation must register the provider");
 
-		// The activation-time migration may have rewritten the registry blob
-		// (today's orphan cleanup deletes servers it does not recognize; the
-		// evidence-based rework keeps them). Depend on neither: re-seed the
-		// fixture under a strictly newer version - the registry adopts newer
-		// blobs on its next read - and prove it is present immediately before
-		// the refresh, so the refusal below judges a POPULATED registry.
+		// The activation-time migration may have rewritten the registry blob.
+		// Depend on neither outcome: re-seed the fixture under a strictly newer
+		// version (the registry adopts newer blobs on its next read) and prove it
+		// is present, so the refusal below judges a POPULATED registry.
 		await storage.memento.update(SERVER_REGISTRY_KEY, {
 			version: 1000,
 			servers: [{ id: "srv-prod-1", label: "Leftover", baseUrl: "http://localhost:49997" }],
@@ -324,18 +295,17 @@ suite("production activation", () => {
 		channelLines.length = 0;
 		const token = new vscode.CancellationTokenSource().token;
 		const models = await registered.provideLanguageModelChatInformation({ silent: true }, token);
-		// Serving "Leftover" would double-list every server beside its
-		// provider group; the refresh must not even attempt its discovery.
+		// Serving "Leftover" would double-list every server beside its provider
+		// group; the refresh must not even attempt its discovery.
 		assert.deepStrictEqual(models, []);
 		assert.deepStrictEqual(
 			registered.getServerSnapshots().map((snapshot) => snapshot.status.label),
 			[],
 			"the group-agnostic refresh must not touch the migrated registry's servers"
 		);
-		// The discriminating half (a failed discovery would also yield no
-		// models, so the empties above cannot prove the contract alone): the
-		// group-agnostic path logs its serves-nothing outcome and never
-		// reaches a fetch.
+		// The discriminating half, since a failed discovery would also yield no
+		// models: the group-agnostic path logs its serves-nothing outcome and
+		// never reaches a fetch.
 		assert.ok(
 			channelLines.some((line) => line.includes("Serving no models for the group-agnostic refresh")),
 			`expected the serves-nothing line in: ${JSON.stringify(channelLines)}`
@@ -361,13 +331,10 @@ suite("production activation", () => {
 		// would legitimately increment the counter this test consumes.
 		this.timeout(15000);
 		expectDefined(provider, "activation must register the provider");
-		// By construction nothing can fire here: the fake context saw neither
-		// a catalog cache nor a bundled dist/openrouter-models.json (so
-		// initialize() installed nothing), and the other producers - the
-		// config-change debounce and group removals - saw no model-affecting
-		// edit since registration. The settle only makes a regression (an
-		// event scheduled during activation) observable past its 400ms
-		// debounce even on a runner that reaches this test immediately.
+		// By construction nothing can fire here: the fake context saw neither a
+		// catalog cache nor a bundled artifact, and no model-affecting edit has
+		// happened since registration. The settle makes a regression observable
+		// past the 400ms debounce even on a runner that arrives immediately.
 		await new Promise((resolve) => setTimeout(resolve, 600));
 		assert.strictEqual(
 			modelChangeEventsSinceRegistration,
@@ -428,9 +395,8 @@ suite("production activation", () => {
 		const before = config.inspect<boolean>("models.openRouterCatalog")?.globalValue;
 		const fired = nextModelChangeEvent(registered);
 		try {
-			// Opting out changes which capability fields the catalog may fill,
-			// so registered models must re-resolve; the notify is the listener's
-			// registration effect (the catalog store's refresh timer is its own).
+			// Opting out changes which capability fields the catalog may fill, so
+			// registered models must re-resolve.
 			await config.update("models.openRouterCatalog", false, vscode.ConfigurationTarget.Global);
 			await fired;
 		} finally {
@@ -440,15 +406,11 @@ suite("production activation", () => {
 
 	/**
 	 * This host's user settings.json, located by content: a unique sentinel is
-	 * written through the configuration API (into the registered chat.timeout
-	 * setting) and the per-label user-data dirs from .vscode-test.mjs are
-	 * scanned for the file that carries it.
-	 *
-	 * The layout is that file's - `<tmp>/lvt/<pid>/<label>`, one parent per run
-	 * so the run can remove its own directories on exit - and this scan is the
-	 * one other place that knows it, so the two move together. Content matching
-	 * rather than picking the newest: a concurrent run of another worktree has
-	 * its own pid and the same shape, and mtime would happily choose theirs.
+	 * written through the configuration API and the per-label user-data dirs are
+	 * scanned for the file carrying it. The layout `<tmp>/lvt/<pid>/<label>` is
+	 * .vscode-test.mjs's and this scan is the one other place that knows it, so
+	 * the two move together. Content matching rather than newest-mtime: a
+	 * concurrent run of another worktree has the same shape under its own pid.
 	 */
 	async function locateUserSettingsFile(sentinel: string): Promise<string> {
 		const label = "activation-production";
@@ -469,12 +431,11 @@ suite("production activation", () => {
 	}
 
 	/**
-	 * Write external edits into this host's user settings.json and make the
-	 * host reload them: a registered write (chat.timeout carrying a unique
-	 * sentinel value) locates the file by content, the edit lands beside it,
-	 * and a second registered write forces the configuration reload the file
-	 * watcher would otherwise deliver flakily. `edit` may also DELETE ids by
-	 * assigning undefined. Restores chat.timeout itself before returning.
+	 * Write external edits into this host's user settings.json and make the host
+	 * reload them: a registered write (chat.timeout carrying a unique sentinel)
+	 * locates the file by content, the edit lands beside it, and a second
+	 * registered write forces the configuration reload. `edit` may also DELETE
+	 * ids by assigning undefined. Restores chat.timeout before returning.
 	 */
 	async function withExternalSettingsEdit(
 		edit: (settings: Record<string, unknown>) => void,
@@ -496,10 +457,9 @@ suite("production activation", () => {
 				}
 			}
 			await fs.writeFile(settingsFile, JSON.stringify(settings, null, "\t"));
-			// A write through the configuration API reloads the user
-			// configuration from disk, which picks the external edit up without
-			// depending on the file watcher (the flakiest link, especially on
-			// Windows); the poll below is only a safety net.
+			// A write through the configuration API reloads the user configuration
+			// from disk, which picks the external edit up without depending on the
+			// file watcher; the poll below is only a safety net.
 			await config().update("chat.timeout", sentinel + 1, vscode.ConfigurationTarget.Global);
 			const deadline = Date.now() + 10000;
 			while (!reloaded() && Date.now() < deadline) {
@@ -511,23 +471,19 @@ suite("production activation", () => {
 	}
 
 	test("the host inspects and clears stale user-settings values for an uncontributed setting id", async function () {
-		// The settings-redesign migration's load-bearing host assumptions,
-		// pinned with an id that was never contributed so the pin cannot rot
-		// as settings come and go: (1) the host REFUSES writing a value to an
-		// unregistered key, so the only way a value exists is the real upgrade
-		// scenario - written while an older release contributed it - which the
-		// test reproduces by editing settings.json directly; (2) inspect()
-		// still reports such a stale value; (3) update(id, undefined, Global)
-		// is exempt from the unknown-key refusal and clears it (vs code's
-		// configurationEditing validate() exempts deletions).
+		// The settings-redesign migration's host assumptions, pinned with an id
+		// that was never contributed so the pin cannot rot: (1) the host REFUSES
+		// writing a value to an unregistered key, so a value can only exist from
+		// the real upgrade scenario, reproduced here by editing settings.json
+		// directly; (2) inspect() still reports such a stale value; (3)
+		// update(id, undefined, Global) is exempt from the refusal and clears it.
 		this.timeout(20000);
 		const config = () => vscode.workspace.getConfiguration(CONFIG_SECTION);
 		const probeId = "pinnedUncontributedProbe";
 		assert.strictEqual(config().inspect<number>(probeId)?.globalValue, undefined, "the probe id must start absent");
 		await assert.rejects(
 			async () => config().update(probeId, 42, vscode.ConfigurationTarget.Global),
-			// Matched loosely on purpose: the behavior is the pin, the host's
-			// exact wording is not.
+			// Matched loosely: the behavior is the pin, the host's wording is not.
 			/registered/,
 			"a VALUE write to an unregistered id must be refused (otherwise this pin seeds the easy way)"
 		);
@@ -561,11 +517,9 @@ suite("production activation", () => {
 	test("the settings-redesign applier migrates a seeded old-world configuration end to end", async function () {
 		// The applier against the REAL configuration API and the registered
 		// manifest: legacy ids seeded the only way an upgrade produces them
-		// (external settings.json edits - the host refuses value writes to
-		// unregistered keys, see the pin above), then applySettingsRedesign
-		// executes its plan's writes at the Global target and the new world is
-		// read back through inspect(). Idempotence closes the loop: a re-plan
-		// against the migrated settings writes nothing.
+		// (external settings.json edits), then applySettingsRedesign executes its
+		// plan at the Global target and the new world is read back through
+		// inspect(). A re-plan against the migrated settings must write nothing.
 		this.timeout(30000);
 		const config = () => vscode.workspace.getConfiguration(CONFIG_SECTION);
 		const seededIds = ["requestTimeout", "modelParameters", "defaultContextLength", "headers"];
@@ -583,8 +537,7 @@ suite("production activation", () => {
 			error: (line: string) => channelLines.push(line),
 		} as unknown as Parameters<typeof applySettingsRedesign>[2];
 		try {
-			// A clean slate on the new-name ids: earlier tests in this suite (and
-			// activation's own migration of the suite seed) leave values there,
+			// A clean slate on the new-name ids: earlier tests leave values there,
 			// and the rename's sync-race rule would otherwise keep them and drop
 			// the seeds below without writing.
 			for (const id of newIds) {
@@ -642,10 +595,9 @@ suite("production activation", () => {
 	});
 
 	// Mocha runs a suite's own tests before its nested suites, so this
-	// artifact-PRESENT world runs last: its setup disposes the first
-	// activation wholesale (unregistering every litellm.* command), which is
-	// the only way a second activate() can run in the same host, and which
-	// invalidates the provider every test above observes.
+	// artifact-PRESENT world runs last: its setup disposes the first activation
+	// wholesale (unregistering every litellm.* command), which is the only way a
+	// second activate() can run in the same host.
 	suite("re-activation with a bundled catalog artifact", () => {
 		suiteSetup(() => {
 			for (const disposable of expectDefined(context, "the first activation must have run").subscriptions.splice(0)) {
@@ -676,21 +628,18 @@ suite("production activation", () => {
 				_vendor: string,
 				registered: LiteLLMChatModelProvider
 			) => {
-				// Subscribed inside the stub: initialize() is fire-and-forget, so
-				// its notify races activate()'s return and the listener must exist
-				// before the load can complete.
+				// Subscribed inside the stub: initialize() is fire-and-forget, so its
+				// notify races activate()'s return.
 				notified = nextModelChangeEvent(registered);
 				return { dispose() {} };
 			};
 			let notifyDeadline: ReturnType<typeof setTimeout> | undefined;
 			try {
 				await activate(rerunContext);
-				// The artifact-present contract: the bundled snapshot installed,
-				// so activation owes the catalog notify. Nothing else can produce
-				// one here (no config edits, no group changes), and the
-				// artifact-absent twin above pins the zero-event side, so the
-				// pair discriminates: an unconditional activation notify fails
-				// there, a missing install notify fails here.
+				// The artifact-present contract: the bundled snapshot installed, so
+				// activation owes the catalog notify. Nothing else can produce one
+				// here, and the artifact-absent twin above pins the zero-event side,
+				// so the pair discriminates.
 				await Promise.race([
 					expectDefined(notified, "re-activation must register the provider"),
 					new Promise<never>((_, reject) => {

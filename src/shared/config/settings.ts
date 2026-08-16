@@ -34,8 +34,7 @@ import {
 type LogFn = (message: string, data?: unknown) => void;
 
 // The object settings' keys live in settingSpec.ts beside the scalar specs
-// (vscode-free, so non-host consumers can load them); re-exported here for
-// the readers that take everything settings-related from this module.
+// (vscode-free, so non-host consumers can load them).
 export {
 	CURRENCY_SYMBOL_SETTING_KEY,
 	MIN_TIMEOUT_MS,
@@ -67,8 +66,7 @@ function getBooleanSetting(id: BooleanSettingId): boolean {
  * Validate a configured number setting: non-finite values fall back to the
  * default, integer-only settings floor fractions (the contribution says
  * integer, but settings.json is free text), and finite values are clamped to
- * the minimum. Logs whenever the effective value differs from the configured
- * one.
+ * the minimum.
  */
 function clampNumber(
 	raw: unknown,
@@ -109,8 +107,7 @@ export function normalizeTokenEstimationMode(raw: unknown): TokenEstimationMode 
 
 /**
  * How the local token budget prices text. Read once at activation and on
- * configuration change by the tokenizer wiring (extension/tokenCounting.ts),
- * never per count.
+ * configuration change by the tokenizer wiring, never per count.
  */
 export function getTokenEstimationMode(): TokenEstimationMode {
 	return normalizeTokenEstimationMode(getConfig().get<unknown>(TOKEN_ESTIMATION_SETTING_KEY));
@@ -118,8 +115,8 @@ export function getTokenEstimationMode(): TokenEstimationMode {
 
 /**
  * How long cached model-discovery results are served, in milliseconds. 0 is a
- * valid configuration (the spec's floor): it disables serving from the cache
- * (concurrent refreshes still coalesce into one request).
+ * valid configuration: it disables serving from the cache (concurrent
+ * refreshes still coalesce into one request).
  */
 export function getDiscoveryCacheTtl(log?: LogFn): number {
 	return getClampedNumberSetting("discovery.cacheTtl", log);
@@ -128,8 +125,8 @@ export function getDiscoveryCacheTtl(log?: LogFn): number {
 /**
  * How long a failing group refresh may keep serving the group's last known
  * models flagged stale, anchored to the last successful discovery, in
- * milliseconds. 0 is a valid configuration (the spec's floor): it disables
- * stale serving entirely, so a failed silent refresh serves the empty list.
+ * milliseconds. 0 disables stale serving entirely, so a failed silent refresh
+ * serves the empty list.
  */
 export function getDiscoveryStaleServeWindow(log?: LogFn): number {
 	return getClampedNumberSetting("discovery.staleServeWindow", log);
@@ -141,9 +138,7 @@ export function isPromptCachingEnabled(): boolean {
 
 /**
  * How many tools one chat request may carry before it is refused locally
- * instead of sent (chat.maxToolsPerRequest). Values below 1 clamp to 1;
- * fractions floor and non-finite values fall back to the default (the spec's
- * `integer` flag, applied by the shared clamping read).
+ * instead of sent.
  */
 export function getMaxToolsPerRequest(log?: LogFn): number {
 	return getClampedNumberSetting("chat.maxToolsPerRequest", log);
@@ -153,9 +148,7 @@ export function getMaxToolsPerRequest(log?: LogFn): number {
  * Narrow a raw chat.additionalToolSchemaKeywords value to the keyword names
  * the tool-schema sanitizer keeps beyond its built-in allowlist: non-empty
  * strings, deduplicated, in configuration order. A non-array reads as no
- * additions; non-string, empty, and prototype-polluting entries ("__proto__"
- * and friends, which could never be copied as own schema keys) drop with one
- * log line. Exported for the unit suite and the dashboard's settings view.
+ * additions; non-string, empty, and prototype-polluting entries drop.
  */
 export function normalizeAdditionalToolSchemaKeywords(raw: unknown, log?: LogFn): readonly string[] {
 	if (!Array.isArray(raw)) {
@@ -199,9 +192,8 @@ export const MIN_USAGE_POLL_INTERVAL_MS = 30000;
 /**
  * How often the usage poller refreshes per-server spend and budget data, in
  * milliseconds. Zero disables polling entirely (the documented off switch;
- * explicit refresh still works), negatives clamp to zero, nonzero values
- * clamp up to MIN_USAGE_POLL_INTERVAL_MS, and non-finite values fall back to
- * the default.
+ * explicit refresh still works), negatives clamp to zero, and nonzero values
+ * clamp up to MIN_USAGE_POLL_INTERVAL_MS.
  */
 export function getUsagePollIntervalMs(log?: LogFn): number {
 	const clamped = getClampedNumberSetting("usage.pollInterval", log);
@@ -227,8 +219,7 @@ export function getUsageServersChangeRefreshDelayMs(log?: LogFn): number {
 
 /**
  * How long on-demand usage data counts as fresh while polling is off, in
- * milliseconds (usage.pollingOffFreshnessWindow). 0 is a valid configuration
- * (the spec's floor): on-demand data then never counts as fresh, so the
+ * milliseconds. 0 is valid: on-demand data then never counts as fresh, so the
  * status bar aggregates nothing while polling is off.
  */
 export function getUsagePollingOffFreshnessWindowMs(log?: LogFn): number {
@@ -242,9 +233,7 @@ export const DEFAULT_USAGE_ALERT_THRESHOLDS: readonly number[] = [0.8, 0.95];
  * Narrow a raw usage.alertThresholds value to usable alert fractions: finite
  * numbers in (0, 1], deduplicated and sorted ascending. A non-array falls back
  * to the default; an array keeps only its valid entries (an empty result is a
- * legitimate "no alerts" configuration). Exported for the unit suite and the
- * dashboard's settings view; the poller reads it through
- * getUsageAlertThresholds.
+ * legitimate "no alerts" configuration).
  */
 export function normalizeUsageAlertThresholds(raw: unknown, log?: LogFn): readonly number[] {
 	if (!Array.isArray(raw)) {
@@ -286,18 +275,15 @@ export function getUsageStatusBarMode(): UsageStatusBarMode {
 }
 
 /**
- * Any string is a legal currency symbol, the empty string included (it
- * renders the bare number); everything else reads as the default "$". No
- * trimming: a trailing space is how "EUR " keeps the amount readable.
+ * Any string is a legal currency symbol, the empty string included (it renders
+ * the bare number). No trimming: a trailing space is how "EUR " keeps the
+ * amount readable.
  */
 export function normalizeCurrencySymbol(raw: unknown): string {
 	return typeof raw === "string" ? raw : DEFAULT_CURRENCY_SYMBOL;
 }
 
-/**
- * The prefix every spend and cost figure renders with. Display only, never a
- * conversion: amounts render exactly as the server reports them.
- */
+/** Display only, never a conversion: amounts render exactly as reported. */
 export function getCurrencySymbol(): string {
 	return normalizeCurrencySymbol(getConfig().get<unknown>(CURRENCY_SYMBOL_SETTING_KEY));
 }
@@ -309,7 +295,6 @@ export function normalizeUiTheme(raw: unknown): UiTheme {
 		: DEFAULT_UI_THEME;
 }
 
-/** The dashboard theme the reader picked. */
 export function getUiTheme(): UiTheme {
 	return normalizeUiTheme(getConfig().get<unknown>(UI_THEME_SETTING_KEY));
 }
@@ -321,7 +306,6 @@ export function normalizeUiAccent(raw: unknown): UiAccent {
 		: DEFAULT_UI_ACCENT;
 }
 
-/** The accent hue the reader picked. */
 export function getUiAccent(): UiAccent {
 	return normalizeUiAccent(getConfig().get<unknown>(UI_ACCENT_SETTING_KEY));
 }
@@ -335,12 +319,11 @@ const headerValueSchema = z.custom<HeaderScalar>(isHeaderScalar).transform((valu
 
 /**
  * Narrow a raw custom-headers record (a server entry's `headers` field) to
- * the record the wire carries. Values must pass isValidHeaderValue (the one
- * owner of the header-value charset rule, shared with the dashboard's editors
- * and intent validation): a value that reached the platform's Headers instead
- * would throw a TypeError embedding the full plaintext value, and these
- * values can be secrets. Two names differing only by case are one HTTP
- * header: the first one in the object wins and the collision is reported.
+ * the record the wire carries. Values must pass isValidHeaderValue: a value
+ * that reached the platform's Headers instead would throw a TypeError
+ * embedding the full plaintext value, and these values can be secrets. Two
+ * names differing only by case are one HTTP header: the first one in the
+ * object wins and the collision is reported.
  */
 export function normalizeCustomHeaders(raw: unknown, log?: LogFn): Record<string, string> {
 	const parsed = settingsRecordSchema.safeParse(raw);
@@ -387,8 +370,7 @@ const prefixKeyedEntrySchema = z.record(z.string(), z.unknown());
 /**
  * Narrow a raw matcher-keyed setting (models.parameters, models.capabilities)
  * to the record-of-records shape. Validated entry-by-entry so one malformed
- * entry drops only itself, not the whole map; prototype-polluting keys are
- * dropped outright.
+ * entry drops only itself; prototype-polluting keys are dropped outright.
  */
 function normalizePrefixKeyedRecords(raw: unknown): Record<string, Record<string, unknown>> {
 	const parsed = settingsRecordSchema.safeParse(raw);
@@ -409,10 +391,7 @@ function normalizePrefixKeyedRecords(raw: unknown): Record<string, Record<string
 	return records;
 }
 
-/**
- * Narrow a raw models.parameters value to the record-of-records shape. Shared
- * by the request path and the dashboard's settings view.
- */
+/** Narrow a raw models.parameters value to the record-of-records shape. */
 export function normalizeModelParameters(raw: unknown): Record<string, Record<string, unknown>> {
 	return normalizePrefixKeyedRecords(raw);
 }
@@ -422,11 +401,10 @@ export function getModelParametersConfig(): Record<string, Record<string, unknow
 }
 
 /**
- * Narrow a raw models.capabilities value to the record-of-records shape.
- * Shape only, deliberately as lenient as normalizeModelParameters: the
- * capability vocabulary and value typing are enforced in one place,
- * capabilityResolution's parseCapabilityRecord, which also produces the
- * diagnostics the dashboard renders.
+ * Narrow a raw models.capabilities value to the record-of-records shape. Shape
+ * only, deliberately as lenient as normalizeModelParameters: the capability
+ * vocabulary and value typing are enforced in one place,
+ * capabilityResolution's parseCapabilityRecord.
  */
 export function normalizeModelCapabilities(raw: unknown): Record<string, Record<string, unknown>> {
 	return normalizePrefixKeyedRecords(raw);
@@ -443,8 +421,7 @@ export function getMaskSecretInputs(): boolean {
 /**
  * The OpenRouter catalog opt-out. Disabling stops the periodic refresh (all
  * catalog network) and the implicit by-raw-ID lookup; explicit
- * `_openrouter_model` directives keep answering from the bundled or cached
- * snapshot.
+ * `_openrouter_model` directives keep answering from the snapshot.
  */
 export function isOpenRouterCatalogEnabled(): boolean {
 	return getBooleanSetting("models.openRouterCatalog");

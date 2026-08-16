@@ -282,10 +282,8 @@ suite("extension/dashboard/panel", () => {
 	});
 
 	test("open kicks the staleness-gated usage refresh, never the unconditional one", () => {
-		// The GATE lives in the poller (refreshIfStale decides from the last
-		// completed pass); the panel's job is only to ask the gated seam on
-		// every open - the poller's own tests pin that a fresh open fetches
-		// nothing.
+		// The gate itself lives in the poller (refreshIfStale reads the last
+		// completed pass); the panel's job is only to ask the gated seam on every open.
 		const harness = makeHarness();
 		harness.controller.open();
 		harness.controller.open();
@@ -1463,12 +1461,9 @@ suite("extension/dashboard/panel", () => {
 		});
 
 		test("a rotated-credentials group still resolves: the lookup is by snapshot server ID, the match by label and URL", () => {
-			// Rotating a group's credentials mints a new fingerprinted server ID,
-			// so the strict labeled-identity join (the entry-params-inactive
-			// notice) fails - but the request path matches label plus URL only,
-			// and requests through the rotated group DO receive the entry's
-			// parameters. The inspector must agree with the request path, not
-			// with the notice.
+			// Rotating credentials mints a new fingerprinted server ID, so the
+			// strict labeled-identity join fails - but the request path matches
+			// label plus URL, and the inspector must agree with the request path.
 			const resolve = resolver({
 				"group:labeled:rotated-fingerprint:http://prod.test": { label: "Team A", baseUrl: "http://prod.test" },
 			});

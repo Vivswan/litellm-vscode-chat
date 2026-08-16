@@ -185,11 +185,9 @@ suite("extension/servers/serverRegistry", () => {
 		});
 
 		test("a broken persisted version re-enters versioning at 0 instead of freezing adoption", async () => {
-			// A hand-edited 1e999 in the persisted JSON survives JSON.parse as
-			// Infinity, and a huge finite value like 1e20 is just as poisonous
-			// (version + 1 rounds back to version): in both cases no local write
-			// could ever persist a strictly newer version, so cross-window
-			// adoption would freeze.
+			// A hand-edited 1e999 survives JSON.parse as Infinity, and a huge finite
+			// value like 1e20 is just as poisonous (version + 1 rounds back), so no
+			// local write could persist a strictly newer version and adoption freezes.
 			const existing = { id: "srv1", label: "Existing", baseUrl: "http://existing:4000" };
 			for (const broken of [Number.POSITIVE_INFINITY, Number.NaN, 1e20, -1, 1.5]) {
 				const { registry, mementoStore } = createRegistry({ version: broken, servers: [existing] });

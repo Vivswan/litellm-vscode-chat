@@ -14,12 +14,10 @@ import { collapseChunks } from "../scenarios";
 
 /**
  * Property coverage for collapseChunks, the fake stack's own non-streaming
- * collapse: fake-openai-server.ts answers stream:false requests with it, and
- * no docker suite exercises that path. These properties keep it honest, so a
- * future docker test of stream:false can trust the fake backend's answer
- * instead of re-deriving it. Inputs come from the same fuzz generators the
- * stream suites use (fuzzStream.ts), so the collapse sees the exact chunk
- * shapes the fake stack streams.
+ * collapse: the fake backend answers stream:false requests with it and no docker
+ * suite exercises that path, so these properties keep it honest. Inputs come
+ * from the same fuzz generators the stream suites use, so the collapse sees the
+ * exact chunk shapes the fake stack streams.
  */
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
@@ -48,12 +46,10 @@ const eventsArb: fc.Arbitrary<FuzzEvent[]> = fc
 
 /**
  * Streams built only from kinds whose tool calls ride the delta channel with
- * sequential numeric indices (text events are inert padding). For these,
- * every flattened ExpectedToolCall maps 1:1 onto a collapsed tool_calls entry
- * whose id is `call_fuzz_<position>`, because the generators assign indices
- * from one shared counter in tools[] order. Inline-channel kinds are excluded
- * on purpose: collapseChunks does not parse control tokens out of content, so
- * inline calls stay in the text (the text property covers them there).
+ * sequential numeric indices (text events are inert padding), so every flattened
+ * ExpectedToolCall maps 1:1 onto a collapsed tool_calls entry. Inline-channel
+ * kinds are excluded on purpose: collapseChunks does not parse control tokens
+ * out of content, so inline calls stay in the text.
  */
 const deltaToolEventsArb: fc.Arbitrary<FuzzEvent[]> = fc
 	.tuple(
@@ -91,9 +87,9 @@ function soleChoiceOf(collapsed: Record<string, unknown>): CollapsedChoice {
 
 /**
  * The content oracle: the in-order concatenation of every string delta.content
- * across all chunks and choices. Deliberately re-derived from the raw chunks
- * (not from FuzzEvent.text) because collapseChunks must keep inline tool
- * control tokens and skip non-string content like structured arrays.
+ * across all chunks and choices. Deliberately re-derived from the raw chunks,
+ * not from FuzzEvent.text, because collapseChunks must keep inline tool control
+ * tokens and skip non-string content.
  */
 function concatenatedContentOf(chunks: unknown[]): string {
 	let content = "";
@@ -146,10 +142,10 @@ suite("fakeStack/collapseChunks properties", () => {
 		fc.assert(
 			fc.property(deltaToolEventsArb, (events) => {
 				// This expectation leans on a generator guarantee: every event kind
-				// used here emits its first call's frames before its second's, so
-				// collapseChunks's Map insertion order matches both the numeric
-				// index order and the flattened tools[] position. A generator that
-				// ever emits a higher index first breaks this oracle, not the code.
+				// used here emits its first call's frames before its second's, so the
+				// Map insertion order matches both the numeric index order and the
+				// flattened tools[] position. A generator that ever emits a higher
+				// index first breaks this oracle, not the code.
 				const expected = events
 					.flatMap((event) => event.tools ?? [])
 					.map((call, position) => ({

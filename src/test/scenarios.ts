@@ -1,10 +1,9 @@
 /**
  * Shared streaming scenario definitions for the fake LiteLLM backends: the
- * in-process capture server (host-fidelity tests) and the containerized
- * fake OpenAI server behind the docker LiteLLM proxy. Each scenario is a
- * canned /v1/chat/completions response, addressed per request with the
- * %play:<name> command (src/test/fakeStack/commands.ts). The model catalog
- * lives separately in src/test/fakeStack/models.ts.
+ * in-process capture server and the containerized fake OpenAI server behind the
+ * docker proxy. Each scenario is a canned /v1/chat/completions response,
+ * addressed per request with the %play:<name> command. The model catalog lives
+ * separately in fakeStack/models.ts.
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -28,10 +27,8 @@ interface ErrorScenario {
 
 /**
  * A well-formed SSE prefix with a broken ending: after the chunks, "destroy"
- * drops the socket, "no-done" ends the body cleanly WITHOUT the [DONE]
- * sentinel, and "stall" holds the connection silent for stallMs (default
- * STALL_MS_DEFAULT) before destroying it server-side. delayMs paces the
- * chunks like sse-delayed.
+ * drops the socket, "no-done" ends the body cleanly WITHOUT the [DONE] sentinel,
+ * and "stall" holds the connection silent before destroying it server-side.
  */
 interface SseAbortScenario {
 	type: "sse-abort";
@@ -42,12 +39,10 @@ interface SseAbortScenario {
 }
 
 /**
- * Verbatim response bytes: statusCode and headers as given, then the frames
- * written in order (each frame's characters are single bytes, written as
- * latin1, so a test can split a multi-byte UTF-8 sequence across frames).
- * Nothing is implied - no Content-Type, no [DONE]; callers spell out every
- * byte. This is the surface for malformed SSE framing, wrong content types,
- * and non-JSON error bodies.
+ * Verbatim response bytes: statusCode and headers as given, then the frames in
+ * order (each frame's characters are single bytes, written as latin1, so a test
+ * can split a multi-byte UTF-8 sequence across frames). Nothing is implied - no
+ * Content-Type, no [DONE].
  */
 interface RawScenario {
 	type: "raw";
@@ -64,18 +59,13 @@ export type Scenario = SseScenario | SseDelayedScenario | ErrorScenario | SseAbo
 /** Stall duration when an sse-abort or raw scenario names none. */
 export const STALL_MS_DEFAULT = 10000;
 
-/**
- * Hard bound on stall durations and per-step pacing delays, and the whole
- * paced-playback deadline: paced sse-abort/raw playback destroys its response
- * this long after it starts even when steps times delay would run longer, so
- * a leaked test cannot wedge the fake backend's container.
- */
+/** Hard bound on stall durations, pacing delays, and the playback deadline, so a leaked test cannot wedge the stack. */
 export const MAX_STALL_MS = 60000;
 
 /**
- * Upper bound on the chunks/frames list of a runtime-registered scenario: the
- * 1 MiB body cap alone still admits hundreds of thousands of entries, whose
- * paced playback would occupy the socket far past every delay cap.
+ * Upper bound on a runtime-registered scenario's chunks/frames: the 1 MiB body
+ * cap alone admits hundreds of thousands of entries, whose paced playback would
+ * occupy the socket far past every delay cap.
  */
 export const MAX_SCENARIO_ITEMS = 10000;
 
@@ -102,9 +92,8 @@ export const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 		chunks: [makeChunk({ role: "assistant", content: "Hello from capture server" }), makeChunk({}, "stop")],
 	},
 
-	// A playback shape from the era when this scenario had its own two-
-	// deployment proxy model; the load-balanced group is now gpt-5.2 in
-	// src/test/fakeStack/models.ts, and this stays as a %play target.
+	// Kept as a %play target; the real load-balanced group is gpt-5.2 in the
+	// model catalog.
 	"load-balanced": {
 		type: "sse",
 		chunks: [makeChunk({ role: "assistant", content: "Balanced across deployments" }), makeChunk({}, "stop")],
@@ -463,11 +452,9 @@ export const BUILTIN_SCENARIOS: Record<string, Scenario> = {
 		],
 	},
 
-	// Perplexity-style chunk-root citations and search_results (LiteLLM's
-	// streaming pass-through): the source list grows as the model finds
-	// sources, so later chunks repeat the already-reported entries; the
-	// repeats must dedupe into one Sources trailer. makeChunk only builds
-	// choices, so the root fields are spread onto its result.
+	// Perplexity-style chunk-root citations and search_results: the source list
+	// grows as the model finds sources, so later chunks repeat already-reported
+	// entries and the repeats must dedupe into one Sources trailer.
 	"citations-chunk-level": {
 		type: "sse",
 		chunks: [
@@ -608,17 +595,12 @@ const sendSseDelayed = (res: ServerResponse, chunks: unknown[], delayMs: number)
 
 /**
  * Delay between the last written bytes and a destroy tail. Destroying in the
- * same tick as the writes sends an RST while headers and chunks still sit in
- * local buffers, and the peer then observes a zero-byte connection failure
- * instead of a mid-stream abort; the pause lets the peer read what was
- * written first.
+ * same tick sends an RST while headers and chunks still sit in local buffers,
+ * and the peer then sees a zero-byte failure instead of a mid-stream abort.
  */
 const DESTROY_FLUSH_MS = 100;
 
-/**
- * A timer that dies with the response: cleared when the client closes, so a
- * cancelled request never keeps its response retained by a pending callback.
- */
+/** A timer that dies with the response, so a cancelled request never keeps it retained by a pending callback. */
 const armTimer = (res: ServerResponse, fn: () => void, ms: number): void => {
 	// codeql[js/resource-exhaustion] -- fake-backend timer; every duration here is capped at MAX_STALL_MS
 	const timer = setTimeout(fn, ms);
@@ -636,12 +618,10 @@ const destroyAfterFlush = (res: ServerResponse): void => {
 };
 
 /**
- * Write `count` paced steps, then finish. One close listener clears whatever
- * timer is pending, and a whole-playback deadline destroys the response
- * MAX_STALL_MS after the first write: a validator-passing scenario can still
- * carry thousands of steps, so the per-value caps alone do not bound socket
- * occupation. The deadline stays armed through the finish tail (a stall after
- * a long playback dies with it) and is cleared by the close event.
+ * Write `count` paced steps, then finish. A whole-playback deadline destroys
+ * the response MAX_STALL_MS after the first write and stays armed through the
+ * finish tail: a validator-passing scenario can still carry thousands of steps,
+ * so the per-value caps alone do not bound socket occupation.
  */
 function runPaced(
 	res: ServerResponse,
@@ -732,11 +712,9 @@ const sendRaw = (res: ServerResponse, scenario: RawScenario): void => {
 };
 
 /**
- * The one playback dispatch, shared by the containerized fake OpenAI server
- * and the in-process capture server. `raw` plays verbatim regardless of the
- * stream flag; `sse-abort` collapses for stream:false like plain sse does,
- * because abort semantics are stream-only (there is no mid-body failure to
- * fake in a single JSON response).
+ * The one playback dispatch, shared by the containerized fake OpenAI server and
+ * the in-process capture server. `raw` plays verbatim regardless of the stream
+ * flag; `sse-abort` collapses for stream:false, because abort is stream-only.
  */
 export function playScenario(res: ServerResponse, scenario: Scenario, stream: boolean): void {
 	if (scenario.type === "error") {
@@ -789,10 +767,9 @@ const isByteString = (value: unknown): value is string => {
 };
 
 /**
- * Validator for PUT /_test/custom-scenario payloads. Built-in scenarios do
- * not pass through here; the caps exist so a runtime registration cannot
- * wedge the fake backend (unbounded lists, delays, or statuses writeHead
- * would reject).
+ * Validator for PUT /_test/custom-scenario payloads. Built-in scenarios skip it;
+ * the caps exist so a runtime registration cannot wedge the fake backend with
+ * unbounded lists, delays, or statuses writeHead would reject.
  */
 export function isScenario(value: unknown): value is Scenario {
 	if (typeof value !== "object" || value === null) {
@@ -831,10 +808,8 @@ export function isScenario(value: unknown): value is Scenario {
 }
 
 /**
- * Collapse an SSE chunk list into one non-streaming chat.completion body.
- * Used for stream:false requests (LiteLLM's own health probes send those, and
- * raw curl calls default to non-streaming). Text, refusal, tool calls, the
- * finish reason, and the usage trailer all carry over.
+ * Collapse an SSE chunk list into one non-streaming chat.completion body for
+ * stream:false requests: text, refusal, tool calls, finish reason, and usage.
  */
 export function collapseChunks(chunks: unknown[]): Record<string, unknown> {
 	let content = "";

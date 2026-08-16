@@ -10,9 +10,8 @@ const serverConfigSchema = z.looseObject({
 	baseUrl: z.string(),
 });
 
-// Accepts any number so a blob with a broken version still yields its servers
-// (z.number() rejects NaN and Infinity, which would drop the whole registry);
-// parsePersistedRegistry sanitizes the version itself to a safe integer.
+// Any number, so a blob with a broken version still yields its servers
+// (z.number() rejects NaN and Infinity); parsePersistedRegistry sanitizes it.
 const versionSchema = z.custom<number>((value) => typeof value === "number");
 
 const bareArrayRegistrySchema = z.array(z.unknown());
@@ -22,8 +21,8 @@ const versionedRegistrySchema = z.looseObject({
 	servers: z.array(z.unknown()),
 });
 
-// Malformed entries are dropped one by one; valid entries are kept as the
-// original objects so keys beyond id/label/baseUrl survive round-tripping.
+// Valid entries are kept as the original objects, so keys beyond
+// id/label/baseUrl survive round-tripping.
 function filterServerConfigs(entries: unknown[]): ServerConfig[] {
 	return entries.filter((entry): entry is ServerConfig => serverConfigSchema.safeParse(entry).success);
 }
@@ -41,16 +40,10 @@ function parsePersistedRegistry(raw: unknown): PersistedRegistry {
 	}
 	const versioned = versionedRegistrySchema.safeParse(raw);
 	if (versioned.success) {
-		// A broken persisted version would poison the protocol: Infinity (a
-		// hand-edited 1e999 survives JSON.parse) wins every "strictly newer"
-		// comparison yet can never be exceeded, NaN compares newer to nothing,
-		// and a huge finite value like 1e20 freezes too because version + 1
-		// rounds back to version. Anything that is not a nonnegative safe
-		// integer re-enters versioning at 0 instead, keeping the servers. A
-		// window still running with a higher healthy version outranks the
-		// recovered state until its own next persist - the last-write-wins
-		// concession the class comment documents - which beats the permanent
-		// cross-window freeze the broken version caused.
+		// A broken persisted version freezes the protocol permanently: Infinity
+		// and huge finite values can never be exceeded, NaN compares newer to
+		// nothing. Anything but a nonnegative safe integer re-enters versioning
+		// at 0 instead, keeping the servers.
 		const rawVersion = versioned.data.version;
 		const version = Number.isSafeInteger(rawVersion) && rawVersion >= 0 ? rawVersion : 0;
 		return { version, servers: filterServerConfigs(versioned.data.servers) };
@@ -64,8 +57,8 @@ export type RegistryMutationVerdict = "ok" | "migrating" | "retired";
 /** A registry mutation refused because the provider-group migration is seeding groups right now. */
 export class MigrationInProgressError extends Error {
 	constructor() {
-		// English by policy: thrown errors can land in the output channel and
-		// the public issue-report buffer.
+		// English by policy: this can land in the output channel and the public
+		// issue-report buffer.
 		super("registry mutation refused: the provider-group migration is running");
 		this.name = "MigrationInProgressError";
 	}
@@ -80,13 +73,10 @@ export class RegistryRetiredError extends Error {
 }
 
 export class ServerRegistry {
-	// VS Code merges all of an extension's globalState keys into one blob and
-	// broadcasts changes back to each extension host, so a naive read-modify-write
-	// lets a stale broadcast (e.g. a concurrent status-bar persist) revert a
-	// registry write. The in-memory list is authoritative for this window; the
-	// persisted blob carries a version so that snapshots from other windows are
-	// adopted only when strictly newer, and stale broadcasts are ignored.
-	// Simultaneous mutations from two windows remain last-write-wins.
+	// VS Code broadcasts globalState changes back to every extension host, so a
+	// stale broadcast can revert a naive read-modify-write. The in-memory list is
+	// authoritative for this window; the persisted blob's version gates adoption
+	// to strictly newer snapshots. Concurrent windows remain last-write-wins.
 	private servers: ServerConfig[];
 	private version: number;
 	private persisting = false;
@@ -102,11 +92,10 @@ export class ServerRegistry {
 	}
 
 	/**
-	 * Consulted synchronously at every public mutator's entry; anything but
-	 * "ok" refuses with the matching typed error. Defaults to "ok" so the
-	 * registry stands alone; activation installs the real verdict (the
-	 * migration lock plus the UI-mode retirement read, see
-	 * registryMutationVerdict in serverManagement.ts).
+	 * Consulted at every public mutator's entry; anything but "ok" refuses with
+	 * the matching typed error. Defaults to "ok" so the registry stands alone;
+	 * activation installs the real verdict (registryMutationVerdict in
+	 * serverManagement.ts).
 	 */
 	private mutationGuard: () => RegistryMutationVerdict = () => "ok";
 
@@ -126,8 +115,8 @@ export class ServerRegistry {
 
 	private syncFromStorage(): void {
 		// No adoption while our own write is in flight, and never from the blob we
-		// wrote ourselves: Memento caches updates optimistically, so after a failed
-		// persist the cache can still hold our rejected snapshot.
+		// wrote ourselves: Memento caches updates optimistically, so a failed
+		// persist can leave our rejected snapshot in the cache.
 		if (this.persisting) {
 			return;
 		}
@@ -167,9 +156,8 @@ export class ServerRegistry {
 
 	/**
 	 * The machinery's path around the mutation guard, paired with
-	 * removeServerUnguarded below: the migrations mutate while their own lock
-	 * reports "migrating" (and the legacy import may run after retirement).
-	 * Every user flow goes through the guarded methods.
+	 * removeServerUnguarded: the migrations mutate while their own lock reports
+	 * "migrating". Every user flow goes through the guarded methods.
 	 */
 	async addServerUnguarded(label: string, baseUrl: string, apiKey: string): Promise<ServerConfig> {
 		this.syncFromStorage();
@@ -217,14 +205,11 @@ export class ServerRegistry {
 			this.servers[idx] = previous;
 			throw error;
 		}
-		// A server the group migration skipped (a name collision, or an edit
-		// that raced the seeding) is naturally resolved by renaming or
-		// repointing it, so the skip marker lifts as soon as the entry mutation
-		// persists, independent of the secret operations below, which may fail
-		// transiently and must not leave the server permanently skipped.
-		// This read-filter-write can race a marker another window adds in the
-		// same instant; that self-heals by re-skipping (one extra notice), so
-		// no merge protocol is warranted for a removal.
+		// A server the group migration skipped is resolved by renaming or
+		// repointing it, so the marker lifts as soon as the entry mutation
+		// persists - before the secret operations below, which may fail
+		// transiently and must not leave the server permanently skipped. A marker
+		// another window adds in the same instant self-heals by re-skipping.
 		if (previous.label !== label || previous.baseUrl !== normalizedBaseUrl) {
 			const skipped = this.globalState.get<unknown>(SKIPPED_MIGRATION_SERVERS_KEY);
 			if (Array.isArray(skipped) && skipped.includes(id)) {

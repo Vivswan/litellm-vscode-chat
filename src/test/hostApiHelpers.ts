@@ -92,14 +92,11 @@ export async function ensureActivated(): Promise<void> {
 
 /**
  * Pin this host to catalog-OFF for hermeticity. The docker and host-fidelity
- * suites assert what the SERVER declares (pricing absence, no vision), but the
- * fake stack's realistic model names (llama-4-scout, gpt-5.2) suffix-match
- * real OpenRouter catalog entries whenever a catalog artifact is present -
- * dist/openrouter-models.json is build-time-fetched and legitimately differs
- * between checkouts, CI, and the packaged VSIX. Call this from suiteSetup
- * beside ensureActivated; a suite that wants catalog behavior must opt back
- * in and seed its own snapshot (docker-resolution does, through
- * litellm._test.seedOpenRouterCatalog).
+ * suites assert what the SERVER declares, but the fake stack's realistic model
+ * names suffix-match real OpenRouter catalog entries whenever a catalog artifact
+ * is present, and that artifact legitimately differs between checkouts, CI, and
+ * the packaged VSIX. Call this from suiteSetup beside ensureActivated; a suite
+ * that wants catalog behavior must opt back in and seed its own snapshot.
  */
 export async function catalogOff(): Promise<void> {
 	await vscode.workspace
@@ -108,11 +105,11 @@ export async function catalogOff(): Promise<void> {
 }
 
 /**
- * Block the OpenRouter catalog endpoint for this process and return the
- * restore handle. The catalog store arms a refresh 60 seconds after
- * activation and the extension host shares the runner's fetch, so a slow
- * suite would otherwise race a live openrouter.ai snapshot against its
- * controlled catalog state. Everything but that URL passes through.
+ * Block the OpenRouter catalog endpoint for this process and return the restore
+ * handle. The catalog store arms a refresh 60 seconds after activation and the
+ * extension host shares the runner's fetch, so a slow suite would otherwise race
+ * a live snapshot against its controlled catalog state. Everything but that URL
+ * passes through.
  */
 export function blockCatalogNetwork(): vscode.Disposable {
 	const realFetch = globalThis.fetch;

@@ -16,9 +16,8 @@ import type {
 type LogFn = (message: string, data?: unknown) => void;
 
 /**
- * Capability-derived conversion gates, resolved by the caller from the
- * model's registered capabilities (imageInput) and its LiteLLM input
- * modalities (audioInput); parts a gate excludes take the same drop-and-log
+ * Capability-derived conversion gates, resolved by the caller from the model's
+ * registered capabilities. Parts a gate excludes take the same drop-and-log
  * paths as if no wire mapping existed. Capabilities decide what goes on the
  * wire; nothing here injects a request parameter.
  */
@@ -31,7 +30,7 @@ export interface ConvertMessagesOptions {
 	 * history never sends image blocks to a non-vision model.
 	 */
 	imageInput?: boolean | undefined;
-	/** Convert audio DataParts on user messages to input_audio blocks; without it they drop with the no-wire-mapping log. */
+	/** Convert audio DataParts on user messages to input_audio blocks; without it they drop with a log. */
 	audioInput?: boolean | undefined;
 }
 
@@ -75,10 +74,9 @@ function decodeDataPartText(part: vscode.LanguageModelDataPart): string | null {
 
 /**
  * What conversion transmits for a prompt-tsx part: its string value, the JSON
- * serialization of an object value, or nothing. JSON.stringify itself returns
- * undefined for values with no JSON rendering (a function, a symbol, a toJSON
- * that returns undefined), so callers must treat undefined as dropped. Token
- * estimation prices this same rendering.
+ * serialization of an object value, or nothing. JSON.stringify returns
+ * undefined for values with no JSON rendering, so callers must treat undefined
+ * as dropped. Token estimation prices this same rendering.
  */
 export function extractPromptTsxText(part: vscode.LanguageModelPromptTsxPart): string | undefined {
 	if (typeof part.value === "string") {
@@ -113,14 +111,12 @@ function mapRole(message: vscode.LanguageModelChatRequestMessage, log?: LogFn): 
 }
 
 /**
- * The parts of one tool result the wire can carry: its flattened text (the
- * tool message body) and, for vision models, the image blocks the caller
- * gathers into the turn's synthesized image message. Tool messages themselves
- * never carry image blocks: LiteLLM's OpenAI transformation forwards
- * tool-message content verbatim and OpenAI-family models reject image blocks
- * there, so the images ride a user message after the turn instead (OpenAI's
- * documented shape, which Anthropic accepts too). For models without
- * imageInput the image is dropped with the log below, as before.
+ * The parts of one tool result the wire can carry: its flattened text and, for
+ * vision models, the image blocks the caller gathers into the turn's
+ * synthesized image message. Tool messages themselves never carry image
+ * blocks: LiteLLM forwards tool-message content verbatim and OpenAI-family
+ * models reject image blocks there, so the images ride a user message after
+ * the turn instead. Without imageInput the image is dropped with a log.
  */
 interface ToolResultContent {
 	text: string;
@@ -146,11 +142,10 @@ function collectToolResultContent(
 			} else if (isImageMimeType(c.mimeType)) {
 				log?.("Tool returned image data which cannot be forwarded as tool result text");
 			} else {
-				// PDF and audio blocks exist only on user messages; a tool message
-				// has no wire shape for them, so the drop must stay observable like
-				// the non-vision image case above. The mime is tool-controlled and
-				// this log feeds the issue-report buffer, so it is allowlisted by
-				// shape.
+				// PDF and audio blocks exist only on user messages, so the drop must
+				// stay observable like the non-vision image case above. The mime is
+				// tool-controlled and this log feeds the issue-report buffer, so it
+				// is allowlisted by shape.
 				log?.("Tool returned media with no tool-result wire mapping", {
 					mimeType: isSafeMimeType(c.mimeType) ? c.mimeType : "unparseable",
 				});
@@ -175,16 +170,15 @@ function collectToolResultContent(
 
 /**
  * The fixed lead-in of the synthesized image message. A constant, never
- * response-derived text: it exists so the model can tell these blocks are
- * tool output, not a new user question.
+ * response-derived text: it tells the model these blocks are tool output, not
+ * a new user question.
  */
 const TOOL_IMAGES_LEAD_IN = "Images returned by the tool calls above:";
 
 /**
- * One thinking part read back from assistant history, in the three replay
- * shapes extractThinkingHistoryEntry can prove: signed text (replayable),
- * a redacted payload (replayable), or unsigned text (replayable only if a
- * later signature closes over it).
+ * One thinking part read back from assistant history: signed text
+ * (replayable), a redacted payload (replayable), or unsigned text (replayable
+ * only if a later signature closes over it).
  */
 type ThinkingHistoryEntry =
 	| { kind: "unsigned"; text: string }
@@ -248,8 +242,8 @@ function foldThinkingBlocks(entries: readonly ThinkingHistoryEntry[]): OpenAIThi
 }
 
 /**
- * Convert VS Code chat request messages into OpenAI-compatible message objects.
- * Prompt-cache markers are not placed here; shared/conversion/promptCache.ts owns them
+ * Convert VS Code chat request messages into OpenAI-compatible message
+ * objects. Prompt-cache markers are not placed here; promptCache.ts owns them
  * as a pass over the converted request.
  */
 export function convertMessages(
@@ -262,12 +256,10 @@ export function convertMessages(
 		audioInput: options?.audioInput === true,
 	};
 	const out: OpenAIChatMessage[] = [];
-	// Tool-result images pending their synthesized user message. OpenAI
-	// requires every tool message of an assistant tool_calls turn to directly
-	// follow that assistant message, and the host may split one turn's results
-	// across consecutive messages, so the flush waits for the first non-tool
-	// message (or end of history): exactly one image message per turn, after
-	// its last tool message, never interleaved between tool messages.
+	// Tool-result images pending their synthesized user message. OpenAI requires
+	// every tool message of a tool_calls turn to directly follow its assistant
+	// message, so the flush waits for the first non-tool message: exactly one
+	// image message per turn, after its last tool message, never interleaved.
 	let pendingToolImages: OpenAIChatImageUrlContentBlock[] = [];
 	const push = (message: OpenAIChatMessage): void => {
 		if (message.role !== "tool" && pendingToolImages.length > 0) {
@@ -302,12 +294,10 @@ export function convertMessages(
 			} else if (isToolResultPart(part)) {
 				toolResults.push({ callId: part.callId, content: collectToolResultContent(part, gates, log) });
 			} else if (part instanceof vscode.LanguageModelDataPart) {
-				// Only user messages carry binary content blocks on the wire.
-				// Assistant history may hold model-generated media (surfaced as
-				// DataParts while streaming); there is no assistant-side wire
-				// shape for it, so the seam resolves it to "text" or "none" and
-				// the turn's TEXT is always kept - moving text into contentBlocks
-				// here would hand it to a branch that only user messages drain.
+				// Only user messages carry binary content blocks on the wire, so
+				// assistant-side media resolves to "text" or "none" and the turn's
+				// TEXT is always kept - moving it into contentBlocks would hand it to
+				// a branch only user messages drain.
 				const wire = dataPartWireForm(part.mimeType, role === "user" ? "user" : "assistant", gates);
 				const block = convertDataPartToContentBlock(part, wire);
 				if (block) {

@@ -1,61 +1,28 @@
 /**
- * The migration fuzzer's behavior-equivalence oracle: two pluggable resolve
- * functions that reduce "what does this configuration mean for (server,
- * model)" to one comparable view.
+ * The migration fuzzer's behavior-equivalence oracle: two pluggable resolve functions
+ * that reduce "what does this configuration mean for (server, model)" to one comparable
+ * view. resolveOldWorld runs the FROZEN pre-redesign resolvers (oldWorldResolvers.ts)
+ * over an old-world snapshot; resolveNewWorld runs the LIVE resolvers over a MIGRATED
+ * one. Both resolve the entry by the same acceptance rule, so the property isolates
+ * RESOLVER equivalence; walk-level views compare under fixed server baselines.
  *
- * - resolveOldWorld runs the FROZEN pre-redesign resolvers (pinned as
- *   test-local copies in oldWorldResolvers.ts - the live resolvers were
- *   rewritten for the redesign) over an old-world snapshot.
- * - resolveNewWorld runs the LIVE redesigned resolvers
- *   (shared/config/parameterResolution + capabilityResolution, the same
- *   matcher/inheritance engine requests and registration use) over a
- *   MIGRATED snapshot.
+ * Two INTENTIONAL divergences are characterized rather than hidden:
+ * - the migrated defaultMaxOutputTokens fill counts user-set (the clamp lift), so
+ *   provenance may move "defaults" -> "user" when the trio output was configured;
+ * - the `_declare`+`_fallback` ban is RETIRED, so the old view resolves BAN-FREE and
+ *   the rescued fields are reported separately.
  *
- * Both sides resolve the entry by the same acceptance rule (label + base URL
- * identity, first label wins), so the property isolates RESOLVER equivalence;
- * the entry-parser-vs-migration seam has its own coverage in the serverSync
- * suites. The walk-level views (the full capability walk, trio included)
- * compare under a fixed set of server baselines - values, the output
- * limit's wire provenance, and the implied wire max_tokens. Two INTENTIONAL
- * divergences are characterized rather than hidden:
- * - the migrated defaultMaxOutputTokens fill counts user-set (the clamp
- *   lift): provenance may move "defaults" -> "user" exactly when the trio
- *   output was configured, sending the full value where the old world sent
- *   min(4096, value);
- * - the old `_declare`+`_fallback` ban is RETIRED (capability records are
- *   source-invariant by design): the comparable old view resolves BAN-FREE,
- *   and the fields the ban rescued are reported for the property's
- *   characterization assert.
- *
- * Scope notes (documented divergences the property skips, each pinned by a
- * dedicated test in the property file's divergence suite):
- * - The old "scoped global record replaces the unscoped record WHOLE" rule
- *   cannot survive the move to entry level (entry merges field by field).
- *   Skipped only when the replacement actually mattered: the replaced
- *   unscoped record carried a field the scoped winner does not set, or any
- *   forced/fallback mark (the narrowed form of the old replacedUnscoped
- *   skip).
- * - A scoped winner competing with an entry record under a DIFFERENT key:
- *   two levels merged field by field, one level now resolves
- *   most-specific-wholesale. Skipped only when the losing record carries any
- *   field or mark of its own.
- * - The old default* trio applied to EVERY model, below records but above
- *   the floor (and defaultMaxInputTokens even above the server report),
- *   while the migrated "*" fill participates in the matcher chain like any
- *   record: a matching record that sets the same field can win it, drain the
- *   fill at merge time, or block its flow to a more specific winner. The
- *   walk comparison skips conservatively whenever a configured trio field is
- *   also set by a matching unscoped global record; the corners are pinned in
- *   the divergence suite.
- * - A star-bearing old key migrates to an escaped anchored-prefix regex
- *   (lossless match set), but the regex TIER ranks below globs, so ordering
- *   against another matching key can differ from the old longest-prefix rule
- *   (the ruling's accepted caveat). Skipped whenever a star-bearing key
- *   matches beside any other matching key in the same record.
- * - Old configs carrying `_inheritable`/`_inherit_from` as then-inert
- *   underscore keys would ACTIVATE under the new grammar; the migration
- *   rides them verbatim by design (generators never emit them), so a corpus
- *   entry with one would report a false migration failure here.
+ * Divergences the property SKIPS, each pinned by a test in the divergence suite:
+ * - the old "scoped global record replaces the unscoped record WHOLE" rule cannot
+ *   survive the move to entry level (entry merges field by field);
+ * - a scoped winner competing with an entry record under a DIFFERENT key: two levels
+ *   merged per field, one level now resolves most-specific-wholesale;
+ * - the old default* trio applied to EVERY model below records, while the migrated "*"
+ *   fill rides the matcher chain;
+ * - a star-bearing old key migrates to an escaped anchored-prefix regex whose TIER ranks
+ *   below globs, so ordering against another matching key can differ;
+ * - `_inheritable`/`_inherit_from` were inert underscore keys and would ACTIVATE under
+ *   the new grammar; the migration rides them verbatim, so generators never emit them.
  */
 
 import {
@@ -87,9 +54,9 @@ export interface OracleServer {
 }
 
 /**
- * The pre-redesign capability vocabulary, frozen LOCALLY like
- * oldWorldResolvers' constants: the old world had exactly these seven fields,
- * so the oracle's projections must not track the live (now open) vocabulary.
+ * The pre-redesign capability vocabulary, frozen LOCALLY like oldWorldResolvers'
+ * constants: the old world had exactly these seven fields, so the oracle's
+ * projections must not track the live (now open) vocabulary.
  */
 const OLD_CAPABILITY_FIELD_NAMES = [
 	"context_length",
@@ -102,10 +69,8 @@ const OLD_CAPABILITY_FIELD_NAMES = [
 ] as const;
 
 /**
- * Apply a plan to a snapshot the way the applier applies it to user
- * settings: value writes set the Global layer, undefined deletes it; other
- * layers are untouched (the plan never names them). Shared by the unit
- * suite's rerun assertions and the property suite's idempotence invariant.
+ * Apply a plan the way the applier applies it to user settings: value writes
+ * set the Global layer, undefined deletes it, other layers are untouched.
  */
 export function applyPlanToSnapshot(
 	snapshot: Readonly<
@@ -153,10 +118,9 @@ export interface WalkView {
 }
 
 /**
- * The wire max_tokens one walk implies when neither runtime options nor a
- * configured parameter set one: the effective output limit, clamped to
- * min(4096, limit) exactly when its provenance is "defaults" - the same rule
- * on both sides of the redesign (resolveMaxTokens' capped-default branch).
+ * The wire max_tokens one walk implies when nothing else sets it: the effective
+ * output limit, clamped to min(4096, limit) exactly when its provenance is
+ * "defaults" - the same rule on both sides of the redesign.
  */
 export function wireMaxTokens(walk: WalkView): number {
 	const limit = walk.fields.max_output_tokens as number;
@@ -191,10 +155,9 @@ export type OldWorldResolve = (
 	/** Skip only the walk-level comparison: the trio-fill flow corners live below the resolver views. */
 	skipWalks: boolean;
 	/**
-	 * Fields the RETIRED `_declare`+`_fallback` ban kept at override level in
-	 * the real old world. The view above is BAN-FREE (the redesign's
-	 * source-invariant semantics), so the property compares the migrated world
-	 * against it and characterizes the ban separately through this list.
+	 * Fields the RETIRED `_declare`+`_fallback` ban kept at override level in the
+	 * real old world. The view above is BAN-FREE, so the property characterizes
+	 * the ban separately through this list.
 	 */
 	banRescuedFields: readonly string[];
 	/** True when defaultMaxOutputTokens was explicitly configured: the one source of the documented clamp lift. */
@@ -292,15 +255,11 @@ function intersects(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
 }
 
 /**
- * Whether the descoping of one record diverges for this model - narrowed to
- * the cases where the moved record's new position actually changes the
- * outcome (see the header's scope notes):
- *  - a scoped winner alongside an unscoped match diverges only when the
- *    replaced unscoped record contributed something the scoped winner does
- *    not carry (a field key of its own, or any mark);
- *  - a scoped winner beside an entry winner under a DIFFERENT key diverges
- *    only when the record that loses the new most-specific-wholesale rule
- *    carried any contribution of its own.
+ * Whether descoping one record diverges for this model:
+ *  - a scoped winner beside an unscoped match diverges only when the replaced unscoped
+ *    record contributed a field key or mark the scoped winner lacks;
+ *  - a scoped winner beside an entry winner under a DIFFERENT key diverges only when the
+ *    record losing the most-specific-wholesale rule contributed something.
  */
 function descopingDiverges(
 	global: Record<string, Record<string, unknown>>,
@@ -321,9 +280,9 @@ function descopingDiverges(
 		if (
 			replaced.marked ||
 			[...replaced.fieldKeys].some((key) => !scopedContribution.fieldKeys.has(key)) ||
-			// A scoped MARK on a field the replaced record also set diverges: the
-			// old replacement erased the unscoped value entirely, while the new
-			// per-field merge lets it surface at the level the mark vacated.
+			// A scoped MARK on a field the replaced record also set diverges: the old
+			// replacement erased the unscoped value, while the new per-field merge
+			// lets it surface at the level the mark vacated.
 			intersects(scopedContribution.markedFields, replaced.fieldKeys)
 		) {
 			return true;
@@ -335,27 +294,21 @@ function descopingDiverges(
 	}
 	const remainder = scopedWinner.key.slice(scope.length + 1);
 	if (explicitMatcherKey(remainder) === explicitMatcherKey(entryWinner.key)) {
-		// Same post-migration key: the migration merges the two field by field
-		// with the entry winning - exactly the old entry-over-scoped merge for
-		// UNMARKED fields. A mark crossing the boundary diverges: a scoped mark
-		// on a field the entry sets is dropped rather than re-pointed (the
-		// divergence pin's _force case), and an entry mark on a field the
-		// scoped record used to win as an override changes its level (the
-		// scoped value dies with the merge).
+		// Same post-migration key: the migration merges the two field by field with the
+		// entry winning. A mark crossing the boundary diverges (dropped rather than
+		// re-pointed, or an entry mark changing the level a scoped override used to win).
 		const entryContribution = recordContribution(entryWinner.value, type);
 		return (
 			intersects(scopedContribution.markedFields, entryContribution.fieldKeys) ||
 			intersects(entryContribution.markedFields, scopedContribution.fieldKeys) ||
-			// A junk directive on the entry side stays as written and cannot take
-			// the scoped marks (the merge's stays-as-written trade), so a marked
-			// scoped record diverges under it.
+			// A junk directive on the entry side stays as written and cannot take the
+			// scoped marks, so a marked scoped record diverges under it.
 			(entryContribution.junkDirective && scopedContribution.marked)
 		);
 	}
-	// Post-migration both live in the entry level and the more specific key
-	// wins wholesale (a longer glob literal; an exact key beats any glob).
-	// The old world merged entry over scoped key by key, so divergence needs
-	// the losing record to have contributed something.
+	// Post-migration both live in the entry level and the more specific key wins
+	// wholesale. The old world merged entry over scoped key by key, so divergence
+	// needs the losing record to have contributed something.
 	const remainderKey = explicitMatcherKey(remainder);
 	const entryKey = explicitMatcherKey(entryWinner.key);
 	// exact > glob (literal length) > regex (star-bearing old keys) > "*".
@@ -370,12 +323,9 @@ function descopingDiverges(
 	const entryWins = specificity(entryKey) >= specificity(remainderKey);
 	const loser = entryWins ? scopedWinner.value : entryWinner.value;
 	const loserContribution = recordContribution(loser, type);
-	// In the old world the entry always won key by key; a losing scoped record
-	// still contributed its non-overlapping keys, and a losing entry record
-	// contributed everything it had. A winner MARK on a field the loser also
-	// set diverges too: old-world levels merged per field (a fallback-demoted
-	// entry field still let the scoped override win the override slot), while
-	// the new wholesale winner erases the loser's level entirely.
+	// In the old world the entry always won key by key, so a losing record still
+	// contributed its non-overlapping keys. A winner MARK on a field the loser also set
+	// diverges too: the new wholesale winner erases the loser's level entirely.
 	if (entryWins) {
 		const winner = recordContribution(entryWinner.value, type);
 		return (
@@ -388,11 +338,9 @@ function descopingDiverges(
 }
 
 /**
- * The star-ordering caveat (see the header): the effective old-matching keys
- * of one record map for this model and scope - unscoped keys matching the
- * ID, plus this scope's remainders - diverge in ORDER when a star-bearing
- * key matches beside any other matching key (the regex tier ranks below
- * globs while old longest-prefix ranked by literal length alone).
+ * The star-ordering caveat: a record's effective old-matching keys diverge in ORDER when
+ * a star-bearing key matches beside any other matching key, because the regex tier ranks
+ * below globs while old longest-prefix ranked by literal length alone.
  */
 function starOrderingDiverges(
 	record: Record<string, Record<string, unknown>>,
@@ -453,9 +401,8 @@ export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 		serverScopes: scopes,
 		...(hasEntryCapabilities ? { entryCapabilities } : {}),
 	};
-	// BAN-FREE resolution (the redesign's semantics: `_fallback` fills on
-	// declared models too) drives the comparable view; the real banned
-	// resolution rides along only to characterize the retired ban.
+	// BAN-FREE resolution drives the comparable view; the real banned resolution
+	// rides along only to characterize the retired ban.
 	const caps = resolveOldCapabilityOverrides({ ...capsInput, liftDeclareFallbackBan: true });
 	const capsWithBan = resolveOldCapabilityOverrides(capsInput);
 	const banRescuedFields = OLD_CAPABILITY_FIELD_NAMES.filter((field) => {
@@ -476,29 +423,19 @@ export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 		return { fields: { ...walk.fields }, outputLimitSource: walk.outputLimitSource };
 	});
 
-	// The trio-fill flow corners (see the header): the OLD trio applied to
-	// every model regardless of other records, while the migrated "*" fill
-	// participates in the matcher chain - a matching record that sets the
-	// same field either wins it in both worlds (no divergence) or blocks the
-	// fill's flow / drains it at merge time (divergence: the old trio still
-	// applied underneath, max_input's above-server quirk included). Skips the
-	// WALK comparison only (the trio lived below the resolver views, so the
-	// resolver-level comparison stays live), conservatively whenever a
-	// configured trio field is also set by any matching unscoped global
-	// record; the drained, blocked, and quirk corners are each pinned in the
-	// property file's divergence suite.
+	// The trio-fill flow corners: the OLD trio applied to every model regardless of other
+	// records, while the migrated "*" fill rides the matcher chain, where a matching
+	// record setting the same field can block or drain it. Skips the WALK comparison only,
+	// whenever a configured trio field is also set by a matching unscoped global record.
 	const configuredTrioFields = [
 		...(tokenDefaults.contextLength.explicitlyConfigured ? (["context_length"] as const) : []),
 		...(tokenDefaults.maxOutputTokens.explicitlyConfigured ? (["max_output_tokens"] as const) : []),
 		...(tokenDefaults.maxInputTokens !== undefined ? (["max_input_tokens"] as const) : []),
 	];
 	const oldPrefixMatches = (key: string): boolean => key === "*" || modelId === key || modelId.startsWith(key);
-	// A BLOCKED trio merge is a documented lossy state, not an equivalence
-	// target: an unmergeable "*" record (junk _fallback/_inheritable shapes)
-	// keeps the trio sources in place, logged every activation until the user
-	// repairs the record - the new world never reads them, while the old walk
-	// still did. Mirrors mergeTokenDefaults' gate over the record the rename
-	// will hand it ("*" beating "" on the tie).
+	// A BLOCKED trio merge is a documented lossy state, not an equivalence target: an
+	// unmergeable "*" record keeps the trio sources in place, which the new world never
+	// reads while the old walk did. Mirrors mergeTokenDefaults' gate.
 	const rawCatchAll = globalCapabilities["*"] ?? globalCapabilities[""];
 	const junkDirective = (record: Record<string, unknown>, directive: string): boolean => {
 		const raw = Object.hasOwn(record, directive) ? record[directive] : undefined;
@@ -562,11 +499,9 @@ export const resolveOldWorld: OldWorldResolve = (snapshot, server, modelId) => {
 };
 
 /**
- * A hand-mixed old-world entry can already carry the NEW discovery.declared
- * field; the old runtime never read it, but the migration merges its list
- * with the moved `_declare` IDs (existing entries first, deduped), so the
- * expected new-world declared set is the union. Modeled on the OLD side so
- * the property covers withEntryDeclares' merge-with-existing path.
+ * A hand-mixed old-world entry can already carry the NEW discovery.declared field; the
+ * old runtime never read it, but the migration merges its list with the moved `_declare`
+ * IDs (existing first, deduped), so the expected new-world declared set is the union.
  */
 function rawDeclaredList(entry: Record<string, unknown> | undefined): readonly string[] {
 	const discovery = entry !== undefined && isRecord(entry.discovery) ? entry.discovery : undefined;

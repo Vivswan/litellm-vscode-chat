@@ -1,8 +1,7 @@
 /**
  * The models list's filter semantics, pinned exhaustively: AND across
  * dimensions, OR within family/server/price, AND within capabilities, and the
- * text filter as one more AND on top. The webview renders these rules; this
- * suite is where they are defined.
+ * text filter as one more AND on top.
  */
 import { describe, expect, test } from "bun:test";
 import type { CapabilityFilterKey, ModelFilter, PriceFilterKey } from "../../../dashboard/modelFilters";
@@ -209,8 +208,8 @@ describe("offered pills", () => {
 			makeModel({ id: "c", scopeKey: "s3", serverLabel: "staging" }),
 		];
 		const options = modelFilterOptions(models, EMPTY_MODEL_FILTER);
-		// Identity stays the scopeKey and the RAW label stays the label - the
-		// ordinal lives only in the display string, so nothing numbered can leak
+		// Identity stays the scopeKey and the RAW label stays the label; the
+		// ordinal lives only in the display string, so nothing numbered leaks
 		// into filter state. A label without a collision carries no number.
 		expect(options.servers).toEqual([
 			{ scopeKey: "s1", label: "prod", display: "prod (1)" },
@@ -220,13 +219,11 @@ describe("offered pills", () => {
 	});
 
 	test("numbering never round-trips: an orphaned selection cannot collide with a live pill's display", () => {
-		// Three groups labelled "prod"; the user presses the one shown first,
-		// then its server leaves the list. The orphaned selection re-enters the
-		// options from filter state - which stored the RAW label, so the
-		// numbering pass still sees three colliding "prod"s and hands out three
-		// DISTINCT ordinals. Storing the displayed "prod (1)" instead would
-		// renumber the two live servers to (1) and (2) and put two pills reading
-		// "prod (1)" side by side, one pressed and one not.
+		// Three groups labelled "prod": the user presses the one shown first, then
+		// its server leaves. The orphaned selection re-enters from filter state,
+		// which stored the RAW label, so all three still get DISTINCT ordinals;
+		// storing the displayed "prod (1)" would put two pills reading "prod (1)"
+		// side by side, one pressed and one not.
 		const all = [
 			makeModel({ id: "a", scopeKey: "sA", serverLabel: "prod" }),
 			makeModel({ id: "b", scopeKey: "sB", serverLabel: "prod" }),
@@ -256,9 +253,8 @@ describe("offered pills", () => {
 			capabilities: new Set<CapabilityFilterKey>(["imageInput"]),
 		};
 		// The remaining list is uniform AND disjoint from every selection. The
-		// selections stay offered (they must stay clearable), and their presence
-		// activates the dimension, so the list's own value is offered beside
-		// them - pressing it now changes the result.
+		// selections stay offered so they stay clearable, and their presence
+		// activates the dimension, so the list's own value is offered beside them.
 		const options = modelFilterOptions([makeModel({ inputCost: 1 })], active);
 		expect(options.families).toEqual(["gone-family", "gpt"]);
 		expect(options.servers).toEqual([

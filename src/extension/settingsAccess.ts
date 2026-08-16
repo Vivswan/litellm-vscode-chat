@@ -2,8 +2,8 @@
  * Unified access to the litellm-vscode-chat.* configuration section: the one
  * place that owns which scope reads come from and which ConfigurationTarget
  * writes land in. The dashboard panel, the dev seed, and the settings
- * export/import flows all go through here instead of taking their own
- * scope-resolution decisions against vscode.workspace.getConfiguration.
+ * export/import flows all go through here rather than resolving scope
+ * themselves against vscode.workspace.getConfiguration.
  */
 
 import * as vscode from "vscode";
@@ -20,11 +20,9 @@ export interface SettingsInspection {
 
 /**
  * Where a settings write should land: the workspace when it already holds a
- * value, the user scope otherwise. WorkspaceFolder values are deliberately
- * never written to: the dashboard's configuration access is resource-less,
- * and a WorkspaceFolder update without a resource throws in multi-root
- * workspaces. A folder-scope record still shows up read-only in the scoped
- * settings view.
+ * value, the user scope otherwise. WorkspaceFolder values are never written to
+ * - the dashboard's configuration access is resource-less, and a
+ * WorkspaceFolder update without a resource throws in multi-root workspaces.
  */
 export function resolveUpdateScope(
 	inspection: Pick<SettingsInspection, "workspaceValue"> | undefined
@@ -34,11 +32,10 @@ export function resolveUpdateScope(
 
 /**
  * The highest-precedence scope that explicitly configures a key, or null when
- * only the default applies. Precedence follows VS Code's own merge order
- * (workspaceFolder over workspace over global). This is what "modified" means
- * in the dashboard form, and the scope a reset removes first: repeated resets
- * walk down the scopes until nothing is configured, like resetting the setting
- * in each of the native Settings editor's scope tabs in turn.
+ * only the default applies (VS Code's own merge order: workspaceFolder over
+ * workspace over global). This is what "modified" means in the dashboard form,
+ * and the scope a reset removes first, so repeated resets walk down the scopes
+ * until nothing is configured.
  */
 export function resolveConfiguredScope(inspection: SettingsInspection | undefined): SettingScope | null {
 	if (inspection?.workspaceFolderValue !== undefined) {
@@ -53,13 +50,10 @@ export function resolveConfiguredScope(inspection: SettingsInspection | undefine
 	return null;
 }
 
-// Scalar writes never land in the folder scope (resolveUpdateScope): the
-// dashboard's configuration access is resource-less, and a WorkspaceFolder
-// update without a resource throws in multi-root workspaces. Resets differ:
-// they must remove the highest-precedence configured value, folder scope
-// included, or a reset would delete a hidden lower-scope value while the
-// displayed one survives - so the reset map carries all three targets and a
-// failing folder-scope removal surfaces as the intent's failure notice.
+// Scalar writes never land in the folder scope (see resolveUpdateScope).
+// Resets differ: they must remove the highest-precedence configured value,
+// folder scope included, or a reset would delete a hidden lower-scope value
+// while the displayed one survives - so the reset map carries all three.
 const TARGET_BY_SCOPE = {
 	global: vscode.ConfigurationTarget.Global,
 	workspace: vscode.ConfigurationTarget.Workspace,
@@ -70,11 +64,7 @@ const RESET_TARGET_BY_SCOPE = {
 	workspaceFolder: vscode.ConfigurationTarget.WorkspaceFolder,
 } as const;
 
-/**
- * A consistent get/inspect pair over one WorkspaceConfiguration snapshot,
- * captured when the reader is created; shaped like the dashboard's
- * SettingsReader seam.
- */
+/** A consistent get/inspect pair over one WorkspaceConfiguration snapshot, captured when the reader is created. */
 export interface SettingsSnapshotReader {
 	/** The effective value for `key`, as WorkspaceConfiguration.get returns it. */
 	get(key: string): unknown;
@@ -83,11 +73,10 @@ export interface SettingsSnapshotReader {
 }
 
 /**
- * Read and write access to the config section's settings. Every method
- * fetches the live configuration at call time: WorkspaceConfiguration is a
- * snapshot, so a captured one would serve stale values to a read that
- * follows an awaited write. snapshotReader is the deliberate exception for
- * multi-read consumers that must not mix configuration versions.
+ * Read and write access to the config section's settings. Every method fetches
+ * the live configuration at call time: WorkspaceConfiguration is a snapshot, so
+ * a captured one would serve stale values to a read that follows an awaited
+ * write. snapshotReader is the deliberate exception.
  */
 export interface SettingsAccess {
 	/** The key's user-scope (global) value; undefined when the user scope does not set it. */

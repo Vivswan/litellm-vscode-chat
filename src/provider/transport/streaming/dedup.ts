@@ -2,17 +2,16 @@
 export type ToolCallChannel = "delta" | "inline";
 
 /**
- * The per-request dedup ledger for tool calls that can surface twice: once as
- * a structured delta and once inline in the text, or replayed inline by a
- * model that re-sends its own output.
+ * The per-request dedup ledger for tool calls that can surface twice: as a
+ * structured delta and inline in the text, or replayed inline by a model that
+ * re-sends its own output.
  *
- * Cross-channel dedup is count-based. A call arriving on one channel consumes
- * one pending count from the other channel (the same call surfaced twice) and
- * is suppressed; with no pending count it emits and increments its own
- * channel. N delta plus M inline occurrences of the same name:args key
- * therefore emit max(N, M) calls, so identical parallel calls on one channel
- * all survive while cross-channel duplicates collapse in either arrival
- * order.
+ * Cross-channel dedup is count-based: a call arriving on one channel consumes
+ * one pending count from the other and is suppressed; with none pending it
+ * emits and increments its own. N delta plus M inline occurrences of one
+ * name:args key therefore emit max(N, M), so identical parallel calls on one
+ * channel all survive while cross-channel duplicates collapse in either
+ * arrival order.
  */
 export class ToolCallLedger {
 	/** Inline calls already decided (emitted or deduped) while provisional, so their completion is not re-emitted. */
@@ -51,8 +50,8 @@ export class ToolCallLedger {
 
 	/**
 	 * Whether this arrival is the other channel's duplicate. Consuming: a true
-	 * result spends one pending count from the other channel, so the caller
-	 * must suppress the call it asked about.
+	 * result spends one pending count, so the caller must suppress the call it
+	 * asked about.
 	 */
 	shouldSuppress(channel: ToolCallChannel, key: string): boolean {
 		const otherCounts = channel === "inline" ? this._deltaEmittedCounts : this._inlineEmittedCounts;

@@ -1,16 +1,15 @@
 /**
- * The usage status bar item (docs/usage.md#the-status-bar): one number - the
- * worst FRESH server's spend percentage against its effective budget - with
- * the full per-server breakdown in the tooltip and the escalation story in
- * the background color (warning at the lowest configured threshold, error at
- * the highest). Stale servers are dropped from the aggregation rather than
- * presented as current; when nothing fresh remains the item hides entirely.
+ * The usage status bar item: one number - the worst FRESH server's spend
+ * percentage against its effective budget - with the per-server breakdown in
+ * the tooltip and the escalation in the background color (warning at the lowest
+ * configured threshold, error at the highest). Stale servers drop out of the
+ * aggregation rather than being presented as current; when nothing fresh
+ * remains the item hides.
  *
- * The rendering decision is the pure renderUsageStatus so the unit suite
- * drives every rule without vscode; UsageStatusBar wires it to the store, the
- * settings (read at render time), and a one-shot timer that re-renders at the
- * moment the currently freshest contributing server would go stale, so the
- * item hides on time between polls.
+ * The rendering decision is the pure renderUsageStatus so the unit suite drives
+ * every rule without vscode; UsageStatusBar wires it to the store, the settings
+ * (read at render time), and a one-shot timer that re-renders when the freshest
+ * contributing server would go stale.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -22,11 +21,7 @@ import { isUsageFresh, usageFreshnessWindowMs } from "../servers/usage/freshness
 import type { ServerUsageState, UsageStore } from "../servers/usage/store";
 import type { StatusItemLike } from "./status";
 
-/**
- * A visible rendering; "hidden" means the item shows nothing at all. The
- * severity scale tops out at the highest configured threshold - it is the
- * alarm.
- */
+/** A visible rendering; "hidden" means the item shows nothing. Severity tops out at the highest threshold. */
 export interface UsageStatusView {
 	readonly text: string;
 	readonly severity: "plain" | "warning" | "error";
@@ -123,10 +118,9 @@ function serverTooltipLines(state: ServerUsageState, nowMs: number, fresh: boole
  * The whole rendering decision, pure. Hidden when the mode says so, when no
  * server has fresh data, when no fresh server has a budget to compute a
  * fraction against, and in alerts-only mode while nothing fresh sits at or
- * above the lowest configured threshold (reaching a threshold counts as
- * crossing it). Severity tops out at the highest configured threshold, so a
- * single-threshold list goes straight to the error background; an empty list
- * renders plain forever.
+ * above the lowest configured threshold. Severity tops out at the highest
+ * configured threshold, so a single-threshold list goes straight to the error
+ * background; an empty list renders plain forever.
  */
 export function renderUsageStatus(
 	states: readonly ServerUsageState[],
@@ -254,9 +248,9 @@ export class UsageStatusBar implements vscode.Disposable {
 	}
 
 	/**
-	 * One cheap timer at the moment the earliest contributing server's data
-	 * goes stale: without it the item would keep showing (or keep coloring) a
-	 * number the freshness rule already disowned until the next store event.
+	 * One cheap timer at the moment the earliest contributing server's data goes
+	 * stale: without it the item would keep showing a number the freshness rule
+	 * already disowned until the next store event.
 	 */
 	private scheduleStaleEdge(
 		states: readonly ServerUsageState[],

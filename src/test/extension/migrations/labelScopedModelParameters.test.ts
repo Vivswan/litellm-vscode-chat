@@ -94,9 +94,8 @@ suite("extension/migrations/labelScopedModelParameters: expansion", () => {
 	});
 
 	test("a key that reads as a provider-prefixed model ID is copied, never moved", () => {
-		// "openai/gpt-4o" is a legitimate bare model-prefix key even when a
-		// server label "openai" exists; provenance is unprovable, so the
-		// original must survive with its bare-prefix meaning intact.
+		// "openai/gpt-4o" is a legitimate bare model-prefix key even when a server
+		// label "openai" exists; provenance is unprovable, so the original survives.
 		const { value } = expand(
 			{ globalValue: { "openai/gpt-4o": { temperature: 0.3 } } },
 			{
@@ -149,9 +148,8 @@ suite("extension/migrations/labelScopedModelParameters: expansion", () => {
 	});
 
 	test("a key several mapped labels prefix gets a copy per label", () => {
-		// At runtime each server's requests consulted only that server's own
-		// pre-migration label, so both readings of this key are live (one per
-		// server) and each needs its base-URL-scoped copy.
+		// Each server's requests consulted only its own pre-migration label, so both
+		// readings are live (one per server) and each needs its base-URL copy.
 		const { value } = expand(
 			{ globalValue: { "Prod/EU/gpt-4": { temperature: 0.2 } } },
 			{
@@ -174,9 +172,8 @@ suite("extension/migrations/labelScopedModelParameters: expansion", () => {
 	});
 
 	test("a label that is a URL-prefix of its own base URL copies once and stays stable", () => {
-		// Without the base-URL-form guard, the copy added by the first pass
-		// would itself match the label again and grow a new "/v1" segment on
-		// every re-expansion.
+		// Without the base-URL-form guard, the first pass's copy would match the
+		// label again and grow a new "/v1" segment on every re-expansion.
 		const labelMap = { "https://llm.corp.com/v1": ["https://llm.corp.com"] };
 		const first = expandLabelScopedKeys(
 			snap({ globalValue: { "https://llm.corp.com/gpt-4": { temperature: 0.2 } } }),
@@ -192,20 +189,16 @@ suite("extension/migrations/labelScopedModelParameters: expansion", () => {
 	});
 
 	test("documented corner: a genuinely label-shaped key under the label's own base URL gets no copy", () => {
-		// With label "https://llm.corp" for base URL "https://llm.corp/v1",
-		// this key can be a real label reading (model prefix "v1/gpt-4"), but
-		// it is indistinguishable from a copy an earlier pass added, so it is
-		// left untouched.
+		// The key can be a real label reading (model prefix "v1/gpt-4"), but it is
+		// indistinguishable from a copy an earlier pass added, so it stays untouched.
 		const snapshot = snap({ globalValue: { "https://llm.corp/v1/gpt-4": { temperature: 0.2 } } });
 		const result = expandLabelScopedKeys(snapshot, { "https://llm.corp/v1": ["https://llm.corp"] }, new Set());
 		assert.strictEqual(result.snapshot, snapshot);
 	});
 
 	test("a label equal to ANOTHER server's base URL still gets its copy", () => {
-		// The accretion guard is per label: only a key under label X's OWN
-		// base URL is exempt from X's copy. A key under server Y's base URL
-		// that also matches X's label is a live label reading for X's server
-		// and must not be suppressed by Y's presence in the map.
+		// The accretion guard is per label: only a key under label X's OWN base URL
+		// is exempt from X's copy, so Y's presence must not suppress X's.
 		const { value } = expand(
 			{ globalValue: { "https://y.test/gpt-4": { temperature: 0.2 } } },
 			{
@@ -220,8 +213,8 @@ suite("extension/migrations/labelScopedModelParameters: expansion", () => {
 	});
 
 	test("a raw map value is normalized before it becomes a key", () => {
-		// The runtime scope is the group's normalized base URL; a trailing
-		// slash straight from the map would build a key that never matches.
+		// The runtime scope is the group's normalized base URL; a trailing slash
+		// straight from the map would build a key that never matches.
 		const { value } = expand(
 			{ globalValue: { "Prod/gpt-4": { temperature: 0.2 } } },
 			{
@@ -309,9 +302,8 @@ suite("extension/migrations/labelScopedModelParameters: expansion", () => {
 	});
 
 	test("a same-label entry at another URL is a label reuse and gets nothing", () => {
-		// The params were scoped to the label's pre-migration server; handing
-		// them to an entry that points elsewhere would repeat the label-alone
-		// confusion the per-entry destination exists to end.
+		// The params were scoped to the label's pre-migration server; handing them
+		// to an entry pointing elsewhere would repeat the label-alone confusion.
 		const { value, servers } = expand(
 			{ globalValue: { "Prod/gpt-4": { temperature: 0.2 } } },
 			{ "http://prod.test": ["Prod"] },
@@ -325,9 +317,8 @@ suite("extension/migrations/labelScopedModelParameters: expansion", () => {
 	});
 
 	test("a pre-fold ledger member is honored: the user's deletion stays deleted", () => {
-		// An EARLIER release's standalone rewrite copied this source into the
-		// entry and ledgered it; the user deleted the copy since. The fold
-		// honors the record instead of resurrecting the key.
+		// An earlier release's standalone rewrite copied this source into the entry
+		// and ledgered it; the user deleted the copy since, and the fold honors that.
 		const snapshot = snap({ globalValue: { "Prod/gpt-4": { temperature: 0.2 } } }, [
 			{ label: "Prod", baseUrl: "http://prod.test" },
 		]);
@@ -356,10 +347,8 @@ suite("extension/migrations/labelScopedModelParameters: expansion", () => {
 	});
 
 	test('an unsafe stripped prefix ("Prod/__proto__") falls back to the base-URL copy', () => {
-		// "__proto__" can never become an own key of the entry record: the
-		// merge assignment would mutate the temp object's prototype and the
-		// entry parser drops it. The full base-URL string key is a plain own
-		// property and safe.
+		// "__proto__" can never become an own key of the entry record (the merge
+		// would mutate the temp object's prototype); the full base-URL key is safe.
 		const { value, servers } = expand(
 			{ globalValue: { "Prod/__proto__": { temperature: 0.2 } } },
 			{ "http://prod.test": ["Prod"] },
@@ -390,9 +379,8 @@ suite("extension/migrations/labelScopedModelParameters: the fold through the pip
 		const plan = planSettingsRedesign(snapshot, labels);
 		const migrated = applyPlanToSnapshot(snapshot, plan.writes);
 
-		// The entry destination nests and stars through the same plan's
-		// restructure; the no-entry fallback becomes a URL-scoped key the
-		// plan's scoped-key step then judges (no entry at ghost.test: inert).
+		// The entry destination nests and stars through the same plan's restructure;
+		// the no-entry fallback becomes a URL-scoped key (no entry at ghost.test: inert).
 		assert.deepStrictEqual(migrated.servers?.globalValue, [
 			{
 				label: "Prod",
@@ -408,8 +396,7 @@ suite("extension/migrations/labelScopedModelParameters: the fold through the pip
 		});
 		assert.strictEqual(migrated.modelParameters, undefined, "the legacy id is consumed by the same plan");
 
-		// Idempotent through the pipeline: the legacy id is gone, so a rerun
-		// (labels and all) writes nothing.
+		// Idempotent through the pipeline: the legacy id is gone, so a rerun writes nothing.
 		const rerun = planSettingsRedesign(migrated, labels);
 		assert.deepStrictEqual(rerun.writes, []);
 	});
@@ -443,10 +430,9 @@ suite("extension/migrations/labelScopedModelParameters: unionLabelSources", () =
 
 suite("extension/migrations/labelScopedModelParameters: migration wiring", () => {
 	test("an unseeded registry server's label reaches the fold's union before any seeding", async () => {
-		// The label map is written during post-registration seeding, but the
-		// fold runs pre-registration: the union's registry-snapshot side is
-		// what lets a straight-from-registry upgrade decode its label-scoped
-		// keys in the very first pass.
+		// The label map is written during post-registration seeding but the fold runs
+		// pre-registration, so the union's registry-snapshot side is what lets a
+		// straight-from-registry upgrade decode its label-scoped keys on the first pass.
 		const storage = makeExtensionStorage();
 		const registry = new ServerRegistry(storage.memento, storage.secrets);
 		await registry.addServer("Staging", "http://staging.test", "key");

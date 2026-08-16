@@ -4,15 +4,12 @@ import path from "node:path";
 import ts from "typescript";
 
 /**
- * The visual-language charter cites its evidence as durable anchors, and this
- * suite is what keeps those citations true: every anchor must resolve against
- * today's source, so a renamed selector or a deleted component fails HERE,
- * with the charter line to fix, instead of rotting silently. Line-number
- * citations are banned outright - they were the previous scheme, and a sweep
- * found two thirds of them pointing somewhere else within days of landing.
+ * The visual-language charter cites its evidence as durable anchors; every
+ * anchor must resolve against today's source, so a renamed selector or a
+ * deleted component fails HERE, with the charter line to fix. Line-number
+ * citations are banned outright: they rot within days of landing.
  *
- * The grammar, documented at the top of the charter and implemented once,
- * here:
+ * The grammar, documented at the top of the charter and implemented here:
  *
  * - A citation is one backtick span whose first token names a file by
  *   extension (a span may wrap across a line break; its whitespace collapses):
@@ -57,17 +54,15 @@ function parseCharter(source: string): { citations: Citation[]; lineNumberForms:
 	const citations: Citation[] = [];
 	const lineNumberForms: string[] = [];
 	source.split("\n").forEach((text, index) => {
-		// The retired scheme: file.ext:123 (optionally -456). Banned everywhere,
-		// backticked or not, because it rots the moment the file is edited.
+		// The banned line-number form: file.ext:123, backticked or not.
 		if (/\.(?:css|tsx|ts):\d/.test(text)) {
 			lineNumberForms.push(`charter line ${index + 1}: ${text.trim()}`);
 		}
 	});
-	// Spans are scanned over the WHOLE document, not line by line: markdown
-	// lets a backtick span wrap across a line break, and a wrapped citation
-	// that silently stopped parsing would be unchecked rot - the exact failure
-	// this suite exists to prevent. Wrapped whitespace collapses to one space,
-	// which is also how markdown renders it.
+	// Spans are scanned over the WHOLE document: markdown lets a backtick span
+	// wrap across a line break, and a wrapped citation that stopped parsing would
+	// be unchecked rot. Wrapped whitespace collapses to one space, as markdown
+	// renders it.
 	for (const match of source.matchAll(/`([^`]+)`/g)) {
 		const span = (match[1] ?? "").replace(/\s+/g, " ").trim();
 		const spaceAt = span.indexOf(" ");
@@ -146,22 +141,16 @@ function hasTokenBoundaries(haystack: string, needle: string): boolean {
 }
 
 /**
- * TS/TSX with comments removed by the REAL parser, string and template
- * contents kept: an anchor satisfied only by a stale comment is exactly the
- * rot this suite exists to catch, while class names live in string literals
- * and must keep counting. A hand lexer kept growing false-pass cracks (line
- * comments in wrapped JSX text, comments inside template interpolations,
- * regex literals containing braces), so the language's own parser decides
- * what is a comment. Types are stripped with the comments, so an anchor must
- * name a value, a class-name token, or a JSX attribute - a type-only name
- * fails loudly at charter-edit time, which is the direction a checker may
- * be wrong in.
+ * TS/TSX with comments removed by the REAL parser, string and template contents
+ * kept: an anchor satisfied only by a stale comment is the rot this suite
+ * catches, while class names live in string literals and must keep counting.
+ * Types are stripped with the comments, so an anchor must name a value, a
+ * class-name token, or a JSX attribute.
  */
 function stripTsComments(fileName: string, source: string): string {
-	// removeComments spares copyright headers, the one comment form the
-	// emitter pins: demoting "/*!" to an ordinary comment first means every
-	// comment goes. Inside a string literal the rewrite only shortens that
-	// string's text, and no legal anchor can contain "/*!".
+	// removeComments spares copyright headers, so "/*!" is demoted to an ordinary
+	// comment first. Inside a string literal the rewrite only shortens that
+	// string's text, and no legal anchor contains "/*!".
 	return ts.transpileModule(source.replaceAll("/*!", "/* "), {
 		fileName,
 		compilerOptions: {
@@ -175,8 +164,7 @@ function stripTsComments(fileName: string, source: string): string {
 function anchorResolves(citedPath: string, anchor: string, source: string): boolean {
 	if (citedPath.endsWith(".css")) {
 		// Both routes read the sheet with comments blanked, so a commented-out
-		// declaration or a rule preserved only in prose cannot satisfy a
-		// citation.
+		// declaration cannot satisfy a citation.
 		if (anchor.startsWith("--")) {
 			return new RegExp(`${anchor.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*:`).test(blankCssNoise(source));
 		}
@@ -191,9 +179,8 @@ test("every charter citation resolves against today's source", () => {
 	const { citations, lineNumberForms } = parseCharter(charter);
 	expect(lineNumberForms).toEqual([]);
 	// The exact count, not a floor: deletion is the one rot this resolver is
-	// structurally blind to - removing a citation only makes "every anchor
-	// resolves" greener - and it doubles as the parser's positive control. A
-	// deliberate charter edit moves the number with it.
+	// structurally blind to, and the count doubles as the parser's positive
+	// control. A deliberate charter edit moves the number with it.
 	expect(citations.length).toBe(153);
 	const failures: string[] = [];
 	const sources = new Map<string, string | undefined>();

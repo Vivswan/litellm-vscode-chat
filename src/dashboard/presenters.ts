@@ -1,10 +1,8 @@
 /**
- * Pure presentation logic shared by the extension host and the webview: the
- * overall-verdict classifiers and their pinned issue-report text, the
- * number/boolean setting presentation, and the JSON/header value round-trip
- * parsers. No vscode, no DOM, no Node; @vscode/l10n is the one l10n API that
- * works in both runtimes, and localized strings resolve at call time (never
- * module-level constants - modules load before the bundle is configured).
+ * Pure presentation logic shared by the extension host and the webview: no
+ * vscode, DOM, or Node. @vscode/l10n is the one l10n API that works in both
+ * runtimes, and localized strings resolve at call time (never module-level
+ * constants - modules load before the bundle is configured).
  */
 
 import * as l10n from "@vscode/l10n";
@@ -16,20 +14,13 @@ import type { DashboardServer, DeclaredServerNotice, SettingScope } from "./view
 
 /**
  * The overall configuration verdict, shared by the dashboard hero and the
- * Diagnostics tab so their headline judgement cannot drift. Each surface
- * renders it differently (the hero as a colored word, the tab as a line with
- * model counts and the first error), but the classification itself lives
- * here once. Only real failures count as failures: declared entries a
- * discovery pass has not reached yet stay neutral, and so do failures the
- * entry's expectedFailures declares - an expected failure serving declared
- * models counts as connected, and one serving nothing yields the neutral
- * "needs-declare" verdict instead of a red claim. Misconfigured entries are
- * neutral too: they never reach the host, so the status bar cannot see them,
- * and counting them here would split the headline from the status bar (their
- * signal is the Misconfigured pill, the red banner, and Configuration
- * diagnostics) - except that a configuration consisting ONLY of misconfigured
- * entries is an error, not "waiting" (nothing will ever connect until it is
- * fixed).
+ * Diagnostics tab so their headline judgement cannot drift. Only real
+ * failures count: unchecked entries stay neutral, and so do failures the
+ * entry's expectedFailures declares - expected-and-serving-declared counts as
+ * connected, expected-and-serving-nothing yields "needs-declare".
+ * Misconfigured entries are neutral too (they never reach the host, so
+ * counting them would split the headline from the status bar) - except that
+ * a configuration of ONLY misconfigured entries is an error, not "waiting".
  */
 export type OverallVerdict = "not-configured" | "error" | "degraded" | "waiting" | "connected" | "needs-declare";
 
@@ -67,14 +58,10 @@ export function classifyOverall(
 }
 
 /**
- * The verdict as one sentence, the headline of the Diagnostics tab (which is
- * what litellm.showDiagnostics opens). Shared like classifyOverall and pinned
- * by tests: this line is what users paste into issue reports, so its wording
- * must not depend on which surface they copied from. English by policy: users
+ * The verdict as one sentence, pinned by tests. English by policy: users
  * paste these lines into public issue reports, so localization sweeps must
- * skip this function. The legacy registry (pre-migration installs and test
- * mode) is real configuration even though it contributes no server rows, so
- * it overrides the bare not-configured claim.
+ * skip this function. The legacy registry is real configuration even though
+ * it contributes no server rows, so it overrides the not-configured claim.
  */
 export function overallStatusText(
 	servers: readonly DashboardServer[],
@@ -87,10 +74,9 @@ export function overallStatusText(
 				? `Legacy registry only (${legacyServerCount} ${legacyServerCount === 1 ? "server" : "servers"})`
 				: "Not configured";
 		case "error": {
-			// The verdict guarantees at least one error-state server; the fallback
-			// only satisfies the type checker, which cannot see that. A transport
-			// failure outranks a misconfigured row's fixed text: rows sort by
-			// label, and the real outage is the line worth pasting.
+			// The verdict guarantees an error-state server; the fallback only
+			// satisfies the type checker. A transport failure outranks a
+			// misconfigured row's fixed text: the real outage is the line worth pasting.
 			const errorRows = servers.filter((server) => server.state === "error");
 			const firstError =
 				(errorRows.find((server) => server.origin !== "misconfigured") ?? errorRows[0])?.error ?? "Unknown error";
@@ -108,12 +94,10 @@ export function overallStatusText(
 }
 
 /**
- * The entry-params-inactive classification as diagnostics prose. Fixed text
- * derived from the classification alone (no user or response content):
- * "my per-entry parameters do nothing" is exactly what lands in issue
- * reports, so every diagnostics surface must name it the same way. English by
- * policy: users paste these lines into public issue reports, so localization
- * sweeps must skip this constant.
+ * The entry-params-inactive classification as diagnostics prose: fixed text
+ * derived from the classification alone, so every surface names it the same
+ * way. English by policy: these lines land in public issue reports, so
+ * localization sweeps must skip this constant.
  */
 const ENTRY_PARAMS_INACTIVE_TEXT =
 	"per-entry modelParameters are not applied (the provider group does not carry this entry's labeled identity); delete the group's object from the models file (chatLanguageModels.json), reload the window, and run Sync Models Now, or save the entry under a new label";
@@ -152,12 +136,9 @@ function noticeText(notice: DeclaredServerNotice): string {
 
 /**
  * serverOutcomeText decomposed, for surfaces that render the pieces
- * separately (the Diagnostics tab's outcome grid): the status verdict, the
- * model-count clause an "ok" line carries, the error the row carries, and the
- * row's warning notices. The one-line form composes exactly these parts,
- * flattening a two-part error's newline to " - " (the presenters suite pins
- * the equality), so a grid cell and the copied line cannot drift apart in
- * wording.
+ * separately. The one-line form composes exactly these parts, flattening a
+ * two-part error's newline to " - " (the presenters suite pins the equality),
+ * so a grid cell and the copied line cannot drift apart in wording.
  */
 export interface ServerOutcomeParts {
 	/** The verdict as a Status cell shows it. */
@@ -187,12 +168,9 @@ export function serverOutcomeParts(server: DashboardServer): ServerOutcomeParts 
 			return { status: "OK", models: `${server.modelCount} models`, error: server.error, notice };
 		case "error": {
 			if (server.expected === true) {
-				// Truthful error, expected presentation: the annotation stays
-				// English (it lands in issue reports) and rides the headline
-				// line, so a two-part error shows its expected marker in the
-				// grid's prominent line rather than trailing the dimmed detail.
-				// A row still serving declared models reads as OK-with-note
-				// rather than a failure.
+				// Truthful error, expected presentation: the "(expected)" annotation
+				// stays English (it lands in issue reports) and rides the headline
+				// line. A row still serving declared models reads as OK-with-note.
 				const detail = statusErrorDetail(server.error);
 				const headline = `${statusErrorHeadline(server.error)} (expected)`;
 				const error = detail === undefined ? headline : `${headline}\n${detail}`;
@@ -220,9 +198,8 @@ export function serverOutcomeText(server: DashboardServer): string {
 	// "OK (2 models) - <sync error>" vs "Error: <error>": the error joins an
 	// OK line as an aside and an Error line as its object.
 	const status = parts.models === undefined ? parts.status : `${parts.status} (${parts.models})`;
-	// A two-part error (headline "\n" detail) flattens to one physical line
-	// here: this is the copy-paste issue-report form, and a line break would
-	// split one server's outcome across lines.
+	// A two-part error (headline "\n" detail) flattens to one physical line:
+	// this is the copy-paste issue-report form.
 	const flatError = parts.error
 		?.split("\n")
 		.map((line) => line.trim())
@@ -244,11 +221,9 @@ export function latestCheckedMs(servers: readonly Pick<DashboardServer, "lastChe
 }
 
 /**
- * What each number setting counts. Static classification, deliberately apart
- * from the localized presentation: value logic keys off these codes through
- * NUMBER_UNIT_BEHAVIOR, and the form renders the localized unit suffix from
- * numberSettingPresentation instead. Module-private with the behavior table:
- * consumers read a setting's unit through unitBehavior().
+ * What each number setting counts. Static classification, apart from the
+ * localized presentation: value logic keys off these codes through
+ * NUMBER_UNIT_BEHAVIOR; consumers read a setting's unit through unitBehavior().
  */
 const NUMBER_SETTING_UNITS = {
 	"chat.timeout": "ms",
@@ -264,10 +239,8 @@ const NUMBER_SETTING_UNITS = {
 
 /**
  * One unit's value behavior: everything the display and validation paths key
- * off a setting's unit, so adding a unit (a percentage, a currency) is one
- * row in NUMBER_UNIT_BEHAVIOR and every consumer picks it up through
- * unitBehavior(). Localized strings resolve inside the functions, per call,
- * so the table holds no localized constants.
+ * off a setting's unit, so adding a unit is one NUMBER_UNIT_BEHAVIOR row.
+ * Localized strings resolve inside the functions, per call.
  */
 export interface NumberUnitBehavior {
 	/** A draft's numeric reading under the unit's grammar; undefined when the text has no reading. */
@@ -350,13 +323,10 @@ export interface NumberSettingPresentation {
 }
 
 /**
- * The presentation of one number-valued litellm-vscode-chat.* setting the
- * dashboard edits. A function, not a module-level catalog: these strings
- * localize, and module-level constants would freeze the English text before
- * l10n.config runs (the value side stays static in
- * shared/config/settingSpec's NUMBER_SETTING_SPECS). The state builder still
- * reads display-fallback defaults through configuration inspection, which
- * settingSpec.test.ts pins to the same numbers.
+ * The presentation of one number setting the dashboard edits. A function, not
+ * a module-level catalog: these strings localize, and module-level constants
+ * would freeze the English text before l10n.config runs (the value side stays
+ * static in shared/config/settingSpec's NUMBER_SETTING_SPECS).
  */
 export function numberSettingPresentation(id: NumberSettingId): NumberSettingPresentation {
 	switch (id) {
@@ -369,8 +339,6 @@ export function numberSettingPresentation(id: NumberSettingId): NumberSettingPre
 		case "chat.maxToolsPerRequest":
 			return {
 				label: l10n.t("Max tools per request"),
-				// The refusal behavior and the common server cap live in the row's
-				// "?" (settingRowHelp); the visible line stays the one essential.
 				description: l10n.t("The most tools one request may carry."),
 				// A key of its own, apart from the capability chip's "tools": a
 				// count suffix may need a measure word where a chip label does not.
@@ -385,8 +353,6 @@ export function numberSettingPresentation(id: NumberSettingId): NumberSettingPre
 		case "discovery.cacheTtl":
 			return {
 				label: l10n.t("Discovery cache lifetime"),
-				// The zero reading lives in the row's "?" and in the "= every
-				// refresh" equivalence beside the input.
 				description: l10n.t("How long discovered model lists are reused."),
 				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
 				zeroMeaning: l10n.t("every refresh"),
@@ -394,7 +360,6 @@ export function numberSettingPresentation(id: NumberSettingId): NumberSettingPre
 		case "discovery.staleServeWindow":
 			return {
 				label: l10n.t("Stale-list grace"),
-				// The zero reading lives in the row's "?" (settingRowHelp).
 				description: l10n.t("How long an unreachable server's last known models stay in the picker."),
 				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
 				zeroMeaning: l10n.t("no stale serving"),
@@ -402,7 +367,6 @@ export function numberSettingPresentation(id: NumberSettingId): NumberSettingPre
 		case "usage.pollInterval":
 			return {
 				label: l10n.t("Usage poll interval"),
-				// The zero reading lives in the row's "?" (settingRowHelp).
 				description: l10n.t("How often per-server spend and budget data refresh."),
 				unit: l10n.t({ message: "ms", comment: ["Abbreviation for milliseconds; unit suffix after duration inputs."] }),
 				zeroMeaning: l10n.t("polling off"),
@@ -439,12 +403,9 @@ const DURATION_SUFFIX_MS: Readonly<Record<string, number>> = {
 
 /**
  * A duration draft as milliseconds: "1500ms", "90s", "5m", "1h" (suffixes
- * case-insensitive, whitespace before the suffix allowed), or a bare number
- * meaning milliseconds as before. Undefined for everything else - a bare
- * suffix, a junk prefix, a non-finite number - so the form renders one
- * grammar error. Module-private on purpose: every consumer reads durations
- * through parseNumberDraft's single verdict (isBoundViolation included, via
- * draftValue below).
+ * case-insensitive), or a bare number meaning milliseconds. Undefined for
+ * everything else, so the form renders one grammar error. Module-private:
+ * every consumer reads durations through parseNumberDraft's single verdict.
  */
 function parseDurationDraftMs(text: string): number | undefined {
 	const trimmed = text.trim();
@@ -466,20 +427,17 @@ function parseDurationDraftMs(text: string): number | undefined {
 		return undefined;
 	}
 	const scaled = value * (DURATION_SUFFIX_MS[suffix] ?? Number.NaN);
-	// The scaling can overflow ("9e307h"); a non-finite product is as
-	// unwritable as a non-finite prefix and must not read as a valid draft.
-	// Finite products round to whole milliseconds: "1.0005s" means 1001 ms,
-	// and sub-millisecond precision in a duration string is never intent.
+	// The scaling can overflow ("9e307h"): a non-finite product must not read
+	// as a valid draft. Finite products round to whole milliseconds -
+	// sub-millisecond precision in a duration string is never intent.
 	return Number.isFinite(scaled) ? Math.round(scaled) : undefined;
 }
 
 /**
- * One draft's numeric reading under the field's grammar: the duration grammar
- * on ms-unit settings, plain trim-and-Number elsewhere (the unit's parseDraft,
- * looked up through unitBehavior). Undefined when the text has no reading
- * (empty included). The single value extraction behind parseNumberDraft AND
- * isBoundViolation, so the two can never disagree about what a draft is
- * worth.
+ * One draft's numeric reading under the field's grammar (the unit's
+ * parseDraft); undefined when the text has no reading, empty included. The
+ * single value extraction behind parseNumberDraft AND isBoundViolation, so
+ * the two can never disagree about what a draft is worth.
  */
 function draftValue(id: NumberSettingId, text: string): number | undefined {
 	const trimmed = text.trim();
@@ -491,12 +449,9 @@ function draftValue(id: NumberSettingId, text: string): number | undefined {
 
 /**
  * What a modified number row shows as the setting's built-in default: the
- * unit's exact human rendering when it has one, the raw number otherwise.
- * Millisecond defaults speak the same duration idiom as the field's
- * equivalence hint ("5 min", not "300000"), so the two read consistently side
- * by side - but only when the duration is exact: a "~" approximation would
- * misstate what the default actually is, so those fall back to the raw
- * number.
+ * unit's exact human rendering when it has one, the raw number otherwise. A
+ * "~" approximation would misstate what the default actually is, so inexact
+ * durations fall back to the raw number.
  */
 export function defaultDisplay(id: NumberSettingId): string {
 	const spec = NUMBER_SETTING_SPECS[id];
@@ -504,13 +459,11 @@ export function defaultDisplay(id: NumberSettingId): string {
 }
 
 /**
- * Whether a draft parseNumberDraft rejected failed only the minimum bound: it
- * reads as a finite number under the field's grammar (durations included),
- * just one below spec.minimum. The form keeps these quiet until the field
- * blurs (typing the 5 of 5000 passes through honest below-minimum values),
- * while true parse failures stay live. Reads the draft through the same
- * draftValue extraction parseNumberDraft uses, so the two classifications
- * cannot drift; the settings-form tests pin both.
+ * Whether a rejected draft failed only the minimum bound. The form keeps
+ * these quiet until the field blurs (typing the 5 of 5000 passes through
+ * honest below-minimum values), while true parse failures stay live. Reads
+ * the draft through the same draftValue extraction parseNumberDraft uses, so
+ * the two classifications cannot drift; the settings-form tests pin both.
  */
 export function isBoundViolation(id: NumberSettingId, text: string): boolean {
 	const value = draftValue(id, text);
@@ -524,17 +477,14 @@ export interface BooleanSettingPresentation {
 }
 
 /**
- * The presentation of one boolean litellm-vscode-chat.* setting the dashboard
- * edits; a function for the same lazy-localization reason as
- * numberSettingPresentation (the value side stays static in
- * shared/config/settingSpec's BOOLEAN_SETTING_SPECS).
+ * The presentation of one boolean setting the dashboard edits; a function for
+ * the same lazy-localization reason as numberSettingPresentation.
  */
 export function booleanSettingPresentation(id: BooleanSettingId): BooleanSettingPresentation {
 	switch (id) {
 		case "chat.promptCaching":
 			return {
 				label: l10n.t("Prompt caching"),
-				// The support gate and the billing effect live in the row's "?".
 				description: l10n.t("Reuse the cached prompt prefix between turns."),
 			};
 		case "ui.maskSecretInputs":
@@ -545,12 +495,9 @@ export function booleanSettingPresentation(id: BooleanSettingId): BooleanSetting
 		case "models.openRouterCatalog":
 			return {
 				label: l10n.t("OpenRouter catalog"),
-				// Not rendered and not filtered: the dashboard row shows the live
-				// status cluster in the description slot, its "?" (settingRowHelp)
-				// opens with this sentence, and the filter reads only what the row
-				// shows - translated bundles render this key and the tip's through
-				// two independent translations, so the filter must never match a
-				// key with no visible carrier.
+				// Not rendered (the row shows the live status cluster instead) and so
+				// not filtered: the filter reads only what the row shows, because this
+				// key and the tip's translate independently.
 				description: l10n.t("Fill missing model capabilities from the OpenRouter catalog, refreshed weekly."),
 			};
 	}
@@ -559,11 +506,8 @@ export function booleanSettingPresentation(id: BooleanSettingId): BooleanSetting
 /**
  * A millisecond count as humans read clocks: "5 min", "1 h 30 min". At most
  * two units; a truncated remainder gets a "~" instead of false precision,
- * with `exact` saying which happened so callers that cannot tolerate an
- * approximation (the default note) need not sniff the label. Sub-second
- * values return undefined (they already read as milliseconds). The unit names
- * localize inside the function, per call, so the module never holds localized
- * constants.
+ * with `exact` saying which happened. Sub-second values return undefined
+ * (they already read as milliseconds). Unit names localize per call.
  */
 function formatDuration(ms: number): { label: string; exact: boolean } | undefined {
 	if (!Number.isInteger(ms) || ms < 1000) {
@@ -587,12 +531,9 @@ function formatDuration(ms: number): { label: string; exact: boolean } | undefin
 }
 
 /**
- * One number-setting draft parsed once: rejected with the reason to render,
- * an empty draft that clears a nullable setting, or the committed value. The
- * error display, the commit, and the equivalence hint all read this one
- * parse, so a keystroke is judged exactly once. ms-unit settings read drafts
- * through the duration grammar (parseDurationDraftMs): unit suffixes on top
- * of the bare-number-is-ms reading, with unit typos as parse errors.
+ * One number-setting draft parsed once: the error display, the commit, and
+ * the equivalence hint all read this one parse, so a keystroke is judged
+ * exactly once. ms-unit settings read drafts through the duration grammar.
  */
 export type NumberDraftParse =
 	| { readonly kind: "invalid"; readonly problem: string }
@@ -616,9 +557,7 @@ export function parseNumberDraft(id: NumberSettingId, text: string): NumberDraft
 }
 
 /**
- * The muted equivalence rendered next to a number input, recomputed from the
- * parsed draft as the user types: millisecond durations in clock units, and
- * the TTL's special zero reading ("= every refresh"). Takes the value
+ * The muted equivalence rendered next to a number input. Takes the value
  * parseNumberDraft committed to, so it cannot re-read the raw text by other
  * rules; the rendering itself is the unit's.
  */
@@ -628,11 +567,9 @@ export function equivalence(id: NumberSettingId, value: number): string | undefi
 
 /**
  * The identity of a scalar setting's external state, which the settings
- * form's draft-resync effect keys on. Both halves are load-bearing: a
- * successful reset can change the configured scope while leaving the
- * effective value untouched (removing a value pinned to exactly its default),
- * and the field's draft - possibly a rejected one, error and all - must
- * resync to the store on that push too, not only when the value itself moves.
+ * form's draft-resync effect keys on. Both halves are load-bearing: a reset
+ * can change the configured scope while leaving the effective value untouched,
+ * and the draft must resync on that push too, not only when the value moves.
  */
 export function draftSyncKey(value: number | null, configuredScope: SettingScope | null): string {
 	return `${value === null ? "" : String(value)}@${configuredScope ?? "default"}`;
@@ -686,10 +623,8 @@ export function parseHeaderValue(text: string): HeaderScalar {
 		}
 		// Non-finite numbers (JSON.parse("1e999") is Infinity) fall through to
 		// the literal string: isHeaderScalar refuses them at the header-record
-		// parse boundary, so parsing them as numbers would make Apply a
-		// silent no-op - the draft looks applied, no failure is acked, and the
-		// setting is never written. The literal string is the only lossless,
-		// sendable reading.
+		// parse boundary, so parsing them as numbers would make Apply a silent
+		// no-op. The literal string is the only lossless, sendable reading.
 		if (typeof parsed === "number" && Number.isFinite(parsed)) {
 			return parsed;
 		}

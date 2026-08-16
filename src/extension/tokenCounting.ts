@@ -20,10 +20,10 @@ export interface TokenCountingDeps {
 }
 
 /**
- * Two literal specifiers rather than one template string: the bundler can
- * only split what it can resolve statically, and each encoding must become
- * its own lazy chunk (the rank data is megabytes that the eager bundle and
- * activation path never pay for; CI pins the chunk layout).
+ * Two literal specifiers rather than one template string: the bundler can only
+ * split what it can resolve statically, and each encoding must become its own
+ * lazy chunk (the rank data is megabytes the activation path never pays for;
+ * CI pins the chunk layout).
  */
 function importEncoding(encoding: TokenizerEncoding): Promise<LoadedTokenizer> {
 	return encoding === "o200k_base"
@@ -43,18 +43,16 @@ export interface TokenCountingController {
 }
 
 /**
- * Owns the async side of token estimation: which counting mode the shared
- * counter (shared/conversion/textTokens.ts) runs in, and when an encoding's
- * rank data actually loads. Counting itself stays synchronous throughout -
- * a mode that wants a tokenizer counts by its heuristic until the load lands,
+ * Owns the async side of token estimation: which mode the shared counter runs
+ * in, and when an encoding's rank data loads. Counting itself stays synchronous
+ * - a mode that wants a tokenizer counts by its heuristic until the load lands,
  * and a failed load logs once and leaves that heuristic standing, so nothing
- * here can ever throw into the request path.
+ * here can throw into the request path.
  *
  * Load policy per mode: "heuristic" never loads; the explicit encodings load
- * eagerly on apply; "auto" loads o200k_base eagerly under a non-English UI
- * and otherwise waits for the counter's non-Latin detection to fire. Each
- * applied mode gets at most one load attempt (successful loads are cached
- * across mode changes), and a load that resolves after the mode changed
+ * eagerly on apply; "auto" loads o200k_base eagerly under a non-English UI and
+ * otherwise waits for the counter's non-Latin detection. Each applied mode gets
+ * at most one load attempt, and a load resolving after the mode changed
  * installs nothing.
  */
 export function createTokenCountingController(deps: TokenCountingDeps): TokenCountingController {
@@ -64,8 +62,7 @@ export function createTokenCountingController(deps: TokenCountingDeps): TokenCou
 
 	const install = (tokenizer: LoadedTokenizer): void => {
 		// allowedSpecial "all": special-token text ("<|endoftext|>") is ordinary
-		// user text here and must count, not throw (gpt-tokenizer's default
-		// throws on it; the counter also contains a throw as its backstop).
+		// user text here and must count, not throw.
 		setTextTokenCounting({
 			kind: "tokenizer",
 			countTokens: (text) => tokenizer.countTokens(text, { allowedSpecial: "all" }),

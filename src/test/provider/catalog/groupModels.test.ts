@@ -194,9 +194,9 @@ suite("provider/catalog/groupModels", () => {
 		});
 
 		test("entries sharing a base URL and every credential get distinct identities from their labels", () => {
-			// The user scenario behind per-entry identity: two declared entries,
-			// one server, one key. Without the label both would collapse to one
-			// status-window entry and the second could never report.
+			// Two declared entries, one server, one key. Without the label both
+			// would collapse to one status-window entry and the second could never
+			// report.
 			const prod = expectDefined(
 				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k", label: "Prod" })
 			);
@@ -212,9 +212,8 @@ suite("provider/catalog/groupModels", () => {
 		});
 
 		test("a labeled OAuth configuration cannot encode like an unlabeled one", () => {
-			// Labeled identities live in their own group:labeled: namespace, so
-			// no unlabeled encoding - three-element JSON or bare key - can reach
-			// them.
+			// Labeled identities live in their own group:labeled: namespace, so no
+			// unlabeled encoding can reach them.
 			const unlabeled = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS }));
 			const labeled = expectDefined(
 				parseGroupConfiguration({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS, label: "Prod" })
@@ -223,12 +222,10 @@ suite("provider/catalog/groupModels", () => {
 		});
 
 		test("an unlabeled API key spelling the labeled encoding never collides with a real labeled entry", () => {
-			// The unlabeled plain branch hashes the raw free-form key, so a bare
-			// key that IS the labeled form's JSON text hashes to the same
-			// fingerprint; only the labeled output namespace keeps the domains
-			// apart. Same URL on both sides on purpose: a collision here would
-			// merge status entries, reuse the wrong discovery cache and SDK
-			// client, and misidentify adoption sources.
+			// The unlabeled plain branch hashes the raw free-form key, so a bare key
+			// that IS the labeled form's JSON text hashes to the same fingerprint;
+			// only the labeled output namespace keeps the domains apart. A collision
+			// would merge status entries and reuse the wrong discovery cache.
 			const smuggled = expectDefined(
 				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: '["k",null,null,"Prod"]' })
 			);
@@ -239,7 +236,6 @@ suite("provider/catalog/groupModels", () => {
 		});
 
 		test("an unlabeled API key spelling the credentialed encoding never collides with a real credentialed group", () => {
-			// The credentialed unlabeled form's twin of the labeled test above:
 			// group:cred: is its own namespace, so a bare key that IS the
 			// credentialed form's JSON text cannot reach it.
 			const credentialed = expectDefined(parseGroupConfiguration({ baseUrl: "http://litellm.test", ...OAUTH_FIELDS }));
@@ -283,10 +279,9 @@ suite("provider/catalog/groupModels", () => {
 		});
 
 		test("rotating any credential part mints a new identity: every OAuth field, the API key, both virtual-key halves", () => {
-			// The OAuth half of the identity is oauthCredentialFingerprint (the
-			// canonical enumeration in provider/auth), so each rotation must move
-			// the fingerprint and the group ID together; a field the fingerprint
-			// ever stopped covering would fail both assertions here.
+			// The OAuth half of the identity is oauthCredentialFingerprint, so each
+			// rotation must move the fingerprint and the group ID together; a field
+			// the fingerprint stopped covering would fail both assertions.
 			const base = {
 				baseUrl: "http://litellm.test",
 				apiKey: "k",
@@ -341,10 +336,9 @@ suite("provider/catalog/groupModels", () => {
 		});
 
 		test("an API key spelling out delimiter material never collides with a real credential unit", () => {
-			// The API key is free-form, so the credential material is JSON-encoded
-			// before hashing: under a delimiter join, a bare key containing the
-			// join sequence could hash like a key-plus-virtual-key configuration
-			// and share that group's cached SDK client.
+			// The API key is free-form, so credential material is JSON-encoded before
+			// hashing: under a delimiter join, a bare key containing the join
+			// sequence could share a key-plus-virtual-key group's cached SDK client.
 			const smuggled = expectDefined(
 				parseGroupConfiguration({ baseUrl: "http://litellm.test", apiKey: "k\nvirtual-key\nx-vk\nvk-1" })
 			);
@@ -505,8 +499,8 @@ suite("provider/catalog/groupModels", () => {
 
 		test("accepts attached copies only, so decorated objects cannot enter the cache or snapshot paths", () => {
 			// Those paths hold PreAttachModelInfo; if markStale accepted it, a
-			// decorated (and credential-carrying) copy could be cached or pushed
-			// to the dashboard, and a stale icon would survive a healthy sweep.
+			// credential-carrying copy could be cached or pushed to the dashboard,
+			// and a stale icon would survive a healthy sweep.
 			// @ts-expect-error markStale takes AttachedModelInfo, never the pre-attach registration output
 			const rejected = () => markStale([makeModelInfo()], "1/1/2026, 9:30:00 AM");
 			void rejected;

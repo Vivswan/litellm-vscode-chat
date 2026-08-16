@@ -13,8 +13,7 @@ export interface OpenAIToolCall {
 
 /**
  * Anthropic prompt-cache marker. LiteLLM forwards it from OpenAI-shaped
- * requests to Anthropic-family backends; placement is owned by
- * shared/conversion/promptCache.ts.
+ * requests to Anthropic-family backends; placement is owned by promptCache.ts.
  */
 export interface EphemeralCacheControl {
 	readonly type: "ephemeral";
@@ -22,8 +21,8 @@ export interface EphemeralCacheControl {
 
 /**
  * OpenAI function tool definition used to advertise tools. Placement of the
- * tool-level `cache_control` marker is owned by shared/conversion/promptCache.ts, like
- * the message-level marker below.
+ * tool-level `cache_control` marker is owned by promptCache.ts, like the
+ * message-level marker below.
  */
 export interface OpenAIFunctionToolDef {
 	type: "function";
@@ -46,8 +45,8 @@ export type OpenAIThinkingBlock =
 
 /**
  * A system or user message. Content is required; the block-array form exists
- * for multimodal user input and for shared/conversion/promptCache.ts's marker placement,
- * which rewrites string content into a marked text block on any role.
+ * for multimodal user input and for promptCache.ts's marker placement, which
+ * rewrites string content into a marked text block on any role.
  */
 export interface OpenAIPromptMessage {
 	role: "system" | "user";
@@ -64,10 +63,9 @@ export interface OpenAIAssistantMessage {
 
 /**
  * A tool-result message; the pairing tool_call_id is required by construction.
- * Content is always the flattened text: LiteLLM's OpenAI transformation
- * forwards tool-message content verbatim and OpenAI-family models reject
- * content blocks here, so tool-result images ride a synthesized user message
- * after the turn instead (see shared/messages.ts).
+ * Content is always the flattened text: LiteLLM forwards tool-message content
+ * verbatim and OpenAI-family models reject content blocks here, so tool-result
+ * images ride a synthesized user message after the turn instead.
  */
 export interface OpenAIToolMessage {
 	role: "tool";
@@ -76,7 +74,7 @@ export interface OpenAIToolMessage {
 	/**
 	 * Message-level prompt-cache marker, valid only on tool-role messages:
 	 * LiteLLM's Anthropic adapter copies it onto the top-level tool_result
-	 * block, the only cacheable position there (see shared/conversion/promptCache.ts).
+	 * block, the only cacheable position there.
 	 */
 	cache_control?: EphemeralCacheControl;
 }

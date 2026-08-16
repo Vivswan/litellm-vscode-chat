@@ -1,12 +1,10 @@
 /**
  * Pure emission of the LiteLLM proxy config text for the local docker stack.
- * The source of truth is src/test/fakeStack/models.ts (the consolidated
- * aliases); the canned response library in src/test/scenarios.ts no longer
- * feeds the config - its shapes are addressed per request via the %play
- * command. No filesystem or environment access here: real-provider decisions
- * arrive through an injected env lookup, so the unit suite pins the emission
- * on every CI OS without docker. scripts/stack/litellmConfig.ts wraps this with
- * the .env-aware lookup and the atomic write to docker/.generated/.
+ * The source of truth is the model catalog in models.ts; scenario shapes are
+ * addressed per request via the %play command rather than through the config.
+ * No filesystem or environment access here - real-provider decisions arrive
+ * through an injected env lookup, so the unit suite pins the emission on every
+ * CI OS without docker.
  */
 
 import { COMMAND_SIGIL } from "./commands";
@@ -14,11 +12,9 @@ import type { FakeModel, FakeModelCapabilities, FakeModelPricing } from "./model
 import { FAKE_MODELS } from "./models";
 
 /**
- * The container-internal port the fake OpenAI backend binds.
- * scripts/stack/fake-openai-server.ts defaults its PORT env to this number, and
- * docker/docker-compose.yml restates it three times (the service's PORT env, the
- * host mapping's container side, the healthcheck URL); stackDrift.test.ts
- * pins those compose copies.
+ * The container-internal port the fake OpenAI backend binds. The compose file
+ * restates it three times (the service's PORT env, the host mapping's container
+ * side, the healthcheck URL); stackDrift.test.ts pins those copies.
  */
 export const FAKE_BACKEND_PORT = 8080;
 
@@ -57,17 +53,16 @@ export type EnvLookup = (name: string) => string;
 const ALIAS_PATTERN = /^[a-z0-9][a-z0-9.-]*$/;
 /**
  * Upstream ids stay deliberately unrecognizable: the mandatory fake- prefix
- * keeps them out of LiteLLM's price map, which the phase-3a spike verified
- * is the only enrichment key (litellm_params.model, never model_name).
+ * keeps them out of LiteLLM's price map, whose only enrichment key is
+ * litellm_params.model, never model_name.
  */
 const UPSTREAM_PATTERN = /^fake-[a-z0-9-]+$/;
 
 /**
- * Plain decimal formatting, guarded on both ends. Below 5e-13 the toFixed(12)
- * rendering collapses to "0" and at 1e21 JS strings go exponential - but the
- * real reason zero and negatives are rejected too is that a zero cost in
- * FAKE_MODELS is far more likely a bug than intent: "no pricing" is spelled
- * by omitting the pricing object, never by writing 0.
+ * Plain decimal formatting, guarded on both ends: below 5e-13 the toFixed(12)
+ * rendering collapses to "0" and at 1e21 JS strings go exponential. Zero and
+ * negatives are rejected because a zero cost in FAKE_MODELS is far more likely a
+ * bug than intent - "no pricing" is spelled by omitting the pricing object.
  */
 export function costLiteral(value: number): string {
 	if (!Number.isFinite(value) || value < 5e-13 || value >= 1e21) {
@@ -107,11 +102,10 @@ const CAPABILITY_WIRE_KEYS: Readonly<
 };
 
 /**
- * model_info lines for one FAKE_MODELS deployment. Pricing and capability
- * flags come from the model's single shared declaration, so every deployment
- * of a load-balanced pair emits byte-identical values (discovery merges
- * through agreedCost and every-deployment-supports; disagreement would
- * silently null the merged result).
+ * model_info lines for one deployment. Pricing and capability flags come from
+ * the model's single shared declaration, so every deployment of a load-balanced
+ * pair emits byte-identical values; disagreement would silently null the merged
+ * result discovery computes.
  */
 function consolidatedInfoLines(model: FakeModel, deployment: FakeModel["deployments"][number]): string[] {
 	const lines: string[] = [];
@@ -236,12 +230,10 @@ function realProviderSection(entries: string[]): string[] {
 
 /**
  * A wildcard route advertises only its literal pattern; check_provider_endpoint
- * makes LiteLLM query the keyed provider's live model endpoint and expand the
- * wildcard - on /v1/models only, so it serves direct API consumers of the
- * proxy. The extension's picker reads /v1/model/info, where the wildcard
- * still appears as its literal entry. Gated on KEYED routes: the bare "*"
- * passthrough has no provider endpoint to expand, the fake catalog needs no
- * expansion, and the test config must not depend on provider reachability.
+ * makes LiteLLM query the keyed provider's live model endpoint and expand it on
+ * /v1/models only. Gated on KEYED routes: the bare "*" passthrough has no
+ * provider endpoint to expand, and the test config must not depend on provider
+ * reachability.
  */
 function expansionSection(keyedEntries: number): string[] {
 	if (keyedEntries === 0) {
@@ -251,10 +243,10 @@ function expansionSection(keyedEntries: number): string[] {
 }
 
 /**
- * Where the GitHub Copilot device-flow token lives on the host, relative to
- * the repo root (seeded by `bun run copilot-login`). docker/docker-compose.yml
- * restates it in the litellm mount, the fake-openai masking volume, and the
- * GITHUB_COPILOT_TOKEN_DIR env; stackDrift.test.ts pins those copies.
+ * Where the GitHub Copilot device-flow token lives on the host, relative to the
+ * repo root. The compose file restates it in the litellm mount, the fake-openai
+ * masking volume, and the GITHUB_COPILOT_TOKEN_DIR env; stackDrift.test.ts pins
+ * those copies.
  */
 export const COPILOT_TOKEN_DIR = "docker/.copilot-token";
 
@@ -280,8 +272,7 @@ export interface CopilotCatalogParse {
 /**
  * Boundary parser for the Copilot /models payload: every malformed entry is
  * dropped into `rejected` instead of thrown, so no catalog drift can abort
- * config generation - the emission below stays total for whatever this
- * returns. Unknown shapes degrade to the chat defaults.
+ * config generation. Unknown shapes degrade to the chat defaults.
  */
 export function parseCopilotCatalog(payload: unknown): CopilotCatalogParse {
 	const data = (payload as { data?: unknown } | null)?.data;
@@ -311,9 +302,9 @@ export function parseCopilotCatalog(payload: unknown): CopilotCatalogParse {
 
 /**
  * LiteLLM's model_info mode for a catalog entry. Embeddings models declare
- * themselves via type; chat-vs-responses comes from supported_endpoints
- * (an empty list means the default /chat/completions), because the catalog
- * reports type "chat" even for models the API only serves via /responses.
+ * themselves via type; chat-vs-responses comes from supported_endpoints, because
+ * the catalog reports type "chat" even for models the API only serves via
+ * /responses.
  */
 function copilotMode(model: CopilotModel): string | undefined {
 	if (model.type === "embeddings") {
@@ -326,10 +317,9 @@ function copilotMode(model: CopilotModel): string | undefined {
 }
 
 /**
- * Explicit github_copilot/<id> routes for every model the live Copilot
- * catalog reported when the config was generated. Auth is not in the entry:
- * the github_copilot provider reads its device-flow token from
- * GITHUB_COPILOT_TOKEN_DIR inside the container.
+ * Explicit github_copilot/<id> routes for every model the live Copilot catalog
+ * reported at generation time. Auth is not in the entry: the provider reads its
+ * device-flow token from GITHUB_COPILOT_TOKEN_DIR inside the container.
  */
 function copilotSection(models: readonly CopilotModel[]): string[] {
 	if (models.length === 0) {

@@ -17,7 +17,6 @@ import {
 	toHeaderRows,
 } from "../../../dashboard/recordDraft";
 
-/** The ok arm's record; fails the test on a parse with problems. */
 function parsedValue<P extends GroupsParse | HeaderRowsParse>(parse: P): Extract<P, { ok: true }>["value"] {
 	if (!parse.ok) {
 		assert.fail(`expected a clean parse, got problems: ${JSON.stringify(parse.problems)}`);
@@ -25,7 +24,6 @@ function parsedValue<P extends GroupsParse | HeaderRowsParse>(parse: P): Extract
 	return parse.value;
 }
 
-/** The problems arm; fails the test on a parse that unexpectedly succeeded. */
 function parsedProblems<P extends GroupsParse | HeaderRowsParse>(parse: P): Extract<P, { ok: false }>["problems"] {
 	if (parse.ok) {
 		assert.fail("expected a blocked parse, got a clean one");
@@ -169,7 +167,6 @@ describe("dashboard/recordDraft", () => {
 	});
 
 	describe("model capability groups", () => {
-		/** The ok arm's record; fails the test on a blocked capability parse. */
 		function capsValue(parse: CapabilityGroupsParse): Record<string, Record<string, unknown>> {
 			if (!parse.ok) {
 				assert.fail(`expected a clean parse, got issues: ${JSON.stringify(parse.issues)}`);
@@ -212,7 +209,7 @@ describe("dashboard/recordDraft", () => {
 		test("unknown keys parse as JSON and stay silent with no evidence; underscore keys pass silently too", () => {
 			// No recognizedKeys (no server reported a /model/info key set): the
 			// host's advisory filter drops every unknown-key hint, and the live
-			// draft hints must mirror it - no evidence, no crying wolf.
+			// draft must mirror it.
 			const parse = parseCapabilityGroups([
 				{
 					prefix: "gpt-4",
@@ -390,12 +387,10 @@ describe("dashboard/recordDraft", () => {
 		});
 
 		test("directive eligibility is key-shaped: an invalid consumed VALUE does not strand its row's marks", () => {
-			// Deliberate divergence from the resolver, pinned here: the resolver
-			// drops an invalid-valued consumed field from its kept set, so a
-			// `_fallback` naming it is an invalid-directive diagnostic until the
-			// value is fixed. The editor keeps eligibility key-shaped anyway -
-			// the value row already hints, and value-aware eligibility would make
-			// the checkboxes and directive-row absorption churn per keystroke.
+			// Deliberate divergence from the resolver: it drops an invalid-valued
+			// consumed field from its kept set, but the editor keeps eligibility
+			// key-shaped - the value row already hints, and value-aware
+			// eligibility would churn the checkboxes per keystroke.
 			const parse = parseCapabilityGroups([
 				{
 					prefix: "gpt-4",
@@ -434,9 +429,8 @@ describe("dashboard/recordDraft", () => {
 			assert.ok(!directiveEligible("_fallback", ""), "an unnamed row carries no checkbox");
 			assert.ok(directiveEligible("_force", "temperature"));
 			assert.ok(!directiveEligible("_force", "model"), "provider-owned keys are unforceable");
-			// max_tokens is the one provider-owned key _force may mark (the
-			// forceable-max_tokens ruling): user-settable by design, so the
-			// editor's checkbox must agree with the wire.
+			// max_tokens is the one provider-owned key _force may mark:
+			// user-settable by design, so the checkbox must agree with the wire.
 			assert.ok(directiveEligible("_force", "max_tokens"), "max_tokens is forceable by design");
 			assert.ok(!directiveEligible("_force", "_meta"), "underscore keys are unforceable");
 			assert.ok(!directiveEligible("_force", ""), "an unnamed row is unforceable");
@@ -452,9 +446,8 @@ describe("dashboard/recordDraft", () => {
 			assert.deepStrictEqual([...directiveMarkedFields(rows("not json"), "_force")], []);
 			assert.deepStrictEqual([...directiveMarkedFields(rows('["temperature"]'), "_force")], ["temperature"]);
 			// A partly invalid list still marks its string entries: the resolver
-			// salvages those (the row meanwhile blocks on the strict parse), so
-			// the checkbox must not read a forced field as unmarked. Toggling
-			// keeps the non-string junk in place for the user to fix.
+			// salvages those, so the checkbox must not read a forced field as
+			// unmarked. Toggling keeps the non-string junk in place.
 			assert.deepStrictEqual([...directiveMarkedFields(rows('[42, "temperature"]'), "_force")], ["temperature"]);
 			const salvaged = toggleDirectiveField(rows('[42, "temperature"]'), "_force", "temperature", false);
 			assert.strictEqual(salvaged.params[1]?.valueText, "[42]", "unmarking preserves the junk entry, still flagged");

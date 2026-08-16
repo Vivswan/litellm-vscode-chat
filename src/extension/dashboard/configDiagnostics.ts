@@ -1,11 +1,9 @@
 /**
  * The Configuration diagnostics builder: every settings problem the extension
  * can spot, reduced to the serializable ConfigDiagnosticView list the
- * Diagnostics tab renders (each also rendered beside the row or editor it
- * concerns). Pure over its inputs; panel.ts supplies the live configuration
- * reader and globalState values. Free text stays structural (setting ids,
- * record keys, header names) - never entered values - because the entry
- * problems also ride the copyable diagnostics block.
+ * Diagnostics tab renders. Pure over its inputs. Free text stays structural
+ * (setting ids, record keys, header names) - never entered values - because
+ * the entry problems also ride the copyable diagnostics block.
  */
 
 import type { ConfigDiagnosticView, HiddenGroup } from "../../dashboard/viewModels";
@@ -43,24 +41,21 @@ export interface ConfigDiagnosticsInput {
 	/** The groups hidden by an explicit removal, as the state builder renders them (visibleHiddenGroups). */
 	readonly hiddenGroups: readonly HiddenGroup[];
 	/**
-	 * Each entry's observed /model/info key set, by entry label (state.ts's
-	 * observedKeysByEntryLabel): the evidence the entry-layer advisory hints
-	 * filter against. An absent entry has no set, so its unrecognized-key
-	 * hints drop (no false hints on declared-only entries, expected modelInfo
-	 * failures, the /models fallback, or pre-discovery). Server-derived
-	 * strings: never logged, membership through the Map only.
+	 * Each entry's observed /model/info key set, by entry label: the evidence
+	 * the entry-layer advisory hints filter against. An absent entry has no
+	 * set, so its unrecognized-key hints drop (no false hints on declared-only
+	 * entries, expected modelInfo failures, the /models fallback, or
+	 * pre-discovery). Server-derived strings: never logged, membership through
+	 * the Map only.
 	 */
 	readonly observedKeysByEntry?: ReadonlyMap<string, readonly string[]> | undefined;
 	/**
-	 * The observed-key union across servers that reported a set (state.ts's
-	 * observedModelInfoKeysUnion): the global records' evidence - a global
-	 * record applies to every server, so a key any server observed is real.
-	 * Undefined when no server reported a set; then every global hint drops.
-	 * Known residual: with mixed evidence (one server reported, another - say
-	 * a declared-only entry - did not), a key only the evidence-less server
-	 * knows still hints; the union cannot prove a negative for servers that
-	 * contributed nothing, and the hint stays advisory-severity for exactly
-	 * that reason.
+	 * The observed-key union across servers that reported a set: the global
+	 * records' evidence - a global record applies to every server, so a key any
+	 * server observed is real. Undefined when no server reported a set; then
+	 * every global hint drops. Known residual: with mixed evidence, a key only
+	 * an evidence-less server knows still hints, which is why the hint stays
+	 * advisory-severity.
 	 */
 	readonly observedKeysUnion?: readonly string[] | undefined;
 }
@@ -76,9 +71,7 @@ function recordDiagnostics(
 		...(entryLabel !== undefined ? { entryLabel } : {}),
 		diagnostic,
 		// A surviving unrecognized-key is advisory by construction: the filter
-		// already dropped everything without evidence, so what remains is "the
-		// server's listing does not name this key" - an info hint, never a
-		// warning. Every other kind keeps warning severity.
+		// already dropped everything without evidence. Every other kind warns.
 		severity: diagnostic.kind === "unrecognized-key" ? ("advisory" as const) : ("warning" as const),
 	}));
 }
@@ -97,9 +90,8 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 	const modelCapabilitiesValue = input.reader.get(NEW_MODEL_CAPABILITIES_ID);
 
 	// The two global records, linted record-level so keys no model matches
-	// still report (invalid matchers, unforceable names, unknown
-	// _inherit_from keys). Capability unrecognized-key hints filter against
-	// the cross-server observed union: a global record applies everywhere.
+	// still report. Capability unrecognized-key hints filter against the
+	// cross-server observed union: a global record applies everywhere.
 	diagnostics.push(
 		...recordDiagnostics(
 			"models.parameters",
@@ -132,12 +124,10 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 		}
 	}
 
-	// The servers-setting parser's per-entry reports: misconfigured entries
-	// (skipped whole) and accepted entries with ignored pieces alike. Each
-	// carries whether a server row was drawn for it, read from the same
-	// rejectsWithOwnRow rule buildServers draws by, so the Diagnostics
-	// destination can drop exactly the problems a row already states without
-	// spelling that rule a second time.
+	// The servers-setting parser's per-entry reports. Each carries whether a
+	// server row was drawn for it, read from the same rejectsWithOwnRow rule
+	// buildServers draws by, so the Diagnostics destination can drop exactly
+	// the problems a row already states.
 	// Keyed by the report's own index, never by object identity: the rule
 	// returns narrowed copies, and a Set of those would match nothing here.
 	const drawnRows = new Set(rejectsWithOwnRow(input.entryReports, input.declared).map((report) => report.index));
@@ -157,8 +147,8 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 
 	// Legacy leftovers the redesign migration deliberately left in place. The
 	// parked-headers hint renders only while externally managed groups exist:
-	// it exists to say those groups no longer receive the removed global
-	// headers, and adopting restores them (R3 ruling).
+	// it says those groups no longer receive the removed global headers, and
+	// adopting restores them.
 	for (const hint of collectLegacyHints({
 		globalHeadersValue: input.reader.get(LEGACY_HEADERS_ID),
 		modelParametersValue,
@@ -179,8 +169,7 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 
 	// Groups hidden by an explicit removal serve no models; the Diagnostics
 	// tab must say so (a hidden-only setup otherwise reads as a healthy
-	// configuration with zero models and no visible cause). Labels are the
-	// same ones the hidden-groups line renders.
+	// configuration with zero models and no visible cause).
 	if (input.hiddenGroups.length > 0) {
 		diagnostics.push({
 			kind: "hidden-groups",
@@ -189,8 +178,8 @@ export function buildConfigDiagnostics(input: ConfigDiagnosticsInput): ConfigDia
 		});
 	}
 
-	// Out-of-range usage.alertThresholds values are dropped, not clamped
-	// (Q3 ruling); the drop is a diagnostic, never silent.
+	// Out-of-range usage.alertThresholds values are dropped, not clamped, and
+	// the drop is a diagnostic rather than silent.
 	const rawThresholds = input.reader.get(USAGE_ALERT_THRESHOLDS_SETTING_KEY);
 	if (Array.isArray(rawThresholds)) {
 		const kept = normalizeUsageAlertThresholds(rawThresholds).length;

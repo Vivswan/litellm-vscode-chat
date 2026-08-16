@@ -2,9 +2,8 @@
  * The redesigned server form's grammar: the Authentication selector's
  * active-form gating (only the picked form's fields validate and assemble,
  * companions per rank, inactive typed values demoted to keep), the derived
- * initial form (deriveAuthForm), and the three new entry fields the payload
- * always carries - headers, declaredModels, budget. Complements
- * serverForm.test.ts, which pins the pre-existing per-field rules.
+ * initial form, and the three entry fields the payload always carries -
+ * headers, declaredModels, budget. serverForm.test.ts pins the per-field rules.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -26,7 +25,6 @@ function secret(overrides: Partial<SecretFieldDraft> = {}): SecretFieldDraft {
 	return { value: "", location: "secure", clear: false, existing: "none", ...overrides };
 }
 
-/** The ok arm's intent; fails the test when the draft has problems. */
 function intentOf(formDraft: ServerFormDraft): ServerFormIntent {
 	const parse = parseServerForm(formDraft);
 	if (!parse.ok) {

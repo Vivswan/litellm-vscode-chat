@@ -78,8 +78,8 @@ function makeReader(
 
 /**
  * buildDashboardState in the positional shorthand these suites were written
- * against; inputs the shorthand does not cover (entryReports, catalog, usage,
- * diagnostics) go through buildDashboardState's options object directly.
+ * against; inputs it does not cover (entryReports, catalog, usage, diagnostics)
+ * go through buildDashboardState's options object directly.
  */
 function buildState(
 	snapshots: DashboardStateInputs["snapshots"],
@@ -143,10 +143,10 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("errorEnglish carries the status's log-safe rendering exactly when the display error is the transport error", () => {
-			// The copyable diagnostics block stays English by policy; the webview
-			// substitutes errorEnglish there while the on-screen row renders the
-			// (possibly localized) error. A sync error has no separate English
-			// mirror, so a row displaying one carries none.
+			// The copyable diagnostics block stays English by policy: the webview
+			// substitutes errorEnglish there while the row renders the possibly
+			// localized error. A sync error has no mirror, so a row showing one
+			// carries none.
 			const external = buildState(
 				[
 					{
@@ -278,14 +278,10 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a down server's retained models list under its erroring row without a per-model stale marker", () => {
-			// The provider retains a failed group's last known models in the
-			// status window (bounded by the last successful discovery), so the
-			// snapshot pairs an error status with a non-empty model list. The
-			// dashboard lists those models unmarked, deliberately: the server
-			// row they cite via serverLabel already renders the error and
-			// lastChecked, snapshots carry undecorated pre-attach infos by type
-			// (the picker's ThemeIcon decoration never enters this path), and
-			// the models leave the table with the same ten-minute bound.
+			// The provider retains a failed group's last known models, so the
+			// snapshot pairs an error status with a non-empty model list. Listing
+			// them unmarked is deliberate: the server row they cite already renders
+			// the error and lastChecked, and no picker decoration enters this path.
 			const state = buildState(
 				[
 					{
@@ -395,10 +391,10 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("entries sharing a base URL with different credentials join by group client ID, never swapped", () => {
-			// Both live snapshots are host-labeled identically, so no label pass
-			// can tell them apart and the URL fallback would pair them by
-			// position; the client ID the sync engine fingerprints is exact. The
-			// declared order is chosen so the positional fallback would swap them.
+			// Both snapshots are host-labeled identically, so no label pass can tell
+			// them apart and the URL fallback would pair them by position; the sync
+			// engine's client-ID fingerprint is exact. The declared order is chosen
+			// so the positional fallback would swap them.
 			const state = buildState(
 				[
 					{
@@ -465,11 +461,10 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("two declared entries mirroring one pre-label group share its snapshot instead of one reading unchecked", () => {
-			// Two entries, one URL, one key: groups created before labels flowed
-			// into their configurations report under ONE label-agnostic identity.
-			// Both entries carry it as expectedConnectionId, and both rows must
-			// render the live status - honest shared state beats a second row
-			// stuck on "not checked" forever.
+			// Groups created before labels flowed into their configurations report
+			// under ONE label-agnostic identity, which both entries carry as
+			// expectedConnectionId: both rows must render the live status rather
+			// than leave one stuck on "not checked" forever.
 			const state = buildState(
 				[
 					{
@@ -510,10 +505,9 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a snapshot shared by two declared entries lists its models under both labels", () => {
-			// The host registers a group's models once PER GROUP (the picker shows
-			// both servers' copies), so a pre-label snapshot claimed by several
-			// declared entries must attribute its models to every claimant, not
-			// render them once under the first label.
+			// The host registers a group's models once PER GROUP, so a pre-label
+			// snapshot claimed by several declared entries must attribute its
+			// models to every claimant, not render them once under the first label.
 			const state = buildState(
 				[
 					{
@@ -551,10 +545,9 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("an upsertFailed claimant gets no models copy; its row still shows the shared status", () => {
-			// One pre-label group exists and a second same-connection entry's
-			// group add FAILED outright: the engine still emits the entry's
-			// connection identity, so it claims the snapshot - but the picker has
-			// ONE group, and duplicating the models would overcount it.
+			// The second same-connection entry's group add FAILED outright, but the
+			// engine still emits its connection identity, so it claims the snapshot
+			// - and the picker has ONE group, so duplicating the models overcounts.
 			const state = buildState(
 				[
 					{
@@ -635,9 +628,8 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a snapshot whose only claimant is upsertFailed still lists its models once, under that label", () => {
-			// The reporting group exists and serves (the snapshot is its live
-			// report), so the models cannot vanish just because the entry's last
-			// add failed; they render once, not zero times.
+			// The reporting group exists and serves, so the models cannot vanish
+			// just because the entry's last add failed: they render once, not zero times.
 			const state = buildState(
 				[
 					{
@@ -718,10 +710,9 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("an entry with modelParameters served by a pre-label group flags the inactive parameters", () => {
-			// The connection-identity join means the live group carries no label,
-			// so the request path never applies this entry's parameters. The row
-			// must warn instead of rendering silently healthy - but only via the
-			// classification; the copy stays webview-side.
+			// The connection-identity join means the live group carries no label, so
+			// the request path never applies this entry's parameters: the row must
+			// warn instead of rendering healthy, via the classification alone.
 			const state = buildState(
 				[
 					{
@@ -795,10 +786,9 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("an entry with modelParameters joined by the label-and-URL fallback still flags them", () => {
-			// The snapshot's display label is the URL host, so this pass can match
-			// an unlabeled group whose credentials differ from the entry (neither
-			// identity joins). Only the exact labeled-identity join proves the
-			// group carries the entry's label; anything else must warn.
+			// The snapshot's display label is the URL host, so this pass can match an
+			// unlabeled group whose credentials differ from the entry. Only the exact
+			// labeled-identity join proves the group carries the entry's label.
 			const state = buildState(
 				[
 					{
@@ -858,10 +848,9 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("the shared pass never crosses connections: a different-credential entry keeps its own outcome", () => {
-			// One live group under key A. The entry declaring key B shares only
-			// the URL, not the connection, so handing it key A's status would
-			// claim a server it cannot reach is healthy; it must stay unchecked
-			// (the URL fallback finds the snapshot already claimed).
+			// One live group under key A. The entry declaring key B shares only the
+			// URL, not the connection, so handing it key A's status would call a
+			// server it cannot reach healthy; it must stay unchecked.
 			const state = buildState(
 				[
 					{
@@ -911,11 +900,9 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a sync error rides a reachable row without erasing the live facts", () => {
-			// The host cannot update a group, so the reachable "ok" group is the
-			// entry's OLD configuration. The sync error must not be hidden (the
-			// error field carries it, outranking any live error text), while the
-			// live state and counts keep rendering - diagnostics prints them
-			// side by side ("OK (N models) - <sync error>").
+			// The host cannot update the group, so the reachable "ok" group runs the
+			// entry's OLD configuration: the error field carries the sync error,
+			// outranking any live error text, while state and counts keep rendering.
 			const state = buildState(
 				[
 					{
@@ -1207,11 +1194,10 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a tombstone whose group was never observed this session is a ghost and stays off the hidden line", () => {
-			// The user can delete a tombstoned group from the models file directly;
-			// after the restart the host never calls for it, so offering Unhide
-			// would reference nothing. The panel's session-sticky observation set
-			// feeds this gate; the observed identity keeps its row even with no
-			// live snapshot in this push (snapshot aging must not flap it off).
+			// A tombstoned group deleted from the models file is never called for
+			// after a restart, so offering Unhide would reference nothing. The
+			// panel's session-sticky observation set gates that; an observed
+			// identity keeps its row even with no live snapshot in this push.
 			const state = buildDashboardState({
 				snapshots: [],
 				reader: makeReader({}),
@@ -1230,9 +1216,8 @@ suite("extension/dashboard/state", () => {
 
 		test("a registry-backed snapshot is never suppressed and its row is not hideable", () => {
 			// In test mode (and pre-migration) the legacy registry contributes
-			// external-looking rows; the registry sweep would keep serving their
-			// models, so a tombstone must not hide them and the row offers no
-			// Remove (hideable false).
+			// external-looking rows whose models the registry sweep keeps serving,
+			// so a tombstone must not hide them and the row offers no Remove.
 			const state = buildState(
 				[
 					{
@@ -1839,10 +1824,10 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("a claimed snapshot whose entry label differs from the group's still resolves its models", () => {
-			// The population the entry-capabilities-inactive notice exists for:
-			// entry "Prod", group label "x.test". The model rows render under the
-			// entry label, and their scope keys must still answer - the key hashes
-			// the server ID, so no label enters the resolution at all.
+			// The population the entry-capabilities-inactive notice exists for: entry
+			// "Prod", group label "x.test". The rows render under the entry label and
+			// their scope keys must still answer - the key hashes the server ID, so
+			// no label enters the resolution.
 			const divergent = [
 				{
 					discoveredRawIds: [],
@@ -1986,10 +1971,9 @@ suite("extension/dashboard/state", () => {
 
 			suite("layered evidence: global hints use the cross-server union, entry hints the server's own set", () => {
 				// Server A serves nothing relevant but observed the key; server B
-				// serves the inspected model and did not. The inspector must judge
-				// each layer the same way Configuration diagnostics and the settings
-				// editor do, or a click-through from a hint lands in an editor that
-				// renders the record as clean.
+				// serves the inspected model and did not. Each layer must be judged
+				// the way Configuration diagnostics and the settings editor judge it,
+				// or a click-through from a hint lands on a record that reads clean.
 				const twoServers = (servingSet: readonly string[] | undefined, otherSet: readonly string[] | undefined) => [
 					{
 						discoveredRawIds: [],
@@ -2021,9 +2005,8 @@ suite("extension/dashboard/state", () => {
 					);
 
 				test("a global hint drops when ANY server observed the key, even one not serving this model", () => {
-					// The regression shape: the SERVING server carries a real,
-					// non-empty set that lacks the key (per-server evidence alone
-					// would hint), and only the other server observed it. A
+					// The regression shape: the SERVING server carries a real, non-empty
+					// set that lacks the key, and only the other server observed it. A
 					// serving-set-only filter fails here; the union must win.
 					const discriminating = resolveOnB(["known_key"], ["supports_web_search"]);
 					assert.deepStrictEqual(discriminating?.diagnostics, []);
@@ -2227,10 +2210,9 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("effective is the scope-merged read (reader.get), normalized like the request path", () => {
-			// makeReader's get() answers from `values`, standing in for VS Code's
-			// own cross-scope merge; the per-scope records come from inspect. The
-			// inspector must see the merged record even when the edit scope holds
-			// only part of it.
+			// makeReader's get() stands in for VS Code's cross-scope merge while the
+			// per-scope records come from inspect: the inspector must see the merged
+			// record even when the edit scope holds only part of it.
 			const settings = readSettings(
 				makeReader(
 					{ "models.parameters": { "gpt-4": { temperature: 0.2 }, bad: 7 } },
@@ -2356,10 +2338,9 @@ suite("extension/dashboard/state", () => {
 					server: { label: "P", baseUrl: "http://x" },
 					secrets: { apiKey: { action: "keep" } },
 				}),
-				// The always-sent fields are required: a payload that omits one is
-				// malformed, never a signal to carry stored values forward (a save
-				// rebuilds the whole entry, so an omission-tolerant schema would let
-				// a stale sender silently delete hand-written configuration).
+				// The always-sent fields are required: a save rebuilds the whole entry,
+				// so an omission-tolerant schema would let a stale sender silently
+				// delete hand-written configuration.
 				...(["modelCapabilities", "expectedFailures", "headers", "declaredModels", "budget"] as const).map(
 					(omitted) => {
 						const server: Record<string, unknown> = { ...serverPayload({ label: "P", baseUrl: "http://x" }) };
@@ -2552,10 +2533,9 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("validateNumberSetting refuses fractions for integer-only settings", () => {
-			// The message schema admits any finite number, so this host-side gate
-			// is what keeps a crafted webview payload from writing a fraction into
-			// a settings.json field whose contribution declares "integer". Driven
-			// by the spec's integer flag, the same source the getter floors on.
+			// The message schema admits any finite number, so this host-side gate is
+			// what keeps a crafted payload from writing a fraction into a field whose
+			// contribution declares "integer", driven by the spec's integer flag.
 			const refused = validateNumberSetting("chat.maxToolsPerRequest", 2.5);
 			assert.ok(refused !== undefined, "a fractional tool cap is refused");
 			assert.ok(refused.split("\n")[1]?.includes("chat.maxToolsPerRequest"), refused);
@@ -2568,9 +2548,8 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("number-setting refusals are two-part: a headline, then a detail line naming the setting id", () => {
-			// The banner is page-global and names no field, so the detail line
-			// must carry the setting id; the headline carries the unit-aware
-			// minimum instead of jargon.
+			// The banner is page-global and names no field, so the detail line must
+			// carry the setting id while the headline carries the unit-aware minimum.
 			const below = validateNumberSetting("chat.timeout", 999);
 			assert.ok(below !== undefined, "a below-minimum value is refused");
 			const [belowHeadline, belowDetail] = below.split("\n");
@@ -2773,9 +2752,8 @@ suite("extension/dashboard/state", () => {
 
 		test("the draft's declared models join the count when not discovered; discovered ones stay inert", async () => {
 			// The probe reports what a save would produce: the payload's declared
-			// list (the form sends the edited entry's list in the draft). The
-			// stored entry's conflicting list pins payload-wins: it must not leak
-			// into the count.
+			// list. The stored entry's conflicting list pins payload-wins - it must
+			// not leak into the count.
 			const recorded = makeEnv([
 				{ label: "Prod", baseUrl: "http://prod.test", discovery: { declared: ["stored-only"] } },
 			]);
@@ -2803,11 +2781,9 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("the probe carries the draft's custom headers, exactly what a save would write", async () => {
-			// A gateway requiring a header must not report a false probe failure
-			// for a configuration that works once saved (the payload's headers are
-			// what the save writes, and the request path sends them). The stored
-			// entry's conflicting record pins payload-wins: the probe must send
-			// the draft's value, never the stored one.
+			// A gateway requiring a header must not report a false probe failure for
+			// a configuration that works once saved. The stored entry's conflicting
+			// record pins payload-wins: the probe sends the draft's value.
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test", headers: { "x-cf-access": "stale" } }]);
 			recorded.probeResult = ["m1"];
 			await draftTest(recorded, {
@@ -2838,8 +2814,7 @@ suite("extension/dashboard/state", () => {
 			});
 			assert.strictEqual(notice, "Discovery failed (expected) - serving 1 declared model");
 			// The draft's expectedFailures reach the probe in discovery's
-			// per-endpoint shape, so the expected endpoint probes with a single
-			// attempt exactly like production discovery.
+			// per-endpoint shape, so an expected endpoint gets a single attempt.
 			assert.deepStrictEqual(recorded.probes, [
 				{ baseUrl: "http://prod.test", label: "Prod", apiKey: "", expected: { modelInfo: false, modelListing: true } },
 			]);
@@ -3090,10 +3065,10 @@ suite("extension/dashboard/state", () => {
 		};
 
 		test("resolves by the row handle, immune to snapshot order churn on a shared base URL", () => {
-			// Two groups on one host: the status window's Map re-inserts entries
-			// on refresh, so the same rows arrive in either order. The handle
-			// rides the serverId, so both orders resolve identically where the
-			// old rendered-ordinal match could hand back the OTHER group's key.
+			// Two groups on one host: the status window's Map re-inserts entries on
+			// refresh, so the rows arrive in either order. The handle rides the
+			// serverId, where the old rendered-ordinal match could hand back the
+			// OTHER group's key.
 			const snapshots = [snapshotFor("group:aaa:http://ext.test"), snapshotFor("group:bbb:http://ext.test")];
 			const first = handleOf(snapshots, [], "ext.test (1)");
 			const second = handleOf(snapshots, [], "ext.test (2)");
@@ -3365,12 +3340,10 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("draftSyncKey changes on a reset that only removes the configured scope, so a stale draft resyncs", () => {
-			// The sequence this pins: a setting explicitly set to exactly its
-			// default holds a rejected draft, the user clicks Reset, and the push
-			// that follows changes the configured scope but not the value. The
-			// field's draft-resync effect keys on draftSyncKey, so the key must
-			// change on that push (or the invalid draft and its error would
-			// survive the successful reset).
+			// The sequence this pins: a setting pinned to exactly its default holds
+			// a rejected draft, Reset changes the configured scope but not the
+			// value, and the field's draft-resync effect keys on draftSyncKey - so
+			// the key must change or the invalid draft survives the reset.
 			const beforeReset = draftSyncKey(300000, "workspace");
 			const afterReset = draftSyncKey(300000, null);
 			assert.notStrictEqual(afterReset, beforeReset);

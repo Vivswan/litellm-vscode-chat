@@ -19,9 +19,8 @@ interface RecordedConfig {
 /**
  * Run `fn` with vscode.workspace.getConfiguration faked for the extension's
  * section: `inspections` back inspect() and the merged get(), and updates are
- * recorded instead of written. The original function is restored in a finally
- * block, like testUtils' withConfig; that helper is not reused because these
- * tests also need update() targets and a fetch counter.
+ * recorded instead of written. Not testUtils' withConfig, because these tests
+ * also need update() targets and a fetch counter.
  */
 async function withRecordedConfig<T>(
 	inspections: Record<string, SettingsInspection>,
@@ -147,8 +146,7 @@ suite("extension/settingsAccess", () => {
 
 		test("every method fetches the live configuration at call time", async () => {
 			// WorkspaceConfiguration is a snapshot: one captured at access-creation
-			// time would serve stale values to reads that follow awaited writes
-			// (the dev seed reads the servers setting back between its writes).
+			// time would serve stale values to reads following awaited writes.
 			await withRecordedConfig({}, async ({ fetches }) => {
 				const access = createSettingsAccess();
 				assert.strictEqual(fetches(), 0, "creation itself fetches nothing");

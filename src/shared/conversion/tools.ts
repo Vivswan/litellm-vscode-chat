@@ -70,12 +70,9 @@ const ALLOWED_SCHEMA_KEYWORDS = new Set([
  * The keyword set one conversion works against: the built-in allowlist,
  * extended (never replaced) by the chat.additionalToolSchemaKeywords setting.
  * Extension-only on purpose: the sanitizer's structural rewrites below assume
- * the built-ins are present, so user configuration may keep more keywords but
- * can never strip one the conversion relies on. Prototype-polluting names
- * ("__proto__" and friends) are refused here too - the settings normalizer
- * already drops them, but this function takes arbitrary arrays, and admitting
- * "__proto__" would make pruneUnknownSchemaKeywords assign a prototype
- * instead of copying an own keyword.
+ * the built-ins are present. Prototype-polluting names are refused here too -
+ * admitting "__proto__" would make pruneUnknownSchemaKeywords assign a
+ * prototype instead of copying an own keyword.
  */
 function allowedKeywords(additionalKeywords: readonly string[] | undefined): ReadonlySet<string> {
 	const extras = additionalKeywords?.filter((keyword) => !isUnsafeRecordKey(keyword)) ?? [];
@@ -203,10 +200,8 @@ export interface ToolConfig {
 /**
  * Convert VS Code tool definitions to OpenAI function tool definitions, or
  * undefined when the request carries no tools.
- * @param options Request options containing tools and toolMode.
  * @param additionalSchemaKeywords Extra JSON-Schema keywords the sanitizer
- * keeps beyond its built-in allowlist (the chat.additionalToolSchemaKeywords
- * setting, read by the caller); their values pass through verbatim.
+ * keeps beyond its built-in allowlist; their values pass through verbatim.
  */
 export function convertTools(
 	options: vscode.ProvideLanguageModelChatResponseOptions,

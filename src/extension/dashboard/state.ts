@@ -1,12 +1,9 @@
 /**
- * The dashboard's state bridge: pure builders that reduce the existing stores
- * (the provider's status window, workspace configuration) to the serializable
- * DashboardState, plus the settings readers those builders share.
- *
- * Everything here takes its inputs as plain values or thin injected adapters,
- * so the whole module is unit-testable without a webview or a real
- * configuration store. panel.ts owns the vscode wiring; intent validation and
- * execution live in intents.ts.
+ * The dashboard's state bridge: pure builders that reduce the stores (the
+ * provider's status window, workspace configuration) to the serializable
+ * DashboardState, plus the settings readers they share. Inputs are plain
+ * values or injected adapters, never live vscode objects; panel.ts owns the
+ * vscode wiring, intents.ts the intent validation and execution.
  */
 
 import type {
@@ -73,10 +70,9 @@ import { resolveConfiguredScope, resolveUpdateScope } from "../settingsAccess";
 import { adoptSourceHandle, modelScopeKey } from "./adoptHandle";
 
 /**
- * The removal bookkeeping the state builder folds in, as plain values (the
- * builders take no live vscode objects): the identities the user explicitly
- * removed (tombstones; base URLs normalized) and the recorded origins of
- * orphaned groups. panel.ts reads both from the GroupRemovalStore.
+ * The removal bookkeeping the state builder folds in: the identities the user
+ * explicitly removed (tombstones; base URLs normalized) and the recorded
+ * origins of orphaned groups. panel.ts reads both from the GroupRemovalStore.
  */
 export interface RemovedGroupsView {
 	readonly tombstones: readonly { readonly label: string; readonly baseUrl: string }[];
@@ -102,10 +98,9 @@ export interface SettingsReader {
 
 /**
  * Snapshots joined with the display label their server renders under. Labels
- * are not unique (two provider groups can point at one host, differing only
- * in credentials), so colliding labels get a positional suffix; the opaque
- * server IDs stay out of the state because they embed a credential
- * fingerprint.
+ * are not unique (two provider groups can point at one host with different
+ * credentials), so colliding labels get a positional suffix; the opaque server
+ * IDs stay out of the state because they embed a credential fingerprint.
  */
 interface LabeledSnapshot {
 	readonly snapshot: ServerModelsSnapshot;
@@ -113,9 +108,9 @@ interface LabeledSnapshot {
 }
 
 export function labeledSnapshots(snapshots: readonly ServerModelsSnapshot[]): LabeledSnapshot[] {
-	// The serverId tiebreak keeps the sort total: the status window's Map
-	// re-inserts refreshed entries at the end, so without it two groups on one
-	// host would swap ordinals whenever their insertion order churned.
+	// The serverId tiebreak keeps the sort total: the status window re-inserts
+	// refreshed entries at the end, so without it two groups on one host would
+	// swap ordinals whenever their insertion order churned.
 	const sorted = [...snapshots].sort(
 		(a, b) =>
 			a.status.label.localeCompare(b.status.label) ||
@@ -170,28 +165,22 @@ function buildServer(
 }
 
 /**
- * Which pairing pass joined a declared entry to its snapshot: the exact
- * labeled group identity, the label-agnostic connection identity (pre-label
- * groups), or the label/URL fallbacks for entries the engine has not
- * resolved. buildServers reads it to flag entries whose per-entry
- * modelParameters the serving group may not apply: only the identity pass
- * proves the group carries the entry's label.
+ * Which pairing pass joined a declared entry to its snapshot. Only the
+ * identity pass proves the serving group carries the entry's label, which is
+ * what buildServers flags entries on: any other pass means the entry's own
+ * modelParameters may not apply.
  */
 type JoinPass = "identity" | "connection" | "label-url" | "url";
 
 /**
- * Pair declared entries with live snapshots. Declared entries pair by the
- * group client ID first (the sync engine computes the same
- * credential-fingerprinted identity the provider stamps on its snapshots, so
- * entries sharing a base URL with different credentials join exactly), then
- * by the label-agnostic connection ID - non-exclusively, because groups
- * created before entry labels flowed into their configurations report under
- * one shared identity, and every declared entry mirroring that connection is
- * honestly described by its snapshot (shared real status beats "not
- * checked") - then by label plus base URL, then by base URL alone for
- * entries the engine has not resolved yet. Shared by the state builder and
- * the adopt intent's source resolution, which must agree on which snapshots
- * are external.
+ * Pair declared entries with live snapshots, in four passes: the group client
+ * ID (credential-fingerprinted, so entries sharing a base URL with different
+ * credentials join exactly), then the label-agnostic connection ID
+ * non-exclusively (groups created before entry labels flowed into their
+ * configurations report under one shared identity, and every entry mirroring
+ * that connection is honestly described by it), then label plus base URL, then
+ * base URL alone. Shared by the state builder and the adopt intent's source
+ * resolution, which must agree on which snapshots are external.
  */
 export function joinDeclared(
 	labeled: readonly LabeledSnapshot[],
@@ -253,16 +242,12 @@ export function joinDeclared(
 
 /**
  * The state slice of a declared row. The sync error always rides the row's
- * error (a live status's own error cannot mask it): the group still serving
- * is the entry's OLD configuration, and the remove-and-resync instruction
- * must show. A reachable group keeps its live state, though - the surfaces
- * render the error text alongside the live facts (diagnostics'
- * serverOutcomeText, the dashboard's per-server error list). `errorEnglish`
- * carries the transport error's log-safe English rendering, and
- * `classification` its transport classification (enum ids only,
- * protocol-legal), each exactly when the row's error IS the transport error;
- * a sync error has no separate English mirror and is never classified, so it
- * carries neither.
+ * error (a live status's own error cannot mask it): the group still serving is
+ * the entry's OLD configuration, and the remove-and-resync instruction must
+ * show. A reachable group keeps its live state. `errorEnglish` (the transport
+ * error's log-safe English) and `classification` (enum ids only,
+ * protocol-legal) ride exactly when the row's error IS the transport error; a
+ * sync error carries neither.
  */
 function declaredOutcome(
 	status: ServerStatus | undefined,
@@ -298,9 +283,9 @@ function declaredOutcome(
 			? { state: "error", modelCount: 0, error: syncError }
 			: {
 					state: "error",
-					// Declared models keep serving through ANY discovery failure
-					// (they are config-rebuilt, not discovered), so the row's count
-					// must match the picker whether or not the failure was expected.
+					// Declared models keep serving through ANY discovery failure (they
+					// are config-rebuilt, not discovered), so the row's count must
+					// match the picker whether or not the failure was expected.
 					modelCount: status.declaredModelCount ?? 0,
 					error: status.error,
 					errorEnglish: status.logSafeError,
@@ -319,17 +304,13 @@ export type DrawableReject = ServerEntryReport & { readonly label: string; reado
 
 /**
  * The rejected servers-setting entries that earn a row of their own, in
- * setting order.
- *
- * A reject sits in the setting, so a silently missing row would read as a
- * removal - but a row needs an honest identity to draw. Four causes leave a
- * reject without one: no label, no base URL, a label a declared entry already
- * owns, and a label an earlier reject already drew. Those stay in
- * Configuration diagnostics ONLY, which is why this rule is a named export
- * rather than a loop body: the Diagnostics destination drops the entry
- * problems a server row already states, and it must drop exactly the ones a
- * row was actually drawn for. Two spellings of "drawable" would silently
- * erase a user's broken entry from both surfaces at once.
+ * setting order. A reject sits in the setting, so a silently missing row would
+ * read as a removal - but a row needs an honest identity to draw, and four
+ * causes leave a reject without one: no label, no base URL, a label a declared
+ * entry already owns, and a label an earlier reject already drew. Those stay
+ * in Configuration diagnostics ONLY, which is why this rule is exported rather
+ * than inlined: diagnostics drop the entry problems a row already states, and
+ * must drop exactly the ones a row was drawn for.
  */
 export function rejectsWithOwnRow(
 	entryReports: readonly ServerEntryReport[],
@@ -358,32 +339,24 @@ export function rejectsWithOwnRow(
  * The servers section merges two sources: entries declared in the servers
  * setting (with their secret locations, for the edit form) and the live
  * provider groups the status window saw (reachability, model counts). A
- * declared entry the status window has not seen yet renders as "unchecked",
- * and a live group with no settings entry renders as external, managed
- * outside the setting.
+ * declared entry the status window has not seen renders "unchecked"; a live
+ * group with no settings entry renders as external.
  *
- * Provider-group snapshots are labeled by URL host (the host never hands the
- * group name to the extension), so the join cannot require a label match; see
- * joinDeclared for the pairing passes. `snapshotLabels` maps each snapshot to
- * the labels its models render under: every claiming entry's label when
- * joined (a shared snapshot is one group's report, but the host registers
- * those models once per group, so the models table lists them under each
- * claimant to match the picker), the snapshot's own label otherwise. The one
- * exclusion is a claimant whose sync failed as upsertFailed - its add failed
- * outright, so the host has no group for it and a copy would be phantom;
- * blocked claimants keep their copy (the duplicate refusal proves a group
- * with that name exists and registers models). The snapshot still renders at
- * least once (the reporting group exists and serves), under the first
- * claimant when every claimant is excluded. Known residual divergences: a
- * native group removal the engine has not re-discovered still overcounts,
- * and an external unlabeled group sharing a connection with a pre-label
- * entry collapses into it (pre-existing under-report); exact host
+ * Snapshots are labeled by URL host (the host never hands the group name to
+ * the extension), so the join cannot require a label match; see joinDeclared.
+ * `snapshotLabels` maps each snapshot to the labels its models render under:
+ * every claiming entry's label when joined (the host registers those models
+ * once per group, so the models table must list them per claimant to match the
+ * picker), the snapshot's own label otherwise. The one exclusion is a claimant
+ * whose sync failed as upsertFailed - the host has no group for it, so a copy
+ * would be phantom - while blocked claimants keep theirs; the snapshot still
+ * renders under the first claimant when every claimant is excluded. Exact host
  * cardinality is not recoverable from declarations alone.
  *
  * Removal bookkeeping (removedGroups) applies to external rows only: a
- * tombstoned external snapshot leaves the table (the hidden-groups line
- * states it instead) and contributes no models, and the remaining external
- * rows carry their recorded provenance classification when one exists.
+ * tombstoned external snapshot leaves the table (the hidden-groups line states
+ * it instead) and contributes no models, and the remaining external rows carry
+ * their recorded provenance when one exists.
  */
 function buildServers(
 	labeled: readonly LabeledSnapshot[],
@@ -393,13 +366,12 @@ function buildServers(
 	isGroupSnapshot: (serverId: string) => boolean
 ): { servers: DashboardServer[]; snapshotLabels: string[][] } {
 	const { matchedByDeclared, unmatched } = joinDeclared(labeled, declared);
-	// The removal bookkeeping is keyed by the snapshot's own status label
-	// (never the display label, which can carry a collision ordinal) plus the
-	// normalized base URL. Only EXTERNAL, GROUP-BACKED rows are ever
-	// suppressed: a declared entry matching a tombstone clears it engine-side
-	// (and until that pass lands the declared row must keep rendering), and a
-	// legacy-registry row has no group a tombstone silences - the registry
-	// path would keep serving its models, so hiding it here would lie.
+	// The removal bookkeeping is keyed by the snapshot's own status label (never
+	// the display label, which can carry a collision ordinal) plus the
+	// normalized base URL. Only EXTERNAL, GROUP-BACKED rows are ever suppressed:
+	// a declared entry matching a tombstone clears it engine-side, and a
+	// legacy-registry row has no group a tombstone silences - it would keep
+	// serving its models, so hiding it here would lie.
 	const isTombstoned = (snapshot: ServerModelsSnapshot) =>
 		isGroupSnapshot(snapshot.status.serverId) &&
 		removedGroups.tombstones.some(
@@ -417,9 +389,8 @@ function buildServers(
 	// first claimant of any state as the render-at-least-once fallback.
 	const claimants = new Map<LabeledSnapshot, { labels: string[]; fallback: string }>();
 	const servers: DashboardServer[] = [];
-	// Hidden externals leave the table AND the models list: the provider
-	// already answers a suppressed group with no models, so this only bridges
-	// the window between the tombstone write and the host's re-resolution.
+	// Hidden externals leave the table AND the models list; this only bridges the
+	// window between the tombstone write and the host's re-resolution.
 	const hidden = new Set<LabeledSnapshot>();
 	declared.forEach((view, declaredIndex) => {
 		const match = matchedByDeclared.get(declaredIndex);
@@ -431,16 +402,12 @@ function buildServers(
 			}
 			claimants.set(matched, claimed);
 		}
-		// Only the exact labeled-identity join proves the live group carries
-		// this entry's label, which is what the request path's label-and-URL
-		// resolution keys on. Any other pass - the label-agnostic connection
-		// identity (pre-label groups), or the label/URL fallbacks (a group
-		// predating a rename, different credentials, someone else's label) -
-		// means the entry's entry-only fields may silently not apply, and the
-		// row must say so instead of rendering silently healthy; the copy
-		// renders webview-side from these classifications. modelParameters and
-		// the capability/expected-failure pair get separate classifications so
-		// a row names exactly what is inactive.
+		// Only the exact labeled-identity join proves the live group carries this
+		// entry's label, which is what the request path's label-and-URL resolution
+		// keys on. Any other pass means the entry's entry-only fields may silently
+		// not apply, and the row must say so instead of rendering healthy;
+		// modelParameters and the capability/expected-failure pair get separate
+		// classifications so a row names exactly what is inactive.
 		const entryFieldsInactive = match !== undefined && match.pass !== "identity";
 		const notices: DeclaredServerNotice[] = [];
 		if (entryFieldsInactive && view.modelParameters !== undefined) {
@@ -455,8 +422,8 @@ function buildServers(
 		if (entryFieldsInactive && view.headers !== undefined) {
 			notices.push("entry-headers-inactive");
 		}
-		// "" is a real override (append nothing), so the !== undefined test is
-		// the right activity check here too.
+		// "" is a real override (append nothing), so !== undefined is the right
+		// activity check here too.
 		if (entryFieldsInactive && view.apiVersion !== undefined) {
 			notices.push("entry-api-version-inactive");
 		}
@@ -492,9 +459,8 @@ function buildServers(
 				...(view.budget !== undefined ? { budget: view.budget } : {}),
 			},
 			...(notices.length > 0 ? { notices } : {}),
-			// The classification itself, apart from its per-family notices: the
-			// webview's declare offers key on this, because the notices exist only
-			// for the field families the entry happens to configure.
+			// The webview's declare offers key on the classification itself, since
+			// the notices exist only for the field families the entry configures.
 			...(entryFieldsInactive ? { entryFieldsInactive: true as const } : {}),
 			...outcome,
 		});
@@ -513,12 +479,10 @@ function buildServers(
 			)
 		);
 	}
-	// Entries the parser refused whole (a misconfigured auth shape) still
-	// render as rows: they sit in the setting, and a silently missing row
-	// would read as a removal. Which rejects earn a row is decided by
-	// rejectsWithOwnRow, the one place that rule lives - the Configuration
-	// diagnostics read the same function to know which of their entry
-	// problems a row already states, and which they are the only report of.
+	// Entries the parser refused whole still render as rows: they sit in the
+	// setting, and a silently missing row would read as a removal.
+	// rejectsWithOwnRow is the one place that rule lives; Configuration
+	// diagnostics read it to know which problems a row already states.
 	for (const report of rejectsWithOwnRow(entryReports, declared)) {
 		servers.push({
 			label: report.label,
@@ -529,8 +493,8 @@ function buildServers(
 			origin: "misconfigured",
 			problems: report.problems,
 			state: "error",
-			// English by the issue-report policy, like the parser problems the
-			// row carries; the webview renders its own localized copy.
+			// English by the issue-report policy, like the parser problems the row
+			// carries; the webview renders its own localized copy.
 			error: "misconfigured entry; not used until its configuration is fixed",
 			errorEnglish: "misconfigured entry; not used until its configuration is fixed",
 		});
@@ -554,9 +518,9 @@ function buildServers(
 function buildModel(info: PreAttachModelInfo, serverLabel: string, serverId: string, scopeKey: string): DashboardModel {
 	return {
 		id: info.id,
-		// The request's `model` field for this entry: group registrations expose
-		// raw IDs already, and legacy multi-server registrations namespace them
-		// with the server ID, which the shared strip inverts.
+		// The request's `model` field: group registrations expose raw IDs already,
+		// legacy multi-server ones namespace them with the server ID, which the
+		// shared strip inverts.
 		rawId: rawModelIdFromExposed(info.id, serverId),
 		scopeKey,
 		name: info.name,
@@ -609,9 +573,8 @@ function readBooleanSetting(reader: SettingsReader, id: BooleanSettingId): boole
 
 /**
  * The package.json default of a number setting, the display fallback when the
- * configured value is unusable (readNumberSetting): the form still renders a
- * real value. Falls back further to the spec's own floor when even the
- * inspected default is unusable.
+ * configured value is unusable (readNumberSetting). Falls back further to the
+ * spec's own floor when even the inspected default is unusable.
  */
 function readNumberDefault(reader: SettingsReader, id: NumberSettingId): number | null {
 	const spec = NUMBER_SETTING_SPECS[id];
@@ -630,12 +593,11 @@ function readBooleanDefault(reader: SettingsReader, id: BooleanSettingId): boole
 const ALL_SCOPES: readonly SettingScope[] = ["global", "workspace", "workspaceFolder"];
 
 /**
- * Split an object setting by scope: the record the edit scope holds (which
- * the editors edit and writes replace whole) and, read-only, the records
- * other scopes hold. Built from inspection, never from the merged effective
- * value; see ScopedRecordSetting for why. `effectiveRaw` is the one merged
- * read (WorkspaceConfiguration.get), sanitized the same way, for the
- * inspector's request-path view.
+ * Split an object setting by scope: the record the edit scope holds (writes
+ * replace it whole) and, read-only, the records other scopes hold. Built from
+ * inspection, never from the merged effective value; see ScopedRecordSetting
+ * for why. `effectiveRaw` is the one merged read, sanitized the same way, for
+ * the inspector's request-path view.
  */
 function buildScopedRecord<V>(
 	effectiveRaw: unknown,
@@ -658,10 +620,8 @@ function buildScopedRecord<V>(
  * Whether normalizing chat.additionalToolSchemaKeywords DROPS anything from
  * the raw configured value. The state push carries only the normalized list,
  * so without this flag the dashboard's row cannot tell a clean list from one
- * hiding entries (a non-string, an empty string, a duplicate, an unsafe key)
- * that a comma-box edit would silently destroy - the flag forces its
- * read-only fallback instead. A missing setting is not lossy, and neither is
- * an array normalization returns element for element.
+ * hiding entries a comma-box edit would silently destroy; the flag forces its
+ * read-only fallback instead.
  */
 function additionalToolSchemaKeywordsLossy(raw: unknown): boolean {
 	if (raw === undefined) {
@@ -743,10 +703,9 @@ export function readDashboardSettings(reader: SettingsReader, catalog: CatalogSt
 }
 
 /**
- * Legacy-registry servers with no server row of their own. After a sweep a
+ * Legacy-registry servers with no server row of their own: after a sweep a
  * registry server can also surface as an external snapshot row (same base
- * URL); only the registry servers without such a row count, so the same
- * server is never stated twice.
+ * URL), and the same server must never be stated twice.
  */
 function countUnlistedLegacyServers(
 	servers: readonly DashboardServer[],
@@ -759,11 +718,9 @@ function countUnlistedLegacyServers(
 /**
  * What the request path would resolve for one server's requests, as panel.ts
  * resolves it: the group's label paired with the declared entry's own
- * modelParameters, through the SAME resolver chat requests use
- * (readEntryModelParameters, i.e. entryModelParametersFor over the live
- * setting). Undefined for unlabeled groups, legacy-registry snapshots, and
- * labels no declared entry matches at that URL - exactly the requests that
- * get only the global setting.
+ * modelParameters, through the SAME resolver chat requests use. Undefined for
+ * unlabeled groups, legacy-registry snapshots, and labels no declared entry
+ * matches at that URL - exactly the requests that get only the global setting.
  */
 export type EntryParametersResolution = {
 	readonly entryLabel: string;
@@ -771,11 +728,10 @@ export type EntryParametersResolution = {
 };
 
 /**
- * Everything buildDashboardState reduces, as one options object (the
- * positional form grew eight parameters with test-only-correct defaults).
- * Only `snapshots` and `reader` are required; every optional input defaults
- * to the value that is right where the corresponding store cannot
- * contribute (tests, headless callers).
+ * Everything buildDashboardState reduces, as one options object. Only
+ * `snapshots` and `reader` are required; every optional input defaults to the
+ * value that is right where the corresponding store cannot contribute (tests,
+ * headless callers).
  */
 export interface DashboardStateInputs {
 	readonly snapshots: readonly ServerModelsSnapshot[];
@@ -789,18 +745,15 @@ export interface DashboardStateInputs {
 	/**
 	 * Whether a snapshot belongs to a provider group (vs the legacy registry);
 	 * gates tombstone suppression and the external rows' hideable flag. The
-	 * default treats everything as a group, which is right wherever the
-	 * registry cannot contribute snapshots.
+	 * default treats everything as a group.
 	 */
 	readonly isGroupSnapshot?: (serverId: string) => boolean;
 	/**
 	 * Whether a tombstoned identity's group was observed alive at some point
-	 * this session (a session-sticky set the panel accumulates from group
-	 * snapshots - suppressed groups still report, deleted groups never do).
-	 * Gates the hidden-groups line only: a tombstone whose group the host no
-	 * longer holds is a ghost, and offering Unhide for it would reference
-	 * nothing. The default shows everything, which is right for tests that
-	 * never age groups out.
+	 * this session (suppressed groups still report, deleted groups never do).
+	 * Gates the hidden-groups line only: offering Unhide for a tombstone whose
+	 * group the host no longer holds would reference nothing. The default shows
+	 * everything.
 	 */
 	readonly wasGroupObserved?: (label: string, baseUrl: string) => boolean;
 	/** The OpenRouter catalog row's status; defaults to the empty snapshot. */
@@ -813,11 +766,10 @@ export interface DashboardStateInputs {
 
 /**
  * The hidden-groups view both the servers section and Configuration
- * diagnostics render: the tombstones themselves (never live snapshots - an
+ * diagnostics render: the tombstones themselves, never live snapshots (an
  * unhide must stay offered after the suppressed group's snapshot ages out of
- * the status window mid-session), gated by the session-sticky observation set
- * so a tombstone whose group the host no longer holds is not offered as an
- * unhidable ghost.
+ * the status window), gated by the session-sticky observation set so a
+ * tombstone whose group the host no longer holds is not offered as a ghost.
  */
 export function visibleHiddenGroups(
 	removedGroups: RemovedGroupsView,
@@ -830,14 +782,12 @@ export function visibleHiddenGroups(
 }
 
 /**
- * The union of the snapshots' observed /model/info keys, across exactly the
- * snapshots that carry a set (sorted for a stable push). Undefined when none
- * does - "no server has reported keys" must stay distinguishable from "the
- * servers reported none", because the advisory-hint filter drops every hint
- * on the former (no false hints on declared-only entries, expected
- * modelInfo failures, the /models fallback, or pre-discovery windows).
- * Observed keys are server-derived strings: the union is Set-built (never
- * raw object keys - "__proto__" is a legal member) and must never be logged.
+ * The union of the snapshots' observed /model/info keys, across the snapshots
+ * that carry a set (sorted for a stable push). Undefined when none does: "no
+ * server has reported keys" must stay distinguishable from "the servers
+ * reported none", because the advisory-hint filter drops every hint on the
+ * former. Observed keys are server-derived strings: Set-built, never raw
+ * object keys ("__proto__" is a legal member), and never logged.
  */
 export function observedModelInfoKeysUnion(
 	snapshots: readonly Pick<ServerModelsSnapshot, "observedModelInfoKeys">[]
@@ -858,12 +808,11 @@ export function observedModelInfoKeysUnion(
 }
 
 /**
- * Each declared entry's observed /model/info key set, keyed by entry label:
- * the set its serving snapshot carries, joined by the same passes the servers
- * table renders from (joinDeclared). Entries with no snapshot, or whose
- * snapshot carries no set, are simply absent - the advisory-hint filter
- * treats absence as "unknown" and stays silent. Same handling rules as
- * observedModelInfoKeysUnion (Map-keyed, never logged).
+ * Each declared entry's observed /model/info key set, keyed by entry label,
+ * joined by the same passes the servers table renders from (joinDeclared).
+ * Entries with no snapshot, or whose snapshot carries no set, are absent - the
+ * advisory-hint filter reads absence as "unknown" and stays silent. Same
+ * handling rules as observedModelInfoKeysUnion (Map-keyed, never logged).
  */
 export function observedKeysByEntryLabel(
 	snapshots: readonly ServerModelsSnapshot[],
@@ -896,8 +845,8 @@ export function buildDashboardState(inputs: DashboardStateInputs): DashboardStat
 	} = inputs;
 	const labeled = labeledSnapshots(snapshots);
 	const { servers, snapshotLabels } = buildServers(labeled, declared, entryReports, removedGroups, isGroupSnapshot);
-	// See visibleHiddenGroups for why the line renders from the tombstones
-	// themselves rather than from live snapshots.
+	// See visibleHiddenGroups for why this renders from the tombstones, not from
+	// live snapshots.
 	const hiddenGroups = visibleHiddenGroups(removedGroups, wasGroupObserved);
 	const observedUnion = observedModelInfoKeysUnion(snapshots);
 	return {
@@ -932,32 +881,27 @@ export interface ModelCapabilitiesQuery {
 	/** The OpenRouter catalog as in-memory lookup; EMPTY_CATALOG_LOOKUP when no snapshot exists. */
 	readonly catalog: CapabilityCatalogLookup;
 	/**
-	 * The provider's shared flat resolution table: the inspector then reads
-	 * the SAME cache requests and registration use. Absent, the responder
-	 * runs the same pure walk uncached (tests, headless callers).
+	 * The provider's shared flat resolution table, so the inspector reads the
+	 * SAME cache requests and registration use. Absent, the responder runs the
+	 * same pure walk uncached (tests, headless callers).
 	 */
 	readonly resolution?: ModelResolutionTable | undefined;
 }
 
 /**
- * Answer one readModelCapabilities request: locate the model behind the
- * scope key and raw ID, then read the SAME resolveModelCapabilities walk
- * registration runs, over the same layers (entry record, global setting,
- * server baseline, catalog, floor) - through the provider's shared
- * resolution table when the query carries one. A store change between the
- * push and the request can de-resolve the key (its snapshot left the
- * window); undefined tells the inspector the state moved on instead of
- * inventing values.
+ * Answer one readModelCapabilities request: locate the model behind the scope
+ * key and raw ID, then run the SAME resolveModelCapabilities walk registration
+ * runs, through the provider's shared resolution table when the query carries
+ * one. A store change between the push and the request can de-resolve the key;
+ * undefined tells the inspector the state moved on instead of inventing values.
  */
 export function resolveDashboardModelCapabilities(
 	query: ModelCapabilitiesQuery,
 	scopeKey: string,
 	rawId: string
 ): EffectiveCapabilities | undefined {
-	// Scope keys hash the server ID (modelScopeKey), so a stale key - one
-	// minted for a snapshot that has since left the window - resolves to
-	// nothing rather than to another server; no positional arithmetic exists
-	// to go wrong.
+	// Scope keys hash the server ID (modelScopeKey), so a stale key resolves to
+	// nothing rather than to another server.
 	const labeled = labeledSnapshots(query.snapshots).find(
 		(entry) => modelScopeKey(entry.snapshot.status.serverId) === scopeKey
 	);
@@ -974,24 +918,21 @@ export function resolveDashboardModelCapabilities(
 		globalCapabilities: normalizeModelCapabilities(query.reader.get(MODEL_CAPABILITIES_SETTING_KEY)),
 		entryCapabilities: query.resolveEntryCapabilities(serverId),
 		catalog: query.catalog,
-		// Registration's post-aggregation baseline, riding every pre-attach
-		// model: the inspector resolves over the same walk registration serves.
+		// Registration's post-aggregation baseline, riding every pre-attach model:
+		// the inspector resolves over the same walk registration serves.
 		serverDeclared: info.litellm.serverDeclared,
 	};
 	const resolved =
 		query.resolution !== undefined
 			? query.resolution.resolveCapabilities(serverId, rawId, inputs)
 			: resolveModelCapabilities({ rawModelId: rawId, ...inputs });
-	// The advisory filter judges each hint by its layer's own evidence, the
-	// SAME evidence Configuration diagnostics and the settings editor use:
-	// entry records apply to this server only, so its own listing judges them;
-	// a global record applies to every server, so a key ANY server observed is
-	// real (the cross-server union) - otherwise the inspector would hint on a
-	// record the editor its edit action opens renders as clean. The evidence
-	// sets are built only when a hint exists to judge. The non-global branch
-	// deliberately falls back to the stricter per-server evidence: a future
-	// RecordLayer member would fail safe (fewer hints), never borrow the
-	// union's broader proof.
+	// The advisory filter judges each hint by its layer's own evidence, the SAME
+	// evidence Configuration diagnostics and the settings editor use: entry
+	// records apply to this server only, so its own listing judges them; a global
+	// record applies to every server, so a key ANY server observed is real (the
+	// cross-server union). The non-global branch falls back to the stricter
+	// per-server evidence deliberately, so a future RecordLayer member fails safe
+	// (fewer hints) instead of borrowing the union's broader proof.
 	if (!resolved.diagnostics.some((diagnostic) => diagnostic.kind === "unrecognized-key")) {
 		return resolved;
 	}
@@ -1016,10 +957,9 @@ export interface ModelParametersQuery {
 /**
  * Answer one readModelParameters request: locate the model behind the scope
  * key and raw ID, resolve the configured merge through the provider's shared
- * flat table (the SAME cache requests read) when the query carries one, and
- * project it into the inspector's rows (entry-layer refs carry the declared
- * entry's label). Undefined when the key or model no longer resolves, exactly
- * like resolveDashboardModelCapabilities.
+ * flat table when the query carries one, and project it into the inspector's
+ * rows (entry-layer refs carry the declared entry's label). Undefined when the
+ * key or model no longer resolves, like resolveDashboardModelCapabilities.
  */
 export function resolveDashboardModelParameters(
 	query: ModelParametersQuery,
@@ -1059,9 +999,8 @@ export function resolveDashboardModelParameters(
 
 /**
  * The most specific GLOBAL record key matching a model, for the inspectors'
- * configure-jump: the webview holds no resolver logic (the capsInspector
- * doctrine), so the extension names the record the jump should focus - or
- * none, in which case the editor creates a fresh exact-ID draft.
+ * configure-jump: the webview holds no resolver logic, so the extension names
+ * the record to focus - or none, and the editor creates a fresh exact-ID draft.
  */
 export function mostSpecificGlobalRecordKey(
 	reader: SettingsReader,

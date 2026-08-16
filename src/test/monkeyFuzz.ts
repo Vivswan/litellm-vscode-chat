@@ -2,43 +2,24 @@
  * The interaction (monkey) fuzzer's action alphabet, oracle, generator, and
  * executor, shared by docker-monkey.test.ts and the corpus replays.
  *
- * Actions are JSON-serializable and environment-independent: labels are
- * abstract tokens ("s1", "s2") that the executor maps into a fresh
- * monkey-<seed>-<namespace>- namespace on every run, and credentials are
- * symbolic modes the executor resolves against the live stack. A failing
- * walk therefore replays and shrinks exactly like a FuzzEvent list: the
- * serialized actions are the whole reproduction.
+ * Actions are JSON-serializable and environment-independent (abstract label
+ * tokens the executor namespaces per run, symbolic credential modes it
+ * resolves against the live stack), so the serialized actions are the whole
+ * reproduction for replay and shrinking.
  *
- * The action space covers the redesigned settings surface: every auth form
- * with its sanctioned companions plus the forbidden ambiguous shape,
- * per-entry headers, budgets (valid and diagnostic-and-ignored), entry
- * discovery blocks (declared IDs on healthy and dark groups alike,
- * expectedFailures), the models.parameters record directives
- * (_force/_inheritable/_inherit_from, valid and junk-valued), and the
- * usage.* settings (poll interval through the dashboard's intent path,
- * alert thresholds as raw writes).
+ * The oracle is built from the REAL pure functions the extension runs
+ * (parseServersSetting, buildGroupArgs), so it cannot drift from the sync
+ * engine's rules. Its structural insight: under VS Code's add-only
+ * provider-group command a label's first successfully synced configuration is
+ * immutable for the host lifetime, so any later divergence expects exactly
+ * GROUP_UPDATE_UNAVAILABLE_MESSAGE.
  *
- * The oracle is deliberately built from the REAL pure functions the
- * extension runs (parseServersSetting, buildGroupArgs), so its expectations
- * cannot drift from the sync engine's acceptance and resolution rules. Its
- * one structural insight: under VS Code's add-only provider-group command, a
- * label's first successfully synced configuration is immutable for the host
- * lifetime, so the expected syncError for any later state is exactly
- * "current resolved args differ from that first configuration".
- *
- * Known oracle limitations (documented, not accidental):
- * - SecretStorage offers no enumeration API, so the storage-key probe covers
- *   Memento keys only; stored secret blobs are observed indirectly through
- *   the declared views' secret locations.
- * - Model attribution is a lower bound: per-group model copies share raw
- *   IDs, so the probe counts copies per healthy non-removed group instead of
- *   attributing a copy to a specific group (an explicit removal tombstones
- *   the group and hides its models, so removed labels leave the floor), and
- *   pre-existing host models are grandfathered via a baseline snapshot.
- * - The secret-leak scan is a substring scan over the session's issue-report
- *   log lines and error snapshots (the lossless test tee behind
- *   litellm._test.getSessionLogs); every minted secret is recognizable by
- *   construction (sk-monkey-<seed>-<n>, monkey-oauth-secret-<n>).
+ * Known oracle limitations: the storage probe covers Memento keys only
+ * (SecretStorage has no enumeration API); model attribution is a lower bound,
+ * since per-group copies share raw IDs, so probes count copies per healthy
+ * non-removed group and grandfather pre-existing models via a baseline; the
+ * secret-leak scan is a substring scan over the session log tee for the
+ * minted secrets (sk-monkey-<seed>-<n>, monkey-oauth-secret-<n>).
  */
 
 import * as assert from "node:assert";
@@ -87,13 +68,11 @@ import { expectDefined } from "./pureHelpers";
 // -- Action alphabet ----------------------------------------------------------
 
 /**
- * How a declared entry authenticates; the executor resolves each mode
- * against the live stack. Beyond the plain forms: "inline-with-companion"
- * is the apiKey form carrying a virtualKey sibling companion,
- * "oauth-with-companions" nests both companions inside the oauth object,
- * and "ambiguous" is the forbidden second-form-beside-oauth shape - the
- * parser must mark the entry misconfigured and the engine must never sync
- * or serve it.
+ * How a declared entry authenticates; the executor resolves each mode against
+ * the live stack. Beyond the plain forms: "inline-with-companion" is apiKey
+ * with a virtualKey sibling, "oauth-with-companions" nests both companions in
+ * the oauth object, and "ambiguous" is the forbidden second-form-beside-oauth
+ * shape - the parser must mark it misconfigured and never sync or serve it.
  */
 type CredentialMode =
 	| "inline"
@@ -108,12 +87,7 @@ type CredentialMode =
 
 type ChatVerb = "echo" | "text" | "think" | "stream";
 
-/**
- * Optional entry fields riding a declare: per-entry headers, a budget
- * (valid or the invalid-and-ignored kind), a unique declared model ID, and
- * the expectedFailures pair. All JSON-serializable flags; the executor
- * derives the concrete values from the declare's serial.
- */
+/** Optional entry fields riding a declare; the executor derives concrete values from the declare's serial. */
 export interface DeclareExtras {
 	headers?: boolean;
 	budget?: number | "invalid";
@@ -122,18 +96,14 @@ export interface DeclareExtras {
 }
 
 /**
- * The models.parameters shapes the fuzzer writes. "plain"/"invalid" are the
- * original pass-through spot checks; the directive shapes pin `_force`
- * beating a runtime option, an `_inheritable` catch-all field riding along,
- * an `_inherit_from: false` barrier keeping it out, and junk directive
- * values degrading to diagnostics without touching the wire.
+ * The models.parameters shapes the fuzzer writes: pass-through spot checks
+ * plus the directive shapes pinning `_force` beating a runtime option, an
+ * `_inheritable` field riding along, an `_inherit_from: false` barrier, and
+ * junk directive values degrading to diagnostics without touching the wire.
  */
 type ParamShape = "plain" | "invalid" | "forced" | "inherited" | "barrier" | "junk-directives";
 
-/**
- * One monkey step. Every variant is JSON-serializable and self-contained;
- * label fields carry abstract tokens the executor namespaces per run.
- */
+/** One monkey step; label fields carry abstract tokens the executor namespaces per run. */
 export type MonkeyAction =
 	| { kind: "declare-server"; label: string; credential: CredentialMode; extras?: DeclareExtras }
 	/** Mutate an existing label's baseUrl; the add-only host must refuse the update. */
@@ -156,20 +126,15 @@ export interface MonkeyCorpusEntry {
 
 // -- Deterministic generation -------------------------------------------------
 
-/**
- * Temperatures whose JSON round trip is byte-stable (no float arithmetic),
- * so the %params / last-request spot checks can compare exact values.
- */
+/** Temperatures whose JSON round trip is byte-stable, so the last-request spot checks compare exact values. */
 const TEMPERATURES = [0.1, 0.25, 0.5, 0.75, 1] as const;
 
 /**
- * Dashboard intents with known outcomes, valid and value-invalid. Only
- * intents that cannot wedge the host are generated: syncing rides the acked
- * syncModels wire method rather than executeCommand (the postable command
- * ids all open UI surfaces that await user input, or are covered by suites
- * of their own), and saveServerSetting/adoptServer stay out because the
- * declare/redeclare/remove actions already drive the servers setting
- * through its own oracle.
+ * Only intents that cannot wedge the host are generated: syncing rides the
+ * acked syncModels wire method (the postable command ids all open UI surfaces
+ * awaiting user input), and saveServerSetting/adoptServer stay out because the
+ * declare/redeclare/remove actions drive the servers setting through their own
+ * oracle.
  */
 
 /** One request envelope with a deterministic correlation id (the walks must replay identically). */
@@ -242,9 +207,8 @@ function generateDashboardIntent(
 				expect: "ok",
 			};
 		case 6:
-			// "constructor" is a reserved record key (isUnsafeRecordKey); unlike
-			// "__proto__" it survives an object literal as an own property, so the
-			// action stays JSON-faithful.
+			// "constructor" is a reserved record key (isUnsafeRecordKey) that,
+			// unlike "__proto__", survives an object literal as an own property.
 			return {
 				kind: "dashboard-intent",
 				intent: dashboardRequest(
@@ -271,8 +235,8 @@ function generateDashboardIntent(
 				expect: "validation-error",
 			};
 		case 9:
-			// The acked wire method, which is how the webview drives a sync now
-			// (syncing is no longer an executeCommand-postable id).
+			// The acked wire method the webview drives a sync with (no longer an
+			// executeCommand-postable id).
 			return {
 				kind: "dashboard-intent",
 				intent: dashboardRequest("syncModels", null, `fuzz-${serial}`),
@@ -310,12 +274,11 @@ function generateDashboardIntent(
 }
 
 /**
- * Schema-invalid payloads: junk envelopes, the retired flat message shape,
- * and near-valid envelopes whose payload carries a wrong-typed or extra field
- * (the strict schemas refuse unknown keys), so nothing here can parse into a
- * request that acts. The executor still accepts a "validation-error" outcome
- * for junk, because near-valid mutations may legitimately pass the schema and
- * die in value validation instead.
+ * Schema-invalid payloads that cannot parse into a request that acts: junk
+ * envelopes, the retired flat message shape, and near-valid envelopes with a
+ * wrong-typed or extra field (the strict schemas refuse unknown keys). The
+ * executor also accepts "validation-error" for junk, since a near-valid
+ * mutation may pass the schema and die in value validation.
  */
 function generateJunkPayload(random: () => number, serial: number): unknown {
 	const templates: readonly unknown[] = [
@@ -421,10 +384,10 @@ function generateChat(random: () => number): Extract<MonkeyAction, { kind: "chat
 }
 
 /**
- * Generate one walk of `stepCount` actions. The generator keeps its own
- * planned view of which labels exist so mutating actions always target real
- * labels; execution-time state never feeds back into generation, which is
- * what makes a walk replayable from its serialized actions alone.
+ * Generate one walk of `stepCount` actions. The generator keeps its own planned
+ * view of which labels exist so mutating actions target real labels;
+ * execution-time state never feeds back into generation, which is what makes a
+ * walk replayable from its serialized actions alone.
  */
 export function generateWalk(random: () => number, stepCount: number): MonkeyAction[] {
 	const actions: MonkeyAction[] = [];
@@ -437,13 +400,12 @@ export function generateWalk(random: () => number, stepCount: number): MonkeyAct
 		const roll = random();
 		if (roll < 0.15) {
 			// Labels are never recycled BY DESIGN: a removed label's fingerprint is
-			// pruned at end of pass, so re-declaring it - even with identical args -
-			// would hit the add-only duplicate rejection (GROUP_UPDATE_UNAVAILABLE_MESSAGE)
-			// while the oracle expects undefined, desynchronizing oracle from engine.
+			// pruned at end of pass, so re-declaring it would hit the add-only
+			// duplicate rejection while the oracle expects undefined.
 			const label = `s${++labelCounter}`;
 			const credential = expectDefined(CREDENTIAL_MODES[Math.floor(random() * CREDENTIAL_MODES.length)]);
 			// Ambiguous entries never parse, so mutating actions must not plan
-			// around them - the executor tracks them in its own misconfigured set.
+			// around them; the executor tracks them in its own misconfigured set.
 			if (credential !== "ambiguous") {
 				live.push(label);
 			}
@@ -493,24 +455,20 @@ interface OracleEntry {
 	hostArgs: string;
 	health: HealthKind;
 	/**
-	 * True once the label's healthy discovery was proven (the declare's model
-	 * wait passed), so its later removal must subtract from the model-count
-	 * floors. Dark labels and a declare that died mid-wait never set it.
+	 * True once the label's healthy discovery was proven (its model wait
+	 * passed), so a later removal must subtract from the model-count floors.
 	 */
 	provenHealthy: boolean;
 	/**
-	 * The entry's unique discovery.declared model ID, when the declare's
-	 * extras carried one. Unlike the shared anchor IDs this is attributable:
-	 * exactly one label owns it, so the probes assert presence while the
-	 * label lives and the removal path asserts the tombstone took it out.
+	 * The entry's unique discovery.declared model ID, when its extras carried
+	 * one. Unlike the shared anchor IDs exactly one label owns it, so its
+	 * presence and its post-removal absence are both provable.
 	 */
 	declaredId?: string;
 	/**
-	 * The baseUrl the label's group was synced with. Entry-scoped
-	 * configuration (declared models included) reaches a group only while
-	 * the entry still matches it on label AND base URL, so a redeclare's
-	 * mutation legitimately takes the declared model out of the host list -
-	 * the probes stop expecting it once these two diverge.
+	 * The baseUrl the label's group was synced with. Entry-scoped configuration
+	 * reaches a group only while the entry matches it on label AND base URL, so
+	 * the probes stop expecting the declared model once these two diverge.
 	 */
 	syncedBaseUrl: string;
 }
@@ -519,10 +477,9 @@ interface OracleEntry {
 const UNSET = Symbol("unset");
 
 /**
- * Every Memento key shared/config/storageKeys.ts declares as globalState; the
- * storage probe admits nothing else. SecretStorage key names stay OUT of this
- * list on purpose: one of them turning up in globalState would mean secret
- * material landed in the wrong store, exactly what the probe must catch.
+ * Every Memento key storageKeys.ts declares as globalState; the storage probe
+ * admits nothing else. SecretStorage key names stay OUT on purpose: one of them
+ * in globalState would mean secret material landed in the wrong store.
  */
 const KNOWN_MEMENTO_KEYS: readonly string[] = [
 	SERVER_REGISTRY_KEY,
@@ -576,11 +533,9 @@ const RESPONSIVENESS_TIMEOUT_MS = 15000;
 const MODEL_WAIT_MS = 60000;
 
 /**
- * One monkey session per extension host: the oracle state spans walks
- * because provider groups and settings do. runActions namespaces each run's
- * labels freshly (an execution counter on top of the seed), so shrink
- * candidates and corpus replays never collide with earlier runs' add-only
- * groups.
+ * One monkey session per extension host: the oracle state spans walks because
+ * provider groups and settings do. runActions namespaces each run's labels
+ * freshly, so shrink candidates and replays never collide with earlier runs.
  */
 export class MonkeySession {
 	private declared = new Map<string, OracleEntry>();
@@ -589,41 +544,34 @@ export class MonkeySession {
 	/** Add-only across the whole session: healthy group counts only ever grow. */
 	private everSyncedHealthy = { proxy: 0, fake: 0 };
 	/**
-	 * Healthy ever-synced groups whose declared entry was later explicitly
-	 * removed: the removal tombstones the group (label plus base URL), so the
-	 * provider answers it with zero models until a matching entry reappears.
-	 * Labels are never recycled in this fuzzer, so hidden stays hidden and the
-	 * live model-count floor is everSyncedHealthy minus this.
+	 * Healthy ever-synced groups whose entry was later explicitly removed: the
+	 * removal tombstones the group, so the provider answers it with zero models.
+	 * The live model-count floor is everSyncedHealthy minus this.
 	 */
 	private hiddenHealthy = { proxy: 0, fake: 0 };
 	private expectedSettings = new Map<string, unknown | typeof UNSET>();
 	private minted: string[] = [];
 	/**
-	 * Labels declared with the ambiguous auth shape: the parser must skip
-	 * them (misconfigured), so they never join `declared`, never sync, and
-	 * never produce a declared view. Kept only so declares can assert the
-	 * absence deliberately rather than by accident.
+	 * Labels declared with the ambiguous auth shape: the parser must skip them,
+	 * so they never join `declared`, sync, or produce a declared view.
 	 */
 	private misconfigured = new Set<string>();
 	/**
-	 * Declared-model IDs this session's entries carry (discovery.declared):
-	 * they register whenever discovery does not list them - on any failure
-	 * type included - so the unknown-model probe must admit them.
+	 * Declared-model IDs this session's entries carry: they register whenever
+	 * discovery does not list them, so the unknown-model probe must admit them.
 	 */
 	private declaredIds = new Set<string>();
 	/**
-	 * Cursor into the session log tee (litellm._test.getSessionLogs): each
-	 * hygiene probe scans exactly the lines logged since the previous one. A
-	 * line can only carry secrets that existed when it was logged, and the
-	 * minted set only grows, so scanning every line once, at the next probe,
-	 * sees every secret it could contain.
+	 * Cursor into the session log tee: each hygiene probe scans the lines logged
+	 * since the previous one. A line can only carry secrets that existed when it
+	 * was logged, so scanning every line once sees every secret it could contain.
 	 */
 	private logCursor = 0;
 	private baselineModelIds: ReadonlySet<string> = new Set();
 	/**
 	 * Pre-session copies of the two anchor IDs: the model-count floors are
-	 * baseline + newly-synced, so a NEW healthy group failing discovery can
-	 * never hide behind pre-existing groups' copies satisfying a bare count.
+	 * baseline + newly-synced, so a NEW healthy group failing discovery cannot
+	 * hide behind pre-existing groups' copies satisfying a bare count.
 	 */
 	private baselineCopies = { proxy: 0, fake: 0 };
 	private executionCounter = 0;
@@ -713,12 +661,10 @@ export class MonkeySession {
 
 	/**
 	 * Declare an entry, force a sync, and settle the oracle: a healthy
-	 * configuration must raise its id's copy count (the only host-visible
-	 * proof THIS group's discovery succeeded); a dark one syncs its group and
-	 * serves nothing; an ambiguous one must never produce a declared view at
-	 * all. Extras ride the same declare: headers and budgets are view-level
-	 * facts, a declared model ID must reach the host regardless of the
-	 * entry's discovery outcome.
+	 * configuration must raise its id's copy count (the only host-visible proof
+	 * THIS group's discovery succeeded); a dark one syncs and serves nothing; an
+	 * ambiguous one must never produce a declared view. A declared model ID must
+	 * reach the host regardless of the entry's discovery outcome.
 	 */
 	private async declare(label: string, credential: CredentialMode, extras?: DeclareExtras): Promise<void> {
 		const serial = ++this.probeCounter;
@@ -729,9 +675,8 @@ export class MonkeySession {
 				entry.auth = { apiKey: this.env.apiKey };
 				break;
 			case "secure": {
-				// The blob lands BEFORE the entry, so the first sync pass resolves
-				// it; the entry itself carries no auth object (the stored slot
-				// activates the bearer on its own).
+				// The blob lands BEFORE the entry so the first sync pass resolves it;
+				// the entry carries no auth object (the stored slot activates the bearer).
 				await this.setStoredSecret(label, "apiKey", this.env.apiKey);
 				const blob = this.stored.get(label) ?? {};
 				blob.apiKey = this.env.apiKey;
@@ -742,9 +687,8 @@ export class MonkeySession {
 				entry.auth = { virtualKey: { header: "x-litellm-api-key", value: this.env.apiKey } };
 				break;
 			case "inline-with-companion": {
-				// The apiKey form with a virtualKey sibling companion: the bearer
-				// (and its X-API-Key copy) authenticates; the companion header is
-				// extra baggage the proxy ignores.
+				// The bearer (and its X-API-Key copy) authenticates; the companion
+				// header is extra baggage the proxy ignores.
 				const companion = `sk-monkey-${this.env.seed}-${serial}-companion`;
 				this.minted.push(companion);
 				entry.auth = { apiKey: this.env.apiKey, virtualKey: { header: "x-monkey-companion", value: companion } };
@@ -762,9 +706,8 @@ export class MonkeySession {
 				health = "fake";
 				break;
 			case "oauth-with-companions": {
-				// Both companions nested inside the oauth object: the /authed
-				// mirror validates the bearer only, so the extra headers must
-				// change nothing about the group's health.
+				// The /authed mirror validates the bearer only, so the nested extra
+				// headers must change nothing about the group's health.
 				const companionKey = `sk-monkey-${this.env.seed}-${serial}-oauth-companion`;
 				const companionValue = `monkey-vk-${this.env.seed}-${serial}`;
 				this.minted.push(companionKey, companionValue);
@@ -782,9 +725,9 @@ export class MonkeySession {
 				break;
 			}
 			case "ambiguous": {
-				// A second form beside oauth: the one shape the auth grammar
-				// forbids outright. The minted key still joins the leak scan - a
-				// misconfigured entry's values must never reach a log either.
+				// A second form beside oauth: the one shape the auth grammar forbids.
+				// The minted key still joins the leak scan - a misconfigured entry's
+				// values must never reach a log either.
 				const mintedKey = `sk-monkey-${this.env.seed}-${serial}-ambiguous`;
 				this.minted.push(mintedKey);
 				entry.auth = {
@@ -809,8 +752,7 @@ export class MonkeySession {
 			entry.headers = { "x-monkey-env": `m${serial}` };
 		}
 		if (extras?.budget !== undefined) {
-			// The invalid budget is a diagnostic-and-ignored value; the entry
-			// itself stays usable (settings agreement parses both sides).
+			// An invalid budget is diagnostic-and-ignored; the entry stays usable.
 			entry.budget = extras.budget === "invalid" ? -0.5 : extras.budget;
 		}
 		const declaredId = extras?.declared ? `monkey-declared-${this.env.seed}-${serial}` : undefined;
@@ -847,8 +789,7 @@ export class MonkeySession {
 		this.declared.set(label, oracle);
 		if (health === "proxy") {
 			// Increment only after the wait: a timed-out wait must fail THIS
-			// declare without poisoning every later model-count floor (and, via
-			// cascading probe failures, the shrunk trace).
+			// declare without poisoning every later model-count floor.
 			const wanted = this.baselineCopies.proxy + this.everSyncedHealthy.proxy - this.hiddenHealthy.proxy + 1;
 			await waitForHostModels(
 				MODEL_WAIT_MS,
@@ -868,9 +809,8 @@ export class MonkeySession {
 			oracle.provenHealthy = true;
 		}
 		if (declaredId !== undefined) {
-			// Q2 ruling 1, fuzzed: a declared ID registers whenever discovery
-			// does not list it - healthy discovery, expected failure, and dark
-			// 401s alike (the group itself synced in every non-ambiguous mode).
+			// A declared ID registers whenever discovery does not list it: healthy
+			// discovery, expected failure, and dark 401s alike.
 			await waitForHostModels(
 				MODEL_WAIT_MS,
 				(models) => this.countModels(models, declaredId) >= 1,
@@ -897,12 +837,10 @@ export class MonkeySession {
 	}
 
 	/**
-	 * Settle the oracle for one label's explicit removal: the sync engine
-	 * tombstones the group (its models leave the host list until a matching
-	 * entry reappears, which never happens here - labels are not recycled), so
-	 * a proven-healthy label's copies come out of the model-count floors.
-	 * Returns the anchor id whose count the caller must then OBSERVE dropping
-	 * (see observeHiddenDrop), so the subtraction is never taken on faith.
+	 * Settle the oracle for one label's explicit removal: the tombstoned group
+	 * serves nothing, so a proven-healthy label's copies come out of the
+	 * model-count floors. Returns the anchor id whose count the caller must then
+	 * OBSERVE dropping, so the subtraction is never taken on faith.
 	 */
 	private hideRemovedLabel(label: string): string | undefined {
 		const oracle = this.declared.get(label);
@@ -927,11 +865,8 @@ export class MonkeySession {
 	/**
 	 * Observe a removal's hiding actually land: wait until the anchor's copy
 	 * count drops below its pre-removal sample. Raw model IDs carry no group
-	 * identity, so this cannot attribute the drop to the exact removed group -
-	 * a wrongly-suppressed sibling's drop would satisfy it (the residual
-	 * attribution limitation the header documents) - but it does keep the
-	 * floor subtraction honest: the count provably went down, and the >= floor
-	 * probe keeps every other group accounted.
+	 * identity, so this cannot attribute the drop to the exact removed group,
+	 * but it keeps the floor subtraction honest - the count provably went down.
 	 */
 	private async observeHiddenDrop(anchorId: string, beforeCount: number): Promise<void> {
 		await waitForHostModels(
@@ -958,10 +893,9 @@ export class MonkeySession {
 			assert.ok(KNOWN_STACK_MODEL_IDS.has(alias), `chat target ${alias} is not in the fake stack's model catalog`);
 		}
 		assert.ok(KNOWN_STACK_MODEL_IDS.has(FAKE_ANCHOR_ID), `${FAKE_ANCHOR_ID} is not in the fake stack's model catalog`);
-		// Pre-existing provider GROUPS are tolerated via the baseline snapshot;
-		// a pre-existing servers SETTING is not part of any walk's oracle, so
-		// the session starts from a declaratively empty slate (the caller
-		// restores the original value at suite teardown).
+		// Pre-existing provider GROUPS are tolerated via the baseline snapshot; a
+		// pre-existing servers SETTING is not part of any walk's oracle, so the
+		// session starts from a declaratively empty slate.
 		await this.writeServersSetting([]);
 		const baseline = await vscode.lm.selectChatModels({ vendor: VENDOR_ID });
 		this.baselineModelIds = new Set(baseline.map((model) => model.id));
@@ -1001,12 +935,9 @@ export class MonkeySession {
 					GROUP_UPDATE_UNAVAILABLE_MESSAGE,
 					"a redeclared label must surface the add-only error"
 				);
-				// The mutated base URL no longer identifies the live group, so
-				// the entry's per-entry configuration stops reaching it: the
-				// declared model must leave the host list (the same rule the
-				// "entry parameters are inactive" notice describes). The group
-				// itself keeps serving whatever its first configuration
-				// discovered.
+				// The mutated base URL no longer identifies the live group, so the
+				// entry's configuration stops reaching it and the declared model must
+				// leave the host list; the group keeps serving what it discovered.
 				if (oracle.declaredId !== undefined) {
 					await this.observeDeclaredGone(oracle.declaredId);
 				}
@@ -1046,18 +977,14 @@ export class MonkeySession {
 					views.every((view) => view.label !== real),
 					"a removed entry must leave the declared views"
 				);
-				// The host group itself persists (no removal API), but the explicit
-				// removal tombstones it, so the provider answers it with zero
-				// models: hideRemovedLabel took its copies out of the model-count
-				// floors, and the drop is observed here rather than assumed.
-				// Labels are never recycled, so nothing in a walk can clear the
-				// tombstone and re-raise the floor.
+				// The host group persists (no removal API), but the removal tombstones
+				// it, so the provider answers it with zero models; the floor
+				// subtraction is observed here rather than assumed.
 				if (anchorId !== undefined) {
 					await this.observeHiddenDrop(anchorId, before);
 				}
-				// The declared ID is attributable (one owner label), so the
-				// tombstone must take it out entirely - the strongest absence
-				// assertion the raw-ID model list allows.
+				// The declared ID has one owner label, so the tombstone must take it
+				// out entirely - the strongest absence the raw-ID model list allows.
 				if (oracle.declaredId !== undefined) {
 					await this.observeDeclaredGone(oracle.declaredId);
 				}
@@ -1153,14 +1080,11 @@ export class MonkeySession {
 	}
 
 	/**
-	 * The chat action's model target. The fake anchor joins the pool only
-	 * while a healthy, non-removed fake-backend group exists (chatting it
-	 * otherwise would fail on a missing or tombstone-hidden model, by
-	 * construction, not by bug). Known caveat: a shrink candidate that drops
-	 * an oauth declare or a remove therefore resolves later picks differently
-	 * than the original walk did - acceptable, because shrinking only needs
-	 * SOME failing trace, and identical runs (the determinism contract) still
-	 * resolve every pick identically.
+	 * The chat action's model target. The fake anchor joins the pool only while
+	 * a healthy, non-removed fake-backend group exists. Caveat: a shrink
+	 * candidate that drops an oauth declare or a remove resolves later picks
+	 * differently than the original walk, which shrinking tolerates; identical
+	 * runs still resolve every pick identically.
 	 */
 	private chatTarget(pick: number): string {
 		const candidates = [...PROXY_CHAT_ALIASES];
@@ -1256,19 +1180,14 @@ export class MonkeySession {
 
 	/**
 	 * Direct settings write, then a wire-level spot check via %params and the
-	 * fake backend's last-request capture. Valid parameters must pass through
-	 * unchanged; the invalid classes the extension owns ("_"-prefixed keys,
-	 * provider-owned fields) must be dropped silently while the chat keeps
-	 * working; the directive shapes pin `_force` over runtime options,
-	 * `_inheritable` flow, the `_inherit_from: false` barrier, and junk
-	 * directive values degrading to diagnostics. Arbitrary junk parameter
-	 * VALUES are NOT generated: pass-through is the contract, so an unknown
-	 * value would reach LiteLLM and fail the request by design, not by bug.
+	 * fake backend's last-request capture. Arbitrary junk parameter VALUES are
+	 * NOT generated: pass-through is the contract, so an unknown value would
+	 * reach LiteLLM and fail the request by design, not by bug.
 	 */
 	private async runSetModelParameters(action: Extract<MonkeyAction, { kind: "set-model-parameters" }>): Promise<void> {
 		const temperature = expectDefined(TEMPERATURES[action.serial % TEMPERATURES.length]);
-		// Always a different index than `temperature`, so a forced win is
-		// distinguishable from the runtime option merely echoing the record.
+		// A different index than `temperature`, so a forced win is distinguishable
+		// from the runtime option merely echoing the record.
 		const runtimeTemperature = expectDefined(TEMPERATURES[(action.serial + 1) % TEMPERATURES.length]);
 		const shape: ParamShape = action.shape ?? (action.valid ? "plain" : "invalid");
 		const alias = PLAYBACK_MODEL.alias;
@@ -1278,9 +1197,8 @@ export class MonkeySession {
 			forced: { [alias]: { temperature, _force: true } },
 			inherited: { "*": { top_p: 0.75, _inheritable: true }, [alias]: { temperature } },
 			barrier: {
-				// top_p, the same field the `inherited` shape proves DOES cross
-				// the proxy: a negative assertion on a field nothing else sends
-				// could pass by the proxy dropping it.
+				// top_p is the same field the `inherited` shape proves DOES cross the
+				// proxy: a negative assertion on an unsent field could pass vacuously.
 				"*": { top_p: 0.75, _inheritable: true },
 				[alias]: { temperature, _inherit_from: false },
 			},
@@ -1305,9 +1223,8 @@ export class MonkeySession {
 		try {
 			await this.assertParameterShape(shape, action, options, temperature);
 		} finally {
-			// A catch-all record would otherwise apply to every later chat,
-			// probe echo, and corpus replay in the session; the alias-scoped
-			// shapes are left in place as before (they touch one model).
+			// A catch-all record would otherwise apply to every later chat and
+			// replay in the session; alias-scoped shapes touch one model and stay.
 			if (Object.hasOwn(value, "*")) {
 				await this.config().update(MODEL_PARAMETERS_SETTING_KEY, undefined, vscode.ConfigurationTarget.Global);
 				this.expectedSettings.set(MODEL_PARAMETERS_SETTING_KEY, UNSET);
@@ -1370,8 +1287,8 @@ export class MonkeySession {
 
 	/**
 	 * usage.alertThresholds is read-normalized, never write-validated: junk
-	 * entries drop at read time with a diagnostic while the raw setting
-	 * stays as written, and nothing else about the session may move.
+	 * entries drop at read time with a diagnostic while the raw setting stays as
+	 * written, and nothing else about the session may move.
 	 */
 	private async runSetUsageThresholds(action: Extract<MonkeyAction, { kind: "set-usage-thresholds" }>): Promise<void> {
 		const value = action.valid ? [0.5, 0.9] : [-1, 2, "junk", 0.5 + (action.serial % 3) / 10];
@@ -1404,9 +1321,8 @@ export class MonkeySession {
 
 	private async probeModelList(): Promise<void> {
 		const models = await vscode.lm.selectChatModels({ vendor: VENDOR_ID });
-		// Live floors: every healthy ever-synced group keeps its models UNLESS
-		// its entry was explicitly removed - the removal tombstone hides the
-		// group until a matching entry reappears, and walk labels never recur.
+		// Live floors: every healthy ever-synced group keeps its models UNLESS its
+		// entry was explicitly removed, which tombstones the group.
 		const proxyFloor = this.baselineCopies.proxy + this.everSyncedHealthy.proxy - this.hiddenHealthy.proxy;
 		const fakeFloor = this.baselineCopies.fake + this.everSyncedHealthy.fake - this.hiddenHealthy.fake;
 		assert.ok(
@@ -1423,12 +1339,9 @@ export class MonkeySession {
 				`unknown litellm model ${model.id}: never declared this session and not in the pre-session baseline`
 			);
 		}
-		// Attributable presence: every LIVE entry's unique declared ID must
-		// still serve (its declare already observed the registration land, so
-		// a later disappearance is a real regression, not propagation lag) -
-		// for as long as the entry still matches its group's identity. A
-		// redeclare breaks that match, and the redeclare branch observes the
-		// declared model leaving instead.
+		// Attributable presence: every LIVE entry's unique declared ID must still
+		// serve, for as long as the entry matches its group's identity. A
+		// redeclare breaks that match and observes the model leaving instead.
 		for (const [label, oracle] of this.declared) {
 			if (oracle.declaredId !== undefined && oracle.entry.baseUrl === oracle.syncedBaseUrl) {
 				assert.ok(
@@ -1485,11 +1398,8 @@ export class MonkeySession {
 		};
 		assert.strictEqual(batch.dropped, 0, "the session log tee evicted lines before the leak scan could read them");
 		this.logCursor = batch.next;
-		// Minted values plus the realistic literals the stack actually uses:
-		// the proxy master key and the fake identity provider's client secret.
-		// Error snapshots (message plus public stack, the fields the reporter's
-		// latest-error slot exposes) ride the same line stream, so overwritten
-		// snapshots are scanned too.
+		// Minted values plus the literals the stack itself uses. Error snapshots
+		// ride the same line stream, so overwritten snapshots are scanned too.
 		const secrets = [...this.minted, this.env.apiKey, FAKE_OAUTH_CLIENT_SECRET];
 		for (const line of batch.lines) {
 			for (const secret of secrets) {
@@ -1519,17 +1429,14 @@ export class MonkeySession {
 
 	/**
 	 * Run one action list under a fresh label namespace: probes every
-	 * PROBE_INTERVAL steps plus once at the end, and a cleanup (even on
-	 * failure) that removes this run's declared entries so the next run's
-	 * view-consistency probe starts from the oracle's steady state. The
-	 * add-only side effects (host groups, ever-synced counts, minted secrets)
-	 * stay, by design; the cleanup's removals tombstone this run's groups, so
-	 * their healthy copies move to the hidden side of the floors.
+	 * PROBE_INTERVAL steps plus once at the end, and a cleanup (even on failure)
+	 * that removes this run's declared entries so the next run starts from the
+	 * oracle's steady state. Add-only side effects stay by design; the cleanup's
+	 * removals move this run's healthy copies to the hidden side of the floors.
 	 */
 	async runActions(walkTag: string, actions: readonly MonkeyAction[]): Promise<void> {
 		// Fresh namespace per run, never recycled: reusing a removed label would
-		// hit the add-only duplicate rejection with a pruned fingerprint (see
-		// generateWalk's label allocation) and desynchronize oracle from engine.
+		// hit the add-only duplicate rejection with a pruned fingerprint.
 		const namespace = `${walkTag}-r${++this.executionCounter}`;
 		let walkFailed = false;
 		try {
@@ -1552,9 +1459,8 @@ export class MonkeySession {
 				console.log(`monkey cleanup for ${namespace} failed: ${String(cleanupError)}`);
 			}
 			// Cleanup writes settings and forces syncs, so it logs, and the last
-			// walk has no later probe to drain those lines; scan them here.
-			// Skipped on a failed walk so a leak assertion out of this finally
-			// cannot replace the walk's own verdict.
+			// walk has no later probe to drain those lines. Skipped on a failed
+			// walk so a leak assertion cannot replace the walk's own verdict.
 			if (!walkFailed) {
 				await this.probeSecretHygiene();
 			}
@@ -1580,9 +1486,8 @@ export class MonkeySession {
 		const declaredGone: string[] = [];
 		for (const label of [...this.declared.keys()]) {
 			if (label.startsWith(prefix)) {
-				// Cleanup is an explicit removal like the remove-server action:
-				// the sync pass below tombstones each removed label's group, so
-				// its healthy copies leave the model-count floors too.
+				// Cleanup is an explicit removal like remove-server: the sync pass
+				// below tombstones each group, so its copies leave the floors too.
 				const declaredId = this.declared.get(label)?.declaredId;
 				if (declaredId !== undefined) {
 					declaredGone.push(declaredId);
@@ -1594,9 +1499,8 @@ export class MonkeySession {
 			}
 		}
 		await this.syncNow();
-		// Observed like remove-server's drop: the next run's probes start from
-		// floors this cleanup lowered, so the lowering must have provably
-		// happened before this run hands over.
+		// The next run's probes start from floors this cleanup lowered, so the
+		// lowering must have provably happened before this run hands over.
 		for (const [anchorId, dropped] of drops) {
 			await this.observeHiddenDrop(anchorId, (before[anchorId] ?? 0) - dropped + 1);
 		}

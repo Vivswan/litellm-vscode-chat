@@ -1,17 +1,15 @@
 /**
  * Building the export: walk ALL_SETTING_KEYS, take only keys with an explicit
  * user-scope (global) value, and wrap them in the versioned envelope. Secrets
- * are included only on the caller's explicit choice: included means each
- * labeled entry's SecretStorage blob is materialized inline (secretSurgery),
- * excluded means inline secret values are stripped and discarded, with no
- * placeholders left behind - and shapes the sanitizer does not recognize (a
- * non-array servers value, non-record array elements, entries whose auth
+ * ride only on the caller's explicit choice: included materializes each labeled
+ * entry's SecretStorage blob inline, excluded strips inline secret values and
+ * discards them, leaving no placeholders. Shapes the sanitizer does not
+ * recognize (a non-array servers value, non-record elements, entries whose auth
  * shape the strip cannot certify secret-free) are omitted from a no-secrets
- * export outright rather than trusted.
+ * export rather than trusted.
  *
- * No direct vscode usage; the one impurity is the serverSync setting
- * parser's label rule (see importPlan.ts's module comment). The host command
- * injects the reads.
+ * No direct vscode usage; the one impurity is the serverSync setting parser's
+ * label rule. The host command injects the reads.
  */
 
 import { ALL_SETTING_KEYS, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
@@ -46,12 +44,10 @@ export interface SettingsExportResult {
 	/** Blob secret fields with no legal inline position in their entry; reported in the success note when nonzero. */
 	readonly unmaterializedSecretCount: number;
 	/**
-	 * Server shapes a no-secrets export omitted because they cannot be
-	 * sanitized: a non-array servers value counts once, each non-record
-	 * array element counts once, and each entry whose auth shape the strip
-	 * cannot certify secret-free counts once. Always 0 when includeSecrets is
-	 * true (those shapes ride verbatim); reported so the omission is never
-	 * silent.
+	 * Server shapes a no-secrets export omitted as unsanitizable: a non-array
+	 * servers value, each non-record element, each entry whose auth shape the
+	 * strip cannot certify secret-free. Always 0 when includeSecrets is true;
+	 * reported so the omission is never silent.
 	 */
 	readonly omittedUnsanitizableCount: number;
 }
@@ -82,9 +78,9 @@ export async function buildSettingsExport(env: SettingsExportEnv): Promise<Setti
 			continue;
 		}
 		if (!Array.isArray(value)) {
-			// A servers value that is not an array cannot be sanitized
-			// entry-by-entry, so a no-secrets export omits it outright rather
-			// than risk a secret riding out in an unrecognized shape.
+			// A non-array servers value cannot be sanitized entry-by-entry, so a
+			// no-secrets export omits it rather than risk a secret riding out in an
+			// unrecognized shape.
 			if (env.includeSecrets) {
 				settings[key] = value;
 				settingCount += 1;
@@ -98,8 +94,6 @@ export async function buildSettingsExport(env: SettingsExportEnv): Promise<Setti
 		for (const rawEntry of value) {
 			if (!isRecord(rawEntry)) {
 				// Same rule per element: only the record shape has a sanitizer.
-				// The parser ignores non-record elements anyway, so a no-secrets
-				// export drops them instead of trusting their contents.
 				if (env.includeSecrets) {
 					exported.push(rawEntry);
 				} else {
@@ -108,12 +102,9 @@ export async function buildSettingsExport(env: SettingsExportEnv): Promise<Setti
 				continue;
 			}
 			if (!env.includeSecrets) {
-				// Every object entry is stripped, labeled or not: an unlabeled
-				// entry can still carry inline secret text, and an export the user
-				// asked to keep secret-free must never leak it. An entry whose auth
-				// shape the surgery cannot certify secret-free (a non-record auth
-				// container, a container occupant at a secret position) is omitted
-				// whole, same as the other unsanitizable shapes.
+				// Every object entry is stripped, labeled or not: an unlabeled entry
+				// can still carry inline secret text. An entry the surgery cannot
+				// certify secret-free is omitted whole.
 				const stripped = stripEntrySecrets(rawEntry);
 				if (stripped.unsanitizable) {
 					omittedUnsanitizableCount += 1;
@@ -125,7 +116,7 @@ export async function buildSettingsExport(env: SettingsExportEnv): Promise<Setti
 			const label = declaredEntryLabel(rawEntry);
 			if (label === undefined) {
 				// No label means no SecretStorage key: the entry rides as-is, its
-				// inline values (already in the settings file) counted as kept.
+				// inline values counted as kept.
 				secretFieldCount += Object.keys(stripEntrySecrets(rawEntry).secrets).length;
 				exported.push(rawEntry);
 				continue;

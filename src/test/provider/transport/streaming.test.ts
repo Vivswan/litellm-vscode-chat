@@ -76,8 +76,8 @@ function sseStream(chunks: string[], onEnd?: () => void): ReadableStream<Uint8Ar
 
 /**
  * Drive chunk objects through the real transport loop, appending [DONE]. The
- * end-of-stream trailers emit only on the loop's final run, so tests that
- * assert on them must go through here rather than calling processDelta.
+ * end-of-stream trailers emit only on the loop's final run, so tests asserting
+ * on them must go through here rather than calling processDelta.
  */
 async function playChunks(
 	stream: StreamProcessor,
@@ -227,9 +227,8 @@ suite("provider/transport/streaming", () => {
 		const parts: vscode.LanguageModelResponsePart[] = [];
 		const progress = { report: (p: vscode.LanguageModelResponsePart) => parts.push(p) };
 
-		// A buffered call with complete arguments but no name cannot emit early
-		// (only the end-of-stream flush names it unknown_tool), and no [DONE] or
-		// EOF follows here, so the finish_reason chunk alone must flush it.
+		// A nameless buffered call cannot emit early (only the end-of-stream flush
+		// names it unknown_tool), and no [DONE] or EOF follows here.
 		stream.processDelta(
 			{ choices: [{ delta: { tool_calls: [{ index: 0, id: "call_x", function: { arguments: '{"a":1}' } }] } }] },
 			progress
@@ -1132,8 +1131,7 @@ suite("provider/streaming refusal and annotations", () => {
 
 	test("a citations-only stream without dropped reasoning resolves with its trailer", async () => {
 		// The trailer never counts as substantive output for the reasoning-only
-		// check, but with nothing dropped there is nothing to report: the
-		// stream resolves as before, and the trailer is the visible response.
+		// check, but with nothing dropped there is nothing to report.
 		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 
@@ -1151,9 +1149,8 @@ suite("provider/streaming refusal and annotations", () => {
 
 suite("provider/streaming pass-through of unhandled modern fields", () => {
 	test("usage logging is restricted to the known numeric token counts", async () => {
-		// The usage record is response-owned: unknown keys (and non-numeric
-		// values in known slots) must never ride into the log data, only the
-		// standard counts and the two detail groups' numeric fields.
+		// The usage record is response-owned: unknown keys and non-numeric values
+		// in known slots must never ride into the log data.
 		const logged: { message: string; data?: unknown }[] = [];
 		const stream = new StreamProcessor(idSource(), (message, data) => logged.push({ message, data }));
 		const { progress } = collector();
@@ -1287,9 +1284,8 @@ suite("provider/streaming generated media", () => {
 	});
 
 	test("base64 validation is canonical: truncated groups and noncanonical pad bits skip instead of corrupting", () => {
-		// codex's cases: bare/short padding and noncanonical pad bits, which
-		// Buffer would silently decode to empty or truncated bytes; plus the
-		// cases the first round already rejected (alphabet, length, URL-safe).
+		// Bare/short padding and noncanonical pad bits, which Buffer would silently
+		// decode to empty or truncated bytes, plus bad alphabet, length, URL-safe.
 		const rejected = ["=", "==", "AA=", "AAA==", "AB==", "U", "UklGRg", "AQI_", "AQI-", "@@@@", "AQ=A", "===="];
 		for (const payload of rejected) {
 			const logs: string[] = [];
@@ -1806,9 +1802,8 @@ suite("provider/streaming end-of-stream policy", () => {
 	});
 
 	test("an error frame alongside usable choices does not terminate the stream", async () => {
-		// The termination rule is scoped to frames with NO usable choices; a
-		// chunk that still carries deltas keeps the log-and-skip spirit and
-		// processes normally.
+		// The termination rule is scoped to frames with NO usable choices; a chunk
+		// still carrying deltas keeps the log-and-skip spirit.
 		const stream = new StreamProcessor(idSource(), () => {});
 		const { parts, progress } = collector();
 		const body = sseStream([
@@ -2114,9 +2109,9 @@ suite("provider/streaming reasoning-only empty responses", () => {
 			(e: unknown) => {
 				assert.ok(e instanceof Error, `expected an Error, got ${String(e)}`);
 				assert.strictEqual(e.message, REASONING_ONLY_MESSAGE, "the message is a fixed string, never response-derived");
-				// The display message localizes; under the English fallback its
-				// full English mirror must be the identical string, so the
-				// English-by-policy log surfaces stay English in every locale.
+				// The display message localizes; under the English fallback its mirror
+				// must be the identical string, so English-by-policy log surfaces
+				// stay English in every locale.
 				assert.strictEqual(
 					(e as Error & { englishMessage?: string }).englishMessage,
 					e.message,
@@ -2190,10 +2185,9 @@ suite("provider/streaming reasoning-only empty responses", () => {
 	});
 
 	test("an empty stream with no reasoning keeps today's silent empty resolution", async () => {
-		// A model that genuinely returned nothing dropped nothing: there is no
-		// evidence of lost output to report, so the request resolves empty
-		// exactly as before this guard existed. Only the reasoning-drop case
-		// changed, because there the extension itself discarded the output.
+		// A model that genuinely returned nothing dropped nothing, so the request
+		// resolves empty. Only the reasoning-drop case errors, because there the
+		// extension itself discarded the output.
 		const logs: Array<{ msg: string; data?: unknown }> = [];
 		const stream = new StreamProcessor(idSource(), (msg, data) => logs.push({ msg, data }), null);
 		const { parts, progress } = collector();
@@ -2294,8 +2288,7 @@ suite("provider/streaming reasoning-only empty responses", () => {
 
 	test("a reasoning-dropping stream whose only other output is citations throws instead of resolving as sources", async () => {
 		// The Sources trailer is not the response: it must not satisfy the
-		// empty-response check, and the terminal checks run before the trailer
-		// would emit, so the failed request ships no parts at all.
+		// empty-response check, and the terminal checks run before it would emit.
 		const stream = new StreamProcessor(idSource(), () => {}, null);
 		const { parts, progress } = collector();
 		const body = sseStream([
@@ -2312,9 +2305,8 @@ suite("provider/streaming reasoning-only empty responses", () => {
 	});
 
 	test("a request failing on an in-band error frame still logs the drop aggregate", async () => {
-		// The error frame throws out of the transport loop before any
-		// finishStream runs; the cleanup path must still tie the lost reasoning
-		// to this turn, because a failed request is exactly what gets reported.
+		// The error frame throws out of the transport loop before any finishStream
+		// runs; the cleanup path must still tie the lost reasoning to this turn.
 		const logs: Array<{ msg: string; data?: unknown }> = [];
 		const stream = new StreamProcessor(idSource(), (msg, data) => logs.push({ msg, data }), null);
 		const { progress } = collector();
@@ -2335,15 +2327,11 @@ suite("provider/streaming reasoning-only empty responses", () => {
 
 suite("provider/streaming progress funnel", () => {
 	test("every emission goes through reportPart: progress.report appears exactly three times in the source", () => {
-		// The empty-response check counts emissions via reportPart; a direct
-		// progress.report call anywhere else would bypass it silently and only
-		// surface as a spurious reasoning-only error, so the funnel is pinned
-		// structurally across every file of the streaming module. Exactly three
-		// sites are sanctioned: reportPart itself, and the two end-of-stream
-		// trailer emissions (the Sources list and the usage DataPart), which
-		// decorate an already-validated response and must NOT count as
-		// substantive output for the reasoning-only check (a stream whose only
-		// output is its trailers still dropped whatever reasoning it had).
+		// The empty-response check counts emissions via reportPart, so a direct
+		// progress.report elsewhere would bypass it silently. Exactly three sites
+		// are sanctioned: reportPart itself and the two end-of-stream trailers
+		// (Sources, usage DataPart), which decorate an already-validated response
+		// and must NOT count as substantive output for the reasoning-only check.
 		const dir = path.resolve(__dirname, "..", "..", "..", "..", "src", "provider", "transport", "streaming");
 		const source = fs
 			.readdirSync(dir)
@@ -2445,8 +2433,7 @@ suite("provider/streaming usage DataPart", () => {
 
 	test("an interim usage object does not pin stale counts: the final trailer wins", async () => {
 		// Some providers stamp running usage onto ordinary chunks. Emission is
-		// reserved for the post-loop run, so the interim counts never ship;
-		// the real trailer arrives later and is the one that does.
+		// reserved for the post-loop run, so the interim counts never ship.
 		const stream = usageProcessor();
 		const { parts, progress } = collector();
 		const body = sseStream([
@@ -2666,10 +2653,8 @@ suite("provider/streaming usage DataPart", () => {
 	});
 
 	test("the usage part is bookkeeping: a reasoning-only stream fails loudly and forfeits its usage", async () => {
-		// The reasoning-only error fires at the [DONE] run here; usage emission
-		// is reserved for the final post-loop run, which the throw never
-		// reaches. A failed request has no successful usage to account, and
-		// the retained trailer must not soften the failure into visible output.
+		// The reasoning-only error fires at the [DONE] run; usage emission is
+		// reserved for the final post-loop run, which the throw never reaches.
 		const stream = new StreamProcessor(idSource(), () => {}, null, fakeDataCtor);
 		const { parts, progress } = collector();
 		const body = sseStream([

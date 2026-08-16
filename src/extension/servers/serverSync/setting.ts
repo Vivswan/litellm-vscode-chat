@@ -2,12 +2,10 @@
  * Parsing the litellm-vscode-chat.servers setting: the acceptance rules for
  * declared entries live here and nowhere else.
  *
- * The settings shape is nested (auth / headers / models / discovery /
- * budget); the parsed DeclaredServer keeps the flat credential fields the
- * rest of the extension (buildGroupArgs, the secret blobs, the dashboard
- * form) has always consumed, so the wire shape of the provider-group args -
- * and with it every stored sync fingerprint - is unchanged by the
- * restructure.
+ * The settings shape is nested (auth / headers / models / discovery / budget);
+ * the parsed DeclaredServer keeps the flat credential fields the rest of the
+ * extension consumes, so the wire shape of the provider-group args - and with
+ * it every stored sync fingerprint - is unchanged by the restructure.
  *
  * Auth grammar: exactly one form per entry, ranked oauth > apiKey >
  * virtualKey. A form may carry companions of strictly lower primacy only:
@@ -39,23 +37,21 @@ export type EntryModelParameters = Readonly<Record<string, Readonly<Record<strin
 export type EntryModelCapabilities = ModelCapabilitiesRecord;
 
 /**
- * One parsed servers-setting entry: label and baseUrl usable, credential
- * fields flattened from the entry's `auth` object (present only with usable
- * inline text; values resting in SecretStorage stay absent here and resolve
- * at group-args time). `headers`, `modelParameters`, `modelCapabilities`,
- * `expectedFailures`, `declaredModels`, and `budget` are present only when
- * the raw entry carries usable content; they are read extension-side and
- * never enter the group configuration or its fingerprint (buildGroupArgs
- * does not emit them).
+ * One parsed servers-setting entry: label and baseUrl usable, credential fields
+ * flattened from the entry's `auth` object (present only with usable inline
+ * text; values resting in SecretStorage stay absent here and resolve at
+ * group-args time). The remaining optional fields are present only when the raw
+ * entry carries usable content; they are read extension-side and never enter
+ * the group configuration or its fingerprint.
  */
 export type DeclaredServer = {
 	readonly label: string;
 	readonly baseUrl: string;
 	/**
-	 * What apiRootOf appends to the base URL: absent means auto (keep a
-	 * version segment already in the URL, else /v1), "" means append nothing.
-	 * Read extension-side and resolved into the transport per request, like
-	 * headers; never part of the group configuration.
+	 * What apiRootOf appends to the base URL: absent means auto (keep a version
+	 * segment already in the URL, else /v1), "" means append nothing. Resolved
+	 * into the transport per request, like headers; never part of the group
+	 * configuration.
 	 */
 	readonly apiVersion?: string;
 	/** The entry's custom HTTP headers, sent on every request to this server; auth headers win conflicts. */
@@ -77,10 +73,7 @@ function usableString(value: unknown): string | undefined {
 	return trimmed.length > 0 ? trimmed : undefined;
 }
 
-/**
- * An entry's manual usage budget in USD: a finite number above zero (a zero
- * budget could only ever read as fully spent).
- */
+/** An entry's manual usage budget in USD: finite and above zero (a zero budget could only read as fully spent). */
 function usableBudget(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }
@@ -89,11 +82,10 @@ function usableBudget(value: unknown): number | undefined {
 type FlatAuthFields = { -readonly [K in OptionalEntryFieldId]?: string };
 
 /**
- * Parse one entry's `auth` object into the flat credential fields, or the
- * shape problems that make the entry misconfigured. Key names in the
- * problems are the closed auth vocabulary or the user's own structural keys
- * (the same class of configuration text the header narrowing logs); entered
- * VALUES never appear.
+ * Parse one entry's `auth` object into the flat credential fields, or the shape
+ * problems that make the entry misconfigured. Key names in the problems are the
+ * closed auth vocabulary or the user's own structural keys; entered VALUES
+ * never appear.
  */
 function parseAuth(raw: unknown): { fields: FlatAuthFields } | { problems: string[] } {
 	const fields: FlatAuthFields = {};
@@ -109,8 +101,7 @@ function parseAuth(raw: unknown): { fields: FlatAuthFields } | { problems: strin
 	for (const key of keys) {
 		if (!known.includes(key)) {
 			// Named on purpose: a typo silently reading as "no auth" would be the
-			// worst failure mode. Key names are structural configuration, never
-			// values.
+			// worst failure mode. Key names only, never values.
 			problems.push(`has an unknown auth key "${key}"`);
 		}
 	}
@@ -147,7 +138,7 @@ function parseAuth(raw: unknown): { fields: FlatAuthFields } | { problems: strin
 	if (hasVirtualKey) {
 		// Alone it is the virtualKey form; beside apiKey it is that form's
 		// companion. The flat fields are identical - primacy already decides the
-		// wire semantics (the bearer rides beside the named header).
+		// wire semantics.
 		const virtualKey = parseVirtualKeyObject(raw.virtualKey, "auth.virtualKey");
 		if ("problems" in virtualKey) {
 			return virtualKey;
@@ -214,9 +205,8 @@ function parseOAuthForm(raw: unknown, fields: FlatAuthFields): string[] {
 /**
  * A virtualKey object (the form or a companion): the header name is required
  * and must be sendable; the value is the secret-capable half and may rest in
- * SecretStorage, so its absence is legal. Returns the parsed flat fields or
- * the shape problems - never both, so no caller can act on a half-parsed
- * object.
+ * SecretStorage, so its absence is legal. Returns the parsed flat fields or the
+ * shape problems - never both, so no caller can act on a half-parsed object.
  */
 function parseVirtualKeyObject(raw: unknown, path: string): { fields: FlatAuthFields } | { problems: string[] } {
 	if (!isRecord(raw)) {
@@ -249,10 +239,9 @@ function parseVirtualKeyObject(raw: unknown, path: string): { fields: FlatAuthFi
 }
 
 /**
- * Parse the raw setting value. Entries without a usable label or baseUrl,
- * with a reserved label, with a label an earlier entry already used, or with
- * a misconfigured auth object are skipped and reported; everything the sync
- * engine acts on comes out of here.
+ * Parse the raw setting value. Entries without a usable label or baseUrl, with
+ * a reserved label, with a label an earlier entry already used, or with a
+ * misconfigured auth object are skipped and reported.
  */
 export function parseServersSetting(raw: unknown): { entries: DeclaredServer[]; problems: string[] } {
 	if (raw === undefined || raw === null) {
@@ -268,12 +257,11 @@ export function parseServersSetting(raw: unknown): { entries: DeclaredServer[]; 
 /**
  * One raw servers-setting entry's acceptance verdict, for the dashboard's
  * Configuration diagnostics and its Misconfigured rows: the same acceptEntries
- * pass parseServersSetting runs, reported per entry instead of as one flat
- * problem list. `label` and `baseUrl` are present when the raw entry carries
- * usable text for them (reserved labels stay absent - callers key map records
- * on labels); `problems` are the parser's structural reports without the
- * "entry N " prefix the flat list carries. `accepted` false with a usable
- * label and baseUrl is the misconfigured-entry row.
+ * pass parseServersSetting runs, reported per entry. `label` and `baseUrl` are
+ * present when the raw entry carries usable text for them (reserved labels stay
+ * absent - callers key map records on labels); `problems` are the parser's
+ * structural reports without the "entry N " prefix. `accepted` false with a
+ * usable label and baseUrl is the misconfigured-entry row.
  */
 export interface ServerEntryReport {
 	/** The entry's position in the raw array (0-based). */
@@ -327,9 +315,9 @@ function acceptEntries(
 	const accepted: { index: number; entry: DeclaredServer }[] = [];
 	const seen = new Set<string>();
 	raw.forEach((item: unknown, index) => {
-		// One prefix for everything reported about this entry, rejecting or
-		// not: the problems are logged, so they reference the entry by index
-		// and structural key names only, never by entered values.
+		// One prefix for everything reported about this entry: the problems are
+		// logged, so they reference the entry by index and structural key names
+		// only, never by entered values.
 		const report = (what: string) => {
 			problems?.push(`entry ${index + 1} ${what}`);
 			reportTo?.(index, what);
@@ -357,8 +345,7 @@ function acceptEntries(
 
 		// Auth shape errors make the whole entry misconfigured: skipped (never
 		// synced or served) and reported, but still PRESENT - rawDeclaredLabels
-		// keeps its label, so no removal is inferred and its group is not
-		// hidden. Config-shape errors never guess at runtime.
+		// keeps its label, so no removal is inferred and its group is not hidden.
 		const auth = parseAuth(record.auth);
 		if ("problems" in auth) {
 			for (const problem of auth.problems) {
@@ -408,16 +395,14 @@ function acceptEntries(
 		}
 
 		// The models records are lenient like the global settings' own
-		// normalization (the shared rule): non-record values and malformed
-		// sub-entries drop silently, and an empty result reads as absent. The
-		// capability vocabulary is enforced downstream by parseCapabilityRecord,
-		// which owns the diagnostics the dashboard renders.
+		// normalization: non-record values and malformed sub-entries drop
+		// silently, and an empty result reads as absent. The capability vocabulary
+		// is enforced downstream by parseCapabilityRecord.
 		if (record.models !== undefined && !isRecord(record.models)) {
 			report("has a models value that is not an object, ignored");
 		} else if (isRecord(record.models)) {
-			// Named on purpose, like the unknown auth keys: a typo silently
-			// reading as "no per-entry records" would be invisible. Key names are
-			// structural configuration, never values.
+			// Named on purpose, like the unknown auth keys: a typo silently reading
+			// as "no per-entry records" would be invisible.
 			for (const key of Object.keys(record.models)) {
 				if (key !== "parameters" && key !== "capabilities") {
 					report(`has an unknown models key "${key}", ignored`);
@@ -437,9 +422,8 @@ function acceptEntries(
 			report("has a discovery value that is not an object, ignored");
 		} else if (isRecord(record.discovery)) {
 			const discovery = record.discovery;
-			// Named on purpose: a typo silently reading as "no expected failures"
-			// or "nothing declared" would be invisible. Key names are structural
-			// configuration, never values.
+			// Named on purpose: a typo silently reading as "no expected failures" or
+			// "nothing declared" would be invisible.
 			for (const key of Object.keys(discovery)) {
 				if (key !== "expectedFailures" && key !== "declared") {
 					report(`has an unknown discovery key "${key}", ignored`);
@@ -470,8 +454,8 @@ function acceptEntries(
 			}
 		}
 
-		// An invalid budget is a configuration diagnostic and is ignored; the
-		// entry itself stays usable (it is not auth).
+		// An invalid budget is a diagnostic and is ignored; the entry itself stays
+		// usable (it is not auth).
 		if (record.budget !== undefined) {
 			const budget = usableBudget(record.budget);
 			if (budget === undefined) {
@@ -486,15 +470,12 @@ function acceptEntries(
 }
 
 /**
- * The entry parseServersSetting accepts for `label`, with its raw-array
- * index, or undefined when it accepts none. The dashboard's per-entry reads
- * and writes (the edit form's inline-value prefill, the save target) resolve
- * through this so they act on exactly the entry the dashboard row describes:
- * a rejected same-label sibling earlier in the array (no usable baseUrl, say)
- * cannot shadow the accepted entry, and a label the parser rejects outright
- * (a reserved name, a misconfigured auth) resolves to nothing. The returned
- * entry is the parsed view - usable fields only, trimmed - so callers consume
- * what the sync engine would read, not the raw record.
+ * The entry parseServersSetting accepts for `label`, with its raw-array index,
+ * or undefined when it accepts none. The dashboard's per-entry reads and writes
+ * resolve through this so they act on exactly the entry the dashboard row
+ * describes: a rejected same-label sibling earlier in the array cannot shadow
+ * the accepted entry, and a label the parser rejects outright resolves to
+ * nothing. The returned entry is the parsed view - usable fields only, trimmed.
  */
 export function acceptedEntry(raw: unknown, label: string): { index: number; entry: DeclaredServer } | undefined {
 	if (!Array.isArray(raw)) {
@@ -505,16 +486,13 @@ export function acceptedEntry(raw: unknown, label: string): { index: number; ent
 }
 
 /**
- * Every label the raw setting still CARRIES, acceptance aside: any object
- * entry with a usable label string counts, even when the parser would reject
- * it (no usable baseUrl, a duplicate, a misconfigured auth). The removal
- * detector reads this because "the user removed the entry" and "the entry is
- * present but momentarily malformed" (a mid-edit settings.json, say) must
- * never be confused - a tombstone written for the latter would suppress a
- * group the user did not remove. Reserved labels stay out: the parser rejects
- * them permanently (never synced, never fingerprinted), and the caller
- * carries map records under these labels, so a prototype-polluting key must
- * not come back from here.
+ * Every label the raw setting still CARRIES, acceptance aside: any object entry
+ * with a usable label string counts, even one the parser would reject. The
+ * removal detector reads this because "the user removed the entry" and "the
+ * entry is present but momentarily malformed" must never be confused - a
+ * tombstone written for the latter would suppress a group the user did not
+ * remove. Reserved labels stay out: the parser rejects them permanently, and
+ * the caller carries map records under these labels.
  */
 export function rawDeclaredLabels(raw: unknown): Set<string> {
 	if (!Array.isArray(raw)) {
@@ -538,10 +516,9 @@ export function rawDeclaredLabels(raw: unknown): Set<string> {
  * declares the server the request or refresh is routed to (base URLs compared
  * under the shared normalization). The match is label plus URL - credentials
  * deliberately play no part - so any group carrying the entry's label at the
- * entry's URL resolves, a hand-labeled native group included. What the URL
- * check excludes is a label that proves nothing about the connection: a
- * same-label group at another URL (a stale group outliving a label reuse or
- * a baseUrl edit) resolves to nothing and gets only the global settings.
+ * entry's URL resolves, a hand-labeled native group included. A same-label
+ * group at another URL proves nothing about the connection: it resolves to
+ * nothing and gets only the global settings.
  */
 function matchedEntryFor(raw: unknown, label: string, baseUrl: string): DeclaredServer | undefined {
 	const match = acceptedEntry(raw, label);

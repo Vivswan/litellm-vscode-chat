@@ -19,26 +19,21 @@ import type {
  * - the last tool definition (the whole tools block),
  * - the system message,
  * - the first user message (stable session anchor), and
- * - the last text-bearing message (rolling anchor; in agent sessions this is
- *   routinely a tool-result message).
+ * - the last text-bearing message (rolling anchor).
  *
  * The budget is enforced structurally rather than counted: the three message
- * anchors collapse into a Set of indices (colliding anchors deduplicate, e.g.
- * a single user message is both the first-user and the rolling anchor), each
- * anchored message receives exactly one marker, and the tools array receives
- * at most one. Applying the pass to its own output is a no-op.
+ * anchors collapse into a Set of indices, each anchored message receives
+ * exactly one marker, and the tools array receives at most one. Applying the
+ * pass to its own output is a no-op.
  *
- * Marker placement follows what LiteLLM's Anthropic adapter reads from
- * OpenAI-shaped requests, and the form differs by role. Tool-role messages
- * take a message-level marker: the adapter wraps them in a tool_result block
- * and only `message.cache_control` lands on that top-level block, which is
- * the only cacheable position (Anthropic rejects caching on the nested
- * sub-content, where a block-level marker would end up). Every other role
+ * Marker placement follows what LiteLLM's Anthropic adapter reads, and the
+ * form differs by role. Tool-role messages take a message-level marker: the
+ * adapter wraps them in a tool_result block and only `message.cache_control`
+ * lands on that top-level block, the only cacheable position. Every other role
  * takes a block-level marker on its last non-empty text block, so string
- * content converts to the array-of-blocks form. Uncached messages keep
- * string content. The tools anchor is a tool-level marker on the last tool
- * definition, which both the Anthropic and Bedrock adapters read (caching
- * the whole tools block up to the marked tool).
+ * content converts to the array-of-blocks form. Uncached messages keep string
+ * content. The tools anchor is a tool-level marker on the last tool
+ * definition, which both the Anthropic and Bedrock adapters read.
  */
 
 const CACHE_CONTROL: EphemeralCacheControl = Object.freeze({ type: "ephemeral" });
@@ -55,12 +50,9 @@ export interface PromptCachedRequest {
 
 /**
  * Where one message's marker would go, parsed once per message by
- * locateCacheable and carrying everything markCacheable needs: tool-role
- * messages take the message-level marker (the adapter's only cacheable
- * position there), string content converts to a single marked text block, and
- * array content is marked on its last non-empty text block. No site means the
- * message cannot anchor: Anthropic rejects `cache_control` on empty text
- * blocks, and tool-call-only assistant turns have no content block to mark.
+ * locateCacheable. No site means the message cannot anchor: Anthropic rejects
+ * `cache_control` on empty text blocks, and tool-call-only assistant turns
+ * have no content block to mark.
  */
 type CacheableSite =
 	| { kind: "message"; message: OpenAIToolMessage }

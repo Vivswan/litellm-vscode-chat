@@ -1,13 +1,12 @@
 /**
  * The matcher fuzzer: random key sets (exact, trailing-glob, regex with and
- * without /i, invalid regex, misplaced stars, "*", "") against random model
- * IDs. The oracle is the GENERATOR's construction intent, independent of the
- * implementation: every key is built with its intended kind and an expected
- * match predicate derived from how it was cut, and the pairwise specificity
- * rules are restated from the spec over those intents. Invariants: invalid
- * keys are inert and diagnosed, chain membership equals the intent
- * predicates, the chain is totally ordered by the pairwise rules, and the
- * winner is beaten by no other matching key.
+ * without /i, invalid regex, misplaced stars, "*", "") against random model IDs.
+ * The oracle is the GENERATOR's construction intent, independent of the
+ * implementation: every key carries its intended kind and expected match
+ * predicate, and the pairwise specificity rules are restated from the spec over
+ * those intents. Invariants: invalid keys are inert and diagnosed, chain
+ * membership equals the intent predicates, the chain is totally ordered by the
+ * pairwise rules, and the winner is beaten by no other matching key.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -168,9 +167,8 @@ describe("shared/config modelMatcher fuzzer", () => {
 					.sort();
 				assert.deepStrictEqual([...chain.map((m) => m.key)].sort(), expectedMembers);
 
-				// Order: strictly ascending under the documented pairwise rules -
-				// every later chain element beats every earlier one, and the winner
-				// (the chain tail) is beaten by nothing.
+				// Order: strictly ascending under the documented pairwise rules, so the
+				// winner (the chain tail) is beaten by nothing.
 				for (let i = 0; i < chain.length; i += 1) {
 					for (let j = i + 1; j < chain.length; j += 1) {
 						const earlier = byKey.get((chain[i] as { key: string }).key) as KeySpec;

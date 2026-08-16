@@ -73,14 +73,12 @@ export function toHeaderMap(headersInit: RequestInit["headers"] | undefined): Re
 export type FetchMock = (url: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 /**
- * Run `fn` with `global.fetch` replaced by `mock`, restoring the original
- * fetch even when the body throws so one failing test cannot cascade.
+ * Run `fn` with `global.fetch` replaced by `mock`, restoring the original fetch
+ * even when the body throws so one failing test cannot cascade.
  *
- * Most suites mock the network through msw (see mocks/handlers.ts); this
- * remains the escape hatch for what msw cannot express: observing the
- * AbortSignal wired into fetch, erroring a body stream on abort, and
- * fabricating specific error cause chains (ECONNREFUSED, TLS failures,
- * TimeoutError DOMExceptions).
+ * Most suites mock the network through msw; this is the escape hatch for what
+ * msw cannot express: observing the AbortSignal wired into fetch, erroring a
+ * body stream on abort, and fabricating specific error cause chains.
  */
 export async function withFetch<T>(mock: FetchMock, fn: () => Promise<T>): Promise<T> {
 	const originalFetch = global.fetch;

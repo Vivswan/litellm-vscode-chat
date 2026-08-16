@@ -14,13 +14,12 @@ const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
 /**
- * Property coverage for the status bar's whole rendering decision
- * (docs/usage.md#the-status-bar): hidden exactly per the documented rules,
- * severity and the shown percentage derived from the worst FRESH server only
- * (stale servers never contribute, past-100% ratios show literally), and the
- * tooltip breakdown carrying exactly the expected line count for the server
- * set. The oracle restates the documented rules on top of the real freshness
- * module; the unit suite (usageStatusItem.test.ts) pins the concrete examples.
+ * Property coverage (seed-pinned, FUZZ_RUNS-scaled) for the status bar's whole rendering
+ * decision (docs/usage.md#the-status-bar): hidden exactly per the documented rules,
+ * severity and percentage derived from the worst FRESH server only (stale servers never
+ * contribute, past-100% ratios show literally), and the tooltip carrying exactly the
+ * expected line count. The oracle restates the documented rules on top of the real
+ * freshness module.
  */
 
 const NOW = Date.UTC(2026, 7, 1, 12);
@@ -72,9 +71,8 @@ const serverArb: fc.Arbitrary<GeneratedServer> = fc.record({
 });
 
 /**
- * A fresh server whose spend fraction lands EXACTLY on a common threshold
- * constant: these integer quotients (50/100, 80/100, 95/100, 100/100, 40/50)
- * are bit-identical to the 0.5/0.8/0.95/1 doubles thresholdsArb generates, so
+ * A fresh server whose spend fraction lands EXACTLY on a common threshold: these
+ * integer quotients are bit-identical to the doubles thresholdsArb generates, so
  * the "reaching a threshold counts as crossing it" boundary (worst >= t) is
  * really exercised - a >=-to-> regression must fail the run.
  */
@@ -268,9 +266,8 @@ suite("extension/ui renderUsageStatus properties", () => {
 				(scenario, extras) => {
 					const { states, thresholds, mode, pollIntervalMs, nowMs } = scenario;
 					const windowMs = usageFreshnessWindowMs(pollIntervalMs, POLLING_OFF_WINDOW_MS);
-					// Each extra is spoiled out of the aggregation by construction (no
-					// filter: the property always exercises a non-empty addition), one
-					// spoiler per documented exclusion rule.
+					// Each extra is spoiled out of the aggregation by construction,
+					// one spoiler per documented exclusion rule.
 					const nonContributing = extras.map(([extra, spoiler], index) => {
 						const spoiled: GeneratedServer =
 							spoiler === "stale"

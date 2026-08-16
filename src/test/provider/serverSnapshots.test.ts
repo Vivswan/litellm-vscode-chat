@@ -79,9 +79,9 @@ suite("provider server snapshots", () => {
 		assert.deepStrictEqual(status.classification, { kind: "http", status: 404, setupHint: "check-base-url" });
 	});
 
-	// msw cannot fabricate undici's ECONNREFUSED cause chain (the precedent is
-	// discovery.test.ts), so this stays on withFetch; the swap also keeps the
-	// request away from msw's unhandled-request guard.
+	// msw cannot fabricate undici's ECONNREFUSED cause chain, so this stays on
+	// withFetch; the swap also keeps the request away from msw's
+	// unhandled-request guard.
 	test("a refused connection stamps the proxy-not-running classification on the error status", async () => {
 		const provider = makeProvider(TEST_BASE_URL);
 
@@ -115,9 +115,8 @@ suite("provider server snapshots", () => {
 	});
 
 	test("an apiVersion edit misses the discovery cache instead of serving the old root's models", async () => {
-		// The cache key (group client ID) deliberately excludes apiVersion, so
-		// the stored entry's apiRoot is what keeps an edit from serving stale
-		// models for the rest of the TTL.
+		// The cache key (group client ID) deliberately excludes apiVersion, so the
+		// stored entry's apiRoot is what keeps an edit from serving stale models.
 		let apiVersion: string | undefined;
 		const provider = makeProvider(undefined, "test-key", undefined, {
 			getEntryApiVersion: () => apiVersion,
@@ -150,12 +149,10 @@ suite("provider server snapshots", () => {
 	});
 
 	test("a serve that joins an in-flight old-root discovery refetches at the new root", async () => {
-		// Single-flight is keyed by group ID alone: without the post-await root
-		// check, a refresh arriving while the old root's discovery is still in
-		// flight would join it and serve the old root's models once. Two
-		// concurrent joiners pin the dropStored subtlety: the second corrector
-		// must join the first's fresh reload without stripping its right to
-		// cache, so the follow-up serve hits the cache instead of the network.
+		// Single-flight is keyed by group ID alone: without the post-await root check, a
+		// refresh arriving mid-flight would join the old root's discovery and serve its
+		// models once. Two concurrent joiners pin the dropStored subtlety: the second
+		// corrector must join the first's fresh reload without stripping its right to cache.
 		let apiVersion: string | undefined;
 		const provider = makeProvider(undefined, "test-key", undefined, {
 			getEntryApiVersion: () => apiVersion,
@@ -281,10 +278,9 @@ suite("provider server snapshots", () => {
 	});
 
 	test("a later fallback-only success replaces the observed keys with absence, like discoveredRawIds", async () => {
-		// Carry-forward is a failure-report rule only: a SUCCESSFUL refresh
-		// replaces the observations wholesale, so a server that degrades from
-		// /model/info to the /models fallback stops claiming keys its current
-		// listing no longer reports.
+		// Carry-forward is a failure-report rule only: a SUCCESSFUL refresh replaces
+		// the observations wholesale, so a server that degrades to the /models
+		// fallback stops claiming keys its current listing no longer reports.
 		const provider = makeProvider();
 		let fallbackOnly = false;
 		mswServer.use(
@@ -348,11 +344,9 @@ suite("provider server snapshots", () => {
 	});
 
 	test("the declared projection composes exactly like the group serve: same IDs, names, and entry layer", async () => {
-		// Declarations are entry-level (the entry's discovery.declared list);
-		// both declared models ride the Gateway entry, one with a capability
-		// record beside it. A projection resolving the entry layer from the
-		// snapshot's display label instead of the group's configured label
-		// would drop the entry-level declaration; that must fail here.
+		// Declarations are entry-level: both declared models ride the Gateway entry.
+		// A projection resolving the entry layer from the snapshot's display label
+		// instead of the group's configured label would drop the declaration.
 		const provider = makeProvider(undefined, "test-key", undefined, {
 			getEntryDeclaredModels: (label, baseUrl) =>
 				label === "Gateway" && baseUrl === TEST_BASE_URL ? ["entry-model", "declared-model"] : undefined,
@@ -382,9 +376,8 @@ suite("provider server snapshots", () => {
 				"the dashboard's projection must mint exactly what the serve handed out"
 			);
 
-			// The snapshot's status label is display-facing; identity comes from
-			// the group's configured label, so a display fallback in the status
-			// can not drop the entry-level declaration.
+			// The snapshot's status label is display-facing; identity comes from the
+			// group's configured label.
 			const relabeled = { ...snapshot, status: { ...snapshot.status, label: "Gateway (display)" } };
 			assert.deepStrictEqual(
 				idAndName(provider.declaredModelsForSnapshot(relabeled)),

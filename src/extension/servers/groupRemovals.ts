@@ -7,25 +7,21 @@
  * - Tombstones: identities of groups the user EXPLICITLY removed. The
  *   provider answers a tombstoned group with an empty model list (injected as
  *   a predicate at activation; the provider layer cannot import this module),
- *   and the dashboard folds the row into its "hidden groups" line. A
- *   tombstone is never written for a group the user did not remove, and it
- *   clears when a declared entry matching the identity (re)appears or the
- *   user unhides the group.
+ *   and the dashboard folds the row into its "hidden groups" line. Never
+ *   written for a group the user did not remove; cleared when a declared entry
+ *   matching the identity (re)appears or the user unhides the group.
  * - Provenance: identity -> origin classification for groups a removal or
  *   rename orphaned, so external rows can say where they came from.
  *   Classifications and labels only, never free text.
  *
- * Group identity here is the sync engine's own: the group's label (the
- * status label the provider reports, which is the entry label for synced
- * groups) plus the normalized base URL. Host-side group names are unique per
- * vendor, so labeled groups cannot collide; the one accepted collision is
- * two UNLABELED groups on one host (both report the URL-host status label),
- * where removing one hides both - visibly, in the hidden-groups line, and
- * reversibly through Unhide. Credential-fingerprinted IDs would distinguish
- * them but churn on key rotation and salt loss, which would strand
- * tombstones. Everything persisted is validated on read: the keys are
- * extension-owned, but storage can hand back stale or corrupt shapes and
- * those must not ride behind a cast.
+ * Group identity here is the sync engine's own: the group's label (the status
+ * label the provider reports) plus the normalized base URL. Host-side group
+ * names are unique per vendor, so the one accepted collision is two UNLABELED
+ * groups on one host (both report the URL-host status label), where removing
+ * one hides both - visibly, in the hidden-groups line, and reversibly through
+ * Unhide. Everything persisted is validated on read: the keys are
+ * extension-owned, but storage can hand back stale or corrupt shapes and those
+ * must not ride behind a cast.
  */
 
 import { ORPHANED_GROUP_PROVENANCE_KEY, REMOVED_GROUP_TOMBSTONES_KEY } from "../../shared/config/storageKeys";
@@ -39,10 +35,9 @@ export interface GroupIdentity {
 }
 
 /**
- * Why an external group exists, when a removal or rename explains it. The
- * same shape crosses into DashboardState (protocol.ts re-declares it as
- * ExternalServerProvenance): classification plus the labels involved, no
- * free text.
+ * Why an external group exists, when a removal or rename explains it. The same
+ * shape crosses into DashboardState (protocol.ts re-declares it as
+ * ExternalServerProvenance): classification plus labels, no free text.
  */
 export type OrphanedGroupOrigin =
 	| { readonly kind: "removed-entry-leftover"; readonly removedLabel: string }
@@ -112,13 +107,11 @@ interface VersionedRecords {
 }
 
 /**
- * Versions persist as decimal strings of any length and compare as BigInt,
- * so every accepted version's successor is itself accepted - the counter has
- * no overflow boundary a hand-edited high value could park the protocol at
- * (the freeze a poisoned numeric version causes in ServerRegistry's recovery
- * comments). Nonnegative safe integers are also accepted for robustness;
- * anything else - negative, fractional, NaN, Infinity, non-decimal strings -
- * re-enters versioning at 0, keeping the records.
+ * Versions persist as decimal strings of any length and compare as BigInt, so
+ * every accepted version's successor is itself accepted - no overflow boundary
+ * a hand-edited high value could park the protocol at. Nonnegative safe
+ * integers are also accepted; anything else re-enters versioning at 0, keeping
+ * the records.
  */
 function parseVersion(raw: unknown): bigint {
 	if (typeof raw === "number" && Number.isSafeInteger(raw) && raw >= 0) {
@@ -167,11 +160,10 @@ class VersionedRegion<T> {
 	private persisting = false;
 	private lastWrittenBlob: unknown;
 	/**
-	 * Commit/persist generations, compared to decide whether memory is ahead
-	 * of storage: a write persists the records as of the generation it read,
-	 * so a failure only counts as unpersisted while no other write has
-	 * persisted that generation's content (serialized writes read the latest
-	 * records, so an earlier success can cover a later failure's content).
+	 * Commit/persist generations, compared to decide whether memory is ahead of
+	 * storage: a write persists the records as of the generation it read, and
+	 * serialized writes read the latest records, so an earlier success can cover
+	 * a later failure's content.
 	 */
 	private commitGeneration = 0;
 	private persistedGeneration = 0;
@@ -192,10 +184,10 @@ class VersionedRegion<T> {
 	}
 
 	private syncFromStorage(): void {
-		// No adoption while our own write is in flight or failed (memory is
-		// ahead of storage), and never from the blob we wrote ourselves:
-		// Memento caches updates optimistically, so after a failed persist the
-		// cache can still hold our rejected snapshot.
+		// No adoption while our own write is in flight or failed (memory is ahead
+		// of storage), and never from the blob we wrote ourselves: Memento caches
+		// updates optimistically, so a failed persist can leave our rejected
+		// snapshot in the cache.
 		if (this.persisting || this.unpersisted()) {
 			return;
 		}
@@ -221,15 +213,12 @@ class VersionedRegion<T> {
 		this.commitGeneration += 1;
 	}
 
-	/**
-	 * Persists run serialized: an unawaited earlier write settling out of
-	 * order would otherwise mark a newer failure's records as persisted.
-	 */
+	/** Persists run serialized: an out-of-order write would mark a newer failure's records as persisted. */
 	private persistQueue: Promise<void> = Promise.resolve();
 
 	persistCommitted(): Promise<void> {
-		// Two-handler then, like the test commands' mutation queue: a rejection
-		// (a throwing onPersistError listener) must not strand every later write.
+		// Two-handler then: a rejection (a throwing onPersistError listener) must
+		// not strand every later write.
 		const write = () => this.writeCommitted();
 		const run = this.persistQueue.then(write, write);
 		this.persistQueue = run;
@@ -238,8 +227,8 @@ class VersionedRegion<T> {
 
 	private async writeCommitted(): Promise<void> {
 		// The max guards the suspended-adoption case: storage may hold a newer
-		// foreign version this window skipped, and the healing write must
-		// outrank it (last-write-wins, as documented above).
+		// foreign version this window skipped, and the healing write must outrank
+		// it (last-write-wins).
 		const generation = this.commitGeneration;
 		const stored = parseVersionedRecords(this.memento.get(this.key));
 		const next = (stored.version > this.version ? stored.version : this.version) + 1n;
@@ -259,11 +248,11 @@ class VersionedRegion<T> {
 }
 
 /**
- * The store over the two Memento regions, each a VersionedRegion (see above
- * for the cross-window protocol). `onDidChange` fires after any effective
- * tombstone change (never for provenance alone) so the wiring can make the
- * host re-resolve groups - that is what makes a hidden group's models leave
- * the picker, and an unhidden group's models return.
+ * The store over the two Memento regions, each a VersionedRegion (see above for
+ * the cross-window protocol). `onDidChange` fires after any effective tombstone
+ * change (never for provenance alone) so the wiring can make the host re-resolve
+ * groups - that is what makes a hidden group's models leave the picker, and an
+ * unhidden group's models return.
  */
 export class GroupRemovalStore {
 	private didChangeListener: (() => void) | undefined;
@@ -271,13 +260,11 @@ export class GroupRemovalStore {
 
 	/**
 	 * Fired after every effective tombstone mutation, synchronously between
-	 * commit and persist. Deliberately a single set-once slot rather than a
-	 * listener set: the store has no logger, so it could not isolate multiple
-	 * listeners' failures the way the activation wiring (the one consumer)
-	 * already does when fanning out to the provider re-resolve and the
-	 * dashboard refresh. The setter throws on a second assignment because a
-	 * silent replacement would detach the host re-resolve wiring - hidden
-	 * groups' models would never leave the picker.
+	 * commit and persist. A single set-once slot rather than a listener set: the
+	 * store has no logger, so it could not isolate multiple listeners' failures
+	 * the way the activation wiring (the one consumer) already does. The setter
+	 * throws on a second assignment because a silent replacement would detach the
+	 * host re-resolve wiring - hidden groups' models would never leave the picker.
 	 */
 	set onDidChange(listener: () => void) {
 		if (this.didChangeListener !== undefined) {
@@ -287,9 +274,9 @@ export class GroupRemovalStore {
 	}
 
 	/**
-	 * Reports a failed best-effort persist (log-only). The same set-once slot
-	 * as onDidChange: a silent replacement would swallow the only signal that
-	 * storage is behind memory.
+	 * Reports a failed best-effort persist (log-only). Set-once like onDidChange:
+	 * a silent replacement would swallow the only signal that storage is behind
+	 * memory.
 	 */
 	set onPersistError(listener: (error: unknown) => void) {
 		if (this.persistErrorListener !== undefined) {
@@ -353,9 +340,8 @@ export class GroupRemovalStore {
 
 	/**
 	 * The automatic clear: a declared entry matching a tombstoned identity
-	 * (re)appeared, so the group is wanted again and must never stay
-	 * suppressed. Called by the sync engine's pass with every current declared
-	 * identity.
+	 * (re)appeared, so the group is wanted again and must never stay suppressed.
+	 * The sync engine's pass calls this with every current declared identity.
 	 */
 	async clearTombstonesFor(declared: readonly GroupIdentity[]): Promise<boolean> {
 		const current = this.tombstoneRegion.list();
@@ -384,9 +370,8 @@ export class GroupRemovalStore {
 	}
 
 	/**
-	 * Record why a group became orphaned. One record per identity: a newer
-	 * event replaces an older one (a rename after a re-add tells the current
-	 * truth; keeping both would make the badge lie).
+	 * Record why a group became orphaned. One record per identity: a newer event
+	 * replaces an older one, since keeping both would make the badge lie.
 	 */
 	async recordOrigin(record: OrphanedGroupRecord): Promise<void> {
 		const normalized: OrphanedGroupRecord = {

@@ -169,8 +169,8 @@ suite("extension/migrations/legacySingleServer", () => {
 			const breaker = breakDeletion(storage, LEGACY_BASE_URL_SECRET);
 			await assert.rejects(legacySingleServerMigration.run(ctx), /keychain unavailable/);
 
-			// The group migration moves the entry to a provider group and
-			// empties the registry while the legacy secret still lingers.
+			// The group migration moves the entry to a provider group and empties
+			// the registry while the legacy secret still lingers.
 			const server = expectDefined(ctx.registry.getServers()[0]);
 			await ctx.registry.removeServer(server.id);
 			breaker.heal();
@@ -184,9 +184,8 @@ suite("extension/migrations/legacySingleServer", () => {
 		});
 
 		test("recovery after a failed marker write survives a rename of the imported server", async () => {
-			// Detection is by base URL, never by label: the user may rename the
-			// imported entry before the retry runs, and a label-keyed match
-			// would re-import stale config on a later empty registry.
+			// Detection is by base URL, never by label: the user may rename the imported
+			// entry, and a label-keyed match would re-import stale config later.
 			const { storage } = makeContext();
 			seedLegacySecrets(storage);
 			const originalUpdate = storage.memento.update.bind(storage.memento);
@@ -215,11 +214,9 @@ suite("extension/migrations/legacySingleServer", () => {
 		});
 
 		test("a loser of the last-write-wins import race deletes its own orphaned secret", async () => {
-			// The true residual: both windows pass the pre-write re-read and
-			// both persist same-version registries. The overwrite is invisible
-			// to the loser's own registry instance, so the loser must check
-			// the persisted blob after its write and clean up its unreferenced
-			// per-server secret.
+			// Both windows pass the pre-write re-read and persist same-version registries.
+			// The overwrite is invisible to the loser's own registry instance, so the loser
+			// must re-check the persisted blob and delete its unreferenced per-server secret.
 			const shared = makeContext().storage;
 			seedLegacySecrets(shared);
 
@@ -269,9 +266,8 @@ suite("extension/migrations/legacySingleServer", () => {
 			const shared = makeContext().storage;
 			seedLegacySecrets(shared);
 
-			// Window B reads the legacy base URL, then window A runs its whole
-			// migration before B continues; B's later registry reads adopt A's
-			// strictly newer persisted registry and must not import again.
+			// Window B reads the legacy base URL, then A runs its whole migration; B's later
+			// registry reads adopt A's strictly newer blob and must not import again.
 			const { ctx: aCtx } = makeContext(shared);
 			const bSecrets = {
 				get: async (key: string) => {

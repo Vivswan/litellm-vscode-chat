@@ -1,23 +1,22 @@
 /**
  * The spend client: authenticated GETs to a LiteLLM server's usage endpoints.
- * Unlike discovery these sit at the server ROOT, not under the /v1 API root,
- * so the SDK client (rooted at apiRootOf) cannot serve them and the transport
- * is a plain fetch reusing the provider's header precedence
- * (buildDefaultHeaders) plus the OAuth and virtual-key overlays the chat path
- * applies per request.
+ * Unlike discovery these sit at the server ROOT, not under the /v1 API root, so
+ * the SDK client cannot serve them and the transport is a plain fetch reusing
+ * the provider's header precedence (buildDefaultHeaders) plus the OAuth and
+ * virtual-key overlays the chat path applies per request.
  *
  * Transport conventions match discovery: idempotent GETs retry up to
- * DISCOVERY_MAX_RETRIES on network failures and 5xx, the discovery timeout is
- * a hard whole-call bound, and errors are constructed specific and thrown
- * WITHOUT logging (the poller boundary logs one classification). Usage
- * responses embed hashed key material, aliases, and user IDs, so no error
- * message or log line ever carries response-derived text - not even the
- * truncated snippets discovery allows itself.
+ * DISCOVERY_MAX_RETRIES on network failures and 5xx, the discovery timeout is a
+ * hard whole-call bound, and errors are constructed specific and thrown WITHOUT
+ * logging (the poller boundary logs one classification). Usage responses embed
+ * hashed key material, aliases, and user IDs, so no error message or log line
+ * ever carries response-derived text - not even the truncated snippets
+ * discovery allows itself.
  *
- * Parsing is lenient field-by-field: every retained value is a number, an
- * epoch timestamp, a YYYY-MM-DD day key, or a pattern-validated duration
- * token, so nothing response-derived can ride into the store (whose contents
- * later reach the dashboard webview).
+ * Parsing is lenient field-by-field: every retained value is a number, an epoch
+ * timestamp, a YYYY-MM-DD day key, or a pattern-validated token, so nothing
+ * response-derived can ride into the store (whose contents later reach the
+ * dashboard webview).
  */
 
 import * as l10n from "@vscode/l10n";
@@ -37,8 +36,8 @@ import { inlineSecretValues } from "../serverSync/secrets";
 import type { DeclaredServer } from "../serverSync/setting";
 
 /**
- * Usage endpoint paths, relative to the server root (NOT the /v1 API root).
- * The helpers take the entry's apiVersion so serverRootOf can undo a version
+ * Usage endpoint paths, relative to the server root (NOT the /v1 API root). The
+ * helpers take the entry's apiVersion so serverRootOf can undo a version
  * segment the user wrote into the base URL.
  */
 const KEY_INFO_PATH = "/key/info";
@@ -80,14 +79,13 @@ export interface UsageConnection {
 /**
  * Resolve a declared entry's connection the way the sync engine resolves its
  * group args: inline settings values outrank the label's SecretStorage blob,
- * OAuth is one unit (token URL plus client ID; the request path drops partial
- * configurations silently), and the virtual key is both-or-neither AND must
- * be header-legal (an invalid name or value would make the platform's fetch
- * throw a TypeError embedding the full plaintext value - the same rule
- * narrowVirtualKey applies on the chat path). The base URL is normalized so
- * a trailing slash cannot double up in the endpoint paths (LiteLLM answers
- * `//key/info` with a 404, which would misclassify the server as
- * usage-unsupported).
+ * OAuth is one unit (token URL plus client ID), and the virtual key is
+ * both-or-neither AND must be header-legal - an invalid name or value would
+ * make the platform's fetch throw a TypeError embedding the full plaintext
+ * value (the same rule narrowVirtualKey applies on the chat path). The base URL
+ * is normalized so a trailing slash cannot double up in the endpoint paths
+ * (LiteLLM answers `//key/info` with a 404, which would misclassify the server
+ * as usage-unsupported).
  */
 export function usageConnectionFor(entry: DeclaredServer, stored: StoredServerSecrets): UsageConnection {
 	const inline = inlineSecretValues(entry);
@@ -180,12 +178,11 @@ export function activityWindow(nowMs: number, days: number): ActivityWindow {
 }
 
 /**
- * Why a usage endpoint is permanently unavailable on a server, judged from
- * the thrown error: "unsupported" is the DB-less proxy answering 400/404 (or
- * a route the version lacks: 405/501), "forbidden" is a key the proxy will
- * not let read usage (401/403). Transient failures (network, timeout, 5xx)
- * return undefined: scheduled polls keep retrying them (backing off after
- * consecutive failures), availability unchanged.
+ * Why a usage endpoint is permanently unavailable on a server, judged from the
+ * thrown error: "unsupported" is the DB-less proxy answering 400/404 (or a
+ * route the version lacks: 405/501), "forbidden" is a key the proxy will not
+ * let read usage (401/403). Transient failures (network, timeout, 5xx) return
+ * undefined: scheduled polls keep retrying them, availability unchanged.
  */
 export type UsageUnavailableReason = "unsupported" | "forbidden";
 
@@ -193,9 +190,9 @@ export function usageUnavailabilityOf(error: unknown): UsageUnavailableReason | 
 	if (!(error instanceof RequestError) || error.status === undefined) {
 		return undefined;
 	}
-	// An OAuth token-endpoint rejection (auth.ts) fails BEFORE the usage
-	// endpoint is called, so it proves nothing about the endpoint itself: it
-	// stays transient rather than misattributing a "forbidden" standing.
+	// An OAuth token-endpoint rejection (auth.ts) fails BEFORE the usage endpoint
+	// is called, so it proves nothing about the endpoint itself: it stays
+	// transient rather than misattributing a "forbidden" standing.
 	if (error.oauthTokenEndpoint === true) {
 		return undefined;
 	}
@@ -360,9 +357,9 @@ export interface UsageClientOptions {
 /**
  * Owns the HTTP side of usage polling: header composition (the provider's
  * precedence rule over the connection's per-entry headers, plus the
- * OAuth/virtual-key overlays), the whole-call timeout, and the
- * idempotent-GET retry budget. One instance per poller so OAuth tokens cache
- * across polls and invalidate on 401 exactly like the chat path.
+ * OAuth/virtual-key overlays), the whole-call timeout, and the idempotent-GET
+ * retry budget. One instance per poller so OAuth tokens cache across polls and
+ * invalidate on 401 exactly like the chat path.
  */
 export class UsageClient {
 	private readonly oauthTokens = new OAuthTokenSource();
@@ -395,9 +392,8 @@ export class UsageClient {
 	}
 
 	/**
-	 * The request headers for one call: the provider's static precedence over
-	 * the connection's per-entry headers (custom headers, User-Agent, API-key
-	 * ownership of the auth headers) plus the per-request credentials the chat
+	 * The request headers for one call: the provider's static precedence over the
+	 * connection's per-entry headers plus the per-request credentials the chat
 	 * path resolves the same way - the OAuth bearer token (skipped when the
 	 * virtual key owns the Authorization header) and the virtual-key header.
 	 * Returns the token that actually went out so a 401 can invalidate exactly
@@ -416,17 +412,15 @@ export class UsageClient {
 		const headers: Record<string, string> = {};
 		for (const [name, value] of Object.entries(base)) {
 			// A value the platform's Headers would reject must never reach fetch:
-			// the thrown TypeError embeds the full plaintext value, and these
-			// values can be secrets (the same guard the settings reader applies
-			// to custom headers; this covers the API key too).
+			// the thrown TypeError embeds the full plaintext value, and these values
+			// can be secrets.
 			if (value !== null && isValidHeaderValue(value)) {
 				headers[name] = value;
 			}
 		}
-		// Auth headers win conflicts case-insensitively, like the chat path:
-		// this is a plain-object fetch, where two spellings of one header name
-		// would COMBINE into "custom, Bearer ..." instead of replacing (the SDK
-		// path gets replace semantics from its Headers merge).
+		// Auth headers win conflicts case-insensitively, like the chat path: this
+		// is a plain-object fetch, where two spellings of one header name would
+		// COMBINE into "custom, Bearer ..." instead of replacing.
 		const setAuthHeader = (name: string, value: string) => {
 			for (const existing of Object.keys(headers)) {
 				if (existing.toLowerCase() === name.toLowerCase()) {
@@ -453,11 +447,11 @@ export class UsageClient {
 	}
 
 	/**
-	 * One idempotent GET with the discovery retry rules: network failures and
-	 * 5xx retry up to DISCOVERY_MAX_RETRIES, 4xx fail immediately, and the
-	 * discovery timeout bounds the whole call including backoffs and the OAuth
-	 * exchange. `outerSignal` (the poller's dispose) interrupts everything and
-	 * is rethrown as-is so the caller attributes it truthfully.
+	 * One idempotent GET with the discovery retry rules: network failures and 5xx
+	 * retry up to DISCOVERY_MAX_RETRIES, 4xx fail immediately, and the discovery
+	 * timeout bounds the whole call including backoffs and the OAuth exchange.
+	 * `outerSignal` (the poller's dispose) interrupts everything and is rethrown
+	 * as-is so the caller attributes it truthfully.
 	 */
 	private async getJson(connection: UsageConnection, url: string, outerSignal?: AbortSignal): Promise<unknown> {
 		const timeoutMs = this.getTimeoutMs();
@@ -499,8 +493,8 @@ export class UsageClient {
 				try {
 					return JSON.parse(payload) as unknown;
 				} catch {
-					// The SyntaxError quotes a payload snippet (response-derived),
-					// so it does not ride along - not even as the cause.
+					// The SyntaxError quotes a payload snippet (response-derived), so it
+					// does not ride along - not even as the cause.
 					throw new RequestError(l10n.t("Failed to parse the LiteLLM usage response from {0}.", url), "http", {
 						englishMessage: `Failed to parse the LiteLLM usage response from ${url}.`,
 					});
@@ -512,8 +506,8 @@ export class UsageClient {
 				continue;
 			}
 			if (failure.kind === "auth" && connection.oauth && sentOAuthToken !== undefined) {
-				// The server no longer accepts the token this call sent; the next
-				// poll performs a fresh exchange. This call itself never retries.
+				// The server no longer accepts the token this call sent; the next poll
+				// performs a fresh exchange. This call itself never retries.
 				this.oauthTokens.invalidate(connection.oauth, sentOAuthToken);
 			}
 			throw failure;

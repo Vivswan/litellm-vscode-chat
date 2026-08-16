@@ -1,47 +1,41 @@
 /**
  * The rolling status window: each server's latest discovery outcome and the
- * models it registered, accumulated across the host's per-group refresh
- * calls. The host fetches each provider group in its own call, so no single
- * call sees the whole picture; the provider records every outcome here and
- * reports the merged view.
+ * models it registered, accumulated across the host's per-group refresh calls.
+ * No single call sees the whole picture, so the provider records every outcome
+ * here and reports the merged view.
  */
 
 import type { ServerStatus } from "../../shared/servers";
 import type { GroupServer, PreAttachModelInfo } from "./groupModels";
 
 /**
- * The floor of the eviction window: rolling status entries and their cached
- * clients are evicted when not refreshed within evictionTtlMs(). The
- * configured stale-serve window bounds stale serving exactly (see
- * staleServableModels) but only GROWS eviction beyond this floor, never
- * shrinks it below: eviction anchors to the last report of any kind, and a
- * short window would evict mid-sweep entries the one-cycle grace exists to
- * keep visible (statusWindow.test.ts pins both directions).
+ * The floor of the eviction window. The configured stale-serve window only
+ * GROWS eviction beyond this floor, never shrinks it: eviction anchors to the
+ * last report of any kind, and a short window would evict mid-sweep entries
+ * the one-cycle grace exists to keep visible.
  */
 const EVICTION_TTL_FLOOR_MS = 10 * 60 * 1000;
 
 /**
  * One server's slice of the status window, for read-only consumers (the
- * dashboard). `models` are the infos as built by registration, before any
- * group server is attached - PreAttachModelInfo by type, so a snapshot that
- * carries credentials does not compile.
+ * dashboard). `models` are registration's infos before any group server is
+ * attached - PreAttachModelInfo by type, so a snapshot carrying credentials
+ * does not compile.
  */
 export interface ServerModelsSnapshot {
 	readonly status: ServerStatus;
 	readonly models: readonly PreAttachModelInfo[];
 	/**
-	 * The raw model IDs discovery last returned for this server, carried
-	 * forward across failure reports like lastSuccess. declared-ID inertness
-	 * is judged against this set, never against `models`: registration may
-	 * emit only synthetic variants (`foo:cheapest`) for a discovered `foo`.
+	 * The raw model IDs discovery last returned, carried forward across failure
+	 * reports like lastSuccess. declared-ID inertness is judged against this
+	 * set, never against `models`: registration may emit only synthetic
+	 * variants (`foo:cheapest`) for a discovered `foo`.
 	 */
 	readonly discoveredRawIds: readonly string[];
 	/**
-	 * The model_info keys the last successful /model/info listing reported
-	 * (see FetchModelsResult.observedModelInfoKeys), carried forward across
-	 * failure reports exactly like discoveredRawIds so a mid-outage refresh
-	 * cannot blank the set. Absent when the last success came from the /models
-	 * fallback (or the server never reported keys).
+	 * The model_info keys the last successful listing reported, carried forward
+	 * like discoveredRawIds so a mid-outage refresh cannot blank the set. Absent
+	 * when the last success came from the /models fallback, or none were reported.
 	 */
 	readonly observedModelInfoKeys?: readonly string[] | undefined;
 }
@@ -50,24 +44,19 @@ type StatusWindowEntry = {
 	cycle: number;
 	at: number;
 	/**
-	 * The last successful discovery: when it happened and what it served,
-	 * carried forward across failure reports (undefined = never succeeded).
-	 * `at` refreshes on every report, success or not, so it cannot age
-	 * anything; this is the anchor and the source set for stale serving. Kept
-	 * apart from `models` (what the LATEST report served, the dashboard's
-	 * view): a failure report past the stale window records an empty `models`,
-	 * but must not destroy this bundle - a discovery.staleServeWindow raised
-	 * mid-outage serves from it again.
+	 * The last successful discovery, carried forward across failure reports
+	 * (undefined = never succeeded): the anchor and source set for stale
+	 * serving. Kept apart from `models` (what the LATEST report served) because
+	 * a failure report past the stale window records an empty `models` but must
+	 * not destroy this bundle, which a staleServeWindow raised mid-outage
+	 * serves from again.
 	 */
 	lastSuccess: { at: number; models: readonly PreAttachModelInfo[] } | undefined;
 	status: ServerStatus;
 	models: readonly PreAttachModelInfo[];
 	discoveredRawIds: readonly string[];
 	observedModelInfoKeys: readonly string[] | undefined;
-	/**
-	 * The group's resolved connection (the extension layer's one path to a
-	 * group's credentials); every entry is a VS Code provider group.
-	 */
+	/** The group's resolved connection; every entry is a VS Code provider group. */
 	groupServer: GroupServer;
 };
 
@@ -86,26 +75,21 @@ export interface DiscoveryObservations {
 /**
  * Statuses accumulate keyed by server ID; the group-agnostic call (normally
  * the first of a refresh cycle) advances the cycle counter. An entry survives
- * the cycle after its last report and is evicted at the second cycle
- * boundary; that one-cycle grace is load-bearing: it keeps servers not yet
- * re-fetched in the current sweep visible, so the merged view never flickers
- * mid-sweep. Two fallbacks cover hosts that skip the group-agnostic call:
- * re-seeing a group within one unmarked cycle also starts a new cycle
- * (beginCycleOnReSight), and entries untouched for evictionTtlMs() go
- * regardless.
+ * the cycle after its last report and is evicted at the second cycle boundary;
+ * that one-cycle grace keeps servers not yet re-fetched in the current sweep
+ * visible, so the merged view never flickers mid-sweep. Two fallbacks cover
+ * hosts that skip the group-agnostic call: beginCycleOnReSight, and eviction
+ * of entries untouched for evictionTtlMs().
  */
 export class StatusWindow {
 	private cycle = 0;
 	/**
-	 * Whether the current cycle was started by the group-agnostic call. A
-	 * marked cycle is host-driven, and a host that makes the group-agnostic
-	 * call makes one per sweep - so inside a marked cycle, a group reporting
-	 * under an identity already seen this cycle is two host groups resolving
-	 * to one identity (created before entry labels flowed into group
-	 * configurations), not a new sweep, and restarting the cycle on it would
-	 * evict entries the sweep has not re-reached yet. The re-see fallback
-	 * therefore only runs in unmarked cycles (hosts that skip the
-	 * group-agnostic call entirely).
+	 * Whether the current cycle was started by the group-agnostic call. Such a
+	 * host makes one of those calls per sweep, so inside a marked cycle a group
+	 * reporting under an already-seen identity is two host groups resolving to
+	 * one identity, not a new sweep - restarting the cycle on it would evict
+	 * entries the sweep has not re-reached. The re-see fallback therefore only
+	 * runs in unmarked cycles.
 	 */
 	private cycleMarked = false;
 	private readonly entries = new Map<string, StatusWindowEntry>();
@@ -114,8 +98,7 @@ export class StatusWindow {
 		private readonly now: () => number,
 		/**
 		 * The discovery.staleServeWindow setting, read at consumption time so a
-		 * settings change reaches the next refresh without event plumbing. The
-		 * provider facade wires the settings read; tests inject constants.
+		 * settings change reaches the next refresh without event plumbing.
 		 */
 		private readonly staleServeWindowMs: () => number
 	) {}
@@ -123,11 +106,9 @@ export class StatusWindow {
 	/**
 	 * How long an entry untouched by any report survives: the configured
 	 * stale-serve window, floored at EVICTION_TTL_FLOOR_MS. The window must
-	 * reach eviction because the stale-serve anchor (lastSuccess) lives on
-	 * the entry: a host that made no refresh for longer than the floor (a
-	 * suspended laptop) would otherwise evict the entry at the next cycle
-	 * boundary and lose the anchor a longer configured window promises to
-	 * serve from.
+	 * reach eviction because the stale-serve anchor lives on the entry - a host
+	 * idle longer than the floor (a suspended laptop) would otherwise lose the
+	 * anchor a longer configured window promises to serve from.
 	 */
 	private evictionTtlMs(): number {
 		return Math.max(this.staleServeWindowMs(), EVICTION_TTL_FLOOR_MS);
@@ -141,9 +122,9 @@ export class StatusWindow {
 
 	/**
 	 * The re-see fallback for hosts that skip the group-agnostic call: a group
-	 * reporting again within one unmarked cycle means a new sweep started, so
-	 * a fresh (unmarked) cycle begins and true is reported so the caller can
-	 * prune alongside. Inside a marked cycle this never fires; see cycleMarked.
+	 * reporting again within one unmarked cycle means a new sweep started, so a
+	 * fresh cycle begins and true is reported so the caller can prune alongside.
+	 * Never fires inside a marked cycle; see cycleMarked.
 	 */
 	beginCycleOnReSight(serverId: string): boolean {
 		if (this.cycleMarked || this.entries.get(serverId)?.cycle !== this.cycle) {
@@ -166,10 +147,9 @@ export class StatusWindow {
 	}
 
 	/**
-	 * `models` are the pre-attach infos (registration output) by type, never
-	 * the group-attached copies: snapshots() hands them to the dashboard, and
-	 * attached copies embed the server's credentials, so AttachedModelInfo
-	 * does not compile here.
+	 * `models` are the pre-attach infos by type, never the group-attached
+	 * copies: snapshots() hands them to the dashboard, and attached copies embed
+	 * the server's credentials.
 	 */
 	record(
 		status: ServerStatus,
@@ -204,10 +184,8 @@ export class StatusWindow {
 	}
 
 	/**
-	 * The resolved connection of a live provider group, looked up by the server
-	 * ID its status snapshot carries. This is the extension layer's one path to
-	 * a group's credentials (the dashboard's adopt action copies them into the
-	 * servers setting; the group keeps its own); the value is handed to the
+	 * The resolved connection of a live provider group. This is the extension
+	 * layer's one path to a group's credentials; the value is handed to the
 	 * caller only and must never be logged or pushed into webview state.
 	 * Aged-out groups resolve to undefined.
 	 */
@@ -226,17 +204,14 @@ export class StatusWindow {
 	}
 
 	/**
-	 * The last known models a failed group refresh may still serve, with the
-	 * last successful discovery they came from. Retention is anchored to that
-	 * SUCCESS, not the last report - failure reports refresh the entry's
-	 * timestamp, so without the anchor a permanently-down server would stay
-	 * selectable forever - and served from the success bundle, not from
-	 * `models`, so an out-of-window failure report (which records the empty
-	 * list) cannot destroy what a raised discovery.staleServeWindow would
-	 * still serve. Undefined once the anchor ages past the configured window
-	 * (or the server never succeeded, or the window is 0 = stale serving
-	 * disabled), at which point the failure serves the empty list, as it
-	 * always did.
+	 * The last known models a failed group refresh may still serve. Retention
+	 * anchors to the last SUCCESS, not the last report - failure reports refresh
+	 * the entry's timestamp, so a permanently-down server would otherwise stay
+	 * selectable forever - and serves from the success bundle, not `models`, so
+	 * an out-of-window failure report cannot destroy what a raised
+	 * staleServeWindow would still serve. Undefined once the anchor ages past
+	 * the window (or the server never succeeded, or the window is 0 = stale
+	 * serving disabled), at which point the failure serves the empty list.
 	 */
 	staleServableModels(
 		serverId: string

@@ -51,8 +51,8 @@ const requestArb = fc.record({
 
 /**
  * The message-level marker, probed structurally rather than through the wire
- * type (which only admits it on tool-role messages): the budget property must
- * also catch a marker misplaced on a system/user/assistant message.
+ * type (which admits it only on tool-role messages), so the budget property
+ * also catches a marker misplaced on another role.
  */
 function messageMarker(message: OpenAIChatMessage): unknown {
 	return (message as { cache_control?: unknown }).cache_control;
@@ -138,8 +138,8 @@ describe("shared/promptCache properties", () => {
 	test("never mutates its input", () => {
 		fc.assert(
 			fc.property(requestArb, (request) => {
-				// structuredClone both sides: fast-check records carry a null
-				// prototype, which deepStrictEqual would otherwise flag.
+				// structuredClone both sides: fast-check records carry a null prototype,
+				// which deepStrictEqual would otherwise flag.
 				const snapshot = structuredClone(request);
 				applyPromptCacheBreakpoints(request);
 				assert.deepStrictEqual(structuredClone(request), snapshot);

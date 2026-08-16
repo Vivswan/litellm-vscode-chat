@@ -11,11 +11,9 @@ function createRegistry(): ServerRegistry {
 	return new ServerRegistry(storage.memento, storage.secrets);
 }
 
-// The interactive diagnostics surface is the dashboard's Diagnostics tab now:
-// the litellm.showDiagnostics deep link is pinned in
-// extension/dashboard/panel.test.ts, the shared line renderers in
-// dashboard/protocol.test.ts, and the tab's rendering in the
-// webview suite. What remains here is the issue reporter's snapshot.
+// The interactive diagnostics surface is the dashboard's Diagnostics tab
+// (pinned in extension/dashboard/panel.test.ts, dashboard/protocol.test.ts, and
+// the webview suite); what remains here is the issue reporter's snapshot.
 suite("extension/ui/diagnostics", () => {
 	suite("buildDiagnosticsSnapshot", () => {
 		test("collects environment, connection, and reporter data", async () => {

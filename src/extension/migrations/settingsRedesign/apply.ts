@@ -1,18 +1,14 @@
 /**
- * The thin applier around the pure pipeline (transform.ts): read the
- * snapshot through the configuration API, run the transform (with the label
- * map feeding the folded label-scoped expansion), execute the plan's writes
- * at the User (Global) scope, log the count lines. No SecretStorage access
- * (the secret re-key is a settled no-op - the blob keys and field ids are
- * unchanged and stored values keep working under the new entry shape), no
- * fingerprint touch (a migrated entry's group args are byte-identical -
- * except the ruled wire-inert-fragment exception pinned in the
- * fingerprint-stability suite - so stored sync fingerprints stay valid), and
- * no idempotency ledger
- * (source-key absence is the state signal). The globalState touches are the
- * write-once parking of a consumed global headers value (see
- * PARKED_GLOBAL_HEADERS_KEY) and the one-time cleanup of the pre-fold
- * entry-copy ledger once the legacy id is gone.
+ * The thin applier around the pure pipeline: read the snapshot through the
+ * configuration API, run the transform (with the label map feeding the folded
+ * label-scoped expansion), execute the plan's writes at the User (Global)
+ * scope, log the count lines. No SecretStorage access (blob keys and field ids
+ * are unchanged and stored values keep working under the new entry shape), no
+ * fingerprint touch (a migrated entry's group args are byte-identical, except
+ * the wire-inert-fragment exception), and no idempotency ledger (source-key
+ * absence is the state signal). The globalState touches are the write-once
+ * parking of a consumed global headers value and the one-time cleanup of the
+ * pre-fold entry-copy ledger once the legacy id is gone.
  */
 
 import * as vscode from "vscode";
@@ -79,17 +75,15 @@ export interface ParkedHeadersStore {
 }
 
 /**
- * Plan against the current user settings and execute: park the consumed
- * global headers value first (once - an existing parked record is never
- * overwritten, so a rerun after a crash cannot clobber the original or its
- * migratedAt), then the writes in plan order (values before deletions), all
- * at the Global target, then the count-only log lines. Log lines can
- * accompany a "nothing-to-do" outcome (workspace leftovers, an inert global
- * headers value, a blocked trio merge), matching the family's precedent of
- * saying so once per activation. Once the legacy modelParameters id is gone,
- * the pre-fold entry-copy ledger has no future reader and is cleared -
- * deferred to a pass that starts legacy-free so a crash mid-plan cannot lose
- * the deletions it still protects against.
+ * Plan against the current user settings and execute: park the consumed global
+ * headers value first (once - an existing parked record is never overwritten,
+ * so a rerun after a crash cannot clobber the original), then the writes in
+ * plan order (values before deletions) at the Global target, then the
+ * count-only log lines. Log lines can accompany a "nothing-to-do" outcome
+ * (workspace leftovers, an inert global headers value, a blocked trio merge).
+ * Once the legacy modelParameters id is gone, the pre-fold entry-copy ledger
+ * has no future reader and is cleared - deferred to a pass that starts
+ * legacy-free so a crash mid-plan cannot lose the deletions it protects.
  */
 export async function applySettingsRedesign(
 	setting: RedesignSettings,
@@ -119,11 +113,11 @@ export async function applySettingsRedesign(
 
 /**
  * Migrates away from: the pre-redesign settings namespace of v0.4.4 and
- * earlier - the flat setting names, the flat entry fields, the global
- * headers setting, implicit-prefix record keys, server-URL-scoped global
- * keys, the default* token trio, the `_declare` directive, and (folded from
- * the v0.3.1 rewrite) label-scoped modelParameters keys. Deletable once
- * installs carrying any of that state are judged extinct.
+ * earlier - the flat setting names, the flat entry fields, the global headers
+ * setting, implicit-prefix record keys, server-URL-scoped global keys, the
+ * default* token trio, the `_declare` directive, and (folded from the v0.3.1
+ * rewrite) label-scoped modelParameters keys. Deletable once installs carrying
+ * any of that state are judged extinct.
  *
  * Runs pre-registration so the first registration of a session already sees
  * the new-name settings and the restructured entries. The label map's union

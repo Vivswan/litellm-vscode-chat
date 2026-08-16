@@ -2,21 +2,18 @@
  * The record-inheritance engine shared by both model-keyed records. The
  * matcher (modelMatcher.ts) orders every record matching a model into a
  * chain, broadest first; this module resolves that chain into one flat view
- * per model. Pure and type-agnostic: callers hand in a per-record parser (the
- * parameters records' open pass-through, the capability records' open
- * advisory-typed one) and get back fields with provenance; nothing here knows
- * a setting name.
+ * per model. Type-agnostic: callers hand in a per-record parser and get back
+ * fields with provenance; nothing here knows a setting name.
  *
- * The semantics, in one paragraph: by default the most specific matching
- * record wins wholesale. `_inheritable` (giver-side) marks fields that flow
- * to more specific matches; `_inherit_from` (receiver-side) decides what a
- * record accepts - everything that reaches it (`true`), nothing (`false`,
- * which also makes the record a barrier: broader fields can only travel
- * through each record's resolved view, so nothing flows past it), or exactly
- * the named records' literal fields (a list, which bypasses barriers). Fields
- * travel with their source record's markings (`_inheritable`, `_force`,
- * `_fallback`); directives themselves never travel, and a receiver cannot
- * re-mark fields it did not write.
+ * The semantics: by default the most specific matching record wins wholesale.
+ * `_inheritable` (giver-side) marks fields that flow to more specific matches;
+ * `_inherit_from` (receiver-side) decides what a record accepts - everything
+ * that reaches it (`true`), nothing (`false`, which also makes the record a
+ * barrier: broader fields can only travel through each record's resolved view,
+ * so nothing flows past it), or exactly the named records' literal fields (a
+ * list, which bypasses barriers). Fields travel with their source record's
+ * markings; directives themselves never travel, and a receiver cannot re-mark
+ * fields it did not write.
  */
 
 import type { ModelRecordMap } from "./modelMatcher";
@@ -63,10 +60,9 @@ export type InheritFromDirective =
 	| { readonly kind: "keys"; readonly keys: readonly string[] };
 
 /**
- * One record parsed into the engine's terms. The type-specific parsers
- * produce it: `fields` holds the validly-typed own fields, the marking sets
- * are always subsets of `fields`' keys, and `diagnostics` carries everything
- * the parse refused (attributed to the record by the caller).
+ * One record parsed into the engine's terms. The marking sets are always
+ * subsets of `fields`' keys, and `diagnostics` carries everything the parse
+ * refused (attributed to the record by the caller).
  */
 export interface ParsedRecord {
 	readonly fields: Readonly<Record<string, unknown>>;
@@ -80,10 +76,10 @@ export interface ParsedRecord {
 }
 
 /**
- * Parse the two engine-owned directives out of one raw record, given the
- * record's already-parsed own fields (the marking lists may only name those:
- * a receiver cannot re-mark inherited fields, and naming an absent field is
- * an invalid-directive diagnostic with the name skipped).
+ * Parse the two engine-owned directives out of one raw record. The marking
+ * lists may only name the record's own fields: a receiver cannot re-mark
+ * inherited fields, and naming an absent field is an invalid-directive
+ * diagnostic with the name skipped.
  */
 export function parseSharedDirectives(
 	record: Readonly<Record<string, unknown>>,
@@ -131,7 +127,7 @@ export function parseSharedDirectives(
 				}
 			}
 			// The empty list names no sources and behaves exactly like `false`,
-			// barrier included; "keys" with an empty list resolves the same way.
+			// barrier included.
 			inheritFrom = { kind: "keys", keys };
 		} else {
 			diagnostics.push({ kind: "invalid-directive", key: INHERIT_FROM_DIRECTIVE });
@@ -167,12 +163,11 @@ export interface RecordChainResolution {
 }
 
 /**
- * Record-level lint of one record map, independent of any model: invalid
- * matcher keys, every record's own parse diagnostics, and `_inherit_from`
- * entries naming keys the map does not hold. resolveRecordChain reports the
- * same problems, but only along one model's matching chain - a record no
- * current model matches would never be visited there, and the Diagnostics
- * tab must still flag it. Deduplicated like the chain walk's diagnostics.
+ * Record-level lint of one record map, independent of any model.
+ * resolveRecordChain reports the same problems, but only along one model's
+ * matching chain - a record no current model matches would never be visited
+ * there, and the Diagnostics tab must still flag it. Deduplicated like the
+ * chain walk's diagnostics.
  */
 export function lintRecordMap(
 	records: ModelRecordMap,
@@ -216,8 +211,7 @@ export function lintRecordMap(
  * with the named records' literal fields (nearest-first by specificity, own
  * fields still on top), reaching around any barrier; a named key must exist
  * in the map (diagnosed otherwise) and must itself match the model to
- * contribute (inheritance has sources, not includes - a non-matching name is
- * silently inert for this model).
+ * contribute (a non-matching name is silently inert for this model).
  */
 export function resolveRecordChain(
 	id: string,
@@ -297,10 +291,9 @@ export function resolveRecordChain(
 			case "none":
 				break;
 			case "keys": {
-				// Named sources contribute their LITERAL fields only (their own
-				// inheritance never carries over), merged broadest first so the
-				// most specific named record wins per field - specificity order,
-				// not list order, and duplicates change nothing.
+				// Named sources contribute their LITERAL fields only, merged
+				// broadest first so the most specific named record wins per field -
+				// specificity order, not list order.
 				const named: { key: string; parsed: ParsedRecord; position: number }[] = [];
 				const namedSeen = new Set<string>();
 				for (const nameKey of parsed.inheritFrom.keys) {

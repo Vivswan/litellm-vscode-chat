@@ -50,11 +50,8 @@ describe("shared/serverEntry: package.json drift guard", () => {
 	const optionalIds = OPTIONAL_ENTRY_FIELDS.map((field) => field.id);
 
 	test("the servers setting's items schema declares exactly the nested entry shape", () => {
-		// The SETTINGS shape is nested (auth/headers/models/discovery/budget);
-		// the flat descriptor fields live on in the provider-group configuration
-		// (the wire format the sync fingerprints hash - the test below) and in
-		// the parsed internal shape, which the parser flattens the nested auth
-		// object onto.
+		// The SETTINGS shape is nested; the flat descriptor fields live on in the
+		// provider-group configuration and in the parsed internal shape.
 		const sections = readPackageJson().contributes.configuration;
 		const properties = Object.assign({}, ...sections.map((section) => section.properties)) as Record<
 			string,
@@ -78,9 +75,9 @@ describe("shared/serverEntry: package.json drift guard", () => {
 
 	test("the provider-group configuration declares the descriptor's fields with its secret flags", () => {
 		const [provider] = readPackageJson().contributes.languageModelChatProviders;
-		// `label` is the one non-descriptor property: it mirrors the group NAME
-		// into the configuration (the host echoes only the configuration back),
-		// giving same-URL same-credential entries distinct identities.
+		// `label` is the one non-descriptor property: it mirrors the group NAME into
+		// the configuration, giving same-URL same-credential entries distinct
+		// identities.
 		assert.deepStrictEqual(Object.keys(provider.configuration.properties), ["baseUrl", "label", ...optionalIds]);
 		assert.deepStrictEqual([...provider.configuration.required], ["baseUrl"]);
 		assert.notStrictEqual(provider.configuration.properties.baseUrl?.secret, true, "baseUrl is not a secret");
@@ -105,8 +102,7 @@ describe("shared/serverEntry: expected failure categories", () => {
 
 	test("the categories stay out of the entry descriptor, like an entry's modelParameters", () => {
 		// expectedFailures must never reach the provider-group args or their
-		// fingerprint, so it can never join OPTIONAL_ENTRY_FIELDS (whose order
-		// buildGroupArgs emits and the sync fingerprint hashes).
+		// fingerprint, so it can never join OPTIONAL_ENTRY_FIELDS.
 		const optionalIds: readonly string[] = OPTIONAL_ENTRY_FIELDS.map((field) => field.id);
 		assert.ok(!optionalIds.includes("expectedFailures"));
 	});

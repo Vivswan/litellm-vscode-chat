@@ -37,10 +37,9 @@ async function expectRequestError(promise: Promise<unknown>, kind: RequestError[
 	} catch (error) {
 		assert.ok(error instanceof RequestError, `expected a RequestError, got ${String(error)}`);
 		assert.strictEqual(error.kind, kind);
-		// Every auth.ts construction site localizes its headline and must carry
-		// the full English mirror; under the test host's English fallback the
-		// two coincide byte-for-byte on every surface (chat's "Details:" lead-in
-		// included).
+		// Every auth.ts construction site localizes its headline and must carry the
+		// full English mirror; under the test host's English fallback the two
+		// coincide byte-for-byte on every surface.
 		assert.strictEqual(error.englishMessage, error.message, "the English mirror must match the English display");
 		return error;
 	}
@@ -139,8 +138,8 @@ suite("provider/transport/auth", () => {
 
 			assert.ok(error.message.includes("invalid_scope: unknown scope"), `unexpected message: ${error.message}`);
 			// The IdP detail is response-derived (Azure AD puts correlation IDs
-			// there), so this construction site opts into a classification that
-			// public surfaces record instead of the message.
+			// there), so this site opts into a classification public surfaces record
+			// instead of the message.
 			assert.strictEqual(error.logClassification, "RequestError(auth, status 400, oauth token endpoint)");
 			assert.strictEqual(error.oauthTokenEndpoint, true, "usage-availability classification keys on this flag");
 		});
@@ -186,9 +185,8 @@ suite("provider/transport/auth", () => {
 
 		test("a secret containing whitespace cannot be reassembled by the whitespace collapse", async () => {
 			// The exact-match scrub misses when the IdP echoes the secret with
-			// different whitespace ("alpha\nbeta" for secret "alpha beta"), and
-			// the detail's newline collapse would then reconstruct it; the
-			// second, post-collapse scrub pass must catch it.
+			// different whitespace, and the detail's newline collapse would then
+			// reconstruct it; the second, post-collapse scrub pass must catch it.
 			mswServer.use(
 				http.post(TOKEN_URL, () =>
 					HttpResponse.json(
@@ -238,9 +236,8 @@ suite("provider/transport/auth", () => {
 		});
 
 		test("the network detail unwraps one level of cause to the socket error code", async () => {
-			// Under the extension host's undici fetch a DNS failure surfaces as
-			// TypeError "fetch failed" with the real reason on error.cause; the
-			// detail line must carry that reason under the headline.
+			// Under undici a DNS failure surfaces as TypeError "fetch failed" with
+			// the real reason on error.cause; the detail line must carry that reason.
 			const realFetch = globalThis.fetch;
 			globalThis.fetch = () =>
 				Promise.reject(
@@ -324,8 +321,7 @@ suite("provider/transport/auth", () => {
 
 		test("a status outside the credential and 5xx sets fails immediately through the catch-all http branch", async () => {
 			// 404 is neither a credential rejection (400/401/403) nor retryable
-			// (5xx), so it exercises the catch-all throw; expectRequestError pins
-			// its English mirror against the display message like every other site.
+			// (5xx), so it exercises the catch-all throw.
 			let attempts = 0;
 			mswServer.use(
 				http.post(TOKEN_URL, () => {
@@ -599,10 +595,9 @@ suite("provider/transport/auth", () => {
 		});
 
 		test("field boundaries are unambiguous: content shifted across fields never collides", () => {
-			// The fields are free-form strings, so a delimiter join would make
-			// {clientId: "a\nb", clientSecret: "c"} and {clientId: "a",
-			// clientSecret: "b\nc"} hash identically and share a cached token
-			// across genuinely different credentials.
+			// The fields are free-form strings, so a delimiter join would hash
+			// {clientId: "a\nb", clientSecret: "c"} and {clientId: "a", clientSecret:
+			// "b\nc"} identically and share a cached token across different credentials.
 			const shifted = oauthCredentialFingerprint(oauthConfig({ clientId: "a\nb", clientSecret: "c" }));
 			const original = oauthCredentialFingerprint(oauthConfig({ clientId: "a", clientSecret: "b\nc" }));
 			assert.notStrictEqual(shifted, original);

@@ -2,9 +2,8 @@ declare const normalizedBaseUrlBrand: unique symbol;
 
 /**
  * A base URL that went through normalizeBaseUrl. Identity-bearing surfaces
- * (group client IDs, status-map keys, server-matching comparisons) require
- * this type, so an unnormalized URL - say, the verbatim string from a host
- * round trip - cannot enter a comparison and split one server into two.
+ * require this type, so an unnormalized URL cannot enter a comparison and
+ * split one server into two.
  */
 export type NormalizedBaseUrl = string & { readonly [normalizedBaseUrlBrand]: true };
 
@@ -12,8 +11,8 @@ export type NormalizedBaseUrl = string & { readonly [normalizedBaseUrlBrand]: tr
  * The one base URL identity every surface shares when matching servers:
  * trailing slashes are insignificant, nothing else is. Byte-identical to
  * `.replace(/\/+$/, "")` on purpose - no lowercasing, no trimming, no URL
- * parsing - because groupClientId embeds the output in group identities, so
- * any semantic change here would silently re-mint every group ID.
+ * parsing - because groupClientId embeds the output in group identities, so any
+ * semantic change here would silently re-mint every group ID.
  */
 export function normalizeBaseUrl(baseUrl: string): NormalizedBaseUrl {
 	return baseUrl.replace(/\/+$/, "") as NormalizedBaseUrl;
@@ -24,8 +23,8 @@ export const DEFAULT_API_VERSION = "v1";
 
 /**
  * A trailing version segment: v + digits, optionally staged Google-style
- * (v1beta, v1alpha2). Lowercase only - OpenAI-compatible API paths are
- * lowercase, and a /V1 that meant something else must not be swallowed.
+ * (v1beta, v1alpha2). Lowercase only, so a /V1 that meant something else is
+ * not swallowed.
  */
 const VERSION_SEGMENT_PATTERN = /\/v\d+(?:(?:alpha|beta)\d*)?$/;
 
@@ -45,12 +44,11 @@ function trailingVersionSegmentIndex(normalized: string): number | undefined {
 }
 
 /**
- * The OpenAI-compatible API root for a server: the entry's apiVersion wins
- * when set ("" means the base URL already IS the root, anything else is
- * appended verbatim); otherwise a version segment already in the URL is kept
- * as-is, and only a URL with no version gets /v1 appended. Returns a plain
- * string, not NormalizedBaseUrl - this is a transport root, never a server
- * identity.
+ * The OpenAI-compatible API root for a server: the entry's apiVersion wins when
+ * set ("" means the base URL already IS the root, anything else is appended
+ * verbatim); otherwise a version segment already in the URL is kept and only a
+ * URL without one gets /v1. Plain string, not NormalizedBaseUrl - a transport
+ * root, never a server identity.
  */
 export function apiRootOf(baseUrl: string, apiVersion?: string): string {
 	const normalized = normalizeBaseUrl(baseUrl);
@@ -63,10 +61,9 @@ export function apiRootOf(baseUrl: string, apiVersion?: string): string {
 /**
  * The server root for root-relative endpoints (/key/info and friends): the
  * inverse of apiRootOf. A non-empty apiVersion means the base URL is already
- * the server root (the version is appended, never part of the base); with ""
- * or no override, a version segment the user wrote into the URL is stripped
- * so root endpoints do not land under it - "" changes what the API root is,
- * not where the server root sits. Plain string, same as apiRootOf.
+ * the server root; with "" or no override, a version segment the user wrote
+ * into the URL is stripped so root endpoints do not land under it - "" changes
+ * what the API root is, not where the server root sits.
  */
 export function serverRootOf(baseUrl: string, apiVersion?: string): string {
 	const normalized = normalizeBaseUrl(baseUrl);

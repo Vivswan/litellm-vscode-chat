@@ -39,10 +39,9 @@ const quoted = (labels: readonly string[]) => labels.map((label) => `"${label}"`
 
 /**
  * The removal notices, one per event class so each says only what is true.
- * Every variant names the exact group label(s) to delete, gives the
- * file-based steps, and carries the button that opens the models file -
- * where group deletion actually lives (VS Code offers extensions no removal
- * API, and the file is documented user-editable).
+ * Every variant names the exact group label(s) to delete, gives the file-based
+ * steps, and carries the button that opens the models file - where group
+ * deletion actually lives (VS Code offers extensions no removal API).
  */
 function notifyRemovalEvents(events: readonly RemovedEntryEvent[]): void {
 	const hidden: string[] = [];
@@ -116,10 +115,9 @@ export function createServerSyncEnv(
 		addProviderGroup: (args) => vscode.commands.executeCommand("lm.addLanguageModelsProviderGroup", args),
 		confirmFingerprintsDurable: async () => (await fingerprintSalt.confirmDurable()) === "durable",
 		getFingerprints: () => {
-			// Validated at the trust boundary: the key is engine-owned and only
-			// ever written with strings, so a non-string value is corruption and
-			// must not ride into the session map (and back out through the
-			// pass-end write) behind an unchecked cast.
+			// Validated at the trust boundary: the key is engine-owned and only ever
+			// written with strings, so a non-string value is corruption and must not
+			// ride into the session map behind an unchecked cast.
 			const stored = context.globalState.get<unknown>(SERVER_SYNC_FINGERPRINTS_KEY);
 			if (typeof stored !== "object" || stored === null || Array.isArray(stored)) {
 				return {};
@@ -130,11 +128,10 @@ export function createServerSyncEnv(
 		},
 		setFingerprints: async (map) => {
 			// Re-confirmed at write time, per batch, not once per pass: a store
-			// mutation detected mid-pass must stop this write too. A map built
-			// under an unconfirmed salt holds renderings no later session can
-			// recognize, and persisting it would overwrite the durable records
-			// that let a healthy group read as in-sync once the real salt is
-			// back. confirmDurable never throws.
+			// mutation detected mid-pass must stop this write too. A map built under
+			// an unconfirmed salt holds renderings no later session can recognize,
+			// and persisting it would overwrite the durable records that let a
+			// healthy group read as in-sync once the real salt is back.
 			if ((await fingerprintSalt.confirmDurable()) !== "durable") {
 				return;
 			}
@@ -155,22 +152,18 @@ export function createServerSyncEnv(
 			await context.globalState.update(SYNCED_ENTRY_BASE_URLS_KEY, map);
 		},
 		reconcileEntryIdentities: async (declared, events) => {
-			// Awaited by the engine's pass, so this stays serialized with the
-			// passes that produce it: a removal's tombstone cannot land after a
-			// later pass's re-add already cleared it.
-			// Clear first: a removal and a re-add of the same identity in one
-			// pass must end unsuppressed.
+			// Clear first: a removal and a re-add of the same identity in one pass
+			// must end unsuppressed.
 			try {
 				await removals.clearTombstonesFor(declared);
 			} catch (error) {
 				logger.error("Clearing removed-group tombstones failed", error);
 			}
-			// The notice claims "hidden" once the store accepted the tombstone
-			// (its in-memory list now hides the group; persistence is the
-			// store's own best-effort concern). A throw here is unexpected -
-			// e.g. the change-event wiring - and degrades the event to the
-			// untracked wording rather than promising a hiding that may not
-			// have reached the provider.
+			// The notice claims "hidden" once the store accepted the tombstone (its
+			// in-memory list now hides the group; persistence is the store's own
+			// best-effort concern). A throw here degrades the event to the untracked
+			// wording rather than promising a hiding that may not have reached the
+			// provider.
 			const noticeEvents: RemovedEntryEvent[] = [];
 			for (const event of events) {
 				try {
@@ -223,10 +216,9 @@ function readRawServersSetting(): unknown {
 /**
  * The request path's read of one declared entry's per-entry modelParameters:
  * the same live settings channel the sync engine reads, resolved through
- * entryModelParametersFor so it lands only on an entry whose label AND base
- * URL both match the server the request is routed to. Injected into the
- * provider at activation (the provider layer cannot import this module); a
- * (label, baseUrl) pair no declared entry carries yields undefined.
+ * entryModelParametersFor so it lands only on an entry whose label AND base URL
+ * both match the server the request is routed to. Injected into the provider at
+ * activation (the provider layer cannot import this module).
  */
 export function readEntryModelParameters(label: string, baseUrl: string): EntryModelParameters | undefined {
 	return entryModelParametersFor(readRawServersSetting(), label, baseUrl);
@@ -306,9 +298,8 @@ export function registerSetServerSecretCommand(
 	logger: Logger,
 	/**
 	 * Notified after a stored secret changed; the usage poller re-probes
-	 * availability on it (a fixed key can lift a 401/403 classification).
-	 * With polling off the re-probe waits for the next explicit refresh -
-	 * the poller's documented no-background-requests promise.
+	 * availability on it (a fixed key can lift a 401/403 classification). With
+	 * polling off the re-probe waits for the next explicit refresh.
 	 */
 	onSecretsChanged?: () => void
 ): void {
@@ -333,8 +324,7 @@ export function registerSetServerSecretCommand(
 			}
 			const fieldPick = await vscode.window.showQuickPick(
 				// Ids come from the descriptor so a new secret field cannot be
-				// silently unreachable here; the Record makes a missing label a
-				// compile error.
+				// silently unreachable here.
 				SECRET_FIELD_IDS.map((field) => ({ label: secretPaletteLabel(field), field })),
 				{ title: l10n.t("LiteLLM: Set Server Secret"), placeHolder: l10n.t("Which secret?") }
 			);
@@ -358,9 +348,9 @@ export function registerSetServerSecretCommand(
 				cleared: value.length === 0,
 			});
 			if (value.length > 0 && inlineSecretValues(entryPick.entry)[fieldPick.field] !== undefined) {
-				// Inline settings values outrank the stored blob (the same
-				// inlineSecretValues rule buildGroupArgs resolves through), so the
-				// just-stored secret stays dormant until the inline one is removed.
+				// Inline settings values outrank the stored blob (the inlineSecretValues
+				// rule buildGroupArgs resolves through), so the just-stored secret
+				// stays dormant until the inline one is removed.
 				void vscode.window.showWarningMessage(
 					l10n.t(
 						'"{0}" also sets {1} inline in the servers setting, and inline values take precedence. Remove the inline value for the stored secret to take effect.',

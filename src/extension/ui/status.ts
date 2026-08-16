@@ -15,17 +15,14 @@ const CONNECTION_STATES = ["not-configured", "connecting", "loading", "connected
 type ConnectionState = (typeof CONNECTION_STATES)[number];
 
 /**
- * The status bar's (and diagnostics') view of the world, one variant per
- * state so each carries exactly the facts its rendering needs. The
- * "connecting" variant's `attention` flag is presentation state, not a state
- * of its own: a single empty window is normal cold-start ordering (the
- * groupless refresh reports before the per-group ones), but the state must
- * not spin neutrally forever - a second consecutive empty report is evidence
- * of persistence (a declared entry whose sync keeps failing, a native group
- * deleted after the latch flipped), so the presentation degrades to a warning
- * with an actionable tooltip. Any report with servers resets it. It rides
- * inside the variant (not a new state string) so statuses persisted by this
- * version still parse under older versions' state enums.
+ * The status bar's (and diagnostics') view of the world, one variant per state
+ * so each carries exactly the facts its rendering needs. The "connecting"
+ * variant's `attention` flag is presentation state, not a state of its own: a
+ * single empty window is normal cold-start ordering, but a second consecutive
+ * empty report is evidence of persistence, so the presentation degrades to a
+ * warning with an actionable tooltip. Any report with servers resets it. It
+ * rides inside the variant (not a new state string) so statuses persisted by
+ * this version still parse under older versions' state enums.
  */
 export type ConnectionStatus =
 	| { state: "not-configured"; lastChecked?: string | undefined }
@@ -50,9 +47,9 @@ export type ConnectionStatus =
 	  };
 
 // The union and CONNECTION_STATES are the same set, checked both ways at
-// compile time: a state added to the union but not the list would silently
-// discard every persisted status of that state (the schema below rejects it),
-// and a listed state the union lacks could never be constructed.
+// compile time: a state in the union but not the list would silently discard
+// every persisted status of that state, and a listed state the union lacks
+// could never be constructed.
 const _connectionStatesMatchUnion: [
 	Exclude<ConnectionStatus["state"], ConnectionState>,
 	Exclude<ConnectionState, ConnectionStatus["state"]>,
@@ -87,11 +84,10 @@ export function statusTotalModels(status: ConnectionStatus): number | undefined 
 
 /**
  * Whether an error status is the synthetic zero-model verdict rather than a
- * transport failure: no server failed unexpectedly, so "Connection failed"
- * would misdescribe it. Derived from the carried server statuses (which
- * survive persistence), never from the message text, so restored verdicts
- * classify the same as fresh ones; an error that lost its statuses keeps the
- * plain connection-failure rendering.
+ * transport failure, so "Connection failed" would misdescribe it. Derived from
+ * the carried server statuses, never from the message text, so restored
+ * verdicts classify the same as fresh ones; an error that lost its statuses
+ * keeps the plain connection-failure rendering.
  */
 export function isZeroModelVerdict(status: ConnectionStatus): boolean {
 	if (status.state !== "error") {
@@ -107,9 +103,7 @@ export function isZeroModelVerdict(status: ConnectionStatus): boolean {
 /**
  * The zero-model verdict's two renderings, shared by the status tooltip and
  * the notifier toast so the surfaces cannot disagree: a localized display
- * message that names the real cause (hidden groups get the count and the
- * recovery; servers that answered with an empty listing get that fact instead
- * of a connection-failure implication), and the English log rendering (a
+ * message that names the real cause, and the English log rendering (a
  * classification, never response-derived text) for the issue-report buffer.
  */
 export function zeroModelStatusTexts(serverStatuses: readonly ServerStatus[]): {
@@ -156,13 +150,10 @@ export function zeroModelStatusTexts(serverStatuses: readonly ServerStatus[]): {
 
 /**
  * A persisted error classification, shared by the per-server element schema
- * and the top-level status schema. Every field is validated against the
- * shared const arrays (an integer status, known enum ids). Junk drops the
- * smallest thing that contains it, never its element - the hasApiKey
- * treatment: a junk optional field (a fractional status, a bogus hint id)
- * drops that field and keeps the rest of the classification; a junk kind or
- * a non-object drops the whole classification, because a hint is decoration
- * on an error that renders fine without it.
+ * and the top-level status schema. Junk drops the smallest thing that contains
+ * it: a junk optional field drops that field and keeps the rest, while a junk
+ * kind or a non-object drops the whole classification, because a hint is
+ * decoration on an error that renders fine without it.
  */
 const persistedClassificationSchema = z
 	.object({
@@ -174,9 +165,9 @@ const persistedClassificationSchema = z
 	.catch(undefined);
 
 /**
- * A parsed classification with dropped fields removed rather than left as
- * explicit undefined keys (the per-field catch writes those), so restored
- * statuses stay structurally identical to freshly constructed ones.
+ * Dropped fields removed rather than left as explicit undefined keys (the
+ * per-field catch writes those), so restored statuses stay structurally
+ * identical to freshly constructed ones.
  */
 function restoredClassification(
 	parsed: NonNullable<z.infer<typeof persistedClassificationSchema>>
@@ -189,11 +180,10 @@ function restoredClassification(
 }
 
 /**
- * One persisted status-window element, over only the fields consumers read
- * (the status bar's counts, diagnostics' group classification and legacy
- * rows). Loose, because older extension versions may have persisted extra
- * fields; discriminated, so an "ok" without a model count or an "error"
- * without its message is malformed rather than half-usable.
+ * One persisted status-window element, over only the fields consumers read.
+ * Loose, because older extension versions may have persisted extra fields;
+ * discriminated, so an "ok" without a model count or an "error" without its
+ * message is malformed rather than half-usable.
  */
 const persistedServerStatusSchema = z.discriminatedUnion("state", [
 	z.looseObject({
@@ -211,9 +201,8 @@ const persistedServerStatusSchema = z.discriminatedUnion("state", [
 		label: z.string(),
 		baseUrl: z.string(),
 		// A message-less (or empty) error element cannot render honestly, so it
-		// is malformed and drops; a junk serverId/lastChecked/hasApiKey/
-		// classification/expected/declaredModelCount only drops that field (the
-		// catch), never the whole element.
+		// is malformed and drops; a junk optional field below only drops that
+		// field (the catch), never the whole element.
 		error: z.string().min(1),
 		logSafeError: z.string().min(1).optional().catch(undefined),
 		classification: persistedClassificationSchema,
@@ -253,8 +242,7 @@ function restoreServerStatus(value: unknown): ServerStatus | undefined {
 				// A status persisted before logSafeError existed carries a display
 				// message that may embed response text, so the restore fails closed
 				// instead of promoting it to the log-safe slot. A present value was
-				// written by publicErrorText (globalState is machine-local and only
-				// this extension writes the key), so re-branding it is sound.
+				// written by publicErrorText, so re-branding it is sound.
 				logSafeError: element.logSafeError !== undefined ? markLogSafe(element.logSafeError) : RESTORED_ERROR_LOG_TEXT,
 				...(element.classification !== undefined
 					? { classification: restoredClassification(element.classification) }
@@ -283,14 +271,13 @@ const persistedStatusSchema = z.looseObject({
 
 /**
  * The normalizing parse at the persistence trust boundary: statuses may come
- * from other extension versions, so this validates the fields consumers
- * dispatch on and rebuilds a status the union can vouch for. Malformed
- * serverStatuses elements are dropped (never rendered, never crashed on),
- * missing counts default to zero, and two staleness rules apply on restore: a
- * "connecting" that survived a session boundary starts in its needs-attention
- * presentation, and an "error" that lost its message downgrades to that same
- * degraded connecting instead of inventing an error text. Anything else
- * unusable restores as undefined and the caller starts from not-configured.
+ * from other extension versions, so this rebuilds a status the union can vouch
+ * for. Malformed serverStatuses elements are dropped, missing counts default
+ * to zero, and two staleness rules apply on restore: a "connecting" that
+ * survived a session boundary starts in its needs-attention presentation, and
+ * an "error" that lost its message downgrades to that same degraded
+ * connecting. Anything else unusable restores as undefined and the caller
+ * starts from not-configured.
  */
 function restoreConnectionStatus(value: unknown): ConnectionStatus | undefined {
 	const parsed = persistedStatusSchema.safeParse(value);
@@ -310,8 +297,7 @@ function restoreConnectionStatus(value: unknown): ConnectionStatus | undefined {
 			return { state: "loading", ...lastChecked };
 		case "connecting":
 			// A restored "connecting" is stale by definition (it survived a whole
-			// session boundary without resolving), so it starts degraded instead
-			// of spinning neutrally on last session's unfinished state.
+			// session boundary without resolving), so it starts degraded.
 			return { state: "connecting", attention: true, ...lastChecked };
 		case "connected":
 		case "degraded":
@@ -350,21 +336,19 @@ export interface StatusItemLike extends vscode.Disposable {
 	show(): void;
 	hide(): void;
 	/**
-	 * Fires once when the item is disposed - including by the slot registry's
-	 * self-heal, where the OWNER (say, a superseded UsageStatusBar holding a
-	 * store subscription and a stale-edge timer) must tear down too, not just
-	 * the visible half. Optional so test fakes stay one-liners.
+	 * Fires once when the item is disposed, including by the slot registry's
+	 * self-heal, where the OWNER must tear down too, not just the visible half.
+	 * Optional so test fakes stay one-liners.
 	 */
 	onDidDispose?(listener: () => void): void;
 }
 
 /**
  * The named slots the extension's real status bar items live in. One host has
- * one status bar, so slot occupancy is a per-host (module-scope) fact: at
- * most ONE live real item may exist per slot, ever. Duplicate identical
- * items have accumulated in shared hosts twice from double constructions;
- * the registry makes that state self-healing and observable instead of
- * possible.
+ * one status bar, so slot occupancy is a per-host (module-scope) fact: at most
+ * ONE live real item may exist per slot, ever. Duplicate identical items have
+ * accumulated in shared hosts twice from double constructions; the registry
+ * makes that state self-healing and observable instead of possible.
  */
 export type StatusItemSlot = "connection" | "usage";
 
@@ -386,17 +370,15 @@ export function liveStatusItemSlots(): readonly StatusItemSlot[] {
 
 /**
  * A thin wrapper over vscode.window.createStatusBarItem shared by the
- * extension's status bar items (the connection item here, the usage item in
- * usageStatusItem.ts): alignment, priority, and click command are fixed at
- * construction, and render() maps the severity onto the theme's status bar
- * background colors.
+ * extension's status bar items: alignment, priority, and click command are
+ * fixed at construction, and render() maps the severity onto the theme's
+ * status bar background colors.
  *
  * THE ONE CREATION POINT: this constructor is the only place in src/ that may
- * call vscode.window.createStatusBarItem (statusItemRegistry.test.ts scans
- * the tree and fails on a second call site). Creating into an occupied slot
+ * call vscode.window.createStatusBarItem (statusItemRegistry.test.ts scans the
+ * tree and fails on a second call site). Creating into an occupied slot
  * disposes the previous holder first and reports the replacement through
- * `log` - the UI self-heals while the lifecycle bug stays visible in the
- * log instead of as twin items.
+ * `log`, so the UI self-heals while the lifecycle bug stays visible.
  */
 export class StatusItem implements StatusItemLike {
 	private readonly item: vscode.StatusBarItem;
@@ -433,7 +415,7 @@ export class StatusItem implements StatusItemLike {
 	onDidDispose(listener: () => void): void {
 		// Registering on an already-disposed item fires immediately: an owner
 		// handed a pre-disposed surface must still learn to tear down, or it
-		// keeps its subscriptions alive forever (the leak this hook closes).
+		// keeps its subscriptions alive forever.
 		if (this.disposed) {
 			listener();
 			return;
@@ -443,7 +425,7 @@ export class StatusItem implements StatusItemLike {
 
 	render(view: StatusItemView): void {
 		// A stale holder disposed by the slot self-heal must not write to a
-		// disposed vscode item; its owner's renders become no-ops.
+		// disposed vscode item.
 		if (this.disposed) {
 			return;
 		}
@@ -490,11 +472,9 @@ export class StatusBarManager {
 	/**
 	 * The attention verdict of the last connecting status this manager set,
 	 * held across a transient "loading" overwrite (the connection test) and
-	 * cleared by every other state. The next empty report reads it, so a
-	 * degraded connecting resumes degraded after the test instead of resetting
-	 * to the neutral spinner. Session state only: it is never persisted, and a
-	 * new session starts false (the first empty report after a restart never
-	 * counts as consecutive).
+	 * cleared by every other state, so a degraded connecting resumes degraded
+	 * after the test instead of resetting to the neutral spinner. Session state
+	 * only: never persisted, and a new session starts false.
 	 */
 	private lastConnectingAttention = false;
 
@@ -502,11 +482,10 @@ export class StatusBarManager {
 		private readonly context: vscode.ExtensionContext,
 		private readonly logger: Logger,
 		/**
-		 * The shared not-configured gate (declared servers, group evidence): an
-		 * empty status window on a configured install renders as "connecting",
-		 * never as "not configured" - the persisted state also feeds the
-		 * diagnostics snapshot that lands in public issue reports, so the claim
-		 * must be honest.
+		 * The shared not-configured gate: an empty status window on a configured
+		 * install renders as "connecting", never as "not configured" - the
+		 * persisted state feeds the diagnostics snapshot that lands in public
+		 * issue reports, so the claim must be honest.
 		 */
 		private readonly hasConfiguredServers: () => boolean,
 		/**
@@ -514,8 +493,7 @@ export class StatusBarManager {
 		 * status bar item by accident: activation passes the real StatusItem
 		 * explicitly, and test constructions can only ever inject a recording
 		 * seam. (Duplicate real items have twice accumulated in the shared test
-		 * host from a defaulted construction; making the surface explicit makes
-		 * that state unrepresentable.)
+		 * host from a defaulted construction.)
 		 */
 		item: StatusItemLike
 	) {
@@ -593,8 +571,8 @@ export class StatusBarManager {
 			case "connected": {
 				const count = current.totalModels;
 				const serverCount = current.serverStatuses.length;
-				// The counts live here in the tooltip, not in the item's text: the
-				// bar stays quiet (docs/dashboard.md#the-status-bar-items).
+				// The counts live in the tooltip, not the item's text: the bar
+				// stays quiet (docs/dashboard.md#the-status-bar-items).
 				const available =
 					serverCount > 1
 						? count === 1
@@ -630,9 +608,8 @@ export class StatusBarManager {
 			case "error":
 				this._statusBarItem.render({
 					text: l10n.t("$(error) LiteLLM"),
-					// The synthetic zero-model verdict is not a connection failure:
-					// every server answered (or failed only expectedly), so the
-					// tooltip's first line must not blame the connection.
+					// The synthetic zero-model verdict is not a connection failure, so
+					// the tooltip's first line must not blame the connection.
 					tooltip: isZeroModelVerdict(current)
 						? l10n.t("No models available\n{0}\nClick for details", current.error)
 						: l10n.t("Connection failed\n{0}\nClick for details", current.error),
@@ -654,8 +631,8 @@ export class StatusBarManager {
 			if (this.hasConfiguredServers()) {
 				// Already connecting = a second consecutive empty report; see the
 				// connecting variant's attention flag for why that degrades.
-				// lastConnectingAttention carries the same verdict across the
-				// connection test's transient loading overwrite.
+				// lastConnectingAttention carries the verdict across the connection
+				// test's transient loading overwrite.
 				const previous = this._connectionStatus;
 				this.logger.log("No server statuses yet; configured servers have not reported");
 				void this.updateStatusBar({
@@ -672,17 +649,16 @@ export class StatusBarManager {
 
 		const failures = serverStatuses.filter(isErrorServerStatus);
 		// Failures the entry's expectedFailures declares are excluded from the
-		// failure verdicts (they are outcomes the user called normal), and an
-		// expected failure still serving declared models counts as serving.
-		// The branch rules mirror classifyOverall exactly - red only when EVERY
-		// server failed unexpectedly, degraded on any unexpected failure - so
-		// the dashboard headline and this status bar can never disagree on a
-		// line users paste into issue reports; the pinning test asserts both.
+		// failure verdicts, and an expected failure still serving declared
+		// models counts as serving. The branch rules mirror classifyOverall
+		// exactly - red only when EVERY server failed unexpectedly, degraded on
+		// any unexpected failure - so the dashboard headline and this status bar
+		// can never disagree on a line users paste into issue reports.
 		const unexpectedFailures = failures.filter((failure) => failure.expected !== true);
 		const firstFailure = unexpectedFailures[0];
-		// Declared models serve through ANY discovery failure (config-rebuilt,
-		// never discovered), so a failed server with declarations still counts
-		// as serving; expectedness decides the verdict, not the count.
+		// Declared models serve through ANY discovery failure, so a failed server
+		// with declarations still counts as serving; expectedness decides the
+		// verdict, not the count.
 		const servingCount =
 			serverStatuses.length -
 			failures.length +
@@ -714,7 +690,7 @@ export class StatusBarManager {
 			if (servingCount === 0) {
 				// Every server failed expectedly with nothing declared: the status
 				// bar's twin of classifyOverall's needs-declare verdict - the
-				// actionable warning presentation, never the zero-model red branch.
+				// actionable warning, never the zero-model red branch.
 				this.logger.log("All discovery failures are expected and no models are declared");
 				void this.updateStatusBar({ state: "connecting", attention: true, lastChecked: now });
 				return;

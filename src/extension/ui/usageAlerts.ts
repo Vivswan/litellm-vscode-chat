@@ -1,12 +1,10 @@
 /**
- * Budget alert toasts (docs/usage.md#alerts): one warning per server entry
- * and newly crossed threshold set, evaluated on every fetch - background
- * polls and manual refreshes alike. The store's newlyCrossedThresholds IS the
- * dedup (budget.ts re-arms a threshold when spend drops back below it), so
- * this module keeps no state of its own; when one poll jumps several
- * thresholds at once only the highest fires, and every budget notification
- * uses the one warning severity - the escalating color story lives in the
- * status bar item.
+ * Budget alert toasts (docs/usage.md#alerts): one warning per server entry and
+ * newly crossed threshold set, evaluated on every fetch. The store's
+ * newlyCrossedThresholds IS the dedup, so this module keeps no state; when one
+ * poll jumps several thresholds only the highest fires, and every budget
+ * notification uses the one warning severity - the escalating color story lives
+ * in the status bar item.
  */
 
 import * as l10n from "@vscode/l10n";

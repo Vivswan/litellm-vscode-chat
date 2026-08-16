@@ -16,23 +16,15 @@ import { catalogOff, collectStream, ensureActivated, extractText, waitForHostMod
 import { expectDefined } from "./pureHelpers";
 
 /**
- * Docker server-sync suite: the REAL declarative chain, end to end. Every
- * scenario drives litellm-vscode-chat.servers -> serverSync ->
- * lm.addLanguageModelsProviderGroup -> discovery -> chat against the docker
- * LiteLLM proxy (and, for OAuth, the fake backend's bearer-guarded /authed
- * mirror), observing through the host model list, the engine's declared
- * views, and the fake identity provider's counters.
+ * Pins the declarative chain end to end: the servers setting -> serverSync -> lm.addLanguageModelsProviderGroup
+ * -> discovery -> chat against the docker LiteLLM proxy. Run via `bun run test:docker`.
  *
- * Provider groups are ADD-ONLY for the host lifetime (no removal command),
- * so this suite runs in its own fresh extension host (own vscode-test
- * label), every scenario uses a unique label, and groups from earlier
- * scenarios persist through later ones. The scenarios are sequential and
- * order-dependent on purpose: each builds on the groups the previous ones
- * created. Run via `bun run test:docker`.
+ * Provider groups are ADD-ONLY for the host lifetime, so this suite needs its own extension host label and a
+ * unique label per scenario; the scenarios are sequential and each builds on the previous ones' groups.
  */
 
-// Env-derived URLs can arrive slash-suffixed; stripping here keeps the
-// derived NO_DISCOVERY_URL (and every base-URL comparison) canonical.
+// Env-derived URLs can arrive slash-suffixed; stripping keeps the derived NO_DISCOVERY_URL and every base-URL
+// comparison canonical.
 const BASE_URL = (process.env.LITELLM_DOCKER_BASE_URL || "").replace(/\/+$/, "");
 const API_KEY = process.env.LITELLM_DOCKER_API_KEY || STACK_DEFAULTS.LITELLM_MASTER_KEY;
 const FAKE_URL = (process.env.LITELLM_DOCKER_FAKE_URL || "").replace(/\/+$/, "");
@@ -57,11 +49,9 @@ const LABEL_EXPECTED = "SyncSuite Expected";
 const LABEL_DECLARED_UNEXPECTED = "SyncSuite Declared Unexpected";
 
 /**
- * Scenario 9's override target: llama-4-scout declares no token limits, so
- * without an override every request carries the min(4096, guess) output cap.
- * A fake- prefixed ID never matches the OpenRouter catalog implicitly, but
- * this realistic alias can, so the un-overridden copies are asserted against
- * the clamp bound rather than one exact guess.
+ * Scenario 9's override target: llama-4-scout declares no token limits, so un-overridden copies carry the
+ * min(4096, guess) cap. The realistic alias can match the OpenRouter catalog, so those copies are asserted
+ * against the clamp bound rather than one exact guess.
  */
 const CAPS_MODEL = "llama-4-scout";
 /** Scenario 11's declared model; the ID is not in the fake catalog, only the declared list creates it. */
@@ -152,11 +142,9 @@ suite("Docker server sync", () => {
 	}
 
 	/**
-	 * Each provider group registers its own copy of the proxy's models (the
-	 * host namespaces per group), so the number of ALIAS entries in the host
-	 * list is the number of proxy-backed groups whose discovery succeeded.
-	 * That count is the only host-visible signal that distinguishes a NEW
-	 * group's success from the earlier groups' models merely persisting.
+	 * Each provider group registers its own copy of the proxy's models, so the number of ALIAS entries in the
+	 * host list is the number of proxy-backed groups whose discovery succeeded - the only host-visible signal
+	 * that distinguishes a NEW group's success from earlier groups' models persisting.
 	 */
 	function waitForProxyGroupCount(minCount: number): Promise<vscode.LanguageModelChat[]> {
 		return waitForHostModels(
@@ -190,9 +178,8 @@ suite("Docker server sync", () => {
 	}
 
 	/**
-	 * The counters move whenever the host resolves the failing group (failures
-	 * are never cached), so a meaningful snapshot must sit between sweeps:
-	 * poll until the bearer's counts hold still for a beat.
+	 * The counters move whenever the host resolves the failing group (failures are never cached), so a
+	 * meaningful snapshot must sit between sweeps: poll until the bearer's counts hold still for a beat.
 	 */
 	async function quiescedDiscoveryAttempts(bearer: string): Promise<NoDiscoveryAttemptCounts> {
 		let last = await discoveryAttempts(bearer);
@@ -223,9 +210,8 @@ suite("Docker server sync", () => {
 	}
 
 	/**
-	 * Every issue-report log line of this session, through the lossless test
-	 * tee: unlike getRecentLogs' small rolling window, absence in this list
-	 * means a line was never logged.
+	 * Every issue-report log line of this session, through the lossless test tee: unlike getRecentLogs' rolling
+	 * window, absence here means a line was never logged.
 	 */
 	async function sessionLogLines(): Promise<string[]> {
 		const batch = (await vscode.commands.executeCommand("litellm._test.getSessionLogs", 0)) as {
@@ -243,18 +229,16 @@ suite("Docker server sync", () => {
 		originalServersSetting = serversConfig().inspect(SERVERS_SETTING_KEY)?.globalValue;
 		originalCapabilitiesSetting = serversConfig().inspect(MODEL_CAPABILITIES_SETTING_KEY)?.globalValue;
 		assert.deepStrictEqual(readServersSetting(), [], "the suite needs a fresh host with no declared servers");
-		// A recycled tmpdir pid can inherit provider groups from an earlier run,
-		// so the count oracle baselines on what the host already serves instead
-		// of assuming zero.
+		// A recycled tmpdir pid can inherit provider groups from an earlier run, so the count oracle baselines on
+		// what the host already serves.
 		proxyGroups = countModels(await vscode.lm.selectChatModels({ vendor: VENDOR_ID }), ALIAS);
 	});
 
 	suiteTeardown(async function () {
 		this.timeout(30000);
-		// The SecretStorage blobs written by scenarios 2/3 outlive the setting;
-		// clear them so a recycled user-data directory cannot inherit live
-		// credentials. Restoring the setting and forcing one more sync pass also
-		// prunes the suite labels from the persisted fingerprint map.
+		// The SecretStorage blobs written by scenarios 2/3 outlive the setting; clear them so a recycled user-data
+		// directory cannot inherit live credentials. The restore plus a final sync also prunes the suite labels
+		// from the persisted fingerprint map.
 		await setStoredSecret(LABEL_STORED, "apiKey", undefined);
 		await setStoredSecret(LABEL_PRECEDENCE, "apiKey", undefined);
 		await serversConfig().update(
@@ -280,13 +264,9 @@ suite("Docker server sync", () => {
 
 	test("scenario 2: a SecretStorage-stored apiKey drives discovery with no inline value", async function () {
 		this.timeout(90000);
-		// The secret lands BEFORE the entry is declared, so the very first sync
-		// pass already resolves it; the entry itself carries no apiKey at all.
-		// The count oracle rests on groupClientId fingerprinting the RESOLVED
-		// credential material: the stored key resolving to the master key mints
-		// the same client id as scenario 1's group (its discovery cache may even
-		// serve the models), while a wrong or missing key would mint a different
-		// id, miss that cache, and 401 into an empty group.
+		// The secret lands BEFORE the entry is declared, and the entry carries no apiKey at all. groupClientId
+		// fingerprints the RESOLVED credential, so the stored key resolving to the master key mints scenario 1's
+		// client id; a wrong or missing key would mint a different one and 401 into an empty group.
 		await setStoredSecret(LABEL_STORED, "apiKey", API_KEY);
 		await declareServer({ label: LABEL_STORED, baseUrl: BASE_URL });
 		proxyGroups += 1;
@@ -301,10 +281,8 @@ suite("Docker server sync", () => {
 		await setStoredSecret(LABEL_PRECEDENCE, "apiKey", GARBAGE_KEY);
 		await declareServer({ label: LABEL_PRECEDENCE, baseUrl: BASE_URL, auth: { apiKey: API_KEY } });
 		proxyGroups += 1;
-		// Models appearing IS the precedence proof: had the stored garbage won,
-		// the group's client id would fingerprint the garbage key (groupClientId
-		// hashes the resolved credentials), miss every discovery cache, and 401
-		// against the key-requiring proxy into a group that stays empty forever.
+		// Models appearing IS the precedence proof: had the stored garbage won, the group's client id would
+		// fingerprint it, miss every discovery cache, and 401 into a group that stays empty forever.
 		await waitForProxyGroupCount(proxyGroups);
 		const view = await declaredFor(LABEL_PRECEDENCE);
 		assert.strictEqual(view.secrets.apiKey, "settings", "the inline value wins the location report too");
@@ -318,15 +296,10 @@ suite("Docker server sync", () => {
 			auth: { virtualKey: { header: "x-litellm-api-key", value: API_KEY } },
 		});
 		proxyGroups += 1;
-		// This group carries no other credential, so its discovery succeeding
-		// (the count increment) proves LiteLLM honored x-litellm-api-key. The
-		// host does NOT expose group identity on the model object (id stays the
-		// raw alias across groups - the earlier scenarios match on exactly that;
-		// the group-namespaced id exists only in host logs), so the chat cannot
-		// select this group's object directly. Instead it runs through EVERY
-		// alias-bearing model: each object carries its own group's credentials
-		// across the host round trip, so the set deterministically includes the
-		// virtual-key group's, and a dead virtual key would fail that chat.
+		// This group carries no other credential, so its discovery succeeding proves LiteLLM honored
+		// x-litellm-api-key. The host exposes no group identity on the model object (the id stays the raw alias),
+		// so running through EVERY alias-bearing model deterministically includes this group's; a dead virtual
+		// key would fail that chat.
 		const models = await waitForProxyGroupCount(proxyGroups);
 		const aliasModels = models.filter((candidate) => candidate.id === ALIAS);
 		assert.ok(aliasModels.length >= proxyGroups, "one alias model per proxy-backed group");
@@ -354,10 +327,9 @@ suite("Docker server sync", () => {
 			30000,
 			async () => (await oauthStats()).rejected > before.rejected
 		);
-		// This is the only group targeting the fake backend directly, so any
-		// fake- upstream id in the host list would mean the failed exchange
-		// still produced credentials. Absence is asserted across a settle
-		// window because the host ingests model lists asynchronously.
+		// This is the only group targeting the fake backend directly, so any fake-upstream id would mean the
+		// failed exchange still produced credentials. Absence is asserted across a settle window because the
+		// host ingests model lists asynchronously.
 		const settleDeadline = Date.now() + 2500;
 		while (Date.now() < settleDeadline) {
 			const models = await vscode.lm.selectChatModels({ vendor: VENDOR_ID });
@@ -399,23 +371,17 @@ suite("Docker server sync", () => {
 		const revoke = await fetch(`${FAKE_URL}/_test/oauth-revoke`, { method: "POST" });
 		assert.ok(revoke.ok, `POST /_test/oauth-revoke failed: ${revoke.status}`);
 		const before = await oauthStats();
-		// The cached token is now dead server-side: the chat sends it, gets the
-		// LiteLLM-shaped 401, and fails classified as an auth error (the mapped
-		// message is AUTH_MESSAGE's "Authentication failed..." - matching that
-		// text keeps a network or certificate failure, whose message would still
-		// contain the "/authed" base URL, from satisfying this assertion). The
-		// 401 invalidates the cached token (OAuthTokenSource.invalidate over a
-		// real socket).
+		// The cached token is now dead server-side, so the chat fails classified as an auth error and the 401
+		// invalidates the cached token. Matching AUTH_MESSAGE's text keeps a network or certificate failure,
+		// whose message also contains the "/authed" base URL, from satisfying this.
 		await assert.rejects(
 			() => chat(model, `${COMMAND_SIGIL}echo:revoked`),
 			(error: unknown) => /Authentication failed/.test(String(error)),
 			"the revoked token's chat must fail auth-classified"
 		);
 		const afterFailure = await oauthStats();
-		// Chat never retries: the failed request hit the guarded chat endpoint
-		// exactly once. The wire-attempt counter is the honest oracle here; the
-		// issuance counter is not, because a background host sweep may
-		// legitimately re-exchange at any time.
+		// Chat never retries. The wire-attempt counter is the honest oracle; the issuance counter is not, because
+		// a background host sweep may legitimately re-exchange at any time.
 		assert.strictEqual(
 			afterFailure.authedChatRequests,
 			before.authedChatRequests + 1,
@@ -473,15 +439,10 @@ suite("Docker server sync", () => {
 			views.every((view) => view.label !== LABEL_STORED),
 			"the declared views must drop the removed label"
 		);
-		// No programmatic group removal exists, so the host keeps the group;
-		// the removal tombstone makes the provider answer it with zero models.
-		// Exactly one fewer serving group pins the tombstone's precision both
-		// ways: the removed group must go dark, and the other same-URL groups
-		// (same host, different labels) must keep serving. Asserted across a
-		// settle window (the host ingests model lists asynchronously, so the
-		// first matching poll could be a transient on the way further down):
-		// a tombstone that suppressed any sibling would settle below this
-		// count and fail here.
+		// No programmatic group removal exists, so the host keeps the group; the removal tombstone makes the
+		// provider answer it with zero models. Exactly one fewer serving group pins the tombstone's precision
+		// both ways, asserted across a settle window because the host ingests model lists asynchronously: a
+		// tombstone that suppressed a same-URL sibling would settle below this count.
 		await waitForHostModels(
 			60000,
 			(models) => countModels(models, ALIAS) === proxyGroups - 1,
@@ -497,11 +458,9 @@ suite("Docker server sync", () => {
 			);
 			await new Promise((resolve) => setTimeout(resolve, 250));
 		}
-		// Re-declaring the identity clears the tombstone. The re-add itself is
-		// refused by the add-only host (the removed label's fingerprint was
-		// pruned with the entry), which must not matter: the models returning
-		// without a successful add is also the proof the host group survived
-		// the removal, and the stored secret is picked up again.
+		// Re-declaring the identity clears the tombstone. The re-add itself is refused by the add-only host (the
+		// label's fingerprint was pruned with the entry), which must not matter: the models returning without a
+		// successful add is the proof the host group survived the removal.
 		await declareServer({ label: LABEL_STORED, baseUrl: BASE_URL });
 		await waitForProxyGroupCount(proxyGroups);
 		const view = await declaredFor(LABEL_STORED);
@@ -511,9 +470,8 @@ suite("Docker server sync", () => {
 
 	test("scenario 8: two same-URL entries each send their own per-entry model parameters", async function () {
 		this.timeout(180000);
-		// Same base URL, same key: only the labels tell these entries apart, so
-		// the temperatures below can only reach the wire through the label-keyed
-		// entry lookup at request time.
+		// Same base URL, same key: only the labels tell these entries apart, so the temperatures below can only
+		// reach the wire through the label-keyed entry lookup at request time.
 		await declareServer({
 			label: LABEL_PARAMS_A,
 			baseUrl: BASE_URL,
@@ -528,11 +486,9 @@ suite("Docker server sync", () => {
 		});
 		proxyGroups += 2;
 		const models = await waitForProxyGroupCount(proxyGroups);
-		// The host does not expose group identity on the model object (see
-		// scenario 4), so the chat runs through EVERY alias model and collects
-		// the temperature each request carried to the fake backend. Exactly the
-		// two new entries' values must appear, once each: the earlier groups'
-		// entries declare no parameters, so their requests carry no temperature.
+		// The host exposes no group identity on the model object (see scenario 4), so the chat runs through EVERY
+		// alias model and collects the temperature each request carried. Exactly the two new entries' values must
+		// appear, once each: the earlier groups declare no parameters.
 		const aliasModels = models.filter((candidate) => candidate.id === ALIAS);
 		const temperatures: string[] = [];
 		for (const model of aliasModels) {
@@ -547,11 +503,9 @@ suite("Docker server sync", () => {
 
 	test("scenario 9: entry and global modelCapabilities patch a listed model and lift the output clamp", async function () {
 		this.timeout(180000);
-		// The global record's exact matcher applies to every group's copy of
-		// the model; the entry record applies to the new entry's group alone
-		// (label + base URL match) and merges key by key over the global
-		// winner, so only that copy's requests may carry the overridden output
-		// limit.
+		// The global record's exact matcher applies to every group's copy of the model; the entry record applies
+		// to the new entry's group alone and merges key by key over the global winner, so only that copy's
+		// requests may carry the overridden output limit.
 		await writeCapabilitiesSetting({
 			...readCapabilitiesSetting(),
 			[CAPS_MODEL]: { max_input_tokens: 90000 },
@@ -571,11 +525,9 @@ suite("Docker server sync", () => {
 				candidates.filter((m) => m.id === CAPS_MODEL).every((m) => m.maxInputTokens === 90000),
 			`every ${CAPS_MODEL} copy to advertise the global input limit`
 		);
-		// The host does not expose group identity on the model object (see
-		// scenario 4), so the chat runs through EVERY copy and collects the
-		// max_tokens each request carried to the fake backend. Exactly one copy
-		// (the entry's group) sends the overridden declared limit; the model
-		// declares no limits itself, so every other copy keeps the
+		// The host exposes no group identity on the model object (see scenario 4), so the chat runs through EVERY
+		// copy and collects the max_tokens each request carried. Exactly one copy (the entry's group) sends the
+		// overridden declared limit; the model declares no limits itself, so every other copy keeps the
 		// min(4096, guess) cap.
 		const capsModels = models.filter((candidate) => candidate.id === CAPS_MODEL);
 		const maxTokens: number[] = [];
@@ -622,9 +574,8 @@ suite("Docker server sync", () => {
 		const view = await declaredFor(LABEL_EXPECTED);
 		assert.strictEqual(view.syncError, undefined, "the group add must succeed");
 
-		// The status window records the TRUE outcome - an error - tagged
-		// expected with the declared count riding along; the presentation
-		// layers derive the ok-with-note verdict from those fields.
+		// The status window records the TRUE outcome - an error - tagged expected with the declared count riding
+		// along; the presentation layers derive the ok-with-note verdict from those fields.
 		const statuses = (await vscode.commands.executeCommand("litellm._test.getServerStatuses")) as ServerStatus[];
 		const status = expectDefined(
 			statuses.find((candidate) => candidate.label === LABEL_EXPECTED),
@@ -634,9 +585,8 @@ suite("Docker server sync", () => {
 		assert.strictEqual(status.expected, true, "the failure carries the expected tag");
 		assert.strictEqual(status.declaredModelCount, 1, "the declared model rides the error status");
 
-		// Info-level logging: the model/info fallback line and the boundary
-		// classification both carry the expected marker. Polled: the sweep
-		// emits them asynchronously.
+		// Info-level logging: the model/info fallback line and the boundary classification both carry the expected
+		// marker. Polled, since the sweep emits them asynchronously.
 		await waitUntil("the expected-failure classifications to appear in the logs", 30000, async () => {
 			const logs = await sessionLogLines();
 			return (
@@ -644,19 +594,15 @@ suite("Docker server sync", () => {
 				logs.some((line) => line.includes("Model discovery failed (expected: modelListing) for provider group"))
 			);
 		});
-		// The session tee is lossless, so absence here means the error-level
-		// line was never logged at all.
+		// The session tee is lossless, so absence here means the error-level line was never logged at all.
 		const logs = await sessionLogLines();
 		assert.ok(
 			logs.every((line) => !line.includes(`Failed to fetch models for provider group at ${NO_DISCOVERY_URL}`)),
 			"an expected terminal failure must never log at error level"
 		);
 
-		// One attempt per endpoint: snapshot the settled counters, force one
-		// full host round trip, and the entry's bucket moves by exactly one
-		// models attempt and one model/info attempt. The blanked 404s carry
-		// x-should-retry: true (the SDK never retries a plain 404), so only
-		// the zeroed per-endpoint retry budgets can hold these deltas at one.
+		// One attempt per endpoint. The blanked 404s carry x-should-retry: true (the SDK never retries a plain
+		// 404), so only the zeroed per-endpoint retry budgets can hold these deltas at one.
 		const before = await quiescedDiscoveryAttempts(EXPECTED_FAILURES_KEY);
 		await syncNow();
 		await waitUntil(
@@ -674,11 +620,9 @@ suite("Docker server sync", () => {
 
 	test("scenario 11: a declared model registers chat-capable when discovery fails UNEXPECTEDLY", async function () {
 		this.timeout(120000);
-		// The contract delta against scenario 10: declaration is active on ANY
-		// discovery failure type, not only an expected one, so this entry
-		// declares no expectedFailures. Runs LAST on purpose: its unexpected
-		// failures log at error level with the no-discovery URL, which scenario
-		// 10's log scan must never see beforehand.
+		// The contract delta against scenario 10: declaration is active on ANY discovery failure type, so this
+		// entry declares no expectedFailures. Runs LAST on purpose - its unexpected failures log at error level
+		// with the no-discovery URL, which scenario 10's log scan must never see.
 		await declareServer({
 			label: LABEL_DECLARED_UNEXPECTED,
 			baseUrl: NO_DISCOVERY_URL,

@@ -28,11 +28,9 @@ suite("extension/dashboard/configDiagnostics", () => {
 	});
 
 	test("global record lints attribute to their setting id with no entry label, records no model matches included", () => {
-		// The unknown _inherit_from key sits on a record no live model needs to
-		// match: the record-level lint is exactly what still reports it. The
-		// capabilities record's unrecognized key surfaces only because a server
-		// reported an observed set that does not name it (see the advisory
-		// suite for the evidence rules).
+		// The _inherit_from key sits on a record no live model matches: only the
+		// record-level lint still reports it. The capabilities key surfaces only
+		// because a server reported an observed set that does not name it.
 		const diagnostics = buildConfigDiagnostics(
 			makeInput({
 				reader: makeReader({
@@ -120,9 +118,8 @@ suite("extension/dashboard/configDiagnostics", () => {
 		});
 
 		test("a consumed-vocabulary key is never hinted, whatever the observed set says", () => {
-			// The parse never emits unrecognized-key for consumed fields; the
-			// filter's own consumed check is the backstop against vocabulary
-			// drift. Both must hold: a valid consumed value yields nothing.
+			// The parse never emits unrecognized-key for consumed fields, and the
+			// filter's own consumed check backstops that against vocabulary drift.
 			const diagnostics = buildConfigDiagnostics(
 				makeInput({
 					reader: makeReader({ "models.capabilities": { "gpt-4": { supports_prompt_caching: true } } }),
@@ -233,9 +230,8 @@ suite("extension/dashboard/configDiagnostics", () => {
 				position: 3,
 				problems: ["no usable label"],
 				misconfigured: true,
-				// No label, so buildServers draws it no row: the Diagnostics
-				// destination is the only place these problems appear, and it must
-				// not filter them away as a duplicate of a row that does not exist.
+				// No label, so buildServers draws no row: Diagnostics is the only
+				// place these problems appear and must not filter them as duplicates.
 				rowOwned: false,
 				severity: "warning",
 			},
@@ -306,9 +302,8 @@ suite("extension/dashboard/configDiagnostics", () => {
 	});
 
 	test("hidden groups surface as one diagnostic carrying their labels; none stays silent", () => {
-		// The Diagnostics tab must not be silent about groups an explicit removal
-		// hid: a hidden-only setup otherwise reads as healthy with zero models
-		// and no visible cause.
+		// A hidden-only setup otherwise reads as healthy with zero models and no
+		// visible cause, so Diagnostics must name the groups an explicit removal hid.
 		const diagnostics = buildConfigDiagnostics(
 			makeInput({
 				hiddenGroups: [

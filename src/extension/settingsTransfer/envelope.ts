@@ -3,10 +3,10 @@
  * `{ "litellm-vscode-chat": 1, "exportedBy": "<ext version>", "settings": {...} }`
  * and its lenient parser. The integer under the config-section key is the
  * FORMAT version and the file discriminant (an unknown higher value reads as
- * "exported by a newer version"); `exportedBy` is informational only, never
- * a compatibility gate. Guards are hand-rolled, not zod: the servers grammar's
- * source of truth is parseServersSetting, a zod mirror would drift, and zod
- * stays at the webview trust boundary and out of this dependency-free core.
+ * "exported by a newer version"); `exportedBy` is informational only, never a
+ * compatibility gate. Guards are hand-rolled, not zod: parseServersSetting is
+ * the servers grammar's source of truth and a zod mirror would drift, and zod
+ * stays at the webview trust boundary.
  *
  * Pure and vscode-free.
  */
@@ -27,12 +27,10 @@ export interface SettingsExportEnvelope {
 
 /**
  * A parsed export file, or why it is not one: "not-json" (unparseable),
- * "not-an-export" (JSON without the discriminant shape), "newer-version"
- * (a format version above SETTINGS_EXPORT_FORMAT_VERSION). On ok, `settings`
- * holds only ALL_SETTING_KEYS members; file keys outside the vocabulary land
- * in `unknownKeys`, reported in the preview and never written. `exportedBy`
- * is the envelope's field when it carries a string - diagnostics provenance
- * only, never a compatibility gate.
+ * "not-an-export" (JSON without the discriminant shape), "newer-version" (a
+ * format version above SETTINGS_EXPORT_FORMAT_VERSION). On ok, `settings` holds
+ * only ALL_SETTING_KEYS members; file keys outside the vocabulary land in
+ * `unknownKeys`, reported in the preview and never written.
  */
 export type ParseEnvelopeResult =
 	| {

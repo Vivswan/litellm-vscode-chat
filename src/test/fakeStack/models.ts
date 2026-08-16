@@ -1,24 +1,19 @@
 /**
- * The consolidated fake model catalog: seven realistic aliases over
- * deliberately unrecognizable fake- upstreams. This table drives BOTH the
- * generated LiteLLM proxy config (scripts/stack/litellmConfig.ts) and the docker
- * suite's expectations, so the config and the tests cannot drift apart.
+ * The consolidated fake model catalog: realistic aliases over deliberately
+ * unrecognizable fake- upstreams. This table drives BOTH the generated LiteLLM
+ * proxy config and the docker suite's expectations, so the two cannot drift.
  *
- * Naming is load-bearing (verified by the phase-3a spike): LiteLLM enriches
- * /model/info from litellm_params.model only, never from model_name, so
- * realistic names live on the alias side while every upstream id carries the
- * fake- prefix that keeps it out of the price map. The spike also verified
- * that custom tier keys, explicit-false tool flags, and blocked: true all
- * forward verbatim through /v1/model/info on v1.93 - and that entries with
- * NO declared pricing come back with input/output_cost_per_token stamped to
- * 0, so "no pricing" arrives as zero pricing through the real proxy.
+ * Naming is load-bearing: LiteLLM enriches /model/info from litellm_params.model
+ * only, never from model_name, so realistic names live on the alias side while
+ * every upstream id carries the fake- prefix that keeps it out of the price map.
+ * Observed on v1.93: an entry with NO declared pricing comes back with
+ * input/output_cost_per_token stamped to 0, so "no pricing" arrives as zero
+ * pricing through the real proxy.
  *
  * The capability matrix is deliberate: every discovery axis has at least one
- * positive and one negative among the registered survivors. tools is
- * three-valued in model_info terms - discovery defaults a MISSING
- * supports_function_calling to TRUE, so the tools-negatives (deepseek-r2,
- * llama-4-scout) must EMIT explicit false flags or the negative silently
- * disappears; the boolean here is emitted either way.
+ * positive and one negative among the registered survivors. Discovery defaults a
+ * MISSING supports_function_calling to TRUE, so the tools-negatives must EMIT
+ * explicit false flags or the negative silently disappears.
  */
 
 export interface FakeModelPricing {
@@ -74,11 +69,10 @@ export interface FakeModel {
 	alias: string;
 	capabilities: FakeModelCapabilities;
 	/**
-	 * More than one deployment makes the alias a LiteLLM load-balancing
-	 * group. Pricing and capabilities are declared ONCE per model and emitted
-	 * identically on every deployment: discovery merges deployments through
-	 * agreedCost and every-deployment-supports, so any disagreement would
-	 * silently null the merged value.
+	 * More than one deployment makes the alias a LiteLLM load-balancing group.
+	 * Pricing and capabilities are declared ONCE per model and emitted identically
+	 * on every deployment, because discovery merges deployments and any
+	 * disagreement would silently null the merged value.
 	 */
 	deployments: readonly FakeDeployment[];
 	pricing?: FakeModelPricing;
@@ -92,8 +86,8 @@ const GPT_52_PRICING: FakeModelPricing = { inputCostPerToken: 1.25e-6, outputCos
 export const FAKE_MODELS: readonly FakeModel[] = [
 	{
 		// The flagship: full capabilities, cache costs, and the above-200k tier
-		// (reachable: 1M declared input) so the long_context_* synthesis and
-		// tier display run end to end against a real proxy.
+		// (reachable: 1M declared input) so the long-context tier synthesis and
+		// display run end to end against a real proxy.
 		alias: "claude-opus-4-5",
 		capabilities: { tools: true, vision: true, pdfInput: true, reasoning: true, promptCaching: true },
 		deployments: [{ upstreamModel: "fake-flagship", maxInputTokens: 1000000, maxOutputTokens: 64000 }],
@@ -141,11 +135,10 @@ export const FAKE_MODELS: readonly FakeModel[] = [
 		pricing: { inputCostPerToken: 2.5e-6, outputCostPerToken: 1e-5 },
 	},
 	{
-		// Reasoning without tools: the tools-negative that still reasons;
-		// reasoning_effort pass-through target. The per-level flags make it the
-		// server-declared-levels positive: the picker menu must follow them
-		// through a real proxy (the other reasoning models keep the built-in
-		// list, the flags-absent negative).
+		// Reasoning without tools: the tools-negative that still reasons, and the
+		// reasoning_effort pass-through target. Its per-level flags make it the
+		// server-declared-levels positive; the other reasoning models keep the
+		// built-in list.
 		alias: "deepseek-r2",
 		capabilities: { tools: false, reasoning: true, reasoningEffortLevels: ["low", "medium", "high", "max"] },
 		deployments: [{ upstreamModel: "fake-reasoner", maxInputTokens: 128000, maxOutputTokens: 32000 }],
@@ -153,19 +146,17 @@ export const FAKE_MODELS: readonly FakeModel[] = [
 	},
 	{
 		// Minimal registration: no declared limits (exercises the min(4096,
-		// default) output cap through a real proxy) and no declared pricing
-		// (which v1.93 stamps to zero costs in /model/info; the absent-pricing
-		// display path stays unit-covered). Second explicit tools-negative.
+		// default) output cap through a real proxy) and no declared pricing, which
+		// v1.93 stamps to zero costs in /model/info. Second explicit
+		// tools-negative.
 		alias: "llama-4-scout",
 		capabilities: { tools: false },
 		deployments: [{ upstreamModel: "fake-minimal" }],
 	},
 	{
-		// Blocked: must never register. A decommissioned legacy model is
-		// exactly what real deployments block, hence the deliberately old
-		// name. The spike observed v1.93 forwards blocked: true verbatim in
-		// /model/info while excluding the alias from /v1/models, so both
-		// discovery paths get exercised.
+		// Blocked: must never register. v1.93 forwards blocked: true verbatim in
+		// /model/info while excluding the alias from /v1/models, so both discovery
+		// paths get exercised.
 		alias: "gpt-4-turbo",
 		capabilities: { tools: true },
 		deployments: [{ upstreamModel: "fake-blocked" }],
@@ -179,16 +170,11 @@ export const FAKE_MODEL_UPSTREAM_IDS: readonly string[] = FAKE_MODELS.filter((mo
 );
 
 /**
- * The designated playback target (the catalog entry annotated above as the
- * default for %play, the stream fuzzer, and the multi-turn suite), exported
- * so target-selection plumbing (docker-conversation.test.ts, docker-litellm's
- * play() helper, scripts/docker-test.ts's host-fidelity leg) reads one
- * declaration. A catalog rename does NOT flow through automatically - the
- * lookup below is by alias literal, so renaming gpt-5.2-mini throws here and
- * the maintainer updates this one literal instead of hunting per-suite
- * copies. The docker suites' own alias/upstream literals (docker-fuzz's
- * proxy/direct pair, SURVIVOR_IDS, the routing asserts) stay independent
- * oracles and must NOT be derived from this.
+ * The designated playback target, exported so target-selection plumbing reads
+ * one declaration. A catalog rename does NOT flow through automatically: the
+ * lookup is by alias literal, so renaming the model throws here and the
+ * maintainer updates this one literal. The docker suites' own alias and upstream
+ * literals stay independent oracles and must NOT be derived from this.
  */
 export const PLAYBACK_MODEL: { readonly alias: string } = (() => {
 	const alias = "gpt-5.2-mini";
@@ -199,8 +185,8 @@ export const PLAYBACK_MODEL: { readonly alias: string } = (() => {
 	if (model.blocked === true) {
 		throw new Error(`Playback target "${alias}" is blocked, so it never registers; designate a survivor`);
 	}
-	// Single deployment is part of the designation (responses must not vary
-	// by routing); the deployment count is what this enforces.
+	// Single deployment is part of the designation: responses must not vary by
+	// routing.
 	if (model.deployments.length !== 1) {
 		throw new Error(`Playback target "${alias}" must keep exactly one deployment, found ${model.deployments.length}`);
 	}

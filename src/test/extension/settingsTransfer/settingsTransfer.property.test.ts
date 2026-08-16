@@ -26,14 +26,13 @@ const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
 /**
- * The settings-transfer core's four load-bearing properties: secret surgery
- * is lossless for the parser's view of an entry (and stripping never invents
- * a diagnostic), a full export -> parse -> plan -> apply round trip against
- * an empty target reproduces the original configuration up to the documented
- * secret handling (with the group-args equivalence as the oracle, so wire
- * behavior - not just bytes - is pinned), a snapshot restore is an exact
- * inverse over any divergent post-import state, and resolveImportPlan's
- * merge invariants hold under arbitrary garbage and arbitrary decisions.
+ * The settings-transfer core's four load-bearing properties (seed-pinned,
+ * FUZZ_RUNS-scaled): secret surgery is lossless for the parser's view of an
+ * entry, a full export -> parse -> plan -> apply round trip against an empty
+ * target reproduces the configuration up to the documented secret handling
+ * (group-args equivalence as the oracle, so wire behavior is pinned too), a
+ * snapshot restore is an exact inverse, and resolveImportPlan's merge
+ * invariants hold under arbitrary garbage and decisions.
  */
 
 const LABEL_POOL = ["alpha", "beta", "gamma", "delta", "epsilon"] as const;
@@ -85,9 +84,8 @@ const validServersArb: fc.Arbitrary<Record<string, unknown>[]> = fc
 	);
 
 /**
- * Stored blob values stay unpadded here on purpose: the inline settings
- * grammar trims, so a padded STORED value is not representable in an export
- * file (materialize places it verbatim, but the reimport parses it trimmed);
+ * Stored blob values stay unpadded on purpose: the inline settings grammar
+ * trims, so a padded STORED value is not representable in an export file.
  * secretSurgery.test.ts pins the verbatim placement itself.
  */
 const blobArb: fc.Arbitrary<StoredServerSecrets> = fc
@@ -141,21 +139,17 @@ suite("extension/settingsTransfer property: secret surgery", () => {
 						continue;
 					}
 					const stripped = stripEntrySecrets(raw);
-					// The stripped entry never carries an inline secret value, and a
-					// second strip finds nothing (idempotence) - the certification
-					// verdict included.
+					// The stripped entry carries no inline secret, and a second strip
+					// finds nothing (idempotence), certification verdict included.
 					const again = stripEntrySecrets(stripped.entry);
 					assert.deepStrictEqual(again.secrets, {});
 					assert.deepStrictEqual(again.entry, stripped.entry);
 					assert.strictEqual(again.unsanitizable, stripped.unsanitizable);
 
-					// Stripping never degrades an entry. An accepted entry stays
-					// accepted with identical diagnostics. A rejected entry either
-					// keeps a subset of its problems or heals: stripping an
-					// ambiguous companion (oauth beside a sibling apiKey) is
-					// mandatory - a secret must never survive a no-secrets export -
-					// and can only turn a misconfigured shape valid, unmasking the
-					// downstream diagnostics the parser's early return had hidden.
+					// Stripping never degrades an entry: an accepted one stays accepted
+					// with identical diagnostics, a rejected one keeps a subset of its
+					// problems or heals (stripping an ambiguous oauth-plus-apiKey shape
+					// is mandatory and can unmask diagnostics the early return hid).
 					const beforeReport = serverSettingReports([raw])[0];
 					const afterReport = serverSettingReports([stripped.entry])[0];
 					const before = beforeReport?.problems ?? [];
@@ -170,12 +164,9 @@ suite("extension/settingsTransfer property: secret surgery", () => {
 						}
 					}
 
-					// For an entry the parser accepts, strip -> materialize with the
-					// extracted blob is lossless in the parsed view and places
-					// every field (nothing unmaterialized). Accepted entries may
-					// still carry non-fatal diagnostics (an ignored junk budget,
-					// say); the round trip preserves those exactly, never clears
-					// or invents them.
+					// For an accepted entry, strip -> materialize is lossless in the
+					// parsed view and places every field. Non-fatal diagnostics (an
+					// ignored junk budget) survive exactly, never cleared or invented.
 					const originalParse = parseServersSetting([raw]);
 					if (originalParse.entries.length === 1) {
 						const restored = materializeEntrySecrets(stripped.entry, stripped.secrets);
@@ -270,9 +261,9 @@ suite("extension/settingsTransfer property: export -> import round trip", () => 
 						const blob = blobs[original.label] ?? {};
 
 						if (!includeSecrets) {
-							// No placeholders, no secrets: the applied entry is the
-							// stripped original, and the effective group args are the
-							// original's minus every secret field.
+							// No placeholders, no secrets: the applied entry is the stripped
+							// original, and its group args are the original's minus every
+							// secret field.
 							assert.deepStrictEqual(write.secrets, {});
 							const expected = Object.fromEntries(
 								Object.entries(buildGroupArgs(original, {})).filter(
@@ -283,10 +274,10 @@ suite("extension/settingsTransfer property: export -> import round trip", () => 
 							continue;
 						}
 
-						// With secrets: the written blob is the original EFFECTIVE
-						// value per field - inline (trimmed) beats stored - for every
-						// field the entry's shape gives a home; homeless stored
-						// fields are the unmaterialized ones.
+						// With secrets: the written blob is the original EFFECTIVE value
+						// per field (inline, trimmed, beats stored) for every field the
+						// entry's shape gives a home; homeless stored fields count as
+						// unmaterialized.
 						const legal = (field: (typeof SECRET_FIELD_IDS)[number]): boolean =>
 							field === "apiKey" ||
 							(field === "oauthClientSecret" && original.oauthTokenUrl !== undefined) ||
@@ -300,7 +291,7 @@ suite("extension/settingsTransfer property: export -> import round trip", () => 
 						}
 						assert.deepStrictEqual({ ...write.secrets }, expectedSecrets);
 						// The group args after import (stripped entry + written blob)
-						// match the original's with its homeless stored fields dropped.
+						// match the original's minus its homeless stored fields.
 						const prunedBlob = Object.fromEntries(
 							Object.entries(blob).filter(([field]) => legal(field as (typeof SECRET_FIELD_IDS)[number]))
 						) as StoredServerSecrets;
@@ -356,18 +347,16 @@ suite("extension/settingsTransfer property: export -> import round trip", () => 
 					const currentEntry = acceptedEntry(servers, collision.label)?.entry;
 					const incomingEntry = acceptedEntry(incomingArray, collision.label)?.entry;
 					assert.ok(currentEntry !== undefined && incomingEntry !== undefined);
-					// The flag's ground truth: would the group args the engine
-					// builds actually change? The current side resolves against
-					// the label's blob; the incoming side's inline values become
-					// its blob at apply time, leaving its args as they parse.
+					// The flag's ground truth: would the engine's group args actually
+					// change? The current side resolves against the label's blob; the
+					// incoming side's inline values become its blob at apply time.
 					const argsChange =
 						JSON.stringify(buildGroupArgs(incomingEntry, {})) !==
 						JSON.stringify(buildGroupArgs(currentEntry, blobs[collision.label] ?? {}));
 					assert.strictEqual(collision.connectionChanged, argsChange, collision.label);
 				}
-				// The headline no-false-positive case: when every stored field
-				// found an inline home, a self-import changes nothing and no
-				// collision may flag.
+				// The headline no-false-positive case: when every stored field found
+				// an inline home, a self-import changes nothing and none may flag.
 				if (exported.unmaterializedSecretCount === 0) {
 					assert.deepStrictEqual(
 						plan.collisions.filter((collision) => collision.connectionChanged),
@@ -432,10 +421,9 @@ suite("extension/settingsTransfer property: snapshot restore", () => {
 
 suite("extension/settingsTransfer property: merge invariants", () => {
 	// "rename-taken" and "rename-reserved" are targets the flow's validation
-	// would reject, and "missing" withholds the decision entirely (labels like
-	// "toString" make a plain index read return an Object.prototype method);
-	// resolveImportPlan must degrade every one of them to skip, never clobber
-	// or crash.
+	// rejects, and "missing" withholds the decision entirely (labels like
+	// "toString" make a plain index read return a prototype method);
+	// resolveImportPlan must degrade every one to skip, never clobber or crash.
 	type DecisionSeed = "overwrite" | "skip" | "rename" | "rename-taken" | "rename-reserved" | "missing";
 	const decisionSeedsArb = fc.array(
 		fc.constantFrom<DecisionSeed>("overwrite", "skip", "rename", "rename-taken", "rename-reserved", "missing"),
@@ -453,16 +441,13 @@ suite("extension/settingsTransfer property: merge invariants", () => {
 
 	/**
 	 * The documented resolution rules restated from the RAW incoming array,
-	 * independently of resolveImportPlan and serverSettingReports: per label,
-	 * the parser's claimant (first element with a usable label AND baseUrl)
-	 * lands, or the first labeled element when nothing claims; collisions
-	 * follow the decisions; invalid rename targets, shadowed siblings, and
-	 * entries whose auth the surgery cannot certify secret-free drop. Landing
-	 * labels carry their source index so the assertions can pin WHICH element
-	 * landed, not just how many. Shares no resolution code with the
-	 * implementation (stripEntrySecrets stands in for the certification rule
-	 * only; the surgery property pins it separately), so the two cannot drift
-	 * together.
+	 * independently of resolveImportPlan and serverSettingReports: per label, the
+	 * parser's claimant (first element with a usable label AND baseUrl) lands, or
+	 * the first labeled element when nothing claims; collisions follow the
+	 * decisions; invalid rename targets, shadowed siblings, and uncertifiable
+	 * auth shapes drop. Landing labels carry their source index so the assertions
+	 * can pin WHICH element landed. Shares no resolution code with the
+	 * implementation, so the two cannot drift together.
 	 */
 	function expectedOutcomes(
 		incoming: readonly unknown[],
@@ -586,10 +571,8 @@ suite("extension/settingsTransfer property: merge invariants", () => {
 					assert.strictEqual(application.counts.skipped, expected.skipped);
 
 					// The entry and secrets a landing label carries are the oracle's
-					// representative element, stripped - pinned by content so a
-					// resolver picking the wrong same-label element cannot pass on
-					// label and counts alone. stripEntrySecrets is safe as the
-					// content oracle here; the surgery property pins it separately.
+					// representative element, stripped - pinned by content so a resolver
+					// picking the wrong same-label element cannot pass on counts alone.
 					const expectedLanding = (label: string, index: number) => {
 						const raw = incoming[index];
 						assert.ok(isRecord(raw));

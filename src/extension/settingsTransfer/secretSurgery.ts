@@ -1,18 +1,15 @@
 /**
- * Secret surgery on one raw servers-setting entry, over the five nested
- * secret positions the auth grammar admits (per parseAuth): `auth.apiKey`,
- * `auth.oauth.apiKey`, `auth.oauth.clientSecret`, `auth.virtualKey.value`,
- * and `auth.oauth.virtualKey.value`. Export-without-secrets strips them out;
- * import moves them from the file into SecretStorage; export-with-secrets
- * materializes stored blobs back into the entry.
+ * Secret surgery on one raw servers-setting entry, over the five nested secret
+ * positions the auth grammar admits (per parseAuth): `auth.apiKey`,
+ * `auth.oauth.apiKey`, `auth.oauth.clientSecret`, `auth.virtualKey.value`, and
+ * `auth.oauth.virtualKey.value`. Export-without-secrets strips them out; import
+ * moves them from the file into SecretStorage; export-with-secrets materializes
+ * stored blobs back into the entry.
  *
- * Strip trims what it takes because the inline settings grammar trims
- * (parseAuth's usable-text rule), so the trimmed text IS the value the file
- * carries; materialize places stored values verbatim because SecretStorage
- * semantics are verbatim (buildGroupArgs sends stored strings untouched).
- * The corollary: a stored value with whitespace padding is not representable
- * in the file at all and round-trips to its trimmed form - a property of the
- * settings grammar, not of this surgery.
+ * Strip trims what it takes (the inline settings grammar trims, so the trimmed
+ * text IS the value the file carries); materialize places stored values
+ * verbatim (buildGroupArgs sends stored strings untouched). So a stored value
+ * with whitespace padding round-trips to its trimmed form.
  *
  * Pure and vscode-free.
  */
@@ -24,9 +21,8 @@ import type { StoredServerSecrets } from "../servers/serverSync/secrets";
 type MutableSecrets = { -readonly [K in SecretFieldId]?: string };
 
 /**
- * parseAuth's usable-text rule: a secret position holds a value only when it
- * carries non-whitespace string text, and the parsed (thus effective) value
- * is the trimmed one - the blob stores exactly what the runtime would send.
+ * parseAuth's usable-text rule: a position holds a value only when it carries
+ * non-whitespace text, and the effective value is the trimmed one.
  */
 function usableText(value: unknown): string | undefined {
 	if (typeof value !== "string") {
@@ -50,31 +46,25 @@ function cloneJson(value: unknown): unknown {
 /** stripEntrySecrets' outcome: the sanitized entry plus what was removed. */
 export interface StrippedEntry {
 	/**
-	 * The entry with every inline secret value removed. A container left
-	 * formless by the removal (an `auth` object that no longer configures
-	 * anything) is deleted too, so the stripped entry still parses.
+	 * The entry with every inline secret value removed. A container the removal
+	 * left formless is deleted too, so the stripped entry still parses.
 	 */
 	readonly entry: Readonly<Record<string, unknown>>;
 	/**
-	 * The removed values by flat secret field, ready for SecretStorage
-	 * writes. The five positions are removed from the entry independently,
-	 * but the blob keys by flat field, so two positions can collide onto one
-	 * field only in an entry whose auth shape parseAuth would reject (an
-	 * oauth form beside another form); the positions are walked in the
-	 * module-comment order and a later position's value overwrites an
-	 * earlier one's in the blob.
+	 * The removed values by flat secret field, ready for SecretStorage writes.
+	 * Two positions collide onto one field only in an auth shape parseAuth would
+	 * reject; positions are walked in the module-comment order and a later one
+	 * overwrites an earlier one.
 	 */
 	readonly secrets: StoredServerSecrets;
 	/**
 	 * True when the stripped entry's auth subtree still carries text (or a
 	 * container that could hold text) anywhere but the grammar's known
 	 * non-secret text positions (`oauth.tokenUrl`, `oauth.clientId`,
-	 * `oauth.scopes`, a virtualKey's `header`). The `auth` object exists to
-	 * hold credentials, so leftover text at an unknown or malformed position
-	 * (`auth: [{ apiKey: "..." }]`, `auth: { token: "..." }`) is presumed to
-	 * be one, and a no-secrets export must omit the entry rather than trust
-	 * it. Textless scalars (null, numbers, booleans, whitespace strings) are
-	 * mere misconfiguration and stay sanitizable.
+	 * `oauth.scopes`, a virtualKey's `header`). The `auth` object exists to hold
+	 * credentials, so leftover text at an unknown or malformed position is
+	 * presumed to be one and a no-secrets export must omit the entry rather than
+	 * trust it. Textless scalars are mere misconfiguration and stay sanitizable.
 	 */
 	readonly unsanitizable: boolean;
 }
@@ -107,11 +97,9 @@ function textless(value: unknown): boolean {
 }
 
 /**
- * Certify one already-stripped auth container against a key whitelist:
- * `text` keys may hold strings (the grammar's non-secret text positions),
- * `walk` keys recurse, and every other occupant - stripped secret positions
- * and unknown keys alike - must be textless. Anything else could be a
- * credential the strip did not reach.
+ * Certify one already-stripped auth container against a key whitelist: `text`
+ * keys may hold strings, `walk` keys recurse, and every other occupant must be
+ * textless. Anything else could be a credential the strip did not reach.
  */
 function certifyContainer(
 	value: unknown,
@@ -157,9 +145,8 @@ export function stripEntrySecrets(rawEntry: Readonly<Record<string, unknown>>): 
 		if (isRecord(oauth) && isRecord(oauth.virtualKey)) {
 			removed = takeSecret(oauth.virtualKey, "value", "virtualKeyValue", secrets) || removed;
 		}
-		// Only an auth object the strip itself emptied is deleted (the string
-		// apiKey form's leftover); a pre-existing empty auth is the user's own
-		// misconfiguration and rides through unchanged.
+		// Only an auth object the strip itself emptied is deleted; a pre-existing
+		// empty auth is the user's misconfiguration and rides through unchanged.
 		if (removed && Object.keys(auth).length === 0) {
 			delete entry.auth;
 		}
@@ -172,8 +159,7 @@ export interface MaterializedEntry {
 	/**
 	 * The entry with each blob value placed at its inline position, but only
 	 * where the entry's auth shape already gives the field a legal home; an
-	 * existing inline value stays (inline wins over the blob, per the sync
-	 * engine's precedence rule).
+	 * existing inline value stays (inline wins over the blob).
 	 */
 	readonly entry: Readonly<Record<string, unknown>>;
 	/** Blob fields with no legal inline position in this entry's auth shape; counted and reported, never guessed into the file. */
@@ -181,11 +167,9 @@ export interface MaterializedEntry {
 }
 
 /**
- * Place one blob value at its position. A usable inline occupant wins (kept,
- * not a loss: the file already carries the effective value); an undefined or
- * non-usable-string occupant is replaced (mirroring buildGroupArgs, where
- * only usable inline text outranks the blob); a non-string occupant is junk
- * in a misconfigured shape and reads as no legal home.
+ * Place one blob value at its position, mirroring buildGroupArgs: a usable
+ * inline occupant wins, an undefined or non-usable-string occupant is replaced,
+ * and a non-string occupant reads as no legal home.
  */
 function placeSecret(container: Record<string, unknown>, key: string, value: string): { placed: boolean } {
 	const existing = container[key];
@@ -212,8 +196,8 @@ export function materializeEntrySecrets(
 		}
 	};
 	// Blob values ride verbatim: readServerSecrets and buildGroupArgs use the
-	// stored string untransformed, so the file must too. Only the empty
-	// string reads as no value (readServerSecrets never returns one).
+	// stored string untransformed, so the file must too. Only the empty string
+	// reads as no value.
 	const blobValue = (value: string | undefined): string | undefined =>
 		value !== undefined && value.length > 0 ? value : undefined;
 
@@ -240,8 +224,8 @@ export function materializeEntrySecrets(
 	if (virtualKeyValue !== undefined) {
 		const auth = entry.auth;
 		const oauth = isRecord(auth) && isRecord(auth.oauth) ? auth.oauth : undefined;
-		// The oauth-nested position outranks the sibling one, matching the
-		// strip walk's later-position-wins order.
+		// The oauth-nested position outranks the sibling one, matching the strip
+		// walk's later-position-wins order.
 		const virtualKey =
 			oauth !== undefined && isRecord(oauth.virtualKey)
 				? oauth.virtualKey

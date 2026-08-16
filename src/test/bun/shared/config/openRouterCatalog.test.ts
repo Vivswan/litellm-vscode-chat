@@ -33,8 +33,8 @@ describe("shared/config openRouterCatalog mapping", () => {
 	});
 
 	test("a present modality or parameter list is authoritative both ways", () => {
-		// Text-only with a supported_parameters list that lacks tools and
-		// reasoning: the booleans are known false, not unknown.
+		// Text-only with a supported_parameters list lacking tools and reasoning:
+		// the booleans are known false, not unknown.
 		assert.deepStrictEqual(modelById("meta-llama/llama-3-8b-instruct").fields, {
 			context_length: 8192,
 			max_output_tokens: 4096,
@@ -45,10 +45,8 @@ describe("shared/config openRouterCatalog mapping", () => {
 	});
 
 	test("absent lists and absent numbers leave their fields unset", () => {
-		// No architecture and no supported_parameters: every boolean stays
-		// unset so lower precedence levels keep those fields. The numeric
-		// string context_length parses leniently, and the legacy pricing
-		// block this fixture entry keeps is ignored.
+		// Every boolean stays unset so lower precedence levels keep those fields.
+		// The numeric string context_length parses leniently.
 		assert.deepStrictEqual(modelById("mistralai/mistral-tiny"), {
 			id: "mistralai/mistral-tiny",
 			name: "Mistral Tiny",
@@ -195,11 +193,9 @@ describe("shared/config openRouterCatalog slimming", () => {
 	});
 
 	test("legacy slim artifacts that still carry pricing blocks parse fine and re-slim without them", () => {
-		// Cached catalog files under globalStorage and older packaged
-		// dist/openrouter-models.json artifacts were slimmed while pricing
-		// still rode the catalog. The decoder must keep reading them - the
-		// keys are simply ignored - and nothing pricing-derived may reach a
-		// snapshot, a lookup result, or a re-encoded artifact.
+		// Older cached and packaged artifacts were slimmed while pricing still rode
+		// the catalog: the decoder must keep reading them, and nothing
+		// pricing-derived may reach a snapshot, lookup, or re-encode.
 		const legacySlimFile = {
 			data: [
 				{
@@ -238,8 +234,7 @@ describe("shared/config openRouterCatalog slimming", () => {
 		assert.deepStrictEqual(lookup.byExactId("free/model"), { kind: "found", id: "free/model", fields: {} });
 
 		// The runtime store re-encodes through slimCatalogPayload on every
-		// successful refresh: a legacy file coming back through it sheds the
-		// pricing keys.
+		// successful refresh, so a legacy file sheds its pricing keys.
 		const reSlimmed = slimCatalogPayload(legacySlimFile);
 		assert.deepStrictEqual(reSlimmed, {
 			data: [

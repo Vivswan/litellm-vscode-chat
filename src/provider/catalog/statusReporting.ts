@@ -27,17 +27,16 @@ export type GroupServeOutcome =
 /**
  * Status bookkeeping around the StatusWindow: every group serve records its
  * outcome here, and every record triggers one merged report to the status
- * callback (the status bar, notifier, and dashboard fan-out installed by the
- * extension layer). Owns the per-group report counter refreshViaHost's
- * settle-wait arms on - per-group reports only, because the groupless report
- * says nothing about whether the host is re-resolving groups.
+ * callback. Owns the per-group report counter refreshViaHost's settle-wait
+ * arms on - per-group reports only, since the groupless report says nothing
+ * about whether the host is re-resolving groups.
  */
 export class GroupStatusReporter {
 	private readonly _window: StatusWindow;
 	private _callback?: (status: AggregatedStatus) => void;
 	private _groupReportCount = 0;
 
-	/** Records into the facade-owned window; the facade keeps reading cycles and snapshots from it directly. */
+	/** The window is facade-owned; the facade reads cycles and snapshots from it directly. */
 	constructor(window: StatusWindow) {
 		this._window = window;
 	}
@@ -59,7 +58,7 @@ export class GroupStatusReporter {
 		const serverStatuses = this._window.snapshots().map((snapshot) => snapshot.status);
 		// Declared models serve through ANY discovery failure (config-rebuilt,
 		// never discovered): the picker lists them, so the aggregate count must
-		// match it whether or not the failure was expected.
+		// match whether or not the failure was expected.
 		const totalModels = serverStatuses.reduce(
 			(sum, s) => sum + (s.state === "ok" ? s.modelCount : (s.declaredModelCount ?? 0)),
 			0

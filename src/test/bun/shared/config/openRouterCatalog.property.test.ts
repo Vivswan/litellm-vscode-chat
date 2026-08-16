@@ -1,12 +1,10 @@
 /**
  * The catalog's leniency contract under fire: the mapping, snapshot parser,
- * slimming, and lookup accept ARBITRARY payloads (the live endpoint after a
- * schema change, a torn cache file, hand-edited JSON) and never throw -
- * unusable shapes degrade to absence, and an unrecognizable payload degrades
- * to the empty snapshot. The slimmed artifact is also pinned as faithful:
- * parsing what slimming wrote yields exactly the models parsing the raw
- * payload did, so the packaged file can never drift from the mapping that
- * produced it.
+ * slimming, and lookup accept ARBITRARY payloads and never throw - unusable
+ * shapes degrade to absence, an unrecognizable payload to the empty snapshot.
+ * The slimmed artifact is pinned as faithful too: parsing what slimming wrote
+ * yields exactly the models parsing the raw payload did, so the packaged file
+ * can never drift from the mapping that produced it.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -25,8 +23,8 @@ const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;
 const SEED = resolveFuzzSeed();
 
 // A small id pool with shared post-vendor suffixes keeps exact hits, suffix
-// hits, and ambiguous suffixes all common; raw jsonValue keeps the
-// degenerate shapes alive.
+// hits, and ambiguous suffixes all common; raw jsonValue keeps the degenerate
+// shapes alive.
 const vendor = fc.constantFrom("openai", "anthropic", "meta-llama", "fireworks");
 const suffix = fc.constantFrom("gpt-4o", "llama-3-8b", "claude-3.5", "o1", "a/b");
 const idArb = fc.oneof(
@@ -51,9 +49,8 @@ const entryArb = fc.oneof(
 					fc.record({ max_completion_tokens: fc.oneof(fc.integer({ min: -10, max: 200_000 }), fc.constant(null)) }),
 					fc.constant(null)
 				),
-				// An unmapped wire key (the live payload carries several, and
-				// legacy slim artifacts still carry pricing blocks): mapping and
-				// slimming must ignore it whatever shape it takes.
+				// An unmapped wire key: mapping and slimming must ignore it whatever
+				// shape it takes.
 				description: fc.jsonValue({ maxDepth: 2 }),
 				supported_parameters: fc.oneof(
 					fc.array(fc.oneof(fc.constantFrom("tools", "reasoning", "temperature"), fc.integer())),
@@ -74,9 +71,9 @@ const payloadArb = fc.oneof(
 );
 
 /**
- * The complete wire-key vocabulary a slimmed entry may carry. Slimming
- * rebuilds each entry from the mapped fields, so an unmapped source key
- * (a legacy pricing block included) must never survive into the artifact.
+ * The complete wire-key vocabulary a slimmed entry may carry: slimming rebuilds
+ * each entry from the mapped fields, so an unmapped source key (a legacy pricing
+ * block included) must never survive into the artifact.
  */
 const SLIM_WIRE_KEYS = new Set([
 	"id",
@@ -143,9 +140,8 @@ describe("shared/config openRouterCatalog properties", () => {
 					"slimming is not idempotent"
 				);
 
-				// Closed key set: mapping-equivalence and idempotency alone are
-				// blind to an unmapped key riding along (it changes no parsed
-				// model and keeps surviving re-slims), so pin the vocabulary.
+				// Closed key set: mapping-equivalence and idempotency are both blind to
+				// an unmapped key riding along, so pin the vocabulary.
 				for (const entry of slim.data) {
 					for (const key of Object.keys(entry)) {
 						assert.ok(SLIM_WIRE_KEYS.has(key), `unmapped key ${key} survived slimming`);
@@ -180,8 +176,8 @@ describe("shared/config openRouterCatalog properties", () => {
 				}
 				const suffixMatches = snapshot.models.filter((model) => {
 					const slash = model.id.indexOf("/");
-					// Mirror the lookup's guard: an empty post-vendor suffix is not a
-					// name and is never indexed, so "" can match nothing implicitly.
+					// Mirror the lookup's guard: an empty post-vendor suffix is never
+					// indexed, so "" can match nothing implicitly.
 					const suffix = model.id.slice(slash + 1);
 					return slash > 0 && suffix !== "" && suffix === rawId;
 				});
@@ -200,9 +196,8 @@ describe("shared/config openRouterCatalog properties", () => {
 	});
 
 	test("an empty raw ID never implicit-matches an empty post-vendor suffix (nightly seed 606002)", () => {
-		// Shrunk counterexample from nightly run 31275590164 leg unit-2: a
-		// catalog id of "<vendor>/" has an empty suffix, which the lookup
-		// deliberately never indexes - so the empty raw ID matches nothing.
+		// Shrunk counterexample from nightly run 31275590164 leg unit-2: a catalog
+		// id of "<vendor>/" has an empty suffix, which the lookup never indexes.
 		const snapshot = parseCatalogSnapshot({ data: [{ id: " /" }] });
 		for (const implicitLookup of [true, false]) {
 			const lookup = createCatalogLookup(snapshot, { implicitLookup });

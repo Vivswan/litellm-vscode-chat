@@ -1,8 +1,7 @@
 /**
- * The pinned OpenRouter catalog fixture (src/test/fixtures/openrouter-models.json).
- * tsc compiles no JSON, so the fixture stays in src/ and the suites running
- * from out/test walk back to it; this loader is the one place that knows the
- * walk.
+ * The pinned OpenRouter catalog fixture. tsc compiles no JSON, so the fixture
+ * stays in src/ and the suites running from out/test walk back to it; this
+ * loader is the one place that knows the walk.
  */
 
 import * as fs from "node:fs";

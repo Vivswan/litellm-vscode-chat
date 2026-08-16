@@ -3,9 +3,9 @@
  * discovery.staleServeWindow bounds staleServableModels exactly (0 disables
  * stale serving), while eviction only GROWS with the window and never shrinks
  * below its ten-minute floor. Both directions are load-bearing: a suspended
- * host must not lose the success anchor a longer window promises to serve
- * from, and a zero window must not evict mid-sweep entries the one-cycle
- * grace keeps visible.
+ * host must not lose the success anchor a longer window promises to serve from,
+ * and a zero window must not evict mid-sweep entries the one-cycle grace keeps
+ * visible.
  */
 import { describe, expect, test } from "bun:test";
 import type { GroupServer, PreAttachModelInfo } from "../../../../provider/catalog/groupModels";
@@ -24,7 +24,7 @@ const models = [{ id: "test-model" } as PreAttachModelInfo];
 
 // Failure reports below record the EMPTY list, exactly like groupDiscovery's
 // out-of-window failure path: stale retention must come from the recorded
-// success, never from what a failure report happened to carry.
+// success, never from a failure report's payload.
 
 function status(state: "ok" | "error", serverId = "s1"): ServerStatus {
 	const common = { serverId, label: "Default", baseUrl: "http://litellm.test", lastChecked: "now" };
@@ -89,10 +89,9 @@ describe("provider/catalog/statusWindow: the configured stale-serve window", () 
 	});
 
 	test("eviction grows with the window: a report gap longer than the floor keeps the anchor alive", () => {
-		// The suspended-host scenario: last report 30 minutes ago, then a new
-		// sweep begins. With the historical fixed TTL the cycle boundary would
-		// evict the entry and lose the recorded success before the failing refresh
-		// could serve from it.
+		// The suspended-host scenario: last report 30 minutes ago, then a new sweep
+		// begins. Under a fixed TTL the cycle boundary would evict the entry and
+		// lose the recorded success before the failing refresh could serve from it.
 		const { window, clock } = makeWindow(60 * MINUTE_MS);
 		window.record(status("ok"), models, groupServer, { discoveredRawIds: ["test-model"] });
 

@@ -204,10 +204,9 @@ suite("provider/transport/chatClient", () => {
 	});
 
 	test("a stream that stalls mid-body aborts at the configured chat.timeout", async function () {
-		// The configured timeouts are hard whole-call bounds. The SDK's own
-		// timeout disarms once headers arrive, so only send()'s
-		// AbortSignal.timeout wiring can abort a body that stops flowing;
-		// deleting that wiring must fail this test.
+		// The configured timeouts are hard whole-call bounds. The SDK's own timeout
+		// disarms once headers arrive, so only send()'s AbortSignal.timeout wiring
+		// can abort a body that stops flowing.
 		this.timeout(10000);
 		await withFetch(
 			async (_url, init) => {

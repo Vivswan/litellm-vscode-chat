@@ -24,8 +24,8 @@ import { registerOpenSettingKeyCommand } from "../ui/openSettingKey";
 import { StatusBarManager, StatusItem } from "../ui/status";
 
 /**
- * The connection status bar item (through the slot registry's StatusItem)
- * and the refresh notifier. Both consume the same aggregated status through
+ * The connection status bar item (through the slot registry's StatusItem) and
+ * the refresh notifier; both consume the same aggregated status through
  * wireStatusFanout.
  */
 export function wireStatusSurfaces(
@@ -53,9 +53,8 @@ export function wireStatusSurfaces(
 }
 
 /**
- * Status bar, refresh notifications, and the dashboard share the same
- * status callback, isolated so one consumer's failure cannot starve the
- * others.
+ * Status bar, refresh notifications, and the dashboard share one status
+ * callback, isolated so one consumer's failure cannot starve the others.
  */
 export function wireStatusFanout(
 	logger: Logger,
@@ -87,10 +86,9 @@ export function wireStatusFanout(
 }
 
 /**
- * The one-time welcome message. Gated on the legacy registry and the
- * declared servers setting only: this runs during activation, before the
- * host has handed over any provider group, so the group latch cannot
- * contribute yet.
+ * The one-time welcome message. Gated on the legacy registry and the declared
+ * servers setting only: this runs during activation, before the host has handed
+ * over any provider group, so the group latch cannot contribute yet.
  */
 export async function maybeShowWelcome(
 	context: vscode.ExtensionContext,
@@ -137,31 +135,26 @@ export function wireUiCommands(
 		vscodeVersion: string;
 	}
 ): void {
-	// Server management command: the hub's server entry routes by the UI mode
-	// (see StorageWiring.getManagementUiMode).
+	// The hub's server entry routes by the UI mode (see getManagementUiMode).
 	registerManageCommand(context, deps.registry, logger, deps.getManagementUiMode);
 
-	// Test connection command
 	registerTestConnectionCommand(context, deps.provider, deps.statusBar, deps.outputChannel, logger);
 
-	// Sync Models Now command: a forced server sync first (reconciling groups
-	// edited natively), then a discovery-cache-skipping refetch of every group.
+	// Sync Models Now: a forced server sync first (reconciling groups edited
+	// natively), then a discovery-cache-skipping refetch of every group.
 	registerSyncModelsCommand(context, deps.provider, deps.statusBar, deps.outputChannel, logger, () =>
 		deps.syncEngine.syncNow(true)
 	);
 
-	// Help & Feedback command
 	registerHelpAndFeedbackCommand(context);
 
 	// Groups-file deep link: notices about leftover provider groups open the
-	// host's chatLanguageModels.json directly, the one place a group can be
-	// deleted (no editor UI for it is sanctioned).
+	// host's chatLanguageModels.json, the one place a group can be deleted.
 	registerOpenGroupsFileCommand(context, logger);
 
 	// Settings.json deep link: the dashboard's per-setting jump (revealSetting).
 	registerOpenSettingKeyCommand(context, logger);
 
-	// Report Issue command
 	registerReportIssueCommand(
 		context,
 		deps.registry,

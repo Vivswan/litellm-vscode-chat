@@ -196,10 +196,9 @@ suite("extension/dashboard/usageView", () => {
 	});
 
 	test("a once-available server whose BOTH endpoints turn forbidden downgrades to the forbidden card", () => {
-		// The poller recomputes availability to "unavailable" when both key
-		// endpoints go permanently unavailable, and drops the retained numbers
-		// with them: the honest surface left is the reduced forbidden card, not
-		// a full card of another key's stale data - and not silence.
+		// The poller drops the retained numbers when both key endpoints go
+		// permanently unavailable, so the honest surface left is the reduced
+		// forbidden card - not another key's stale data, and not silence.
 		const view = buildUsageView(
 			makeInput({
 				states: [

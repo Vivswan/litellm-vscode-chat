@@ -33,9 +33,8 @@ const attachedModelInfo = attachGroupServer(modelInfo, testGroupServer());
 
 /**
  * The live-configuration read of the configured-parameters merge, exactly as
- * the request path composes it (getModelParametersConfig into the shared
- * resolver; requests read the same merge through the provider's memoized
- * ModelResolutionTable).
+ * the request path composes it (requests reach the same merge through the
+ * provider's memoized ModelResolutionTable).
  */
 function getModelParameters(
 	rawModelId: string,
@@ -133,9 +132,7 @@ suite("provider/request contract", () => {
 
 		test("aggregates collapse to the minimum standalone constraints for cheapest/fastest entries", async () => {
 			// provider-a declares a max_input_tokens tighter than its context minus
-			// output; the aggregate must respect it. The retired inline formula
-			// (min context - min output = 46000) ignored declared input limits and
-			// advertised more input than provider-a accepts.
+			// output; the aggregate must respect the declared input limit.
 			const provider = makeProvider(TEST_BASE_URL);
 			mswServer.use(
 				...discoveryHandlers({
@@ -283,10 +280,9 @@ suite("provider/request contract", () => {
 		});
 
 		test("a pre-migration URL-scoped key is inert in the global record", async () => {
-			// Server scoping is gone from the global records: a
-			// "https://host/model" key can never match a model ID, so only the
-			// plain matcher applies. The upgrade migration moves such keys into
-			// the owning server entry.
+			// Server scoping is gone from the global records: a "https://host/model"
+			// key can never match a model ID. The upgrade migration moves such keys
+			// into the owning server entry.
 			const params = await withConfig(
 				{
 					"models.parameters": {
@@ -340,11 +336,9 @@ suite("provider/request contract", () => {
 		});
 
 		test("two entries sharing a base URL and key each send their own entry parameters", async () => {
-			// The headline scenario: base-URL scoping cannot tell these apart, the
-			// entry label can. The resolver is the real extension-side contract
-			// (entryModelParametersFor) over a declared setting, wired exactly as
-			// activation wires it, so this also pins that the label-and-URL check
-			// still resolves entries whose group sits at the declared URL.
+			// Base-URL scoping cannot tell these apart, the entry label can. The
+			// resolver is the real extension-side contract (entryModelParametersFor)
+			// over a declared setting, wired exactly as activation wires it.
 			const setting = [
 				{
 					label: "team-a",
@@ -373,10 +367,8 @@ suite("provider/request contract", () => {
 		});
 
 		test("a label match at a different base URL yields only the global setting", async () => {
-			// A stale group can outlive a baseUrl edit, and an external group can
-			// carry any label; neither may inherit a declared entry's parameters.
-			// The declared entry lives at another URL, so the resolver refuses the
-			// pair even though the label matches.
+			// A stale group can outlive a baseUrl edit and an external group can carry
+			// any label; neither may inherit a declared entry's parameters.
 			const setting = [
 				{
 					label: "team-a",
@@ -459,8 +451,7 @@ suite("provider/request contract", () => {
 
 		test("provider-owned keys in an entry record never reach the body; ordinary keys still do", async () => {
 			// The pass-through invariant test drives modelOptions; this drives the
-			// same hostile keys through the entry record, the other user-config
-			// source of request parameters.
+			// same hostile keys through the entry record.
 			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
 				getEntryModelParameters: () => ({
 					"test-model": {
@@ -563,9 +554,8 @@ suite("provider/request contract", () => {
 		});
 
 		test("includes a declared entry's custom headers on chat requests", async () => {
-			// Custom headers live on the server entry now (there is no global
-			// headers setting); the provider resolves them through the injected
-			// per-entry seam, matched by the connection's label and base URL.
+			// Custom headers live on the server entry (there is no global headers
+			// setting), resolved through the injected per-entry seam.
 			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
 				getEntryHeaders: (label, headerBaseUrl) =>
 					label === "Default" && headerBaseUrl === TEST_BASE_URL
@@ -682,9 +672,8 @@ suite("provider/request contract", () => {
 		});
 
 		test("a declared entry's apiVersion re-roots the chat request", async () => {
-			// The resolver is injected like getEntryHeaders, matched by the
-			// connection's entry-candidate label and base URL; "v2" replaces the
-			// auto-appended /v1 on the real request, not just the log line.
+			// "v2" replaces the auto-appended /v1 on the real request, not just the
+			// log line.
 			let chatUrl = "";
 			const provider = makeProvider(TEST_BASE_URL, "test-key", undefined, {
 				getEntryApiVersion: (label, versionBaseUrl) =>
@@ -741,7 +730,7 @@ suite("provider/request contract", () => {
 		test("an unset picker sends no reasoning_effort key", async () => {
 			// Unset arrives as the resolved schema default ("default", the
 			// provider-default sentinel); a host without the schema sends no
-			// modelConfiguration at all. Neither may put anything on the wire.
+			// modelConfiguration at all.
 			const sentinel = await captureRequestBody(createConfiguredProvider(), modelInfo, {
 				toolMode: vscode.LanguageModelChatToolMode.Auto,
 				modelConfiguration: { reasoningEffort: "default" },
@@ -816,8 +805,8 @@ suite("provider/request contract", () => {
 
 	suite("message conversion capability gates", () => {
 		// Pins the chatClient wiring, not the conversion itself (shared/messages
-		// tests own that): deleting either gate from the convertMessages call
-		// site must fail here.
+		// tests own that): deleting either gate from the convertMessages call site
+		// must fail here.
 		const imageMessage = (): vscode.LanguageModelChatRequestMessage => ({
 			role: vscode.LanguageModelChatMessageRole.User,
 			content: [
@@ -975,9 +964,9 @@ suite("provider/request contract", () => {
 		});
 
 		test("a user-overridden output limit (modelCapabilities) is sent uncapped like a declared one", async () => {
-			// The capability override path stamps outputLimitSource: "user" on the
-			// model; the request path must honor it across the host round trip
-			// exactly like "provider" - the user's number is not a guess.
+			// The capability override path stamps outputLimitSource: "user"; the
+			// request path must honor it like "provider" - the user's number is not
+			// a guess.
 			const body = await withConfig({ "models.parameters": {} }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
@@ -1086,9 +1075,8 @@ suite("provider/request contract", () => {
 
 		test("a wire payload claiming provider provenance without a declared limit stays capped end-to-end", async () => {
 			// The provider schema is a loose pass-through, so a server payload can
-			// carry the merge's internal output_limit_source marker. Discovery,
-			// registration, and the chat request together must treat the claim as
-			// noise: with no declared limit, the request stays under the cap.
+			// carry the merge's internal output_limit_source marker; with no declared
+			// limit the request must stay under the cap.
 			const body = await withConfig({ "models.parameters": {} }, () =>
 				captureRequestBody(
 					createConfiguredProvider(),
@@ -1235,10 +1223,9 @@ suite("provider/request contract", () => {
 
 	suite("request limits", () => {
 		/**
-		 * Record any provider request that escapes to the network so tests can
-		 * assert none did. Scoped to the unit-test host: the extension host runs
-		 * with built-in extensions whose unrelated background HTTP must not
-		 * pollute the recording.
+		 * Record any provider request that escapes to the network. Scoped to the
+		 * test host's base URL so unrelated background HTTP from built-in
+		 * extensions cannot pollute the recording.
 		 */
 		function trackUnexpectedRequests(): string[] {
 			const urls: string[] = [];
@@ -1311,10 +1298,9 @@ suite("provider/request contract", () => {
 	});
 
 	suite("localized display / English mirror pairs", () => {
-		// Every chatClient throw site pairs a localized display message with a
-		// full English mirror (localizedError). Under the test host's English
-		// fallback the two coincide, so these tests fail when a site's mirror
-		// drifts from its t() literal - or when a site forgets the mirror.
+		// Every chatClient throw site pairs a localized display message with a full
+		// English mirror (localizedError). Under the test host's English fallback
+		// the two coincide, so these fail when a mirror drifts or is forgotten.
 		function expectMirroredRejection(promise: Promise<unknown>, expected: RegExp): Promise<void> {
 			return assert.rejects(promise, (e: unknown) => {
 				assert.ok(e instanceof Error, `expected an Error, got ${String(e)}`);
@@ -1346,10 +1332,9 @@ suite("provider/request contract", () => {
 				send(client, makeModelInfo({ id: "ghost" })),
 				/^Model "ghost" is not registered with any configured server\. Refresh the model list and try again\.$/
 			);
-			// The invariant behind the route: every served model carries its
-			// group's connection, so a model without one is a boundary break and
-			// must fail as a classified, reportable error - the classification
-			// keeps the model ID out of public logs.
+			// Every served model carries its group's connection, so a model without
+			// one is a boundary break and must fail as a classified error - the
+			// classification keeps the model ID out of public logs.
 			await assert.rejects(send(client, makeModelInfo({ id: "ghost" })), (e: unknown) => {
 				assert.strictEqual(
 					(e as Error & { logClassification?: string }).logClassification,

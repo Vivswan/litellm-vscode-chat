@@ -1,33 +1,20 @@
 /**
- * The models list's filters: the capability vocabulary, the text match, and
- * the structured filter pills' composition semantics. Pure - no vscode, no
- * React - so the semantics pin in the bun tree, and shared by the row
- * renderers and the pills so the two cannot disagree about what "vision" or
- * "priced" means.
- *
- * Composition: dimensions compose AND, and the pills of one dimension compose
- * OR - two family pills mean either family. The exception is capabilities,
- * where each pill is its own dimension: a capability is a yes-or-no fact
- * about a model, so "tools" and "vision" together mean a model that has both.
- * "Either tools or vision" selects nearly everything and answers no question
- * anyone brings to this list.
+ * The models list's filters. Pure (no vscode, no React) so the semantics pin
+ * in the bun tree, and shared by the row renderers and the pills so the two
+ * cannot disagree. Composition: dimensions compose AND, the pills of one
+ * dimension compose OR - except capabilities, where each pill is its own
+ * dimension ("tools" and "vision" together mean a model that has both).
  */
 import * as l10n from "@vscode/l10n";
 import type { DashboardModel } from "./viewModels";
 
 /**
- * Every capability with its answer, paired with the wire key that names it, in
- * the fixed order the row's detail prints them - and the single source the
- * capability pills derive from, so a capability added here becomes a pill
- * without a second list to update.
- *
- * The row at rest prints only the true ones. Drawing a line through the false
- * ones was the first shape of this, and it lost to a vocabulary rule: a
- * strikethrough means SUPERSEDED everywhere in this dashboard - the inspector's
- * resolution chain strikes a value that a higher-precedence record beat, and
- * that mark is accessibility-pinned there. One mark cannot also mean "cannot".
- * So absence carries it on the row and the detail answers explicitly, which is
- * also the cheaper read: a scanning eye wants what a model CAN do.
+ * Every capability with its answer, paired with the wire key that names it,
+ * in the fixed order the row's detail prints them; the single source the
+ * capability pills derive from. The row at rest prints only the true ones:
+ * a strikethrough means SUPERSEDED everywhere in this dashboard (the
+ * inspector's resolution chain, accessibility-pinned), so absence carries
+ * "cannot" on the row and the detail answers explicitly.
  */
 export const CAPABILITY_FLAGS = [
 	// A key of its own, apart from the max-tools count suffix "tools": a chip
@@ -69,14 +56,11 @@ export function isPriced(model: DashboardModel): boolean {
 }
 
 /**
- * The pills' state. Session-local by design: it lives in component state and
- * is never persisted or pushed.
- *
- * Servers are keyed by scopeKey, never by label: two provider groups can carry
- * the same label, and a label-keyed pill would silently select both. The label
- * rides along as the value because it is what the pill displays, including for
- * a selection whose server has since left the list - the pill must stay
- * clearable, and the scopeKey alone is an opaque hash with nothing to print.
+ * The pills' state. Session-local by design: never persisted or pushed.
+ * Servers are keyed by scopeKey, never by label: two provider groups can
+ * carry the same label, and a label-keyed pill would silently select both.
+ * The label rides along as the value because it is what the pill displays,
+ * including for a selection whose server has since left the list.
  */
 export interface ModelFilter {
 	readonly families: ReadonlySet<string>;
@@ -196,16 +180,11 @@ export interface ModelFilterOptions {
 const PRICE_KEYS: readonly PriceFilterKey[] = ["priced", "unpriced"];
 
 /**
- * Server options in display order, duplicate labels numbered. Two provider
- * groups can share a label, and two pills reading identically would be two
- * controls the user cannot tell apart before pressing one - so colliding
- * labels get a positional ordinal, "(1)" onward, in the sorted order. The
- * ordinal is a DISPLAY transform only, recomputed here every time: identity
- * stays the scopeKey, and the raw label is what filter state stores - a
- * stored numbered label would collide again when the numbering shifts under
- * it (press "prod (1)", lose that server from the list, and the pill offered
- * for the orphaned selection would read "prod (1)" beside a live server now
- * numbered the same).
+ * Server options in display order, duplicate labels numbered "(1)" onward in
+ * the sorted order. The ordinal is a DISPLAY transform only, recomputed every
+ * time: identity stays the scopeKey and the raw label is what filter state
+ * stores - a stored numbered label would collide again when the numbering
+ * shifts under it.
  */
 function serverOptions(servers: ReadonlyMap<string, string>): readonly ServerFilterOption[] {
 	const sorted = [...servers]
@@ -227,17 +206,11 @@ function serverOptions(servers: ReadonlyMap<string, string>): readonly ServerFil
 }
 
 /**
- * Which pills to offer for a list of models. One rule, applied per dimension:
- * a pill renders where it can change the result - the list disagrees on the
- * dimension - or where it is already active, because an active pill must stay
- * clearable even after the models that justified it left the list. A family
- * pill over a single-family list, or a "tools" pill over a fleet that all has
- * tools, is a toggle that toggles nothing; the same reasoning already hides
- * the rows' server name when only one server serves.
- *
- * Orders are fixed so the row reads the same across refreshes: families and
- * servers alphabetical, prices priced-then-unknown, capabilities in the
- * CAPABILITY_FLAGS order the rows print them.
+ * Which pills to offer. One rule per dimension: a pill renders where it can
+ * change the result (the list disagrees on the dimension) or where it is
+ * already active, because an active pill must stay clearable even after the
+ * models that justified it left the list. Orders are fixed so the row reads
+ * the same across refreshes.
  */
 export function modelFilterOptions(models: readonly DashboardModel[], active: ModelFilter): ModelFilterOptions {
 	const families = new Set(models.map((model) => model.family));

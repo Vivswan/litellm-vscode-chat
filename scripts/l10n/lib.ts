@@ -431,8 +431,7 @@ export function declaredCensusNames(contents: string, fileName: string, names: r
 				note(entityAlias.name);
 			}
 		}
-		// The node is named first, then closed: a function or class binds locals
-		// below itself, which are not top-level names.
+		// The node is named first, then closed.
 		if (!ts.isFunctionLike(node) && !ts.isClassLike(node)) {
 			node.forEachChild(visit);
 		}
@@ -756,9 +755,7 @@ function collectTopLevelFunctions(file: string, contents: string): HelperNode[] 
 	};
 	const isFunctionLiteral = (node: ts.Node): boolean => ts.isArrowFunction(node) || ts.isFunctionExpression(node);
 	// One binding of a name to a right-hand side, judged for EVERY value the
-	// RHS can hand over (possibleValues flattens ternaries and fallbacks): a
-	// function literal or IIFE walks whole, a class expression contributes its
-	// construction evidence, and a bare identifier is an alias node.
+	// RHS can hand over (possibleValues flattens ternaries and fallbacks).
 	const handleBinding = (name: ts.Identifier, rhs: ts.Expression): void => {
 		for (const source of possibleValues(rhs)) {
 			if (isFunctionLiteral(source)) {
@@ -800,9 +797,8 @@ function collectTopLevelFunctions(file: string, contents: string): HelperNode[] 
 		// Bindings and nested statements, wherever module-level code puts them:
 		// variable statements, assignments, for-initializers, and the bodies of
 		// top-level if/for/switch/try all bind module-level names. Function and
-		// class bodies stay deferred boundaries - they bind locals, which the
-		// census does not name, and what they do reaches the graph as the
-		// enclosing binding's own evidence.
+		// class bodies stay deferred boundaries - what they do reaches the graph
+		// as the enclosing binding's own evidence.
 		descend(statement);
 	};
 	const descend = (node: ts.Node): void => {
@@ -945,8 +941,6 @@ function fileLazyNames(sourceFile: ts.SourceFile, census: readonly string[]): Se
 		bindings.push({ name, direct: evidence.direct, callees: evidence.callees });
 	};
 	const bind = (name: string, rhs: ts.Expression): void => {
-		// Every value the RHS can hand over: a lazy helper cannot hide behind
-		// the branch a static walk cannot pick.
 		for (const source of possibleValues(rhs)) {
 			if (isFunctionLiteral(source)) {
 				collectFrom(name, source);
@@ -1201,8 +1195,8 @@ export function vscodeL10nOffenses(contents: string, fileName: string, options: 
 			? statement.moduleSpecifier.text
 			: undefined;
 
-	// Parens and type wrappers do not change what evaluates; unwrap them so
-	// `(vscode).l10n` or `const loc = (l10n as typeof l10n)` cannot slip by.
+	// Unwrap parens and type wrappers so `(vscode).l10n` or
+	// `const loc = (l10n as typeof l10n)` cannot slip by.
 	const unwrap = (node: ts.Expression): ts.Expression => {
 		let current = node;
 		while (

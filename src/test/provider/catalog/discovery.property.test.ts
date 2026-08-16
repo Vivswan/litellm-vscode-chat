@@ -74,12 +74,9 @@ suite("provider/discovery deployment merge properties", () => {
 	});
 
 	test("group entries never advertise more than the relevant providers' standalone constraints", () => {
-		// The registration aggregates and the untooled base entry collapse
-		// through the same collapseTokenConstraints home as deployment merging;
-		// this pins the invariant on those consumers, so a formula reintroduced
-		// inline (the shipped context-minus-output bug) fails here. Aggregates
-		// stand for the tool-capable providers; the untooled base entry stands
-		// for the whole group.
+		// Registration aggregates and the untooled base entry collapse through the
+		// same collapseTokenConstraints home as deployment merging, so an inline
+		// formula (the shipped context-minus-output bug) fails here.
 		fc.assert(
 			fc.property(fc.array(providerArb, { minLength: 1, maxLength: 5 }), (providers) => {
 				const first = expectDefined(providers[0]);
@@ -110,14 +107,11 @@ suite("provider/discovery expectedFailures retry properties", () => {
 	useMsw();
 
 	/**
-	 * The per-endpoint retry invariant over every expectedFailures combination
-	 * and every endpoint-failure combination: an expected endpoint gets exactly
-	 * one attempt, an unexpected one keeps the full budget, a model/info
-	 * success skips the fallback entirely, and expectations never change WHICH
-	 * failure is terminal. Attempts are counted through msw (5xx via
-	 * emptyErrorResponse, the retryable shape). Run count is capped: retried
-	 * 5xx attempts pay the SDK's real backoff sleeps, and the sixteen
-	 * combinations are covered well within the cap.
+	 * The per-endpoint retry invariant over every expectedFailures and endpoint-failure
+	 * combination: an expected endpoint gets exactly one attempt, an unexpected one keeps
+	 * the full budget, a model/info success skips the fallback, and expectations never
+	 * change WHICH failure is terminal. Run count is capped because retried 5xx attempts
+	 * pay the SDK's real backoff sleeps.
 	 */
 	test("expected endpoints get one attempt, unexpected ones the full budget, per endpoint", async function () {
 		this.timeout(120000);

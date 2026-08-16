@@ -13,12 +13,9 @@ export function buildExposedModelId(rawModelId: string, serverId: string, server
 /**
  * Invert buildExposedModelId without knowing the registration-time server
  * count: strip the "<serverId>/" namespace when the ID carries it, else the
- * ID is already raw (single-server registrations and provider groups, which
- * always register with a count of 1). The one ambiguity is a raw ID that
- * itself begins with "<serverId>/" registered at count <= 1 - no LiteLLM
- * route mints such IDs, and the round-trip property test pins the exact
- * contract. Consumers without a route map (the dashboard's state builder)
- * resolve raw IDs through this instead of open-coding the strip.
+ * ID is already raw. The one ambiguity is a raw ID that itself begins with
+ * "<serverId>/" registered at count <= 1 - no LiteLLM route mints such IDs,
+ * and the round-trip property test pins the exact contract.
  */
 export function rawModelIdFromExposed(exposedId: string, serverId: string): string {
 	const prefix = `${serverId}/`;
@@ -71,15 +68,11 @@ export function deriveTokenConstraints(provider: LiteLLMProvider | undefined): T
 
 /**
  * The conservative collapse of several contributors' effective constraints:
- * each contributor's standalone constraints are derived, the per-field
- * minimum is taken, and the combined output limit counts as server-declared
- * only when every contributor declared one (see combinedOutputLimitSource
- * above). The one home of the min-collapse rule: deployment merging
- * (mergeModelDeployments) and registration's cheapest/fastest aggregates both
- * advertise through it, so neither can advertise more input than the
- * strictest contributor accepts, whichever combination of raw limit fields
- * each contributor set. The non-empty parameter type keeps the minimums
- * grounded in at least one real contributor.
+ * each contributor's standalone constraints are derived and the per-field
+ * minimum is taken. The one home of the min-collapse rule: deployment merging
+ * and registration's cheapest/fastest aggregates both advertise through it, so
+ * neither can advertise more input than the strictest contributor accepts. The
+ * non-empty parameter type keeps the minimums grounded in a real contributor.
  */
 export function collapseTokenConstraints(
 	contributors: readonly [LiteLLMProvider, ...LiteLLMProvider[]]
@@ -109,9 +102,8 @@ export interface ReportedLimits {
 
 /**
  * The reported-vs-floor-filled judgment for a set of contributors, shared by
- * deployment merging (mergeModelDeployments) and the capability baseline
- * (discoveredCapabilityBaseline) so the two can never classify one field
- * differently.
+ * deployment merging and the capability baseline so the two can never classify
+ * one field differently.
  */
 export function reportedLimits(providers: readonly LiteLLMProvider[]): ReportedLimits {
 	const context = providers.some((p) => normalizePositiveNumber(p.context_length) !== undefined);
@@ -146,15 +138,14 @@ const SERVER_COST_FIELDS = Object.keys({
 } satisfies Record<keyof PerTokenCosts, true>) as readonly (keyof PerTokenCosts)[];
 
 /**
- * The cost fields of one baseline, normalized. LiteLLM (observed on v1.93)
- * stamps input/output_cost_per_token: 0 onto /model/info entries that declare
- * no pricing at all, so a zero PAIR reads as undeclared and drops every cost
- * field (stray cache or long-context costs beside the stamp included), exactly
- * like pricingFromCosts' display rule - the walk's server level must never
- * carry a price registration refused to advertise. Otherwise each field some
- * contributor declared with a usable cost is stored (normalizeCostPerToken
- * canonicalizes -0 to +0, so a stored zero can never ride a negative sign
- * into the per-million conversion).
+ * The cost fields of one baseline, normalized. LiteLLM stamps
+ * input/output_cost_per_token: 0 onto /model/info entries that declare no
+ * pricing at all, so a zero PAIR reads as undeclared and drops every cost
+ * field, exactly like pricingFromCosts' display rule - the walk's server level
+ * must never carry a price registration refused to advertise. Otherwise each
+ * field some contributor declared with a usable cost is stored
+ * (normalizeCostPerToken canonicalizes -0 to +0, so a stored zero cannot ride
+ * a negative sign into the per-million conversion).
  */
 function serverCostValues(costs: PerTokenCosts): Partial<ServerCapabilityValues> {
 	if (
@@ -175,12 +166,10 @@ function serverCostValues(costs: PerTokenCosts): Partial<ServerCapabilityValues>
 
 /**
  * The intersection of a contributor set's string lists: present only when
- * EVERY contributor carries an array (the same as-soon-as-one-lacks rule
- * deployment merging applies via intersectSupportedParams), holding the
- * strings every contributor lists. Providers-array entries are lenient
- * pass-throughs, so each list is re-narrowed element-wise before use - to
- * non-empty strings, the same vocabulary the user-record "string-array" kind
- * validates.
+ * EVERY contributor carries an array, holding the strings every contributor
+ * lists. Providers-array entries are lenient pass-throughs, so each list is
+ * re-narrowed element-wise to non-empty strings, the same vocabulary the
+ * user-record "string-array" kind validates.
  */
 function intersectReportedLists(lists: readonly (string[] | null | undefined)[]): readonly string[] | undefined {
 	const [first, ...rest] = lists;
@@ -199,16 +188,14 @@ function intersectReportedParams(providers: readonly LiteLLMProvider[]): readonl
 }
 
 /**
- * The reasoning-effort level list of a contributor set, from the
- * flag-derived lists discovery authored (reasoningEffortLevelsFromFlags):
- * present only when every contributor carries one, holding their
- * intersection. An EMPTY intersection (contributors flagging disjoint levels)
- * collapses to no signal, mirroring the all-negative-flags rule one layer
- * down: the server said nothing usable, so the menu falls back rather than
- * registering empty - only a user-written [] means "no levels", and that
- * value never passes through here. The one levels rule registration's
- * configurationSchemaFor and the capability baseline both read, so the schema
- * registration attaches and the walk's server level cannot disagree.
+ * The reasoning-effort level list of a contributor set, from the flag-derived
+ * lists discovery authored: present only when every contributor carries one,
+ * holding their intersection. An EMPTY intersection (contributors flagging
+ * disjoint levels) collapses to no signal, so the menu falls back rather than
+ * registering empty - only a user-written [] means "no levels", and that value
+ * never passes through here. The one levels rule registration's
+ * configurationSchemaFor and the capability baseline both read, so the two
+ * cannot disagree.
  */
 export function reportedReasoningLevels(providers: readonly LiteLLMProvider[]): readonly string[] | undefined {
 	const intersection = intersectReportedLists(providers.map((p) => p.reasoning_effort_levels));
@@ -226,11 +213,10 @@ export interface DiscoveredBaselineInput {
 	readonly reasoning: boolean;
 	/**
 	 * The per-token costs this entry's registration would have priced: present
-	 * ONLY for the shapes whose route pins the serving deployment's cost (sole
-	 * model_info deployments and per-provider entries). The untooled base entry
-	 * and the cheapest/fastest aggregates pass none - registration deliberately
-	 * never priced them, and the walk's server level must not offer what the
-	 * picker refused to advertise.
+	 * ONLY for the shapes whose route pins the serving deployment's cost. The
+	 * untooled base entry and the cheapest/fastest aggregates pass none -
+	 * registration deliberately never priced them, and the walk's server level
+	 * must not offer what the picker refused to advertise.
 	 */
 	readonly costs?: PerTokenCosts | undefined;
 }
@@ -239,33 +225,28 @@ export interface DiscoveredBaselineInput {
  * The server-reported capability baseline of one registered entry: the walk's
  * server-level input, carried on PreAttachModelInfo.litellm.serverDeclared.
  * Two separate facts ride here. The VALUES are the conservative aggregation
- * results exactly as registration advertises them (per-field minima over the
- * contributors' standalone constraints), present whenever ANY contributor
- * reported the field - so a lower-precedence catalog guess can never displace
- * a conservative server minimum, while a field no contributor reported stays
- * absent and lets the catalog fill it. `outputDeclared` is the stricter
- * every-contributor rule (combinedOutputLimitSource) and controls only
- * whether the output limit bypasses the request-side cap.
+ * results exactly as registration advertises them, present whenever ANY
+ * contributor reported the field - so a lower-precedence catalog guess can
+ * never displace a conservative server minimum, while a field no contributor
+ * reported stays absent and lets the catalog fill it. `outputDeclared` is the
+ * stricter every-contributor rule and controls only whether the output limit
+ * bypasses the request-side cap.
  *
  * max_input_tokens is present whenever ANY numeric limit was reported, not
  * only max_input_tokens itself: the collapse fills a missing input limit from
- * the reported context and output limits (min over the per-contributor
- * guesses), and that server-grounded number is what registration advertises -
- * re-deriving it from the collapsed context and output instead can overstate
- * it, because min(ctx_i - out_i) undercuts min(ctx) - min(out). Boolean
- * fields count as reported when any contributor carried the explicit flag
- * (or, for reasoning, the supported-params list); modality flags (vision,
- * audio, pdf) count as reported when the server supplied a modality array at
- * all - a model_info entry that explicitly disclaims vision drops its
- * architecture on the way here, an accepted conflation of "reported false"
- * with "unreported". The prompt-caching and response-schema flags hold only
- * when every contributor advertises them (the same every-contributor rule the
- * registered supportsPromptCaching metadata applies, so the baseline can
- * never say more than the entry advertised); the supported-params list and
- * the flag-derived reasoning_effort_levels list are each present only when
- * every contributor carries one and hold their intersection; costs appear
- * only for pricing-eligible shapes (see
- * DiscoveredBaselineInput.costs) under serverCostValues' zero-pair rule.
+ * the reported context and output limits, and that server-grounded number is
+ * what registration advertises - re-deriving it from the collapsed context and
+ * output can overstate it, because min(ctx_i - out_i) undercuts min(ctx) -
+ * min(out). Boolean fields count as reported when any contributor carried the
+ * explicit flag (or, for reasoning, the supported-params list); modality flags
+ * count as reported when the server supplied a modality array at all, an
+ * accepted conflation of "reported false" with "unreported". The
+ * prompt-caching and response-schema flags hold only when every contributor
+ * advertises them, so the baseline can never say more than the entry
+ * advertised; the supported-params and reasoning_effort_levels lists are each
+ * present only when every contributor carries one and hold their
+ * intersection; costs appear only for pricing-eligible shapes under
+ * serverCostValues' zero-pair rule.
  */
 export function discoveredCapabilityBaseline(input: DiscoveredBaselineInput): ServerDeclaredCapabilities {
 	const { providers, modalities, toolCalling, reasoning } = input;

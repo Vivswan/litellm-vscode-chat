@@ -1,22 +1,16 @@
 /**
  * The usage polling engine: keeps the UsageStore in step with the declared
- * servers on a user-configured cadence, headless (alerts must fire without
- * the dashboard open). Effects arrive through the injected env, so the whole
- * engine is unit-testable without vscode or real time (the shared
- * timer/clock seams from shared/util/timer.ts, like openRouterCatalog.ts).
+ * servers, headless (alerts must fire without the dashboard open). Effects
+ * arrive through the injected env, so the engine is unit-testable without
+ * vscode or real time (the shared timer/clock seams).
  *
- * Cadence rules: the poll interval is milliseconds (usage.pollInterval), 0
- * disables polling entirely (no background requests; refreshNow still works
- * for the palette command and the dashboard's sync button). Endpoints a probe
- * classified permanently unavailable are skipped on scheduled polls -
- * availability is re-probed only on an explicit refresh (refreshNow) or a
- * servers-setting change - so a DB-less proxy is asked at most once per
- * configuration, never hammered. Transiently failing endpoints retry
- * normally after one failure, then back off exponentially on consecutive
- * failures (2x, 4x, 8x, 16x the interval), so an address that never answers
- * stops burning a full discovery timeout every poll while a proxy back from
- * an outage still resumes on its own; a success, an explicit refresh, or a
- * servers-setting change resets the backoff.
+ * Cadence rules: usage.pollInterval is milliseconds, 0 disables polling
+ * entirely (no background requests; refreshNow still works). Permanently
+ * unavailable endpoints are skipped on scheduled polls - re-probed only on an
+ * explicit refresh or a servers-setting change - so a DB-less proxy is asked
+ * at most once per configuration. Transient failures retry normally after one
+ * failure, then back off exponentially (2x, 4x, 8x, 16x the interval); a
+ * success, an explicit refresh, or a servers-setting change resets it.
  *
  * Log discipline: one info-level English classification per endpoint state
  * transition (labels, endpoint ids, reasons, error names - never
@@ -45,8 +39,8 @@ const BACKOFF_MAX_EXPONENT = 4;
 
 /**
  * The scheduled-attempt spacing after `failures` consecutive transient
- * failures, as a multiple of the poll interval: 1 after a single failure (one
- * bad poll still retries at the normal cadence), then doubling to the cap.
+ * failures, as a multiple of the poll interval: 1 after a single failure, then
+ * doubling to the cap.
  */
 function backoffMultiplierOf(failures: number): number {
 	return failures <= 1 ? 1 : 2 ** Math.min(failures - 1, BACKOFF_MAX_EXPONENT);
@@ -75,15 +69,14 @@ export interface UsagePollerEnv {
 	pollIntervalMs(): number;
 	/**
 	 * The delay from start() to the first pass (usage.initialRefreshDelay):
-	 * soon, but never on the activation path. Optional like timer/clock; the
-	 * spec default applies when absent.
+	 * soon, but never on the activation path. Optional; the spec default applies.
 	 */
 	initialRefreshDelayMs?(): number;
 	/**
 	 * The refresh delay after a servers-setting change
 	 * (usage.serversChangeRefreshDelay): long enough to coalesce settings.json
 	 * keystroke bursts, short enough that a just-added server shows usage
-	 * promptly. Optional like timer/clock; the spec default applies when absent.
+	 * promptly. Optional; the spec default applies.
 	 */
 	serversChangeRefreshDelayMs?(): number;
 	alertThresholds(): readonly number[];
@@ -94,9 +87,8 @@ export interface UsagePollerEnv {
 
 /**
  * One endpoint attempt that failed during an explicit refresh pass, as
- * classification data only (endpoint id, closed failure vocabulary, HTTP
- * status, unavailability reason - never message text). Feeds the refresh
- * command's failure toast; never written to the log.
+ * classification data only - never message text. Feeds the refresh command's
+ * failure toast; never written to the log.
  */
 export interface UsageEndpointFailure {
 	readonly endpoint: UsageEndpointId;
@@ -142,8 +134,8 @@ function describeEndpointFailure(failure: UsageEndpointFailure): string {
  * The failures worth an explicit-refresh acknowledgment. "unsupported" is a
  * documented normal shape (a DB-less proxy answers 400/404 forever), so a
  * server whose only failures are unsupported endpoints must never trip the
- * toast - the card and empty state already say so - while an unreadable
- * secrets blob means the user's refresh never reached the network at all.
+ * toast; an unreadable secrets blob means the refresh never reached the
+ * network at all.
  */
 function actionableFailureText(server: UsageServerRefreshOutcome): string | undefined {
 	if (server.secretsUnreadable === true) {
@@ -158,12 +150,10 @@ function actionableFailureText(server: UsageServerRefreshOutcome): string | unde
 
 /**
  * The compact per-server detail for an explicit refresh in which NO server
- * returned any usage data: "alpha: /key/info 401 forbidden; beta: /key/info
- * timeout". Undefined when any endpoint succeeded, when nothing was probed,
- * or when nothing actionable failed - partial failures stay toast-free (the
- * cards carry their own state lines), and all-unsupported servers (DB-less
- * proxies, a documented normal shape) stay silent. Template-only by
- * construction: labels, endpoint paths, status numbers, and fixed vocabulary.
+ * returned any usage data. Undefined when any endpoint succeeded, when nothing
+ * was probed, or when nothing actionable failed, so partial failures and
+ * all-unsupported servers stay toast-free. Template-only by construction:
+ * labels, endpoint paths, status numbers, and fixed vocabulary.
  */
 export function usageRefreshFailureSummary(outcome: UsageRefreshOutcome): string | undefined {
 	if (outcome.servers.some((server) => server.succeededAny)) {
@@ -202,10 +192,8 @@ export class UsagePoller {
 	private probePending = false;
 	/**
 	 * Consecutive error-kind failure streaks per server label and endpoint,
-	 * driving the exponential backoff on scheduled polls. Poller-internal
-	 * scheduling state, deliberately NOT in the store: the streak count is not
-	 * something any UI surface renders, and keeping it here means no carried
-	 * store state can ever replay a stale backoff after a reset.
+	 * driving the exponential backoff on scheduled polls. Deliberately NOT in
+	 * the store: no carried store state can then replay a stale backoff.
 	 */
 	private readonly errorStreaks = new Map<string, Map<UsageEndpointId, EndpointFailureStreak>>();
 	private disposed = false;
@@ -221,7 +209,7 @@ export class UsagePoller {
 		this.schedule(this.initialRefreshDelayMs());
 	}
 
-	/** The env's configured delays, spec-defaulted when the env leaves them out (like timer/clock). */
+	/** The env's configured delays, spec-defaulted when the env leaves them out. */
 	private initialRefreshDelayMs(): number {
 		return this.env.initialRefreshDelayMs?.() ?? NUMBER_SETTING_SPECS["usage.initialRefreshDelay"].default;
 	}
@@ -239,31 +227,23 @@ export class UsagePoller {
 	 * Whether the pass in flight (or queued behind one) was explicitly
 	 * requested - the palette command or a dashboard Refresh now. Scheduled
 	 * polls, backoff retries, servers-change probes, and open-triggered
-	 * staleness passes all stay false: the Refresh-now button wears its
-	 * busy label only for work the user asked that button's intent to do,
-	 * because a spinner on every background pass read as the app doing
-	 * something unprompted.
+	 * staleness passes all stay false, so the Refresh-now button wears its busy
+	 * label only for work that button was asked to do.
 	 */
 	isRefreshingExplicitly(): boolean {
 		return (this.running !== undefined && this.runningExplicit) || this.queued?.explicit === true;
 	}
 
-	/**
-	 * Notified after every completed refresh pass, per-listener isolated; the
-	 * dashboard refreshes on it. Multiple consumers subscribe independently
-	 * (the store's per-server events carry the finer-grained changes).
-	 */
+	/** Notified after every completed refresh pass, per-listener isolated; the dashboard refreshes on it. */
 	onDidRefresh(listener: () => void): { dispose(): void } {
 		this.refreshListeners.add(listener);
 		return { dispose: () => this.refreshListeners.delete(listener) };
 	}
 
 	/**
-	 * Notified when a refresh pass STARTS, per-listener isolated; the
-	 * dashboard re-pushes on it so an already-open panel's Refresh now
-	 * disables the moment ANY pass begins - scheduled polls included, which
-	 * would otherwise render an enabled button the engine will not honor
-	 * until the completion push.
+	 * Notified when a refresh pass STARTS, per-listener isolated; the dashboard
+	 * re-pushes on it so an open panel's Refresh now disables the moment ANY
+	 * pass begins, scheduled polls included.
 	 */
 	onDidStartRefresh(listener: () => void): { dispose(): void } {
 		this.startListeners.add(listener);
@@ -273,23 +253,20 @@ export class UsagePoller {
 	/**
 	 * Re-read the poll interval after a configuration change: rewires the
 	 * pending tick (interval 0 cancels it outright). Deliberately NO crossing
-	 * recomputation here: alerts evaluate on fetches only (docs/usage.md), so
-	 * a threshold edit must not toast from cached data - and with polling off
-	 * it must not toast at all. The status bar and the usage panel read the
-	 * thresholds live, so their severity updates without any store write; the
-	 * stored crossings re-baseline on the next fetch.
+	 * recomputation - alerts evaluate on fetches only, so a threshold edit must
+	 * not toast from cached data; the stored crossings re-baseline on the next
+	 * fetch, and the live-reading surfaces update without any store write.
 	 */
 	applyConfiguration(): void {
 		this.schedule(this.nextTickDelayMs());
 	}
 
 	/**
-	 * React to a servers-setting change: drop servers that left the setting,
-	 * and re-probe availability for the rest (an edited entry may point at a
-	 * different proxy or carry new credentials). The refresh itself runs only
-	 * while polling is on - with the interval at 0 the pending probe waits for
-	 * the next explicit refresh, keeping the documented "no background
-	 * requests" promise.
+	 * React to a servers-setting change: drop servers that left the setting, and
+	 * re-probe availability for the rest (an edited entry may point at a
+	 * different proxy or carry new credentials). With the interval at 0 the
+	 * pending probe waits for the next explicit refresh, keeping the documented
+	 * "no background requests" promise.
 	 */
 	applyServersChange(): void {
 		const { entries } = parseServersSetting(this.env.readServersSetting());
@@ -302,12 +279,10 @@ export class UsagePoller {
 
 	/**
 	 * One immediate refresh, availability re-probed, working whether or not
-	 * polling is on: the palette command and the dashboard's sync button.
-	 * Serialized with any pass in flight (a call during one queues exactly one
-	 * follow-up and resolves after it). Never rejects; resolves with the pass's
-	 * per-server outcomes so the caller can acknowledge a total failure, or
-	 * undefined when the poller was disposed before the pass completed
-	 * (cancellation must stay silent).
+	 * polling is on. Serialized with any pass in flight (a call during one
+	 * queues exactly one follow-up and resolves after it). Never rejects;
+	 * resolves with the pass's per-server outcomes, or undefined when the poller
+	 * was disposed before the pass completed (cancellation must stay silent).
 	 */
 	refreshNow(): Promise<UsageRefreshOutcome | undefined> {
 		return this.refresh(true, true);
@@ -315,17 +290,11 @@ export class UsagePoller {
 
 	/**
 	 * The dashboard-open refresh: one pass only when the stored numbers are
-	 * actually stale - no completed pass yet this session, or the last one
-	 * older than the effective poll interval (the interval's spec default
-	 * stands in as the staleness floor while polling is off, so an open can
-	 * never turn into an unbounded re-probe). A pass in flight or queued
-	 * counts as about-to-be-fresh and starts nothing, so re-focusing the
-	 * panel or opening twice in a minute never re-probes the fleet. Forced
-	 * like an explicit refresh (a stale open re-probes availability, the
-	 * behavior opening always had) but NOT explicit: the Refresh-now button
-	 * stays quiet. A pending servers-change probe overrides the whole gate
-	 * (see below). Returns the pass it started or joined, or undefined when
-	 * the data is fresh enough that none was needed.
+	 * stale - no completed pass yet this session, or the last one older than the
+	 * effective poll interval (the interval's spec default is the staleness
+	 * floor while polling is off). A pass in flight or queued counts as
+	 * about-to-be-fresh and starts nothing. Forced like an explicit refresh but
+	 * NOT explicit, so the Refresh-now button stays quiet.
 	 */
 	refreshIfStale(): Promise<UsageRefreshOutcome | undefined> | undefined {
 		if (this.disposed) {
@@ -334,8 +303,7 @@ export class UsagePoller {
 		// A pending availability probe (the servers setting changed) overrides
 		// every freshness reading: the stored numbers may describe servers or
 		// credentials that no longer exist, and with polling off nothing else
-		// would ever run the probe. refresh() serializes behind any pass in
-		// flight, and a forced pass consumes the pending flag.
+		// would ever run the probe.
 		if (this.probePending) {
 			return this.refresh(true, false);
 		}
@@ -380,9 +348,8 @@ export class UsagePoller {
 	private async refresh(force: boolean, explicit: boolean): Promise<UsageRefreshOutcome | undefined> {
 		// Checked here, not only in the pass: the teardown detaches a queued
 		// follow-up before the completion listeners run, so a listener that
-		// disposes the poller has no queue entry left for dispose() to settle -
-		// this guard is what stops the detached follow-up starting a phantom
-		// pass (and announcing its start) after disposal.
+		// disposes the poller leaves nothing for dispose() to settle, and this
+		// guard is what stops that follow-up starting a pass after disposal.
 		if (this.disposed) {
 			return undefined;
 		}
@@ -416,15 +383,12 @@ export class UsagePoller {
 			this.runningExplicit = false;
 			// The queued follow-up detaches BEFORE the completion listeners run:
 			// isRefreshingExplicitly reads the queue, and a listener firing with
-			// an explicit follow-up still attached published the contradiction
-			// "idle but explicitly refreshing" - an enabled button wearing the
-			// spinner. Detached first, completion publishes plain idle, and the
-			// follow-up's own start notification reports busy again in order.
+			// one still attached would publish "idle but explicitly refreshing".
 			const queued = this.queued;
 			this.queued = undefined;
 			// Completion is announced AFTER the engine reads idle, so a listener
-			// that re-publishes engine state (the dashboard push) reports the
-			// button re-enabled instead of freezing it on a stale "in flight".
+			// that re-publishes engine state reports the button re-enabled instead
+			// of freezing it on a stale "in flight".
 			for (const listener of this.refreshListeners) {
 				try {
 					listener();
@@ -441,8 +405,7 @@ export class UsagePoller {
 	private async runOnce(force: boolean): Promise<UsageRefreshOutcome | undefined> {
 		if (force) {
 			// A forced pass re-probes every endpoint, so it satisfies any pending
-			// servers-change probe; without this a refreshNow right after a
-			// servers edit would be followed by a redundant prompt pass.
+			// servers-change probe.
 			this.probePending = false;
 		}
 		let outcome: UsageRefreshOutcome | undefined;
@@ -455,18 +418,15 @@ export class UsagePoller {
 			this.env.log("Usage refresh pass failed", { error: error instanceof Error ? error.name : typeof error });
 		}
 		if (outcome !== undefined) {
-			// Only a pass that ran to completion counts for staleness: an
-			// interrupted one (disposal mid-pass) proved nothing about the data.
-			// A pass whose servers all FAILED still counts - the numbers are as
-			// fresh as the fleet allows, and re-fetching on every open is the
-			// behavior refreshIfStale exists to end.
+			// Only a pass that ran to completion counts for staleness; an
+			// interrupted one proved nothing. A pass whose servers all FAILED still
+			// counts - the numbers are as fresh as the fleet allows.
 			this.lastCompletedPassAt = this.clock.now();
 		}
 		// Rescheduled at every exit so the cadence survives pass failures; a
 		// mid-pass interval edit is honored here. A probe that became pending
-		// while this pass ran must not be postponed to the full interval, so
-		// the delay honors it (see nextTickDelayMs). Completion listeners fire
-		// in refresh()'s finally instead, after the engine reads idle.
+		// while this pass ran must not be postponed to the full interval, so the
+		// delay honors it (see nextTickDelayMs).
 		this.schedule(this.nextTickDelayMs());
 		return outcome;
 	}
@@ -523,9 +483,8 @@ export class UsagePoller {
 		// A re-pointed entry is a different server: carried standings and data
 		// would describe the old host, so both reset with the URL.
 		const sameServer = previous !== undefined && normalizeBaseUrl(previous.baseUrl) === normalizeBaseUrl(entry.baseUrl);
-		// A forced pass (explicit refresh, servers change) attempts immediately
-		// and restarts the failure count; a re-pointed entry's streaks describe
-		// the old host.
+		// A forced pass attempts immediately and restarts the failure count; a
+		// re-pointed entry's streaks describe the old host.
 		if (force || !sameServer) {
 			this.errorStreaks.delete(entry.label);
 		}
@@ -549,8 +508,8 @@ export class UsagePoller {
 		} catch (error) {
 			// Skipped for this pass, like the sync engine's unreadable-secrets
 			// branch: the next pass reads again, and the carried state keeps
-			// rendering. An explicit refresh still acknowledges it (the outcome
-			// carries the flag; the error itself stays out of the toast).
+			// rendering. The outcome flag lets an explicit refresh acknowledge it;
+			// the error itself stays out of the toast.
 			secretsUnreadable = true;
 			this.env.log("Reading a server entry's stored secrets failed; usage refresh skipped", {
 				label: entry.label,
@@ -620,7 +579,7 @@ export class UsagePoller {
 			}
 			if (endpoints.keyInfo.kind === "unavailable") {
 				// No key answer means no proof the carried rollup still belongs to
-				// this key; the same DB serves both endpoints anyway.
+				// this key.
 				user = undefined;
 			}
 			if (key?.hasUser === true && this.shouldAttempt(entry.label, "userInfo", endpoints.userInfo)) {
@@ -666,12 +625,10 @@ export class UsagePoller {
 		// server must still alert.
 		const crossedBefore = sameServer && previous !== undefined ? previous.budget.crossedThresholds : [];
 		const newly = newlyCrossedThresholds(crossedBefore, budget.crossedThresholds);
-		// Reset or all-failed standings can compute "unknown" (a forced pass
-		// clears the carried states; a transient outage fails both endpoints),
-		// which would silently drop a card the user was looking at. Once this
-		// server proved availability, only a permanent both-endpoints-unavailable
-		// verdict may hide it again; the retained data keeps rendering with its
-		// failure state line.
+		// Reset or all-failed standings can compute "unknown", which would
+		// silently drop a card the user was looking at. Once this server proved
+		// availability, only a permanent both-endpoints-unavailable verdict may
+		// hide it again.
 		const computedAvailability = usageAvailabilityOf(endpoints);
 		const availability =
 			computedAvailability === "unknown" && sameServer && previous.availability === "available"
@@ -697,9 +654,8 @@ export class UsagePoller {
 	}
 
 	/**
-	 * The outcome record for one failed endpoint attempt: the same
-	 * classification data classifyFailure derives (closed vocabulary, status,
-	 * unavailability reason), for the refresh command's feedback path.
+	 * The outcome record for one failed endpoint attempt: the classification
+	 * data classifyFailure derives, for the refresh command's feedback path.
 	 */
 	private failureOf(endpoint: UsageEndpointId, error: unknown): UsageEndpointFailure {
 		const reason = usageUnavailabilityOf(error);
@@ -725,11 +681,10 @@ export class UsagePoller {
 
 	/**
 	 * Whether a scheduled pass attempts this endpoint: never while it stands
-	 * permanently unavailable, and not while an error streak's backoff window
-	 * is still open - `interval * 2^min(failures - 1, cap)` since the last
-	 * attempt, so one failure retries at the normal cadence and a dead address
-	 * settles at 16x. Forced passes never reach the streak check (refreshServer
-	 * resets the streaks first), and a clock that jumped backwards fails open.
+	 * permanently unavailable, and not while an error streak's backoff window is
+	 * still open - `interval * 2^min(failures - 1, cap)` since the last attempt.
+	 * Forced passes never reach the streak check (refreshServer resets the
+	 * streaks first), and a clock that jumped backwards fails open.
 	 */
 	private shouldAttempt(label: string, endpoint: UsageEndpointId, state: UsageEndpointState): boolean {
 		if (state.kind === "unavailable") {
@@ -753,14 +708,13 @@ export class UsagePoller {
 
 	/**
 	 * Record a failed endpoint attempt's effect on its backoff streak, logging
-	 * exactly one line per multiplier escalation (2x, 4x, 8x, 16x - four lines,
-	 * then silence; skipped attempts never log). An unavailable verdict ends
-	 * the streak: those endpoints are sticky-skipped, not backed off.
+	 * exactly one line per multiplier escalation (skipped attempts never log).
+	 * An unavailable verdict ends the streak: those endpoints are sticky-skipped,
+	 * not backed off.
 	 */
 	private trackFailure(label: string, endpoint: UsageEndpointId, state: UsageEndpointState): void {
 		if (this.disposed) {
-			// An aborted attempt proves nothing (classifyFailure returned the
-			// carried standing); it must not lengthen the backoff.
+			// An aborted attempt proves nothing; it must not lengthen the backoff.
 			return;
 		}
 		if (state.kind !== "error") {
@@ -787,9 +741,8 @@ export class UsagePoller {
 	/** A success ends the endpoint's streak; leaving an engaged backoff logs one recovery line. */
 	private clearStreak(label: string, endpoint: UsageEndpointId): void {
 		if (this.disposed) {
-			// A success racing disposal proves nothing the pass can keep (its
-			// results are discarded before the store write), and a cancellation
-			// path must not log.
+			// A success racing disposal proves nothing the pass can keep, and a
+			// cancellation path must not log.
 			return;
 		}
 		const streaks = this.errorStreaks.get(label);
@@ -806,10 +759,9 @@ export class UsagePoller {
 	/**
 	 * Classify one endpoint failure into its next standing, logging exactly one
 	 * info-level line per state TRANSITION (a server answering 404 every probe
-	 * must not write a line per poll). English classifications only: label,
-	 * endpoint id, reason or error name, HTTP status - never message text. The
-	 * returned standing carries the same status and closed failure vocabulary
-	 * so the dashboard card can say why its numbers are not updating.
+	 * must not write a line per poll). English classifications only - never
+	 * message text. The returned standing carries the same status and closed
+	 * vocabulary, so the dashboard card can say why its numbers are stuck.
 	 */
 	private classifyFailure(
 		label: string,
