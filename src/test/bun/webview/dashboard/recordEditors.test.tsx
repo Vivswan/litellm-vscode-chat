@@ -14,7 +14,13 @@ import { act } from "react";
 import { CONSUMED_CAPABILITY_FIELDS } from "../../../../shared/config/capabilityResolution";
 import { App } from "../../../../webview/dashboard/app";
 import { helpModelParameterPrefix } from "../../../../webview/dashboard/helpText";
-import { CatalogPicker, capabilityKeySuggestions } from "../../../../webview/dashboard/recordEditors";
+import type { GroupIssueView } from "../../../../webview/dashboard/recordEditors";
+import {
+	anyRecordProblem,
+	CatalogPicker,
+	capabilityKeySuggestions,
+	RecordStatusSlot,
+} from "../../../../webview/dashboard/recordEditors";
 import { SettingsSection } from "../../../../webview/dashboard/settings";
 import { makeModel, makeSettings, makeState, statePush } from "../fixtures";
 import {
@@ -391,6 +397,58 @@ test("other-scope records render as the same table without edit affordances, chi
 	expect(other.querySelector("button.chip-field")).toBeNull();
 	expect(other.querySelector(".chip-add")).toBeNull();
 	expect(other.querySelector(".edit-cell")).toBeNull();
+	// A quiet read-only frame closes flush: no footer row, no message slot.
+	expect(other.querySelector(".editor-actions")).toBeNull();
+});
+
+test("a read-only other-scope problem speaks in the frame's own message row", () => {
+	// A read-only chip's invalid mark is a border with no popover behind it,
+	// so the frame mounts its footer-position message row - the editable
+	// footers' slot, message alone - exactly while a problem stands. Static
+	// per push, so the conditional row shifts nothing under a live edit.
+	const root = mount(<App />);
+	const settings = makeSettings({
+		modelParameters: {
+			editScope: "global",
+			value: {},
+			// `_force` takes true or a list; the stored string is the problem.
+			otherScopes: [{ scope: "workspace", value: { "gpt-4": { temperature: 0.2, _force: "yes" } } }],
+			effective: { "gpt-4": { temperature: 0.2 } },
+		},
+	});
+	pushToWebview(statePush(makeState({ settings })));
+
+	const other = sectionByHeading(root, "Model parameters").querySelector(".other-scope") as HTMLElement;
+	const verdict = other.querySelector(".editor-actions .editor-status .record-verdict");
+	expect(verdict).not.toBeNull();
+	expect(verdict?.classList.contains("error")).toBe(true);
+	expect(verdict?.textContent).toContain("gpt-4");
+	expect(verdict?.textContent).toContain("Enter true or a list of parameter names");
+	// Visible words, not an sr-only echo: the line is the frame's one visible
+	// explanation of the red border, with the whole text in its title.
+	expect(verdict?.classList.contains("sr-only")).toBe(false);
+	expect(verdict?.getAttribute("title")).toContain("Enter true or a list of parameter names");
+	// No write path here, so no refusal voice shares the slot.
+	expect(other.querySelector(".failure-note")).toBeNull();
+});
+
+test("the shared status slot stands alone for record displays without a write path", () => {
+	// The contract a consumer outside the two editors gets (the read-only
+	// frames today, the server form's entry-record display tomorrow): no
+	// refusal channel means no alert region that could never speak, and the
+	// verdict renders on its own. anyRecordProblem is the mount gate - hints
+	// alone give the verdict no voice, so they must not mount the row.
+	const groups = [{ prefix: "gpt-4", params: [{ key: "temperature", valueText: "oops" }] }];
+	const issues: GroupIssueView[] = [
+		{ prefix: undefined, rows: [{ problem: { field: "value", message: "stated problem" } }] },
+	];
+	const root = mount(<RecordStatusSlot groups={groups} issues={issues} />);
+	expect(root.querySelector(".failure-note")).toBeNull();
+	expect(root.querySelector("[role='alert']")).toBeNull();
+	expect(root.querySelector(".record-verdict")?.textContent).toContain("stated problem");
+	expect(anyRecordProblem(issues)).toBe(true);
+	expect(anyRecordProblem([{ prefix: undefined, rows: [{ hint: "advisory only" }] }])).toBe(false);
+	expect(anyRecordProblem([{ prefix: "bad matcher", rows: [] }])).toBe(true);
 });
 
 // === The chip popover ===
@@ -447,7 +505,8 @@ test("popover validation: a bad value marks the chip and blocks Apply; the messa
 test("the popover's status slot is reserved and sits after its actions", () => {
 	// The popover's slot is reserved and sits AFTER its actions, so a message
 	// landing per keystroke cannot shove Remove field under the pointer. The
-	// rows themselves carry no slot; the card's verdict covers the footer.
+	// rows themselves carry no slot; the card's verdict rides the footer's
+	// message slot.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -1589,8 +1648,8 @@ test("an intentFailed after Apply reopens the draft dirty with the failure note"
 });
 
 test("the refusal outranks the verdict in the slot they share", () => {
-	// One reserved line, two speakers: the refusal holds the box and the
-	// verdict covers it, so only the refusal renders while both stand.
+	// One message slot, two voices: while the refusal speaks, the verdict
+	// stands down, so the slot never stacks two lines.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({}) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -1612,17 +1671,32 @@ test("the refusal outranks the verdict in the slot they share", () => {
 	expect(section().querySelector(".record-verdict")).toBeNull();
 });
 
-test("the failure slot is reserved: mounted empty on a clean editor, before any failure exists", () => {
-	// The refusal lands async under the rows (the charter's
-	// transients-never-move-anything clause): the slot holds its line whether
-	// or not it speaks, so the action bar cannot move when the envelope lands.
+test("the footer's message slot is always mounted, its voices inside it, and the quiet footer holds no band", () => {
+	// The refusal lands async in the buttons' own row (the charter's
+	// transients-never-move-anything clause): the slot pre-exists as a flex
+	// item over the row's free space, so the envelope landing moves nothing -
+	// and a quiet card's footer carries no reserved band above the buttons.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
-	const note = section().querySelector(".failure-note");
+	const slot = section().querySelector(".editor-actions .editor-status");
+	expect(slot).not.toBeNull();
+	expect(slot?.textContent).toBe("");
+	const note = slot?.querySelector(".failure-note");
 	expect(note).not.toBeNull();
-	expect(note?.textContent).toBe("");
 	expect(note?.classList.contains("error")).toBe(false);
+
+	// A verdict mounts INSIDE the same slot, between the mode actions and the
+	// commit trio, never as a band of its own.
+	fireClick(chipFor(section(), "temperature"));
+	fireInput(popoverOf(section()).querySelector("input.value") as HTMLInputElement, "not json");
+	fireClick(chipFor(section(), "temperature"));
+	const verdict = section().querySelector(".editor-actions .editor-status .record-verdict");
+	expect(verdict).not.toBeNull();
+	const actions = section().querySelector(".editor-actions") as HTMLElement;
+	const slotIndex = Array.from(actions.children).indexOf(slot as Element);
+	expect(slotIndex).toBeGreaterThan(0);
+	expect(actions.children[actions.children.length - 1]?.classList.contains("editor-commit")).toBe(true);
 });
 
 test("a draft edited back to the store value counts as unchanged: Apply and Discard disable, nothing posts", () => {

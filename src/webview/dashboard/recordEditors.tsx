@@ -264,12 +264,12 @@ export interface ExternalRecordEdit {
 export type IntentFailureOutcome = Extract<IntentOutcome, { result: "fail" }>;
 
 function FailureNote({ failure, dirty }: { failure: IntentFailureOutcome | undefined; dirty: boolean }) {
-	// One line, reserved whether or not it speaks (dashboard.css
-	// .failure-note): the refusal lands async and must not move the action bar.
-	// Headline only - an arbitrary-length detail never rides a reserved line -
-	// with the full message in the title and an sr-only span. role="alert" on
-	// the always-mounted slot: a live region only announces changes to an
-	// element that already exists. The text stays webview-only.
+	// Always mounted, speaking or not (the status slot's grid cell,
+	// dashboard.css .editor-status): the refusal lands async and must not move
+	// the action bar. Headline only - an arbitrary-length detail never rides a
+	// one-line slot - with the full message in the title and an sr-only span.
+	// role="alert" on the always-mounted element: a live region only announces
+	// changes to an element that already exists. The text stays webview-only.
 	const spoken = dirty ? failure : undefined;
 	const detail = spoken !== undefined ? statusErrorDetail(spoken.message) : undefined;
 	return (
@@ -1721,7 +1721,7 @@ function openFieldAddress(groups: readonly PrefixGroup[], popover: ChipPopoverTa
  * The card's one validation verdict: the worst problem in draft order, named
  * by the matcher it owns, skipping the one field an open popover already
  * states. Card-scoped because a row cannot hold this line - see
- * dashboard.css .record-verdict.
+ * dashboard.css .editor-status.
  */
 function recordVerdict(
 	groups: readonly PrefixGroup[],
@@ -1747,7 +1747,7 @@ function recordVerdict(
 	return worst === undefined ? undefined : { ...worst, others: standing.length - 1 };
 }
 
-/** The verdict as the footer's covering line; the reserved slot under it is the refusal's, empty while it is quiet. */
+/** The verdict as the status slot's message line; it yields the slot to the refusal while one stands. */
 function RecordVerdictLine({
 	groups,
 	issues,
@@ -1766,8 +1766,8 @@ function RecordVerdictLine({
 	const more =
 		verdict.others === 0 ? "" : verdict.others === 1 ? l10n.t("(+1 more)") : l10n.t("(+{0} more)", verdict.others);
 	const spoken = `${verdict.matcher}: ${verdict.message}${more === "" ? "" : ` ${more}`}`;
-	// The line clips visually at extreme widths; the text stays whole in the
-	// DOM (and in the title for pointer readers), so nothing is lost.
+	// The line clips visually where the slot runs short; the text stays whole
+	// in the DOM (and in the title for pointer readers), so nothing is lost.
 	return (
 		<p className="record-verdict error" title={spoken}>
 			<code className="font-mono">{verdict.matcher}</code>
@@ -1775,6 +1775,49 @@ function RecordVerdictLine({
 			{more === "" ? null : <span className="record-verdict-more">{` ${more}`}</span>}
 		</p>
 	);
+}
+
+/**
+ * The record frames' one message slot, shared by the editable footers, the
+ * read-only other-scope frames, and any future record display (the server
+ * form's entry records). An always-mounted flex item over the footer row's
+ * free space (dashboard.css .editor-status), so a message mounting in it
+ * never changes the row's wrap points or moves the buttons beside it. Two
+ * voices, one cell: the async write refusal (role="alert", mounted before it
+ * speaks) outranks the validation verdict; surfaces with no write path pass
+ * no refusal channel and render the verdict alone.
+ */
+export function RecordStatusSlot({
+	groups,
+	issues,
+	openField,
+	refusal,
+}: {
+	groups: readonly PrefixGroup[];
+	issues: readonly GroupIssueView[];
+	/** The open field popover's "groupIndex:rowIndex"; the verdict skips the one problem stated there. */
+	openField?: string | undefined;
+	/** The owning draft's write-refusal channel; absent on surfaces with no write path (the read-only frames). */
+	refusal?: { readonly failure: IntentFailureOutcome | undefined; readonly dirty: boolean } | undefined;
+}) {
+	const refusing = refusal !== undefined && refusal.failure !== undefined && refusal.dirty;
+	return (
+		<span className="editor-status">
+			{refusal !== undefined ? <FailureNote failure={refusal.failure} dirty={refusal.dirty} /> : null}
+			{refusing ? null : <RecordVerdictLine groups={groups} issues={issues} openField={openField} />}
+		</span>
+	);
+}
+
+/**
+ * Whether any standing problem would give the verdict a voice. The read-only
+ * frames mount their message row only then: their problems are static per
+ * state push (nothing re-validates per keystroke), so a conditional row
+ * cannot shift geometry under a live edit the way the editable footers'
+ * always-mounted slot guards against.
+ */
+export function anyRecordProblem(issues: readonly GroupIssueView[]): boolean {
+	return issues.some((issue) => issue.prefix !== undefined || issue.rows.some((row) => row.problem !== undefined));
 }
 
 /** The row list's accessible name; the rows carry no header row to name them any more. */
@@ -1878,6 +1921,10 @@ function flagDirectivesFor(kind: RecordEditorKind): readonly FieldDirective[] {
  * controls cannot fully show keeps a raw chip. A row the open popover is
  * editing stays pinned visible, so absorption can never unmount the popover
  * mid-keystroke (the focused-row hold, in table form).
+ *
+ * Omitting a row here can hide no problem: directiveRowAbsorbed
+ * (recordDraft.ts) keeps any row the parse flags visible - absorbed implies
+ * valid, so every problem row has a chip to carry its mark.
  */
 function chipRowIndices(
 	kind: RecordEditorKind,
@@ -3150,13 +3197,6 @@ export function ModelParametersEditor({
 					</>
 				)}
 				<div className="toolbar editor-actions">
-					{/* One reserved line, two speakers: the refusal holds the box (async,
-					    so it must never move the buttons) and the validation verdict
-					    covers it while the refusal is quiet. */}
-					<FailureNote failure={draft.failure} dirty={draft.dirty} />
-					{draft.failure === undefined || !draft.dirty ? (
-						<RecordVerdictLine groups={groups} issues={issueViews} openField={openField} />
-					) : null}
 					{json === undefined ? (
 						<Button
 							variant="secondary"
@@ -3187,6 +3227,15 @@ export function ModelParametersEditor({
 							{l10n.t("Edit as rows")}
 						</Button>
 					)}
+					{/* The bar's one message slot rides its free space, between the mode
+					    actions and the commit trio: the refusal and the validation
+					    verdict speak here, one at a time, without moving either group. */}
+					<RecordStatusSlot
+						groups={groups}
+						issues={issueViews}
+						openField={openField}
+						refusal={{ failure: draft.failure, dirty: draft.dirty }}
+					/>
 					{/* The commit trio is ONE flex group so a narrow pane wraps it as a
 				    unit - a bare ms-auto on the status once let Apply wrap onto a
 				    line of its own, left-aligned under the mode actions. */}
@@ -3217,6 +3266,7 @@ export function ModelParametersEditor({
 				// cannot faithfully summarize must keep its raw chip here too.
 				const otherGroups = toGroups(other.value);
 				const otherParse = parseGroups(otherGroups);
+				const otherIssues = paramIssueViews(otherGroups, otherParse.ok ? [] : otherParse.problems, otherParse.hints);
 				return (
 					<div className="other-scope" key={other.scope}>
 						<OtherScopeNote scope={other.scope} />
@@ -3224,10 +3274,19 @@ export function ModelParametersEditor({
 							<RecordMatcherTable
 								kind="params"
 								groups={otherGroups}
-								issues={paramIssueViews(otherGroups, otherParse.ok ? [] : otherParse.problems, otherParse.hints)}
+								issues={otherIssues}
 								readOnly
 								onChange={() => undefined}
 							/>
+							{/* A read-only chip's mark is a border with no popover behind
+							    it, so the frame's own message row says what stands - the
+							    footer-position line, message alone (no write path, no
+							    buttons), mounted only while a problem does. */}
+							{anyRecordProblem(otherIssues) ? (
+								<div className="toolbar editor-actions">
+									<RecordStatusSlot groups={otherGroups} issues={otherIssues} />
+								</div>
+							) : null}
 						</div>
 					</div>
 				);
@@ -3437,11 +3496,6 @@ export function ModelCapabilitiesEditor({
 					</>
 				)}
 				<div className="toolbar editor-actions">
-					{/* One reserved line, two speakers: the params editor above states it. */}
-					<FailureNote failure={draft.failure} dirty={draft.dirty} />
-					{draft.failure === undefined || !draft.dirty ? (
-						<RecordVerdictLine groups={groups} issues={issueViews} openField={openField} />
-					) : null}
 					{json === undefined ? (
 						<Button
 							variant="secondary"
@@ -3472,6 +3526,14 @@ export function ModelCapabilitiesEditor({
 							{l10n.t("Edit as rows")}
 						</Button>
 					)}
+					{/* The bar's one message slot in its free space; the params editor
+					    above states the two-speaker rule. */}
+					<RecordStatusSlot
+						groups={groups}
+						issues={issueViews}
+						openField={openField}
+						refusal={{ failure: draft.failure, dirty: draft.dirty }}
+					/>
 					{/* The commit trio wraps as a unit; the parameters editor's twin. */}
 					<span className="editor-commit ms-auto flex flex-wrap items-center gap-2">
 						<ApplyStatus phase={draft.phase} />
@@ -3496,6 +3558,7 @@ export function ModelCapabilitiesEditor({
 				// with the same evidence: other scopes still hold global records.
 				const otherGroups = toCapabilityGroups(other.value);
 				const otherParse = parseCapabilityGroups(otherGroups, recognizedKeys);
+				const otherIssues = capabilityIssueViews(otherGroups, otherParse.issues);
 				return (
 					<div className="other-scope" key={other.scope}>
 						<OtherScopeNote scope={other.scope} />
@@ -3503,10 +3566,17 @@ export function ModelCapabilitiesEditor({
 							<RecordMatcherTable
 								kind="caps"
 								groups={otherGroups}
-								issues={capabilityIssueViews(otherGroups, otherParse.issues)}
+								issues={otherIssues}
 								readOnly
 								onChange={() => undefined}
 							/>
+							{/* The params frames' rule above: a standing problem gets the
+							    frame's own message row, and a quiet frame closes flush. */}
+							{anyRecordProblem(otherIssues) ? (
+								<div className="toolbar editor-actions">
+									<RecordStatusSlot groups={otherGroups} issues={otherIssues} />
+								</div>
+							) : null}
 						</div>
 					</div>
 				);

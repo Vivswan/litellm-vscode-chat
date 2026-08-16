@@ -124,13 +124,15 @@ One idiom for actions that rest hidden on a row, and it has one home:
   reserved track so revealing them cannot reflow the row
   (`dashboard.css .server-row`), a settings error covers the description
   instead of displacing it (`settings.tsx SettingRow`), a record card's
-  validation verdict covers the reserved refusal line in its footer
-  (`dashboard.css .record-verdict`), and the reveal wrapper
+  validation verdict and its write refusal share an always-mounted slot over
+  the footer row's free space - zero flex basis, so a message mounting there
+  moves neither button group and a quiet footer stays exactly one row
+  (`dashboard.css .editor-status`), and the reveal wrapper
   itself keeps the hidden control's box (opacity, not display). Reserving is
   the answer only where a line has somewhere of its own to sit: a per-row
-  reservation cost every quiet ROW a blank strip, where the card's one footer
-  line adds no reservation of its own: it covers the refusal slot, which is
-  reserved either way and blank until it speaks. Where nothing
+  reservation cost every quiet ROW a blank strip, and a reserved footer band
+  cost every quiet CARD one - the slot in the buttons' own row reserves
+  nothing the row did not already have. Where nothing
   pre-exists to cover, the message's line is reserved outright: every field
   row mounts its one status slot whether or not it speaks
   (`dashboard.css .row .row-status`), the matcher editor's grammar reading and

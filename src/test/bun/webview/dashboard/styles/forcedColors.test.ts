@@ -459,15 +459,6 @@ const SEPARATING_FILLS: readonly SeparatingFill[] = [
 		disposition: { kind: "welcome", why: "hover feedback: the pointer is its own mark" },
 	},
 	{
-		selector: ".record-verdict",
-		declaration: "background: var(--vscode-editorWidget-background, var(--background))",
-		count: 1,
-		disposition: {
-			kind: "welcome",
-			why: "the card verdict covers the footer's reserved refusal line, which is empty air by design; the mode repaints this fill to Canvas, which occludes the same nothing",
-		},
-	},
-	{
 		selector: "table.resolved-models td.actions, table.resolved-models th.actions",
 		declaration: "background: var(--background)",
 		count: 1,

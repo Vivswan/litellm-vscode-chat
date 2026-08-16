@@ -303,6 +303,20 @@ function visibleTextOf(node: Node): string {
 }
 
 /**
+ * A directly referenced target's text, the accname root-reference exception:
+ * a node named by aria-labelledby/aria-describedby is read even when it is
+ * itself aria-hidden (the tooltip bubble's whole wiring, ui/tip.tsx), while
+ * aria-hidden subtrees INSIDE it stay excluded like everywhere else.
+ */
+function referencedTextOf(target: Element): string {
+	let text = "";
+	for (const child of Array.from(target.childNodes)) {
+		text += visibleTextOf(child);
+	}
+	return text;
+}
+
+/**
  * The accessible name a control computes, the way the a11y tree would:
  * aria-labelledby, then aria-label, then the subtree's text nodes in tree
  * order with aria-hidden subtrees excluded, whitespace-collapsed. Deliberately
@@ -318,7 +332,7 @@ export function accessibleNameOf(element: HTMLElement): string {
 			.split(/\s+/)
 			.map((id) => {
 				const target = document.getElementById(id);
-				return target === null ? "" : visibleTextOf(target);
+				return target === null ? "" : referencedTextOf(target);
 			})
 			.join(" ")
 			.replace(/\s+/g, " ")
@@ -331,14 +345,18 @@ export function accessibleNameOf(element: HTMLElement): string {
 	return visibleTextOf(element).replace(/\s+/g, " ").trim();
 }
 
-/** An element's accessible DESCRIPTION: the aria-describedby targets' text, in order. */
+/**
+ * An element's accessible DESCRIPTION: the aria-describedby targets' text, in
+ * order, modeled like accessibleNameOf above - aria-hidden subtrees excluded,
+ * with the same root-reference exception for the targets themselves.
+ */
 export function accessibleDescriptionOf(element: HTMLElement): string {
 	return (element.getAttribute("aria-describedby") ?? "")
 		.split(/\s+/)
 		.filter((id) => id.length > 0)
 		.map((id) => {
 			const target = document.getElementById(id);
-			return target === null ? "" : (target.textContent ?? "");
+			return target === null ? "" : referencedTextOf(target);
 		})
 		.join(" ")
 		.replace(/\s+/g, " ")

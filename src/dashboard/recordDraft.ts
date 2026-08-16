@@ -853,7 +853,10 @@ function inheritKeyRoundTrips(entry: string): boolean {
  * added row), and an `_inherit_from` key the control's comma-joined text
  * cannot round-trip all keep the row visible. The read-only scope tables
  * absorb by the same rule, judged with the same parse, so an ignored mark
- * never masquerades as an active badge there.
+ * never masquerades as an active badge there. The conservatism doubles as a
+ * load-bearing invariant: absorbed implies valid - a row the parse flags is
+ * never absorbed, which lets the chip surfaces (recordEditors.tsx
+ * chipRowIndices) omit absorbed rows without hiding a problem.
  */
 export function directiveRowAbsorbed(
 	group: PrefixGroup,

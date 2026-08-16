@@ -1508,10 +1508,10 @@
 	.record-frame .editor-actions {
 		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
 		margin: 2px -12px -4px;
-		/* 4px, not the toolbar's 8: the bar's first line is the reserved failure
-			 slot, empty at rest, so its own 1lh already spends air between the
-			 hairline and the buttons - 8 on top of that read as a second dead
-			 band parked inside the footer. */
+		/* 4px, not the toolbar's 8: the hairline already separates the bar from
+			 the rows above, and 8 under it read as a dead band parked inside the
+			 footer. The bar is ONE row - the buttons and the message slot share
+			 the line (.editor-status), so no reserved band sits above them. */
 		padding: 4px 12px 0;
 		/* Ink-to-ink on the horizontal axis, because the bar pairs the
 			 default-size Add matcher with the compact Edit as JSON and both hand
@@ -1579,30 +1579,49 @@
 		grid-column: 4;
 		justify-self: end;
 	}
-	/* The card's validation verdict COVERS the footer's reserved refusal line:
-		   a row's own band is too small to hold this line without burying the
-		   next row's chips. The refusal outranks it, so this hides no message. */
-	.record-frame .editor-actions {
+	/* The footer bar's one message slot: an always-mounted flex item over the
+		   row's free space - zero basis with a growth share, so a message
+		   mounting in it never changes the row's wrap points or moves the button
+		   groups on either side. Its two voices (the async refusal and the
+		   validation verdict, .failure-note and .record-verdict) stack in the
+		   same grid cell, one line each, so swapping speakers resizes nothing.
+		   The 8ch floor keeps a spoken message legible where the bar wraps; it
+		   is constant across both states, so the wrap points it sets are too,
+		   and min-height reserves the line's height wherever the wrap hands the
+		   slot a line of its own. */
+	.editor-status {
+		display: grid;
+		align-items: center;
+		flex: 1 1 0;
+		min-width: 8ch;
+		font-size: 11.5px;
+		/* One fixed line box for both voices: the verdict's mono fragments ride
+			 a taller intrinsic line than the sans text, and an unpinned
+			 line-height grew the slot a pixel the moment the verdict mounted.
+			 The min-height is the same number, so a line the wrap hands the slot
+			 alone is reserved at exactly this height in both states. */
+		line-height: 16px;
+		min-height: 16px;
+	}
+	.editor-status > * {
+		grid-area: 1 / 1;
+		min-width: 0;
+		margin: 0;
+		/* One line at every width: the paint clips with an ellipsis while the
+			 text stays whole in the DOM and in the title. */
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		/* Each voice is its own containing block: the refusal's sr-only detail
+			 span is absolutely positioned at the end of the unwrapped text run,
+			 and with its containing block outside this overflow it parked
+			 scrollable width past the pane's edge. */
 		position: relative;
 	}
 	/* The count of the problems this line is not showing: quieter than the
 		   message, still on its line. */
 	.record-verdict-more {
 		color: var(--vscode-descriptionForeground);
-	}
-	.record-verdict {
-		position: absolute;
-		inset-inline: 12px;
-		top: 4px;
-		margin: 0;
-		font-size: 11.5px;
-		background: var(--vscode-editorWidget-background, var(--background));
-		/* One line at every width, like the refusal it covers: a wrap would
-			 reach past the slot and over the buttons. The text stays whole in the
-			 DOM; only the paint clips. */
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
 	}
 	/* Another scope's record, rendered with the same row grid but inert. */
 	.other-scope {
@@ -2787,16 +2806,10 @@
 	}
 
 	/* === R4 diagnostics, records === */
-	/* The record editors' failure line, reserved whether or not it speaks: the
-		   refusal lands async and must not move the action bar. Headline only -
-		   an arbitrary-length detail never rides a reserved slot. It is the
-		   footer bar's full-width first line (basis 100%), and the card's
-		   validation verdict covers it while it is quiet (.record-verdict). */
-	.failure-note {
-		min-height: 1lh;
-		flex-basis: 100%;
-		margin: 0;
-	}
+	/* The record editors' refusal line (.failure-note) carries no rule of its
+		   own: it is one voice of the footer's message slot, and .editor-status
+		   owns the geometry - the always-mounted grid cell and the one-line
+		   clip. */
 	/* The two-part errors' technical detail line: its own line under the
 		   headline, dimmed, inner newlines preserved (pre-line). Regular weight,
 		   stated because the headline around it is tone text and tone text is

@@ -407,11 +407,12 @@ const STATE_PAIRS: readonly StatePair[] = [
 		verify: `document.querySelector(".matcher-editor .row-status.error") !== null`,
 	},
 	{
-		// A refused record Apply lands in the frame's reserved one-line failure
-		// slot (headline only) - the frame, its action bar, and the Add action
-		// must not move when the refusal arrives. The toggle drives the real
-		// flow: Apply posts the dirty draft, and the fail envelope quotes the
-		// posted request's id off the harness stub, like err-recordeditor.ts.
+		// A refused record Apply lands in the footer's inline message slot
+		// (headline only) - the frame, its action bar, the slot's own box, the
+		// Add action, and the commit trio must not move when the refusal
+		// arrives. The toggle drives the real flow: Apply posts the dirty
+		// draft, and the fail envelope quotes the posted request's id off the
+		// harness stub, like err-recordeditor.ts.
 		name: "record-apply-failure-note",
 		fixture: "settings.ts",
 		setup: [
@@ -427,7 +428,13 @@ const STATE_PAIRS: readonly StatePair[] = [
 			reactType(".chip-popover input.value", "0.9"),
 			`document.querySelector(${JSON.stringify(OPEN_CHIP)}).click()`,
 		],
-		targets: [PARAMS_FRAME, `${PARAMS_FRAME} .toolbar.editor-actions`, "#params-add-matcher"],
+		targets: [
+			PARAMS_FRAME,
+			`${PARAMS_FRAME} .toolbar.editor-actions`,
+			`${PARAMS_FRAME} .editor-status`,
+			`${PARAMS_FRAME} .editor-commit`,
+			"#params-add-matcher",
+		],
 		toggle: [
 			`(() => {
 				const frame = document.querySelector(${JSON.stringify(PARAMS_FRAME)});
@@ -606,9 +613,10 @@ const STATE_PAIRS: readonly StatePair[] = [
 			`?.textContent.length > 0`,
 	},
 	{
-		// The card's verdict covers the footer's reserved refusal line when a
+		// The card's verdict mounts in the footer's inline message slot when a
 		// popover closes over an invalid draft: the row, the row below, the
-		// table, the frame, and the footer must all hold still.
+		// table, the frame, the footer, the slot's own box, and both button
+		// groups must all hold still.
 		name: "record-row-status",
 		fixture: "record-popover.ts",
 		targets: [
@@ -616,6 +624,8 @@ const STATE_PAIRS: readonly StatePair[] = [
 			".record-table",
 			PARAMS_FRAME,
 			`${PARAMS_FRAME} .toolbar.editor-actions`,
+			`${PARAMS_FRAME} .editor-status`,
+			`${PARAMS_FRAME} .editor-commit`,
 			"#params-add-matcher",
 		],
 		siblingOf: GPT5_RECORD_ROW,
@@ -627,10 +637,10 @@ const STATE_PAIRS: readonly StatePair[] = [
 		verify: `document.querySelector(${JSON.stringify(`${PARAMS_FRAME} .record-verdict`)}) !== null`,
 	},
 	{
-		// The same claim driven from the LAST row, whose verdict lands nearest
-		// the footer it covers: the bar, the Add action, and the frame must not
-		// move. The chip's own width/x change is the record-chip-invalid pair's
-		// intended delta, not measured here.
+		// The same claim driven from the LAST row, whose verdict lands in the
+		// footer directly under it: the bar, the message slot, the Add action,
+		// and the commit trio must not move. The chip's own width/x change is
+		// the record-chip-invalid pair's intended delta, not measured here.
 		name: "record-last-row-status",
 		fixture: "settings.ts",
 		setup: [
@@ -641,7 +651,14 @@ const STATE_PAIRS: readonly StatePair[] = [
 				chips[2].click();
 			})()`,
 		],
-		targets: [LAST_RECORD_ROW, PARAMS_FRAME, `${PARAMS_FRAME} .toolbar.editor-actions`, "#params-add-matcher"],
+		targets: [
+			LAST_RECORD_ROW,
+			PARAMS_FRAME,
+			`${PARAMS_FRAME} .toolbar.editor-actions`,
+			`${PARAMS_FRAME} .editor-status`,
+			`${PARAMS_FRAME} .editor-commit`,
+			"#params-add-matcher",
+		],
 		toggle: [
 			reactType(".chip-popover input.value", "not json"),
 			`document.querySelector(${JSON.stringify(OPEN_CHIP)}).click()`,
@@ -713,7 +730,6 @@ const UNGUARDED_FIXTURE_PINS: readonly (readonly [string, string])[] = [
 	["diagnostics-empty.ts", "da182ff33932"],
 	["diagnostics-inspector.ts", "8a1701a0f708"],
 	["diagnostics.ts", "da182ff33932"],
-	["err-recordeditor.ts", "476493d08533"],
 	["form-apikey.ts", "d1121e72b575"],
 	["form-apiversion-auto.ts", "f9159772b925"],
 	["form-apiversion-custom.ts", "d1121e72b575"],
