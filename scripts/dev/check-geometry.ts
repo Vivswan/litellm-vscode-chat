@@ -174,6 +174,8 @@ const PARAMS_FRAME = ".record-frame:has(#params-add-matcher)";
 const JSON_PARAMS_FRAME = '.record-frame:has(textarea[aria-label="Model parameters as JSON"])';
 /** The record row whose chips the popover fixtures open; its next sibling holds the row below. */
 const GPT5_RECORD_ROW = `.record-row:has(button[aria-label='Open the full editor for "gpt-5*"'])`;
+/** The LAST record row, the one nearest the footer its card's verdict covers. */
+const LAST_RECORD_ROW = `.record-row:has(button[aria-label='Open the full editor for "claude-sonnet-4"'])`;
 
 /** Writes a value into a React-controlled input through the native setter, then fires the events React listens to. */
 function reactType(selector: string, value: string): string {
@@ -604,19 +606,48 @@ const STATE_PAIRS: readonly StatePair[] = [
 			`?.textContent.length > 0`,
 	},
 	{
-		// A record row's reserved one-line status slot (.record-status) speaks
-		// when its popover closes over an invalid draft - the row, the row below,
-		// and the table must not move when the verdict lands in it.
+		// The card's verdict covers the footer's reserved refusal line when a
+		// popover closes over an invalid draft: the row, the row below, the
+		// table, the frame, and the footer must all hold still.
 		name: "record-row-status",
 		fixture: "record-popover.ts",
-		targets: [GPT5_RECORD_ROW, ".record-table"],
+		targets: [
+			GPT5_RECORD_ROW,
+			".record-table",
+			PARAMS_FRAME,
+			`${PARAMS_FRAME} .toolbar.editor-actions`,
+			"#params-add-matcher",
+		],
 		siblingOf: GPT5_RECORD_ROW,
 		toggle: [
 			reactType(".chip-popover input.value", "not json"),
 			`document.querySelector(${JSON.stringify(OPEN_CHIP)}).click()`,
 		],
-		restVerify: `document.querySelector(${JSON.stringify(`${GPT5_RECORD_ROW} .record-status.error`)}) === null`,
-		verify: `document.querySelector(${JSON.stringify(`${GPT5_RECORD_ROW} .record-status.error`)}) !== null`,
+		restVerify: `document.querySelector(${JSON.stringify(`${PARAMS_FRAME} .record-verdict`)}) === null`,
+		verify: `document.querySelector(${JSON.stringify(`${PARAMS_FRAME} .record-verdict`)}) !== null`,
+	},
+	{
+		// The same claim driven from the LAST row, whose verdict lands nearest
+		// the footer it covers: the bar, the Add action, and the frame must not
+		// move. The chip's own width/x change is the record-chip-invalid pair's
+		// intended delta, not measured here.
+		name: "record-last-row-status",
+		fixture: "settings.ts",
+		setup: [
+			`(() => {
+				const chips = [...document.querySelectorAll("button.chip-field")]
+					.filter((chip) => chip.querySelector(".chip-key")?.textContent === "temperature");
+				if (chips.length < 3) { throw new Error(${marker("SETUP", ": no last-row temperature chip to open")}); }
+				chips[2].click();
+			})()`,
+		],
+		targets: [LAST_RECORD_ROW, PARAMS_FRAME, `${PARAMS_FRAME} .toolbar.editor-actions`, "#params-add-matcher"],
+		toggle: [
+			reactType(".chip-popover input.value", "not json"),
+			`document.querySelector(${JSON.stringify(OPEN_CHIP)}).click()`,
+		],
+		restVerify: `document.querySelector(${JSON.stringify(`${PARAMS_FRAME} .record-verdict`)}) === null`,
+		verify: `document.querySelector(${JSON.stringify(`${PARAMS_FRAME} .record-verdict`)}) !== null`,
 	},
 	{
 		// The chip popover's verdict lands in its reserved status slot AFTER the

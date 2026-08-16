@@ -16,6 +16,7 @@ import { ServerEditPage } from "../../../../webview/dashboard/serverEditPage";
 import { ServersSection } from "../../../../webview/dashboard/servers";
 import { makeDeclaredServer, makeExternalServer, makeState, statePush } from "../fixtures";
 import {
+	accessibleNameOf,
 	buttonByText,
 	cleanup,
 	fireBlur,
@@ -215,6 +216,12 @@ test("the header actions render only once a server exists: Add server and the us
 	expect(refresh.classList.contains("refresh-usage")).toBe(true);
 	expect((refresh.querySelector(".refresh-idle-label") as HTMLElement).classList.contains("invisible")).toBe(false);
 	expect((refresh.querySelector(".refresh-busy-label") as HTMLElement).classList.contains("invisible")).toBe(true);
+	// Both labels are in the DOM (the textContent above proves it), but only
+	// the resting one may reach the accessible name: the busy twin's exclusion
+	// is aria-hidden, which this walk honors and textContent cannot - dropping
+	// the attribute while keeping `invisible` fails here, not in a screen
+	// reader.
+	expect(accessibleNameOf(refresh)).toBe("Refresh now");
 });
 
 test("with no servers the guided start renders and its call to action opens the add form", () => {

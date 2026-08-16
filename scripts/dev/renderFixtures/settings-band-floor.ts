@@ -26,9 +26,10 @@ const fixture: RenderFixture = {
 			if (pane === null) { throw new Error("no .pane on the page"); }
 			const style = getComputedStyle(pane);
 			const paneContent = pane.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-			// A one-sided bound on purpose: under 560 the one-column fallback
+			// A two-sided bound on purpose: under 560 the one-column fallback
 			// applies and this fixture would be certifying the safe layout it
-			// never measured.
+			// never measured, and past ~580 the rows have slack, so the guard
+			// would be certifying the roomy case instead of the band's floor.
 			if (paneContent < 560 || paneContent > 580) {
 				throw new Error("the pane is " + paneContent.toFixed(0) + "px, not the ~560px band floor this fixture asserts at");
 			}

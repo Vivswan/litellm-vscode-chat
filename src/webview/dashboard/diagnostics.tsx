@@ -1072,7 +1072,10 @@ function ResolvedModels({
 											<th>{l10n.t("Server")}</th>
 											<th>{l10n.t("Parameters")}</th>
 											<th>{l10n.t("Capabilities")}</th>
-											<th>{/* actions */}</th>
+											{/* Pins with the body's actions cells: an unpinned header
+											    would slide a neighbouring label under the pinned
+											    column while the table scrolls. */}
+											<th className="actions" />
 										</tr>
 									</thead>
 									<tbody>
@@ -1320,28 +1323,25 @@ function DiagnosticsActions({
 
 /**
  * The places to take what the page's tools collected: the docs and the three
- * GitHub destinations, one wrapping line of quiet links. No "?" of its own -
- * the links name their destinations, and the tools' explanation lives on the
- * page header beside the tools themselves.
+ * GitHub destinations, one wrapping line of quiet links directly under the
+ * page header. They ride at the top with the tools rather than parked after
+ * every table (a user review asked for exactly that), one rank quieter: the
+ * tools are the page's actions, these are its external escape hatches. No
+ * heading of its own - four links are a shelf, not a section - so the nav's
+ * aria-label keeps the grouping the heading used to announce, and no "?"
+ * either: the links name their destinations, and what Copy diagnostics
+ * collects is the page header's help affordance's question.
  */
 function Support() {
 	return (
-		<Section
-			id="support"
-			title={l10n.t("Support")}
-			level={3}
-			docs={{ href: DOCS_LINK_GETTING_STARTED, label: l10n.t("Open the getting-started guide") }}
-		>
-			{/* No standing paragraph: the links name their destinations, and what
-			    Copy diagnostics collects is a question for the help tip rather
-			    than a line under every visit. */}
+		<nav aria-label={l10n.t("Support")}>
 			<ul className="feedback-links">
 				<LinkRow href={DOCS_LINK_GETTING_STARTED} icon={<IconBook />} label={l10n.t("Documentation")} />
 				<LinkRow href={FEEDBACK_LINK_REPOSITORY} icon={<IconRepo />} label={l10n.t("GitHub repository")} />
 				<LinkRow href={FEEDBACK_LINK_FEATURE_REQUEST} icon={<IconLightbulb />} label={l10n.t("Request a feature")} />
 				<LinkRow href={FEEDBACK_LINK_RATE} icon={<IconStar />} label={l10n.t("Rate this extension")} />
 			</ul>
-		</Section>
+		</nav>
 	);
 }
 
@@ -1369,9 +1369,9 @@ export function DiagnosticsSection({
 	onInspect: (target: { scopeKey: string; rawId: string; serverLabel: string }, section: InspectorSection) => void;
 }) {
 	// One page-level header, the anatomy every other destination already has,
-	// with the page's tools in its actions slot. The sections below are ordered
-	// by what the reader can act on: what is wrong, then how the records
-	// resolved, then the ways to get help.
+	// with the page's tools in its actions slot and the support links as the
+	// quieter line under it. The sections below are ordered by what the reader
+	// can act on: what is wrong, then how the records resolved.
 	return (
 		<Section
 			id="diagnostics"
@@ -1389,9 +1389,9 @@ export function DiagnosticsSection({
 				/>
 			}
 		>
+			<Support />
 			<ConfigDiagnostics diagnostics={diagnostics} />
 			<ResolvedModels active={active} stateSeq={stateSeq} currencySymbol={currencySymbol} onInspect={onInspect} />
-			<Support />
 		</Section>
 	);
 }

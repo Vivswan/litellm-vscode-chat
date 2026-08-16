@@ -264,22 +264,12 @@ export interface ExternalRecordEdit {
 export type IntentFailureOutcome = Extract<IntentOutcome, { result: "fail" }>;
 
 function FailureNote({ failure, dirty }: { failure: IntentFailureOutcome | undefined; dirty: boolean }) {
-	// One line, reserved whether or not it speaks (dashboard.css .failure-note):
-	// the refusal lands async under the rows, and as an inserted block it pushed
-	// the action bar and everything below it 36px down. The frame keeps the
-	// edits-kept fact and the extension's HEADLINE only - the covered slots'
-	// rule: an arbitrary-length technical detail never rides a reserved line
-	// (statusErrorHeadline is the same extraction the host notifier's toasts
-	// use). The detail is not lost: this surface is the failure's only home
-	// (no toast backs it up), so the full message rides the title for pointer
-	// readers and an sr-only span for assistive tech, both costing zero
-	// geometry. No direction word - the note renders under the rows, so
-	// "below" pointed away from the failing row it meant. The message stays
-	// webview-only (the panel boundary logs classification tokens, never this
-	// text). role="alert" on the ALWAYS-MOUNTED slot: the refusal arrives
-	// async, and a live region only announces changes to an element that
-	// already exists - one announcement per failure, none on the empty rest
-	// state.
+	// One line, reserved whether or not it speaks (dashboard.css
+	// .failure-note): the refusal lands async and must not move the action bar.
+	// Headline only - an arbitrary-length detail never rides a reserved line -
+	// with the full message in the title and an sr-only span. role="alert" on
+	// the always-mounted slot: a live region only announces changes to an
+	// element that already exists. The text stays webview-only.
 	const spoken = dirty ? failure : undefined;
 	const detail = spoken !== undefined ? statusErrorDetail(spoken.message) : undefined;
 	return (
@@ -876,12 +866,10 @@ function ParamGroupsFields({
 											>
 												<IconTrash />
 											</Button>
-											{/* The row's one status line, reserved whether or not it
-										    speaks (dashboard.css .row .row-status; the record rows'
-										    .record-status idiom): the verdict lands per keystroke,
-										    and mounted only alongside a problem it pushed the rows
-										    below down 17px on the first bad character. Worst first,
-										    one message at a time - a problem outranks a hint. */}
+											{/* Reserved whether or not it speaks (dashboard.css
+										    .row .row-status): the verdict lands per keystroke, and a
+										    line mounted only when it speaks moves the rows below.
+										    Worst first - a problem outranks a hint. */}
 											<span
 												className={cn(
 													"row-status",
@@ -1703,6 +1691,92 @@ export function capabilityIssueViews(
 	}));
 }
 
+/** The open field popover's row as "groupIndex:rowIndex"; chip identity is the raw key plus its duplicate ordinal. */
+function openFieldAddress(groups: readonly PrefixGroup[], popover: ChipPopoverTarget | undefined): string | undefined {
+	if (popover?.kind !== "field") {
+		return undefined;
+	}
+	const groupIndex = groups.findIndex(
+		(group, index) =>
+			group.prefix === popover.groupKey &&
+			groups.slice(0, index).filter((earlier) => earlier.prefix === popover.groupKey).length === popover.groupOrdinal
+	);
+	const group = groups[groupIndex];
+	if (group === undefined) {
+		return undefined;
+	}
+	let seen = 0;
+	for (const [rowIndex, row] of group.params.entries()) {
+		if (row.key === popover.fieldKey) {
+			if (seen === popover.ordinal) {
+				return `${groupIndex}:${rowIndex}`;
+			}
+			seen += 1;
+		}
+	}
+	return undefined;
+}
+
+/**
+ * The card's one validation verdict: the worst problem in draft order, named
+ * by the matcher it owns, skipping the one field an open popover already
+ * states. Card-scoped because a row cannot hold this line - see
+ * dashboard.css .record-verdict.
+ */
+function recordVerdict(
+	groups: readonly PrefixGroup[],
+	issues: readonly GroupIssueView[],
+	openField: string | undefined
+): { readonly matcher: string; readonly message: string; readonly others: number } | undefined {
+	// Every standing problem in draft order, minus the one an open popover is
+	// already stating: the first is the line, the rest are its count.
+	const standing: { matcher: string; message: string }[] = [];
+	for (const [index, group] of groups.entries()) {
+		const issue = issues[index];
+		const matcher = group.prefix.trim().length > 0 ? group.prefix : l10n.t("(no matcher)");
+		if (issue?.prefix !== undefined) {
+			standing.push({ matcher, message: issue.prefix });
+		}
+		issue?.rows.forEach((row, rowIndex) => {
+			if (row?.problem !== undefined && `${index}:${rowIndex}` !== openField) {
+				standing.push({ matcher, message: row.problem.message });
+			}
+		});
+	}
+	const worst = standing[0];
+	return worst === undefined ? undefined : { ...worst, others: standing.length - 1 };
+}
+
+/** The verdict as the footer's covering line; the reserved slot under it is the refusal's, empty while it is quiet. */
+function RecordVerdictLine({
+	groups,
+	issues,
+	openField,
+}: {
+	groups: readonly PrefixGroup[];
+	issues: readonly GroupIssueView[];
+	openField: string | undefined;
+}) {
+	const verdict = recordVerdict(groups, issues, openField);
+	if (verdict === undefined) {
+		return null;
+	}
+	// The count keeps the others from being dropped silently; fixing the worst
+	// promotes the next into the line.
+	const more =
+		verdict.others === 0 ? "" : verdict.others === 1 ? l10n.t("(+1 more)") : l10n.t("(+{0} more)", verdict.others);
+	const spoken = `${verdict.matcher}: ${verdict.message}${more === "" ? "" : ` ${more}`}`;
+	// The line clips visually at extreme widths; the text stays whole in the
+	// DOM (and in the title for pointer readers), so nothing is lost.
+	return (
+		<p className="record-verdict error" title={spoken}>
+			<code className="font-mono">{verdict.matcher}</code>
+			{`: ${verdict.message}`}
+			{more === "" ? null : <span className="record-verdict-more">{` ${more}`}</span>}
+		</p>
+	);
+}
+
 /** The row list's accessible name; the rows carry no header row to name them any more. */
 function recordListLabel(kind: RecordEditorKind): string {
 	return kind === "params" ? l10n.t("Model parameter matchers") : l10n.t("Model capability matchers");
@@ -2380,31 +2454,6 @@ function popoverAlign(target: EventTarget | null): "start" | "end" {
 }
 
 /**
- * The row index an open field popover is editing in `group`, resolved the way
- * chip identity is minted: the RAW key plus the occurrence ordinal among exact
- * duplicates. Undefined when no field popover is open on this group.
- */
-function openFieldRowIndex(
-	group: PrefixGroup,
-	popover: ChipPopoverTarget | undefined,
-	groupHere: (target: ChipPopoverTarget | undefined) => boolean
-): number | undefined {
-	if (popover?.kind !== "field" || !groupHere(popover)) {
-		return undefined;
-	}
-	let seen = 0;
-	for (let index = 0; index < group.params.length; index += 1) {
-		if (group.params[index]?.key === popover.fieldKey) {
-			if (seen === popover.ordinal) {
-				return index;
-			}
-			seen += 1;
-		}
-	}
-	return undefined;
-}
-
-/**
  * The compact matcher table both record editors and the server form render:
  * one row per matcher - the key, its inheritance, the fields as combined
  * chips, and the full-editor pencil. Rows display in precedence order,
@@ -2423,6 +2472,7 @@ export function RecordMatcherTable({
 	keySuggestions,
 	onChange,
 	onOpenEditor,
+	onOpenFieldChange,
 }: {
 	kind: RecordEditorKind;
 	groups: readonly PrefixGroup[];
@@ -2435,9 +2485,19 @@ export function RecordMatcherTable({
 	onChange: (next: PrefixGroup[]) => void;
 	/** The pencil action; the owner opens the full matcher editor overlay on this draft index. */
 	onOpenEditor?: ((groupIndex: number) => void) | undefined;
+	/** Reports the open field popover as "groupIndex:rowIndex", so the card's verdict can skip the problem it states. */
+	onOpenFieldChange?: ((openField: string | undefined) => void) | undefined;
 }) {
 	const [popover, setPopover] = useState<ChipPopoverTarget | undefined>(undefined);
 	const tableId = useId();
+	// Said once: the open popover states its own field's problem beside the
+	// input, so the card's verdict skips THAT problem and no other.
+	const openField = openFieldAddress(groups, popover);
+	useEffect(() => {
+		onOpenFieldChange?.(openField);
+		// Cleared on unmount: a stale address would silence a real problem.
+		return () => onOpenFieldChange?.(undefined);
+	}, [openField, onOpenFieldChange]);
 	// A popover whose group or field left the draft (a state push with no
 	// draft pinned, a removal elsewhere) closes instead of editing a stale
 	// row; one with live edits is never dropped - its edits sit in the draft,
@@ -2467,7 +2527,7 @@ export function RecordMatcherTable({
 		// inherits | action], columns sized by the list so every row's cells
 		// land at the same x - the rows inherit the tracks through subgrid, the
 		// same construction the models list uses. The STRUCTURE (display, the
-		// tracks, the cells' columns, and the sub-620px flex fallback) lives in
+		// tracks, the cells' columns, and the sub-700px flex fallback) lives in
 		// dashboard.css rather than in utilities here: dashboard.css sits in the
 		// components layer UNDER utilities, so a `grid` utility on this element
 		// would beat the stylesheet's narrow fallback no matter the query - one
@@ -2492,29 +2552,17 @@ export function RecordMatcherTable({
 				// The visible cell's fallback doubles as the accessible name for
 				// the row's actions: a fresh matcher must not announce as "".
 				const matcherName = group.prefix.trim().length > 0 ? group.prefix : l10n.t("(no matcher)");
-				const openRowIndex = openFieldRowIndex(group, popover, groupHere);
-				const rowProblem = (issueView?.rows ?? []).find(
-					// Closed chips only: the open chip's popover already states its
-					// own problem beside the input being fixed, and the same
-					// sentence in two places at once reads as two problems.
-					(row, rowIndex) => rowIndex !== openRowIndex && row?.problem !== undefined
-				)?.problem?.message;
 				return (
 					// Rows are keyed by their MATCHER KEY plus occurrence (index
 					// only for the empty edge): an index key would remount the row
 					// when a state push reorders the record, dropping an open add
 					// popover's half-typed field with it.
-					// Top-heavy padding on purpose: the reserved status line at the
-					// row's foot is empty air on a quiet row and already reads as
-					// bottom padding, so a symmetric py doubled the quiet row's
-					// depth - the strip plus its own thin cushion is the visual
-					// bottom.
 					<li
-						className="record-row group/row -mx-2 rounded-md px-2 pt-1 pb-0.5 hover:bg-accent-soft focus-within:bg-accent-soft"
+						className="record-row group/row -mx-2 rounded-md px-2 py-1 hover:bg-accent-soft focus-within:bg-accent-soft"
 						key={`${groupKey}#${groupOrdinal}`}
 					>
 						{/* Shrinkable on purpose: the wide tier's grid ignores flex-shrink, and in
-						    the sub-620px flex rows a max-content cell would carry a long regex key
+						    the sub-700px flex rows a max-content cell would carry a long regex key
 						    past the pane; min-w-[104px] still floors the collapse. */}
 						<span className="matcher-cell flex min-w-[104px] flex-wrap items-baseline gap-2">
 							{/* The matcher wears the chip chrome OUTLINED where the field
@@ -2527,34 +2575,12 @@ export function RecordMatcherTable({
 								{matcherKindLabel(matcherKind(group.prefix))}
 							</span>
 						</span>
-						{/* min-w-min, not min-w-0: a zero floor let this box be squeezed
-						    narrower than a single chip, and a chip cannot shrink to
-						    match, so the chips overflowed and painted over the inherit
-						    summary and the pencil after them - "force" and "inherits
-						    nothing" ran together into one unreadable word. The floor is
-						    one chip's own minimum; a chip wraps its own parts and its
-						    key may break anywhere, so the floor is a chip's longest
-						    UNBREAKABLE piece rather than its whole line, and `bun run
-						    check-overflow` holds that.
-
-						    No flex-item utilities (flex-1 and friends) on purpose: in
-						    the grid the tracks own this cell's size, and under the 620px
-						    fallback dashboard.css gives it a full line - a `flex-1`
-						    utility here would sit in the utilities layer and beat that
-						    stylesheet rule no matter what its query says.
-
-						    One dormant consequence: dashboard.css used to carry a slide-over
-						    adaptation for this list (a relative `.chip-list` as the chip
-						    popover's containing block, so the popover could not clip past a
-						    panel's left edge - clipped there it is unreachable, overflow
-						    only scrolls rightward). It was deleted as dead during the layer
-						    merge: nothing renders this table inside a slide-over. If a panel
-						    ever hosts it again, the adaptation must be REBUILT, not
-						    un-deleted, and it has two hazards to answer: the row's floor lets the
-						    popover's containing block outgrow the panel and re-opens the
-						    clipping, and a static anchor with no relatively positioned
-						    ancestor resolves the popover against the FIXED panel itself, so
-						    `top: 100%` drops it past the panel's bottom edge. */}
+						{/* min-w-min, not min-w-0: a zero floor squeezed the box narrower
+						    than one chip, and the chips overflowed over the inherit summary
+						    and the pencil. The floor is a chip's longest UNBREAKABLE piece;
+						    check-overflow holds it. No flex-item utilities: the grid's
+						    tracks own this size, and a utility would beat the 700px
+						    stylesheet fallback that gives the cell its own line. */}
 						<span className="chip-list flex min-w-min flex-wrap items-baseline gap-x-2 gap-y-1">
 							{chips.map((rowIndex) => {
 								const row = group.params[rowIndex];
@@ -2574,14 +2600,16 @@ export function RecordMatcherTable({
 									groupHere(popover) &&
 									popover.fieldKey === row.key &&
 									popover.ordinal === ordinal;
-								// The hint said in words, before the popover opens: the amber
-								// border is the only resting mark, and a border is invisible
-								// to a screen reader - unlike a problem, whose message the
-								// row prints as visible text below. A description rather
-								// than part of the name, so the chip still announces as its
-								// key and value first. The id only has to be unique on the
-								// page and stable within a render; the indices do that.
+								// Both marks said in words: a border is invisible to a screen
+								// reader, and the card's verdict names the matcher rather than
+								// this field and speaks for one problem at a time. Descriptions
+								// rather than part of the name, so the chip still announces as
+								// its key and value first. Ids need only be unique on the page
+								// and stable within a render; the indices do that.
 								const hintId = issue?.hint !== undefined ? `${tableId}-hint-${groupIndex}-${rowIndex}` : undefined;
+								const problemId =
+									issue?.problem !== undefined ? `${tableId}-problem-${groupIndex}-${rowIndex}` : undefined;
+								const describedBy = [problemId, hintId].filter((id) => id !== undefined).join(" ") || undefined;
 								// No forced-colors border suppression any more, deliberately:
 								// when chips were quiet-at-rest the repainted transparent border
 								// put an unearned hairline on every chip, but a FILLED chip's
@@ -2649,7 +2677,8 @@ export function RecordMatcherTable({
 												type="button"
 												className={chipClass}
 												aria-expanded={openHere}
-												aria-describedby={hintId}
+												aria-describedby={describedBy}
+												aria-invalid={issue?.problem !== undefined || undefined}
 												disabled={disabled}
 												onClick={(event) =>
 													setPopover(
@@ -2675,6 +2704,11 @@ export function RecordMatcherTable({
 										) : (
 											<span className={chipClass}>{body}</span>
 										)}
+										{problemId !== undefined && issue?.problem !== undefined ? (
+											<span id={problemId} className="visually-hidden">
+												{issue.problem.message}
+											</span>
+										) : null}
 										{hintId !== undefined && issue?.hint !== undefined ? (
 											<span id={hintId} className="visually-hidden">
 												{issue.hint}
@@ -2731,39 +2765,18 @@ export function RecordMatcherTable({
 						</span>
 						<InheritsSummary group={group} />
 						{editable ? (
-							/* An auto inline-start margin keeps the pencil at the row's end
-							   once the row wraps. It reads like an unconditional alignment
-							   change and is not one: at wide widths the row is a subgrid of
-							   .record-table, where the pencil sits in its own max-content
-							   track (justify-self: end) and the chip list's minmax(0, 1fr)
-							   track consumes the free space, so there is no free space for
-							   the margin to take and the pencil lands wherever the track
-							   puts it, with or without this. It acts only under the
-							   sub-620px flex fallback, where the row wraps and without it
-							   the pencil lands mid-line: measured 161px and 255px in from
-							   the end on two rows while their unwrapped siblings sat at the
-							   row's end.
-
-							   The vocabulary it states: a row's action sits at the row's END,
-							   at the same distance, whatever the content does. This is the
-							   only row that wraps, so it is the only one that needs saying in
-							   a margin - the model and server rows hold their actions in a
-							   reserved final track and cannot wrap at all.
-
-							   ms- rather than ml-: the row is a flex line, so the margin
-							   belongs to the main axis, and a physical left margin points the
-							   wrong way the moment the document is RTL. No RTL bundle ships
-							   today, which is exactly why it is worth spelling correctly now
-							   rather than discovering it later.
-
+							/* Pushed to the row's end only in the wrapping tier, where the
+							   row is a flex line; the wide tier's grid gives the pencil its
+							   own track with no free space to take. A utility, because the
+							   button primitive's own mx- would outrank a stylesheet rule.
 							   It survives the bordered modes only because their hand-back
 							   reset zeroes a custom property rather than the margin itself
-							   (ui/button.tsx); a blanket margin-inline: 0 flattened this
+							   (ui/button.tsx): a blanket margin-inline: 0 would flatten this
 							   push in exactly the modes that draw the box it aligns. */
 							<Button
 								variant="secondary"
 								size="compact"
-								className="edit-cell ms-auto shrink-0"
+								className="edit-cell shrink-0 @max-[700px]/pane:ms-auto"
 								aria-label={l10n.t('Open the full editor for "{0}"', matcherName)}
 								disabled={disabled}
 								onClick={() => onOpenEditor?.(groupIndex)}
@@ -2771,21 +2784,6 @@ export function RecordMatcherTable({
 								<IconEdit />
 							</Button>
 						) : null}
-						{/* The row's one status line, reserved whether or not it speaks
-						    (dashboard.css .record-status): the verdict lands per keystroke
-						    from the open popover, and a line mounted only alongside a
-						    problem grew the page 17px on the first bad character. Worst
-						    first, one message at a time - the matcher's own problem
-						    outranks a field's, and the chip's red border still says
-						    WHERE while this line says what. */}
-						<span
-							className={cn(
-								"record-status basis-full text-[11.5px]",
-								(issueView?.prefix ?? rowProblem) !== undefined && "error"
-							)}
-						>
-							{issueView?.prefix ?? rowProblem}
-						</span>
 					</li>
 				);
 			})}
@@ -2999,6 +2997,8 @@ export function ModelParametersEditor({
 	const parse = parseGroups(groups);
 	const problems = parse.ok ? [] : parse.problems;
 	const [json, setJson] = useState<JsonDraft | undefined>(undefined);
+	// The table reports its open field so the card's verdict skips the one problem it already states.
+	const [openField, setOpenField] = useState<string | undefined>(undefined);
 	const jsonParse = json === undefined ? undefined : groupsFromJsonText(json.text);
 	const jsonBlocked = jsonParse !== undefined && !jsonParse.ok;
 
@@ -3144,12 +3144,19 @@ export function ModelParametersEditor({
 								keySuggestions={COMMON_PARAMETER_NAMES}
 								onChange={(next) => draft.update(next)}
 								onOpenEditor={openEditor}
+								onOpenFieldChange={setOpenField}
 							/>
 						) : null}
 					</>
 				)}
-				<FailureNote failure={draft.failure} dirty={draft.dirty} />
 				<div className="toolbar editor-actions">
+					{/* One reserved line, two speakers: the refusal holds the box (async,
+					    so it must never move the buttons) and the validation verdict
+					    covers it while the refusal is quiet. */}
+					<FailureNote failure={draft.failure} dirty={draft.dirty} />
+					{draft.failure === undefined || !draft.dirty ? (
+						<RecordVerdictLine groups={groups} issues={issueViews} openField={openField} />
+					) : null}
 					{json === undefined ? (
 						<Button
 							variant="secondary"
@@ -3299,6 +3306,8 @@ export function ModelCapabilitiesEditor({
 	const parse = parseCapabilityGroups(groups, recognizedKeys);
 	const issues = parse.issues;
 	const [json, setJson] = useState<JsonDraft | undefined>(undefined);
+	// The table reports its open field so the card's verdict skips the one problem it already states.
+	const [openField, setOpenField] = useState<string | undefined>(undefined);
 	const jsonParse = json === undefined ? undefined : capabilityGroupsFromJsonText(json.text);
 	const jsonBlocked = jsonParse !== undefined && !jsonParse.ok;
 
@@ -3422,12 +3431,17 @@ export function ModelCapabilitiesEditor({
 								keySuggestions={keySuggestions}
 								onChange={(next) => draft.update(next)}
 								onOpenEditor={openEditor}
+								onOpenFieldChange={setOpenField}
 							/>
 						) : null}
 					</>
 				)}
-				<FailureNote failure={draft.failure} dirty={draft.dirty} />
 				<div className="toolbar editor-actions">
+					{/* One reserved line, two speakers: the params editor above states it. */}
+					<FailureNote failure={draft.failure} dirty={draft.dirty} />
+					{draft.failure === undefined || !draft.dirty ? (
+						<RecordVerdictLine groups={groups} issues={issueViews} openField={openField} />
+					) : null}
 					{json === undefined ? (
 						<Button
 							variant="secondary"

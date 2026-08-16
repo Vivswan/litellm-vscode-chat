@@ -1011,8 +1011,9 @@
 		font-variant-numeric: tabular-nums;
 	}
 	/* Left-aligned so a lone action (an external row's Edit, the adoption
-		   entry point) sits where every row's Edit sits, and is the last thing a
-		   narrow viewport's horizontal scroll loses instead of the first. */
+		   entry point) sits where every row's Edit sits. The resolved-models
+		   table adds its own pin below (sticky right) so a horizontal scroll
+		   cannot move its Inspect out of reach at all. */
 	td.actions {
 		white-space: nowrap;
 	}
@@ -1364,15 +1365,11 @@
 	.row > button {
 		grid-row: 1;
 	}
-	/* Every field row's one status line - problem or non-blocking hint, worst
-		   first - reserved whether or not it speaks (the record rows'
-		   .record-status idiom): the verdict lands per keystroke, and a line
-		   mounted only alongside a problem pushed the rows below down on the
-		   first bad character. min-height is one line of its own text; a message
-		   that wraps at extreme widths still grows the row, which is the accepted
-		   edge - the reservation is sized for the parse sentences the editors
-		   actually emit. The tone classes (.error, .hint) ride the same span, so
-		   the paint stays the tone registers'. */
+	/* Every field row's one status line - problem or hint, worst first -
+		   reserved whether or not it speaks: the verdict lands per keystroke and
+		   must not move the rows below. min-height is one line, sized for the
+		   sentences the parsers emit; a wrap at extreme widths still grows the
+		   row. The tone classes ride the same span. */
 	.row .row-status {
 		grid-column: 1 / -1;
 		font-size: 0.9em;
@@ -1504,14 +1501,18 @@
 		margin: 4px 0 8px;
 		background: var(--vscode-editorWidget-background, transparent);
 	}
-	/* The frame's action bar: a footer separated by a hairline that runs the
-		   frame's full width (the negative margins hand back the frame's own
-		   padding), so the actions read as the region's toolbar rather than a
-		   sentence of verbs under it. */
+	/* The frame's action bar: a hairline-separated footer whose negative
+		   margins hand back the frame's padding, so it reads as the region's
+		   toolbar. The bottom margin stops 2px short of a full hand-back because
+		   a focused button's ring reaches 2px past its box. */
 	.record-frame .editor-actions {
 		border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
-		margin: 8px -12px 0;
-		padding: 8px 12px 2px;
+		margin: 2px -12px -4px;
+		/* 4px, not the toolbar's 8: the bar's first line is the reserved failure
+			 slot, empty at rest, so its own 1lh already spends air between the
+			 hairline and the buttons - 8 on top of that read as a second dead
+			 band parked inside the footer. */
+		padding: 4px 12px 0;
 		/* Ink-to-ink on the horizontal axis, because the bar pairs the
 			 default-size Add matcher with the compact Edit as JSON and both hand
 			 their padding back to the layout (ui/button.tsx): 14px keeps the
@@ -1542,7 +1543,7 @@
 		   inherits column collapses to nothing, so rows only reserve it when
 		   some row made a choice. STRUCTURE lives here rather than in utilities
 		   because this layer sits UNDER utilities: a `grid` utility on the list
-		   would beat the sub-620px flex fallback in the narrow tail no matter
+		   would beat the sub-700px flex fallback in the narrow tail no matter
 		   what the query says, while two rules in one flat layer settle by
 		   source order. */
 	.record-table {
@@ -1557,11 +1558,12 @@
 		grid-column: 1 / -1;
 		display: grid;
 		grid-template-columns: subgrid;
-		align-items: baseline;
-		/* 2px, not the chip lines' own 4px: the reserved status line below the
-			 content is empty air on a quiet row, so every pixel between the two
-			 reads as row depth - a single-line row measured 51px tall before this
-			 gap and the row's paddings were cut down to its one line of content. */
+		/* Centred, not baseline-aligned: baseline sizes the row from the tallest
+			 cell's line box, whose ascent clears every pill by 2px, so the air
+			 above and below the ink came out unequal. Each cell keeps its own
+			 internal baseline alignment. */
+		align-items: center;
+		/* The narrow tier's gap, where the row wraps and the chips take a line. */
 		row-gap: 2px;
 	}
 	.record-table .matcher-cell {
@@ -1577,19 +1579,30 @@
 		grid-column: 4;
 		justify-self: end;
 	}
-	/* Every record row's one status line, reserved whether or not it has
-		   anything to say (the charter's transients-never-move-anything clause):
-		   a validation verdict arrives per keystroke, and when this line was
-		   mounted only alongside a problem, the first bad character grew the
-		   page 17px and shoved every row below down - the settings rows' covered
-		   description, restated for a row with no description to cover, so the
-		   slot's height is reserved explicitly instead. min-height is one line
-		   of its own 11.5px text; a message that wraps at extreme widths still
-		   grows the row, which is the accepted edge - the reservation is sized
-		   for the parse sentences the editors actually emit. */
-	.record-table .record-status {
-		grid-column: 1 / -1;
-		min-height: 1lh;
+	/* The card's validation verdict COVERS the footer's reserved refusal line:
+		   a row's own band is too small to hold this line without burying the
+		   next row's chips. The refusal outranks it, so this hides no message. */
+	.record-frame .editor-actions {
+		position: relative;
+	}
+	/* The count of the problems this line is not showing: quieter than the
+		   message, still on its line. */
+	.record-verdict-more {
+		color: var(--vscode-descriptionForeground);
+	}
+	.record-verdict {
+		position: absolute;
+		inset-inline: 12px;
+		top: 4px;
+		margin: 0;
+		font-size: 11.5px;
+		background: var(--vscode-editorWidget-background, var(--background));
+		/* One line at every width, like the refusal it covers: a wrap would
+			 reach past the slot and over the buttons. The text stays whole in the
+			 DOM; only the paint clips. */
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 	/* Another scope's record, rendered with the same row grid but inert. */
 	.other-scope {
@@ -2256,6 +2269,15 @@
 			animation-duration: 2.4s;
 		}
 	}
+	/* A spinner inside an aria-hidden subtree does not turn: visibility:
+		   hidden stops paint but not animation in Chromium, and the Refresh
+		   button's invisible width twin stays mounted. Scoped to the ancestor,
+		   not one twin's class, so the next twin inherits it; every decorative
+		   spinner marks ITSELF aria-hidden while running, so this must stay a
+		   descendant rule. */
+	[aria-hidden="true"] .spinner {
+		animation: none;
+	}
 
 	/* Outcome banners: a failure stays until dismissed or resolved, laid out
 		   as message plus its Dismiss on one line. */
@@ -2765,14 +2787,15 @@
 	}
 
 	/* === R4 diagnostics, records === */
-	/* The record editors' failure line, reserved whether or not it speaks (the
-		   record rows' .record-status idiom): the refusal lands async under the
-		   rows, and as an inserted block it pushed the action bar down when it
-		   arrived. One line, headline only - an arbitrary-length technical detail
-		   never rides a reserved slot. */
+	/* The record editors' failure line, reserved whether or not it speaks: the
+		   refusal lands async and must not move the action bar. Headline only -
+		   an arbitrary-length detail never rides a reserved slot. It is the
+		   footer bar's full-width first line (basis 100%), and the card's
+		   validation verdict covers it while it is quiet (.record-verdict). */
 	.failure-note {
 		min-height: 1lh;
-		margin: 2px 0;
+		flex-basis: 100%;
+		margin: 0;
 	}
 	/* The two-part errors' technical detail line: its own line under the
 		   headline, dimmed, inner newlines preserved (pre-line). Regular weight,
@@ -2991,6 +3014,38 @@
 		   long for it wraps rather than widening the table. */
 	table.resolved-models td.resolved-id {
 		min-width: 16ch;
+	}
+	/* The Inspect column pins to the scrollport's right edge - this table is
+		   the one surface that scrolls sideways, and a row's action must not
+		   scroll out of reach. The cell paints an opaque base or the columns
+		   slide through it, the hover rule layers the row's wash over that base,
+		   and the header cell pins with the body cells so no label slides under
+		   the pinned column. The 12px left gutter is what CONTAINS the button:
+		   the primitive hands its padding back to the layout (--btn-mx), so a
+		   zero gutter put its border box outside the cell that paints for it. */
+	table.resolved-models td.actions,
+	table.resolved-models th.actions {
+		position: sticky;
+		right: 0;
+		background: var(--background);
+		padding-left: 12px;
+	}
+	table.resolved-models tbody tr:hover td.actions {
+		background-image: linear-gradient(
+			var(--vscode-list-hoverBackground, transparent),
+			var(--vscode-list-hoverBackground, transparent)
+		);
+	}
+	/* The seam where content disappears under the pinned cell, in the table's
+		   own separator color, scoped to the tier where the table actually
+		   overflows (the chip-wrap rule above derives the same 920): at wide
+		   panes the table fits and a standing vertical rule would mark a
+		   boundary nothing slides under. */
+	@container pane (width < 920px) {
+		table.resolved-models td.actions,
+		table.resolved-models th.actions {
+			border-left: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
+		}
 	}
 	.resolved-cell code,
 	.resolved-price-part code {
@@ -3944,13 +3999,11 @@
 			flex: 1 1 100%;
 		}
 	}
-	/* The matcher list's shared columns stop paying rent under the 620px tier -
-	 four tracks at chip minimums outrun the pane - so the rows fall back to
-	 the wrapping flex lines they are everywhere else. Source order is what
-	 lets this win: the full-width grid above and this fallback share one flat
-	 layer, so the later rule takes the argument (a display utility on the
-	 list would sit in the utilities layer and never yield to it). */
-	@container pane (width < 620px) {
+	/* Under 700px the four shared tracks outrun the pane (the matcher cap, one
+	 whole chip, the inherit summary, the pencil and three gaps land at ~706),
+	 so the rows fall back to the wrapping flex lines they are elsewhere.
+	 Source order carries it: both rules sit in one flat layer. */
+	@container pane (width < 700px) {
 		.record-table {
 			display: block;
 		}

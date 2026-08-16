@@ -9,7 +9,16 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { DashboardServer, DashboardUsage, UsageServerView } from "../../../../dashboard/viewModels";
 import { ServersSection } from "../../../../webview/dashboard/servers";
 import { makeDeclaredServer, makeForbiddenUsageServer, makeUsage, makeUsageServer } from "../fixtures";
-import { buttonByText, cleanup, fireClick, mount, postedCalls, resetPosted, textOf } from "../harness";
+import {
+	accessibleNameOf,
+	buttonByText,
+	cleanup,
+	fireClick,
+	mount,
+	postedCalls,
+	resetPosted,
+	textOf,
+} from "../harness";
 
 const NOW = 1_700_000_000_000;
 
@@ -613,7 +622,13 @@ describe("the header", () => {
 
 	test("Refresh now posts the intent and disables while a pass is in flight", () => {
 		const root = mountServers(makeUsage({ servers: [makeUsageServer({ label: "Prod" })] }));
-		fireClick(root.querySelector("button.refresh-usage") as HTMLButtonElement);
+		const resting = root.querySelector("button.refresh-usage") as HTMLButtonElement;
+		// At rest the mounted busy twin is aria-hidden as well as invisible: the
+		// accessible name must be exactly the resting label, or a dropped
+		// aria-hidden would read both labels to assistive tech (the `invisible`
+		// class alone is a CSS fact the accessible-name walk cannot see).
+		expect(accessibleNameOf(resting)).toBe("Refresh now");
+		fireClick(resting);
 		expect(postedCalls()).toEqual([{ method: "refreshUsage", payload: null }]);
 		cleanup();
 		// An EXPLICIT pass wears the busy label (and keeps the idle label
@@ -628,6 +643,9 @@ describe("the header", () => {
 		expect(busyLabel.classList.contains("invisible")).toBe(false);
 		expect(busyLabel.querySelector(".spinner")).not.toBeNull();
 		expect((button.querySelector(".refresh-idle-label") as HTMLElement).classList.contains("invisible")).toBe(true);
+		// The mirror image: busy, the hidden idle twin is the aria-hidden one,
+		// so the name is exactly the busy label.
+		expect(accessibleNameOf(button)).toBe("Refreshing...");
 	});
 
 	test("a background pass disables Refresh now without impersonating asked-for work", () => {

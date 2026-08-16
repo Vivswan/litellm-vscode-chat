@@ -946,11 +946,9 @@ function HeaderRowsEditor({
 					>
 						<IconTrash /> {l10n.t("Remove")}
 					</Button>
-					{/* The row's one status line, reserved whether or not it speaks
-					    (the record rows' .record-status idiom; min-height 1lh from the
-					    shared .row .row-status rule): the parse verdict lands per
-					    keystroke, and a line mounted only alongside a problem pushed
-					    the row below down on the first bad character. */}
+					{/* Reserved whether or not it speaks (min-height 1lh, the shared
+					    .row .row-status rule): the verdict lands per keystroke, and a
+					    line mounted only when it speaks moves the row below. */}
 					<span className={cn("row-status basis-full text-[11.5px]", problems[index] !== undefined && "error")}>
 						{problems[index]}
 					</span>

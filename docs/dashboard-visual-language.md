@@ -123,12 +123,17 @@ One idiom for actions that rest hidden on a row, and it has one home:
   reserved or covers what it replaces: the server row's actions occupy a
   reserved track so revealing them cannot reflow the row
   (`dashboard.css .server-row`), a settings error covers the description
-  instead of displacing it (`settings.tsx SettingRow`), and the reveal wrapper
-  itself keeps the hidden control's box (opacity, not display). Where nothing
-  pre-exists to cover, the message's line is reserved outright: every record
-  row and field row mounts its one status slot whether or not it speaks
-  (`dashboard.css .record-table .record-status`; the field rows'
-  `dashboard.css .row .row-status`), the matcher editor's grammar reading and
+  instead of displacing it (`settings.tsx SettingRow`), a record card's
+  validation verdict covers the reserved refusal line in its footer
+  (`dashboard.css .record-verdict`), and the reveal wrapper
+  itself keeps the hidden control's box (opacity, not display). Reserving is
+  the answer only where a line has somewhere of its own to sit: a per-row
+  reservation cost every quiet ROW a blank strip, where the card's one footer
+  line adds no reservation of its own: it covers the refusal slot, which is
+  reserved either way and blank until it speaks. Where nothing
+  pre-exists to cover, the message's line is reserved outright: every field
+  row mounts its one status slot whether or not it speaks
+  (`dashboard.css .row .row-status`), the matcher editor's grammar reading and
   the JSON side door's verdict share the same rule
   (`dashboard.css .matcher-status`; `dashboard.css .json-status`), and a note
   whose sentence is known at rest holds its own box as an invisible spacing

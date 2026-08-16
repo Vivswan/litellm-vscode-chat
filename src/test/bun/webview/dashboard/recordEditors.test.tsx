@@ -18,6 +18,8 @@ import { CatalogPicker, capabilityKeySuggestions } from "../../../../webview/das
 import { SettingsSection } from "../../../../webview/dashboard/settings";
 import { makeModel, makeSettings, makeState, statePush } from "../fixtures";
 import {
+	accessibleDescriptionOf,
+	accessibleNameOf,
 	buttonByText,
 	cleanup,
 	fireBlur,
@@ -435,34 +437,29 @@ test("popover validation: a bad value marks the chip and blocks Apply; the messa
 	expect(section().querySelectorAll(".error").length).toBe(1);
 	expect(popoverOf(section()).querySelector(".error")).not.toBeNull();
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(true);
-	// Closed, the row line takes over: the problem stays said exactly once.
+	// Closed, the card's verdict takes over: said exactly once either way.
 	fireClick(chipFor(section(), "temperature"));
 	expect(section().querySelector(".chip-popover")).toBeNull();
 	expect(section().querySelectorAll(".error").length).toBe(1);
 	expect(section().textContent).toContain("Not valid JSON");
 });
 
-test("both message slots are reserved: every row carries a status line, and the popover's sits after the actions", () => {
-	// The verdicts land per keystroke, so their space is held whether or not
-	// they speak (the charter's transients-never-move-anything clause): the
-	// row's status line is mounted empty on a clean row - it used to mount
-	// only alongside a problem, and the first bad character grew the page
-	// 17px - and the popover's slot sits AFTER the actions, where a message
-	// (even one that wraps past the slot's one-line reservation) can never
-	// shove Remove field down under the pointer again.
+test("the popover's status slot is reserved and sits after its actions", () => {
+	// The popover's slot is reserved and sits AFTER its actions, so a message
+	// landing per keystroke cannot shove Remove field under the pointer. The
+	// rows themselves carry no slot; the card's verdict covers the footer.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
 
-	// Clean: the slot exists on every row, empty and unmarked.
+	// Clean: no row carries a status line at all, and the card's verdict is
+	// unmounted - the quiet row is its one content line.
 	const cleanRows = Array.from(section().querySelectorAll(".record-row"));
 	expect(cleanRows.length).toBeGreaterThan(0);
 	for (const row of cleanRows) {
-		const status = row.querySelector(".record-status");
-		expect(status).not.toBeNull();
-		expect(status?.textContent).toBe("");
-		expect(status?.classList.contains("error")).toBe(false);
+		expect(row.querySelector(".record-status")).toBeNull();
 	}
+	expect(section().querySelector(".record-verdict")).toBeNull();
 
 	fireClick(chipFor(section(), "temperature"));
 	const popover = popoverOf(section());
@@ -477,15 +474,80 @@ test("both message slots are reserved: every row carries a status line, and the 
 		actions !== null && status !== null && actions.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING
 	).toBeTruthy();
 
-	// Closed, the row's slot speaks - same element, now marked.
+	// Closed, the card's verdict speaks, naming the matcher it belongs to.
 	fireClick(chipFor(section(), "temperature"));
-	const rowStatus = chipFor(section(), "temperature").closest(".record-row")?.querySelector(".record-status");
-	expect(rowStatus?.classList.contains("error")).toBe(true);
-	expect(rowStatus?.textContent).toContain("Not valid JSON");
+	const verdict = section().querySelector(".record-verdict");
+	expect(verdict?.classList.contains("error")).toBe(true);
+	expect(verdict?.textContent).toContain("Not valid JSON");
+	expect(verdict?.textContent).toContain("gpt-4");
 });
 
-test("the row's status slot speaks worst first: the matcher's own problem outranks a field's", () => {
-	// One slot, one message: with both standing, the structural problem (the
+test("an invalid chip says so locally: aria-invalid plus its problem as a description", () => {
+	// The card's verdict names the matcher, not the field, and speaks for one
+	// problem at a time - so the chip carries its own, at zero geometry cost.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
+	const section = () => sectionByHeading(root, "Model parameters");
+	const chip = () => chipFor(section(), "temperature");
+	expect(chip().getAttribute("aria-invalid")).toBeNull();
+	expect(accessibleDescriptionOf(chip())).toBe("");
+
+	fireClick(chip());
+	fireInput(popoverOf(section()).querySelector("input.value") as HTMLInputElement, "not json");
+	fireClick(chip());
+	expect(chip().getAttribute("aria-invalid")).toBe("true");
+	expect(accessibleDescriptionOf(chip())).toContain("Not valid JSON");
+	// The name still leads with the chip's own content, not the problem.
+	expect(accessibleNameOf(chip())).toContain("temperature");
+});
+
+test("the card's verdict counts the problems it is not showing", () => {
+	// Summarized, not dropped: the worst message plus a count of the rest, and
+	// fixing the worst promotes the next into the line.
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2, top_p: 1, top_k: 2 } }) }))
+	);
+	const section = () => sectionByHeading(root, "Model parameters");
+	const spoil = (key: string) => {
+		fireClick(chipFor(section(), key));
+		fireInput(popoverOf(section()).querySelector("input.value") as HTMLInputElement, "not json");
+		fireClick(chipFor(section(), key));
+	};
+	spoil("temperature");
+	expect(section().querySelector(".record-verdict")?.textContent).not.toContain("more");
+	spoil("top_p");
+	expect(section().querySelector(".record-verdict")?.textContent).toContain("(+1 more)");
+	spoil("top_k");
+	expect(section().querySelector(".record-verdict")?.textContent).toContain("(+2 more)");
+	// The count follows the open popover's suppression: the chip stating its
+	// own problem is not counted twice.
+	fireClick(chipFor(section(), "temperature"));
+	expect(section().querySelector(".record-verdict")?.textContent).toContain("(+1 more)");
+});
+
+test("an unrelated popover does not erase the card's verdict", () => {
+	// The open popover states its OWN field's problem, so the verdict skips
+	// exactly that one - opening a clean chip elsewhere must not take the
+	// card's only explanation away with it.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2, top_p: 1 } }) })));
+	const section = () => sectionByHeading(root, "Model parameters");
+	fireClick(chipFor(section(), "temperature"));
+	fireInput(popoverOf(section()).querySelector("input.value") as HTMLInputElement, "not json");
+	fireClick(chipFor(section(), "temperature"));
+	expect(section().querySelector(".record-verdict")?.textContent).toContain("Not valid JSON");
+	// A clean chip's popover opens: the standing problem is still explained.
+	fireClick(chipFor(section(), "top_p"));
+	expect(section().querySelector(".record-verdict")?.textContent).toContain("Not valid JSON");
+	// The invalid chip's own popover states it, so the card stops repeating it.
+	fireClick(chipFor(section(), "top_p"));
+	fireClick(chipFor(section(), "temperature"));
+	expect(section().querySelector(".record-verdict")).toBeNull();
+});
+
+test("the card's verdict speaks worst first: the matcher's own problem outranks a field's", () => {
+	// One line, one message: with both standing, the structural problem (the
 	// matcher key) is the one to fix first, and the invalid chip's red border
 	// still marks the field for later.
 	const root = mount(<App />);
@@ -493,13 +555,12 @@ test("the row's status slot speaks worst first: the matcher's own problem outran
 		statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 }, " ": { top_p: 1 } }) }))
 	);
 	const section = () => sectionByHeading(root, "Model parameters");
-	const row = chipFor(section(), "top_p").closest(".record-row");
 	fireClick(chipFor(section(), "top_p"));
 	fireInput(popoverOf(section()).querySelector("input.value") as HTMLInputElement, "not json");
 	fireClick(chipFor(section(), "top_p"));
-	const status = row?.querySelector(".record-status");
-	expect(status?.textContent).toContain("Enter a model matcher");
-	expect(status?.textContent).not.toContain("Not valid JSON");
+	const verdict = section().querySelector(".record-verdict");
+	expect(verdict?.textContent).toContain("Enter a model matcher");
+	expect(verdict?.textContent).not.toContain("Not valid JSON");
 });
 
 test("no chip suppresses the forced-colors border repaint, and an invalid mark survives the popover closing", () => {
@@ -1116,10 +1177,9 @@ test("the key track pins while focus is inside the field grid and refits once it
 });
 
 test("the overlay's field rows carry reserved status lines: empty at rest, marked when the verdict lands", () => {
-	// The per-row verdict re-renders per keystroke inside the overlay, so its
-	// line is mounted whether or not it speaks (the record rows' .record-status
-	// idiom): a status inserted only alongside a problem pushed the rows below
-	// and the footer down on the first bad character.
+	// The overlay's per-row verdict re-renders per keystroke, so its line is
+	// mounted whether or not it speaks: one inserted only when it speaks moves
+	// the rows below it and the footer.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
 	const editor = openEditorFor(sectionByHeading(root, "Model parameters"), "gpt-4");
@@ -1526,6 +1586,30 @@ test("an intentFailed after Apply reopens the draft dirty with the failure note"
 	);
 	expect(note?.getAttribute("role")).toBe("alert");
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(false);
+});
+
+test("the refusal outranks the verdict in the slot they share", () => {
+	// One reserved line, two speakers: the refusal holds the box and the
+	// verdict covers it, so only the refusal renders while both stand.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams({}) })));
+	const section = () => sectionByHeading(root, "Model parameters");
+	draftOneParam(section, "gpt-4", "temperature", "0.2");
+	resetPosted();
+	fireClick(buttonByText(section(), "Apply"));
+	pushToWebview({
+		kind: "fail",
+		id: lastRequestId(),
+		method: "setModelParameters",
+		message: "gpt-4: refused by validation.",
+		failureKind: "validation",
+	});
+	// Now a chip goes invalid too: the verdict yields the covered line.
+	fireClick(chipFor(section(), "temperature"));
+	fireInput(popoverOf(section()).querySelector("input.value") as HTMLInputElement, "not json");
+	fireClick(chipFor(section(), "temperature"));
+	expect(section().querySelector(".failure-note")?.classList.contains("error")).toBe(true);
+	expect(section().querySelector(".record-verdict")).toBeNull();
 });
 
 test("the failure slot is reserved: mounted empty on a clean editor, before any failure exists", () => {

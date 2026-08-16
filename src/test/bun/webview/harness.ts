@@ -284,6 +284,67 @@ export function textOf(root: ParentNode, selector: string): string {
 	return (element.textContent ?? "").trim();
 }
 
+/** One element's contribution to an accessible name: its text nodes in tree order, aria-hidden subtrees excluded. */
+function visibleTextOf(node: Node): string {
+	if (node.nodeType === Node.TEXT_NODE) {
+		return node.textContent ?? "";
+	}
+	if (node instanceof Element) {
+		if (node.getAttribute("aria-hidden") === "true") {
+			return "";
+		}
+		let text = "";
+		for (const child of Array.from(node.childNodes)) {
+			text += visibleTextOf(child);
+		}
+		return text;
+	}
+	return "";
+}
+
+/**
+ * The accessible name a control computes, the way the a11y tree would:
+ * aria-labelledby, then aria-label, then the subtree's text nodes in tree
+ * order with aria-hidden subtrees excluded, whitespace-collapsed. Deliberately
+ * blind to CSS: happy-dom runs no layout, so a subtree hidden only by a
+ * visibility utility still contributes here - which is what lets an assertion
+ * on this name catch a width twin that lost its aria-hidden while keeping
+ * `invisible` (textContent, which ignores both, cannot).
+ */
+export function accessibleNameOf(element: HTMLElement): string {
+	const labelledBy = element.getAttribute("aria-labelledby");
+	if (labelledBy !== null) {
+		return labelledBy
+			.split(/\s+/)
+			.map((id) => {
+				const target = document.getElementById(id);
+				return target === null ? "" : visibleTextOf(target);
+			})
+			.join(" ")
+			.replace(/\s+/g, " ")
+			.trim();
+	}
+	const label = element.getAttribute("aria-label");
+	if (label !== null) {
+		return label.replace(/\s+/g, " ").trim();
+	}
+	return visibleTextOf(element).replace(/\s+/g, " ").trim();
+}
+
+/** An element's accessible DESCRIPTION: the aria-describedby targets' text, in order. */
+export function accessibleDescriptionOf(element: HTMLElement): string {
+	return (element.getAttribute("aria-describedby") ?? "")
+		.split(/\s+/)
+		.filter((id) => id.length > 0)
+		.map((id) => {
+			const target = document.getElementById(id);
+			return target === null ? "" : (target.textContent ?? "");
+		})
+		.join(" ")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
 /** The button whose visible text matches exactly, after trimming. */
 export function buttonByText(root: ParentNode, text: string): HTMLButtonElement {
 	const button = Array.from(root.querySelectorAll("button")).find(
