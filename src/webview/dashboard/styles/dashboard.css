@@ -1639,15 +1639,22 @@
 		/* One fixed line box for both voices: the verdict's mono fragments ride
 			 a taller intrinsic line than the sans text, and an unpinned
 			 line-height grew the slot a pixel the moment the verdict mounted.
-			 The min-height is the same number, so a line the wrap hands the slot
-			 alone is reserved at exactly this height in both states. */
-		line-height: 16px;
-		min-height: 16px;
+			 The min-height reserves a line the wrap hands the slot alone; the
+			 hard height bound lives on the children below. */
+		line-height: 18px;
+		min-height: 18px;
 	}
 	.editor-status > * {
 		grid-area: 1 / 1;
 		min-width: 0;
 		margin: 0;
+		/* A hard box, not a line box: a line box mixing the verdict's mono
+			 <code> with sans text can exceed any pinned line-height (baselines
+			 shift the boxes apart; Linux's mono fallback rounds it a pixel
+			 taller), so only a fixed height is metrics-invariant. 18px leaves
+			 headroom for CJK content areas (~17px at this size) and the
+			 forced-colors error underline below the baseline. */
+		height: 18px;
 		/* One line at every width: the paint clips with an ellipsis while the
 			 text stays whole in the DOM and in the title. */
 		white-space: nowrap;
