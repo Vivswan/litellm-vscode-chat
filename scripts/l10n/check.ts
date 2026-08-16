@@ -1,26 +1,31 @@
 /**
- * The l10n gate (pre-commit, and CI's format-check job inside the all-green
- * gate): fails when the committed English bundle is not byte-identical to a fresh
- * extraction, when one message is minted under two different bundle keys
- * (a forked comment form), when a localized string is resolved at module
- * scope, when the source localizes through vscode's l10n API instead of
- * @vscode/l10n's canonical import form, when a translation file's key set
- * drifts from its English reference, when a
- * translated value's {0}-style placeholders differ from the English value's,
- * when a translated value drops or rewrites a preserved token (a $(codicon),
- * a command:<id> occurrence, or a markdown link target),
- * when a translation file carries banned typography, when the bundle and
- * package.nls locale sets disagree, or when package.json's %key% references
- * and package.nls.json disagree. Every file is parsed through a zod schema
- * (nothing is cast), and one bad file records its failure and lets the rest
- * of the run continue.
+ * The l10n gate (pre-commit, and CI's format-check job). Every file is parsed
+ * through a zod schema (nothing is cast), and one bad file records its failure
+ * and lets the rest of the run continue. It fails when:
+ *
+ * - the committed English bundle is not byte-identical to a fresh extraction;
+ * - one message is minted under two different bundle keys (a forked comment);
+ * - a localized string is resolved at module scope;
+ * - a top-level helper or class reaching a localized string is missing from
+ *   the lazy-helper census, or a census entry no longer names a declaration;
+ * - shipped source default-exports anything (both census walks follow
+ *   call-site names, and a default export lets every importer mint its own);
+ * - the source localizes through vscode's l10n API instead of @vscode/l10n's
+ *   canonical import form;
+ * - a translation file's key set drifts from its English reference;
+ * - a translated value's {0} placeholders differ from the English value's;
+ * - a translated value drops or rewrites a preserved token (a $(codicon), a
+ *   command:<id> occurrence, or a markdown link target);
+ * - a translation file carries banned typography;
+ * - the bundle and package.nls locale sets disagree;
+ * - package.json's %key% references and package.nls.json disagree.
  */
 import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 // The typography and placeholder helpers are shared with the guard suites
 // under src/test; they live there because the extension-host tsconfig cannot
-// compile imports from scripts/ (see src/test/util/l10n.ts).
+// compile imports from scripts/.
 import { bannedTypography, placeholderCounts } from "../../src/test/util/l10n";
 import {
 	BUNDLE_PATH,
@@ -28,6 +33,7 @@ import {
 	bundleMessage,
 	bundleSchema,
 	declaredCensusNames,
+	defaultExportOffenses,
 	extractBundle,
 	LAZY_L10N_HELPERS,
 	moduleScopeL10nOffenses,
@@ -35,6 +41,7 @@ import {
 	readSourceFiles,
 	type SourceFile,
 	serializeBundle,
+	uncensusedLazyHelpers,
 	vscodeL10nOffenses,
 } from "./lib";
 
@@ -121,9 +128,9 @@ async function checkExtractionDrift(): Promise<BundleFile | undefined> {
 }
 
 /**
- * The guard's own teeth, proven before it judges real files: every fixture
- * is a pattern the AST walk must classify correctly, so a guard regression
- * fails the gate instead of silently passing frozen-English catalogs.
+ * The guard's own teeth, proven before it judges real files: each fixture is a
+ * pattern the AST walk must classify correctly, so a guard regression fails
+ * the gate instead of silently passing frozen-English catalogs.
  */
 const GUARD_FIXTURES: readonly { readonly name: string; readonly source: string; readonly flagged: boolean }[] = [
 	{
@@ -221,15 +228,729 @@ const GUARD_FIXTURES: readonly { readonly name: string; readonly source: string;
 		source: '@dec(l10n.t("x"))\nclass C {}\n',
 		flagged: true,
 	},
+	{
+		name: "type-wrapped lazy-helper call at module scope",
+		source: "const TITLE = (manageCommandTitle as () => string)();\n",
+		flagged: true,
+	},
+	{
+		name: "parenthesized t call at module scope",
+		source: 'const TITLE = (l10n.t)("x");\n',
+		flagged: true,
+	},
+	{
+		// This guard matches callee text, so `.call`/`.apply` and a destructured
+		// `t` slip past it - the residual its docstring names. Pinned here
+		// because vscodeL10nOffenses bans both shapes outright, making the
+		// split a documented division of labour rather than a gap.
+		name: "t invoked through .call at module scope (the one-API guard's job, not this one's)",
+		source: 'const TITLE = l10n.t.call(undefined, "x");\n',
+		flagged: false,
+	},
+	{
+		name: "a constructor's destructured parameter default evaluates at new",
+		source:
+			'class C {\n\tconstructor({ text = l10n.t("x") } = {}) {\n\t\tthis.t = text;\n\t}\n}\nconst FROZEN = new C();\n',
+		flagged: true,
+	},
+	{
+		name: "the same class left uninstantiated",
+		source: 'export class C {\n\tconstructor({ text = l10n.t("x") } = {}) {\n\t\tthis.t = text;\n\t}\n}\n',
+		flagged: false,
+	},
+	{
+		name: "a destructured parameter default evaluates with the call",
+		source: 'const FROZEN = (({ text = l10n.t("x") }) => text)({});\n',
+		flagged: true,
+	},
+	{
+		// The SECOND parameter: a tag's first receives the strings array, so only
+		// a later one can fall back to its default.
+		name: "a template tag's parameter default evaluates with the tag",
+		source: 'const FROZEN = ((strings, text = l10n.t("x")) => text)`y`;\n',
+		flagged: true,
+	},
+	{
+		name: "an invoked function's parameter default evaluates with the call",
+		source: 'const FROZEN = ((text = l10n.t("x")) => text)();\n',
+		flagged: true,
+	},
+	{
+		name: "a parameter default binding a lazy helper, invoked at module scope",
+		source: "function wrap(title = manageCommandTitle) {\n\treturn title();\n}\nconst FROZEN = wrap();\n",
+		flagged: true,
+	},
+	{
+		name: "the same parameter default left uninvoked",
+		source: 'export const f = (text = l10n.t("x")) => text;\n',
+		flagged: false,
+	},
+	{
+		name: "eager IIFE laundering a helper through a local alias",
+		source: "const FROZEN = (() => {\n\tconst alias = manageCommandTitle;\n\treturn alias();\n})();\n",
+		flagged: true,
+	},
+	{
+		name: "top-level alias of a helper called at module scope",
+		source: "const alias = manageCommandTitle;\nconst FROZEN = alias();\n",
+		flagged: true,
+	},
+	{
+		name: "top-level reassignment alias called at module scope",
+		source: 'let alias = () => "";\nalias = manageCommandTitle;\nconst FROZEN = alias();\n',
+		flagged: true,
+	},
+	{
+		name: "an alias of a non-lazy name stays quiet",
+		source: "const alias = somethingElse;\nconst VALUE = alias();\n",
+		flagged: false,
+	},
+	{
+		name: "a module-scope loop calling before reassigning (evaluation order beats source order)",
+		source: 'let alias = () => "";\nfor (let i = 0; i < 2; i += 1) {\n\talias();\n\talias = manageCommandTitle;\n}\n',
+		flagged: true,
+	},
+	{
+		name: "a helper constructed by assignment and called at module scope",
+		source: 'let label: () => string;\nlabel = () => l10n.t("x");\nconst FROZEN = label();\n',
+		flagged: true,
+	},
+	{
+		name: "a locally declared lazy arrow called at module scope",
+		source: 'const f = () => l10n.t("x");\nconst FROZEN = f();\n',
+		flagged: true,
+	},
+	{
+		name: "a locally declared lazy arrow merely referenced stays quiet",
+		source: 'const f = () => l10n.t("x");\nexport const g = () => f();\n',
+		flagged: false,
+	},
+	{
+		name: "a function declared inside an eager IIFE and called there",
+		source:
+			'const X = (() => {\n\tfunction local(): string {\n\t\treturn l10n.t("x");\n\t}\n\treturn local();\n})();\n',
+		flagged: true,
+	},
+	{
+		name: "an alias buried inside an assigned function literal, called at module scope",
+		source:
+			"let label: () => string;\nlabel = () => {\n\tconst a = manageCommandTitle;\n\treturn a();\n};\nconst FROZEN = label();\n",
+		flagged: true,
+	},
+	{
+		name: "a lazy helper invoked as a template tag at module scope",
+		source: "const FROZEN = manageCommandTitle`x`;\n",
+		flagged: true,
+	},
+	{
+		name: "a lazy helper invoked with new at module scope",
+		source: "const FROZEN = new manageCommandTitle();\n",
+		flagged: true,
+	},
+	{
+		name: "a bare-name decorator runs at class definition",
+		source: "@manageCommandTitle\nclass C {}\n",
+		flagged: true,
+	},
+	{
+		name: "constructing a class whose constructor localizes",
+		source: 'class LazyCtor {\n\tconstructor() {\n\t\tl10n.t("x");\n\t}\n}\nconst FROZEN = new LazyCtor();\n',
+		flagged: true,
+	},
+	{
+		name: "constructing an inline class whose constructor localizes",
+		source: 'const FROZEN = new (class {\n\tconstructor() {\n\t\tl10n.t("x");\n\t}\n})();\n',
+		flagged: true,
+	},
+	{
+		name: "constructing a class that localizes only in a method stays quiet",
+		source: 'class Ok {\n\tlabel(): string {\n\t\treturn l10n.t("x");\n\t}\n}\nconst INSTANCE = new Ok();\n',
+		flagged: false,
+	},
+	{
+		name: "constructing a renamed import of a lazy class",
+		source: 'import { DashboardController as Renamed } from "./panel";\nconst FROZEN = new Renamed(context);\n',
+		flagged: true,
+	},
+	{
+		name: "constructing an inline class whose constructor PARAMETER DEFAULT localizes",
+		source: 'const FROZEN = new (class {\n\tconstructor(x = l10n.t("x")) {\n\t\tvoid x;\n\t}\n})();\n',
+		flagged: true,
+	},
+	{
+		name: "constructing an inline class extending a lazy base",
+		source: "const FROZEN = new (class extends DashboardController {})(context);\n",
+		flagged: true,
+	},
+	{
+		name: "a ternary binding whose one branch is a lazy helper, called at module scope",
+		source: "const title = enabled ? manageCommandTitle : plain;\nconst FROZEN = title();\n",
+		flagged: true,
+	},
+	{
+		name: "a logical-fallback binding of a lazy helper, called at module scope",
+		source: "const title = custom ?? manageCommandTitle;\nconst FROZEN = title();\n",
+		flagged: true,
+	},
+	{
+		name: "a compound logical assignment of a lazy helper, called at module scope",
+		source: 'let title: () => string = () => "";\ntitle ??= manageCommandTitle;\nconst FROZEN = title();\n',
+		flagged: true,
+	},
 ];
 
-/** The lazy-catalog guard: no module-scope localization calls anywhere in the shipped source. */
+/**
+ * The reverse census walk's own teeth: each fixture is a source set whose
+ * expected findings the walk must produce exactly - names it must report as
+ * missing from a given census, and shapes it must leave alone. expectedLines
+ * pins WHERE a finding points, in the same name-sorted order as expected.
+ */
+const REVERSE_CENSUS_FIXTURES: readonly {
+	readonly name: string;
+	readonly sources: readonly { readonly file: string; readonly contents: string }[];
+	readonly census: readonly string[];
+	readonly expected: readonly string[];
+	readonly expectedLines?: readonly number[];
+}[] = [
+	{
+		name: "an overload set points the finding at the implementation, not the first signature",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					"export function label(value: number): string;\n" +
+					"export function label(value: string): string;\n" +
+					'export function label(value: unknown): string {\n\treturn l10n.t("x", String(value));\n}\n',
+			},
+		],
+		census: [],
+		expected: ["label"],
+		expectedLines: [3],
+	},
+	{
+		name: "direct l10n.t caller missing from the census",
+		sources: [{ file: "a.ts", contents: 'export function label(): string {\n\treturn l10n.t("x");\n}\n' }],
+		census: [],
+		expected: ["label"],
+	},
+	{
+		name: "vscode.l10n.t counts as direct",
+		sources: [{ file: "a.ts", contents: 'export const label = () => vscode.l10n.t("x");\n' }],
+		census: [],
+		expected: ["label"],
+	},
+	{
+		name: "transitive through a censused name",
+		sources: [{ file: "a.ts", contents: "export function wrap(): string {\n\treturn censusedHelper();\n}\n" }],
+		census: ["censusedHelper"],
+		expected: ["wrap"],
+	},
+	{
+		name: "transitive chain across files, both links reported",
+		sources: [
+			{ file: "a.ts", contents: "export function outer(): string {\n\treturn inner();\n}\n" },
+			{ file: "b.ts", contents: 'export function inner(): string {\n\treturn l10n.t("x");\n}\n' },
+		],
+		census: [],
+		expected: ["inner", "outer"],
+	},
+	{
+		name: "a default parameter resolves l10n.t",
+		sources: [{ file: "a.ts", contents: 'export function f(text = l10n.t("d")): string {\n\treturn text;\n}\n' }],
+		census: [],
+		expected: ["f"],
+	},
+	{
+		name: "an arrow-function variable is a helper too",
+		sources: [{ file: "a.ts", contents: 'export const g = () => l10n.t("x");\n' }],
+		census: [],
+		expected: ["g"],
+	},
+	{
+		name: "a censused helper raises nothing",
+		sources: [{ file: "a.ts", contents: 'export function label(): string {\n\treturn l10n.t("x");\n}\n' }],
+		census: ["label"],
+		expected: [],
+	},
+	{
+		name: "an uppercase component is not reported but still carries edges",
+		sources: [
+			{
+				file: "a.tsx",
+				contents:
+					'export function Banner(): string {\n\treturn l10n.t("x");\n}\n' +
+					"export function callsComponent(): string {\n\treturn Banner();\n}\n",
+			},
+		],
+		census: [],
+		expected: ["callsComponent"],
+	},
+	{
+		name: "a helper with no l10n path raises nothing",
+		sources: [{ file: "a.ts", contents: "export function plain(): number {\n\treturn 1 + 1;\n}\n" }],
+		census: [],
+		expected: [],
+	},
+	{
+		// The boundary, pinned: these bind a name to a value in flight, which is
+		// data-flow analysis rather than a name-following walk.
+		name: "an argument bound to a parameter stays invisible (the documented limit)",
+		sources: [{ file: "a.ts", contents: "export const wraps = ((title) => () => title())(manageCommandTitle);\n" }],
+		census: ["manageCommandTitle"],
+		expected: [],
+	},
+	{
+		name: "a for-of binding stays invisible (the documented limit)",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					"export function wrap(): void {\n\tfor (const title of [manageCommandTitle]) {\n\t\ttitle();\n\t}\n}\n",
+			},
+		],
+		census: ["manageCommandTitle"],
+		expected: [],
+	},
+	{
+		name: "a thunk-table property call stays invisible (the documented census limit)",
+		sources: [{ file: "a.ts", contents: "export function viaTable(): string {\n\treturn TABLE.entry.surface();\n}\n" }],
+		census: [],
+		expected: [],
+	},
+	{
+		name: "an IIFE-assigned variable handing back a closure over l10n.t",
+		sources: [
+			{
+				file: "a.ts",
+				contents: 'export const label = (() => {\n\treturn () => l10n.t("x");\n})();\n',
+			},
+		],
+		census: [],
+		expected: ["label"],
+	},
+	{
+		name: "an import alias of a censused helper, and the helper calling through it",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'import { manageCommandTitle as mct } from "./titles";\n' +
+					"export function wraps(): string {\n\treturn mct();\n}\n",
+			},
+		],
+		census: ["manageCommandTitle"],
+		expected: ["mct", "wraps"],
+	},
+	{
+		name: "an export alias mints a second census obligation for a lazy helper",
+		sources: [
+			{
+				file: "a.ts",
+				contents: 'function label(): string {\n\treturn l10n.t("x");\n}\nexport { label as fancyLabel };\n',
+			},
+		],
+		census: [],
+		expected: ["fancyLabel", "label"],
+	},
+	{
+		name: "a local identifier alias of a censused helper, and the helper calling through it",
+		sources: [
+			{
+				file: "a.ts",
+				contents: "const alias = manageCommandTitle;\nexport const wraps = () => alias();\n",
+			},
+		],
+		census: ["manageCommandTitle"],
+		expected: ["alias", "wraps"],
+	},
+	{
+		name: "a FUNCTION-LOCAL alias of a censused helper marks the enclosing helper",
+		sources: [
+			{
+				file: "a.ts",
+				contents: "export function wraps(): string {\n\tconst alias = manageCommandTitle;\n\treturn alias();\n}\n",
+			},
+		],
+		census: ["manageCommandTitle"],
+		expected: ["wraps"],
+	},
+	{
+		name: "a function-local reassignment alias marks the enclosing helper too",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'export function wraps(): string {\n\tlet alias: () => string = () => "";\n\talias = manageCommandTitle;\n\treturn alias();\n}\n',
+			},
+		],
+		census: ["manageCommandTitle"],
+		expected: ["wraps"],
+	},
+	{
+		name: "a top-level reassignment alias is its own census obligation",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'let alias: () => string = () => "";\nalias = manageCommandTitle;\nexport const wraps = () => alias();\n',
+			},
+		],
+		census: ["manageCommandTitle"],
+		expected: ["alias", "wraps"],
+	},
+	{
+		name: "a helper constructed by a top-level assignment of a function literal",
+		sources: [
+			{
+				file: "a.ts",
+				contents: 'let label: () => string;\nlabel = () => l10n.t("x");\nexport const wraps = () => label();\n',
+			},
+		],
+		census: [],
+		expected: ["label", "wraps"],
+	},
+	{
+		name: "a parenthesized direct call still counts as direct",
+		sources: [{ file: "a.ts", contents: 'export function wrapped(): string {\n\treturn (l10n.t)("x");\n}\n' }],
+		census: [],
+		expected: ["wrapped"],
+	},
+	{
+		name: "a parenthesized transitive callee still carries the edge",
+		sources: [
+			{
+				file: "a.ts",
+				contents: "export function missed(): string {\n\treturn (manageCommandTitle as () => string)();\n}\n",
+			},
+		],
+		census: ["manageCommandTitle"],
+		expected: ["missed"],
+	},
+	{
+		name: "a factory whose returned closure resolves l10n.t is included (the census's over-inclusion rule)",
+		sources: [
+			{ file: "a.ts", contents: 'export function factory(): () => string {\n\treturn () => l10n.t("x");\n}\n' },
+		],
+		census: [],
+		expected: ["factory"],
+	},
+	{
+		name: "a parameter shadowing a censused name marks its function (syntactic matching, the forward guard's own rule)",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					"export function callsShadow(manageCommandTitle: () => string): string {\n\treturn manageCommandTitle();\n}\n",
+			},
+		],
+		census: ["manageCommandTitle"],
+		expected: ["callsShadow"],
+	},
+	{
+		name: "a helper invoking a censused name as a template tag",
+		sources: [
+			{
+				file: "a.ts",
+				contents: "export function tagged(): string {\n\treturn manageCommandTitle`x`;\n}\n",
+			},
+		],
+		census: ["manageCommandTitle"],
+		expected: ["tagged"],
+	},
+	{
+		name: "a helper reassigned inside module-level control flow",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'let label: () => string = () => "";\nif (enabled) {\n\tlabel = () => l10n.t("x");\n}\nexport const wraps = () => label();\n',
+			},
+		],
+		census: [],
+		expected: ["label", "wraps"],
+	},
+	{
+		name: "an alias minted in a for-initializer",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'let alias: () => string = () => "";\nfor (alias = manageCommandTitle; keepGoing(); ) {\n\tstep();\n}\nexport const wraps = () => alias();\n',
+			},
+		],
+		census: ["manageCommandTitle"],
+		expected: ["alias", "wraps"],
+	},
+	{
+		name: "a class whose constructor localizes is a census obligation at any case",
+		sources: [
+			{
+				file: "a.ts",
+				contents: 'export class Notifier {\n\tconstructor() {\n\t\tl10n.t("x");\n\t}\n}\n',
+			},
+		],
+		census: [],
+		expected: ["Notifier"],
+	},
+	{
+		name: "a class localizing only in a method stays out of the census",
+		sources: [
+			{
+				file: "a.ts",
+				contents: 'export class Quiet {\n\tlabel(): string {\n\t\treturn l10n.t("x");\n\t}\n}\n',
+			},
+		],
+		census: [],
+		expected: [],
+	},
+	// The two shapes the real registered classes have: neither runs l10n.t at
+	// `new`, and both are obligations because the roots `new` DOES evaluate are
+	// walked whole. Without these, tightening that walk to skip nested function
+	// literals would drop DashboardController and UsageAlerts with no fixture
+	// noticing.
+	{
+		name: "a class whose only evidence is a deferred thunk-table property is an obligation",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					"export class Runner {\n" +
+					"\tprivate readonly runners = {\n" +
+					"\t\tgo: (payload) => executeDashboardIntent(payload),\n" +
+					"\t};\n" +
+					"}\n",
+			},
+		],
+		census: ["executeDashboardIntent"],
+		expected: ["Runner"],
+	},
+	{
+		name: "a class whose only evidence is a callback registered in the constructor is an obligation",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					"export class Alerts {\n" +
+					"\tconstructor(store: Store) {\n" +
+					"\t\tstore.onDidChange(() => {\n" +
+					'\t\t\tthis.show(l10n.t("x"));\n' +
+					"\t\t});\n" +
+					"\t}\n" +
+					"}\n",
+			},
+		],
+		census: [],
+		expected: ["Alerts"],
+	},
+	{
+		name: "an UPPERCASE import alias of an unresolvable lazy name reports (alias resolution fails closed)",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'import { DashboardController as RenamedBase } from "./panel";\nexport const boots = () => new RenamedBase(ctx);\n',
+			},
+		],
+		census: ["DashboardController"],
+		expected: ["RenamedBase", "boots"],
+	},
+	// An alias is exempt only where its own spelling AND its target agree.
+	// Every direction, for each of the three aliasing shapes.
+	{
+		name: "an UPPERCASE import alias of an uppercase component inherits its exemption",
+		sources: [
+			{
+				file: "a.tsx",
+				contents: 'import { Banner as Renamed } from "./banner";\nexport const boots = () => Renamed();\n',
+			},
+			{ file: "banner.tsx", contents: 'export function Banner(): string {\n\treturn l10n.t("x");\n}\n' },
+		],
+		census: [],
+		expected: ["boots"],
+	},
+	{
+		name: "an UPPERCASE export alias of an uppercase component inherits its exemption",
+		sources: [
+			{
+				file: "a.tsx",
+				contents: 'export function Banner(): string {\n\treturn l10n.t("x");\n}\nexport { Banner as FancyBanner };\n',
+			},
+		],
+		census: [],
+		expected: [],
+	},
+	{
+		name: "an UPPERCASE identifier alias of an uppercase component inherits its exemption",
+		sources: [
+			{
+				file: "a.tsx",
+				contents:
+					'export function Banner(): string {\n\treturn l10n.t("x");\n}\n' +
+					"const Alias = Banner;\nexport const boots = () => Alias();\n",
+			},
+		],
+		census: [],
+		expected: ["boots"],
+	},
+	{
+		name: "an import-equals entity alias of a censused helper",
+		sources: [
+			{ file: "a.ts", contents: "import title = labels.manageCommandTitle;\nexport const wraps = () => title();\n" },
+		],
+		census: ["manageCommandTitle"],
+		expected: ["title", "wraps"],
+	},
+	{
+		name: "a destructuring default is its own census obligation",
+		sources: [
+			{ file: "a.ts", contents: "const { title = manageCommandTitle } = {};\nexport const wraps = () => title();\n" },
+		],
+		census: ["manageCommandTitle"],
+		expected: ["title", "wraps"],
+	},
+	{
+		name: "a destructured parameter default marks its function",
+		sources: [
+			{
+				file: "a.ts",
+				contents: "export function wrap({ title = manageCommandTitle } = {}): string {\n\treturn title();\n}\n",
+			},
+		],
+		census: ["manageCommandTitle"],
+		expected: ["wrap"],
+	},
+	{
+		name: "a parameter default aliasing a censused helper marks its function",
+		sources: [
+			{
+				file: "a.ts",
+				contents: "export function wrap(title = manageCommandTitle): string {\n\treturn title();\n}\n",
+			},
+		],
+		census: ["manageCommandTitle"],
+		expected: ["wrap"],
+	},
+	{
+		name: "a string-literal export specifier still mints its alias",
+		sources: [
+			{ file: "a.ts", contents: 'export { "a-b" as title } from "./m";\nexport const wraps = () => title();\n' },
+		],
+		census: ["a-b"],
+		expected: ["title", "wraps"],
+	},
+	{
+		name: "a LOWERCASE alias of an uppercase component is an obligation (the exemption is the convention, not the code)",
+		sources: [
+			{
+				file: "a.tsx",
+				contents: 'export function Banner(): string {\n\treturn l10n.t("x");\n}\nexport { Banner as label };\n',
+			},
+			{ file: "b.ts", contents: 'import { label } from "./a";\nexport const FROZEN = label();\n' },
+		],
+		census: [],
+		expected: ["label"],
+	},
+	{
+		name: "an UPPERCASE import alias of a lowercase lazy helper is still an obligation",
+		sources: [
+			{ file: "a.ts", contents: 'import { label as Label } from "./labels";\nexport const wraps = () => Label();\n' },
+			{ file: "labels.ts", contents: 'export function label(): string {\n\treturn l10n.t("x");\n}\n' },
+		],
+		census: [],
+		expected: ["Label", "label", "wraps"],
+	},
+	{
+		name: "an UPPERCASE export alias of a lowercase lazy helper is still an obligation",
+		sources: [
+			{ file: "a.ts", contents: 'function label(): string {\n\treturn l10n.t("x");\n}\nexport { label as Label };\n' },
+		],
+		census: [],
+		expected: ["Label", "label"],
+	},
+	{
+		name: "an UPPERCASE identifier alias of a lowercase lazy helper is still an obligation",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'function label(): string {\n\treturn l10n.t("x");\n}\n' +
+					"const Alias = label;\nexport const wraps = () => Alias();\n",
+			},
+		],
+		census: [],
+		expected: ["Alias", "label", "wraps"],
+	},
+	{
+		name: "a ternary binding reaches the census through either branch",
+		sources: [
+			{
+				file: "a.ts",
+				contents: "const title = enabled ? manageCommandTitle : plain;\nexport const wraps = () => title();\n",
+			},
+		],
+		census: ["manageCommandTitle"],
+		expected: ["title", "wraps"],
+	},
+	{
+		name: "a FUNCTION-LOCAL ternary alias marks the enclosing helper",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					"export function wraps(): string {\n\tconst pick = enabled ? manageCommandTitle : plain;\n\treturn pick();\n}\n",
+			},
+		],
+		census: ["manageCommandTitle"],
+		expected: ["wraps"],
+	},
+];
+
+/** The default-export ban's own teeth: every shape that mints an importer-named binding must flag. */
+const DEFAULT_EXPORT_FIXTURES: readonly {
+	readonly name: string;
+	readonly source: string;
+	readonly flagged: boolean;
+}[] = [
+	{ name: "export default expression", source: "const label = () => 1;\nexport default label;\n", flagged: true },
+	{
+		name: "export default function",
+		source: "export default function label(): number {\n\treturn 1;\n}\n",
+		flagged: true,
+	},
+	{ name: "export-equals", source: "const api = {};\nexport = api;\n", flagged: true },
+	{
+		name: "aliased default export specifier",
+		source: "const label = () => 1;\nexport { label as default };\n",
+		flagged: true,
+	},
+	{
+		name: "namespace export named default",
+		source: 'export * as default from "./foo";\n',
+		flagged: true,
+	},
+	{ name: "namespace export under another name", source: 'export * as helpers from "./foo";\n', flagged: false },
+	{ name: "named export", source: "export const label = () => 1;\n", flagged: false },
+	{
+		name: "type-only default-named export",
+		source: "type T = number;\nexport { type T as default };\n",
+		flagged: false,
+	},
+];
+
+/** Code-unit order by name - what `[...expected].sort()` does to a fixture's own list, so the two line up. */
+function byName(left: { readonly name: string }, right: { readonly name: string }): number {
+	if (left.name < right.name) {
+		return -1;
+	}
+	return left.name > right.name ? 1 : 0;
+}
+
+/** The lazy-catalog guard: no module-scope localization call the census's name-following walks can see. */
 function checkModuleScopeLocalization(sources: readonly SourceFile[]): void {
 	// The census only guards what it can find: an entry naming a deleted or
-	// renamed helper is a silently disarmed guard (helpSupportSection outlived
-	// its helper once), so every entry must still resolve to a top-level
-	// declaration somewhere in the shipped source - judged through the AST,
-	// because the name in a comment or a string is not a declaration.
+	// renamed helper is a silently disarmed guard, so every entry must still
+	// resolve to a top-level declaration in shipped source - through the AST,
+	// because a name in a comment or a string is not a declaration.
 	const declared = new Set<string>();
 	for (const { file, contents } of sources) {
 		// A substring pre-filter keeps the parse off files that cannot declare
@@ -244,6 +965,48 @@ function checkModuleScopeLocalization(sources: readonly SourceFile[]): void {
 	for (const helper of LAZY_L10N_HELPERS) {
 		if (!declared.has(helper)) {
 			fail(`LAZY_L10N_HELPERS names "${helper}", which no shipped source declares; rename or remove the entry.`);
+		}
+	}
+	// The reverse direction: a top-level helper resolving l10n.t at call time
+	// that never joined the census leaves its module-scope call sites unguarded.
+	for (const fixture of REVERSE_CENSUS_FIXTURES) {
+		const findings = [...uncensusedLazyHelpers(fixture.sources, fixture.census)].sort(byName);
+		const found = findings.map((finding) => finding.name);
+		if (JSON.stringify(found) !== JSON.stringify([...fixture.expected].sort())) {
+			fail(
+				`guard self-check: reverse census fixture "${fixture.name}" found [${found.join(", ")}], ` +
+					`expected [${fixture.expected.join(", ")}].`
+			);
+			continue;
+		}
+		const lines = findings.map((finding) => finding.line);
+		if (fixture.expectedLines !== undefined && JSON.stringify(lines) !== JSON.stringify([...fixture.expectedLines])) {
+			fail(
+				`guard self-check: reverse census fixture "${fixture.name}" reported lines [${lines.join(", ")}], ` +
+					`expected [${fixture.expectedLines.join(", ")}].`
+			);
+		}
+	}
+	for (const finding of uncensusedLazyHelpers(sources, LAZY_L10N_HELPERS)) {
+		fail(
+			`${rel(finding.file)}:${finding.line}: "${finding.name}" resolves l10n.t at call time but is not in ` +
+				"LAZY_L10N_HELPERS (scripts/l10n/lib.ts); add it so the module-scope guard covers its call sites."
+		);
+	}
+	// Default exports break both walks' name-following, so the gate keeps the
+	// shape out of shipped source - its own teeth first.
+	for (const fixture of DEFAULT_EXPORT_FIXTURES) {
+		const flagged = defaultExportOffenses(fixture.source, "fixture.ts").length > 0;
+		if (flagged !== fixture.flagged) {
+			fail(`guard self-check: default-export fixture "${fixture.name}" should ${fixture.flagged ? "" : "not "}flag.`);
+		}
+	}
+	for (const { file, contents } of sources) {
+		for (const line of defaultExportOffenses(contents, file)) {
+			fail(
+				`${rel(file)}:${line}: default export; the lazy-helper census follows call-site names, and a default ` +
+					"export lets every importer rename a helper out from under both guards - export it by name."
+			);
 		}
 	}
 	for (const fixture of GUARD_FIXTURES) {
@@ -264,9 +1027,8 @@ function checkModuleScopeLocalization(sources: readonly SourceFile[]): void {
 }
 
 /**
- * The one-API rule's own teeth, proven the same way as GUARD_FIXTURES: the
- * known laundering forms must flag (as regression proof that the default-deny
- * walk catches them), and the sanctioned forms must not.
+ * The one-API rule's own teeth, proven like GUARD_FIXTURES: the known
+ * laundering forms must flag, and the sanctioned forms must not.
  */
 const VSCODE_L10N_FIXTURES: readonly {
 	readonly name: string;
@@ -612,8 +1374,8 @@ const BUNDLE_READ_FILES = new Set(
 
 /**
  * The constructor-probe files pass the vscode module object into Reflect
- * probes for host chat-part constructors; that value use is deliberate and
- * carries no localization. Everything else in them stays under the rule.
+ * probes; that value use carries no localization. Everything else in them
+ * stays under the rule.
  */
 const VSCODE_VALUE_USE_FILES = new Set(
 	["src/shared/conversion/dataPart.ts", "src/shared/conversion/thinkingPart.ts"].map((file) =>
@@ -649,14 +1411,11 @@ function checkVscodeL10nUsage(sources: readonly SourceFile[]): void {
 }
 
 /**
- * Non-prose token families beyond the {N} placeholders that a translated
- * value must carry verbatim, compared as multisets against the English
- * source: $(icon) codicons (a dropped or fullwidth-parenthesized token ships
- * a status bar rendering literal text), command:<id> occurrences, and
- * markdown link TARGETS including percent-encoded ones like
- * %5B%22@ext:...%22%5D (a reworded target silently breaks walkthrough and
- * settings deep-links). The /g literals are consumed only through matchAll,
- * which iterates over a clone, so no lastIndex is shared between calls.
+ * Non-prose token families beyond the {N} placeholders that a translated value
+ * must carry verbatim, compared as multisets against the English source:
+ * $(icon) codicons, command:<id> occurrences, and markdown link TARGETS
+ * including percent-encoded ones (a reworded target breaks deep-links). The /g
+ * literals are consumed only through matchAll, which iterates over a clone.
  */
 const PRESERVED_TOKENS: readonly { readonly what: string; readonly pattern: RegExp }[] = [
 	{ what: "$(codicon) tokens", pattern: /\$\(([a-z0-9~-]+)\)/g },
@@ -665,16 +1424,11 @@ const PRESERVED_TOKENS: readonly { readonly what: string; readonly pattern: RegE
 ];
 
 /**
- * A bare key may never coexist with composite keys for the same base message.
- * The repo rule: a repeated message either uses the identical plain t() form
- * everywhere (one bare key), or every call site carries a distinguishing
- * comment (all-composite, a deliberate split so translations can diverge -
- * the "tools" chip label vs the "tools" count suffix). What this refuses is
- * the mix: editing the comment at only SOME of a repeated message's call
- * sites silently forks the key, and the fork only surfaces as an
- * untranslated string at runtime. An all-composite fork is still gated -
- * extraction drift and the key-set checks make every new key a translation
- * obligation.
+ * A bare key may never coexist with composite keys for the same base message:
+ * a repeated message either uses the identical plain t() form everywhere (one
+ * bare key) or carries a distinguishing comment at every call site
+ * (all-composite, a deliberate split). The mix is what forks a key silently,
+ * surfacing only as an untranslated string at runtime.
  */
 function checkBaseMessageCollisions(bundle: BundleFile): void {
 	const keysByMessage = new Map<string, string[]>();
@@ -786,8 +1540,8 @@ async function checkTranslationFiles(
 	for (const name of bundleFiles) {
 		const file = path.join(l10nDir, name);
 		// Strings only: the webview bootstrap drops a bundle with any non-string
-		// value, so a {message, comment} object here would silently revert the
-		// dashboard to English while the host stays translated.
+		// value, so a {message, comment} object here would revert the dashboard
+		// to English while the host stays translated.
 		const translated = await readTable(file, nlsSchema);
 		if (translated === undefined) {
 			continue;
