@@ -1,13 +1,9 @@
 /**
  * The expanded drawer listing the entry's own model records: the settings
- * editors' matcher vocabulary (matcher key, kind label, field chips with
- * their directive badges) on a reading surface, read-only - editing stays in
- * the edit page and the setting. prod carries both record kinds (parameters
- * with a forced field, capabilities with a fallback mark); sandbox carries
- * none, so its drawer ends at its facts with no records heading at all.
- * What it should photograph: two labelled read-only tables under prod's
- * usage facts, plain chips with no add or pencil affordance, and sandbox's
- * shorter drawer directly below for the contrast.
+ * editors' matcher vocabulary on a reading surface, read-only - editing stays in
+ * the edit page and the setting. prod carries both record kinds (parameters with
+ * a forced field, capabilities with a fallback mark); sandbox carries none, so
+ * its drawer ends at its facts with no records heading at all.
  */
 import type { DashboardServer } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";

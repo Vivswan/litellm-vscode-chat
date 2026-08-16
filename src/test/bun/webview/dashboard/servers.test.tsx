@@ -1,8 +1,7 @@
 /**
- * ServersSection behavior: toolbar command wiring, the two-step remove, the
- * add-form save round trip with requestId correlation, and the adopt intent's
- * exact payload (exhaustive key inspection: a credential-shaped field smuggled
- * into adoptServer must fail here).
+ * ServersSection behavior: toolbar command wiring, the two-step remove, the add-form save round trip with
+ * requestId correlation, and the adopt intent's exact payload (a credential-shaped field smuggled into
+ * adoptServer must fail the exhaustive key inspection).
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
@@ -45,10 +44,8 @@ afterEach(() => {
 });
 
 /**
- * The section alone, with the shell's callbacks stubbed: what the list does
- * with a row, not where the edit destination opens. Tests that need the
- * destination mount the real shell through mountShell below, so nothing here
- * re-implements App's navigation policy and then tests the re-implementation.
+ * The section alone, with the shell's callbacks stubbed: what the list does with a row, not where the edit
+ * destination opens. Tests that need the destination mount the real shell through mountShell below.
  */
 function mountSection(servers: readonly DashboardServer[]) {
 	return mount(
@@ -64,15 +61,9 @@ function mountSection(servers: readonly DashboardServer[]) {
 }
 
 test("a server row keeps the shape the narrow stylesheet folds: one disclosure button beside the actions", () => {
-	// Every narrow rule keys off this structure: the row is a non-interactive
-	// wrapper holding exactly the disclosure button (the readable block) and the
-	// actions cluster as SIBLINGS - a button cannot contain a button - with the
-	// second line's members inside .server-meta, which is `display: contents`
-	// at full width and a flex line once the row folds. Move a badge out of the
-	// meta wrapper, or rename a part, and the fold silently stops working at
-	// every width - with this suite still green, because happy-dom has no
-	// cascade and no layout to notice. Nothing else can catch it short of a
-	// human looking at a render.
+	// Every narrow rule keys off this structure: the disclosure button and the actions cluster are SIBLINGS
+	// under a non-interactive wrapper, with the second line's members inside .server-meta. Move a badge out or
+	// rename a part and the fold breaks at every width with this suite green - happy-dom has no cascade.
 	const root = mountSection([makeDeclaredServer({ label: "Prod", modelCount: 2 })]);
 	const row = root.querySelector(".server-row");
 	expect(row).not.toBeNull();
@@ -100,13 +91,9 @@ test("a server row keeps the shape the narrow stylesheet folds: one disclosure b
 });
 
 test("a row's URL keeps its exact configured text, with only the https scheme marked for hiding", () => {
-	// The row stops PAINTING "https://" so the ellipsis cannot eat the
-	// host, and the way it does that has to leave the row's text alone: what a
-	// screen reader announces, what a copy of the line yields and what a
-	// find-in-page matches must all still be the URL the setting holds. So the
-	// scheme is a marked span rather than a removed substring - and http:// is
-	// never marked, because plaintext to a proxy holding an API key is worth a
-	// reader's attention at every width.
+	// The row stops PAINTING "https://" so the ellipsis cannot eat the host, while announcement, copy, and
+	// find-in-page must still yield the URL the setting holds - so the scheme is a marked span, never a removed
+	// substring. http:// is never marked: plaintext to a proxy holding an API key is worth a reader's attention.
 	const root = mountSection([
 		makeDeclaredServer({ label: "Secure", baseUrl: "https://litellm.example.com" }),
 		makeDeclaredServer({ label: "Plain", baseUrl: "http://localhost:4000" }),
@@ -133,13 +120,9 @@ test("a row's URL keeps its exact configured text, with only the https scheme ma
 });
 
 /**
- * The edit destination alone, on the entry a test is about. Most form tests
- * are about the form, not about the shell that hosts it: mounting the whole
- * dashboard for them makes every query ambiguous (the diagnostics panel has
- * its own "Test connection", the settings surface its own matcher editors)
- * and tests the shell's wiring by accident. The tests that ARE about the
- * shell - the pane swap, the navigation guard, focus on the way out - mount
- * it through mountShell below.
+ * The edit destination alone, on the entry a test is about. Mounting the whole dashboard for a form test makes
+ * every query ambiguous (diagnostics has its own "Test connection", settings its own matcher editors); the
+ * tests that ARE about the shell - pane swap, navigation guard, focus on the way out - use mountShell below.
  */
 function mountEditPage(
 	servers: readonly DashboardServer[],
@@ -165,8 +148,7 @@ function mountEditPage(
 function mountShell(servers: readonly DashboardServer[]): HTMLElement {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers })));
-	// The shell's own ready handshake is not what any of these tests are
-	// about; clearing it here keeps every posted-message assertion reading as
+	// Clearing the shell's own ready handshake keeps every posted-message assertion reading as
 	// "what this interaction sent".
 	resetPosted();
 	return root;
@@ -205,11 +187,9 @@ test("the header actions render only once a server exists: Add server and the us
 	const empty = mountSection([]);
 	expect(empty.querySelector(".section-actions")).toBeNull();
 
-	// Test connection and the diagnostics view live on the Diagnostics tab,
-	// and the native editor is not a destination: Add server plus the usage
-	// refresh stand alone on the header line. The refresh button mounts BOTH
-	// its labels (the hidden one holds the width so the busy swap cannot
-	// resize it); the visible resting label is Refresh now.
+	// Add server plus the usage refresh stand alone on the header line; test connection and the diagnostics
+	// view live on the Diagnostics tab. The refresh button mounts BOTH labels (the hidden one holds the width
+	// so the busy swap cannot resize it); the visible resting label is Refresh now.
 	const populated = mountSection([makeDeclaredServer()]);
 	const buttons = [...populated.querySelectorAll(".section-actions button")];
 	expect(buttons.map((el) => el.textContent?.trim())).toEqual(["Add server", "Refreshing...Refresh now"]);
@@ -217,11 +197,8 @@ test("the header actions render only once a server exists: Add server and the us
 	expect(refresh.classList.contains("refresh-usage")).toBe(true);
 	expect((refresh.querySelector(".refresh-idle-label") as HTMLElement).classList.contains("invisible")).toBe(false);
 	expect((refresh.querySelector(".refresh-busy-label") as HTMLElement).classList.contains("invisible")).toBe(true);
-	// Both labels are in the DOM (the textContent above proves it), but only
-	// the resting one may reach the accessible name: the busy twin's exclusion
-	// is aria-hidden, which this walk honors and textContent cannot - dropping
-	// the attribute while keeping `invisible` fails here, not in a screen
-	// reader.
+	// Only the resting label may reach the accessible name: the busy twin's exclusion is aria-hidden, which
+	// this walk honors and textContent cannot - dropping the attribute while keeping `invisible` fails here.
 	expect(accessibleNameOf(refresh)).toBe("Refresh now");
 });
 
@@ -244,19 +221,16 @@ test("a noticed entry states its inactive surfaces under its own row, not in a s
 		makeDeclaredServer({ label: "Quiet", baseUrl: "http://quiet.test" }),
 	]);
 
-	// One line, under the row it belongs to. The badge and the merged banner
-	// were two renderings of one fact sitting on the same screen; this is the
-	// one that does not make the reader match a label back to a row.
+	// One line, under the row it belongs to: the badge and the merged banner were two renderings of one fact,
+	// and this is the one that does not make the reader match a label back to a row.
 	const lines = [...root.querySelectorAll(".row-diagnostic")];
 	expect(lines.length).toBe(1);
 	const line = lines[0] as HTMLElement;
 	expect(line.textContent).toContain("Prod");
 	expect(line.textContent).not.toContain("Quiet");
 	expect(line.textContent).toContain("per-server model parameters");
-	// Degraded, not advisory: the group may be serving this entry WITHOUT
-	// settings the user wrote. Advisory would also have kept this row out of the
-	// summary count, telling a reader whose parameters may not be applied that
-	// nothing needs attention.
+	// Degraded, not advisory: the group may be serving this entry WITHOUT settings the user wrote, and advisory
+	// would also keep the row out of the summary count.
 	expect(line.classList.contains("sev-degraded")).toBe(true);
 	expect(root.querySelector(".section-meta")?.textContent).toContain("1 needs attention");
 	// The remedy the retired banner spelled out survives on the line.
@@ -407,12 +381,9 @@ test("remove is two-step: Remove arms the row, Confirm posts removeServerSetting
 });
 
 test("the armed pair names the server it is about, in its buttons and in the cover's own line", () => {
-	// The pair covers the row it belongs to, and at the narrowest tier it
-	// covers all of it - so which server is being removed has to travel with
-	// the question rather than sit behind it. The buttons repeat down the page,
-	// which is the same reason the resting Remove names its server. Each
-	// accessible name leads with the button's own visible words, unedited,
-	// which is what Label in Name asks for.
+	// The pair covers the row it belongs to, and at the narrowest tier all of it - so which server is being
+	// removed travels with the question. Each accessible name leads with the button's own visible words,
+	// unedited, which is what Label in Name asks for.
 	const root = mountSection([makeDeclaredServer({ label: "Prod" })]);
 	fireClick(buttonByText(root, "Remove"));
 	const confirm = buttonByText(root, "Confirm remove?");
@@ -620,8 +591,7 @@ test("adopting an external row posts adoptServer carrying exactly the sanctioned
 	expect(postedMessages.length).toBe(1);
 	const posted = postedMessages[0] as RpcRequest<"adoptServer">;
 
-	// Deep equality of the sorted key set: presence checks would pass if a
-	// sixth, credential-bearing key were ever added to the intent.
+	// Deep equality of the sorted key set: a presence check would pass if a credential-bearing key were added.
 	expect(Object.keys(posted).sort()).toEqual(["id", "kind", "method", "payload"]);
 	expect(Object.keys(posted.payload).sort()).toEqual(["baseUrl", "label", "secrets", "sourceHandle"]);
 	expect(posted.method).toBe("adoptServer");
@@ -648,8 +618,7 @@ test("removing an external row is two-step and posts hideExternalServer with the
 	fireClick(buttonByText(root, "Confirm remove?"));
 	expect(postedMessages.length).toBe(1);
 	const posted = postedMessages[0] as RpcRequest<"hideExternalServer">;
-	// Exact key set: the intent names the group by its opaque handle and URL,
-	// nothing more.
+	// Exact key set: the intent names the group by its opaque handle and URL, nothing more.
 	expect(Object.keys(posted).sort()).toEqual(["id", "kind", "method", "payload"]);
 	expect(Object.keys(posted.payload).sort()).toEqual(["baseUrl", "sourceHandle"]);
 	expect(posted.method).toBe("hideExternalServer");
@@ -680,8 +649,7 @@ test("the hide ack raises the guidance notice naming the group, with the models-
 	pushToWebview({ kind: "ack", id: posted.id, method: "hideExternalServer" });
 	const notice = root.querySelector(".notice");
 	expect(notice).not.toBeNull();
-	// The notice names the exact group and gives the file-based steps as a
-	// numbered list: the models file is where real deletion lives.
+	// The notice names the exact group; the models file is where real deletion lives.
 	expect(notice?.textContent).toContain('"Copilot"');
 	expect(notice?.textContent).toContain("models file");
 	expect(notice?.textContent).toContain("Reload the window");
@@ -717,12 +685,10 @@ test("the hidden-groups line states the count, expands to rows, and Unhide posts
 
 	const line = root.querySelector(".hidden-groups");
 	expect(line).not.toBeNull();
-	// One control saying the whole thing, rather than a count sentence with a
-	// lowercase "show" fragment three words behind its own object.
+	// One control saying the whole thing, rather than a count sentence with a lowercase "show" fragment.
 	expect(line?.textContent).toContain("Show 2 hidden groups");
-	// The disclosure wears the page's disclosure mark (the rotating chevron the
-	// server and model rows carry): an aria-expanded control with no state mark
-	// was the page's one disclosure that looked like a plain button.
+	// The disclosure wears the page's rotating chevron: an aria-expanded control with no state mark was the
+	// page's one disclosure that looked like a plain button.
 	expect(line?.querySelector("button[aria-expanded] .disclosure-chevron")).not.toBeNull();
 	// Collapsed by default: no Unhide until shown.
 	expect(line?.textContent).not.toContain("Unhide");
@@ -746,8 +712,7 @@ test("without hidden groups no hidden-groups line renders; with them it renders 
 	const none = mountSection([makeDeclaredServer()]);
 	expect(none.querySelector(".hidden-groups")).toBeNull();
 
-	// Every visible group hidden: the guided start renders, but the unhide
-	// path must stay reachable.
+	// Every visible group hidden: the guided start renders, but the unhide path must stay reachable.
 	const onlyHidden = mount(
 		<ServersSection
 			currencySymbol="$"
@@ -800,10 +765,8 @@ test("a declared row's drawer lists the entry's own records read-only; an entry 
 });
 
 test("the drawer's records wear the inactive caveat, and only on the family the row's notices name", () => {
-	// The row's own degraded line says the same thing with its cause and fix,
-	// but it renders after the drawer - so the table has to carry the doubt
-	// itself, or a reader who opened the server meets an authoritative-looking
-	// list of overrides that may reach nothing.
+	// The row's own degraded line renders AFTER the drawer, so the table has to carry the doubt itself - or a
+	// reader who opened the server meets an authoritative-looking list of overrides that may reach nothing.
 	const root = mountSection([
 		makeDeclaredServer({
 			label: "Prod",
@@ -824,9 +787,8 @@ test("the drawer's records wear the inactive caveat, and only on the family the 
 });
 
 test("an external row's drawer states the provenance classification, or the honest default", () => {
-	// The story used to be the badge's hover tip; the badge sits inside the
-	// disclosure button now, where a focusable tip wrapper would be a nested
-	// interactive, so the drawer's Origin fact carries it instead.
+	// The badge sits inside the disclosure button, where a focusable tip wrapper would be a nested interactive,
+	// so the drawer's Origin fact carries the story instead.
 	const root = mountSection([
 		makeExternalServer({
 			label: "Old",
@@ -868,10 +830,8 @@ test("an external row's drawer states the provenance classification, or the hone
 });
 
 test("the drawer's model count is a scope link only when the section is given onShowModels", () => {
-	// The link lives in the drawer now - the row is one disclosure button and a
-	// button cannot contain a button. Direct mounts without the callback (and
-	// zero-count rows) keep the count as plain text: a link that scopes to
-	// nothing helps nobody.
+	// The link lives in the drawer: the row is one disclosure button and a button cannot contain a button.
+	// Direct mounts without the callback (and zero-count rows) keep the count as plain text.
 	const plain = mountSection([makeDeclaredServer({ label: "Prod", modelCount: 3 })]);
 	fireClick(plain.querySelector("button.server-line") as HTMLElement);
 	expect(plain.querySelector("button[aria-label='Show models from Prod']")).toBeNull();
@@ -902,8 +862,7 @@ test("the drawer's model count is a scope link only when the section is given on
 test("Test connection gates on the base URL alone, posts the draft's exact keys, and its own ack renders the result", () => {
 	const root = mountEditPage([], { kind: "add" });
 
-	// Unusable URL: the button is the only thing disabled; a savable label is
-	// deliberately not required to probe.
+	// Unusable URL: the button is the only thing disabled; a savable label is deliberately not required.
 	expect(buttonByText(root, "Test connection").disabled).toBe(true);
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
 	expect(buttonByText(root, "Test connection").disabled).toBe(false);
@@ -937,8 +896,7 @@ test("Test connection gates on the base URL alone, posts the draft's exact keys,
 	expect(buttonByText(root, "Save").disabled).toBe(false);
 	expect(buttonByText(root, "Discard changes").disabled).toBe(false);
 
-	// A foreign ack changes nothing; the test's own ack renders the
-	// extension-composed message verbatim, selectable in the footer.
+	// A foreign ack changes nothing; the test's own ack renders the extension-composed message verbatim.
 	pushToWebview({
 		kind: "ack",
 		id: "someone-elses",
@@ -976,14 +934,11 @@ test("a failed test with a setup hint renders the troubleshooting link inside th
 		classification: { kind: "http", status: 404, setupHint: "check-base-url" },
 	});
 
-	// The error message renders as before; the link rides inside the alert
-	// element (one live-region announcement covers both) and targets the
-	// troubleshooting-guide section matching the setup-hint id, with short
-	// visible text and an accessible label that leads with it (Label in Name).
+	// The link rides INSIDE the alert element, so one live-region announcement covers both, and targets the
+	// troubleshooting section matching the setup-hint id with a label that leads with its text (Label in Name).
 	const alert = root.querySelector(".test-result.error");
 	expect(alert?.getAttribute("role")).toBe("alert");
-	// Full text pinned: message, the copy-selection space, then the link
-	// label - dropping the space would glue "404Troubleshoot" in copied text.
+	// Full text pinned: dropping the copy-selection space would glue "404Troubleshoot" in copied text.
 	expect(alert?.textContent).toBe("the server answered 404 Troubleshoot");
 	const anchor = alert?.querySelector<HTMLAnchorElement>(".test-hint a.docs-link");
 	expect(anchor?.getAttribute("href")).toBe(DOCS_LINK_CHECK_BASE_URL);
@@ -1025,12 +980,8 @@ test("classified refresh failures carry a Troubleshoot link on their own row; un
 		}),
 	]);
 
-	// The whole line pinned as text: each link rides its own entry (before the
-	// separator to the next), the unclassified entry stays plain, and copied
-	// text keeps a space between the error and the link label. A missing link
-	// fails this line loudly - no vacuous index comparisons.
-	// One line per failing row, each naming its own server: nothing is joined
-	// with semicolons any more, so nothing has to be matched back to a row.
+	// One line per failing row, each naming its own server, with each link inside its own entry before the
+	// separator and a space kept between the error and the link label. A missing link fails this line loudly.
 	const lines = [...root.querySelectorAll(".row-diagnostic")];
 	expect(lines.length).toBe(3);
 	expect(lines[0]?.textContent).toContain("Prod");
@@ -1039,10 +990,8 @@ test("classified refresh failures carry a Troubleshoot link on their own row; un
 	expect(lines[1]?.querySelector("a.docs-link")).toBeNull();
 	expect(lines[2]?.textContent).toContain("answered 404");
 
-	// Two classified failures, two links, each targeting the
-	// troubleshooting-guide section matching its own setup-hint id, with an
-	// accessible label that LEADS with the visible verb (Label in Name) and
-	// carries the same per-cause topic the draft-test footer's links name.
+	// Two classified failures, two links, each targeting the troubleshooting section matching its own setup-hint
+	// id, with an accessible label that LEADS with the visible verb (Label in Name).
 	const anchors = [...root.querySelectorAll<HTMLAnchorElement>(".row-diagnostic a.docs-link")];
 	expect(anchors.map((anchor) => anchor.getAttribute("href"))).toEqual([
 		DOCS_LINK_PROXY_NOT_RUNNING,
@@ -1052,9 +1001,8 @@ test("classified refresh failures carry a Troubleshoot link on their own row; un
 		"Troubleshoot: unable to connect",
 		"Troubleshoot: the server answered 404",
 	]);
-	// The VISIBLE text is the short verb - the long sentence is the accessible
-	// name. Spreading the link helper over the label put that sentence on screen
-	// once already, so it is pinned here.
+	// The VISIBLE text is the short verb, the long sentence is the accessible name: spreading the link helper
+	// over the label put that sentence on screen once already.
 	expect(anchors.map((anchor) => anchor.textContent?.trim())).toEqual(["Troubleshoot", "Troubleshoot"]);
 });
 
@@ -1086,9 +1034,8 @@ test("a hintless classification renders no troubleshooting link", () => {
 
 test("a failed test renders its message inline and the result clears on any credential-affecting edit", () => {
 	const root = mountEditPage([makeDeclaredServer({ label: "Prod" })]);
-	// The entry has no credentials, so the form derives to None; the API-key
-	// form is picked up front so the credential-edit steps below have their
-	// input (the pick itself would clear a standing result too).
+	// The entry has no credentials, so the form derives to None; the API-key form is picked up front to give
+	// the credential-edit steps below an input (the pick itself would clear a standing result too).
 	const apiKeyOption = [...root.querySelectorAll(".auth-selector label")].find(
 		(el) => (el.textContent ?? "").trim() === "API key (bearer)"
 	);
@@ -1111,14 +1058,12 @@ test("a failed test renders its message inline and the result clears on any cred
 	expect(result?.textContent).toContain("Network Error: unable to reach the server");
 	// Inline only: no section-level failure banner for the probe.
 	expect(root.querySelector(".banner-error")).toBeNull();
-	// A notice without a classification renders exactly the pre-link UI: no
-	// troubleshooting link anywhere in the footer.
+	// A notice without a classification renders no troubleshooting link anywhere in the footer.
 	expect(root.querySelector(".test-hint")).toBeNull();
 	expect(root.querySelector(".form-card .toolbar a.docs-link")).toBeNull();
 
-	// A label edit clears it too: the label selects which stored or orphan
-	// secret a "keep" resolves, so a rename can change the effective
-	// credentials the probe would use - a stale PASS on those is worse than none.
+	// A label edit clears it too: the label selects which stored or orphan secret a "keep" resolves, so a
+	// rename can change the effective credentials the probe would use.
 	fireInput(inputByLabel(root, "Label"), "Prod renamed");
 	expect(root.querySelector(".test-result")).toBeNull();
 
@@ -1184,8 +1129,7 @@ test("Test with a partial OAuth draft posts nothing and surfaces the pairing pro
 	resetPosted();
 	fireClick(buttonByText(root, "Test connection"));
 	expect(postedMessages).toEqual([]);
-	// Probing half an OAuth configuration would test a connection the saved
-	// entry would never send, so the form blocks it with the pairing message.
+	// Probing half an OAuth configuration would test a connection the saved entry would never send.
 	expect(root.textContent).toContain("OAuth needs the token URL and client ID");
 });
 
@@ -1197,15 +1141,11 @@ test("a test in flight does not block leaving; the request goes up and the outco
 	fireClick(buttonByText(root, "Test connection"));
 	const posted = postedMessages[0] as RpcRequest<"testServerDraft">;
 
-	// A probe in flight gates nothing: the page still reports the reader's
-	// request to leave, and the shell decides what it means.
+	// A probe in flight gates nothing: the page reports the reader's request to leave, the shell decides.
 	fireClick(buttonByText(root, "Discard changes"));
 	expect(closes).toHaveLength(1);
 
-	// The abandoned outcome must not throw or resurrect anything.
-	// What happens to the abandoned outcome once the shell takes the page away
-	// is the shell's test (app.test.tsx); here the page's own contract ends at
-	// reporting the request.
+	// The abandoned outcome must not throw or resurrect anything; what the shell does with it is app.test.tsx.
 	expect(posted.method).toBe("testServerDraft");
 });
 
@@ -1221,10 +1161,8 @@ test("the edit form round-trips model capabilities and expected failures into th
 		}),
 	]);
 
-	// The entry already carries capabilities: the table summarizes them, the
-	// overlay renders the typed controls (number field as a number input, the
-	// support flag as a checkbox), and the expected-failure category is
-	// ticked in the form itself.
+	// The entry already carries capabilities: the table summarizes them, the overlay renders the typed controls,
+	// and the expected-failure category is ticked in the form itself.
 	const overlay = openMatcherEditor(root, "my-model");
 	const prefixInput = overlay.querySelector<HTMLInputElement>('input[placeholder^="Model ID or matcher"]');
 	expect(prefixInput?.value).toBe("my-model");
@@ -1352,9 +1290,8 @@ test("a consumed capability key gets its typed input: costs a decimal number fie
 	fireInput(keyInput, "supports_prompt_caching");
 	const flag = overlay.querySelector<HTMLInputElement>("label.capability-flag input");
 	expect(flag?.checked).toBe(true);
-	// A cost key renders a number input allowing zero and decimals. The "true"
-	// the flag key seeded does not fit a cost, so the row first keeps the raw
-	// input showing it; clearing it flips the row onto the typed control.
+	// A cost key renders a number input allowing zero and decimals. The "true" the flag key seeded does not fit
+	// a cost, so the row first keeps the raw input showing it; clearing it flips the row onto the typed control.
 	fireInput(keyInput, "input_cost_per_token");
 	const carried = overlay.querySelector<HTMLInputElement>("input.value");
 	if (carried === null) {
@@ -1412,9 +1349,8 @@ test("a discovery pass finishing under the open form refreshes the unknown-key h
 	}
 	fireInput(valueInput, "true");
 	expect(root.textContent).not.toContain("is not a field this extension knows");
-	// The state push that lands the discovery result re-renders the page with
-	// the server's observed keys; the OPEN form's hints must follow the live
-	// evidence, not the open-time snapshot.
+	// The state push that lands the discovery result re-renders the page; the OPEN form's hints must follow the
+	// live evidence, not the open-time snapshot.
 	void act(() => {
 		render(
 			pageWith([makeDeclaredServer({ label: "Prod", observedModelInfoKeys: ["litellm_provider", "mode"] })]),
@@ -1435,9 +1371,8 @@ test("a preserved invalid consumed value keeps the raw JSON input instead of a t
 		}),
 	]);
 	const overlay = openMatcherEditor(root, "gpt-4");
-	// A number input would display the stored "free" as blank and a checkbox
-	// would read the stored 1 as unchecked; the rows keep free-form inputs
-	// showing the text as it is, with the non-blocking hints beside them.
+	// A number input would display the stored "free" as blank and a checkbox would read the stored 1 as
+	// unchecked; the rows keep free-form inputs showing the text as it is.
 	const values = [...overlay.querySelectorAll<HTMLInputElement>("input.value")];
 	expect(values.map((input) => input.type)).toEqual(["text", "text"]);
 	expect(values.map((input) => input.value)).toEqual(['"free"', "1"]);
@@ -1450,9 +1385,8 @@ test("a preserved invalid consumed value keeps the raw JSON input instead of a t
 	}
 	fireInput(costInput, "0.000002");
 	expect(overlay.querySelector<HTMLInputElement>('input[placeholder^="Cost per token"]')?.value).toBe("0.000002");
-	// The typed control takes exactly what an HTML number input can display:
-	// scientific notation stays typed, while hex, a trailing dot, and padded
-	// whitespace (all blanked by the control) keep the raw text input.
+	// The typed control takes exactly what an HTML number input can display: scientific notation stays typed,
+	// while hex, a trailing dot, and padded whitespace (all blanked by the control) keep the raw text input.
 	const costValue = () => {
 		const input = [...overlay.querySelectorAll<HTMLInputElement>("input.value")][0];
 		if (input === undefined) {
@@ -1580,13 +1514,10 @@ test("an expected failure serving declared models reads Connected, and states th
 	// Serving declared models reads Connected: one state, one name across tabs.
 	const pill = [...root.querySelectorAll(".server-row .pill")].find((el) => el.textContent?.includes("Connected"));
 	expect(pill).toBeDefined();
-	// The dot follows the row's WORST diagnostic, and this row's worst is
-	// advisory - the entry declared this failure category and is serving through
-	// it, so nothing is wrong. An amber dot over a grey advisory line was the
-	// pill and the sentence beneath it disagreeing in public.
+	// The dot follows the row's WORST diagnostic, and this row's worst is advisory: the entry declared this
+	// failure category and is serving through it, so nothing is wrong.
 	expect(pill?.classList.contains("tone-ok")).toBe(true);
-	// The declared count is stated by the row's own line rather than by a badge
-	// beside it: the badge and the banner were the same fact twice.
+	// The declared count is stated by the row's own line, not by a badge beside it.
 	const line = root.querySelector(".row-diagnostic");
 	expect(line?.textContent).toContain("2 declared models");
 	expect(line?.textContent).toContain("Gateway");
@@ -1608,15 +1539,12 @@ test("an expected failure with nothing declared reads blocking and offers Declar
 			notices: ["expected-failures-nothing-declared"],
 		}),
 	]);
-	// Serving nothing at all is the definition of blocking. The entry expecting
-	// this failure category makes the CAUSE unsurprising; it does not put any
-	// models in the picker, and the tier is a promise about whether someone has
-	// to act rather than a volume knob.
+	// Serving nothing at all is the definition of blocking: the tier is a promise about whether someone has to
+	// act, not a volume knob, and an expected CAUSE does not put models in the picker.
 	const line = root.querySelector(".row-diagnostic");
 	expect(line?.classList.contains("sev-blocking")).toBe(true);
-	// The blocking tier's hidden rank word, in this page's server subject
-	// (severityLabel): the degraded word is pinned by the spend suite, so this
-	// is the other problem tier's coverage.
+	// The blocking tier's hidden rank word in this page's server subject (severityLabel); the spend suite pins
+	// the degraded word.
 	expect(line?.querySelector(".visually-hidden")?.textContent).toBe("Serving nothing: ");
 	expect(line?.textContent).toContain("nothing is declared");
 	const actions = [...(line?.querySelectorAll(".row-diagnostic-actions button") ?? [])].map((el) =>
@@ -1677,23 +1605,18 @@ test("no declare button on a row whose entry fields are inactive, but the adviso
 		}),
 	]);
 	expect(root.textContent).not.toContain("Declare expected failure");
-	// The diagnosis stays: the probe's timeout cost is real whatever the join
-	// pass said, so hiding the whole advisory would trade an inert button for
-	// silence.
+	// The diagnosis stays: the probe's timeout cost is real whatever the join pass said.
 	expect(root.textContent).toContain("model-info probe never answers");
-	// The entry-inactive line still owns the row's fix, and says the identity
-	// sentence exactly once: the advisory's withheld case repeats it only when
-	// this line is absent.
+	// The entry-inactive line owns the row's fix and says the identity sentence exactly once: the advisory's
+	// withheld case repeats it only when this line is absent.
 	expect(root.textContent).toContain("may not be applying its");
 	const fixMentions = (root.textContent ?? "").split("may not carry the entry's labeled identity").length - 1;
 	expect(fixMentions).toBe(1);
 });
 
 test("the withheld declare button on an unproven-identity row leaves the advisory with the identity fix in its details", () => {
-	// The notices exist only for the field families the entry configures; an
-	// entry configuring none of them has the identical identity problem with no
-	// entry-inactive line to explain it. The advisory renders either way, and
-	// the withheld case carries the identity fix where the button would be.
+	// An entry configuring no notice-bearing field family has the identical identity problem with no
+	// entry-inactive line to explain it, so the withheld case carries the identity fix where the button was.
 	const root = mountSection([
 		makeDeclaredServer({
 			label: "Ollama",
@@ -1724,10 +1647,8 @@ test("a models-listing-unserved error offers the declare action writing modelLis
 });
 
 test("a models-listing-unserved error leads bright with the consequence and dims the declaration advice", () => {
-	// The transport string arrives remediation-first (its headline is the
-	// declaration advice with the JSON keys); this surface swaps the placement,
-	// so the bright line carries what stopped working and the advice rides the
-	// dimmed detail beside the GET fact.
+	// The transport string arrives remediation-first; this surface swaps the placement, so the bright line
+	// carries what stopped working and the advice rides the dimmed detail beside the GET fact.
 	const root = mountSection([
 		makeDeclaredServer({
 			label: "Gateway",
@@ -1759,11 +1680,8 @@ test("a discovery error without the endpoint classification offers no declare ac
 });
 
 test("a models-listing-unserved error withholds the declare action on an unproven-identity row, keeping the guide", () => {
-	// Same rule as the model-info advisory: writing expectedFailures on an
-	// entry whose group did not join by its identity may change nothing, so
-	// the one-click write is withheld while the docs link stays - and the
-	// details say why with the identity fix, because the error's own headline
-	// still advises the declaration in words.
+	// Same rule as the model-info advisory: writing expectedFailures on an entry whose group did not join by
+	// its identity may change nothing, so the one-click write is withheld while the docs link stays.
 	const root = mountSection([
 		makeDeclaredServer({
 			label: "Gateway",
@@ -1782,8 +1700,7 @@ test("several inactive surfaces on one row share a single line naming them all",
 	const root = mountSection([
 		makeDeclaredServer({ label: "Prod", notices: ["entry-params-inactive", "entry-capabilities-inactive"] }),
 	]);
-	// One line for every inactive surface on the row, not one per surface: the
-	// cause and the fix are identical, so twins would only repeat themselves.
+	// One line for every inactive surface on the row, not one per surface: the cause and fix are identical.
 	const lines = [...root.querySelectorAll(".row-diagnostic")];
 	expect(lines.length).toBe(1);
 	const line = lines[0]?.textContent ?? "";
@@ -1889,12 +1806,9 @@ test("every problem is in view without a gesture: the page holds no fold that co
 });
 
 test("the form's transient slots are reserved: the error covers the hint, the connection note holds its box", () => {
-	// The charter's transients-never-move-anything clause, on the edit form's
-	// three movers: a field problem renders as an overlay COVERING the row's
-	// still-mounted hint (the settings rows' covered-description mechanism), the
-	// connection-consequence note holds its box as an invisible twin until a
-	// connection edit makes it speak, and every custom-header row carries its
-	// one status line whether or not it has anything to say.
+	// The charter's transients-never-move-anything clause on the form's three movers: a field problem covers
+	// the row's still-mounted hint, the connection note holds its box as an invisible twin until a connection
+	// edit makes it speak, and every custom-header row carries its one status line whether or not it speaks.
 	const root = mountEditPage([makeDeclaredServer({ label: "Prod" })]);
 
 	// The connection note's twin is mounted on the pristine edit form,
@@ -1918,9 +1832,8 @@ test("the form's transient slots are reserved: the error covers the hint, the co
 	fireInput(inputByLabel(root, "Label"), "Renamed");
 	expect(note()?.classList.contains("invisible")).toBe(true);
 
-	// Every header row's status line is the same mounted element in every
-	// state: speaking on the fresh (empty-name) row, empty but still holding
-	// its line once the name is valid, and speaking again when it goes bad.
+	// Every header row's status line is the same mounted element in every state: speaking on the fresh
+	// (empty-name) row, empty but still holding its line once the name is valid, and speaking again when bad.
 	fireClick(buttonByText(root, "Add header"));
 	const headerRow = root.querySelector("#server-edit-page .row");
 	const status = headerRow?.querySelector(".row-status");
@@ -1976,9 +1889,8 @@ function capabilityKeyOptions(root: HTMLElement): string[] {
 }
 
 test("the entry form's capability key suggestions carry THAT server's observed vocabulary, never a sibling's", () => {
-	// An entry-scoped record applies to one server only, so its autocomplete
-	// draws on that server's own observed /model/info keys - not the
-	// cross-server union the global editor uses.
+	// An entry-scoped record applies to one server only, so its autocomplete draws on that server's own
+	// observed /model/info keys - not the cross-server union the global editor uses.
 	const root = mountEditPage([
 		makeDeclaredServer({ label: "Prod", observedModelInfoKeys: ["prod_only_key", "mode"] }),
 		makeDeclaredServer({
@@ -2032,11 +1944,8 @@ test("the entry table's compact [+] add popover draws on the same entry-scoped v
 });
 
 test("a nested overlay hears Esc alone: it closes, the form beneath survives and keeps focus", () => {
-	// The matcher overlay opens above the edit destination, and its Escape
-	// must close it alone - the page underneath is a place, not a dialog, and
-	// the shell's own leave guard must not hear the same key. Radix's layer
-	// stack plus the overlay's stopPropagation is what makes that true, so it
-	// is worth pinning rather than inferring from the panels rendering.
+	// The matcher overlay's Escape must close it alone: the page underneath is a place, not a dialog, so the
+	// shell's leave guard must not hear the same key. Radix's layer stack plus the overlay's stopPropagation.
 	const root = mountEditPage([
 		makeDeclaredServer({
 			label: "Prod",
@@ -2053,9 +1962,7 @@ test("a nested overlay hears Esc alone: it closes, the form beneath survives and
 
 	fireKeyDown(overlay.querySelector("input") as HTMLElement, "Escape");
 
-	// Only the inner one goes; the page beneath is still open and still holds
-	// focus. The page is a destination rather than a panel now, so the overlay
-	// is the one dialog on screen and it leaves nothing behind.
+	// Only the inner one goes; the page beneath is still open and still holds focus.
 	expect(root.querySelector(".matcher-editor")).toBeNull();
 	expect(root.querySelectorAll(".slide-over")).toHaveLength(0);
 	const form = root.querySelector(".server-form") as HTMLElement;
@@ -2063,20 +1970,8 @@ test("a nested overlay hears Esc alone: it closes, the form beneath survives and
 });
 
 test("Retry says it is working, and only its own ack releases it - no push, of any age, does", () => {
-	// A discovery pass can run for tens of seconds - the timeouts are per request
-	// and they sum - so a button that looked identical before and after the click
-	// invited the double-click-until-something-happens trap.
-	//
-	// The sync is an acked method now, so the round trip that started the work is
-	// the one that reports it finished. That replaced an inference, and the
-	// inference is what this test used to pin: no push means completion, because
-	// a sync reconciles the provider groups first and that reconciliation pushes
-	// immediately, before the network discovery it exists to trigger has begun.
-	// The old workaround watched lastChecked instead, which let an unrelated
-	// background refresh clear the reader's spinner. Neither push below releases
-	// it now, whatever check time it carries.
-	// Fixed instants, not offsets from now: two calls to a now-relative helper
-	// differ by the milliseconds between them.
+	// Only the sync's own ack releases the button; no push does, whatever check time it carries.
+	// Fixed instants, not offsets from now: two calls to a now-relative helper differ by the ms between them.
 	const BEFORE = new Date(Date.now() - 10 * 60_000).toISOString();
 	const AFTER = new Date(Date.now() - 60_000).toISOString();
 	const failing = (lastChecked: string) =>
@@ -2091,16 +1986,13 @@ test("Retry says it is working, and only its own ack releases it - no push, of a
 	const syncId = lastRequest("syncModels").id;
 
 	const pending = buttonByText(root, "Checking...");
-	// aria-disabled, not the disabled attribute: the control has to REFUSE the
-	// click while staying in the tab order, because `disabled` drops focus to the
-	// body and takes the announcement with it.
+	// aria-disabled, not the disabled attribute: the control has to REFUSE the click while staying in the tab
+	// order, because `disabled` drops focus to the body and takes the announcement with it.
 	expect(pending.getAttribute("aria-disabled")).toBe("true");
 	expect(pending.disabled).toBe(false);
 	expect(pending.getAttribute("aria-label")).toContain("Prod");
-	// The header Refresh now's in-flight idiom: motion beside the reworded
-	// label. The announcement lives in the section's ONE text-only status
-	// region - not on the actions cluster, whose atomic role="status" would
-	// read every unrelated label once per row on a fleet-wide flip.
+	// The announcement lives in the section's ONE text-only status region, not on the actions cluster, whose
+	// atomic role="status" would read every unrelated label once per row on a fleet-wide flip.
 	expect(pending.querySelector(".spinner")).not.toBeNull();
 	expect(pending.closest('[role="status"]')).toBeNull();
 	const busyRegions = [...root.querySelectorAll('[role="status"]')].filter((region) =>
@@ -2118,16 +2010,13 @@ test("Retry says it is working, and only its own ack releases it - no push, of a
 	pushToWebview(statePush(makeState({ servers: [failing(BEFORE)] })));
 	expect(buttonByText(root, "Checking...").getAttribute("aria-disabled")).toBe("true");
 
-	// A NEWER check time used to be the release signal, and must not be one now:
-	// an unrelated background refresh moves it without this reader's sync having
-	// finished, and clearing here would be the same lie in the other direction.
+	// A newer check time must not release it: an unrelated background refresh moves it without this reader's
+	// sync having finished.
 	pushToWebview(statePush(makeState({ servers: [failing(AFTER)] })));
 	expect(buttonByText(root, "Checking...").getAttribute("aria-disabled")).toBe("true");
 
-	// An ack for a DIFFERENT syncModels request does not release it either. The
-	// rail's Sync button posts the same method, and useIntentOutcome hands over
-	// the latest envelope for the method whoever posted it, so presence alone
-	// would let the rail switch off a row's spinner mid-pass.
+	// An ack for a DIFFERENT syncModels request does not release it: the rail's Sync posts the same method and
+	// useIntentOutcome hands over the latest envelope whoever posted it, so presence alone is not enough.
 	pushToWebview({ kind: "ack", id: `${syncId}-other`, method: "syncModels" });
 	expect(buttonByText(root, "Checking...").getAttribute("aria-disabled")).toBe("true");
 
@@ -2137,9 +2026,8 @@ test("Retry says it is working, and only its own ack releases it - no push, of a
 });
 
 test("a sync that fails still releases the Retry control", () => {
-	// A failed sync is a finished one as far as the button is concerned. Leaving
-	// it disabled would strand the row for the life of the panel, which is the
-	// failure mode the old abandon timer existed to paper over.
+	// A failed sync is a finished one as far as the button is concerned; leaving it disabled would strand the
+	// row for the life of the panel.
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod", state: "error", error: "refused" })] }))
@@ -2159,10 +2047,8 @@ test("a sync that fails still releases the Retry control", () => {
 });
 
 test("a fleet-wide sync disables every row's Retry, not just the one clicked", () => {
-	// The command refreshes every provider group, so leaving the other rows live
-	// would let one impatient reader queue several complete passes from different
-	// rows - and executeCommand is serialized, so the second runs after the first
-	// rather than being rejected.
+	// The command refreshes every provider group, and executeCommand is serialized, so leaving the other rows
+	// live would let one impatient reader queue several complete passes back to back.
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(
@@ -2187,10 +2073,8 @@ test("a fleet-wide sync disables every row's Retry, not just the one clicked", (
 });
 
 test("pressing Retry keeps the reader's focus on the button", () => {
-	// The label changes from "Retry" to "Checking...", and keying the control by
-	// its text destroyed and rebuilt the node exactly when it held focus - so the
-	// keyboard user who pressed it was thrown back to the top of the document,
-	// and heard nothing, because the announcement rides the focused element.
+	// Regression pin: keying the control by its text destroyed and rebuilt the node exactly when it held focus,
+	// throwing the keyboard user back to the top of the document with no announcement.
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod", state: "error", error: "refused" })] }))
@@ -2205,16 +2089,14 @@ test("pressing Retry keeps the reader's focus on the button", () => {
 });
 
 test("the list carries one polite live region, so a sync's outcome is announced", () => {
-	// The retired banners carried role="alert". Without a replacement a screen
-	// reader user got nothing at all when a sync landed and the rows changed
-	// underneath them - a regression hidden inside a redesign.
+	// Regression pin: with the role="alert" banners retired and no replacement, a screen reader user got
+	// nothing at all when a sync landed and the rows changed underneath them.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod", state: "error", error: "x" })] })));
 
 	const regions = [...root.querySelectorAll("[aria-live]")].filter((el) => el.closest("#panel-overview") !== null);
-	// Two page-level regions, never one per row: the verdict region and the
-	// in-flight busy region (text-only, empty while nothing runs). Five rows
-	// announcing themselves on every push is noise, not news.
+	// Two page-level regions, never one per row: the verdict region and the in-flight busy region (text-only,
+	// empty while nothing runs). Five rows announcing themselves on every push is noise.
 	expect(regions.length).toBe(2);
 	const region = regions.find((el) => (el.textContent ?? "").length > 0) as HTMLElement;
 	const busy = regions.find((el) => el !== region) as HTMLElement;
@@ -2224,9 +2106,8 @@ test("the list carries one polite live region, so a sync's outcome is announced"
 	expect(region.getAttribute("aria-live")).toBe("polite");
 	expect(region.textContent).toContain("1 server needs attention");
 
-	// It states the good outcome too, or recovery would announce silence - but
-	// only once something has actually been checked. A fleet nobody has looked at
-	// gets no clean bill of health.
+	// It states the good outcome too, or recovery would announce silence - but only once something has been
+	// checked. A fleet nobody has looked at gets no clean bill of health.
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Fresh", state: "unchecked" })] })));
 	expect(region.textContent).toContain("No servers have been checked yet");
 	pushToWebview(

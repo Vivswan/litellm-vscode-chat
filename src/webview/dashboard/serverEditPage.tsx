@@ -1,16 +1,7 @@
 /**
- * The server edit surface: the add/edit form, the adopt form, and the field
- * machinery they are built from.
- *
- * It lives apart from servers.tsx because the two are different jobs that only
- * shared a file: the overview answers "what is the state of my fleet", the
- * editor answers "change this one entry". Together they were 2577 lines, and
- * the seam between them was invisible.
- *
- * The boundary is deliberately narrow. This module renders fields and reports
- * two things outward - the draft is dirty, and the user asked to leave - and
- * knows nothing about where it is mounted: whether a panel, a scrim, a close
- * affordance or a discard bar exists around it is the caller's business.
+ * The server edit surface: the add/edit form, the adopt form, and the field machinery.
+ * The boundary outward is deliberately narrow - the draft is dirty, the user asked to
+ * leave - and the module knows nothing about what is mounted around it.
  */
 import * as l10n from "@vscode/l10n";
 import type { ReactNode } from "react";
@@ -89,17 +80,12 @@ import { Select } from "./ui/select";
 import { sendRequest } from "./vscodeApi";
 
 /**
- * Where a saved entry lands. A setting ID is a protocol term, so it stays
- * English and can be a module constant; the save bar shows it because a page
- * that writes a user's settings file should say so before it does.
+ * Where a saved entry lands. A setting ID is a protocol term (English, module constant);
+ * the save bar shows it because a page that writes a settings file should say so.
  */
 const SERVERS_SETTING_ID = `${CONFIG_SECTION}.${SERVERS_SETTING_KEY}`;
 
-/**
- * What the open form is for, decided once where it opens (a row's Edit or the
- * Add button) so no component re-derives it from optional fields: adding a
- * new entry, editing a declared one, or adopting an external group.
- */
+/** What the open form is for, decided once where it opens so no component re-derives it. */
 export type FormTarget =
 	| { readonly kind: "add" }
 	| { readonly kind: "edit"; readonly original: DeclaredDashboardServer }
@@ -109,12 +95,9 @@ export type FormTarget =
 type ServerFormTarget = Extract<FormTarget, { kind: "add" | "edit" }>;
 
 /**
- * The edit form's live hint evidence: the CURRENT server row's observed
- * /model/info key set, looked up by the edited entry's label on every render
- * rather than read from the form's frozen open-time snapshot - a discovery
- * pass finishing while the form is open must update the capability rows'
- * unknown-key hints the same way it updates the host-side filter. An add
- * target has no server and so no evidence.
+ * The edit form's live hint evidence: the CURRENT row's observed /model/info key set,
+ * looked up per render rather than from the form's frozen open-time snapshot - a
+ * discovery pass finishing under an open form must update the unknown-key hints.
  */
 function observedKeysForForm(
 	servers: readonly DashboardServer[],
@@ -128,11 +111,8 @@ function observedKeysForForm(
 }
 
 /**
- * What the shell asked this page to be, by IDENTITY rather than by object: a
- * label for a declared entry, an opaque handle for an external group. The page
- * resolves it against the live state on every render, so an entry that changes
- * under an open page is followed rather than frozen, and one that disappears
- * says so instead of editing a ghost.
+ * What the shell asked this page to be, by IDENTITY rather than by object: resolved against
+ * the live state on every render, so a changed entry is followed and a vanished one says so.
  */
 export type ServerEditRequest =
 	| { readonly kind: "add" }
@@ -140,11 +120,8 @@ export type ServerEditRequest =
 	| { readonly kind: "adopt"; readonly handle: string };
 
 /**
- * Where the form is in its life. The prefill and save round trips each run
- * their own correlation (the prefill through its useRpc hook, the save
- * through the saved requestId below), but the form is only ever in one of
- * them: fields stay editable throughout, and only Save gates on the phase
- * being "editing".
+ * Where the form is in its life. Prefill and save each run their own correlation, but the
+ * form is only ever in one; fields stay editable throughout, only Save gates on "editing".
  */
 type FormPhase =
 	| { readonly phase: "prefill" }
@@ -152,10 +129,9 @@ type FormPhase =
 	| { readonly phase: "saving"; readonly requestId: string };
 
 /**
- * The draft-connection test's own little lifecycle, independent of FormPhase:
- * a test in flight must not gate editing, saving, or cancelling. Leaving
- * "testing" for any other state abandons the in-flight requestId, so a late
- * outcome for it is ignored - which is exactly what clearing on an edit needs.
+ * The draft test's own lifecycle, independent of FormPhase: a test in flight must not gate
+ * editing, saving, or cancelling. Leaving "testing" abandons the in-flight requestId, so a
+ * late outcome is ignored - exactly what clearing on an edit needs.
  */
 type TestState =
 	| { readonly kind: "idle" }
@@ -168,12 +144,9 @@ type TestState =
 	  };
 
 /**
- * The troubleshooting-guide section behind a setup-hint id (the transport
- * assigns one only where the advice is known right; see
- * shared/errorClassification.ts), with the fuller accessible label naming the
- * destination. Labels resolve per call so the l10n bundle is honored. Shared
- * by the draft-test footer and the servers error banner, so a classified
- * failure links the same section wherever it surfaces.
+ * The troubleshooting-guide section behind a setup-hint id (see shared/errorClassification.ts).
+ * Labels resolve per call so the l10n bundle is honored; shared by the draft-test footer and
+ * the servers error banner, so a classified failure links the same section everywhere.
  */
 export function troubleshootingLink(hint: SetupHintKind): { href: DocsUrl; label: string; topic: string } {
 	switch (hint) {
@@ -245,10 +218,9 @@ function draftFor(target: ServerFormTarget): ServerFormDraft {
 }
 
 /**
- * The Authentication selector's option labels; OAuth stays English (protocol
- * term). Deliberately distinct from the field labels ("API key", "Virtual key
- * header"): two identical label texts would leave label-based lookup - screen
- * readers' and the test harness's alike - ambiguous.
+ * The Authentication selector's option labels; OAuth stays English (protocol term).
+ * Deliberately distinct from the field labels: two identical label texts would leave
+ * label-based lookup - screen readers' and the test harness's - ambiguous.
  */
 function authFormName(form: AuthFormId): string {
 	switch (form) {
@@ -274,10 +246,8 @@ function locationName(location: Exclude<SecretLocation, "none">): string {
 interface FieldRenderProps {
 	readonly draft: ServerFormDraft;
 	/**
-	 * The problems the form shows right now, computed once per render in
-	 * ServerForm (a problem is visible once its field was touched or holds
-	 * content). Fields render these directly, so the field decorations and the
-	 * save summary cannot disagree.
+	 * The problems the form shows right now, computed once per render in ServerForm; fields
+	 * render these directly, so field decorations and the save summary cannot disagree.
 	 */
 	readonly visibleProblems: ServerFormProblems;
 	readonly disabled: boolean;
@@ -286,16 +256,9 @@ interface FieldRenderProps {
 }
 
 /**
- * One section of the flat page. The entry is ONE scroll: every section is a
- * heading in the flow with its fields under it, and there is no collapsed
- * state to open - so a section either belongs to the required path or reads
- * as an aside, which is the whole of what `quiet` says. Quiet dims the
- * heading and the label column together; the fields themselves stay at full
- * strength, because a value the user typed is never the quiet part.
- *
- * A heading and nothing else: the paragraph that used to sit under each one
- * said what the "?" beside it already says, six times down a page whose whole
- * job is to be scannable. Detail is on demand here, not on arrival.
+ * One section of the flat page - one scroll, no folds - so a section either belongs to the
+ * required path or reads as an aside, which is the whole of what `quiet` says: it dims the
+ * heading and label column; fields stay at full strength (a typed value is never quiet).
  */
 function FormSection({
 	title,
@@ -309,10 +272,8 @@ function FormSection({
 	/** The heading's quiet trailing fact: "optional", plus a count where the section holds rows. */
 	aside?: string;
 	/**
-	 * The section's detail, behind its "?". Required, because the paragraphs
-	 * that used to carry it are gone: a section with neither is a heading that
-	 * explains nothing, and "remember to add one" is not a rule a type can
-	 * keep. The glyph is named for its section - a page with a dozen of them
+	 * The section's detail, behind its "?". Required: a section with neither is a heading that
+	 * explains nothing. The glyph is named for its section - a page with a dozen of them
 	 * announces a dozen identical "Help" buttons otherwise.
 	 */
 	help: string;
@@ -323,13 +284,9 @@ function FormSection({
 }) {
 	return (
 		<div className="form-section mt-6">
-			{/* The shared header primitive, so this heading is drawn the one way
-			    every section header is: title, help, docs, meta, actions as
-			    SIBLINGS on the .section-head line. The form's own scale (13px
-			    titles, 11px meta) rides the .form-section-head rules in
-			    dashboard.css. Quiet dims the whole line through inheritance; the
-			    fields below stay at full strength, because a value the user
-			    typed is never the quiet part. */}
+			{/* The shared header primitive: title, help, docs, meta, actions as SIBLINGS on the
+			    .section-head line; the form's own scale rides the .form-section-head rules. Quiet
+			    dims the whole line through inheritance; the fields below stay at full strength. */}
 			<SectionHeader
 				level={4}
 				title={title}
@@ -341,36 +298,13 @@ function FormSection({
 			{/* The rule's only paint is a fill, which forced colours repaint to
 			    Canvas - the section seam vanished; restated in ink there. */}
 			<div className="mt-2 mb-3 h-px bg-border forced-colors:bg-[CanvasText]" />
-			{/* The section owns the tracks and every row adopts them through
-			    subgrid, so one gutter and one set of control edges run down the
-			    whole scroll. Rows cannot each own a grid instead: the last track
-			    is content-sized, and a row carrying a docs link beside its "?"
-			    then sizes it wider than its neighbours and drags the fr tracks
-			    with it - the Declared models row ran its textarea 250px past
-			    every other control that way. Nor can the cells be direct children
-			    of one grid: the glyph has to change track per breakpoint, that
-			    needs a pinned row, and a pinned row number stacks every row's
-			    glyph into the section's first row. Subgrid is what gives shared
-			    sizing AND per-row placement.
-
-			    The breakpoint measures the PANE, not the viewport: this form
-			    narrows when the rail is there, when the panel is docked, and when
-			    the window is split, none of which the viewport width describes.
-			    Below it the rows stack, because the gutter stops being worth what
-			    it costs the fields - at 500px of pane the gutter left a Base URL
-			    input too narrow to show its own value.
-
-			    The gutter is the settings rows' 10rem floor, taken as a FLAT
-			    track (the form ran a 150px gutter before, a 10px drift). Flat on
-			    purpose where the settings page auto-grows: each FormSection owns
-			    its grid, so a content-sized track would be uniform across the
-			    six sections only while every label in every locale fit the
-			    floor - and the render harness shoots English alone, so no sweep
-			    can see a longer translation dragging one section's gutter off
-			    the others. Fixed, the edge is uniform by construction and a
-			    pathological label wraps inside the gutter, the same fallback
-			    the settings titles have at their cap. The form-records fixture
-			    guard pins the one label edge against the construction changing. */}
+			{/* The section owns the tracks; every row adopts them through subgrid, which is what
+			    gives shared sizing AND per-row placement (per-row grids let a docs link drag the
+			    fr tracks; one flat grid cannot move the glyph track per breakpoint). The
+			    breakpoint measures the PANE, not the viewport - the form narrows with rail, dock,
+			    and split. The gutter is the settings rows' 10rem floor as a FLAT track: fixed,
+			    the edge is uniform by construction in every locale; the form-records fixture
+			    guard pins the label edge. */}
 			<div
 				className={cn(
 					"grid grid-cols-[10rem_minmax(0,1.35fr)_minmax(0,1fr)_auto] gap-x-4 gap-y-2.5",
@@ -385,11 +319,9 @@ function FormSection({
 }
 
 /**
- * One row of the section grid: the label in the gutter, the control, and the
- * hint beside it - or, when the field has a problem, the error in the hint's
- * place. A `wide` control (record tables, header rows, a textarea) takes the
- * hint column too and carries its own hint underneath; a help-less wide one
- * runs through the glyph track as well.
+ * One row of the section grid: label in the gutter, control, hint (or the field's problem
+ * in its place). A `wide` control takes the hint column and carries its own hint below;
+ * a help-less wide one runs through the glyph track as well.
  */
 function FieldRow({
 	htmlFor,
@@ -415,11 +347,9 @@ function FieldRow({
 	children: ReactNode;
 }) {
 	const showProblem = problem !== undefined;
-	// One row of the section's tracks, adopted through subgrid. Wide: gutter,
-	// control, hint, glyph. Stacked: label and glyph on line one, control and
-	// then hint at full width below. 700px of PANE is the threshold
-	// dashboard.css already stacks key/value rows at, and the matcher editor
-	// inside this very page turns at it, so the page changes idiom once.
+	// One row of the section's tracks via subgrid. Wide: gutter, control, hint, glyph.
+	// Stacked below 700px of PANE - the threshold dashboard.css already stacks key/value
+	// rows at, so the page changes idiom once.
 	const GRID = cn(
 		"col-span-4 grid grid-cols-subgrid items-center",
 		// Only the column axis is subgridded, so the parent's row gap does not
@@ -446,10 +376,8 @@ function FieldRow({
 					// Stacked, the control takes both tracks on its own line: the
 					// second track exists for the glyph beside the label.
 					"@max-[700px]/pane:col-start-1 @max-[700px]/pane:col-span-2 @max-[700px]/pane:row-start-2",
-					// A wide row spans the hint track too; a help-less wide row (the
-					// record tables) runs through the glyph track as well, so the
-					// tables' trailing pencil column ends on the same edge the other
-					// rows' glyphs do instead of ~10px short of it.
+					// A wide row spans the hint track; a help-less wide row runs through the glyph track
+					// too, so the tables' trailing pencil column ends on the other rows' glyph edge.
 					wide === true && "flex-col items-stretch gap-1",
 					wide === true && (help === undefined ? "col-span-3" : "col-span-2")
 				)}
@@ -457,21 +385,10 @@ function FieldRow({
 				{children}
 			</div>
 			{wide === true ? null : (
-				// The hint carries the field's id whether it reads as a hint or as
-				// the error covering it: a description that only exists while
-				// something is wrong leaves the storage advice - the most
-				// consequential line on the page - unannounced.
-				// The id sits on the CELL, and the two voices are its children: the
-				// hint stays in flow (invisible while a problem stands, so the cell
-				// keeps the height it reserved) and the problem is an absolute
-				// overlay in the same box - the settings rows' covered-description
-				// mechanism, so a field going invalid never moves the input or the
-				// rows below (the charter's transients-never-move-anything clause).
-				// min-height reserves one line where the field has no hint to hold
-				// the box open; a longer message overflows the reserved box into the
-				// row gap instead of re-flowing the form. Only visible text reaches
-				// the field's announcement: a hidden child is excluded from the
-				// description the id carries.
+				// The hint cell carries the field's id in both voices: the hint stays in flow (invisible
+				// while a problem stands, holding the reserved height) and the problem overlays the same
+				// box, so a field going invalid never moves anything (the charter's transients clause).
+				// min-height reserves one line for hint-less fields; only visible text is announced.
 				<span
 					id={errorId}
 					className={cn(
@@ -481,11 +398,8 @@ function FieldRow({
 				>
 					<span
 						className={cn(
-							// One register at a time: stacking text-muted-foreground under
-							// state-warn shipped muted for as long as the tone rules could
-							// lose to a utility, and still reads as muted in the source now
-							// that they cannot. The covering error hides this span whole,
-							// so the two registers never paint together.
+							// One register at a time: the covering error hides this span whole, so the two
+							// registers never paint together.
 							hintTone === "warn" ? "state-warn" : "text-muted-foreground",
 							showProblem && "invisible"
 						)}
@@ -493,25 +407,15 @@ function FieldRow({
 						{hint}
 					</span>
 					{showProblem ? (
-						// pointer-events-none like the settings overlay: what it covers
-						// is visibility-hidden and untouchable anyway, and the overlay
-						// must never eat clicks aimed at the row.
+						// pointer-events-none like the settings overlay: it must never eat clicks aimed at the row.
 						<span className="error pointer-events-none absolute inset-0">{problem}</span>
 					) : null}
 				</span>
 			)}
-			{/* Last in the DOM, so Tab reaches a field's control before its help
-			    rather than stopping at the "?" on the way in. Which track it
-			    lands in is the container query's business: the end of a wide row,
-			    and up beside the label once stacked, where "after the hint" would
-			    be a mark alone on a line under an input for the five rows that
-			    have no hint. The glyph is the ONLY thing this track carries: a
-			    row-level extra (a docs link once rode here) widens the section's
-			    own auto track and jogs its help column off every other
-			    section's - anything beyond the "?" belongs to the section
-			    header's docs slot. A help-less row mounts no cell at all: a wide
-			    one spans through the track (see the control above), and an empty
-			    span would block that span's grid area. */}
+			{/* Last in the DOM, so Tab reaches a field's control before its help. The glyph is the
+			    ONLY thing this track carries - a row-level extra widens the auto track and jogs the
+			    help column off the other sections'. A help-less row mounts no cell: an empty span
+			    would block the wide control's span through the track. */}
 			{help === undefined ? null : (
 				<span
 					className={cn(
@@ -535,12 +439,9 @@ function FieldSpan({ children, className }: { children: ReactNode; className?: s
 }
 
 /**
- * The line marking off an auth form's companions - second credentials sent
- * beside the chosen form's own. A real heading on the shared header anatomy,
- * with "optional" in the meta slot like the four form sections around it (a
- * hand-spelled paragraph baked the meta into the title, so it read as prose
- * and announced "(optional)" as part of the name); still not a fold - there
- * is nothing to open, and the Authentication "?" says what a companion is.
+ * The line marking off an auth form's companions - second credentials sent beside the
+ * chosen form's own. A real heading with "optional" in the meta slot; not a fold, since
+ * there is nothing to open.
  */
 function CompanionNote() {
 	return (
@@ -564,19 +465,12 @@ function matcherCountAside(count: number): string {
 }
 
 /**
- * The commit bar the edit and adopt forms share: it sticks to the bottom of
- * the viewport while the page scrolls. Its rule meets the page's own 860px
- * measure when the pane caps the column, and bleeds into `.pane`'s 24px gutter
- * when the pane is what limits it - a symmetric bleed at every width overshot
- * the capped column by 24px each side. The bleed is a CLAMP rather than a pane
- * query on purpose: 860 sits inside the band the rail's collapse makes
- * ambiguous (the same pane width occurs on both sides of the collapse, so a
- * threshold there flips back and forth while the window narrows once -
- * narrowThresholds.test.ts refuses it), and a continuous ramp cannot flip.
- * 884px is the cap plus the full bleed, so the ramp starts exactly where the
- * gutter stops being the limit; the padding mirrors the margin so the buttons
- * hold the column's edge. The z-index is the house footer level; the discard
- * question outranks it from the shell's own modal layer, not from here.
+ * The shared commit bar: sticky, its rule meeting the page's 860px measure and bleeding
+ * into .pane's 24px gutter when the pane is what limits it. The bleed is a CLAMP, not a
+ * pane query: 860 sits inside the band the rail's collapse makes ambiguous (the same pane
+ * width occurs on both sides, so a threshold flips - narrowThresholds.test.ts refuses it);
+ * a continuous ramp cannot flip, and 884px = cap + full bleed starts it exactly where the
+ * gutter stops being the limit. The z-index is the house footer level.
  */
 const COMMIT_BAR_CLASS =
 	"toolbar sticky bottom-0 z-[2] mt-6 mb-[-48px] flex flex-wrap items-center gap-4 border-t border-border bg-background py-3 [--bleed:clamp(0px,884px_-_100cqw,24px)] mx-[calc(0px_-_var(--bleed))] px-[var(--bleed)]";
@@ -584,9 +478,8 @@ const COMMIT_BAR_CLASS =
 /** A control that belongs under the row above it: it clears the label gutter, and takes the full width once the rows stack. */
 function FieldUnderRow({ children, className }: { children: ReactNode; className?: string }) {
 	return (
-		// Placed in the grid rather than padded past the gutter by hand: a
-		// literal offset is the track width plus the gap restated, and the two
-		// drift the moment either changes.
+		// Placed in the grid rather than hand-padded past the gutter: a literal offset restates
+		// the track width plus the gap, and the two drift the moment either changes.
 		<div className="col-span-4 grid grid-cols-subgrid @max-[700px]/pane:col-span-2">
 			<div
 				className={cn(
@@ -663,17 +556,12 @@ function TextField({
 }
 
 /**
- * React mirrors a controlled input's value into the value ATTRIBUTE (via the
- * defaultValue property, for form-reset semantics), which would put a
- * secret's plaintext into every DOM serialization - and the mirror is written
- * again after each input event by React's controlled-state restoration, so a
- * one-time scrub cannot hold. This mount ref instead makes the mirror inert
- * for the node's lifetime: it re-writes the value property first (a dirty
- * input no longer reflects the attribute, so the removal cannot blank a
- * not-yet-touched field), removes the mounted attribute, and shadows
- * defaultValue with a no-op instance property so every later mirror write
- * vanishes. The secret still lives only in the value property, exactly the
- * one residence the sweep in the tests permits.
+ * React mirrors a controlled input's value into the value ATTRIBUTE (and rewrites it after
+ * every input event), which would put a secret's plaintext into every DOM serialization.
+ * This mount ref makes the mirror inert for the node's lifetime: value property rewritten
+ * first (so an untouched field cannot blank), attribute removed, defaultValue shadowed by
+ * a no-op. The secret then lives only in the value property - the one residence the tests
+ * permit.
  */
 function disarmValueAttributeMirror(node: HTMLInputElement | null): void {
 	if (node === null) {
@@ -690,23 +578,18 @@ function disarmValueAttributeMirror(node: HTMLInputElement | null): void {
 }
 
 /**
- * One secret field: a password input plus the user's per-field storage
- * choice. Values in secure storage are never shown (they never reach this
- * page); an inline value prefills the input, masked behind a Show toggle,
- * because settings.json already displays it in plain text. Leaving the input
- * empty - or leaving a prefill unedited - keeps the stored value where it is.
- * Invariant: this is the page's ONLY secret-bearing input. A new secret field
- * must render through it, because the disarm above is what keeps the value
- * out of the serialized DOM.
+ * One secret field: a password input plus the per-field storage choice. Secure-side values
+ * never reach this page; an inline value prefills masked (settings.json already shows it).
+ * Empty input or unedited prefill keeps the stored value. Invariant: the page's ONLY
+ * secret-bearing input - the disarm above keeps the value out of the serialized DOM.
  */
 function SecretField({ field, help, props }: { field: SecretFieldId; help?: string; props: FieldRenderProps }) {
 	const value = props.draft[field];
 	const problem = props.visibleProblems[field];
 	const showProblem = problem !== undefined;
 	const [revealed, setRevealed] = useState(false);
-	// Nothing to reveal in an empty or removal-marked field, so the toggle
-	// disables and any lingering revealed state resets: the next value typed
-	// (or a re-ticked remove undone) starts masked again.
+	// Nothing to reveal in an empty or removal-marked field: the toggle disables and revealed
+	// state resets, so the next value starts masked.
 	const empty = value.value.trim().length === 0;
 	useEffect(() => {
 		if (empty || value.clear) {
@@ -717,13 +600,9 @@ function SecretField({ field, help, props }: { field: SecretFieldId; help?: stri
 	const errorId = `${id}-error`;
 	const patchSecret = (patch: Partial<SecretFieldDraft>) =>
 		props.patch({ [field]: { ...value, ...patch } } as Partial<ServerFormDraft>);
-	// One short line, and only where it says something the reader cannot see:
-	// where the value is now, or what the save is about to do with the one they
-	// typed. A problem takes its place, so the row is one line tall in every
-	// state, and a field with nothing stored and nothing typed says nothing.
-	// The prefilled value is already in settings.json; a typed one is about to
-	// be. One sentence for both was wrong for whichever state it did not mean,
-	// and its translations picked the future tense for a value saved long ago.
+	// One short line, only where it says what the reader cannot see: where the value is now,
+	// or what Save will do with the typed one. A problem takes its place, so the row stays
+	// one line tall; the two states need separate sentences (tense differs in translation).
 	const unchangedPrefill =
 		value.prefill !== undefined && value.value === value.prefill && value.location === "settings";
 	const storageHint = value.clear
@@ -737,10 +616,8 @@ function SecretField({ field, help, props }: { field: SecretFieldId; help?: stri
 					: value.existing !== "none" && empty
 						? l10n.t("In {0}. Leave empty to keep it.", locationName(value.existing))
 						: undefined;
-	// Two states earn a tone of their own: a value on its way into plain text,
-	// and a stored value on its way out. Both are consequences the reader is
-	// one Save away from, stated where the choice is made. An unchanged prefill
-	// is a fact about the past, so it states itself plainly.
+	// Two states earn a tone: a value on its way into plain text, and a stored value on its
+	// way out - consequences one Save away. An unchanged prefill states itself plainly.
 	const hintTone =
 		value.clear || (!empty && value.location === "settings" && !unchangedPrefill) ? ("warn" as const) : undefined;
 	return (
@@ -794,10 +671,8 @@ function SecretField({ field, help, props }: { field: SecretFieldId; help?: stri
 					role="radiogroup"
 					aria-label={l10n.t("Where to store the {0}", serverFormFieldLabel(field))}
 				>
-					{/* Stacked, the two options wrapped apart - one beside this label,
-					    one under it - so the pair a reader is choosing between lost its
-					    shared left edge. The label and its glyph take the line
-					    together and the options share the next one. */}
+					{/* Stacked, the wrapped-apart options lost their shared left edge: the label and glyph
+					    take the line together and the options share the next one. */}
 					<span className="flex items-center gap-1.5 @max-[700px]/pane:basis-full">
 						<span className="where-label">{l10n.t("Store in:")}</span>
 						<Help
@@ -844,10 +719,8 @@ function SecretField({ field, help, props }: { field: SecretFieldId; help?: stri
 }
 
 /**
- * Whether a field "holds content" for problem visibility. Record-row and
- * list-valued fields only carry problems on entries the user (or the
- * prefill) put there, so any entries count as content; text and secret
- * fields count their text.
+ * Whether a field "holds content" for problem visibility: rows and lists count entries,
+ * text and secret fields count their text.
  */
 function fieldHasContent(draft: ServerFormDraft, field: ServerFormField): boolean {
 	if (
@@ -863,9 +736,8 @@ function fieldHasContent(draft: ServerFormDraft, field: ServerFormField): boolea
 		return false;
 	}
 	if (field === "apiVersion") {
-		// Only a custom mode with text counts: an empty custom surfaces on Save
-		// (which marks every field touched), like the other required-but-empty
-		// inputs.
+		// Only a custom mode with text counts: an empty custom surfaces on Save, which marks
+		// every field touched.
 		return draft.apiVersion.mode === "custom" && draft.apiVersion.custom.length > 0;
 	}
 	const value = draft[field];
@@ -873,10 +745,8 @@ function fieldHasContent(draft: ServerFormDraft, field: ServerFormField): boolea
 }
 
 /**
- * An inactive form's stored secret, rendered so its Remove checkbox stays
- * reachable without offering an input (the parse would drop anything typed
- * into a field whose form is not selected): where the value lives, the remove
- * gesture, and any problem the parse pinned on the field.
+ * An inactive form's stored secret: keeps the Remove checkbox reachable without offering
+ * an input (the parse would drop anything typed into an unselected form's field).
  */
 function StoredSecretRow({ field, props }: { field: SecretFieldId; props: FieldRenderProps }) {
 	const value = props.draft[field];
@@ -894,9 +764,7 @@ function StoredSecretRow({ field, props }: { field: SecretFieldId; props: FieldR
 						: l10n.t("In {0}.", locationName(value.existing))
 			}
 			problem={problem}
-			// The same id the field's input-bearing row uses. The two never
-			// render together - this row exists only while that form is
-			// unselected - so the id stays unique.
+			// The same id the input-bearing row uses; the two never render together, so it stays unique.
 			errorId={`server-${field}-error`}
 		>
 			<label className={cn("secret-remove flex items-center gap-1.5 text-[12px]", value.clear && "armed text-err")}>
@@ -913,11 +781,7 @@ function StoredSecretRow({ field, props }: { field: SecretFieldId; props: FieldR
 	);
 }
 
-/**
- * The custom-header rows: name and value inputs per row, the parse's
- * row-aligned problems under the offending row, remove and add actions - the
- * record editors' row idiom over the entry's headers record.
- */
+/** The custom-header rows: the record editors' row idiom over the entry's headers record. */
 function HeaderRowsEditor({
 	rows,
 	problems,
@@ -936,9 +800,8 @@ function HeaderRowsEditor({
 				<div className="row flex flex-wrap items-center gap-2" key={index}>
 					<Input
 						type="text"
-						// 204 = the 190px measure this input always showed plus its own
-						// padding and border, which border-box now counts inside the
-						// width; at 190 the placeholder lost its last three characters.
+						// 204 = the 190px measure this input always showed plus padding and border, which
+						// border-box counts inside the width; at 190 the placeholder lost three characters.
 						className="key w-[204px] font-mono text-[12px]"
 						aria-label={l10n.t("Header name")}
 						aria-invalid={problems[index] !== undefined}
@@ -991,30 +854,17 @@ function HeaderRowsEditor({
 }
 
 /**
- * The inline Add/Edit form. Saving posts one saveServerSetting intent through
- * the form's own useIntentOutcome hook and waits for its correlated outcome:
- * an ok closes the form (discarding the draft, typed secrets included); a
- * validation-kind fail returns it to a retryable editing state, while an
- * operation-kind one closes it too - the save committed, so the draft is
- * stale and the section-level notice carries the recovery path. Unrelated
- * state pushes leave it alone.
+ * The inline Add/Edit form. Save posts one saveServerSetting intent and waits for its
+ * correlated outcome: ok closes; a validation fail returns to editing; an operation fail
+ * closes too - the save committed, so the draft is stale and the section notice carries
+ * the recovery. Unrelated state pushes leave it alone.
  */
 
 /**
- * The edit destination: one entry's whole configuration, mounted in the
- * shell's pane rather than floating over the page it came from. The rail
- * stays on screen beside it, which is the point - the user's rule about doors
- * opening onto doors applies to a form as much as to a menu.
- *
- * The boundary outward is two facts and two events: the draft is dirty, the
- * reader asked to leave, the save committed. Everything else - which pane is
- * showing, what a rail click means while a draft is dirty, where focus lands
- * on the way out - belongs to the shell, and this page knows none of it.
- *
- * The target resolves from the live state on every render rather than from an
- * object captured at open time: a discovery pass landing under an open page
- * refreshes its evidence, and an entry deleted from another window leaves a
- * page that says so instead of one editing something that is gone.
+ * The edit destination, mounted in the shell's pane. The boundary outward is two facts and
+ * two events: the draft is dirty, the reader asked to leave, the save committed - pane
+ * choice, rail clicks, and focus on the way out belong to the shell. The target resolves
+ * from live state every render: refreshed evidence, and a deleted entry says so.
  */
 export function ServerEditPage({
 	request,
@@ -1029,21 +879,18 @@ export function ServerEditPage({
 	onRequestClose: () => void;
 	onSaved: () => void;
 }) {
-	// The page's own adopt round trip. It lives here rather than in the servers
-	// list because the page is what the outcome decides the fate of: an ok
-	// leaves, a validation failure stays and re-enables the form. The list
-	// keeps its own hook for the notice and the banner - both see the same
-	// envelope, which is the documented shape of these outcomes.
+	// The page's own adopt round trip: the outcome decides the page's fate (ok leaves, a
+	// validation failure stays). The list keeps its own hook for notice and banner - both
+	// see the same envelope, the documented shape of these outcomes.
 	const adoptIntent = useIntentOutcome("adoptServer");
 	const saveIntent = useIntentOutcome("saveServerSetting");
 	const [adopting, setAdopting] = useState<string | undefined>(undefined);
 	const [savingId, setSavingId] = useState<string | undefined>(undefined);
 	const adoptOutcome = adoptIntent.outcome;
 	const saveOutcome = saveIntent.outcome;
-	// A validation failure keeps the reader here to fix it, so the message has
-	// to be here too: the servers list carries its own banner, and the list is
-	// behind this page. An operation failure committed its write, so it leaves
-	// with the same disposition a success does and the list's banner takes it.
+	// A validation failure keeps the reader here, so the message must be here too. An
+	// operation failure committed its write; it leaves like a success and the list's
+	// banner takes it.
 	const [failure, setFailure] = useState<{ message: string; frame: "save" | "adopt" } | undefined>(undefined);
 	useEffect(() => {
 		if (adopting === undefined || adoptOutcome?.id !== adopting) {
@@ -1068,12 +915,9 @@ export function ServerEditPage({
 		setFailure({ message: saveOutcome.message, frame: "save" });
 	}, [saveOutcome, savingId, onSaved]);
 
-	// Arriving here is a navigation, so focus travels with it: to the first
-	// field, or to the page itself when there is nothing to type into. A panel
-	// used to do this by being a focus-trapped dialog; a destination has to do
-	// it deliberately, or Tab would carry on from the row the reader left
-	// behind on a pane that is no longer showing - and a nested overlay
-	// closing would have nowhere inside the page to put focus back.
+	// Arriving here is a navigation, so focus travels with it: to the first field, or the
+	// page itself. A destination must do this deliberately, or Tab carries on from a pane
+	// that is no longer showing.
 
 	// Misconfigured entries count as taken: they occupy their label in the
 	// setting, so a rename onto one must be refused like any sibling.
@@ -1081,29 +925,21 @@ export function ServerEditPage({
 		.filter((server) => server.origin === "declared" || server.origin === "misconfigured")
 		.map((server) => server.label);
 
-	// Memoized so the resolved target is one object for as long as the rows it
-	// came from are: a fresh object per render turns any effect that depends on
-	// it into a render loop, which is exactly what the prefill did.
+	// Memoized so the resolved target is one object for as long as its rows are: a fresh
+	// object per render turned the prefill effect into a render loop.
 	const resolved = useMemo(() => resolveEditTarget(request, servers), [request, servers]);
 	const lastResolved = useRef(resolved);
-	// A commit in flight freezes the target - the whole target, not just the
-	// case where it stops resolving. The save's own write comes back as a
-	// state push: a rename makes the old label resolve to nothing (the form
-	// would unmount and the ack would land on nothing, so a save that worked
-	// reads as a deleted entry), and a secret moving from secure to inline
-	// resolves to a DIFFERENT object that restarts the prefill, drops the form
-	// out of saving, and re-enables Save before the first ack lands. Both are
-	// the same mistake: reading the result of a commit while the commit is
-	// still in flight.
+	// A commit in flight freezes the WHOLE target: the save's write comes back as a state
+	// push, so a rename resolves the old label to nothing (a save that worked reads as a
+	// deleted entry) and a secret moving storage resolves a DIFFERENT object that restarts
+	// the prefill - both read the result of a commit still in flight.
 	const committing = savingId !== undefined || adopting !== undefined;
 	if (resolved !== undefined && !committing) {
 		lastResolved.current = resolved;
 	}
 	const target = committing ? lastResolved.current : resolved;
-	// The entry went away under the page, taking the draft with it: there is
-	// nothing left to save and so nothing to ask about. Without this the
-	// shell's guard keeps answering "this is dirty" to a form that no longer
-	// exists, and every way out raises a question nothing renders.
+	// The entry went away, taking the draft: nothing left to save, nothing to ask about.
+	// Without this the shell's guard keeps answering "dirty" for a form that no longer exists.
 	const targetGone = target === undefined;
 	useEffect(() => {
 		if (targetGone) {
@@ -1111,10 +947,8 @@ export function ServerEditPage({
 		}
 	}, [targetGone, onDirtyChange]);
 	const pageRef = useRef<HTMLElement>(null);
-	// Also keyed on the form going away: an entry deleted under an open page
-	// unmounts the field that had focus, and focus would land on the body -
-	// outside the shell that hears Esc, so the reader's keyboard would stop
-	// working on a page that is still on screen.
+	// Also keyed on the form going away: the unmounting field drops focus on the body -
+	// outside the shell that hears Esc - so the keyboard would stop working.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: targetGone is the trigger, not a value the body reads - the form going away is what leaves focus homeless
 	useEffect(() => {
 		const page = pageRef.current;
@@ -1124,14 +958,11 @@ export function ServerEditPage({
 		const field = page?.querySelector<HTMLElement>("input, select, textarea");
 		(field ?? page)?.focus();
 	}, [targetGone]);
-	// tabIndex -1 so the page can take focus itself when it holds no field;
-	// never in the tab order, like every other programmatic focus target here.
-	// The id is the surface the shell's discard-confirm modal returns focus
-	// into on "keep editing".
+	// tabIndex -1: the page takes focus itself when it holds no field, never in the tab order.
+	// The id is where the discard-confirm modal returns focus on "keep editing".
 	const page = (children: ReactNode) => (
-		// A section rather than a dialog: it is where the reader IS, not
-		// something over where they were - and a name needs an element that
-		// takes one, so the heading only labels this because it is a section.
+		// A section, not a dialog: it is where the reader IS; the heading labels it because a
+		// section takes a name.
 		<section
 			className="server-edit-page max-w-[860px]"
 			id="server-edit-page"
@@ -1214,9 +1045,8 @@ export function ServerEditPage({
 }
 
 /**
- * The request read against the live rows: absent when the row it names is
- * gone, or when it names a row whose shape the form cannot round-trip (a
- * misconfigured entry, which the list offers no edit for in the first place).
+ * The request read against the live rows: absent when the row is gone or cannot
+ * round-trip the form (a misconfigured entry, which the list offers no edit for).
  */
 function resolveEditTarget(request: ServerEditRequest, servers: readonly DashboardServer[]): FormTarget | undefined {
 	if (request.kind === "add") {
@@ -1236,10 +1066,8 @@ function resolveEditTarget(request: ServerEditRequest, servers: readonly Dashboa
 }
 
 /**
- * The way back, at the top where a reader looks for it. A panel had an X in
- * its corner; a destination has the trail it came down, and it routes through
- * the same request the rail and Esc do - so a dirty draft gets the same
- * question from all three (the shell's discard-confirm modal).
+ * The way back, at the top: it routes through the same request the rail and Esc do, so a
+ * dirty draft gets the same discard-confirm question from all three.
  */
 function BackToServers({ onRequestClose }: { onRequestClose: () => void }) {
 	return (
@@ -1271,26 +1099,20 @@ function ServerForm({
 	onRequestClose: () => void;
 }) {
 	const [draft, setDraft] = useState<ServerFormDraft>(() => draftFor(target));
-	// What the form opened with, for the save bar's unsaved count. Re-based
-	// when the inline prefill lands (the same transform runs over both), so a
-	// value the form filled in for the user never reads as an edit the user
-	// made.
+	// What the form opened with, for the save bar's unsaved count; re-based when the prefill
+	// lands, so a value the form filled in never reads as a user edit.
 	const [baseline, setBaseline] = useState<ServerFormDraft>(() => draftFor(target));
 	const [touched, setTouched] = useState<ReadonlySet<ServerFormField>>(new Set());
 	const [phase, setPhase] = useState<FormPhase>({ phase: "editing" });
 	const [testState, setTestState] = useState<TestState>({ kind: "idle" });
-	// The form's own round trips. The inline-secret values live only in this
-	// hook's state and the draft, both of which die with the form instance, so
-	// a closed form leaves no secret value behind in webview memory.
+	// The form's own round trips. Inline-secret values live only in this hook's state and the
+	// draft, both dying with the form instance - a closed form leaves no secret in memory.
 	const saveIntent = useIntentOutcome("saveServerSetting");
 	const testIntent = useIntentOutcome("testServerDraft");
 	const inlineSecrets = useRpc("readInlineSecrets");
-	// The full matcher editor overlay over this form, by record kind and DRAFT
-	// index (the tables' sorted order is a view; the draft array is the
-	// identity space). Index identity is safe HERE, unlike the settings
-	// editors: the form's draft is local state no store push ever rewrites,
-	// so the arrays only change through the form's own actions. It still
-	// closes itself when its group leaves the draft.
+	// The full matcher editor overlay, by record kind and DRAFT index (the tables' sorted
+	// order is a view; the draft array is the identity space). Index identity is safe HERE:
+	// the draft is local state no store push rewrites. Closes itself when its group leaves.
 	const [matcherEditor, setMatcherEditor] = useState<{ kind: RecordEditorKind; index: number } | undefined>(undefined);
 	const draftModelParameters = draft.modelParameters;
 	const draftModelCapabilities = draft.modelCapabilities;
@@ -1304,24 +1126,15 @@ function ServerForm({
 		});
 	}, [draftModelParameters, draftModelCapabilities]);
 	const saving = phase.phase === "saving";
-	// Save holds until the prefill response lands (phase "prefill"): saving
-	// before it arrives would assemble the still-empty fields as "keep",
-	// silently dropping a relocation the user just picked (flip the radio to
-	// secure, hit Save). Fields stay editable meanwhile; the response never
-	// clobbers what was typed. The response is one round trip behind the form
-	// opening, so the gate is imperceptible in practice.
+	// Save holds until the prefill lands: saving before would assemble empty fields as
+	// "keep", silently dropping a just-picked relocation. Fields stay editable meanwhile;
+	// the gate is one round trip and imperceptible.
 	const saveOutcome = saveIntent.outcome;
 
-	// Editing a declared entry with inline-stored secrets: ask for their values
-	// once per form instance (the key remounts a fresh form). Secure-side and
-	// absent fields are never requested-for or returned; they keep the empty
-	// placeholder input.
-	//
-	// Keyed on WHICH entry rather than on the target object: the page resolves
-	// that object from the live rows on every render, so an object dependency
-	// re-asks on every render - and asking sets the phase, which renders, which
-	// asks. The label is the identity that decides whether a second request
-	// would even be a different question.
+	// Ask for inline-stored values once per form instance (the key remounts a fresh form);
+	// secure-side and absent fields are never requested. Keyed on WHICH entry, not the
+	// target object - the object is re-resolved per render, and an object dependency
+	// re-asks, sets the phase, renders, asks again.
 	const requestInlineSecrets = inlineSecrets.send;
 	const prefillLabel = target.kind === "edit" ? target.original.label : undefined;
 	const hasInlineSecret =
@@ -1354,9 +1167,7 @@ function ServerForm({
 		}
 	}, [saveOutcome, phase]);
 
-	// This form's own test outcome. Success renders the extension-composed
-	// message verbatim ("Connected - N models"); an outcome for an abandoned
-	// requestId (the state left "testing" on an edit or a retest) is ignored.
+	// This form's own test outcome; an outcome for an abandoned requestId is ignored.
 	const testOutcome = testIntent.outcome;
 	useEffect(() => {
 		if (testState.kind !== "testing" || testOutcome === undefined || testOutcome.id !== testState.requestId) {
@@ -1374,10 +1185,8 @@ function ServerForm({
 	}, [testOutcome, testState]);
 
 	const originalLabel = target.kind === "edit" ? target.original.label : undefined;
-	// One parse per keystroke: it either carries the intent Save posts or the
-	// problems the form renders, so what the fields show and what would be
-	// saved can never diverge. The observed-keys evidence is the live prop, so
-	// a discovery pass finishing under the open form refreshes the hints.
+	// One parse per keystroke: it carries either the intent Save posts or the problems the
+	// form renders, so shown and saved can never diverge. Observed keys are the live prop.
 	const parse = parseServerForm(draft, {
 		takenLabels: declaredLabels,
 		...(originalLabel !== undefined ? { originalLabel } : {}),
@@ -1387,9 +1196,8 @@ function ServerForm({
 	const renaming = target.kind === "edit" && label !== target.original.label;
 	const collides = target.kind === "add" && declaredLabels.includes(label);
 
-	// A problem is visible once its field was touched or holds content
-	// (fieldHasContent); computed once here and passed through the render
-	// props, so the fields and the save summary always show the same problems.
+	// A problem is visible once its field was touched or holds content; computed once so the
+	// fields and the save summary always show the same problems.
 	const visibleProblems: ServerFormProblems = {};
 	if (!parse.ok) {
 		for (const field of SERVER_FORM_FIELD_ORDER) {
@@ -1407,16 +1215,13 @@ function ServerForm({
 	const modelCapabilityIssues = parse.modelCapabilityIssues;
 	const entryParamIssueViews = paramIssueViews(draft.modelParameters, modelParameterProblems, modelParameterHints);
 	const entryCapIssueViews = capabilityIssueViews(draft.modelCapabilities, modelCapabilityIssues);
-	// The capability-key autocomplete over THIS entry's own observed
-	// /model/info vocabulary (live, like the hint evidence above): an
-	// entry-scoped record applies to this server only, so other servers'
-	// vocabularies never leak in - an add target (no server yet) and a server
-	// without evidence get just the static list.
+	// The capability-key autocomplete over THIS entry's own observed vocabulary (live, like
+	// the hint evidence): entry-scoped records apply to this server only, so other servers'
+	// vocabularies never leak in.
 	const entryCapabilityKeySuggestions = capabilityKeySuggestions(observedModelInfoKeys);
 	const headerRowProblems: readonly (string | undefined)[] = parse.ok ? [] : parse.headerProblems;
 	const firstBlocking = SERVER_FORM_FIELD_ORDER.find((field) => visibleProblems[field] !== undefined);
-	// Every field of the entry is in the same scroll, so a problem is always
-	// reachable: nothing has to be opened before Save can point at it.
+	// Every field is in the same scroll, so a problem is always reachable before Save.
 	const changedFields = changedServerFormFields(draft, baseline);
 	const unsavedCount = changedFields.length;
 	// The models-file caveat is about a connection the host already resolved,
@@ -1425,8 +1230,7 @@ function ServerForm({
 
 	const save = () => {
 		if (phase.phase !== "editing") {
-			// Belt and braces behind the disabled button: never post while the
-			// prefill is still on its way or a save is already in flight.
+			// Belt and braces behind the disabled button: never post during prefill or save.
 			return;
 		}
 		if (!parse.ok) {
@@ -1439,10 +1243,8 @@ function ServerForm({
 		setPhase({ phase: "saving", requestId });
 	};
 
-	// The draft as typed goes out for one extension-side discovery probe; the
-	// label and the model-parameter rows never gate it (parseServerFormForTest),
-	// but a connection-relevant problem surfaces the way Save surfaces its
-	// problems instead of probing a configuration a save would refuse.
+	// The draft as typed goes out for one extension-side probe; label and model-parameter
+	// rows never gate it, but a connection-relevant problem surfaces like Save's.
 	const testConnection = () => {
 		if (testState.kind === "testing" || saving) {
 			return;
@@ -1470,15 +1272,10 @@ function ServerForm({
 		disabled: saving,
 		patch: (patch) => {
 			onDirtyChange(true);
-			// Any field a probe's outcome depends on makes a standing (or
-			// in-flight) result describe a configuration that no longer exists;
-			// a stale PASS is worse than no result, so it clears. The label
-			// counts: it selects which stored or orphan secret a "keep" directive
-			// resolves extension-side, so a rename can silently change the
-			// effective credentials the probe would use.
-			// modelCapabilities and expectedFailures stay out of CONNECTION_FIELDS
-			// (they never gate a probe) but still clear a standing result: they
-			// shape its OUTCOME - the declared count and the expected downgrade.
+			// Any field a probe's outcome depends on makes a standing result describe a config that
+			// no longer exists; a stale PASS is worse than none. The label counts (it selects which
+			// stored secret "keep" resolves); modelCapabilities/expectedFailures stay out of
+			// CONNECTION_FIELDS but still clear a result - they shape its OUTCOME.
 			if (
 				testState.kind !== "idle" &&
 				Object.keys(patch).some(
@@ -1495,10 +1292,8 @@ function ServerForm({
 			setDraft((current) => ({ ...current, ...patch }));
 		},
 		touch: (field) => {
-			// An empty field stays quiet on blur: brushing focus past it toward
-			// Cancel must not repaint the form mid-click (the inserted error line
-			// moves the buttons under the pointer). A required-but-empty field
-			// surfaces on Save, which marks every field touched.
+			// An empty field stays quiet on blur: brushing focus toward Cancel must not repaint the
+			// form mid-click. Required-but-empty surfaces on Save, which marks every field touched.
 			if (!fieldHasContent(draft, field)) {
 				return;
 			}
@@ -1506,12 +1301,9 @@ function ServerForm({
 		},
 	};
 
-	// Kept stored secrets whose form is not selected: the shape-and-storage
-	// rule (docs/servers.md#secrets-and-secret-storage) means a stored API key
-	// still activates the bearer on the none and virtualKey shapes, and kept
-	// stored values of the other two fields would make the save OAuth- or
-	// virtual-key-shaped, so each renders a visible hint plus its Remove
-	// checkbox instead of silently riding along.
+	// Kept stored secrets whose form is not selected still change the save's shape (the
+	// shape-and-storage rule, docs/servers.md#secrets-and-secret-storage), so each renders a
+	// visible hint plus its Remove checkbox instead of silently riding along.
 	const storedApiKeyOrphan =
 		(draft.authForm === "none" || draft.authForm === "virtualKey") && draft.apiKey.existing !== "none";
 	const storedVkOrphan = draft.authForm === "none" && draft.virtualKeyValue.existing !== "none";
@@ -1524,11 +1316,9 @@ function ServerForm({
 		</>
 	);
 
-	// Closing the overlay sweeps up a still-pristine new matcher (no key, no
-	// fields): keeping it would strand an invalid empty row in the table.
-	// Both the sweep and the add that minted the group write through setDraft
-	// directly, NOT props.patch: a structural add-then-cancel is a no-op and
-	// must not arm the shell's discard confirm (the dirty report is one-way).
+	// Closing the overlay sweeps up a still-pristine new matcher; both the sweep and the add
+	// write through setDraft, NOT props.patch - a structural add-then-cancel is a no-op and
+	// must not arm the shell's discard confirm.
 	const closeMatcherEditor = () => {
 		if (matcherEditor !== undefined) {
 			const list = matcherEditor.kind === "params" ? draft.modelParameters : draft.modelCapabilities;
@@ -1611,12 +1401,8 @@ function ServerForm({
 	return (
 		<div className="form-card server-form">
 			<BackToServers onRequestClose={onRequestClose} />
-			{/* The shared header primitive puts the docs anchor beside the heading
-			    as its sibling, so neither the page's accessible name nor the
-			    heading's own carries the anchor's label. The 24px above is the h3
-			    rule's, written here because this row opens no <section> for it to
-			    come from, and a heading zeroed inside an unspaced row would slide
-			    up into the breadcrumb. */}
+			{/* The docs anchor rides beside the heading as a sibling, out of the accessible names.
+			    The 24px above is the h3 rule's, restated because this row opens no <section>. */}
 			<SectionHeader
 				titleId="server-form-title"
 				level={3}
@@ -1626,14 +1412,9 @@ function ServerForm({
 			/>
 			<FormSection title={l10n.t("Connection")} help={helpConnectionSection()}>
 				<TextField field="label" placeholder={l10n.t("e.g. Production")} props={props} />
-				{/* The label's consequence line, mounted on every form and holding
-				    its box invisibly until it speaks (the connection note's
-				    spacing-twin idiom below; visibility keeps the box and removes
-				    the words from the accessibility tree): the sentence lands on
-				    the first keystroke that renames (edit) or collides (add), and
-				    inserting it then pushed every row below down under the typing
-				    hand. Each form kind has exactly one sentence, so one reserved
-				    line covers both. */}
+				{/* The label's consequence line, mounted always and holding its box invisibly until it
+				    speaks (visibility keeps the box, removes the words from the accessibility tree):
+				    inserting it on the first renaming keystroke pushed every row below down mid-typing. */}
 				<FieldUnderRow>
 					{target.kind === "edit" ? (
 						<p
@@ -1651,14 +1432,8 @@ function ServerForm({
 					)}
 				</FieldUnderRow>
 				<TextField field="baseUrl" mono={true} placeholder={l10n.t("e.g. http://localhost:4000")} props={props} />
-				{/* The probe belongs to the URL it probes, not to the save bar:
-				    testing is not committing, and the two were read as one action
-				    for as long as they shared a footer. It keeps the quiet rank
-				    for the same reason - Save is the page's one accent, and a
-				    second one would make the reader choose between them - and
-				    earns its shape from the icon instead: a glyph is what tells a
-				    control apart from the hint beside it without borrowing rank
-				    from the commit. */}
+				{/* The probe belongs to the URL it probes, not the save bar: testing is not committing.
+				    Quiet rank on purpose - Save is the page's one accent - shaped by its icon instead. */}
 				<FieldUnderRow>
 					<Button
 						variant="secondary"
@@ -1684,18 +1459,13 @@ function ServerForm({
 						<span className="test-result error text-[11.5px]" role="alert">
 							{testState.text}
 							{testState.classification?.setupHint !== undefined ? (
-								// A classified setup problem: the link to its matching
-								// troubleshooting-guide section rides inside the alert so one
-								// announcement carries the failure and the way out. The leading
-								// space keeps copied text from gluing the link label onto the
-								// error message.
+								// The troubleshooting link rides inside the alert so one announcement carries failure
+								// and way out; the leading space keeps copied text from gluing label onto message.
 								<>
 									{" "}
 									<span className="test-hint">
-										{/* The accessible name leads with the visible verb (Label
-										    in Name); the helper's whole-sentence label buries
-										    "Troubleshoot" inside "troubleshooting", a token speech
-										    input cannot match. */}
+										{/* The accessible name leads with the visible verb (Label in Name); the helper's sentence
+										    label buries "Troubleshoot" where speech input cannot match it. */}
 										<DocsLink
 											href={troubleshootingLink(testState.classification.setupHint).href}
 											label={l10n.t("Troubleshoot: {0}", troubleshootingLink(testState.classification.setupHint).topic)}
@@ -1710,17 +1480,10 @@ function ServerForm({
 				</FieldUnderRow>
 				{target.kind === "edit" ? (
 					<FieldUnderRow>
-						{/* A rename gets the full three-step remediation from the toast
-						    the sync engine raises on save; a connection edit raises no
-						    toast, so this line is the only place the reader is told,
-						    and it has to name every step or it strands them.
-						    The row is mounted on every edit form and the sentence holds
-						    its own box invisibly until it speaks (the spacing-twin
-						    idiom; visibility keeps the box and removes the words from
-						    the accessibility tree): the note lands on the first
-						    connection keystroke, and inserting it then pushed every row
-						    below down 36px mid-edit. While a rename stands, the rename
-						    note carries the remediation and this line stays silent. */}
+						{/* A connection edit raises no toast (a rename does), so this line must name every step.
+						    Mounted on every edit form, holding its box invisibly until it speaks (the
+						    spacing-twin idiom): inserting it on the first keystroke pushed rows down 36px
+						    mid-edit. While a rename stands, the rename note carries the remediation instead. */}
 						<p className={cn("hint state-warn m-0 text-[11.5px]", (renaming || !connectionEdited) && "invisible")}>
 							{l10n.t(
 								"VS Code keeps the old connection until you remove this server from the models file, reload, and run Sync Models Now."
@@ -1783,14 +1546,9 @@ function ServerForm({
 				docs={{ href: DOCS_LINK_AUTHENTICATION, label: l10n.t("Open the authentication guide") }}
 			>
 				<FieldRow label={l10n.t("Method")} wide={true}>
-					{/* One per line rather than an inline flow. The four labels are
-					    very unequal - "None" against "Virtual key in a custom
-					    header" - so a wrapping row lands differently at every pane
-					    width: an orphaned "OAuth" on its own second line here, a
-					    ragged 2x2 with three different left edges there. Mutually
-					    exclusive options are read by scanning down the choices, and
-					    a column is the only layout that lets that happen at every
-					    width. The cost is one row's height, paid once. */}
+					{/* One per line: the four labels are very unequal, so a wrapping row lands differently at
+					    every pane width, and mutually exclusive options are read by scanning down. The cost
+					    is one row's height, paid once. */}
 					<span
 						className="auth-selector flex flex-col items-start gap-y-1 text-[12.5px]"
 						role="radiogroup"
@@ -1841,10 +1599,8 @@ function ServerForm({
 				{storedApiKeyOrphan || storedVkOrphan || storedOauthSecretOrphan ? (
 					<>
 						<FieldSpan className="mt-2">
-							{/* The tone-text register (state-warn), not utility spellings of
-							    the same color and weight: one register keeps the heading and
-							    its lines in one voice, and carries the forced-colors squiggle
-							    the utilities lack. */}
+							{/* The tone-text register (state-warn), not utility spellings: one register keeps heading
+							    and lines in one voice and carries the forced-colors squiggle the utilities lack. */}
 							<p className="state-warn m-0 text-[11.5px]">{l10n.t("Stored credentials")}</p>
 							{storedApiKeyOrphan ? (
 								<p className="hint state-warn m-0 text-[11.5px]">
@@ -1988,11 +1744,8 @@ function ServerForm({
 				>
 					{/* A real fieldset, not a role: the checkbox set is a group with a
 					    name, and the flat page has no box chrome for it to inherit. */}
-					{/* One row while the pair fits it with room, a column below the
-					    560px tier: between those, the two labels either sat squeezed
-					    into one exactly-full line or wrapped at whatever width the
-					    translation happened to hit. The threshold is the stylesheet's
-					    own 560 with the same exclusive `width < 560px` semantics. */}
+					{/* One row while the pair fits, a column below the stylesheet's own 560px tier (same
+					    exclusive `width < 560px` semantics); between, wrap depended on the translation's width. */}
 					<fieldset
 						className="expected-failures m-0 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 border-0 p-0 text-[12.5px] @max-[560px]/pane:flex-col @max-[560px]/pane:items-start"
 						aria-label={serverFormFieldLabel("expectedFailures")}
@@ -2044,8 +1797,7 @@ function ServerForm({
 						l10n.t("Save")
 					)}
 				</Button>
-				{/* Named apart from the confirm dialog's own Discard: this one
-				    REQUESTS a close (a dirty form still gets asked), and two
+				{/* Named apart from the confirm dialog's own Discard: this one REQUESTS a close, and two
 				    controls one answer apart must not answer to the same word. */}
 				<Button variant="secondary" onClick={onRequestClose}>
 					{l10n.t("Discard changes")}
@@ -2073,13 +1825,10 @@ function ServerForm({
 }
 
 /**
- * The adopt form: turns an external provider group into a declared servers
- * entry. Credentials exist extension-side only, so instead of secret inputs
- * the form offers one storage choice per secret field; the posted intent
- * carries the label, the source row's identity, and those choices - never a
- * credential value. The round trip lives in ServerEditPage, which leaves on
- * its own ack; the servers list watches the same envelope for its
- * post-adoption notice, so leaving mid-flight loses nothing.
+ * The adopt form: turns an external group into a declared entry. Credentials exist
+ * extension-side only, so the form offers one storage choice per secret field; the intent
+ * carries label, source identity, and choices - never a credential value. The round trip
+ * lives in ServerEditPage; the servers list watches the same envelope for its notice.
  */
 function AdoptForm({
 	server,
@@ -2128,11 +1877,8 @@ function AdoptForm({
 		onAdoptPosted(requestId);
 	};
 
-	// Which secret rows to offer: hasApiKey is coarse (the provider reports it
-	// for OAuth-only groups too, as "authentication configured"), so the key
-	// row drops out only when the group demonstrably holds no credentials at
-	// all, and every row states its own condition instead of promising a copy
-	// that may not exist.
+	// hasApiKey is coarse (reported for OAuth-only groups too), so the key row drops out only
+	// when the group demonstrably holds no credentials; every row states its own condition.
 	const secretRows: readonly { field: SecretFieldId; hint: string }[] = [
 		...(server.hasApiKey
 			? [{ field: "apiKey" as const, hint: l10n.t("Copied only if the group has an API key.") }]
@@ -2144,9 +1890,8 @@ function AdoptForm({
 	return (
 		<div className="form-card server-form">
 			<BackToServers onRequestClose={onRequestClose} />
-			{/* The same header primitive as the edit form's title row, without a
-			    docs slot; the 24px above is the h3 rule's, restated here for the
-			    reason the edit form restates it. */}
+			{/* The edit form's header primitive without a docs slot; the 24px above restated for the
+			    same no-<section> reason. */}
 			<SectionHeader titleId="server-form-title" level={3} title={l10n.t("Adopt {0}", server.label)} className="mt-6" />
 			<FormSection title={l10n.t("Adoption")} help={helpAdoptionSection()}>
 				<FieldRow

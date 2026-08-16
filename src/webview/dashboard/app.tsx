@@ -45,9 +45,8 @@ function sectionLabel(section: SectionId): string {
 }
 
 /**
- * What each destination looks like once the rail collapses to icons. The same
- * exhaustive switch the labels use, so a new destination cannot ship with a
- * name and no icon - at narrow widths the icon IS the name.
+ * Each destination's collapsed-rail icon: the same exhaustive switch the labels use, so a
+ * new destination cannot ship with a name and no icon.
  */
 function sectionIcon(section: SectionId): ReactElement {
 	switch (section) {
@@ -63,10 +62,8 @@ function sectionIcon(section: SectionId): ReactElement {
 }
 
 /**
- * One reported intent failure as the standing store holds it; `seq`
- * distinguishes repeated failures with the same text, and `id` echoes the
- * failed request's correlation id so the settings page can place the notice
- * under the row that posted the write.
+ * One reported intent failure; `seq` distinguishes repeats with the same text, `id` echoes
+ * the request's correlation id so the settings page can place the notice by row.
  */
 interface IntentFailure {
 	readonly seq: number;
@@ -77,21 +74,16 @@ interface IntentFailure {
 }
 
 /**
- * The latest reported failures of the fire-and-forget methods, keyed by
- * method. Acked methods stay out by construction: their outcomes belong to
- * the useIntentOutcome hooks of the editors that posted them, which is what
- * lets a state push retire this store wholesale (failuresAfterStatePush) -
- * for everything in here, the push IS the success signal.
+ * The latest fire-and-forget failures, keyed by method. Acked methods stay out by
+ * construction (their outcomes belong to the posting editors' hooks), which is what lets
+ * a state push retire this store wholesale - here, the push IS the success signal.
  */
 export type FailuresByMethod = Readonly<Partial<Record<NotifyingMethod, IntentFailure>>>;
 
 /**
- * The server intents whose success gets a transient toast, with static base
- * copy (never text from the payload). Scalar and record edits stay silent:
- * their success is the value visibly updating in place. The adopt toast
- * carries no caveat text because the post-adoption notice already renders
- * the extension's message in full. Resolved at call time (no module-level
- * localized constants).
+ * The server intents whose success gets a transient toast, with static base copy (never
+ * payload text). Scalar and record edits stay silent - their success is the value
+ * updating in place. Resolved at call time.
  */
 function toastText(method: AckedMethod): string | undefined {
 	switch (method) {
@@ -143,9 +135,8 @@ function Toast({
 }
 
 /**
- * The toast stack, bottom-right like the host's own notifications. The
- * container is a polite live region so a save's outcome is announced without
- * stealing focus from wherever the user is typing.
+ * The toast stack, bottom-right like the host's notifications; a polite live region, so
+ * outcomes announce without stealing focus.
  */
 function ToastHost({
 	toasts,
@@ -166,10 +157,8 @@ function ToastHost({
 }
 
 /**
- * The hero's overall verdict. The classification is shared with the
- * Diagnostics tab (classifyOverall in the protocol module); this only maps
- * it to the hero's tone and word, with the tab's legacy-registry rule
- * mirrored so the strip and the tab never disagree about the same install.
+ * The hero's overall verdict, mapped from the shared classifyOverall (with the tab's
+ * legacy-registry rule mirrored), so the strip and the tab never disagree.
  */
 function overallState(servers: readonly DashboardServer[], legacyServerCount: number): Overall {
 	switch (classifyOverall(servers)) {
@@ -201,14 +190,9 @@ function lastSync(servers: readonly DashboardServer[], now: number): string | un
 }
 
 /**
- * What each rail item counts. The numbers are the point of the rail - a tab
- * strip could only say where you are - so each one is the number a reader
- * would go to that destination to find out.
- *
- * Absence is deliberate everywhere: no diagnostics means no badge, and an
- * empty fleet or an empty catalogue counts nothing rather than counting zero,
- * because those destinations explain themselves in words instead. A count
- * that is always present stops being information.
+ * What each rail item counts - the number a reader would go there to find out. Absence is
+ * deliberate everywhere: an empty fleet or catalogue counts nothing rather than zero,
+ * and a count that is always present stops being information.
  */
 function railSections(state: DashboardState): readonly RailSection<SectionId>[] {
 	const counts: Readonly<Record<SectionId, { count?: string; countLabel?: string; countTone?: "warn" | "err" }>> = {
@@ -232,11 +216,8 @@ function railSections(state: DashboardState): readonly RailSection<SectionId>[] 
 						countLabel:
 							state.models.length === 1 ? l10n.t("1 model") : l10n.t("{0} models", String(state.models.length)),
 					},
-		// Tinted only when there is something to fix: a diagnostics badge that is
-		// always there is furniture, and one that is always tinted is an alarm.
-		// Advisories are informational - the configuration applies as written -
-		// so they are counted but never tinted. A permanent amber badge for a
-		// typo hint is an alarm nobody can silence or act on.
+		// Tinted only when there is something to fix. Advisories are counted but never tinted:
+		// a permanent amber badge for a typo hint is an alarm nobody can silence or act on.
 		diagnostics: diagnosticsCount(pageConfigDiagnostics(state.diagnostics)),
 		settings: {},
 	};
@@ -244,10 +225,9 @@ function railSections(state: DashboardState): readonly RailSection<SectionId>[] 
 }
 
 /**
- * Counted whole, tinted only for the ones that are problems to fix. Counts the
- * diagnostics the destination actually renders (pageConfigDiagnostics drops
- * the ones a server row now owns), so the badge and the list can never
- * disagree about how many problems there are.
+ * Counted whole, tinted only for problems to fix. Counts the diagnostics the destination
+ * actually renders (pageConfigDiagnostics drops the server-row-owned ones), so badge and
+ * list can never disagree.
  */
 function diagnosticsCount(diagnostics: DashboardState["diagnostics"]): {
 	count?: string;
@@ -266,11 +246,8 @@ function diagnosticsCount(diagnostics: DashboardState["diagnostics"]): {
 }
 
 /**
- * Grey stand-ins shaped like the page you are about to get: a rail column and
- * a pane beside it. It wears the real shell classes rather than a bare <main>,
- * because the page gutter now belongs to the pane - a skeleton outside the
- * shell renders flush against both window edges and then jumps 24px when the
- * first state push lands, which is the first frame of every dashboard open.
+ * Grey stand-ins in the real shell classes, not a bare <main>: the page gutter belongs to
+ * the pane, and a skeleton outside the shell jumped 24px when the first push landed.
  */
 function LoadingSkeleton() {
 	return (
@@ -306,13 +283,10 @@ function SectionPanel({ section, active, children }: { section: SectionId; activ
 }
 
 /**
- * A standing failure's pane-top line. The visible line renders for as long
- * as the failure stands; the announcement rides only its first render per
- * seq (useAlertOnce), so a navigation that re-mounts the line cannot
- * re-speak an unchanged failure. Callers key it by the seq: a REPEAT of the
- * same failure carries a fresh seq, and the remount plus the fresh role is
- * what announces it (adding role="alert" to an element already in the tree
- * is not reliably spoken).
+ * A standing failure's pane-top line: visible while the failure stands, announced only on
+ * its first render per seq (useAlertOnce). Callers key it by seq - a REPEAT carries a
+ * fresh seq, and the remount plus fresh role is what announces it (adding role="alert"
+ * to an element already in the tree is not reliably spoken).
  */
 function PaneFailureLine({ failure }: { failure: { readonly seq: number; readonly message: string } }) {
 	const role = useAlertOnce(failure.seq);
@@ -327,14 +301,11 @@ function PaneFailureLine({ failure }: { failure: { readonly seq: number; readonl
 }
 
 /**
- * The dashboard root: holds the latest pushed state, the standing-failure
- * store, and the toasts, nothing else. The extension re-pushes the full state
- * on every store change, so this component never mutates or persists what it
- * renders. A state push retires the standing failures - everything in the
- * store is a fire-and-forget method whose success signal is the push itself
- * (failuresAfterStatePush keeps exactly the acked methods' notices, and the
- * store never holds any: the editors' useIntentOutcome hooks own those, so a
- * partially applied save's warning survives the sync push that follows it).
+ * The dashboard root: the latest pushed state, the standing-failure store, and the
+ * toasts, nothing else; the extension re-pushes full state on every store change. A push
+ * retires the standing failures (all fire-and-forget; the push is their success signal),
+ * and never the acked methods' - the editors' hooks own those, so a partially applied
+ * save's warning survives the sync push that follows it.
  */
 export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?: number } = {}) {
 	const [state, setState] = useState<DashboardState | undefined>(undefined);
@@ -344,33 +315,24 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	// Bumped on every state push: the open inspectors and the resolved-models
 	// view re-request on it so they follow configuration edits live.
 	const [stateSeq, setStateSeq] = useState(0);
-	// The open inspector overlay, held here so it opens IN PLACE over whatever
-	// tab is active (the Diagnostics table's jump must not leave the tab). The
-	// identity is (scopeKey, rawId, serverLabel), never the model object:
-	// every state push rebuilds the models array, and the open inspector must
-	// follow the fresh values or close when its row leaves the list. The
-	// serverLabel matters because one snapshot can render under several
-	// labels, giving rows identical (scopeKey, rawId); the inspector must
-	// stay on the exact row whose action was clicked. `anchor` names which
-	// section the merged panel scrolls to (the Diagnostics jump links); one
-	// row, one slide-over at a time.
+	// The open inspector overlay, held here so it opens IN PLACE over the active tab. The
+	// identity is (scopeKey, rawId, serverLabel), never the model object: pushes rebuild the
+	// models array, and one snapshot can render under several labels with identical
+	// (scopeKey, rawId). `anchor` names the section the merged panel scrolls to.
 	const [inspecting, setInspecting] = useState<
 		{ scopeKey: string; rawId: string; serverLabel: string; anchor?: InspectorSection | undefined } | undefined
 	>(undefined);
 	// The inspectors' configure-jump into the settings record editors.
 	const [editRecordRequest, setEditRecordRequest] = useState<EditRecordRequest | undefined>(undefined);
-	// The edit destination: one entry's configuration, filling the pane beside
-	// the rail. It is a destination rather than an overlay because the page it
-	// replaces is the page it came from - opening a door on top of a door is
-	// the thing this shell exists to stop doing. The key remounts a clean
-	// draft per open; a never-reused counter, so a closed page's key cannot
-	// come back and revive its state.
+	// The edit destination fills the pane beside the rail - a destination, not an overlay,
+	// because opening a door on top of a door is what this shell exists to stop. The key
+	// remounts a clean draft per open; a never-reused counter, so a closed page's key
+	// cannot revive its state.
 	const [editing, setEditing] = useState<{ request: ServerEditRequest; key: number } | undefined>(undefined);
 	const nextEditKey = useRef(1);
-	// The page's draft has edits worth asking about. A ref, not state: nothing
-	// renders from it, and the page clears it from an effect of its own (an
-	// entry deleted under the reader) that runs BEFORE this component's
-	// effects in the same commit - state read from a closure would still say
+	// The page's draft has edits worth asking about. A ref, not state: nothing renders from
+	// it, and the page clears it from its own effect that runs BEFORE this component's in
+	// the same commit - state read from a closure would still say "dirty".
 	// "dirty" and raise a question about a draft that no longer exists.
 	const editDirty = useRef(false);
 	// The guard's open question, rendered as the ConfirmDialog at the end of
@@ -386,15 +348,10 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	// render would re-run that effect on every render of the shell.
 	const noteEditDirty = useCallback((dirty: boolean) => {
 		editDirty.current = dirty;
-		// A draft that stopped existing takes its question with it: the page
-		// reports false when the entry is deleted under the reader, and a modal
-		// left standing would ask about edits nobody can keep - with an intent
-		// that would fire on some later exit the reader never asked for.
-		// This leans on the dirty report being one-way: the page's ONLY false
-		// is the target-gone effect (edits never report clean again), so false
-		// here MEANS "the draft ceased to exist". A second false call site -
-		// say, a save rebasing the baseline - would silently dismiss a standing
-		// question and must not reuse this channel.
+		// A draft that stopped existing takes its question with it. This leans on the dirty
+		// report being one-way: the page's ONLY false is the target-gone effect, so false here
+		// MEANS "the draft ceased to exist" - a second false call site (say, a save rebasing
+		// the baseline) would silently dismiss a standing question and must not reuse this.
 		if (!dirty) {
 			leaveIntent.current = undefined;
 			setConfirmingDiscard(false);
@@ -406,13 +363,10 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	// only ever read from the effect below, which runs after a committed state
 	// render - by which point the assignment past the loading return has run.
 	const selectSectionRef = useRef<(id: SectionId) => void>(() => undefined);
-	// A deep link's target, held until there is a page to apply it to. The
-	// handler cannot apply it itself: the guard it has to route through is
-	// assigned during a render that has not happened yet while the dashboard is
-	// still loading, and the extension delivers the state push and the focus
-	// request back to back (panel.ts open()), so whether a commit lands between
-	// them is the browser's business, not a contract. Recording the intent and
-	// applying it on the next commit takes the timing out of it entirely.
+	// A deep link's target, held until there is a page to apply it to: the guard it routes
+	// through is assigned during a render that has not happened yet, and whether a commit
+	// lands between the push and the focus request is the browser's business (panel.ts
+	// open()). Recording and applying on the next commit takes the timing out entirely.
 	const [pendingFocusSection, setPendingFocusSection] = useState<SectionId | undefined>(undefined);
 	// The models list's server scope (a server row's model-count link sets it,
 	// the chip in the models filter bar clears it). Held here rather than in
@@ -442,13 +396,9 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 				return;
 			}
 			if (message.kind === "focusSection") {
-				// The extension's deep link (litellm.showDiagnostics landing on the
-				// Diagnostics tab); the includes check drops a section this page
-				// does not have instead of blanking every panel. Recorded rather
-				// than applied here, and applied through the same guard a rail
-				// click takes, so an open draft is asked about instead of the
-				// command appearing to do nothing while the pane it changed is
-				// hidden behind the edit page.
+				// The extension's deep link; the includes check drops an unknown section instead of
+				// blanking every panel. Recorded, then applied through the same guard a rail click
+				// takes, so an open draft is asked about.
 				if (SECTION_IDS.includes(message.section)) {
 					setPendingFocusSection(message.section);
 				}
@@ -509,11 +459,9 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		}
 	}, [section]);
 
-	// Appearance follows the setting live. The HTML shell stamps these once at
-	// panel creation, which is enough for a reopen and nothing else: the picker
-	// writes the setting, the configuration change re-pushes state, and this
-	// restamps the root. A hand edit of settings.json travels the identical
-	// path, so both management paths land on an open dashboard.
+	// Appearance follows the setting live: the HTML shell stamps once at creation (enough
+	// for a reopen only); the configuration push restamps here, so the picker and a hand
+	// edit of settings.json travel the identical path.
 	const appearance = state?.settings.appearance;
 	useEffect(() => {
 		if (appearance !== undefined) {
@@ -566,11 +514,8 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	}
 
 	const showServerModels = (label: string) => {
-		// Models is its own destination now, so a server's count link navigates
-		// and filters rather than scrolling down a shared page. Focus follows the
-		// navigation for the same reason it followed the scroll: without it, Tab
-		// would continue from the count link the reader just left behind, on a
-		// panel that is no longer visible.
+		// A server's count link navigates and filters. Focus follows the navigation: without it,
+		// Tab would continue from the count link on a panel no longer visible.
 		setServerScope(label);
 		if (section === "models") {
 			// Already on Models: setSection would be a no-op, so the effect that
@@ -620,11 +565,9 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		nextEditKey.current += 1;
 	};
 
-	// Leaving for real: the pane goes back to its sections and focus returns
-	// to the control that opened the page - or, when a rail click is what
-	// asked, to the destination the reader picked, because that is where they
-	// said they were going. A row that left with a save (a rename mints a new
-	// one) falls back to the section's own rail item rather than nowhere.
+	// Leaving for real: focus returns to the opener - or, on a rail click, to the picked
+	// destination. A row that left with a save (a rename mints a new one) falls back to the
+	// section's own rail item rather than nowhere.
 	const leaveEdit = () => {
 		const intent = leaveIntent.current;
 		leaveIntent.current = undefined;
@@ -634,20 +577,15 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		if (intent !== undefined) {
 			setSection(intent);
 		}
-		// Focus lands in the effect below, not here: the sections are still
-		// hidden in this render, and a hidden subtree cannot take focus - the
-		// opener would silently lose it to the body. The rail is outside that
-		// subtree, but both paths go through one place so there is one answer
-		// to "where does focus go when the page closes".
+		// Focus lands in the effect below, not here: the sections are still hidden in this
+		// render, and a hidden subtree cannot take focus. Both paths go through one place so
+		// there is one answer to "where does focus go when the page closes".
 		pendingLeaveFocus.current = intent === undefined ? { kind: "opener" } : { kind: "section", section: intent };
 	};
 
-	// Every way out funnels through here: the page's own Discard changes, Esc,
-	// and a rail click. A dirty draft gets the question instead of the exit -
-	// asked as a modal, which owns its own answering: it holds focus, consumes
-	// its own Esc, and its scrim blocks the page, so nothing can reach this
-	// guard while the question stands. Asking is therefore idempotent, never a
-	// toggle; only the dialog's explicit Discard destroys a draft.
+	// Every way out funnels through here. A dirty draft gets the question as a modal, which
+	// owns its own answering (holds focus, consumes Esc, scrim blocks the page) - so asking
+	// is idempotent, never a toggle; only the dialog's explicit Discard destroys a draft.
 	const requestLeaveEdit = () => {
 		if (editDirty.current) {
 			setConfirmingDiscard(true);
@@ -689,18 +627,14 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 		openEdit({ kind: "edit", label });
 	};
 
-	// The section actually on screen. A deep link recorded on the way in shows
-	// immediately rather than after the effect below has run, so the command
-	// does not paint the Servers page for a frame first; while the edit
-	// destination is open it defers, because leaving that page is a question
-	// rather than a move.
+	// The section actually on screen: a recorded deep link shows immediately (no
+	// Servers-page frame first), but defers while the edit destination is open, because
+	// leaving that page is a question rather than a move.
 	const activeSection = pendingFocusSection !== undefined && editing === undefined ? pendingFocusSection : section;
 
-	// The scalar setting writes report their standing failures on the settings
-	// page itself, placed by owning row over the request id (SettingsSection's
-	// writeFailures prop). Only executeCommand keeps a pane-top line of its
-	// own: it is posted from every tab (Report a bug, Open output, the
-	// settings toolbar) and owns no row anywhere.
+	// The scalar setting writes report on the settings page itself, placed by owning row.
+	// Only executeCommand keeps a pane-top line: it is posted from every tab and owns no
+	// row anywhere.
 	const commandFailure = failures.executeCommand;
 	const settingWriteFailures: Partial<Record<SettingWriteMethod, SettingWriteFailure>> = {};
 	for (const method of SETTING_WRITE_METHODS) {
@@ -709,11 +643,9 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 			settingWriteFailures[method] = failure;
 		}
 	}
-	// A refused write must stay visible from ANY tab: a rail click can be the
-	// very blur that commits the failing write, so the fail envelope lands
-	// after the settings panel is hidden - and a hidden subtree neither paints
-	// nor announces. Away from Settings the latest failure takes a pane-top
-	// line; on Settings the page places it by row.
+	// A refused write must stay visible from ANY tab: a rail click can be the very blur
+	// that commits the failing write, so the fail lands after the settings panel is hidden
+	// - and a hidden subtree neither paints nor announces.
 	const awaySettingFailure =
 		activeSection === "settings"
 			? undefined
@@ -727,13 +659,9 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 			<main
 				className="shell"
 				onKeyDown={(event) => {
-					// Esc while the destination is open is the shell's, and only what
-					// reaches it: the suggestion listbox and the matcher overlay stop
-					// their own Escape, so a popover closes itself before the page
-					// ever hears about leaving. On the shell rather than the pane
-					// because the rail is a sibling of the pane - a reader who just
-					// clicked a rail item has focus there, and that is exactly when
-					// they are most likely to press it.
+					// Esc while the destination is open is the shell's, and only what reaches it (the
+					// listbox and matcher overlay stop their own). On the shell rather than the pane
+					// because the rail is a sibling - a reader who just clicked a rail item has focus there.
 					if (editing === undefined || event.key !== "Escape") {
 						return;
 					}
@@ -751,21 +679,16 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 					synced={lastSync(state.servers, now)}
 				/>
 				<div className="pane">
-					{/* Both pane-top lines announce once per failure seq and then
-				    stand silently (PaneFailureLine): the executeCommand line is
-				    posted from every tab and owns no row, and the setting-write
-				    line re-mounts on every navigation away from Settings while
-				    its failure stands unchanged. */}
+					{/* Both pane-top lines announce once per failure seq and then stand silently
+					    (PaneFailureLine): one owns no row, the other re-mounts on every navigation away
+					    from Settings while its failure stands unchanged. */}
 					{commandFailure !== undefined ? <PaneFailureLine key={commandFailure.seq} failure={commandFailure} /> : null}
 					{awaySettingFailure !== undefined ? (
 						<PaneFailureLine key={awaySettingFailure.seq} failure={awaySettingFailure} />
 					) : null}
-					{/* The destination lives INSIDE the Servers panel, because that is
-				    what it is a destination of: the rail still says Servers, and
-				    the panel it controls is what is on screen. The list stays
-				    mounted behind it - hidden, not unmounted - so the row that
-				    opened the page survives to take focus back, with its scroll
-				    position. */}
+					{/* The destination lives INSIDE the Servers panel: the rail still says Servers. The list
+					    stays mounted behind it - hidden, not unmounted - so the row that opened the page
+					    survives to take focus back, with its scroll position. */}
 					<SectionPanel section="overview" active={activeSection}>
 						{editing !== undefined ? (
 							<ServerEditPage
@@ -847,12 +770,9 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 						}}
 					/>
 				) : null}
-				{/* The navigation guard's question, a modal above everything it
-			    interrupts: leaving a dirty page is a decision about the whole
-			    page, so it does not share the save bar it used to sit in. Keep
-			    editing is the safe default; the dialog restores focus into the
-			    page on cancel, and on Discard the intent recorded above decides
-			    where the reader (and focus) land. */}
+				{/* The navigation guard's question, a modal: leaving a dirty page is a decision about
+				    the whole page. Keep editing is the safe default; on Discard the recorded intent
+				    decides where the reader (and focus) land. */}
 				{editing !== undefined && confirmingDiscard ? (
 					<ConfirmDialog
 						question={l10n.t("Discard unsaved changes?")}

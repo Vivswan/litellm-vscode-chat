@@ -1,12 +1,8 @@
 /**
  * The record editors' pure model: draft rows and their parse back into the
- * records the wire intents carry - setModelParameters/setModelCapabilities
- * from the standalone editors, and saveServerSetting through serverForm.ts,
- * which parses entry headers and entry-scope records with these same
- * functions. Each parser validates and assembles in one pass - it either
- * yields the record or the per-row problems that block it - so the two
- * cannot diverge. DOM-free by construction so the bun test tree covers it;
- * the webview components render these rows and call nothing else.
+ * records the wire intents carry. Each parser validates and assembles in one
+ * pass - the record or the per-row problems that block it - so the two cannot
+ * diverge. DOM-free by construction.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -42,9 +38,8 @@ export interface PrefixGroup {
 export type MatcherKind = "catch-all" | "regex" | "glob" | "exact" | "invalid";
 
 /**
- * Classified RAW, exactly as the resolver matches (the grammar trims
- * nothing): a stored "gpt-4 " is an exact key for the ID "gpt-4 ", and the
- * view must not dress it up as something else.
+ * Classified RAW, exactly as the resolver matches: the grammar trims nothing,
+ * so a stored "gpt-4 " is an exact key for the ID "gpt-4 ".
  */
 export function matcherKind(prefix: string): MatcherKind {
 	const parse = parseMatcherKey(prefix);
@@ -53,14 +48,9 @@ export function matcherKind(prefix: string): MatcherKind {
 
 /**
  * The record table's display order: draft indices sorted lowest precedence
- * first (the catch-all, then regexes in declaration order, then globs
- * shorter-prefix-first, then exact IDs), so the table reads cascade-style -
- * baseline at the top, overrides below. Invalid keys (a fresh empty matcher
- * included) sort last, next to the add action that minted them. This is a
- * VIEW order only: the stored record's own key order is never rewritten,
- * because regex precedence IS declaration order. Keys are parsed RAW (the
- * grammar trims nothing) by the real specificity comparison from
- * shared/config/modelMatcher, never a reimplementation.
+ * first, invalid keys last. A VIEW order only - the stored record's own key
+ * order is never rewritten, because regex precedence IS declaration order.
+ * Keys are parsed RAW by shared/config/modelMatcher, never a reimplementation.
  */
 export function sortedGroupOrder(groups: readonly PrefixGroup[]): readonly number[] {
 	const parsed = groups.map((group, index) => {
@@ -104,9 +94,8 @@ function duplicates(values: readonly string[]): Set<string> {
 }
 
 /**
- * The per-catalog halves of a key's problem message. Passed in as already
- * localized literals from each call site (never composed from a noun) so
- * l10n extraction sees whole sentences and translations need not inflect.
+ * The per-catalog halves of a key's problem message, passed in as already
+ * localized literals so l10n extraction sees whole sentences.
  */
 interface KeyProblemMessages {
 	readonly empty: string;
@@ -134,9 +123,8 @@ export interface GroupProblems {
 
 /**
  * Row-aligned non-blocking notes for one prefix group: the `_force` row's
- * semantic warnings (an unforceable or unset name in the list). The setting
- * keeps such rows and the resolver diagnoses them at request time, so the
- * editor flags without refusing - the capability editor's hint idiom.
+ * semantic warnings. The setting keeps such rows and the resolver diagnoses
+ * them at request time, so the editor flags without refusing.
  */
 export interface GroupHints {
 	readonly params: readonly (string | undefined)[];
@@ -145,9 +133,7 @@ export interface GroupHints {
 /**
  * A directive draft's reading: strict JSON `true`/`false` or an array of
  * strings, nothing else. The shared value shape of the `_fallback`, `_force`,
- * `_inheritable`, and `_inherit_from` rows; the parsers judge those rows
- * through this one reading, and the checkbox helpers below derive membership
- * from it.
+ * `_inheritable`, and `_inherit_from` rows.
  */
 function parseDirectiveListText(text: string): { ok: true; value: boolean | string[] } | { ok: false } {
 	const parsed = parseJsonValue(text);
@@ -164,10 +150,9 @@ function parseDirectiveListText(text: string): { ok: true; value: boolean | stri
 }
 
 /**
- * The `_inheritable` row's verdict, shared by both editors: the value must
- * read as true, false, or a list of the group's own field names; a listed
- * name the group does not set is the resolver's invalid-directive diagnostic
- * at request time, so it hints without blocking.
+ * The `_inheritable` row's verdict, shared by both editors: true, false, or a
+ * list of the group's own field names. A listed name the group does not set
+ * hints without blocking - the resolver diagnoses it at request time.
  */
 function judgeInheritableRow(
 	valueText: string,
@@ -192,8 +177,7 @@ function judgeInheritableRow(
 /**
  * The `_inherit_from` row's verdict, shared by both editors: true, false, or
  * a list of record keys. A named key absent from the draft's own prefixes
- * gets the non-blocking hint docs/models.md promises: the resolver skips the
- * name and applies the rest of the list.
+ * hints without blocking: the resolver skips it and applies the rest.
  */
 function judgeInheritFromRow(
 	valueText: string,
@@ -256,10 +240,8 @@ export function parseGroups(groups: readonly PrefixGroup[]): GroupsParse {
 				return { field: "name", message: problem };
 			}
 			// The `_force` directive row is typed where plain rows are open JSON:
-			// its value must read as true, false, or a list of parameter names, or
-			// the resolver would diagnose and ignore it at request time. List
-			// entries that would only be diagnosed there (an unforceable or unset
-			// name) hint without blocking, like the capability editor's rows.
+			// true, false, or a list of parameter names. Entries the resolver would
+			// only diagnose at request time hint without blocking.
 			if (param.key.trim() === FORCE_DIRECTIVE) {
 				const parsed = parseDirectiveListText(param.valueText);
 				if (!parsed.ok) {
@@ -281,8 +263,8 @@ export function parseGroups(groups: readonly PrefixGroup[]): GroupsParse {
 				}
 				return undefined;
 			}
-			// The shared inheritance directives get the same typed treatment in
-			// both editors: judged once, hints non-blocking.
+			// The shared inheritance directives, same in both editors: judged once,
+			// hints non-blocking.
 			if (param.key.trim() === INHERITABLE_DIRECTIVE) {
 				const judged = judgeInheritableRow(param.valueText, groupKeys);
 				if (judged.problem !== undefined) {
@@ -332,8 +314,8 @@ export type HeaderRowsParse =
 	| { readonly ok: false; readonly problems: readonly (string | undefined)[] };
 
 /**
- * One row-input problem, naming the field it belongs to (a row's key-side or
- * value-side input) so the editors mark only the offending input invalid.
+ * One row-input problem, naming the field it belongs to (key-side or
+ * value-side) so the editors mark only the offending input invalid.
  */
 interface RowFieldProblem {
 	readonly field: "name" | "value";
@@ -347,10 +329,8 @@ type HeaderRowsDetailedParse =
 /**
  * Parse draft header rows into the headers record, or the row-aligned
  * problems that block it. Rows must satisfy what the request path enforces
- * (shared/config/settings drops offenders silently at request time): RFC 9110 token
- * names and values that pass the shared isValidHeaderValue predicate.
- * Rejecting them here keeps Apply from "succeeding" on a header that would
- * never be sent.
+ * (it drops offenders silently at request time), so Apply cannot "succeed" on
+ * a header that would never be sent.
  */
 function parseHeaderRowsDetailed(rows: readonly HeaderRow[]): HeaderRowsDetailedParse {
 	const duplicateNames = duplicates(rows.map((row) => row.name.trim()));
@@ -387,10 +367,9 @@ export function parseHeaderRows(rows: readonly HeaderRow[]): HeaderRowsParse {
 }
 
 /**
- * A JSON text draft parsed into the same rows the grid edits: either the rows
- * (which the caller then judges with the identical parseGroups /
- * parseHeaderRowsDetailed pass) or the one problem that blocks them. Problems
- * flatten to a single message because a textarea has no rows to align to.
+ * A JSON text draft parsed into the same rows the grid edits, judged by the
+ * identical parse pass. Problems flatten to a single message because a
+ * textarea has no rows to align to.
  */
 export type RecordJsonParse<Rows> =
 	| { readonly ok: true; readonly rows: Rows }
@@ -468,9 +447,9 @@ function firstCapabilityProblem(groups: readonly PrefixGroup[], issues: readonly
 }
 
 /**
- * The capability editor's JSON side door, groupsFromJsonText's typed sibling:
- * the pasted record goes through parseCapabilityGroups here and again in the
- * editor, so it can never be more lenient than row-by-row entry.
+ * The capability editor's JSON side door: the pasted record goes through
+ * parseCapabilityGroups here and again in the editor, so it can never be more
+ * lenient than row-by-row entry.
  */
 export function capabilityGroupsFromJsonText(text: string): RecordJsonParse<PrefixGroup[]> {
 	const record = recordFromJsonText(text, '{"gpt-4": {"context_length": 128000}}');
@@ -491,10 +470,9 @@ export function capabilityGroupsFromJsonText(text: string): RecordJsonParse<Pref
 }
 
 /**
- * A modelCapabilities record rendered into the same prefix-group rows the
- * parameters editor uses. Values render through formatJsonValue, except the
- * `_openrouter_model` directive, whose catalog ID renders bare (and parses
- * back leniently), so users type plain IDs instead of quoted JSON.
+ * A modelCapabilities record rendered into prefix-group rows. Values render
+ * through formatJsonValue, except the `_openrouter_model` directive, whose
+ * catalog ID renders bare (and parses back leniently) so users type plain IDs.
  */
 export function toCapabilityGroups(value: Readonly<Record<string, Readonly<Record<string, unknown>>>>): PrefixGroup[] {
 	return Object.entries(value).map(([prefix, fields]) => ({
@@ -508,12 +486,10 @@ export function toCapabilityGroups(value: Readonly<Record<string, Readonly<Recor
 }
 
 /**
- * One capability row's verdicts: an optional blocking problem (aligned to the
- * offending input, like RowFieldProblem everywhere else) plus an optional
- * non-blocking hint. Hints exist because the capability vocabulary is OPEN
- * and the setting is lenient: an unknown key survives a save and APPLIES
- * as-is at resolution, and an invalid consumed value survives too (diagnosed
- * and left unset there), so the editor flags without refusing.
+ * One capability row's verdicts: an optional blocking problem plus an optional
+ * non-blocking hint. Hints exist because the vocabulary is OPEN and the
+ * setting lenient - an unknown key and an invalid consumed value both survive
+ * the save and are diagnosed at resolution, so the editor flags without refusing.
  */
 interface CapabilityRowIssue {
 	readonly problem?: RowFieldProblem | undefined;
@@ -546,9 +522,8 @@ function consumedFieldKind(key: string): CapabilityValueKind | undefined {
 
 /**
  * The non-blocking note on a consumed row whose value fails its kind: the
- * setting keeps the row, and the resolver diagnoses the value and leaves the
- * field unset so a lower level can win - the same lenient contract as the
- * unknown-key hint, so the editor flags without refusing.
+ * setting keeps the row, and the resolver leaves the field unset so a lower
+ * level can win.
  */
 function consumedInvalidHint(kind: CapabilityValueKind, key: string): string {
 	switch (kind) {
@@ -594,20 +569,12 @@ export function parseCatalogIdText(text: string): string | undefined {
 
 /**
  * Parse capability draft groups into the modelCapabilities record, or the
- * row-aligned issues that block it. Value typing follows the resolver's
- * vocabulary (capabilityResolution's parseCapabilityRecord): the core fields
- * block on their kinds (number fields take positive integers, boolean fields
- * take true/false), `_openrouter_model` takes a catalog ID, other underscore
- * keys pass through as JSON (reserved for future directives). The rest of the
- * consumed vocabulary is advisory-typed like the resolver treats it: an
- * invalid value is kept but hinted (resolution diagnoses it and leaves the
- * field unset). Any other key is an OPEN field, kept and applied as-is;
- * it gets the may-be-a-typo hint only when `recognizedKeys` - the relevant
- * server's observed /model/info key set (the entry's own server, or the
- * cross-server union for the global setting) - is known, non-empty, and
- * names neither the key nor a consumed field, mirroring the host's advisory
- * filter exactly: with no evidence (absent or empty set) every hint stays
- * suppressed rather than crying wolf.
+ * row-aligned issues that block it. Core fields block on their kinds; a
+ * consumed key with an invalid value is kept in the setting but resolves
+ * unset, so it hints without blocking; OPEN keys apply as-is, hinted as a
+ * possible typo only when `recognizedKeys` is known, non-empty, and names
+ * neither the key nor a consumed field - with no evidence, hints stay
+ * suppressed.
  */
 export function parseCapabilityGroups(
 	groups: readonly PrefixGroup[],
@@ -620,16 +587,10 @@ export function parseCapabilityGroups(
 	const value: Record<string, Record<string, unknown>> = Object.create(null) as Record<string, Record<string, unknown>>;
 	for (const group of groups) {
 		const duplicateKeys = duplicates(group.params.map((param) => param.key.trim()));
-		// The `_fallback` and `_inheritable` hints' context: the fields this
-		// group's own rows set - every non-directive key, because the vocabulary
-		// is open and `_fallback` accepts any set field. Deliberately KEY-shaped,
-		// value-blind: the resolver's kept-field set additionally excludes a
-		// consumed field whose value fails its kind, so a directive naming such
-		// a row draws an invalid-directive diagnostic at resolution until the
-		// value is fixed. That transient divergence is accepted - the row's own
-		// invalid-value hint already flags it, and a value-aware set would make
-		// checkbox eligibility and directive-row absorption churn under every
-		// keystroke of the value input.
+		// The fields this group's own rows set, deliberately KEY-shaped and
+		// value-blind: the resolver additionally excludes a consumed field whose
+		// value fails its kind, but a value-aware set would make checkbox
+		// eligibility and directive-row absorption churn under every keystroke.
 		const groupFieldKeys: ReadonlySet<string> = new Set(
 			group.params.map((param) => param.key.trim()).filter((key) => key.length > 0 && !key.startsWith("_"))
 		);
@@ -721,21 +682,19 @@ export function parseCapabilityGroups(
 				return { problem: { field: "value", message: parsed.error } };
 			}
 			fields[key] = parsed.value;
-			// The consumed vocabulary beyond the core is advisory-typed, judged by
-			// the resolver's OWN validator (isValidConsumedCapabilityValue): the
-			// setting keeps an invalid value, resolution diagnoses it and leaves
-			// the field unset, so the row hints without blocking.
+			// Advisory-typed, judged by the resolver's OWN validator: the setting
+			// keeps an invalid value and resolution leaves the field unset, so the
+			// row hints without blocking.
 			const consumedKind = consumedFieldKind(key);
 			if (consumedKind !== undefined) {
 				return isValidConsumedCapabilityValue(consumedKind, parsed.value)
 					? {}
 					: { hint: consumedInvalidHint(consumedKind, key) };
 			}
-			// Underscore keys are reserved for future directives and pass
-			// silently. Anything else is an OPEN field the resolver applies
-			// as-is; it hints as a possible typo only against real evidence -
-			// a known, non-empty observed /model/info key set that does not
-			// name it (the host's advisory filter, run live as the user types).
+			// Underscore keys are reserved for future directives and pass silently.
+			// Anything else is an OPEN field the resolver applies as-is; it hints as
+			// a possible typo only against real evidence - a known, non-empty
+			// observed /model/info key set that does not name it.
 			if (key.startsWith("_")) {
 				return {};
 			}
@@ -772,12 +731,9 @@ export type FieldDirective = typeof FALLBACK_DIRECTIVE | typeof FORCE_DIRECTIVE 
 
 /**
  * Whether a row key can carry the directive's mark: `_fallback` and
- * `_inheritable` mark any own field (anything that is not itself a directive;
- * the capability vocabulary is open, and the resolver's `_fallback` accepts
- * any field the record sets), `_force` any wire-eligible parameter (neither
- * provider-owned nor an underscore key). The editors render a checkbox for
- * exactly these rows, and a literal `true` directive expands over exactly
- * these keys when a toggle rewrites it as a list.
+ * `_inheritable` mark any own field (anything that is not itself a directive),
+ * `_force` any wire-eligible parameter (neither provider-owned nor an
+ * underscore key). A literal `true` expands over exactly these keys.
  */
 export function directiveEligible(directive: FieldDirective, key: string): boolean {
 	if (directive === FALLBACK_DIRECTIVE || directive === INHERITABLE_DIRECTIVE) {
@@ -800,11 +756,9 @@ function eligibleRowKeys(group: PrefixGroup, directive: FieldDirective): string[
 
 /**
  * The directive row's membership reading, deliberately more lenient than the
- * validating parse: the resolver salvages the string entries of a partly
- * invalid list (a `[42, "temperature"]` still forces temperature), so the
- * checkboxes must reflect exactly those - the strict parse meanwhile blocks
- * the row until the junk entry is fixed. `true` means every eligible row key;
- * anything unreadable means none.
+ * validating parse: the resolver salvages a partly invalid list's string
+ * entries, so the checkboxes must reflect exactly those. `true` means every
+ * eligible row key; anything unreadable means none.
  */
 function directiveListedEntries(group: PrefixGroup, directive: FieldDirective): readonly string[] {
 	const index = directiveRowIndex(group, directive);
@@ -826,10 +780,9 @@ function directiveListedEntries(group: PrefixGroup, directive: FieldDirective): 
 }
 
 /**
- * The field names the group's directive row currently marks: the row's
- * string list entries, or every eligible row key for a literal `true`. Empty
- * when the row is absent, `false`, or unreadable - a malformed row is the
- * parse's verdict to report; the checkboxes simply start unmarked.
+ * The field names the group's directive row currently marks: the row's string
+ * list entries, or every eligible row key for a literal `true`. Empty when the
+ * row is absent, `false`, or unreadable.
  */
 export function directiveMarkedFields(group: PrefixGroup, directive: FieldDirective): ReadonlySet<string> {
 	return new Set(directiveListedEntries(group, directive));
@@ -841,22 +794,12 @@ function inheritKeyRoundTrips(entry: string): boolean {
 }
 
 /**
- * Whether a group's directive row is fully represented by the editors'
- * dedicated controls - the Inherits select for `_inherit_from`, the per-row
- * checkboxes for the `flagDirectives` the calling editor renders - so the row
- * grid absorbs it instead of showing the same state twice. Absorption is
- * conservative, because hiding a row the controls cannot show and edit would
- * make its state invisible and uneditable outside the JSON view: a duplicated
- * key, a value the strict parse rejects, a list entry no eligible row's
- * checkbox can display, a checkbox directive in a group with no eligible row
- * at all (a bare `_force: true` would vanish, silently armed for the next
- * added row), and an `_inherit_from` key the control's comma-joined text
- * cannot round-trip all keep the row visible. The read-only scope tables
- * absorb by the same rule, judged with the same parse, so an ignored mark
- * never masquerades as an active badge there. The conservatism doubles as a
- * load-bearing invariant: absorbed implies valid - a row the parse flags is
- * never absorbed, which lets the chip surfaces (recordEditors.tsx
- * chipRowIndices) omit absorbed rows without hiding a problem.
+ * Whether the editors' dedicated controls fully represent a group's directive
+ * row, so the row grid absorbs it. Conservative - a duplicated key, a value
+ * the strict parse rejects, an entry no eligible checkbox can show, a checkbox
+ * directive with no eligible row, or an `_inherit_from` key the comma-joined
+ * input cannot round-trip all keep the row visible - which buys the invariant
+ * absorbed implies valid, so chip surfaces may omit absorbed rows safely.
  */
 export function directiveRowAbsorbed(
 	group: PrefixGroup,
@@ -893,14 +836,10 @@ export function directiveRowAbsorbed(
 
 /**
  * Toggle one field's membership in the group's `_fallback`/`_force`/
- * `_inheritable` list, returning the updated group. Toggles always write the
- * explicit list form - a hand-written `true` is preserved untouched on load
- * and expands to the eligible row keys only on the first toggle - and
- * unmarking the last member removes the directive row entirely. Existing
- * list entries stay put, the invalid ones included (a stray name or a
- * non-string element is the user's text, flagged by the parse, never
- * silently dropped by an unrelated toggle); only a value that is no list at
- * all is replaced wholesale.
+ * `_inheritable` list. Always writes the explicit list form (a hand-written
+ * `true` is preserved on load and expands only on the first toggle); unmarking
+ * the last member removes the row, and existing entries stay put, the invalid
+ * ones included - only a value that is no list at all is replaced wholesale.
  */
 export function toggleDirectiveField(
 	group: PrefixGroup,
@@ -911,8 +850,6 @@ export function toggleDirectiveField(
 	const index = directiveRowIndex(group, directive);
 	const row = index < 0 ? undefined : group.params[index];
 	const raw = row === undefined ? { ok: false as const } : parseJsonValue(row.valueText);
-	// The rewrite base keeps every existing array element; `true` expands to
-	// the eligible keys; anything else starts a fresh list.
 	const base: readonly unknown[] = !raw.ok
 		? []
 		: Array.isArray(raw.value)
@@ -936,13 +873,10 @@ export function toggleDirectiveField(
 
 /**
  * The group-level `_inherit_from` control's reading of a draft group:
- * "default" (no directive row), "all" (true), "none" (false or the empty
- * list - the barrier), or "keys" with the named records. "unreadable" keeps
- * the control hands-off while the row must stay the editor: text the strict
- * parse rejects (the row's own error tells that story), or a list the
- * control's comma-joined keys input cannot reproduce (a comma inside a
- * matcher key, padding whitespace, an empty string) - writing through the
- * select would silently rewrite the user's list.
+ * "default" (no directive row), "all" (true), "none" (false or the empty list
+ * - the barrier), or "keys" with the named records. "unreadable" keeps the
+ * control hands-off wherever writing through the select would silently rewrite
+ * the user's list, so the row itself must stay the editor.
  */
 export type InheritFromChoice =
 	| { readonly kind: "default" }

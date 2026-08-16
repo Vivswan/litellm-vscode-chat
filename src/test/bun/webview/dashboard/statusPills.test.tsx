@@ -1,9 +1,7 @@
 /**
- * The status pills (dot + plain-language verdict + relative time) and the
- * relative-time formatter behind them. Pills replace the old raw state words
- * and native-title details: titles do not render in the webview host, so
- * everything a pill wants to say is either in its visible text or in the CSS
- * hover tip element next to it.
+ * The status pills (dot + plain-language verdict + relative time) and the relative-time formatter behind them.
+ * Native titles do not render in the webview host, so everything a pill says is either in its visible text or in
+ * the CSS hover tip element next to it.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { ServersSection } from "../../../../webview/dashboard/servers";
@@ -88,9 +86,8 @@ test("an ok row still carrying a sync error shows the warn tone, matching its ow
 	const pill = root.querySelector(".server-list .pill");
 	expect(pill?.classList.contains("tone-warn")).toBe(true);
 	expect(pill?.textContent).toContain("Sync issue");
-	// The full error text stays visible (and selectable) - under this row now,
-	// rather than in a section banner the reader had to match back to it. A row
-	// that kept serving is degraded, not blocking, and the tone says so on both.
+	// The full error text stays visible and selectable under the row. A row that kept serving is degraded, not
+	// blocking, and the tone says so on both.
 	const diagnostic = root.querySelector(".row-diagnostic");
 	expect(diagnostic?.classList.contains("sev-degraded")).toBe(true);
 	expect(diagnostic?.textContent).toContain("the group upsert failed");
@@ -98,11 +95,8 @@ test("an ok row still carrying a sync error shows the warn tone, matching its ow
 });
 
 test("the pill's tone follows the row's worst diagnostic, so the dot and the line never disagree", () => {
-	// One classifier, one output. The pill used to work the row out for itself,
-	// which put two verdicts on one server and let them contradict each other in
-	// public: an entry serving declared models through an expected failure wore
-	// an amber dot over the quiet grey tier, and an entry whose parameters were
-	// being ignored wore a green dot over an amber one.
+	// One classifier, one output: a pill working the row out for itself put two verdicts on one server and let them
+	// contradict each other in public.
 	const cases: readonly { readonly server: ReturnType<typeof makeDeclaredServer>; readonly tone: string }[] = [
 		// Nothing wrong at all.
 		{ server: makeDeclaredServer({ label: "Healthy", state: "ok" }), tone: "tone-ok" },
@@ -128,9 +122,8 @@ test("the pill's tone follows the row's worst diagnostic, so the dot and the lin
 			server: makeDeclaredServer({ label: "Down", baseUrl: "http://d", state: "error", error: "refused" }),
 			tone: "tone-error",
 		},
-		// SEVERAL problems at once: the dot must take the worst, not the first
-		// found or the last written. This row carries an inactive-entry notice
-		// (degraded) alongside a failure that serves nothing (blocking).
+		// SEVERAL problems at once: the dot must take the worst, not the first found. This row carries an
+		// inactive-entry notice (degraded) alongside a failure that serves nothing (blocking).
 		{
 			server: makeDeclaredServer({
 				label: "Both",
@@ -141,9 +134,7 @@ test("the pill's tone follows the row's worst diagnostic, so the dot and the lin
 			}),
 			tone: "tone-error",
 		},
-		// An expected failure with NOTHING declared serves no models, so it is
-		// blocking and the dot is red - it used to be amber, and that change had
-		// no test holding it.
+		// An expected failure with NOTHING declared serves no models, so it is blocking and the dot is red.
 		{
 			server: makeDeclaredServer({
 				label: "Nothing",
@@ -154,9 +145,8 @@ test("the pill's tone follows the row's worst diagnostic, so the dot and the lin
 			}),
 			tone: "tone-error",
 		},
-		// The one branch that bypasses the severity entirely: nothing has looked
-		// at this row yet, so it carries no diagnostic, and "no diagnostic" must
-		// not read as health.
+		// The one branch that bypasses the severity: nothing has looked at this row yet, so it carries no diagnostic,
+		// and "no diagnostic" must not read as health.
 		{ server: makeDeclaredServer({ label: "Fresh", baseUrl: "http://g", state: "unchecked" }), tone: "tone-muted" },
 	];
 	const severityToTone: Readonly<Record<string, string>> = {

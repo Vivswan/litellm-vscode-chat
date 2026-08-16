@@ -1,17 +1,7 @@
 /**
- * Shared harness for the bun + happy-dom webview suite. Owns the three
- * process-global concerns so individual tests cannot forget them: the
- * acquireVsCodeApi stub (postMessage capture), act()-wrapped rendering and
- * event dispatch (assertions must never race React's scheduler), and the
- * secret-leak sweep. postedMessages is process-global because vscodeApi.ts
- * caches the api at import time; resetPosted() in beforeEach is mandatory.
- *
- * Event dispatch goes through React's delegation model: onFocus/onBlur are
- * focusin/focusout at the root, onMouseEnter derives from mouseover, and
- * controlled inputs carry a value tracker on the instance that deduplicates
- * events whose value it already saw - so value/checked writes here go through
- * the prototype setter, bypassing the tracker, and checkboxes toggle via a
- * real click.
+ * Shared harness for the bun + happy-dom webview suite: the acquireVsCodeApi stub, act()-wrapped rendering
+ * and event dispatch, and the secret-leak sweep. postedMessages is process-global because vscodeApi.ts caches
+ * the api at import time, so resetPosted() in beforeEach is mandatory.
  */
 import type { ReactNode } from "react";
 import { act } from "react";
@@ -111,10 +101,8 @@ export function respondTo<K extends ReadMethod>(request: RpcRequest<K>, payload:
 }
 
 /**
- * Write value/checked through the prototype setter. React's value tracker
- * redefines the property on the instance and records every write it sees; a
- * write it saw is "no change" to the change plugin, so the event that follows
- * it would be swallowed. The prototype setter is the original happy-dom one.
+ * Write value/checked through the prototype setter. React's value tracker redefines the property on the
+ * instance and treats a write it already saw as "no change", swallowing the event that follows.
  */
 function setThroughPrototype(element: Element, property: "value" | "checked", next: string | boolean): void {
 	const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), property);
@@ -147,11 +135,8 @@ export function fireFocus(element: HTMLElement): void {
 }
 
 /**
- * Pin an element's measured geometry. happy-dom performs no layout, so
- * getBoundingClientRect always returns zeros; placement tests substitute
- * realistic geometry on the trigger before dispatching the hover or focus
- * event that measures it. right/width/x/y are derived; the placement code
- * only reads left, top, and bottom.
+ * Pin an element's measured geometry: happy-dom performs no layout, so getBoundingClientRect always returns
+ * zeros. The placement code reads only left, top, and bottom; the rest is derived.
  */
 export function stubBoundingRect(element: HTMLElement, rect: { left: number; top: number; bottom: number }): void {
 	const full = {
@@ -174,11 +159,8 @@ export function fireMouseEnter(element: HTMLElement): void {
 }
 
 /**
- * React synthesizes onMouseLeave from the bubbling mouseout event, and only
- * when relatedTarget - where the pointer went - sits outside the listened
- * element's subtree. Passing a descendant as `to` therefore exercises the
- * pointer moving deeper (a trigger's own tooltip bubble, say) and must NOT
- * fire onMouseLeave; the default, document.body, is a plain departure.
+ * React synthesizes onMouseLeave from mouseout, and only when relatedTarget sits outside the listened
+ * element's subtree - so passing a descendant as `to` must NOT fire it (a trigger's own tooltip bubble).
  */
 export function fireMouseLeave(element: HTMLElement, to?: HTMLElement): void {
 	void act(() => {
@@ -187,10 +169,8 @@ export function fireMouseLeave(element: HTMLElement, to?: HTMLElement): void {
 }
 
 /**
- * Resize happy-dom's viewport, firing matchMedia change listeners and the
- * window resize event. act()-wrapped because components subscribe to both.
- * happy-dom's default is 1024x768; a suite that shrinks the viewport must
- * restore it in afterEach, or every later suite inherits the narrow window.
+ * Resize happy-dom's viewport, firing matchMedia change listeners and the window resize event. The default is
+ * 1024x768; a suite that shrinks the viewport must restore it in afterEach, or later suites inherit it.
  */
 export function setViewport(width: number, height: number): void {
 	const happy = (window as unknown as { happyDOM: { setViewport: (v: { width: number; height: number }) => void } })
@@ -207,12 +187,8 @@ export function fireClick(element: HTMLElement): void {
 }
 
 /**
- * Tick or untick a checkbox / select a radio. React fires a checkbox's
- * onChange from its click event, and happy-dom's click runs the native
- * activation behavior (toggling checked internally, unseen by the tracker),
- * so the click is the whole gesture. A call that asks for the state the box
- * is already in is a test bug (the click would toggle the wrong way), so it
- * fails loud instead of guessing.
+ * Tick or untick a checkbox / select a radio. happy-dom's click runs the native activation behavior and React
+ * fires onChange from it, so the click is the whole gesture; asking for the current state is a test bug.
  */
 export function fireCheck(element: HTMLInputElement, checked: boolean): void {
 	if (element.checked === checked) {
@@ -232,22 +208,16 @@ export function fireSelect(element: HTMLSelectElement, value: string): void {
 }
 
 export function fireKeyDown(element: HTMLElement, key: string): void {
-	// cancelable, like the real thing: a handler that answers a key with
-	// preventDefault (Radix's dismissal layers read defaultPrevented to decide
-	// whether to act) would otherwise be silently overruled here and nowhere
-	// else.
+	// cancelable, like the real thing: Radix's dismissal layers read defaultPrevented to decide whether to act.
 	void act(() => {
 		element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
 	});
 }
 
 /**
- * Everywhere a secret could surface in the page. Serialized HTML alone is not
- * enough: a value assigned to an input via JS never appears in outerHTML, so
- * an HTML sweep passes trivially against a real leak. Every sentinel
- * assertion therefore checks input/textarea value properties, all attributes,
- * and textContent as well. Returns human-readable findings; assert equality
- * with [] so a failure names the leak site.
+ * Everywhere a secret could surface in the page: attributes, input/textarea value properties (a value
+ * assigned via JS never appears in outerHTML), the serialized document HTML, and document textContent.
+ * Returns human-readable findings; assert equality with [] so a failure names the leak site.
  */
 export function findSentinel(sentinel: string): string[] {
 	const findings: string[] = [];
@@ -303,10 +273,8 @@ function visibleTextOf(node: Node): string {
 }
 
 /**
- * A directly referenced target's text, the accname root-reference exception:
- * a node named by aria-labelledby/aria-describedby is read even when it is
- * itself aria-hidden (the tooltip bubble's whole wiring, ui/tip.tsx), while
- * aria-hidden subtrees INSIDE it stay excluded like everywhere else.
+ * The accname root-reference exception: a node named by aria-labelledby/aria-describedby is read even when it
+ * is itself aria-hidden (ui/tip.tsx's whole wiring), while aria-hidden subtrees inside it stay excluded.
  */
 function referencedTextOf(target: Element): string {
 	let text = "";
@@ -317,13 +285,9 @@ function referencedTextOf(target: Element): string {
 }
 
 /**
- * The accessible name a control computes, the way the a11y tree would:
- * aria-labelledby, then aria-label, then the subtree's text nodes in tree
- * order with aria-hidden subtrees excluded, whitespace-collapsed. Deliberately
- * blind to CSS: happy-dom runs no layout, so a subtree hidden only by a
- * visibility utility still contributes here - which is what lets an assertion
- * on this name catch a width twin that lost its aria-hidden while keeping
- * `invisible` (textContent, which ignores both, cannot).
+ * The accessible name a control computes: aria-labelledby, then aria-label, then the subtree's text nodes in
+ * tree order with aria-hidden subtrees excluded. Deliberately blind to CSS (happy-dom runs no layout), which
+ * is what lets it catch a width twin that lost its aria-hidden while keeping `invisible`.
  */
 export function accessibleNameOf(element: HTMLElement): string {
 	const labelledBy = element.getAttribute("aria-labelledby");
@@ -345,11 +309,7 @@ export function accessibleNameOf(element: HTMLElement): string {
 	return visibleTextOf(element).replace(/\s+/g, " ").trim();
 }
 
-/**
- * An element's accessible DESCRIPTION: the aria-describedby targets' text, in
- * order, modeled like accessibleNameOf above - aria-hidden subtrees excluded,
- * with the same root-reference exception for the targets themselves.
- */
+/** The aria-describedby targets' text, in order, modeled like accessibleNameOf. */
 export function accessibleDescriptionOf(element: HTMLElement): string {
 	return (element.getAttribute("aria-describedby") ?? "")
 		.split(/\s+/)

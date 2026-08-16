@@ -9,12 +9,11 @@ import * as l10n from "@vscode/l10n";
 import type { DashboardModel } from "./viewModels";
 
 /**
- * Every capability with its answer, paired with the wire key that names it,
- * in the fixed order the row's detail prints them; the single source the
- * capability pills derive from. The row at rest prints only the true ones:
- * a strikethrough means SUPERSEDED everywhere in this dashboard (the
- * inspector's resolution chain, accessibility-pinned), so absence carries
- * "cannot" on the row and the detail answers explicitly.
+ * Every capability with its answer, paired with the wire key that names it, in
+ * the fixed order the row's detail prints them; the single source the
+ * capability pills derive from. The row at rest prints only the true ones (a
+ * strikethrough means SUPERSEDED everywhere in this dashboard), so absence
+ * carries "cannot" on the row and the detail answers explicitly.
  */
 export const CAPABILITY_FLAGS = [
 	// A key of its own, apart from the max-tools count suffix "tools": a chip
@@ -59,8 +58,7 @@ export function isPriced(model: DashboardModel): boolean {
  * The pills' state. Session-local by design: never persisted or pushed.
  * Servers are keyed by scopeKey, never by label: two provider groups can
  * carry the same label, and a label-keyed pill would silently select both.
- * The label rides along as the value because it is what the pill displays,
- * including for a selection whose server has since left the list.
+ * The label rides along because it is what the pill displays.
  */
 export interface ModelFilter {
 	readonly families: ReadonlySet<string>;
@@ -143,9 +141,9 @@ function matchesQuery(model: DashboardModel, needle: string): boolean {
 
 /**
  * Pills and the text filter together, one more AND: a model shows when every
- * active pill dimension admits it AND the query matches it. The query is
- * taken raw from the input; normalization (trim, case) happens here so every
- * caller means the same thing by "matches".
+ * active pill dimension admits it AND the query matches it. The query is taken
+ * raw from the input; normalization (trim, case) happens here so every caller
+ * means the same thing by "matches".
  */
 export function filterModels(
 	models: readonly DashboardModel[],
@@ -182,9 +180,8 @@ const PRICE_KEYS: readonly PriceFilterKey[] = ["priced", "unpriced"];
 /**
  * Server options in display order, duplicate labels numbered "(1)" onward in
  * the sorted order. The ordinal is a DISPLAY transform only, recomputed every
- * time: identity stays the scopeKey and the raw label is what filter state
- * stores - a stored numbered label would collide again when the numbering
- * shifts under it.
+ * time: identity stays the scopeKey and filter state stores the raw label - a
+ * stored numbered label would collide again when the numbering shifts.
  */
 function serverOptions(servers: ReadonlyMap<string, string>): readonly ServerFilterOption[] {
 	const sorted = [...servers]
@@ -209,8 +206,7 @@ function serverOptions(servers: ReadonlyMap<string, string>): readonly ServerFil
  * Which pills to offer. One rule per dimension: a pill renders where it can
  * change the result (the list disagrees on the dimension) or where it is
  * already active, because an active pill must stay clearable even after the
- * models that justified it left the list. Orders are fixed so the row reads
- * the same across refreshes.
+ * models that justified it left the list. Orders are fixed.
  */
 export function modelFilterOptions(models: readonly DashboardModel[], active: ModelFilter): ModelFilterOptions {
 	const families = new Set(models.map((model) => model.family));

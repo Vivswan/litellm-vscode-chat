@@ -1,24 +1,11 @@
-/* The dashboard's own rules, all in the `components` cascade layer theme.css
-	 declares below `utilities`: a Tailwind utility on an element always beats
-	 anything here, regardless of specificity. Every rule reads the host's theme
-	 tokens (var(--vscode-*)) so the dashboard follows every color theme without
-	 shipping a framework; the layout runs on an 8px rhythm and motion is
-	 limited to sub-150ms hover transitions.
-
-	 ORDER INSIDE THE FILE IS LOAD-BEARING. One flat layer settles every
-	 equal-specificity argument by source order alone, and this file relies on
-	 that twice over:
-	 - the narrow-width overrides (the tail of the file, from "The narrow
-		 rules" banner down) come AFTER every full-width rule they override;
-		 several selectors (.server-actions, .slide-over, .server-name, ...) are
-		 deliberately written in both regions, and moving a narrow block above
-		 its full-width counterpart silently hands the argument back to the wide
-		 rule;
-	 - within that tail, the full-width additions at its head stay BEFORE the
-		 narrow query blocks that re-place them (appended after the folds once,
-		 the placements beat the folds and twelve of eighteen renders changed).
-	 Add new full-width rules above the banner, new narrow overrides at the
-	 end, and keep an edit with the rule it edits. */
+/* The dashboard's own rules, in the `components` layer theme.css declares below
+   `utilities`: a utility on an element always beats anything here. Every rule reads the
+   host's theme tokens (var(--vscode-*)); 8px rhythm, sub-150ms motion only.
+   ORDER INSIDE THE FILE IS LOAD-BEARING: one flat layer settles every equal-specificity
+   argument by source order. The narrow-width overrides (from "The narrow rules" banner
+   down) must stay AFTER the full-width rules they override, and within that tail the
+   full-width additions stay BEFORE the query blocks that re-place them. Add new
+   full-width rules above the banner, new narrow overrides at the end. */
 
 @layer components {
 	body {
@@ -107,18 +94,10 @@
 	/* Pinned to the bottom: the fleet's state is the last thing you should have
 		   to hunt for, and margin-top auto keeps it there without a spacer
 		   element that means nothing to a screen reader. */
-	/* Pinned to the bottom, and read as a COLUMN rather than four things that
-		 happen to be stacked. Its four lines are one rank - the fleet's state and
-		 the two things you can do about it - so they share one glyph column and
-		 one text column: the verdict's dot and the two action icons all hang at
-		 the same x, and the verdict word, both labels and the sync time all start
-		 at the same x. They did not before, and the four indents (a dot at 4, a
-		 time at 4, a word at 18, a label at 30) were the whole reason the footer
-		 looked ragged.
-		 The two numbers do the aligning, because the parts are not siblings in one
-		 grid - a button owns its own icon and label - so the pill matches the
-		 compact button's inline padding, and the dot sits in a box the width of an
-		 icon. */
+	/* Pinned to the bottom, read as a COLUMN: the four lines share one glyph column and one
+	   text column. The parts are not siblings in one grid (a button owns its own icon and
+	   label), so the pill matches the compact button's inline padding and the dot sits in a
+	   box the width of an icon - those two numbers do the aligning. */
 	.rail-state {
 		--rail-glyph: 14px;
 		--rail-gap: 6px;
@@ -150,22 +129,11 @@
 		padding-left: calc(var(--rail-inset) + var(--rail-glyph) + var(--rail-gap));
 		color: var(--muted-foreground);
 	}
-	/* The width policy: STRUCTURE runs full-bleed to this generous cap - the
-		   models table, the server list, the diagnostics problem list and
-		   resolution table all fill the pane at every window size - while FORMS
-		   are measured: the form and prose surfaces re-cap themselves below at
-		   their own readable measure (the server edit page, usage cards,
-		   banners), and prose inside a full-bleed block keeps its own reading
-		   cap (p.hint's 72ch, .row-diagnostic-headline's 84ch). The diagnostics
-		   page once capped its lists at 64rem; a user review at a ~2000px window
-		   read the dead pane beside the resolution table as a defect, so the
-		   structural surfaces now share the settings page's full-bleed ruling
-		   (measure.test.ts pins it).
-		   The pane also supplies the page padding the body used to. The bottom
-		   gutter is a custom property because it has a second reader: anything
-		   sizing itself against the fold has to leave exactly this much room
-		   below, and a copy of the number would drift the first time one of the
-		   two changed. */
+	/* The width policy: STRUCTURE runs full-bleed to this cap; FORMS re-cap themselves at
+	   their own readable measure, and prose inside a full-bleed block keeps its reading cap
+	   (p.hint's 72ch). Full-bleed is a user ruling - a dead pane beside the resolution
+	   table read as a defect at ~2000px (measure.test.ts pins it). The bottom gutter is a
+	   custom property because anything sizing itself against the fold reads it too. */
 	.pane {
 		--pane-gutter-bottom: 48px;
 		flex: 1 1 auto;
@@ -324,23 +292,11 @@
 	section.table-scroll {
 		margin-top: 0;
 	}
-	/* Long model lists render windowed inside their own scrollport, which the
-		   windowing needs in order to measure and to receive scroll events.
-		   The cap used to be `calc(100vh - 11em)`: a guess at how much chrome sat
-		   above this element, hand-tuned against the page it happened to share and
-		   silently wrong every time that page changed - it was tuned for the
-		   bottom of the old combined view, and inherited unchanged when models
-		   became a destination of its own.
-		   It measures now. --models-scroll-top carries this element's own distance
-		   from the top of the page, written by the component that knows it and
-		   re-measured whenever its box moves, so the budget is a fact rather than
-		   an estimate and cannot drift when the chrome above changes again. Below
-		   it sits the pane's bottom gutter, read from the pane rather than copied,
-		   because leaving any less there puts the page back over the fold and
-		   restores the second scrollbar this rule exists to avoid. border-box so
-		   the element's own border counts inside the cap instead of adding a pixel
-		   outside it. The floor keeps the scrollport usable in short windows, and
-		   it also carries the first paint if the measurement never lands. */
+	/* The windowed model list's scrollport. --models-scroll-top is MEASURED by the
+	   component (the old calc(100vh - 11em) was a hand-tuned guess that drifted with the
+	   chrome above); the pane's bottom gutter is read, not copied, or the page regains the
+	   second scrollbar this rule exists to avoid. border-box so the border counts inside
+	   the cap; the floor keeps short windows usable and carries the first paint. */
 	.table-scroll.windowed {
 		box-sizing: border-box;
 		max-height: max(280px, calc(100vh - var(--models-scroll-top, 0px) - var(--pane-gutter-bottom, 48px)));
@@ -500,19 +456,11 @@
 			border-bottom-color: Canvas;
 		}
 	}
-	/* The row's detail: indented under the row it belongs to, with the accent
-		   edge tying it to its opener. The accent-rail idiom has ONE geometry
-		   everywhere it appears (here, .server-drawer, .row-diagnostic): the rail
-		   8px in from the list's left edge, the block running to the list's right
-		   edge, corners on the shared radius token - two indents four pixels
-		   apart read as a mistake, not as two idioms.
-		   Every pixel it contributes to the row's height must be INSIDE this box,
-		   because that height is measured (offsetHeight) and handed to the window
-		   arithmetic, which excludes margins. A vertical margin here would be real
-		   space the spacers never account for, so the row would jump by exactly
-		   that much the moment it scrolled out of the window. The breathing room
-		   below is padding for that reason, and the horizontal inset stays margin
-		   because only the height is load-bearing. */
+	/* The row's detail, on the shared accent-rail geometry (here, .server-drawer,
+	   .row-diagnostic - two indents four pixels apart read as a mistake). Every pixel of
+	   row height must be INSIDE this box: offsetHeight feeds the window arithmetic, which
+	   excludes margins - so breathing room below is padding, and only the horizontal inset
+	   stays margin. */
 	.model-detail {
 		padding: 10px 14px 14px;
 		margin: 0 0 0 8px;
@@ -646,22 +594,13 @@
 	.server-row:has(> .server-line[aria-expanded="true"]) {
 		background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12));
 	}
-	/* The readable block is ONE disclosure button spanning every track but the
-		 actions', AT EVERY TIER - the folds below recompose its INSIDE and never
-		 its span, so the click target and the keyboard contract are the same at
-		 320px as at 1500px. Nested subgrid on purpose: the button's cells take
-		 the list's tracks, so the verdicts and figures still line up down the
-		 page; giving the button a grid of its own was the models list's trade
-		 and is explicitly refused here - it buys nothing and loses the
-		 cross-row alignment these columns exist for.
-		 Each cell names its own column instead of falling where the DOM order
-		 puts it, because the two orders differ on purpose: the row reads name,
-		 status, url in the document (a screen reader should hear the verdict
-		 before the host string) and name, url, status across the page, and at
-		 narrow widths the same cells fold onto extra lines. Explicit placement
-		 is what lets one markup carry every shape without a second row
-		 component. Visual chrome (border, hover wash, focus ring) rides the
-		 component's utility classes, like the model rows' disclosure. */
+	/* The readable block is ONE disclosure button spanning every track but the actions',
+	   AT EVERY TIER - the folds recompose its INSIDE, never its span, so the click target
+	   and keyboard contract are constant. Nested subgrid on purpose: the button's cells
+	   take the list's tracks for cross-row alignment (a grid of its own was the models
+	   list's trade, refused here). Each cell names its own column because document order
+	   and visual order differ on purpose: a screen reader hears the verdict before the
+	   host string. Visual chrome rides the component's utility classes. */
 	.server-line {
 		grid-column: 1 / -2;
 		display: grid;
@@ -697,15 +636,10 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	/* The https:// scheme stops being painted at EVERY width, and stays in the
-		 row: the text is still there for a screen reader, a copy and a
-		 find-in-page, and the drawer's Base URL fact prints the whole address -
-		 so the URL a reader gets is always the URL the setting holds. Eight
-		 characters at the FRONT of an ellipsizing run are spent on the part
-		 every reader assumes, and at the wide tier's floor they were most of
-		 what survived: the ellipsis ate the host, the one part that says which
-		 server this is. An http:// URL keeps its scheme on screen everywhere -
-		 insecure is news, and its hosts are short. */
+	/* The https:// scheme stops being painted at EVERY width but stays in the row (screen
+	   readers, copy, find-in-page): eight characters at the FRONT of an ellipsizing run
+	   were what survived while the ellipsis ate the host. An http:// URL keeps its scheme
+	   on screen - insecure is news. */
 	.server-url .url-scheme.quiet {
 		position: absolute;
 		width: 1px;
@@ -722,16 +656,10 @@
 		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
 	}
-	/* Numeric columns right-align, phrase columns left-align (the charter's
-		 numeric-vs-phrase rule). The spend cell is a bare figure, so its digits
-		 share a right edge down the page; the count is a localized PHRASE
-		 ("3 models", "1 model") whose trailing word absorbs a right alignment -
-		 right-aligned, the DIGITS landed at a different x on every row, ragged
-		 by exactly the length difference between "model" and "models". The
-		 folded tier already reads the phrase left; this makes the wide tier
-		 agree. The min-widths are floors so the auto tracks cannot collapse
-		 under an empty neighbour, which would slide the figures sideways
-		 between rows. */
+	/* Numeric columns right-align, phrase columns left-align (the charter's rule): the
+	   count is a localized PHRASE whose trailing word absorbs a right alignment, landing
+	   the digits at a different x per row. The min-widths are floors so the auto tracks
+	   cannot collapse under an empty neighbour and slide the figures sideways. */
 	.server-count {
 		min-width: 6.5em;
 		color: var(--vscode-descriptionForeground);
@@ -780,14 +708,9 @@
 		   the exact moment they reach for Edit - and does it to every keyboard user
 		   the instant they tab in. The actions get a column of their own instead:
 		   it costs a little width and takes nothing away. */
-	/* OPACITY, never visibility. visibility:hidden takes descendants out of the
-		   tab order, so these buttons could not be focused, so :focus-within could
-		   never fire FOR them - the reveal would depend on some other focusable
-		   element happening to sit in the same row, and every row's disclosure
-		   button would have been that element by accident rather than by design.
-		   This is the same rule the icon actions above already use, and the
-		   :focus-visible clause is what lets the buttons reveal themselves rather
-		   than waiting to be revealed. */
+	/* OPACITY, never visibility: visibility:hidden takes descendants out of the tab order,
+	   so the buttons could not be focused and :focus-within could never fire FOR them. The
+	   :focus-visible clause lets the buttons reveal themselves. */
 	.server-actions {
 		grid-column: -2 / -1;
 		display: flex;
@@ -818,24 +741,13 @@
 	.server-actions.armed {
 		opacity: 1;
 	}
-	/* The armed pair ("Confirm remove?" beside Cancel) is wider than the track,
-		 and every in-flow answer moves something: growing the track shifts every
-		 row's columns, wrapping inside it grows the armed row by a button line -
-		 both under the pointer that is about to confirm. So the pair leaves the
-		 flow and COVERS the row's own badge and spend cells, growing leftward
-		 from the track's edge, opaque over whatever it hides; the left padding
-		 keeps the cover's edge off the words beneath it.
-		 align-self is reset to stretch because the resting cluster centres itself
-		 in its grid area: an absolutely positioned box carries that alignment
-		 into its own sizing, where `center` shrink-to-fits the block axis and
-		 parks the result mid-row - inset-block: 0 then positions a button-high
-		 BAND, not a cover, and the folded tiers' second line stayed legible under
-		 it. Stretched, the box fills the row it covers; align-items above still
-		 centres the buttons inside it. The cluster's justify-self is the same
-		 trap on the inline axis, and it is reset where it bites: only a box with
-		 an AUTO size can be stretched, so it is inert against the max-content
-		 width here and live at the floor tier, which sizes the cover from its
-		 insets instead. */
+	/* The armed pair is wider than the track and every in-flow answer moves something
+	   under the pointer about to confirm, so the pair leaves the flow and COVERS the row's
+	   badge and spend cells, growing leftward, opaque. align-self resets to stretch: an
+	   absolutely positioned box carries `center` into its own sizing, shrink-to-fitting the
+	   block axis and parking a button-high BAND mid-row instead of a cover. justify-self is
+	   the same trap on the inline axis, reset where it bites: only an auto-sized box can
+	   stretch, so the reset is inert at max-content width and live at the floor tier. */
 	.server-actions.armed {
 		position: absolute;
 		inset-block: 0;
@@ -876,15 +788,10 @@
 		 tiers' squeeze can hold, so the resting pair wrapped and every row grew
 		 a line. 8px box separation is what this cluster has always shown in
 		 those modes. */
-	/* Always painted, too: these modes draw the disclosure's contrast box, and
-		 that box ends where the actions track begins - with the cluster resting
-		 invisible, every row read as a box beside 130px of bare gutter under a
-		 separator that ran past both. Visible, the cluster's own bordered
-		 buttons are row content sharing the row's right edge, exactly what the
-		 models list's always-visible Inspect shows there; hover-reveal is a
-		 quietness trade these modes refuse everywhere - the Reveal primitive
-		 stands its actions up the same way (theme.css's [data-slot="reveal"]
-		 rules). */
+	/* Always painted: these modes draw the disclosure's contrast box, which ends where the
+	   actions track begins - resting invisible, every row read as a box beside 130px of
+	   bare gutter. Hover-reveal is a quietness trade these modes refuse everywhere (the
+	   Reveal primitive's [data-slot="reveal"] rules make the same call). */
 	@media (forced-colors: active) {
 		.server-actions {
 			column-gap: 8px;
@@ -913,15 +820,9 @@
 			transition: none;
 		}
 	}
-	/* The opened inventory, dressed like the model rows' detail (.model-detail)
-		 in the one accent-rail geometry: rail 8px in, right edge on the list's
-		 own, the shared radius token. The drawer used to sit at 12px with an 8px
-		 right margin, which put the idiom on two edges 4px apart across the two
-		 lists and left this box 8px short of the diagnostics' right edge below
-		 it - three right edges in one column.
-		 It spans every track the list shares, so its own content would otherwise
-		 be charged to them; min-width 0 keeps a long host from widening the
-		 whole list, and the fact grid inside wraps its own values. */
+	/* The opened inventory, in the one accent-rail geometry the model rows' detail wears.
+	   It spans every track the list shares, so min-width 0 keeps a long host from widening
+	   the whole list; the fact grid inside wraps its own values. */
 	.server-drawer {
 		grid-column: 1 / -1;
 		min-width: 0;
@@ -967,19 +868,12 @@
 		border-left: 2px solid var(--vscode-descriptionForeground);
 		border-radius: 0 var(--radius) var(--radius) 0;
 	}
-	/* Double, not merely thicker, and 6px in EVERY palette. The washes cannot
-		   rank these two tiers - measured composited, blocking's and degraded's
-		   washes sit 1.01:1 apart in dark and 1.05:1 in light, one wash to any
-		   eye - so for a reader who cannot separate red from amber the rule is
-		   the ranking channel, not a third voice behind hue and wash. And a 4px
-		   double is a broken rung on that ladder: `double` cuts the width into
-		   three equal parts, so 4px yields two ~1.33px antialiased strands that
-		   read LIGHTER than degraded's crisp 2px solid - the loudest tier
-		   rendering quietest, in ordinary themes exactly as it did under forced
-		   colours. 6px gives two crisp 2px strokes: more ink (4px against 2px
-		   against 1px) and a different SHAPE, a ranking that survives forced
-		   colours, where every rule resolves to one system colour, and any
-		   palette, because it never asks hue or wash to carry it. */
+	/* Double, not merely thicker, and 6px in EVERY palette: the washes cannot rank the two
+	   tiers (composited 1.01:1 apart in dark), so the rule is the ranking channel. A 4px
+	   double is a broken rung - `double` cuts the width into three, so 4px yields two
+	   ~1.33px antialiased strands reading LIGHTER than degraded's crisp 2px solid. 6px
+	   gives two crisp 2px strokes: more ink AND a different shape, surviving forced
+	   colours and any palette. */
 	.row-diagnostic.sev-blocking {
 		border-left: 6px double var(--err-fill);
 		background: color-mix(in srgb, var(--err) 10%, transparent);
@@ -1044,15 +938,10 @@
 		align-items: center;
 		margin-top: 6px;
 	}
-	/* The bordered modes zero that hand-back (theme.css), where the 16px ink
-		 gap becomes a 16px BOX gap and reads as 28px of ink between two
-		 buttons - so the column gap states the box separation instead: 4px, what
-		 an adjacent button pair showed in these modes before the hand-back moved
-		 to the primitive (16px less the two compact paddings it spanned). The
-		 cluster also holds docs links, which draw no box here and so cannot
-		 merge; a button beside one of those reads 6px tighter than it did, which
-		 is the side to give away. The row gap is untouched: vertical padding
-		 never left the box. */
+	/* The bordered modes zero that hand-back (theme.css), turning the 16px ink gap into
+	   28px of box gap - so the column gap states the box separation instead: 4px, what an
+	   adjacent pair showed before the hand-back moved to the primitive. The row gap is
+	   untouched: vertical padding never left the box. */
 	@media (forced-colors: active) {
 		.row-diagnostic-actions {
 			column-gap: 4px;
@@ -1121,18 +1010,12 @@
 		display: inline-flex;
 		flex: none;
 	}
-	/* The two glyph boxes a line can end with - the "?" wrapper and the
-		 icon-only docs link - share one seat, stated once for both contexts they
-		 sit in. Inline flow: both are 14px atomic inlines seated on the
-		 surrounding text's text-bottom (the icon-only anchor has no text
-		 baseline, so its default seat put its bottom edge ON the baseline and
-		 rode the icon a descent higher than the "?" beside it). The
-		 baseline-aligned flex header lines (.section-head and its copies):
-		 align-self centers both boxes on the line instead, because a text glyph
-		 and a baseline-less icon box cannot agree on a baseline there. Each
-		 property is inert in the other context, so one rule covers both. The
-		 glyph-trails render fixture asserts the shared centerline, so a new
-		 seat variant fails the sweep instead of shipping. */
+	/* The two glyph boxes a line can end with (the "?" wrapper, the icon-only docs link)
+	   share one seat, stated once for both contexts. Inline flow: both seat on the text's
+	   text-bottom (a baseline-less icon otherwise rides a descent higher than the "?").
+	   Baseline-aligned flex header lines: align-self centers both instead, since a text
+	   glyph and a baseline-less box cannot agree on a baseline there. Each property is
+	   inert in the other context; the glyph-trails fixture asserts the shared centerline. */
 	.help-wrap,
 	a.docs-link.glyph-only {
 		vertical-align: text-bottom;
@@ -1232,20 +1115,11 @@
 		left: -24px;
 		width: 24px;
 	}
-	/* The "learn more" anchor beside section titles and in notices: opens the
-		   matching docs page on GitHub (the webview host opens plain anchors
-		   externally, so no CSP grant is involved). Quiet, on the textLink tokens;
-		   the external-link glyph is the affordance.
-
-		   No underline at rest, which is the opposite of the secondary button's
-		   dotted one, and the asymmetry is deliberate: these two say different
-		   things. A link is already visibly a link at rest - accent colour plus
-		   the external glyph - so its underline is hit feedback. (The Diagnostics
-		   Support links below trade the accent for the muted register on
-		   purpose; the .feedback-links rule says why.) A secondary
-		   button had no resting identity at all, being muted grey text, which is
-		   what the dotted underline supplies. Same reason the glyph is here and
-		   never on an in-app action: it means this one leaves the app. */
+	/* The "learn more" docs anchor (the host opens plain anchors externally - no CSP
+	   grant). No underline at rest, the OPPOSITE of the secondary button's dotted one,
+	   deliberately: a link is already visibly a link (accent colour plus external glyph),
+	   so its underline is hit feedback; a secondary button had no resting identity at all.
+	   The glyph never appears on an in-app action: it means this one leaves the app. */
 	a.docs-link {
 		display: inline-flex;
 		align-items: center;
@@ -1272,14 +1146,10 @@
 		padding: 0;
 		margin: 8px 0 0;
 	}
-	/* The Support links continue the tools' stack one rank quieter: quiet
-		   labeled anchors, no gloss - the labels name their destinations. Muted
-		   at rest rather than link-blue, because the links are the page's escape
-		   hatches and a blue row under four grey tools outshone the actions it is
-		   subordinate to; hover restores the link colour as hit feedback, and the
-		   leading icon plus the external glyph keep saying "link" at rest. The
-		   6px icon gap matches the buttons' own, so the two groups share one
-		   icon column and one label edge down the whole stack. */
+	/* The Support links continue the tools' stack one rank quieter: muted at rest, because
+	   a blue row under four grey tools outshone the actions it is subordinate to; hover
+	   restores link colour as hit feedback. The 6px icon gap matches the buttons' own, so
+	   the two groups share one icon column. */
 	.feedback-links {
 		display: flex;
 		flex-direction: column;
@@ -1388,37 +1258,16 @@
 		color: var(--vscode-descriptionForeground);
 	}
 
-	/* The record field-row grid: since the table redesign these rows render
-		   only inside slide-over panels (the matcher editor overlay, the server
-		   form's header rows), so one narrow flexible template serves every
-		   context. .rows owns the column tracks and each .row inside it subgrids
-		   onto them, so the value inputs and the Remove buttons line up across
-		   rows regardless of per-row content; where subgrid is unsupported the
-		   per-row template below applies - the pre-alignment layout. The two
-		   input tracks are asymmetric on purpose: keys are long snake_case
-		   identifiers and values are short scalars, so the key track sizes to
-		   the names themselves - fit-content, fed by the key inputs reporting
-		   their text as intrinsic size (field-sizing below) - and the value
-		   track takes what remains. An even split handed the narrow track to
-		   the longer content: six of eleven capability names clipped mid-token
-		   beside value boxes sitting near-empty. The value track's 10em floor
-		   is the other half of that bargain: with no minimum, one long name
-		   (supported_openai_params) squeezed every value box to ~115px and a
-		   token count read as a few digits - identity and value legibility
-		   share the squeeze instead, the key track shrinking under its
-		   fit-content cap (the cells' min-width: 0 lets it). The fit-content
-		   cap and the floor keep the sum inside the panel's content box - the
-		   inputs shrink instead, and the `@container pane (width < 700px)`
-		   block near the end of the full-width region stacks the rows before
-		   they get too cramped to use.
-
-		   --key-track is the typing freeze (recordEditors.tsx useKeyTrackFreeze):
-		   while a key input is focused, the editor pins the key track at the
-		   width it had on focus, because a content-sized track re-solves per
-		   keystroke and every letter typed shoved the value column sideways
-		   under the user's eyes. Unset (the resting state), the track sizes to
-		   the committed names as before; blur commits the name and the track
-		   refits once. */
+	/* The record field-row grid (slide-over panels only). .rows owns the tracks; each .row
+	   subgrids onto them so inputs and Remove buttons align across rows; the per-row
+	   template below is the no-subgrid fallback. Asymmetric tracks on purpose: keys are
+	   long identifiers, values short scalars, so the key track is fit-content (fed by
+	   field-sizing) and the value track takes the rest with a 10em floor - without it one
+	   long name squeezed every value box to ~115px; with an even split six of eleven names
+	   clipped mid-token. The cells' min-width: 0 lets the key track shrink under its cap.
+	   --key-track is the typing freeze (recordEditors.tsx useKeyTrackFreeze): a
+	   content-sized track re-solves per keystroke, shoving the value column sideways;
+	   unset at rest, the track sizes to the committed names. */
 	.rows {
 		display: grid;
 		grid-template-columns: var(--key-track, fit-content(60%)) minmax(10em, 1fr) max-content max-content;
@@ -1646,19 +1495,12 @@
 	body.vscode-high-contrast-light .record-frame .editor-actions {
 		column-gap: 8px;
 	}
-	/* The matcher list's shared internal grid: [matcher | field chips |
-		   inherits | action], the LIST owning the column model and the rows
-		   inheriting it through subgrid (the models list's construction), so
-		   every row's cells land at the same x. The matcher column is
-		   content-sized with a floor and a cap - a long regex wraps inside it
-		   rather than pushing every other row's chips rightward - the chips take
-		   the free space, and the trailing columns hug their content: an empty
-		   inherits column collapses to nothing, so rows only reserve it when
-		   some row made a choice. STRUCTURE lives here rather than in utilities
-		   because this layer sits UNDER utilities: a `grid` utility on the list
-		   would beat the sub-700px flex fallback in the narrow tail no matter
-		   what the query says, while two rules in one flat layer settle by
-		   source order. */
+	/* The matcher list's shared internal grid, the LIST owning the column model and rows
+	   inheriting through subgrid (the models list's construction). The matcher column is
+	   content-sized with floor and cap (a long regex wraps instead of pushing every row's
+	   chips right); an empty inherits column collapses to nothing. STRUCTURE lives here,
+	   not in utilities: this layer sits UNDER utilities, so a `grid` utility on the list
+	   would beat the sub-700px flex fallback no matter what the query says. */
 	.record-table {
 		display: grid;
 		grid-template-columns: minmax(7rem, 16rem) minmax(0, 1fr) max-content max-content;
@@ -2258,15 +2100,10 @@
 			animation: none;
 		}
 	}
-	/* Elevation here is the shadow alone, and forced colours discard both of
-		 the panel's channels at once: shadows are forced off and the fill
-		 repaints to Canvas, over a page that is also Canvas - a modal surface
-		 with no edge of its own, since the scrim survives only as a dim wash
-		 (the mode keeps a background's alpha and nothing else). The confirm
-		 dialog already carries a border for exactly this moment; this panel
-		 gets the same answer on the one edge that meets the page. 1px like the
-		 max-tokens strip's twin, because a boundary is structure and 2px is
-		 this sheet's pressed/danger mark. */
+	/* Forced colours drop the shadow AND repaint the fill to Canvas over a Canvas page - a
+	   modal surface with no edge - so the panel gets the confirm dialog's answer: a border
+	   on the one edge that meets the page. 1px, because 2px is this sheet's pressed/danger
+	   mark. */
 	@media (forced-colors: active) {
 		.slide-over {
 			border-left: 1px solid CanvasText;
@@ -2295,17 +2132,11 @@
 		display: block;
 		margin-top: 2px;
 	}
-	/* The navigation guard's confirm modal (ui/dialog.tsx): the question a
-		   dirty-form navigation raises, centered over its own scrim rather than
-		   tucked into the save bar, because leaving is a decision about the
-		   whole page. Chrome is the editor-widget family with the hover-widget
-		   border the chip popover wears: the 1px border is what survives forced
-		   colors, where the shadow and the scrim's alpha stop ranking anything.
-		   Above EVERYTHING it interrupts, the tips' 100 included: a hover tip
-		   left open under the question belongs to the inert page, so it dims
-		   under this scrim instead of painting over the dialog (its Esc is
-		   handled the same way - the dialog consumes the key on window capture,
-		   and the tip's own same-node listener closes it with the same press). */
+	/* The navigation guard's confirm modal (ui/dialog.tsx). The 1px hover-widget border is
+	   what survives forced colors, where shadow and scrim alpha stop ranking. Above
+	   EVERYTHING it interrupts, the tips' 100 included: a hover tip left open belongs to
+	   the inert page, so it dims under this scrim (its Esc closes with the same press the
+	   dialog consumes on window capture). */
 	.confirm-scrim {
 		z-index: 110;
 	}
@@ -2425,14 +2256,9 @@
 		display: flex;
 		align-items: baseline;
 		justify-content: space-between;
-		/* Both numbers measure to the Dismiss button's INK, because it hands
-			 its padding back to the layout (ui/button.tsx): 18px on the trailing
-			 edge is the box-era 12px padding plus the 6px the button's box used
-			 to add on top of it, so the glyph keeps the inset it has always had,
-			 and 14px is the floor between message and Dismiss when a long
-			 failure fills the line - the box-era 8px plus the same 6px. Sized
-			 against the box, the hand-back slid the Dismiss 6px toward the
-			 border and 6px toward the message. */
+		/* Both numbers measure to the Dismiss button's INK (it hands its padding back,
+		   ui/button.tsx): 18px = the box-era 12px inset plus the 6px the box used to add;
+		   14px = the box-era 8px message floor plus the same 6px. */
 		gap: 14px;
 		padding: 4px 18px 4px 12px;
 		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
@@ -2486,15 +2312,9 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		/* Both numbers are ink-to-ink, because the dismiss button hands its
-			 padding back to the layout (ui/button.tsx): 12px is the inset the
-			 text opposite carries, and the gap is the floor between them when a
-			 long notification fills the line. The glyph lands a pixel further in
-			 than either, since the hand-back cancels the button's padding and not
-			 the 1px border outside it. The 6px trailing inset this carried until
-			 the hand-back moved to the primitive was sized against the button's
-			 BOX, and left the glyph half as far from the border as the text, with
-			 its hover fill running flush into that border. */
+		/* Ink-to-ink, since the dismiss button hands its padding back (ui/button.tsx): 12px
+		   mirrors the text's inset opposite, the gap is the floor to a long notification. The
+		   glyph lands a pixel further in - the hand-back cancels padding, not the 1px border. */
 		gap: 14px;
 		padding: 6px 12px;
 		border: 1px solid var(--vscode-notifications-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
@@ -2524,14 +2344,9 @@
 		display: inline-flex;
 		box-sizing: border-box;
 		align-items: center;
-		/* Ink-to-ink on both counts, since the clear button hands its padding
-			 back to the layout (ui/button.tsx): 8px insets the X from the pill's
-			 border as the label is inset on the other side, and 10px is the
-			 label-to-glyph separation. Both land a pixel wider in the end, since
-			 the hand-back cancels the button's padding and not the 1px border
-			 outside it. The 2px and 4px these read when they were sized against
-			 the button's BOX left the X 3px inside the pill with its hover fill
-			 painting 4px OUTSIDE the outline. */
+		/* Ink-to-ink, since the clear button hands its padding back (ui/button.tsx): 8px
+		   insets the X as the label is inset opposite, 10px separates label and glyph; both
+		   land a pixel wider - the hand-back cancels padding, not the 1px border. */
 		gap: 10px;
 		padding: 1px 8px;
 		border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
@@ -2570,18 +2385,11 @@
 		min-width: 0;
 		max-width: 100%;
 	}
-	/* A pill is the chip's chrome as a toggle: outlined at rest, the chip
-		   fill plus foreground text and a muted-foreground border when pressed,
-		   so active reads as filled-vs-outline in the vocabulary the page
-		   already speaks. aria-pressed carries the state for readers who see
-		   none of it; the forced-colors block below is where the fill stops
-		   surviving. Server labels are user free text, so a pill ellipsizes
-		   instead of stretching the row sideways: capped at 40ch so one long
-		   label cannot claim the whole row at wide tiers, and at 100% so it
-		   never outgrows the row at narrow ones (the title attribute carries
-		   the full label). Inline-block, not inline-flex: text-overflow only
-		   clips a block container's own text, and the content is one line of
-		   text with nothing to flex. */
+	/* A pill is the chip's chrome as a toggle: filled-vs-outline carries the state,
+	   aria-pressed for readers who see none of it. Server labels are user free text, so a
+	   pill ellipsizes: capped at 40ch (one long label cannot claim the row) and 100%
+	   (never outgrows the row; title carries the full label). Inline-block, not
+	   inline-flex: text-overflow only clips a block container's own text. */
 	.filter-pill {
 		display: inline-block;
 		max-width: min(100%, 40ch);
@@ -2641,25 +2449,13 @@
 		outline: none;
 	}
 
-	/* The section header line, whether ui/section.tsx built it or a page rolled
-		   its own. This rule is what makes the header a LINE: the help glyph, the
-		   docs link, the settings.json jump, the meta text and the actions are
-		   siblings of the heading, not children of it, so without a flex row they
-		   stack into three rows and the header grows instead of shrinking.
-		   Siblings rather than children because a control nested inside a heading
-		   folds its own accessible name into the heading's - "Model parameters"
-		   would announce as "Model parameters Help: Model parameters Open the
-		   model parameters guide Open Model parameters in settings.json".
-		   Baseline alignment because the parts are text of different sizes, and
-		   wrapping because a row that cannot wrap overflows the pane instead.
-
-		   Bottom margin only. The h3 rule's 24px top does not belong to the LINE:
-		   a section's header is its first child, so that margin collapses into
-		   `section { margin-top: 32px }` and never showed - except in the model
-		   inspector, whose sections open with padding and a border that block the
-		   collapse, and which therefore had to zero it again. Off the rule, both
-		   cases need nothing, and the one row that does want the 24px asks for it
-		   (the server form's title, which opens no section of its own). */
+	/* The section header line: this rule is what makes it a LINE - the glyph, docs link,
+	   jump, meta, and actions are SIBLINGS of the heading (a control nested inside a
+	   heading folds its accessible name into the heading's), and without a flex row they
+	   stack. Baseline alignment because the parts are text of different sizes; wrap or the
+	   row overflows the pane. Bottom margin only: the h3's 24px top collapses into the
+	   section's own margin everywhere except the inspector (padding blocks the collapse),
+	   so it lives off this rule and the one row that wants it asks for it. */
 	.section-head {
 		display: flex;
 		flex-wrap: wrap;
@@ -2815,32 +2611,20 @@
 		   pane lets the model's detail carry what no longer fits on it: the actions
 		   stay put and the sentence clips from its tail. */
 	@container pane (width < 620px) {
-		/* What a narrow row must NOT do is clip from the tail until every row
-			   reads the same. Price and capabilities are what the list is scanned
-			   for and they differ per model; the token limits are the most derivable
-			   field and are frequently identical down the whole list, so they are
-			   what goes. Dropped, not shrunk to a door behind a door - the figures
-			   are still one click away in the row's own detail, and nothing here is
-			   reachable only by pointing.
-			   This costs the row no height, which the windowing arithmetic needs:
-			   every row stays exactly one line-height, so the measured row height
-			   remains uniform at every width. */
+		/* A narrow row must NOT clip from the tail: price and capabilities are what the list
+		   is scanned for; the token limits are the most derivable field, so they go - dropped,
+		   not shrunk (still one click away in the detail). This costs the row no height, which
+		   the windowing arithmetic needs: rows stay exactly one line-height at every width. */
 		.model-line-2 .model-limits,
 		.model-line-2 .model-limits + .model-sep {
 			display: none;
 		}
 	}
-	/* The floor tier: under 400px of pane even the two remaining segments
-		   overran the line, and the tail ellipsis cut the PRICE mid-template
-		   ("$1.75 in / ...") behind a dangling separator. Whole-segment sheds
-		   instead, per the separator design above: the capabilities go with the
-		   separator that precedes them (the element after the cost), and the
-		   price keeps only its input half - .price-secondary is worn only while
-		   the input half stands, so an output-only price never sheds to a bare
-		   unit, and the per-M unit goes with the shed ("$1.75 in per..." was
-		   the ellipsis's rendering of it at 320). The input price, the figure
-		   the list sorts on, renders entire; the full sentence stays one click
-		   away in the row's detail. */
+	/* The floor tier: under 400px the tail ellipsis cut the PRICE mid-template behind a
+	   dangling separator, so whole-segment sheds instead: capabilities go with their
+	   separator, the price keeps only its input half (.price-secondary is worn only while
+	   the input half stands, so an output-only price never sheds to a bare unit). The
+	   input price - the sort figure - renders entire. */
 	@container pane (width < 400px) {
 		.model-line-2 .model-caps,
 		.model-line-2 .model-cost + .model-sep,
@@ -2851,54 +2635,22 @@
 		}
 	}
 
-	/* ---- the wide pane: the sentence becomes columns -------------------------
-	 Past this width the two-line row was spending a third of the pane and
-	 leaving the rest empty, so it unfolds: one line, five columns, the actions
-	 still at the end. The gain is not the space, it is the ALIGNMENT - the
-	 figures stack down the page, and comparing what four models cost or hold
-	 stops being a matter of reading four sentences.
-
-	 What makes them stack is that every row solves the SAME track arithmetic,
-	 not that the tracks are rigid. Every row is its own grid (the disclosure is
-	 one button per row), so a track sized to its own row's content would settle
-	 somewhere different in each one and the columns would not line up at all -
-	 which is the entire point. Declared widths make the list read as one table
-	 without making it one grid, which the windowing would not survive.
-
-	 The widths are measured, in place, so the figures keep the mono face their
-	 column gives them: 166px of limits, 173 of price, 181 of capabilities, and
-	 390 of name and meta (github_copilot/claude-haiku-4.5, declared, from a long
-	 server label). Each column's minimum is its measurement plus slack: the
-	 figures rounded onto the sheet's 8px rhythm with a step to spare
-	 (176/184/192), and the identity column 400.
-	 That 10px matters more than it looks. An fr track is sized to its share of
-	 the WHOLE space and then floored at its minimum, not given its minimum plus
-	 a share of what is left - so a column whose share falls below its floor sits
-	 exactly ON the floor and takes none of the surplus. At the threshold that is
-	 the identity column: 2/5 of the space is less than 400, so it is 400 exactly
-	 while the figures take the slack, and it only starts growing about 30px of
-	 pane later (at 1167, where 2/5 of the flexible space passes 400). Its whole margin for a name longer than the one measured is
-	 those 10px, which is why they are in the floor rather than left to the
-	 arithmetic.
-
-	 The threshold follows: 16 padding + 14 chevron + 400 + 176 + 184 + 192 +
-	 44 gaps + 93 actions = 1119 of ROW. Add 10 for the scrollbar - past 50
-	 models this list is windowed into a scrollport of its own
-	 (.table-scroll.windowed, overflow-y: auto) and the editor gives a webview a
-	 classic 10px bar, so the row gets 10px less than the container query
-	 measured - and the floor is 1129. 1136 is the next step on the rhythm above
-	 it, which leaves 7px for a locale whose labels run longer than the English
-	 these were measured in. The renders cannot check
-	 the scrollbar term: the harness runs Chrome with --hide-scrollbars, so it is
-	 arithmetic here rather than a screenshot.
-
-	 Below the threshold the sentence form is still the honest layout, because
-	 these columns would have to start truncating the one thing a row cannot
-	 lose, its name. The number sits well clear of the rail's reversal band, and
-	 it needs no partner: this tier and its own absence divide every width
-	 between them, because `>=` takes exactly what `<` would have left. That is
-	 why the guard admits `>=` at all - the pair cannot overlap at N the way a
-	 `max-width` and a `min-width` at one number do. */
+	/* ---- the wide pane: the sentence becomes columns ----
+	   Past this width the two-line row unfolds into one line, five columns. The gain is
+	   ALIGNMENT: every row is its own grid (the disclosure is one button per row), so only
+	   identical declared track arithmetic makes the columns stack - one table's reading
+	   without one grid, which the windowing would not survive.
+	   The widths are measured in place, in the columns' mono face: 166px limits, 173
+	   price, 181 capabilities, 390 identity - rounded onto the 8px rhythm with a step to
+	   spare (176/184/192) and the identity column floored at 400. The slack lives in the
+	   FLOOR because an fr track below its share sits exactly ON the floor and takes none
+	   of the surplus (identity only starts growing near 1167).
+	   The threshold: 16 padding + 14 chevron + 400 + 176 + 184 + 192 + 44 gaps + 93
+	   actions = 1119 of row, + 10 scrollbar (windowed lists scroll in their own port; the
+	   render harness runs --hide-scrollbars, so that term is arithmetic, not screenshot) =
+	   1129 floor; 1136 is the next rhythm step, 7px spare for longer locales.
+	   This tier and its own absence partition every width: `>=` takes exactly what `<`
+	   leaves, which is why the guard admits `>=` here at all. */
 	@container pane (width >= 1136px) {
 		button.model-disclosure {
 			/* The columns divide the whole flexible space 2:1:1:1, each floored at
@@ -3115,19 +2867,13 @@
 		padding: 0 6px;
 		white-space: nowrap;
 	}
-	/* Forced colours flatten every fill and repaint every border to one ink,
-		   so these inert chips read as doubles of the interactive field chips.
-		   GrayText is a system keyword the mode guarantees distinct from
-		   CanvasText, and it is the mode's own word for "not actionable" - the
-		   right rank for a source annotation that answers no click, next to the
-		   field chips and filter pills whose repainted borders keep saying
-		   "control". The text stays repainted CanvasText: provenance is read
-		   and retyped, only its boundary is inert. The body-class twins are
-		   load-bearing, not belt-and-braces: an OS forced-colors mode arrives
-		   with a high-contrast body class in practice, and the inspector's own
-		   HC border rule above outranks the plain selectors here - same weight
-		   plus a body class - so without them the inspector's provenance kept
-		   the contrast border while the table's went GrayText. */
+	/* Forced colours flatten fills, so these inert chips read as doubles of the
+	   interactive field chips. GrayText is the mode's own word for "not actionable" - the
+	   right rank for a source annotation; the text stays CanvasText (provenance is read
+	   and retyped, only its boundary is inert). The body-class twins are load-bearing: an
+	   OS forced-colors mode arrives with an HC body class, and the inspector's HC border
+	   rule outranks the plain selectors here, so without them the inspector's provenance
+	   kept the contrast border while the table's went GrayText. */
 	@media (forced-colors: active) {
 		.chip-prov,
 		.resolved-matched .chip-matcher,
@@ -3302,15 +3048,10 @@
 		   of their anchor (which spans the popover's content box), with the
 		   260px floor waived - it was sized for the row grid's wide right-
 		   anchored popup and overran a narrow popover's edge by 58px. */
-	/* A slide-over adaptation used to live here: a relative .chip-list as the
-		   popover's containing block, a static .chip-anchor opting out of the
-		   anchor, and left-anchored width caps on the popover, together keeping
-		   a chip popover clear of a panel's left edge (clipped there it is
-		   unreachable - overflow only scrolls rightward). Deleted as dead:
-		   nothing renders the record matcher table inside a slide-over. If a
-		   panel ever hosts it again, REBUILD the adaptation rather than
-		   restoring the old rules - the chip-list note in recordEditors.tsx
-		   names the two hazards a rebuild must answer. */
+	/* A slide-over adaptation (relative .chip-list, static .chip-anchor, left-anchored
+	   caps) was deleted as dead: nothing renders the matcher table inside a slide-over.
+	   If a panel hosts it again, REBUILD rather than restore - the chip-list note in
+	   recordEditors.tsx names the two hazards a rebuild must answer. */
 	.chip-popover input.value,
 	.chip-popover input.key {
 		width: 100%;
@@ -3353,14 +3094,11 @@
 		gap: 8px;
 		align-items: center;
 	}
-	/* The popover's one status line, after the actions and reserved at one
-		   line whether or not it speaks (the record rows' slot, popover-sized):
-		   the live parse verdict used to mount between the flags and the
-		   actions, so the first bad keystroke shoved Remove field 19px down
-		   under the pointer. Below the actions, a message that wraps past the
-		   reservation grows the popover's bottom edge only - an anchored
-		   overlay's growth displaces nothing, and PopoverShell's own
-		   ResizeObserver re-judges the flip. */
+	/* The popover's one status line, reserved AFTER the actions: mounted between flags and
+	   actions, the first bad keystroke shoved Remove field down under the pointer. Below
+	   the actions, a wrapping message grows the popover's bottom edge only - an anchored
+	   overlay's growth displaces nothing, and PopoverShell's ResizeObserver re-judges the
+	   flip. */
 	.chip-popover-status {
 		min-height: 1lh;
 		font-size: 0.9em;
@@ -3423,16 +3161,10 @@
 	.matcher-editor .matcher-line .suggest-input {
 		flex: 1;
 	}
-	/* The matcher's one reserved status line, mounted whether or not it speaks
-		   (the .row-status idiom): the live reading of the matcher grammar
-		   (exact ID, prefix match, ...) at rest, the parse's verdict in the same
-		   slot while one stands. As two separate spans, a typed matcher that
-		   collided grew a second line under its kind reading, and the empty-to-
-		   typed swap traded a 0.9em verdict for a 0.85em reading - both moved
-		   the Inherits and Fields sections under the typing hand. One slot, one
-		   size; the .error register (unlayered, theme.css) supplies the
-		   verdict's paint over this muted rest color, and the min-height is the
-		   backstop for a state with nothing to say. */
+	/* The matcher's one reserved status line (.row-status idiom): grammar reading at rest,
+	   verdict in the same one-size slot - two spans changed heights and moved the sections
+	   below under the typing hand. The .error register (unlayered, theme.css) paints the
+	   verdict; min-height is the backstop for a state with nothing to say. */
 	.matcher-editor .matcher-status {
 		display: block;
 		min-height: 1lh;
@@ -3514,18 +3246,11 @@
 	.matcher-editor .row .row-status {
 		grid-column: 1 / -1;
 	}
-	/* Below the width where two input tracks stay usable, rows stack back to
-		   the panel-column layout and the column heads regroup into one legend
-		   line (the help glyphs must survive the stacking).
-
-		   Range syntax, like every pane threshold in this sheet: Tailwind
-		   compiles the components' `@max-[Npx]/pane:` variants to
-		   `@container pane (width < Npx)`, while `max-width: Npx` is `<= N`, so
-		   a rule and a variant at the same number disagree at exactly N and the
-		   page takes half of each layout for one pixel. narrowThresholds.test.ts
-		   admits one pair, `width < N` and `width >= N`, which partition at N,
-		   and reports any other spelling on either side; it carries the rest of
-		   the reasoning. */
+	/* Below the width where two input tracks stay usable, rows stack and the column heads
+	   regroup into one legend line (the help glyphs must survive the stacking). Range
+	   syntax, like every pane threshold here: Tailwind compiles `@max-[Npx]/pane:` to
+	   `width < Npx` while `max-width: Npx` is `<= N`, so a rule and a variant at one
+	   number disagree at exactly N; narrowThresholds.test.ts admits only `<`/`>=` pairs. */
 	@container pane (width < 700px) {
 		/* Below the width where two input tracks stay usable, every panel's
 			   key/value rows stack to one column - the server form's header rows
@@ -3608,33 +3333,16 @@
 	}
 
 	/* =========================================================================
-		 The narrow rules: what the dashboard does when its pane is not wide.
-
-		 Everything from here down exists to override or complete a full-width
-		 rule above it, and in one flat layer that argument is settled by source
-		 order alone: at equal specificity the later rule wins. That is why this
-		 region sits at the END of the file. While these rules lived higher up,
-		 the argument was settled wrongly three times - the footer's centring,
-		 the verdict dot's size and the slide-over's width all read correctly in
-		 the stylesheet and did nothing on screen.
-
-		 Order matters INSIDE the region too: the full-width additions directly
-		 below stay before the query blocks that re-place or flip them at narrow
-		 widths. Appended after the folds instead, the placements won at equal
-		 specificity and the fold stopped folding - twelve of eighteen renders
-		 changed.
-
-		 What is NOT here: edits to rules that already existed (a base rule
-		 gaining a min-width, a flex direction, a wrap). Those belong to the
-		 rule they change and go with it whenever it goes.
-
-		 One limit: utilities still beat this file. Where a component sets a
-		 property through a Tailwind class - a row's grid-template-columns, most
-		 often - the matching value has to live in that component's own class
-		 list, and only the placements live here. Each such pair is keyed to the
-		 same width, and spelled as a range so the two agree with the exclusive
-		 semantics Tailwind compiles max-width variants to.
-		 ========================================================================= */
+	   The narrow rules: what the dashboard does when its pane is not wide.
+	   Everything below overrides or completes a full-width rule above it, settled by
+	   source order in the flat layer - that is why this region sits at the END (written
+	   higher up, three of its rules read correctly and did nothing). Inside the region the
+	   full-width additions stay before the query blocks that re-place them. NOT here:
+	   edits to rules that already exist - those go with their rule. Utilities still beat
+	   this file: where a component sets a property through a class, the matching value
+	   lives in the component and only the placements live here, each pair keyed to the
+	   same width with the exclusive range semantics.
+	   ========================================================================= */
 	/* ---- full-width rules the narrow blocks below re-place or flip ---------
 		 These stay ABOVE the query blocks: each fold overrides them at equal
 		 specificity, so it only wins by coming later. Losing that order shows
@@ -3718,24 +3426,13 @@
 			margin-left: 0;
 		}
 	}
-	/* ---- the server row, two lines -------------------------------------------
-	 920px is where the one-line row stops being a row. It does not stop at
-	 the width where the cells collide - the URL is the flexible column, so it
-	 is the one that pays, and it pays by starving: at a 850px pane the host
-	 rendered as an empty cell between two full ones, a column of nothing down
-	 the page. The threshold is the width the row's own content asks for with
-	 the URL still readable, not the width at which something visibly breaks.
-	 It does not stack, either: a stack is seven ragged lines whose only order
-	 is the DOM's, and that is what this row looked like before - label, url,
-	 status, count, percent, badge and actions each alone on a line, nothing
-	 aligned with anything above it, 200px of window per server.
-	 It folds instead, into a composition that says the same things in the
-	 order they are wanted: who and how it is (line one), where it is and what
-	 it holds (line two), and what you can do about it (a cluster beside both,
-	 so the two lines read as one row). The columns still belong to the LIST,
-	 so the verdicts line up down the page and the actions sit under each
-	 other, and the disclosure button keeps its constant 1/-2 span - only its
-	 INSIDE recomposes. */
+	/* ---- the server row, two lines ----
+	   920px is where the one-line row stops being a row: the URL is the flexible column
+	   and pays by starving (an empty cell between two full ones at 850px), so the
+	   threshold is the width the content asks for with the URL still readable. It FOLDS
+	   rather than stacks - who and how (line one), where and what (line two), actions
+	   beside both - the columns still belong to the LIST so verdicts align down the page,
+	   and the disclosure button keeps its constant 1/-2 span; only its INSIDE recomposes. */
 	@container pane (width < 920px) {
 		/* The name track takes its width from the names, capped; the ACTIONS
 		 track takes the slack. Giving the slack to the name instead pushed
@@ -3817,34 +3514,21 @@
 			white-space: nowrap;
 			border: 0;
 		}
-		/* The URL leads the line and the facts follow it directly, rather than the
-		 URL stretching and pushing them to the right edge: pushed right, they
-		 landed at a different x on every row (the widest badge decides), which
-		 is the ragged look this composition exists to end. Read together they
-		 are one sentence about the server - where it is, what it holds, what it
-		 costs, how it authenticates - and the URL is the only member that gives
-		 up width, because a truncated host still identifies the server while a
-		 wrapped count and a wrapped badge are debris. The quiet https:// scheme
-		 is already unpainted at every width (the base rule above the folds). */
-		/* Three arrangements were measured here and this is the only one that
-		 costs nothing shared. A URL that GROWS pins the facts to the trailing
-		 edge, where they start at a different x on every row - the ragged look
-		 this line exists to end. A line that does not WRAP charges its whole
-		 width to the row's columns, and since those columns belong to the list,
-		 it collapsed the name column on every row at once. Wrapping with a
-		 content basis keeps the facts beside the URL and keeps the damage local:
-		 a URL too long for the line takes a line of its own, on its own row. */
+		/* The URL leads and the facts follow directly, not pushed to the trailing edge (there
+		   they landed at a different x per row - the widest badge decides). The URL is the
+		   only member that gives up width: a truncated host still identifies the server, a
+		   wrapped count is debris. */
+		/* The only arrangement that costs nothing shared: a URL that GROWS pins the facts to
+		   the trailing edge (ragged x); a line that cannot WRAP charges its width to the
+		   LIST's columns, collapsing every row's name at once. Wrapping with a content basis
+		   keeps the damage local - a too-long URL takes a line of its own. */
 		.server-url {
 			flex: 0 1 auto;
 			min-width: 0;
-			/* It WRAPS here rather than ellipsizing, and that is what keeps a long
-			 host from costing the whole list: a URL is one unbreakable token, so
-			 as nowrap text its max-content is its full length - and this line
-			 spans every one of the button's columns, so that length was charged
-			 to tracks the whole list shares. A 60-character host pushed the page
-			 into a horizontal scrollbar and squeezed every row's NAME. Allowed to
-			 break, it costs one row one extra line and nothing else, and the
-			 reader gets the whole address instead of an ellipsis. */
+			/* It WRAPS rather than ellipsizes: as nowrap text a URL's max-content is its full
+			   length, charged to tracks the whole list shares - a 60-character host squeezed every
+			   row's NAME. Broken, it costs one row one extra line and the reader gets the whole
+			   address. */
 			max-width: 100%;
 			white-space: normal;
 			overflow-wrap: anywhere;
@@ -3868,20 +3552,13 @@
 		.server-badges {
 			flex: none;
 		}
-		/* Beside the name and the verdict, not under them: the row's two lines
-		 read as one row, and an actions line of its own would make every server
-		 three lines tall and put two buttons a reader rarely uses on the same
-		 footing as the row's facts.
-		 Still hover-revealed at this tier: painted-at-rest is the reveal
-		 idiom's 560 call (ui/reveal.tsx's @max-[560px]/pane clause, the rule
-		 below), not this fold's - the fold is about line composition, and a
-		 920 paint here forked the idiom's one threshold. The cap and the wrap
-		 are what keep the resting ROW inside the pane: an unwrapped cluster's
-		 minimum is both its buttons side by side, and a row whose minimum
-		 exceeds the pane does not truncate, it puts a horizontal scrollbar
-		 under the whole page. The armed pair asks the row for nothing at any
-		 tier - it covers the row out of flow (the base .server-actions.armed
-		 rule). */
+		/* Beside the name and the verdict, not under them: an actions line of its own would
+		   make every server three lines tall. Still hover-revealed at this tier -
+		   painted-at-rest is the reveal idiom's 560 call (ui/reveal.tsx), not this fold's, and
+		   a 920 paint here forked the idiom's one threshold. The cap and the wrap keep the
+		   resting ROW inside the pane: a row whose minimum exceeds the pane puts a horizontal
+		   scrollbar under the whole page. The armed pair asks the row for nothing (it covers
+		   out of flow). */
 		.server-actions {
 			/* Wider than the wide tier's track: beside a two-line row an extra
 			 button width costs the URL nothing it was not already giving up. */
@@ -3909,16 +3586,11 @@
 			padding: 8px 10px 10px;
 		}
 	}
-	/* ---- the narrowest two-line rows: the time yields first ------------------
-		 A row's own name is the one thing on it that cannot be derived from
-		 anything else, and under ~560px of pane it was the thing paying: the
-		 verdict and the actions are both unbreakable, so a long label ellipsized
-		 while "2 min ago" sat intact beside it. That is the wrong order. The
-		 relative time is line one's most derivable fact - every row's own state
-		 is spelled out beneath it, and the fleet's sync time is in the rail - so
-		 it stops being PAINTED here and the label spends what it frees.
-		 Hidden the way everything else in this work is hidden: the text stays in
-		 the row for a screen reader and for a copy of the line. */
+	/* ---- the narrowest two-line rows: the time yields first ----
+	   Under ~560px the verdict and actions are unbreakable, so a long label ellipsized
+	   while "2 min ago" sat intact - the wrong order: the name is the one non-derivable
+	   fact. The time stops being PAINTED (the text stays in the row for screen readers
+	   and copy) and the label spends what it frees. */
 	@container pane (width < 560px) {
 		.server-list {
 			grid-template-columns: auto fit-content(14em) auto minmax(9em, 1fr);
@@ -3943,15 +3615,10 @@
 			border: 0;
 		}
 	}
-	/* ---- the server row, three lines -----------------------------------------
-	 The last tier, and it exists because of what the old 420px floor was
-	 hiding: the verdict and the actions are both nowrap, so under ~400px of
-	 pane they take the line between them and the NAME is what gets squeezed to
-	 nothing. A row that has lost its server's name has lost the one thing that
-	 says which server it is; a row that has spent one more line has lost
-	 nothing. So the verdict takes a line of its own here, and the button reads
-	 name, then how it is, then what it holds, with the actions centred in
-	 their own column beside all three. */
+	/* ---- the server row, three lines ----
+	   The last tier: under ~400px the nowrap verdict and actions squeezed the NAME to
+	   nothing, and a row without its name has lost the one thing that says which server
+	   it is. The verdict takes a line of its own; the actions centre beside all three. */
 	@container pane (width < 400px) {
 		/* The 9em resting-pair floor yields here, and only here: at the 320px
 		 floor it is 17px more than the pane has, and the resting cluster's own
@@ -3980,33 +3647,15 @@
 		.server-status {
 			grid-area: 2 / 2 / auto / -1;
 		}
-		/* The cover takes the WHOLE row here, rather than growing leftward to
-		 its content's width. Everywhere else what it leaves uncovered is the
-		 row's identity - the name, the URL, the spend it is about to delete -
-		 and keeping that beside the question is the point. At this width the
-		 pair is nearly as wide as the pane, so a content-sized cover leaves
-		 about one character of each of the row's four lines standing in the
-		 gap beside it, which reads as text clipped by a bug rather than as a
-		 row held under a question. Nothing that narrow is identity worth
-		 keeping.
-		 Three declarations, because a grid item's inline size is decided the
-		 same way its block size was: grid-column moves the containing block
-		 out to the whole row, width: auto lets the insets size the box (a
-		 width would win over them and the start inset would be ignored), and
-		 justify-self: stretch is what lets a box with an auto size actually
-		 fill - left at the cluster's resting `end` it shrink-to-fits and parks
-		 at the row's right edge, which is the inline twin of the align-self
-		 trap the base rule documents, and is exactly what this rule looked
-		 like when it changed nothing at all.
-		 The pair wraps inside the cover, and the guarantee that buys is the
-		 INLINE axis: an unwrapped pair wider than the row does not truncate,
-		 it puts a horizontal scrollbar under the whole page. It buys nothing
-		 on the block axis - the insets and the stretch above make the cover's
-		 height DEFINITE at the row's, so content the box cannot hold does not
-		 grow it, it spills past the edges unbacked, over the rows above and
-		 below (both edges, since align-content centres the lines). Forcing an
-		 over-tall line in shows exactly that. This tier is sized for the two
-		 lines it has, the label over the pair. */
+		/* The cover takes the WHOLE row here: at this width a content-sized cover leaves about
+		   one character of each line standing beside it, which reads as clipped text, not a
+		   held row - nothing that narrow is identity worth keeping. Three declarations because
+		   a grid item's inline size is decided like its block size was: grid-column widens the
+		   containing block, width: auto lets the insets size the box, justify-self: stretch
+		   lets an auto-sized box fill (at the resting `end` it shrink-to-fits and parks right).
+		   The wrap buys the INLINE axis only: the insets and stretch make the cover's height
+		   DEFINITE, so over-tall content spills past both edges unbacked - this tier is sized
+		   for the two lines it has. */
 		.server-actions.armed {
 			grid-column: 1 / -1;
 			inset-inline: 0;
@@ -4035,29 +3684,15 @@
 			text-align: left;
 		}
 	}
-	/* ---- the rail at narrow widths -----------------------------------------
-	 Placed HERE, after every rule it overrides, and not beside the rail's own
-	 rules where it was first written. This file is one flat layer, so a
-	 same-specificity rule wins by coming later - and from up there this block
-	 silently lost three arguments it appeared to win: the footer's centring
-	 (to `.rail-state`), the verdict dot's size (to `.pill .dot`), and the
-	 slide-over's narrow width (to `.slide-over`). Each looked correct in the
-	 stylesheet and did nothing on screen.
-	 A window under ~1000px cannot afford 216px of rail: at 500px it is nearly
-	 half the pane spent on five words over empty space. The rail becomes an
-	 icon rail, the way VS Code's activity bar is one, and hands ~170px back to
-	 the content.
-	 The threshold buys CONTENT, and only that: 1000px is where a full rail
-	 leaves the pane under ~780px, which is where every surface here starts
-	 having to give something up. It is deliberately not tuned to keep the
-	 server rows on one line - that fold sits at 920px of pane, which a full
-	 rail could only clear above a 1185px window (920 plus the rail's 217 and
-	 the pane's own 48 of padding), and collapsing the rail this early to chase
-	 it would trade five labels for one row shape.
-	 A media query, not a container query: the rail's question is how wide the
-	 WINDOW is, and it is the only element on the page for which that is true.
-	 Asking the pane would also be circular - the rail's width is half of the
-	 pane's answer. */
+	/* ---- the rail at narrow widths ----
+	   Placed HERE, after every rule it overrides: from beside the rail's own rules this
+	   block silently lost three arguments it appeared to win (footer centring, dot size,
+	   slide-over width). Below ~1000px the rail becomes an icon rail and hands ~170px back.
+	   The threshold buys CONTENT only: 1000 is where a full rail leaves the pane under
+	   ~780px; it is deliberately not tuned to keep the server rows on one line (that fold
+	   needs a 1185px window and would trade five labels for one row shape). A media query,
+	   not container: the rail's question is WINDOW width - asking the pane would be
+	   circular, since the rail's width is half of the pane's answer. */
 	@media (width < 1000px) {
 		/* Nothing is dropped from the document, only from the paint: every label,
 		 the brand (the page's only h1) and the fleet's verdict stay readable to
@@ -4225,17 +3860,11 @@
 			margin-top: 6px;
 		}
 	}
-	/* A header action strip holding a real control (the settings filter) is
-	 not a rigid line: at the unpinning tier it also learns to shrink, wrap,
-	 and GROW, or the filter input's fixed width would push past a narrow
-	 pane's edge (min-width: 0 lets the strip yield below its content's
-	 minimum, and the wrap gives the input a line of its own). The grow is
-	 what makes that line BE the row: a flex item's auto width is
-	 content-sized, so without it the input's own @max-[640px]/pane:w-full -
-	 still needed, since a width utility can only be beaten from its own
-	 layer - filled a content-sized box and stopped 70px short of a 384px
-	 row. On a strip that still shares its line, growth only stretches the
-	 invisible box; the children keep their own sizes. */
+	/* A header strip holding a real control also learns to shrink, wrap, and GROW at the
+	   unpinning tier (min-width: 0 lets it yield; the wrap gives the input its own line).
+	   The grow makes that line BE the row: without it the input's @max-[640px]/pane:w-full
+	   - still needed, a width utility is only beaten from its own layer - filled a
+	   content-sized box and stopped 70px short. */
 	@container pane (width < 640px) {
 		.section-head .section-actions {
 			flex: 1 1 auto;

@@ -1,8 +1,7 @@
 /**
  * The Diagnostics destination's Configuration section (which diagnostics it
- * shows, how it ranks them, and what it refuses to repeat) and the Resolution
- * view (tree + flat provenance table + filter + the per-row jump to the
- * inspectors).
+ * shows, how it ranks them, what it refuses to repeat) and the Resolution view
+ * (tree, flat provenance table, filter, the per-row jump to the inspectors).
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ConfigDiagnosticView, ResolvedModelsView } from "../../../../dashboard/viewModels";
@@ -235,11 +234,9 @@ describe("Configuration diagnostics", () => {
 		expect(text[3]).not.toContain("adopt");
 		expect(text[3]).toContain("Learn more");
 		expect(text[4]).toContain('"supports_web_search"');
-		// The count beside the title excludes the advisory: the configuration
-		// applies as written, so counting it would call a healthy setup
-		// unhealthy. The total rides along because the rail badge counts the
-		// whole list, and "4" beside a list of 5 is a question the reader
-		// should not have to answer.
+		// The count beside the title excludes the advisory (the configuration
+		// applies as written), but carries the total too, because the rail badge
+		// counts the whole list and "4" beside a list of 5 is a question.
 		expect(root.querySelector(".section-meta")?.textContent).toBe("4 of 5 need attention");
 	});
 
@@ -329,11 +326,9 @@ describe("Configuration diagnostics", () => {
 	});
 
 	test("a rejected entry with NO row of its own still reports here: nothing else states it", () => {
-		// The host refuses a row to rejects without a drawable identity (no
-		// label, no base URL, or a label a declared entry or an earlier reject
-		// already owns) and leaves them to this list. Keying the filter on
-		// `misconfigured` alone would erase the user's broken entry from both
-		// surfaces at once.
+		// The host refuses a row to rejects without a drawable identity and leaves
+		// them to this list, so keying the filter on `misconfigured` alone would
+		// erase the user's broken entry from both surfaces at once.
 		const diagnostics: ConfigDiagnosticView[] = [
 			{
 				kind: "entry",
@@ -559,10 +554,9 @@ describe("Resolved models", () => {
 	});
 
 	test("an invalid matcher key is told once: Configuration owns the verdict, the tree points", () => {
-		// The page's header comment records that the outcome grid was removed to
-		// end exactly this kind of repeat; the tree names the key (a record the
-		// reader wrote must not silently vanish from the figure) but defers the
-		// verdict to the ranked row above.
+		// The tree names the key (a record the reader wrote must not silently
+		// vanish from the figure) but defers the verdict to the ranked row above,
+		// so the outcome is told exactly once.
 		const { root } = mountDiagnostics({
 			diagnostics: [
 				{

@@ -1,19 +1,9 @@
 /**
- * The Settings tab: every scalar setting as one row, grouped the way the
- * manifest groups them, over the same configuration the Settings editor
- * writes - these rows and settings.json are two views of one file, never two
- * stores.
- *
- * Every row has the same full-bleed anatomy: a right-aligned label in a shared
- * gutter sized to the longest visible title, the control starting at one
- * shared edge, the explanation growing with the pane, and the row's actions
- * in a reserved trailing slot at the pane's right edge. The explanation
- * column is also where a row states a problem, so an error takes the hint's
- * place instead of pushing every row below it down - the form's height does
- * not change while you type. Marking a row modified, revealing its
- * settings.json line, and resetting the scope that sets it are the same three
- * gestures on every kind of row, so the vocabulary cannot drift between a
- * number, a checkbox, an enum, and a color.
+ * The Settings tab: every scalar setting as one row over the same configuration the
+ * Settings editor writes - two views of one file, never two stores. Every row shares one
+ * full-bleed anatomy; the explanation column is where a row states a problem (the error
+ * takes the hint's place, so the form's height never changes while you type), and mark,
+ * reveal, and reset are the same three gestures on every kind of row.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -88,21 +78,17 @@ import { Select } from "./ui/select";
 import { sendRequest } from "./vscodeApi";
 
 /**
- * The inspectors' configure-jump into one of this tab's record editors: which
- * editor, plus the ExternalRecordEdit the editor applies (focus the record
- * carrying `key`, or create an exact-ID draft). Minted by App on an
- * inspector's button; the seq keys re-delivery.
+ * The inspectors' configure-jump into one of this tab's record editors: which editor plus
+ * the ExternalRecordEdit it applies. Minted by App; the seq keys re-delivery.
  */
 export interface EditRecordRequest extends ExternalRecordEdit {
 	readonly kind: "parameters" | "capabilities";
 }
 
 /**
- * The scalar-write methods this page posts, whose failures come back as
- * standing notices in App's fire-and-forget store (the state push is their
- * success signal). Declared here because placement is this page's job: each
- * notice lands under the row that posted the failed write, or on the
- * section-top fallback line when no mounted row claims its id.
+ * The scalar-write methods this page posts, whose failures come back as standing notices
+ * in App's fire-and-forget store. Declared here because placement is this page's job: each
+ * notice lands under the row that posted the write, or on the section-top fallback line.
  */
 export const SETTING_WRITE_METHODS = [
 	"setNumberSetting",
@@ -128,18 +114,10 @@ export interface SettingWriteFailure {
 }
 
 /**
- * The row that posted each still-recent write, keyed by the write's request
- * id. The fail envelope echoes the id but never the payload, so this registry
- * is what turns "setNumberSetting failed" into "the Request timeout row's
- * write failed". Keyed by id rather than per method, because a method holds
- * one slot: a newer write on the same method would un-claim an older
- * still-standing failure and teleport its notice to the fallback line.
- * Module state rather than React state on purpose: it is written inside
- * commit handlers and only read while placing a failure that quotes the same
- * id, and ids are minted fresh per post, so a stale entry can never claim
- * anything. Bounded so a long session's commits cannot grow it without end;
- * far more writes than the store's one standing failure per method can ever
- * need.
+ * The row that posted each still-recent write, keyed by request id (never per method: a
+ * method holds one slot, and a newer write would teleport an older failure's notice to the
+ * fallback line). Module state on purpose - written in commit handlers, read only while
+ * placing a failure quoting the same freshly-minted id, and bounded against long sessions.
  */
 const lastSettingWrites = new Map<string, SettingRowId>();
 const LAST_SETTING_WRITES_CAP = 64;
@@ -173,11 +151,9 @@ function writeFailureText(failure: SettingWriteFailure): ReactNode {
 }
 
 /**
- * The form's grouping and order, most-touched first. Presentation only: the
- * setting inventory itself is the protocol's; anything not placed here still
- * renders, in a trailing "Other" group, so a newly added setting can never
- * silently vanish from the dashboard. Titles are zero-arg functions so the
- * localized text resolves at render time, not at module load.
+ * The form's grouping and order, most-touched first. Presentation only: anything not
+ * placed here still renders in a trailing "Other" group, so a new setting can never
+ * silently vanish. Titles are zero-arg functions so localized text resolves at render.
  */
 const SETTING_GROUPS: readonly {
 	readonly title: () => string;
@@ -210,110 +186,47 @@ const SETTING_GROUPS: readonly {
 ];
 
 /**
- * The one row template every row obeys, full-bleed: the label gutter, the
- * control column, the explanation column growing with the pane, and the
- * reserved actions slot at the pane's right edge. A constant rather than a
- * class string per row kind, because the catalog row used to restate the
- * gutter as padding (the track plus the gap, back when both were literals)
- * and a restated offset drifts the moment the real one changes - all the
- * more so now that the label track has no literal width at all.
- *
- * The wide tier's TRACKS live on .settings-groups (SETTING_GRID_TRACKS) and
- * every row adopts them through two levels of subgrid (group, then row), so
- * the label gutter is ONE measured width for the whole page: it hugs the
- * longest visible title instead of wrapping "Polling-off freshness window"
- * inside a fixed 10rem while half the pane sat empty. Rows cannot each own
- * the template - a per-row auto track sizes against its own label alone, and
- * the shared control edge stops lining up down the page.
- *
- * The actions slot is a FIXED track on purpose: Reset renders only on
- * configured rows, so an auto track would size per row and hand modified and
- * clean rows different explanation edges. Fixed, every description ends at
- * one right edge and the settings.json jump sits at one x down the page.
- *
- * Narrow: the shared tracks stop at the same 910px the rows leave them, and
- * each row lays itself out - two tracks, and the row costs two lines instead
- * of three. The title keeps its control beside it - a checkbox, a number input
- * with its unit and conversion, an enum select are all compact enough to
- * share the title's line - and the description takes the line below, spanning
- * both tracks; the actions pin to the row's top-right corner instead of
- * becoming a line of their own. Title-then-control is the wide tier's own
- * reading order, so nothing reorders at the threshold. The control cell, the
- * line's tail, carries the corner reserve (pr-24) the title used to: a long
- * control would otherwise run under the pinned actions.
- *
- * The stacked band's second track is a bare 1fr ON PURPOSE - grid shorthand
- * for minmax(auto, 1fr), whose auto minimum reserves the control cell's
- * min-content (its widest piece plus the pr-24 corner reserve) before the
- * title's auto track takes anything. Spelled minmax(0,1fr), a long title
- * ("Polling-off freshness window") absorbed its max-content first and left a
- * 144px number input ~70px of track, running it under the pinned actions;
- * the settings-band-floor fixture asserts the non-overlap at the band's
- * floor.
- *
- * That auto minimum is also what sets the band's 560px floor (an existing
- * tier, not minted): the widest control's min-content - the token-estimation
- * select at ~230px - plus the 96px corner reserve, the 16px gap, and a
- * wrappable title's longest word outruns panes much under ~450px, where the
- * reserved minimum would overflow the pane instead of overlapping the
- * actions. Below 560 such a row gives the shared line back up and stacks to
- * one column, the control's own line clear of the pinned corner; 560 is
- * also the tier below which the actions are always painted. The two stacked
- * tiers are spelled as exclusive bands (@min/@max pairs), not as two @max
- * rules whose winner would hang on compiled rule order.
- *
- * The PANE decides, not the window: this pane can be narrow inside a wide
- * window whenever the editor is split. The threshold sits at 910, clear of a
- * band the rail's collapse creates: collapsing the rail hands the pane 168px,
- * so a window growing through 1000px drops the pane from ~902 to ~736 and
- * grows again - every pane width in between happens TWICE, and a breakpoint
- * inside it fires in reverse as the window widens. A reader dragging a
- * splitter rightward would have watched this page collapse.
+ * The one row template every row obeys, full-bleed. Wide: the TRACKS live on
+ * .settings-groups and rows adopt them through two levels of subgrid, so the label gutter
+ * is ONE measured width hugging the longest visible title (per-row auto tracks would
+ * misalign the control edge); the actions slot is a FIXED track so modified and clean
+ * rows share one explanation edge. Narrow (below 910px of pane): each row lays itself
+ * out as two tracks, title keeping its compact control beside it, the control cell
+ * carrying the pr-24 corner reserve under the pinned actions. The stacked band's second
+ * track is a bare 1fr ON PURPOSE - minmax(auto,1fr) reserves the control's min-content
+ * before the title takes anything (minmax(0,1fr) ran a 144px input under the actions;
+ * the settings-band-floor fixture asserts the non-overlap). That auto minimum sets the
+ * 560px one-column floor, and the two stacked tiers are exclusive @min/@max bands, not
+ * two @max rules hanging on rule order. The PANE decides, not the window, and 910 sits
+ * clear of the band the rail's collapse makes ambiguous (every pane width in it happens
+ * TWICE as the window widens).
  */
 const SETTING_ROW_GRID =
 	"grid @min-[910px]/pane:col-span-4 @min-[910px]/pane:grid-cols-subgrid gap-x-4 @min-[560px]/pane:@max-[910px]/pane:grid-cols-[auto_1fr] @max-[560px]/pane:grid-cols-1";
 
 /**
- * The wide tier's shared tracks, owned by .settings-groups: the auto label
- * gutter (10rem floor, so short locales keep the familiar gutter; the growth
- * is capped by SETTING_TITLE's max-w, not here - minmax cannot clamp a
- * max-content limit), the control column, the growing explanation, and the
- * fixed actions slot. Applied only at the wide tier: below 910 the rows own
- * their stacked templates and the container must stay a plain block, or a
- * spanless row would land in the first track alone.
+ * The wide tier's shared tracks, owned by .settings-groups: auto label gutter (10rem
+ * floor; growth capped by SETTING_TITLE's max-w - minmax cannot clamp max-content),
+ * control, growing explanation, fixed actions. Wide tier only: below 910 the rows own
+ * their stacked templates and this container must stay a plain block.
  */
 const SETTING_GRID_TRACKS =
 	"@min-[910px]/pane:grid @min-[910px]/pane:grid-cols-[minmax(10rem,max-content)_minmax(0,20rem)_minmax(0,1fr)_5.5rem] @min-[910px]/pane:gap-x-4";
 
 /**
- * The label cell, which turns at the same width the tracks do: right-aligned
- * against the control while there is a shared gutter to align in, left-aligned
- * once the control sits directly beside it on a shared first line. In the
- * one-column tier below 560px the title is the top line's only occupant
- * again, so it takes the corner reserve back from the control cell.
- *
- * The wide tier's 13rem cap is the gutter's growth limit (every title cell
- * caps, so the max-content track can never exceed it): a pathological
- * translation wraps at 13rem instead of starving the control column - 13rem
- * plus the 20rem control, the 5.5rem actions, and the three 1rem gaps is
- * 664px, which still leaves the description ~246px at the 910px floor. The
- * cap is wide-tier only: the stacked bands keep their own title wrapping.
- *
- * A constant because the row renders the label two ways - a `label` when it has
- * a control to name, a `span` when it does not - and the threshold spelled once
- * per branch is a threshold that can move in one of them. The number cannot be
- * interpolated out: Tailwind compiles the variants it can read whole, so
- * `@max-[910px]/pane:` has to appear in the source as itself.
+ * The label cell, turning at the same widths the tracks do. The 13rem cap is the gutter's
+ * growth limit: a pathological translation wraps instead of starving the control column
+ * (13rem + 20rem + 5.5rem + gaps still leaves ~246px of description at the 910 floor).
+ * A constant because the row renders the label as `label` or `span`, and a threshold
+ * spelled twice can move in one; Tailwind needs the variant literal, so no interpolation.
  */
 const SETTING_TITLE =
 	"setting-title text-right font-semibold @min-[910px]/pane:max-w-[13rem] @max-[910px]/pane:text-left @max-[560px]/pane:pr-24";
 
 /**
- * The settings.json jump every row carries: a quiet icon button posting the
- * revealSetting intent; the extension opens the user settings.json and selects
- * "litellm-vscode-chat.<key>". Lives in the row's trailing actions slot with
- * Reset, hover- and focus-revealed through the shared Reveal idiom, so a
- * resting row is label, control, and explanation and nothing else.
+ * The settings.json jump every row carries, in the trailing actions slot with Reset,
+ * hover- and focus-revealed (the shared Reveal idiom), so a resting row is label,
+ * control, and explanation and nothing else.
  */
 function RevealButton({ title, settingId }: { title: string; settingId: SettingRowId }) {
 	return (
@@ -332,13 +245,9 @@ function RevealButton({ title, settingId }: { title: string; settingId: SettingR
 }
 
 /**
- * The reset action on a configured row. Named for what it really does: it
- * removes the value from the highest-precedence scope that sets it (the next
- * scope's value or the default shows through), so the accessible name says
- * which scope's value goes, never "reset to default". Each button carries its
- * own accessible name; six bare "Reset"s would be indistinguishable to a
- * screen reader. Lives in the trailing actions slot before the settings.json
- * jump, one home on every kind of row.
+ * Reset removes the value from the highest-precedence scope that sets it, so the
+ * accessible name says which scope's value goes, never "reset to default" - and names
+ * the setting, because six bare "Reset"s are indistinguishable to a screen reader.
  */
 function ResetButton({ title, scope, settingId }: { title: string; scope: SettingScope; settingId: SettingRowId }) {
 	const action = l10n.t("Remove the {0} value of {1}", settingScopeLabel(scope), title);
@@ -358,26 +267,14 @@ function ResetButton({ title, scope, settingId }: { title: string; scope: Settin
 }
 
 /**
- * A configured row's annotation, in the description zone's tail. The at-rest
- * signal is the SHAPE - the accent bar in the gutter - so words appear only
- * where they add something: a User-scope value shows nothing at rest and
- * reveals the built-in default on hover or focus (the fact that decides
- * whether Reset is worth pressing), while a workspace-scope value names its
- * scope at rest, because "my user setting is not what applies here" is the
- * one case the bar alone cannot disambiguate.
- *
- * A null scope renders the User-scope note's SPACING TWIN: the reveal idiom
- * holds its box at rest (opacity, never display), so a modified row's
- * description flow carries the note's width even while it is invisible - and
- * where that width wraps the line, the row is one line taller than its clean
- * self, which is a state change moving layout (measured +15px on two rows at
- * a 480px pane). The clean row therefore reserves the same box: the same
- * text at permanent opacity-0, aria-hidden because it is spacing, not
- * information - a clean row's value IS the default, so the note would only
- * misinform. It deliberately skips the Reveal primitive: no hover reveal, no
- * sub-560px paint, and none of the bordered modes' at-rest reveals
- * (theme.css keys those to data-slot="reveal", which this twin does not
- * wear).
+ * A configured row's annotation. The at-rest signal is the SHAPE (the gutter accent), so
+ * words appear only where they add: User scope reveals the default on hover/focus, while
+ * a workspace value names its scope at rest - the one case the bar cannot disambiguate.
+ * A null scope renders the note's SPACING TWIN (same text, permanent opacity-0,
+ * aria-hidden): the reveal idiom holds its box at rest, so without the twin a modified
+ * row could be one line taller than its clean self (+15px measured). It skips the Reveal
+ * primitive so none of the bordered modes' at-rest reveals apply (those key on
+ * data-slot="reveal").
  */
 function ModifiedNote({ scope, defaultText }: { scope: SettingScope | null; defaultText?: string | undefined }) {
 	if (defaultText !== undefined && scope === null) {
@@ -407,17 +304,10 @@ function ModifiedNote({ scope, defaultText }: { scope: SettingScope | null; defa
 }
 
 /**
- * The row's help glyph at the tail of whichever sentence is visible: the
- * resting description, or the covering error while one stands. The glyph is
- * glued to the word before it by a nowrap span that carries the no-break
- * space INSIDE it. The bare NBSP was not enough: the glyph is an atomic
- * inline (the help wrapper is inline-flex), and Chrome allows a line break
- * before an atomic inline even directly after a no-break space - so a
- * sentence that exactly filled the measure orphaned a lone "?" onto its own
- * line. Inside the nowrap span that boundary cannot break, and the
- * word-to-NBSP boundary before the span never could. The overlay's copy
- * restores pointer-events (its cover disables them wholesale) so the "?"
- * stays hoverable while the error stands.
+ * The row's help glyph, glued to the word before it by a nowrap span carrying the NBSP
+ * INSIDE it: the glyph is an atomic inline, and Chrome breaks before an atomic inline
+ * even directly after a no-break space, orphaning a lone "?". The overlay's copy
+ * restores pointer-events so the "?" stays hoverable while the error stands.
  */
 function glyphTrail(title: string, help: string | undefined, placement: "rest" | "cover" = "rest") {
 	if (help === undefined) {
@@ -432,12 +322,9 @@ function glyphTrail(title: string, help: string | undefined, placement: "rest" |
 }
 
 /**
- * One settings row, whatever it holds: the label gutter, the control, and the
- * explanation column that a live error takes over. A row whose setting is
- * explicitly configured in some scope wears the theme's modified accent in
- * the gutter (the border is always there, transparent when clean, so marking
- * a row never shifts it) and offers the Reset that removes exactly that
- * scope's value. The filter hides rows via the hidden attribute, never by
+ * One settings row: a configured row wears the modified accent in the gutter (the border
+ * is always there, transparent when clean, so marking never shifts it) and offers the
+ * Reset for exactly that scope. The filter hides rows via the hidden attribute, never by
  * unmounting: a half-typed draft must survive being filtered away and back.
  */
 function SettingRow({
@@ -472,36 +359,21 @@ function SettingRow({
 	/** Extra placement on the description cell - the catalog row widens its status cluster's track with this. */
 	hintClassName?: string | undefined;
 	/**
-	 * The control is small enough (a checkbox) to share the title's line at
-	 * EVERY stacked width: the sub-560px one-column fallback exists for the
-	 * wide controls - a ~230px select or a 144px input plus the corner
-	 * reserve, which a floor-width pane cannot seat beside a title - and a
-	 * 16px checkbox always fits, while a checkbox alone on a line was the
-	 * original complaint. tailwind-merge resolves these against the base
-	 * template's own sub-560 classes (same variant, later input wins).
+	 * A checkbox is compact enough to share the title's line at EVERY stacked width (the
+	 * sub-560 one-column fallback exists for the wide controls). tailwind-merge resolves
+	 * these against the base template's own sub-560 classes (same variant, later input wins).
 	 */
 	compactControl?: boolean;
 }) {
-	// The standing failure of this row's own last write, when the host refused
-	// it; App's store retires it on the next state push (the success signal).
-	// It renders in the covered-description slot below, exactly like the row's
-	// parse errors: the old placement was a diagnostic block inserted under the
-	// row, which moved every row below it when the refusal landed - the one
-	// unreserved transient this page still had. The slot shows the framed
-	// HEADLINE only (the host notifier's toast rule): the technical detail
-	// line is arbitrary-length and the covering contract keeps the cell at the
-	// description's own height. A live parse error outranks it while both
-	// stand - the error describes the draft under the user's fingers, the
-	// failure the commit before it - and the failure resurfaces when the draft
-	// parses clean again.
+	// The standing failure of this row's last write, rendered in the covered-description slot
+	// like the parse errors (an inserted block used to move every row below). HEADLINE only:
+	// the detail line is arbitrary-length and the covering contract keeps the cell's height.
+	// A live parse error outranks it (it describes the draft under the user's fingers);
+	// the failure resurfaces when the draft parses clean again.
 	const writeFailure = useContext(SettingFailuresContext)[settingId];
-	// Announced once per failure seq: the pane-top away line renders the same
-	// failure whenever this page is hidden, and whichever surface was visible
-	// when it landed has already spoken it. The seq reaches the hook only
-	// while the failure branch actually renders (no live parse error), because
-	// the hook records what it is handed: fed unconditionally, a failure
-	// arriving while a parse error held the slot was marked spoken with no
-	// visible line having spoken it, and surfaced silent once the error
+	// Announced once per failure seq. The seq reaches the hook only while this branch
+	// actually renders: fed unconditionally, a failure landing behind a parse error was
+	// marked spoken with no visible line having spoken it, and surfaced silent later.
 	// cleared.
 	const writeFailureRole = useAlertOnce(error === undefined ? writeFailure?.seq : undefined);
 	const failureText =
@@ -509,23 +381,16 @@ function SettingRow({
 			? undefined
 			: l10n.t("The last change did not apply: {0}", statusErrorHeadline(writeFailure.message));
 	const covered = error !== undefined || failureText !== undefined;
-	// The slot's visible tenant by IDENTITY, not just "covered": a repeat
-	// failure remounts the keyed cover (the seq is its key, so it re-announces),
-	// and swapping one cover for another destroys a focused glyph exactly like
-	// covering did - the focus hand-off below must run for every change of who
-	// holds the slot, not only for covered flipping.
+	// The slot's visible tenant by IDENTITY, not just "covered": a repeat failure remounts
+	// the keyed cover, and swapping one cover for another destroys a focused glyph exactly
+	// like covering did - the focus hand-off must run for every change of tenant.
 	const coverKey = error !== undefined ? "error" : writeFailure !== undefined ? `failure-${writeFailure.seq}` : "rest";
-	// Focus continuity across the glyph swap: the resting "?" and the cover's
-	// are two mounts of one control, and a swap can land while the reader is
-	// ON it (a write failure arrives after they tabbed to the help; a state
-	// push retires one while the cover's glyph has focus). A hidden or removed
-	// element cannot keep focus, so the visible twin takes it - before paint
-	// (useLayoutEffect runs ahead of the browser's own focus fixup), so the
-	// keyboard never lands on the body in between. The ref remembers whether a
-	// glyph in THIS cell held focus, because the unmount direction has already
-	// dropped focus to the body by the time the effect runs; a blur toward any
-	// real element clears it, and the activeElement guard keeps the effect from
-	// stealing focus away from the input the reader is typing in.
+	// Focus continuity across the glyph swap: the two "?"s are two mounts of one control,
+	// and a swap can land while the reader is ON it. The visible twin takes focus before
+	// paint (useLayoutEffect beats the browser's focus fixup, so the keyboard never lands on
+	// the body); the ref remembers whether a glyph in THIS cell held focus, because the
+	// unmount direction has already dropped focus by the time the effect runs, and the
+	// activeElement guard keeps it from stealing focus from an input.
 	const hintRef = useRef<HTMLDivElement | null>(null);
 	const glyphHadFocus = useRef(false);
 	useLayoutEffect(() => {
@@ -546,22 +411,13 @@ function SettingRow({
 			className={cn(
 				SETTING_ROW_GRID,
 				"setting-row group/setting -ml-3 relative items-baseline gap-y-1 rounded-xs border-l-2 py-2 pl-2.5 hover:bg-accent",
-				// The right edge mirrors the record rows' (-mx-2 with px-2): the
-				// hover tint overhangs the pane's cap by 8px while the CONTENT stops
-				// exactly at it, so every row's actions slot and the record editors'
-				// frames share one edge. pr-3 without the margin left the row's
-				// content 12px short of everything below it.
+				// The right edge mirrors the record rows' (-mx-2 with px-2): the hover tint overhangs
+				// the pane's cap by 8px while the CONTENT stops exactly at it.
 				"-mr-2 pr-2",
-				// The modified mark is the ACCENT, not the host's amber
-				// modifiedItemIndicator: "you set this" is selection semantics, the
-				// same family as the rail's selected-tab bar, while amber is what
-				// the severity edges mean by "needs attention" - one shape carrying
-				// both readings taught the reader to triage their own choices.
-				// The var-shorthand form reads the RUNTIME --accent-hue chain
-				// directly (the theme/accent blocks re-point it per accent and
-				// surface): a named color utility here needs a @theme alias, and
-				// the last one was deleted as orphaned - the utility then compiled
-				// to nothing and the bar silently fell back to currentColor grey.
+				// The modified mark is the ACCENT, not the host's amber modifiedItemIndicator: "you set
+				// this" is selection semantics, amber means "needs attention". The var-shorthand form
+				// reads the RUNTIME --accent-hue chain directly: a named utility needs a @theme alias,
+				// and the last one was deleted as orphaned - the bar silently fell back to grey.
 				configuredScope !== null ? "modified border-l-(--accent-hue)" : "border-l-transparent",
 				// A compact control keeps the two-column line at every stacked
 				// width; the base template's sub-560 fallback yields to it
@@ -577,12 +433,9 @@ function SettingRow({
 					{title}
 				</label>
 			)}
-			{/* The line's tail in the two-column stacked band, so it carries the
-			    top-right corner reserve there: the actions pin over the row's
-			    first line, and a long control would otherwise run under them.
-			    Below 560px the control has a line of its own, clear of the
-			    corner, and the reserve goes back to the title - except beside a
-			    compact control, which keeps the shared line and the reserve. */}
+			{/* The line's tail in the two-column stacked band carries the top-right corner reserve:
+			    the actions pin over the row's first line. Below 560px the control has its own line
+			    and the reserve goes back to the title - except beside a compact control. */}
 			<div
 				className={cn(
 					"setting-control flex flex-wrap items-center gap-2 @min-[560px]/pane:@max-[910px]/pane:pr-24",
@@ -591,31 +444,14 @@ function SettingRow({
 			>
 				{control}
 			</div>
-			{/* The error does not replace the description in the flow, it covers
-			    it: the resting content stays, merely invisible, so the cell keeps
-			    the height it had and no row below moves while you type. The
-			    covering is one wrapper over the WHOLE resting flow - description,
-			    notes, and glyph together - because covering only the description
-			    left the glyph and the notes painting through the overlay's text
-			    (forced colors draws an opaque backplate behind the error, which
-			    buried the glyph outright there and collided with it everywhere
-			    else). display: contents keeps the wrapper out of layout, so the
-			    inline flow is exactly what it was without it.
-
-			    The help glyph trails the description INLINE, inside the same
-			    prose flow, so it sits where the words end on every row instead of
-			    holding a phantom column at the pane's far edge. While an overlay
-			    covers the cell, the SAME glyph re-renders at the overlay text's
-			    own tail (glyphTrail below, pointer-events restored): the visible
-			    sentence is what the "?" must trail, and a row explaining what you
-			    typed wrong is the worst moment to make its help unreachable.
-
-			    The cell owns breaking because it owns wrapping: a description
-			    with one unbroken token would otherwise set its own min-content
-			    width and push straight out of the column. The 72ch cap (p.hint's
-			    own measure) is a READING cap inside the growing track, not a
-			    second structural edge: only structure goes full-bleed, prose
-			    stops where lines stay readable. */}
+			{/* The error COVERS the description: the resting content stays, invisible, so the cell
+			    keeps its height and no row moves while you type. One wrapper over the WHOLE resting
+			    flow (covering only the description left the glyph painting through; forced colors
+			    draws an opaque backplate that buried it); display: contents keeps the wrapper out of
+			    layout. The glyph trails the description INLINE, and while covered the SAME glyph
+			    re-renders at the overlay text's own tail - a row explaining what you typed wrong is
+			    the worst moment to make its help unreachable. The cell owns breaking because it owns
+			    wrapping; the 72ch cap is a READING cap inside the growing track, not a second edge. */}
 			<div
 				className={cn(
 					"setting-hint relative min-w-0 max-w-[72ch] break-words text-[0.95em] text-muted-foreground",
@@ -631,13 +467,9 @@ function SettingRow({
 					glyphHadFocus.current = event.target instanceof HTMLElement && event.target.matches("button.help");
 				}}
 				onBlurCapture={(event) => {
-					// A blur toward a real element is the reader leaving; so is a
-					// null-target blur from a still-connected glyph (Escape, a click
-					// on the page background) - the hand-off must not steal focus
-					// back on the next tenant swap after either. What must NOT clear
-					// the flag is the swap itself: removal of a focused element
-					// fires no blur at all, and the covering direction's hand-off
-					// runs before the browser's hidden-element fixup can.
+					// A blur toward a real element is the reader leaving; so is a null-target blur from a
+					// still-connected glyph (Escape, background click). The swap itself must NOT clear the
+					// flag: removing a focused element fires no blur at all.
 					if (event.relatedTarget !== null || (event.target instanceof HTMLElement && event.target.isConnected)) {
 						glyphHadFocus.current = false;
 					}
@@ -645,11 +477,9 @@ function SettingRow({
 			>
 				<span className={cn("setting-rest contents", covered && "invisible")}>
 					<span className="setting-desc">{description}</span>
-					{/* An AT-REST note (a workspace override) precedes the glyph, so
-					    the "?" stays the resting description's last element on every
-					    row. The hover-only User-scope note trails it instead: at rest
-					    nothing visible follows the glyph, and rendering the invisible
-					    note before it would hold a blank gap open mid-sentence. */}
+					{/* An AT-REST note precedes the glyph, so the "?" stays the resting description's last
+					    element; the hover-only User-scope note trails it - an invisible note before it would
+					    hold a blank gap open mid-sentence. */}
 					{configuredScope !== null && configuredScope !== "global" ? (
 						<>
 							{" "}
@@ -667,14 +497,9 @@ function SettingRow({
 						</>
 					) : null}
 				</span>
-				{/* The covering overlays. pointer-events-none on the cover because
-				    it spans the whole cell; what it covers is visibility-hidden and
-				    untouchable anyway. The glyph inside restores pointer-events for
-				    itself, so the row's help stays hoverable and clickable while
-				    the error stands. The .error span holds ONLY the message text
-				    and keeps the id: aria-describedby reads the referenced node's
-				    subtree, and a glyph inside it would append its own accessible
-				    name to every announcement of the field's problem. */}
+				{/* The covering overlays. The glyph inside restores pointer-events for itself. The .error
+				    span holds ONLY the message and keeps the id: aria-describedby reads the referenced
+				    subtree, and a glyph inside it would ride every announcement of the field's problem. */}
 				{error !== undefined ? (
 					<span className="setting-cover pointer-events-none absolute inset-0">
 						<span className="error" id={errorId}>
@@ -695,17 +520,11 @@ function SettingRow({
 					</span>
 				) : null}
 			</div>
-			{/* The row's one actions slot, at the pane's right edge: Reset when a
-			    scope sets a value, then the settings.json jump, always in that
-			    order and always last - the anatomy's fourth track, so the pair
-			    lands at the same x on every row. Placed explicitly rather than by
-			    auto-flow, because a description cell that spans onto a second row
-			    (the catalog row's status cluster) would otherwise drag the auto
-			    cursor down there with it. Stacked, the slot pins to the row's
-			    top-right corner (the row is relative for exactly this) instead of
-			    stacking as a lone line. gap-4.5 is ink-to-ink (the compact buttons
-			    hand their padding back at the Button primitive): the visible
-			    spacing the slot has always shown. */}
+			{/* The row's one actions slot: Reset then the settings.json jump, always last (the
+			    anatomy's fourth track). Placed explicitly - a description cell spanning a second row
+			    would drag the auto cursor down with it. Stacked, the slot pins to the row's top-right
+			    corner (the row is relative for this). gap-4.5 is ink-to-ink (compact buttons hand
+			    their padding back). */}
 			<div className="setting-actions flex items-center justify-end gap-4.5 self-start justify-self-end @min-[910px]/pane:col-start-4 @min-[910px]/pane:row-start-1 @max-[910px]/pane:absolute @max-[910px]/pane:top-1.5 @max-[910px]/pane:right-2">
 				{configuredScope !== null ? <ResetButton title={title} scope={configuredScope} settingId={settingId} /> : null}
 				<RevealButton title={title} settingId={settingId} />
@@ -715,19 +534,11 @@ function SettingRow({
 }
 
 /**
- * A number setting edited as draft text and committed on blur or Enter, so
- * half-typed values never reach the configuration. The draft is parsed once
- * per keystroke (parseNumberDraft), and the error display, the commit, and
- * the equivalence hint all read that one verdict, never latched at commit
- * time: a valid draft must never render as invalid, and the equivalence hint
- * must stay live while the user types their way out of a rejected value. An
- * external state push resets the draft to the store's value.
- *
- * One display exception to the live verdict: a minimum-bound rejection stays
- * quiet until the field first blurs (or Enter tries to commit), because
- * typing the 5 of 5000 honestly passes below the bound. The parse itself is
- * unchanged - an invalid draft still never commits - and the blurred latch
- * re-arms on every external resync.
+ * A number setting edited as draft text, committed on blur or Enter. One parse per
+ * keystroke feeds display, commit, and equivalence hint alike - never latched at commit
+ * time. One display exception: a minimum-bound rejection stays quiet until first blur,
+ * because typing the 5 of 5000 honestly passes below the bound; the parse itself is
+ * unchanged and the blurred latch re-arms on every external resync.
  */
 function NumberField({
 	id,
@@ -833,13 +644,10 @@ function NumberField({
 }
 
 /**
- * A boolean setting. The title is plain text on purpose: only the checkbox
- * and its explanation toggle, so a click on the label gutter cannot silently
- * write settings.json. `meta` fills the description slot for a row whose
- * status IS its description - the OpenRouter catalog
- * row's count, age, and Refresh ride there, with the row's "?" carrying the
- * prose - and is never label-wrapped, because a click on a Refresh button
- * must not also toggle the checkbox.
+ * A boolean setting. The title is plain text on purpose: a click on the label gutter
+ * must not silently write settings.json. `meta` fills the description slot for a row
+ * whose status IS its description, and is never label-wrapped - a click on a Refresh
+ * button must not also toggle the checkbox.
  */
 function BooleanField({
 	id,
@@ -872,14 +680,9 @@ function BooleanField({
 			hidden={hidden}
 			// A checkbox shares the title's line at every width (compactControl).
 			compactControl
-			// A status cluster is not reading prose, so it sheds the hint's 72ch
-			// measure - the cap wrapped "Refresh" onto a line of its own while
-			// half the description track sat empty. Below the models list's
-			// 1136px columnar tier (reused, not minted) even the whole track is
-			// too little: the fixed tracks and gaps eat 616px of pane, leaving
-			// the description under the cluster's one-line width, so the cluster
-			// takes the idle control track too and starts beside the checkbox's
-			// column on a line of its own instead of wrapping mid-cluster.
+			// A status cluster is not prose, so it sheds the hint's 72ch measure. Below the models
+			// list's 1136px columnar tier (reused, not minted) the fixed tracks eat too much pane,
+			// so the cluster takes the idle control track too and starts on a line of its own.
 			hintClassName={
 				meta === undefined
 					? undefined
@@ -903,11 +706,9 @@ function BooleanField({
 }
 
 /**
- * The catalog row's status text, in one place for the row AND the filter: the
- * row shows exactly these strings (CatalogMeta), and the filter matches on
- * them (SettingsSection's isVisible), so a needle like "no refreshes" or
- * "bundled snapshot" always finds the row that visibly says it - the same
- * no-drift rule the non-scalar description functions below follow.
+ * The catalog row's status text, one place for the row AND the filter: the row shows
+ * exactly these strings and the filter matches on them, so a needle always finds the
+ * row that visibly says it (the non-scalar description functions' no-drift rule).
  */
 function catalogStatusParts(
 	catalog: CatalogStatusView,
@@ -935,14 +736,9 @@ function catalogStatusParts(
 }
 
 /**
- * The OpenRouter catalog row's status cluster (docs/dashboard.md#settings),
- * rendered in the row's own description slot where every other row puts its
- * text: the snapshot's size and last refresh, a Refresh button (the same
- * action as the "LiteLLM: Refresh OpenRouter Catalog" command), a standing
- * failure starting on a line of its own - never a toast - and a short inert
- * line while the setting is off. The prose that used to stand here lives in
- * the row's "?" (settingRowHelp), so the row reads label, checkbox, status,
- * "?".
+ * The OpenRouter catalog row's status cluster (docs/dashboard.md#settings), in the row's
+ * description slot: snapshot size and age, Refresh, a standing failure on its own line -
+ * never a toast - and a short inert line while off. The prose lives in the row's "?".
  */
 function CatalogMeta({ catalog, enabled, now }: { catalog: CatalogStatusView; enabled: boolean; now: number }) {
 	const parts = catalogStatusParts(catalog, enabled, now);
@@ -950,11 +746,8 @@ function CatalogMeta({ catalog, enabled, now }: { catalog: CatalogStatusView; en
 		return <span className="catalog-status">{parts.off}</span>;
 	}
 	return (
-		// Plain inline flow, not inline-flex: an inline-flex box is atomic, so
-		// the moment its content has to wrap it takes the whole column and
-		// strands the row's trailing "?" alone on the line below it. Inline,
-		// the glyph glues to the last word wherever the cluster breaks; the
-		// button's margins restate the breathing room the old flex gap drew.
+		// Plain inline flow, not inline-flex: an atomic inline-flex box takes the whole column
+		// the moment it wraps, stranding the trailing "?" alone on the line below.
 		<span className="catalog-status">
 			<span>{parts.summary}</span>{" "}
 			<Button
@@ -988,10 +781,8 @@ function CatalogMeta({ catalog, enabled, now }: { catalog: CatalogStatusView; en
 }
 
 /**
- * The non-scalar rows' descriptions. They live here rather than inline because
- * the filter matches on them exactly as it does for a scalar row's description,
- * and a row whose filter text and visible text can drift is a row a needle
- * finds without showing, or shows without finding.
+ * The non-scalar rows' descriptions, held here because the filter matches on them exactly
+ * as it does scalar descriptions: visible text and filter text must not drift.
  */
 function usageStatusBarDescription(): string {
 	// What the shown number means lives in the row's "?" (helpUsageStatusBar).
@@ -1008,13 +799,9 @@ function toolSchemaKeywordsDescription(): string {
 }
 
 /**
- * The thresholds row's explanation, per branch: the two-box branch states the
- * pair's semantics (the entry grammar and the clearing gesture live in that
- * branch's "?", helpUsageThresholds), while the read-only custom branch
- * describes what the hand-written list does - it renders no fields, so
- * "clear both fields" would instruct gestures the row cannot take.
- * Branch-keyed here because the filter matches on the same text the row shows
- * (see the note above).
+ * The thresholds row's explanation per branch: the read-only custom branch renders no
+ * fields, so "clear both fields" would instruct gestures the row cannot take.
+ * Branch-keyed because the filter matches the same text the row shows.
  */
 function usageThresholdsDescription(custom: boolean): string {
 	return custom
@@ -1079,10 +866,8 @@ function uiThemeLabel(theme: UiTheme): string {
 }
 
 /**
- * Any closed-vocabulary setting as a select: the option list, how to name an
- * option, and where the pick goes. One component rather than one per enum,
- * because two hand-written near-copies of a select row is how the two drift
- * apart - and a third enum setting should cost a call, not a component.
+ * Any closed-vocabulary setting as a select. One component rather than one per enum:
+ * near-copies drift, and a third enum setting should cost a call, not a component.
  */
 function EnumSettingRow<T extends string>({
 	settingId,
@@ -1157,11 +942,9 @@ function uiAccentLabel(accent: UiAccent): string {
 }
 
 /**
- * The ui.accent row: four swatches rather than a list of color words, because
- * the choice IS the color. Native radios carry the semantics and the keyboard
- * (arrow keys move between them, one tab stop for the group); the visible
- * swatch is their label, ringed when checked and when the hidden input takes
- * focus.
+ * The ui.accent row: four swatches, because the choice IS the color. Native radios carry
+ * semantics and keyboard; the visible swatch is their label, ringed when checked and
+ * when the hidden input takes focus.
  */
 function UiAccentRow({
 	accent,
@@ -1218,9 +1001,8 @@ function percentText(value: number): string {
 }
 
 /**
- * One threshold box's parse: a fraction (0.8), a percentage (80%), or a bare
- * number above 1 read as a percent (80 means 80%). The docs' bound applies
- * after conversion: each value in (0, 1], so 0 and anything past 100% reject.
+ * One threshold box's parse: a fraction (0.8), a percentage (80%), or a bare number
+ * above 1 read as percent. The docs' bound applies after conversion: (0, 1].
  */
 function parseThresholdBox(
 	text: string
@@ -1298,13 +1080,10 @@ function ThresholdBox({
 }
 
 /**
- * The usage.alertThresholds row: two inputs over the list setting, each with a
- * trailing "warning" / "error" label, the two-threshold shape the defaults
- * use. Both set writes [low, high] (sorted; equal values collapse to one);
- * one set writes a single-element list, which the alerts treat as the error
- * threshold; both empty writes [] (alerts off). A stored list these two boxes
- * cannot represent (3+ values, hand-written) renders read-only with the
- * reveal button, so the dashboard never destroys it.
+ * The usage.alertThresholds row: two inputs over the list setting. Both set writes
+ * [low, high] (sorted, equal values collapse); one writes a single-element list (treated
+ * as the error threshold); both empty writes [] (off). A stored list the boxes cannot
+ * represent renders read-only with the reveal button, so the dashboard never destroys it.
  */
 function UsageThresholdsRow({
 	values,
@@ -1449,16 +1228,11 @@ function UsageThresholdsRow({
 }
 
 /**
- * The usage.currencySymbol row: one short text box over the string setting.
- * Any text is legal - the symbol is display-only and never sent anywhere -
- * up to the wire cap (WIRE_LIMITS.currencySymbol), which both the maxLength
- * and the intent schema read. maxLength gates typing only: a longer symbol
- * hand-written in settings.json round-trips into the box via the state push,
- * and the row must neither truncate it nor let a commit die as a generic
- * envelope failure - so an over-limit draft shows the bound as the row's
- * error and never commits, and deleting down to the cap recovers in place.
- * Clearing the box commits the empty string, which renders bare numbers.
- * Commits on Enter or blur, like the thresholds pair.
+ * The usage.currencySymbol row. maxLength gates typing only: a longer symbol hand-written
+ * in settings.json round-trips into the box, and the row must neither truncate it nor
+ * let a commit die as a generic envelope failure - an over-limit draft shows the bound
+ * (WIRE_LIMITS.currencySymbol, which the intent schema also reads) and never commits.
+ * Clearing commits the empty string; commits on Enter or blur.
  */
 function CurrencySymbolRow({
 	value,
@@ -1522,24 +1296,18 @@ function CurrencySymbolRow({
 }
 
 /**
- * The intent schema's bounds on setAdditionalToolSchemaKeywords, mirrored
- * (intentSchema.ts: z.array(z.string().max(256)).max(64)) for the same reason
- * the currency row reads WIRE_LIMITS: a paste the host would reject is
- * refused here with a reason, instead of surfacing as a generic envelope
- * failure after the fact.
+ * The intent schema's bounds, mirrored (intentSchema.ts: z.array(z.string().max(256))
+ * .max(64)): a paste the host would reject is refused here with a reason instead of
+ * surfacing as a generic envelope failure.
  */
 const TOOL_SCHEMA_KEYWORD_MAX_LENGTH = 256;
 const TOOL_SCHEMA_KEYWORD_MAX_COUNT = 64;
 
 /**
- * The chat.additionalToolSchemaKeywords row: one comma-separated input over
- * the list setting. Splitting on commas, trimming, and dropping empties gives
- * every draft a reading; a draft past the intent schema's bounds shows the
- * bound as the row's error and never commits. A stored list the box cannot
- * round-trip renders read-only with the reveal button, so the dashboard
- * never destroys it - both the shapes the box cannot spell (an entry holding
- * a comma or edge whitespace) and, via the lossy flag, raw values whose
- * dropped entries the normalized push cannot even show.
+ * The chat.additionalToolSchemaKeywords row: one comma-separated input. A draft past the
+ * intent schema's bounds shows the bound and never commits. A stored list the box cannot
+ * round-trip (comma or edge whitespace in an entry, or lossy raw values) renders
+ * read-only with the reveal button, so the dashboard never destroys it.
  */
 function ToolSchemaKeywordsRow({
 	values,
@@ -1613,12 +1381,9 @@ function ToolSchemaKeywordsRow({
 						id={inputId}
 						type="text"
 						spellCheck={false}
-						// Full control-column width: keyword lists grow sideways, unlike
-						// the intrinsic-width number inputs above. The 20rem cap IS the
-						// control column (the row grid's minmax(0,20rem) track), stated
-						// on the input so the stacked tier keeps the same width policy:
-						// one track there means max-w-full is the whole pane, and this
-						// input alone went full-bleed while every sibling held its width.
+						// Full control-column width: keyword lists grow sideways. The 20rem cap IS the control
+						// column, stated on the input so the stacked tier keeps the same width policy (one
+						// track there means max-w-full is the whole pane).
 						className="w-full max-w-[20rem]"
 						aria-invalid={error !== undefined}
 						aria-describedby={error === undefined ? undefined : errorId}
@@ -1671,24 +1436,17 @@ function SettingGroup({
 			className="settings-group mt-6 @min-[910px]/pane:col-span-4 @min-[910px]/pane:grid @min-[910px]/pane:grid-cols-subgrid"
 			hidden={empty}
 		>
-			{/* Sentence case, not an all-caps letterspaced eyebrow: the group
-			    heading separates by weight, space and the hairline, the same way
-			    the section header does one level up. Full-strength foreground
-			    because the record editors nested inside a group head themselves
-			    at muted 600 - a parent that matches its children ranks nothing. */}
-			{/* The glyph is the heading's sibling, not its child, the same way
-			    SectionHeader arranges the pair one level up: a button nested
-			    inside a heading folds its accessible name into the heading's, so
-			    the group would announce as "Import & Export Help: Import &
-			    Export". The rule and the spacing belong to the line, so they sit
-			    on the wrapper and the heading carries neither. */}
+			{/* Sentence case, not an all-caps eyebrow: the group heading separates by weight, space,
+			    and the hairline. Full-strength foreground - the nested record editors head themselves
+			    at muted 600, and a parent that matches its children ranks nothing. */}
+			{/* The glyph is the heading's sibling, not its child: a button nested inside a heading
+			    folds its accessible name into the heading's. The rule and spacing belong to the
+			    line, so they sit on the wrapper. */}
 			<div className="settings-group-head @min-[910px]/pane:col-span-4 mt-0 mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 border-border border-b pb-1">
 				<h3 className="settings-group-title m-0 font-semibold text-[0.95em]">{title()}</h3>
-				{/* Behind the glyph, not above the rows. A group's explanation is
-				    read once and then never again, so as a standing paragraph it
-				    costs every later visit the space and the eye movement while
-				    telling a returning reader nothing. The "?" is where the rows
-				    below already put their own detail. */}
+				{/* Behind the glyph, not above the rows: a group's explanation is read once, and a
+				    standing paragraph costs every later visit space while telling a returning reader
+				    nothing. */}
 				{help !== undefined ? <Help text={help()} name={l10n.t("Help: {0}", title())} /> : null}
 			</div>
 			{numbers.map((id) => (
@@ -1716,10 +1474,8 @@ function SettingGroup({
 }
 
 /**
- * Where scalar edits land, for the header's meta line. Edits go to your User
- * settings, except that a setting the workspace already sets is changed there
- * (the write-scope rule); a value only a folder scope sets is named by its
- * row's Reset action.
+ * Where scalar edits land, for the header's meta line: User settings, except a setting
+ * the workspace already sets is changed there (the write-scope rule).
  */
 function scopeSummary(scopes: readonly (SettingScope | null)[]): string {
 	return scopes.some((scope) => scope === "workspace")
@@ -1743,10 +1499,8 @@ function configuredScopes(settings: DashboardSettings): readonly (SettingScope |
 }
 
 /**
- * One scalar row's searchable text: its label and description - the two lines
- * the row itself shows, except the catalog row, whose description slot shows
- * the status cluster instead; isVisible matches that row on its live status
- * and its tip, never on the invisible description.
+ * One scalar row's searchable text: the two lines the row shows - except the catalog
+ * row, whose slot shows the status cluster; isVisible matches it on live status and tip.
  */
 function scalarText(id: NumberSettingId | BooleanSettingId): { label: string; description: string } {
 	return Object.hasOwn(NUMBER_SETTING_SPECS, id)
@@ -1755,14 +1509,10 @@ function scalarText(id: NumberSettingId | BooleanSettingId): { label: string; de
 }
 
 /**
- * Whether a record editor matches the filter: by its heading (as scalar rows
- * match their labels), by its own header help - the editor is one visible
- * unit with the "?" carrying the match, the same reading as a scalar row
- * matched through its help, not a group kept alive by group-level help - or
- * by any key it holds in any scope: the record's own keys plus, for
- * modelParameters, the parameter names nested one level down. Store keys
- * only, deliberately: a dirty draft's rows live inside the editor, which the
- * filter hides but never unmounts.
+ * Whether a record editor matches the filter: by its heading, its own header help, or
+ * any key it holds in any scope (plus modelParameters' nested parameter names). Store
+ * keys only, deliberately: a dirty draft lives inside the editor, which the filter
+ * hides but never unmounts.
  */
 function recordEditorMatches(
 	needle: string,
@@ -1825,17 +1575,11 @@ export function SettingsSection({
 	// straddling a minute boundary would let a needle match "5 min ago" while
 	// the row shows 6.
 	const nowMs = now ?? Date.now();
-	// Row-level help is part of a row's haystack: the "?" glyph is visible at
-	// rest and its tip carries the matching words, so a reader can always see
-	// why the row survived - and the help is where the searchable synonyms
-	// went when the long explanations moved out of the descriptions ("stale"
-	// finds discovery.staleServeWindow again). The catalog row's haystack is
-	// what that row SHOWS - the live status cluster plus its tip - and its
-	// static description stays out entirely: the description renders nowhere,
-	// and while its English text is the tip's first sentence, a translated
-	// bundle renders the two keys through two independent translations, so
-	// only excluding it makes "the haystack holds what the row shows" hold in
-	// every locale by construction.
+	// Row-level help is in a row's haystack: the "?" is visible at rest and its tip carries
+	// the matching words, so a reader can see why the row survived. The catalog row's
+	// haystack is what that row SHOWS - its static description renders nowhere, and a
+	// translated bundle renders the two keys independently, so only excluding it keeps
+	// "the haystack holds what the row shows" true in every locale.
 	const catalogTexts = Object.values(
 		catalogStatusParts(settings.catalog, settings.booleans["models.openRouterCatalog"], nowMs)
 	).filter((text): text is string => text !== undefined);
@@ -1858,11 +1602,9 @@ export function SettingsSection({
 		needle.length === 0 ||
 		recordEditorMatches(needle, modelCapabilitiesTitle(), helpModelCapabilitiesSection(), settings.modelCapabilities);
 	const anyScalarVisible = [...NUMBER_SETTING_IDS, ...BOOLEAN_SETTING_IDS].some(isVisible);
-	// The non-scalar rows filter by the same rule as the scalar ones - name,
-	// explanation, setting id, and the row's own help where it carries one -
-	// so a needle cannot find one kind and miss the other. Hoisted because the
-	// empty-state verdict below has to see them: a filter matching only a tail
-	// row used to render that row under a "nothing matched" line.
+	// The non-scalar rows filter by the same rule as the scalar ones, so a needle cannot
+	// find one kind and miss the other. Hoisted because the empty-state verdict below has
+	// to see them: a filter matching only a tail row once rendered it under "nothing matched".
 	const statusBarVisible = matches(
 		l10n.t("Usage status bar"),
 		usageStatusBarDescription(),
@@ -1898,15 +1640,10 @@ export function SettingsSection({
 	);
 	const themeVisible = matches(l10n.t("Dashboard theme"), uiThemeDescription(), "ui.theme", helpUiTheme());
 	const accentVisible = matches(l10n.t("Accent color"), uiAccentDescription(), "ui.accent", helpUiAccent());
-	// The Import & Export group filters like a scalar row: its title and button
-	// labels stand in for the label, and it has no description to add. Its
-	// help stays OUT of the haystack even though the rows' own help is in,
-	// because the two keep different things alive: a row matched through its
-	// help keeps exactly the row those words describe, with its "?" carrying
-	// the match, while a group matched through group-level help would keep a
-	// whole group standing when no row in it matches - the reader scans the
-	// surviving rows for the needle and finds it in none of them. Section-level
-	// help is out for the same reason.
+	// The Import & Export group filters like a scalar row (title and button labels). Its
+	// help stays OUT of the haystack even though row-level help is in: a group matched
+	// through group help would stand with no row in it matching - the reader scans the
+	// surviving rows and finds the needle in none. Section-level help is out likewise.
 	const importExportVisible =
 		needle.length === 0 ||
 		[l10n.t("Import & Export"), l10n.t("Export settings"), l10n.t("Import settings")].some((text) =>
@@ -1955,11 +1692,9 @@ export function SettingsSection({
 				return isVisible(row);
 		}
 	};
-	// Each standing failure lands by scope: the row whose remembered write id
-	// the failure echoes owns it, latest seq winning when two writes' failures
-	// share one row (a failed Reset beside a failed value write); anything
-	// unclaimed - an id no mounted row posted, or an owning row the filter has
-	// hidden - falls back to one always-visible section-top line, latest first.
+	// Each standing failure lands by scope: the row whose remembered write id it echoes owns
+	// it (latest seq wins when two share a row); anything unclaimed - an unknown id, or an
+	// owning row the filter hid - falls back to the always-visible section-top line.
 	const rowFailures: Partial<Record<SettingRowId, SettingWriteFailure>> = {};
 	let unclaimedFailure: SettingWriteFailure | undefined;
 	for (const method of SETTING_WRITE_METHODS) {
@@ -2002,12 +1737,8 @@ export function SettingsSection({
 						<Input
 							id={filterId}
 							type="text"
-							// 16rem beside the button while the header line holds both;
-							// below the strip's 640px wrapping tier (dashboard.css's
-							// .section-actions rule) the wrap gives this input a line of
-							// its own, and w-full is what makes it BE that line - a fixed
-							// width can only shrink, so the wrapped input stopped at
-							// 256px inside a wider row.
+							// 16rem beside the button while the header line holds both; once the 640px strip wrap
+							// gives this input its own line, w-full is what makes it BE that line.
 							className="w-[16rem] @max-[640px]/pane:w-full min-w-0 max-w-full shrink"
 							placeholder={l10n.t("Filter settings, e.g. timeout")}
 							aria-label={l10n.t("Filter settings")}
@@ -2037,11 +1768,7 @@ export function SettingsSection({
 				    width for the whole page. */}
 				<div className={cn("settings-groups", SETTING_GRID_TRACKS)}>
 					{SETTING_GROUPS.map((group, index) => {
-						// Four groups carry non-scalar tails: Models gets the two record
-						// editors (mirroring the manifest's grouping - they are model
-						// settings, not a page of their own), Chat gets the
-						// token-estimation enum and the tool-schema-keywords list, Usage
-						// gets the status bar mode enum and the alert-thresholds row.
+						// Four groups carry non-scalar tails, mirroring the manifest's grouping.
 						const isModelsGroup = group.booleans.includes("models.openRouterCatalog");
 						const isChatGroup = group.numbers.includes("chat.timeout");
 						const isUsageGroup = group.numbers.includes("usage.pollInterval");
@@ -2161,15 +1888,9 @@ export function SettingsSection({
 							isVisible={isVisible}
 						/>
 					) : null}
-					{/* The trailing Import & Export group: no settings rows, just two
-				    actions invoking the export/import commands over the same
-				    executeCommand post the header's Report a bug uses. They ARE
-				    this group's content - it holds nothing else - so they stand
-				    in its body where every other group puts its rows, at full
-				    button size: parked in the heading's far-right actions slot
-				    they read as tucked-away chrome on an empty section. Rendered
-				    after every other group so file transfer never sits between
-				    rows. */}
+					{/* The trailing Import & Export group: the two actions ARE its content, so they stand in
+					    its body at full size (parked in the heading's actions slot they read as tucked-away
+					    chrome). Rendered last so file transfer never sits between rows. */}
 					<SettingGroup
 						title={() => l10n.t("Import & Export")}
 						help={helpImportExportGroup}

@@ -1,17 +1,7 @@
 /**
- * The tip primitive's WCAG 1.4.13 contract, pinned on the components built
- * from it (help.tsx's HoverTip and Help, the rail's collapsed-control tips):
- * hoverable - the pointer can travel from the trigger onto the bubble without
- * the bubble closing; dismissible - Escape hides the bubble without moving
- * focus, and claims the key so an enclosing dismissal layer stays open; and
- * persistent - the bubble stays while the pointer or keyboard focus remains.
- * Plus the screen-reader wiring: the visible tip text is the trigger's
- * accessible description where it says something the accessible name does
- * not, and paint-only where it would merely repeat the name (the rail).
- *
- * happy-dom computes no cascade, so what these tests read is the state the
- * stylesheet keys on (data-open) and the measured inline coordinates - the
- * same contract the render harness photographs for the visual review.
+ * The tip primitive's WCAG 1.4.13 contract: hoverable, dismissible by Escape without moving focus (claiming
+ * the key), persistent while pointer or focus holds it, plus the description wiring. happy-dom computes no
+ * cascade, so these read data-open and inline coordinates.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -100,10 +90,9 @@ test("dismissible: Escape hides a hover-shown tip without moving focus, and cons
 	fireMouseEnter(wrap);
 	expect(isOpen(bubble)).toBe(true);
 
-	// The page's Escape policy is bubble-phase layering (the slide-over, the
-	// shell's leave-edit) and none of those handlers re-check defaultPrevented,
-	// so the tip must swallow the event before they run: this listener stands
-	// in for them and must stay unheard.
+	// The page's Escape layers are bubble-phase and none re-check
+	// defaultPrevented, so the tip must swallow the event first; this listener
+	// stands in for them and must stay unheard.
 	let heardBelow = 0;
 	const below = () => {
 		heardBelow += 1;
@@ -243,10 +232,9 @@ test("collapsed rail controls carry paint-only tips: name echoes, hidden from as
 		expect(label.length).toBeGreaterThan(0);
 		expect(action.querySelector(".tip-bubble")?.textContent).toBe(label);
 	}
-	// The verdict pill's tip says what the dot means: the word plus sync time.
-	// It is paint-only like the tabs' - its word is already the pill's own text
-	// and its time is the sync line below, so the tab stop's description points
-	// at that line and each fact is announced once.
+	// The verdict pill's tip is paint-only like the tabs': its word is already
+	// the pill's own text and its time is the sync line below, so the tab stop's
+	// description points at that line and each fact is announced once.
 	const word = root.querySelector(".rail-word")?.textContent ?? "";
 	expect(word.length).toBeGreaterThan(0);
 	const pill = root.querySelector(".rail-status") as HTMLElement;
@@ -295,12 +283,9 @@ test("at full width the rail renders no tip bubbles: the labels are painted righ
 });
 
 test("the bubble is fixed-position in the stylesheet, which is what escapes every ancestor clip", () => {
-	// The one declaration this whole design rests on, and the only one no
-	// behavioral test can reach: happy-dom runs no cascade, so a tip renders
-	// identically here whether it is fixed or absolute. Deleting `position:
-	// fixed` leaves every suite green while every tip inside a table's
-	// scrollport or the rail's 48px column gets clipped at that overflow box
-	// again. Read from the sheet, since the sheet is where it lives.
+	// happy-dom runs no cascade, so a tip renders identically whether it is fixed
+	// or absolute: deleting `position: fixed` leaves every suite green while
+	// every tip inside a scrollport gets clipped again. Read from the sheet.
 	const sheet = readFileSync(join(import.meta.dir, "../../../../webview/dashboard/styles/dashboard.css"), "utf8");
 	const block = /\.tip-bubble \{([^}]*)\}/.exec(sheet)?.[1];
 	if (block === undefined) {
@@ -315,8 +300,7 @@ test("the bubble is fixed-position in the stylesheet, which is what escapes ever
 /**
  * The `enabled` flip the rail performs at its collapse width, driven directly:
  * happy-dom's matchMedia fires `change` when a query starts matching but not
- * when it stops (a widening window), so the rail's own collapse cannot be
- * exercised in both directions here; the primitive's contract can.
+ * when it stops, so the rail's own collapse cannot be exercised both ways here.
  */
 function EnabledProbe({ enabled }: { enabled: boolean }) {
 	const tip = useTip("above", enabled);
@@ -383,11 +367,9 @@ test("a collapsed rail tip escapes the 48px rail: anchored beside the [data-tip-
 });
 
 test("the horizontal clamp measures the bubble, so a short tip stays beside a right-edge trigger", () => {
-	// The clamp's worst case (a full-width 350px box) would shove a SHORT tip
-	// hundreds of pixels left of a trigger near the right edge, opening a gap
-	// no pointer could cross - and hoverability is the whole point. happy-dom
-	// lays nothing out, so offsetWidth is stubbed the way a browser would
-	// report it once the bubble is displayed.
+	// A worst-case (350px) clamp would shove a SHORT tip hundreds of pixels left
+	// of a right-edge trigger, opening a gap no pointer could cross. happy-dom
+	// lays nothing out, so offsetWidth is stubbed as a browser would report it.
 	const root = mount(
 		<HoverTip tip="short">
 			<span>badge</span>
@@ -401,11 +383,9 @@ test("the horizontal clamp measures the bubble, so a short tip stays beside a ri
 	stubBoundingRect(wrap, { left: triggerLeft, top: 300, bottom: 320 });
 	fireMouseEnter(wrap);
 
-	// Two things at once, and the worst-case clamp satisfied only the first:
-	// the bubble's whole box stays on screen, AND its x range still reaches the
-	// trigger, so there is a pointer path from one to the other. At the worst
-	// case this tip would have sat at innerWidth - 350, some 330px away from a
-	// 60px bubble - on screen, and unreachable.
+	// Both halves, and the worst-case clamp satisfied only the first: the whole
+	// box stays on screen, AND its x range still reaches the trigger, so there
+	// is a pointer path from one to the other.
 	const left = Number.parseInt(bubble.style.left, 10);
 	expect(left + 60).toBeLessThanOrEqual(window.innerWidth);
 	expect(left).toBeLessThanOrEqual(triggerLeft);

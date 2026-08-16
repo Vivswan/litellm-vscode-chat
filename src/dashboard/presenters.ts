@@ -1,8 +1,7 @@
 /**
  * Pure presentation logic shared by the extension host and the webview: no
- * vscode, DOM, or Node. @vscode/l10n is the one l10n API that works in both
- * runtimes, and localized strings resolve at call time (never module-level
- * constants - modules load before the bundle is configured).
+ * vscode, DOM, or Node. Localized strings resolve at call time, never as
+ * module-level constants - modules load before the bundle is configured.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -14,13 +13,11 @@ import type { DashboardServer, DeclaredServerNotice, SettingScope } from "./view
 
 /**
  * The overall configuration verdict, shared by the dashboard hero and the
- * Diagnostics tab so their headline judgement cannot drift. Only real
- * failures count: unchecked entries stay neutral, and so do failures the
- * entry's expectedFailures declares - expected-and-serving-declared counts as
- * connected, expected-and-serving-nothing yields "needs-declare".
- * Misconfigured entries are neutral too (they never reach the host, so
- * counting them would split the headline from the status bar) - except that
- * a configuration of ONLY misconfigured entries is an error, not "waiting".
+ * Diagnostics tab so their headline judgement cannot drift. Only real failures
+ * count: unchecked entries stay neutral, and so do failures the entry's
+ * expectedFailures declares (expected-and-serving-nothing yields
+ * "needs-declare"). Misconfigured entries are neutral too - except that a
+ * configuration of ONLY misconfigured entries is an error, not "waiting".
  */
 export type OverallVerdict = "not-configured" | "error" | "degraded" | "waiting" | "connected" | "needs-declare";
 
@@ -58,10 +55,10 @@ export function classifyOverall(
 }
 
 /**
- * The verdict as one sentence, pinned by tests. English by policy: users
- * paste these lines into public issue reports, so localization sweeps must
- * skip this function. The legacy registry is real configuration even though
- * it contributes no server rows, so it overrides the not-configured claim.
+ * The verdict as one sentence, pinned by tests. English by policy: users paste
+ * these lines into public issue reports, so localization sweeps must skip this
+ * function. The legacy registry is real configuration even though it
+ * contributes no server rows, so it overrides the not-configured claim.
  */
 export function overallStatusText(
 	servers: readonly DashboardServer[],
@@ -74,9 +71,9 @@ export function overallStatusText(
 				? `Legacy registry only (${legacyServerCount} ${legacyServerCount === 1 ? "server" : "servers"})`
 				: "Not configured";
 		case "error": {
-			// The verdict guarantees an error-state server; the fallback only
-			// satisfies the type checker. A transport failure outranks a
-			// misconfigured row's fixed text: the real outage is the line worth pasting.
+			// The fallback only satisfies the type checker (the verdict guarantees an
+			// error row). A transport failure outranks a misconfigured row's fixed
+			// text: the real outage is the line worth pasting.
 			const errorRows = servers.filter((server) => server.state === "error");
 			const firstError =
 				(errorRows.find((server) => server.origin !== "misconfigured") ?? errorRows[0])?.error ?? "Unknown error";
@@ -96,8 +93,7 @@ export function overallStatusText(
 /**
  * The entry-params-inactive classification as diagnostics prose: fixed text
  * derived from the classification alone, so every surface names it the same
- * way. English by policy: these lines land in public issue reports, so
- * localization sweeps must skip this constant.
+ * way. English by policy - these lines land in public issue reports.
  */
 const ENTRY_PARAMS_INACTIVE_TEXT =
 	"per-entry modelParameters are not applied (the provider group does not carry this entry's labeled identity); delete the group's object from the models file (chatLanguageModels.json), reload the window, and run Sync Models Now, or save the entry under a new label";
@@ -147,9 +143,8 @@ export interface ServerOutcomeParts {
 	readonly models?: string | undefined;
 	/**
 	 * The row's error: an "error" state's message (with the English
-	 * "(expected)" annotation when the entry expects the category), or the
-	 * sync failure an "ok" row can still carry (a declared entry whose group
-	 * upsert failed while an already-live group keeps serving).
+	 * "(expected)" annotation when the entry expects the category), or the sync
+	 * failure an "ok" row can still carry.
 	 */
 	readonly error?: string | undefined;
 	/** The row's warning notices, fixed classification text, one line each. */
@@ -169,8 +164,8 @@ export function serverOutcomeParts(server: DashboardServer): ServerOutcomeParts 
 		case "error": {
 			if (server.expected === true) {
 				// Truthful error, expected presentation: the "(expected)" annotation
-				// stays English (it lands in issue reports) and rides the headline
-				// line. A row still serving declared models reads as OK-with-note.
+				// stays English (it lands in issue reports). A row still serving
+				// declared models reads as OK-with-note.
 				const detail = statusErrorDetail(server.error);
 				const headline = `${statusErrorHeadline(server.error)} (expected)`;
 				const error = detail === undefined ? headline : `${headline}\n${detail}`;
@@ -191,7 +186,7 @@ export function serverOutcomeParts(server: DashboardServer): ServerOutcomeParts 
 /**
  * One server's diagnostics outcome line, pinned by tests like
  * overallStatusText. English by policy: users paste these lines into public
- * issue reports, so localization sweeps must skip this function.
+ * issue reports.
  */
 export function serverOutcomeText(server: DashboardServer): string {
 	const parts = serverOutcomeParts(server);
@@ -221,8 +216,7 @@ export function latestCheckedMs(servers: readonly Pick<DashboardServer, "lastChe
 }
 
 /**
- * What each number setting counts. Static classification, apart from the
- * localized presentation: value logic keys off these codes through
+ * What each number setting counts. Value logic keys off these codes through
  * NUMBER_UNIT_BEHAVIOR; consumers read a setting's unit through unitBehavior().
  */
 const NUMBER_SETTING_UNITS = {
@@ -240,7 +234,6 @@ const NUMBER_SETTING_UNITS = {
 /**
  * One unit's value behavior: everything the display and validation paths key
  * off a setting's unit, so adding a unit is one NUMBER_UNIT_BEHAVIOR row.
- * Localized strings resolve inside the functions, per call.
  */
 export interface NumberUnitBehavior {
 	/** A draft's numeric reading under the unit's grammar; undefined when the text has no reading. */
@@ -257,9 +250,8 @@ export interface NumberUnitBehavior {
 	readonly freeTextInput: boolean;
 }
 
-// The rows may reference parseDurationDraftMs and formatDuration above their
-// definitions only because those are hoisted function declarations; turning
-// either into a const arrow would crash this table at module load.
+// parseDurationDraftMs and formatDuration are hoisted function declarations;
+// turning either into a const arrow would crash this table at module load.
 const NUMBER_UNIT_BEHAVIOR = {
 	ms: {
 		parseDraft: parseDurationDraftMs,
@@ -296,8 +288,7 @@ const NUMBER_UNIT_BEHAVIOR = {
 		},
 		parseProblem: () => l10n.t("Not a whole number"),
 		exactDisplay: () => undefined,
-		// A digit-grouped echo of the same number would say nothing; the unit
-		// suffix on the input carries the meaning.
+		// A digit-grouped echo of the same number would say nothing.
 		equivalence: () => undefined,
 		minimumText: (minimum) => String(minimum),
 		freeTextInput: false,
@@ -325,8 +316,7 @@ export interface NumberSettingPresentation {
 /**
  * The presentation of one number setting the dashboard edits. A function, not
  * a module-level catalog: these strings localize, and module-level constants
- * would freeze the English text before l10n.config runs (the value side stays
- * static in shared/config/settingSpec's NUMBER_SETTING_SPECS).
+ * would freeze the English text before l10n.config runs.
  */
 export function numberSettingPresentation(id: NumberSettingId): NumberSettingPresentation {
 	switch (id) {
@@ -403,7 +393,7 @@ const DURATION_SUFFIX_MS: Readonly<Record<string, number>> = {
 
 /**
  * A duration draft as milliseconds: "1500ms", "90s", "5m", "1h" (suffixes
- * case-insensitive), or a bare number meaning milliseconds. Undefined for
+ * case-insensitive), or a bare number meaning milliseconds; undefined for
  * everything else, so the form renders one grammar error. Module-private:
  * every consumer reads durations through parseNumberDraft's single verdict.
  */
@@ -411,9 +401,8 @@ function parseDurationDraftMs(text: string): number | undefined {
 	const trimmed = text.trim();
 	const match = /^(.*?)(ms|s|m|h)$/i.exec(trimmed);
 	if (match === null) {
-		// No suffix: the bare-number-is-ms reading. Number("") is 0, so the
-		// empty draft must never reach this helper unguarded (draftValue and
-		// parseNumberDraft both handle it first).
+		// No suffix: the bare-number-is-ms reading. Number("") is 0, so the empty
+		// draft must never reach this helper unguarded.
 		const bare = trimmed.length === 0 ? Number.NaN : Number(trimmed);
 		return Number.isFinite(bare) ? bare : undefined;
 	}
@@ -427,17 +416,16 @@ function parseDurationDraftMs(text: string): number | undefined {
 		return undefined;
 	}
 	const scaled = value * (DURATION_SUFFIX_MS[suffix] ?? Number.NaN);
-	// The scaling can overflow ("9e307h"): a non-finite product must not read
-	// as a valid draft. Finite products round to whole milliseconds -
-	// sub-millisecond precision in a duration string is never intent.
+	// The scaling can overflow ("9e307h"): a non-finite product must not read as
+	// a valid draft. Finite products round to whole milliseconds.
 	return Number.isFinite(scaled) ? Math.round(scaled) : undefined;
 }
 
 /**
  * One draft's numeric reading under the field's grammar (the unit's
  * parseDraft); undefined when the text has no reading, empty included. The
- * single value extraction behind parseNumberDraft AND isBoundViolation, so
- * the two can never disagree about what a draft is worth.
+ * single value extraction behind parseNumberDraft AND isBoundViolation, so the
+ * two can never disagree about what a draft is worth.
  */
 function draftValue(id: NumberSettingId, text: string): number | undefined {
 	const trimmed = text.trim();
@@ -450,8 +438,7 @@ function draftValue(id: NumberSettingId, text: string): number | undefined {
 /**
  * What a modified number row shows as the setting's built-in default: the
  * unit's exact human rendering when it has one, the raw number otherwise. A
- * "~" approximation would misstate what the default actually is, so inexact
- * durations fall back to the raw number.
+ * "~" approximation would misstate what the default actually is.
  */
 export function defaultDisplay(id: NumberSettingId): string {
 	const spec = NUMBER_SETTING_SPECS[id];
@@ -459,11 +446,10 @@ export function defaultDisplay(id: NumberSettingId): string {
 }
 
 /**
- * Whether a rejected draft failed only the minimum bound. The form keeps
- * these quiet until the field blurs (typing the 5 of 5000 passes through
- * honest below-minimum values), while true parse failures stay live. Reads
- * the draft through the same draftValue extraction parseNumberDraft uses, so
- * the two classifications cannot drift; the settings-form tests pin both.
+ * Whether a rejected draft failed only the minimum bound. The form keeps these
+ * quiet until the field blurs (typing the 5 of 5000 passes through honest
+ * below-minimum values), while true parse failures stay live. Reads the draft
+ * through the same draftValue extraction parseNumberDraft uses.
  */
 export function isBoundViolation(id: NumberSettingId, text: string): boolean {
 	const value = draftValue(id, text);
@@ -496,8 +482,7 @@ export function booleanSettingPresentation(id: BooleanSettingId): BooleanSetting
 			return {
 				label: l10n.t("OpenRouter catalog"),
 				// Not rendered (the row shows the live status cluster instead) and so
-				// not filtered: the filter reads only what the row shows, because this
-				// key and the tip's translate independently.
+				// not filtered: this key and the tip's translate independently.
 				description: l10n.t("Fill missing model capabilities from the OpenRouter catalog, refreshed weekly."),
 			};
 	}
@@ -505,9 +490,8 @@ export function booleanSettingPresentation(id: BooleanSettingId): BooleanSetting
 
 /**
  * A millisecond count as humans read clocks: "5 min", "1 h 30 min". At most
- * two units; a truncated remainder gets a "~" instead of false precision,
- * with `exact` saying which happened. Sub-second values return undefined
- * (they already read as milliseconds). Unit names localize per call.
+ * two units; a truncated remainder gets a "~" instead of false precision, with
+ * `exact` saying which happened. Sub-second values return undefined.
  */
 function formatDuration(ms: number): { label: string; exact: boolean } | undefined {
 	if (!Number.isInteger(ms) || ms < 1000) {
@@ -531,9 +515,9 @@ function formatDuration(ms: number): { label: string; exact: boolean } | undefin
 }
 
 /**
- * One number-setting draft parsed once: the error display, the commit, and
- * the equivalence hint all read this one parse, so a keystroke is judged
- * exactly once. ms-unit settings read drafts through the duration grammar.
+ * One number-setting draft parsed once: the error display, the commit, and the
+ * equivalence hint all read this one parse, so a keystroke is judged exactly
+ * once. ms-unit settings read drafts through the duration grammar.
  */
 export type NumberDraftParse =
 	| { readonly kind: "invalid"; readonly problem: string }
@@ -566,10 +550,10 @@ export function equivalence(id: NumberSettingId, value: number): string | undefi
 }
 
 /**
- * The identity of a scalar setting's external state, which the settings
- * form's draft-resync effect keys on. Both halves are load-bearing: a reset
- * can change the configured scope while leaving the effective value untouched,
- * and the draft must resync on that push too, not only when the value moves.
+ * The identity of a scalar setting's external state, which the settings form's
+ * draft-resync effect keys on. Both halves are load-bearing: a reset can
+ * change the configured scope while leaving the effective value untouched, and
+ * the draft must resync on that push too.
  */
 export function draftSyncKey(value: number | null, configuredScope: SettingScope | null): string {
 	return `${value === null ? "" : String(value)}@${configuredScope ?? "default"}`;
@@ -593,8 +577,8 @@ export type ParsedJsonValue =
 
 /**
  * Parse a model-parameter value typed into the dashboard: strict JSON, so
- * numbers, booleans, quoted strings, arrays, and objects all round-trip
- * unambiguously. Invalid input is a validation error, never a silent guess.
+ * every type round-trips unambiguously. Invalid input is a validation error,
+ * never a silent guess.
  */
 export function parseJsonValue(text: string): ParsedJsonValue {
 	const trimmed = text.trim();
@@ -609,10 +593,10 @@ export function parseJsonValue(text: string): ParsedJsonValue {
 }
 
 /**
- * Parse a header value typed into the dashboard. Header values are scalars,
- * and most are plain strings, so this is lenient where parseJsonValue is
- * strict: finite JSON scalars are taken as typed values ("true" is a boolean,
- * "42" a number, "\"42\"" a string) and anything else is the literal string.
+ * Parse a header value typed into the dashboard. Header values are scalars, so
+ * this is lenient where parseJsonValue is strict: finite JSON scalars are
+ * taken as typed values ("true" is a boolean, "42" a number, "\"42\"" a
+ * string) and anything else is the literal string.
  */
 export function parseHeaderValue(text: string): HeaderScalar {
 	const trimmed = text.trim();
@@ -621,10 +605,9 @@ export function parseHeaderValue(text: string): HeaderScalar {
 		if (typeof parsed === "string" || typeof parsed === "boolean") {
 			return parsed;
 		}
-		// Non-finite numbers (JSON.parse("1e999") is Infinity) fall through to
-		// the literal string: isHeaderScalar refuses them at the header-record
-		// parse boundary, so parsing them as numbers would make Apply a silent
-		// no-op. The literal string is the only lossless, sendable reading.
+		// Non-finite numbers (JSON.parse("1e999") is Infinity) fall through to the
+		// literal string: isHeaderScalar refuses them at the header-record parse
+		// boundary, so parsing them as numbers would make Apply a silent no-op.
 		if (typeof parsed === "number" && Number.isFinite(parsed)) {
 			return parsed;
 		}
@@ -640,9 +623,9 @@ export function formatJsonValue(value: unknown): string {
 }
 
 /**
- * Render a header value as parseHeaderValue-compatible text. Non-strings
- * print bare ("true", "42"); a string that would re-parse as a JSON scalar is
- * quoted so its type survives the round trip.
+ * Render a header value as parseHeaderValue-compatible text. Non-strings print
+ * bare ("true", "42"); a string that would re-parse as a JSON scalar is quoted
+ * so its type survives the round trip.
  */
 export function formatHeaderValue(value: HeaderScalar): string {
 	if (typeof value !== "string") {

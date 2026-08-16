@@ -49,11 +49,9 @@ test("a row reads as two lines - name and meta, then a spec sentence - with the 
 	expect(rows[0]?.querySelector(".model-price")?.textContent).toBe("$2.5 in / $10.1 out");
 	expect(line2(rows[0] as Element)).toContain("per M");
 
-	// The row prints only what the model CAN do. It does not strike through the
-	// rest: a strikethrough means SUPERSEDED everywhere in this dashboard (the
-	// inspector's chain strikes a value a higher-precedence record beat, and
-	// that mark is accessibility-pinned there), so one mark cannot also mean
-	// "cannot". Absence carries it here and the detail answers explicitly.
+	// The row prints only what the model CAN do; it never strikes through the
+	// rest, because a strikethrough means SUPERSEDED everywhere in this
+	// dashboard (the inspector's chain). Absence carries it, the detail answers.
 	expect(rows[0]?.querySelector(".model-caps")?.textContent).toBe("tools, vision, caching, reasoning");
 	expect(rows[0]?.querySelectorAll("del").length).toBe(0);
 
@@ -71,8 +69,7 @@ test("a row reads as two lines - name and meta, then a spec sentence - with the 
 	expect(rows[1]?.querySelectorAll("del").length).toBe(0);
 
 	// The exact limits and the cache and long-context tiers live in the row's
-	// detail. They used to be reachable only by pointing at the price cell, and
-	// the exact token counts were not shown at all.
+	// detail.
 	fireClick(rows[0]?.querySelector("button.model-disclosure") as HTMLElement);
 	const detail = rows[0]?.querySelector(".model-detail") as HTMLElement;
 	const field = (label: string) =>
@@ -83,8 +80,7 @@ test("a row reads as two lines - name and meta, then a spec sentence - with the 
 	expect(field("Max input tokens")).toBe((128000).toLocaleString());
 	expect(field("Max output tokens")).toBe((16384).toLocaleString());
 	// The RAW id: what a request's `model` field carries, which is not always
-	// what the row is titled with and was previously readable only from the
-	// copy button's accessible name.
+	// what the row is titled with.
 	expect(field("Model ID")).toBe("gpt-priced-raw");
 	expect(field("Cache read")).toBe("$0.257");
 	expect(field("Cache write")).toBe("$3.13");
@@ -135,13 +131,9 @@ test("an undeclared output limit says so where the number is read", () => {
 });
 
 test("each spec segment owns the separator that follows it, so a dropped segment takes its dash with it", () => {
-	// A narrow pane hides the token limits (the most derivable segment, and
-	// frequently identical down the whole list) so that price and capabilities
-	// - what the list is actually scanned for - stay on screen instead of being
-	// clipped away. happy-dom runs no cascade, so what is pinned here is the
-	// STRUCTURE that rule needs: every separator is a real element following
-	// its segment, never a text node stranded between two spans and never a CSS
-	// ::after a screen reader might not read.
+	// A narrow pane hides the token limits so price and capabilities survive.
+	// happy-dom runs no cascade, so what is pinned is the STRUCTURE that rule
+	// needs: every separator is a real element following its segment.
 	const priced = makeModel({ id: "priced", inputCost: 3, outputCost: 15, imageInput: true });
 	const root = mount(<ModelsSection currencySymbol="$" models={[priced]} serverCount={1} onInspect={() => {}} />);
 	const line2 = root.querySelector(".model-line-2") as HTMLElement;
@@ -265,10 +257,9 @@ test("a server scope narrows the rows before the text filter and renders as a cl
 });
 
 test("a declared model says so on its row, and its detail explains what that means; discovered models do not", () => {
-	// It used to be a badge with a hover tip. Being declared is the same kind
-	// of fact as the family it sits beside, so it reads as part of the meta
-	// line, and the explanation moved into the detail - where it is readable
-	// without a pointer rather than only on hover.
+	// Being declared is the same kind of fact as the family beside it, so it
+	// reads as part of the meta line, and the explanation lives in the detail -
+	// readable without a pointer rather than only on hover.
 	const root = mount(
 		<ModelsSection
 			currencySymbol="$"
@@ -423,10 +414,9 @@ test("a pressed server pill survives the fleet dropping to one server, so its fi
 	];
 	const root = mount(<ModelsSection currencySymbol="$" models={twoServers} serverCount={2} onInspect={() => {}} />);
 	fireClick(buttonByText(root.querySelector("[aria-label='Filter by server']") as HTMLElement, "staging"));
-	// The staging group disappears (a push removed it): its models are gone and
-	// the fleet is one server again, which hides the server DIMENSION - but the
-	// pressed pill still applies, so it alone stays, pressed and unpressable
-	// back to nothing.
+	// The staging group disappears and the fleet is one server again, hiding the
+	// server DIMENSION - but the pressed pill still applies, so it alone stays,
+	// pressed and unpressable back to nothing.
 	const oneServer = [twoServers[0] as ReturnType<typeof makeModel>];
 	render(<ModelsSection currencySymbol="$" models={oneServer} serverCount={1} onInspect={() => {}} />, root);
 	expect(root.textContent).toContain("showing 0 of 1");
@@ -554,10 +544,9 @@ test("an all-filtered list is one sentence plus a clear action that brings the m
 	expect(clears.length).toBe(1);
 	expect(empty.contains(clears[0] as HTMLElement)).toBe(true);
 
-	// The sole clear is now the load-bearing focus path: pressing it unmounts
-	// the button under the keyboard user, and the filter input is where the
-	// cleared filters live on. happy-dom's click does not focus, so the test
-	// takes the position deliberately before pressing.
+	// Pressing the sole clear unmounts the button under the keyboard user, so
+	// focus must land on the filter input. happy-dom's click does not focus, so
+	// the test takes the position deliberately before pressing.
 	const clear = clears[0] as HTMLButtonElement;
 	clear.focus();
 	fireClick(clear);

@@ -1,14 +1,8 @@
 /**
- * The webview's secret-handling invariants. State pushes carry secret
- * LOCATIONS only; the one sanctioned value path is the edit form's on-demand
- * prefill of inline-stored fields. Every sentinel assertion goes through
- * findSentinel, which sweeps input/textarea .value properties, attributes,
- * and textContent as well as serialized HTML - a value assigned via JS never
- * shows up in outerHTML, so an HTML-only sweep would pass against a real leak.
- * The sweep runs after EVERY secret-bearing interaction, not just at test
- * ends: an interaction-specific leak (a toggle echoing the value into an
- * attribute, a save reflecting it into a notice) must fail the step that
- * caused it.
+ * The webview's secret invariants: pushes carry LOCATIONS only, the one value
+ * path is the edit form's prefill. findSentinel sweeps attributes, input value
+ * properties (a JS-assigned value never reaches outerHTML), the serialized
+ * document HTML, and document textContent after every interaction.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { RpcRequest, RpcRequestType } from "../../../../dashboard/endpoints";
@@ -69,10 +63,8 @@ function readInlineRequest(): RpcRequest<"readInlineSecrets"> {
 }
 
 /**
- * Every query in this file is about the edit destination, and the shell around
- * it has surfaces with controls of the same name (the diagnostics view has its
- * own Test connection). Scoping here keeps a shell-wide lookup from answering
- * with someone else's button.
+ * Every query here is about the edit destination, and the shell has surfaces
+ * with controls of the same name (diagnostics has its own Test connection).
  */
 function page(root: ParentNode): HTMLElement {
 	return (root.querySelector(".server-edit-page") ?? root) as HTMLElement;
@@ -127,12 +119,9 @@ test("the storage line says the one thing the reader cannot see, and stays quiet
 	);
 	fireCheck(apiKeyForm?.querySelector("input") as HTMLInputElement, true);
 
-	// Nothing stored and nothing typed: there is no current value to keep, so
-	// the field says nothing rather than promising one.
-	// Scoped to the hint SPAN, the cell's first element: the id sits on the
-	// cell that also hosts the covering error overlay, and reading the whole
-	// cell would concatenate the two voices if a problem ever stood in one of
-	// these states.
+	// Nothing stored and nothing typed: no current value to keep, so the field
+	// says nothing. Scoped to the hint SPAN because the id-carrying cell also
+	// hosts the covering error overlay, whose voice would concatenate.
 	const hintOf = () => document.getElementById("server-apiKey-error")?.firstElementChild?.textContent ?? "";
 	expect(hintOf()).toBe("");
 
@@ -450,11 +439,9 @@ test("relocating an untouched prefill to secure storage posts set with the prefi
 });
 
 test("the disarmed secret input still round-trips typing, paste, and emptying through controlled state", () => {
-	// The value-attribute disarm is DOM surgery against React's controlled-
-	// input machinery (dirty the property, drop the mounted attribute, shadow
-	// defaultValue), so the machinery it disarms needs proof it still works:
-	// every entry mode must land in controlled state and post from it, while
-	// the attribute never materializes at any step.
+	// The value-attribute disarm is DOM surgery against React's controlled-input
+	// machinery (dirty the property, drop the mounted attribute, shadow
+	// defaultValue), so every entry mode needs proof it still round-trips.
 	const root = mount(<App />);
 	const server = declaredWithSecrets({ apiKey: "settings" });
 	pushToWebview(statePush(makeState({ servers: [server] })));
@@ -503,15 +490,13 @@ test("the disarmed secret input still round-trips typing, paste, and emptying th
 
 test("the storage line is right in every state it renders in, not just the common ones", () => {
 	// One sentence covering several states is how a shortened line goes wrong
-	// for the states it did not mean: an inline value that has sat in
-	// settings.json for months must not be told it is about to be written
-	// there. The matrix is the test.
+	// for the states it did not mean: a value that has sat in settings.json for
+	// months must not be told it is about to be written there.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [declaredWithSecrets({ apiKey: "settings" })] })));
 	openEdit(root);
-	// Scoped to the hint SPAN: the id sits on the cell that also hosts the
-	// covering error overlay, and reading the whole cell would concatenate
-	// the two voices if a problem ever stood in one of these states.
+	// Scoped to the hint SPAN: the id-carrying cell also hosts the covering
+	// error overlay, whose voice would concatenate with the hint's.
 	const hintOf = () => document.getElementById("server-apiKey-error")?.firstElementChild?.textContent ?? "";
 	const toneOf = () => document.getElementById("server-apiKey-error")?.firstElementChild?.className ?? "";
 
@@ -546,9 +531,8 @@ test("the storage line is right in every state it renders in, not just the commo
 });
 
 test("a stored secret whose form is not selected states the same two things the selected one does", () => {
-	// The orphan row is the state the matrix above cannot reach: no input, so
-	// it renders through a different component that had kept its own longer
-	// wording for the same two facts. One state, one sentence, whichever
+	// The orphan row is the state the matrix above cannot reach: no input, so it
+	// renders through a different component. One state, one sentence, whichever
 	// component draws it.
 	const root = mount(<App />);
 	pushToWebview(

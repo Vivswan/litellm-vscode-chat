@@ -1,16 +1,13 @@
 /**
  * The models list at its COLUMNAR tier: `@container pane (width >= 1136px)`
- * unfolds the two-line sentence rows into one line of aligned columns by
- * handing `.model-line-2` to the row grid with `display: contents` (the base
- * tier keeps it a block). The tier is a PANE width; at this fixture's
- * geometry the conversion is 1410 window - 216 rail - 1 rail border - 48 pane
- * padding = a 1145px pane (a 1400 window gives 1135, one pixel short of the
- * tier). Windowed like models.ts, because the tier's own threshold arithmetic
- * budgets for the windowed scrollport's scrollbar.
+ * unfolds the two-line sentence rows into one line of aligned columns. The tier
+ * is a PANE width; at this fixture's geometry the conversion is 1410 window -
+ * 216 rail - 1 rail border - 48 pane padding = a 1145px pane (a 1400 window
+ * gives 1135, one pixel short). Windowed like models.ts, because the tier's
+ * threshold arithmetic budgets for the windowed scrollport's scrollbar.
  *
- * The steps ASSERT the tier was actually caught: a render that silently fell
- * back to the stacked tier would still exit 0 with a large, plausible PNG,
- * which is exactly the wrong-page failure this fixture exists to prevent.
+ * The steps ASSERT the tier was actually caught: a render that fell back to the
+ * stacked tier would still exit 0 with a large, plausible PNG.
  */
 import type { DashboardModel } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";

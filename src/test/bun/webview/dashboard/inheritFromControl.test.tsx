@@ -1,9 +1,7 @@
 /**
- * The Inherits control's keys-mode entry pin: choosing "only listed records"
- * must write NOTHING until a key is typed - the empty `_inherit_from` list is
- * the barrier by the docs' edge-case rules, so a mode switch auto-writing []
- * would snap the select to "nothing - barrier" and make keys mode
- * unreachable from scratch.
+ * The Inherits control's keys-mode entry pin: choosing "only listed records" must write NOTHING until a key is
+ * typed. An empty `_inherit_from` list IS the barrier, so auto-writing [] on the mode switch would snap the select
+ * to "nothing - barrier" and make keys mode unreachable from scratch.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act } from "react";

@@ -33,22 +33,18 @@ export function formatTokens(count: number): string {
 }
 
 /**
- * A cost per million tokens, trimmed to three significant digits: enough to
- * compare models at a glance, and binary-fraction noise never renders. The
- * symbol is the configured usage.currencySymbol, verbatim (empty renders the
- * bare number); amounts are never converted.
+ * A cost per million tokens, trimmed to three significant digits (binary-fraction noise
+ * never renders). The symbol is usage.currencySymbol verbatim; never converted.
  */
 function formatCost(cost: number, currencySymbol: string): string {
 	return `${currencySymbol}${Number(cost.toPrecision(3))}`;
 }
 
 /**
- * The row's price phrase as SEPARATE segment elements, so the floor tier can
- * shed the output half whole - "$1.75 in / ..." with the template cut mid-way
- * was the ellipsis's rendering at 320px - with its own separator (the same
- * disappears-with-its-segment idiom as the line's dashes). The output half is
- * marked shedable only while the input half stands: an output-only price is
- * the row's whole answer, and shedding it would leave a bare "per M".
+ * The row's price phrase as SEPARATE segments, so the floor tier can shed the output
+ * half whole with its own separator. The output half is shedable only while the input
+ * half stands: an output-only price is the row's whole answer, and a bare "per M" says
+ * nothing.
  */
 function PriceParts({ model, currencySymbol }: { model: DashboardModel; currencySymbol: string }) {
 	const inPart =
@@ -81,10 +77,9 @@ function PriceParts({ model, currencySymbol }: { model: DashboardModel; currency
 }
 
 /**
- * The cost fields the detail can show, paired with the capability wire key
- * that names them. The names come from the shared capability vocabulary rather
- * than being minted here: the reader moves between this row and the inspector,
- * and a field that changed its name in transit would read as a different fact.
+ * The cost fields the detail can show, named from the shared capability vocabulary: the
+ * reader moves between this row and the inspector, and a field that changed its name in
+ * transit would read as a different fact.
  */
 const DETAIL_COSTS = [
 	["inputCost", "input_cost_per_token"],
@@ -103,24 +98,10 @@ function fieldLabel(name: string): string {
 }
 
 /**
- * What the row's detail says. Two jobs, and the second is the reason it holds
- * facts the lines above it already show.
- *
- * It is the row's complete record: the cache and long-context prices used to
- * live in a hover tip on the price cell, reachable only by pointing at it, and
- * the exact token limits and the raw model ID had nowhere at all - the ID was
- * readable only from the copy button's accessible name.
- *
- * It is also the escape hatch for a clipped row. Both of the row's lines are
- * single-line and end in an ellipsis, and what sits at the end of them - the
- * server, the declared note, the price, the capabilities - is exactly what a
- * narrow pane trims away first. The old table answered that with a
- * hover-and-focus tip on the capabilities cell; opening the row answers it for
- * every field at once, so nothing is reachable only by pointing.
- *
- * `costs` reports whether any priced field made it in, because the per-million
- * note belongs to those fields: printed beside a detail that names no price it
- * would explain a unit nothing here uses.
+ * The row's detail: its complete record AND the escape hatch for a clipped row - both
+ * lines end in an ellipsis, and what they trim is exactly what a narrow pane loses
+ * first, so opening the row makes every field reachable without pointing. `costs`
+ * reports whether any priced field made it in: the per-million note belongs to those.
  */
 function detailFields(
 	model: DashboardModel,
@@ -206,10 +187,9 @@ function ModelDetail({
 }
 
 /**
- * Token counts at a glance: "128k", not "128,000". The row's second line is a
- * sentence to be skimmed, and four exact digits in the middle of one are read
- * rather than seen. The exact figure keeps a home in the row's detail, where
- * someone comparing limits is actually looking.
+ * Token counts at a glance: "128k", not "128,000" - the second line is skimmed, and
+ * four exact digits mid-sentence are read rather than seen. The exact figure lives in
+ * the row's detail.
  */
 function compactTokens(count: number): string {
 	if (count >= 1_000_000) {
@@ -222,25 +202,18 @@ function compactTokens(count: number): string {
 }
 
 /**
- * A row's identity, used for the copy flash and for the open row - both of
- * which have to survive the list being re-sorted or re-filtered under them, and
- * neither of which may land on a different row than the one clicked.
- *
- * The label alone is not an identity: two provider groups may carry the SAME
- * label (which is why the Server column keyed off the count rather than the
- * distinct labels), so two rows for one model ID would collide and open or
- * flash each other. scopeKey is the per-server handle that actually
- * distinguishes them; the label stays because it is what the reader sees.
+ * A row's identity for the copy flash and the open row, surviving re-sort and re-filter.
+ * The label alone is not an identity - two provider groups may carry the SAME label, so
+ * scopeKey is what distinguishes them; the label stays because the reader sees it.
  */
 function rowIdOf(model: DashboardModel): string {
 	return `${model.scopeKey}/${model.serverLabel}/${model.id}`;
 }
 
 /**
- * The quiet half of the row's first line: what the model is, after its name.
- * The server joins it only when there is more than one to tell apart - the
- * same rule the Server column used - and a declared model says so here rather
- * than wearing a badge, because it is the same kind of fact as the family.
+ * The quiet half of the row's first line. The server joins only when there is more than
+ * one to tell apart; a declared model says so here rather than wearing a badge, because
+ * it is the same kind of fact as the family.
  */
 function metaLine(model: DashboardModel, showServer: boolean): string {
 	const origin = showServer ? `${model.family} - ${model.serverLabel}` : model.family;
@@ -282,16 +255,9 @@ function compareBy(sort: Sort): (a: DashboardModel, b: DashboardModel) => number
 }
 
 /**
- * Sorting, once the rows stopped being a grid. Column headers carried both
- * halves of it - which key, and which direction - and a two-line row has no
- * header to carry them, so the control moves onto the section's header line
- * where the other destinations already keep their actions.
- *
- * A native select rather than a menu: the host's own dropdowns are native, its
- * popup is the platform's, and the sorted-by state reads out of a labelled
- * control without inventing a listbox. Direction is a separate toggle because
- * it is a separate question - folding it in would double the options and make
- * the reader scan six pairs to find one key.
+ * Sorting without column headers: the control moves onto the section's header line. A
+ * native select, matching the host's own dropdowns; direction is a separate toggle
+ * because folding it in would double the options.
  */
 const SORT_LABELS: Record<SortKey, () => string> = {
 	name: () => l10n.t("Model"),
@@ -337,13 +303,10 @@ function SortControl({
 					))}
 				</Select>
 			</label>
-			{/* Pressed is the descending state, so the control announces which way
-			    the list runs rather than only what the click will do. Disabled
-			    while unsorted: there is no direction to flip. text-foreground
-			    steps the glyph up from secondary's muted tier (6.1:1 on the dark
-			    editor background) to 10.3:1 dark / 11.2:1 light - at the muted
-			    tier the ENABLED arrow read as its own disabled state, which is
-			    dimmed twice below it (disabledForeground times opacity-60). */}
+			{/* Pressed is the descending state, so the control announces which way the list runs.
+			    Disabled while unsorted: no direction to flip. text-foreground steps the glyph up from
+			    secondary's muted tier - at that tier the ENABLED arrow read as its own disabled
+			    state, which is dimmed twice below it. */}
 			<Button
 				variant="secondary"
 				size="compact"
@@ -366,11 +329,9 @@ function SortControl({
 }
 
 /**
- * One filter pill: a toggle button in the chip vocabulary - outline at rest,
- * the soft chip fill when pressed - with aria-pressed carrying the state.
- * Free-text pills (family, server) pass `title` so a truncated label survives
- * on hover; the fixed-vocabulary pills leave it off, or every reader would be
- * fed a description repeating the name it just announced.
+ * One filter pill, aria-pressed carrying the state. Free-text pills pass `title` so a
+ * truncated label survives on hover; fixed-vocabulary pills leave it off, or every
+ * reader would be fed a description repeating the name it just announced.
  */
 function FilterPill({
 	pressed,
@@ -391,15 +352,10 @@ function FilterPill({
 }
 
 /**
- * The structured filters, one wrapping row of toggle pills between the toolbar
- * and the list. The dimensions run in the columnar tier's column order -
- * family and server (the identity column's two facts), then price, then
- * capabilities - so the pills read as a legend for the rows under them.
- *
- * Which pills exist is the options' business (see modelFilterOptions); this
- * component only draws what it is handed, the clear-all action included
- * (showClear). The server group additionally follows the rows' own rule: one
- * server serving means no server names anywhere on this page.
+ * The structured filters, one wrapping row of pills in the columnar tier's column order,
+ * so they read as a legend for the rows. Which pills exist is the options' business
+ * (modelFilterOptions); the server group follows the rows' own rule - one server
+ * serving means no server names anywhere on this page.
  */
 function FilterPills({
 	options,
@@ -414,17 +370,14 @@ function FilterPills({
 	/** The rows' serverCount > 1 rule; the options' own two-server rule still applies under it. */
 	showServers: boolean;
 	/**
-	 * Whether this row carries the clear-all action. The parent decides, not
-	 * isFilterActive alone: when the pressed pills empty the list, the empty
-	 * state directly below renders its own "Clear filters" beside the sentence
-	 * that needs it, and two identical controls a line apart read as two
-	 * different actions.
+	 * Whether this row carries clear-all. The parent decides: when the pressed pills empty
+	 * the list, the empty state renders its own "Clear filters", and two identical controls
+	 * a line apart read as two different actions.
 	 */
 	showClear: boolean;
 	/**
-	 * Takes an updater, never a computed state: two toggles in one React batch
-	 * would otherwise both derive from the same stale `active` and the second
-	 * would silently undo the first.
+	 * Takes an updater, never a computed state: two toggles in one React batch would both
+	 * derive from the same stale `active` and the second would silently undo the first.
 	 */
 	onChange: (update: (filter: ModelFilter) => ModelFilter) => void;
 	onClearAll: () => void;
@@ -507,24 +460,19 @@ function FilterPills({
 }
 
 /**
- * Windowing constants. The stylesheet's row height is only a minimum (a larger
- * host font grows the rows), so the arithmetic runs on the first rendered
- * row's measured height and DEFAULT_ROW_HEIGHT is the fallback while nothing
- * is measurable - which is permanently the case in the happy-dom suite, where
- * offsetHeight is always 0; the tests exercise the fallback path only. The
- * threshold keeps small fleets on the simple full-render path, and the
- * overscan hides the window edges while scrolling.
+ * Windowing constants. The stylesheet's row height is only a minimum (host fonts grow
+ * rows), so the arithmetic runs on the first rendered row's measured height;
+ * DEFAULT_ROW_HEIGHT is the fallback while nothing is measurable - permanently the case
+ * under happy-dom (offsetHeight 0), so the tests exercise the fallback path only.
  */
 const WINDOW_THRESHOLD = 50;
 /** Exported so the tests measure against the component's own number instead of a copy that can drift. */
 export const DEFAULT_ROW_HEIGHT = 46;
 const OVERSCAN = 10;
 /**
- * The scrollport's height before there is a scrollport to measure - the very
- * first render, where the ref is still null. Generous on purpose: too small
- * renders fewer rows than the viewport shows and leaves a blank strip under the
- * last one until the first scroll, while too large only costs a few extra rows
- * on one paint.
+ * The scrollport's height before there is one to measure. Generous on purpose: too
+ * small leaves a blank strip under the last row until the first scroll; too large only
+ * costs a few extra rows on one paint.
  */
 const FALLBACK_VIEWPORT = 1000;
 
@@ -540,16 +488,13 @@ export function ModelsSection({
 	/** The configured cost prefix (usage.currencySymbol); display only, never a conversion. */
 	currencySymbol: string;
 	/**
-	 * Narrows the list to one server's models; the servers table's model-count
-	 * links set it, its chip's clear button reports back through onClear. One
-	 * object so a scope without a working clear cannot be expressed.
+	 * Narrows the list to one server's models. One object so a scope without a working
+	 * clear cannot be expressed.
 	 */
 	scope?: { readonly label: string; readonly onClear: () => void } | undefined;
 	/**
-	 * Open a model's inspector overlay. App owns the inspector (it renders
-	 * over whatever tab is active - the Diagnostics table opens it in place),
-	 * so this section only names the row. The full row identity travels: one
-	 * snapshot can render under several labels.
+	 * Open a model's inspector overlay. App owns the inspector, so this section only names
+	 * the row; the full identity travels (one snapshot can render under several labels).
 	 */
 	onInspect: (target: { scopeKey: string; rawId: string; serverLabel: string }) => void;
 }) {
@@ -560,10 +505,8 @@ export function ModelsSection({
 	const [copied, setCopied] = useState<string | undefined>(undefined);
 	const [rowHeight, setRowHeight] = useState(DEFAULT_ROW_HEIGHT);
 	/**
-	 * The one open row, held by row id rather than index: sorting and filtering
-	 * both renumber the list, and an index would silently follow the position
-	 * instead of the model. When the open row leaves the list entirely there is
-	 * simply nothing to match, which is the right answer without a special case.
+	 * The one open row, held by row id rather than index: sorting and filtering renumber
+	 * the list. When the open row leaves the list there is simply nothing to match.
 	 */
 	const [openRow, setOpenRow] = useState<string | undefined>(undefined);
 	/** The open row's detail height, measured rather than assumed; see the window arithmetic below. */
@@ -583,27 +526,13 @@ export function ModelsSection({
 		}
 	});
 
-	// Publish this scrollport's own distance from the top of the page, which is
-	// what its height budget is made of. The stylesheet used to guess that
-	// distance with a hand-tuned em value; a guess is wrong the moment anything
-	// above the table changes, and it had already been inherited unchanged from
-	// a page this table no longer lives on.
-	//
-	// Document-relative, not viewport-relative. The two agree only at the top of
-	// the page, and the difference is not cosmetic: a viewport-relative top
-	// shrinks as the reader scrolls, which raises the cap, which lengthens the
-	// page, which allows more scroll. Republished on the next render that value
-	// climbs again, and keeps climbing. Adding the scroll offset back names the
-	// same distance at every scroll position, so the budget has a fixed point to
-	// settle on - the height at which the page exactly fits and stops scrolling.
-	//
-	// Measured before paint so no frame renders at the fallback, and re-measured
-	// whenever this element's own box changes. That one observer covers the
-	// three things that move it: the first real layout, the container
-	// breakpoints above it reflowing, and the panel it sits in going from hidden
-	// to shown - every tab panel stays mounted, so this runs while the models
-	// destination is not on screen. An unrendered element measures as a zero box
-	// and is skipped rather than published as a top of zero, which would cap the
+	// Publish this scrollport's distance from the top of the page (its height budget's
+	// input). Document-relative, not viewport-relative: a viewport-relative top shrinks as
+	// the reader scrolls, raising the cap, lengthening the page, allowing more scroll -
+	// a feedback loop; document-relative names the same distance at every position, so the
+	// budget has a fixed point. Measured before paint and re-measured on box changes (first
+	// layout, breakpoints reflowing, panel shown - panels stay mounted, so this runs while
+	// hidden); a zero box is skipped rather than published as top 0.
 	// scrollport at nearly the whole viewport for a frame.
 	useLayoutEffect(() => {
 		const element = scrollRef.current;
@@ -634,23 +563,12 @@ export function ModelsSection({
 		};
 	}, []);
 
-	// The open row's detail height. Measured, not assumed: the window arithmetic
-	// below adds it to whichever spacer stands in for the open row, and a wrong
-	// number there shifts every row under it.
-	//
-	// A ref callback rather than an effect, because the thing being watched is
-	// the ELEMENT, and the element comes and goes for a reason no dependency
-	// list names: the open row is itself windowed, so scrolling far enough
-	// unmounts the detail and scrolling back mounts a fresh one. An effect keyed
-	// on the open row would not re-run for that, leaving the observer bound to a
-	// detached node and the height frozen at whatever it was when the row left.
-	//
-	// Unmounting deliberately does NOT clear the height. A detail scrolled out
-	// of the window is still part of the list's height - the spacer standing in
-	// for its row carries it - so zeroing it would make the list claim less than
-	// it occupies and shift every row below. React 19 calls the returned cleanup
-	// rather than re-invoking with null, so the null arm is unreachable there;
-	// it stays because leaving the height alone is the correct answer on either
+	// The open row's detail height, measured (a wrong number shifts every row under it). A
+	// ref callback rather than an effect: the ELEMENT comes and goes for a reason no
+	// dependency list names - the open row is itself windowed. Unmounting deliberately does
+	// NOT clear the height: a detail scrolled out of the window is still part of the
+	// list's height (its spacer carries it); the null arm stays although React 19 makes it
+	// unreachable, because leaving the height alone is correct on either path.
 	// path, which is a cheaper thing to guarantee than a version's semantics.
 	const measureDetail = useCallback((element: HTMLDivElement | null) => {
 		if (element === null) {
@@ -680,38 +598,27 @@ export function ModelsSection({
 		setScrollTop(0);
 	}, [scopeLabel]);
 
-	// Three independent conditions compose AND, narrowing in this order: the
-	// scope (the server chip), then the pills, then the text. The header's
-	// "showing N of M" count reads sorted.length over scoped.length, so pills
-	// and text both move N live while the scope moves M.
-	// Memoized for identity, not for the filter's cost: pillOptions below keys
-	// on this list, and a fresh array every render (every scroll event is one)
-	// would make that memo a no-op whenever a scope is active.
+	// Three conditions compose AND in this order: scope, pills, text; the header's
+	// "showing N of M" reads sorted.length over scoped.length. Memoized for identity, not
+	// cost: pillOptions keys on this list, and every scroll event is a render.
 	const scoped = useMemo(
 		() => (scopeLabel === undefined ? models : models.filter((model) => model.serverLabel === scopeLabel)),
 		[models, scopeLabel]
 	);
-	// Keyed to the server count, not the distinct labels: two groups can share
-	// a label, and their models must stay attributable. Under the server chip
-	// the same question is asked of the scoped list itself - a scope is a
-	// LABEL, so two groups sharing it are both inside, and they keep their
-	// server UI (the numbered pills are the only thing telling them apart) -
-	// while a one-group scope drops the suffix that would only repeat the chip.
+	// Keyed to the server count, not distinct labels: two groups can share a label and must
+	// stay attributable. Under the server chip the same question is asked of the scoped
+	// list itself; a one-group scope drops the suffix that would only repeat the chip.
 	const scopedServers = useMemo(() => new Set(scoped.map((model) => model.scopeKey)).size, [scoped]);
 	const showServerColumn = scopeLabel === undefined ? serverCount > 1 : scopedServers > 1;
-	// The Server sort key can leave the control while picked: scoping to one
-	// server hides it, and a push can drop the fleet to one group. The PICKED
-	// state stays - clearing the scope brings the sort back exactly as chosen -
-	// but while the key is hidden the list must not follow an order the control
-	// cannot display, so it renders and reads unsorted.
+	// The Server sort key can leave the control while picked (a scope hides it; a push can
+	// drop the fleet to one group). The PICKED state stays, but while hidden the list must
+	// not follow an order the control cannot display, so it renders and reads unsorted.
 	const effectiveSort = sort?.key === "server" && !showServerColumn ? undefined : sort;
 	const filtered = filterModels(scoped, pills, filter);
 	const sorted = effectiveSort === undefined ? filtered : [...filtered].sort(compareBy(effectiveSort));
-	// Offered pills derive from the scoped list: within a server scope the other
-	// servers' families are dead toggles. Never from the pill-filtered list -
-	// the unpressed pills of a dimension must stay visible while a sibling is
-	// pressed, or OR-within-a-dimension would be unreachable. Memoized because
-	// every scroll event re-renders this component, and the options walk the
+	// Offered pills derive from the scoped list (other servers' families are dead toggles
+	// in a scope) - never from the pill-filtered list, or OR-within-a-dimension would be
+	// unreachable. Memoized: every scroll event re-renders, and the options walk the list.
 	// whole scoped list.
 	const pillOptions = useMemo(() => modelFilterOptions(scoped, pills), [scoped, pills]);
 	const textActive = filter.trim().length > 0;
@@ -754,11 +661,9 @@ export function ModelsSection({
 		const height = scrollRef.current?.clientHeight ?? 0;
 		return height > 0 ? height : FALLBACK_VIEWPORT;
 	})();
-	// Scroll position translates to a row index through the uniform row height,
-	// which the open row's detail breaks: every row below it has been pushed
-	// down by the delta. Taking that back out first restores the uniform grid
-	// the division assumes. Clamped to the delta so a scroll position INSIDE
-	// the open row maps to the open row rather than past it.
+	// Scroll position maps to a row index through the uniform row height, which the open
+	// row's detail breaks; taking the delta back out restores the uniform grid. Clamped so
+	// a position INSIDE the open row maps to it rather than past it.
 	const openTop = openIndex >= 0 ? openIndex * rowHeight : 0;
 	const gridScrollTop = openIndex >= 0 ? scrollTop - Math.min(delta, Math.max(0, scrollTop - openTop)) : scrollTop;
 	// The open row's detail eats into the window's coverage, so the window
@@ -786,17 +691,13 @@ export function ModelsSection({
 			title={l10n.t("Models")}
 			help={helpModelsSection()}
 			docs={{ href: DOCS_LINK_MODELS, label: l10n.t("Open the models guide") }}
-			// The count belongs to the title, not to a line of its own beside the
-			// filter input - and only while the pills or the text are narrowing:
-			// "showing 64 of 64" at rest is a tautology (the rule the Resolution
-			// header already follows). The scope moves the denominator instead of
-			// the numerator, so a scoped-but-unfiltered list stays quiet too.
+			// The count belongs to the title, and only while pills or text narrow: "showing 64 of
+			// 64" at rest is a tautology. The scope moves the denominator, so a scoped-but-
+			// unfiltered list stays quiet too.
 			meta={sorted.length === scoped.length ? undefined : l10n.t("showing {0} of {1}", sorted.length, scoped.length)}
-			// The filter's one home is the header line, the same slot the Settings
-			// filter lives in: it governs the whole page the way the header's other
-			// actions do, and a box floating between the header and the rows read
-			// as belonging to nothing. The rows carry no header to sort by, so the
-			// sort control shares the line. Nothing to filter or sort when there
+			// The filter's one home is the header line (the Settings filter's slot): it governs the
+			// whole page, and a box floating between header and rows read as belonging to nothing.
+			// The rows carry no header to sort by, so the sort control shares the line.
 			// are no models.
 			actions={
 				models.length === 0 ? undefined : (
@@ -817,11 +718,8 @@ export function ModelsSection({
 		>
 			{models.length === 0 ? (
 				<div className="empty-block">
-					{/* Two different nothings. With no servers at all this destination
-					    is reachable on a fresh install, and telling that reader to run
-					    a sync would send them to ask nobody; the first thing they need
-					    is a server. With servers configured, a sync is exactly the
-					    right suggestion. */}
+					{/* Two different nothings: with no servers, telling the reader to sync would send them
+					    to ask nobody - they need a server first. With servers, a sync is exactly right. */}
 					{serverCount === 0 ? (
 						<>
 							<p>{l10n.t("No models yet.")}</p>
@@ -865,11 +763,9 @@ export function ModelsSection({
 						onChange={setPills}
 						onClearAll={clearFilters}
 					/>
-					{/* When windowed, the scrollport is a focusable, labelled region so
-					    arrow/PageDown scrolling works from the keyboard, and each row
-					    declares its true position in a list only a window of which
-					    exists in the DOM. Visiting every row by Tab alone is out of
-					    scope: off-window rows are reachable by scrolling, not by focus. */}
+					{/* When windowed, the scrollport is a focusable labelled region (keyboard scrolling) and
+					    each row declares its true position in a list only a window of which is in the DOM.
+					    Visiting every row by Tab is out of scope: off-window rows are reached by scrolling. */}
 					<section
 						className={windowed ? "table-scroll windowed" : "table-scroll"}
 						ref={scrollRef}
@@ -895,13 +791,9 @@ export function ModelsSection({
 										{...(windowed ? { "aria-setsize": sorted.length, "aria-posinset": position + 1 } : {})}
 									>
 										<div className="model-row-line">
-											{/* The two lines are the disclosure: the whole readable block
-											    opens the detail, which is why the row's other controls sit
-											    outside it - a button cannot contain a button.
-											    border-control-outline like the server rows' disclosure:
-											    transparent in the ordinary themes, the contrast border in
-											    the bordered modes, where a borderless row stops reading as
-											    clickable and the two lists wore two vocabularies. */}
+											{/* The two lines are the disclosure; the row's other controls sit outside (a button
+											    cannot contain a button). border-control-outline like the server rows': transparent
+											    in ordinary themes, the contrast border in the bordered modes. */}
 											<button
 												type="button"
 												className="model-disclosure rounded-sm border border-control-outline"

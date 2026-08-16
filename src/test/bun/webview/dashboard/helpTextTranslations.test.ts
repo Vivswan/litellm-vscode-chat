@@ -1,14 +1,7 @@
 /**
- * Translated help-text guard, the localized counterpart of help.test.tsx's
- * English sweep: for every English help string the helpText module exports,
- * each translated bundle that carries the key must keep the help-text
- * contract. That is: 1-2 short sentences (10-160 chars, a lower band than
- * the English 40-220 because CJK is denser), no template syntax and no {0}
- * placeholders (help text never interpolates, so it can never carry server
- * data), and no banned typography. Locales are discovered from disk, so the
- * guard passes with zero translated bundles and tightens as they land;
- * missing or untranslated keys are the parity suite's job
- * (src/test/bun/l10n/bundleParity.test.ts), not this one's.
+ * Translated help-text guard: every translated bundle carrying an English help key must keep the contract - 10-160
+ * chars (a lower band than the English 40-220, since CJK is denser), no template syntax or {0} placeholders (help
+ * text never interpolates), no banned typography. Locales come from disk; missing keys are the parity suite's job.
  */
 import { expect, test } from "bun:test";
 import * as fs from "node:fs";
@@ -27,10 +20,8 @@ function addIfString(value: unknown, into: Set<string>): void {
 }
 
 /**
- * Every English help string the module exports: the zero-arg helpX()
- * functions swept generically (a newly added helpX is collected
- * automatically), plus the two arg-taking helpers fanned out over their
- * whole domains, since arity-taking helpers are invisible to the sweep.
+ * Every English help string the module exports: the zero-arg helpX() functions swept generically, plus the two
+ * arg-taking helpers fanned out over their whole domains, since those are invisible to the sweep.
  */
 function collectEnglishHelp(): Set<string> {
 	const english = new Set<string>();

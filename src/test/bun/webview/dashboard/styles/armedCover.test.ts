@@ -2,25 +2,9 @@ import { expect, test } from "bun:test";
 import { blocks, compileDashboard } from "./compileStyles";
 
 /**
- * The armed Remove cover's alignment resets, pinned in the compiled sheet.
- *
- * Arming a server row's Remove takes the confirm pair out of flow and paints
- * it over the row (.server-actions.armed), so nothing in the list moves under
- * the pointer about to confirm. The trap that idiom walks into twice is that
- * an absolutely positioned grid child carries the RESTING cluster's own
- * self-alignment into its sizing: `align-self: center` shrink-to-fit the block
- * axis into a button-high band parked mid-row, and `justify-self: end` did the
- * same on the inline axis at the floor tier, leaving the first character of
- * each of the row's lines standing in the gap beside the cover. Both read as
- * clipped row content rather than as a row held under a question, and both are
- * invisible to a state pair: the cover is out of flow, so it moves nothing.
- *
- * check-geometry's armed pairs assert the block axis at the wide and folded
- * tiers. The floor tier is out of their reach - a pair's steps run before the
- * harness's asserted width, and a platform minimum window hands back a
- * viewport far wider than 320px, so the tier never engages - and happy-dom
- * runs no cascade, which leaves the compiled stylesheet as the one place the
- * floor rule is checkable at all.
+ * The armed Remove cover's alignment resets: an absolutely positioned grid child inherits the resting cluster's
+ * self-alignment into its sizing, banding the cover mid-row or leaving the row's first characters beside it.
+ * happy-dom runs no cascade and check-geometry never engages the floor tier, so the compiled sheet is the one place.
  */
 
 const FLOOR_QUERY = "@container pane (width < 400px)";
@@ -39,11 +23,8 @@ function declarationsFor(css: string, selector: string, within: string | undefin
 }
 
 test("the resting actions cluster still aligns itself, which is what the cover has to reset", async () => {
-	// The premise of both resets. If the cluster ever stops aligning itself,
-	// the reset rules below become cargo and this suite says so first. The
-	// compiler's spelling, not the source's: it collapses the cluster's
-	// align-self and justify-self into one place-self, which is the shape the
-	// browser is handed.
+	// The premise of both resets: if the cluster stops aligning itself, the reset rules below become cargo. The
+	// compiler collapses the cluster's align-self and justify-self into one place-self, which is what ships.
 	const resting = declarationsFor(await compileDashboard(), ".server-actions", undefined);
 	expect(resting).toContain("place-self: center end");
 });
@@ -58,11 +39,9 @@ test("the armed cover resets align-self, so it fills the row's height rather tha
 });
 
 test("the floor tier's cover resets justify-self and sizes from its insets, so it spans the whole row", async () => {
-	// Four declarations that only work together: the grid-column moves the
-	// containing block out to the row, the insets and the auto width size the
-	// box from it, and justify-self: stretch is what lets an auto-sized box
-	// fill instead of shrink-to-fitting at the row's right edge. Dropping any
-	// one of them puts the row's first characters back beside the cover.
+	// Four declarations that only work together: the grid-column moves the containing block out to the row, the
+	// insets and the auto width size the box from it, and justify-self: stretch is what lets an auto-sized box fill
+	// instead of shrink-to-fitting. Dropping any one puts the row's first characters back beside the cover.
 	const floor = declarationsFor(await compileDashboard(), ".server-actions.armed", FLOOR_QUERY);
 	expect(floor).toContain("grid-column: 1 / -1");
 	expect(floor).toContain("inset-inline: 0");

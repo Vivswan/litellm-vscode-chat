@@ -1,11 +1,9 @@
 /**
- * A FailureNote in the Model parameters record editor: the footer's message
- * slot speaking the refusal - the edits-kept frame around the extension's
- * message HEADLINE (the detail part stays off the one-line slot), inline
- * beside the bar's buttons. The steps make the draft dirty (a fresh matcher
- * typed in the overlay, then closed so the footer is in view) and Apply it;
- * the respond map answers the posted setModelParameters with its correlated
- * fail envelope, which returns the draft dirty and marks the slot.
+ * A FailureNote in the Model parameters record editor: the footer's message slot
+ * speaking the refusal, the edits-kept frame around the message HEADLINE only,
+ * inline beside the bar's buttons. The steps make the draft dirty and Apply it;
+ * the respond map answers the posted setModelParameters with its correlated fail
+ * envelope, which returns the draft dirty and marks the slot.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";

@@ -1,56 +1,20 @@
 /**
- * Sweeps registered STATE PAIRS for geometry drift: renders a fixture through
- * the render harness, measures a target element, induces a state the same way
- * the harness's own fixtures do (clicks, focus, React-safe input writes, a
- * re-dispatched state push), measures again, and fails when the geometry
- * moved. check-overflow.ts proves "the page fits"; this proves the sibling
- * claim no screenshot can: "a state change does not move what it marks".
- * Three consistency defects shipped because nothing compared an element
- * against ITSELF across its states - a modified settings row taller than an
- * unmodified one, a table stranding half the pane at 2000px, a meta line
- * riding in-row on one surface and below it on another.
+ * Sweeps registered STATE PAIRS for geometry drift: renders a fixture, measures
+ * a target, induces a state, measures again, and fails when the geometry moved.
+ * check-overflow.ts proves "the page fits"; this proves "a state change does
+ * not move what it marks", plus a width leg asserting each registered surface
+ * reaches the pane's content edge at 2000px.
  *
- * THE REGISTRIES ARE THE COVERAGE CLAIM. A new stateful element - anything
- * that gains a mark, a reveal, an error, or an overlay without meaning to
- * move - gets a STATE_PAIRS entry; a new destination or structural container
- * gets a WIDTH_SURFACES entry. An element missing from here is an element
- * this sweep says nothing about.
+ * THE REGISTRIES ARE THE COVERAGE CLAIM. A new stateful element - anything that
+ * gains a mark, a reveal, an error, or an overlay without meaning to move -
+ * gets a STATE_PAIRS entry; a new destination or structural container gets a
+ * WIDTH_SURFACES entry. Disclosure is deliberately not a pair: open-vs-closed
+ * EXISTS to move geometry. Pairs are for "same box, different paint".
  *
- * What is deliberately NOT a pair: disclosure. A model or server row's
- * closed-vs-open states EXIST to move geometry - the detail body takes rows
- * of its own - so holding them still would gate the design's intent, not a
- * defect. Pairs are for states whose whole contract is "same box, different
- * paint": marks, reveals, validity, overlays.
- *
- * Mechanics: each entry becomes a generated fixture module extending the real
- * one with rest-verify, measure, toggle, induced-verify and compare steps,
- * run by render-dashboard.ts in measurement-only mode (--widths "" asks for
- * no capture; the harness still runs the steps and its own-width overflow
- * assertion). A probe failure throws an error whose message STARTS with a
- * GEOMETRY- marker, which the harness surfaces on exit 1; this runner
- * classifies by those markers, exactly how check-overflow.ts reads "scrolls
- * sideways". The probes assemble each marker at runtime ("GEOMETRY-" +
- * "DRIFT") on purpose: the harness echoes the whole failing expression under
- * the error, so a marker spelled whole in the probe SOURCE would appear in
- * the output of every failure the probe can have, and a vanished selector
- * would read as the drift it never measured.
- *
- * Exit 1 means geometry moved (the case, the dimension, and both numbers are
- * named) or a fixture guard is missing, and is also what a failure of the
- * runner itself exits with (an unwritable tmp directory, a bad flag), like
- * its sibling. Exit 2 means a case never ran - a vanished selector, a toggle
- * that no longer induces its state, a baseline already in the toggled
- * state - or an expectedDrift marker whose drift is gone; a stale entry is
- * its own failure, never a passing sweep.
- *
- * The FIXTURE GUARDS leg is the third registry, a static one: a fixture
- * whose steps drive a flow can catch the wrong page and still exit 0 with a
- * plausible PNG - that has happened, at scale - so every flow-driving
- * fixture must carry a throwing assertion on its own subject, fail-closed
- * for new and modified fixtures, with today's unguarded ones grandfathered
- * in a shrink-only allowlist pinned to their steps' content. The leg
- * inspects each fixture's EXPORTED steps, not its text: steps arrive by
- * spread and import too, and a word in a comment proves nothing.
+ * Exit 1 means geometry moved, a fixture guard is missing, or the runner itself
+ * failed. Exit 2 means a case never ran (a vanished selector, a toggle that no
+ * longer induces its state, a baseline already toggled) or an expectedDrift
+ * marker whose drift is gone: a stale entry is its own failure, never a green.
  *
  * Usage:
  *   bun scripts/dev/check-geometry.ts [--only <substring>] [--jobs 4]
@@ -71,9 +35,8 @@ const FIXTURE_DIR = path.join(REPO_ROOT, "scripts/dev/renderFixtures");
 const HARNESS = path.join(REPO_ROOT, "scripts/dev/render-dashboard.ts");
 
 /**
- * Sub-pixel slack for antialiased layout: Chrome reports fractional rects,
- * and two paints of the same box can differ by a rounding step without any
- * rule having moved. Anything past half a pixel is a rule.
+ * Sub-pixel slack for antialiased layout: two paints of the same box can differ
+ * by a rounding step without any rule having moved. Past half a pixel is a rule.
  */
 const TOLERANCE_PX = 0.5;
 
@@ -81,9 +44,10 @@ const TOLERANCE_PX = 0.5;
 const WIDE_VIEWPORT_PX = 2000;
 
 /**
- * A marker as probe SOURCE: two halves joined at runtime, so the assembled
- * word exists only in a thrown message and never in the expression the
- * harness echoes under it (see the header). The runner greps the whole word.
+ * A marker as probe SOURCE: two halves joined at runtime, so the assembled word
+ * exists only in a thrown message and never in the expression the harness
+ * echoes under it, where it would match every failure the probe can have. The
+ * runner greps the whole word.
  */
 function marker(kind: "SETUP" | "DRIFT" | "XDRIFT" | "STALE" | "WIDTH", rest: string): string {
 	return `"GEOMETRY-" + ${JSON.stringify(`${kind}${rest}`)}`;
@@ -113,33 +77,32 @@ interface StatePair {
 	/** Steps run before the baseline measurement (open the popover the pair lives in). */
 	readonly setup?: readonly string[];
 	/**
-	 * A viewport width forced onto the pair's fixture, for a tier the
-	 * fixture's own width never reaches; the restVerify should then also prove
-	 * the tier engaged (a platform minimum can hand back something wider).
+	 * A viewport width forced onto the pair's fixture, for a tier the fixture's
+	 * own width never reaches; the restVerify should then also prove the tier
+	 * engaged, since a platform minimum can hand back something wider.
 	 */
 	readonly viewportWidth?: number;
 	/** Steps that induce the second state. */
 	readonly toggle: readonly string[];
 	/**
 	 * A page expression that must be truthy at the BASELINE, proving the rest
-	 * state is really at rest: a fixture that one day starts in the toggled
-	 * state would otherwise compare the state against itself and certify a
-	 * claim the pair never tested.
+	 * state is really at rest: a fixture that one day starts in the toggled state
+	 * would otherwise compare the state against itself.
 	 */
 	readonly restVerify: string;
 	/** The mirror guard after the toggle: truthy proves the state was actually induced. */
 	readonly verify: string;
 	/**
-	 * Dimensions a NAMED target is allowed to change, keyed by its selector,
-	 * with the reason in the entry's comment. Per target on purpose: an
-	 * exemption one element earns must not silently cover its neighbours.
+	 * Dimensions a NAMED target is allowed to change, with the reason in the
+	 * entry's comment. Per target on purpose: an exemption one element earns must
+	 * not silently cover its neighbours.
 	 */
 	readonly intended?: Readonly<Record<string, readonly Dim[]>>;
 	/**
 	 * The pair drifts on today's main and the defect is known: the sweep stays
-	 * green by asserting the NAMED drifts are still there and nothing else
-	 * moved. Remove the marker in the same change that fixes the defect - a
-	 * marker whose drift is gone fails as stale.
+	 * green by asserting the NAMED drifts are still there and nothing else moved.
+	 * Remove the marker in the same change that fixes the defect - a marker whose
+	 * drift is gone fails as stale.
 	 */
 	readonly expectedDrift?: ExpectedDrift;
 }
@@ -150,20 +113,15 @@ const THEME_ROW = '.setting-row:has([id="setting-ui.theme"])';
 const THRESHOLDS_ROW = '.setting-row:has([id="setting-usage.alertThresholds-warning"])';
 /**
  * That row's PARSE-error overlay, named by the id its inputs' aria-describedby
- * points at rather than by `.setting-hint .error`: a refused write now renders
- * its own overlay in the same covered slot with the same class, and a pair
- * whose guards cannot tell the two apart has stopped naming the state it
- * induces.
+ * points at rather than by `.setting-hint .error`: a refused write renders its
+ * own overlay in the same covered slot with the same class, and guards that
+ * cannot tell the two apart stop naming the state they induce.
  */
 const THRESHOLDS_PARSE_ERROR = `${THRESHOLDS_ROW} .setting-hint span.error[id="setting-usage.alertThresholds-problem"]`;
 /**
  * The same row's write-REFUSAL overlay: the covered slot's other tenant,
- * identified by NOT carrying the parse error's id (only the parse error is
- * pointed at by the inputs' aria-describedby; err-scalar.ts pins the same
- * disambiguation). Both tenants live inside a .setting-cover wrapper, which
- * carries the positioning while the .error span holds only the message text -
- * the row's help glyph rides the cover as the error span's sibling, so the
- * description the id names never includes the glyph's own accessible name.
+ * identified by NOT carrying the parse error's id (err-scalar.ts pins the same
+ * disambiguation).
  */
 const THRESHOLDS_REFUSAL = `${THRESHOLDS_ROW} .setting-hint .setting-cover > span.error:not([id])`;
 /** The covered slot's help glyph while an overlay stands: the "?" re-homed to the visible sentence's tail. */
@@ -187,20 +145,12 @@ const COPY_TOOL = ".diagnostics-tools li:nth-child(3) button";
 
 /**
  * The armed cover's own claim, stated in the pair's verify because the pair
- * itself cannot see it: the cover is out of flow, so one that fails to fill the
- * row moves no target and every held dimension still passes. That is not
- * hypothetical - the resting cluster aligns itself inside its grid area and an
- * absolutely positioned box carries `align-self` into its own SIZING, so a
- * cover left at the cluster's `center` shrink-to-fits into a button-high band
- * parked mid-row, with the row's own cells legible above and below it.
- *
- * The BLOCK axis only. The inline twin of the trap is real (the cluster's
- * resting `justify-self: end`, which the floor tier resets so the cover can
- * span the whole row), but the floor tier cannot be measured here: a pair's
- * steps run before the harness's asserted width, and a platform minimum window
- * hands back a viewport far wider than 320px, so the tier never engages and the
- * leg reads as never-ran. The compiled-stylesheet suite pins that rule instead
- * (src/test/bun/webview/dashboard/styles/armedCover.test.ts).
+ * cannot see it: the cover is out of flow, so one that fails to fill the row
+ * moves no target and every held dimension still passes. BLOCK axis only - the
+ * inline twin needs the floor tier, which a pair's steps cannot reach (they run
+ * before the harness's asserted width, and a platform minimum hands back
+ * something far wider than 320px), so the compiled-stylesheet suite pins that
+ * rule instead (src/test/bun/webview/dashboard/styles/armedCover.test.ts).
  */
 function coversTheRow(item: string): string {
 	return `(() => {
@@ -232,12 +182,9 @@ function reactType(selector: string, value: string): string {
  */
 const STATE_PAIRS: readonly StatePair[] = [
 	{
-		// Marking a settings row modified may change the gutter border's COLOR
-		// (it is always there, transparent when clean) and reveal the Reset
-		// action (opacity only) - the row's box and the row below must not move.
-		// The toggle re-dispatches the fixture's own state push with the two
-		// appearance scopes set, the exact message a real configuration change
-		// delivers, so the pair cannot drift from the fixture's state shape.
+		// Marking a settings row modified may change the gutter border's COLOR and
+		// reveal the Reset action (opacity only); the row's box and the row below
+		// must not move.
 		name: "settings-row-modified",
 		fixture: "settings.ts",
 		targets: [THEME_ROW],
@@ -254,11 +201,9 @@ const STATE_PAIRS: readonly StatePair[] = [
 		verify: `document.querySelector(${JSON.stringify(THEME_ROW)}).classList.contains("modified")`,
 	},
 	{
-		// A modified row's hover/focus reveal (Reset, the settings.json jump,
-		// the default note) is opacity through the Reveal primitive - revealing
-		// it must not move the row or the row below. Driven through the focus
-		// half of the reveal contract, because a fixture step cannot create
-		// :hover; both halves reveal by flipping the same opacity utility.
+		// A modified row's hover/focus reveal is opacity through the Reveal
+		// primitive; revealing it must not move the row or the row below. Driven
+		// through the focus half, because a fixture step cannot create :hover.
 		name: "settings-row-reveal",
 		fixture: "settings-appearance-set.ts",
 		targets: [THEME_ROW],
@@ -267,10 +212,9 @@ const STATE_PAIRS: readonly StatePair[] = [
 			`document.querySelector(${JSON.stringify(`${THEME_ROW} .setting-actions button.reveal-json`)})` +
 				`.focus({ preventScroll: true })`,
 		],
-		// The opacity lives on the Reveal WRAPPER (ui/reveal.tsx's data-slot),
-		// not the button: computed opacity does not inherit as a value, so the
-		// button inside a faded wrapper still reads "1" and a guard on it would
-		// be vacuously true in both states.
+		// The opacity lives on the Reveal WRAPPER (ui/reveal.tsx's data-slot), not
+		// the button: computed opacity does not inherit as a value, so a guard on
+		// the button inside a faded wrapper would read "1" in both states.
 		restVerify:
 			`getComputedStyle(document.querySelector(` +
 			`${JSON.stringify(`${THEME_ROW} .setting-actions [data-slot="reveal"]:has(> button.reset)`)}` +
@@ -282,13 +226,10 @@ const STATE_PAIRS: readonly StatePair[] = [
 			`)).opacity === "1"`,
 	},
 	{
-		// A settings row's parse error COVERS the description (the description
-		// stays, invisible, so the cell keeps its height) - the row must not
-		// grow while you type something wrong. The verify also holds the covered
-		// slot's help glyph: the "?" re-homes to the error's own tail while one
-		// stands (dark collided the two, forced colors buried the glyph under
-		// the error text's backplate), so a cover without a painted glyph is the
-		// regression this pair now names.
+		// A settings row's parse error COVERS the description, so the row must not
+		// grow. The verify also holds the covered slot's help glyph, which
+		// re-homes to the error's tail: a cover without a painted glyph is a
+		// regression this pair names.
 		name: "settings-row-error-overlay",
 		fixture: "settings.ts",
 		targets: [THRESHOLDS_ROW],
@@ -301,11 +242,9 @@ const STATE_PAIRS: readonly StatePair[] = [
 	},
 	{
 		// The Copy diagnostics check-mark flash swaps the button's leading glyph
-		// in place - same box, different paint: the flash must not resize the
-		// button or move the vertical action stack it sits in (the Support nav
-		// is the stack's next group, held through siblingOf). The rest glyph's
-		// path is stashed on the window so the verify proves the swap happened
-		// rather than comparing the state against itself.
+		// in place: it must not resize the button or move the action stack. The
+		// rest glyph's path is stashed on the window so the verify proves the swap
+		// happened rather than comparing the state against itself.
 		name: "diagnostics-copy-flash",
 		fixture: "diagnostics.ts",
 		targets: [COPY_TOOL, ".diagnostics-tools"],
@@ -322,10 +261,9 @@ const STATE_PAIRS: readonly StatePair[] = [
 			`return path.length > 0 && path !== window.__copyGlyphAtRest; })()`,
 	},
 	{
-		// The server row's actions cluster occupies a reserved track and reveals
-		// by opacity - revealing it must not move the row, its name or URL text,
-		// or the row below. Driven through :focus-within (the reveal's keyboard
-		// half); the pointer half flips the same opacity rule.
+		// The server row's actions cluster occupies a reserved track and reveals by
+		// opacity: revealing it must not move the row, its name or URL text, or
+		// the row below. Driven through :focus-within, the reveal's keyboard half.
 		name: "server-row-actions-reveal",
 		fixture: "servers-spend.ts",
 		targets: [
@@ -347,13 +285,9 @@ const STATE_PAIRS: readonly StatePair[] = [
 			`.opacity === "1"`,
 	},
 	{
-		// The Servers header's Refresh now button during an explicit in-flight
-		// pass: the busy label swaps in over a reserved width twin (both labels
-		// stay mounted in one grid cell), so flipping to "Refreshing..." must
-		// not resize the button, move Add server beside it, or move the header
-		// line. The toggle re-dispatches the fixture's own state push with the
-		// two usage flags set, the exact message a real explicit refresh
-		// delivers.
+		// Refresh now's busy label swaps in over a reserved width twin (both labels
+		// stay mounted in one grid cell), so flipping to "Refreshing..." must not
+		// resize the button, move Add server, or move the header line.
 		name: "servers-refresh-busy",
 		fixture: "servers-spend.ts",
 		targets: [
@@ -375,11 +309,9 @@ const STATE_PAIRS: readonly StatePair[] = [
 			`getComputedStyle(document.querySelector("button.refresh-usage .spinner")).visibility === "visible"`,
 	},
 	{
-		// Arming Remove swaps the resting pair for the two-step confirm, which
-		// leaves the flow and COVERS the row's own cells (.server-actions.armed)
-		// - arming must move NOTHING: not the armed row's own box or height, not
-		// its cells, not the row below. The cluster itself is deliberately not a
-		// target: becoming the cover changes its box by design.
+		// Arming Remove swaps the resting pair for a two-step confirm that leaves
+		// the flow and COVERS the row's cells, and must move NOTHING. The cluster
+		// itself is not a target: becoming the cover changes its box by design.
 		name: "server-row-armed-cover",
 		fixture: "servers-spend.ts",
 		targets: [
@@ -403,13 +335,10 @@ const STATE_PAIRS: readonly StatePair[] = [
 			coversTheRow(FIRST_SERVER_ITEM),
 	},
 	{
-		// The folded tier's twin of the pair above, at the width where a cover
-		// that failed to fill the row left the most behind: below 920 the row is
-		// two lines, so a button-high band mid-row leaves the whole meta line -
-		// url, count, spend - readable under the confirm. Same holds as the wide
-		// pair, plus the same coverage claim in its verify; the restVerify also
-		// proves the tier really folded, since a platform minimum can hand back
-		// something wider than the width asked for.
+		// The folded tier's twin of the pair above, where the row is two lines and
+		// a cover failing to fill it would leave the whole meta line readable
+		// under the confirm. The restVerify also proves the tier really folded,
+		// since a platform minimum can hand back something wider.
 		name: "server-row-armed-cover-folded",
 		fixture: "servers-spend.ts",
 		viewportWidth: 500,
@@ -436,15 +365,12 @@ const STATE_PAIRS: readonly StatePair[] = [
 			coversTheRow(FIRST_SERVER_ITEM),
 	},
 	{
-		// The usage poll staling a row lands the "stale" qualifier INLINE before
-		// the spend figure - never a line of its own - and the .server-usage
-		// floor absorbs the word, so the mark arriving asynchronously must not
-		// move the row, the cell, or the row below. The setup first re-dispatches
-		// the push with every card fresh: the fixture ships research already
-		// stale, whose composition would pre-widen the shared track and let a
-		// dropped floor pass unmeasured. The spend unit's own width and x are
-		// INTENDED: "stale 42%" is more text than "42%", right-justified inside
-		// the held cell.
+		// The "stale" qualifier lands INLINE before the spend figure and the
+		// .server-usage floor absorbs it, so the mark must not move the row, the
+		// cell, or the row below. The setup first makes every card fresh: the
+		// fixture ships one already stale, whose composition would pre-widen the
+		// shared track and let a dropped floor pass unmeasured. The unit's width
+		// and x are INTENDED - "stale 42%" is more text, right-justified.
 		name: "server-spend-stale",
 		fixture: "servers-spend.ts",
 		setup: [
@@ -476,17 +402,12 @@ const STATE_PAIRS: readonly StatePair[] = [
 		intended: { [`${FIRST_SERVER_ITEM} .spend-unit`]: ["width", "x"] },
 	},
 	{
-		// The folded tiers' twin of the pair above: below 920 the spend cell
-		// sits on a WRAPPING flex meta line, where the word arriving without
-		// the cell's reservation could re-wrap the line and grow the row. The
-		// unit is left-aligned there, so only its width is intended - its left
-		// edge, the cell, the row, and the row below must all hold. No all-fresh
-		// setup here, deliberately: the reservation under test is per-cell (no
-		// shared track at this tier), and the fixture's own stale research row
-		// keeps the header's "(stale rows excluded)" gloss - which wraps the
-		// 500px header - constant across both states. The restVerify also
-		// proves the tier really folded: a platform minimum widening the
-		// viewport would otherwise measure the wide tier twice.
+		// The folded twin, where the spend cell sits on a WRAPPING flex meta line
+		// and the word arriving without a reservation could re-wrap it. Only width
+		// is intended there (the unit is left-aligned). No all-fresh setup on
+		// purpose: the reservation under test is per-cell at this tier, and the
+		// fixture's own stale row keeps the header's wrapping gloss constant. The
+		// restVerify proves the tier folded, or the wide tier is measured twice.
 		name: "server-spend-stale-folded",
 		fixture: "servers-spend.ts",
 		viewportWidth: 500,
@@ -513,14 +434,10 @@ const STATE_PAIRS: readonly StatePair[] = [
 		intended: { [`${FIRST_SERVER_ITEM} .spend-unit`]: ["width"] },
 	},
 	{
-		// A record chip's invalid mark is a border-color change on a border that
-		// is always there, and the popover holding the message is out of flow -
-		// going invalid must not change the chip's or its chip line's height or
-		// vertical position. Width and x are INTENDED here, not exempted for
-		// convenience: the chip echoes the draft's value text and an invalid
-		// draft is different text, so the inline chip resizes to its content by
-		// design - the claim this pair holds is the vertical one, "the mark
-		// never adds a line or moves the row".
+		// A record chip's invalid mark is a border-color change on a border that is
+		// always there, and the popover is out of flow: the claim is the vertical
+		// one, that the mark never adds a line or moves the row. Width and x are
+		// INTENDED - the chip echoes the draft's text and resizes by design.
 		name: "record-chip-invalid",
 		fixture: "settings.ts",
 		targets: [OPEN_CHIP, ".chip-list:has(.chip-popover)"],
@@ -538,11 +455,10 @@ const STATE_PAIRS: readonly StatePair[] = [
 		intended: { [OPEN_CHIP]: ["width", "x"] },
 	},
 	{
-		// The server form's field problem is an overlay COVERING the row's
-		// reserved hint slot (the settings rows' covered-description mechanism),
-		// and the connection-consequence note under Test connection holds its box
-		// as an invisible twin until a connection edit makes it speak - a field
-		// going invalid must not move the input or grow the form.
+		// The server form's field problem is an overlay COVERING the row's reserved
+		// hint slot, and the connection-consequence note holds its box as an
+		// invisible twin: a field going invalid must not move the input or grow
+		// the form.
 		name: "form-url-error",
 		fixture: "form-apikey.ts",
 		targets: ["#server-baseUrl", "#server-edit-page"],
@@ -551,9 +467,9 @@ const STATE_PAIRS: readonly StatePair[] = [
 		verify: `document.querySelector('[id="server-baseUrl-error"] .error') !== null`,
 	},
 	{
-		// A custom-header row's parse verdict lands per keystroke in the row's
-		// reserved status line (the .row .row-status reservation) - the row, the
-		// row below, and the form must not move when a name goes invalid.
+		// A custom-header row's parse verdict lands in the row's reserved status
+		// line: the row, the row below, and the form must not move when a name
+		// goes invalid.
 		name: "form-header-row-error",
 		fixture: "form-apikey.ts",
 		targets: [FIRST_HEADER_ROW, "#server-edit-page"],
@@ -563,11 +479,9 @@ const STATE_PAIRS: readonly StatePair[] = [
 		verify: `document.querySelector("#server-edit-page .row .row-status.error") !== null`,
 	},
 	{
-		// The matcher editor overlay's per-row verdict lands per keystroke in the
-		// row's reserved status line - the row, the rows grid, and the Add action
-		// under it (the grid's next sibling) must not move when a value goes
-		// invalid. The parameters editor is toggled here; the capability twin
-		// below drives the same shared machinery from the caps side.
+		// The matcher editor overlay's per-row verdict lands in the row's reserved
+		// status line: the row, the rows grid, and the Add action under it must
+		// not move. The capability twin below drives the same machinery.
 		name: "record-overlay-row-error",
 		fixture: "record-overlay.ts",
 		targets: [".matcher-editor .rows > .row", ".matcher-editor .rows"],
@@ -577,10 +491,8 @@ const STATE_PAIRS: readonly StatePair[] = [
 		verify: `document.querySelector(".matcher-editor .row-status.error") !== null`,
 	},
 	{
-		// The capability editor's twin of the pair above, inside the server
-		// form's overlay: its rows also carry standing HINTS at rest (the
-		// unknown-key advisories), so this pair proves a problem landing beside
-		// them holds the grid and the overlay footer still.
+		// The capability twin, whose rows carry standing HINTS at rest: a problem
+		// landing beside them must hold the grid and the overlay footer still.
 		name: "form-caps-overlay-row-error",
 		fixture: "form-caps-open.ts",
 		targets: [".matcher-editor .rows", ".matcher-editor .editor-footer"],
@@ -603,18 +515,14 @@ const STATE_PAIRS: readonly StatePair[] = [
 		verify: `document.querySelector(".matcher-editor .row-status.error") !== null`,
 	},
 	{
-		// A refused record Apply lands in the footer's inline message slot
-		// (headline only) - the frame, its action bar, the slot's own box, the
-		// Add action, and the commit trio must not move when the refusal
-		// arrives. The toggle drives the real flow: Apply posts the dirty
-		// draft, and the fail envelope quotes the posted request's id off the
-		// harness stub, like err-recordeditor.ts.
+		// A refused record Apply lands in the footer's inline message slot: the
+		// frame, its action bar, the slot's own box, the Add action, and the
+		// commit trio must not move. The toggle drives the real flow, quoting the
+		// posted request's id off the harness stub like err-recordeditor.ts.
 		name: "record-apply-failure-note",
 		fixture: "settings.ts",
 		setup: [
-			// A dirty draft first: open the "*" row's temperature chip, change the
-			// value, close the popover. The rest state is the dirty-but-unrefused
-			// editor, the state the refusal actually lands on.
+			// A dirty draft first, since that is the state the refusal lands on.
 			`(() => {
 				const chips = [...document.querySelectorAll("button.chip-field")]
 					.filter((chip) => chip.querySelector(".chip-key")?.textContent === "temperature");
@@ -656,11 +564,9 @@ const STATE_PAIRS: readonly StatePair[] = [
 			`?.textContent.includes("refused by the configuration target") === true`,
 	},
 	{
-		// A refused settings write covers the posting row's description slot (the
-		// parse errors' covered-description mechanism; err-scalar.ts drives the
-		// same flow for its shot) - the row and the row below must not move when
-		// the refusal lands. Sibling pair of settings-row-error-overlay, which
-		// toggles the slot's OTHER tenant.
+		// A refused settings write covers the posting row's description slot: the
+		// row and the row below must not move. Sibling pair of
+		// settings-row-error-overlay, which toggles the slot's OTHER tenant.
 		name: "settings-write-failure-overlay",
 		fixture: "settings.ts",
 		targets: [THRESHOLDS_ROW],
@@ -676,9 +582,9 @@ const STATE_PAIRS: readonly StatePair[] = [
 				const posted = window.__posted.filter((m) => m.method === "setUsageAlertThresholds").pop();
 				if (posted === undefined) { throw new Error(${marker("SETUP", ": Enter posted no setUsageAlertThresholds request")}); }
 				// The reader tabs to the row's help before the refusal lands: the
-				// swap must hand focus to the cover's glyph (the verify holds it),
-				// because the resting one goes visibility-hidden and a hidden
-				// control cannot keep the keyboard.
+				// swap must hand focus to the cover's glyph, because the resting one
+				// goes visibility-hidden and a hidden control cannot keep the
+				// keyboard.
 				const glyph = document.querySelector(${JSON.stringify(`${THRESHOLDS_ROW} .setting-rest button.help`)});
 				if (glyph === null) { throw new Error(${marker("SETUP", ": no resting help glyph on the thresholds row")}); }
 				glyph.focus({ preventScroll: true });
@@ -702,12 +608,10 @@ const STATE_PAIRS: readonly StatePair[] = [
 			`document.activeElement === document.querySelector(${JSON.stringify(THRESHOLDS_COVER_GLYPH)})`,
 	},
 	{
-		// The server form's rename note holds its box as an invisible spacing
-		// twin under the Label row (the connection note's idiom) - the first
-		// renaming keystroke used to INSERT it and push every row below down
-		// under the typing hand. err-serverform.ts opens the edit form with a
-		// field error already standing, so this also proves the note speaks
-		// without disturbing the covered-slot error above it.
+		// The server form's rename note holds its box as an invisible spacing twin
+		// under the Label row: speaking must not push the rows below down. The
+		// fixture opens with a field error already standing, so this also proves
+		// the note does not disturb the covered-slot error above it.
 		name: "form-rename-note",
 		fixture: "err-serverform.ts",
 		targets: ["#server-label", "#server-baseUrl", "#server-edit-page"],
@@ -717,12 +621,9 @@ const STATE_PAIRS: readonly StatePair[] = [
 		verify: `getComputedStyle(document.querySelector("#server-edit-page .rename-note"))` + `.visibility === "visible"`,
 	},
 	{
-		// The add form's twin of the rename note: typing a label that matches a
-		// declared entry speaks the collides note in the same reserved line
-		// under the Label row - as an inserting hint, the first colliding
-		// keystroke pushed the whole form down. form-apiversion-auto opens the
-		// ADD form (the only state that renders .collides-note; the edit form
-		// renders .rename-note in the same slot), and "prod" is a declared
+		// The add form's twin: a label colliding with a declared entry speaks the
+		// collides note in the same reserved line, and must not push the form
+		// down. Only the ADD form renders .collides-note, and "prod" is a declared
 		// label in the shared base state, so the toggle is a real collision.
 		name: "form-collides-note",
 		fixture: "form-apiversion-auto.ts",
@@ -734,14 +635,10 @@ const STATE_PAIRS: readonly StatePair[] = [
 			`getComputedStyle(document.querySelector("#server-edit-page .collides-note"))` + `.visibility === "visible"`,
 	},
 	{
-		// The matcher editor's own status line under the matcher input: the
-		// grammar reading at rest, the parse verdict while one stands - one
-		// reserved line (dashboard.css .matcher-status), so a verdict landing
-		// must not move the Inherits control, the field rows, or the footer.
-		// Before the merge these were two spans, and a typed matcher that
-		// collided grew a second line under the kind reading - this toggle
-		// (a reserved name, so the kind reading and the verdict apply at once)
-		// is exactly the state that used to paint both.
+		// The matcher editor's status line under the matcher input is ONE reserved
+		// line (the grammar reading at rest, the parse verdict while one stands),
+		// so a verdict must not move the Inherits control, the field rows, or the
+		// footer. The toggle uses a reserved name, so both readings apply at once.
 		name: "record-overlay-prefix-error",
 		fixture: "record-overlay.ts",
 		targets: [".matcher-editor .matcher-line", ".matcher-editor .rows", ".matcher-editor .editor-footer"],
@@ -751,13 +648,10 @@ const STATE_PAIRS: readonly StatePair[] = [
 		verify: `document.querySelector(".matcher-editor .matcher-status.error") !== null`,
 	},
 	{
-		// The same slot's other swap, from the other resting state: an EMPTY
-		// matcher's status line speaks the parse's own verdict ("Enter a model
-		// matcher"), and the first keystroke swaps it for the grammar reading -
-		// as two spans those wore two different font sizes, so the swap moved
-		// the sections below by a rounding step on every keystroke into an
-		// empty matcher. The setup drives the editor into the empty state the
-		// fixture never rests in.
+		// The same slot's other swap: an EMPTY matcher's status speaks the parse's
+		// verdict, and the first keystroke swaps it for the grammar reading, which
+		// must not move the sections below. The setup drives the editor into the
+		// empty state the fixture never rests in.
 		name: "record-overlay-empty-matcher-status",
 		fixture: "record-overlay.ts",
 		setup: [reactType(".matcher-editor .matcher-line input.key", "")],
@@ -785,8 +679,8 @@ const STATE_PAIRS: readonly StatePair[] = [
 			})()`,
 		],
 		// JSON_PARAMS_FRAME, not PARAMS_FRAME: the side door replaces the Add
-		// action the resting anchor rides on, so the frame is re-anchored by
-		// the door's own textarea for every measurement after setup.
+		// action the resting anchor rides on, so the frame is re-anchored by the
+		// door's own textarea for every measurement after setup.
 		targets: [
 			JSON_PARAMS_FRAME,
 			`${JSON_PARAMS_FRAME} .record-json textarea`,
@@ -810,9 +704,8 @@ const STATE_PAIRS: readonly StatePair[] = [
 	},
 	{
 		// The card's verdict mounts in the footer's inline message slot when a
-		// popover closes over an invalid draft: the row, the row below, the
-		// table, the frame, the footer, the slot's own box, and both button
-		// groups must all hold still.
+		// popover closes over an invalid draft: the row, the row below, the table,
+		// the frame, the footer, the slot, and both button groups must hold still.
 		name: "record-row-status",
 		fixture: "record-popover.ts",
 		targets: [
@@ -833,10 +726,9 @@ const STATE_PAIRS: readonly StatePair[] = [
 		verify: `document.querySelector(${JSON.stringify(`${PARAMS_FRAME} .record-verdict`)}) !== null`,
 	},
 	{
-		// The same claim driven from the LAST row, whose verdict lands in the
-		// footer directly under it: the bar, the message slot, the Add action,
-		// and the commit trio must not move. The chip's own width/x change is
-		// the record-chip-invalid pair's intended delta, not measured here.
+		// The same claim from the LAST row, whose verdict lands in the footer
+		// directly under it. The chip's own width/x change belongs to
+		// record-chip-invalid, not measured here.
 		name: "record-last-row-status",
 		fixture: "settings.ts",
 		setup: [
@@ -864,11 +756,9 @@ const STATE_PAIRS: readonly StatePair[] = [
 	},
 	{
 		// The chip popover's verdict lands in its reserved status slot AFTER the
-		// actions - Remove field must not move down under the pointer when the
-		// value goes invalid. Width is INTENDED on both: the popover hugs its
-		// content (width: max-content) and the value input echoes the draft's
-		// text, so a longer draft widens the box by design - the claim this pair
-		// holds is the vertical one.
+		// actions: Remove field must not move down under the pointer. Width is
+		// INTENDED on both - the popover hugs its content and the value input
+		// echoes the draft's text, so the claim is the vertical one.
 		name: "chip-popover-status",
 		fixture: "record-popover.ts",
 		targets: [".chip-popover", ".chip-popover .chip-popover-actions"],
@@ -892,40 +782,34 @@ interface WidthSurface {
 }
 
 /**
- * The width extremes: each surface rendered at 2000px, asserting its
- * structural container's right edge lands on the pane's content edge - the
- * charter's width ruling (structure runs full-bleed to the pane; only prose
- * keeps a reading measure, and reading measures are not structural
- * containers). measure.test.ts pins the ruling in source; this pins that the
- * rendered box actually reaches the edge, which is the failure that stranded
- * half the pane once.
+ * The width extremes: each surface rendered at 2000px, asserting its structural
+ * container's right edge lands on the pane's content edge (the charter's ruling
+ * that structure runs full-bleed and only prose keeps a reading measure).
+ * measure.test.ts pins the ruling in source; this pins that the rendered box
+ * actually reaches the edge.
  */
 const WIDTH_SURFACES: readonly WidthSurface[] = [
 	{ name: "models-list-full-bleed", fixture: "models.ts", selector: ".model-list" },
 	{ name: "servers-list-full-bleed", fixture: "servers-spend.ts", selector: "ul.server-list" },
 	{ name: "diagnostics-problems-full-bleed", fixture: "diagnostics.ts", selector: ".config-diagnostics" },
 	{ name: "diagnostics-resolution-full-bleed", fixture: "diagnostics.ts", selector: ".resolved-scroll" },
-	// The settings rows adopt .settings-groups' shared tracks through subgrid,
-	// and the label track auto-grows to the longest title: whatever it takes,
-	// the fixed trailing actions slot must still land on the pane's content
-	// edge. The row's own box overhangs by 8px (the hover tint), so the claim
-	// is on the actions cell, which is where the CONTENT stops.
+	// The settings rows adopt .settings-groups' shared tracks through subgrid and
+	// the label track auto-grows to the longest title, but the fixed trailing
+	// actions slot must still land on the pane's content edge. The claim is on
+	// the actions cell because the row's own box overhangs by 8px (the hover
+	// tint), so the cell is where the CONTENT stops.
 	{ name: "settings-rows-full-bleed", fixture: "settings.ts", selector: ".setting-row .setting-actions" },
 ];
 
 /**
  * Fixtures that drive a flow through steps WITHOUT a throwing assertion on
  * their own subject, grandfathered as found - each pinned to a digest of its
- * steps, so MODIFYING a grandfathered flow invalidates the exemption along
- * with adding a new one. THIS LIST ONLY SHRINKS: a new or changed
- * flow-driving fixture must throw when its subject is not on the page,
- * because a fixture that runs its steps against the wrong page exits 0 with
- * a plausible PNG - twenty-two renders once photographed the Servers page
- * while claiming to show something else. An entry whose fixture now throws
- * (or lost its steps, or is gone) fails as stale until removed.
- *
- * To update a digest here is to re-grandfather changed steps, which defeats
- * the leg: add the throwing assertion instead and DELETE the entry.
+ * steps, so MODIFYING a grandfathered flow invalidates the exemption along with
+ * adding a new one. THIS LIST ONLY SHRINKS: a fixture running its steps against
+ * the wrong page exits 0 with a plausible PNG, which has happened at scale. An
+ * entry whose fixture now throws (or lost its steps, or is gone) fails as
+ * stale. To update a digest is to re-grandfather changed steps, which defeats
+ * the leg: add the throwing assertion and DELETE the entry.
  */
 const UNGUARDED_FIXTURE_PINS: readonly (readonly [string, string])[] = [
 	["confirm-discard.ts", "8bca510c05ad"],
@@ -966,15 +850,9 @@ function stepsDigest(steps: readonly string[]): string {
 }
 
 /**
- * The static guard sweep, over each fixture's EXPORTED shape rather than its
- * text: steps arrive by spread and import as well as by literal (one
- * high-contrast fixture reuses another's whole flow), and a "throw" in a
- * comment proves nothing - the assertion has to live in the steps that run.
- */
-/**
  * Whether a step contains a real throw STATEMENT, by parsing it: a substring
- * test is satisfied by the word in a comment or a string literal inside the
- * step, and a guard leg that can be met by prose is met by prose eventually.
+ * test is satisfied by the word in a comment or a string literal, and a guard
+ * leg that can be met by prose is met by prose eventually.
  */
 function stepThrows(step: string): boolean {
 	let found = false;
@@ -991,6 +869,11 @@ function stepThrows(step: string): boolean {
 	return found;
 }
 
+/**
+ * The static guard sweep, over each fixture's EXPORTED shape rather than its
+ * text: steps arrive by spread and import as well as by literal, and the
+ * assertion has to live in the steps that actually run.
+ */
 async function fixtureGuardFindings(): Promise<string[]> {
 	const findings: string[] = [];
 	const names = readdirSync(FIXTURE_DIR)
@@ -1073,10 +956,9 @@ function compareStep(pair: StatePair): string {
 		}
 		hold("next sibling of " + ${JSON.stringify(pair.siblingOf)}, "y", [],
 			window.__geometryBaseline.siblingTop, anchor.nextElementSibling.getBoundingClientRect().top);`;
-	// With an expectedDrift marker the probe itself decides between "the named
-	// drifts still stand" (XDRIFT, the green outcome), "a drift outside the
-	// list" (DRIFT, a real failure a known defect must not hide), and "no
-	// drift at all" (STALE, the marker outlived its defect).
+	// With an expectedDrift marker the probe decides between "the named drifts
+	// still stand" (XDRIFT, green), "a drift outside the list" (DRIFT, which a
+	// known defect must not hide), and "no drift at all" (STALE).
 	const verdict =
 		pair.expectedDrift === undefined
 			? `if (drifts.length > 0) {
@@ -1142,10 +1024,9 @@ function widthStep(surface: WidthSurface): string {
 	return `(async () => {
 		${SETTLE_JS}
 		// The steps run before the harness's own asserted setWidth, on whatever
-		// viewport --window-size produced - and a platform minimum can silently
-		// hand back something narrower. At a shrunken width every surface fills
-		// whatever pane is left and the extreme goes untested, so it must fail
-		// as never-ran, not pass.
+		// viewport --window-size produced, and a platform minimum can hand back
+		// something narrower. At a shrunken width every surface fills whatever
+		// pane is left and the extreme goes untested, so it fails as never-ran.
 		if (document.documentElement.clientWidth < ${WIDE_VIEWPORT_PX}) {
 			throw new Error(
 				${marker("SETUP", `: the viewport is `)} + document.documentElement.clientWidth +
@@ -1204,10 +1085,9 @@ function widthCase(surface: WidthSurface): SweepCase {
 
 /**
  * The generated fixture: the real one plus this case's steps, so the harness
- * builds the page, replays the messages, and runs the probes exactly as it
- * runs any fixture's own steps. Generated under tmp and imported by absolute
- * path; the base fixture's own relative imports still resolve at its real
- * location.
+ * runs the probes exactly as it runs any fixture's own steps. Generated under
+ * tmp and imported by absolute path, so the base fixture's relative imports
+ * still resolve at its real location.
  */
 async function writeCaseFixture(dir: string, sweep: SweepCase, index: number): Promise<string> {
 	const basePath = path.join(FIXTURE_DIR, sweep.fixture);
@@ -1235,11 +1115,9 @@ interface Result {
 
 /**
  * One case through the harness. --widths "" puts it in measurement-only mode
- * (no PNG, no extra sweep widths) while the steps and the own-width overflow
- * assertion still run; a probe's throw surfaces as exit 1 with its runtime-
- * assembled marker in the output, which is the whole wire protocol between
- * the two scripts (the probe source never spells a marker whole, so the
- * harness's expression echo cannot satisfy these greps).
+ * (no PNG) while the steps and the own-width overflow assertion still run; a
+ * probe's throw surfaces as exit 1 with its runtime-assembled marker in the
+ * output, which is the whole wire protocol between the two scripts.
  */
 async function run(sweep: SweepCase, fixtureFile: string): Promise<Result> {
 	const child = spawn(process.execPath, [HARNESS, "--fixture", fixtureFile, "--widths", ""], {
@@ -1257,8 +1135,8 @@ async function run(sweep: SweepCase, fixtureFile: string): Promise<Result> {
 	let outcome: Outcome;
 	if (code === 0) {
 		// A green exit under an expectedDrift marker cannot happen through the
-		// probe (it always throws one of its three verdicts); reaching it means
-		// the compare step never ran, which is a stale entry, not a pass.
+		// probe (it always throws one of its three verdicts), so reaching it means
+		// the compare step never ran: a stale entry, not a pass.
 		outcome = sweep.expectsDrift ? "stale-expectation" : "held";
 	} else if (output.includes("GEOMETRY-XDRIFT")) {
 		outcome = "expected-drift";
@@ -1293,9 +1171,9 @@ async function main(): Promise<void> {
 	const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "check-geometry-"));
 	try {
 		const results: Result[] = [];
-		// A case whose base fixture is gone is a case that never ran - the
-		// renamed-fixture failure belongs to exit 2's vocabulary, not to a
-		// runner crash that would take the rest of the sweep with it.
+		// A case whose base fixture is gone never ran: the renamed-fixture failure
+		// belongs to exit 2's vocabulary, not to a runner crash that would take
+		// the rest of the sweep with it.
 		const queue: { sweep: SweepCase; file: string }[] = [];
 		for (const [index, sweep] of cases.entries()) {
 			try {

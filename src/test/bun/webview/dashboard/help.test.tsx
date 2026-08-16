@@ -1,13 +1,7 @@
 /**
- * The dashboard's hover-help affordances. Two layers: a sweep over the
- * helpText module itself (plain ASCII strings, no template interpolation, so
- * help text can never carry server data and the secret sweeps stay
- * meaningful), and render assertions that every "?" glyph renders its own
- * tooltip element (the webview draws tooltips itself; native titles are
- * unreliable in the webview host), wires it as the trigger's accessible
- * description, and sits next to the control it explains. The tip primitive's
- * own reveal, dismissal, and persistence behaviors are pinned in tip.test.tsx;
- * this file pins the help affordance built on it.
+ * The dashboard's hover-help affordances: helpText's strings stay plain ASCII
+ * with no interpolation (help can never carry server data), and every "?" draws
+ * its own tooltip element - native titles are unreliable in the webview host.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { SERVER_FORM_FIELD_ORDER } from "../../../../dashboard/serverForm";
@@ -51,10 +45,9 @@ afterEach(() => {
 });
 
 /**
- * Every help string the module exports, resolved through its lazy function
- * exports (the parametrized ones fanned out over their full key sets). The
- * suite runs with l10n unconfigured, so these are the ENGLISH texts the
- * guards below judge.
+ * Every help string, resolved through the lazy function exports (parametrized
+ * ones fanned over their key sets). l10n is unconfigured here, so these are the
+ * ENGLISH texts the guards below judge.
  */
 function allHelpStrings(): [name: string, text: string][] {
 	const entries: [string, string][] = [];
@@ -200,14 +193,9 @@ test("each section heading carries its own help", () => {
 		}
 		return heading as HTMLElement;
 	};
-	// The glyph hangs off the header LINE, as a sibling of the heading rather
-	// than inside it, so a button's accessible name never folds into the
-	// heading's. Every SECTION header spells that line `.section-head`, whether
-	// ui/section.tsx built it or a page rolled its own; the settings group head
-	// and the inspector's subhead are their own lines and are not asked for
-	// here. Falling back to the heading rather than throwing keeps the failure
-	// on the contract this test is about: a head that lost the class fails on
-	// the missing glyph below.
+	// The glyph is a SIBLING of the heading on the `.section-head` line, never
+	// inside it, so a button's accessible name cannot fold into the heading's.
+	// Falling back to the heading keeps a lost class failing on the glyph below.
 	const headOf = (title: string): HTMLElement => {
 		const heading = headingByTitle(title);
 		return (heading.closest(".section-head") as HTMLElement | null) ?? heading;
@@ -228,10 +216,9 @@ test("each section heading carries its own help", () => {
 });
 
 test("every server form field carries its help glyph, trailing and named for the field it explains", () => {
-	// Two things at once, because one without the other is not the contract:
-	// the glyph exists for every field, and it sits AFTER the hint rather than
-	// beside the label. Its accessible name is what identifies it now that
-	// proximity does not.
+	// The contract is both halves: a glyph for every field, and it sits AFTER
+	// the hint rather than beside the label, so its accessible name is what
+	// identifies it now that proximity does not.
 	const root = mount(<App />);
 	pushToWebview(statePush(fullState()));
 	fireClick(buttonByText(root, "Edit"));
@@ -248,14 +235,9 @@ test("every server form field carries its help glyph, trailing and named for the
 	};
 	const trailing = (field: Parameters<typeof serverFieldHelp>[0], label: string, id: string) => {
 		const button = glyphFor(field, label);
-		// The glyph is its own cell of the section's subgrid, so ONE node serves
-		// every layout and only its track changes. Three things pin it. It is
-		// not inside the field's description - an id covering the button makes
-		// the field announce "Help: Base URL" as part of its own description,
-		// and puts a control inside one. It is not inside the label's cell
-		// either, so the label stays text. And it comes last in the row, so Tab
-		// reaches the control before the "?" instead of stopping at it on the
-		// way in.
+		// The glyph is its own subgrid cell: outside the field's description (an
+		// id covering it would announce a control as part of the description),
+		// outside the label's cell, and last in the row so Tab reaches the control.
 		const description = document.getElementById(`server-${id}-error`);
 		expect(description?.contains(button)).toBe(false);
 		const labelCell = document.querySelector(`label[for="server-${id}"]`)?.parentElement;
@@ -263,11 +245,9 @@ test("every server form field carries its help glyph, trailing and named for the
 		expect(description?.nextElementSibling?.contains(button)).toBe(true);
 		afterItsControl(document.getElementById(`server-${id}`), button, label);
 	};
-	// The tab-order pin, and the one assertion that has to hold for a row with
-	// no hint cell to follow: a reader tabbing into a field reaches the thing
-	// they came to type into before the "?" beside it. DOCUMENT_POSITION_FOLLOWING
-	// says the glyph comes after the control in document order, which is what
-	// Tab follows.
+	// The tab-order pin, and the only one a row with no hint cell can use:
+	// DOCUMENT_POSITION_FOLLOWING says the glyph comes after the control in
+	// document order, which is what Tab follows.
 	const afterItsControl = (control: Element | null, button: HTMLElement, label: string) => {
 		if (control === null) {
 			throw new Error(`no control for ${label}`);
@@ -284,9 +264,8 @@ test("every server form field carries its help glyph, trailing and named for the
 	trailing("virtualKeyValue", "Virtual key value", "virtualKeyValue");
 	trailing("budget", "Budget", "budget");
 	glyphFor("apiVersion", "API version");
-	// Wide rows have no hint cell, so they cannot go through trailing() - but
-	// they are exactly where the glyph used to sit inside the control, ahead of
-	// it in the DOM. The textarea and the checkbox group carry their own pin.
+	// Wide rows have no hint cell, so they cannot go through trailing(); the
+	// textarea and the checkbox group carry their own tab-order pin.
 	afterItsControl(
 		document.getElementById("server-declaredModels"),
 		glyphFor("declaredModels", "Declared models"),
@@ -341,9 +320,8 @@ test("the model-parameters editor explains prefix, parameter name, and JSON valu
 		throw new Error("no pencil for the gpt-4 record");
 	}
 	fireClick(pencil as HTMLButtonElement);
-	// Since the overlay redesign the matcher help rides the MATCHER section
-	// label, and the key/value help moved onto the FIELDS grid's column heads
-	// (one glyph per column, not one per row).
+	// The matcher help rides the MATCHER section label; the key/value help sits
+	// on the FIELDS grid's column heads, one glyph per column rather than per row.
 	const matcherSection =
 		section.querySelector("input.key[placeholder^='Model ID or matcher']")?.closest(".editor-section") ?? null;
 	helpIn(matcherSection, helpModelParameterPrefix());
@@ -381,11 +359,9 @@ test("a shown tip carries measured viewport coordinates, so scroll containers ca
 	expect(tip.hasAttribute("data-open")).toBe(false);
 	expect(tip.style.left).toBe("");
 
-	// Hover measures the trigger and anchors the tip to the viewport; the
-	// stylesheet's position: fixed on .tip-bubble is what makes these
-	// viewport coordinates, escaping the tables' overflow clipping. One
-	// vertical side pins to the trigger's edge, the other stays free
-	// (which is which depends on the above/below placement).
+	// Hover anchors the tip to the viewport; the stylesheet's position: fixed on
+	// .tip-bubble is what makes these viewport coordinates, escaping the tables'
+	// overflow clipping. One vertical side pins to the trigger, the other frees.
 	fireMouseEnter(wrap);
 	expect(tip.getAttribute("data-open")).toBe("true");
 	expect([tip.style.top, tip.style.bottom].some((edge) => edge.endsWith("px"))).toBe(true);
@@ -461,24 +437,9 @@ test("the below variant pins the tip's top under the trigger and stands the bott
 });
 
 test("no heading anywhere on the page contains an interactive control", () => {
-	// Name-from-contents: a button or link nested inside a heading folds its
-	// own accessible name into the heading's, so "Model parameters" announced
-	// as "Model parameters Help: Model parameters Open the model parameters
-	// guide Open models.parameters in settings.json" - and heading navigation,
-	// which is how a screen-reader user skims a page, is exactly the tool that
-	// reads those names aloud.
-	//
-	// The fix is placement: the controls are the heading's SIBLINGS on a header
-	// line - `.section-head` for a section's, and the group head and inspector
-	// subhead for theirs. This sweeps the whole rendered page rather than
-	// naming the headings that had the problem, because the next one will be
-	// somewhere else - it found seven of the eleven itself, in a file the sweep
-	// had not set out to touch.
-	//
-	// The inspector is opened as well as the edit page, because a sweep only
-	// sees what the current state renders and an overlay's headings are
-	// otherwise unreachable - which would make them the likeliest place for
-	// this to come back.
+	// Name-from-contents: a control nested inside a heading folds its own name
+	// into the heading's, which heading navigation then reads aloud. The sweep
+	// opens the edit form and the inspector, since it only sees what is rendered.
 	const root = mount(<App />);
 	pushToWebview(statePush(fullState()));
 	fireClick(buttonByText(root, "Edit"));

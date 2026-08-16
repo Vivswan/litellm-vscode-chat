@@ -1,13 +1,7 @@
 /**
- * The dashboard's "learn more" links into the docs. Three layers, mirroring
- * help.test.tsx: a source-level sweep over the docsLinks module (literal
- * ASCII strings only, no template syntax anywhere in the file, so a link can
- * never carry server data), a resolution check that every constant's path
- * and #anchor exist under docs/ (a renamed page or reworded heading fails
- * here instead of serving 404s), and render assertions that every section's
- * anchor points at its docs page, names its destination, and carries the
- * external-link glyph. Anchors need no message plumbing or CSP grant: the
- * webview host opens plain links externally.
+ * The dashboard's "learn more" links into the docs, in three layers: a source sweep over docsLinks (literal ASCII
+ * only, no template syntax anywhere, so a link can never carry server data), a resolution check that every path and
+ * #anchor exists under docs/, and render assertions per section. Plain anchors need no plumbing or CSP grant.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import * as fs from "node:fs";
@@ -43,10 +37,8 @@ const repoRoot = path.resolve(import.meta.dir, "..", "..", "..", "..", "..");
 const DOCS_BASE = `${links.GITHUB_REPO_URL}/blob/main/docs/`;
 
 /**
- * Every host-side link the links module exports: flat string constants plus
- * the values of record exports (the per-cause troubleshooting deep links).
- * Swept from a namespace import like the docsLinks constants, so a future
- * host link cannot escape the checks by not being hand-listed.
+ * Every host-side link the links module exports: flat string constants plus the values of record exports. Swept
+ * from a namespace import, so a future host link cannot escape the checks by not being hand-listed.
  */
 function hostLinkUrls(): [name: string, url: string][] {
 	return Object.entries(links).flatMap(([name, value]): [string, string][] => {
@@ -72,14 +64,13 @@ test("every host-side link is ASCII and rooted at the repository", () => {
 	const entries = hostLinkUrls();
 	expect(entries.length).toBeGreaterThan(1);
 	for (const [name, value] of entries) {
-		// Enforces the links module's GitHub-only docstring by design: a future
-		// non-GitHub link failing here is a policy decision to make, not a
-		// link-integrity bug.
+		// Enforces the links module's GitHub-only docstring: a future non-GitHub link failing here is a policy decision
+		// to make, not a link-integrity bug.
 		expect(value, name).toStartWith(links.GITHUB_REPO_URL);
 		expect(value, name).toMatch(/^[\x20-\x7E]+$/);
 	}
-	// The docs-rooted subset feeds the file/anchor sweep below; if this count
-	// drops, a docs link stopped being swept rather than stopped existing.
+	// The docs-rooted subset feeds the file/anchor sweep below; if this count drops, a docs link stopped being swept
+	// rather than stopped existing.
 	expect(hostLinkUrls().filter(([, url]) => url.startsWith(DOCS_BASE)).length).toBeGreaterThanOrEqual(4);
 });
 
@@ -93,12 +84,9 @@ test("every docs URL is ASCII and rooted at the repository's docs folder", () =>
 });
 
 test("the host's per-cause hint links and the dashboard's docsLinks constants agree", () => {
-	// The webview cannot consume SETUP_HINT_DOCS_URLS (layering plus the
-	// literal-strings-only contract below force docsLinks.ts to ship its own
-	// copies), so this pin is what keeps the toast and the dashboard pointing
-	// at the same heading; re-pointing one side at a different real anchor
-	// fails here instead of passing both resolution sweeps. The Record type
-	// makes the pin exhaustive: a new hint id fails to compile until mapped.
+	// The webview cannot consume SETUP_HINT_DOCS_URLS (layering plus the literal-strings-only contract force
+	// docsLinks.ts to ship its own copies), so this pin keeps the toast and the dashboard on the same heading. The
+	// Record type makes it exhaustive: a new hint id fails to compile until mapped.
 	const mirrored: Record<SetupHintKind, string> = {
 		"check-base-url": DOCS_LINK_CHECK_BASE_URL,
 		"proxy-not-running": DOCS_LINK_PROXY_NOT_RUNNING,
@@ -110,10 +98,8 @@ test("the host's per-cause hint links and the dashboard's docsLinks constants ag
 });
 
 test("the docsLinks module is literal strings only, with no template syntax", () => {
-	// The render sweep checks evaluated values, which computed expressions
-	// could still produce; the source is the proof. Every export must be a
-	// single double-quoted literal (no templates, no concatenation, no
-	// identifiers), so DocsUrl can never silently widen to string.
+	// The render sweep checks evaluated values, which a computed expression could still produce; the source is the
+	// proof. Every export must be one double-quoted literal, so DocsUrl can never silently widen to string.
 	const source = fs.readFileSync(path.join(repoRoot, "src", "webview", "dashboard", "docsLinks.ts"), "utf8");
 	expect(source).not.toContain("`");
 	expect(source).not.toContain("${");
@@ -196,11 +182,8 @@ function headingByTitle(root: ParentNode, title: string): HTMLElement {
 }
 
 /**
- * The header LINE a section's trailing glyphs hang off, beside the heading
- * rather than inside it. Every SECTION header spells that line `.section-head`,
- * whether ui/section.tsx built it or a page rolled its own. The settings group
- * head and the inspector's subhead are their own lines with their own rules -
- * they carry no docs anchor, so they never reach this helper.
+ * The header LINE a section's trailing glyphs hang off, beside the heading rather than inside it. Every SECTION
+ * header spells that line `.section-head`, whether ui/section.tsx built it or a page rolled its own.
  */
 function headOf(root: ParentNode, title: string): HTMLElement {
 	const heading = headingByTitle(root, title);
@@ -222,9 +205,8 @@ test("the server form links the entry-fields section of the servers guide", () =
 	pushToWebview(statePush(fullState()));
 	fireClick(buttonByText(root, "Edit"));
 
-	// The id names the heading itself (the page's accessible name); the docs
-	// anchor is its sibling on the header line, so neither the page's name nor
-	// the heading's carries the anchor's label.
+	// The id names the heading itself (the page's accessible name); the docs anchor is its sibling on the header line,
+	// so neither name carries the anchor's label.
 	const heading = document.getElementById("server-form-title");
 	expect(heading?.tagName).toBe("H3");
 	expect(heading?.querySelector("a.docs-link")).toBeNull();

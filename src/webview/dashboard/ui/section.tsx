@@ -1,24 +1,9 @@
 /**
- * A page section and its header line. Four surfaces spelled the same shape by
- * hand - a heading carrying the title, a Help glyph and a docs link, then a
- * separate strip of buttons underneath - which cost a row of vertical space per
- * section to say nothing, and drifted: some sections named themselves so they
- * could be jumped to and some did not.
- *
- * The actions move onto the header line, where the eye already is. `meta` is
- * for the quiet supporting fact a header wants to carry (a count, "showing 4 of
- * 4") without promoting it to a paragraph. The line only works because
- * `.section-head` is a flex row - the parts are siblings of the heading rather
- * than nested inside it, so without that rule they stack.
- *
- * `Section` owns `id`, `tabIndex`, `aria-labelledby` and the scroll margin
- * together because they are one contract, not four attributes: an in-page jump
- * names a section, moves focus to it, and must not park it under whatever is
- * stuck to the top of the viewport. One place decides all of that.
- *
- * A DOM id is document-wide, so a section's `id` names it across the whole
- * page, not per-surface. The dashboard's four panel names are taken; anything
- * else picks a name no other section uses.
+ * A page section and its header line: title, help, docs, meta, actions as SIBLINGS on
+ * one flex row (.section-head; without it they stack). `Section` owns id, tabIndex,
+ * aria-labelledby, and scroll margin together because they are one contract: an
+ * in-page jump names a section, moves focus to it, and must not park it under whatever
+ * sticks to the viewport top. A DOM id is document-wide: pick unused names.
  */
 import * as l10n from "@vscode/l10n";
 import type { ReactNode } from "react";
@@ -31,10 +16,8 @@ export interface SectionHeaderProps {
 	titleId?: string;
 	title: string;
 	/**
-	 * Heading level. A section heading is an h2; a sub-header inside a page
-	 * whose section heading is already an h2 has to be an h3 or an h4, and the
-	 * surfaces this replaces use all three. 5 is the server form's Companions
-	 * sub-head, one step under its h4 sections.
+	 * Heading level; the replaced surfaces use h2-h4, and 5 is the server form's
+	 * Companions sub-head, one step under its h4 sections.
 	 */
 	level?: 2 | 3 | 4 | 5;
 	/** Help tip text; renders the "?" affordance when present. */

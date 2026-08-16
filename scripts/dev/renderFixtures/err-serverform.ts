@@ -1,11 +1,9 @@
 /**
  * The server form in a field-error state: the edit form open on prod with an
- * unusable Base URL typed and blurred, so the URL's problem stands in the
- * row's covered hint slot, and a bad custom-header name has its verdict in
- * the row's reserved status line. The reviewable evidence for the form's
- * transient-slot reservations: the rename note's invisible spacing twin under
- * Label, the covered URL hint, and the header row's .row-status all hold
- * their boxes in this shot, and check-geometry's form pairs anchor on it.
+ * unusable Base URL typed and blurred, so the URL's problem stands in the row's
+ * covered hint slot, and a bad custom-header name has its verdict in the row's
+ * reserved status line. The reviewable evidence for the form's transient-slot
+ * reservations, and what check-geometry's form pairs anchor on.
  */
 import type { DashboardServer, DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";

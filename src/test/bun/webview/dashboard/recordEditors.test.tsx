@@ -1,13 +1,7 @@
 /**
- * The record editors' matcher-table redesign over the unchanged
- * draft-and-apply lifecycle (useDraftRows): the table's cascade-sorted VIEW
- * (storage order never rewritten), the combined field chips with flag
- * badges, the chip popovers and the [+] add popover, the full matcher
- * editor overlay, the Edit-as-JSON side door, the read-only other-scope
- * tables, and the lifecycle itself - a dirty draft survives state pushes,
- * Apply posts the parsed record tagged with a requestId, the correlated ack
- * resolves the phase, a correlated failure reopens the draft, and invalid
- * rows block Apply.
+ * The record editors: the table's cascade-sorted VIEW over unrewritten storage order, the combined field chips
+ * with flag badges, the chip and [+] popovers, the full matcher editor overlay, the Edit-as-JSON side door,
+ * the read-only other-scope tables, and the draft-and-apply lifecycle (useDraftRows).
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
@@ -152,11 +146,7 @@ function chipFlagsOf(scope: HTMLElement, key: string): string[] {
 	return Array.from(chip.querySelectorAll(".chip-flag")).map((flag) => flag.textContent ?? "");
 }
 
-/**
- * Build a fresh one-field draft through the real UI: Add matcher opens the
- * overlay, the matcher input names it, Add parameter creates the row, and
- * Done returns to the table with the draft dirty but unapplied.
- */
+/** Build a fresh one-field draft through the real UI, leaving it dirty but unapplied. */
 function draftOneParam(section: () => HTMLElement, prefix: string, key: string, value: string): void {
 	fireClick(buttonByText(section(), "Add model matcher"));
 	const editor = () => overlayOf(section());
@@ -291,13 +281,9 @@ test("a row's inheritance mark reads everything, nothing, the listed keys, or cu
 });
 
 test("the popover's edge flip measures where it would hang, so a flip holds instead of oscillating", () => {
-	// The flip itself needs layout, which this runtime does not have - the
-	// record-popover-flip render fixture is what proves it in a real
-	// viewport. What IS provable here is the decision: the
-	// popover watches its own box while open, stops when it closes, and -
-	// measured against where it WOULD hang rather than where it sits - stays
-	// flipped through a second measurement instead of flicking back over the
-	// edge on every keystroke.
+	// The flip itself needs layout this runtime does not have (the record-popover-flip render fixture proves it
+	// in a real viewport). What IS provable here is the decision: the popover measures where it WOULD hang
+	// rather than where it sits, so a flip holds through a second measurement instead of oscillating.
 	const observed: string[] = [];
 	let disconnects = 0;
 	let fire: (() => void) | undefined;
@@ -328,10 +314,8 @@ test("the popover's edge flip measures where it would hang, so a flip holds inst
 		expect(observed).toEqual(["chip-popover"]);
 		expect(disconnects).toBe(0);
 
-		// A viewport where hanging below would overflow and there is more room
-		// above: a 40px anchor at y=500 in a 600px viewport, under a 120px
-		// popover. Both boxes are stubbed because this runtime lays nothing
-		// out; these rects are what the effect reads.
+		// A viewport where hanging below would overflow and there is more room above: a 40px anchor at y=500 in a
+		// 600px viewport, under a 120px popover. Both boxes are stubbed because this runtime lays nothing out.
 		const host = popover.parentElement as HTMLElement;
 		Object.defineProperty(popover, "offsetParent", { configurable: true, get: () => host });
 		Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
@@ -342,9 +326,8 @@ test("the popover's edge flip measures where it would hang, so a flip holds inst
 
 		act(() => fire?.());
 		expect(popoverOf(section).className).toContain("align-above");
-		// The flip HOLDS. Measuring the popover's CURRENT bottom instead would
-		// read the flipped position as having room, clear the flip, and drop
-		// it back over the edge - one alternation per content change.
+		// The flip HOLDS: measuring the popover's CURRENT bottom instead would read the flipped position as
+		// having room, clear the flip, and drop it back over the edge once per content change.
 		act(() => fire?.());
 		expect(popoverOf(section).className).toContain("align-above");
 
@@ -402,10 +385,9 @@ test("other-scope records render as the same table without edit affordances, chi
 });
 
 test("a read-only other-scope problem speaks in the frame's own message row", () => {
-	// A read-only chip's invalid mark is a border with no popover behind it,
-	// so the frame mounts its footer-position message row - the editable
-	// footers' slot, message alone - exactly while a problem stands. Static
-	// per push, so the conditional row shifts nothing under a live edit.
+	// A read-only chip's invalid mark is a border with no popover behind it, so the frame mounts its
+	// footer-position message row exactly while a problem stands. Static per push, so the conditional row
+	// shifts nothing under a live edit.
 	const root = mount(<App />);
 	const settings = makeSettings({
 		modelParameters: {
@@ -424,8 +406,7 @@ test("a read-only other-scope problem speaks in the frame's own message row", ()
 	expect(verdict?.classList.contains("error")).toBe(true);
 	expect(verdict?.textContent).toContain("gpt-4");
 	expect(verdict?.textContent).toContain("Enter true or a list of parameter names");
-	// Visible words, not an sr-only echo: the line is the frame's one visible
-	// explanation of the red border, with the whole text in its title.
+	// Visible words, not an sr-only echo: the line is the frame's one visible explanation of the red border.
 	expect(verdict?.classList.contains("sr-only")).toBe(false);
 	expect(verdict?.getAttribute("title")).toContain("Enter true or a list of parameter names");
 	// No write path here, so no refusal voice shares the slot.
@@ -433,11 +414,8 @@ test("a read-only other-scope problem speaks in the frame's own message row", ()
 });
 
 test("the shared status slot stands alone for record displays without a write path", () => {
-	// The contract a consumer outside the two editors gets (the read-only
-	// frames today, the server form's entry-record display tomorrow): no
-	// refusal channel means no alert region that could never speak, and the
-	// verdict renders on its own. anyRecordProblem is the mount gate - hints
-	// alone give the verdict no voice, so they must not mount the row.
+	// The contract for a record display with no write path: no refusal channel means no alert region that could
+	// never speak. anyRecordProblem is the mount gate, so hints alone must not mount the row.
 	const groups = [{ prefix: "gpt-4", params: [{ key: "temperature", valueText: "oops" }] }];
 	const issues: GroupIssueView[] = [
 		{ prefix: undefined, rows: [{ problem: { field: "value", message: "stated problem" } }] },
@@ -480,18 +458,15 @@ test("popover validation: a bad value marks the chip and blocks Apply; the messa
 	fireInput(popoverOf(section()).querySelector("input.value") as HTMLInputElement, "not json");
 	expect(popoverOf(section()).textContent).toContain("Not valid JSON");
 	expect(chipFor(section(), "temperature").classList.contains("invalid")).toBe(true);
-	// The mark survives the open state. cn resolves conflicting utilities
-	// last-wins, so with the mark listed before the open state the open
-	// chip's border-border swallowed the red border - the one chip being
-	// edited was the one without its mark. Its plain and reveal-variant
-	// border classes must all resolve to the mark while open.
+	// Regression pin: cn resolves conflicting utilities last-wins, so with the mark listed before the open
+	// state the open chip's border-border swallowed the red border - the chip being edited was the one without
+	// its mark. Plain and reveal-variant border classes must all resolve to the mark while open.
 	const openChip = chipFor(section(), "temperature");
 	expect(openChip.classList.contains("border-err-fill")).toBe(true);
 	expect(openChip.classList.contains("border-border")).toBe(false);
 	expect(openChip.classList.contains("group-focus-within/row:border-err-fill")).toBe(true);
 	expect(openChip.classList.contains("group-focus-within/row:border-border")).toBe(false);
-	// One placement per scope: while the popover states the problem beside
-	// the input, the row does not repeat the same sentence underneath.
+	// One placement per scope: while the popover states the problem, the row does not repeat it underneath.
 	expect(section().querySelectorAll(".error").length).toBe(1);
 	expect(popoverOf(section()).querySelector(".error")).not.toBeNull();
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(true);
@@ -503,16 +478,13 @@ test("popover validation: a bad value marks the chip and blocks Apply; the messa
 });
 
 test("the popover's status slot is reserved and sits after its actions", () => {
-	// The popover's slot is reserved and sits AFTER its actions, so a message
-	// landing per keystroke cannot shove Remove field under the pointer. The
-	// rows themselves carry no slot; the card's verdict rides the footer's
-	// message slot.
+	// The slot is reserved and sits AFTER the actions, so a message landing per keystroke cannot shove Remove
+	// field under the pointer. The rows carry no slot; the card's verdict rides the footer's message slot.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
 
-	// Clean: no row carries a status line at all, and the card's verdict is
-	// unmounted - the quiet row is its one content line.
+	// Clean: no row carries a status line at all, and the card's verdict is unmounted.
 	const cleanRows = Array.from(section().querySelectorAll(".record-row"));
 	expect(cleanRows.length).toBeGreaterThan(0);
 	for (const row of cleanRows) {
@@ -586,9 +558,8 @@ test("the card's verdict counts the problems it is not showing", () => {
 });
 
 test("an unrelated popover does not erase the card's verdict", () => {
-	// The open popover states its OWN field's problem, so the verdict skips
-	// exactly that one - opening a clean chip elsewhere must not take the
-	// card's only explanation away with it.
+	// The open popover states its OWN field's problem, so the verdict skips exactly that one: opening a clean
+	// chip elsewhere must not take the card's only explanation away with it.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2, top_p: 1 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -606,9 +577,8 @@ test("an unrelated popover does not erase the card's verdict", () => {
 });
 
 test("the card's verdict speaks worst first: the matcher's own problem outranks a field's", () => {
-	// One line, one message: with both standing, the structural problem (the
-	// matcher key) is the one to fix first, and the invalid chip's red border
-	// still marks the field for later.
+	// One line, one message: with both standing, the structural problem (the matcher key) is the one to fix
+	// first, and the invalid chip's red border still marks the field for later.
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 }, " ": { top_p: 1 } }) }))
@@ -623,13 +593,9 @@ test("the card's verdict speaks worst first: the matcher's own problem outranks 
 });
 
 test("no chip suppresses the forced-colors border repaint, and an invalid mark survives the popover closing", () => {
-	// The chips are FILLED at rest and forced colours flatten the fill into
-	// the page, so the repainted transparent border is the resting boundary -
-	// a suppression utility here (the old forced-colors:border-[color:Canvas]
-	// gate) would hand two chips back as one run of words. What distinguishes
-	// a marked chip there is WIDTH: theme.css's forced-colors block keys a
-	// 2px border on the .invalid/.hinted classes, so this suite pins that the
-	// classes are present and that no suppression class returns.
+	// Forced-colors quirk: chips are FILLED at rest and forced colours flatten the fill, so the repainted
+	// transparent border is the resting boundary and a suppression utility would run two chips together. What
+	// marks a chip there is WIDTH - theme.css keys a 2px border on .invalid/.hinted, pinned here by class.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2, top_p: 0.9 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -639,10 +605,8 @@ test("no chip suppresses the forced-colors border repaint, and an invalid mark s
 		expect(chip.classList.contains("border-transparent")).toBe(true);
 	}
 
-	// Invalid with the popover CLOSED: the open case is pinned by the popover
-	// validation test above (the mark must survive being open too), and
-	// closed, the .invalid class is the only hook the forced-colors width
-	// rule (and the ordinary red border) have.
+	// Invalid with the popover CLOSED: the .invalid class is the only hook the forced-colors width rule and the
+	// ordinary red border have (the open case is pinned by the popover validation test above).
 	fireClick(chipFor(section(), "temperature"));
 	fireInput(popoverOf(section()).querySelector("input.value") as HTMLInputElement, "not json");
 	fireClick(chipFor(section(), "temperature"));
@@ -652,9 +616,7 @@ test("no chip suppresses the forced-colors border repaint, and an invalid mark s
 });
 
 test("a hinted chip carries the hinted class the forced-colors width rule keys on", () => {
-	// A hint is not a problem, so the invalid test above cannot cover this
-	// branch. An _inheritable naming a field the record does not set is the
-	// cheapest hint there is.
+	// A hint is not a problem, so the invalid test above cannot cover this branch.
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2, _inheritable: ["nope"] } }) }))
@@ -663,10 +625,8 @@ test("a hinted chip carries the hinted class the forced-colors width rule keys o
 	const hinted = chipFor(section(), "_inheritable");
 	expect(hinted.classList.contains("hinted")).toBe(true);
 	expect(chipFor(section(), "temperature").classList.contains("hinted")).toBe(false);
-	// The amber border is the chip's only resting mark, and a border is
-	// invisible to a screen reader (a PROBLEM prints visible row text; a hint
-	// does not), so the hinted chip describes itself: aria-describedby points
-	// at a hidden copy of the hint, tellable before the popover ever opens.
+	// The amber border is the chip's only resting mark and a border is invisible to a screen reader (a hint
+	// prints no visible row text), so the chip's aria-describedby points at a hidden copy of the hint.
 	const describedBy = hinted.getAttribute("aria-describedby");
 	expect(describedBy).not.toBeNull();
 	const description = section().querySelector(`[id="${describedBy}"]`);
@@ -855,9 +815,8 @@ test("an open add popover follows its matcher key through a push that reorders t
 	fireClick(Array.from(section().querySelectorAll("button.chip-add")).at(-1) as HTMLButtonElement);
 	fireInput(popoverOf(section()).querySelector("input.key") as HTMLInputElement, "seed");
 
-	// No draft is pinned yet, so the push replaces the rows - reordered. The
-	// popover is addressed by the MATCHER KEY: it must stay open on gpt-4 with
-	// its half-typed field intact, not retarget or remount.
+	// No draft is pinned, so the push replaces the rows reordered. The popover is addressed by the MATCHER KEY:
+	// it must stay open on gpt-4 with its half-typed field intact, not retarget or remount.
 	pushToWebview(
 		statePush(makeState({ settings: settingsWithParams({ "*": { top_p: 0.9 }, "gpt-4": { temperature: 0.2 } }) }))
 	);
@@ -976,9 +935,8 @@ test("a pristine overlay follows its matcher key through a push that reorders th
 	const section = () => sectionByHeading(root, "Model parameters");
 
 	openEditorFor(section(), "gpt-4");
-	// No draft pinned yet: the push replaces AND reorders the rows. The
-	// overlay is re-anchored by its matcher key, so it must stay on gpt-4
-	// instead of silently retargeting whatever slid into its index.
+	// No draft pinned: the push replaces AND reorders the rows, and the overlay is re-anchored by its matcher
+	// key, so it must stay on gpt-4 instead of retargeting whatever slid into its index.
 	pushToWebview(
 		statePush(makeState({ settings: settingsWithParams({ "*": { top_p: 0.9 }, "gpt-4": { temperature: 0.2 } }) }))
 	);
@@ -1000,9 +958,8 @@ test("a pristine overlay follows its matcher key through a push that reorders th
 });
 
 test("raw-key identity: a popover on a trim-collided matcher survives a reorder without retargeting", () => {
-	// "gpt-4" and "gpt-4 " are raw-distinct stored keys (the grammar trims
-	// nothing). Trimmed identity would transfer between them on a reorder;
-	// raw identity must not.
+	// "gpt-4" and "gpt-4 " are raw-distinct stored keys (the grammar trims nothing); trimmed identity would
+	// transfer between them on a reorder, raw identity must not.
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(
@@ -1147,12 +1104,9 @@ test("a group whose rows are all absorbed renders no field column heads", () => 
 });
 
 test("every field row carries its own stacked-tier cell labels, each with the column's help glyph", () => {
-	// The wide tier's column heads label TRACKS; when the rows stack below the
-	// 700px pane tier there are no tracks left, and one legend line over a
-	// single column read as headers on the wrong layout. Each cell therefore
-	// carries its own label (painted only at the stacked tier - dashboard.css
-	// .cell-label - which happy-dom cannot observe), and each label keeps its
-	// column's help glyph so stacking never costs the help its reachability.
+	// The wide tier's column heads label TRACKS, and below the 700px pane tier the rows stack with no tracks
+	// left. Each cell therefore carries its own label (painted only at the stacked tier by dashboard.css
+	// .cell-label, which happy-dom cannot observe), keeping its column's help glyph reachable.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2, top_p: 0.9 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -1189,15 +1143,9 @@ test("every field row carries its own stacked-tier cell labels, each with the co
 });
 
 test("the key track pins while focus is inside the field grid and refits once it leaves", () => {
-	// The key column is content-sized per keystroke (field-sizing), so without
-	// the pin every letter typed shoved the value column sideways. The pin
-	// arms on a key input taking focus, holds across typing AND across focus
-	// moving within the grid (releasing on key-to-value re-solved the track at
-	// the exact moment focus landed on the input the reflow would displace),
-	// and drops when focus leaves the grid or a row is added or removed (a
-	// removal fires no blur). happy-dom lays nothing out, so the cell's rect
-	// is stubbed; the same zero-measure fact is why the guard leaves the
-	// track unpinned when measurement returns nothing.
+	// The key column is content-sized per keystroke (field-sizing), so without the pin every letter typed shoved
+	// the value column sideways. The pin holds across typing and across focus moving within the grid, and drops
+	// when focus leaves or a row is added or removed. happy-dom lays nothing out, so the cell's rect is stubbed.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2, top_p: 0.9 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -1236,9 +1184,8 @@ test("the key track pins while focus is inside the field grid and refits once it
 });
 
 test("the overlay's field rows carry reserved status lines: empty at rest, marked when the verdict lands", () => {
-	// The overlay's per-row verdict re-renders per keystroke, so its line is
-	// mounted whether or not it speaks: one inserted only when it speaks moves
-	// the rows below it and the footer.
+	// The overlay's per-row verdict re-renders per keystroke, so its line is mounted whether or not it speaks:
+	// one inserted only when it speaks moves the rows below it and the footer.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
 	const editor = openEditorFor(sectionByHeading(root, "Model parameters"), "gpt-4");
@@ -1458,11 +1405,9 @@ test("a directive row typed in the overlay absorbs only on blur, never mid-edit 
 });
 
 test("removing an overlay row voids the focus hold instead of pinning the row that shifts into its slot", () => {
-	// Rows inside the overlay are positional: with top_p's value focused,
-	// removing top_p slides the absorbed _force row into the held index. The
-	// hold is stamped with the row-count shape, so the structural change
-	// voids it and _force stays absorbed (no focusout fires for a removed
-	// element).
+	// Rows inside the overlay are positional: removing top_p slides the absorbed _force row into the held index.
+	// The hold is stamped with the row-count shape, so the structural change voids it (a removed element fires
+	// no focusout).
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(
@@ -1629,13 +1574,9 @@ test("an intentFailed after Apply reopens the draft dirty with the failure note"
 		message: "gpt-4: refused by validation.\ntechnical detail the reserved line must not carry",
 		failureKind: "validation",
 	});
-	// The draft returns dirty and retryable; a failed write must not render as
-	// applied. The note is the frame's reserved one-line slot: it carries the
-	// edits-kept frame with the extension's HEADLINE, the arbitrary-length
-	// detail part stays off the reserved LINE (the covered slots' rule) but
-	// survives without geometry - in the title for pointer readers and an
-	// sr-only span for assistive tech, this slot being the failure's only
-	// surface - and the standing role announces the async arrival.
+	// The draft returns dirty and retryable; a failed write must not render as applied. The note is the frame's
+	// reserved one-line slot, so only the headline rides the LINE while the arbitrary-length detail survives
+	// without geometry - in the title and an sr-only span, this slot being the failure's only surface.
 	const note = section().querySelector(".failure-note");
 	expect(note?.classList.contains("error")).toBe(true);
 	expect(note?.firstChild?.textContent).toBe("Saving failed - your edits are kept: gpt-4: refused by validation.");
@@ -1672,10 +1613,8 @@ test("the refusal outranks the verdict in the slot they share", () => {
 });
 
 test("the footer's message slot is always mounted, its voices inside it, and the quiet footer holds no band", () => {
-	// The refusal lands async in the buttons' own row (the charter's
-	// transients-never-move-anything clause): the slot pre-exists as a flex
-	// item over the row's free space, so the envelope landing moves nothing -
-	// and a quiet card's footer carries no reserved band above the buttons.
+	// The refusal lands async in the buttons' own row (the charter's transients-never-move-anything clause):
+	// the slot pre-exists as a flex item over the row's free space, so the envelope landing moves nothing.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -1772,9 +1711,8 @@ test("a pristine JSON view follows store pushes; one with local edits is pinned"
 });
 
 test("Enter applies from an overlay row input once the draft is clean; a highlighted suggestion is accepted instead", () => {
-	// The key inputs carry their own suggestion listboxes: Enter with a
-	// highlighted suggestion accepts it and must NOT double as Apply (the
-	// half-typed row would post); Enter with nothing highlighted applies.
+	// The key inputs carry their own suggestion listboxes: Enter with a highlighted suggestion accepts it and
+	// must NOT double as Apply (the half-typed row would post); Enter with nothing highlighted applies.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ models: [makeModel({ id: "gpt-test" })] })));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -1990,10 +1928,9 @@ test("an overlay row problem marks only the offending input: bad JSON flags the 
 });
 
 test("the global editor's matcher copy points server records at entries (the entry editor's must not)", () => {
-	// The overlay takes its prefix placeholder and help as props because the
-	// two surfaces differ for real: the global editor's help routes
-	// server-specific records to the entry's models.parameters, the per-entry
-	// editor's says URL keys never match (servers.test.tsx pins that side).
+	// The overlay takes its prefix placeholder and help as props because the two surfaces differ: the global
+	// editor routes server-specific records to the entry's models.parameters, the per-entry editor says URL
+	// keys never match (servers.test.tsx pins that side).
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 	const section = () => sectionByHeading(root, "Model parameters");
@@ -2040,11 +1977,8 @@ test("model parameters: invalid JSON in the overlay blocks Apply; fixing it appl
 test("the editors' apply-together save model is stated by each editor's own help tip, never as a floating line", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
-	// The free-standing paragraph between the rows is gone: each editor's "?"
-	// states its own apply-together behavior instead, so the words sit where
-	// the reader asks, not between unrelated rows. The contrast the paragraph
-	// drew - the scalar settings above save each change on its own - survives
-	// as each tip's "Unlike the settings above".
+	// No free-standing paragraph between the rows: each editor's "?" states its own apply-together behavior,
+	// and the contrast with the scalar settings above survives as each tip's "Unlike the settings above".
 	expect(root.querySelector(".record-editors-note")).toBeNull();
 	for (const heading of ["Model parameters", "Model capabilities"]) {
 		const tip = sectionByHeading(root, heading).querySelector(".section-head .tip-bubble");
@@ -2115,9 +2049,8 @@ test("each editor heading carries a settings.json jump posting revealSetting wit
 	const jumpOf = (heading: string) => headOf(heading).querySelector("button.reveal-json");
 
 	for (const heading of ["Model parameters", "Model capabilities"]) {
-		// The head is the reveal's container (modelsTable's group/row pin, one
-		// tier up): happy-dom runs no cascade, so the class names are all this
-		// suite can pin, and without them the jump paints only below 560px.
+		// The head is the reveal's container; happy-dom runs no cascade, so the class names are all this suite
+		// can pin, and without them the jump paints only below 560px.
 		expect(headOf(heading).classList.contains("group/head")).toBe(true);
 		const wrapper = (jumpOf(heading) as HTMLElement).parentElement as HTMLElement;
 		expect(wrapper.classList.contains("opacity-0")).toBe(true);
@@ -2249,9 +2182,8 @@ test("the catalog picker is keyboard-operable: arrows move the highlight, Enter 
 		],
 	});
 	try {
-		// An open result list consumes Escape (inside a chip popover or a
-		// slide-over it must close only the results); a closed one lets it
-		// bubble to the surface above.
+		// An open result list consumes Escape (inside a chip popover or a slide-over it must close only the
+		// results); a closed one lets it bubble to the surface above.
 		fireKeyDown(input, "Escape");
 		expect(root.querySelector(".catalog-results")).toBeNull();
 		expect(escapes).toEqual([]);
@@ -2290,27 +2222,22 @@ test("capabilityKeySuggestions: consumed vocabulary first in curated order, serv
 	// undefined and an empty set both mean no evidence.
 	expect(capabilityKeySuggestions([])).toEqual(staticList);
 
-	// Server-observed keys slot between the consumed block and the directives,
-	// deduped and code-unit sorted; a key the consumed vocabulary already
-	// carries never repeats, and duplicates collapse.
+	// Server-observed keys slot between the consumed block and the directives, deduped and code-unit sorted.
 	const merged = capabilityKeySuggestions(["mode", "litellm_provider", "mode", "context_length", "base_model"]);
 	expect(merged).toEqual([...consumed, "base_model", "litellm_provider", "mode", "_fallback", "_openrouter_model"]);
 });
 
 test("capabilityKeySuggestions: underscore-led observed keys (a __proto__ report included) stay out, harmlessly", () => {
-	// Observed names are server-derived strings. They only ever become
-	// suggestion TEXT - and `_`-led names are dropped outright: a capability
-	// record reads them as directives, never as overrides, so suggesting one
-	// would suggest a key the record cannot carry. `__proto__` falls out on
-	// the same rule, and building the list never touches Object.prototype.
+	// `_`-led observed names are dropped: a capability record reads them as directives, never as overrides, so
+	// suggesting one would suggest a key the record cannot carry. `__proto__` falls out on the same rule.
 	const merged = capabilityKeySuggestions(["__proto__", "_secret", "custom_rank"]);
 	expect(merged).toContain("custom_rank");
 	expect(merged).not.toContain("__proto__");
 	expect(merged).not.toContain("_secret");
 	// The directives at the tail are the extension's own, never observed ones.
 	expect(merged.filter((key) => key.startsWith("_"))).toEqual(["_fallback", "_openrouter_model"]);
-	// Prototype-named keys pass through as ordinary suggestions: the dedup is
-	// a real Set, where a plain-object membership check would misread these.
+	// Prototype-named keys pass through as ordinary suggestions: the dedup is a real Set, where a plain-object
+	// membership check would misread these.
 	const prototypeNamed = capabilityKeySuggestions(["toString", "constructor", "toString"]);
 	expect(prototypeNamed.filter((key) => key === "toString")).toEqual(["toString"]);
 	expect(prototypeNamed).toContain("constructor");

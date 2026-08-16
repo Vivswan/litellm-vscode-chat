@@ -66,10 +66,8 @@ import { Select } from "./ui/select";
 import { sendRequest } from "./vscodeApi";
 
 /**
- * The editor's heading, exported so the settings form's filter matches the
- * editor by exactly the title it renders (the scalar rows' label rule).
- * A zero-arg function so the localized text resolves at call time, not at
- * module load.
+ * The editor's heading, exported so the settings form's filter matches the editor by
+ * exactly the title it renders. Zero-arg so the localized text resolves at call time.
  */
 export function modelParametersTitle(): string {
 	return l10n.t("Model parameters");
@@ -81,17 +79,11 @@ export function modelCapabilitiesTitle(): string {
 }
 
 /**
- * The record editors' settings.json jump, the settings form's RevealButton
- * on an editor heading. It sits directly after the heading it opens - one
- * position, with its label - rather than floating after the docs link, where
- * a bare pair of braces belonged to nothing in particular. The heading LINE
- * is the hover band (the head itself, not the h3: a button inside the
- * heading folds into its accessible name, and the heading would announce
- * as "Model parameters, Open Model parameters in settings.json"), so the
- * jump rests hidden and reveals on hover or focus through the shared Reveal
- * idiom (ui/reveal.tsx): opacity keeps it in the Tab order so its own focus
- * can reveal it, the @max-[560px]/pane clause keeps it painted where hover
- * does not exist, and the transition stands down under reduced motion.
+ * The record editors' settings.json jump, directly after the heading it opens. The
+ * heading LINE is the hover band, not the h3 (a button inside a heading folds into its
+ * accessible name); the jump reveals through the shared Reveal idiom (ui/reveal.tsx),
+ * stays in the Tab order via opacity, and stays painted below 560px where hover does
+ * not exist.
  */
 function HeadingRevealButton({
 	title,
@@ -132,18 +124,11 @@ type DraftState<T> =
 	| { readonly kind: "acked"; readonly rows: T; readonly externalAtAck: string };
 
 /**
- * Both editors here follow one draft-and-apply model: rows are edited
- * locally, validated on every keystroke, and written back to configuration
- * only through Apply, so the object settings never pass through an invalid
- * intermediate shape. With no draft the store value renders directly; a
- * dirty draft wins until Apply or Discard. Apply posts an intent through the
- * editor's useIntentOutcome hook and waits for its own correlated outcome:
- * an ok resolves the phase (the Saved note), a fail returns the draft to a
- * dirty, retryable state. An acked draft keeps rendering until the store
- * push that reflects the write arrives (dropping it at the ack would flash
- * the pre-apply value for the one frame before that push); should that push
- * outrun the ack, the acked draft simply holds its value-equal rows until
- * the next store change.
+ * Both editors follow one draft-and-apply model: rows edited locally, validated per
+ * keystroke, written back only through Apply, so the object settings never pass through
+ * an invalid shape. Apply waits for its own correlated outcome (ok resolves, fail
+ * returns the draft dirty). An acked draft keeps rendering until the store push arrives
+ * - dropping it at the ack would flash the pre-apply value for one frame.
  */
 function useDraftRows<T>(
 	external: T,
@@ -220,12 +205,9 @@ function useDraftRows<T>(
 		failure: failure !== undefined && failure.id === appliedRequestId ? failure : undefined,
 		update: (next) => {
 			setSaved(false);
-			// Rows edited exactly back onto the store value drop the draft
-			// entirely: a pinned value-equal draft would swallow every later
-			// store push with Discard disabled (nothing looks dirty). Textual
-			// equality only - a different spelling of the same value ("1e1")
-			// stays a live draft. The correlation ID goes with it, so an old
-			// write's failure notice cannot resurface on the NEXT draft.
+			// Rows edited exactly back onto the store value drop the draft: a pinned value-equal
+			// draft would swallow every later store push with Discard disabled. Textual equality
+			// only; the correlation ID goes with it, so an old failure cannot haunt the NEXT draft.
 			if (JSON.stringify(next) === externalKey) {
 				setAppliedRequestId(undefined);
 				setDraft(undefined);
@@ -248,11 +230,9 @@ function useDraftRows<T>(
 }
 
 /**
- * The inspectors' configure-jump into an editor: focus the record carrying
- * `key`, or - when `create` is set and no group carries it - append a fresh
- * draft group keyed by it (not yet applied; drafts only land on Apply, per
- * the editors' contract). `seq` keys re-delivery so repeating the same jump
- * re-focuses.
+ * The inspectors' configure-jump into an editor: focus the record carrying `key`, or
+ * with `create` append a fresh draft group (drafts only land on Apply). `seq` keys
+ * re-delivery so repeating the same jump re-focuses.
  */
 export interface ExternalRecordEdit {
 	readonly seq: number;
@@ -264,12 +244,9 @@ export interface ExternalRecordEdit {
 export type IntentFailureOutcome = Extract<IntentOutcome, { result: "fail" }>;
 
 function FailureNote({ failure, dirty }: { failure: IntentFailureOutcome | undefined; dirty: boolean }) {
-	// Always mounted, speaking or not (the status slot's grid cell,
-	// dashboard.css .editor-status): the refusal lands async and must not move
-	// the action bar. Headline only - an arbitrary-length detail never rides a
-	// one-line slot - with the full message in the title and an sr-only span.
-	// role="alert" on the always-mounted element: a live region only announces
-	// changes to an element that already exists. The text stays webview-only.
+	// Always mounted, speaking or not (dashboard.css .editor-status): the refusal lands
+	// async and must not move the action bar. Headline only, full message in title and an
+	// sr-only span; role="alert" needs the element to pre-exist. Text stays webview-only.
 	const spoken = dirty ? failure : undefined;
 	const detail = spoken !== undefined ? statusErrorDetail(spoken.message) : undefined;
 	return (
@@ -305,13 +282,10 @@ function OtherScopeNote({ scope }: { scope: SettingScope }) {
 }
 
 /**
- * The group-level `_inherit_from` control: a compact select over the
- * directive's four shapes plus a keys input for the named-records form. It is
- * the directive's single representation - a readable `_inherit_from` row is
- * absorbed out of the grid - so it also carries the row's non-blocking hint.
- * It goes hands-off while the row holds text the strict parse rejects: that
- * row stays visible with its own error, and the select must not silently
- * rewrite the user's text.
+ * The group-level `_inherit_from` control, the directive's single representation (a
+ * readable row is absorbed out of the grid), so it also carries the row's hint. It goes
+ * hands-off while the row holds text the strict parse rejects: the select must not
+ * silently rewrite the user's text.
  */
 function InheritFromControl({
 	group,
@@ -327,14 +301,10 @@ function InheritFromControl({
 }) {
 	const choice = inheritFromChoice(group);
 	const id = useId();
-	// The keys mode must be enterable from scratch: picking it writes NOTHING
-	// until a key is typed (an empty `_inherit_from` list IS the barrier by
-	// the docs' edge-case rules, so auto-writing [] on a mode switch would
-	// snap the select straight to "nothing - barrier"). The pending flag holds
-	// the UI in keys mode while the row itself stays absent; typing the first
-	// key writes the list, and emptying the input removes the row again while
-	// the mode persists locally. [] stays expressible only through Edit as
-	// JSON (it means the same barrier as false).
+	// The keys mode must be enterable from scratch: picking it writes NOTHING until a key is
+	// typed (an empty `_inherit_from` list IS the barrier, so auto-writing [] would snap the
+	// select to "nothing - barrier"). The pending flag holds the UI in keys mode while the
+	// row stays absent; [] stays expressible only through Edit as JSON.
 	const [keysPending, setKeysPending] = useState(false);
 	const [pendingText, setPendingText] = useState("");
 	if (choice.kind === "unreadable") {
@@ -475,22 +445,11 @@ const PARAM_FLAG_DIRECTIVES: readonly FieldDirective[] = [FORCE_DIRECTIVE, INHER
 const CAPABILITY_FLAG_DIRECTIVES: readonly FieldDirective[] = [FALLBACK_DIRECTIVE, INHERITABLE_DIRECTIVE];
 
 /**
- * Which row's inputs own focus, so the editors hold off absorbing a directive
- * row the user is typing in: unmounting the input on the exact keystroke that
- * makes the value readable would steal focus (the InheritFromControl
- * keysPending hazard, in row form). The row absorbs on blur instead; focus
- * moving between the row's own inputs is not a blur.
- *
- * The hold is positional, and rows are positional too, so it must not outlive
- * the index space it was armed in: a hold surviving a row removal would pin
- * whatever row shifts into the slot (removing the focused element fires no
- * focusout). Each hold is therefore stamped with the structural epoch - a
- * counter that advances whenever any group's row count changes - and honored
- * only in the epoch it was armed in, so a structural change voids it in the
- * same render for good (a shape stamp alone would resurrect it once a later
- * change happened to restore the same row counts). Only text-entry inputs arm
- * the hold; a row's checkboxes and buttons trigger exactly those structural
- * changes, which must land immediately.
+ * Which row's inputs own focus, so absorbing a directive row cannot unmount the input
+ * mid-keystroke and steal focus; rows absorb on blur. The hold is positional, so it is
+ * stamped with the structural epoch (row-count changes advance it) and honored only in
+ * its own epoch - removing a focused element fires no focusout, and a surviving hold
+ * would pin whatever row shifts into the slot. Only text inputs arm it.
  */
 function useFocusedRow(groups: readonly PrefixGroup[]): {
 	focused: (groupIndex: number, rowIndex: number) => boolean;
@@ -538,22 +497,13 @@ function useFocusedRow(groups: readonly PrefixGroup[]): {
 }
 
 /**
- * The key track's typing freeze. The field grid's key column is content-sized
- * (dashboard.css .rows: fit-content fed by field-sizing), so the tracks
- * re-solve on every keystroke and typing a name visibly shoved the value
- * column sideways, letter by letter. While focus is anywhere in the grid
- * (armed by a key input taking it), the track is pinned at the width it had
- * when the key input was focused (the --key-track custom property the
- * stylesheet's template reads first); leaving the grid commits the names and
- * the track refits once, after the editing is done. The pin holds across
- * focus moving WITHIN the grid - key to key, and key to the same row's value
- * input, because releasing on that move re-solved the track at the exact
- * moment focus landed on the input the reflow would displace. Two things do
- * drop it: a structural change (a row added or removed re-solves the tracks
- * anyway and fires no blur when it removes the focused input - the
- * useFocusedRow epoch reasoning, without the per-row addressing), and a
- * window resize (a pinned px track measured in a wide pane has no cap, so
- * surviving a narrowing it would push the grid past the panel's edge).
+ * The key track's typing freeze: the key column is content-sized, so typing a name
+ * re-solved the tracks and shoved the value column sideways per letter. While focus is
+ * in the grid the track pins at its armed width (--key-track); it refits once on leave.
+ * The release is grid-scoped, not input-scoped: an input-scoped release re-solved the
+ * track exactly as focus landed on the input the reflow would displace. Dropped by
+ * structural changes (they re-solve anyway and fire no blur) and by window resize (a
+ * pinned px track measured wide would push past a narrowed panel's edge).
  */
 function useKeyTrackFreeze(groups: readonly PrefixGroup[]): {
 	style: CSSProperties | undefined;
@@ -601,16 +551,10 @@ function useKeyTrackFreeze(groups: readonly PrefixGroup[]): {
 }
 
 /**
- * The model-parameter group rows themselves: one group per model prefix, one
- * row per request parameter, values entered as JSON, problems row-aligned
- * from parseGroups. Purely presentational (edits go through onChange). Since
- * the table redesign this renders inside the matcher editor overlay only,
- * one group at a time (the enclosing draft still owns the full group list).
- * The prefix placeholder and help are required props because the two
- * surfaces genuinely differ: global keys may lead with a base URL to scope
- * to one server, entry keys are already scoped and match model IDs only, so
- * a URL prefix there would never match. The parameter-name and value help
- * stay shared; they are scope-agnostic.
+ * The model-parameter group rows: one group per model prefix, one row per parameter,
+ * values as JSON, problems row-aligned from parseGroups. Renders inside the matcher
+ * editor overlay only. Prefix placeholder and help are required props because the two
+ * surfaces differ (global keys may lead with a base URL; entry keys are already scoped).
  */
 function ParamGroupsFields({
 	groups,
@@ -696,12 +640,9 @@ function ParamGroupsFields({
 									onEnter={onEnter}
 								/>
 							</div>
-							{/* The matcher's reserved status line (dashboard.css
-							    .matcher-status): the grammar reading at rest, the parse's
-							    verdict in the same one-size slot while one stands - as two
-							    spans, a colliding matcher grew a second line and the
-							    empty-to-typed swap changed heights, both moving the
-							    sections below under the typing hand. */}
+							{/* The matcher's reserved status line (dashboard.css .matcher-status): grammar at rest,
+							    verdict in the same one-size slot - two spans changed heights and moved the sections
+							    below under the typing hand. */}
 							<span className={cn("matcher-status", problems[groupIndex]?.prefix !== undefined && "error")}>
 								{problems[groupIndex]?.prefix ??
 									(group.prefix.trim().length > 0 ? matcherKindLabel(matcherKind(group.prefix)) : null)}
@@ -750,13 +691,9 @@ function ParamGroupsFields({
 									return (
 										// biome-ignore lint/suspicious/noArrayIndexKey: rows are positional while being edited (see useFocusedRow); the index is the identity
 										<div className="row" key={paramIndex} {...focusHold.rowFocusProps(groupIndex, paramIndex)}>
-											{/* The stacked tier's per-cell labels (painted only there;
-											    dashboard.css .cell-label): the column heads above label
-											    TRACKS, and once the rows stack there are no tracks left
-											    to label - each field names itself instead, keeping the
-											    column help reachable per cell. The word is aria-hidden
-											    (the input already carries it as its accessible name, so
-											    AT would hear it twice); the help button stays exposed. */}
+											{/* The stacked tier's per-cell labels (dashboard.css .cell-label): once the rows stack
+											    there are no tracks left for the column heads to label. aria-hidden - the input
+											    already carries the word as its accessible name; the help button stays exposed. */}
 											<span className="cell-label">
 												<span aria-hidden="true">{l10n.t("Parameter")}</span>
 												<Help text={helpModelParameterName()} />
@@ -801,13 +738,9 @@ function ParamGroupsFields({
 													onKeyDown={onKeyDown}
 												/>
 											</span>
-											{/* The per-row force/inheritable marks in their own fixed grid
-										    column, before the row action, so the boxes align down the
-										    card. Directive rows (_force, _inheritable, ...) carry no
-										    flag checkboxes - a directive cannot be forced or inherited
-										    - and unnamed rows have no key to mark yet; unforceable keys
-										    keep the box visible but disabled, with the help naming
-										    why. */}
+											{/* The per-row force/inheritable marks in their own fixed column so the boxes align.
+											    Directive rows carry no flag checkboxes (a directive cannot be forced or inherited);
+											    unforceable keys keep the box visible but disabled, the help naming why. */}
 											{param.key.trim().startsWith("_") || param.key.trim().length === 0 ? null : (
 												<span className="cell directive-flag">
 													<label>
@@ -898,26 +831,18 @@ function ParamGroupsFields({
 }
 
 /**
- * How many server-observed names the suggestion list carries: discovery
- * already caps the observed set at 512 keys per server so a hostile payload
- * cannot balloon what rides on it, and the cross-server union gets the same
- * ceiling here - the list is RENDERED per keystroke, and the catalog
- * dropdown's host-side cap sets the posture.
+ * Discovery caps the observed set at 512 keys per server; the cross-server union gets
+ * the same ceiling here - the list is RENDERED per keystroke.
  */
 const OBSERVED_SUGGESTION_LIMIT = 512;
 
 /**
- * The key suggestions the capability rows offer: the consumed vocabulary (the
- * registration-typed core first, then the advisory-typed cost/caching/params
- * keys in their curated order), then the server-observed /model/info key
- * names (deduped, code-unit sorted - wire identifiers), with the directives
- * at the end. Suggestions only - the vocabulary is open, and any other key
- * applies as-is. The observed names are server-derived strings: they render
- * as suggestion TEXT only (SuggestInput), never become object keys (the Set
- * dedup), and `_`-led names are dropped - a capability record reads such a
- * key as a directive, never as an override, so suggesting one would suggest
- * a key the record cannot carry (a server-reported `__proto__` falls out
- * here too).
+ * The key suggestions the capability rows offer: consumed vocabulary first, then the
+ * server-observed /model/info names, directives last. Suggestions only - the vocabulary
+ * is open. Observed names are server-derived strings: they render as suggestion TEXT
+ * only, never become object keys (the Set dedup), and `_`-led names are dropped - a
+ * capability record reads such a key as a directive, so it cannot be suggested
+ * (a server-reported `__proto__` falls out here too).
  */
 export function capabilityKeySuggestions(observedKeys?: readonly string[]): readonly string[] {
 	const consumed = Object.keys(CONSUMED_CAPABILITY_FIELDS);
@@ -933,12 +858,9 @@ export function capabilityKeySuggestions(observedKeys?: readonly string[]): read
 const CAPABILITY_KEY_SUGGESTIONS: readonly string[] = capabilityKeySuggestions();
 
 /**
- * A text input with its own suggestion listbox, replacing the native datalist
- * (which the webview host renders all-bold and unstylable). The combobox
- * pattern the catalog picker set: typing filters the suggestions
- * (case-insensitive substring), arrows move the highlight, Enter accepts it,
- * Escape closes, blur closes, mousedown picks. Enter WITHOUT a highlighted
- * suggestion falls through to `onEnter` (the editors' Enter-apply), so
+ * A text input with its own suggestion listbox, replacing the native datalist (the
+ * webview host renders it all-bold and unstylable); the catalog picker's combobox
+ * pattern. Enter WITHOUT a highlighted suggestion falls through to `onEnter`, so
  * accepting a suggestion can never double as Apply on a half-typed row.
  */
 function SuggestInput({
@@ -1116,11 +1038,9 @@ function SuggestInput({
 }
 
 /**
- * What input a capability row's value takes, keyed off the consumed
- * vocabulary and the directives: token counts get number inputs, costs get
- * decimal number inputs (0 is "free"), support flags get checkboxes, and
- * everything else - string-array consumed fields included - falls back to
- * JSON text (the vocabulary is open, so unknown keys stay free-form).
+ * What input a capability row's value takes: token counts get number inputs, costs
+ * decimal ones (0 is "free"), support flags checkboxes, everything else JSON text
+ * (the vocabulary is open, so unknown keys stay free-form).
  */
 function capabilityValueKind(key: string): "number" | "boolean" | "cost" | "catalog-id" | "json" {
 	if (key === OPENROUTER_MODEL_DIRECTIVE) {
@@ -1138,23 +1058,16 @@ function numberInputProps(kind: "number" | "cost"): { min: number; step: number 
 }
 
 /**
- * What an HTML number input can DISPLAY, the spec's "valid floating-point
- * number" grammar: an optional minus, digits with an optional dot-and-digits
- * fraction (or a bare .5 fraction), an optional exponent. Anything else -
- * hex, whitespace, a trailing dot - is sanitized to a blank control, so it
- * must keep the raw text input instead. Tested against the UNTRIMMED text:
- * the control renders the text exactly as it is.
+ * What an HTML number input can DISPLAY (the spec's "valid floating-point number"
+ * grammar); anything else is sanitized to a blank control, so it must keep the raw text
+ * input. Tested against the UNTRIMMED text: the control renders the text as it is.
  */
 const NUMBER_INPUT_TEXT = /^-?(\d+(\.\d+)?|\.\d+)([eE][+-]?\d+)?$/;
 
 /**
- * The control a capability row actually renders: the key's typed control only
- * while the current text fits it, raw JSON text otherwise. Invalid values are
- * deliberately preserved (the parse hints, the resolver diagnoses at
- * resolution), and a typed control would misrepresent them - a number input
- * displays a stored `"free"` as blank, a checkbox reads a stored `1` as
- * unchecked - so the row falls back to the free-form input that shows the
- * text as it is.
+ * The key's typed control only while the current text fits it, raw JSON text otherwise:
+ * invalid values are deliberately preserved, and a typed control would misrepresent
+ * them (a number input displays a stored `"free"` as blank).
  */
 function capabilityControlKind(key: string, valueText: string): ReturnType<typeof capabilityValueKind> {
 	const kind = capabilityValueKind(key);
@@ -1174,9 +1087,7 @@ function capabilityControlKind(key: string, valueText: string): ReturnType<typeo
 const CATALOG_SEARCH_DEBOUNCE_MS = 300;
 
 /**
- * The `_openrouter_model` value input with its catalog search: typing posts a
- * debounced searchCatalog request, and the bounded result list renders under
- * the input; picking an entry writes its ID into the row. Only summaries
+ * The `_openrouter_model` value input with its debounced catalog search. Only summaries
  * cross the boundary - the catalog itself never enters the webview.
  */
 export function CatalogPicker({
@@ -1303,13 +1214,9 @@ export function CatalogPicker({
 }
 
 /**
- * The model-capability group rows, ParamGroupsFields' typed sibling: one
- * group per model prefix, one row per capability field or directive. The
- * value control follows the key - token counts get number inputs, support
- * flags get checkboxes, `_openrouter_model` gets the catalog
- * picker, and anything else falls back to JSON text with the unknown-key
- * hint parseCapabilityGroups computed. Purely presentational, over the
- * issues from the same parse that judges the enclosing form.
+ * The model-capability group rows, ParamGroupsFields' typed sibling. The value control
+ * follows the key; purely presentational, over the issues from the same parse that
+ * judges the enclosing form.
  */
 function CapabilityGroupsFields({
 	groups,
@@ -1353,15 +1260,10 @@ function CapabilityGroupsFields({
 				// The group's `_fallback` marks, derived once per render from the
 				// rows the checkboxes rewrite.
 				const fallbackFields = directiveMarkedFields(group, FALLBACK_DIRECTIVE);
-				// The control-backed directive rows the grid absorbs, the parameters
-				// editor's rule with this editor's own flag set. What keeps a
-				// directive row visible is structural - directiveRowAbsorbed's
-				// eligible-row check: a `_fallback`/`_inheritable` list entry naming
-				// no field row has no checkbox to display it, so the row stays. The
-				// hint clause is only a backstop on top (a hinted row must stay to
-				// show its hint); with the open vocabulary every hinted list entry
-				// already fails the eligible check, so no row's visibility rides on
-				// a hint that evidence could suppress.
+				// The control-backed directive rows the grid absorbs, with this editor's flag set. What
+				// keeps a directive row visible is structural (directiveRowAbsorbed's eligible-row
+				// check); the hint clause is only a backstop, so no row's visibility rides on a hint
+				// that evidence could suppress.
 				const rowAbsorbed = (index: number): boolean =>
 					!focusHold.focused(groupIndex, index) &&
 					directiveRowAbsorbed(group, index, CAPABILITY_FLAG_DIRECTIVES) &&
@@ -1514,12 +1416,9 @@ function CapabilityGroupsFields({
 													/>
 												</span>
 											)}
-											{/* The per-row fallback/inheritable marks in the shared fixed
-										    flag column, before the row action like the parameter
-										    editor's force mark. The vocabulary is open, so every
-										    non-directive field carries the fallback box - the
-										    resolver's `_fallback` accepts any field the record sets,
-										    known or not. */}
+											{/* The per-row fallback/inheritable marks in the shared flag column. The vocabulary is
+											    open, so every non-directive field carries the fallback box - the resolver's
+											    `_fallback` accepts any field the record sets. */}
 											{directiveEligible(FALLBACK_DIRECTIVE, key) ? (
 												<span className="cell directive-flag">
 													<label>
@@ -1626,10 +1525,9 @@ function canonicalKey(value: unknown): string {
 }
 
 /**
- * Hand-curated, mirroring the "Common parameters" list in
- * docs/models.md#where-parameters-come-from: the extension has no canonical
- * parameter inventory (pass-through by design; only reasoning_effort is
- * schema-declared), so these are suggestions, never a restriction.
+ * Hand-curated, mirroring docs/models.md#where-parameters-come-from: the extension has
+ * no canonical parameter inventory (pass-through by design), so these are suggestions,
+ * never a restriction.
  */
 const COMMON_PARAMETER_NAMES = [
 	"max_tokens",
@@ -1718,10 +1616,9 @@ function openFieldAddress(groups: readonly PrefixGroup[], popover: ChipPopoverTa
 }
 
 /**
- * The card's one validation verdict: the worst problem in draft order, named
- * by the matcher it owns, skipping the one field an open popover already
- * states. Card-scoped because a row cannot hold this line - see
- * dashboard.css .editor-status.
+ * The card's one validation verdict: the worst problem in draft order, named by its
+ * matcher, skipping the field an open popover already states. Card-scoped because a row
+ * cannot hold this line - see dashboard.css .editor-status.
  */
 function recordVerdict(
 	groups: readonly PrefixGroup[],
@@ -1778,14 +1675,10 @@ function RecordVerdictLine({
 }
 
 /**
- * The record frames' one message slot, shared by the editable footers, the
- * read-only other-scope frames, and any future record display (the server
- * form's entry records). An always-mounted flex item over the footer row's
- * free space (dashboard.css .editor-status), so a message mounting in it
- * never changes the row's wrap points or moves the buttons beside it. Two
- * voices, one cell: the async write refusal (role="alert", mounted before it
- * speaks) outranks the validation verdict; surfaces with no write path pass
- * no refusal channel and render the verdict alone.
+ * The record frames' one message slot: an always-mounted flex item over the footer row's
+ * free space (dashboard.css .editor-status), so a message mounting never changes wrap
+ * points or moves the buttons. Two voices, one cell: the async write refusal
+ * (role="alert", mounted before it speaks) outranks the validation verdict.
  */
 export function RecordStatusSlot({
 	groups,
@@ -1810,11 +1703,9 @@ export function RecordStatusSlot({
 }
 
 /**
- * Whether any standing problem would give the verdict a voice. The read-only
- * frames mount their message row only then: their problems are static per
- * state push (nothing re-validates per keystroke), so a conditional row
- * cannot shift geometry under a live edit the way the editable footers'
- * always-mounted slot guards against.
+ * Whether any standing problem would give the verdict a voice. The read-only frames
+ * mount their message row only then: their problems are static per push, so a
+ * conditional row cannot shift geometry under a live edit.
  */
 export function anyRecordProblem(issues: readonly GroupIssueView[]): boolean {
 	return issues.some((issue) => issue.prefix !== undefined || issue.rows.some((row) => row.problem !== undefined));
@@ -1845,11 +1736,8 @@ function matcherKindLabel(kind: MatcherKind): string {
 const INHERIT_CELL = "inherit-cell shrink-0 text-[11px] text-muted-foreground";
 
 /**
- * A row's short reading of its `_inherit_from` state, or nothing at all where
- * the group takes the default. The default is what a record does when nobody
- * said otherwise, so printing it on every row would be one noisy word per
- * line saying "nothing to see"; the mark appears exactly where a choice was
- * made.
+ * A row's short reading of its `_inherit_from` state; nothing where the group takes the
+ * default - the mark appears exactly where a choice was made.
  */
 function InheritsSummary({ group }: { group: PrefixGroup }) {
 	const choice = inheritFromChoice(group);
@@ -1914,17 +1802,11 @@ function flagDirectivesFor(kind: RecordEditorKind): readonly FieldDirective[] {
 }
 
 /**
- * The row indices a group renders as chips: everything except the directive
- * rows the table's own surfaces fully represent (the Inherits column for
- * `_inherit_from`, the chips' flag badges for the checkbox directives), per
- * the same directiveRowAbsorbed contract the row grid uses - a directive the
- * controls cannot fully show keeps a raw chip. A row the open popover is
- * editing stays pinned visible, so absorption can never unmount the popover
- * mid-keystroke (the focused-row hold, in table form).
- *
- * Omitting a row here can hide no problem: directiveRowAbsorbed
- * (recordDraft.ts) keeps any row the parse flags visible - absorbed implies
- * valid, so every problem row has a chip to carry its mark.
+ * The row indices a group renders as chips: everything except directive rows the table's
+ * own surfaces fully represent (directiveRowAbsorbed; a directive the controls cannot
+ * fully show keeps a raw chip). A row the open popover edits stays pinned, so absorption
+ * can never unmount the popover mid-keystroke. Omission hides no problem: absorbed
+ * implies valid, so every problem row has a chip to carry its mark.
  */
 function chipRowIndices(
 	kind: RecordEditorKind,
@@ -1973,12 +1855,10 @@ function candidateProblem(
 const POPOVER_GAP_PX = 4;
 
 /**
- * The chip popovers' shared shell: hover-widget chrome anchored under its
- * chip, focus moved to the first control on open and returned to the opener
- * on close, Escape and any press outside the chip's anchor closing. Escape
- * stops propagating so a popover inside the matcher editor overlay (or the
- * server form's slide-over) closes only itself. It flips above its anchor
- * rather than hang past the viewport's bottom edge.
+ * The chip popovers' shared shell: anchored under its chip, focus moved in on open and
+ * returned on close, Escape and outside presses closing. Escape stops propagating so a
+ * popover inside an overlay closes only itself; it flips above rather than hang past
+ * the viewport's bottom edge.
  */
 function PopoverShell({
 	label,
@@ -1995,12 +1875,9 @@ function PopoverShell({
 	const ref = useRef<HTMLDivElement>(null);
 	const closeRef = useRef(onClose);
 	closeRef.current = onClose;
-	// Whether the popover hangs above its anchor instead of below it. Decided
-	// by measurement, not at click time: its height is not known until it
-	// renders, and both it and the room under it change while open - a flag
-	// row appears, an invalid value adds an error line, the reader scrolls -
-	// so a popover that opened on-screen can end up over the edge with
-	// nothing to scroll it back.
+	// Flip decided by measurement, not at click time: the height is unknown until render,
+	// and both it and the room under it change while open - a popover that opened on-screen
+	// can end up over the edge.
 	const [above, setAbove] = useState(false);
 	useLayoutEffect(() => {
 		const popover = ref.current;
@@ -2008,12 +1885,9 @@ function PopoverShell({
 			return;
 		}
 		const measure = () => {
-			// The box the CSS positions against (the chip anchor, or the row's
-			// field list inside a slide-over): flipping moves the popover to
-			// exactly this box's top edge, so the room above and below is its
-			// own. Read per measurement rather than once: under happy-dom
-			// there is no offsetParent and no layout to reason about, which is
-			// a reason to measure nothing, not to stop watching.
+			// The box the CSS positions against; flipping moves the popover to exactly this box's
+			// top edge. Read per measurement: under happy-dom there is no offsetParent, which is a
+			// reason to measure nothing, not to stop watching.
 			const host = popover.offsetParent;
 			if (!(host instanceof HTMLElement)) {
 				return;
@@ -2108,12 +1982,10 @@ function PopoverShell({
 }
 
 /**
- * The small anchored editor behind a field chip: the value control, the
- * row's flag toggles, and Remove field. Edits write straight into the draft
- * (the chip and table stay live; the owner's Apply/Save remains the only
- * write path). The popover is addressed by the row's KEY, so a flag toggle
- * that inserts or removes a directive row can never shift it onto another
- * field.
+ * The small anchored editor behind a field chip; edits write straight into the draft
+ * (the owner's Apply/Save remains the only write path). Addressed by the row's KEY, so
+ * a flag toggle that inserts or removes a directive row can never shift it onto
+ * another field.
  */
 function FieldChipPopover({
 	kind,
@@ -2258,12 +2130,9 @@ function FieldChipPopover({
 					/>
 				</div>
 			) : null}
-			{/* The one status line, in reserved space AFTER the actions: the verdict
-			    re-renders per keystroke, and mounted between the flags and the
-			    actions it shoved Remove field 19px down under the pointer on the
-			    first bad character (the charter's transients-never-move-anything
-			    clause). Worst first, one message at a time - a problem outranks a
-			    hint, and the slot is sized for one line (chip-popover-status). */}
+			{/* The one status line, in reserved space AFTER the actions: the verdict re-renders per
+			    keystroke and must not move Remove field under the pointer (the charter's transients
+			    clause). Worst first, one message at a time (chip-popover-status is one line). */}
 			<div className="chip-popover-actions">
 				<Button variant="danger" size="compact" disabled={disabled} onClick={removeRow}>
 					<IconTrash /> {l10n.t("Remove field")}
@@ -2281,11 +2150,9 @@ function FieldChipPopover({
 }
 
 /**
- * The [+] chip's popover: a complete field is assembled locally (key, value,
- * flags) and lands in the draft as ONE commit, so half-typed rows never leak
- * into the table. Validation runs the target parser over the candidate row
- * on every keystroke - the popover cannot accept what the editor would then
- * block.
+ * The [+] chip's popover: a complete field assembled locally and landed as ONE commit,
+ * so half-typed rows never leak into the table. The target parser runs over the
+ * candidate per keystroke - the popover cannot accept what the editor would block.
  */
 function AddFieldPopover({
 	kind,
@@ -2466,14 +2333,10 @@ function AddFieldPopover({
 }
 
 /**
- * The open chip popover: one per table, addressed by the group's MATCHER KEY
- * and the row's FIELD KEY, never by index - a state push (no draft pinned)
- * or a flag toggle may reorder or reshape the arrays under an open popover,
- * and index identity would silently retarget it onto another record. Keys
- * compare RAW (the resolver's grammar trims nothing, and trimmed identity
- * would transfer between "gpt-4" and "gpt-4 " on a reorder); the ordinals
- * disambiguate exact duplicates, which the parse blocks but the rows can
- * still represent.
+ * The open chip popover, addressed by the group's MATCHER KEY and the row's FIELD KEY,
+ * never by index - a push or flag toggle may reorder the arrays under it. Keys compare
+ * RAW (the resolver's grammar trims nothing, and trimmed identity would transfer
+ * between "gpt-4" and "gpt-4 "); ordinals disambiguate exact duplicates.
  */
 type ChipPopoverTarget =
 	| {
@@ -2501,13 +2364,9 @@ function popoverAlign(target: EventTarget | null): "start" | "end" {
 }
 
 /**
- * The table's two shapes, as one discriminated union: a read-only display owns
- * no writer, and an editing table cannot be built without one. Spelled as a
- * union rather than an optional `onChange`, because the display sites used to
- * hand over `() => undefined` - a writer written only to satisfy a type, at
- * three call sites, each one indistinguishable from a real handler someone
- * forgot to wire. Every key appears in both halves so the component can still
- * destructure them.
+ * The table's two shapes as one discriminated union, not an optional `onChange`: a
+ * writer written only to satisfy a type is indistinguishable from a real handler
+ * someone forgot to wire. Every key appears in both halves for destructuring.
  */
 type RecordMatcherTableProps = {
 	kind: RecordEditorKind;
@@ -2537,14 +2396,10 @@ type RecordMatcherTableProps = {
 );
 
 /**
- * The compact matcher table both record editors and the server form render:
- * one row per matcher - the key, its inheritance, the fields as combined
- * chips, and the full-editor pencil. Rows display in precedence order,
- * lowest first (sortedGroupOrder; a VIEW order - the draft's storage order
- * is never rewritten). Chips open the small anchored popover; the pencil
- * asks the owner to open the full matcher editor overlay. With readOnly the
- * same table renders as a static display: plain chips, no edit affordances
- * (the other-scope records).
+ * The compact matcher table both record editors and the server form render: one row per
+ * matcher. Rows display in precedence order, lowest first (sortedGroupOrder - a VIEW
+ * order; the draft's storage order is never rewritten). readOnly renders the same table
+ * as a static display.
  */
 export function RecordMatcherTable({
 	kind,
@@ -2592,15 +2447,10 @@ export function RecordMatcherTable({
 	const editable = readOnly !== true;
 	const order = sortedGroupOrder(groups);
 	return (
-		// A list whose rows share ONE internal grid: [matcher | field chips |
-		// inherits | action], columns sized by the list so every row's cells
-		// land at the same x - the rows inherit the tracks through subgrid, the
-		// same construction the models list uses. The STRUCTURE (display, the
-		// tracks, the cells' columns, and the sub-700px flex fallback) lives in
-		// dashboard.css rather than in utilities here: dashboard.css sits in the
-		// components layer UNDER utilities, so a `grid` utility on this element
-		// would beat the stylesheet's narrow fallback no matter the query - one
-		// layer, source order settles it.
+		// Rows share ONE internal grid through subgrid (the models list's construction). The
+		// STRUCTURE lives in dashboard.css, not utilities: dashboard.css sits in the components
+		// layer UNDER utilities, so a `grid` utility here would beat the stylesheet's sub-700px
+		// fallback no matter the query.
 		<ul className="record-table" aria-label={recordListLabel(kind)}>
 			{order.map((groupIndex) => {
 				const group = groups[groupIndex];
@@ -2644,12 +2494,9 @@ export function RecordMatcherTable({
 								{matcherKindLabel(matcherKind(group.prefix))}
 							</span>
 						</span>
-						{/* min-w-min, not min-w-0: a zero floor squeezed the box narrower
-						    than one chip, and the chips overflowed over the inherit summary
-						    and the pencil. The floor is a chip's longest UNBREAKABLE piece;
-						    check-overflow holds it. No flex-item utilities: the grid's
-						    tracks own this size, and a utility would beat the 700px
-						    stylesheet fallback that gives the cell its own line. */}
+						{/* min-w-min, not min-w-0: a zero floor let the chips overflow the inherit summary; the
+						    floor is a chip's longest UNBREAKABLE piece (check-overflow holds it). No flex-item
+						    utilities: a utility would beat the 700px stylesheet fallback. */}
 						<span className="chip-list flex min-w-min flex-wrap items-baseline gap-x-2 gap-y-1">
 							{chips.map((rowIndex) => {
 								const row = group.params[rowIndex];
@@ -2669,23 +2516,16 @@ export function RecordMatcherTable({
 									groupHere(popover) &&
 									popover.fieldKey === row.key &&
 									popover.ordinal === ordinal;
-								// Both marks said in words: a border is invisible to a screen
-								// reader, and the card's verdict names the matcher rather than
-								// this field and speaks for one problem at a time. Descriptions
-								// rather than part of the name, so the chip still announces as
-								// its key and value first. Ids need only be unique on the page
-								// and stable within a render; the indices do that.
+								// Both marks said in words: a border is invisible to a screen reader, and the card's
+								// verdict names the matcher, not this field. Descriptions rather than name parts, so
+								// the chip still announces as its key and value first.
 								const hintId = issue?.hint !== undefined ? `${tableId}-hint-${groupIndex}-${rowIndex}` : undefined;
 								const problemId =
 									issue?.problem !== undefined ? `${tableId}-problem-${groupIndex}-${rowIndex}` : undefined;
 								const describedBy = [problemId, hintId].filter((id) => id !== undefined).join(" ") || undefined;
-								// No forced-colors border suppression any more, deliberately:
-								// when chips were quiet-at-rest the repainted transparent border
-								// put an unearned hairline on every chip, but a FILLED chip's
-								// fill is exactly what forced colours flatten into the page, so
-								// the repainted border is now the only thing keeping "two chips"
-								// from reading as one run of words. The transparent border
-								// repaints to a visible system colour there and that is correct.
+								// No forced-colors border suppression, deliberately: a FILLED chip's fill is exactly
+								// what forced colours flatten into the page, so the repainted transparent border is the
+								// only thing keeping "two chips" from reading as one run of words.
 								const chipClass = cn(
 									"chip-field inline-flex flex-wrap items-baseline gap-1.5 rounded-sm border border-transparent bg-chip px-1 font-mono text-[12px] text-muted-foreground",
 									// Filled at rest - the frame makes these a bounded region
@@ -2697,15 +2537,10 @@ export function RecordMatcherTable({
 										"cursor-pointer group-hover/row:border-border group-hover/row:bg-input-background group-focus-within/row:border-border group-focus-within/row:bg-input-background hover:text-foreground focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid",
 									catalog && "chip-catalog",
 									openHere && "border-border bg-input-background text-foreground",
-									// The marks come AFTER the open state on purpose: cn resolves
-									// conflicting utilities last-wins, and with the order reversed
-									// the open chip's border-border swallowed the invalid border -
-									// the one chip being edited was the one without its mark. The
-									// marks also restate the editable string's hover/focus-within
-									// reveal variants, which are separate merge groups the plain
-									// utility cannot beat: without them the row's hairline reveal
-									// repainted the mark grey the moment the pointer arrived or
-									// the popover took focus.
+									// The marks come AFTER the open state: cn resolves conflicts last-wins, and reversed,
+									// the open chip's border-border swallowed the invalid border. They also restate the
+									// row's hover/focus-within reveal variants - separate merge groups the plain utility
+									// cannot beat, which repainted the mark grey when the pointer arrived.
 									issue?.hint !== undefined &&
 										"hinted border-warn group-hover/row:border-warn group-focus-within/row:border-warn",
 									// The border IS the whole mark - the child spans re-colour
@@ -2834,14 +2669,12 @@ export function RecordMatcherTable({
 						</span>
 						<InheritsSummary group={group} />
 						{editable ? (
-							/* Pushed to the row's end only in the wrapping tier, where the
-							   row is a flex line; the wide tier's grid gives the pencil its
-							   own track with no free space to take. A utility, because the
-							   button primitive's own mx- would outrank a stylesheet rule.
-							   It survives the bordered modes only because their hand-back
-							   reset zeroes a custom property rather than the margin itself
-							   (ui/button.tsx): a blanket margin-inline: 0 would flatten this
-							   push in exactly the modes that draw the box it aligns. */
+							/**
+							 * Pushed to the row's end only in the wrapping tier (the wide grid has no free space).
+							 * A utility, because the button primitive's own mx- would outrank a stylesheet rule; it
+							 * survives the bordered modes only because their hand-back zeroes a custom property,
+							 * not the margin itself (ui/button.tsx).
+							 */
 							<Button
 								variant="secondary"
 								size="compact"
@@ -2861,13 +2694,10 @@ export function RecordMatcherTable({
 }
 
 /**
- * The full matcher editor, an in-place overlay on the same slide-over
- * machinery the model inspectors use: matcher input, the Inherits control,
- * every field row with its flags, Add parameter/capability, and Remove
- * matcher. It edits the same draft the table renders - closing commits
- * nothing and loses nothing; the owner's Apply/Save remains the only write
- * path. Focus returns to the opening pencil on close (the slide-over's own
- * restore), with `fallbackFocusId` covering a pencil the removal deleted.
+ * The full matcher editor, an overlay on the model inspectors' slide-over machinery. It
+ * edits the same draft the table renders - closing commits nothing and loses nothing.
+ * Focus returns to the opening pencil on close, `fallbackFocusId` covering a pencil the
+ * removal deleted.
  */
 export function RecordMatcherEditorOverlay({
 	kind,
@@ -2990,16 +2820,11 @@ function resolveMatcherEditing(
 }
 
 /**
- * The settings editors' overlay target, resolved to a draft index
- * SYNCHRONOUSLY on every render: a pristine state push may reorder or remove
- * groups under an open overlay, and a stored index would hand the render
- * between the push and any effect a stale target - one keystroke there would
- * edit the wrong record. Identity is the RAW matcher key (never trimmed,
- * matching the resolver's grammar) plus an occurrence ordinal for exact
- * duplicates; a rename typed inside the overlay refreshes the captured key
- * through trackRename. The effect below only clears the state once the
- * target is unresolvable, so a key that later REAPPEARS cannot resurrect a
- * long-closed overlay.
+ * The overlay target, resolved to a draft index SYNCHRONOUSLY per render: a pristine
+ * push may reorder groups under an open overlay, and a stored index would edit the
+ * wrong record for one keystroke. Identity is the RAW matcher key plus an occurrence
+ * ordinal; trackRename follows a rename typed inside. The effect clears only once the
+ * target is unresolvable, so a key that REAPPEARS cannot resurrect a closed overlay.
  */
 function useMatcherEditing(groups: readonly PrefixGroup[]): {
 	/** The open overlay's draft index this render, or undefined when closed. */
@@ -3038,10 +2863,8 @@ function useMatcherEditing(groups: readonly PrefixGroup[]): {
 }
 
 /**
- * Structured editor for litellm-vscode-chat.models.parameters, the
- * object-of-objects the native Settings GUI cannot edit: one group per model
- * prefix, one row per request parameter, values entered as JSON. Edits apply
- * to one configuration scope; other scopes render read-only below.
+ * Structured editor for litellm-vscode-chat.models.parameters, the object-of-objects the
+ * native Settings GUI cannot edit. Edits apply to one scope; others render read-only.
  */
 export function ModelParametersEditor({
 	scoped,
@@ -3337,11 +3160,9 @@ export function ModelParametersEditor({
 }
 
 /**
- * Structured editor for litellm-vscode-chat.models.capabilities, the
- * parameters editor's typed sibling (two-management-paths parity: everything
- * the server form's per-entry section can edit, editable globally too). Same
- * draft-and-apply model over the capability parse; edits land through the
- * setModelCapabilities intent.
+ * Structured editor for litellm-vscode-chat.models.capabilities, the parameters editor's
+ * typed sibling (two-management-paths parity). Same draft-and-apply model; edits land
+ * through the setModelCapabilities intent.
  */
 export function ModelCapabilitiesEditor({
 	scoped,
@@ -3354,14 +3175,10 @@ export function ModelCapabilitiesEditor({
 	/** The discovered models, feeding the matcher input's suggestions. */
 	models: readonly DashboardModel[];
 	/**
-	 * The cross-server union of observed /model/info keys
-	 * (DashboardState.observedModelInfoKeys), serving two roles: the
-	 * unknown-key hints' evidence, and the server half of the key
-	 * autocomplete (capabilityKeySuggestions). The global records scope over
-	 * every server, so the union is the right set for both. Absent or empty
-	 * means no evidence - every such hint stays suppressed (the host's
-	 * advisory filter, run live as the user types) and the suggestions fall
-	 * back to the static vocabulary.
+	 * The cross-server union of observed /model/info keys: the unknown-key hints' evidence
+	 * AND the server half of the key autocomplete (the global records scope over every
+	 * server, so the union fits both). Absent or empty means no evidence - hints suppressed,
+	 * suggestions fall back to the static vocabulary.
 	 */
 	observedKeys?: readonly string[] | undefined;
 	/** The settings filter's verdict; hides the section without unmounting it, so a dirty draft survives. */

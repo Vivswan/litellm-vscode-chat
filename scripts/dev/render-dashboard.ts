@@ -1,50 +1,13 @@
 /**
- * Dev-only visual render harness: screenshots the dashboard webview in system
- * Chrome headless, without launching VS Code. It builds a standalone page from
- * buildDashboardHtml plus the real dist bundle, stubs acquireVsCodeApi so the
- * page's "ready" post replays a fixture's ExtensionToWebviewMessage list, then
- * drives Chrome over the DevTools protocol to run optional steps and capture
- * a PNG.
- *
- * Usage:
- *   bun scripts/dev/render-dashboard.ts --fixture scripts/dev/renderFixtures/example.ts --out /tmp/shot.png
- *     [--width 1300] [--height 950] [--theme <host theme>] [--dpr 2]
- *     [--hover <css selector>] [--focus <css selector>] [--contrast <css selector>] [--contrast-large]
- *     [--clip-viewport] [--html-out /tmp/page.html] [--no-theme]
- *     [--widths 320,999,1000] [--pane-widths 559,560]
- *
- * --theme overrides the fixture's own hostTheme, so any fixture can be shot in
- * light and dark without a second fixture file; the dashboard has to read well
- * in both.
- *
- * --focus focuses an element and FAILS unless it matches :focus-visible, so a
- * shot can never show a missing ring the harness itself caused; --contrast
- * prints an element's WCAG contrast ratio against its effective background and
- * fails below 4.5:1 (3:1 with --contrast-large, the large-text/graphical
- * floor); --dpr renders at another device density (deviceScaleFactor), which
- * is how sub-2px strokes are reviewed across displays.
- *
- * Every run asserts the page does not scroll sideways at its own width.
- * --widths asserts the same at each WINDOW width it names; --pane-widths names
- * PANE widths instead and converts each to the window width that produces it,
- * measuring the rail and padding rather than assuming them, which is what the
- * dashboard's container-query breakpoints are actually about. Either flag makes
- * --out optional: check-overflow.ts sweeps the whole fixture set that way.
- *
- * CHROME_BIN overrides Chrome discovery. Exit code 0 only when nothing
- * overflowed and, unless the run is measuring alone, the PNG was written and is
- * larger than 10 KB.
- *
- * One rule governs every change to this file: when the harness and the editor
- * disagree about how the page is assembled, fix the harness FIRST, watch it
- * reproduce the failure, and only then fix the product. This is not a
- * preference. A harness that models the host wrongly does not merely miss bugs,
- * it certifies their absence - a forced-theme mechanism that could never work
- * in a real webview measured as working here for as long as this file served
- * the host's tokens as a stylesheet rule instead of the inline style VS Code
- * actually writes. Anything this file emulates (token delivery, body classes,
- * the CSP, the default styles) is a claim about the editor, and a wrong claim
- * is worse than no claim.
+ * Dev-only visual render harness: screenshots the dashboard webview through
+ * headless Chrome without launching VS Code (see usage() for the flags,
+ * CHROME_BIN for Chrome discovery). Deliberately no pixel baseline. What it
+ * does enforce: the page runs under the shell's real CSP and any violation
+ * fails the render, the scroll offset is pinned before a full-page capture so
+ * renders reproduce, and every run asserts the page does not scroll sideways at
+ * the width it was shot at. When the harness and the editor disagree about how
+ * the page is assembled, fix the harness FIRST: what this file emulates is a
+ * claim about the editor, and a wrong claim certifies bugs absent.
  */
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, statSync } from "node:fs";
@@ -64,11 +27,7 @@ import {
 } from "../../src/shared/webviewPaths.ts";
 import { RENDER_EPOCH_MS } from "./renderClock.ts";
 
-/**
- * Every host theme a render can emulate. One declaration: the fixture field,
- * the page builder and the flag parser all read this, so adding a theme is
- * adding a line here plus its token set.
- */
+/** Every host theme a render can emulate; the fixture field, page builder and flag parser all read this. */
 const HOST_THEMES = ["dark", "light", "high-contrast", "high-contrast-light", "forced-colors"] as const;
 type HostTheme = (typeof HOST_THEMES)[number];
 
@@ -87,12 +46,10 @@ export interface RenderFixture {
 	readonly steps?: readonly string[];
 	readonly viewport?: { readonly width: number; readonly height: number };
 	/**
-	 * Capture the viewport alone, as `--clip-viewport` does. For a fixture
-	 * whose subject IS the viewport's edge - anything that measures against
-	 * it, or flips away from it - a full-page capture expands the viewport
-	 * until the edge is not there and photographs a page that proves nothing.
-	 * The fixture states its own requirement rather than a comment asking the
-	 * operator to remember a flag.
+	 * Capture the viewport alone, as `--clip-viewport` does. Required when the
+	 * fixture's subject IS the viewport edge - anything measuring against it or
+	 * flipping away from it - because a full-page capture expands the viewport
+	 * until the edge is not there.
 	 */
 	readonly clipViewport?: boolean;
 	/** How long to wait after the ready handshake before steps and capture; default 300. */
@@ -100,50 +57,39 @@ export interface RenderFixture {
 	/**
 	 * Opts the fixture out of the width sweep, keeping the assertion at its own
 	 * width. For a fixture whose state was MEASURED when it was built: a chip
-	 * popover picks the side it opens on by measuring its anchor at open time,
-	 * so narrowing the viewport afterwards leaves it on a side the component
-	 * would never have chosen, and the sweep would be reporting a page the
-	 * dashboard cannot produce. The narrow behaviour of these surfaces belongs
-	 * to a fixture opened AT the narrow width, not to a resize after the fact.
+	 * popover picks its side by measuring its anchor at open time, so narrowing
+	 * afterwards leaves it on a side the component would never have chosen.
+	 * Narrow behaviour belongs to a fixture opened AT the narrow width.
 	 */
 	readonly measuredAtOwnWidth?: boolean;
 	/**
 	 * The host theme the page emulates: the token set in harness.css plus the
-	 * body class VS Code stamps. "light" and "dark" are the two ordinary
-	 * themes and the dashboard must read well in both; the two high-contrast
-	 * kinds render the HC token sets with prefers-contrast raised, so the
-	 * theme.css contrast overrides show their own colors and the theme/accent
-	 * settings show themselves going inert; "forced-colors" adds
-	 * forced-colors: active on top of HC dark, the way an OS high-contrast
-	 * mode overrides author colors. Default "dark".
+	 * body class VS Code stamps. The two high-contrast kinds raise
+	 * prefers-contrast; "forced-colors" adds forced-colors: active on top of HC
+	 * dark, the way an OS high-contrast mode overrides author colors.
 	 */
 	readonly hostTheme?: HostTheme;
 	/**
-	 * Canned answers for posted requests: when the page posts a request whose
-	 * `method` matches a key, the stub dispatches the mapped envelope template
-	 * with the request's `id` and `method` filled in (the correlation the real
-	 * extension performs). A read's template is `{ kind: "response", payload }`;
-	 * an intent outcome's is `{ kind: "ack" | "fail", ... }`. One template per
-	 * method.
+	 * Canned answers for posted requests: a request whose `method` matches a key
+	 * gets the mapped envelope template dispatched back with its `id` and
+	 * `method` filled in (the correlation the real extension performs). One
+	 * template per method.
 	 */
 	readonly respond?: Readonly<Record<string, unknown>>;
 }
 
 const REPO_ROOT = path.resolve(__dirname, "../..");
 /**
- * Where a --pane-widths search starts, from each side of the rail's collapse:
- * narrow enough that the rail is an icon rail, and wide enough that it is not.
+ * Where a --pane-widths search starts, from each side of the rail's collapse.
  * Starting points only - the search corrects itself from what it measures.
  */
 const NARROW_PROBE_WIDTH = 320;
 const WIDE_PROBE_WIDTH = 1920;
 const READY_TIMEOUT_MS = 15000;
 /**
- * How many times a Chrome that never brought up its DevTools server is
- * launched before the run fails. Launch is the one phase that retries: on a
- * loaded CI runner several Chromes starting at once can starve each other past
- * READY_TIMEOUT_MS, which says nothing about the page. Anything after the
- * server is up - a page error, a CSP violation, an overflow - is a finding
+ * Launch is the one phase that retries: on a loaded CI runner several Chromes
+ * starting at once can starve each other past READY_TIMEOUT_MS, which says
+ * nothing about the page. Anything after the DevTools server is up is a finding
  * about the code, and retrying it would mask nondeterminism instead of noise.
  */
 const LAUNCH_ATTEMPTS = 3;
@@ -152,7 +98,7 @@ const MIN_PNG_BYTES = 10 * 1024;
 function usage(): never {
 	console.error(
 		"usage: bun scripts/dev/render-dashboard.ts --fixture <fixture.ts> (--out <shot.png> | --widths N,N)" +
-			" [--width N] [--height N] [--theme <host theme>] [--dpr N]" +
+			" [--pane-widths N,N] [--width N] [--height N] [--theme <host theme>] [--dpr N]" +
 			" [--accent blue|violet|teal|amber] [--app-theme auto|light|dark]" +
 			" [--hover <css selector>] [--focus <css selector>] [--contrast <css selector>] [--contrast-large]" +
 			" [--clip-viewport] [--html-out <page.html>] [--no-theme]"
@@ -161,9 +107,8 @@ function usage(): never {
 }
 
 /**
- * The VS Code Dark Modern theme tokens the dashboard stylesheet reads,
- * approximated so a plain Chrome page renders like the webview instead of
- * black-on-white. Presentation aid only; --no-theme disables it.
+ * The VS Code Dark Modern theme tokens, approximated so a plain Chrome page
+ * renders like the webview. Presentation aid only; --no-theme disables it.
  */
 function themeCss(): string {
 	return `
@@ -233,10 +178,9 @@ function themeCss(): string {
 }
 
 /**
- * The VS Code Light Modern theme tokens, approximated the same way, over the
- * same key set as the dark tokens above - a token one theme defines and the
- * other omits would show up as a design difference when it is really a gap in
- * this file.
+ * The VS Code Light Modern tokens, over the same key set as the dark tokens
+ * above: a token one theme defines and the other omits would read as a design
+ * difference when it is really a gap in this file.
  */
 function lightCss(): string {
 	return `
@@ -306,13 +250,11 @@ function lightCss(): string {
 }
 
 /**
- * The VS Code Dark High Contrast theme tokens, approximated the same way.
- * Deliberately sparse where the real theme is: secondary backgrounds and list
- * hover colors are genuinely null in HC, so the stylesheet's fallback chains
- * and the theme.css contrast overrides are what render. Values come from the
- * workbench color registry's hcDark defaults, button.background included - it
- * is black there, which is the whole reason theme.css cannot read an accent
- * off it.
+ * The VS Code Dark High Contrast tokens, from the workbench color registry's
+ * hcDark defaults. Deliberately sparse where the real theme is: secondary
+ * backgrounds and list hover colors are genuinely null there, so the fallback
+ * chains and theme.css's contrast overrides are what render. button.background
+ * IS set - black, the whole reason theme.css cannot read an accent off it.
  */
 function highContrastCss(): string {
 	return `
@@ -362,10 +304,10 @@ function highContrastCss(): string {
 }
 
 /**
- * The VS Code Light High Contrast tokens, from the registry's hcLight
- * defaults. It exists because the light HC host is its own combination and an
- * unrenderable state is one nobody checks: theme.css keys the wash scale off
- * body.vscode-high-contrast-light, a class no other render produces.
+ * The VS Code Light High Contrast tokens, from the registry's hcLight defaults.
+ * Its own combination, and an unrenderable state is one nobody checks:
+ * theme.css keys the wash scale off body.vscode-high-contrast-light, a class no
+ * other render produces.
  */
 function highContrastLightCss(): string {
 	return `
@@ -416,21 +358,12 @@ function highContrastLightCss(): string {
 
 /**
  * Every --vscode-* token the stylesheet reads must be defined by the ORDINARY
- * themes. VS Code hands the real webview a full token set, so a token this
- * file omits does not fall back the way it would in the host - it falls back
- * to whatever literal the stylesheet carries, and those literals were written
- * against dark. Invisible in a dark render, actively misleading in a light
- * one, which is the review this harness exists to serve.
- *
- * High contrast is exempt on purpose, not by oversight: the real HC themes
- * leave button fills, secondary backgrounds and hover colors genuinely null,
- * so its sparseness IS the fidelity - the fallback chains and theme.css's
- * contrast overrides are what an HC render is meant to exercise. Holding it to
- * this invariant would make those renders less faithful, not more.
- *
- * Contrast-only tokens are exempt everywhere for the mirror reason: the
- * ordinary themes do not define them and the stylesheet reads them behind a
- * fallback for exactly that.
+ * themes: VS Code hands the real webview a full token set, so a token omitted
+ * here falls back to whatever literal the stylesheet carries, and those
+ * literals were written against dark. High contrast is exempt on purpose - the
+ * real HC themes leave those values null, so its sparseness IS the fidelity -
+ * and contrast-only tokens are exempt everywhere, since the ordinary themes do
+ * not define them and the stylesheet reads them behind a fallback.
  */
 const CONTRAST_ONLY_TOKENS = new Set(["--vscode-contrastBorder", "--vscode-contrastActiveBorder"]);
 
@@ -447,13 +380,11 @@ function assertThemeCoversStylesheet(stylesheet: string, tokensCss: string, host
 }
 
 /**
- * The host's token delivery, reproduced exactly: VS Code does NOT ship
- * --vscode-* in a stylesheet, it writes them one by one onto the document
- * element's inline style (webview/browser/pre/index.html, applyStyles). The
- * difference is not cosmetic - an inline declaration outranks every author
- * rule on the same element, so a stylesheet rule that redefines a host token
- * loses in the editor and wins here. Emitting them as a :root block made the
- * harness certify exactly the thing that could not work.
+ * The host's token delivery, reproduced exactly: VS Code writes --vscode-* one
+ * by one onto the document element's inline style (webview/browser/pre/
+ * index.html, applyStyles), not into a stylesheet. An inline declaration
+ * outranks every author rule on the same element, so a stylesheet rule that
+ * redefines a host token loses in the editor and would win here.
  */
 function inlineTokenStyle(tokensCss: string): string {
 	const declarations = [...tokensCss.matchAll(/(--vscode-[A-Za-z0-9-]+):\s*([^;]+);/g)].map(
@@ -475,20 +406,12 @@ function inlineJson(value: unknown): string {
 
 /**
  * The acquireVsCodeApi stub: the page's {type:"ready"} post replays the
- * fixture's messages as window "message" events (the app registers its
- * listener before posting ready, so synchronous dispatch is safe) and flips
- * window.__ready for the harness's poll. Every post lands in window.__posted
- * so steps can inspect what the page sent.
- *
- * The script also freezes the page's clock to RENDER_EPOCH_MS before the
- * bundle loads: relative-time labels and locale date strings otherwise shift
- * with the wall clock, which breaks pixel comparison between renders.
- *
- * The page keeps the shell's real Content-Security-Policy, so this script
- * carries the shell's nonce and doubles as the CSP violation collector: any
- * violation (an injected style tag, say) lands in window.__cspViolations and
- * fails the render - a component that only works without the policy must
- * fail here, not in the webview.
+ * fixture's messages as window "message" events and flips window.__ready, and
+ * every post lands in window.__posted for steps to inspect. It also freezes the
+ * page's clock to RENDER_EPOCH_MS before the bundle loads, since relative-time
+ * labels otherwise shift with the wall clock. Carrying the shell's nonce, it
+ * doubles as the CSP violation collector: a component that only works without
+ * the policy must fail here, not in the webview.
  */
 function stubScript(nonce: string, messages: readonly unknown[], respond: Readonly<Record<string, unknown>>): string {
 	return `<script nonce="${nonce}">
@@ -521,23 +444,13 @@ function stubScript(nonce: string, messages: readonly unknown[], respond: Readon
 			window.__posted.push(message);
 			if (message && message.kind === "request" && message.method === "ready") {
 				// One message per frame, because that is how the editor delivers
-				// them and because React has to COMMIT between them. Dispatching
-				// the whole list in a single tick let a focusSection reach
-				// app.tsx while the first state push was still uncommitted, so
-				// the message hit selectSectionRef while it was the no-op the
-				// state === undefined skeleton leaves behind - the ref is
-				// assigned during a render that had not happened yet - and the
-				// shot silently landed on Servers. A render cannot fail on that:
-				// the PNG is written and it is the right size, just of somewhere
-				// else, so every fixture that deep-links a section was
-				// photographing the wrong page and saying it was fine.
-				//
-				// A bare setTimeout(0) is not enough: React schedules its work
-				// through the Scheduler's own channel, so the next task can
-				// still beat the commit. rAF resolves after it, and the trailing
-				// timeout puts the dispatch back on a plain task rather than
-				// inside the frame callback. __ready waits for the last one so
-				// the capture still does not start early.
+				// them and because React has to COMMIT between them: a whole-list
+				// dispatch let a focusSection reach app.tsx while the first state
+				// push was still uncommitted, and the shot silently landed on the
+				// wrong section - which no render can catch, since the PNG is
+				// written and the right size. A bare setTimeout(0) is not enough
+				// (React's Scheduler can still beat the commit); rAF resolves after
+				// it, and the trailing timeout returns to a plain task.
 				let next = 0;
 				const pump = () => {
 					if (next >= window.__fixtureMessages.length) {
@@ -601,10 +514,10 @@ function findChrome(): string {
 /**
  * Chrome writes "<port>\n<browser ws path>" here once the DevTools server is
  * up. A Chrome that DIED on startup is not a slow one, so its exit ends the
- * wait immediately: without that, a systematic launch failure (a sandbox the
- * runner forbids, a missing shared library, a bad CHROME_EXTRA_FLAGS) would
- * spend the full deadline once per attempt per fixture, and the sweep would
- * run out its CI job timeout instead of reporting which fixtures never ran.
+ * wait immediately: otherwise a systematic launch failure (a forbidden sandbox,
+ * a missing library) would spend the full deadline once per attempt per
+ * fixture, and the sweep would hit its CI job timeout instead of reporting
+ * which fixtures never ran.
  */
 async function waitForDevtoolsPort(chrome: ChildProcess, userDataDir: string, timeoutMs: number): Promise<number> {
 	const portFile = path.join(userDataDir, "DevToolsActivePort");
@@ -632,29 +545,24 @@ async function waitForDevtoolsPort(chrome: ChildProcess, userDataDir: string, ti
 }
 
 /**
- * Whether this platform has POSIX process groups. Windows does not: spawning
- * detached there buys nothing, and a negative-pid probe reports ESRCH for a
- * live Chrome - reading that as "group gone" would skip the kill entirely.
- * On win32 the child handle and its exit/signal codes are the whole
- * mechanism, which is what this harness did before launches retried.
+ * Whether this platform has POSIX process groups. Windows does not: a
+ * negative-pid probe reports ESRCH for a live Chrome there, and reading that as
+ * "group gone" would skip the kill entirely.
  */
 const CAN_SIGNAL_PROCESS_GROUP = process.platform !== "win32";
 
 /**
  * Ends a Chrome by its whole process group, SIGTERM then SIGKILL: a launch
  * killed mid-startup can leave renderer and GPU children the browser process
- * never got around to owning, and a relaunch that leaked a Chrome per attempt
- * would deepen the very contention it exists to survive. The spawn below puts
- * Chrome in its own group (detached) so the negative-pid signal reaches the
- * children too, and liveness is judged on the GROUP, not the leader: children
- * can outlive the browser process, which is precisely the leak this hunts.
- * Where group signalling does not exist or fails, the direct handle and its
- * exit or signal code are the fallback.
+ * never got around to owning. Liveness is judged on the GROUP, not the leader,
+ * because those children can outlive the browser process - precisely the leak
+ * this hunts. Where group signalling does not exist or fails, the direct handle
+ * and its exit or signal code are the fallback.
  */
 async function killChromeTree(chrome: ChildProcess): Promise<void> {
-	// A spawn that never produced a pid has nothing to kill, and its handle
-	// reports neither an exit code nor a signal - so without this the loop
-	// below would poll out its whole grace period to signal nobody.
+	// A spawn that never produced a pid has nothing to kill and reports neither
+	// an exit code nor a signal, so the loop below would poll out its whole
+	// grace period to signal nobody.
 	if (chrome.pid === undefined) {
 		return;
 	}
@@ -698,17 +606,14 @@ async function killChromeTree(chrome: ChildProcess): Promise<void> {
 }
 
 /**
- * Launches Chrome and waits for its DevTools server, relaunching a Chrome
- * that never got there. Each attempt gets a FRESH profile directory: the
- * killed attempt leaves a half-written profile (SingletonLock included)
- * behind, and a relaunch into it would be debugging the wreckage instead of
- * retrying the launch. The profiles live under the caller's tmpRoot, so its
- * one removal sweeps every attempt. `onSpawn` hands the caller each attempt's
- * process as it is born, so a cancellation mid-wait has something to kill;
- * `stopped` is read before every spawn, because a cancellation that landed
- * BETWEEN attempts already ran its cleanup and a relaunch after it would be
- * a Chrome nothing kills. No await sits between that check and the spawn, so
- * a signal handler cannot interleave.
+ * Launches Chrome and waits for its DevTools server, relaunching one that never
+ * got there. Each attempt gets a FRESH profile directory, because the killed
+ * attempt leaves a half-written one (SingletonLock included) behind; they live
+ * under the caller's tmpRoot, so its one removal sweeps every attempt.
+ * `onSpawn` hands the caller each attempt's process so a cancellation mid-wait
+ * has something to kill, and `stopped` is read before every spawn with no await
+ * in between: a cancellation that landed BETWEEN attempts already ran its
+ * cleanup, and a relaunch after it would be a Chrome nothing kills.
  */
 async function launchChrome(
 	chromeBin: string,
@@ -740,9 +645,6 @@ async function launchChrome(
 			if (attempt >= LAUNCH_ATTEMPTS) {
 				throw error;
 			}
-			// The reason rides along rather than being restated: a Chrome that
-			// died on startup and one that was merely too slow are different
-			// stories, and only the wait knows which happened.
 			console.log(
 				`chrome launch ${attempt}/${LAUNCH_ATTEMPTS} brought up no DevTools server` +
 					` (${error instanceof Error ? error.message : String(error)}); relaunching with a fresh profile`
@@ -863,14 +765,10 @@ async function loadFixture(fixturePath: string): Promise<RenderFixture> {
 }
 
 /**
- * Whether the built bundle predates any source it is built from. A render is
- * evidence about the code, and a stale bundle makes it evidence about the
- * code as it was - silently, with byte-identical output across a real change,
- * which is the worst way to be wrong.
- *
- * The roots are the bundle's own inputs: the webview tree, the dashboard
- * contract it imports, and the shared modules both reach into. Directories
- * count too, because a deletion touches the parent and nothing else.
+ * Whether the built bundle predates any source it is built from. A stale bundle
+ * makes the render evidence about the code as it WAS, silently and with
+ * byte-identical output across a real change. Directories count as roots too,
+ * because a deletion touches the parent and nothing else.
  */
 function bundleIsStale(bundlePath: string, stylesheetPath: string): boolean {
 	const built = Math.min(mtimeOf(bundlePath), mtimeOf(stylesheetPath));
@@ -919,43 +817,17 @@ const DETERMINISM_CSS =
 	"*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }";
 
 /**
- * The standalone page: the real HTML shell - Content-Security-Policy meta
- * included, with file: as the style source so the policy is enforced exactly
- * as the webview enforces it - plus the harness.css link (theme tokens and
- * determinism styles; inline style tags would violate the policy the page
- * exists to keep) and the acquireVsCodeApi stub inserted before the bundle
- * tag so it exists when the bundle's module scope calls it.
- */
-/**
- * The flags decide the appearance VALUES, not the fixture. The webview restamps
- * the root element from every state push - that is how a setting change reaches
- * an open dashboard - so a fixture's own theme and accent would overwrite the
- * shell's stamp and quietly render every --app-theme and --accent as the
- * default. The host never disagrees with itself this way: it stamps and pushes
- * the same two values, and so does this.
- *
- * The two SCOPES ride through instead, because nothing stamps them: they say
- * whether a scope configures the row, which is what draws its modified gutter
- * marker and offers its Reset. Overwriting them with null - as this did - made
- * those two states unrenderable by any fixture, so an appearance row could only
- * ever be photographed clean.
- *
- * Riding through is not quite passing through, because the flags and the scopes
- * can contradict each other in a way the host never can. A forced value that is
- * not the built-in default only exists BECAUSE some scope wrote it, so
- * `--app-theme dark` over a fixture's `themeScope: null` would photograph a dark
- * dashboard claiming nothing configures its theme - a state the extension cannot
- * produce and a reviewer would read as a bug in the row. A forced value that IS
- * the default stays the fixture's call: unconfigured and explicitly-set-to-the-
- * default are both real, and telling them apart is the point of the marker.
+ * The flags decide the appearance VALUES, not the fixture: the webview restamps
+ * the root element from every state push, so a fixture's own theme and accent
+ * would overwrite the shell's stamp and render every --app-theme and --accent
+ * as the default. The two SCOPES ride through instead, because nothing stamps
+ * them and they are what draws a row's modified marker and offers its Reset.
  */
 function withAppearance(messages: readonly unknown[], theme: AppTheme, accent: Accent): readonly unknown[] {
-	// The scope a forced non-default value implies. "global" because the flags
-	// speak for the user's own settings, which is where the dashboard writes.
-	// Both arms normalize to null rather than passing a missing scope through:
-	// a push whose settings carry no appearance at all would otherwise hand the
-	// row `undefined`, and the row tests `!== null`, so an absent scope would
-	// render as configured and ask settingScopeLabel to name it.
+	// The scope a forced non-default value implies - such a value only exists
+	// BECAUSE some scope wrote it - as "global", where the dashboard writes. Both
+	// arms normalize to null because the row tests `!== null`, so an absent scope
+	// would otherwise render as configured.
 	const forcedScope = (value: string, fallback: string, scope: unknown): unknown =>
 		value === fallback ? (scope ?? null) : (scope ?? "global");
 	return messages.map((message) => {
@@ -983,6 +855,13 @@ function withAppearance(messages: readonly unknown[], theme: AppTheme, accent: A
 	});
 }
 
+/**
+ * The standalone page: the real HTML shell, CSP meta included with file: as the
+ * style source so the policy is enforced exactly as the webview enforces it,
+ * plus the harness.css link (inline style tags would violate that policy) and
+ * the acquireVsCodeApi stub, which precedes the bundle tag so it exists when
+ * the bundle's module scope calls it.
+ */
 function buildPageHtml(
 	messages: readonly unknown[],
 	respond: Readonly<Record<string, unknown>>,
@@ -1011,11 +890,8 @@ function buildPageHtml(
 		html = html.replace("<html ", `<html style="${attribute}" `);
 	}
 	// VS Code stamps the theme kind onto the body, and theme.css keys its
-	// contrast overrides off that class. The ordinary themes carry their class
-	// too: nothing keys off them today, but the page should be what the host
-	// would actually hand the webview. HC light carries both classes, exactly
-	// as the host's applyStyles does - it adds vscode-high-contrast alongside
-	// for backwards compatibility, and a rule keyed on only one of them would
+	// contrast overrides off that class. HC light carries both classes, exactly
+	// as the host's applyStyles does, so a rule keyed on only one of them cannot
 	// behave differently here than in the editor.
 	const bodyClass = {
 		dark: "vscode-dark",
@@ -1039,20 +915,12 @@ function buildPageHtml(
  * Reports the page's horizontal overflow, or null when there is none.
  *
  * The page-level number is the whole claim: a document whose scrollWidth beats
- * its clientWidth scrolls sideways, which is the one thing every narrow rule
- * here exists to prevent. The names under it are a diagnostic and only that,
- * built from two questions because the answers fail in opposite directions.
- *
- * Which boxes reach past the edge names a too-wide element, and only that: an
- * unbreakable text run spills out of a block whose own border box stays inside,
- * so the case `.server-url` was written for (a 60-character host) reports no
- * box at all. Which boxes overflow THEMSELVES names that one, and the ancestor
- * holding a min-width, which the first question can never reach because the
- * deepest-offender filter drops every ancestor.
- *
- * Anything inside a scroller is skipped in both. A deliberate overflow-x is
- * someone's decision and contributes nothing to the document's own scroll, so
- * its children are six confident wrong answers.
+ * its clientWidth scrolls sideways. The names under it are a diagnostic, built
+ * from two questions that fail in opposite directions - boxes reaching past the
+ * edge miss an unbreakable text run inside a block that stays in bounds, and
+ * boxes overflowing THEMSELVES catch that plus the min-width ancestor the
+ * deepest-offender filter drops. Anything inside a scroller is skipped in both:
+ * a deliberate overflow-x contributes nothing to the document's own scroll.
  */
 const OVERFLOW_PROBE = `(() => {
 	const root = document.documentElement;
@@ -1124,11 +992,9 @@ async function setWidth(cdp: CdpConnection, width: number, height: number, dpr: 
 
 /**
  * The pane's width as its container queries see it: the CONTENT box.
- *
- * `container-type: inline-size` asks about the content box, and the pane holds
- * 24px of padding on each side - so a border-box measurement aims every sweep
- * 48px away from the breakpoint it was trying to test, and confirms itself with
- * the same wrong ruler.
+ * `container-type: inline-size` asks about the content box and the pane holds
+ * 24px of padding on each side, so a border-box measurement would aim every
+ * sweep 48px away from the breakpoint it meant to test.
  */
 async function measurePane(cdp: CdpConnection): Promise<number> {
 	const measured = await evaluate(
@@ -1148,18 +1014,15 @@ async function measurePane(cdp: CdpConnection): Promise<number> {
 /**
  * The window widths that put the PANE at each of the given widths.
  *
- * The dashboard's breakpoints are container queries on the pane, and the pane
- * is what is left of the window after the rail, the padding, and its own
- * max-width - so a sweep that set the window to a pane threshold would test a
- * width no breakpoint cares about. Rather than model any of that, each target
- * is SOLVED: set a width, measure, correct by the difference, repeat. The
- * relation is a slope of one wherever it is not capped, so it converges in a
- * step or two, and where it is capped or discontinuous it fails to converge and
- * is reported instead of guessed.
- *
+ * The breakpoints are container queries on the pane, and the pane is what is
+ * left of the window after the rail, the padding, and its own max-width, so
+ * setting the window to a pane threshold would test a width no breakpoint cares
+ * about. Rather than model any of that, each target is SOLVED: set a width,
+ * measure, correct by the difference, repeat. The relation is a slope of one
+ * wherever it is not capped, so it converges in a step or two; where it is
+ * capped or discontinuous it fails to converge and is reported, not guessed.
  * From both ends, because the rail's collapse takes about 170px of the offset
- * with it: a pane width reachable only with the rail collapsed is invisible to
- * a search that starts wide, and the reverse.
+ * with it, hiding pane widths reachable only from one side.
  */
 async function windowWidthsForPanes(
 	cdp: CdpConnection,
@@ -1198,21 +1061,13 @@ async function windowWidthsForPanes(
 
 /**
  * The in-page WCAG contrast probe behind --contrast: reads the element's
- * computed color and its EFFECTIVE background - compositing translucent
- * backgrounds up the ancestor chain until an opaque one, exactly what the
- * pixel shows - and reports the WCAG relative-luminance contrast ratio.
- *
- * Colors are normalized by drawing them through a 1x1 canvas rather than
- * parsed with a regex: the theme derives its tones with color-mix in oklab,
- * so computed values arrive in whatever space Chrome serializes them in, and
- * a parser that only speaks rgb() would fail on precisely the derived colors
- * this probe exists to measure. Anything the probe cannot honestly composite
- * (a background-image, an opacity below 1, an unparseable color, an element
- * something else covers or the viewport cannot see, ANY pointer-events-none
- * element over the probe point) is an error, not a guess - a wrong ratio
- * certifies a contrast nobody has. One stated non-claim: pseudo-element
- * overlays are invisible to every element scan (their boxes are not
- * queryable), so the probe's occlusion guarantee covers elements only.
+ * computed color and its EFFECTIVE background, compositing translucent
+ * backgrounds up the ancestor chain until an opaque one. Colors are normalized
+ * through a 1x1 canvas rather than a regex, because the theme derives its tones
+ * with color-mix in oklab and a parser that only speaks rgb() would fail on
+ * exactly those. Anything the probe cannot honestly composite is an error, not
+ * a guess. One stated non-claim: pseudo-element overlays are invisible to every
+ * element scan, so the occlusion guarantee covers elements only.
  */
 function contrastProbe(selector: string): string {
 	return `(() => {
@@ -1230,12 +1085,10 @@ function contrastProbe(selector: string): string {
 		if (getComputedStyle(node).visibility !== "visible") {
 			return JSON.stringify({ error: "the element's computed visibility is not visible; nothing is painted" });
 		}
-		// The ancestor walk below can only see the element's OWN stacking
-		// context: a scrim or slide-over drawn over it is no ancestor, so the
-		// probe would happily report the contrast of pixels an overlay has
-		// replaced. Hit-test the element's centre instead - the point must be
-		// inside the viewport for hit-testing to see it at all, and the top hit
-		// must be the element or something it contains, or the ratio is a lie.
+		// The ancestor walk below sees only the element's OWN stacking context, so
+		// a scrim or slide-over drawn over it is no ancestor. Hit-test the centre
+		// instead: the point must be inside the viewport for hit-testing to see
+		// it, and the top hit must be the element or something it contains.
 		const probeX = rect.left + rect.width / 2;
 		const probeY = rect.top + rect.height / 2;
 		if (probeX < 0 || probeY < 0 || probeX >= window.innerWidth || probeY >= window.innerHeight) {
@@ -1259,18 +1112,11 @@ function contrastProbe(selector: string): string {
 			});
 		}
 		// Hit-testing is blind to pointer-events: none, and such an overlay can
-		// still paint over the element (a dimming veil, an error banner). No
-		// attempt to decide whether it PAINTS: every "does it paint" list a
-		// previous revision carried missed something (images, borders, painted
-		// pseudo-elements), and a completeness chase on evasions is how an
-		// instrument learns to lie politely. Any such element whose box overlaps
-		// the probe point and is neither the element's ancestor nor its content
-		// fails loudly - over-rejecting on purpose, because an unprovable pixel
-		// is worth less than no ratio. Visibility: hidden and opacity: 0 are the
-		// two exclusions left, because they are proofs of not painting rather
-		// than guesses. Pseudo-element overlays remain outside this probe's
-		// claim entirely: their boxes are not queryable, so no scan of elements
-		// can bound them, and the probe's honest claim stops at elements.
+		// still paint over the element. Over-reject on purpose rather than decide
+		// whether it PAINTS: any such element overlapping the probe point that is
+		// neither ancestor nor content fails, since an unprovable pixel is worth
+		// less than no ratio. visibility: hidden and opacity: 0 are the only
+		// exclusions, being proofs of not painting rather than guesses.
 		for (const veil of document.querySelectorAll("*")) {
 			const veilStyle = getComputedStyle(veil);
 			if (veilStyle.pointerEvents !== "none") { continue; }
@@ -1308,11 +1154,10 @@ function contrastProbe(selector: string): string {
 			return { r, g, b, a: a / 255 };
 		};
 		const layers = [];
-		// Backgrounds are collected only until an opaque one - anything behind
-		// it is hidden - but the opacity refusal runs on EVERY ancestor up to
-		// the root: opacity fades the whole subtree, so a translucent ancestor
-		// ABOVE the opaque stop still changes what the pixel shows, and skipping
-		// it would report black-on-white as 21:1 inside an opacity: 0.5 panel.
+		// Backgrounds are collected only until an opaque one, but the opacity
+		// refusal runs on EVERY ancestor up to the root: opacity fades the whole
+		// subtree, so a translucent ancestor above the opaque stop still changes
+		// what the pixel shows.
 		let opaqueFound = false;
 		for (let element = node; element !== null; element = element.parentElement) {
 			const style = getComputedStyle(element);
@@ -1405,9 +1250,8 @@ async function main(): Promise<void> {
 	if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
 		throw new Error(`Viewport must be positive integers; got ${width}x${height}`);
 	}
-	// --dpr sets the emulated deviceScaleFactor: sub-2px strokes (hairline
-	// separators, any stroke under the 2px state floor) snap differently per
-	// display density, so a review of them needs the same page at 1x and 2x.
+	// Sub-2px strokes snap differently per display density, so reviewing them
+	// needs the same page at 1x and 2x.
 	const dpr = values.dpr === undefined ? 1 : Number(values.dpr);
 	if (!Number.isFinite(dpr) || dpr <= 0) {
 		throw new Error(`--dpr takes a positive number; got ${values.dpr}`);
@@ -1415,9 +1259,8 @@ async function main(): Promise<void> {
 	if (values["contrast-large"] === true && values.contrast === undefined) {
 		throw new Error("--contrast-large only adjusts the --contrast threshold; pass --contrast <selector> too");
 	}
-	// --widths sweeps the page for horizontal overflow at each width before
-	// capturing, and makes --out optional: measuring every fixture at every
-	// breakpoint boundary should not also cost a full-page screenshot each.
+	// --widths makes --out optional: measuring every fixture at every breakpoint
+	// boundary should not also cost a full-page screenshot each.
 	const positiveIntegers = (list: string | undefined, flag: string): number[] =>
 		(list ?? "")
 			.split(",")
@@ -1434,9 +1277,8 @@ async function main(): Promise<void> {
 	const paneWidths = positiveIntegers(values["pane-widths"], "--pane-widths");
 	const outPath = values.out === undefined ? undefined : path.resolve(values.out);
 	// The state probes run against the captured page, after the width sweep has
-	// restored the fixture's own width - a measurement-only run returns before
-	// that point, so accepting a probe there would exit 0 having never run it,
-	// which is exactly the silent skip these flags exist to make impossible.
+	// restored the fixture's own width; a measurement-only run returns before
+	// that point, so accepting a probe there would exit 0 having never run it.
 	const probes = (["hover", "focus", "contrast"] as const).filter((flag) => values[flag] !== undefined);
 	if (outPath === undefined && probes.length > 0) {
 		throw new Error(
@@ -1458,11 +1300,9 @@ async function main(): Promise<void> {
 		throw new Error(`--accent must be one of ${UI_ACCENTS.join(", ")}; got ${values.accent}`);
 	}
 	const accent: Accent = values.accent ?? "blue";
-	// --theme names the HOST theme being emulated; --app-theme names the
-	// reader's own ui.theme setting. They are different things and conflating
-	// them hides the default: almost everyone runs "auto", so the configuration
-	// most worth looking at is auto ON a light or dark host, which is what this
-	// leaves as the default rather than something only a flag can reach.
+	// --theme names the HOST theme being emulated; --app-theme names the reader's
+	// own ui.theme setting. The default stays "auto" because that is what almost
+	// everyone runs, so it should not be reachable only by a flag.
 	const isAppTheme = (value: string): value is AppTheme => (UI_THEMES as readonly string[]).includes(value);
 	if (values["app-theme"] !== undefined && !isAppTheme(values["app-theme"])) {
 		throw new Error(`--app-theme must be one of ${UI_THEMES.join(", ")}; got ${values["app-theme"]}`);
@@ -1498,15 +1338,12 @@ async function main(): Promise<void> {
 	const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "render-dashboard-"));
 	let chrome: ChildProcess | undefined;
 	let cdp: CdpConnection | undefined;
-	// One memoized cleanup for every way out: the finally below awaits it, and
-	// so does the signal path. A detached Chrome left the terminal's process
-	// group, so the terminal-generated signals that used to reach it now end
-	// this process alone - the handlers forward the termination (kill the tree,
-	// sweep tmpRoot, exit), stay installed until the cleanup has finished so a
-	// signal cannot land in an unguarded window, and share the one promise so a
-	// repeated signal joins the cleanup already running instead of cutting it
-	// short. Installed immediately after the directory exists, because from
-	// that line on there is something to leak.
+	// One memoized cleanup for every way out, awaited by the finally below and by
+	// the signal path. A detached Chrome left the terminal's process group, so
+	// terminal-generated signals now end this process alone; the handlers forward
+	// the termination, stay installed until the cleanup has finished so a signal
+	// cannot land in an unguarded window, and share the one promise so a repeated
+	// signal joins the cleanup already running instead of cutting it short.
 	let cleanedUp: Promise<void> | undefined;
 	const cleanup = (): Promise<void> => {
 		cleanedUp ??= (async () => {
@@ -1522,11 +1359,9 @@ async function main(): Promise<void> {
 		terminating = true;
 		void cleanup().finally(() => process.exit(1));
 	};
-	// Every terminal-generated termination, not just Ctrl-C: closing the window
-	// or dropping an ssh session sends SIGHUP and Ctrl-\ sends SIGQUIT, and
-	// each would otherwise kill this process by default action and orphan a
-	// detached Chrome - which is what sharing the terminal's group used to
-	// prevent for free.
+	// Every terminal-generated termination, not just Ctrl-C: SIGHUP (a closed
+	// window, a dropped ssh session) and SIGQUIT would otherwise kill this
+	// process by default action and orphan a detached Chrome.
 	const TERMINATION_SIGNALS: readonly NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"];
 	for (const signal of TERMINATION_SIGNALS) {
 		process.on(signal, onTermination);
@@ -1569,9 +1404,7 @@ async function main(): Promise<void> {
 		cdp = await CdpConnection.connect(await findPageTargetUrl(launched.port, pageUrl, READY_TIMEOUT_MS));
 		// Emulated for every theme, dark included: skipping it left dark renders
 		// on whatever Chrome's host preferred, so the one theme that never
-		// declared its scheme was the default one. prefers-contrast rises only
-		// for the HC modes, and forced-colors only where an OS high-contrast
-		// mode would override author colors.
+		// declared its scheme was the default one.
 		const light = LIGHT_HOST_THEMES.has(hostTheme);
 		await cdp.send("Emulation.setEmulatedMedia", {
 			features: [
@@ -1598,19 +1431,18 @@ async function main(): Promise<void> {
 			await delay(200);
 		}
 
-		// The page runs under the shell's real CSP; a violation means some
-		// code needs what the webview never grants (an injected style tag,
-		// say), so the render fails loudly instead of capturing a page that
-		// only works with the policy off.
+		// The page runs under the shell's real CSP; a violation means some code
+		// needs what the webview never grants, so the render fails loudly instead
+		// of capturing a page that only works with the policy off.
 		const violations = (await evaluate(cdp, "window.__cspViolations")) as readonly string[];
 		if (violations.length > 0) {
 			throw new Error(`Content-Security-Policy violations:\n  ${violations.join("\n  ")}`);
 		}
-		// And the policy must not have cost the page its stylesheets: the
-		// Tailwind theme block defines --radius as a literal (--primary and
-		// friends can compute to guaranteed-invalid when a host token is
-		// deliberately null, as in high contrast), the dashboard stylesheet
-		// zeroes the body margin - both gone means a css load was blocked.
+		// And the policy must not have cost the page its stylesheets: the Tailwind
+		// theme block defines --radius as a literal (--primary and friends can
+		// compute to guaranteed-invalid where a host token is deliberately null)
+		// and the dashboard stylesheet zeroes the body margin, so both gone means
+		// a css load was blocked.
 		const stylesApplied = (await evaluate(
 			cdp,
 			`getComputedStyle(document.documentElement).getPropertyValue("--radius") !== "" &&
@@ -1626,18 +1458,13 @@ async function main(): Promise<void> {
 			console.warn("warning: no <main> h1 found; the page is likely still on the loading skeleton");
 		}
 
-		// Every render is also an overflow assertion. A page that scrolls
-		// sideways is the one failure this vocabulary calls broken outright
-		// rather than a matter of taste, it is invisible in a full-page capture
-		// (which photographs the overflow as though it were the page), and it
-		// has shipped twice. Measured at the fixture's own width first, then at
-		// every width the flags name, which is how the breakpoint boundaries get
-		// swept without a fixture per width.
-		//
-		// Through an explicit override rather than through whatever
-		// --window-size left: a platform with a minimum window width silently
-		// gives back a wider viewport than was asked for, so the number in a
-		// failure would not be the number under test.
+		// Every render is also an overflow assertion. A page that scrolls sideways
+		// is broken outright rather than a matter of taste, it is invisible in a
+		// full-page capture (which photographs the overflow as though it were the
+		// page), and it has shipped twice. Through an explicit width override
+		// rather than whatever --window-size left: a platform with a minimum
+		// window width gives back a wider viewport than was asked for, so the
+		// number in a failure would not be the number under test.
 		await setWidth(cdp, width, height, dpr);
 		await assertNoHorizontalOverflow(cdp, width);
 		const sweeping = fixture.measuredAtOwnWidth !== true;
@@ -1682,18 +1509,14 @@ async function main(): Promise<void> {
 		const captureBeyondViewport = values["clip-viewport"] !== true && fixture.clipViewport !== true;
 		await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: dpr, mobile: false });
 		if (captureBeyondViewport) {
-			// Pin the scroll offset, then let two frames settle under the final
-			// viewport metrics. A full-page capture photographs the whole
-			// document through the fixture's small viewport, and a
-			// position: sticky element paints where the CURRENT offset puts it -
-			// so the rail lands wherever a step's scrollIntoView resolved to.
-			// That offset is not stable: layout is still settling around it (the
-			// models table re-measures row height after paint), so the same bytes
-			// photograph differently run to run. At offset 0 a sticky element is
-			// unstuck and coincides with its flow position, which no later
-			// relayout or viewport expansion can move - a fixpoint rather than a
-			// narrower race. Only the full-page path wants this: --clip-viewport
-			// exists to photograph exactly what the fixture scrolled to.
+			// Pin the scroll offset, then let two frames settle. A full-page
+			// capture photographs the whole document through the fixture's small
+			// viewport, and a position: sticky element paints where the CURRENT
+			// offset puts it - an offset layout is still settling around, so the
+			// same bytes photograph differently run to run. At offset 0 a sticky
+			// element is unstuck and coincides with its flow position, which no
+			// later relayout can move. Only the full-page path wants this:
+			// --clip-viewport exists to photograph what the fixture scrolled to.
 			await evaluate(cdp, "window.scrollTo(0, 0)");
 			await evaluate(cdp, "new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))", true);
 			// The pin only reaches the document scroller. An inner one left
@@ -1713,16 +1536,11 @@ async function main(): Promise<void> {
 				throw new Error(`Scroll offset survived the pre-capture pin (${stray}); the render would not be reproducible`);
 			}
 		}
-		// Hover after the scroll pin, because it is the one state that a later
-		// scroll destroys. This vocabulary puts a button's whole fill and half
-		// its meaning on hover, so a review that can only see resting states
-		// reviews half the work - but :hover answers to the real input pipeline
-		// alone, tracks VIEWPORT coordinates, and Chrome re-runs hit-testing
-		// after a scroll. Dispatching before the full-page path's scroll pin
-		// produced a PNG byte-identical to the unhovered one while the page
-		// still reported the element hovered: the harness certifying a state
-		// its own artifact did not contain, which is the failure this file's
-		// header forbids.
+		// Hover after the scroll pin, because it is the one state a later scroll
+		// destroys: :hover answers to the real input pipeline alone, tracks
+		// VIEWPORT coordinates, and Chrome re-runs hit-testing after a scroll.
+		// Dispatching before the pin produced a PNG byte-identical to the
+		// unhovered one while the page still reported the element hovered.
 		if (values.hover !== undefined) {
 			const target = (await evaluate(
 				cdp,
@@ -1766,11 +1584,10 @@ async function main(): Promise<void> {
 			}
 			await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y, buttons: 0 });
 			await delay(150);
-			// A fixture's steps run before this, so the h1 channel can only ever
-			// report the resting state - which would leave the hovered colours
-			// visible in the PNG and measurable nowhere. Report them here, and
-			// confirm from the page that :hover actually matched rather than
-			// trusting that the coordinates were good.
+			// Steps run before this, so the h1 channel can only report the resting
+			// state - which would leave the hovered colours visible in the PNG and
+			// measurable nowhere. Confirm from the page that :hover matched rather
+			// than trusting that the coordinates were good.
 			const hovered = await evaluate(
 				cdp,
 				`(() => {
@@ -1791,12 +1608,10 @@ async function main(): Promise<void> {
 		}
 
 		// Focus after hover, because :focus-visible is a claim about input
-		// modality, not just focus: Chrome grants a programmatic focus() the
-		// ring only while it believes the last interaction was keyboard, and
-		// --hover's mouse move (or a fixture step's click) flips that belief.
-		// Hover itself survives the ordering - focus does not move the pointer,
-		// and an element's :focus-visible state is decided when focus lands,
-		// so neither state can destroy the other this way around.
+		// modality: Chrome grants a programmatic focus() the ring only while it
+		// believes the last interaction was keyboard, and --hover's mouse move
+		// flips that belief. Hover survives this ordering, since focus does not
+		// move the pointer.
 		if (values.focus !== undefined) {
 			const focusSelector = JSON.stringify(values.focus);
 			const target = (await evaluate(
@@ -1853,13 +1668,12 @@ async function main(): Promise<void> {
 			}
 			let report = JSON.parse((await evaluate(cdp, attempt)) as string) as FocusReport;
 			if (!report.ring) {
-				// A real Tab through the input pipeline restores keyboard
-				// modality, and the refocus then earns the ring. Tab moves focus
-				// first and the browser may scroll its landing into view - the
-				// document OR any inner scroller (a windowed table, a slide-over) -
-				// so every scroll position is snapshotted (element references held
-				// in-page), restored, and VERIFIED: a capture whose scroll drifted
-				// photographs a page the viewport validation above never saw.
+				// A real Tab through the input pipeline restores keyboard modality,
+				// and the refocus then earns the ring. Tab moves focus first and the
+				// browser may scroll its landing into view - the document OR any
+				// inner scroller - so every scroll position is snapshotted, restored
+				// and VERIFIED: a capture whose scroll drifted photographs a page
+				// the viewport validation above never saw.
 				await evaluate(
 					cdp,
 					`(() => {
@@ -1912,9 +1726,9 @@ async function main(): Promise<void> {
 			if (!report.focused) {
 				throw new Error(`--focus could not move focus to ${values.focus}; it does not appear to be focusable`);
 			}
-			// The assertion is the point: a programmatic focus() that never earned
-			// :focus-visible paints NO ring, and a reviewer must never photograph
-			// a missing focus ring that is actually a harness artifact.
+			// A programmatic focus() that never earned :focus-visible paints NO
+			// ring, and a reviewer must never photograph a missing focus ring that
+			// is actually a harness artifact.
 			if (!report.ring) {
 				throw new Error(
 					`--focus put focus on ${values.focus} but it never matched :focus-visible, even after the Tab fallback;` +

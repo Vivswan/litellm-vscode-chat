@@ -1,11 +1,10 @@
 /**
  * The resolution table's pinned Inspect column, held by throwing steps at a
- * width where the table genuinely overflows its scrollport: the row's one
- * action must sit at the scrollport's right edge at rest (scrollLeft 0, the
- * state every visit opens in), mid-scroll, and at the far end. The overflow
- * sweep accepts a scrollport by design and the geometry sweep never scrolls
- * one, so this claim lives here or nowhere. The overflow guard fails closed: a
- * table that starts fitting at this width reads as never-ran, not as a pass.
+ * width where the table genuinely overflows its scrollport: the row's one action
+ * must sit at the scrollport's right edge at rest, mid-scroll, and at the far
+ * end. The overflow sweep accepts a scrollport by design and the geometry sweep
+ * never scrolls one, so this claim lives here or nowhere. The overflow guard
+ * fails closed: a table that starts fitting here reads as never-ran, not a pass.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import base from "./diagnostics.ts";

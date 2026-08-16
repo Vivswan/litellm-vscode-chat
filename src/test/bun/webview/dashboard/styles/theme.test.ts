@@ -171,7 +171,6 @@ test("forced colors rank the two chip marks: shared width, and the hint takes th
 	// shorthand's longhands at equal specificity, so source order is what
 	// keeps the hinted chip's 2px AND dashed.
 	expect(hinted[0]?.start ?? 0).toBeGreaterThan(marked[0]?.start ?? 0);
-	// And no rule dashes the invalid chip.
 	for (const rule of rulesFor(output, ".chip-field.invalid")) {
 		expect(rule.declarations).not.toContain("dashed");
 	}
@@ -245,20 +244,12 @@ test("the cascade puts the dashboard stylesheet below utilities", async () => {
 });
 
 test("source order keeps every narrow override after the full-width rule it beats", () => {
-	// The dashboard stylesheet is one flat layer, so every equal-specificity,
-	// same-property argument is settled by source order alone - the file's
-	// header calls that ordering load-bearing, and this is the assertion
-	// behind the comment. Each pair below is an argument that was settled
-	// wrongly at least once (the rail's collapse, the slide-over's narrow
-	// width, the server actions' always-painted fold, the rail icons, a
-	// folded row's placement): the base spelling must precede the override,
-	// or the override silently loses at exactly the width it exists for.
-	// Anchors are asserted UNIQUE declaration texts, so a reworded or
-	// duplicated rule fails loudly here instead of quietly unpinning the
-	// guard, and every override must also fall below the banner that divides
-	// the full-width region from the narrow tail.
+	// One flat layer settles equal-specificity arguments by source order, and each pair
+	// below was settled wrongly at least once: the base spelling must precede the override.
+	// Anchors are asserted UNIQUE declaration texts, so a reworded or duplicated rule fails
+	// loudly instead of quietly unpinning the guard; every override must also fall below
+	// the banner opening the narrow tail.
 	const sheet = readFileSync(dashboardEntry, "utf8");
-	// One banner divides the full-width region from the narrow tail.
 	const bannerAt = sheet.indexOf("The narrow rules: what the dashboard does");
 	expect(bannerAt).toBeGreaterThan(-1);
 	expect(sheet.indexOf("The narrow rules", bannerAt + 1)).toBe(-1);
@@ -317,16 +308,12 @@ test("no minted utility collides with a class the dashboard stylesheet styles", 
 
 test("the hidden attribute beats a display utility", async () => {
 	const output = await compileTheme();
-	// [hidden] is a user-agent rule, so an element carrying `grid` or `flex`
-	// stays visible with the attribute set - and hiding by attribute is how the
-	// settings filter and the record editors hide a row without unmounting the
-	// draft inside it. happy-dom runs no cascade, so the component suites cannot
-	// catch this; the stylesheet is the only place it can be pinned.
-	// Anchored at the start of a line: an unanchored match begins at the
-	// `[hidden]` inside the explanatory comment above the rule and walks to the
-	// real rule's brace, so the assertions pass off the comment's own words -
-	// deleting the exclusion entirely left this green.
-	const rule = /^\s*\[hidden\][^{]*\{[^}]*\}/m.exec(output)?.[0] ?? "";
+	// [hidden] is a user-agent rule, so an element carrying `grid` or `flex` stays visible
+	// with the attribute set - and hiding by attribute is how the settings filter and the
+	// record editors hide a row without unmounting its draft. happy-dom runs no cascade,
+	// so only the stylesheet can pin this. Comments are stripped first so the match cannot
+	// start inside the rule's own explanatory comment and pass off its words.
+	const rule = /\[hidden\][^{]*\{[^}]*\}/.exec(output.replace(/\/\*[\s\S]*?\*\//g, ""))?.[0] ?? "";
 	expect(rule.replace(/\s+/g, "")).toContain("display:none!important");
 	// Case-insensitively, because the user agent matches the value that way:
 	// hidden="UNTIL-FOUND" is until-found to Chrome and must stay findable.
@@ -604,14 +591,9 @@ test("the two light blocks agree on everything a light surface changes", () => {
 });
 
 test("severity as text resolves to the readable tier, as fills to the raw hue", async () => {
-	// The raw hues are tuned for a dark editor: on white the passing green
-	// measures 2.0:1, the warning 3.1:1, the error 3.4:1, all under AA - which
-	// is what VS Code's own Light Modern publishes, not a mistake of ours.
-	//
-	// The repair is a TOKEN, not a class, because the two consumers never meet
-	// otherwise: the dashboard stylesheet paints pills through .tone-*, while
-	// components use the text-ok/text-warn/text-err utilities compiled from the
-	// theme mapping. A class-only fix repairs the pills and silently leaves
+	// The raw hues are tuned for a dark editor (Light Modern's own published values are
+	// under AA as words). The repair is a TOKEN, not a class: the pills paint through
+	// .tone-* while components use text-ok/warn/err utilities - a class-only fix leaves
 	// every utility consumer failing, in light only.
 	const output = await compileTheme();
 	const source = readFileSync(themeEntry, "utf8");
@@ -691,16 +673,11 @@ test("the meter's axis carries no alpha of its own", async () => {
 });
 
 test("the selected rail tab keeps its forced-colors mark at every width", async () => {
-	// Forced colours discard the selected tab's fill (bg-accent-soft) and
-	// repaint its text, so the Highlight edge bar is the selection's only
-	// surviving mark - and it was first written inside the collapsed rail's
-	// width query, where it stopped existing at full width and font weight
-	// carried the selection alone. Two pins, one per half of the fix: the bar
-	// must live in a forced-colors block OUTSIDE every width query so it
-	// paints at every width, and the narrow re-placement (which re-sets the
-	// bar to the accent hue after that block) must restate the system colour
-	// from a LATER narrow forced-colors block - one flat layer, so whichever
-	// background comes last wins the collapsed rail's mark.
+	// Forced colours leave the Highlight edge bar as the selection's only surviving mark.
+	// Two pins, one per half of the fix: the bar must live in a forced-colors block
+	// OUTSIDE every width query (first written inside the collapse query, it stopped
+	// existing at full width), and the narrow re-placement must restate the system colour
+	// from a LATER narrow forced-colors block - one flat layer, last background wins.
 	const output = await compileDashboard();
 	const selector = '.rail-nav .rail-tab[aria-selected="true"]:before';
 	const blocks = forcedColorsBlocks(output).filter((block) => block.text.includes(selector));
@@ -718,17 +695,11 @@ test("the selected rail tab keeps its forced-colors mark at every width", async 
 });
 
 test("the settings gutter marks the modified row alone, under forced colors too", async () => {
-	// A modified setting is marked by its left border, and the unmodified state
-	// spells that as border-l-transparent - which forced colours repaint like
-	// any other border colour, so every row wore the mark and the modified one
-	// stopped standing out. Nothing else can catch that: happy-dom runs no
-	// cascade and no forced-colors mode, and the class names on the element are
-	// right either way, so the regression is invisible to the component suite
-	// and lives only in the compiled cascade. Asserted inside the UNLAYERED
-	// forced-colors block, because both halves of that placement are
-	// load-bearing: a system colour outside the media query paints in every
-	// ordinary theme, where it answers to the OS rather than to the host's
-	// palette, and a layered copy loses to the very utility it overrules.
+	// border-l-transparent gets repainted like any other border colour, so every row wore
+	// the modified mark. Only the compiled cascade can catch it (happy-dom runs no cascade
+	// or forced-colors mode; the class names are right either way). Asserted inside the
+	// UNLAYERED forced-colors block: a system colour outside the media query paints in
+	// every ordinary theme, and a layered copy loses to the very utility it overrules.
 	const output = await compileTheme();
 	const forced = forcedColorsBlocks(output)
 		.filter((block) => block.unlayered)
@@ -736,26 +707,18 @@ test("the settings gutter marks the modified row alone, under forced colors too"
 		.join("\n");
 	expect(forced).toContain(".setting-row:not(.modified) {\n    border-left-color: Canvas;");
 	expect(forced).toContain(".setting-row.modified {\n    border-left-color: Highlight;");
-	// Once each in this sheet, because the pins above prove only that a correct
-	// rule exists: a second one further down would win, and hand the off state
-	// its CanvasText back with the whole suite green. This sheet and not the
-	// shipped stylesheet, which also carries dashboard.css - that file is wholly
-	// layered and cannot outrank an unlayered rule, so a copy over there would
-	// be inert rather than dangerous. Counted without the brace, so a grouped
-	// selector - `.setting-row.modified, .elsewhere { ... }` - counts as the
-	// second declaration it is.
+	// Once each in this sheet: a second rule further down would win and hand the off state
+	// its CanvasText back with the suite green. This sheet only - dashboard.css is wholly
+	// layered and cannot outrank an unlayered rule. Counted without the brace, so a
+	// grouped selector counts as the second declaration it is.
 	expect(occurrences(output, ".setting-row:not(.modified)")).toBe(1);
 	expect(occurrences(output, ".setting-row.modified")).toBe(1);
 });
 
 /**
- * The ONE rule both high-contrast selectors open together for `selector`.
- *
- * Both are looked up as rules and their selector lists compared, rather than
- * one being looked up and the other searched for as text: a substring match is
- * satisfied by `...-light .thing:hover`, or by the light selector under some
- * ancestor, which leaves the resting HC-light state unstyled while the pin
- * stays green.
+ * The ONE rule both high-contrast selectors open together. Both are looked up as rules
+ * and their selector lists compared - a substring match is satisfied by
+ * `...-light .thing:hover`, leaving the resting HC-light state unstyled, pin green.
  */
 function highContrastTwin(css: string, selector: string): StyleRule {
 	const dark = rulesFor(css, `body.vscode-high-contrast ${selector}`);
@@ -776,16 +739,11 @@ function highContrastTwin(css: string, selector: string): StyleRule {
 }
 
 test("the bordered modes drop the button hand-back as a property, never as a margin", async () => {
-	// Both Button sizes hand their horizontal padding back to the layout so a
-	// container's gap measures ink to ink, and the modes that draw every
-	// button's box at rest have to take that back or adjacent boxes merge into
-	// one segmented control. Spelling the repair as `margin-inline: 0` also
-	// flattens any margin a CALL SITE set - margin-inline writes both longhands
-	// - and the record matcher's pencil rides ms-auto to stay at the row's end
-	// once the row wraps, so the push died in exactly the modes that draw the
-	// box it aligns. Zeroing the property composes instead. Nothing else can
-	// catch a regression here: happy-dom runs no cascade and no forced-colors
-	// mode, and the class names on the element are right either way.
+	// The bordered modes must take the buttons' padding hand-back away or adjacent boxes
+	// merge into one segmented control - but `margin-inline: 0` writes both longhands and
+	// killed the record matcher pencil's ms-auto; zeroing the property composes. Only the
+	// compiled cascade can catch a regression (happy-dom runs no cascade or forced-colors
+	// mode).
 	const output = await compileTheme();
 	const blocks = forcedColorsBlocks(output).filter((block) => block.text.includes('[data-slot="button"]'));
 	expect(blocks).toHaveLength(1);
@@ -815,26 +773,12 @@ test("the bordered modes drop the button hand-back as a property, never as a mar
 });
 
 /**
- * The action clusters whose bordered-mode fallback is TIGHT: their gap is
- * stated in ink, and the box separation they fall back to where a mode draws
- * every button's box is the small number below. Left alone, such a cluster
- * silently grows by the padding its gap was spanning - 12px per adjacent
- * compact pair - and the first four sit inside measured budgets they would
- * then overrun, while the last three (the notice's toolbar, the banner, the
- * record editors' actions bar) state the box numbers those modes showed
- * before the hand-back moved into the Button primitive, so their bordered
- * renders stay where they were.
- *
- * Not every ink-stated container is here. `.confirm-actions`, and the `.chip`
- * and `.toast` paddings, are ink-stated too and drift the same way, but they
- * drift into MORE room inside a dialog or a pill that has it: a fallback that
- * only ever loosens cannot merge two boxes, which is the defect the twins
- * exist for.
- *
- * `unlayered` is per cluster because it is decided by what the twin overrules:
- * the settings slot's gap is a Tailwind utility and can only be beaten from
- * outside the layers, while the others overrule plain stylesheet rules in
- * the components layer.
+ * The action clusters whose bordered-mode fallback is TIGHT: left alone, a cluster
+ * silently grows by the padding its ink-stated gap was spanning (12px per adjacent
+ * compact pair), overrunning measured budgets or moving bordered renders. Not every
+ * ink-stated container is here: .confirm-actions and the .chip/.toast paddings drift
+ * into MORE room, and a fallback that only loosens cannot merge two boxes. `unlayered`
+ * is per cluster, decided by what the twin overrules (a utility needs an unlayered twin).
  */
 const INK_GAP_CLUSTERS = [
 	{ selector: ".setting-actions", sheet: "theme", declaration: "gap: 6px", unlayered: true },
@@ -911,16 +855,10 @@ test("the status text aliases are declared on :root alone, never on body", () =>
 });
 
 test("the forced light palette keeps Light Modern's passing green, low contrast and all", () => {
-	// This value has been wrong once already, in a landed commit, on the belief
-	// that #007100 is the registry's light value. It is the hcLight value. The
-	// registry reads {dark:#73c991, light:#73c991, hcDark:#73c991,
-	// hcLight:#007100} and light_modern.json does not override it, so VS Code's
-	// own light theme really does ship a ~2:1 passing green.
-	//
-	// The palette is documented as faithful to Light Modern, and a palette that
-	// quietly "improves" one value is a palette nobody can trust to describe the
-	// host - the render harness then agrees with the edit and hides it. The
-	// contrast repair belongs to --ok-text, which is measured and tested above.
+	// This value has been wrong once already, in a landed commit: #007100 is the hcLight
+	// value, not light - the registry ships {dark/light/hcDark: #73c991, hcLight: #007100}
+	// and light_modern.json does not override it. The palette is documented as faithful to
+	// Light Modern; the contrast repair belongs to --ok-text, measured and tested above.
 	const light = forcedBlock("light");
 	expect(light).toContain("--vscode-testing-iconPassed: #73c991");
 	expect(light).not.toContain("#007100");
@@ -935,17 +873,10 @@ test("the forced light palette keeps Light Modern's passing green, low contrast 
 });
 
 test("tone text is one unlayered presentation: severity color plus the weight channel", async () => {
-	// .error and .state-warn once lived in dashboard.css as color-only rules,
-	// and both halves of that placement failed: color-only left them
-	// pixel-identical to body text wherever the hue was repainted or beaten,
-	// and the layered position lost to `p.hint` on specificity (every warn
-	// hint on the server form rendered muted) and to any color utility on the
-	// same element by layer order. The presentation now lives in theme.css
-	// OUTSIDE every layer and query, with font-weight as the channel that
-	// survives forced colors - so this pins the register (color AND weight),
-	// the placement (unlayered, unconditional), and the count (exactly one
-	// ordinary rule per class in the compiled sheet, because a second one
-	// further down would win and hand the channel back).
+	// Pins the tone-text register (color AND weight - weight survives forced colors), the
+	// placement (unlayered, unconditional: as layered color-only rules these lost to
+	// p.hint on specificity and to color utilities by layer order), and the count (exactly
+	// one ordinary rule per class - a second further down would win).
 	const output = await compileTheme();
 	const registers = [
 		{ selector: ".error", color: "color: var(--err-text)" },
@@ -988,15 +919,10 @@ test("tone text keeps a second channel under forced colors: the editor's squiggl
 });
 
 test("the squiggle survives source order: no tone-text rule may declare a decoration of its own", async () => {
-	// The squiggle rule compiles BEFORE the unlayered tone-text block, and
-	// both are unlayered at equal specificity, so any text-decoration the
-	// tone block ever gained would beat the squiggle by source order alone -
-	// under exactly the mode where the squiggle is the second channel. The
-	// compiled sheet cannot promise "squiggle later" (the blocks' order is
-	// the source's), so it pins the only formulation that keeps the computed
-	// decoration wavy: the squiggle rule is the ONLY rule for these selectors
-	// that declares text-decoration at all, and any other rule that ever
-	// gains one must compile before the squiggle to leave it standing.
+	// The squiggle rule compiles BEFORE the unlayered tone-text block at equal
+	// specificity, so any text-decoration the tone block gained would beat it by source
+	// order. The pin: the squiggle rule is the ONLY rule for these selectors declaring
+	// text-decoration at all.
 	const output = await compileTheme();
 	const squiggleStart = Math.min(
 		...rulesFor(output, ".error").flatMap((candidate) =>
@@ -1020,16 +946,10 @@ test("the squiggle survives source order: no tone-text rule may declare a decora
 });
 
 test("the bordered modes keep the reveal primitive painted", async () => {
-	// ui/reveal.tsx rests its action at opacity-0 by utility and hands the
-	// reveal to hover and focus - a quietness trade the bordered modes
-	// refuse: forced colors and both HC themes draw every control's box at
-	// rest, so a resting-invisible action is a bare box appearing and
-	// vanishing under the pointer (dashboard.css's .server-actions cluster
-	// makes the same refusal). Unlayered because opacity-0 is a utility and
-	// only an unlayered rule beats one; unconditional because the boxes are
-	// drawn at every width. Nothing else can catch a regression here:
-	// happy-dom runs no cascade and no forced-colors mode, and the class
-	// names on the element are right either way.
+	// The bordered modes refuse ui/reveal.tsx's quietness trade (a resting-invisible
+	// action is a bare box flickering under the pointer). Unlayered because opacity-0 is a
+	// utility; unconditional because the boxes draw at every width. Only the compiled
+	// cascade can catch a regression here.
 	const output = await compileTheme();
 	const blocks = forcedColorsBlocks(output).filter((block) => block.text.includes('[data-slot="reveal"]'));
 	expect(blocks).toHaveLength(1);

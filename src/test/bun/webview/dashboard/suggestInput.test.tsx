@@ -1,10 +1,7 @@
 /**
- * The record editors' suggestion listboxes (SuggestInput), the datalist
- * replacement: filtering as the user types (case-insensitive substring),
- * the combobox aria wiring, the keyboard paths (arrows move the highlight,
- * Enter accepts it, Escape closes), mousedown-to-accept, and close-on-blur -
- * exercised on all three inputs that carry suggestions: the capability key,
- * the matcher keys, and the parameter names.
+ * The record editors' suggestion listboxes (SuggestInput): case-insensitive substring filtering, the combobox aria
+ * wiring, the keyboard paths (arrows move the highlight, Enter accepts, Escape closes), mousedown-to-accept, and
+ * close-on-blur - on all three inputs that carry suggestions: capability key, matcher keys, parameter names.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
@@ -180,10 +177,8 @@ test("Escape closes the listbox without picking; ArrowDown reopens onto a highli
 });
 
 test("an open listbox consumes Escape; a closed one lets it reach the enclosing overlay", () => {
-	// These inputs render inside the matcher editor overlay (a slide-over
-	// panel): with the listbox open, Escape must close only the suggestions;
-	// with it closed, Escape is the panel's to consume - it closes the
-	// overlay, never both at once.
+	// These inputs render inside the matcher editor overlay: with the listbox open Escape closes only the suggestions,
+	// with it closed Escape is the panel's to consume - never both at once.
 	const section = mountEditor("Model parameters", "Add model matcher");
 	const nameInput = () => section().querySelector("input.key[placeholder^='Parameter']") as HTMLInputElement;
 	fireInput(nameInput(), "te");
@@ -246,10 +241,8 @@ test("the capabilities editor Enter-applies a clean draft too, from key and valu
 });
 
 test("the GLOBAL capability key suggestions extend with the cross-server observed /model/info union", () => {
-	// The state's union rides into the settings-tab capability editor: the
-	// consumed vocabulary stays first, the server-observed names follow
-	// sorted, the directives stay last - and the names render as suggestion
-	// text only.
+	// The consumed vocabulary stays first, the server-observed names follow sorted, the directives stay last - and the
+	// names render as suggestion text only.
 	const section = mountEditor("Model capabilities", "Add capability matcher", {
 		observedModelInfoKeys: ["mode", "litellm_provider", "base_model"],
 	});

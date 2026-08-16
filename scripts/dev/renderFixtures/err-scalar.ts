@@ -1,12 +1,10 @@
 /**
- * A refused scalar write, standing where placement puts it: in the posting
- * row's covered description slot. The steps drive the real flow - type a
- * value into the thresholds box, commit with Enter, read the posted request's
- * id off the harness stub, and answer it with a fail envelope quoting that id
- * - so the shot proves the id-to-row claim rather than photographing a
- * hand-placed line. The slot carries the framed headline only, over the
- * description it covers (the row keeps its height; the detail line stays off
- * this surface, the host notifier's toast rule).
+ * A refused scalar write, standing where placement puts it: in the posting row's
+ * covered description slot. The steps drive the real flow - type a value, commit
+ * with Enter, read the posted request's id off the harness stub, answer it with
+ * a fail envelope quoting that id - so the shot proves the id-to-row claim
+ * rather than photographing a hand-placed line. The slot carries the framed
+ * headline only, over the description it covers.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";
@@ -38,14 +36,12 @@ const fixture: RenderFixture = {
 			);
 			box.scrollIntoView({ block: "center" });
 		})()`,
-		// The shot's own subject, asserted: the refusal must stand in the
-		// thresholds row's covered description slot, or the render exits green
-		// while photographing a page without the thing it exists to show. The
-		// overlay is identified by NOT carrying the row's parse-error id: the
-		// two share the slot and the .error class, and only the parse error is
-		// pointed at by the inputs' aria-describedby. Asserting on the injected
-		// message rather than the localized frame keeps the guard to this
-		// fixture's own fail envelope and off the translated string.
+		// The shot's own subject, asserted, or the render exits green while
+		// photographing a page without the thing it exists to show. The overlay is
+		// identified by NOT carrying the row's parse-error id: the two share the
+		// slot and the .error class, and only the parse error is pointed at by the
+		// inputs' aria-describedby. Asserting on the injected message rather than
+		// the localized frame keeps the guard off the translated string.
 		`(() => {
 			const row = document.querySelector('.setting-row:has([id="setting-usage.alertThresholds-warning"])');
 			const overlay = row === null ? null : row.querySelector(".setting-hint .setting-cover > span.error:not([id])");

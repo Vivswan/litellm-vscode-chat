@@ -4,18 +4,9 @@ import path from "node:path";
 import { blocks, compileDashboard, rulesFor } from "./compileStyles";
 
 /**
- * Structure runs FULL-BLEED, prose keeps its reading measure (the
- * visual-language charter's width rule under the widescreen ruling): the
- * diagnostics and servers pages used to cap their headers, lists, and the
- * resolution table at a shared 64rem surface measure, and a user review at a
- * ~2000px window read the ~500px of dead pane beside the resolution table as
- * a defect - "not covering the full space on the right side, same issue
- * settings had before". The ruling: structural surfaces (tables, lists,
- * rows) fill the pane at every window size, exactly like the settings page,
- * while the prose inside them keeps its own reading cap. These tests pin
- * both halves, so neither a resurrected surface cap nor a dropped reading
- * cap can land silently. happy-dom runs no cascade, so the sources and the
- * compiled stylesheet are the only places the contract is checkable.
+ * Structure runs FULL-BLEED, prose keeps its reading measure (the visual-language charter's width rule under the
+ * widescreen ruling): structural surfaces fill the pane at every window size, the prose inside them keeps its own
+ * cap. happy-dom runs no cascade, so the sources and the compiled stylesheet are the only checkable places.
  */
 
 const dashboardDir = path.resolve(import.meta.dir, "../../../../../webview/dashboard");
@@ -25,10 +16,8 @@ function componentSource(file: string): string {
 }
 
 /**
- * Whether one selector-list part styles the surface ELEMENT itself: the
- * class in the part's final compound. `.pane .resolved-scroll` and
- * `.table-scroll.resolved-scroll` cap the surface; `.notice p` caps a
- * descendant, which is exactly where the reading measures live.
+ * Whether one selector-list part styles the surface ELEMENT itself: the class in the part's final compound.
+ * `.pane .resolved-scroll` caps the surface; `.notice p` caps a descendant, which is where reading measures live.
  */
 function targetsSurface(selectorPart: string, className: string): boolean {
 	const compounds = selectorPart.trim().split(/[\s>+~]+/);
@@ -36,18 +25,15 @@ function targetsSurface(selectorPart: string, className: string): boolean {
 }
 
 test("the Servers and Diagnostics pages wear no surface measure", () => {
-	// The full-bleed ruling removed SERVERS_MEASURE and DIAGNOSTICS_MEASURE
-	// outright: no header cap, no list cap, so header and body share the
-	// pane's right edge the way the settings rows do. A `_MEASURE` constant
-	// or a header cap reappearing in either file is the regression.
+	// No header cap and no list cap, so header and body share the pane's right edge. A `_MEASURE` constant or a
+	// header cap reappearing in either file is the regression.
 	for (const file of ["servers.tsx", "diagnostics.tsx"]) {
 		const source = componentSource(file);
 		expect(source, `${file} must not reintroduce a surface-measure constant`).not.toMatch(/_MEASURE\b/);
 		expect(source, `${file} must not cap a section header`).not.toContain("headerClassName");
 	}
-	// The structural wrappers run bare of width utilities: any `max-w-`
-	// beside these classes would be a cap the stylesheet scan below cannot
-	// see. Exact spellings, so a second class sneaking in fails loudly.
+	// Any `max-w-` beside these classes would be a cap the stylesheet scan below cannot see. Exact spellings, so a
+	// second class sneaking in fails loudly.
 	expect(componentSource("servers.tsx")).toContain(`<ul className="server-list">`);
 	const diagnostics = componentSource("diagnostics.tsx");
 	expect(diagnostics).toContain(`<ul className="config-diagnostics">`);
@@ -57,11 +43,8 @@ test("the Servers and Diagnostics pages wear no surface measure", () => {
 });
 
 test("the compiled stylesheet leaves the structural surfaces uncapped", async () => {
-	// The problem list, the resolution table's scrollport, the server list,
-	// and the servers page's notice card: each fills the pane, so no rule
-	// styling the surface element itself may declare a max-width - grouped
-	// selector lists and qualified spellings (`.pane .resolved-scroll`)
-	// included. The COMPILED sheet, so a commented-out declaration cannot
+	// No rule styling a surface element itself may declare a max-width - grouped selector lists and qualified
+	// spellings (`.pane .resolved-scroll`) included. The COMPILED sheet, so a commented-out declaration cannot
 	// satisfy or trip the scan.
 	const css = await compileDashboard();
 	const surfaces = ["config-diagnostics", "resolved-scroll", "server-list", "notice"];

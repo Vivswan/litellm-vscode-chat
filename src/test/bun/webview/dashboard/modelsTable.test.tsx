@@ -1,8 +1,7 @@
 /**
  * The models list's interactive layer: sorting (key, direction, absent values
  * last), the windowed rendering past the row threshold with its spacer
- * arithmetic including one open row's measured detail, and the per-row copy-ID
- * action.
+ * arithmetic including one open row's measured detail, and the copy-ID action.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
@@ -169,10 +168,9 @@ test("under the threshold every row renders with no scrollport", () => {
 });
 
 test("one row past the threshold windows, with or without the server on the rows", () => {
-	// 51 rows is one past the 50-row threshold; together with the 50-row
-	// full-render test above this pins the boundary exactly. Windowing brings
-	// the trailing spacer with it, and neither side of serverCount > 1 changes
-	// that - the rows have no column count left to shear.
+	// 51 rows is one past the 50-row threshold; with the 50-row full-render test
+	// above this pins the boundary exactly. Neither side of serverCount > 1
+	// changes it - the rows have no column count left to shear.
 	for (const serverCount of [1, 2]) {
 		const root = mount(
 			<ModelsSection currencySymbol="$" models={manyModels(51)} serverCount={serverCount} onInspect={() => {}} />
@@ -200,10 +198,8 @@ test("a row is a disclosure plus its two controls, and the Inspect action is not
 	expect(disclosure.querySelectorAll("button").length).toBe(0);
 	expect(disclosure.getAttribute("aria-expanded")).toBe("false");
 
-	// A row that opens has to LOOK like a row that opens. Without a state mark
-	// it is identical to one that does not, and the only way to find out is to
-	// click; the mark is inside the disclosure and decorative, since the button
-	// already carries the state in aria-expanded.
+	// A row that opens has to LOOK like one. The mark is inside the disclosure
+	// and decorative, since the button already carries aria-expanded.
 	const chevron = disclosure.querySelector(".model-chevron") as HTMLElement;
 	expect(chevron).not.toBeNull();
 	expect(chevron.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
@@ -226,13 +222,9 @@ test("a row is a disclosure plus its two controls, and the Inspect action is not
 	expect(actions.querySelectorAll("button.params-action").length).toBe(1);
 	expect(row.querySelectorAll("button").length).toBe(3);
 
-	// The copy action's hover-reveal lives on a WRAPPER around the Button,
-	// never on the Button itself: Button's base carries disabled:opacity-60/
-	// aria-disabled:opacity-60, whose emitted selectors outrank a bare
-	// opacity-0 on specificity - on one element the disabled states win
-	// deterministically, and a disabled copy button would paint at 60% in a
-	// resting row instead of staying hidden. On the wrapper the two opacities
-	// multiply instead of competing. The row is the reveal's container.
+	// The hover-reveal lives on a WRAPPER around the Button, never on the Button
+	// itself: Button's disabled:opacity-60/aria-disabled:opacity-60 outrank a
+	// bare opacity-0 on the same element. On the wrapper the two multiply.
 	const copy = actions.querySelector("button[aria-label='Copy model ID gpt-4o from Prod']") as HTMLElement;
 	const wrapper = copy.parentElement as HTMLElement;
 	expect(row.classList.contains("group/row")).toBe(true);
@@ -246,11 +238,9 @@ test("a row is a disclosure plus its two controls, and the Inspect action is not
 	// down for users who asked the OS for reduced motion.
 	expect(wrapper.classList.contains("transition-opacity")).toBe(true);
 	expect(wrapper.classList.contains("motion-reduce:transition-none")).toBe(true);
-	// TRIPWIRE for future button.tsx changes: Button retains its transition
-	// utility naming opacity. It guards Button's OWN state fades (disabled,
-	// hover colour), NOT the reveal above - the wrapper's transition-opacity
-	// carries that - but a rewrite that drops it would un-animate every
-	// same-element opacity state Button has or grows.
+	// TRIPWIRE for future button.tsx changes: Button keeps a transition utility
+	// naming opacity for its OWN state fades (the wrapper carries the reveal's),
+	// and dropping it would un-animate every same-element opacity state.
 	expect([...copy.classList].some((name) => name.startsWith("transition-") && name.includes("opacity"))).toBe(true);
 	expect(copy.classList.contains("opacity-0")).toBe(false);
 
@@ -321,10 +311,8 @@ test("the open row is remembered by identity, so sorting does not move the detai
 
 /**
  * happy-dom performs no layout, so every offsetHeight is 0 and the component's
- * measurement path is dead: with it, `delta` is always zero and the whole
- * variable-height arithmetic is unreachable from a test. Stubbing the two boxes
- * the component measures is what makes that path executable, and it is the only
- * way the assertions below can fail.
+ * measurement path is dead (`delta` always zero). Stubbing the two boxes it
+ * measures is the only way the assertions below can fail.
  */
 function withMeasuredLayout(rowHeight: number, detailHeight: number, run: () => void): void {
 	const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
@@ -363,10 +351,9 @@ function claimedHeight(root: ParentNode, rowHeight: number, detailHeight: number
 }
 
 test("the open row's measured detail is accounted for at every scroll position, in the window or out of it", () => {
-	// The one row allowed to break the uniform grid. If its height is missing
-	// from whichever spacer stands in for it, the list claims less height than
-	// it has and every row below the open one jumps the moment it scrolls out
-	// of the window - which is precisely the boundary this walks across.
+	// The one row allowed to break the uniform grid. A height missing from
+	// whichever spacer stands in for it makes the list claim less height than it
+	// has, and every row below the open one jumps as it scrolls out.
 	const DETAIL = 120;
 	withMeasuredLayout(ROW, DETAIL, () => {
 		const root = mount(
@@ -405,10 +392,9 @@ test("the open row's measured detail is accounted for at every scroll position, 
 });
 
 test("a detail that resizes while it is scrolled out of the window is re-measured when it comes back", () => {
-	// The detail is windowed like everything else: scrolling far enough unmounts
-	// it and scrolling back mounts a fresh element. A measurement bound to the
-	// first element would leave the height frozen at whatever it was when the
-	// row left, and every row below it would sit at the wrong offset.
+	// Scrolling far enough unmounts the detail and scrolling back mounts a fresh
+	// element; a measurement bound to the first would freeze the height at what
+	// it was when the row left, putting every row below at the wrong offset.
 	let detailHeight = 100;
 	const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
 	Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
@@ -456,10 +442,9 @@ test("a detail that resizes while it is scrolled out of the window is re-measure
 });
 
 test("two provider groups sharing a label keep separate rows: opening one does not open the other", () => {
-	// Labels are not identities - two groups may carry the same one, which is
-	// why the server column keyed off the count rather than the distinct
-	// labels. A row identity built from the label alone would collide here and
-	// open (or flash the copy check on) the wrong row.
+	// Labels are not identities - two groups may share one - so a row identity
+	// built from the label alone would collide here and open (or flash the copy
+	// check on) the wrong row.
 	const models = [
 		makeModel({ id: "gpt-4o", name: "Omni", serverLabel: "Shared", scopeKey: "s1" }),
 		makeModel({ id: "gpt-4o", name: "Omni", serverLabel: "Shared", scopeKey: "s2" }),
@@ -519,19 +504,15 @@ test("one raw model ID on two servers renders two rows with distinct accessible 
 });
 
 test("the windowed scrollport publishes its own page offset, re-measured, so its height is never guessed", () => {
-	// The cap used to be calc(100vh - 11em): a guess at how much chrome sat above
-	// this element, tuned against the page it shared and inherited unchanged when
-	// models became a destination of its own. The stylesheet reads a custom
-	// property now, and this pins the half that JavaScript owns.
+	// The stylesheet caps this scrollport from a custom property rather than a
+	// guess at the chrome above it; this pins the half JavaScript owns.
 	const root = mount(<ModelsSection currencySymbol="$" models={manyModels(60)} serverCount={1} onInspect={() => {}} />);
 	const scrollport = root.querySelector(".table-scroll.windowed") as HTMLElement;
 	expect(scrollport).not.toBeNull();
 
-	// happy-dom reports every rect as zero, which is exactly the shape an
-	// element that is not rendered has - every tab panel stays mounted while
-	// hidden, so a zero box means "no answer yet", not "the top of the page".
-	// Publishing it would cap the scrollport at nearly the whole viewport until
-	// something re-measured.
+	// happy-dom reports every rect as zero - the same shape an unrendered element
+	// has, and panels stay mounted while hidden - so a zero box means "no answer
+	// yet"; publishing it would cap the scrollport at nearly the whole viewport.
 	expect(scrollport.style.getPropertyValue("--models-scroll-top")).toBe("");
 
 	const scrollYDescriptor = Object.getOwnPropertyDescriptor(window, "scrollY");
@@ -540,11 +521,9 @@ test("the windowed scrollport publishes its own page offset, re-measured, so its
 		Object.defineProperty(window, "scrollY", { value: 22, configurable: true });
 		window.dispatchEvent(new Event("resize"));
 
-		// 90 + 22: the published distance adds the scroll offset back, so it names
-		// the same distance at every scroll position. A viewport-relative top
-		// would shrink as the page scrolls, raising the cap, lengthening the page
-		// and allowing more scroll - a number that climbs on every republish
-		// instead of settling on the height at which the page stops scrolling.
+		// 90 + 22: adding the scroll offset back names the same distance at every
+		// scroll position. A viewport-relative top would shrink as the page
+		// scrolls, raising the cap and climbing on every republish.
 		expect(scrollport.style.getPropertyValue("--models-scroll-top")).toBe("112px");
 
 		// And it keeps following: the chrome above this element reflows at the

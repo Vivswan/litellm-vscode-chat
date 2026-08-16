@@ -1,15 +1,14 @@
 /**
- * A chip popover that would hang past the viewport's bottom edge, flipped
- * above its chip instead. The sequence matters: the popover opens at a
- * comfortable spot (the browser scrolls its input into view on focus, which
- * is why a fresh popover almost never needs the flip), the reader THEN
- * scrolls it down to the edge, and only then does its content change - and
- * nothing re-focuses, so nothing scrolls it back. That is the case the mount
- * measurement alone cannot see and the size observer can.
+ * A chip popover that would hang past the viewport's bottom edge, flipped above
+ * its chip instead. The sequence matters: the popover opens at a comfortable
+ * spot (the browser scrolls its input into view on focus), the reader THEN
+ * scrolls it down to the edge, and only then does its content change - nothing
+ * re-focuses, so nothing scrolls it back. That is the case the mount measurement
+ * alone cannot see and the size observer can.
  *
  * It captures the viewport alone (clipViewport): the flip is a question about
- * the viewport's bottom edge, and a full-page capture expands the viewport
- * until there is no edge left to overflow.
+ * the bottom edge, and a full-page capture expands the viewport until there is
+ * no edge left to overflow.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";

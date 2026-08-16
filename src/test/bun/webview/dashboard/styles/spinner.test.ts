@@ -1,10 +1,7 @@
 /**
- * The spinner's rest contract, pinned against the compiled dashboard sheet: a
- * spinner inside an aria-hidden subtree does not turn. `visibility: hidden`
- * stops paint but NOT animation in Chromium, so an always-mounted invisible
- * width twin (the Refresh button's busy label) would turn forever without the
- * stand-down rule. The DOM half is pinned by the servers suites; this suite
- * pins the CSS half, which those tests cannot see.
+ * The spinner's rest contract in the compiled sheet: a spinner inside an aria-hidden subtree does not turn.
+ * `visibility: hidden` stops paint but NOT animation in Chromium, so an always-mounted invisible width twin (the
+ * Refresh button's busy label) would turn forever without the stand-down rule. The DOM half lives in the servers tests.
  */
 import { expect, test } from "bun:test";
 import { compileDashboard, rulesFor } from "./compileStyles";
@@ -14,10 +11,8 @@ const STAND_DOWN_SELECTOR = '[aria-hidden="true"] .spinner';
 test("a spinner under an aria-hidden ancestor stands down, and the visible spinner still turns", async () => {
 	const compiled = await compileDashboard();
 
-	// The stand-down: keyed off the aria-hidden ANCESTOR, never the `invisible`
-	// utility the twins also carry, which this sheet must not style
-	// (theme.test.ts pins that separation). Scoped to the idiom rather than one
-	// twin's class, and unconditional: the twin rests hidden at every width.
+	// Keyed off the aria-hidden ANCESTOR, never the `invisible` utility the twins also carry, which this sheet must
+	// not style (theme.test.ts pins that separation). Unconditional: the twin rests hidden at every width.
 	const standDown = rulesFor(compiled, STAND_DOWN_SELECTOR);
 	expect(standDown).toHaveLength(1);
 	const standDownRule = standDown[0];

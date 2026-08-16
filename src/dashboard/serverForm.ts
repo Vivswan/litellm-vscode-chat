@@ -1,9 +1,8 @@
 /**
  * The server form's pure model: one parser yields either the assembled
  * saveServerSetting intent or the field problems that block it, so validation
- * and assembly cannot diverge. DOM-free; shared across the trust boundary -
- * the webview renders the problems this module computes, and the extension
- * re-validates the assembled payload with the same rules (intents.ts).
+ * and assembly cannot diverge. DOM-free, and shared across the trust boundary:
+ * the extension re-validates the assembled payload with the same rules.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -22,9 +21,9 @@ import { parseCapabilityGroups, parseGroups, parseHeaderRows } from "./recordDra
 
 /**
  * One secret field as the form edits it. `existing` is where the value lives
- * now; an empty `value` means keep it there; typing replaces it in `location`;
- * `clear` removes it outright. `prefill` marks an applyInlinePrefill value: a
- * value equal to it saves as "keep", so an untouched prefill never rewrites.
+ * now; an empty `value` means keep it there, typing replaces it in `location`,
+ * `clear` removes it outright. A value equal to `prefill` saves as "keep", so
+ * an untouched prefill never rewrites.
  */
 export interface SecretFieldDraft {
 	readonly value: string;
@@ -38,8 +37,7 @@ export interface SecretFieldDraft {
  * The picked auth form. The selector IS the exactly-one-form rule: only the
  * picked form's fields are validated and assembled, so a second form is
  * unreachable by construction. Lower-ranked companions ride along where the
- * grammar allows them (oauth carries apiKey/virtualKey, apiKey carries
- * virtualKey).
+ * grammar allows (oauth carries apiKey/virtualKey, apiKey carries virtualKey).
  */
 export type AuthFormId = "none" | "apiKey" | "virtualKey" | "oauth";
 
@@ -123,8 +121,8 @@ export const SERVER_FORM_FIELD_ORDER: readonly ServerFormField[] = [
 
 /**
  * The display name of one form field, shared by labels and problem summaries.
- * A function, not a module-level catalog: the names localize, and a constant
- * record would freeze the English text before l10n.config runs.
+ * A function, not a module-level catalog: a constant record would freeze the
+ * English text before l10n.config runs.
  */
 export function serverFormFieldLabel(field: ServerFormField): string {
 	switch (field) {
@@ -172,8 +170,7 @@ export type ServerFormProblems = Partial<Record<ServerFormField, string>>;
  * Which fields the draft has moved away from the baseline it opened with (the
  * save bar counts them). A secret field compares on what the user can change -
  * the typed value, the storage pick, the remove mark - never on `existing` or
- * `prefill`; a field the prefill filled while the baseline stayed empty is a
- * real difference and counts.
+ * `prefill`.
  */
 export function changedServerFormFields(draft: ServerFormDraft, baseline: ServerFormDraft): readonly ServerFormField[] {
 	return SERVER_FORM_FIELD_ORDER.filter((field) => {
@@ -181,9 +178,9 @@ export function changedServerFormFields(draft: ServerFormDraft, baseline: Server
 			return secretEdited(draft[field], baseline[field]);
 		}
 		if (field === "expectedFailures") {
-			// A set, not a list: the checkbox toggle canonicalizes the order
-			// while a stored entry keeps its author's, so comparing sequences
-			// would report a change for a check-then-uncheck round trip.
+			// A set, not a list: comparing sequences would report a change for a
+			// check-then-uncheck round trip (the toggle canonicalizes the order
+			// while a stored entry keeps its author's).
 			const now = new Set(draft.expectedFailures);
 			return (
 				now.size !== baseline.expectedFailures.length ||
@@ -195,17 +192,16 @@ export function changedServerFormFields(draft: ServerFormDraft, baseline: Server
 		if (typeof now === "string" || typeof was === "string") {
 			return now !== was;
 		}
-		// The structured fields are small, JSON-safe drafts, so their
-		// serialization IS their identity - no field-by-field walk that a new
-		// sub-field could silently fall out of.
+		// Small JSON-safe drafts, so their serialization IS their identity - no
+		// field-by-field walk that a new sub-field could silently fall out of.
 		return JSON.stringify(now) !== JSON.stringify(was);
 	});
 }
 
 /**
  * Whether a secret field would write anything different. Reads the same rule
- * parseSecret does, so the count promises exactly what Save performs: an
- * empty field's storage pick reaches no directive, so flipping it is not an edit.
+ * parseSecret does, so the count promises exactly what Save performs: an empty
+ * field's storage pick reaches no directive, so flipping it is not an edit.
  */
 function secretEdited(now: SecretFieldDraft, was: SecretFieldDraft): boolean {
 	if (now.clear !== was.clear || now.value !== was.value) {
@@ -226,11 +222,10 @@ export function isUsableHttpUrl(text: string): boolean {
 }
 
 /**
- * One secret field parsed once: the directive the save will carry, whether
- * the field still resolves afterwards, and the value the form can see. Both
- * the validation rules and the assembled intent read this one derivation, so
- * a field the directive says is going away can never block Save on its stale
- * input text.
+ * One secret field parsed once: the directive the save will carry, whether the
+ * field still resolves afterwards, and the value the form can see. Validation
+ * and assembly read this one derivation, so a field the directive retires can
+ * never block Save on its stale input text.
  */
 interface SecretParse {
 	readonly directive: SecretDirective;
@@ -257,9 +252,9 @@ function parseSecret(draft: SecretFieldDraft): SecretParse {
 /**
  * A secret field whose auth form is not the selected one. Never "set": a value
  * typed before the form switched away must not land in storage for a shape
- * that does not send it. Clear stays honored; everything else is "keep" -
- * switching forms never silently deletes a stored secret. `resolves` still
- * reports a kept stored value, because the extension's pairing rules see it too.
+ * that does not send it. Clear stays honored, everything else is "keep", and
+ * `resolves` still reports a kept stored value - the extension's pairing rules
+ * see it too.
  */
 function parseInactiveSecret(draft: SecretFieldDraft): SecretParse {
 	if (draft.clear) {
@@ -359,9 +354,9 @@ export type ServerFormParse =
 	  };
 
 /**
- * The one shared analysis behind both parsers. parseServerForm blocks on any
- * problem; parseServerFormForTest blocks only on the CONNECTION_FIELDS
- * problems - both read this one pass, so the save and probe rules cannot drift.
+ * The one shared analysis behind both parsers: parseServerForm blocks on any
+ * problem, parseServerFormForTest only on the CONNECTION_FIELDS problems, so
+ * the save and probe rules cannot drift.
  */
 interface ServerFormAnalysis {
 	readonly problems: ServerFormProblems;
@@ -381,8 +376,7 @@ interface ServerFormAnalysis {
 
 function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): ServerFormAnalysis {
 	// The selector decides which credential fields are live: everything else is
-	// excluded from the payload and demoted to keep/clear directives, whatever
-	// text sits in its hidden inputs.
+	// excluded from the payload and demoted to keep/clear directives.
 	const oauthActive = draft.authForm === "oauth";
 	const apiKeyActive = draft.authForm === "apiKey" || oauthActive;
 	const virtualKeyActive = draft.authForm !== "none";
@@ -419,10 +413,9 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 		problems.baseUrl = l10n.t("Must be a usable http(s) URL, e.g. http://localhost:4000");
 	}
 
-	// The apiVersion the saved entry will carry: custom text must exist, or a
-	// picked "custom" would silently save as "none". Slashes and inner
-	// whitespace are named problems, not silently rewritten: "/v2" appended
-	// verbatim builds http://host//v2 and every request 404s with no hint.
+	// Custom text must exist, or a picked "custom" would silently save as "none".
+	// Slashes and inner whitespace are named problems, not silently rewritten:
+	// "/v2" appended verbatim builds http://host//v2 and every request 404s.
 	let apiVersion: string | undefined;
 	if (draft.apiVersion.mode === "none") {
 		apiVersion = "";
@@ -437,10 +430,9 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 		}
 	}
 
-	// OAuth is one unit: the request path drops partial configurations
-	// silently, so a partial one must not save as if it worked. On any other
-	// form a KEPT stored client secret still blocks, because the extension's
-	// pairing rules would read it as OAuth-shaped and refuse the save.
+	// OAuth is one unit: the request path drops partial configurations silently,
+	// so a partial one must not save as if it worked. On any other form a KEPT
+	// stored client secret still blocks - the extension reads it as OAuth-shaped.
 	const tokenUrl = draft.oauthTokenUrl.trim();
 	const clientId = draft.oauthClientId.trim();
 	if (oauthActive) {
@@ -459,11 +451,10 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 		);
 	}
 
-	// The virtual key is likewise both-or-neither, and must be sendable as an
-	// HTTP header: the request path drops anything less without a trace. The
-	// sendability check reads the parsed visible value, not the raw input, so
-	// a cleared field's stale text cannot block. On "none" a kept stored value
-	// blocks like the client secret above.
+	// Both-or-neither like OAuth, and must be sendable as an HTTP header (the
+	// request path drops anything less without a trace). The sendability check
+	// reads the parsed visible value, so a cleared field's stale text cannot
+	// block; on "none" a kept stored value blocks like the client secret above.
 	const header = draft.virtualKeyHeader.trim();
 	const virtualKey = secrets.virtualKeyValue;
 	if (virtualKeyActive) {
@@ -484,8 +475,7 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 	}
 
 	// The record and header rows share the global editors' parsers, so a draft
-	// that renders clean there is exactly a draft that saves here; the rows
-	// carry their own problems and the field slot holds the summary.
+	// that renders clean there is exactly a draft that saves here.
 	const groupsParse = parseGroups(draft.modelParameters);
 	if (!groupsParse.ok) {
 		problems.modelParameters = l10n.t("Fix the model parameter rows");
@@ -516,8 +506,7 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 	}
 
 	// Only the active form's text fields reach the payload: an inactive form's
-	// leftover text is excluded exactly like an empty input, so the saved
-	// entry carries one auth form only.
+	// leftover text is excluded exactly like an empty input.
 	const activeText: Readonly<Record<NonSecretOptionalFieldId, string>> = {
 		oauthTokenUrl: oauthActive ? draft.oauthTokenUrl : "",
 		oauthClientId: oauthActive ? draft.oauthClientId : "",
@@ -576,9 +565,7 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 		budget,
 		optionalText,
 	} = analyzeServerForm(draft, context);
-	// The parse-failure conditions are redundant with the problems check (a
-	// failed parse set its field's problem); they are spelled out so the ok
-	// branch below narrows to the parsed values.
+	// Spelled out only so the ok branch narrows; a failed parse already set its field's problem.
 	if (
 		!groupsParse.ok ||
 		!capabilitiesParse.ok ||
@@ -596,8 +583,7 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 	}
 
 	// The record and list fields are always sent, even empty (the payload
-	// requires them); modelParameters is the one optional field - absent and
-	// empty both mean "none".
+	// requires them); modelParameters is the one optional field.
 	const server: SaveServerPayload = {
 		label,
 		baseUrl,
@@ -623,9 +609,9 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 }
 
 /**
- * The fields whose edit invalidates a draft-connection test result. A stale
+ * The fields whose edit invalidates a draft-connection test result: a stale
  * PASS on edited credentials is worse than no result, so the form clears the
- * result when any of these change; the label and the model-parameter rows do
+ * result when any of these change. The label and the model-parameter rows do
  * not touch the connection and keep it.
  */
 export const CONNECTION_FIELDS: readonly ServerFormField[] = [
@@ -655,12 +641,11 @@ export type ServerTestParse =
 
 /**
  * Parse a draft into the testServerDraft intent, or the connection-relevant
- * problems that block it. The same analyzeServerForm pass judges the draft;
- * the probe blocks only on CONNECTION_FIELDS problems (broken header rows
- * block - the probe sends them - while label, record-row, and budget problems
- * do not). The intent omits modelParameters and the budget, carries the
- * capability rows only when they parse clean, and keeps the draft's real
- * trimmed label: the label addresses "keep" resolution extension-side.
+ * problems that block it, from the same analyzeServerForm pass. Broken header
+ * rows block (the probe sends them); label, record-row, and budget problems do
+ * not. The intent omits modelParameters and the budget, carries the capability
+ * rows only when they parse clean, and keeps the draft's real trimmed label:
+ * the label addresses "keep" resolution extension-side.
  */
 export function parseServerFormForTest(draft: ServerFormDraft, context: ServerFormContext = {}): ServerTestParse {
 	const analysis = analyzeServerForm(draft, context);
@@ -672,9 +657,7 @@ export function parseServerFormForTest(draft: ServerFormDraft, context: ServerFo
 			problems[field] = problem;
 		}
 	}
-	// The headers-parse condition is redundant with the problems check (a
-	// failed parse set problems.headers, a connection field); it is spelled
-	// out so the ok branch narrows to the parsed rows.
+	// Spelled out only so the ok branch narrows; a failed parse already set problems.headers.
 	if (!headersParse.ok || Object.values(problems).some((problem) => problem !== undefined)) {
 		return { ok: false, problems };
 	}
@@ -700,9 +683,9 @@ export function parseServerFormForTest(draft: ServerFormDraft, context: ServerFo
 }
 
 /**
- * The adopt form's label rule: the same constraints the full form applies,
- * plus a hard collision refusal (adoption always creates a new entry, never
- * replaces one). The extension re-checks the same rules on the intent.
+ * The adopt form's label rule: the full form's constraints plus a hard
+ * collision refusal (adoption always creates a new entry, never replaces one).
+ * The extension re-checks the same rules on the intent.
  */
 export function validateAdoptLabel(label: string, takenLabels: readonly string[]): string | undefined {
 	const trimmed = label.trim();
@@ -719,10 +702,10 @@ export function validateAdoptLabel(label: string, takenLabels: readonly string[]
 }
 
 /**
- * What the form does with its own save failure: a validation-kind failure
- * left the setting untouched (the draft is still the truth, return to
- * editing); an operation-kind failure committed the save, so the draft is
- * stale, the form closes, and the section notice carries the recovery path.
+ * What the form does with its own save failure: a validation-kind failure left
+ * the setting untouched (the draft is still the truth, return to editing); an
+ * operation-kind failure committed the save, so the draft is stale and the
+ * form closes.
  */
 export function saveFailureDisposition(kind: "validation" | "operation"): "edit" | "close" {
 	return kind === "operation" ? "close" : "edit";
@@ -731,8 +714,7 @@ export function saveFailureDisposition(kind: "validation" | "operation"): "edit"
 /**
  * The section-level failure notice text. A recognized field prefix in the
  * message ("label: ...") is promoted to the field's display name and the
- * section prefix dropped, avoiding a stuttering double prefix; messages
- * without one keep the prefix.
+ * section prefix dropped, avoiding a stuttering double prefix.
  */
 export function sectionFailureText(prefix: string, message: string): string {
 	const colon = message.indexOf(":");
@@ -746,9 +728,9 @@ export function sectionFailureText(prefix: string, message: string): string {
 
 /**
  * Merge an inlineSecrets response into the draft, marked as the prefill
- * parseSecret treats as "keep". Only fields whose storage is inline and that
- * the user has not already typed into or marked for removal are touched, so a
- * slow response never clobbers an edit in progress.
+ * parseSecret treats as "keep". Only inline-stored fields the user has not
+ * typed into or marked for removal are touched, so a slow response never
+ * clobbers an edit in progress.
  */
 export function applyInlinePrefill(
 	draft: ServerFormDraft,

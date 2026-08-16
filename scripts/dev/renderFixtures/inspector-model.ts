@@ -1,15 +1,12 @@
 /**
- * The merged model inspector over the worst-case payloads: the parameters
- * side with the configure-jump affordances, the inheritance chain figure
- * (record-path lines with a barrier marker), per-row "edit" actions (global
- * record and server entry sourced rows), and a not-sent directive row; the
- * capabilities side with the full field bag - the eight-field Anthropic-style
- * cost family with sub-micro values, the consumed booleans, the 27-element
- * supported_openai_params list rendering in the PARAMETERS section, an
- * unknown extra under Other fields, mixed provenance across every level -
- * and the Pricing section rendering the panel's one pricing view. The step
- * opens the inspector from the GPT-5.6 row; the respond map answers both
- * reads.
+ * The merged model inspector over the worst-case payloads: the parameters side
+ * with the configure-jump affordances, the inheritance chain figure, per-row
+ * "edit" actions, and a not-sent directive row; the capabilities side with the
+ * full field bag (the eight-field cost family with sub-micro values, the
+ * consumed booleans, the 27-element supported_openai_params list rendering in
+ * the PARAMETERS section, an unknown extra under Other fields, mixed provenance
+ * across every level); and the Pricing section. The step opens the inspector
+ * from the GPT-5.6 row; the respond map answers both reads.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, worstCaseCapabilityFields } from "./shared.ts";

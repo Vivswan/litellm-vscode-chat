@@ -1,9 +1,7 @@
 /**
- * The webview's posting seam: acquireVsCodeApi (callable exactly once per
- * page) wrapped as one typed request sender. Every message the page posts is
- * a request envelope with a fresh correlation id; the id returns to the
- * caller so hooks can match the response, ack, or fail envelope that echoes
- * it.
+ * The webview's posting seam: acquireVsCodeApi (callable exactly once per page) wrapped
+ * as one typed request sender; the fresh correlation id returns to the caller so hooks
+ * can match the envelope that echoes it.
  */
 
 import type { DashboardMethod, RequestPayload, RpcRequest } from "../../dashboard/endpoints";

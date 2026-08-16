@@ -1,13 +1,11 @@
 /**
- * The global capabilities editor over an open-vocabulary record at full
- * density: a genuinely LONG regex matcher key (the length real users write)
- * carries the shared worst case - the eight-field cost family with sub-micro
- * scientific values and the 27-entry supported_openai_params JSON-list input -
- * plus an unknown field (supports_web_search, hinted against the observed
- * /model/info union, which does not name it), opened in the full matcher
- * editor overlay so the typed value controls, the hint, and the open-field
- * fallback checkboxes are all on screen. The shorter gpt-5.6 record stays in
- * the table behind it so the list shows both key lengths.
+ * The global capabilities editor over an open-vocabulary record at full density:
+ * a genuinely LONG regex matcher key carries the shared worst case (the
+ * eight-field cost family with sub-micro scientific values, the 27-entry
+ * supported_openai_params JSON-list input) plus an unknown field hinted against
+ * the observed /model/info union, opened in the matcher editor overlay so the
+ * typed value controls, the hint, and the open-field fallback checkboxes are all
+ * on screen. The shorter gpt-5.6 record stays behind it for both key lengths.
  */
 import type { DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";

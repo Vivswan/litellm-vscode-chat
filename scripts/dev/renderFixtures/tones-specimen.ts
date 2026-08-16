@@ -1,16 +1,13 @@
 /**
- * The four pill tones side by side at BOTH sizes the product renders them:
- * the 8px row dot and the 11px collapsed-rail dot. This is the tone-parity
- * specimen - circle ok, triangle warn, square error, hollow ring muted; one
- * shape per tone so the vocabulary survives a reader who cannot separate the
- * hues - and it is the fixture --dpr runs against, because the shapes'
- * strokes and clips are where display densities disagree (the muted ring sat
- * under the 2px state floor once, snapping to a hairline at some densities).
+ * The four pill tones side by side at BOTH sizes the product renders them: the
+ * 8px row dot and the 11px collapsed-rail dot. The tone-parity specimen - one
+ * shape per tone, so the vocabulary survives a reader who cannot separate the
+ * hues - and the fixture --dpr runs against, because the shapes' strokes and
+ * clips are where display densities disagree.
  *
- * The window is 900px wide ON PURPOSE: the 11px size exists only inside the
- * collapsed-rail media query (width < 1000px), so a wider render would
- * photograph two identical 8px rows and call them a comparison. The step
- * ASSERTS both computed dot sizes and fails loudly when either is off.
+ * The window is 900px ON PURPOSE: the 11px size exists only inside the
+ * collapsed-rail media query, so a wider render would photograph two identical
+ * 8px rows. The step ASSERTS both computed dot sizes.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";

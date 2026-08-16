@@ -1,27 +1,11 @@
 /**
- * The Diagnostics destination: what is wrong with the configuration, how the
- * record model resolved, and the ways out. litellm.showDiagnostics deep-links
- * here through the panel's focusSection message.
- *
- * Three always-open sections, ordered by what the reader can act on. The page
- * used to open with a per-server outcome grid - server, status, model count,
- * last checked, URL, with the error and the inactive-surface notices spanning
- * beneath each row. Every one of those facts now renders on the server's own
- * row on the Servers destination, which is where the fix lives, so the grid
- * said everything twice and said it further from the thing it was about. What
- * remains here is what has no row of its own: the configuration diagnostics,
- * the resolution the records produce, and the support tools.
- *
- * The connection facts survive in the one place they are still the only
- * source for: Copy diagnostics, whose plain-text block is composed from pushed
- * state (which carries no secret values by construction; see the storage
- * invariants) and stays English by policy, because it is destined for public
- * issue reports.
- *
- * The Resolved-models view is request/response-fed (readResolvedModels): it
- * scales with models x fields, re-requests on every state push while the tab
- * is visible, and is local to the dashboard by design - never part of issue
- * reports.
+ * The Diagnostics destination: configuration problems, the resolution the records
+ * produce, and the support tools - everything with no server row of its own (per-server
+ * facts render on the Servers destination, where the fix lives). The connection facts
+ * survive only in Copy diagnostics, composed from pushed state (no secret values by
+ * construction) and English by policy - destined for public issue reports. The
+ * Resolved-models view is request/response-fed (readResolvedModels), re-requested per
+ * push while visible, and local to the dashboard by design - never in issue reports.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -79,49 +63,33 @@ import { Input } from "./ui/input";
 import { Section } from "./ui/section";
 import { sendRequest } from "./vscodeApi";
 
-/*
- * This page's reading of the shared severity vocabulary (./severity.ts): the
- * same three tiers the server rows rank their problems by, read against this
- * page's subject - configuration rather than connections - through the same
- * question: does someone have to act, and how much of what they wrote is
- * being lost?
- *
- * "blocking" means this piece of configuration is wholly inert: it was
- * written, and it does nothing at all until someone changes it. "degraded"
- * means part of it is ignored and the rest still applies. "advisory" means
- * nothing is wrong - the value applies exactly as written and we are only
- * naming something that may have been a typo - and these must stay quiet, or
- * they train the reader to ignore the loud ones.
- *
- * Nothing here can be worse than blocking: a server that serves nothing is a
- * server-row problem, and the row that owns it says so.
+/**
+ * This page's reading of ./severity.ts, against configuration rather than connections:
+ * "blocking" - wholly inert until someone changes it; "degraded" - part ignored, the
+ * rest applies; "advisory" - applies exactly as written, we are only naming a possible
+ * typo, and these must stay quiet or they train the reader to ignore the loud ones.
+ * Nothing here can be worse than blocking: a server serving nothing is a row problem.
  */
 
 /**
- * The host's severity as a ceiling on the tier this page assigns.
- *
- * Capability validation is advisory BY CONTRACT - an unrecognized field
- * applies as an override as-is, because it is the user's server - so an
- * advisory stamp must be able to quiet any kind, never the reverse. Applied
- * to every variant rather than to record lints alone: a diagnostic the rail
- * badge leaves untinted must not render as an actionable row underneath it.
+ * The host's severity as a ceiling: capability validation is advisory BY CONTRACT, so
+ * an advisory stamp must be able to quiet any kind, never the reverse. Applied to every
+ * variant - a diagnostic the rail badge leaves untinted must not render actionable.
  */
 function cappedSeverity(hostSeverity: ConfigDiagnosticSeverity, tier: DiagnosticSeverity): DiagnosticSeverity {
 	return hostSeverity === "advisory" ? "advisory" : tier;
 }
 
 /**
- * One action offered beside a problem. Every one of them REVEALS the place a
- * human fixes it - the setting, the guide - and none rewrites configuration on
- * the reader's behalf: this is their settings file, and a button that silently
- * edited it would be a worse bug than the one it fixed.
+ * One action offered beside a problem: every one REVEALS the place a human fixes it,
+ * none rewrites configuration - a button that silently edited the settings file would
+ * be a worse bug than the one it fixed.
  */
 type DiagnosticAction =
 	/**
-	 * `subject` distinguishes repeats: several problems can reveal the same
-	 * setting, so the setting id alone would give three buttons one accessible
-	 * name. The visible label stays the short verb phrase and stays inside the
-	 * accessible name, as Label in Name requires.
+	 * `subject` distinguishes repeats: several problems can reveal the same setting, so the
+	 * id alone would give three buttons one accessible name. The visible label stays inside
+	 * the accessible name (Label in Name).
 	 */
 	| { readonly kind: "reveal"; readonly setting: RevealableSettingId; readonly subject: string }
 	| { readonly kind: "docs"; readonly label: string; readonly href: DocsUrl; readonly ariaLabel: string };
@@ -134,9 +102,8 @@ interface ConfigProblem {
 	readonly key: string;
 	readonly severity: DiagnosticSeverity;
 	/**
-	 * What it costs, leading with the consequence and keeping the cause: a
-	 * reader who stops after the first clause should still know what is not
-	 * being applied, and one who reads on should know why.
+	 * Leads with the consequence, keeps the cause: a reader who stops after the first
+	 * clause should still know what is not being applied.
 	 */
 	readonly headline: string;
 	/** Where it lives, as machine text: setting ids and entry labels, never prose. */
@@ -147,31 +114,14 @@ interface ConfigProblem {
 }
 
 /**
- * Whether one diagnostic belongs on this page, as an exhaustive classification
- * rather than a filter predicate.
- *
- * Two kinds are dropped because a row on the Servers destination reports
- * exactly the same fact, beside the control that fixes it: a rejected servers
- * entry THAT WAS DRAWN A ROW (the row says "<label> is switched off until this
- * entry is fixed" and lists the same parser problems), and hidden provider
- * groups (the hidden-groups line under the server list names them and offers
- * Unhide). Restating either here would be the second half of the duplication
- * the outcome grid's removal ended.
- *
- * `rowOwned` is the host's own answer, not a rule respelled here. A reject
- * with no drawable identity - no label, no base URL, or a label a declared
- * entry or an earlier reject already owns - gets NO row, and this list is then
- * the only place its problems appear. Deciding that from `misconfigured` alone
- * would erase the user's broken entry from both surfaces at once.
- *
- * A switch with no default and an annotated return type, deliberately: a
- * boolean predicate would have let a NEW diagnostic kind reach the page
- * unclassified, and the `is PageConfigDiagnostic` assertion that came with it
- * was unchecked - deleting the hidden-groups clause compiled fine and then
- * failed at runtime. Here a new union member does not typecheck until someone
- * decides which side it is on: `noImplicitReturns` (src/webview/tsconfig.json)
- * is what turns the unhandled case into TS7030, with the downstream
- * PageConfigDiagnostic switches giving TS2366 as a second net.
+ * Whether one diagnostic belongs on this page, as an exhaustive classification, never a
+ * filter predicate. Dropped kinds are the ones a Servers row reports beside the control
+ * that fixes them: a rejected entry THAT WAS DRAWN A ROW, and hidden groups. `rowOwned`
+ * is the host's own answer - a reject with no drawable identity gets NO row, and this
+ * list is then the only place its problems appear. A switch with no default and an
+ * annotated return type, deliberately: a boolean predicate let a new diagnostic kind
+ * reach the page unclassified. `noImplicitReturns` turns the unhandled case into
+ * TS7030; the downstream PageConfigDiagnostic switches give TS2366 as a second net.
  */
 function pageDiagnostic(diagnostic: ConfigDiagnosticView): PageConfigDiagnostic | undefined {
 	switch (diagnostic.kind) {
@@ -187,12 +137,9 @@ function pageDiagnostic(diagnostic: ConfigDiagnosticView): PageConfigDiagnostic 
 }
 
 /**
- * The diagnostics this page renders, which is not every diagnostic the host
- * builds; see pageDiagnostic for which are dropped and why.
- *
- * Exported because the rail's badge counts what this page shows. Two
- * definitions of "how many problems" would drift, and a badge reading 8 above
- * a list of 6 is the same bug in a smaller font.
+ * The diagnostics this page renders (see pageDiagnostic for what is dropped). Exported
+ * because the rail's badge counts what this page shows: two definitions of "how many
+ * problems" would drift, and a badge reading 8 above a list of 6 is the same bug.
  */
 export function pageConfigDiagnostics(diagnostics: readonly ConfigDiagnosticView[]): readonly PageConfigDiagnostic[] {
 	return diagnostics.flatMap((diagnostic) => {
@@ -202,10 +149,9 @@ export function pageConfigDiagnostics(diagnostics: readonly ConfigDiagnosticView
 }
 
 /**
- * A record lint's tier. `unrecognized-key` is named explicitly rather than
- * left to the host's advisory stamp: capability validation is advisory by
- * invariant, and encoding that here makes the contract local instead of a
- * property this file happens to inherit.
+ * A record lint's tier. `unrecognized-key` is named explicitly rather than left to the
+ * host's advisory stamp: encoding the advisory-by-invariant contract here makes it
+ * local instead of a property this file happens to inherit.
  */
 function recordSeverity(diagnostic: RecordDiagnostic): DiagnosticSeverity {
 	switch (diagnostic.kind) {
@@ -223,12 +169,8 @@ function recordSeverity(diagnostic: RecordDiagnostic): DiagnosticSeverity {
 }
 
 /**
- * One diagnostic's tier, independent of how it is worded.
- *
- * Split out of configProblem because the copied report needs the ranking
- * without the localized sentence beside it: the block is English by policy,
- * and reading the tier off a rendered ConfigProblem would have meant building
- * translated text to throw it away.
+ * One diagnostic's tier, split out of configProblem because the copied report needs the
+ * ranking without the localized sentence: the block is English by policy.
  */
 function problemSeverity(diagnostic: PageConfigDiagnostic): DiagnosticSeverity {
 	switch (diagnostic.kind) {
@@ -247,32 +189,16 @@ function problemSeverity(diagnostic: PageConfigDiagnostic): DiagnosticSeverity {
 }
 
 /**
- * One diagnostic as a line for the copied report: the tier, where it lives,
- * and the structural keys, in that order.
- *
- * English by construction rather than by translation - every part is a
- * classification (the tier ids, the lint kind) or a structural key the user
- * typed (setting ids, record keys, field names, the parser's own problem
- * strings). Nothing here goes through l10n, so the block stays English under
- * a Chinese UI without needing an English mirror for each sentence, and it
- * carries no server-derived text into a public issue report.
+ * One diagnostic as a line for the copied report. English by construction, not
+ * translation: every part is a classification or a structural key the user typed, so
+ * the block stays English under a Chinese UI and carries no server-derived text.
  */
 /**
- * A record key or field name as the COPIED report may carry it.
- *
- * A matcher key is normally a model ID the user typed, which is exactly what
- * makes the copied block worth pasting. A key containing "://" is a different
- * animal: that is the removed server-scoped grammar (the same rule
- * migrations/settingsRedesign/records.ts calls isUrlScopedKey), so the key IS
- * a base URL, and a base URL can carry credentials in its userinfo. The legacy
- * hints module documents these as local-dashboard-only and says they must
- * never reach logs or issue reports; this block is destined for a public
- * GitHub issue, so it redacts rather than trusting that no user ever put a
- * password in a URL.
- *
- * Repeated rather than imported because the webview tree cannot reach
- * src/extension; it is one substring test, and the canonical definition is
- * named above so the two can be compared.
+ * A record key or field name as the COPIED report may carry it. A key containing
+ * "://" is the removed server-scoped grammar (migrations/settingsRedesign/records.ts,
+ * isUrlScopedKey), so the key IS a base URL and may carry credentials in its userinfo -
+ * this block lands in public GitHub issues, so it redacts. The substring test is
+ * repeated, not imported: the webview tree cannot reach src/extension.
  */
 function copySafeKey(key: string): string {
 	return key.includes("://") ? "<url-scoped key>" : `"${key}"`;
@@ -298,12 +224,10 @@ function englishDiagnosticLine(diagnostic: PageConfigDiagnostic): string {
 			return `${tier} servers entry ${name}: ${diagnostic.problems.join("; ")}`;
 		}
 		case "legacy":
-			// The classification and the setting it sits in, and nothing else.
-			// `oldKey` on a URL-scoped hint IS a base URL, and `detail` on a
-			// parked-headers hint is the user's own header names - both are the
-			// user text hints.ts documents as local-dashboard-only. For a
-			// URL-scoped hint the setting is `detail`; for the two headers hints
-			// it is `oldKey`. Every branch yields a setting id, never user text.
+			// The classification and the setting it sits in, nothing else: `oldKey` on a URL-scoped
+			// hint IS a base URL, and `detail` on a parked-headers hint is the user's own header
+			// names (hints.ts: local-dashboard-only). Every branch yields a setting id, never user
+			// text.
 			return `${tier} ${diagnostic.hint} (${
 				diagnostic.hint === "inert-url-scoped-key" ? diagnostic.detail : diagnostic.oldKey
 			})`;
@@ -313,14 +237,9 @@ function englishDiagnosticLine(diagnostic: PageConfigDiagnostic): string {
 }
 
 /**
- * One record lint as a single consequence sentence; classifications and
- * structural keys only, never entered values.
- *
- * One sentence is the whole budget. Two things used to pad these and both are
- * said better elsewhere: the "and the rest still applies" clause, which is
- * exactly what the degraded tier means, and the matcher-key grammar, which is
- * reference material the guide holds. A reader scanning nine of these reads
- * the consequence nine times; they should not also read the manual nine times.
+ * One record lint as a single consequence sentence; classifications and structural keys
+ * only, never entered values. One sentence is the whole budget: the tier already says
+ * "the rest still applies", and the matcher grammar is the guide's reference material.
  */
 function recordProblemText(diagnostic: RecordDiagnostic): string {
 	switch (diagnostic.kind) {
@@ -371,9 +290,8 @@ function legacyProblemText(diagnostic: Extract<ConfigDiagnosticView, { kind: "le
 }
 
 /**
- * The legacy record-key hint names the setting its leftover sits in; only the
- * two record settings can carry one, and narrowing here keeps the assumption
- * in one place with its reason instead of casting at the call site.
+ * The legacy record-key hint names the setting its leftover sits in; only the two
+ * record settings can carry one, and narrowing here keeps the assumption in one place.
  */
 function revealTarget(setting: string): RevealableSettingId {
 	return setting === "models.capabilities" ? "models.capabilities" : "models.parameters";
@@ -385,19 +303,11 @@ function docsAction(href: DocsUrl, subject: string): DiagnosticAction {
 }
 
 /**
- * One configuration diagnostic, ranked and worded for this page. The `where`
- * strings are machine text (setting ids, record layers), so they render as
- * neutral outline badges rather than being folded into the sentence, where a
- * trailing "(models.parameters)" read as an afterthought on every line.
- *
- * Keys come from the diagnostic's own identity, never its list position: an
- * earlier problem appearing on the next push would otherwise slide every key
- * down one and move the user's focus to a different problem's button.
- *
- * The reveal action's `subject` is what makes its accessible name unique.
- * Several problems can name the same setting, and a screen-reader user
- * listing controls would otherwise hear "Show models.parameters in
- * settings.json" three times with nothing to choose between them.
+ * One configuration diagnostic, ranked and worded for this page. `where` strings are
+ * machine text, so they render as neutral badges rather than trailing parentheses. Keys
+ * come from the diagnostic's own identity, never list position: a new earlier problem
+ * would slide every key down one and move the user's focus. The reveal's `subject`
+ * makes its accessible name unique across problems naming the same setting.
  */
 function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 	switch (diagnostic.kind) {
@@ -411,11 +321,9 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 			// invalid matcher key IS the record key, so naming it twice would read
 			// as a mistake.
 			const subject = lint.key === lint.recordKey ? lint.recordKey : `${lint.recordKey}/${lint.key}`;
-			// Two of the sentences still name the record ("Nothing in record X",
-			// "Record X inherits nothing"); the other five stopped naming it when
-			// they were cut to one clause. Those get it back as a location chip
-			// rather than as prose - without it, two records failing on the same
-			// field render as identical rows.
+			// Five of the sentences stopped naming the record when cut to one clause; they get it
+			// back as a location chip - without it, two records failing on the same field render
+			// as identical rows.
 			const namesRecord = lint.kind === "invalid-matcher" || lint.kind === "unknown-inherit-key";
 			return {
 				key: `record:${diagnostic.setting}:${diagnostic.entryLabel ?? ""}:${lint.kind}:${subject}`,
@@ -426,11 +334,9 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 					...(diagnostic.entryLabel !== undefined ? [l10n.t("entry {0}", diagnostic.entryLabel)] : []),
 					...(namesRecord ? [] : [lint.recordKey]),
 				],
-				// Learn more on the one lint the shortened sentence cannot fix by
-				// itself. It points at the same guide the section header links, and
-				// N invalid keys still produce N identical links - accepted here
-				// and nowhere else, because for this lint the grammar IS the
-				// remedy, and the sentence stopped reciting it.
+				// Learn more on the one lint the sentence cannot fix by itself: N invalid keys still
+				// produce N identical links - accepted here and nowhere else, because for this lint
+				// the grammar IS the remedy.
 				actions:
 					lint.kind === "invalid-matcher"
 						? [
@@ -502,16 +408,10 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 }
 
 /**
- * One problem, behind a severity rule.
- *
- * The class names are the server rows' own, deliberately: severity is one
- * vocabulary across the dashboard, and two stylesheets spelling the same three
- * tiers would drift the moment either changed. The rule's own geometry (6px
- * double, 2px solid, 1px dashed) ranks the tiers by itself - hue and wash
- * support it but cannot rank, the washes measuring near-identical - so
- * blocking and degraded stay apart for a reader who cannot separate red from
- * amber, and all three stay ranked under forced colours, where every colour
- * collapses to one.
+ * One problem, behind a severity rule. The class names are the server rows' own:
+ * severity is one vocabulary, and two stylesheets spelling three tiers would drift. The
+ * rule's own geometry (6px double, 2px solid, 1px dashed) ranks the tiers by itself -
+ * hue and wash cannot, for a red/amber-blind reader or under forced colours.
  */
 function ConfigProblemLine({ problem }: { problem: ConfigProblem }) {
 	return (
@@ -562,20 +462,16 @@ function ConfigProblemLine({ problem }: { problem: ConfigProblem }) {
 }
 
 /**
- * The configuration problems, worst first. Always present as a section - the
- * page's sections do not appear and disappear under the reader - with the
- * clean state saying so in a sentence rather than leaving a gap where a
- * heading was.
+ * The configuration problems, worst first. Always present as a section - sections do
+ * not appear and disappear under the reader - with the clean state saying so in words.
  */
 function ConfigDiagnostics({ diagnostics }: { diagnostics: readonly ConfigDiagnosticView[] }) {
 	const problems = pageConfigDiagnostics(diagnostics)
 		.map(configProblem)
 		.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
-	// Advisories are excluded from the count for the reason the server summary
-	// excludes them: the configuration applies as written, so counting them
-	// would call a healthy setup unhealthy. The total rides along when the two
-	// numbers differ - the rail badge counts the whole list, and "7" beside a
-	// list of 8 is a question the reader should not have to answer.
+	// Advisories are excluded from the count (the configuration applies as written). The
+	// total rides along when the two numbers differ - the rail badge counts the whole
+	// list, and "7" beside a list of 8 is a question the reader should not have to answer.
 	const actionable = problems.filter((problem) => problem.severity !== "advisory").length;
 	return (
 		<Section
@@ -689,10 +585,8 @@ function treeTitle(tree: RecordTreeView): string {
 }
 
 /**
- * One record map as its inheritance tree. Open, with a plain heading: it used
- * to be a <details open>, which spent a disclosure triangle and a pointer
- * cursor advertising a collapse nobody wants on the one figure that explains
- * the whole record model.
+ * One record map as its inheritance tree. Open, with a plain heading: a <details open>
+ * spent a disclosure triangle advertising a collapse nobody wants here.
  */
 function RecordTree({ tree }: { tree: RecordTreeView }) {
 	return (
@@ -713,12 +607,9 @@ function RecordTree({ tree }: { tree: RecordTreeView }) {
 				) : null}
 				{tree.invalidKeys.map((key) => (
 					<li key={key} className="tree-model">
-						{/* A pointer, not a verdict: the Configuration section above owns
-						    the invalid-matcher fact (ranked, with the reveal and the
-						    guide), and this page's header comment records why one fact
-						    must not be told twice. The tree still names the key, because
-						    a record the reader wrote silently missing from the figure
-						    reads as a rendering bug. */}
+						{/* A pointer, not a verdict: the Configuration section owns the invalid-matcher fact,
+						    and one fact must not be told twice. The tree still names the key - a record the
+						    reader wrote silently missing from the figure reads as a rendering bug. */}
 						<span className="hint">{l10n.t('"{0}" is listed under Configuration above.', key)}</span>
 					</li>
 				))}
@@ -770,12 +661,9 @@ function capProvenance(cell: ResolvedCapCell): string {
 }
 
 /**
- * A table chip's text with every space-separated token held whole: below the
- * 920px pane tier the table's chips may wrap internally, and an unguarded
- * wrap breaks record keys at their hyphens ("settings claude-" / "sonnet-4") -
- * the same mid-token split the code cells forbid, on text the chip rule
- * documents as retypeable. Wraps land between tokens, never inside one, and
- * textContent is unchanged.
+ * A table chip's text with every space-separated token held whole: below the 920px pane
+ * tier chips may wrap internally, and an unguarded wrap breaks record keys at hyphens -
+ * a mid-token split on retypeable text. textContent is unchanged.
  */
 function ChipTokens({ text }: { text: string }) {
 	return (
@@ -792,11 +680,9 @@ function ChipTokens({ text }: { text: string }) {
 }
 
 /**
- * One generic capability cell: the friendly label where the consumed
- * vocabulary has one (the value keeps the monospace register), the raw wire
- * key in code otherwise (for an open field the key IS the fact), each with
- * its provenance chip. A labeled cell keeps its wire identity one focusable
- * tip away - this is a debugging surface, and the wire key is what a reader
+ * One generic capability cell: the friendly label where the vocabulary has one, the raw
+ * wire key in code otherwise (for an open field the key IS the fact). A labeled cell
+ * keeps its wire identity one focusable tip away - the wire key is what a reader
  * writes into a models.capabilities record.
  */
 function CapabilityCell({ cell }: { cell: ResolvedCapCell }) {
@@ -826,10 +712,9 @@ function CapabilityCell({ cell }: { cell: ResolvedCapCell }) {
 }
 
 /**
- * The supported-params list as its count, the full list one focusable tip
- * away (a 27-element JSON array printed inline made the whole table
- * unscannable). A cell whose value is not the validated string array falls
- * back to the generic rendering rather than miscounting.
+ * The supported-params list as its count, the full list one focusable tip away (a
+ * 27-element JSON array inline made the table unscannable). A value that is not the
+ * validated string array falls back to the generic rendering rather than miscounting.
  */
 function ParamsListCell({ cell }: { cell: ResolvedCapCell }) {
 	let list: readonly string[] | undefined;
@@ -847,13 +732,10 @@ function ParamsListCell({ cell }: { cell: ResolvedCapCell }) {
 	return (
 		<span className="resolved-cell">
 			<span className="resolved-field">{capabilityDisplayLabel(cell.name) ?? cell.name}</span>
-			{/* The tip carries the wire key and the EXACT wire value (the JSON
-			    array), not a joined rendering: element boundaries must survive
-			    on a debugging surface, and a comma inside one name would make a
-			    join ambiguous. The empty list keeps the tip too - the wire key
-			    must stay reachable on every rendering. The visible value is the
-			    bare count: the label beside it already says "parameters", and
-			    "Supported parameters 27 parameters" said it twice. */}
+			{/* The tip carries the wire key and the EXACT wire value, not a joined rendering:
+			    element boundaries must survive on a debugging surface, and a comma inside one name
+			    would make a join ambiguous. The empty list keeps the tip - the wire key must stay
+			    reachable on every rendering. */}
 			<HoverTip tip={`${cell.name} ${cell.valueText}`}>
 				<span>{String(list.length)}</span>
 			</HoverTip>
@@ -865,9 +747,8 @@ function ParamsListCell({ cell }: { cell: ResolvedCapCell }) {
 }
 
 /**
- * The pricing line's field label, naming the unit with the configured symbol
- * ("Pricing ($/M)"); the empty symbol drops the currency claim and keeps the
- * per-million unit.
+ * The pricing line's field label names the unit with the configured symbol; the empty
+ * symbol drops the currency claim and keeps the per-million unit.
  */
 function pricingFieldLabel(currencySymbol: string): string {
 	const symbol = currencySymbol.trim();
@@ -875,16 +756,11 @@ function pricingFieldLabel(currencySymbol: string): string {
 }
 
 /**
- * The capability cells of one resolved-model row, grouped for scanning: the
- * flag and token fields first (friendly labels where the vocabulary knows
- * them), then the eight cost fields collapsed into one $/M pricing line, then
- * the supported-params list as its count. Purely presentational regrouping:
- * every resolved field stays visible with its provenance - the pricing line
- * LEADS with the DOMINANT source's chip ("default: X, except where noted")
- * and badges only the parts that differ from it (one chip when uniform,
- * never eight chips saying the same thing), and its focusable tip keeps the
- * wire keys, exact per-token values, and per-field sources the $/M rendering
- * summarizes.
+ * The capability cells of one resolved-model row, grouped for scanning. Purely
+ * presentational: every field stays visible with its provenance - the pricing line
+ * LEADS with the DOMINANT source's chip and badges only the parts that differ (one
+ * chip when uniform, never eight saying the same thing); its tip keeps the wire keys,
+ * exact per-token values, and per-field sources.
  */
 function CapabilityCells({ cells, currencySymbol }: { cells: readonly ResolvedCapCell[]; currencySymbol: string }) {
 	const pricing = COST_CAPABILITY_FIELDS.flatMap((name) => {
@@ -974,10 +850,9 @@ function matchesResolvedFilter(row: ResolvedModelRow, needle: string): boolean {
 }
 
 /**
- * The Resolution view: the inheritance trees and the flat provenance table,
- * both reading the extension's shared resolution (readResolvedModels). This is
- * the clearest explanation of the record model anywhere in the product, which
- * is why it is a destination section rather than an appendix.
+ * The Resolution view: the inheritance trees and the flat provenance table, both
+ * reading the extension's shared resolution (readResolvedModels). The clearest
+ * explanation of the record model in the product, hence a destination section.
  */
 function ResolvedModels({
 	active,
@@ -1170,9 +1045,8 @@ function ResolvedModels({
 }
 
 /**
- * A row's English error mirror substituted for the localized one: the copied
- * block is destined for public issue reports, which stay English by policy,
- * while the server rows keep the localized error the chat UI showed.
+ * A row's English error mirror substituted for the localized one: the copied block
+ * stays English by policy, while the server rows keep the localized error.
  */
 function withEnglishError(server: DashboardServer): DashboardServer {
 	if (server.state !== "unchecked" && server.errorEnglish !== undefined) {
@@ -1182,25 +1056,12 @@ function withEnglishError(server: DashboardServer): DashboardServer {
 }
 
 /**
- * The whole report as plain text, for the Copy diagnostics action: the
- * connection verdict, the facts, one outcome line per server, then the
- * configuration diagnostics this destination shows - composed from pushed
- * state only (which carries no secret values by construction; see the storage
- * invariants). Per-server lines go through serverOutcomeText, the shared
- * renderer, so the copied wording cannot drift from the classification the
- * server rows render.
- *
- * The configuration block was missing for as long as this action existed:
- * the page's subject is configuration, and the copy carried only connections,
- * so someone filing an issue about an inert matcher key pasted a report that
- * never mentioned it. It is the resolution view that stays out of issue
- * reports, not the diagnostics.
- *
- * Fully English, timestamp included: a plain ISO instant rather than a
- * locale-shaped date, and the diagnostic lines are composed from
- * classifications and structural keys rather than translated from the
- * on-screen sentences, so a Chinese UI copies the same block an English one
- * does.
+ * The whole report as plain text for Copy diagnostics, composed from pushed state only
+ * (no secret values by construction). Per-server lines go through serverOutcomeText,
+ * so the copied wording cannot drift from what the rows render. Fully English,
+ * timestamp a plain ISO instant; lines composed from classifications and structural
+ * keys, so a Chinese UI copies the same block an English one does. The resolution view
+ * stays out of issue reports; the diagnostics do not.
  */
 function diagnosticsReportText(
 	servers: readonly DashboardServer[],
@@ -1230,12 +1091,9 @@ function diagnosticsReportText(
 	for (const problem of problems) {
 		lines.push(`  ${englishDiagnosticLine(problem)}`);
 	}
-	// Hidden groups are the one dropped kind with no other route into the
-	// paste: they contribute no server row, so a hidden-only install would
-	// otherwise report "Not configured / Configuration diagnostics: 0" and
-	// assert a clean setup while the reader's screen says a group is serving
-	// nothing. A count, never the labels - those are user text, and the count
-	// is what makes the zero above honest.
+	// Hidden groups are the one dropped kind with no other route into the paste: they
+	// contribute no server row, so a hidden-only install would otherwise assert a clean
+	// setup. A count, never the labels - those are user text.
 	const hidden = diagnostics.reduce(
 		(total, diagnostic) => (diagnostic.kind === "hidden-groups" ? total + diagnostic.labels.length : total),
 		0
@@ -1261,13 +1119,9 @@ function LinkRow({ href, icon, label }: { href: FeedbackUrl | DocsUrl; icon: Rea
 }
 
 /**
- * The page's four tools, a vertical list at the top of the page body - the
- * page's whole subject is acting on this install, so its eight actions lead
- * the body as one scannable stack, tools first: the three that collect
- * evidence about this installation, then the escalation that takes it
- * somewhere. A plain <ul>, no group label of its own - the buttons name
- * themselves, list semantics give a reader the count and the boundaries, and
- * the page heading directly above already scopes them.
+ * The page's four tools lead the body as one scannable stack: evidence collectors
+ * first, then the escalation. A plain <ul>, no group label - the buttons name
+ * themselves and the page heading scopes them.
  */
 function DiagnosticsTools({
 	servers,
@@ -1337,15 +1191,9 @@ function DiagnosticsTools({
 }
 
 /**
- * The places to take what the page's tools collected: the docs and the three
- * GitHub destinations, continuing the tools' vertical list one rank quieter -
- * the tools are the page's actions, these are its external escape hatches, so
- * the links wear the muted register at rest (the stylesheet's rule on
- * `.feedback-links`) instead of a link blue that outshone the actions above
- * them. No heading of its own - four links are a shelf, not a section - so the
- * nav's aria-label keeps the grouping the heading used to announce, and no "?"
- * either: the links name their destinations, and what Copy diagnostics
- * collects is the page header's help affordance's question.
+ * The external escape hatches, one rank quieter than the tools (the muted register at
+ * rest, `.feedback-links` - link blue outshone the actions above). No heading: four
+ * links are a shelf, and the nav's aria-label keeps the grouping.
  */
 function Support() {
 	return (
@@ -1383,13 +1231,9 @@ export function DiagnosticsSection({
 	/** Open a model's inspector overlay in place; App renders the merged panel over the active tab, scrolled to the section. */
 	onInspect: (target: { scopeKey: string; rawId: string; serverLabel: string }, section: InspectorSection) => void;
 }) {
-	// One page-level header, the anatomy every other destination already has.
-	// The page's eight actions - the four tools, then the four support links -
-	// open the body as one vertical list (settled user direction; the header's
-	// actions slot stays empty here), so the reader who opens Diagnostics for
-	// the output log or a report still finds them before any table. The
-	// sections below are ordered by what the reader can act on: what is wrong,
-	// then how the records resolved.
+	// One page-level header, the anatomy every destination has. The eight actions open the
+	// body as one vertical list (settled user direction; the header's actions slot stays
+	// empty); sections below are ordered by what the reader can act on.
 	return (
 		<Section
 			id="diagnostics"

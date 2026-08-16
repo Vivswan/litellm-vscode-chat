@@ -1,11 +1,8 @@
 /**
- * Every external destination the Diagnostics tab's feedback rows link to, in
- * one place. Literal string constants only - no template interpolation, not
- * even of other constants - so a read of this file proves link targets never
- * carry server data (the docsLinks.ts rule). diagnostics.test.tsx enforces
- * the literal-only shape at the source level and derives the expected
- * marketplace URL from package.json, so a renamed publisher or extension
- * fails CI instead of serving a dead review link.
+ * Every external destination the Diagnostics feedback rows link to. Literal string
+ * constants only (the docsLinks.ts rule), so link targets provably never carry server
+ * data; diagnostics.test.tsx enforces the shape and derives the marketplace URL from
+ * package.json, so a renamed publisher fails CI instead of serving a dead link.
  */
 
 export const FEEDBACK_LINK_RATE =

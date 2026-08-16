@@ -1,12 +1,10 @@
 /**
  * The server edit form's capability section over an open-vocabulary entry
- * record: prod's entry record carries the shared worst case (the full
- * eight-field cost family with sub-micro scientific values plus the 27-entry
- * supported_openai_params list) and an unknown supports_web_search key, with
- * the server's observed /model/info key set as the hint evidence. The caps
- * matcher opens in the overlay so the typed inputs, the applied-as-is hint,
- * and the open-field fallback boxes render inside the form's slide-over at
- * full record density.
+ * record: prod's entry record carries the shared worst case plus an unknown
+ * supports_web_search key, with the server's observed /model/info key set as the
+ * hint evidence. The caps matcher opens in the overlay so the typed inputs, the
+ * applied-as-is hint, and the open-field fallback boxes render inside the form's
+ * slide-over at full record density.
  */
 import type { DashboardServer, DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";

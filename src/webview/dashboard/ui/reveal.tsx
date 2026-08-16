@@ -1,36 +1,21 @@
 /**
- * The dashboard's ONE hover-reveal idiom, extracted so it cannot fork again:
- * an action that rests hidden and appears when the pointer or focus reaches
- * its named group. It forked twice before this existed - the settings rows
- * spelled it with `invisible` (visibility drops the button from the tab
- * order, so a row with no other focusable control had unreachable actions)
- * and the heading jump spelled it with opacity but its own clause list.
- *
- * Opacity, never visibility: the button stays in the tab order so its OWN
- * focus can reveal it (the group-focus-within clause covers that). The
- * wrapper carries the opacity rather than the Button because Button's
- * disabled:opacity-60 would outrank a bare opacity-0 on the same element.
- * The @max-[560px]/pane clause keeps the action painted where hover does not
- * exist (touch, narrow panes), keyed to the stylesheet's 560px tier, and the
- * transition stands down under reduced motion.
- *
- * The bordered modes refuse the hover-reveal quietness trade outright: OS
- * forced colors and both high-contrast themes draw every control's box at
- * rest, so a resting-invisible action is a stretch of bare boxes appearing
- * and vanishing under the pointer - dashboard.css's .server-actions cluster
- * makes the same call. Those clauses live in theme.css against the
- * data-slot below (its forced-colors block and the HC body-class twins,
- * the same shape the button hand-back reset uses), because opacity-0 is a
- * utility and only an unlayered rule reliably beats one; theme.test.ts pins
- * them.
+ * The dashboard's ONE hover-reveal idiom, extracted so it cannot fork again. Opacity,
+ * never visibility: the button stays in the tab order so its OWN focus can reveal it;
+ * the wrapper carries the opacity because Button's disabled:opacity-60 would outrank a
+ * bare opacity-0 on the same element. The @max-[560px]/pane clause keeps the action
+ * painted where hover does not exist; the transition stands down under reduced motion.
+ * The bordered modes refuse the quietness trade outright (every control's box draws at
+ * rest, so a resting-invisible action is bare boxes flickering): those clauses live in
+ * theme.css against the data-slot below, because opacity-0 is a utility and only an
+ * unlayered rule reliably beats one; theme.test.ts pins them.
  */
 
 import type { ReactNode } from "react";
 import { cn } from "./cn";
 
 /**
- * The group scopes a reveal can join, spelled as whole literals because
- * Tailwind compiles only the variants it can read whole in the source.
+ * The group scopes a reveal can join, spelled as whole literals because Tailwind
+ * compiles only variants it can read whole in the source.
  */
 const REVEAL_WITHIN = {
 	/** A settings row (`group/setting` on the row wrapper). */

@@ -1,10 +1,6 @@
 /**
- * Protocol-typed builders for the webview suite. Everything here compiles
- * against the src/dashboard endpoint and view-model modules, so a wire-shape
- * change breaks
- * these fixtures instead of letting the tests drift from the contract. The
- * one deliberate exception is poisonedState, which casts through unknown to
- * smuggle protocol-forbidden value fields; the cast lives here and only here.
+ * Protocol-typed builders: a wire-shape change breaks these fixtures rather than letting the tests drift. The one
+ * cast through unknown is poisonedStatePush's, which smuggles protocol-forbidden value fields; it lives here alone.
  */
 import type { ExtensionToWebviewMessage } from "../../../dashboard/endpoints";
 import type {
@@ -124,10 +120,8 @@ const NO_SECRETS: Readonly<Record<SecretFieldId, SecretLocation>> = {
 };
 
 export function makeDeclaredServer(overrides: Partial<DeclaredServer> = {}): DeclaredServer {
-	// The base literal is fully typed against the protocol, so a drifted or
-	// renamed required field fails compilation here. Only the merge itself is
-	// cast: spreading a Partial over the state/error discriminated union is
-	// beyond what the checker can prove.
+	// Only the merge is cast: spreading a Partial over the state/error discriminated union is beyond the checker.
+	// The base literal stays typed, so a drifted or renamed required field fails compilation here.
 	const base: DeclaredServer = {
 		origin: "declared",
 		label: "Prod",
@@ -206,11 +200,9 @@ export function statePush(state: DashboardState): ExtensionToWebviewMessage {
 }
 
 /**
- * A state push whose server rows illegally carry secret VALUE fields the
- * protocol forbids (state pushes carry locations only). If any component
- * spreads server or config objects into the DOM, the sentinel surfaces and
- * the leak sweep catches it. The cast through unknown is confined to this
- * helper on purpose; never let it normalize into non-test code.
+ * A state push whose server rows illegally carry secret VALUE fields (pushes carry locations only). Any component
+ * that spreads a server or config object into the DOM surfaces the sentinel for the leak sweep. The cast through
+ * unknown is confined to this helper on purpose; never let it normalize into non-test code.
  */
 export function poisonedStatePush(sentinel: string): ExtensionToWebviewMessage {
 	const poisonedServer = {

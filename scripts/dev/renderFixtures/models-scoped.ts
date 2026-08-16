@@ -1,20 +1,16 @@
 /**
- * The Models destination scoped to one server, which is the only state that
- * paints the scope chip.
+ * The Models destination scoped to one server, the only state that paints the
+ * scope chip.
  *
- * The chip is the one place on the dashboard where a button sits inside a
- * bordered container's own padding, so the container's numbers are measured
- * against the clear button's INK rather than its box: the Button primitive
- * hands its horizontal padding back to the layout, and a padding sized against
- * the box puts the X a couple of pixels from the pill's border with its hover
- * fill hanging over the outline. What this should photograph: the X inset from
- * the border the way the label is on the other side, and the pill's own
- * outline unbroken.
+ * The chip is the one place where a button sits inside a bordered container's
+ * own padding, so the container's numbers are measured against the clear
+ * button's INK rather than its box: the Button primitive hands its horizontal
+ * padding back to the layout. The X should be inset from the border the way the
+ * label is on the other side, with the pill's outline unbroken.
  *
- * Reached the way a reader reaches it - the count link on a server row - rather
- * than by posting a scoped state, because the chip and the scope are the same
- * navigation and a fixture that fakes one photographs a page the dashboard
- * cannot produce.
+ * Reached the way a reader reaches it - the count link on a server row - because
+ * the chip and the scope are the same navigation, and a fixture that faked one
+ * would photograph a page the dashboard cannot produce.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, GATEWAY_SERVER, MODELS, PROD_SERVER } from "./shared.ts";

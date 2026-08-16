@@ -1,12 +1,7 @@
 /**
- * The two-part failure rendering seam: redesigned error messages arrive as
- * "headline\ndetail", and nothing in the webview styles newlines, so the raw
- * string would collapse into one run-on paragraph. FailureText splits the
- * parts with the same shared extraction the host notifier uses; these tests
- * pin the split at the component and at the surfaces that render host
- * failure text (the scalar-failure line, the server banners, the diagnostics
- * grid) - plus the setUsageAlertThresholds wiring, whose failures previously
- * reached no component at all.
+ * The two-part failure rendering seam: error messages arrive as "headline\ndetail", and nothing in the webview
+ * styles newlines, so the raw string would collapse into one run-on paragraph. FailureText splits the parts with
+ * the same shared extraction the host notifier uses; pinned at the component and at every surface that renders it.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { App } from "../../../../webview/dashboard/app";
@@ -113,8 +108,7 @@ test("a two-part error keeps its technical half on its own line, under its own r
 	expect(lines[0]?.querySelector(".row-diagnostic-detail")?.textContent).toBe(
 		"GET http://prod.test/v1/models: ETIMEDOUT"
 	);
-	// There are no separators left to dangle: each row owns its line, which is
-	// the whole reason the joined banner went away.
+	// Each row owns its line, so there are no separators left to dangle.
 	expect(root.textContent).not.toContain("; Beta");
 	expect(lines[1]?.textContent).toContain("bang");
 	// A one-part error grows no empty detail line.

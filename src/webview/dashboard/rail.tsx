@@ -1,39 +1,14 @@
 /**
- * The dashboard's rail: navigation and global state, always on screen.
- *
- * It replaces a top tab strip, and the reason is the state rather than the
- * geometry. The strip could only say which section you were in; everything
- * about the fleet - is anything broken, how many servers, when did they last
- * sync - lived in a hero band that scrolled away the moment you started
- * reading a table. A reader who wants to know whether their setup is healthy
- * should not have to scroll up to find out.
- *
- * The ARIA contract stays the tabs contract, deliberately. This is still one
- * pane at a time with a roving tabindex, which is what `role="tablist"`
- * describes; only the axis changed, so the arrow keys follow it (Up/Down) and
- * the list declares itself vertical. Keeping it also keeps the `tab-<section>`
- * ids, which the inspector's focus fallback names - retiring the visual strip
- * should not quietly break where focus lands when a dialog closes.
- *
- * NARROW: below the rail's collapse width the rail becomes an icon rail, the
- * way VS Code's own activity bar is one. A dashboard opened in a split editor
- * is often 500-700px wide, where 216px of rail is nearly half the window spent
- * on five words; the icons give that width back to the content.
- *
- * Nothing is hidden to do it. Every label, the brand, the fleet's verdict and
- * its sync time stay in the DOM and go visually-hidden, so the accessible name
- * of every control, the page's h1, and the whole keyboard contract are the same
- * at 500px as at 1500px - what changes is only what is painted. For sighted
- * readers each collapsed control carries the page's tip primitive (ui/tip.tsx),
- * placed beside the rail: the rail is a column against the window's edge, so a
- * tip above a control would cover its neighbour, and the rail's own scrolling
- * column would clip an absolute tip. Every rail bubble is paint-only - its text
- * repeats what the accessible tree already carries (a control's own label, or,
- * for the verdict, the word plus the sync line that stays in the DOM beside
- * it), so none of them is a description; the verdict's tab stop instead points
- * at that sync paragraph, which is the one fact its own text does not carry.
- * The bubbles render only while the rail is collapsed: at full width the label
- * is painted right there, and a tip repeating it is noise.
+ * The dashboard's rail: navigation and global state, always on screen (it replaced a tab
+ * strip whose fleet state scrolled away). The ARIA contract stays the tabs contract:
+ * still one pane at a time with a roving tabindex (role="tablist"), only the axis is
+ * vertical - and the `tab-<section>` ids stay, which the inspector's focus fallback
+ * names. NARROW: below the collapse the rail becomes an icon rail; nothing is hidden -
+ * labels, brand, verdict, and sync time go visually-hidden, so the accessible tree and
+ * keyboard contract are identical at every width. Collapsed controls carry the tip
+ * primitive beside the rail (a tip above would cover its neighbour, and the rail's
+ * scrolling column would clip it); every bubble is paint-only, repeating what the
+ * accessible tree already carries, and renders only while collapsed.
  */
 import * as l10n from "@vscode/l10n";
 import type { KeyboardEvent, ReactNode } from "react";
@@ -55,26 +30,20 @@ export interface RailSection<Id extends string = string> {
 	readonly id: Id;
 	readonly label: string;
 	/**
-	 * What this destination looks like once the rail collapses and the label
-	 * goes visually-hidden. Required rather than optional: an icon rail with a
-	 * missing icon is a blank square with no way back to its name, so a new
-	 * destination has to bring one.
+	 * The destination's collapsed-rail icon. Required: an icon rail with a missing icon is a
+	 * blank square with no way back to its name.
 	 */
 	readonly icon: ReactNode;
 	/**
-	 * The live number this destination is about, on the item itself. This is
-	 * the rail's whole claim over a tab strip: a strip can only say where you
-	 * are, a count says whether it is worth going. Absent when there is nothing
-	 * to count - an absent number is a fact, and a zero would be a different
-	 * and usually wrong one.
+	 * The live number this destination is about - the rail's whole claim over a tab strip.
+	 * Absent when there is nothing to count: an absent number is a fact, a zero would be a
+	 * different and usually wrong one.
 	 */
 	readonly count?: string | undefined;
 	/**
-	 * The count said in words, for the accessible name: a bare "4" beside a
-	 * label announces as "Servers 4", which is a number without a
-	 * noun, and the tabpanel inherits that name too. Carries its own unit -
-	 * "4 models", "87% of budget" - and the visible label stays inside the
-	 * accessible name, as Label in Name requires.
+	 * The count said in words, with its own unit ("4 models", "87% of budget"): a bare "4"
+	 * announces as "Servers 4", and the tabpanel inherits that name. The visible label stays
+	 * inside the accessible name (Label in Name).
 	 */
 	readonly countLabel?: string | undefined;
 	/** Tints the count when it is something to act on rather than merely a total. */
@@ -82,23 +51,17 @@ export interface RailSection<Id extends string = string> {
 }
 
 /**
- * The width at which the rail collapses, as a media query, spelled here as well
- * as in the stylesheet - CSS decides what the rail LOOKS like and this decides
- * what it can DO, and neither can read the other. A test pins the two spellings
- * together so they cannot drift.
+ * The collapse width as a media query, spelled here as well as in the stylesheet: CSS
+ * decides what the rail LOOKS like, this decides what it can DO, and neither can read
+ * the other. A test pins the two spellings together.
  */
 export const RAIL_COLLAPSE_QUERY = "(width < 1000px)";
 
 /**
- * Whether the rail is currently painting icons instead of labels.
- *
- * The rail's own geometry is CSS's business, but two behaviours depend on it and
- * cannot be expressed in a stylesheet: whether the fleet's verdict is worth a
- * tab stop (below the collapse its word is unpainted, so a keyboard reader has
- * no other way to reach it; above it, a stop that reveals nothing is a stop
- * every keyboard user pays on every visit), and whether each control renders
- * its tip bubble at all (above the collapse the labels are painted, and a tip
- * repeating the label beside it is noise).
+ * Whether the rail is painting icons instead of labels. Two behaviours depend on it that
+ * a stylesheet cannot express: whether the verdict is worth a tab stop (collapsed, its
+ * word is unpainted; expanded, a stop revealing nothing taxes every keyboard user), and
+ * whether each control renders its tip bubble at all.
  */
 function useCollapsedRail(): boolean {
 	const [collapsed, setCollapsed] = useState(false);
@@ -184,12 +147,9 @@ function RailAction({
 		<Button
 			variant="secondary"
 			size="compact"
-			// aria-disabled, not disabled, and for the reason the Button's own
-			// doc block gives: the attribute drops the control out of the tab
-			// order and stops every pointer event, which on the collapsed rail
-			// left an icon-only control that could not be focused and whose tip
-			// could never measure itself - so a first run with no servers yet
-			// showed one glyph nobody could decode. The handler refuses instead.
+			// aria-disabled, not disabled (the Button doc's reason): the attribute drops the control
+			// from the tab order and stops pointer events, leaving an icon-only control whose tip
+			// could never measure itself. The handler refuses instead.
 			aria-disabled={disabled === true}
 			onClick={() => {
 				if (disabled !== true) {
@@ -293,22 +253,15 @@ export function Rail<Id extends string>({
 					{/* The same pill and tone vocabulary every server row uses: one set of
 				    state indicators for the page, so the rail's verdict and a row's
 				    can never drift apart visually. */}
-					{/* Focusable only while the rail is collapsed, which is the only
-					    width where the tab stop buys anything: there the verdict is a
-					    dot and its word is unpainted, so hover is otherwise the sole way
-					    to read it and a keyboard or touch reader has none. Above the
-					    collapse the word is right there, and a stop that reveals nothing
-					    is one every keyboard user pays on every visit. Screen readers
-					    reach the word at both widths either way - it is in the DOM. */}
+					{/* Focusable only while collapsed - there the verdict is a dot and its word unpainted, so
+					    a keyboard or touch reader has no other way to read it; above the collapse a stop
+					    that reveals nothing taxes every visit. Screen readers reach the word either way. */}
 					<p
 						className={cn("rail-status pill", `tone-${overall.tone}`)}
 						tabIndex={collapsed ? 0 : undefined}
-						// The tab stop must say everything the hover says, and each thing
-						// once. The pill's own text is the verdict word, and the sync line
-						// below is still in the DOM at this width (visually-hidden, not
-						// removed), so the description points at THAT paragraph rather than
-						// at the tip - whose text is the word and the time together, and
-						// would read the word twice. The tip stays paint-only, as the tabs'
+						// The tab stop must say everything the hover says, each thing once: the description
+						// points at the visually-hidden sync paragraph (the one fact the pill's own text lacks);
+						// the tip - word plus time - would read the word twice, so it stays paint-only.
 						// tips are.
 						aria-describedby={collapsed && synced !== undefined ? syncedId : undefined}
 						{...verdictTip.triggerProps}
@@ -322,12 +275,9 @@ export function Rail<Id extends string>({
 							{l10n.t("last sync {0}", synced)}
 						</p>
 					) : null}
-					{/* The acked method, not the fire-and-forget command post: this is the
-					    page's most prominent sync, and on the command route it rode the
-					    chained channel and held every later dashboard message for the whole
-					    pass. Nothing here waits on the ack - the command reports its own
-					    outcome as a toast - but the row-level Retry correlates by request
-					    id, so this sync cannot clear that row's spinner. */}
+					{/* The acked method, not the fire-and-forget command post: on the command route this rode
+					    the chained channel and held every later message for the whole pass. Nothing waits on
+					    the ack, but the row-level Retry correlates by id, so this cannot clear its spinner. */}
 					<RailAction
 						icon={<IconSync />}
 						label={l10n.t("Sync models")}

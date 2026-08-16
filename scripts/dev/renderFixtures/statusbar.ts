@@ -1,10 +1,8 @@
 /**
- * A MOCK of the two status bar items in their states, rendered as a strip
- * inside the panel context (the visual-review mandate allows mocking the
- * status bar here; the real items are vscode StatusBarItems the webview
- * cannot host). Mirrors src/extension/ui/status.ts + usageStatusItem.ts
- * renderings: the quiet connection item (count moved to the tooltip) and the
- * usage item plain / warning / error / hidden-when-stale.
+ * A MOCK of the two status bar items in their states, rendered as a strip inside
+ * the panel context: the real items are vscode StatusBarItems the webview cannot
+ * host, and the visual-review mandate allows mocking them here. Mirrors
+ * src/extension/ui/status.ts + usageStatusItem.ts renderings.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";

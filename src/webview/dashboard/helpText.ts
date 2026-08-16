@@ -1,16 +1,10 @@
 /**
- * Every help string the dashboard's "?" affordances and inline hint lines
- * show, in one place. Each export is a zero-argument function returning one
- * l10n.t literal with no interpolation - lazy so the strings resolve after the
- * webview's l10n bootstrap, and provably static so the secret sweeps can trust
- * that help text never carries server data; a single read-through still
- * reviews all of it. The claims here are sourced from the setting descriptions
- * and the transport/auth modules; when behavior changes there, this file is
- * the one to update.
- *
- * Style: one or two short sentences, leading with an example where one helps.
- * Say what the field is for and the one thing that would surprise; the
- * setting descriptions and the docs/ pages carry the full story.
+ * Every dashboard help string, as zero-argument functions returning one l10n.t literal:
+ * lazy so strings resolve after the webview's l10n bootstrap, and provably static so
+ * help text can never carry server data. The claims are sourced from the setting
+ * descriptions and the transport/auth modules; when behavior changes there, THIS file
+ * is the one to update.
+ * Style: one or two short sentences, example-first; say the one thing that would surprise.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -47,21 +41,18 @@ export function helpImportExportGroup(): string {
 	);
 }
 
-/** The Connection section's "?": what the section as a whole establishes, which neither field glyph below it covers. */
 export function helpConnectionSection(): string {
 	return l10n.t(
 		"Names one proxy and points at it, e.g. Production at http://localhost:4000. The name is what the model picker shows, and every model here comes from that one URL."
 	);
 }
 
-/** The Discovery section's "?": the one fact that decides whether a reader needs the section at all. */
 export function helpDiscoverySection(): string {
 	return l10n.t(
 		"Only needed when the proxy cannot list its own models, or cannot report their info. Declared IDs register anyway; marked failures log quietly and skip retries."
 	);
 }
 
-/** The Adoption section's "?": what adopting writes, and where the credentials do NOT go. */
 export function helpAdoptionSection(): string {
 	return l10n.t(
 		"Writes this VS Code-managed group into the litellm-vscode-chat.servers setting so it becomes editable here. Its credentials are copied inside the extension and never pass through this page."
@@ -142,10 +133,7 @@ export function serverFieldHelp(field: ServerFormField): string {
 	}
 }
 
-/**
- * The OAuth form's apiKey companion: same field, different wire behavior than
- * the standalone API-key form, so it carries its own help.
- */
+/** The OAuth form's apiKey companion: same field, different wire behavior, so its own help. */
 export function helpOauthCompanionApiKey(): string {
 	return l10n.t(
 		"Sent beside the OAuth bearer as X-API-Key only, e.g. a LiteLLM key naming the team to bill; Authorization stays with the token."
@@ -242,45 +230,38 @@ export function helpModelCapabilitiesSection(): string {
 	);
 }
 
-/** The chat.tokenEstimation row's "?": the Auto mode's one surprise, moved out of the description. */
 export function helpTokenEstimation(): string {
 	return l10n.t(
 		"Auto loads the o200k_base tokenizer where a plain character count underestimates, e.g. CJK text; a loaded tokenizer holds 10-30 MB in memory."
 	);
 }
 
-/** The chat.additionalToolSchemaKeywords row's "?": the caveats, moved out of the description. */
 export function helpToolSchemaKeywords(): string {
 	return l10n.t(
 		"The built-in set always applies; keywords your server rejects can fail requests. Unlisted keywords are stripped before sending."
 	);
 }
 
-/** The usage.currencySymbol row's "?": the no-conversion contract, moved out of the description. */
 export function helpCurrencySymbol(): string {
 	return l10n.t(
 		"Display only - amounts are never converted; they render exactly as the server reports them, whatever its billing currency."
 	);
 }
 
-/** The ui.theme row's "?": the Auto pick's meaning and the one exception. */
 export function helpUiTheme(): string {
 	return l10n.t("Auto follows the editor's theme; high contrast themes always do, whichever option is picked here.");
 }
 
-/** The ui.accent row's "?": what the accent deliberately does NOT recolor. */
 export function helpUiAccent(): string {
 	return l10n.t(
 		"Status colors stay green, yellow and red whatever you pick, and high contrast themes keep their own accent."
 	);
 }
 
-/** The usage.statusBar row's "?": what the item's number means, moved out of the description. */
 export function helpUsageStatusBar(): string {
 	return l10n.t("The number shown is the worst fresh server's spend as a percentage of its budget, e.g. 80%.");
 }
 
-/** The usage.alertThresholds boxes' "?": the entry grammar and the off gesture, moved out of the description. */
 export function helpUsageThresholds(): string {
 	return l10n.t("Enter a percentage or a fraction, e.g. 80% or 0.8; clear both fields to turn alerts off.");
 }
@@ -303,7 +284,6 @@ export function helpResolutionSection(): string {
 	);
 }
 
-/** The Diagnostics page header's "?": it explains the header's own tools, which is where they live. */
 export function helpDiagnosticsTools(): string {
 	return l10n.t(
 		"Evidence about this install, e.g. Copy diagnostics puts your connections and configuration problems on the clipboard as English text. Report a bug pre-fills a GitHub issue."
@@ -311,10 +291,8 @@ export function helpDiagnosticsTools(): string {
 }
 
 /**
- * The settings rows that carry a "?", in row order. Deliberately sparse:
- * rows already render their one-line descriptions, so help appears only
- * where a longer explanation earns it. Static ids (nothing localized), so
- * the list may live at module level; settingRowHelp holds the strings.
+ * The settings rows that carry a "?", in row order; sparse on purpose - only where a longer
+ * explanation earns it. Static ids (nothing localized), so the list may live at module level.
  */
 export const SETTING_ROW_HELP_IDS: readonly (NumberSettingId | BooleanSettingId)[] = [
 	"chat.timeout",
@@ -367,11 +345,8 @@ export function settingRowHelp(id: NumberSettingId | BooleanSettingId): string |
 				"Applies only on models that advertise support, currently Anthropic Claude models (supports_prompt_caching); the reused prefix bills at the cache rate instead of full price."
 			);
 		case "models.openRouterCatalog":
-			// Opens with the row's displaced static description (the user-facing
-			// sentence presenters.ts still declares); the filter reads THIS tip
-			// and the live status, never that invisible description - two keys
-			// translate independently, so identity across them cannot be relied
-			// on outside English.
+			// The filter reads THIS tip and the live status, never the row's displaced static
+			// description; the two keys translate independently, so never rely on identity.
 			return l10n.t(
 				"Fill missing model capabilities from the OpenRouter catalog, refreshed weekly. Off, only explicit _openrouter_model directives read the cached snapshot."
 			);

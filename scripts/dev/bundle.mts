@@ -61,11 +61,9 @@ async function tailwindCss(id: string, entrySource: string): Promise<string> {
 		// means the scan broke, not that the entry stopped shipping Tailwind.
 		throw new Error(`[CSS_ERROR] No package imports found in Tailwind entry ${id}; the notices scan cannot credit it`);
 	}
-	// The installed CLI, invoked by path through the shared resolver (the
-	// compiled-sheet suites spawn the same binary): `bun x @tailwindcss/cli`
-	// re-resolved the package against the npm registry on every run, which made
-	// each CI bundle hostage to a registry blip (an ETIMEDOUT here failed a
-	// green tree).
+	// The installed CLI, invoked by path through the shared resolver: `bun x
+	// @tailwindcss/cli` re-resolved the package against the npm registry on every
+	// run, making each CI bundle hostage to a registry blip.
 	const proc = Bun.spawn({
 		cmd: [process.execPath, tailwindCliBin(), "--input", id, ...(production ? ["--minify"] : [])],
 		stdout: "pipe",
@@ -102,11 +100,8 @@ async function bundleCssFile(id: string): Promise<string> {
 /**
  * Rolldown removed its native CSS bundling (rolldown/rolldown#4271), so the
  * webview's stylesheet imports resolve to empty modules here and the collected
- * files are compiled per file - Tailwind entries through the Tailwind CLI,
- * plain stylesheets through Bun's CSS bundler - into the sibling stylesheet
- * asset, in import order. Bun emits no sourcemap for CSS, so unlike the JS
- * outputs the stylesheet ships without one (no .map ever reaches the VSIX
- * either way).
+ * files are compiled per file into the sibling stylesheet asset, in import
+ * order. Bun emits no sourcemap for CSS, so the stylesheet ships without one.
  */
 function stylesheetPlugin(): Plugin {
 	const cssFiles: string[] = [];
@@ -125,10 +120,9 @@ function stylesheetPlugin(): Plugin {
 		},
 		async generateBundle() {
 			// Emit in entry-DFS import order, not load-callback or getModuleIds
-			// order (neither follows the source): the cascade must match what
-			// the imports declare. A css import removed during watch mode
-			// (whose load never reruns) is absent from the graph walk and so
-			// leaves the emitted stylesheet with it.
+			// order (neither follows the source): the cascade must match what the
+			// imports declare, and a css import removed during watch mode is absent
+			// from the graph walk so the emitted stylesheet loses it too.
 			const collected = new Set(cssFiles);
 			const order: string[] = [];
 			const seen = new Set<string>();
@@ -160,12 +154,10 @@ function stylesheetPlugin(): Plugin {
 }
 
 /**
- * The extension host bundle. A dir output rather than `file`: rolldown
- * refuses `output.file` outright when the graph holds dynamic imports, and
- * the gpt-tokenizer encodings load through dynamic import precisely so their
- * multi-megabyte rank data splits into lazy chunks under dist/chunks/ instead
- * of riding the eager dist/extension.js (the packaged-file-list check pins
- * both sides with size bounds).
+ * The extension host bundle. A dir output rather than `file`: rolldown refuses
+ * `output.file` when the graph holds dynamic imports, and the gpt-tokenizer
+ * encodings load that way precisely so their multi-megabyte rank data splits
+ * into lazy chunks instead of riding the eager dist/extension.js.
  */
 const extensionOptions: BuildOptions = {
 	input: "src/extension.ts",
@@ -215,11 +207,10 @@ const builds = [extensionOptions, webviewOptions];
 
 if (watchMode) {
 	const watcher = watch(builds);
-	// Print the begin/end markers and the error shape the inline problem
-	// matcher in .vscode/tasks.json watches for. The end marker must follow a
-	// failed pass too - the F5 preLaunchTask waits on it - so the ERROR branch
-	// prints it and a following END (rolldown 1.2.4 fires one, its docs do not
-	// promise it) is deduplicated.
+	// Print the begin/end markers and the error shape the inline problem matcher
+	// in .vscode/tasks.json watches for. The end marker must follow a failed pass
+	// too - the F5 preLaunchTask waits on it - so the ERROR branch prints it and
+	// a following END is deduplicated.
 	let errored = false;
 	watcher.on("event", (event) => {
 		switch (event.code) {

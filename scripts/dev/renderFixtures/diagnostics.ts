@@ -1,13 +1,12 @@
 /**
  * The Diagnostics destination: the Configuration section ranking record lints,
- * legacy leftovers, an accepted entry's ignored pieces and a dropped
- * threshold across the three severity tiers, the Resolution tree + flat table
- * (answered through the harness's canned respond map), and the support tools.
+ * legacy leftovers, an accepted entry's ignored pieces and a dropped threshold
+ * across the three severity tiers, the Resolution tree + flat table (answered
+ * through the harness's canned respond map), and the support tools.
  *
- * Two diagnostics here are deliberately NOT rendered: the misconfigured entry
- * and the hidden groups, both of which a row on the Servers destination now
- * reports beside the control that fixes them. They stay in the fixture so a
- * render shows that the page refuses to repeat them.
+ * Two diagnostics are deliberately NOT rendered - the misconfigured entry and
+ * the hidden groups, both reported by a Servers row instead. They stay in the
+ * fixture so a render shows that the page refuses to repeat them.
  */
 import type { DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
@@ -102,12 +101,9 @@ const fixture: RenderFixture = {
 		readResolvedModels: { kind: "response", payload: { view: RESOLVED_VIEW } },
 	},
 	// The focusSection message above is the real deep link and is what the
-	// product uses; this click is belt-and-braces for the HARNESS only. The
-	// harness dispatches every fixture message synchronously in one tick, so
-	// React has not committed the first state render when focusSection
-	// arrives - and app.tsx routes that message through a ref that is only
-	// assigned after the state render, past its `state === undefined`
-	// skeleton return. A real webview delivers the two posts as separate
+	// product uses; this click is belt-and-braces for the HARNESS only, whose
+	// synchronous dispatch can land focusSection before React has committed the
+	// first state render. A real webview delivers the two posts as separate
 	// tasks, so the deep link works there (tabs.test.tsx pins it).
 	steps: [`document.getElementById("tab-diagnostics")?.click()`],
 	viewport: { width: 1300, height: 1600 },

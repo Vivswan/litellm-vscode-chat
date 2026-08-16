@@ -1,10 +1,7 @@
 /**
- * The dashboard's two stylesheets, compiled the way the bundle script compiles
- * them, plus the block extraction the forced-colors pins share.
- *
- * A CSS assertion that reads source text passes a commented-out declaration and
- * a rule the compiler dropped, which is the whole failure these helpers exist to
- * prevent: what ships is the compiled sheet, so that is what a pin reads.
+ * The dashboard's two stylesheets, compiled the way the bundle script compiles them, plus the block extraction the
+ * forced-colors pins share. A CSS assertion reading SOURCE text passes a commented-out declaration and a rule the
+ * compiler dropped; what ships is the compiled sheet, so that is what a pin reads.
  */
 import path from "node:path";
 import { tailwindCliBin } from "./tailwindCliBin";
@@ -45,10 +42,8 @@ export async function compileDashboard(): Promise<string> {
 export interface ForcedColorsBlock {
 	readonly text: string;
 	/**
-	 * The at-rule preludes wrapping this block, outermost first. Where a rule
-	 * sits decides what it can beat and when it applies at all: a layered copy
-	 * of a rule written to overrule a utility loses to that utility, and a block
-	 * nested in a width query stops existing at every other width.
+	 * The at-rule preludes wrapping this block, outermost first: a layered copy of a rule written to overrule a
+	 * utility loses to that utility, and a block nested in a width query stops existing at every other width.
 	 */
 	readonly context: readonly string[];
 	/** Outside every layer, which is what it takes to beat a utility. */
@@ -66,10 +61,8 @@ export interface StyleRule {
 	readonly unlayered: boolean;
 	readonly unconditional: boolean;
 	/**
-	 * Where the rule's prelude starts in the compiled sheet. Two rules for one
-	 * selector at equal specificity are settled by this alone (the dashboard
-	 * sheet is one flat layer), so an order assertion needs the offset, not
-	 * just the rule.
+	 * Where the rule's prelude starts in the compiled sheet. Two rules for one selector at equal specificity are
+	 * settled by this alone (the dashboard sheet is one flat layer), so an order assertion needs the offset.
 	 */
 	readonly start: number;
 }
@@ -95,16 +88,9 @@ const isUnconditional = (context: readonly string[]): boolean =>
 	!context.some((prelude) => /^@(?:media|container|supports)\b/.test(prelude));
 
 /**
- * Every brace block in a compiled sheet, with the at-rules around it.
- * Exported so a pin can scope a scan to one layer's rules (the utility
- * collision guard reads only `@layer utilities`); the extractors below stay
- * the main doors.
- *
- * A brace walk rather than a parser: the alternative is a CSS parser dependency
- * for a handful of assertions. Comments and string literals are stepped over
- * rather than assumed away, since a `content: "{"` or a `{` inside a banner
- * would otherwise unbalance the stack and take every later block's address with
- * it.
+ * Every brace block in a compiled sheet, with the at-rules around it. Exported so a pin can scope a scan to one
+ * layer's rules (the utility collision guard reads only `@layer utilities`). A brace walk rather than a parser
+ * dependency; comments and string literals are stepped over, since a `content: "{"` would unbalance the stack.
  */
 export function blocks(css: string): readonly Block[] {
 	const found: Block[] = [];
@@ -133,10 +119,8 @@ export function blocks(css: string): readonly Block[] {
 			continue;
 		}
 		if (char === "{") {
-			// Comments out of the prelude TEXT as well: the bundler puts a file
-			// banner ahead of the at-rule it opens, and a prelude carrying one
-			// answers to no pattern - which would report a block nested in a width
-			// query as applying everywhere.
+			// Comments out of the prelude TEXT too: the bundler puts a file banner ahead of the at-rule it opens, and a
+			// prelude carrying one answers to no pattern - reporting a block nested in a width query as unconditional.
 			const prelude = css
 				.slice(preludeStart, i)
 				.replace(/\/\*[\s\S]*?\*\//g, "")
@@ -170,25 +154,17 @@ export function forcedColorsBlocks(css: string): readonly ForcedColorsBlock[] {
 		.map((block) => ({
 			text: block.text,
 			context: block.context,
-			// The two questions are asked separately on purpose: what a rule can
-			// BEAT is a layer question and WHEN it applies is a query one, and one
-			// field answering both reads as whichever the caller assumed.
+			// Asked separately on purpose: what a rule can BEAT is a layer question, WHEN it applies is a query one, and
+			// one field answering both reads as whichever the caller assumed.
 			unlayered: isUnlayered(block.context),
 			unconditional: isUnconditional(block.context),
 		}));
 }
 
 /**
- * Every rule whose selector list NAMES `selector` exactly, with its own
- * declarations and its placement.
- *
- * The list is split rather than searched, so a longer selector ending in this
- * one is the different rule it is rather than a second copy of it - the trap a
- * substring match falls into, and how a pin ends up passing off a rule it was
- * never written about. The split is naive about a comma inside `:is(a, b)`,
- * which no sheet here writes and which fails CLOSED if one ever does: the parts
- * match no selector exactly, so the rule goes unfound and its caller fails
- * loudly rather than asserting against the wrong rule.
+ * Every rule whose selector list NAMES `selector` exactly, with its declarations and placement. The list is split
+ * rather than substring-searched, so a longer selector ending in this one stays a different rule. The split is naive
+ * about a comma inside `:is(a, b)`, which fails CLOSED: no part matches exactly, so the caller finds no rule.
  */
 export function rulesFor(css: string, selector: string): readonly StyleRule[] {
 	return blocks(css)

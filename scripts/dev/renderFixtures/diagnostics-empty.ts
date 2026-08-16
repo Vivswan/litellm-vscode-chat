@@ -1,15 +1,10 @@
 /**
  * The Diagnostics destination at rest on a fresh, healthy install: zero
- * configuration diagnostics ("Your settings read cleanly."), a resolution
- * with no matcher records and no discovered models (both empty-state
- * sentences), and the support tools. This is the page most readers open, and
- * the only fixture that photographs its three quiet states together.
- *
- * The file replaced err-diagnostics.ts, which rendered the per-server outcome
- * grid's error rows; that grid moved to the Servers destination (each fact
- * now sits beside the control that fixes it), so server errors are the
- * servers fixtures' territory and this page's own worst case is
- * diagnostics.ts.
+ * configuration diagnostics, a resolution with no matcher records and no
+ * discovered models (both empty-state sentences), and the support tools. The
+ * page most readers open, and the only fixture photographing its three quiet
+ * states together. Server errors belong to the servers fixtures, since that grid
+ * moved to the Servers destination; this page's worst case is diagnostics.ts.
  */
 import type { DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";

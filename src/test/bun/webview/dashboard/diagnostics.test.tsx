@@ -1,16 +1,7 @@
 /**
- * The Diagnostics destination's support section and its external links, plus
- * the guard that the per-server outcome grid stays deleted. Mirrors
- * docsLinks.test.tsx's layering: a source-level sweep over feedbackLinks.ts
- * (literal ASCII strings only, so a link can never carry server data), an
- * identity check deriving the marketplace review URL from package.json (a
- * renamed publisher or extension fails here instead of serving a dead link),
- * and render assertions over the destination itself.
- *
- * The connection facts - verdict, server count, last checked, one outcome
- * line per server - are asserted through Copy diagnostics, which is now their
- * only reader here. The on-screen renderings of the same facts live on the
- * server rows, and servers.test.tsx pins them there.
+ * The Diagnostics destination's support section and links, plus the guard that
+ * the per-server outcome grid stays deleted. The connection facts are asserted
+ * through Copy diagnostics here; servers.test.tsx pins their on-screen twins.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import * as fs from "node:fs";
@@ -133,10 +124,9 @@ test("the per-server outcome grid is gone: the server rows own every fact it rep
 	expect(panel.textContent).not.toContain("http://localhost:4001");
 	expect(panel.textContent).not.toContain("Servers configured");
 	expect(panel.textContent).not.toContain("Last checked");
-	// The destination opens on what the reader can act on, not on a summary:
-	// one page-level header, then the vertical action stack, then the sections
-	// one step under it. Support is not a section: its four links close the
-	// stack as a quiet nav, so no heading announces them.
+	// The destination opens on what the reader can act on: one page-level
+	// header, the vertical action stack, then the sections. Support is not a
+	// section - its links close the stack as a quiet nav, with no heading.
 	const pageHeadings = Array.from(panel.querySelectorAll("h2")).map((h) => (h.textContent ?? "").trim());
 	expect(pageHeadings).toEqual(["Diagnostics"]);
 	const headings = Array.from(panel.querySelectorAll("h3")).map((h) => (h.textContent ?? "").trim());
@@ -162,10 +152,9 @@ test("Copy diagnostics puts the connection block on the clipboard as plain text 
 	const iconPath = () => button.querySelector("svg path")?.getAttribute("d") ?? "";
 	const copyIconPath = iconPath();
 
-	// The exact plain-text format: the verdict, the facts, one line per server
-	// through serverOutcomeText, then the configuration diagnostics - nothing
-	// beyond them. Fully English by policy, timestamp included: a plain ISO
-	// instant, never a locale-shaped date or a relative echo.
+	// The exact plain-text format: verdict, facts, one line per server through
+	// serverOutcomeText, then the configuration diagnostics. Fully English by
+	// policy, timestamp included: a plain ISO instant, never a locale date.
 	expect(copyDiagnostics(root)).toBe(
 		[
 			"Degraded (2 models, some servers failed)",
@@ -291,11 +280,9 @@ test("Open output log posts the openOutput command in place of the old output-ch
 });
 
 test("Copy diagnostics never pastes a base URL: legacy leftovers and URL-scoped record keys are redacted", () => {
-	// migrations/settingsRedesign/hints.ts states outright that base URLs and
-	// header names "must never reach logs or issue reports". A URL-scoped key
-	// IS a base URL, and a base URL can carry credentials in its userinfo, so
-	// the copied block keeps the classification and the setting and drops the
-	// value. The on-screen rendering still shows it - that is local.
+	// migrations/settingsRedesign/hints.ts: base URLs and header names "must
+	// never reach logs or issue reports". A URL-scoped key IS a base URL and can
+	// carry credentials, so the copy keeps the classification and drops the value.
 	const root = mountDiagnostics({
 		servers: [makeDeclaredServer({ label: "Prod", modelCount: 1 })],
 		models: [makeModel()],
@@ -347,8 +334,7 @@ test("Copy diagnostics never pastes a base URL: legacy leftovers and URL-scoped 
 test("Copy diagnostics reports an entry whose problems no server row states, and the hidden-group count", () => {
 	// The entry branch splices the parser's free-form English problems, and
 	// hidden groups contribute no server row at all - a hidden-only install
-	// would otherwise paste "Configuration diagnostics: 0" over a screen that
-	// says a group is serving nothing.
+	// would otherwise paste "Configuration diagnostics: 0".
 	const root = mountDiagnostics({
 		servers: [makeDeclaredServer({ label: "Prod", modelCount: 1 })],
 		models: [makeModel()],
@@ -396,13 +382,9 @@ test("the external rows link the pinned destinations with decorative glyphs", ()
 		}
 		expect(anchor.querySelectorAll("svg.icon").length, text).toBe(2);
 	}
-	// Label plus icon plus external-link glyph names each destination, so the
-	// muted gloss beside each is gone. Pinned: a link list is where explanatory
-	// one-liners regrow. The links live in a heading-less nav (aria-label keeps
-	// the grouping) that closes the page's vertical action stack - the eight
-	// actions stack as one list at the top of the body, tools first, because
-	// the page's whole subject is acting on this install - and the focus
-	// order follows that visual order.
+	// Label plus icon plus external-link glyph names each destination, so no
+	// muted gloss beside it. Pinned: a link list is where explanatory one-liners
+	// regrow. The links close the page's action stack in a heading-less nav.
 	const support = root.querySelector('#panel-diagnostics nav[aria-label="Support"]') as HTMLElement;
 	expect(support).not.toBeNull();
 	expect(support.querySelector("h3")).toBeNull();
@@ -415,10 +397,9 @@ test("the external rows link the pinned destinations with decorative glyphs", ()
 	expect(support.querySelectorAll("p.hint")).toHaveLength(0);
 	const pageHead = root.querySelector("#diagnostics-section > .section-head") as HTMLElement;
 	expect(pageHead.querySelector(".tip-bubble")?.textContent).toContain("Copy diagnostics");
-	// The four tools open the stack as their own vertical list (plain <ul>:
-	// the buttons name themselves and list semantics carry the count) before
-	// the Support links, with the header's actions slot empty - the reader
-	// grabbing the output log or a report still finds them above every table.
+	// The four tools open the stack as their own vertical list (plain <ul>: the
+	// buttons name themselves and list semantics carry the count) before the
+	// Support links, with the header's actions slot empty.
 	expect(pageHead.querySelector(".section-actions")).toBeNull();
 	const tools = root.querySelector("#panel-diagnostics ul.diagnostics-tools") as HTMLElement;
 	expect(tools).not.toBeNull();

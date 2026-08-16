@@ -1,21 +1,14 @@
 /**
  * The Servers page's two outcome surfaces that pad a compact Dismiss: the
- * post-hide guidance notice, whose toolbar pairs a default-size button with
- * the compact Dismiss, and a failure banner with its message and the compact
- * Dismiss on one line.
- *
- * Both containers size their numbers against the Dismiss button's INK rather
- * than its box - the Button primitive hands its horizontal padding back to
- * the layout - so what this should photograph: the notice's Dismiss sitting a
- * clear step right of "Open models file", and the banner's Dismiss inset from
- * the banner's right border the way the message is inset on the left.
+ * post-hide guidance notice and a failure banner. Both size their numbers
+ * against the Dismiss button's INK rather than its box, because the Button
+ * primitive hands its horizontal padding back to the layout.
  *
  * The banner is delivered as the fail envelope a rejected save produces
  * (useIntentOutcome matches on the method, so the id needs no live request).
- * The notice is earned the way a reader earns it - arming and confirming
- * Remove on the external row - because it only renders once the hide intent's
- * OWN requestId is acked, and a synthetic id would never match; the ack is
- * dispatched from the posted request the page itself sent.
+ * The notice is EARNED by arming and confirming Remove, because it renders only
+ * once the hide intent's own requestId is acked and a synthetic id would never
+ * match; the ack is dispatched from the request the page itself sent.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, EXTERNAL_SERVER, PROD_SERVER } from "./shared.ts";

@@ -1,27 +1,18 @@
 /**
  * Sweeps every render fixture for horizontal overflow at the widths the
  * stylesheet itself declares, and fails when the page scrolls sideways at any
- * of them.
- *
- * This is the successor to the pixel baseline, and deliberately a much smaller
- * claim than it was. A baseline asked "does this look like it did", which made
- * every deliberate improvement a negotiation; this asks only "does the page
- * fit", which is never a matter of taste and is the one failure a full-page
- * capture cannot show - a screenshot of an overflowing page photographs the
- * overflow as though the page were that wide.
+ * of them. Successor to the pixel baseline and a deliberately smaller claim:
+ * not "does this look the same" but "does the page fit", which is never a
+ * matter of taste and is the one failure a full-page capture cannot show.
  *
  * The widths are read out of the dashboard rather than listed here, so a new
- * breakpoint is swept the moment it is written: the stylesheet's own queries
- * and the components' pane variants, which are equally real and where some
- * thresholds live only. Pane thresholds are container queries and go to
- * --pane-widths, which converts them to viewport widths by measuring the rail;
- * window queries (the rail's own collapse) go to --widths as they are. Each
- * threshold is tested on both sides, since a breakpoint's bug is usually on one
- * of them, plus the floor the shell declares.
+ * breakpoint is swept the moment it is written. Pane thresholds are container
+ * queries and go to --pane-widths, which converts them to viewport widths by
+ * measuring the rail; window queries go to --widths as they are. Each threshold
+ * is tested on both sides, plus the floor the shell declares.
  *
  * Exit 1 means a page did not fit. Exit 2 means every page that could be
- * measured fit, but some fixture never ran - a stale step is a different
- * problem from a layout one and reads as one here.
+ * measured fit, but some fixture never ran.
  *
  * Usage:
  *   bun scripts/dev/check-overflow.ts [--only <substring>] [--jobs 4]
@@ -39,9 +30,7 @@ const STYLESHEET = path.join(REPO_ROOT, "src/webview/dashboard/styles/dashboard.
 const THEME = path.join(REPO_ROOT, "src/webview/dashboard/styles/theme.css");
 /**
  * The trees a class string can live in: the same two theme.css hands Tailwind
- * in its @source lines. A scan narrower than the compiler's is a scan with a
- * blind spot, and a threshold declared in the shared tree is as real as one in
- * a component.
+ * in its @source lines. A scan narrower than the compiler's has a blind spot.
  */
 const CLASS_TREES = [path.join(REPO_ROOT, "src/webview"), path.join(REPO_ROOT, "src/dashboard")];
 
@@ -55,10 +44,9 @@ function declared(source: string, pattern: RegExp, what: string): number {
 }
 
 /**
- * The narrowest viewport the page promises not to scroll sideways at, read
- * from the shell's own floor rather than restated here. The rule's comment is
- * the promise: below it a horizontal scrollbar says the window is too narrow,
- * and above it the page has to fit.
+ * The narrowest viewport the page promises not to scroll sideways at, read from
+ * the shell's own floor rather than restated here: below it a horizontal
+ * scrollbar says the window is too narrow, above it the page has to fit.
  */
 function floorWidth(css: string): number {
 	return declared(css, /\.shell \{[^}]*min-width: (\d+)px/s, "the shell's minimum width");
@@ -70,13 +58,11 @@ function bothSides(thresholds: readonly number[]): number[] {
 }
 
 /**
- * Every width the dashboard changes layout at, split by what it measures.
- *
- * Both halves of the pane's vocabulary, because a threshold declared in a class
- * string is as real as one in the stylesheet and 910 lives only in components.
- * One spelling each, which is not an assumption but a guarantee: a suite fails
- * the build when a pane query or variant is written any other way, so these two
- * patterns see all of them.
+ * Every width the dashboard changes layout at, split by what it measures. Both
+ * halves of the pane's vocabulary, because a threshold declared in a class
+ * string is as real as one in the stylesheet and some live only there. One
+ * spelling each is a guarantee rather than an assumption: a suite fails the
+ * build when a pane query or variant is written any other way.
  */
 function declaredThresholds(css: string): { readonly pane: number[]; readonly window: number[] } {
 	const classStrings = CLASS_TREES.flatMap((tree) =>
@@ -86,10 +72,12 @@ function declaredThresholds(css: string): { readonly pane: number[]; readonly wi
 	).join("\n");
 	const read = (source: string, pattern: RegExp): number[] =>
 		[...source.matchAll(pattern)].map((match) => Number(match[1]));
-	// Both directions. The pane's guard admits `>=` as well as `<` (the pair
+	// Both directions: the pane's guard admits `>=` as well as `<` (the pair
 	// cannot overlap at N the way a max-width and a min-width can), and a tier
-	// that only exists above a width is a tier this would otherwise never
-	// enter: 1136 is one today.
+	// that only exists above a width - the models list's 1136px columnar tier -
+	// would otherwise never be entered. Some thresholds live only in class
+	// strings (the settings rows' 910px stack is components-only), which is why
+	// the variant scan exists at all.
 	const paneCss = [
 		...read(css, /@container pane \(width < (\d+)px\)/g),
 		...read(css, /@container pane \(width >= (\d+)px\)/g),
@@ -165,12 +153,10 @@ async function main(): Promise<void> {
 	console.log(`  viewport widths: ${widths.join(", ")}`);
 	console.log(`  pane widths:     ${paneWidths.join(", ")}`);
 	const results: Result[] = [];
-	// A pool rather than a map: each sweep launches its own Chrome, so running
-	// the whole set at once would ask for sixty of them. The workers' first
-	// sweeps are staggered, because even the pool's four launches land in the
-	// same instant when every Chrome is cold: on a busy CI runner that first
-	// wave has starved itself past the harness's DevTools deadline, and
-	// spreading the cold starts costs about a second of wall clock once.
+	// A pool rather than a map: each sweep launches its own Chrome. The workers'
+	// first sweeps are staggered because even four cold launches in the same
+	// instant have starved themselves past the harness's DevTools deadline on a
+	// busy CI runner, and spreading them costs about a second of wall clock once.
 	await Promise.all(
 		Array.from({ length: Math.min(jobs, queue.length) }, async (_, worker) => {
 			await delay(worker * 400);
@@ -185,15 +171,14 @@ async function main(): Promise<void> {
 	for (const result of failed) {
 		console.log(`\n--- ${result.fixture} ---\n${result.output.trim()}`);
 	}
-	// Two failures with nothing to do with each other: a page that does not fit
-	// is what this sweeps for, while a fixture whose own steps threw never got
-	// as far as being measured. Counted apart so a stale fixture cannot read as
-	// a layout regression, or hide one.
+	// Counted apart so a stale fixture cannot read as a layout regression, or
+	// hide one: a page that does not fit is what this sweeps for, while a fixture
+	// whose own steps threw never got as far as being measured.
 	const overflowing = failed.filter((result) => result.output.includes("scrolls sideways"));
 	const unrunnable = failed.filter((result) => !result.output.includes("scrolls sideways"));
-	// Counted apart from the rest, because they were asserted once rather than
-	// swept: a summary that folded them in would claim a coverage they opted out
-	// of by declaring measuredAtOwnWidth.
+	// Also counted apart, because they were asserted once rather than swept (the
+	// fixture's measuredAtOwnWidth opt-out): folding them in would claim coverage
+	// they opted out of.
 	const ownWidthOnly = results.filter((result) => result.ok && result.output.includes("skipped the width sweep"));
 	const swept = results.length - failed.length - ownWidthOnly.length;
 	console.log(`\n${swept}/${results.length} fixtures fit at every declared width`);

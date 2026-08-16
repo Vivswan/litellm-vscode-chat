@@ -1,40 +1,14 @@
 /**
- * The model inspector: ONE read-only slide-over per model row, sectioned
- * Parameters / Capabilities / Pricing. Request/response-fed on both feeds: it
- * posts readModelParameters AND readModelCapabilities on open (and on every
- * state push) and renders each section when its own answer lands - the
- * extension resolves both through the SAME shared machinery the request path
- * and registration read, so neither section can drift from the wire. No
- * resolver logic and no catalog data live in the webview; the answers are
- * data.
- *
- * This panel is where provenance lives, so provenance is what it draws. Every
- * resolved field renders as a RESOLUTION CHAIN: the winning value at full
- * strength, the values it beat directly beneath it as struck-out <del> text
- * (a loser must not read - or be announced - as a peer), each line carrying
- * one compact monospace outline badge naming where that value came from
- * ("settings gpt-5*", "server", "built-in default"). The badge is the whole
- * source column; the English sentences that used to sit in table cells are
- * gone. Badges are neutral by construction - provenance is not severity, and
- * the two must never share a color.
- *
- * The directives a record carries (force, fallback, inherited, the catalog
- * marks) render as the same quiet accent words the record editors' chips use,
- * with the sentence behind a focusable tip when there is one to tell.
- *
- * Sections are always open and never collapse - the reader opened a panel to
- * read it, not to open more of it - so each section's header line carries its
- * own summary (a count, a unit) and its one action, and the record-path figure
- * closes its section in the open.
- *
- * Placement decisions worth naming: answers first, machinery last - each
- * section leads with its table and closes with the fixed caveats and the
- * record-path figure. The supported-parameters list is still a CAPABILITY on
- * the wire (it resolves with the capability walk and jumps into capability
- * records), but it renders in the Parameters section - what the model accepts
- * belongs next to what we send. Pricing renders exactly once, in its
- * provenance-aware section, which states its absence rather than hiding when a
- * server declares no prices.
+ * The model inspector: ONE read-only slide-over per model row, sectioned Parameters /
+ * Capabilities / Pricing, request/response-fed (readModelParameters and
+ * readModelCapabilities, re-posted per state push) - the extension resolves both through
+ * the SAME machinery the request path and registration read, so nothing can drift from
+ * the wire; no resolver logic or catalog data live in the webview. Every resolved field
+ * renders as a RESOLUTION CHAIN: the winner at full strength, beaten values struck out
+ * beneath it (a loser must not read - or announce - as a peer), each line carrying one
+ * neutral badge (provenance is not severity; the two must never share a color).
+ * Sections never collapse; the supported-parameters list stays a CAPABILITY on the wire
+ * but renders in Parameters - what the model accepts belongs next to what we send.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -114,11 +88,9 @@ function parameterProvenance(ref: ParameterSourceRef): ProvenanceView {
 }
 
 /**
- * The capability walk's levels as a badge plus, where a directive did the
- * work, the mark that names it: a `_fallback` fill is a settings or entry
- * record wearing a directive, not a level of its own, and the two catalog
- * levels differ only in whether the user named the catalog model or we matched
- * it - so the badge names the source and the mark names the directive.
+ * The capability walk's levels as a badge plus, where a directive did the work, its
+ * mark: a `_fallback` fill is a record wearing a directive, not a level of its own, so
+ * the badge names the source and the mark names the directive.
  */
 function capabilityProvenance(
 	level: CapabilityLevel,
@@ -138,11 +110,9 @@ function capabilityProvenance(
 			return { source: { scope: settingsScope(), recordKey: key }, mark: fallbackMark() };
 		case "server":
 			return { source: { scope: serverScope() } };
-		// The two catalog levels differ only in whether a record NAMED the catalog
-		// model or the extension matched one itself, and the marks say exactly
-		// that - so neither carries a tip. A tip here would be one Tab stop per
-		// row repeating identical text, and every field of a model whose server
-		// reports nothing can land on these levels at once.
+		// The two catalog marks say exactly how the level was chosen, so neither carries a tip:
+		// a tip here would be one Tab stop per row repeating identical text, and every field of
+		// a server that reports nothing can land on these levels at once.
 		case "directive":
 			return {
 				source: { scope: "OpenRouter", recordKey: key },
@@ -237,10 +207,8 @@ function parameterDiagnosticText(diagnostic: ParameterDiagnostic): string {
 const ALWAYS_SENT_FIELDS = ["model", "messages", "stream", "stream_options", "max_tokens"] as const;
 
 /**
- * The max_tokens derivation: the value, its provenance where configuration set
- * it, and one short reason where the extension derived it instead. A
- * configured value carries a badge like every other resolved value; the two
- * derived branches have no record to point at and say so in words.
+ * The max_tokens derivation: a configured value carries a badge like every other; the
+ * two derived branches have no record to point at and say so in words.
  */
 function maxTokensParts(maxTokens: ProjectedMaxTokens): {
 	value: number;
@@ -268,12 +236,9 @@ function maxTokensParts(maxTokens: ProjectedMaxTokens): {
 				? { value: maxTokens.value, reason: unattributed }
 				: { value: maxTokens.value, source };
 		case "declared":
-			// "the model's", not "the server's": a user-set capability record and
-			// a _fallback fill both count as declared for this branch, so naming
-			// the server would be a claim the panel cannot back up.
-			// No parenthetical: the branch itself is the statement. A configured
-			// max_tokens takes the "configured" branch and says so with a badge, so
-			// reaching this one already means nothing configured set it.
+			// "the model's", not "the server's": a user record and a _fallback fill both count as
+			// declared here, so naming the server is a claim the panel cannot back up. Reaching
+			// this branch already means nothing configured set it.
 			return { value: maxTokens.value, reason: l10n.t("the model's declared output limit") };
 		case "capped-default":
 			return {
@@ -284,12 +249,9 @@ function maxTokensParts(maxTokens: ProjectedMaxTokens): {
 }
 
 /**
- * The capability fields in display order: after the token trio and support
- * flags come the consumed booleans (CONSUMED_BOOLEAN_ORDER) and the consumed
- * lists (CONSUMED_LIST_ORDER); pricing and the
- * params list get sections of their own, and every other field the resolution
- * carries (the vocabulary is open) renders under "Other fields", sorted by
- * key.
+ * The capability fields in display order; pricing and the params list get sections of
+ * their own, and every other field (the vocabulary is open) renders under "Other
+ * fields", sorted by key.
  */
 const FIELD_ORDER: readonly string[] = [
 	"context_length",
@@ -315,25 +277,18 @@ const CONSUMED_LIST_ORDER: readonly string[] = ["reasoning_effort_levels"];
 const TOKEN_FIELDS: ReadonlySet<string> = new Set(["context_length", "max_input_tokens", "max_output_tokens"]);
 
 /**
- * Where the stylesheet's ellipsis can start clipping a value cell. PAIRED WITH
- * the .res-col-value share in dashboard.css: move one and this moves too, or
- * values clip with no keyboard-reachable text. The value
- * column is a FIXED share of the slide-over (html.ts), which is 680px wide but
- * shrinks to 94vw on narrow hosts: ~18ch of its monospace at full width, ~9ch
- * at a degenerate 360px window - the threshold sits at the practical floor so
- * any value the ellipsis could realistically touch carries the focusable
- * HoverTip (keyboards and assistive tech must reach the full text; native
- * title tooltips do not reliably render in the webview host, see help.tsx).
- * Short values (token counts, $/M prices, yes/no) stay plain text outside the
- * Tab order.
+ * Where the stylesheet's ellipsis can start clipping a value cell. PAIRED WITH the
+ * .res-col-value share in dashboard.css: move one and this moves too, or values clip
+ * with no keyboard-reachable text. The threshold sits at the practical floor (~9ch at a
+ * 360px window), so any value the ellipsis could touch carries the focusable HoverTip;
+ * short values stay plain text outside the Tab order.
  */
 const VALUE_CLIP_CH = 8;
 
 /**
- * One value cell: plain text while it surely fits, the focusable full-text tip
- * once the ellipsis could clip it. `numeric` is what earns right alignment -
- * the column is mixed (token counts and prices beside yes/no, JSON and prose),
- * and right-aligning a word only pushes it away from the name it belongs to.
+ * One value cell: plain text while it surely fits, the focusable full-text tip once the
+ * ellipsis could clip it. `numeric` earns right alignment - right-aligning a word only
+ * pushes it away from the name it belongs to.
  */
 function ValueCell({ text, numeric = false, struck = false }: { text: string; numeric?: boolean; struck?: boolean }) {
 	const body = struck ? <del>{text}</del> : text;
@@ -353,14 +308,10 @@ function ValueCell({ text, numeric = false, struck = false }: { text: string; nu
 }
 
 /**
- * One capability name cell: consumed fields render their localized labels
- * (capabilityDisplayLabel), wrapping at their spaces, with the wire key one
- * focusable tip away - the label hides the very identifier a
- * models.capabilities record needs, and cost keys are not guessable the way
- * supports_vision is. An open field renders its raw wire key in the
- * monospace register (it IS a settings key), breakable only at its
- * underscores via <wbr> so the fixed slide-over never shatters it into
- * arbitrary fragments.
+ * One capability name cell: consumed fields render localized labels with the wire key
+ * one focusable tip away (the label hides the identifier a models.capabilities record
+ * needs). An open field renders its raw wire key in monospace, breakable only at its
+ * underscores via <wbr>.
  */
 function FieldName({ name }: { name: string }) {
 	const label = capabilityDisplayLabel(name);
@@ -390,12 +341,8 @@ function FieldName({ name }: { name: string }) {
 }
 
 /**
- * One capability value as the table shows it: booleans as yes/no, the token
- * trio as token counts, the cost fields as dollars per million tokens (their
- * section header names the unit), the params list as its count (the full list
- * renders whole in its own block, see SupportedParamsBlock), other numbers
- * plain, and everything else (strings, arrays, objects - open fields carry any
- * JSON) as compact JSON, truncated by the stylesheet rather than chopped here.
+ * One capability value as the table shows it; everything outside the known kinds
+ * renders as compact JSON, truncated by the stylesheet rather than chopped here.
  */
 function formatValue(name: string, value: CapabilityJsonValue, currencySymbol: string): string {
 	if (typeof value === "boolean") {
@@ -429,10 +376,8 @@ function formatValue(name: string, value: CapabilityJsonValue, currencySymbol: s
 }
 
 /**
- * A beaten value: struck out, dimmed, and announced as what it is. <del> alone
- * carries the semantics unevenly across screen readers, so the row opens with
- * a clipped word - a loser must never be announced as a peer of the value that
- * beat it.
+ * A beaten value: struck out, dimmed, and announced as what it is. <del> alone carries
+ * the semantics unevenly across screen readers, so the row opens with a clipped word.
  */
 function ShadowedRow({
 	value,
@@ -442,10 +387,8 @@ function ShadowedRow({
 }: {
 	value: string;
 	/**
-	 * This value is a number, so it right-aligns like any other. Read from the
-	 * SHADOW's own type, not the winner's: pass-through values are unvalidated,
-	 * so a string can lose to a number, and it should sit where its own kind
-	 * sits rather than be dragged under a winner it does not match.
+	 * Right-aligned by the SHADOW's own type, not the winner's: pass-through values are
+	 * unvalidated, so a string can lose to a number and should sit where its own kind sits.
 	 */
 	numeric?: boolean;
 	source: ProvenanceView;
@@ -475,9 +418,8 @@ function ParamShadowedLine({ shadow }: { shadow: ShadowedParameterValue }) {
 }
 
 /**
- * A capability row's edit label, which has to name the LAYER: the redesign put
- * every visible layer word inside a badge, so for a screen reader this label is
- * the only place the layer is stated. It mirrors the parameter side's wording.
+ * A capability row's edit label names the LAYER: every visible layer word sits inside a
+ * badge, so for a screen reader this label is the only place the layer is stated.
  */
 function capabilityEditLabel(level: CapabilityLevel, key: string, serverLabel: string): string {
 	return level === "entry" || level === "entry-fallback"
@@ -687,12 +629,9 @@ function capabilityDiagnosticText(diagnostic: CapabilityDiagnostic): string {
 }
 
 /**
- * The output limit as a labelled fact: where the limit came from, and nothing
- * else. What the REQUEST does about it is conditional - a configured or forced
- * max_tokens beats the limit entirely - so it belongs on the max_tokens
- * derivation line, which knows that, and stating it here as well produced a
- * panel that said "capped at 4,096" directly under a max_tokens line reading
- * 10,000.
+ * The output limit as a labelled fact, and nothing else: what the REQUEST does about it
+ * is conditional and belongs on the max_tokens derivation line - stating it here too
+ * produced "capped at 4,096" directly under a max_tokens line reading 10,000.
  */
 function outputLimitNote(capabilities: EffectiveCapabilities): string {
 	switch (capabilities.outputLimitSource) {
@@ -706,12 +645,10 @@ function outputLimitNote(capabilities: EffectiveCapabilities): string {
 }
 
 /**
- * One resolution table: name, value, provenance. The column tracks are fixed
- * shares of the slide-over carried by a colgroup, so every table in the panel
- * aligns down the page whatever its rows hold, and a long value clips into its
- * tip instead of shoving the badge column off the panel's edge. The head names
- * the columns once, quietly - a badge column that never says "source" reads as
- * decoration.
+ * One resolution table: name, value, provenance. The column tracks are fixed shares
+ * carried by a colgroup, so every table aligns down the page and a long value clips
+ * into its tip instead of shoving the badge column off the edge. The head names the
+ * columns once - a badge column that never says "source" reads as decoration.
  */
 function ResolutionTable({
 	nameHead,
@@ -756,12 +693,9 @@ function Subhead({ title, meta, action }: { title: string; meta?: ReactNode; act
 }
 
 /**
- * The Supported parameters block, rendered in the PARAMETERS section next to
- * the effective sends (what the model accepts beside what we send) while the
- * field stays a capability on the wire. Its header line carries the count and
- * the provenance badge, so the list itself is nothing but the names: quiet
- * monospace text flowing into columns, alphabetical down each column, because
- * thirty pills are a wall and thirty words are a list.
+ * The Supported parameters block, in the PARAMETERS section (what the model accepts
+ * beside what we send) while staying a capability on the wire. The list is nothing but
+ * quiet monospace names in columns: thirty pills are a wall, thirty words are a list.
  */
 function SupportedParamsBlock({
 	fields,
@@ -889,14 +823,11 @@ export function ModelInspector({
 	const projection = answeredParams?.projection;
 	const caps = answeredCaps?.capabilities;
 
-	// The Diagnostics jump's landing: move focus AND the reading position to
-	// the named section (focus once - the slide-over's own first-field focus
-	// must not win over the requested section, but later re-runs must not yank
-	// focus back either), then re-scroll as each answer lands - content filling
-	// in above the target moves it. The re-scrolls stop FOR GOOD once both
-	// feeds have answered once: readiness flips false again on every state push
-	// (fresh requestIds orphan the old answers), and a reader who scrolled away
-	// must not be yanked back to the anchor by a configuration change landing
+	// The Diagnostics jump's landing: move focus once (the slide-over's first-field focus
+	// must not win, later re-runs must not yank), then re-scroll as each answer lands -
+	// content filling in above the target moves it. Re-scrolls stop FOR GOOD once both
+	// feeds answered once: readiness flips false on every push, and a reader who scrolled
+	// away must not be yanked back by a configuration change minutes later.
 	// minutes later.
 	const paramsReady = answeredParams !== undefined;
 	const capsReady = answeredCaps !== undefined;
@@ -955,13 +886,10 @@ export function ModelInspector({
 	// the line renders whenever a projection has landed.
 	const maxTokens = projection === undefined ? undefined : maxTokensParts(projection.maxTokens);
 
-	// The capability section partition over the resolved bag: the capabilities
-	// (core order plus the consumed booleans, then the open extras sorted by
-	// wire key - code-unit order, these are wire identifiers), the pricing
-	// fields (base tier then long-context) in their own section, and the
-	// params list up in the Parameters section. Object.keys reads own
-	// properties only, and the per-name reads go through capabilityField: a
-	// field named "toString" must read from the bag, never Object.prototype.
+	// The capability section partition over the resolved bag (open extras in code-unit
+	// order - wire identifiers). Object.keys reads own properties only, and per-name reads
+	// go through capabilityField: a field named "toString" must read from the bag, never
+	// Object.prototype.
 	const present = new Set(caps === undefined ? [] : Object.keys(caps.fields));
 	const capabilityNames = [...FIELD_ORDER, ...CONSUMED_BOOLEAN_ORDER, ...CONSUMED_LIST_ORDER].filter((name) =>
 		present.has(name)

@@ -1,20 +1,15 @@
 // scripts/dev/seedDemoUsage.ts
 //
-// Dev-only demonstration spend: three virtual keys in visibly different
-// budget states, so `bun run dev` opens on a Servers page with populated
-// usage cards and a warning/error status bar item. The dev launcher is the
-// only caller - the docker test orchestrator and docker:up never touch these
-// keys, and the test fixture key (src/test/fakeStack/usage.ts) is never
-// touched here.
+// Dev-only demonstration spend: three virtual keys in visibly different budget
+// states, so `bun run dev` opens on a populated Servers page. The dev launcher
+// is the only caller; the test fixture key (src/test/fakeStack/usage.ts) is
+// never touched here.
 //
-// The spend is real: each key fires a handful of deterministic streaming
-// completions (the fake stack's %text command, include_usage on) through the
-// proxy, LiteLLM prices them off the generated config, and once the async
-// spend flush lands the key's max_budget is pinned to a fraction of the
-// measured spend so the card shows the intended percentage. Reruns add spend
-// (spend IS the demo) and re-pin the budgets to the same fractions, so the
-// states hold; a stack recreate starts from zero (tmpfs database) and the
-// next dev run rebuilds them.
+// The spend is real: each key fires deterministic streaming completions through
+// the proxy, LiteLLM prices them off the generated config, and once the async
+// spend flush lands the key's max_budget is pinned to a fraction of the measured
+// spend. Reruns add spend (spend IS the demo) and re-pin to the same fractions;
+// a stack recreate starts from zero and the next dev run rebuilds them.
 
 /** One demo key's identity and target budget state. Every value is a deliberately obvious local fixture. */
 export interface DemoUsageKeySpec {
@@ -30,8 +25,7 @@ export interface DemoUsageKeySpec {
 	readonly keyBudgetRatio: number;
 	/**
 	 * When set, the seeded entry carries a manual `budget` pinned to this
-	 * fraction instead - the entry-over-key budget override demo: the card
-	 * shows this percentage with the key-reported budget beside it.
+	 * fraction instead: the entry-over-key override demo.
 	 */
 	readonly entryBudgetRatio?: number;
 	/** The fake model the demo completions run against (pricing varies the spend). */
@@ -87,10 +81,9 @@ const FLUSH_TIMEOUT_MS = 120_000;
 const FLUSH_POLL_MS = 2_000;
 /**
  * Consecutive equal readings after the first rise before a key counts as
- * flushed: LiteLLM's batch writer lands queued spend roughly every 10s, so
- * the stability window (FLUSH_STABLE_POLLS x FLUSH_POLL_MS = 12s) must
- * exceed one batch interval - settling on the first rise could measure a
- * partial batch and pin the budgets off-target.
+ * flushed: LiteLLM's batch writer lands queued spend roughly every 10s, so the
+ * stability window must exceed one batch interval - settling on the first rise
+ * could measure a partial batch and pin the budgets off-target.
  */
 const FLUSH_STABLE_POLLS = 6;
 /** Whole-call bound on each admin request and spend read. */
@@ -253,11 +246,9 @@ async function pinKeyBudget(
 
 /**
  * Best-effort recovery when seeding dies between the unblock and the final
- * pinning: any key left at the interim ceiling would otherwise read as ~0%
- * spent on cards a previous run already seeded. Re-pin every key with
- * readable spend to its target fraction; keys with none keep the ceiling
- * (there is nothing to compute a budget from), and new errors are swallowed
- * so the original failure stays the one reported.
+ * pinning: any key left at the interim ceiling would read as ~0% spent. Re-pin
+ * every key with readable spend to its target fraction; keys with none keep the
+ * ceiling, and new errors are swallowed so the original failure stays reported.
  */
 async function restoreBudgetsBestEffort(baseUrl: string, masterKey: string): Promise<void> {
 	for (const spec of DEMO_USAGE_KEYS) {
@@ -273,9 +264,8 @@ async function restoreBudgetsBestEffort(baseUrl: string, masterKey: string): Pro
 }
 
 /**
- * Seed the three demo keys: ensure each exists unblocked, fire its chats,
- * wait for the spend flush, then pin each key's max_budget to spend /
- * keyBudgetRatio so the Servers page's usage cards show the intended states.
+ * Seed the three demo keys: ensure each exists unblocked, fire its chats, wait
+ * for the spend flush, then pin each key's max_budget to spend / keyBudgetRatio.
  * Any failure after the unblock re-pins whatever it can before rethrowing;
  * callers treat a throw as "the usage demo is unavailable", never as a failed
  * stack start.

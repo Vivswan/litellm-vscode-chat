@@ -1,14 +1,12 @@
 /**
  * The servers page's endpoint-declaration hints (#261): an ok row whose
- * model-info probe looked unserved (the quiet advisory with the Declare
- * expected failure action, armed to its confirm step by the click below), and
- * an error row whose models listing looked unserved while model-info answered
- * (the declaration-suggesting error with the same action).
+ * model-info probe looked unserved (the quiet advisory with the Declare expected
+ * failure action, armed to its confirm step below), and an error row whose
+ * models listing looked unserved while model-info answered.
  *
- * What it should photograph: the advisory reads as the quiet tier (grey rule,
- * no alarm), the armed confirm pair sits inline without wrapping the page,
- * and the error row's action cluster carries Retry, Open entry, Declare
- * expected failure, and Learn more without crowding.
+ * In frame: the advisory reading as the quiet tier, the armed confirm pair
+ * inline without wrapping the page, and the error row's action cluster carrying
+ * four actions without crowding.
  */
 import type { DashboardServer } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";

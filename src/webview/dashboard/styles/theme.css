@@ -85,34 +85,19 @@
  unlayered rules in this file are the high-contrast twins and the tone-text
  block directly below, which fight the same utilities for the same reason;
  everything else is layered or only declares custom properties. */
-/* An OS forced-colors mode repaints every author color, which is right for
- text and wrong where color IS the content, the boundary, or the mark. What
- this block holds: the badges get their outline back, having traded it for a
- fill the system flattens into the page; the buttons give up their layout
- hand-back, their destructive rank takes a weight the mode cannot repaint
- away, and their disabled state the mode's own GrayText; the marked record
- chips take border width, the one channel the mode leaves alone; the
- settings gutter gets its off state named; and the tone-text registers take
- the editor's own squiggle, since their hue is repainted and their weight
- alone is a quiet mark at hint sizes. The other answers to the same mode
- live where they compose better - the accent swatches opt out at their call
- site (forced-color-adjust-none), the record chips name their resting border
- there too, and the rules keyed to the dashboard's own classes sit in
- dashboard.css beside them. */
+/* An OS forced-colors mode repaints every author color - right for text, wrong where
+   color IS the content, the boundary, or the mark. Held here: the badges' outline
+   back, the buttons' layout hand-back dropped, destructive rank as weight, disabled as
+   GrayText, marked record chips as border width, the settings gutter's off state, and
+   the tone-text registers' squiggle. Answers that compose better elsewhere live at
+   their call sites or in dashboard.css beside their classes. */
 @media (forced-colors: active) {
-	/* Both button sizes hand their horizontal padding back to the layout, so
-	 adjacent border boxes overhang the container's gap. Invisible while nothing
-	 paints a resting box; a mode that draws every box merges neighbours into one
-	 segmented control (the servers header's Add server and Refresh now). The
-	 hand-back is dropped here, once, instead of every container widening its
-	 own gap.
-
-	 Zeroing the PROPERTY the primitive reads (ui/button.tsx's --btn-mx), not the
-	 margin: `margin-inline: 0` writes both longhands, so it also flattened any
-	 alignment margin a call site set - the record matcher's pencil rides
-	 `ms-auto` to stay at the row's end once the row wraps, and that push died
-	 exactly here, in the modes that draw the box it was aligning. Unlayered
-	 still: the value is set by a utility, and only an unlayered rule beats one. */
+	/* Both button sizes hand their horizontal padding back, so a mode that draws every box
+	   merges neighbours into one segmented control; the hand-back is dropped here, once.
+	   Zeroing the PROPERTY (ui/button.tsx's --btn-mx), not the margin: `margin-inline: 0`
+	   writes both longhands and flattened the record matcher pencil's ms-auto alignment
+	   exactly in the modes that draw the box it aligns. Unlayered: the value is set by a
+	   utility, and only an unlayered rule beats one. */
 	[data-slot="button"] {
 		--btn-mx: 0px;
 	}
@@ -158,18 +143,11 @@
 		border-color: GrayText;
 		text-decoration-color: GrayText;
 	}
-	/* The record chips are filled at rest, and the mode flattens the fill, so
-	 every chip's repainted transparent border is welcome - it is what keeps
-	 two chips from reading as one run of words. But that hands every chip a
-	 box, and the invalid and hinted chips' red and amber borders repaint to
-	 the same colour as everyone else's; width is the channel the mode leaves
-	 alone (the danger buttons' rule above), so the marked chips take it.
-	 Width alone cannot rank the two marks, though - a rejected chip and a
-	 maybe-a-typo chip collapsed into one 2px box - so the hinted chip adds
-	 the advisory tier's own stroke style (dashboard.css
-	 .row-diagnostic.sev-advisory's dash): 2px solid reads invalid, 2px
-	 dashed reads hint, the same solid-vs-dashed rank the severity rules
-	 already teach. */
+	/* The mode flattens the chips' fill, so the repainted transparent border is welcome -
+	   it keeps two chips from reading as one run of words - but it also repaints the
+	   invalid and hinted chips' marks to everyone's colour. Width is the channel the mode
+	   leaves alone, and width alone cannot rank the two marks, so the hinted chip adds the
+	   advisory tier's dash: 2px solid reads invalid, 2px dashed reads hint. */
 	.chip-field.invalid,
 	.chip-field.hinted {
 		border-width: 2px;
@@ -177,29 +155,19 @@
 	.chip-field.hinted {
 		border-style: dashed;
 	}
-	/* The settings gutter marks a modified row with its left border, and spells
-	 the unmodified state as a TRANSPARENT one. Forced colours repaint a border
-	 colour whether or not it is transparent, so the off state painted too and
-	 every row wore the marker - which is worse than losing it, because the one
-	 row that really was modified stopped being the one that stood out. Canvas
-	 is the off state rather than a dropped border, since the border's width is
-	 what holds every row's text on the same left edge. Highlight for the on
-	 state, not the CanvasText it would otherwise inherit, so the marker still
-	 reads as a marker beside the hairlines the system draws on the controls. */
+	/* Forced colours repaint even a TRANSPARENT border, so the unmodified gutter painted
+	   too and every row wore the marker. Canvas is the off state rather than a dropped
+	   border (the width holds every row's text on one left edge); Highlight for on, so
+	   the marker reads as a marker beside the system's own hairlines. */
 	.setting-row:not(.modified) {
 		border-left-color: Canvas;
 	}
 	.setting-row.modified {
 		border-left-color: Highlight;
 	}
-	/* Tone text loses its hue here - CanvasText, the same ink as everything
-		 else - so the weight below is the only channel left, and at 11.5px it is
-		 a subtle one. The squiggle is the second: the editor's own problem mark,
-		 which no other underline in this design uses (links underline solid on
-		 hover, resting secondary buttons dotted), so an error line cannot be
-		 misread as either. Both registers share it - the banners this treatment
-		 is judged against do not rank severity by paint under forced colors
-		 either; the words carry the rank. */
+	/* Tone text loses its hue here, and weight alone is subtle at 11.5px, so the squiggle
+	   - the editor's own problem mark, used by no other underline in this design - is the
+	   second channel. Both problem registers share it; the words carry the rank. */
 	.error,
 	.state-warn {
 		text-decoration: underline wavy;
@@ -229,21 +197,14 @@ body.vscode-high-contrast-light [data-slot="reveal"] {
 	opacity: 1;
 }
 
-/* Tone TEXT, the app-wide presentation of .error, .state-warn, and .state-ok:
- the readable severity tier for the hue, and weight as the channel that does
- not depend on color - the same pair the danger button's forced-colors rank
- uses, and the inline analogue of how the banners survive that mode (their box
- is a border, which the mode repaints but never removes). All three registers
- share the weight so a tone vocabulary's members carry comparable perceptual
- weight (a pass and a fail render in one slot on the server form); only the
- two PROBLEM registers take the forced-colors squiggle above, because the
- squiggle is the editor's problem mark and ok is not a problem. Unlayered,
- because this is the one statement of the registers and nothing may quietly
- outrank it: as layered rules these lost to `p.hint` on specificity (0-1-1
- over 0-1-0, so every warn hint on the server form rendered muted) and to any
- color utility on the same element by layer order (text-muted-foreground at
- one call site). Every surface inherits this; a per-surface fork is a bug.
- theme.test.ts pins the rules, their placement, and the squiggle. */
+/* Tone TEXT, the app-wide presentation of .error, .state-warn, and .state-ok: the
+   readable severity tier for the hue, weight as the color-independent channel. All
+   three registers share the weight (a pass and a fail render in one slot); only the
+   two PROBLEM registers take the forced-colors squiggle - ok is not a problem.
+   Unlayered, because nothing may quietly outrank the one statement of the registers:
+   as layered rules these lost to `p.hint` on specificity and to color utilities by
+   layer order. Every surface inherits this; a per-surface fork is a bug. theme.test.ts
+   pins the rules, their placement, and the squiggle. */
 .error {
 	color: var(--err-text);
 	font-weight: 600;
@@ -265,24 +226,13 @@ body.vscode-high-contrast-light [data-slot="reveal"] {
 	--foreground: var(--vscode-foreground);
 	--card: var(--vscode-editorWidget-background);
 	--primary: var(--vscode-button-background);
-	/* The spend meter's baseline: the 100% extent, drawn as a 1px rule UNDER the
-	   bar rather than as a track behind it. It names no alpha OF ITS OWN - mixed
-	   toward the background rather than expressed as a translucent foreground -
-	   because a semi-transparent axis recomposites over the row's hover wash and
-	   loses contrast at exactly the moment someone is reading it (measured
-	   2.95:1 hovered against 3.06 at rest, in light). The alpha it inherits is
-	   0.65 * alpha(--foreground) + 0.35 * alpha(--background): translucent only
-	   if an input is, and never below 65% of --foreground's. Against the opaque
-	   palettes the forced-theme blocks pin, it never drops below 3.5:1 in any
-	   state: 3.95 at rest and 3.53 hovered in light, 5.10 and 4.29 in dark.
-	   Under `auto` the readings follow the host's own palette - identical on
-	   Light and Dark Modern, which is what those blocks resolve, and moved on a
-	   host whose editor.background is deliberately translucent (see the body
-	   rule above) and composites something else behind them.
-	   Not --border, which is a widget rule and measures 1.26:1 here. Nor a
-	   description-strength rule, which is what the advisory diagnostic uses for
-	   its own 3:1 problem: at 6.1:1 and up, a scale line out-shouts the smallest
-	   datum it exists to measure (a healthy fill is 3.8:1 in light). */
+	/* The spend meter's baseline: the 100% extent as a 1px rule UNDER the bar. It names no
+	   alpha of its own (mixed toward the background, 0.65/0.35), because a translucent
+	   axis recomposites over the row's hover wash and loses contrast exactly when read
+	   (2.95:1 hovered vs 3.06 at rest, light). Against the pinned opaque palettes it
+	   never drops below 3.5:1 in any state (3.95/3.53 light, 5.10/4.29 dark). Not
+	   --border (1.26:1 here), nor description strength (6.1:1 out-shouts the smallest
+	   datum it measures - a healthy fill is 3.8:1 in light). */
 	--axis: color-mix(in srgb, var(--foreground) 65%, var(--background));
 	--muted-foreground: var(--vscode-descriptionForeground);
 	--accent: var(--vscode-list-hoverBackground);
@@ -290,19 +240,11 @@ body.vscode-high-contrast-light [data-slot="reveal"] {
 	--input: var(--vscode-input-border, var(--vscode-widget-border, var(--vscode-panel-border)));
 	--ring: var(--vscode-focusBorder);
 	--radius: 4px;
-	/* The named radii, declared at runtime because dashboard.css reads them
-		 directly: the @theme block below is inline, so a utility's --radius-*
-		 variable never exists on the page, and before these tokens every plain
-		 CSS chip or pill rule restated the arithmetic as a literal that could
-		 drift. One radius per shape class:
-		 - chip: the machine-text chips and provenance badges, the same
-			 arithmetic the rounded-sm utility bakes in;
-		 - pill: the near-pill toggles (the filter pills, the scope chip), whose
-			 rounder box is what makes filled-vs-outline read as a toggle rather
-			 than a chip;
-		 - field: the text fields (the rounded-sm inputs and the plain-CSS
-			 textarea), same value as the chip radius today but a separate token
-			 because fields and chips are different shape classes that may part. */
+	/* The named radii, declared at runtime because dashboard.css reads them directly (the
+	   @theme block is inline, so a utility's --radius-* never exists on the page). One
+	   radius per shape class: chip (machine-text chips, provenance badges), pill (the
+	   near-pill toggles, whose rounder box makes filled-vs-outline read as a toggle),
+	   field (same value as chip today, a separate token because the classes may part). */
 	--radius-chip: calc(var(--radius) - 2px);
 	--radius-pill: 9px;
 	--radius-field: calc(var(--radius) - 2px);
@@ -321,26 +263,14 @@ body.vscode-high-contrast-light [data-slot="reveal"] {
 }
 
 /* ---------------------------------------------------------------------------
-	 Theme and accent.
-
-	 `auto` (the default) keeps every semantic token mapped onto the host's
-	 --vscode-* variables, which is what makes the dashboard belong inside ANY
-	 VS Code theme - Solarized, Monokai, a hand-rolled one - and what keeps high
-	 contrast working without a palette of its own. Forcing `light` or `dark`
-	 replaces that mapping with our own palette, for readers who want the
-	 dashboard to hold still while the editor changes around it.
-
-	 The wash scale is the part that cannot be shared. A tint that reads as a
-	 quiet panel on #1f1f1f becomes a shout on #ffffff, so the percentages are
-	 per-theme, and under `auto` we read the host's own kind off the class VS
-	 Code stamps on <body> rather than guessing from a color.
-
-	 HIGH CONTRAST WINS. Under either HC body class the whole theme/accent layer
-	 goes inert and the dashboard behaves exactly as `auto` does. A reader who
-	 turned high contrast on chose it for legibility, and no aesthetic preference
-	 of ours gets to overrule that. It is also the only version of this that is
-	 maintainable: the alternative is re-fighting the HC block token by token,
-	 forever, one battle per token anybody ever adds.
+   Theme and accent. `auto` (default) keeps every semantic token mapped onto the
+   host's --vscode-* variables - the dashboard belongs inside ANY theme; forcing
+   `light`/`dark` replaces the mapping with our palette for readers who want the
+   dashboard to hold still. The wash scale is per-theme (a quiet tint on #1f1f1f
+   shouts on #ffffff); under `auto` the host's kind is read off VS Code's body class.
+   HIGH CONTRAST WINS: under either HC body class this whole layer goes inert and
+   `auto` behavior applies - a reader who chose HC chose legibility, and the
+   alternative is re-fighting the HC block token by token forever.
    --------------------------------------------------------------------------- */
 
 :root {
@@ -358,18 +288,11 @@ body.vscode-high-contrast-light [data-slot="reveal"] {
 		 outlines every control there, and a borderless button stops reading as
 		 one, so this is the single token that turns the outline back on. */
 	--control-outline: transparent;
-	/* Status colour AS TEXT. The raw hues are tuned to be seen on a dark
-		 editor, and three of them are unreadable as words on a light one: the
-		 passing green measures 2.0:1 on white, the warning 3.1:1, the error
-		 3.4:1, all under AA - and that is not our palette being wrong, it is
-		 what VS Code's own Light Modern publishes. A meter or a bar can stay
-		 bright, because a shape carries no reading burden; a word cannot.
-
-		 These are ALIASES, so they are declared here on :root alone and never
-		 on body. A plain alias declared on body would match body directly and
-		 beat the forced-theme override, which lives on html - and the forced
-		 light palette is precisely the case this exists for. Only derivations
-		 that read a per-surface input belong in the :root, body block below. */
+	/* Status colour AS TEXT: the raw hues are tuned for a dark editor and three are
+	   unreadable as words on Light Modern (green 2.0:1, warn 3.1, err 3.4 - the host's own
+	   published values); a shape can stay bright, a word cannot. ALIASES, declared on
+	   :root alone and never body: a body alias would beat the forced-theme override on
+	   html - the forced light palette is precisely the case this exists for. */
 	--ok-text: var(--ok);
 	--warn-text: var(--warn);
 	--err-text: var(--err);
@@ -414,34 +337,20 @@ body.vscode-high-contrast-light {
 		 followed the tier, and the chip lost a third of its presence. */
 	--err-quiet: color-mix(in srgb, var(--err) 55%, var(--foreground));
 	--chip: color-mix(in srgb, var(--foreground) 14%, transparent);
-	/* Light Modern publishes descriptionForeground IDENTICAL to foreground, so
-		 a light dashboard has no secondary tier at all - every muted label reads
-		 at full strength. Derived from the theme's own two colours rather than
-		 pinned to a literal, so it lands sensibly on any light host instead of
-		 only on ours.
-
-		 The ratio is biased toward legibility rather than separation: this
-		 replaces whatever the host chose, so it has to beat a good host's own
-		 value, not merely differ from body text. At 78% it measures 6.1:1 on
-		 Light Modern and 6.7:1 on a representative off-white host. */
+	/* Light Modern publishes descriptionForeground IDENTICAL to foreground - no secondary
+	   tier at all - so it is derived from the theme's own two colours, biased toward
+	   legibility over separation: at 78% it measures 6.1:1 on Light Modern. */
 	--muted-foreground: color-mix(in oklab, var(--foreground) 78%, var(--background));
 	--hue-violet: #6b46c1;
 	--hue-teal: #0f766e;
 	--hue-amber: #a15c00;
 }
 
-/* The accent hues, each defined exactly once. The choosable hue and the hue in
-	 use are different things - the settings picker paints all four as swatches
-	 while only one is live - and a literal written twice is a literal that
-	 drifts, so the rules below and the swatches read the same tokens.
-
-	 Blue is the host's own button color, which is why an untouched install looks
-	 exactly as it always did, and why it needs no light value of its own: the
-	 theme already supplies one. The other three are ours, and a hue that carries
-	 on #1f1f1f is too pale on #ffffff, so a light surface re-declares them (see
-	 the light block above). The token itself carries the per-surface value
-	 rather than a second "-light" name, so the picker's swatch paints the hue
-	 you would actually get. */
+/* The accent hues, each defined exactly once: the picker's swatches and the live rules
+   read the same tokens. Blue is the host's own button color (an untouched install
+   looks as it always did; the theme supplies its light value); the other three
+   re-declare on light surfaces, the token itself carrying the per-surface value so
+   the swatch paints the hue you would actually get. */
 :root {
 	--hue-blue: var(--vscode-button-background, #0078d4);
 	--hue-violet: #7c5cf0;
@@ -458,17 +367,11 @@ body.vscode-high-contrast-light {
 	--accent-hue: var(--hue-blue);
 }
 
-/* Every rule either setting drives hangs off this one guard, so "high contrast
-	 wins" is a property of the structure rather than a discipline to remember: a
-	 palette or hue added inside is covered, and there is no outside to add one
-	 to. The one thing outside is the `:root` default above, which has to have a
-	 value under high contrast too - and because its chain reads the host's
-	 button color, which high contrast paints black, the HC block below claims
-	 the accent explicitly. That single override is the whole of the token-by-
-	 token discipline that remains.
-
-	 `:where()` zeroes the guard's own weight, so every rule below keeps exactly
-	 the specificity it reads as. */
+/* Every rule either setting drives hangs off this one guard, so "high contrast wins"
+   is structural rather than a discipline: there is no outside to add a palette to.
+   The one thing outside is the `:root` default above, whose chain reads the host's
+   button color (black under HC), so the HC block claims the accent explicitly.
+   `:where()` zeroes the guard's own weight. */
 html:where(:not(:has(body.vscode-high-contrast, body.vscode-high-contrast-light))) {
 	/* The chosen accent. Blue sets nothing: it means "my theme's own colors",
 		 and the `:root` default already reads them - including --ring, which the
@@ -503,37 +406,18 @@ html:where(:not(:has(body.vscode-high-contrast, body.vscode-high-contrast-light)
 		--ring: var(--hue-amber);
 	}
 
-	/* Forced themes replace the HOST's variables, not our semantic tokens. Every
-		 consumer already reads those chains - the semantic mapping above, the
-		 dashboard stylesheet's 180-odd direct reads, the shadcn utilities - so one
-		 palette moves the whole page, and a rule added to either stylesheet
-		 tomorrow follows a forced theme for free. Overriding our semantic names
-		 instead was the alternative, and it renders as a light page with one
-		 black input: correct where a semantic token happened to exist,
-		 untouched everywhere else.
-
-		 !important is not a shortcut here, it is the only way in. VS Code does
-		 not ship --vscode-* in a stylesheet: applyStyles writes each one onto
-		 the document element's INLINE style, and an inline declaration outranks
-		 every author rule on that same element. Without !important these rules
-		 lose in the editor while appearing to work anywhere the tokens arrive as
-		 CSS - which is exactly what happened, and why the render harness now
-		 delivers them inline too. Only the host tokens carry it: our own tokens
-		 are shadowed by nothing.
-
-		 Values are Dark Modern and Light Modern resolved over the workbench color
-		 registry's defaults, so a forced theme still looks native rather than
-		 like a second product. Where the registry computes rather than states a
-		 value, the derivation is named so it can be rechecked:
-		 editorWidget/editorHoverWidget border is editorWidget.foreground at 20%
-		 alpha, and dark statusBarItem.errorBackground is darken(errorForeground,
-		 0.4) - both themes set errorForeground to #f85149, which is why the dark
-		 value is not the red the registry's own default errorForeground yields.
-		 The two contrast-only tokens stay undefined on purpose: an ordinary theme does not define them
-		 either, and the fallback chains that read them are written for exactly
-		 that. theme.test.ts pins both palettes against the tokens the
-		 stylesheets actually read, and pins the !important, so neither a new
-		 read nor a new declaration can quietly go unforced. */
+	/* Forced themes replace the HOST's variables, not our semantic tokens: every consumer
+	   already reads those chains, so one palette moves the whole page and tomorrow's rule
+	   follows for free (overriding semantic names instead rendered a light page with one
+	   black input). !important is the only way in: applyStyles writes each --vscode-* onto
+	   the document element's INLINE style, which outranks every author rule there -
+	   without it these rules lose in the editor while appearing to work wherever tokens
+	   arrive as CSS (the render harness delivers them inline for that reason). Only host
+	   tokens carry it. Values are Dark/Light Modern resolved over the registry defaults;
+	   computed derivations are named for recheck: editorWidget border = foreground at 20%
+	   alpha, dark statusBarItem.errorBackground = darken(errorForeground #f85149, 0.4).
+	   The two contrast-only tokens stay undefined on purpose - ordinary themes do not
+	   define them either. theme.test.ts pins both palettes and the !important. */
 	&[data-theme="dark"] {
 		color-scheme: dark;
 		--vscode-button-background: #0078d4 !important;
@@ -729,14 +613,11 @@ html:where(:not(:has(body.vscode-high-contrast, body.vscode-high-contrast-light)
 	}
 }
 
-/* Derived on BOTH root and body, which is not redundancy. A custom property
-	 substitutes against the value on the element it is DECLARED on, so a
-	 derivation living only on :root would bake in html's mix percentage and
-	 keep it - body inheriting the finished color cannot re-derive. Under
-	 `auto` the light scale lands on body (that is where VS Code stamps its
-	 theme class), so without this line a light host would get the light
-	 --state-mix and a tint derived at the dark strength together: exactly the
-	 combination a per-theme scale exists to prevent. */
+/* Derived on BOTH root and body, not redundancy: a custom property substitutes on the
+   element it is DECLARED on, so a :root-only derivation bakes in html's mix and body
+   cannot re-derive. Under `auto` the light scale lands on body (VS Code stamps its
+   theme class there), so without this a light host mixes light --state-mix with a
+   dark-strength tint. */
 :root,
 body {
 	--accent-soft: color-mix(in srgb, var(--accent-hue) var(--state-mix), transparent);
@@ -758,24 +639,15 @@ body {
 		 muted foreground toward the error hue: different in kind at a glance,
 		 quiet enough to ignore, and it deepens to the real --err on hover. */
 	--err-quiet: color-mix(in srgb, var(--err) 55%, var(--muted-foreground));
-	/* Destructive UNDER THE POINTER. Not --err itself, which is the trap: --err
-		 is a bright red tuned to be read on the page, and the hover wash puts a
-		 reddened surface behind it, so "deepening to --err" measured 4.0:1 on
-		 dark and 3.0:1 on light - losing contrast at the exact instant a
-		 destructive control is being aimed at. There is no red that gains
-		 contrast on its own wash, so this strengthens AWAY from the surface
-		 instead of toward the hue: leaning the error color into the foreground
-		 lightens it on a dark page and darkens it on a light one, which is the
-		 direction legibility lives in either way. Measures 5.7:1 and 6.1:1. */
+	/* Destructive UNDER THE POINTER. Not --err itself: the hover wash reddens the surface,
+	   so deepening to --err LOSES contrast at the aiming moment (4.0:1 dark, 3.0 light).
+	   No red gains contrast on its own wash, so this strengthens AWAY from the surface -
+	   toward the foreground - which lightens on dark and darkens on light. 5.7:1 / 6.1:1. */
 	--err-strong: color-mix(in srgb, var(--err) 45%, var(--foreground));
-	/* Chip fills, mixed from the chip's OWN text colour rather than from a
-		 surface token. Two reasons. Mixing the foreground is self-correcting in
-		 both polarities - it lifts on a dark page and drops on a light one - where
-		 a fixed host surface colour sat 12 points off the dark background and 7
-		 off the light one, so the same chip read as a chip in one theme and as
-		 loose words in the other. And a chip is small: the severity scale is
-		 sized for banners, and a percentage that reads as a calm wash across a
-		 paragraph disappears behind six characters. */
+	/* Chip fills, mixed from the chip's OWN text colour: self-correcting in both
+	   polarities, where a fixed host surface read as a chip in one theme and loose words
+	   in the other. And a chip is small - a wash calm across a banner disappears behind
+	   six characters. */
 	--chip: color-mix(in srgb, var(--muted-foreground) 14%, transparent);
 	--warn-chip: color-mix(in srgb, var(--warn) 12%, transparent);
 	/* The warn chip's own text, leaned into the foreground for the same reason
@@ -784,20 +656,12 @@ body {
 	--warn-chip-foreground: color-mix(in srgb, var(--warn) 55%, var(--foreground));
 }
 
-/* High contrast: the host draws every boundary with the contrast border and
-	 marks the active one, so the semantic border/focus tokens follow suit.
-	 Fills disappear by design in HC (button.secondaryBackground and its
-	 fallback are both null there), so every fill token gains a guaranteed
-	 surface fallback and lets the contrast border carry the shape.
-
-	 This block is also where the accent comes home. The guard above already
-	 makes the forced palettes inert; the accent needs an actual value, and it
-	 cannot be the usual one: HC does define button.background, as #000000 in HC
-	 dark, so the ordinary chain would paint the accent black on a black page.
-	 The host's link color is the hue an HC theme guarantees is both actionable
-	 and legible against its own background, which is exactly the job. Declaring
-	 it on body beats the html-level data-accent rules for body and everything
-	 under it, so the reader's accent choice goes inert with the rest. */
+/* High contrast: boundaries take the contrast border; fills disappear by design (both
+   background tokens null), so every fill token gains a guaranteed surface fallback.
+   The accent comes home here too: HC dark defines button.background as #000000, so
+   the ordinary chain paints black on black - the host's link color is the hue an HC
+   theme guarantees actionable and legible. Declared on body, it beats the html-level
+   data-accent rules, so the reader's accent choice goes inert with the rest. */
 body.vscode-high-contrast,
 body.vscode-high-contrast-light {
 	--border: var(--vscode-contrastBorder);

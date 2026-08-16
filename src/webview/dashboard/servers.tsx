@@ -42,15 +42,8 @@ import { Section } from "./ui/section";
 import { sendRequest } from "./vscodeApi";
 
 /**
- * Every inactive notice's user-facing phrase in one table, so a new notice
- * cannot ship half-wired (the satisfies clause fails to compile until the
- * table names it). Zero-arg functions, so the strings resolve after the l10n
- * bootstrap.
- *
- * Each notice used to carry three renderings - a row badge, a hover tip, and a
- * phrase for the merged banner - which was three places to say one thing and
- * two of them appeared side by side. The row's advisory line says it once, so
- * the phrase is all that survives.
+ * Every inactive notice's user-facing phrase; the satisfies clause fails to compile until a
+ * new notice is named here. Zero-arg functions, so strings resolve after the l10n bootstrap.
  */
 const INACTIVE_NOTICE_PRESENTATION = {
 	"entry-params-inactive": {
@@ -63,9 +56,8 @@ const INACTIVE_NOTICE_PRESENTATION = {
 		surface: () => l10n.t("per-server custom headers"),
 	},
 	"entry-api-version-inactive": {
-		// The consequence rides this phrase because it is specific to this
-		// surface - the others simply do not apply, this one silently falls back
-		// to a different rule - and it lived only in the retired badge's tip.
+		// The consequence rides the phrase: uniquely here, the surface silently falls back to
+		// a different rule rather than simply not applying.
 		surface: () => l10n.t("per-server API version overrides (requests use the auto rule)"),
 	},
 } as const satisfies Record<InactiveEntryNotice, { surface: () => string }>;
@@ -73,62 +65,35 @@ const INACTIVE_NOTICE_PRESENTATION = {
 const INACTIVE_NOTICES = Object.keys(INACTIVE_NOTICE_PRESENTATION) as readonly InactiveEntryNotice[];
 
 /*
- * This page's reading of the shared severity vocabulary (./severity.ts): how
- * much a problem costs the server's PURPOSE - serving its models with the
- * configuration it was given - which is the only thing that should decide how
- * loud it looks.
- *
- * "blocking" means this server serves nothing until someone acts. "degraded"
- * means someone has to act even though models may still serve: part of the
- * configuration is not reaching the server, a budget the reader configured is
- * running out, or - the one user-ruled carve-out - the entry's key is refused
- * permission to read its own usage. A refused key reads calmly, but only a
- * human can change a permission, so it counts. "advisory" means nobody has to
- * act - the configuration applies as written, and the line names either a
- * fact the reader may not remember setting up or a transient miss that clears
- * itself. An advisory still renders whole (headline, English detail, its fix
- * action); only the tint and the attention count are reduced, or the quiet
- * tier would train the reader to ignore the loud ones.
- *
- * The tiers are what the summary line counts, so a tier is a promise about
- * whether someone has to act, not a volume knob.
+ * This page's reading of ./severity.ts, ranked by what a problem costs the server's purpose:
+ * "blocking" serves nothing until someone acts; "degraded" needs a human even if models serve
+ * (a refused usage key counts - user-ruled); "advisory" needs nobody and still renders whole,
+ * only tint and attention count reduced. The tiers are what the summary line counts, so a
+ * tier is a promise about whether someone has to act, not a volume knob.
  */
 
 /**
- * One action offered beside a problem. Almost every one of them REVEALS the
- * place a human fixes the problem - the setting, the entry's form, the models
- * file - or asks the extension to try again, because this is their settings
- * file and a button that silently edited it would be a worse bug than the one
- * it fixed. The one exception is the declare-expected action: behind an
- * explicit confirm it appends one closed-vocabulary token
- * (discovery.expectedFailures) to the entry - nothing free-typed, nothing
- * removed, and the row's diagnostic named exactly what will be written.
+ * One action offered beside a problem: it REVEALS where a human fixes it, or retries - never
+ * a silent settings edit. The one exception, declare-expected, appends one closed-vocabulary
+ * token (discovery.expectedFailures) behind an explicit confirm that named what it writes.
  */
 type DiagnosticAction =
 	/**
-	 * `ariaLabel` names the server, because these buttons repeat down the page:
-	 * a screen-reader user listing controls otherwise hears "Retry" three times
-	 * with nothing to tell them apart. The visible label stays the short verb
-	 * and stays inside the accessible name, as Label in Name requires.
+	 * `ariaLabel` names the server (the buttons repeat down the page); the visible label stays
+	 * the short verb and stays inside the accessible name, as Label in Name requires.
 	 */
 	| {
 			readonly kind: "button";
 			/**
-			 * Stable across renders and independent of the label. React keys are
-			 * identity, and keying these by their text destroyed and rebuilt the
-			 * node the instant its wording changed - which is precisely when the
-			 * reader was holding it, so pressing Retry threw away their own focus.
+			 * Stable across renders and independent of the label: keying by text rebuilds the
+			 * node the instant its wording changes, throwing away the reader's focus.
 			 */
 			readonly id: string;
 			readonly label: string;
 			readonly ariaLabel: string;
 			/** In flight: the control states that it is working and refuses a second click. */
 			readonly disabled?: boolean | undefined;
-			/**
-			 * In flight: the spinner beside the label (the header Refresh now's
-			 * idiom), so a pass that runs for a minute shows motion, not just a
-			 * reworded button.
-			 */
+			/** In flight: the spinner beside the label, so a minute-long pass shows motion. */
 			readonly busy?: boolean | undefined;
 			/** The accent rank, for the one action of an armed pair that commits; everything else stays secondary. */
 			readonly emphasized?: boolean | undefined;
@@ -146,26 +111,15 @@ interface RowDiagnostic {
 	/** Stable within a row, so React keeps focus on an action button across pushes. */
 	readonly key: string;
 	readonly severity: DiagnosticSeverity;
-	/**
-	 * What it costs, in a sentence that names the server and leads with the
-	 * consequence rather than the mechanism: a reader who stops after the first
-	 * clause should still know what is not working.
-	 */
+	/** Names the server and leads with the consequence, not the mechanism. */
 	readonly headline: string;
-	/**
-	 * The server's own words, when it had any - one paragraph per line, so a
-	 * denial spanning two endpoints states both. English by policy - these land
-	 * in issue reports.
-	 */
+	/** One paragraph per line. English by policy - these land in issue reports. */
 	readonly details?: readonly string[] | undefined;
 	readonly actions: readonly DiagnosticAction[];
 	/**
-	 * Where the sentence renders: under the collapsed row (the default), or
-	 * inside the expanded drawer. Drawer placement is USER-RULED (2026-08-16)
-	 * for the budget-pressure line while it sits below the user's own error
-	 * threshold: the row's tinted meter and warn pill already signal it, so
-	 * the sentence is detail, not news. The diagnostic still ranks the pill
-	 * and the attention count either way - only the line moves.
+	 * Under the collapsed row (default) or inside the drawer. Drawer placement is USER-RULED
+	 * (2026-08-16) for the sub-error budget-pressure line: the tinted meter already signals
+	 * it. The diagnostic still ranks the pill and the attention count either way.
 	 */
 	readonly placement?: "drawer" | undefined;
 }
@@ -185,16 +139,7 @@ interface SpendContext {
 	readonly discoveryTimeoutMs: number;
 }
 
-/**
- * Every problem one server has, worst first.
- *
- * These used to be five separate banner stacks under the table, each one
- * looping over every server and joining its entries with semicolons. That
- * shape made the reader do the join: a sentence beginning "prod-eu:" sat
- * inches below the row it was about, and a row in trouble looked exactly like
- * a healthy one until you read the bottom of the page. Same facts, attached
- * to the row that owns them.
- */
+/** Every problem one server has, worst first, attached to the row that owns it. */
 function serverDiagnostics(
 	server: DashboardServer,
 	/** The row's usage card (denied cards included); its problems rank beside the discovery ones. */
@@ -280,6 +225,21 @@ function serverDiagnostics(
 		label: l10n.t("Learn more"),
 		ariaLabel: l10n.t("Learn more: the OpenAI-compatible servers guide"),
 	};
+	// A discovery pass can take tens of seconds (the per-request timeouts sum), so the
+	// in-flight Retry relabels and spins. Only the asking row SAYS it is checking, but every
+	// Retry disables while a pass runs: the command is fleet-wide, so no row may queue another.
+	const retryAction = (): DiagnosticAction => ({
+		kind: "button",
+		id: "retry",
+		label: actions.retrying === true ? l10n.t("Checking...") : l10n.t("Retry"),
+		ariaLabel:
+			actions.retrying === true
+				? l10n.t("Checking {0}", server.label)
+				: l10n.t("Retry discovery for {0}", server.label),
+		disabled: actions.retrying === true || actions.syncBusy === true,
+		busy: actions.retrying === true,
+		onClick: actions.onRetry,
+	});
 	const found: RowDiagnostic[] = [];
 	if (server.origin === "misconfigured") {
 		found.push({
@@ -315,25 +275,18 @@ function serverDiagnostics(
 		const expected = server.expected === true;
 		const headline = statusErrorHeadline(error);
 		if (!expected) {
-			// A live group whose sync failed keeps serving what it already had, so
-			// it is degraded rather than blocking; one that has nothing serves
-			// nothing.
+			// A live group whose sync failed keeps serving what it had (degraded);
+			// one that has nothing serves nothing (blocking).
 			const serving = server.state === "ok" || server.modelCount > 0;
-			// The error's declaration advice with no one-click form beside it
-			// needs the why: the identity fix rides the details wherever the
-			// declare action is withheld - unless the entry-inactive line below
-			// renders and says the same sentence itself.
+			// Where the declare action is withheld, the identity fix rides the details - unless
+			// the entry-inactive line below renders and says the same sentence itself.
 			const declareWithheld =
 				server.origin === "declared" &&
 				server.classification?.unsupportedEndpoint === "modelListing" &&
 				server.entryFieldsInactive === true;
-			// The declaration-suggesting error arrives inverted for this surface: its
-			// first line leads with the remediation (the JSON keys the Declare button
-			// writes), which belongs in the dimmed detail beside the GET fact, while
-			// the bright headline should carry the consequence alone. The transport
-			// string is atomic (toasts show it whole), so the swap happens here: a
-			// short consequence clause takes the headline's slot and the advice rides
-			// the detail lines.
+			// The declaration-suggesting transport string is atomic (toasts show it whole) and
+			// leads with the remediation, so the swap happens here: a short consequence clause
+			// takes the headline's slot and the advice rides the detail lines.
 			const declarationAdvice = server.classification?.unsupportedEndpoint === "modelListing";
 			const cause = declarationAdvice ? l10n.t("the server answers, but its models listing fails.") : headline;
 			found.push({
@@ -348,28 +301,7 @@ function serverDiagnostics(
 					declareWithheld && inactive.length === 0 ? entryInactiveFixText() : undefined
 				),
 				actions: [
-					{
-						kind: "button",
-						id: "retry",
-						// A discovery pass can take tens of seconds - the timeouts are
-						// per request and they sum - so a button that looked identical
-						// before and after the click invited the double-click-until-
-						// something-happens trap.
-						label: actions.retrying === true ? l10n.t("Checking...") : l10n.t("Retry"),
-						ariaLabel:
-							actions.retrying === true
-								? l10n.t("Checking {0}", server.label)
-								: l10n.t("Retry discovery for {0}", server.label),
-						// Only the row that asked SAYS it is checking, because that is
-						// where the reader is looking - but every Retry is disabled while
-						// a pass runs, because the command is fleet-wide. Leaving the
-						// others live would let one impatient reader queue several full
-						// passes from different rows, each one costing every server a
-						// round trip.
-						disabled: actions.retrying === true || actions.syncBusy === true,
-						busy: actions.retrying === true,
-						onClick: actions.onRetry,
-					},
+					retryAction(),
 					...(server.origin === "declared"
 						? [
 								{
@@ -414,11 +346,8 @@ function serverDiagnostics(
 				],
 			});
 		} else if (declared > 0) {
-			// The entry declared this failure category and named models to serve
-			// through it, so nothing is wrong: this is the quiet tier, stating a
-			// fact the reader may not remember configuring. The server's own
-			// words ride the detail lines rather than the headline - interpolated
-			// there they chained a second colon onto the sentence's own.
+			// Quiet tier: the entry declared this failure and named models to serve through it.
+			// The server's own words ride the detail lines, not the headline (colon chaining).
 			found.push({
 				key: "expected-serving",
 				severity: "advisory",
@@ -435,9 +364,8 @@ function serverDiagnostics(
 			});
 		} else {
 			found.push({
-				// Serves nothing at all, which is the definition of blocking. The
-				// entry expecting the failure category makes the CAUSE unsurprising;
-				// it does not put any models in the picker.
+				// Serves nothing at all: blocking. The expected category makes the CAUSE
+				// unsurprising; it does not put any models in the picker.
 				key: "expected-nothing-declared",
 				severity: "blocking",
 				headline: l10n.t(
@@ -458,47 +386,16 @@ function serverDiagnostics(
 								},
 							]
 						: []),
-					{
-						kind: "button",
-						id: "retry",
-						// A discovery pass can take tens of seconds - the timeouts are
-						// per request and they sum - so a button that looked identical
-						// before and after the click invited the double-click-until-
-						// something-happens trap.
-						label: actions.retrying === true ? l10n.t("Checking...") : l10n.t("Retry"),
-						ariaLabel:
-							actions.retrying === true
-								? l10n.t("Checking {0}", server.label)
-								: l10n.t("Retry discovery for {0}", server.label),
-						// Only the row that asked SAYS it is checking, because that is
-						// where the reader is looking - but every Retry is disabled while
-						// a pass runs, because the command is fleet-wide. Leaving the
-						// others live would let one impatient reader queue several full
-						// passes from different rows, each one costing every server a
-						// round trip.
-						disabled: actions.retrying === true || actions.syncBusy === true,
-						busy: actions.retrying === true,
-						onClick: actions.onRetry,
-					},
+					retryAction(),
 				],
 			});
 		}
 	}
 	if (server.state === "ok" && server.modelInfoUnsupported !== undefined && server.origin === "declared") {
-		// The quiet tier on purpose: the models serve and the configuration
-		// applies as written - the declaration marks the failing probe as normal
-		// (single attempt, info-level log, no hint). It does NOT shorten the
-		// probe's wait: a hanging endpoint still spends one discovery timeout
-		// per sync, and only a lower discovery.timeout shortens that - so the
-		// copy promises the marking, never speed.
-		//
-		// The diagnosis renders whatever the join pass said - the probe's cost
-		// is real either way - but the one-click write is withheld when the
-		// group did not join by the entry's identity (the classification
-		// itself, not the inactive notices: those exist only for the field
-		// families the entry happens to configure). The withheld case says why
-		// in its details with the identity fix, unless the entry-inactive line
-		// below renders and says the same sentence itself.
+		// Quiet tier: the models serve and the config applies. Declaring marks the failing
+		// probe as normal (single attempt, info log) - it does NOT shorten the probe's wait,
+		// so the copy promises the marking, never speed. The one-click write is withheld when
+		// the group did not join by the entry's identity; the details then carry the fix.
 		const withheld = server.entryFieldsInactive === true;
 		found.push({
 			key: "model-info-unsupported",
@@ -525,21 +422,13 @@ function serverDiagnostics(
 		});
 	}
 	if (inactive.length > 0) {
-		// One line for every inactive surface on this row: the cause and the fix
-		// are identical for all of them, so per-surface twins would only repeat
-		// themselves. Degraded rather than advisory: the group may be serving
-		// this entry WITHOUT settings the user wrote, and only they can decide
-		// whether that matters. Advisory would also have kept these rows out of
-		// the summary count, quietly telling a reader whose parameters may not
-		// be applied that nothing needs attention.
+		// One line for every inactive surface: cause and fix are identical for all. Degraded,
+		// not advisory - the group may be serving WITHOUT settings the user wrote, and
+		// advisory would keep these rows out of the summary count.
 		found.push({
 			key: "entry-inactive",
 			severity: "degraded",
 			headline: l10n.t("{0} may not be applying its {1}.", server.label, inactiveSurfacesText(server)),
-			// The retired banner spelled the remedy out as numbered steps, and was
-			// the only place these facts were written: which file, and that saving
-			// under a new label works instead. They ride the line rather than dying
-			// with it, behind a cause sentence the headline no longer carries.
 			details: [entryInactiveFixText()],
 			actions: [
 				{
@@ -554,11 +443,8 @@ function serverDiagnostics(
 					id: "learn-more",
 					label: l10n.t("Learn more"),
 					href: DOCS_LINK_PARAMS_INACTIVE,
-					// Every docs action's accessible name LEADS with its visible
-					// verb (Label in Name - a speech-input user activates the link
-					// by saying what the screen shows), with the destination as the
-					// distinguishing tail. A screen reader's link list then groups
-					// these under the same verbs the eye groups them by.
+					// Docs accessible names LEAD with the visible verb (Label in Name), with the
+					// destination as the distinguishing tail.
 					ariaLabel: l10n.t("Learn more in the troubleshooting guide"),
 				},
 			],
@@ -571,11 +457,8 @@ function serverDiagnostics(
 }
 
 /**
- * The row's spend and usage problems, ranked by the same tiers as everything
- * else on it. The Usage destination used to classify these for its own rows
- * (a tail fact plus a needs-attention predicate plus a forbidden panel, three
- * partial copies); merged onto the server row there is one classifier, and
- * the summary count can never disagree with what a row renders.
+ * The row's spend and usage problems, ranked by the same tiers as everything else on it: one
+ * classifier, so the summary count can never disagree with what a row renders.
  */
 function usageDiagnostics(
 	label: string,
@@ -587,10 +470,8 @@ function usageDiagnostics(
 		readonly refreshingExplicitly?: boolean;
 	}
 ): readonly RowDiagnostic[] {
-	// The fix every usage problem shares: an immediate fleet-wide re-fetch and
-	// re-probe (the refreshUsage intent, the same one the section header posts).
-	// Disabled during ANY pass (one serialized engine); the busy label only
-	// for an explicit one, like the header button.
+	// The fix every usage problem shares: the fleet-wide refreshUsage intent. Disabled during
+	// ANY pass (one serialized engine); the busy label only for an explicit one.
 	const refreshNow = (id: string): DiagnosticAction[] =>
 		actions.onRefreshUsage === undefined
 			? []
@@ -609,11 +490,8 @@ function usageDiagnostics(
 					},
 				];
 	if (card.kind === "forbidden") {
-		// USER RULING (2026-08-14): a denied usage key is DEGRADED - counted in
-		// the attention summary and warn-tinted - not the advisory tier its calm
-		// wording might suggest. Nothing here clears itself: only a human can
-		// change the key's permission, so the row carries something to act on
-		// even though its models keep serving.
+		// USER RULING (2026-08-14): a denied usage key is DEGRADED, not advisory - nothing
+		// here clears itself; only a human can change the key's permission.
 		return [
 			{
 				key: "usage-denied",
@@ -632,8 +510,7 @@ function usageDiagnostics(
 	}
 	const found: RowDiagnostic[] = [];
 	if (card.keyInfo.kind === "unavailable" && card.keyInfo.reason === "forbidden") {
-		// The same user-ruled tier as the whole-card denial: one endpoint
-		// refused while the other serves is still a permission only a human can
+		// The same user-ruled tier as the whole-card denial: a permission only a human can
 		// fix, so it counts.
 		found.push({
 			key: "spend-denied",
@@ -659,12 +536,9 @@ function usageDiagnostics(
 		});
 	}
 	if (card.keyInfo.kind === "error") {
-		// ADVISORY STILL RENDERS IN FULL - that is this tier's contract, not an
-		// implementation detail: the headline, the English endpoint detail, and
-		// the Refresh now action all render exactly as a degraded line's would,
-		// and only the tint and the attention count are reduced. It is advisory
-		// because a transient miss clears itself on the next poll; with polling
-		// off nothing retries, so the headline names the manual path instead.
+		// ADVISORY STILL RENDERS IN FULL - the tier's contract: headline, English detail, and
+		// Refresh now render exactly as a degraded line's would; only tint and count reduce.
+		// With polling off nothing retries, so the headline names the manual path.
 		found.push({
 			key: "usage-refresh-failed",
 			severity: "advisory",
@@ -682,11 +556,8 @@ function usageDiagnostics(
 		});
 	}
 	if (card.spend !== undefined && card.effectiveBudget !== undefined && card.spentFraction !== undefined) {
-		// Budget pressure is degraded per the tier contract: the reader set the
-		// budget to be told before it runs out, so a crossed threshold is theirs
-		// to act on. The line says what the percentage on the row cannot - how
-		// far past, or how much is left - and offers no action, because nothing
-		// here fixes a budget.
+		// Degraded per the tier contract: the reader set the budget to be told before it runs
+		// out. The line says how far past or how much is left; no action fixes a budget.
 		if (card.spentFraction > 1) {
 			found.push({
 				key: "over-budget",
@@ -701,11 +572,8 @@ function usageDiagnostics(
 		} else {
 			const tone = barPresentation(card.spentFraction, spend.thresholds).tone;
 			if (tone !== "ok") {
-				// The severity split follows the user's OWN thresholds: past the
-				// error one the sentence stays on the collapsed row like over-budget
-				// does; between warning and error it moves into the drawer, where
-				// the reader who wants the exact figure already is (the placement
-				// field's ruling).
+				// The user's OWN thresholds split placement: past error it stays on the collapsed
+				// row like over-budget; between warning and error it moves into the drawer.
 				found.push({
 					key: "budget-pressure",
 					severity: "degraded",
@@ -724,15 +592,9 @@ function usageDiagnostics(
 }
 
 /**
- * One problem, indented under the row that owns it, behind a severity rule.
- *
- * The rule's colour and the tint carry the severity together. Colour alone
- * would be the only signal for a reader who cannot separate red from amber,
- * and a tint alone is too weak to rank three levels, so blocking and advisory
- * differ in both. Neither channel reaches a screen reader, so the headline
- * leads with the shared vocabulary's hidden tier word (severityLabel, the
- * Diagnostics page's idiom): without it a degraded server announces as
- * "Connected" plus unranked prose.
+ * One problem, indented under the row that owns it. Rule colour and tint carry the severity
+ * together (colour alone fails a red/amber-blind reader; tint alone cannot rank three
+ * levels); neither reaches a screen reader, so the headline leads with the hidden tier word.
  */
 function ServerDiagnosticLine({ diagnostic }: { diagnostic: RowDiagnostic }) {
 	return (
@@ -747,11 +609,9 @@ function ServerDiagnosticLine({ diagnostic }: { diagnostic: RowDiagnostic }) {
 				</p>
 			))}
 			{diagnostic.actions.length > 0 ? (
-				// No live-region role here on purpose: the in-flight relabels are
-				// announced by the section's single text-only status region
-				// (ServersSection), because role="status" is atomic - a per-cluster
-				// region wrapping buttons would read every unrelated label, once per
-				// row, when a fleet-wide flag flips them all together.
+				// No live-region role here: role="status" is atomic, so a per-cluster region would
+				// read every unrelated label when a fleet-wide flag flips them all together;
+				// ServersSection's single text-only status region announces in-flight relabels.
 				<div className="row-diagnostic-actions">
 					{diagnostic.actions.map((action) =>
 						action.kind === "button" ? (
@@ -760,14 +620,9 @@ function ServerDiagnosticLine({ diagnostic }: { diagnostic: RowDiagnostic }) {
 								variant={action.emphasized === true ? undefined : "secondary"}
 								size="compact"
 								aria-label={action.ariaLabel}
-								// aria-disabled, not disabled: the `disabled` attribute drops
-								// focus to the body, so pressing Retry threw the keyboard
-								// user back to the top of the document at the exact moment
-								// they acted - and took the announcement with them, since a
-								// changed accessible name is announced on the FOCUSED
-								// element. This keeps the node focused, keeps it in the tab
-								// order, and lets "Checking Prod" be spoken; the handler
-								// refuses the click instead of the attribute doing it.
+								// aria-disabled, not disabled: the attribute drops focus to the body and a
+								// changed accessible name is announced only on the FOCUSED element, so this
+								// keeps the node focused; the handler refuses the click instead.
 								aria-disabled={action.disabled === true}
 								onClick={() => {
 									if (action.disabled !== true) {
@@ -775,9 +630,8 @@ function ServerDiagnosticLine({ diagnostic }: { diagnostic: RowDiagnostic }) {
 									}
 								}}
 							>
-								{/* The header Refresh now's in-flight idiom: motion beside the
-								    reworded label, because a pass can run for a minute and a
-								    static "Checking..." reads as a stuck page. */}
+								{/* Motion beside the reworded label: a static "Checking..." on a
+								    minute-long pass reads as a stuck page. */}
 								{action.busy === true ? <span className="spinner" aria-hidden="true" /> : null}
 								{action.label}
 							</Button>
@@ -793,11 +647,7 @@ function ServerDiagnosticLine({ diagnostic }: { diagnostic: RowDiagnostic }) {
 	);
 }
 
-/**
- * The inactive surfaces one noticed row names, as a short localized phrase
- * ("per-server model parameters, per-server custom headers"). Resolved at
- * call time (no module-level localized constants).
- */
+/** The row's inactive surfaces as one localized phrase, resolved at call time. */
 function inactiveSurfacesText(server: DashboardServer): string {
 	return INACTIVE_NOTICES.filter((notice) => server.notices?.includes(notice) === true)
 		.map((notice) => INACTIVE_NOTICE_PRESENTATION[notice].surface())
@@ -805,10 +655,8 @@ function inactiveSurfacesText(server: DashboardServer): string {
 }
 
 /**
- * The identity fix, spelled once: the entry-inactive line's detail sentence,
- * reused by every diagnostic that withholds a one-click entry write because
- * the group may not carry the entry's labeled identity - the words that
- * explain the missing button are the words that fix its cause.
+ * The identity fix, spelled once: reused by every diagnostic that withholds a one-click
+ * entry write because the group may not carry the entry's labeled identity.
  */
 function entryInactiveFixText(): string {
 	return l10n.t(
@@ -817,26 +665,13 @@ function entryInactiveFixText(): string {
 }
 
 /**
- * The dot's tone, derived from the row's WORST diagnostic rather than computed
- * a second time from the same inputs.
- *
- * The pill used to classify the row itself, which meant two classifiers over
- * one server, and they disagreed in public: an entry serving its declared
- * models through an expected failure wore an amber dot beside the word
- * "Connected" while the line under it was the quiet grey tier, and an entry
- * whose parameters were being ignored wore a green dot over an amber one. The
- * loudest mark on the row contradicted the sentence beneath it. One classifier,
- * one output: whatever the diagnostics say the row costs you, the dot says the
- * same.
- *
- * A row with nothing wrong, and a row whose only note is advisory, are both
- * plain "ok" - an advisory means nothing is wrong, so tinting the dot for one
- * would be the same false alarm the tier itself refuses.
+ * The dot's tone, derived from the row's WORST diagnostic - one classifier, never a second
+ * computed beside it. An advisory-only row stays plain "ok": an advisory means nothing is
+ * wrong, and tinting the dot for one would be the false alarm the tier itself refuses.
  */
 function pillTone(server: DashboardServer, worst: DiagnosticSeverity | undefined): "ok" | "warn" | "error" | "muted" {
 	if (server.origin !== "misconfigured" && server.state === "unchecked") {
-		// Nothing has looked at it yet, so there is no verdict to tone - and no
-		// diagnostic either, which would otherwise read as health.
+		// No verdict to tone yet - and no diagnostic either, which would read as health.
 		return "muted";
 	}
 	switch (worst) {
@@ -850,17 +685,12 @@ function pillTone(server: DashboardServer, worst: DiagnosticSeverity | undefined
 }
 
 /**
- * The row's plain-language verdict; the tone comes from pillTone. Words only,
- * no hover tips: the pill sits inside the row's disclosure button now, and a
- * focusable tip wrapper inside a button is the same nesting fault as a button
- * in a button. Everything the tips used to say lives where a click reaches it
- * instead - each verdict's story is the diagnostic line under the row, and the
- * unchecked row's next step is its drawer's Discovery last checked fact.
+ * The row's plain-language verdict. Words only, no hover tips: the pill sits inside the
+ * disclosure button, and a focusable tip wrapper inside a button is a nesting fault.
  */
 function pillVerdict(server: DashboardServer): string {
 	if (server.origin === "misconfigured") {
-		// Origin outranks state: the entry never reaches discovery, so whatever
-		// state rides the row, the verdict is the invalid entry itself.
+		// Origin outranks state: the entry never reaches discovery.
 		return l10n.t("Misconfigured");
 	}
 	if (server.state === "ok") {
@@ -868,8 +698,8 @@ function pillVerdict(server: DashboardServer): string {
 	}
 	if (server.state === "error") {
 		if (server.expected === true) {
-			// One state, one name across tabs: a row still serving declared models
-			// reads Connected here exactly as the Diagnostics grid reads it OK.
+			// One state, one name across tabs: still-serving reads Connected here exactly as
+			// the Diagnostics grid reads it OK.
 			return (server.declaredModelCount ?? 0) > 0 ? l10n.t("Connected") : l10n.t("Expected failure");
 		}
 		return l10n.t("Error");
@@ -878,10 +708,8 @@ function pillVerdict(server: DashboardServer): string {
 }
 
 /**
- * The row's status pill: tone dot, plain-language verdict, and how long ago
- * discovery last looked. The word says what state the row is in; the tone says
- * what that state costs, and comes from the row's diagnostics so the two can
- * never drift apart.
+ * The row's status pill: tone dot, verdict, and discovery age. The tone comes from the row's
+ * diagnostics, so word and tone can never drift apart.
  */
 function StatusPill({
 	server,
@@ -906,16 +734,10 @@ function StatusPill({
 	);
 }
 
-/** The DashboardServer origins as their own types; Extract keeps them in step with the protocol union. */
-
 /**
- * The external row's provenance, the drawer's Origin fact. The copy lives here
- * (classifications cross the boundary, words do not): a removed entry's
- * leftover names the removed label, a rename leftover names both labels, and a
- * row without provenance gets the honest default - added outside this
- * extension, or predating the tracking. Deletion instructions name the models
- * file: VS Code offers extensions no group removal, so the file (or VS Code's
- * own UI) is where deleting actually lives.
+ * The external row's provenance, the drawer's Origin fact; the copy lives here because
+ * classifications cross the boundary, words do not. Deletion instructions name the models
+ * file: VS Code offers extensions no group removal, so the file is where deleting lives.
  */
 function externalTip(server: ExternalDashboardServer): string {
 	const provenance = server.provenance;
@@ -938,12 +760,9 @@ function externalTip(server: ExternalDashboardServer): string {
 }
 
 /**
- * The row's spend-at-a-glance: the budget percentage in the shared severity
- * tone with the 3px meter as a rule beneath it, the plain amount when no
- * budget gives a percentage meaning, and nothing at all for a server without
- * usage data (an empty cell, not an "unknown" marker). The money-against-
- * budget pair lives in the drawer now: the glance is the fraction, the drawer
- * is the figures.
+ * The row's spend-at-a-glance: the budget percentage over the meter, the plain amount when
+ * no budget gives a percentage meaning, nothing for a server without usage data (an empty
+ * cell, not an "unknown" marker). The glance is the fraction; the drawer is the figures.
  */
 function SpendUnit({
 	usage,
@@ -957,23 +776,15 @@ function SpendUnit({
 	if (usage?.spend === undefined) {
 		return null;
 	}
-	// EVERY non-fresh number wears the one-word qualifier, whatever the cause:
-	// the header's "worst budget use" clause excludes stale rows from its
-	// maximum, and an unmarked 112% right beneath it read as the header
-	// contradicting the page. The word is a unit qualifier, not the story -
-	// the cause (a failed refresh, a denied key, mere age) lives in the
-	// diagnostic line or the drawer's Spend last updated fact. It leads the
-	// figure ON ITS LINE, never a line of its own: the mark lands
-	// asynchronously when a poll goes stale, and a third line moved every
-	// row below it (the .server-usage floor absorbs the word's width).
+	// EVERY non-fresh number wears the qualifier, whatever the cause (the header's "worst
+	// budget use" excludes stale rows, so an unmarked 112% would contradict it). It leads the
+	// figure ON ITS LINE, never a line of its own: the mark lands asynchronously, and a third
+	// line moved every row below it (the .server-usage floor absorbs the word's width).
 	const note = usage.fresh ? null : (
 		<span className="spend-note font-sans text-[0.92em] text-warn">{l10n.t("stale")} </span>
 	);
-	// The number says what it is only to someone who can read the meter under
-	// it; the hidden noun says it to a screen reader. In hidden text rather
-	// than an aria-label, because a plain span has no role that supports one -
-	// a label there is simply ignored and would have looked like a fix without
-	// being one.
+	// The hidden noun says what the number is to a screen reader; hidden text rather than an
+	// aria-label because a plain span has no role that supports one.
 	if (usage.spentFraction !== undefined) {
 		const bar = barPresentation(usage.spentFraction, thresholds);
 		return (
@@ -983,23 +794,13 @@ function SpendUnit({
 					{note}
 					{formatPercent(usage.spentFraction)}
 				</span>
-				{/* A baseline, not a track. The unfilled remainder used to be a
-				    background the fill sat ON, and that made the two contrasts fight:
-				    lifting the track off the page pushes the fill toward it - measured
-				    on Light Modern, no track colour lets both relationships clear 3:1
-				    at once. Decoupled, both are free: the extent is a 1px axis under
-				    the bar, the fill sits on the page above it and keeps its saturated
-				    tones (ok/warn/err measured 3.8/5.6/6.0 light, 8.2/7.1/4.9 dark).
-				    Fill carries the magnitude, axis carries the extent, and the
-				    percentage above them carries the precision.
-				    Box sizing is content-box (no preflight), so h-[3px] plus the
-				    border is a 4px meter with a 3px fill area.
-				    The fill names its forced-colors colour at the CALL SITE, beside
-				    the tone it overrides: backgrounds flatten to Canvas there while
-				    border-color forces to CanvasText, so an unhandled fill leaves the
-				    axis standing alone - an empty meter, which is a measured zero on a
-				    row that has spend. That is the same reading the no-budget branch
-				    must not produce, which is why it renders no axis at all. */}
+				{/* A baseline, not a track: a track colour cannot clear 3:1 against both page and
+				    fill at once (measured on Light Modern), so the extent is a 1px axis and the
+				    fill keeps its saturated tones. Content-box sizing (no preflight): h-[3px]
+				    plus the border is a 4px meter. The fill names its forced-colors colour at
+				    the call site - backgrounds flatten to Canvas while the axis border forces to
+				    CanvasText, and an unhandled fill would read as a measured zero, the exact
+				    reading the axis-less no-budget branch exists to avoid. */}
 				<span className="spend-meter h-[3px] overflow-hidden rounded-xs border-axis border-b" aria-hidden="true">
 					<span
 						className={cn("block h-full forced-colors:bg-[Highlight]", TONE_FILL[bar.tone])}
@@ -1021,10 +822,8 @@ function SpendUnit({
 }
 
 /**
- * Why a server has never reported spend at all, per the /key/info standing:
- * the reason the "Spend last updated" fact carries in place of an age. Reasons are
- * lowercase clauses across the whole drawer - they annotate a dash, they are
- * not sentences of their own.
+ * Why a server has never reported spend, per the /key/info standing. Reasons are lowercase
+ * clauses across the whole drawer - they annotate a dash, they are not sentences.
  */
 function neverUpdatedText(server: UsageServerView): string {
 	if (server.keyInfo.kind === "unavailable") {
@@ -1036,9 +835,8 @@ function neverUpdatedText(server: UsageServerView): string {
 }
 
 /**
- * What is wrong with an age that is not fresh, in the same words the row's
- * annotation uses, so a row's marker and its drawer never name the state
- * differently. Undefined while the data is fresh.
+ * What is wrong with a non-fresh age, in the row annotation's own words so marker and drawer
+ * never name the state differently. Undefined while the data is fresh.
  */
 function stalenessText(server: UsageServerView): string | undefined {
 	if (server.fresh) {
@@ -1055,11 +853,8 @@ function stalenessText(server: UsageServerView): string | undefined {
 }
 
 /**
- * The spend fact's reason when /key/info gave no spend number: why, and what
- * unblocks it, branched on the standing (a forbidden key, a transient
- * failure, and a server that simply omits the field must not read
- * identically). The dash beside it already says the number is missing, so no
- * branch restates that.
+ * The spend fact's reason when /key/info gave no spend number, branched on the standing. The
+ * dash beside it already says the number is missing, so no branch restates that.
  */
 function spendUnknownText(server: UsageServerView, pollingOff: boolean): string {
 	switch (server.keyInfo.kind) {
@@ -1079,27 +874,17 @@ function spendUnknownText(server: UsageServerView, pollingOff: boolean): string 
 }
 
 /**
- * The one English template for a forbidden endpoint standing; every row
- * prints this same line so pasted issue reports stay uniform. The fix and the
- * re-probe live in the surrounding diagnostic (its headline and its Refresh
- * now action), so the template states the refusal alone - repeating the
- * remedy here said the block's one fact three times.
+ * The one English template for a forbidden endpoint standing, so pasted issue reports stay
+ * uniform; the fix and re-probe live in the surrounding diagnostic, refusal alone here.
  */
 function forbiddenLine(path: string, status: number | undefined): string {
 	return `LiteLLM ${path}:${status !== undefined ? ` HTTP ${status} -` : ""} this key may not read usage data`;
 }
 
 /**
- * The compact technical detail for the /key/info standing, undefined when
- * there is nothing wrong (or the data is merely old). English by policy:
- * users paste these lines into issue reports, and every term is protocol
- * vocabulary - endpoint path, HTTP status, setting ID. Built from closed
- * enums and numbers only; response text never exists here by construction.
- *
- * A failed standing reaches a reader only under the advisory headline (the
- * drawer drops this line for an error, since the row's diagnostic carries
- * it), and that headline already says whether a retry is automatic - so no
- * branch here states the retry story a second time.
+ * The /key/info technical detail, undefined when nothing is wrong. English by policy (pasted
+ * into issue reports), built from closed enums and numbers only - response text never exists
+ * here. The advisory headline already says whether a retry is automatic; no branch repeats it.
  */
 function keyInfoDetail(server: UsageServerView, discoveryTimeoutMs: number): string | undefined {
 	const standing = server.keyInfo;
@@ -1154,11 +939,8 @@ function activityDetail(server: UsageServerView): string | undefined {
 }
 
 /**
- * The requests fact's reason when /user/daily/activity has no retained
- * window: the permanent shapes keep their own clauses (unsupported stays the
- * documented normal-shape note, forbidden names the block), and everything
- * else is the transient couldn't-fetch-yet line. The Refresh-now remedy for a
- * denied key lives in the row's diagnostic, not here.
+ * The requests fact's reason when /user/daily/activity has no retained window; the Refresh
+ * now remedy for a denied key lives in the row's diagnostic, not here.
  */
 function requestsMissingText(server: UsageServerView): string {
 	if (server.dailyActivity.kind === "unavailable") {
@@ -1170,12 +952,8 @@ function requestsMissingText(server: UsageServerView): string {
 }
 
 /**
- * The English detail line for one denied endpoint standing: the shared
- * forbidden template for the refused endpoint, the not-served note for an
- * unsupported partner (so a mixed 404-plus-403 server states both facts),
- * undefined otherwise. Same policy as keyInfoDetail: English protocol
- * vocabulary users paste into issue reports, built from closed enums and the
- * status number only.
+ * The English detail line for one denied endpoint standing (a mixed 404-plus-403 server
+ * states both facts); same English-by-policy, closed-enums-only rules as keyInfoDetail.
  */
 function forbiddenRowDetail(path: string, standing: UsageServerCardView["keyInfo"]): string | undefined {
 	if (standing.kind !== "unavailable") {
@@ -1197,9 +975,8 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /**
- * A number this server did not report, in the facts' muted register
- * (ui/absent.tsx owns the dash-plus-words contract): a fact with a reason of
- * its own says it visibly, as a Why in place.
+ * A number this server did not report (ui/absent.tsx owns the dash-plus-words contract); a
+ * fact with a reason of its own says it visibly, as a Why in place.
  */
 function Absent({ reason }: { reason?: string | undefined }) {
 	return (
@@ -1245,19 +1022,13 @@ function BudgetFact({ server, currencySymbol }: { server: UsageServerView; curre
 }
 
 /**
- * The request-statistics facts: the retained window, or its stated absence.
- * When the whole window is missing there is exactly ONE cause, so it is
- * stated once, on the Requests fact that owns the window - the two computed
- * rates beneath it show bare dashes (their sr-only "not reported" intact),
- * because repeating the same clause in three consecutive cells taught the
- * reader to skip the column. The present-window branch keeps per-dash
- * reasons, since there the two rates' denominators really can be missing
- * independently.
+ * The request-statistics facts. A missing window has exactly ONE cause, stated once on the
+ * Requests fact; the computed rates show bare dashes (sr-only "not reported" intact). The
+ * present-window branch keeps per-dash reasons - there the denominators miss independently.
  */
 function RequestFacts({ server }: { server: UsageServerView }) {
-	// Retained statistics from a failing endpoint must not read as current:
-	// spend freshness says nothing about the activity window. "unknown" stays
-	// unmarked - a re-probe is pending, nothing failed yet.
+	// Retained statistics from a failing endpoint must not read as current: spend freshness
+	// says nothing about the activity window. "unknown" stays unmarked - nothing failed yet.
 	const outdated = server.dailyActivity.kind === "error" || server.dailyActivity.kind === "unavailable";
 	const requests = server.requests;
 	if (requests === undefined) {
@@ -1313,9 +1084,8 @@ function UsageFacts({
 }) {
 	const staleness = stalenessText(server);
 	const spendReason = server.spend === undefined ? spendUnknownText(server, pollingOff) : undefined;
-	// The two facts answer different questions, but on a server that has never
-	// been fetched they answer with the same sentence; the second one drops its
-	// reason rather than repeating the first word for word.
+	// On a never-fetched server both facts would answer with the same sentence; the second
+	// drops its reason rather than repeating the first word for word.
 	const neverUpdated = neverUpdatedText(server);
 	return (
 		<>
@@ -1346,13 +1116,9 @@ function UsageFacts({
 }
 
 /**
- * The usage facts for a card a denied key left without numbers: the SAME rows
- * as a reporting server's inventory, dashed - parity between the two partial
- * states, so a denied drawer does not look like a shorter kind of server. One
- * reason per refused endpoint, on the fact that owns it (Spend for /key/info,
- * Requests for /user/daily/activity); the rows computed from those stay bare
- * dashes, and the block's remedy lives in the row's counted diagnostic rather
- * than being restated on every line.
+ * The usage facts a denied key left without numbers: the SAME rows as a reporting server's,
+ * dashed, so a denied drawer does not look like a shorter kind of server. One reason per
+ * refused endpoint, on the fact that owns it; the remedy lives in the row's diagnostic.
  */
 function DeniedUsageFacts({ card }: { card: UsageForbiddenServerView }) {
 	const spendReason =
@@ -1391,16 +1157,10 @@ function DeniedUsageFacts({ card }: { card: UsageForbiddenServerView }) {
 }
 
 /**
- * The row's whole detail drawer: the entry's own facts, then every usage fact
- * the pushed snapshot holds, one labelled inventory in the shared Fact/Absent
- * vocabulary. Usage is per SERVER, never per model, and every field can be
- * missing - a proxy that does not serve the activity endpoint reports no
- * request statistics at all, which is a normal shape rather than a failure -
- * so absence is designed rather than hidden, and a missing number is never a
- * zero. A denied card keeps the same rows, dashed (DeniedUsageFacts); only a
- * server the snapshot does not cover at all gets the entry facts alone, since
- * seven dashes all saying "this proxy tracks no spend" would be noise, and
- * the section help carries that sentence once.
+ * The row's detail drawer, one labelled inventory in the Fact/Absent vocabulary. Usage is
+ * per SERVER, never per model, and every field can be missing (a normal shape, not a
+ * failure), so absence is designed and a missing number is never a zero; only a server the
+ * snapshot does not cover gets the entry facts alone (seven identical dashes would be noise).
  */
 function ServerDrawer({
 	server,
@@ -1424,9 +1184,8 @@ function ServerDrawer({
 	onShowModels: ((label: string) => void) | undefined;
 }) {
 	const numbers = usage?.kind === "usage" ? usage : undefined;
-	// The endpoint standings' English lines, minus the ones a diagnostic under
-	// this row already carries (a denied endpoint, a failed spend fetch): the
-	// drawer is the inventory, not a second copy of the row's problems.
+	// The endpoint standings' English lines, minus the ones a diagnostic under this row
+	// already carries: the drawer is the inventory, not a second copy of the row's problems.
 	const details =
 		numbers === undefined
 			? []
@@ -1441,37 +1200,26 @@ function ServerDrawer({
 				);
 	return (
 		<>
-			{/* Two columns until the pane cannot hold both. The label column is a
-			    fixed 11rem and a value cannot shrink below its longest word, so
-			    under about 560px of pane the pair asked for more room than the
-			    pane had and the page paid for it by scrolling sideways - which
-			    the floor promises does not happen. Stacked, each fact reads as
-			    its label and then its value, and the dd's own bottom margin is
-			    what keeps the next label from joining the value above it. */}
+			{/* Two columns until the pane cannot hold both: the 11rem label column plus an
+			    unshrinkable longest word overflows under about 560px of pane, which the floor
+			    promises never scrolls sideways. Stacked, the dd's own bottom margin keeps the
+			    next label from joining the value above it. */}
 			<dl className="server-facts m-0 grid max-w-[46rem] grid-cols-[11rem_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-[0.95em] @max-[560px]/pane:grid-cols-[minmax(0,1fr)] @max-[560px]/pane:gap-y-0">
-				{/* "Base URL", the same name the server form gives this field: the
-				    row's own label already says which server this is, so a fact
-				    labelled "Server" would restate the line above it and misname
-				    the address it carries. */}
+				{/* "Base URL", the same name the server form gives this field. */}
 				<Fact label={l10n.t("Base URL")}>
 					<span className="fact-url">
 						<UrlBreaks text={server.baseUrl} />
 					</span>
 				</Fact>
 				<Fact label={l10n.t("Authentication")}>
-					{/* The credential KIND, never a value: OAuth is a protocol name and
-					    stays English by policy. */}
+					{/* The credential KIND, never a value; OAuth stays English by policy. */}
 					{server.hasOAuth ? "OAuth" : server.hasApiKey ? l10n.t("API key") : l10n.t("none")}
 				</Fact>
 				<Fact label={l10n.t("Models")}>
-					{/* The whole phrase is the link, not just the digit: a bare "models"
-					    fragment beside a number cannot be translated (measure words and
-					    word order move), and one word is a poor click target. It lives
-					    here rather than on the row because the row is one disclosure
-					    button and a button cannot contain a button; the Models
-					    destination's server scope chip is the other route. Clicking
-					    opens Models scoped to this server; a zero stays plain text,
-					    since an empty scoped list has nothing to show. */}
+					{/* The whole phrase is the link: a bare "models" fragment cannot be translated
+					    (measure words and word order move). It lives here, not on the row - the row
+					    is one disclosure button, and a button cannot contain a button. A zero stays
+					    plain text, since an empty scoped list has nothing to show. */}
 					{onShowModels !== undefined && server.modelCount > 0 ? (
 						<Button
 							variant="secondary"
@@ -1496,9 +1244,6 @@ function ServerDrawer({
 					)}
 				</Fact>
 				{server.origin === "external" ? (
-					// The provenance story that used to be the external badge's hover
-					// tip; the drawer is where a click reaches it now that the badge
-					// sits inside the disclosure button.
 					<Fact label={l10n.t("Origin")}>
 						{l10n.t("external")}
 						<Why text={externalTip(server)} />
@@ -1510,8 +1255,7 @@ function ServerDrawer({
 					<DeniedUsageFacts card={usage} />
 				) : null}
 			</dl>
-			{/* The drawer-placed diagnostics, directly under the spend facts they
-			    gloss: same component and severity dress as the collapsed lines. */}
+			{/* The drawer-placed diagnostics, under the spend facts they gloss. */}
 			{notices.map((notice) => (
 				<ServerDiagnosticLine key={notice.key} diagnostic={notice} />
 			))}
@@ -1531,12 +1275,9 @@ function ServerDrawer({
 }
 
 /**
- * The entry's own model records, listed in the drawer in the settings
- * editors' vocabulary (matcher key, kind, field chips) so expanding a server
- * shows what the entry overrides without opening the edit page. Read-only on
- * purpose: the setting and the edit page are the two write surfaces, and the
- * drawer already carries Edit on its row. An entry without records renders
- * nothing - per-push static state, not a transient, so no reservation.
+ * The entry's model records in the drawer, in the settings editors' vocabulary. Read-only on
+ * purpose: the setting and the edit page are the two write surfaces. An entry without
+ * records renders nothing - per-push static state, not a transient, so no reservation.
  */
 function DrawerRecords({
 	kind,
@@ -1551,11 +1292,9 @@ function DrawerRecords({
 		return null;
 	}
 	const groups = toGroups(value);
-	// Judged with the same parses the editors use, so an invalid stored FIELD
-	// wears the same chip mark here as in the edit page (matcher-level
-	// problems stay the edit page's job - this table renders no verdict line);
-	// the capability hints read this entry's own observed /model/info
-	// vocabulary, like the form does.
+	// Judged with the same parses the editors use, so an invalid stored FIELD wears the same
+	// chip mark as in the edit page (matcher-level problems stay the edit page's job); the
+	// capability hints read this entry's own observed /model/info vocabulary, like the form.
 	let issues: GroupIssueView[];
 	if (kind === "params") {
 		const parse = parseGroups(groups);
@@ -1569,11 +1308,9 @@ function DrawerRecords({
 		<div className="drawer-records mt-3">
 			<h5 className="m-0 mb-1 font-semibold text-[0.92em] text-muted-foreground">
 				{serverFormFieldLabel(kind === "params" ? "modelParameters" : "modelCapabilities")}
-				{/* The caveat, on the table it qualifies. The row's own degraded line
-				    carries the cause and the fix, but it renders AFTER this drawer -
-				    so a reader who opened the server to see what it overrides met an
-				    authoritative-looking table and the doubt three lines later. The
-				    mark is the qualifier alone; the sentence stays where the fix is. */}
+				{/* The caveat on the table it qualifies: the row's degraded line renders AFTER
+				    this drawer, so the mark is the qualifier alone; the sentence stays with the
+				    fix. */}
 				{server.notices?.includes(kind === "params" ? "entry-params-inactive" : "entry-capabilities-inactive") ===
 				true ? (
 					<Why
@@ -1592,40 +1329,27 @@ function DrawerRecords({
 }
 
 /**
- * The row's URL, split so the paint can stop spending on the part every reader
- * already assumes without ever dropping it from the row.
- *
- * Eight characters of "https://" sit at the FRONT of an ellipsizing run, so
- * they are what survives truncation while the host - the part that says which
- * server this is - is what the ellipsis eats. The scheme goes visually-hidden
- * rather than away, at every width: the text stays in the DOM, so the
- * accessible name, a copy of the line and a find-in-page all still carry the
- * exact URL the setting holds, and the drawer's Base URL fact prints the whole
- * address. An http:// URL keeps its scheme visible for the opposite reason -
- * plaintext to a proxy holding an API key is worth a reader's attention.
+ * The row's URL, split so the https:// scheme can go visually-hidden rather than away: the
+ * text stays in the DOM, so the accessible name, a copy, and find-in-page still carry the
+ * exact URL. An http:// URL keeps its scheme visible - plaintext to a proxy holding an API
+ * key is worth a reader's attention.
  */
 function urlParts(baseUrl: string): { readonly scheme: string; readonly rest: string; readonly quiet: boolean } {
 	const secure = "https://";
-	// Case-insensitively, because a URL's scheme is: "HTTPS://host" is the same
-	// address, and a case-sensitive test would have kept its scheme painted
-	// while its neighbours dropped theirs.
+	// Case-insensitive: "HTTPS://host" is the same address.
 	const marked = baseUrl.slice(0, secure.length).toLowerCase() === secure;
 	const rest = marked ? baseUrl.slice(secure.length) : baseUrl;
-	// A scheme with nothing after it stays visible: "https://" alone is a value
-	// someone has to fix, and hiding it would render the row's URL as an empty
-	// space - blank exactly where being told is useful.
+	// A scheme with nothing after it stays visible: "https://" alone is a value someone has
+	// to fix, and hiding it would render the row's URL as an empty space.
 	return marked && rest.length > 0
 		? { scheme: baseUrl.slice(0, secure.length), rest, quiet: true }
 		: { scheme: marked ? baseUrl : "", rest: marked ? "" : baseUrl, quiet: false };
 }
 
 /**
- * A URL's text with a break opportunity BEFORE each dot, slash, or colon, so
- * a wrapping host divides at its labels ("litellm.example" over ".com")
- * instead of mid-token ("litellm.example." over "com"). <wbr> adds nothing to
- * the text - a copy, a find-in-page, and a screen reader still get the exact
- * string - and overflow-wrap's anywhere stays beneath it as the backstop for
- * a single segment longer than its line.
+ * A URL with a break opportunity BEFORE each dot, slash, or colon, so a wrapping host divides
+ * at its labels. <wbr> adds nothing to the text (copy, find-in-page, and screen readers get
+ * the exact string); overflow-wrap's anywhere stays beneath it as the backstop.
  */
 function UrlBreaks({ text }: { text: string }) {
 	return (
@@ -1693,20 +1417,17 @@ function ServerRow({
 		sendRequest("removeServerSetting", { label: server.label });
 		onArmRemove(false);
 	};
-	// The declare control's confirm step, per row: arming one category shows
-	// its confirm pair, and only this row's control (row identity is keyed, so
-	// a push cannot re-associate the armed state with another server). The
-	// pair survives the post - that is where "Declaring..." renders - and
-	// disarms when the round trip ends, either answer.
+	// The declare control's confirm step, per row (row identity is keyed, so a push cannot
+	// re-associate the armed state). The pair survives the post - that is where
+	// "Declaring..." renders - and disarms when the round trip ends, either answer.
 	const [armedDeclare, setArmedDeclare] = useState<ExpectedFailureCategory | undefined>(undefined);
 	useEffect(() => {
 		if (!declaring) {
 			setArmedDeclare(undefined);
 		}
 	}, [declaring]);
-	// The row's disclosure: the drawer with the full inventory. Local state on
-	// purpose - a push that reorders rows keeps each drawer with its keyed row,
-	// and a closed dashboard forgets, exactly like the model rows.
+	// Local state on purpose: a push that reorders rows keeps each drawer with its keyed
+	// row, and a closed dashboard forgets, exactly like the model rows.
 	const [open, setOpen] = useState(false);
 	const drawerId = useId();
 	const diagnostics = serverDiagnostics(server, usage, spend, {
@@ -1721,41 +1442,29 @@ function ServerRow({
 			? { onDeclareExpected, armedDeclare, onArmDeclare: setArmedDeclare, declaring }
 			: {}),
 	});
-	// The pill and the attention count read the FULL ranked list; only the
-	// lines split by placement, so a drawer-deferred warning still signals.
+	// The pill and the attention count read the FULL ranked list; only the lines split by
+	// placement, so a drawer-deferred warning still signals.
 	const rowDiagnostics = diagnostics.filter((diagnostic) => diagnostic.placement !== "drawer");
 	const drawerDiagnostics = diagnostics.filter((diagnostic) => diagnostic.placement === "drawer");
 	const url = urlParts(server.baseUrl);
 	const usageNumbers = usage?.kind === "usage" ? usage : undefined;
 	return (
-		// One readable block per server, its problems always visible underneath
-		// and its full inventory behind the block's own disclosure. The actions
-		// are revealed by hover AND focus-within: hover alone would put Remove
-		// out of reach of the keyboard entirely, and focus-within is what makes
-		// tabbing into the row show the same thing pointing at it does.
+		// The actions are revealed by hover AND focus-within: hover alone would put Remove out
+		// of the keyboard's reach entirely.
 		<li className="server-item">
 			<div className="server-row">
-				{/* The whole readable block is ONE disclosure button - name, verdict,
-				    and the meta facts - with the actions cluster as its sibling in
-				    the trailing column, because a button cannot contain a button.
-				    The line is the button and the chevron is its state mark, the
-				    model rows' idiom: decoration only, since aria-expanded already
-				    announces the state, so the button's accessible name stays the
-				    row's facts. border-control-outline like every other control:
-				    transparent in the ordinary themes (no preflight ships, so a bare
-				    button would otherwise wear the UA's own box) and the contrast
-				    border under high contrast, where a borderless row stops reading
-				    as clickable. The hover and open wash lives on the WRAPPER row
-				    (the stylesheet's :has rules), not here: the button stops short
-				    of the actions column, and a wash that stopped with it cut the
-				    row into two boxes with a bare gutter between them. */}
+				{/* One disclosure button for the whole readable block, actions as its sibling
+				    (a button cannot contain a button); the chevron is decoration, aria-expanded
+				    announces. border-control-outline: transparent in ordinary themes (no
+				    preflight, so a bare button wears the UA's box), the contrast border under
+				    high contrast. The hover/open wash lives on the WRAPPER row (:has rules):
+				    the button stops short of the actions column, and a wash that stopped with
+				    it cut the row into two boxes. */}
 				<button
 					type="button"
 					className="server-line rounded-sm border border-control-outline text-left focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid"
 					aria-expanded={open}
-					// Only while the drawer exists: an aria-controls pointing at an
-					// unmounted id is a dangling reference, and aria-expanded already
-					// carries the state.
+					// Only while the drawer exists: aria-controls at an unmounted id dangles.
 					aria-controls={open ? drawerId : undefined}
 					onClick={() => setOpen(!open)}
 				>
@@ -1767,27 +1476,21 @@ function ServerRow({
 					<span className="server-status">
 						<StatusPill server={server} worst={diagnostics[0]?.severity} now={now} />
 					</span>
-					{/* The row's second line once the pane is narrow, and nothing at all
-					    while it is wide: `display: contents` hands these four straight to
-					    the button's grid, so one markup carries both shapes. Their order
-					    here is the order they are wanted in - where it is, what it holds,
-					    what it costs, how it authenticates - and the columns they land in
-					    are named by the stylesheet, not by this order. */}
+					{/* The row's second line when narrow, nothing when wide: display: contents
+					    hands these four straight to the button's grid, so one markup carries both
+					    shapes; the stylesheet names the columns, not this order. */}
 					<span className="server-meta">
 						<span className="server-url">
-							{/* One text run, two treatments: the scheme is its own element so
-							    the stylesheet can hide it from the paint alone. */}
+							{/* The scheme is its own element so the stylesheet can hide it from the
+							    paint alone. */}
 							{url.scheme.length > 0 ? (
 								<span className={url.quiet ? "url-scheme quiet" : "url-scheme"}>{url.scheme}</span>
 							) : null}
 							<UrlBreaks text={url.rest} />
 						</span>
 						<span className="server-count">
-							{/* The count carries its own noun, so the row needs no column
-							    header to say what the number is. Plain text here: the row is
-							    one disclosure button and a button cannot contain a button, so
-							    the count's link into the scoped Models list lives in the
-							    drawer's Models fact instead. */}
+							{/* The count carries its own noun. Plain text here (a button cannot contain
+							    a button); the link into the scoped Models list lives in the drawer. */}
 							<span className="count-plain">
 								{server.modelCount === 1 ? l10n.t("1 model") : l10n.t("{0} models", server.modelCount)}
 							</span>
@@ -1796,13 +1499,12 @@ function ServerRow({
 							<SpendUnit usage={usageNumbers} thresholds={spend.thresholds} currencySymbol={spend.currencySymbol} />
 						</span>
 						<span className="server-badges">
-							{/* The credential kind is the information, so it is the visible
-						    text; a generic "auth" badge would hide it in a hover tip. */}
+							{/* The credential kind is the information, so it is the visible text. */}
 							{server.hasApiKey || server.hasOAuth ? (
 								<Badge>{server.hasOAuth ? "OAuth" : l10n.t("API key")}</Badge>
 							) : null}
-							{/* The provenance story is the drawer's Origin fact; a hover tip
-							    here would be a focusable wrapper inside this button. */}
+							{/* Provenance is the drawer's Origin fact; a hover tip here would be a
+							    focusable wrapper inside this button. */}
 							{server.origin === "external" ? <Badge>{l10n.t("external")}</Badge> : null}
 						</span>
 					</span>
@@ -1810,28 +1512,19 @@ function ServerRow({
 				<span className={armed ? "server-actions armed" : "server-actions"}>
 					{armed ? (
 						<>
-							{/* Which server the question is about. The armed pair covers the
-							    row, and at the narrowest tier it covers ALL of it - so the
-							    name the reader is checking against goes inside the cover
-							    there, on its own wrapped line, ellipsized rather than
-							    widening anything. Painted only at that tier (the stylesheet
-							    hides it above), because everywhere else the row's own name
-							    is still standing beside the cover. The buttons carry the
-							    label in their accessible names at every tier, which is the
-							    same fact for a reader who never sees "beside" - each name
-							    LEADS with the button's own visible words, unedited, because
-							    Label in Name wants the visible label inside the accessible
-							    one. */}
+							{/* At the narrowest tier the armed pair covers ALL of the row, so the name
+							    the reader is checking against goes inside the cover there, ellipsized;
+							    the stylesheet hides it above, where the row's own name still stands.
+							    The buttons carry the label in their accessible names at every tier,
+							    LEADING with their visible words (Label in Name). */}
 							<span className="armed-subject">{server.label}</span>
 							<Button
 								variant="danger"
 								size="compact"
 								aria-label={l10n.t("Confirm remove? {0}", server.label)}
 								onClick={() => {
-									// The same two-step confirm for every origin; only the intent
-									// differs (a declared or misconfigured entry is removed from
-									// the setting by label, an external group is hidden by
-									// tombstone).
+									// The same two-step confirm for every origin; only the intent differs
+									// (setting removal by label vs. hiding by tombstone).
 									if (server.origin === "external") {
 										onHideExternal(server);
 										onArmRemove(false);
@@ -1853,16 +1546,9 @@ function ServerRow({
 						</>
 					) : (
 						<>
-							{/* A misconfigured entry has no Edit here: it cannot round-trip
-							    through the form without rewriting what the user typed, and its
-							    fix action - reveal the setting - is already the first action of
-							    the blocking line directly beneath this row. Two copies of one
-							    button, and the row's copy was the expensive one: it is the
-							    widest label the column ever holds, so in a narrow pane it wrapped
-							    the cluster onto a second line and pushed the row's own facts down
-							    past the hole that left. The line below offers the fix AND says
-							    why it is needed, which is the better of the two places to keep
-							    it. */}
+							{/* A misconfigured entry has no Edit: it cannot round-trip the form without
+							    rewriting what the user typed, and the blocking line beneath the row
+							    already carries the fix action (reveal the setting). */}
 							{server.origin === "misconfigured" ? null : (
 								<Button
 									variant="secondary"
@@ -1873,8 +1559,8 @@ function ServerRow({
 									{l10n.t("Edit")}
 								</Button>
 							)}
-							{/* A legacy-registry external row is not hideable (the registry
-							    path would keep serving its models), so it keeps Edit only. */}
+							{/* A legacy-registry external row is not hideable (the registry path would
+							    keep serving its models), so it keeps Edit only. */}
 							{server.origin === "declared" || server.origin === "misconfigured" || server.hideable ? (
 								<Button
 									variant="danger"
@@ -1903,17 +1589,14 @@ function ServerRow({
 					/>
 				</div>
 			) : null}
-			{/* OUTSIDE the disclosure, always visible: a problem carries actions,
-			    and an action behind a fold is an action most readers never find. */}
+			{/* OUTSIDE the disclosure: an action behind a fold is one most readers never
+			    find. */}
 			{rowDiagnostics.map((diagnostic) => (
 				<ServerDiagnosticLine key={diagnostic.key} diagnostic={diagnostic} />
 			))}
-			{/* A closed drawer keeps its notices in the ACCESSIBLE tree: the paint
-			    defers to the drawer by design (the row's tinted meter carries the
-			    signal), but the meter's tone is colour, which a screen reader
-			    never gets - the sanctioned keep-the-tree-whole case, not a repair
-			    of a visual defect. The open drawer renders the visible line, so
-			    the twin stands down with it. */}
+			{/* A closed drawer keeps its notices in the ACCESSIBLE tree: the meter's tone is
+			    colour, which a screen reader never gets. The open drawer renders the visible
+			    line, so the twin stands down with it. */}
 			{!open
 				? drawerDiagnostics.map((diagnostic) => (
 						<div key={diagnostic.key} className="visually-hidden">
@@ -1926,10 +1609,8 @@ function ServerRow({
 }
 
 /**
- * The collapsed hidden-groups line: one muted sentence stating the count,
- * expandable to a row per hidden group with its Unhide. Unhide clears the
- * removal tombstone extension-side; the group's models return on the host's
- * next re-resolution, which the extension triggers itself.
+ * The collapsed hidden-groups line. Unhide clears the removal tombstone extension-side; the
+ * group's models return on the host's next re-resolution, which the extension triggers.
  */
 function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 	const [expanded, setExpanded] = useState(false);
@@ -1937,15 +1618,8 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 	if (hidden.length === 0) {
 		return null;
 	}
-	// One control that states the whole thing, rather than a sentence with an
-	// action embedded in it. "1 hidden group -  show" left a dangling separator
-	// and a lowercase fragment whose object was three words behind it; a reader
-	// had to assemble the two halves to learn what "show" would show. Saying it
-	// once is also fewer words on the page, which is the direction the whole
-	// surface is moving.
-	// "Hide 1 hidden group" is what saying it symmetrically costs: the count is
-	// the reason to open the list and says nothing once it is open, and the rows
-	// beneath are their own answer to how many there are.
+	// One control that states the whole thing. Open drops the count: it is the reason to
+	// open the list and says nothing once it is open.
 	const label = expanded
 		? l10n.t("Hide")
 		: hidden.length === 1
@@ -1957,17 +1631,11 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 				variant="secondary"
 				size="compact"
 				aria-expanded={expanded}
-				// Named while it exists: aria-expanded says a control opens something,
-				// and without this nothing says WHAT. Only while open, because an
-				// aria-controls pointing at an unmounted id is a dangling reference.
+				// Only while open: aria-controls at an unmounted id dangles.
 				aria-controls={expanded ? listId : undefined}
 				onClick={() => setExpanded((value) => !value)}
 			>
-				{/* The disclosure vocabulary the rest of the page speaks: resting
-				    points right, open points down (the server and model rows'
-				    chevron). Decoration only - aria-expanded already announces the
-				    state - but without it this was the page's one aria-expanded
-				    control with no visible state mark. */}
+				{/* The page's disclosure vocabulary; decoration only, aria-expanded announces. */}
 				<DisclosureChevron />
 				{label}
 			</Button>
@@ -1998,18 +1666,9 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 }
 
 /**
- * The header's spend figure: the worst FRESH server's spend against its
- * budget, as a fraction - deliberately not a total.
- *
- * Spends cannot be summed. Two entries may authenticate with the same key, in
- * which case both report that key's spend and a total counts it twice; stale
- * and never-loaded servers would fold into the sum as though they were current.
- * The status bar already resolves this the same way, taking a maximum and never
- * a sum (docs/usage.md), so this reads the same number the status bar does and
- * the two cannot disagree about the same fleet.
- *
- * A server with spend but no budget has nothing to be a percentage of, so it
- * contributes nothing here; its row's drawer is where its bare spend lives.
+ * The worst FRESH server's spend against its budget - deliberately not a total: two entries
+ * sharing a key would count its spend twice. The status bar takes the same maximum
+ * (docs/usage.md), so the two cannot disagree. A budget-less server contributes nothing.
  */
 function worstFreshBudgetFraction(usage: DashboardUsage | undefined): number | undefined {
 	const fractions = (usage?.servers ?? []).flatMap((server) =>
@@ -2025,13 +1684,8 @@ function worstFreshBudgetFraction(usage: DashboardUsage | undefined): number | u
 }
 
 /**
- * The header's state summary: how many servers, how many need attention (the
- * same classifier verdict the rows render), the worst fresh budget fraction,
- * and whether the numbers refresh on their own. Every clause is a whole
- * sentence fragment so extraction sees literals, not concatenation. One line
- * for the one list - its predecessor counted "servers with usage data" while
- * the page header counted every configured server, two totals a hundred
- * pixels apart.
+ * The header's state summary, every clause a whole sentence fragment so extraction sees
+ * literals, not concatenation.
  */
 function serversMeta(
 	serverCount: number,
@@ -2046,12 +1700,9 @@ function serversMeta(
 	}
 	const worst = worstFreshBudgetFraction(usage);
 	if (worst !== undefined) {
-		// "use", because a bare "budget 87%" reads as budget REMAINING; and the
-		// freshness rule is glossed only when it bites - a stale row's higher
-		// percentage can be visible right below this line, and an unexplained
-		// "fresh" beside a lower number read as the header contradicting the
-		// page. When no rendered row shows a stale spend, the qualifier would
-		// gloss an exclusion the reader cannot see.
+		// "use", because a bare "budget 87%" reads as budget REMAINING. The freshness gloss
+		// appears only when it bites: with no stale spend on the page, it would gloss an
+		// exclusion the reader cannot see.
 		clauses.push(
 			staleSpendVisible
 				? l10n.t("worst budget use {0} (stale rows excluded)", formatPercent(worst))
@@ -2092,61 +1743,33 @@ export function ServersSection({
 	onAdoptServer: (handle: string) => void;
 	onAddServer: () => void;
 }) {
-	// The section's own outcome hooks, one per acked method it surfaces: the
-	// failure banners render each hook's latest fail outcome (a later ok
-	// replaces it, so success retires the banner exactly like the old
-	// store-clearing did), and Dismiss is the hook's reset. These are separate
-	// hook instances from the open form's own - both see the same envelopes.
+	// One outcome hook per acked method: the failure banners render each hook's latest fail
+	// (a later ok retires it), and Dismiss is the hook's reset. Separate hook instances from
+	// the open form's own - both see the same envelopes.
 	const saveIntent = useIntentOutcome("saveServerSetting");
 	const removeIntent = useIntentOutcome("removeServerSetting");
 	const adoptIntent = useIntentOutcome("adoptServer");
 	const hideIntent = useIntentOutcome("hideExternalServer");
 	const unhideIntent = useIntentOutcome("unhideServer");
 	const [armedRemove, setArmedRemove] = useState<string | undefined>(undefined);
-	// The row whose Retry is in flight, and the request that will answer it.
-	//
-	// The sync answers for itself now: syncModels is an acked method, so the
-	// round trip that started the work is the one that reports it over. Nothing
-	// here watches the page for evidence.
-	//
-	// The id is held, not just the label. useIntentOutcome hands a consumer the
-	// latest envelope for the METHOD whoever posted it, and the rail's Sync
-	// button posts the same method - so clearing on presence alone would let
-	// the rail's sync switch off a row's spinner while that row's own pass is
-	// still running.
-	//
-	// It used to infer completion instead, and the inference was subtle enough
-	// to be worth remembering. A state push is not the signal, however much it
-	// looks like one: a sync reconciles the provider groups first and that
-	// reconciliation pushes immediately, while the discovery it exists to
-	// trigger has not started, so "checking" cleared seconds into a pass that
-	// runs for a minute. The workaround watched the fleet's newest lastChecked
-	// instead and cleared when it advanced - which meant an unrelated
-	// background refresh could clear the reader's spinner, and a sync that
-	// failed before reaching discovery moved nothing and stranded it until a
-	// two-minute timer gave up. Both of those are gone with the observation.
+	// The row whose Retry is in flight, and the request that will answer it. The id is held,
+	// not just the label: useIntentOutcome reports the METHOD's latest envelope whoever
+	// posted it, and the rail's Sync button posts the same method.
 	const [retrying, setRetrying] = useState<{ readonly label: string; readonly requestId: string } | undefined>(
 		undefined
 	);
-	// A different question from "is a sync running": whether the fleet has ever
-	// been checked at all, which the live region below needs so a first-run page
-	// does not announce a clean bill of health it never took.
+	// Whether the fleet has ever been checked at all: the live region below needs it so a
+	// first-run page does not announce a clean bill of health it never took.
 	const newestCheck = latestCheckedMs(servers) ?? 0;
 	const syncIntent = useIntentOutcome("syncModels");
 	const syncOutcome = syncIntent.outcome;
-	// Clear on either answer to THIS row's request. A failed sync is still a
-	// finished one as far as the control is concerned, and its failure is
-	// deliberately not rendered here: runModelSync reports every outcome of its
-	// own as a VS Code toast, and App drops acked-method failures on purpose
-	// (they belong to the hook that posted them), so a second notice beside the
-	// row would say the same thing twice.
+	// Clear on either answer to THIS row's request; the failure is deliberately not rendered
+	// here, because runModelSync already reports every outcome as a VS Code toast.
 	useEffect(() => {
 		setRetrying((current) => (current !== undefined && syncOutcome?.id === current.requestId ? undefined : current));
 	}, [syncOutcome]);
-	// The row whose declare-expected intent is unanswered, keyed like the
-	// retry state: the hook reports the METHOD's latest outcome whoever posted
-	// it, so only the answer to THIS request may clear the row's in-flight
-	// state - either answer, because a failed declare is a finished one.
+	// The row whose declare-expected intent is unanswered, keyed like the retry state: only
+	// the answer to THIS request may clear it - either answer, a failed declare is finished.
 	const declareIntent = useIntentOutcome("declareExpectedFailure");
 	const [pendingDeclare, setPendingDeclare] = useState<
 		{ readonly label: string; readonly requestId: string } | undefined
@@ -2157,12 +1780,11 @@ export function ServersSection({
 			current !== undefined && declareOutcome?.id === current.requestId ? undefined : current
 		);
 	}, [declareOutcome]);
-	// The one-time post-adoption notice: the old host-owned group survives (no
-	// removal API), so the user is told plainly why models now appear twice.
+	// The one-time post-adoption notice: the old host-owned group survives (no removal API),
+	// so the user is told plainly why models now appear twice.
 	const [adoptNotice, setAdoptNotice] = useState<string | undefined>(undefined);
-	// The hide round trip: the posted intent's requestId plus the row's label,
-	// so the guidance notice below can name the exact group to delete once the
-	// ack lands. Copy is composed here; only the ack crosses the boundary.
+	// The hide round trip: requestId plus the row's label, so the guidance notice can name
+	// the exact group to delete once the ack lands. Only the ack crosses the boundary.
 	const [pendingHide, setPendingHide] = useState<{ requestId: string; label: string } | undefined>(undefined);
 	const [removedNotice, setRemovedNotice] = useState<string | undefined>(undefined);
 	const pendingHideRequestId = pendingHide?.requestId;
@@ -2185,49 +1807,37 @@ export function ServersSection({
 	const unhideFailure = unhideIntent.outcome?.result === "fail" ? unhideIntent.outcome : undefined;
 	const declareFailure = declareIntent.outcome?.result === "fail" ? declareIntent.outcome : undefined;
 	const noServers = servers.length === 0;
-	// The whole snapshot's spend inputs, once: the rows' units, the diagnostics,
-	// and the header meta all read the same object, so a threshold can never
-	// rank a row differently from the line under it.
+	// The snapshot's spend inputs once, read by rows, diagnostics, and header meta alike, so
+	// a threshold can never rank a row differently from the line under it.
 	const spend: SpendContext = {
 		thresholds: usage?.thresholds ?? [],
 		currencySymbol,
 		pollingOff: usage?.pollIntervalMs === 0,
 		discoveryTimeoutMs: usage?.discoveryTimeoutMs ?? 0,
 	};
-	// Usage is tracked per declared entry and keyed by its label (the usage
-	// store's documented join key back to the server rows), so only declared
-	// rows look it up; a URL spelling difference must not break the join.
-	// Denied cards join too: they carry no numbers, but they carry the row's
-	// usage-denied diagnostic, which the user ruling counts as needing action.
+	// Usage is keyed by label (the usage store's documented join key), so only declared rows
+	// look it up; a URL spelling difference must not break the join. Denied cards join too -
+	// they carry the row's usage-denied diagnostic.
 	const usageByLabel = new Map((usage?.servers ?? []).map((view) => [view.label, view] as const));
 	const usageFor = (server: DashboardServer) =>
 		server.origin === "declared" ? usageByLabel.get(server.label) : undefined;
-	// How many rows are carrying something worth acting on. Read through the
-	// same classifier the rows render, never a second predicate beside it: two
-	// definitions of "needs attention" would drift, and the summary would start
-	// counting rows that look fine (or miss ones that do not). Advisories are
-	// excluded on purpose - nothing there needs a hand, so counting them would
-	// call a healthy fleet unhealthy - while a denied usage key counts, per the
-	// tier contract's user-ruled carve-out.
+	// Rows carrying something worth acting on, read through the same classifier the rows
+	// render - a second predicate would drift. Advisories excluded on purpose; a denied
+	// usage key counts, per the tier contract's user-ruled carve-out.
 	const attentionCount = servers.filter((server) =>
 		serverDiagnostics(server, usageFor(server), spend, { onEdit: () => {}, onRetry: () => {} }).some(
 			(diagnostic) => diagnostic.severity !== "advisory"
 		)
 	).length;
-	// Whether any rendered row is showing a stale spend number - the same join
-	// the rows use, so the header's staleness gloss appears exactly when a
-	// "stale"-marked figure is on the page and never for a snapshot entry no
-	// row renders.
+	// Whether any rendered row shows a stale spend number - the same join the rows use, so
+	// the header's staleness gloss appears exactly when a "stale"-marked figure is on page.
 	const staleSpendVisible = servers.some((server) => {
 		const card = usageFor(server);
 		return card?.kind === "usage" && !card.fresh && card.spend !== undefined;
 	});
 
-	// The post-adoption notice: the old host-owned group survives (there is no
-	// removal API), so the reader coming back to this list is told plainly why
-	// their models now appear twice. The edit page owns the round trip and
-	// leaves on its own ack; this hook sees the same envelope, which is what
-	// lets the notice belong to the list rather than to the page that left.
+	// The edit page owns the adopt round trip and leaves on its own ack; this hook sees the
+	// same envelope, which is what lets the notice belong to the list, not the page that left.
 	const adoptOutcome = adoptIntent.outcome;
 	const adoptedId = adoptOutcome?.result === "ok" ? adoptOutcome.id : undefined;
 	const adoptedCaveat = adoptOutcome?.result === "ok" ? adoptOutcome.message : undefined;
@@ -2247,31 +1857,22 @@ export function ServersSection({
 			id="servers"
 			title={l10n.t("Servers")}
 			help={helpServersSection()}
-			// The trigger sits near the top of the document, where a tip placed
-			// above it clips.
+			// The trigger sits near the top of the document, where a tip above it clips.
 			helpBelow
 			docs={{ href: DOCS_LINK_SERVERS, label: l10n.t("Open the servers guide") }}
 			meta={noServers ? undefined : serversMeta(servers.length, attentionCount, usage, staleSpendVisible)}
-			// First run shows the guided card alone; a header full of disabled
-			// controls would put dead buttons before the guidance.
+			// First run shows the guided card alone, not a header of dead disabled buttons.
 			actions={
 				noServers ? undefined : (
 					<>
 						<Button onClick={onAddServer}>
 							<IconAdd /> {l10n.t("Add server")}
 						</Button>
-						{/* The usage re-fetch and availability re-probe, fleet-wide (the
-						    same intent the diagnostic lines' Refresh now posts). Native
-						    disabled is fine here: the header never collapses to an
-						    icon-only control, so the label always explains itself.
-						    Disabled during ANY pass (one serialized engine), but the
-						    busy label shows only for an EXPLICIT one: a spinner on
-						    every scheduled poll read as the app doing something the
-						    user never asked for. Both labels stay mounted in one grid
-						    cell, the hidden one holding the width (the ModifiedNote
-						    spacing-twin idiom), so the swap cannot resize the button
-						    and shove Add server sideways; check-geometry's
-						    servers-refresh-busy pair holds that. */}
+						{/* Fleet-wide usage re-fetch. Disabled during ANY pass (one serialized
+						    engine); the busy label only for an EXPLICIT one - a spinner on every
+						    scheduled poll read as the app acting unasked. Both labels stay mounted
+						    in one grid cell, the hidden one holding the width, so the swap cannot
+						    resize the button; check-geometry's servers-refresh-busy pair holds that. */}
 						<Button
 							variant="secondary"
 							className="refresh-usage"
@@ -2436,17 +2037,9 @@ export function ServersSection({
 				</div>
 			) : (
 				<>
-					{/* The verdict for the whole list, one of its two live regions
-					    (the in-flight busy region follows it).
-					    The retired banners carried role="alert", so without this a
-					    screen-reader user got no announcement at all when a sync
-					    landed and rows changed underneath them. Polite, not assertive:
-					    it reports a result the reader asked for, it does not interrupt.
-					    One region for the page rather than one per row, because five
-					    rows announcing themselves on every push is noise, not news.
-					    The sighted reader's copy of the count is the header's meta
-					    line; a second visible line here would be the two-counts defect
-					    this page just dissolved. */}
+					{/* The list's verdict region: polite, one region for the page (per-row
+					    announcements on every push are noise). The sighted reader's copy of the
+					    count is the header's meta line. */}
 					<p className="visually-hidden" role="status" aria-live="polite">
 						{attentionCount > 0
 							? attentionCount === 1
@@ -2454,22 +2047,14 @@ export function ServersSection({
 								: l10n.t("{0} servers need attention", attentionCount)
 							: newestCheck > 0
 								? l10n.t("All servers are healthy")
-								: // Nothing has been checked yet, so there is no verdict to
-									// give. "All servers are healthy" here would be the page
-									// asserting a clean bill of health it has never taken -
-									// which is exactly the reassurance a first-run reader
-									// would act on.
+								: // No verdict yet: "All servers are healthy" would assert a clean bill of
+									// health the page has never taken.
 									l10n.t("No servers have been checked yet")}
 					</p>
-					{/* The list's ONE in-flight announcement, text only: the busy
-					    buttons spin and reword where the pointer is, and this says the
-					    same thing to a reader who cannot see them - a changed
-					    accessible name is announced only on the FOCUSED element, and a
-					    mouse user's focus never sits on the button they pressed. One
-					    region rather than role="status" on each actions cluster,
-					    because status regions are atomic: a per-cluster region
-					    wrapping buttons would read every unrelated label, once per
-					    row, when the fleet-wide refresh flag flips them all at once. */}
+					{/* The list's ONE in-flight announcement: a changed accessible name is
+					    announced only on the FOCUSED element, and a mouse user's focus never sits
+					    on the button they pressed. One region, not per cluster - status regions
+					    are atomic, and a fleet-wide flag flips every label at once. */}
 					<p className="visually-hidden" role="status" aria-live="polite">
 						{[
 							retrying !== undefined ? l10n.t("Checking {0}", retrying.label) : undefined,
@@ -2483,12 +2068,8 @@ export function ServersSection({
 					</p>
 					<ul className="server-list">
 						{servers.map((server) => (
-							// Keyed identity (the error banner's idiom: origin plus the
-							// external row's opaque handle or the row's unique label -
-							// declared labels are setting-unique, misconfigured rows are
-							// deduplicated by label extension-side) so an async push that
-							// inserts, removes, or reorders entries does not re-associate
-							// another server's row with the user's focus.
+							// Keyed identity (origin plus opaque handle or setting-unique label) so an
+							// async push cannot re-associate another server's row with the user's focus.
 							<ServerRow
 								key={`${server.origin}:${server.adoptHandle ?? server.label}`}
 								server={server}
@@ -2497,11 +2078,9 @@ export function ServersSection({
 								now={now}
 								armed={armedRemove === server.label}
 								onEdit={() => {
-									// The one place the destination's purpose is decided: a
-									// declared row edits, an external row adopts. A
-									// misconfigured row renders no Edit at all (its shape
-									// cannot round-trip the form); the guard keeps the
-									// narrowing honest.
+									// The one place the destination's purpose is decided: a declared row
+									// edits, an external row adopts; the misconfigured guard (no Edit
+									// renders) keeps the narrowing honest.
 									if (server.origin === "misconfigured") {
 										return;
 									}

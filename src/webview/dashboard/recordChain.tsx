@@ -1,16 +1,8 @@
 /**
- * The inspectors' compact inheritance figure: one line per record map showing
- * the inspected model's matching chain broadest to winner - `* -> gpt-5*
- * [inheritance stops here] -> gpt-5.6` - opened by the same provenance badge
- * that names the layer everywhere else in the panel, with each key jumping
- * into the editor that owns it (a global key into the settings record editor,
- * an entry key into the server entry's form) and the barrier/exclusive-list
- * markers worded exactly as the Diagnostics tree words them. A chain of one
+ * The inspectors' compact inheritance figure: one line per record map showing the matching
+ * chain broadest to winner, each key jumping into the editor that owns it, barrier and
+ * exclusive-list markers worded exactly as the Diagnostics tree words them. A chain of one
  * record tells no inheritance story and renders nothing.
- *
- * The figure is the WHY behind the values above it, so it closes its section
- * in the quiet register - and in the open. It used to sit behind a disclosure,
- * which put a menu inside a panel the reader had already chosen to open.
  */
 
 import * as l10n from "@vscode/l10n";
@@ -56,10 +48,9 @@ export function RecordChainFigure({
 				return (
 					<p className="record-chain" key={chain.layer}>
 						<span className="record-chain-label">{l10n.t("Record path")}</span>{" "}
-						{/* The layer word alone: the badge's second slot is a RECORD KEY
-						    everywhere else in the panel, and an entry label sitting in it
-						    reads as a record named "prod". The entry is named in the
-						    jump's accessible label, and in the panel's own header. */}
+						{/* The layer word alone: the badge's second slot is a RECORD KEY everywhere else, and an
+						    entry label sitting in it reads as a record named "prod". The entry is named in the
+						    jump's accessible label and the panel's header. */}
 						<Provenance source={{ scope: chain.layer === "entry" ? entryScope() : settingsScope() }} />{" "}
 						{chain.links.map((link, index) => {
 							const onJump = jumpFor(link.key);

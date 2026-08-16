@@ -1,9 +1,7 @@
 /**
  * The Servers page's merged spend surface (docs/usage.md#the-usage-panel): the
- * per-row spend unit, the drawer each row opens onto, the absence rules (a dim
- * dash plus the reason, never a zero), the usage diagnostics' tiers - the
- * user-ruled degraded denials, the fully-rendered transient advisory, and the
- * counted budget pressure - the header's meta summary, and the refresh gate.
+ * per-row spend unit and its drawer, the absence rules (a dim dash plus the
+ * reason, never a zero), the diagnostics tiers, the meta summary, the refresh gate.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { DashboardServer, DashboardUsage, UsageServerView } from "../../../../dashboard/viewModels";
@@ -133,10 +131,9 @@ describe("the spend unit", () => {
 	});
 
 	test("every non-fresh spend unit wears the one-word stale qualifier, whatever the cause", () => {
-		// The header's clause is "worst FRESH budget", so an unmarked stale
-		// number right beneath it read as the header contradicting the page.
-		// The word is a unit qualifier; the cause stays in the diagnostic line
-		// or the drawer's Spend last updated fact.
+		// The header's clause is "worst FRESH budget", so an unmarked stale number
+		// beneath it read as the header contradicting the page. The word is a unit
+		// qualifier; the cause stays in the diagnostic line or the drawer.
 		const stale = mountServers(makeUsage({ servers: [makeUsageServer({ label: "Prod", fresh: false })] }));
 		expect(textOf(stale, ".spend-note")).toBe("stale");
 		cleanup();
@@ -475,10 +472,8 @@ describe("the usage diagnostics", () => {
 	});
 
 	test("spend denied while statistics still serve is degraded too: the user-ruled tier, per endpoint", () => {
-		// The /key/info-only denial - the third denial shape beside the whole
-		// card and the statistics-only one. Retained history keeps rendering
-		// (the spend unit shows the last-known number) while the diagnostic
-		// counts, because only a human can change the key's permission.
+		// The /key/info-only denial. Retained history keeps rendering while the
+		// diagnostic counts, because only a human can change a key's permission.
 		const usage = makeUsage({
 			servers: [
 				makeUsageServer({
@@ -505,10 +500,9 @@ describe("the usage diagnostics", () => {
 	});
 
 	test("a transient refresh failure is ADVISORY and still renders in full: headline, detail, fix action", () => {
-		// The spec requirement, not an implementation detail: only the tint and
-		// the attention count are reduced on the quiet tier - the headline, the
-		// English endpoint detail, and Refresh now all render exactly as a
-		// degraded line's would.
+		// A spec requirement: only the tint and the attention count are reduced on
+		// the quiet tier - headline, English endpoint detail, and Refresh now all
+		// render exactly as a degraded line's would.
 		const usage = makeUsage({
 			servers: [makeUsageServer({ label: "Prod", fresh: false, keyInfo: { kind: "error", status: 429 } })],
 		});
@@ -565,12 +559,9 @@ describe("the usage diagnostics", () => {
 			text: (line.textContent ?? "").trim(),
 		}));
 		expect(lines).toEqual([
-			// The leading tier word is the shared severity vocabulary's hidden
-			// label (severityLabel, in this page's server subject): the rule's
-			// colour and geometry cannot reach a screen reader, so the headline
-			// speaks its rank. Gateway's warn-tier sentence is NOT here: the
-			// collapsed row's tinted meter already signals it, so the sentence
-			// waits in the drawer (user-ruled placement).
+			// The leading tier word is the shared severity vocabulary's hidden label
+			// (severityLabel): colour and geometry cannot reach a screen reader.
+			// Gateway's warn-tier sentence waits in the drawer (user-ruled placement).
 			{ severity: "sev-degraded", text: "Action needed: Prod is over its budget by $3.00." },
 		]);
 		// The pill and the attention count still read the FULL ranked list -
@@ -629,9 +620,8 @@ describe("the header", () => {
 		// near-budget fresh row does too.
 		expect(meta).toContain("2 need attention");
 		// The worst FRESH fraction - a maximum, never a sum, never a stale one.
-		// The clause says "use" (a bare "budget 87%" reads as remaining), and
-		// with a stale row visible it glosses the exclusion, so the header
-		// cannot read as contradicting the stale 112% on the row beneath it.
+		// The clause says "use" (a bare "budget 87%" reads as remaining) and
+		// glosses the exclusion while a stale row is visible.
 		expect(meta).toContain("worst budget use 87% (stale rows excluded)");
 		expect(meta).toContain("background polling off");
 	});
@@ -652,9 +642,8 @@ describe("the header", () => {
 		const root = mountServers(makeUsage({ servers: [makeUsageServer({ label: "Prod" })] }));
 		const resting = root.querySelector("button.refresh-usage") as HTMLButtonElement;
 		// At rest the mounted busy twin is aria-hidden as well as invisible: the
-		// accessible name must be exactly the resting label, or a dropped
-		// aria-hidden would read both labels to assistive tech (the `invisible`
-		// class alone is a CSS fact the accessible-name walk cannot see).
+		// accessible name must be exactly the resting label, since the `invisible`
+		// class alone is a CSS fact the accessible-name walk cannot see.
 		expect(accessibleNameOf(resting)).toBe("Refresh now");
 		fireClick(resting);
 		expect(postedCalls()).toEqual([{ method: "refreshUsage", payload: null }]);
@@ -677,10 +666,9 @@ describe("the header", () => {
 	});
 
 	test("a background pass disables Refresh now without impersonating asked-for work", () => {
-		// Scheduled polls, backoff retries, and open-triggered staleness passes
-		// set only `refreshing`: the button must stay on its resting label (no
-		// spinner) - a busy label on unprompted work read as the app doing
-		// something the user never asked - while still refusing a second post.
+		// Scheduled polls, backoff retries, and staleness passes set only
+		// `refreshing`: the button stays on its resting label (a busy label on
+		// unprompted work read as the app acting unasked) but refuses a second post.
 		const root = mountServers(
 			makeUsage({ refreshing: true, refreshingExplicitly: false, servers: [makeUsageServer({ label: "Prod" })] })
 		);
@@ -697,9 +685,8 @@ describe("the header", () => {
 
 	test("a fleet-wide refresh announces through exactly one status region, however many rows it flips", () => {
 		// The refreshing flag rewords every row's Refresh now at once; a status
-		// region per actions cluster would announce every unrelated label once
-		// per row. The busy announcement is the section's, text only, once,
-		// and only for an explicitly requested pass.
+		// region per actions cluster would announce every unrelated label once per
+		// row. One section-level announcement, text only, explicit passes only.
 		const usage = makeUsage({
 			refreshing: true,
 			refreshingExplicitly: true,

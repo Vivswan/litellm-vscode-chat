@@ -1,10 +1,7 @@
 /**
- * Configures @vscode/l10n from the bundle the extension's HTML shell injects
- * into the page (window.__l10nBundle, written by buildDashboardHtml before
- * the dashboard bundle loads). Must run before the first render: t() resolves
- * against whatever is configured at call time. Under an English host no
- * bundle is injected and l10n stays unconfigured, so t() returns its inline
- * English message.
+ * Configures @vscode/l10n from the bundle the HTML shell injects (window.__l10nBundle).
+ * Must run before the first render: t() resolves against whatever is configured at call
+ * time. An English host injects no bundle and t() returns its inline message.
  */
 import * as l10n from "@vscode/l10n";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";

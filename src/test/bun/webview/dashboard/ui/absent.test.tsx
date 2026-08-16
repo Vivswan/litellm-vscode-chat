@@ -1,9 +1,7 @@
 /**
- * The Absent primitive: the one embodiment of "a dim dash plus its reason,
- * never a zero". What is worth pinning is the accessibility shape a copy
- * drifts on - the dash is decoration (aria-hidden) and the words always ride
- * along, hidden by default, replaced by the caller's visible node when one
- * speaks.
+ * The Absent primitive - a dim dash plus its reason, never a zero - pinned on the accessibility shape a copy drifts
+ * on: the dash is decoration (aria-hidden) and the words always ride along, hidden by default and replaced by the
+ * caller's visible node when one speaks.
  */
 import { afterEach, expect, test } from "bun:test";
 import { AbsentDatum } from "../../../../../webview/dashboard/ui/absent";

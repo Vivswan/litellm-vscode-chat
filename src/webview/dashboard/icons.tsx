@@ -1,10 +1,7 @@
 /**
- * Inline SVG icons, codicon-flavored: 16x16 viewBox filled with currentColor
- * so every theme tone applies. Inline on purpose - the packaged file list
- * admits no dist/ assets beyond the two bundles, and the codicon FONT would
- * need a font-src CSP grant - so the few icons the dashboard uses are drawn
- * here. Decorative always (aria-hidden); the owning control carries the
- * accessible name.
+ * Inline SVG icons: the packaged file list admits no dist/ assets and the codicon font would
+ * need a font-src CSP grant, so the few icons used are drawn here. Always decorative
+ * (aria-hidden); the owning control carries the accessible name.
  */
 
 import type { ReactNode } from "react";
@@ -18,12 +15,8 @@ function Svg({ path }: { path: string }) {
 }
 
 /**
- * The line-art sibling, for the rail's destination icons.
- *
- * Those five are the only icons on the page seen as a SET, side by side and
- * carrying navigation on their own once the rail collapses, so they are drawn
- * at one stroke weight rather than as filled silhouettes: at 18px a filled
- * glyph reads as a blob, and a blob is a poor destination.
+ * Line-art sibling for the rail's five destination icons: they read as a set, and carry
+ * navigation alone once the rail collapses, so one stroke weight instead of filled silhouettes.
  */
 function StrokeSvg({ children }: { children: ReactNode }) {
 	return (
@@ -44,7 +37,7 @@ function StrokeSvg({ children }: { children: ReactNode }) {
 	);
 }
 
-/** Two stacked units: the Servers destination. */
+/** The Servers destination. */
 export function IconServers() {
 	return (
 		<StrokeSvg>
@@ -55,7 +48,7 @@ export function IconServers() {
 	);
 }
 
-/** A stack of plates: the Models catalogue. */
+/** The Models catalogue. */
 export function IconModels() {
 	return (
 		<StrokeSvg>
@@ -66,7 +59,7 @@ export function IconModels() {
 	);
 }
 
-/** A pulse trace: the Diagnostics destination. */
+/** The Diagnostics destination. */
 export function IconPulse() {
 	return (
 		<StrokeSvg>
@@ -75,7 +68,7 @@ export function IconPulse() {
 	);
 }
 
-/** A gear: the Settings destination. */
+/** The Settings destination. */
 export function IconGear() {
 	return (
 		<StrokeSvg>
@@ -85,7 +78,7 @@ export function IconGear() {
 	);
 }
 
-/** Circular arrows: the rail's Sync models action. */
+/** The rail's Sync models action. */
 export function IconSync() {
 	return (
 		<StrokeSvg>
@@ -194,12 +187,12 @@ export function IconPlug() {
 	);
 }
 
-/** Log lines: the Diagnostics tab's Open-output-log action. */
+/** The Diagnostics tab's Open-output-log action. */
 export function IconOutput() {
 	return <Svg path="M2 3h12v1H2V3zm0 3h12v1H2V6zm0 3h12v1H2V9zm0 3h7v1H2v-1z" />;
 }
 
-/** Codicon bracket (curly-brace pair): the settings.json jump actions. */
+/** Codicon bracket: the settings.json jump actions. */
 export function IconBraces() {
 	return (
 		<Svg path="M6 2.984V2h-.09c-.313 0-.616.062-.909.185a2.33 2.33 0 0 0-.775.53 2.23 2.23 0 0 0-.493.753v.001a3.542 3.542 0 0 0-.198.83v.002a6.08 6.08 0 0 0-.024.863c.012.29.018.58.018.869 0 .203-.04.393-.117.572v.001a1.504 1.504 0 0 1-.765.787 1.376 1.376 0 0 1-.558.115H2v.984h.09c.195 0 .38.04.556.121l.001.001c.178.078.329.184.455.318l.002.002c.13.13.233.285.307.465l.001.002c.078.18.117.368.117.566 0 .29-.006.58-.018.869-.012.296-.004.585.024.87v.001c.033.283.099.558.198.824v.001c.106.273.271.524.493.75.223.23.482.407.775.53.293.123.596.185.91.185H6v-.984h-.09c-.2 0-.387-.038-.563-.115a1.613 1.613 0 0 1-.457-.32 1.659 1.659 0 0 1-.309-.467c-.074-.18-.11-.37-.11-.573 0-.228.003-.453.01-.673.007-.228.004-.45-.01-.665a4.639 4.639 0 0 0-.086-.627 2.037 2.037 0 0 0-.24-.6 2.202 2.202 0 0 0-.438-.52 2.582 2.582 0 0 0-.671-.407c.253-.107.478-.243.673-.41.194-.166.34-.343.437-.53.1-.187.18-.387.24-.6.06-.213.089-.42.086-.622a9.09 9.09 0 0 0-.01-.669c-.007-.22-.01-.445-.01-.673a1.447 1.447 0 0 1 .42-1.035c.136-.135.29-.242.462-.32a1.4 1.4 0 0 1 .563-.11H6zm4 10.032V14h.09c.313 0 .616-.062.909-.185.293-.123.552-.3.775-.53.222-.226.387-.477.493-.75v-.001c.1-.266.165-.543.198-.83v-.002c.028-.28.036-.567.024-.863-.012-.29-.018-.58-.018-.869 0-.203.04-.393.117-.572v-.001a1.502 1.502 0 0 1 .765-.787 1.38 1.38 0 0 1 .558-.115H14v-.984h-.09c-.196 0-.381-.04-.557-.121l-.001-.001a1.376 1.376 0 0 1-.455-.318l-.002-.002a1.415 1.415 0 0 1-.307-.465v-.002a1.405 1.405 0 0 1-.118-.566c0-.29.006-.58.018-.869.012-.296.004-.585-.024-.87v-.001a3.548 3.548 0 0 0-.198-.824v-.001a2.23 2.23 0 0 0-.493-.75 2.33 2.33 0 0 0-.775-.53 2.325 2.325 0 0 0-.91-.185H10v.984h.09c.2 0 .387.038.563.115.174.082.326.188.457.32.127.134.23.29.309.467.074.18.11.37.11.573 0 .228-.003.453-.01.673-.007.228-.004.45.01.665.007.213.036.422.086.627.06.208.14.408.24.6.104.194.25.367.438.52.19.156.413.292.671.407a2.526 2.526 0 0 0-.673.41c-.194.166-.34.343-.437.53-.1.187-.18.387-.24.6-.06.213-.089.42-.086.622.003.22.006.443.01.669.007.22.01.445.01.673 0 .203-.037.393-.11.573a1.447 1.447 0 0 1-.771.787c-.176.077-.363.115-.563.115H10z" />

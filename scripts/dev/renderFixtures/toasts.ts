@@ -1,21 +1,17 @@
 /**
- * A success toast, the transient the three server intents leave behind.
- *
- * Two toasts, because the stack's own gap between them is only visible with a
- * second one under the first.
+ * A success toast, the transient the three server intents leave behind. Two of
+ * them, because the stack's own gap is only visible with a second one under the
+ * first.
  *
  * The toast is the other container that pads a button at its own edge (the
- * models scope chip is the first), so the numbers are measured against the
+ * models scope chip is the first), so its numbers are measured against the
  * dismiss glyph's INK rather than its box: the Button primitive hands its
- * padding back to the layout, and a padding sized against the box sits the
- * glyph half as far from the border as the text on the other side and runs its
- * hover fill flush into it. What this should photograph: the glyph and the
- * sentence inset from their own borders by the same amount.
+ * padding back to the layout. The glyph and the sentence should be inset from
+ * their own borders by the same amount.
  *
- * The acks are delivered rather than driven, which is honest here: the app
- * raises a toast from the ack envelope alone (app.tsx's message handler), so
- * this is the same message a completed save produces, not a shortcut around
- * one.
+ * The acks are delivered rather than driven, which is honest: the app raises a
+ * toast from the ack envelope alone, so this is the same message a completed
+ * save produces.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState, GATEWAY_SERVER, PROD_SERVER } from "./shared.ts";

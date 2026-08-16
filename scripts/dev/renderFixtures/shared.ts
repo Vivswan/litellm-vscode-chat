@@ -247,11 +247,10 @@ export const OPENAI_PARAMS_FULL: readonly string[] = [
 
 /**
  * The worst-case effective-capabilities bag both model-inspector fixtures
- * render: the core seven, the three consumed booleans, the FULL eight-field
- * Anthropic-style cost family with sub-micro per-token values (5e-7 and
- * friends - the scientific-notation regression case), the 27-element params
- * list, and one unknown extra - with mixed provenance across every level so
- * the Source column shows its whole vocabulary.
+ * render: the core seven, the three consumed booleans, the FULL eight-field cost
+ * family with sub-micro per-token values (the scientific-notation regression
+ * case), the 27-element params list, and one unknown extra - with mixed
+ * provenance across every level so the Source column shows its whole vocabulary.
  */
 export function worstCaseCapabilityFields(): Record<string, unknown> {
 	return {

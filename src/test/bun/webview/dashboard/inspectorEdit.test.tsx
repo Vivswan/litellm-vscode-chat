@@ -1,9 +1,7 @@
 /**
- * The inspector's configure-jump into the record editors: the Configure
- * button reuses the most specific matching global record or asks for a fresh
- * exact-ID draft, the per-row edit goes to the record that OWNS the value
- * (server entry included), and the editors' external-edit hook lands the
- * jump - focusing an existing record or creating the draft group.
+ * The inspector's configure-jump into the record editors: the Configure button reuses the most specific matching
+ * global record or asks for a fresh exact-ID draft, the per-row edit goes to the record that OWNS the value (server
+ * entry included), and the editors' external-edit hook lands the jump.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act } from "react";
@@ -182,11 +180,9 @@ describe("the inspector's capabilities configure-jump", () => {
 		configure.click();
 		expect(recordJumps).toEqual([["capabilities", "gpt-5*", false]]);
 
-		// The global-sourced field's edit goes to the capabilities record that
-		// owns the value; the entry-level field's edit opens the entry's form.
-		// Each label names its LAYER: the redesign moved every visible layer word
-		// into a badge, so for a screen reader this label is the only place the
-		// layer is stated.
+		// The global-sourced field's edit goes to the capabilities record that owns the value; the entry-level field's
+		// edit opens the entry's form. Each label names its LAYER, which for a screen reader is the only place the
+		// layer is stated - every visible layer word lives in a badge.
 		const rowEdits = [...root.querySelectorAll<HTMLButtonElement>("button.row-edit")];
 		expect(rowEdits.map((button) => button.getAttribute("aria-label"))).toEqual([
 			'Edit record "gpt-5*" in settings',

@@ -1,10 +1,7 @@
 /**
- * The Button primitive's class resolution. The vocabulary is typographic -
- * rank in weight and colour, the fill only under the cursor - so the contracts
- * worth pinning are the ones a screenshot cannot show: that no variant fills
- * at rest, that disabled never gains a fill, that danger is a variant rather
- * than a caller's className, that a caller's override still wins when one is
- * passed, and which buttons carry secondary's resting underline.
+ * The Button primitive's class resolution: the contracts a screenshot cannot show. No variant fills at rest,
+ * disabled never gains a fill, danger is a variant rather than a caller's className, a caller's override still
+ * wins, and secondary alone carries the resting underline.
  */
 import { afterEach, expect, test } from "bun:test";
 import { Button } from "../../../../../webview/dashboard/ui/button";
@@ -24,9 +21,7 @@ function Icon() {
 }
 
 test("no variant carries a fill at rest: the fill belongs to hover", () => {
-	// This is the whole vocabulary in one assertion. A background that is not
-	// behind a state modifier would put a box back on the page, which is the
-	// look the typographic set replaced.
+	// A background outside a state modifier puts a box back on the page, which is the look this set replaced.
 	for (const variant of VARIANTS) {
 		const resting = classesOf(mount(<Button variant={variant} />)).filter((name) => /^bg-/.test(name));
 		expect(resting, variant).toEqual([]);
@@ -44,8 +39,7 @@ test("every variant answers hover with a fill, so a text button still reads as a
 });
 
 test("disabled never gains a fill, in any variant", () => {
-	// With nothing filled at rest, a disabled fill would be the loudest thing
-	// on the row - the opposite of what disabled should say.
+	// With nothing filled at rest, a disabled fill would be the loudest thing on the row.
 	for (const variant of VARIANTS) {
 		const classes = classesOf(mount(<Button variant={variant} disabled={true} />));
 		expect(
@@ -57,30 +51,23 @@ test("disabled never gains a fill, in any variant", () => {
 });
 
 test("danger is a variant, not a colour a caller paints on", () => {
-	// It used to be className="text-error hover:text-error" at two call sites,
-	// which meant the destructive treatment depended on tailwind-merge
-	// resolving a caller override against the variant. Naming it removes the
-	// dependency entirely.
+	// As a variant, the destructive treatment no longer depends on tailwind-merge resolving a caller's className
+	// override against the variant's own classes.
 	const classes = classesOf(mount(<Button variant="danger" />));
 	expect(classes).toContain("hover:bg-err-wash");
 	// The hovered colour is deliberately NOT --err: a red loses contrast on its
 	// own wash, so hover strengthens away from the surface instead of toward
 	// the hue.
 	expect(classes).toContain("hover:text-err-strong");
-	// And distinct AT REST, which is the part that matters: a Remove sits beside
-	// an Edit, and on a broken row beside a Fix, so it has to be tellable apart
-	// before the pointer arrives. It used to rest on text-muted-foreground -
-	// exactly the secondary and quiet variants' resting colour - which made the
-	// destructive action a sibling of the two harmless ones next to it.
+	// Distinct AT REST too: a Remove sits beside an Edit, and on a broken row beside a Fix, so it has to be tellable
+	// apart before the pointer arrives. text-muted-foreground is secondary's and quiet's resting colour.
 	expect(classes).toContain("text-err-quiet");
 	expect(classes).not.toContain("text-muted-foreground");
 });
 
 test("no variant rests on the same colour as another, so rank is legible before hover", () => {
-	// The vocabulary is typographic: rank is weight and colour, and the fill
-	// belongs to hover. That only works if the resting colours differ - three
-	// variants sharing one resting colour is three variants nobody can tell
-	// apart until they aim at them.
+	// Rank is weight and colour, and the fill belongs to hover: three variants sharing one resting colour is three
+	// variants nobody can tell apart until they aim at them.
 	const restingColour = (variant: (typeof VARIANTS)[number]): string => {
 		const colour = classesOf(mount(<Button variant={variant} />)).find(
 			(name) => name.startsWith("text-") && !name.includes(":")
@@ -95,9 +82,6 @@ test("no variant rests on the same colour as another, so rank is legible before 
 		const colour = restingColour(variant);
 		byColour.set(colour, [...(byColour.get(colour) ?? []), variant]);
 	}
-	// Every rank has a colour of its own now: "quiet" used to be a fourth
-	// variant that was secondary's colour at a smaller size, which is a size,
-	// not a rank - and it made Remove and Edit the same button.
 	for (const variant of VARIANTS) {
 		expect(byColour.get(restingColour(variant)), variant).toEqual([variant]);
 	}
@@ -120,15 +104,9 @@ test("a caller's hover colour still replaces the variant's instead of stacking w
 });
 
 test("secondary's resting underline follows the LABEL, however deeply the label is wrapped", () => {
-	// The affordance that makes a secondary button readable as a button before
-	// the pointer arrives, and the rule deciding it turns on what counts as a
-	// child - which both CSS and `Children.toArray` get wrong in their own way.
-	// `:has(> svg:only-child)` counts ELEMENT children, so an icon beside a
-	// label looks identical to an icon alone; `Children.toArray` treats a
-	// fragment as one opaque node, so a label inside one looks like no label.
-	//
-	// Every shape below is taken from a real call site, because those are the
-	// shapes that decide whether the affordance actually ships.
+	// What counts as a label is what both obvious rules get wrong: `:has(> svg:only-child)` counts ELEMENT children,
+	// so an icon beside a label looks like an icon alone; `Children.toArray` treats a fragment as one opaque node,
+	// so a label inside one looks like no label. Every shape below is taken from a real call site.
 	const underlined = (node: HTMLElement) => classesOf(node).includes("underline");
 
 	// A plain string label (usage "Refresh now", settings "Export settings").
@@ -195,30 +173,22 @@ test("secondary's resting underline follows the LABEL, however deeply the label 
 });
 
 test("the underline is secondary's alone, and a disabled button does not wear it", () => {
-	// default already reads as an action through the accent and the weight, and
-	// danger through its own colour; underlining them too would say the same
-	// thing twice and flatten the three ranks back into one.
+	// default already reads as an action through the accent and the weight, danger through its own colour;
+	// underlining them too would flatten the three ranks back into one.
 	for (const variant of ["default", "danger"] as const) {
 		expect(classesOf(mount(<Button variant={variant}>Label</Button>)), variant).not.toContain("underline");
 	}
-	// The same reasoning the file gives for disabled carrying no fill: a
-	// resting affordance that says "activate me" on a control that refuses the
-	// click is worse than none. Both forms, since aria-disabled exists exactly
-	// to refuse without leaving the tab order. Live at the zero-servers state
-	// of Refresh now and Test connection.
+	// A resting affordance saying "activate me" on a control that refuses the click is worse than none. Both forms,
+	// since aria-disabled refuses without leaving the tab order.
 	const classes = classesOf(mount(<Button variant="secondary">Label</Button>));
 	expect(classes).toContain("disabled:no-underline");
 	expect(classes).toContain("aria-disabled:no-underline");
-	// Dotted, and left to currentColor: this is the resting information that
-	// the words are a control, so it has to clear the 3:1 a graphical object
-	// needs, and half the muted token measures 2.2:1 light and 2.6:1 dark.
-	// currentColor is also count-link's, so the two cannot drift apart.
+	// Left to currentColor, which count-link also uses, so the two cannot drift apart. As resting information that
+	// the words are a control it must clear 3:1, and half the muted token measures 2.2:1 light and 2.6:1 dark.
 	expect(classes).toContain("decoration-dotted");
 	expect(classes.filter((name) => name.startsWith("decoration-"))).toEqual(["decoration-dotted"]);
-	// It survives hover. Clearing can only be spelled as a transparent
-	// decoration colour, which forced colours repaint, so it would not clear
-	// for those readers at all - and a cleared line returns instantly while the
-	// fill takes 120ms to fade, so the two would desynchronise on the way out.
+	// It survives hover: clearing can only be spelled as a transparent decoration colour, which forced colours
+	// repaint, and a cleared line returns instantly while the fill takes 120ms to fade.
 	expect(classes.filter((name) => name.startsWith("hover:decoration-"))).toEqual([]);
 });
 

@@ -1,10 +1,7 @@
 /**
- * The dashboard's rendering seam for the redesigned two-part error messages
- * (human headline, "\n", technical detail). Nothing in the webview styles
- * newlines (no pre-line containers), so rendering the raw string collapses
- * the parts into one run-on paragraph; this component splits them with the
- * same shared extraction the host notifier uses for its headline-only toasts
- * and renders the detail as its own dimmed line beneath.
+ * The rendering seam for the two-part error messages (headline, "\n", detail):
+ * nothing in the webview styles newlines, so this splits with the same shared
+ * extraction the host notifier uses and renders the detail as its own dimmed line.
  */
 
 import { statusErrorDetail, statusErrorHeadline } from "../../shared/util/errorText";

@@ -1,20 +1,7 @@
 /**
- * The webview's request-correlation hooks, replacing the hand-rolled
- * requestId bookkeeping the components used to carry.
- *
- * useRpc drives the read methods: send() posts a request and remembers its
- * id; only the response echoing THAT id lands in `data` (latest wins - a new
- * send orphans the previous answer and returns the view to its loading
- * state, exactly like the fresh-requestId re-requests it replaces). Two
- * in-flight reads are two hook instances.
- *
- * useIntentOutcome drives the acked intents: send() posts and returns the
- * minted id, and `outcome` holds the latest ack or fail envelope of the
- * hook's method (whoever posted it), tagged with a seq so repeats with equal
- * text still re-fire effects. Consumers correlate against the ids they hold;
- * outcomes survive state pushes by construction - the push-retirement rule
- * lives in App's standing-failure store, which only ever holds
- * fire-and-forget failures.
+ * Request-correlation hooks. useRpc (reads): latest send wins, earlier answers are orphaned;
+ * two in-flight reads are two hook instances. useIntentOutcome (acked intents): holds the
+ * method's latest ack/fail, seq-tagged so repeats with equal text still re-fire effects.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -29,7 +16,6 @@ import { isExtensionMessage } from "../../dashboard/endpoints";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
 import { sendRequest } from "./vscodeApi";
 
-/** The window message narrowed by the shared receive guard; undefined for anything else. */
 export function asExtensionMessage(data: unknown): ExtensionToWebviewMessage | undefined {
 	return isExtensionMessage(data) ? data : undefined;
 }

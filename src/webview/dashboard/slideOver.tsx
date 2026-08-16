@@ -1,29 +1,13 @@
 /**
- * The right-side slide-over the dashboard's overlay panels open in (the model
- * inspector, the record editors' matcher overlay): a scrim over the page, a
- * focus-trapped dialog panel, Esc and scrim-click to close. Closing is a
- * REQUEST: the section owning the panel decides what it means, so the
- * keyboard path, the scrim, and the X all share one policy.
- *
- * Radix Dialog supplies the parts that are hard to get right by hand - the
- * focus trap, the nesting-aware Esc layer stack, and aria-hidden on the rest
- * of the page - while this file keeps the policy Radix has no opinion about.
- * Two deliberate departures from the stock recipe, both forced by the webview:
- *
- * - No `Dialog.Overlay`. Overlay is the only place Radix mounts
- *   react-remove-scroll, which injects a <style> element the dashboard's CSP
- *   (style-src without any inline allowance) refuses. The scrim below is the
- *   backdrop instead. The dashboard has never locked body scroll and still
- *   does not; if it ever should, a body class in dashboard.css buys it
- *   without reopening the policy.
- * - No `Dialog.Portal`. The panel stays where it renders so it keeps its
- *   place in the section's DOM; nothing here depends on escaping a stacking
- *   context.
- *
- * `Dialog.Root` gets no `onOpenChange`: the section owns whether the panel
- * exists at all, so Radix's open state is always true and every close travels
- * through onRequestClose below. Wiring onOpenChange as well would give a
- * dismissal two routes to the same request.
+ * The right-side slide-over the dashboard's overlay panels open in. Closing is a REQUEST:
+ * the owning section decides what it means, so keyboard, scrim, and X share one policy.
+ * Radix Dialog supplies the focus trap, the nesting-aware Esc stack, and aria-hidden on
+ * the page; two departures forced by the webview: no Dialog.Overlay (the only place
+ * Radix mounts react-remove-scroll, whose injected <style> the CSP refuses - the scrim
+ * is the backdrop, and body scroll was never locked) and no Dialog.Portal (the panel
+ * keeps its place in the section's DOM). Dialog.Root gets no onOpenChange: open is
+ * always true and every close travels through onRequestClose, or a dismissal would have
+ * two routes to one request.
  */
 
 import * as Dialog from "@radix-ui/react-dialog";
@@ -34,8 +18,8 @@ import { IconClose } from "./icons";
 import { Button } from "./ui/button";
 
 /**
- * Where initial focus lands when the panel has no field to type into. Radix
- * owns the Tab trap now, so this only has to name a sensible first stop.
+ * Where initial focus lands when the panel has no field to type into; Radix owns the Tab
+ * trap, so this only names a sensible first stop.
  */
 const FOCUSABLE =
 	"a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
@@ -55,15 +39,11 @@ export function SlideOver({
 }) {
 	const panelRef = useRef<HTMLDivElement>(null);
 
-	// Focus moves into the panel on open (the first field, not the X, so
-	// typing can start immediately) and returns to the opener on close - or,
-	// when the opener no longer exists (the panel's own action may have
-	// removed the row that opened it), to the stable fallback element. Radix's
-	// own open/close autofocus is declined below so this stays the one policy,
-	// which makes the fallback load-bearing: a panel with no field at all (the
-	// model inspector) would otherwise strand focus on the opener the dialog
-	// just hid from assistive tech, and Esc - handled on the panel - would
-	// never reach anything.
+	// Focus moves in on open (the first field, so typing starts immediately) and returns to
+	// the opener on close - or to the stable fallback when the panel's own action removed
+	// the opener. Radix's autofocus is declined so this stays the one policy, making the
+	// fallback load-bearing: a field-less panel would otherwise strand focus on an element
+	// the dialog just hid from assistive tech.
 	useEffect(() => {
 		const opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
 		const panel = panelRef.current;
@@ -83,11 +63,9 @@ export function SlideOver({
 
 	return (
 		<Dialog.Root open={true} modal={true}>
-			{/* A pointer-only affordance, per the dialog pattern: keyboard users
-			    have Esc and the Close button, so the scrim stays out of the Tab
-			    order and out of the accessibility tree. It carries the close
-			    request itself because Radix's outside-interaction dismissal is
-			    declined below - routing both would fire the request twice. */}
+			{/* A pointer-only affordance: keyboard users have Esc and Close, so the scrim stays out
+			    of the Tab order and the accessibility tree. It carries the close request itself
+			    because Radix's outside-interaction dismissal is declined - both would fire twice. */}
 			<button type="button" className="scrim" tabIndex={-1} aria-hidden="true" onClick={onRequestClose} />
 			<Dialog.Content
 				className="slide-over"
@@ -99,11 +77,9 @@ export function SlideOver({
 				ref={panelRef}
 				onOpenAutoFocus={(event) => event.preventDefault()}
 				onCloseAutoFocus={(event) => event.preventDefault()}
-				// Radix hears Esc on a document capture listener, which is too
-				// early for this dashboard: the suggestion listbox inside a form
-				// must swallow its own Esc before the panel sees it, and only a
-				// bubble-phase handler can be overruled that way. So Radix's Esc
-				// is declined outright and the policy lives in onKeyDown below.
+				// Radix hears Esc on a document capture listener - too early: the suggestion listbox
+				// must swallow its own Esc first, and only a bubble-phase handler can be overruled that
+				// way. So Radix's Esc is declined and the policy lives in onKeyDown below.
 				onEscapeKeyDown={(event) => event.preventDefault()}
 				onInteractOutside={(event) => event.preventDefault()}
 				onKeyDown={(event) => {
@@ -121,11 +97,9 @@ export function SlideOver({
 				<Button
 					variant="secondary"
 					size="compact"
-					// mx-0, the same pin the server form's reveal toggle takes: this
-					// is absolutely positioned, so the primitive's layout hand-back
-					// would slide the box 6px past the `right: 12px` its rule states.
-					// Both absolute sites answer this the same way - the offset in
-					// the stylesheet is where the box goes, not where the ink lands.
+					// mx-0, the same pin the server form's reveal toggle takes: absolutely positioned, so
+					// the primitive's layout hand-back would slide the box past the `right: 12px` its rule
+					// states.
 					className="slide-close mx-0"
 					aria-label={l10n.t("Close")}
 					onClick={onRequestClose}

@@ -1,41 +1,19 @@
 /**
- * The page's one tooltip primitive, WCAG 1.4.13 shaped: hoverable (the pointer
- * can travel from the trigger onto the tip - the stylesheet's bridge keeps the
- * path contiguous and the tip is a child of the trigger element, so React's
- * enter/leave boundary treats trigger and tip as one surface), dismissible
- * (Escape hides the tip without moving focus, consuming the key on capture so
- * the page's bubble-phase Escape layering - panels, listboxes - never hears
- * it), and persistent (the tip stays while the pointer or keyboard focus
- * remains).
- *
- * Visibility is component state rather than CSS :hover, because :hover cannot
- * express dismissal. The bubble stays mounted while hidden so an
- * aria-describedby pointing at it always resolves, and it is aria-hidden:
- * accessible-name computation excludes hidden descendants from the trigger's
- * name-from-contents but still reads a node referenced by aria-describedby,
- * so the tip text is announced exactly once, as the description. A consumer
- * whose tip merely repeats the trigger's accessible name (the collapsed rail)
- * skips the describedby wiring and the text stays paint-only.
- *
- * Coordinates are measured, fixed-position: tips render inside scroll
- * containers (the tables' overflow boxes, the rail's own scrolling column)
- * whose edges clip any absolutely-positioned child, and position: fixed
- * escapes every ancestor clip. That makes one demand of the page: no ancestor
- * of a trigger may establish a containing block for fixed descendants - a
- * transform, filter, perspective, backdrop-filter, will-change of those, or
- * contain: layout/paint/strict - because every such ancestor re-bases these
- * viewport coordinates onto itself. The pane's `container-type: inline-size`
- * is NOT one of them (inline-size containment does not imply layout
- * containment), which is why the tables' tips land where they are placed. Anchoring the tip's bottom (or top, below) to
- * the trigger's edge keeps the tip's unknown height out of the arithmetic;
- * "beside" anchors x to the nearest [data-tip-edge] ancestor so a column of
- * controls of different widths shares one tip x. The horizontal clamp measures
- * the bubble, so a SHORT tip near the right edge stays against its trigger
- * instead of being pushed left by a worst-case width it does not have - which
- * would open a gap no pointer could cross, and hoverability is the point.
- * A shown tip re-measures on window resize and on any scroll (capture, so
- * every scroll container counts): both move the trigger under a pointer or
- * focus that never fires another event of its own.
+ * The page's one tooltip primitive, WCAG 1.4.13 shaped: hoverable (the tip is a child of
+ * the trigger, so React treats the two as one surface), dismissible (Escape on capture,
+ * so the page's bubble-phase Escape layering never hears it), persistent. Component
+ * state, not :hover - :hover cannot express dismissal; the bubble stays mounted while
+ * hidden so aria-describedby always resolves, and aria-hidden keeps the text out of the
+ * trigger's name while the description still reads it (announced exactly once). A tip
+ * that repeats the trigger's name skips the describedby and stays paint-only.
+ * Coordinates are measured, position: fixed - it escapes every ancestor clip, at one
+ * price: no ancestor of a trigger may establish a containing block for fixed
+ * descendants (transform, filter, contain: layout/paint...); the pane's container-type:
+ * inline-size is NOT one. Anchoring to the trigger's edge keeps the tip's unknown
+ * height out of the arithmetic; "beside" anchors x to the nearest [data-tip-edge]
+ * ancestor. The horizontal clamp measures the bubble, so a SHORT tip stays against its
+ * trigger (a worst-case clamp would open a gap no pointer could cross). A shown tip
+ * re-measures on resize and any capture-phase scroll.
  */
 
 import type { CSSProperties, FocusEvent, MouseEvent, ReactNode, RefObject } from "react";
@@ -61,9 +39,8 @@ export interface TipHandle {
 }
 
 /**
- * Reveal on keyboard focus but not on a pointer's click focus: a mouse user
- * already has hover, and a tip popping on every click reads as noise. An
- * engine without the selector falls back to revealing on any focus - the
+ * Reveal on keyboard focus but not a pointer's click focus (a tip popping on every
+ * click is noise); an engine without the selector reveals on any focus - the
  * accessible direction to fail in.
  */
 function focusRevealed(target: EventTarget | null): boolean {
@@ -78,13 +55,9 @@ function focusRevealed(target: EventTarget | null): boolean {
 }
 
 /**
- * The tip's box width for the horizontal clamp. The measured width once the
- * bubble has been laid out, and the worst case until then: the first reveal
- * measures before the bubble is displayed (it is display:none while closed, so
- * it has no width yet), and a tip that starts one clamp too far left and
- * corrects before paint is better than one that starts off-screen.
- * The worst case is the full box - 320px max-width plus 20px of padding, 2px
- * of border, and an 8px viewport margin.
+ * The tip's box width for the clamp: measured once laid out, the worst case until then
+ * (the bubble is display:none while closed, so it has no width on first reveal); a tip
+ * that starts one clamp too far left and corrects before paint beats one off-screen.
  */
 const WORST_CASE_TIP_BOX = 350;
 
@@ -110,11 +83,9 @@ function coordinates(trigger: HTMLElement, placement: TipPlacement, bubble: HTML
 }
 
 /**
- * `enabled` is for triggers whose tip only exists in one layout (the rail's
- * collapsed width): while false the tip never opens, so a hover or focus
- * cannot leave an invisible tip holding the page's Escape key. Hover and
- * focus are still tracked, so flipping enabled with the pointer already on
- * the trigger reveals the tip it was owed.
+ * `enabled` is for triggers whose tip only exists in one layout: while false the tip
+ * never opens, so it cannot hold the page's Escape key invisibly. Hover and focus are
+ * still tracked, so flipping enabled with the pointer already there reveals the tip.
  */
 export function useTip(placement: TipPlacement, enabled = true): TipHandle {
 	const id = useId();
@@ -134,32 +105,22 @@ export function useTip(placement: TipPlacement, enabled = true): TipHandle {
 	}, [placement]);
 
 	const measure = (trigger: HTMLElement) => {
-		// Only the anchor: the layout effect below places it in the same
-		// pre-paint frame, and it is the pass that can measure a displayed
-		// bubble. Placing here too would be one forced layout per hover for a
-		// value that is overwritten - including on triggers whose tip is
-		// disabled and will never open.
+		// Only the anchor: the layout effect places it in the same pre-paint frame and can
+		// measure a displayed bubble; placing here too would be one forced layout per hover.
 		anchor.current = trigger;
 	};
 
-	// Layout effect, not effect: this runs with the bubble already displayed,
-	// so it is the pass whose clamp can measure a real width - and it lands
-	// before paint, so neither that correction nor the enabled-flip reveal
-	// (which no handler measured) shows a frame at the wrong coordinates.
+	// Layout effect, not effect: it runs with the bubble displayed (a measurable width) and
+	// lands before paint, so no frame shows at the wrong coordinates.
 	useLayoutEffect(() => {
 		if (!open) {
 			return undefined;
 		}
 		place();
-		// Dismissal must not require focus: 1.4.13's Escape has to work while the
-		// pointer rests on a trigger and focus sits anywhere else, so the
-		// listener lives on the window rather than the trigger. Capture-phase,
-		// and it swallows the event outright: this page's Escape policy is
-		// bubble-phase layering where the innermost surface consumes the key
-		// (slideOver.tsx declines Radix's document-capture Escape for that), and
-		// an open tip is the innermost surface there is - one press peels the
-		// tip, the next reaches the panel. stopPropagation still lets every
-		// other open tip's own window listener run, so all tips close together.
+		// Dismissal must not require focus (1.4.13), so the listener lives on the window.
+		// Capture-phase and swallows the event: an open tip is the innermost surface of the
+		// page's bubble-phase Escape layering - one press peels the tip, the next reaches the
+		// panel. stopPropagation still lets every other tip's window listener run.
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (event.key === "Escape") {
 				event.preventDefault();

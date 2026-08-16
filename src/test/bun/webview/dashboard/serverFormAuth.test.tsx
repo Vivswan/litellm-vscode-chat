@@ -1,10 +1,7 @@
 /**
- * The redesigned server form's webview behavior: the Authentication selector
- * revealing exactly the picked form's fields, the stored-secret legibility
- * hints (a stored key on a shape that does not name it stays visible and
- * removable), the misconfigured row's pill and actions, the custom-header
- * rows' save round trip, and the selector invalidating a standing
- * test-connection result.
+ * The server form's webview behavior: the Authentication selector revealing exactly the picked form's fields, the
+ * stored-secret legibility hints (a stored key on a shape that does not name it stays visible and removable), the
+ * misconfigured row's pill and actions, the custom-header round trip, and the selector invalidating a test result.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { RpcRequest } from "../../../../dashboard/endpoints";
@@ -146,12 +143,8 @@ test("a misconfigured row shows the Misconfigured pill, drops Edit, and leaves t
 	const pills = Array.from(root.querySelectorAll(".pill")).map((el) => (el.textContent ?? "").trim());
 	expect(pills).toContain("Misconfigured");
 
-	// Remove alone. The entry has no Edit (the form cannot round-trip what the
-	// user typed), and its fix - reveal the setting - is the first action of the
-	// blocking line under the row, where the reason for it also lives. The row
-	// carried a second copy before, which was the widest label the actions
-	// column ever held and folded the whole cluster onto a second line in a
-	// narrow pane.
+	// Remove alone: the entry has no Edit (the form cannot round-trip what the user typed), and its fix - reveal the
+	// setting - is the first action of the blocking line under the row, where the reason for it also lives.
 	const firstRowActions = Array.from(
 		root.querySelectorAll(".server-item")[0]?.querySelectorAll(".server-actions button") ?? []
 	).map((el) => (el.textContent ?? "").trim());
@@ -165,8 +158,7 @@ test("a misconfigured row shows the Misconfigured pill, drops Edit, and leaves t
 	fireClick(buttonByText(root, "Fix in settings.json"));
 	expect(postedCalls()).toEqual([{ method: "revealSetting", payload: { setting: "servers" } }]);
 
-	// Its problems render under its own row, and only its row: the healthy
-	// sibling stays clean. Blocking, because the entry is switched off - the
+	// Its problems render under its own row and only its row. Blocking, because the entry is switched off - the
 	// consequence leads, and the parser's report follows as the detail.
 	const lines = Array.from(root.querySelectorAll(".row-diagnostic"));
 	expect(lines.length).toBe(1);

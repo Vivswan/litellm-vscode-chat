@@ -1,16 +1,13 @@
 /**
  * Fetch, validate, slim, and (by default) write the OpenRouter capability
  * catalog artifact to dist/openrouter-models.json. Strict on purpose: any
- * failure exits non-zero, so a release build (vscode:prepublish) and the
- * packaged-file-list CI check can never ship a missing or semantically empty
- * catalog. `--check` runs the same fetch and validation but writes only to a
- * temp file - CI's live schema watch - and never touches dist/.
+ * failure exits non-zero, so a release build and the packaged-file-list CI check
+ * can never ship a missing or semantically empty catalog. `--check` runs the
+ * same fetch and validation into a temp file and never touches dist/.
  *
- * bundle/bundle:dev deliberately do NOT run this script: builds stay
- * network-free, and the runtime tolerates a missing artifact (the store
- * falls back to its empty snapshot). Failure messages distinguish the two
- * causes a red run can have: OpenRouter being unreachable (transient -
- * rerun) versus the payload no longer matching the mapping in
+ * bundle/bundle:dev deliberately do NOT run this: builds stay network-free and
+ * the runtime tolerates a missing artifact. Failure messages distinguish
+ * OpenRouter being unreachable (transient) from the payload no longer matching
  * src/shared/config/openRouterCatalog.ts (drift - update the module).
  */
 

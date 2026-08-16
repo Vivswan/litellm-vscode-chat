@@ -1,9 +1,7 @@
 /**
- * The inspector's inheritance chain figures (RecordChainFigure): each feed's
- * per-map chains render as one compact record path each - broadest to winner,
- * opened by the layer's provenance badge, keys clickable through the existing
- * edit-jump wiring, barrier and exclusive-list markers worded like the
- * Diagnostics tree - and a single match renders no figure at all.
+ * The inspector's inheritance chain figures (RecordChainFigure): each feed's per-map chains render as one compact
+ * record path each - broadest to winner, opened by the layer's provenance badge, keys clickable through the edit-jump
+ * wiring, barrier and exclusive-list markers worded like the Diagnostics tree - and a single match renders no figure.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { RecordChainView } from "../../../../dashboard/viewModels";
@@ -101,9 +99,8 @@ describe("the params inspector's record path", () => {
 		const chains = Array.from(root.querySelectorAll(".record-chain"));
 		expect(chains).toHaveLength(2);
 		expect(chains[0]?.querySelector(".prov")?.textContent?.trim()).toBe("settings");
-		// The layer word alone: the badge's second slot is a record key
-		// everywhere else in the panel, so an entry LABEL must not sit in it.
-		// The entry is named in the jump's accessible label instead.
+		// The layer word alone: the badge's second slot is a record key everywhere else in the panel, so an entry LABEL
+		// must not sit in it. The entry is named in the jump's accessible label instead.
 		expect(chains[1]?.querySelector(".prov")?.textContent?.trim()).toBe("entry");
 		expect(chains[1]?.querySelector(".prov-key")).toBeNull();
 

@@ -1,18 +1,7 @@
 /**
- * The server edit destination and the shell contracts around it: the pane
- * swaps to one entry's configuration with the rail still on screen, focus
- * travels there and comes back, Esc and a rail click are REQUESTS that a
- * dirty draft turns into a question, and the adopt round trip survives the
- * page that started it. Rendered through App, because every one of these is a
- * claim about the real wiring rather than about a component in isolation.
- *
- * It replaces the slide-over suite this file used to be: the form stopped
- * being a dialog over the page it came from, which is the whole point of the
- * change - a destination has no scrim to click, no X, and no focus trap, and
- * pinning that it has none is as much a part of the contract as the parts it
- * kept. The one dialog left is the discard question itself: a centered,
- * focus-trapped alertdialog over a scrim, raised only by a dirty-form
- * navigation, whose Esc is consumed by the dialog and heard by nothing below.
+ * The server edit destination: a place, not a dialog (no scrim, no X, no focus
+ * trap), whose every exit is a REQUEST that a dirty draft turns into the one
+ * focus-trapped alertdialog left. Rendered through App - claims about wiring.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
@@ -278,11 +267,9 @@ test("a pending adopt never traps the reader: leaving works and the late ack sti
 });
 
 test("a draft whose entry is deleted stops being a draft: every way out still works", () => {
-	// The form died with the entry, so there is nothing left to save and
-	// nothing to ask about. A dirty flag that outlived it would make the
-	// shell answer "unsaved changes?" for a draft nobody can see, and every
-	// exit - the trail, Esc, the rail - would raise a question that nothing
-	// renders. That is a trapped reader, so it is pinned here.
+	// The form died with the entry, so there is nothing to save and nothing to
+	// ask about. A dirty flag outliving it would raise a question nothing
+	// renders on every exit - the trail, Esc, the rail - trapping the reader.
 	const server = makeDeclaredServer({ label: "Prod" });
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [server] })));
@@ -452,10 +439,9 @@ test("a validation failure keeps the reader here and says why, where they are", 
 });
 
 test("a rename's own push cannot strand a successful save on the gone card", () => {
-	// Saving a rename makes the entry's old label stop resolving. The write
-	// comes back as a state push, which can beat the ack: if the page took
-	// that as "deleted" it would unmount the form, the ack would land on
-	// nothing, and a save that worked would read as an entry that vanished.
+	// Saving a rename makes the old label stop resolving, and the write's state
+	// push can beat the ack: reading that as "deleted" would unmount the form
+	// and leave a save that worked reading as an entry that vanished.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
 	fireClick(buttonByText(root, "Edit"));
@@ -492,10 +478,9 @@ test("a second navigation changes where the reader is going, it does not answer 
 
 	fireClick(document.getElementById("tab-models") as HTMLElement);
 	expect(confirmDialog()).not.toBeNull();
-	// A different destination arriving while the question stands (the rail is
-	// behind the scrim, but a deep link still gets through) is a new intent,
-	// not a toggle: leaving the question up is the only reading that does not
-	// look like the app ignoring the request.
+	// A different destination arriving while the question stands (deep links
+	// still get through the scrim) is a new intent, not a toggle: leaving the
+	// question up is the only reading that is not the app ignoring the request.
 	pushToWebview({ kind: "focusSection", section: "diagnostics" });
 	expect(confirmDialog()).not.toBeNull();
 	fireClick(buttonByText(openConfirmDialog(), "Discard"));
@@ -539,11 +524,9 @@ test("a retry starts clean: the failure banner belongs to the round trip, not to
 });
 
 test("a commit freezes the entry it is committing, so its own push cannot re-arm Save", () => {
-	// Saving a secret from secure into settings makes the pushed entry a
-	// different shape - inline secrets prefill. If the page read that push
-	// while its own save was still in flight, the form would restart its
-	// prefill, leave the saving phase, and offer Save again before the first
-	// ack: one click, two writes.
+	// A secret moving from secure into settings changes the pushed entry's shape
+	// (inline secrets prefill). Reading that push mid-save would restart the
+	// prefill, leave the saving phase, and re-arm Save: one click, two writes.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [declaredWithSecrets({ apiKey: "secure" })] })));
 	fireClick(buttonByText(root, "Edit"));
@@ -567,12 +550,8 @@ test("a commit freezes the entry it is committing, so its own push cannot re-arm
 
 test("a deep link that arrives in the same tick as the first state still lands on its destination", () => {
 	// panel.ts open() does reveal(), pushState(), flushPendingFocus() back to
-	// back, so whether React commits between the push and the focus request is
-	// the browser's business rather than a contract - and the render harness
-	// dispatches a fixture's messages in one synchronous loop, which is why
-	// every deep-linked fixture was shooting the Servers page instead of the
-	// one it asked for. Delivering both inside one act reproduces that
-	// ordering exactly.
+	// back, and the render harness dispatches a fixture's messages in one
+	// synchronous loop; one act reproduces that ordering exactly.
 	const root = mount(<App />);
 	void act(() => {
 		window.dispatchEvent(new MessageEvent("message", { data: statePush(makeState()) }));
@@ -585,9 +564,8 @@ test("a deep link that arrives in the same tick as the first state still lands o
 });
 
 test("a deep link still asks a dirty page before taking the reader off it", () => {
-	// The hardening must not cost the guard: recording the intent and applying
-	// it on the next commit still routes through the same question a rail
-	// click raises.
+	// Recording the intent and applying it on the next commit must still route
+	// through the same question a rail click raises.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
 	fireClick(buttonByText(root, "Edit"));
@@ -601,10 +579,9 @@ test("a deep link still asks a dirty page before taking the reader off it", () =
 });
 
 test("a deep link that beats the first state push is remembered, not dropped", () => {
-	// The order a real webview is most likely to take, and the one the old ref
-	// read could not survive at all: the request arrives while the dashboard
-	// is still the loading skeleton, so there is no guard to route it through
-	// yet and nothing to apply it to.
+	// The likeliest real ordering: the request arrives while the dashboard is
+	// still the loading skeleton, so there is no guard to route it through yet
+	// and nothing to apply it to.
 	const root = mount(<App />);
 	pushToWebview({ kind: "focusSection", section: "models" });
 	expect(root.querySelector(".rail")).not.toBeNull();
@@ -615,11 +592,9 @@ test("a deep link that beats the first state push is remembered, not dropped", (
 });
 
 test("a deep link that arrives with the push that deleted the entry lands where it asked", () => {
-	// The nastiest ordering of the three: the reader is editing with unsaved
-	// changes, one tick brings both the push that removes the entry and a deep
-	// link elsewhere. The draft died with the entry, so there is nothing to
-	// ask about - and the shell must know that before it decides, which it
-	// only does if the page's report is current rather than a render behind.
+	// One tick brings both the push that removes the entry and a deep link
+	// elsewhere. The draft died with the entry, so there is nothing to ask
+	// about - which the shell only knows if the page's report is current.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
 	fireClick(buttonByText(root, "Edit"));
@@ -729,12 +704,9 @@ test("keep editing returns focus to the exact field the question interrupted", (
 });
 
 test("a hover tip left open under the modal cannot steal its Esc: one press answers the question", () => {
-	// The tip's own Esc lives on a window-capture listener, so a bubble-phase
-	// dialog would lose the race: the press would peel a tip the scrim already
-	// buried while the reader stares at an unanswered question. The dialog
-	// listens on window capture too, and stopPropagation skips other NODES,
-	// not other listeners on the same window - so the tip still closes, WITH
-	// the press rather than instead of it.
+	// The tip's own Escape lives on a window-capture listener, so the dialog
+	// listens on window capture too; stopPropagation skips other NODES, not
+	// other listeners on the same window, so the tip closes WITH the press.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
 	fireClick(buttonByText(root, "Edit"));

@@ -1,14 +1,11 @@
 /**
- * Every chip family the dashboard speaks, side by side in one render: the
- * status pill (tone dot + verdict + time), the soft-fill Badge, the filter
- * pill toggle, the provenance chip, and the record editors' field chip. The
- * specimen exists for vocabulary-distinguishability review - five different
- * "small labelled box" registers must read as five, not one - and is built by
+ * Every chip family the dashboard speaks, side by side: the status pill, the
+ * soft-fill Badge, the filter pill toggle, the provenance chip, and the record
+ * editors' field chip. For vocabulary-distinguishability review - five different
+ * "small labelled box" registers must read as five, not one - and built by
  * CLONING the live page's own chips (every tab panel stays mounted, merely
- * hidden), so each specimen is the product's exact markup, never a hand-rolled
- * imitation. The status-pill row includes an unchecked server's muted "Not
- * checked" pill, the one pill state no other fixture renders. Any host theme
- * is reachable via --theme; the harvest step THROWS on any missing chip.
+ * hidden), so each specimen is the product's exact markup. Any host theme is
+ * reachable via --theme; the harvest step THROWS on any missing chip.
  */
 import type { DashboardServer } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";

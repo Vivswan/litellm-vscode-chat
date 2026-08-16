@@ -33,14 +33,12 @@ const fixture: RenderFixture = {
 	messages: [{ kind: "push", state }],
 	steps: [
 		`Array.from(document.querySelectorAll("button")).find((b) => b.textContent.trim() === "Edit").click()`,
-		// The subject guard, plus the form's two alignment claims. One label
-		// edge: each FormSection owns its grid, kept uniform by the flat 10rem
-		// gutter - this asserts the construction stays flat, because a
-		// content-sized track would drift per section under longer translated
+		// The subject guard, plus the form's two alignment claims. One label edge:
+		// each FormSection owns its grid, kept uniform by the flat 10rem gutter,
+		// and a content-sized track would drift per section under longer translated
 		// labels the English-only harness can never render. One right edge: a
-		// help-less wide row spans through the glyph track, so each record
-		// table ends on the field rows' help-glyph column instead of ~10px
-		// short of it.
+		// help-less wide row spans through the glyph track, so each record table
+		// ends on the field rows' help-glyph column.
 		`(() => {
 			const labels = [...document.querySelectorAll("#server-edit-page .label-row")];
 			if (labels.length < 10) {

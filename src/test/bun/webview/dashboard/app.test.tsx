@@ -1,7 +1,6 @@
 /**
- * App-level behavior: the ready handshake, the message guard, the state fan
- * out, and which failure notices a state push retires (the acked-method
- * contract documented on App and the endpoint table).
+ * App-level behavior: the ready handshake, the message guard, the state fan out, and which failure notices a state
+ * push retires (the acked-method contract documented on App and the endpoint table).
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
@@ -22,9 +21,8 @@ import {
 } from "../harness";
 
 /**
- * Every rail item's label and count, each read from the element that holds it:
- * the button's text run also carries the tip the collapsed rail shows, so it is
- * not a label by itself.
+ * Every rail item's label and count, each read from the element that holds it: the button's text run also carries
+ * the tip the collapsed rail shows, so it is not a label by itself.
  */
 function railCounts(root: ParentNode): Record<string, string | undefined> {
 	return Object.fromEntries(
@@ -68,10 +66,8 @@ test("a full state push replaces the skeleton with the rail's verdict and counts
 	const overall = root.querySelector(".rail-status");
 	expect(overall?.classList.contains("tone-warn")).toBe(true);
 	expect(overall?.textContent).toContain("Degraded");
-	// The counts live ON the rail items now, which is the rail's whole claim
-	// over a tab strip: a strip can only say where you are, a count says
-	// whether it is worth going. Diagnostics carries none here because there is
-	// nothing to fix - an absent badge is a fact, a zero is furniture.
+	// Diagnostics carries no count here because there is nothing to fix - an absent badge is a fact, a zero is
+	// furniture.
 	const counts = railCounts(root);
 	expect(counts.Servers).toBe("2");
 	expect(counts.Models).toBe("3");
@@ -142,13 +138,9 @@ test("an executeCommand intentFailed keeps the pane-top line: it is posted from 
 });
 
 test("a refused write is visible from another tab, and announced exactly once per failure", () => {
-	// A rail click can be the very blur that commits the failing write, so the
-	// fail envelope lands after the settings panel is hidden - and a hidden
-	// subtree neither paints nor announces. Away from Settings the failure
-	// takes a pane-top line of its own; arriving on Settings hands it to the
-	// page's own placement. The VISIBLE line follows the reader; the
-	// ANNOUNCEMENT does not: one role="alert" mount per failure seq, however
-	// many times navigation re-mounts a surface holding the same failure.
+	// A rail click can be the blur that commits the failing write, so the fail envelope lands after the settings panel
+	// is hidden, and a hidden subtree neither paints nor announces. The VISIBLE line follows the reader; the
+	// ANNOUNCEMENT does not - one role="alert" mount per failure seq, however often navigation re-mounts it.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 	pushToWebview({
@@ -222,12 +214,9 @@ test("a saveServerSetting fail notice survives a subsequent state push", () => {
 test("Sync models refuses with zero servers and posts the acked syncModels intent when enabled", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
-	// aria-disabled rather than the attribute, and the handler refuses: the
-	// `disabled` attribute takes the control out of the tab order and stops
-	// every pointer event on it, which on the collapsed rail leaves an
-	// icon-only button that cannot be focused and whose label - drawn on
-	// hover or focus - can never be shown at all. A first run has no servers,
-	// so that state is the one a new reader meets first.
+	// aria-disabled rather than the attribute, and the handler refuses: `disabled` takes the control out of the tab
+	// order and stops every pointer event, which on the collapsed rail leaves an icon-only button whose label - drawn
+	// on hover or focus - can never be shown. A first run has no servers, so that is the state a new reader meets.
 	const idle = buttonByText(root, "Sync models");
 	expect(idle.getAttribute("aria-disabled")).toBe("true");
 	expect(idle.disabled).toBe(false);
@@ -240,9 +229,8 @@ test("Sync models refuses with zero servers and posts the acked syncModels inten
 	expect(button.getAttribute("aria-disabled")).toBe("false");
 	resetPosted();
 	fireClick(button);
-	// The acked method rather than the fire-and-forget command post: on the
-	// command route this rode the chained channel and held every later
-	// dashboard message for the whole pass.
+	// The acked method rather than a fire-and-forget command post: on the command route this rode the chained channel
+	// and held every later dashboard message for the whole pass.
 	expect(postedCalls()).toEqual([{ method: "syncModels", payload: null }]);
 });
 
@@ -252,8 +240,7 @@ test("the rail carries one quiet Report-a-bug action that posts the reportIssue 
 
 	const button = buttonByText(root, "Report a bug");
 	expect((button.textContent ?? "").trim()).toBe("Report a bug");
-	// secondary at compact size: what the old "quiet" variant was, now said as
-	// the two things it actually is.
+	// secondary at compact size, not a variant of its own.
 	expect(button.getAttribute("data-variant")).toBe("secondary");
 	expect(button.className).toContain("px-1.5");
 	resetPosted();
@@ -324,14 +311,12 @@ test("the Diagnostics table's inspector opens in place over the tab and closing 
 });
 
 test("the rail counts what each destination holds, and says nothing when it holds nothing", () => {
-	// Every number here is one a reader would go to that destination to find
-	// out, and every absence is a fact rather than a gap. Spend is no longer a
-	// rail figure: the Usage destination dissolved into the Servers page, whose
-	// header meta carries the worst fresh budget instead.
+	// Every number is one a reader would go to that destination to find out, and every absence is a fact rather than
+	// a gap. Spend is no rail figure: the Servers page header meta carries the worst fresh budget instead.
 	const root = mount(<App />);
 
-	// An install with no servers: the destination shows a guided start with no
-	// models table, so a "0" would count something that is not rendered.
+	// An install with no servers: the destination shows a guided start with no models table, so a "0" would count
+	// something that is not rendered.
 	act(() => {
 		pushToWebview(statePush(makeState()));
 	});

@@ -1,9 +1,7 @@
 /**
  * The rail's section navigation: WAI-ARIA tabs wiring, click and keyboard
- * switching, the kept-mounted panels (an open filter or form must survive a
- * visit to another section, so inactive panels hide instead of unmounting),
- * and the bridge between the two destinations a server's models span - a
- * server row's model count navigating to Models scoped to that server.
+ * switching, the kept-mounted panels (an open filter or form survives a visit
+ * elsewhere), and a server row's model count scoping the Models destination.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
@@ -26,11 +24,9 @@ function labelOf(item: Element): string {
 }
 
 test("the rail's footer actions and its verdict keep their words in the DOM behind aria-hidden glyphs", () => {
-	// The collapsed rail paints these three as glyphs and nothing else, so each
-	// one's whole meaning rests on the label element that survives as the
-	// accessible name; the glyph beside it is aria-hidden so the name is said
-	// once. What paints the label back for a sighted reader at the collapsed
-	// width is the tip primitive, pinned in tip.test.tsx.
+	// The collapsed rail paints these three as glyphs alone, so each one's whole
+	// meaning rests on the label element that survives as the accessible name;
+	// the glyph beside it is aria-hidden so the name is said once.
 	const root = mountApp();
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer()] })));
 	for (const action of Array.from(root.querySelectorAll(".rail-action"))) {
@@ -45,10 +41,9 @@ test("the rail's footer actions and its verdict keep their words in the DOM behi
 });
 
 test("every rail item carries its label in a .rail-label element, behind an aria-hidden icon", () => {
-	// The label element is what keeps the accessible name once the rail paints
-	// icons only - and it is what these suites read a label from, so a rename
-	// would leave them reading "" and still passing. The icon is aria-hidden,
-	// so the name a screen reader hears is the label said once.
+	// The label element keeps the accessible name once the rail paints icons
+	// only - and these suites read labels from it, so a rename would leave them
+	// reading "" and still passing. The icon is aria-hidden: the name is said once.
 	const root = mountApp();
 	const items = Array.from(root.querySelectorAll("[role='tab']"));
 	expect(items.length).toBeGreaterThan(0);
@@ -138,10 +133,9 @@ test("four rail items in reading order, servers selected by default, and panels 
 	// Servers page), then the one that tells you something is wrong, then the
 	// one you visit on purpose.
 	expect(tabs.map(labelOf)).toEqual(["Servers", "Models", "Diagnostics", "Settings"]);
-	// A count inside the button would otherwise announce as "Servers & Models
-	// 4" - a number with no noun - and the tabpanel inherits that name too. So
-	// an item carrying a count names itself in words, with the visible label
-	// still inside the accessible name (Label in Name).
+	// A count inside the button would announce as "Servers & Models 4" - a
+	// number with no noun - and the tabpanel inherits that name, so an item
+	// carrying a count names itself in words (Label in Name still holds).
 	const named = tabs.filter((t) => t.querySelector(".rail-count") !== null);
 	expect(named.length).toBeGreaterThan(0);
 	for (const t of named) {
@@ -180,9 +174,8 @@ test("four rail items in reading order, servers selected by default, and panels 
 
 test("servers and models are separate destinations, each holding only its own list", () => {
 	// They are one workflow, but sharing a page cost more than it bought: a rail
-	// item could only count one of its two nouns, and the models table had to
-	// virtualize into an inner scrollport with a height budget tuned against
-	// whatever chrome sat above it.
+	// item could count only one of its two nouns, and the models table needed a
+	// height budget tuned against whatever chrome sat above it.
 	const root = mountApp();
 	const servers = panel(root, "overview");
 	const models = panel(root, "models");
@@ -193,11 +186,9 @@ test("servers and models are separate destinations, each holding only its own li
 });
 
 test("a server's model count navigates to Models filtered to that server", () => {
-	// The jump used to scroll down a shared page. Across destinations it has to
-	// navigate, carry the filter, and move focus - otherwise Tab continues from
-	// a link on a panel that is no longer visible. The link lives in the row's
-	// drawer now: the row itself is one disclosure button, and a button cannot
-	// contain a button.
+	// Across destinations the jump has to navigate, carry the filter, and move
+	// focus, or Tab continues from a link on an invisible panel. The link lives
+	// in the row's drawer: the row is a disclosure, and buttons cannot nest.
 	const root = mountApp();
 	clickCountLink(root, "Prod");
 	expect(tab(root, "Models").getAttribute("aria-selected")).toBe("true");
@@ -210,11 +201,9 @@ test("with zero servers the guided start is the whole story, and Models says it 
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 	expect(panel(root, "overview").querySelector(".empty-start")).not.toBeNull();
-	// The models destination still exists - a rail item that vanishes is worse
-	// than one that explains itself - and says plainly that there is nothing
-	// yet. With no servers at all it must not suggest a sync: there is nobody
-	// to ask, and the reader's next step is adding a server. Scoped to the
-	// empty block, because the section's help text mentions Sync models too.
+	// The models destination still exists and says plainly that there is nothing
+	// yet. With no servers it must not suggest a sync - the next step is adding
+	// one. Scoped to the empty block: the section's help mentions Sync models.
 	const empty = panel(root, "models").querySelector(".empty-block") as HTMLElement;
 	expect(empty).not.toBeNull();
 	expect(empty.textContent).toContain("No models yet.");
@@ -300,10 +289,9 @@ test("arrow keys move selection with wrap-around; Home and End jump", () => {
 
 test("section-local state survives a round trip through another tab", () => {
 	const root = mountApp();
-	// The filter belongs to Models, so the round trip has to actually go there
-	// and back. Editing it from Servers and returning to Servers never leaves
-	// or re-enters the panel under test, so it would pass even if Models
-	// unmounted and lost every bit of its state.
+	// The filter belongs to Models, so the round trip has to go there and back.
+	// Editing it from Servers and returning to Servers never leaves the panel
+	// under test, so it would pass even if Models unmounted and lost its state.
 	fireClick(tab(root, "Models"));
 	const filter = root.querySelector("input[aria-label='Filter models']") as HTMLInputElement;
 	fireInput(filter, "second");
@@ -447,10 +435,9 @@ test("scoping rewinds a deeply scrolled windowed table to the new list's top", (
 });
 
 test("arrow keys move focus with selection, and only the selected item is tabbable", () => {
-	// The roving tabindex is the whole keyboard contract: exactly one stop in
-	// the tab order, and the arrows move focus rather than merely repainting
-	// aria-selected. Asserting selection alone would pass on a rail that leaves
-	// focus stranded on the item you arrowed away from.
+	// The roving tabindex is the whole keyboard contract: exactly one stop in the
+	// tab order, and the arrows move FOCUS rather than merely repainting
+	// aria-selected, which a selection-only assertion would not catch.
 	const root = mountApp();
 	const tablist = root.querySelector("[role='tablist']") as HTMLElement;
 	const tabIndexes = () => Array.from(root.querySelectorAll("[role='tab']")).map((t) => (t as HTMLElement).tabIndex);

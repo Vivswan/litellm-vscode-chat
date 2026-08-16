@@ -1,18 +1,13 @@
 /**
  * The rail's coverage claim, held by a throwing step rather than a screenshot:
  * the rail column paints to the BOTTOM of both the viewport and the document,
- * whatever the content height and wherever the page is scrolled. A failure
- * shows as a band of raw editor background under the left nav.
+ * whatever the content height and wherever the page is scrolled.
  *
- * Both content heights are legs, because neither implies the other:
- *
- * - SHORT (the empty diagnostics page under a tall window) pins .rail-inner's
- *   100vh, the only rule reaching the bottom edge there. The document does not
- *   scroll, so the two bottoms are one edge.
- * - TALL (grown past the window by a spacer in the pane) pulls the two bottoms
- *   apart, so .rail's stretch is what has to reach them; asserted at the top,
- *   middle, and bottom of the scroll. The spacer grows the PANE, which is how
- *   real content grows the shell the rail stretches against.
+ * Both content heights are legs, because neither implies the other. SHORT pins
+ * .rail-inner's 100vh, the only rule reaching the bottom edge where the document
+ * does not scroll. TALL pulls the two bottoms apart, so .rail's stretch has to
+ * reach them; asserted at the top, middle, and bottom of the scroll, with the
+ * spacer growing the PANE the way real content grows the shell.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import base from "./diagnostics-empty.ts";

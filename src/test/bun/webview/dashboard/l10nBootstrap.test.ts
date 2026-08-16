@@ -1,11 +1,7 @@
 /**
- * The l10n bootstrap seam: bootstrapL10n reads the bundle the extension's
- * HTML shell injected and configures @vscode/l10n before the first render.
- * @vscode/l10n's configuration is module-global and sticky, so ordering is
- * load-bearing: the unconfigured-fallback case runs first, the rejection
- * cases run after a successful configuration (proving a bad injection cannot
- * clobber it), and the afterAll resets to an empty bundle for whatever runs
- * later in the process.
+ * The l10n bootstrap seam: bootstrapL10n reads the bundle the HTML shell injected and configures @vscode/l10n
+ * before the first render. That configuration is module-global and sticky, so ORDER is load-bearing: the fallback
+ * case runs first, the rejection cases after a successful configuration, and afterAll resets to an empty bundle.
  */
 import { afterAll, expect, test } from "bun:test";
 import * as l10n from "@vscode/l10n";

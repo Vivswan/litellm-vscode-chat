@@ -12,11 +12,9 @@ afterEach(() => {
 });
 
 test("a section names itself once, for the deep link and for the accessible name alike", () => {
-	// An in-page jump (the servers table's model-count link) scrolls to a
-	// section by id and moves focus to it, so the id, the tabIndex that makes it
-	// focusable, the heading that names it and the scroll margin that keeps it
-	// clear of whatever is sticky are one contract. They used to be four
-	// attributes each surface spelled by hand, and most spelled none of them.
+	// An in-page jump (the servers table's model-count link) scrolls to a section by id and moves focus to it, so the
+	// id, the tabIndex making it focusable, the naming heading and the scroll margin clearing whatever is sticky are
+	// one contract rather than four attributes each surface spells by hand.
 	const root = mount(
 		<Section id="models" title="Models">
 			<p>body</p>
@@ -69,10 +67,8 @@ test("the header can stand alone, without minting a section id", () => {
 });
 
 test("the help button is named for what it opens, not for the section", () => {
-	// Help's `name` becomes the button's aria-label, so passing the title bare
-	// announces a button called "Servers" that performs no action. Every
-	// section-level Help today passes no name at all and reads "Help", so
-	// adopting this primitive would have silently renamed four of them.
+	// Help's `name` becomes the button's aria-label, so passing the title bare announces a button called "Servers"
+	// that performs no action. Section-level Help passes no name and reads "Help".
 	const root = mount(
 		<Section id="named" title="Servers" help="what a server is">
 			{null}
