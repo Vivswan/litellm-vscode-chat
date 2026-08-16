@@ -48,6 +48,7 @@
 | `litellm-vscode-chat.chat.maxToolsPerRequest` | `128` | 一次聊天請求最多可攜帶的工具數, 超過時延伸模組在本機拒絕該請求而不送出 (多數 OpenAI 相容伺服器強制 128)。調高到超出你的伺服器或模型接受的範圍, 只會把失敗移到伺服器端: 請求會被送出, 然後被伺服器拒絕。最小 1 |
 | `litellm-vscode-chat.chat.additionalToolSchemaKeywords` | `[]` | 工具輸入 schema 中額外保留的 JSON-Schema 關鍵字, 例如 `["propertyNames"]`。送出前工具 schema 會按內建關鍵字允許清單清理; 此處列出的關鍵字也會保留, 其值原樣透傳。內建允許清單始終生效。伺服器或模型不接受的關鍵字可能導致請求失敗或工具呼叫變差 |
 | `litellm-vscode-chat.chat.promptCaching` | `true` | 在宣告支援的模型上, 跨工作階段回合沿用提供者端的提示快取; [詳情見下](#提示快取) |
+| `litellm-vscode-chat.chat.tokenEstimation` | `"auto"` | 本地 token 預算如何估算提示大小: `"auto"` (識別文字系統的啟發式, 在 VS Code 顯示語言不是英文, 或聊天中含足夠多讓純字元計數低估的文字 - CJK 等非拉丁文字、emoji - 時載入 o200k_base 分詞器)、`"heuristic"` (純粹按每 4 字元 1 token 計, 從不載入分詞器資料, 對 CJK 低估約 4 倍)、`"o200k_base"` 或 `"cl100k_base"` (始終載入該分詞器)。載入的分詞器在活躍期間約佔用 10-30 MB 記憶體; 計數開銷可忽略 |
 | `litellm-vscode-chat.discovery.timeout` | `30000` | 每個模型探索請求的硬性時間預算, 毫秒, 含該請求的重試。模型資訊清單、`/v1/models` 退回和 OAuth 權杖交換各自獲得一份新預算, 所以一輪探索最長可能耗時到它們之和。最小 1000 |
 | `litellm-vscode-chat.discovery.cacheTtl` | `3600000` | 已探索的模型清單沿用多久, 毫秒。VS Code 重新解析提供者很頻繁 (有時一秒好幾次); 快取把那擋在您的伺服器之外。`0` 表示每次都重新擷取 (負值箝制為 `0`); 失敗從不快取; 同時發生的重新整理共用一個請求; "LiteLLM: Sync Models Now" 略過它 |
 | `litellm-vscode-chat.discovery.staleServeWindow` | `600000` | 伺服器停止回應後, 其最後已知的模型繼續提供 (標記為過時) 的時長, 毫秒, 從最後一次成功探索起算。若伺服器休眠或重啟超過十分鐘, 可調高它; `0` 表示永不提供過時模型 (重新整理失敗立即清空該伺服器的清單)。詳情: [模型 - 探索](models.md#探索) |
