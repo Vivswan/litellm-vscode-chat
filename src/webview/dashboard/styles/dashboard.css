@@ -3187,15 +3187,6 @@
 		margin: 8px 0;
 		background: transparent;
 	}
-	/* A panel stacked over another panel (the matcher editor above the server
-		   form) shares the uniform width, so it drops 40px from the top instead:
-		   the covered panel's header strip stays visible (dimmed under the
-		   overlay's scrim) as the parent-context cue that it is still there. The
-		   heavier shadow separates the layers. */
-	.slide-over .slide-over {
-		top: 40px;
-		box-shadow: -12px 0 24px rgba(0, 0, 0, 0.5);
-	}
 	/* Small section labels, in the register the settings group titles speak
 		   (settings.tsx: sentence case at weight 600, 0.95em) rather than an
 		   uppercase letterspaced eyebrow - this was the page's only uppercase

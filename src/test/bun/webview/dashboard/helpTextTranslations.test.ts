@@ -8,7 +8,7 @@
  * data), and no banned typography. Locales are discovered from disk, so the
  * guard passes with zero translated bundles and tightens as they land;
  * missing or untranslated keys are the parity suite's job
- * (src/test/l10n/bundleParity.test.ts), not this one's.
+ * (src/test/bun/l10n/bundleParity.test.ts), not this one's.
  */
 import { expect, test } from "bun:test";
 import * as fs from "node:fs";

@@ -633,8 +633,9 @@ export function registerTestCommands(
 		),
 		// The monkey fuzzer's intent injection: open the dashboard through its
 		// real command, then run the raw payload through the panel's actual
-		// webview-message path (webviewMessageSchema.safeParse included; the
-		// seam never bypasses validation) and hand back the outcome class.
+		// webview-message path (parseDashboardRequest's envelope and intent
+		// schemas included; the seam never bypasses validation) and hand back
+		// the outcome class.
 		vscode.commands.registerCommand("litellm._test.dashboardMessage", async (raw: unknown) => {
 			await vscode.commands.executeCommand(CMD.openDashboard);
 			return dashboard.injectMessageForTest(raw);

@@ -42,7 +42,7 @@
 
 ```jsonc
 "litellm-vscode-chat.servers": [
-	{ "label": "Local", "baseUrl": "http://localhost:4000", "apiKey": "sk-..." }
+	{ "label": "Local", "baseUrl": "http://localhost:4000", "auth": { "apiKey": "sk-..." } }
 ]
 ```
 
@@ -73,7 +73,7 @@ bun run compile
 
 ## 隱私
 
-您的提示與完成內容只在 VS Code 與您設定的 LiteLLM 伺服器之間傳輸。一個預設開啟的例外: 延伸模組約每週從 `https://openrouter.ai/api/v1/models` 重新整理一次內建的模型能力目錄, 這是一份公開、無需驗證的模型清單 - 該請求不帶提示、不帶用量, 也不帶任何關於您或您伺服器的資訊。把 `litellm-vscode-chat.openRouterCatalog.enabled` 設為 `false` 可關閉重新整理與自動比對; 明確的 `_openrouter_model` 指示詞繼續離線使用內建快照。詳細資料參閱[模型能力](docs/zh-tw/models.md#openrouter-目錄)與[隱私與資料](docs/zh-tw/troubleshooting.md#隱私與資料)。
+您的提示與完成內容只在 VS Code 與您設定的 LiteLLM 伺服器之間傳輸。一個預設開啟的例外: 延伸模組約每週從 `https://openrouter.ai/api/v1/models` 重新整理一次內建的模型能力目錄, 這是一份公開、無需驗證的模型清單 - 該請求不帶提示、不帶用量, 也不帶任何關於您或您伺服器的資訊。把 `litellm-vscode-chat.models.openRouterCatalog` 設為 `false` 可關閉重新整理與自動比對; 明確的 `_openrouter_model` 指示詞繼續離線使用內建快照。詳細資料參閱[模型能力](docs/zh-tw/models.md#openrouter-目錄)與[隱私與資料](docs/zh-tw/troubleshooting.md#隱私與資料)。
 
 ## 誌謝
 

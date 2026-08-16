@@ -161,7 +161,6 @@
 											"!**/shared/serverEntry",
 											"!**/shared/util/baseUrl",
 											"!**/shared/util/errorText",
-											"!**/shared/util/headers",
 											"!**/shared/util/json"
 										],
 										"message": "Webview code may import the src/dashboard tree, its own tree, and only the allowlisted pure src/shared modules (they ride into the browser bundle); extension-side state stays behind the message protocol."

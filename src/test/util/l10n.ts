@@ -1,7 +1,7 @@
 /**
  * Localization guard helpers shared by scripts/l10n/check.ts (layer one of
  * the parity scheme: pre-commit and CI) and the guard suites (layer two:
- * src/test/l10n and the webview help-text guard, so `bun run test` catches
+ * src/test/bun/l10n and the webview help-text guard, so `bun run test` catches
  * drift without the script). They live here rather than in scripts/l10n/lib
  * because the extension-host tsconfig roots at src/ and cannot compile
  * imports from scripts/, while the scripts tsconfig reaches into src/ freely

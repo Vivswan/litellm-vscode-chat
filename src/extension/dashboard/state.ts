@@ -805,7 +805,7 @@ export interface DashboardStateInputs {
 	readonly wasGroupObserved?: (label: string, baseUrl: string) => boolean;
 	/** The OpenRouter catalog row's status; defaults to the empty snapshot. */
 	readonly catalog?: CatalogStatusView;
-	/** The Usage tab's snapshot; defaults to the empty view. */
+	/** The Servers page's usage snapshot; defaults to the empty view. */
 	readonly usage?: DashboardUsage;
 	/** The Configuration diagnostics list; defaults to none. */
 	readonly diagnostics?: readonly ConfigDiagnosticView[];

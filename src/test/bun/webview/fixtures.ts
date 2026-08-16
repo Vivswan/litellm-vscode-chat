@@ -72,7 +72,7 @@ export function makeSettings(overrides: Partial<DashboardSettings> = {}): Dashbo
 	};
 }
 
-/** The Usage tab's empty snapshot; override per test. */
+/** The Servers page's empty usage snapshot; override per test. */
 export function makeUsage(overrides: Partial<DashboardUsage> = {}): DashboardUsage {
 	return {
 		servers: [],

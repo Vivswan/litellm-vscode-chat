@@ -42,7 +42,7 @@ You can equally declare the server as a setting (user settings.json); the dashbo
 
 ```jsonc
 "litellm-vscode-chat.servers": [
-	{ "label": "Local", "baseUrl": "http://localhost:4000", "apiKey": "sk-..." }
+	{ "label": "Local", "baseUrl": "http://localhost:4000", "auth": { "apiKey": "sk-..." } }
 ]
 ```
 
@@ -73,7 +73,7 @@ Press `F5` to launch the Extension Development Host. [Development](docs/developm
 
 ## Privacy
 
-Your prompts and completions travel only between VS Code and the LiteLLM servers you configure. One default-on exception: about once a week the extension refreshes its bundled catalog of model capabilities from `https://openrouter.ai/api/v1/models`, a public, unauthenticated model list - the request carries no prompts, no usage, and nothing about you or your servers. Set `litellm-vscode-chat.openRouterCatalog.enabled` to `false` to turn the refresh and the automatic matching off; explicit `_openrouter_model` directives keep working offline from the bundled snapshot. Details in [Model capabilities](docs/models.md#the-openrouter-catalog) and [Privacy and data](docs/troubleshooting.md#privacy-and-data).
+Your prompts and completions travel only between VS Code and the LiteLLM servers you configure. One default-on exception: about once a week the extension refreshes its bundled catalog of model capabilities from `https://openrouter.ai/api/v1/models`, a public, unauthenticated model list - the request carries no prompts, no usage, and nothing about you or your servers. Set `litellm-vscode-chat.models.openRouterCatalog` to `false` to turn the refresh and the automatic matching off; explicit `_openrouter_model` directives keep working offline from the bundled snapshot. Details in [Model capabilities](docs/models.md#the-openrouter-catalog) and [Privacy and data](docs/troubleshooting.md#privacy-and-data).
 
 ## Acknowledgments
 

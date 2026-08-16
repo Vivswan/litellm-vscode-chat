@@ -158,7 +158,7 @@ export interface DashboardControllerEnv extends IntentEnvironment {
 	getCatalogLookup(): CapabilityCatalogLookup;
 	/** The catalog row's status facts (size, last refresh, standing failure, in-flight). */
 	getCatalogStatus(): CatalogStatusView;
-	/** The Usage tab's snapshot, assembled from the poller's store at push time. */
+	/** The Servers page's usage snapshot, assembled from the poller's store at push time. */
 	getUsage(): DashboardUsage;
 	/** The PARKED_GLOBAL_HEADERS_KEY globalState value, for the parked-headers legacy hint. */
 	getParkedGlobalHeaders(): unknown;
@@ -328,9 +328,10 @@ export class DashboardController implements vscode.Disposable {
 	 * injected message gets the same parse, the same routing (chain,
 	 * off-chain, or immediate malformed rejection), and the same ordering a
 	 * webview-posted one would, and cannot drift from the real handling.
-	 * Nothing is bypassed: the message meets webviewMessageSchema.safeParse
-	 * precisely as a webview-posted message would. Registered behind the
-	 * non-production litellm._test.dashboardMessage command.
+	 * Nothing is bypassed: the message meets parseDashboardRequest (the
+	 * envelope parse plus the per-method intent-schema map) precisely as a
+	 * webview-posted message would. Registered behind the non-production
+	 * litellm._test.dashboardMessage command.
 	 */
 	injectMessageForTest(raw: unknown): Promise<DashboardMessageOutcome> {
 		return this.enqueueMessage(raw);
@@ -881,8 +882,8 @@ export function registerDashboardCommand(
 	// picker's search, the lookup feeds the capability inspector, the status
 	// feeds the settings row, and refreshNow backs the row's Refresh button.
 	catalog: Pick<OpenRouterCatalogStore, "lookup" | "snapshot" | "status" | "refreshNow">,
-	// The usage poller: its store feeds the Usage tab, refreshNow backs the
-	// tab's Refresh button and the open-fetches-fresh rule.
+	// The usage poller: its store feeds the Servers page's usage cards,
+	// refreshNow backs their Refresh button and the open-fetches-fresh rule.
 	usagePoller: UsagePoller,
 	// The same composed entry-capabilities resolver activation wires into the
 	// provider, so the inspector structurally cannot diverge from registration

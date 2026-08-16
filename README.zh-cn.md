@@ -42,7 +42,7 @@
 
 ```jsonc
 "litellm-vscode-chat.servers": [
-	{ "label": "Local", "baseUrl": "http://localhost:4000", "apiKey": "sk-..." }
+	{ "label": "Local", "baseUrl": "http://localhost:4000", "auth": { "apiKey": "sk-..." } }
 ]
 ```
 
@@ -73,7 +73,7 @@ bun run compile
 
 ## 隐私
 
-你的提示和补全只在 VS Code 与你配置的 LiteLLM 服务器之间传输。一个默认开启的例外: 扩展约每周从 `https://openrouter.ai/api/v1/models` 刷新一次内置的模型能力目录, 这是一个公开的、无需身份验证的模型列表 - 该请求不携带提示、不携带用量, 也不携带任何关于你或你的服务器的信息。把 `litellm-vscode-chat.openRouterCatalog.enabled` 设为 `false` 可关闭刷新和自动匹配; 显式的 `_openrouter_model` 指令继续离线工作于内置快照。详情见[模型能力](docs/zh-cn/models.md#openrouter-目录)和[隐私与数据](docs/zh-cn/troubleshooting.md#隐私与数据)。
+你的提示和补全只在 VS Code 与你配置的 LiteLLM 服务器之间传输。一个默认开启的例外: 扩展约每周从 `https://openrouter.ai/api/v1/models` 刷新一次内置的模型能力目录, 这是一个公开的、无需身份验证的模型列表 - 该请求不携带提示、不携带用量, 也不携带任何关于你或你的服务器的信息。把 `litellm-vscode-chat.models.openRouterCatalog` 设为 `false` 可关闭刷新和自动匹配; 显式的 `_openrouter_model` 指令继续离线工作于内置快照。详情见[模型能力](docs/zh-cn/models.md#openrouter-目录)和[隐私与数据](docs/zh-cn/troubleshooting.md#隐私与数据)。
 
 ## 致谢
 

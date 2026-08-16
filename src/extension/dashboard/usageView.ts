@@ -1,5 +1,5 @@
 /**
- * The Usage tab's state projection: ServerUsageState (the poller's store,
+ * The Servers page's usage projection: ServerUsageState (the poller's store,
  * already narrowed to numbers and user-configured identity) reduced to the
  * serializable DashboardUsage the state push carries. Pure; the freshness
  * predicate is injected so this module and the status bar item share one
@@ -73,9 +73,9 @@ function forbiddenStanding(state: UsageEndpointState): boolean {
 }
 
 /**
- * One store state as the Usage tab's card, or undefined for servers that do
- * not surface. A server is shown in full while its usage availability stands
- * "available" (at least one endpoint answered and no permanent verdict
+ * One store state as the Servers page's usage card, or undefined for servers
+ * that do not surface. A server is shown in full while its usage availability
+ * stands "available" (at least one endpoint answered and no permanent verdict
  * replaced it). A server without that - never probed successfully, or
  * downgraded when both endpoints went permanently unavailable - still gets a
  * reduced card when a forbidden standing is what blocks it: the user can act

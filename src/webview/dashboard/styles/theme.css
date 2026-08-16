@@ -265,7 +265,6 @@ body.vscode-high-contrast-light [data-slot="reveal"] {
 	--foreground: var(--vscode-foreground);
 	--card: var(--vscode-editorWidget-background);
 	--primary: var(--vscode-button-background);
-	--muted: var(--vscode-textBlockQuote-background, var(--vscode-editorWidget-background));
 	/* The spend meter's baseline: the 100% extent, drawn as a 1px rule UNDER the
 	   bar rather than as a track behind it. It names no alpha OF ITS OWN - mixed
 	   toward the background rather than expressed as a translucent foreground -
@@ -318,9 +317,6 @@ body.vscode-high-contrast-light [data-slot="reveal"] {
 	--dropdown: var(--vscode-dropdown-border, transparent);
 	--dropdown-background: var(--vscode-dropdown-background);
 	--dropdown-foreground: var(--vscode-dropdown-foreground);
-	/* Disabled drops every variant to one neutral treatment: the primary blue
-		 at half opacity still scans as actionable. */
-	--disabled: var(--vscode-button-secondaryBackground, rgba(128, 128, 128, 0.25));
 	--disabled-foreground: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
 }
 
@@ -775,11 +771,11 @@ body {
 	/* Chip fills, mixed from the chip's OWN text colour rather than from a
 		 surface token. Two reasons. Mixing the foreground is self-correcting in
 		 both polarities - it lifts on a dark page and drops on a light one - where
-		 --muted is a fixed host colour that happened to sit 12 points off the dark
-		 background and 7 off the light one, so the same chip read as a chip in one
-		 theme and as loose words in the other. And a chip is small: the severity
-		 scale is sized for banners, and a percentage that reads as a calm wash
-		 across a paragraph disappears behind six characters. */
+		 a fixed host surface colour sat 12 points off the dark background and 7
+		 off the light one, so the same chip read as a chip in one theme and as
+		 loose words in the other. And a chip is small: the severity scale is
+		 sized for banners, and a percentage that reads as a calm wash across a
+		 paragraph disappears behind six characters. */
 	--chip: color-mix(in srgb, var(--muted-foreground) 14%, transparent);
 	--warn-chip: color-mix(in srgb, var(--warn) 12%, transparent);
 	/* The warn chip's own text, leaned into the foreground for the same reason
@@ -811,7 +807,6 @@ body.vscode-high-contrast-light {
 	--accent: var(--vscode-list-hoverBackground, var(--vscode-editor-background));
 	--ghost-hover: transparent;
 	--dropdown: var(--vscode-contrastBorder);
-	--disabled: var(--vscode-editor-background);
 	--control-outline: var(--vscode-contrastBorder);
 	/* Both the hue in use and the hue on offer: the settings picker paints all
 		 four swatches from the --hue-* tokens, and blue's ordinary chain reads the
@@ -829,9 +824,7 @@ body.vscode-high-contrast-light {
 	--color-*: initial;
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
-	--color-card: var(--card);
 	--color-primary: var(--primary);
-	--color-muted: var(--muted);
 	--color-axis: var(--axis);
 	--color-muted-foreground: var(--muted-foreground);
 	--color-accent: var(--accent);
@@ -875,7 +868,6 @@ body.vscode-high-contrast-light {
 	--color-hue-amber: var(--hue-amber);
 	--color-accent-soft: var(--accent-soft);
 	--color-control-outline: var(--control-outline);
-	--color-disabled: var(--disabled);
 	--color-disabled-foreground: var(--disabled-foreground);
 	--radius-*: initial;
 	--radius-xs: 1px;

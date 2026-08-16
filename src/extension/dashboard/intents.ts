@@ -142,7 +142,7 @@ export interface IntentEnvironment {
 	 * state when the refresh settles, and the row status carries the outcome.
 	 */
 	refreshCatalogNow(): void;
-	/** Kick one immediate usage refresh (the Usage tab's Refresh now); same fire-and-forget contract. */
+	/** Kick one immediate usage refresh (the Servers page's Refresh now); same fire-and-forget contract. */
 	refreshUsageNow(): void;
 }
 

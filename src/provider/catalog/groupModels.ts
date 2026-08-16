@@ -60,7 +60,7 @@ interface LiteLLMModelMetadataBase {
 
 /**
  * Registration output before any group server is attached. The `never` pins
- * the split: the discovery cache, recordServerStatus, and every snapshot the
+ * the split: the discovery cache, StatusWindow.record, and every snapshot the
  * dashboard reads hold this type, and a group-attached copy (whose server
  * embeds the group's credentials) does not compile there.
  *

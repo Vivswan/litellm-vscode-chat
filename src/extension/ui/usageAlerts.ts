@@ -16,7 +16,7 @@ import type { UsageStore } from "../servers/usage/store";
 import type { MessageAction } from "./notifier";
 import { dismissAction, showActionableMessage } from "./notifier";
 
-/** The toast's deep link into the dashboard's Usage section. */
+/** The toast's deep link to the dashboard's Servers page, where spend lives. */
 function openUsageAction(): MessageAction {
 	return {
 		label: l10n.t("Open Usage"),

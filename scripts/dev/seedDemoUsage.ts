@@ -1,10 +1,11 @@
 // scripts/dev/seedDemoUsage.ts
 //
 // Dev-only demonstration spend: three virtual keys in visibly different
-// budget states, so `bun run dev` opens on a populated Usage tab and a
-// warning/error status bar item. The dev launcher is the only caller - the
-// docker test orchestrator and docker:up never touch these keys, and the
-// test fixture key (src/test/fakeStack/usage.ts) is never touched here.
+// budget states, so `bun run dev` opens on a Servers page with populated
+// usage cards and a warning/error status bar item. The dev launcher is the
+// only caller - the docker test orchestrator and docker:up never touch these
+// keys, and the test fixture key (src/test/fakeStack/usage.ts) is never
+// touched here.
 //
 // The spend is real: each key fires a handful of deterministic streaming
 // completions (the fake stack's %text command, include_usage on) through the
@@ -274,9 +275,10 @@ async function restoreBudgetsBestEffort(baseUrl: string, masterKey: string): Pro
 /**
  * Seed the three demo keys: ensure each exists unblocked, fire its chats,
  * wait for the spend flush, then pin each key's max_budget to spend /
- * keyBudgetRatio so the Usage tab shows the intended states. Any failure
- * after the unblock re-pins whatever it can before rethrowing; callers treat
- * a throw as "the usage demo is unavailable", never as a failed stack start.
+ * keyBudgetRatio so the Servers page's usage cards show the intended states.
+ * Any failure after the unblock re-pins whatever it can before rethrowing;
+ * callers treat a throw as "the usage demo is unavailable", never as a failed
+ * stack start.
  */
 export async function seedDemoUsage(baseUrl: string, masterKey: string): Promise<SeededDemoUsage[]> {
 	await waitForProxy(baseUrl);

@@ -1,10 +1,12 @@
 /**
  * The record editors' pure model: draft rows and their parse back into the
- * record a setSetting intent carries. Each parser validates and assembles in
- * one pass - it either yields the record or the per-row problems that block
- * it - so the two cannot diverge. DOM-free by construction so the
- * extension-host unit suite covers it; the webview components render these
- * rows and call nothing else.
+ * records the wire intents carry - setModelParameters/setModelCapabilities
+ * from the standalone editors, and saveServerSetting through serverForm.ts,
+ * which parses entry headers and entry-scope records with these same
+ * functions. Each parser validates and assembles in one pass - it either
+ * yields the record or the per-row problems that block it - so the two
+ * cannot diverge. DOM-free by construction so the bun test tree covers it;
+ * the webview components render these rows and call nothing else.
  */
 
 import * as l10n from "@vscode/l10n";

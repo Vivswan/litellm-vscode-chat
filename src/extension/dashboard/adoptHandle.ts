@@ -20,9 +20,10 @@ export function adoptSourceHandle(serverId: string): string {
 }
 
 /**
- * The key a model row's request scope rides under
- * (DashboardModel.scopeKey / DashboardState.requestScopes): the same salted
- * one-way construction as the adopt handle, under its own domain prefix.
+ * The key a model row's request scope rides under (DashboardModel.scopeKey,
+ * matched back to its snapshot by state.ts's resolveDashboardModel* readers):
+ * the same salted one-way construction as the adopt handle, under its own
+ * domain prefix.
  * Hashing the server ID instead of numbering the sorted snapshots makes the
  * key non-positional: a snapshot list that grew or reordered between a state
  * push and a readModelCapabilities request de-resolves the stale key to
