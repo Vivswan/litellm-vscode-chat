@@ -11,6 +11,11 @@
  * WIDTH_SURFACES entry. Disclosure is deliberately not a pair: open-vs-closed
  * EXISTS to move geometry. Pairs are for "same box, different paint".
  *
+ * Every case runs in the harness's measurement mode, so it measures the
+ * pinned font faces (render-dashboard.ts), not the platform's: a green sweep
+ * here predicts the Linux-only CI gate. A text-bearing slot additionally
+ * names itself in metricProbe to prove its height survives divergent fonts.
+ *
  * Exit 1 means geometry moved, a fixture guard is missing, or the runner itself
  * failed. Exit 2 means a case never ran (a vanished selector, a toggle that no
  * longer induces its state, a baseline already toggled) or an expectedDrift
@@ -64,9 +69,15 @@ interface ExpectedDrift {
 	 * that accepted every drift would hide a new defect behind a known one.
 	 */
 	readonly where: readonly string[];
+	/**
+	 * The largest magnitude the marker accepts, in px, for every drift it
+	 * names. Required, because a prefix alone would bless a 40px regression in
+	 * the same place as a known 1px one.
+	 */
+	readonly maxAbsPx: number;
 }
 
-interface StatePair {
+interface StatePairBase {
 	readonly name: string;
 	/** The render fixture (a renderFixtures/ file name) whose page hosts the element. */
 	readonly fixture: string;
@@ -82,6 +93,14 @@ interface StatePair {
 	 * engaged, since a platform minimum can hand back something wider.
 	 */
 	readonly viewportWidth?: number;
+	/**
+	 * An inline width forced onto .pane itself, for a tier below what any
+	 * viewport can reach (the platform's window minimum is ~500px on macOS,
+	 * and the armed cover's floor tier lives under a 400px pane). The pane's
+	 * container queries answer to its content box, so an inline width engages
+	 * the tier directly; the restVerify should still prove it engaged.
+	 */
+	readonly paneWidth?: number;
 	/** Steps that induce the second state. */
 	readonly toggle: readonly string[];
 	/**
@@ -98,14 +117,38 @@ interface StatePair {
 	 * not silently cover its neighbours.
 	 */
 	readonly intended?: Readonly<Record<string, readonly Dim[]>>;
-	/**
-	 * The pair drifts on today's main and the defect is known: the sweep stays
-	 * green by asserting the NAMED drifts are still there and nothing else moved.
-	 * Remove the marker in the same change that fixes the defect - a marker whose
-	 * drift is gone fails as stale.
-	 */
-	readonly expectedDrift?: ExpectedDrift;
 }
+
+/**
+ * metricProbe and expectedDrift are mutually exclusive by type: an
+ * expected-drift compare never returns, so a probe behind one would never run.
+ */
+type StatePair = StatePairBase &
+	(
+		| {
+				/**
+				 * Text-bearing slots whose HEIGHT must not depend on font metrics: after
+				 * the pair holds, each is re-measured under the harness's divergent font
+				 * faces (same glyph sources, deliberately different vertical metrics, so
+				 * the swap changes nothing but the metrics) - once with only the mono
+				 * token diverging (the mixed sans+mono line box that broke on Linux) and
+				 * once with both. A height that moves would pass on one platform's fonts
+				 * and fail on another's, so it fails here on every platform instead.
+				 */
+				readonly metricProbe?: readonly string[];
+				readonly expectedDrift?: undefined;
+		  }
+		| {
+				/**
+				 * The pair drifts on today's main and the defect is known: the sweep stays
+				 * green by asserting the NAMED drifts are still there, within the marker's
+				 * bound, and nothing else moved. Remove the marker in the same change that
+				 * fixes the defect - a marker whose drift is gone fails as stale.
+				 */
+				readonly expectedDrift: ExpectedDrift;
+				readonly metricProbe?: undefined;
+		  }
+	);
 
 /** The theme appearance row, the settings row every pair on that page anchors to. */
 const THEME_ROW = '.setting-row:has([id="setting-ui.theme"])';
@@ -146,20 +189,47 @@ const COPY_TOOL = ".diagnostics-tools li:nth-child(3) button";
 /**
  * The armed cover's own claim, stated in the pair's verify because the pair
  * cannot see it: the cover is out of flow, so one that fails to fill the row
- * moves no target and every held dimension still passes. BLOCK axis only - the
- * inline twin needs the floor tier, which a pair's steps cannot reach (they run
- * before the harness's asserted width, and a platform minimum hands back
- * something far wider than 320px), so the compiled-stylesheet suite pins that
- * rule instead (src/test/bun/webview/dashboard/styles/armedCover.test.ts).
+ * moves no target and every held dimension still passes. Edges must MATCH,
+ * not merely contain: a cover spilling past the row would cover neighbours it
+ * has no business covering. Top, bottom, and right are equal at every tier
+ * and the left edge never crosses the row's; "both" makes left an equality
+ * too, for the floor tier where the cover takes the whole row and a
+ * shrink-to-fit box would leave the row's first characters readable beside
+ * the confirm.
  */
-function coversTheRow(item: string): string {
+function coversTheRow(item: string, axes: "block" | "both"): string {
+	// Left is containment at the wider tiers (the cover may end where its
+	// content does, but never past the row) and equality at the floor.
+	const left = axes === "both" ? "Math.abs(box.left - covered.left) <= 0.5" : "box.left >= covered.left - 0.5";
 	return `(() => {
 		const cover = document.querySelector(${JSON.stringify(`${item} .server-actions.armed`)});
 		const row = document.querySelector(${JSON.stringify(`${item} .server-row`)});
 		if (cover === null || row === null) { return false; }
 		const box = cover.getBoundingClientRect();
 		const covered = row.getBoundingClientRect();
-		return box.top <= covered.top + 0.5 && box.bottom >= covered.bottom - 0.5;
+		return Math.abs(box.top - covered.top) <= 0.5 && Math.abs(box.bottom - covered.bottom) <= 0.5 &&
+			Math.abs(box.right - covered.right) <= 0.5 && ${left};
+	})()`;
+}
+
+/** Narrows .pane to an inline width, engaging container-query tiers no viewport width can reach. */
+function paneWidthStep(width: number): string {
+	return `(() => {
+		const pane = document.querySelector(".pane");
+		if (pane === null) { throw new Error(${marker("SETUP", ": no .pane to narrow")}); }
+		pane.style.flex = "0 0 auto";
+		pane.style.width = ${JSON.stringify(`${width}px`)};
+		pane.style.minWidth = "0";
+		pane.style.maxWidth = "none";
+	})()`;
+}
+
+/** The pane's content-box width is under the given tier threshold - the same measure its container queries read. */
+function paneTierEngaged(below: number): string {
+	return `(() => {
+		const pane = document.querySelector(".pane");
+		const style = getComputedStyle(pane);
+		return pane.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) < ${below};
 	})()`;
 }
 
@@ -332,7 +402,7 @@ const STATE_PAIRS: readonly StatePair[] = [
 		restVerify: `document.querySelector(${JSON.stringify(`${FIRST_SERVER_ITEM} .server-actions.armed`)}) === null`,
 		verify:
 			`document.querySelector(${JSON.stringify(`${FIRST_SERVER_ITEM} .server-actions.armed`)}) !== null && ` +
-			coversTheRow(FIRST_SERVER_ITEM),
+			coversTheRow(FIRST_SERVER_ITEM, "block"),
 	},
 	{
 		// The folded tier's twin of the pair above, where the row is two lines and
@@ -362,7 +432,38 @@ const STATE_PAIRS: readonly StatePair[] = [
 			`getComputedStyle(document.querySelector(".server-meta")).display === "flex"`,
 		verify:
 			`document.querySelector(${JSON.stringify(`${FIRST_SERVER_ITEM} .server-actions.armed`)}) !== null && ` +
-			coversTheRow(FIRST_SERVER_ITEM),
+			coversTheRow(FIRST_SERVER_ITEM, "block"),
+	},
+	{
+		// The floor tier's cover takes the WHOLE row (grid-column 1/-1,
+		// inset-inline 0, justify-self stretch): one that shrink-to-fits leaves
+		// the row's first characters readable beside the confirm, so the claim is
+		// both axes. paneWidth reaches the sub-400 tier no viewport width can
+		// (the platform window minimum), and the restVerify proves it engaged.
+		name: "server-row-armed-cover-floor",
+		fixture: "servers-spend.ts",
+		paneWidth: 320,
+		targets: [
+			`${FIRST_SERVER_ITEM} .server-row`,
+			`${FIRST_SERVER_ITEM} .server-line`,
+			`${FIRST_SERVER_ITEM} .server-name`,
+			`${FIRST_SERVER_ITEM} .server-usage`,
+		],
+		siblingOf: FIRST_SERVER_ITEM,
+		toggle: [
+			`(() => {
+				const remove = [...document.querySelectorAll(${JSON.stringify(`${FIRST_SERVER_ITEM} .server-actions button`)})]
+					.find((button) => button.textContent.trim() === "Remove");
+				if (remove === undefined) { throw new Error(${marker("SETUP", ": no Remove button on the first server row")}); }
+				remove.click();
+			})()`,
+		],
+		restVerify:
+			`document.querySelector(${JSON.stringify(`${FIRST_SERVER_ITEM} .server-actions.armed`)}) === null && ` +
+			paneTierEngaged(400),
+		verify:
+			`document.querySelector(${JSON.stringify(`${FIRST_SERVER_ITEM} .server-actions.armed`)}) !== null && ` +
+			coversTheRow(FIRST_SERVER_ITEM, "both"),
 	},
 	{
 		// The "stale" qualifier lands INLINE before the spend figure and the
@@ -465,6 +566,14 @@ const STATE_PAIRS: readonly StatePair[] = [
 		toggle: [reactType("#server-baseUrl", "not a url")],
 		restVerify: `document.querySelector('[id="server-baseUrl-error"] .error') === null`,
 		verify: `document.querySelector('[id="server-baseUrl-error"] .error') !== null`,
+		expectedDrift: {
+			reason:
+				"Under the pinned measurement fonts the sticky toolbar's trailing message span wraps to a second " +
+				"line when the field problem speaks, growing the toolbar and the form 1px: the slot reserves one " +
+				"line, not a wrap-proof box. The fix belongs to the form's toolbar message slot in src/webview.",
+			where: ["#server-edit-page height"],
+			maxAbsPx: 1.5,
+		},
 	},
 	{
 		// A custom-header row's parse verdict lands in the row's reserved status
@@ -477,6 +586,11 @@ const STATE_PAIRS: readonly StatePair[] = [
 		toggle: [reactType(`${FIRST_HEADER_ROW} input[aria-label="Header name"]`, "bad header")],
 		restVerify: `document.querySelector("#server-edit-page .row .row-status.error") === null`,
 		verify: `document.querySelector("#server-edit-page .row .row-status.error") !== null`,
+		expectedDrift: {
+			reason: "The same wrapping toolbar message span as form-url-error, spoken to by the row verdict's summary.",
+			where: ["#server-edit-page height"],
+			maxAbsPx: 1.5,
+		},
 	},
 	{
 		// The matcher editor overlay's per-row verdict lands in the row's reserved
@@ -562,6 +676,7 @@ const STATE_PAIRS: readonly StatePair[] = [
 		verify:
 			`document.querySelector(${JSON.stringify(`${PARAMS_FRAME} .failure-note.error`)})` +
 			`?.textContent.includes("refused by the configuration target") === true`,
+		metricProbe: [`${PARAMS_FRAME} .editor-status`],
 	},
 	{
 		// A refused settings write covers the posting row's description slot: the
@@ -633,6 +748,11 @@ const STATE_PAIRS: readonly StatePair[] = [
 			`getComputedStyle(document.querySelector("#server-edit-page .collides-note"))` + `.visibility === "hidden"`,
 		verify:
 			`getComputedStyle(document.querySelector("#server-edit-page .collides-note"))` + `.visibility === "visible"`,
+		expectedDrift: {
+			reason: "The same wrapping toolbar message span as form-url-error, spoken to by the collision summary.",
+			where: ["#server-edit-page height"],
+			maxAbsPx: 1.5,
+		},
 	},
 	{
 		// The matcher editor's status line under the matcher input is ONE reserved
@@ -724,6 +844,7 @@ const STATE_PAIRS: readonly StatePair[] = [
 		],
 		restVerify: `document.querySelector(${JSON.stringify(`${PARAMS_FRAME} .record-verdict`)}) === null`,
 		verify: `document.querySelector(${JSON.stringify(`${PARAMS_FRAME} .record-verdict`)}) !== null`,
+		metricProbe: [`${PARAMS_FRAME} .editor-status`],
 	},
 	{
 		// The same claim from the LAST row, whose verdict lands in the footer
@@ -753,6 +874,7 @@ const STATE_PAIRS: readonly StatePair[] = [
 		],
 		restVerify: `document.querySelector(${JSON.stringify(`${PARAMS_FRAME} .record-verdict`)}) === null`,
 		verify: `document.querySelector(${JSON.stringify(`${PARAMS_FRAME} .record-verdict`)}) !== null`,
+		metricProbe: [`${PARAMS_FRAME} .editor-status`],
 	},
 	{
 		// The chip popover's verdict lands in its reserved status slot AFTER the
@@ -850,9 +972,7 @@ const WIDTH_SURFACES: readonly WidthSurface[] = [
  */
 const UNGUARDED_FIXTURE_PINS: readonly (readonly [string, string])[] = [
 	["confirm-discard.ts", "8bca510c05ad"],
-	["diagnostics-empty.ts", "da182ff33932"],
 	["diagnostics-inspector.ts", "8a1701a0f708"],
-	["diagnostics.ts", "da182ff33932"],
 	["form-apikey.ts", "d1121e72b575"],
 	["form-apiversion-auto.ts", "f9159772b925"],
 	["form-apiversion-custom.ts", "d1121e72b575"],
@@ -994,28 +1114,38 @@ function compareStep(pair: StatePair): string {
 		hold("next sibling of " + ${JSON.stringify(pair.siblingOf)}, "y", [],
 			window.__geometryBaseline.siblingTop, anchor.nextElementSibling.getBoundingClientRect().top);`;
 	// With an expectedDrift marker the probe decides between "the named drifts
-	// still stand" (XDRIFT, green), "a drift outside the list" (DRIFT, which a
-	// known defect must not hide), and "no drift at all" (STALE).
+	// still stand within their bound" (XDRIFT, green), "a drift outside the
+	// list or past the bound" (DRIFT, which a known defect must not hide), and
+	// "no drift at all" (STALE).
 	const verdict =
 		pair.expectedDrift === undefined
 			? `if (drifts.length > 0) {
-			throw new Error(${marker("DRIFT", ` ${pair.name}:`)} + "\\n  " + drifts.join("\\n  "));
+			throw new Error(${marker("DRIFT", ` ${pair.name}:`)} + "\\n  " + drifts.map((drift) => drift.line).join("\\n  "));
 		}`
 			: `const where = ${JSON.stringify(pair.expectedDrift.where)};
-		const unexpected = drifts.filter((line) => !where.some((prefix) => line.startsWith(prefix)));
+		const maxAbsPx = ${pair.expectedDrift.maxAbsPx};
+		const unexpected = drifts.filter(
+			(drift) => !where.some((prefix) => drift.key.startsWith(prefix)) || Math.abs(drift.delta) > maxAbsPx
+		);
 		if (unexpected.length > 0) {
-			throw new Error(${marker("DRIFT", ` ${pair.name} (outside its expectedDrift list):`)} + "\\n  " + unexpected.join("\\n  "));
+			throw new Error(
+				${marker("DRIFT", ` ${pair.name} (outside its expectedDrift list or past its ${pair.expectedDrift.maxAbsPx}px bound):`)} +
+				"\\n  " + unexpected.map((drift) => drift.line).join("\\n  ")
+			);
 		}
 		// Dead prefixes fail too: a partially fixed defect must shrink the
 		// where-list with the fix, or the list quietly stops describing main.
-		const dead = where.filter((prefix) => !drifts.some((line) => line.startsWith(prefix)));
+		const dead = where.filter((prefix) => !drifts.some((drift) => drift.key.startsWith(prefix)));
 		if (dead.length > 0) {
 			throw new Error(
 				${marker("STALE", ` ${pair.name}: expected drift no longer occurs at `)} + dead.join(", ") +
 				"; shrink or remove the expectedDrift marker"
 			);
 		}
-		throw new Error(${marker("XDRIFT", ` ${pair.name} (expected on today's main):`)} + "\\n  " + drifts.join("\\n  "));`;
+		throw new Error(
+			${marker("XDRIFT", ` ${pair.name} (expected on today's main):`)} + "\\n  " +
+			drifts.map((drift) => drift.line).join("\\n  ")
+		);`;
 	return `(async () => {
 		${SETTLE_JS}
 		if (!(${pair.verify})) {
@@ -1029,10 +1159,13 @@ function compareStep(pair: StatePair): string {
 		const hold = (what, dim, exempt, was, now) => {
 			const delta = now - was;
 			if (!exempt.includes(dim) && Math.abs(delta) > ${TOLERANCE_PX}) {
-				drifts.push(
-					what + " " + dim + " " + was.toFixed(2) + "px -> " + now.toFixed(2) +
-					"px (moved " + delta.toFixed(2) + "px)"
-				);
+				drifts.push({
+					key: what + " " + dim,
+					delta,
+					line:
+						what + " " + dim + " " + was.toFixed(2) + "px -> " + now.toFixed(2) +
+						"px (moved " + delta.toFixed(2) + "px)",
+				});
 			}
 		};
 		targets.forEach((target, index) => {
@@ -1054,6 +1187,53 @@ function intendedByTarget(pair: StatePair): readonly (readonly Dim[])[] {
 		}
 	}
 	return pair.targets.map((target) => pair.intended?.[target] ?? []);
+}
+
+/**
+ * The font-metric divergence probe, run in the toggled state after the pair
+ * held: re-measures each named slot with the divergent faces swapped in
+ * through the font tokens and fails when a height moves. The harness has
+ * already proven both face sets loaded with their declared metrics, so a
+ * height that holds here holds under ANY platform's fonts.
+ */
+function metricProbeStep(pair: StatePair, selectors: readonly string[]): string {
+	return `(async () => {
+		${SETTLE_JS}
+		${grabJs()}
+		const root = document.documentElement;
+		const rest = {
+			sans: root.style.getPropertyValue("--vscode-font-family"),
+			mono: root.style.getPropertyValue("--vscode-editor-font-family"),
+		};
+		if (!rest.sans.includes("geometry-pinned-sans") || !rest.mono.includes("geometry-pinned-mono")) {
+			throw new Error(${marker("SETUP", ": the harness did not pin the fonts, so the divergence probe has nothing to toggle")});
+		}
+		const selectors = ${JSON.stringify(selectors)};
+		const under = async (sans, mono) => {
+			root.style.setProperty("--vscode-font-family", sans);
+			root.style.setProperty("--vscode-editor-font-family", mono);
+			await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+			return selectors.map((selector) => grab(selector).height);
+		};
+		const pinned = await under(rest.sans, rest.mono);
+		const mixed = await under(rest.sans, "geometry-divergent-mono");
+		const swapped = await under("geometry-divergent-sans", "geometry-divergent-mono");
+		await under(rest.sans, rest.mono);
+		const moved = [];
+		selectors.forEach((selector, index) => {
+			for (const [label, heights] of [["a divergent mono face", mixed], ["divergent faces throughout", swapped]]) {
+				if (Math.abs(heights[index] - pinned[index]) > ${TOLERANCE_PX}) {
+					moved.push(
+						selector + " height " + pinned[index].toFixed(2) + "px -> " + heights[index].toFixed(2) +
+						"px under " + label
+					);
+				}
+			}
+		});
+		if (moved.length > 0) {
+			throw new Error(${marker("DRIFT", ` ${pair.name} (height depends on font metrics):`)} + "\\n  " + moved.join("\\n  "));
+		}
+	})()`;
 }
 
 function widthStep(surface: WidthSurface): string {
@@ -1104,7 +1284,14 @@ function pairCase(pair: StatePair): SweepCase {
 	return {
 		name: pair.name,
 		fixture: pair.fixture,
-		steps: [...(pair.setup ?? []), measureStep(pair), ...pair.toggle, compareStep(pair)],
+		steps: [
+			...(pair.paneWidth === undefined ? [] : [paneWidthStep(pair.paneWidth)]),
+			...(pair.setup ?? []),
+			measureStep(pair),
+			...pair.toggle,
+			compareStep(pair),
+			...(pair.metricProbe === undefined ? [] : [metricProbeStep(pair, pair.metricProbe)]),
+		],
 		...(pair.viewportWidth === undefined ? {} : { viewportWidth: pair.viewportWidth }),
 		expectsDrift: pair.expectedDrift !== undefined,
 	};

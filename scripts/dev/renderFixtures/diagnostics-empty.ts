@@ -50,10 +50,6 @@ const fixture: RenderFixture = {
 	respond: {
 		readResolvedModels: { kind: "response", payload: { view: { trees: [], rows: [], recordCount: 0 } } },
 	},
-	// See diagnostics.ts: the harness delivers every message in one tick, so
-	// the focusSection deep link above lands before React commits the first
-	// state render; the click is the HARNESS's fallback, not the product's.
-	steps: [`document.getElementById("tab-diagnostics")?.click()`],
 	viewport: { width: 1300, height: 900 },
 	settleMs: 500,
 };

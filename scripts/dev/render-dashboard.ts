@@ -817,6 +817,77 @@ const DETERMINISM_CSS =
 	"*, *::before, *::after { animation: none !important; transition: none !important; caret-color: transparent !important; }";
 
 /**
+ * The measurement-mode font pin. Every measurement run (--widths or
+ * --pane-widths) swaps the two font tokens for these faces, whose
+ * ascent/descent/line-gap overrides make every line-box metric a fixed
+ * fraction of the font size: heights measure the same on every platform, so
+ * a green sweep on macOS predicts the Linux-only CI gate (the host's mono
+ * fallback once rounded a mixed sans+mono line box 1px taller there).
+ * Screenshot runs (--out alone) keep the native stacks: design review judges
+ * the host's fonts, measurement judges the pinned ones. Horizontal metrics
+ * cannot be overridden in CSS, so the local() chains allow only faces with
+ * IDENTICAL advance widths by design (Liberation Sans carries Arial's,
+ * Liberation Mono carries Courier New's) and the engagement control measures
+ * a reference string against those advances: a platform resolving anything
+ * else fails the run loudly instead of measuring different wrap points. The
+ * divergent faces are the same sources with deliberately different vertical
+ * metrics - same advances, so a swap changes ONLY the metrics - for
+ * check-geometry's probe that a text-bearing slot's height does not depend
+ * on font metrics at all.
+ */
+const PINNED_SANS_SOURCES = `local("Arial"), local("Liberation Sans")`;
+const PINNED_MONO_SOURCES = `local("Courier New"), local("Liberation Mono")`;
+/** Near Arial's real metrics, so pinning moves today's measurements as little as possible. */
+const PINNED_FONT_METRICS = { ascent: 90, descent: 22 };
+const DIVERGENT_FONT_METRICS = { ascent: 160, descent: 40 };
+/** What a line-height: normal line box must measure under each face, at 100px font size. */
+const PINNED_CONTROL_PX = PINNED_FONT_METRICS.ascent + PINNED_FONT_METRICS.descent;
+const DIVERGENT_CONTROL_PX = DIVERGENT_FONT_METRICS.ascent + DIVERGENT_FONT_METRICS.descent;
+/** The advance-width control: this string at 100px must measure the faces' shared design advances. */
+const ADVANCE_CONTROL_TEXT = "Illustrative Mix 0123456789";
+/** Arial's design advances for the string (Liberation Sans carries the same by design). */
+const ADVANCE_CONTROL_SANS_PX = 1217.39;
+/** Courier New and Liberation Mono advance every glyph 1229/2048 em (~0.6); the tolerance absorbs the remainder. */
+const ADVANCE_CONTROL_MONO_PX = ADVANCE_CONTROL_TEXT.length * 60;
+/** Advances are design-identical; the slack only absorbs rasterizer rounding. */
+const ADVANCE_TOLERANCE_PX = 1;
+
+function fontFace(family: string, sources: string, metrics: { ascent: number; descent: number }): string {
+	return (
+		`@font-face { font-family: ${family}; src: ${sources}; ascent-override: ${metrics.ascent}%; ` +
+		`descent-override: ${metrics.descent}%; line-gap-override: 0%; }`
+	);
+}
+
+function measurementFontCss(): string {
+	return [
+		fontFace("geometry-pinned-sans", PINNED_SANS_SOURCES, PINNED_FONT_METRICS),
+		fontFace("geometry-pinned-mono", PINNED_MONO_SOURCES, PINNED_FONT_METRICS),
+		fontFace("geometry-divergent-sans", PINNED_SANS_SOURCES, DIVERGENT_FONT_METRICS),
+		fontFace("geometry-divergent-mono", PINNED_MONO_SOURCES, DIVERGENT_FONT_METRICS),
+	].join("\n");
+}
+
+/**
+ * Repoints the two font tokens at the pinned faces. The dashboard reads fonts
+ * only through these tokens (plus inherit), so the swap covers every rule;
+ * under --no-theme there is no token set to rewrite, so the pin becomes the
+ * whole set.
+ */
+function pinFontTokens(tokensCss: string): string {
+	if (tokensCss === "") {
+		return `:root { --vscode-font-family: geometry-pinned-sans; --vscode-editor-font-family: geometry-pinned-mono; }`;
+	}
+	const pinned = tokensCss
+		.replace(/--vscode-font-family:[^;]*;/, "--vscode-font-family: geometry-pinned-sans;")
+		.replace(/--vscode-editor-font-family:[^;]*;/, "--vscode-editor-font-family: geometry-pinned-mono;");
+	if (!pinned.includes("geometry-pinned-sans") || !pinned.includes("geometry-pinned-mono")) {
+		throw new Error("The theme's token set lost its font tokens; the measurement font pin has nothing to rewrite");
+	}
+	return pinned;
+}
+
+/**
  * The flags decide the appearance VALUES, not the fixture: the webview restamps
  * the root element from every state push, so a fixture's own theme and accent
  * would overwrite the shell's stamp and render every --app-theme and --accent
@@ -1321,19 +1392,23 @@ async function main(): Promise<void> {
 	if (hostTheme === "dark" || hostTheme === "light") {
 		assertThemeCoversStylesheet(await fs.readFile(stylesheetPath, "utf8"), tokensCss, hostTheme);
 	}
+	// Any measurement run measures the pinned faces, --out beside it or not: a
+	// PNG rendered while measuring photographs the pinned stack on purpose, so
+	// a sweep failure can be reproduced with the same fonts it measured.
+	const pinFonts = measuring;
 	const html = buildPageHtml(
 		withAppearance(fixture.messages, forcedTheme, accent),
 		fixture.respond ?? {},
 		hostTheme,
 		forcedTheme,
 		accent,
-		tokensCss
+		pinFonts ? pinFontTokens(tokensCss) : tokensCss
 	);
 	if (values["html-out"] !== undefined) {
 		await fs.writeFile(path.resolve(values["html-out"]), html);
 		console.log(`wrote page HTML to ${path.resolve(values["html-out"])}`);
 	}
-	const harnessCss = DETERMINISM_CSS;
+	const harnessCss = pinFonts ? `${DETERMINISM_CSS}\n${measurementFontCss()}` : DETERMINISM_CSS;
 
 	const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "render-dashboard-"));
 	let chrome: ChildProcess | undefined;
@@ -1425,6 +1500,62 @@ async function main(): Promise<void> {
 			await delay(100);
 		}
 		await delay(fixture.settleMs ?? 300);
+
+		// The pin is proven engaged BEFORE the fixture's steps (a step may end the run by throwing - the geometry
+		// sweep's expected-drift verdicts do - which must not skip the proof), on both axes: line-box height against
+		// the overrides, advance width against the shared design advances CSS cannot override (divergent faces too,
+		// or the metric probe's only-vertical-metrics-change premise is broken).
+		if (pinFonts) {
+			const controls = JSON.parse(
+				(await evaluate(
+					cdp,
+					`(() => {
+						const box = document.createElement("div");
+						box.style.cssText =
+							"position:absolute;visibility:hidden;font-size:100px;line-height:normal;white-space:pre;width:max-content;";
+						box.textContent = ${JSON.stringify(ADVANCE_CONTROL_TEXT)};
+						document.body.appendChild(box);
+						const measure = (family) => {
+							box.style.fontFamily = family;
+							const rect = box.getBoundingClientRect();
+							return { height: rect.height, width: rect.width };
+						};
+						const faces = {
+							sans: measure("geometry-pinned-sans"),
+							mono: measure("geometry-pinned-mono"),
+							divergentSans: measure("geometry-divergent-sans"),
+							divergentMono: measure("geometry-divergent-mono"),
+						};
+						box.remove();
+						return JSON.stringify(faces);
+					})()`
+				)) as string
+			) as Record<string, { height: number; width: number }>;
+			const expectations: readonly (readonly [string, number, number])[] = [
+				["sans", PINNED_CONTROL_PX, ADVANCE_CONTROL_SANS_PX],
+				["mono", PINNED_CONTROL_PX, ADVANCE_CONTROL_MONO_PX],
+				["divergentSans", DIVERGENT_CONTROL_PX, ADVANCE_CONTROL_SANS_PX],
+				["divergentMono", DIVERGENT_CONTROL_PX, ADVANCE_CONTROL_MONO_PX],
+			];
+			const wrong = expectations.flatMap(([face, height, width]) => {
+				const measured = controls[face] ?? { height: 0, width: 0 };
+				return [
+					...(Math.abs(measured.height - height) > 0.5
+						? [`${face} line box measured ${measured.height}px, expected ${height}px`]
+						: []),
+					...(Math.abs(measured.width - width) > ADVANCE_TOLERANCE_PX
+						? [`${face} advance width measured ${measured.width}px, expected ${width}px`]
+						: []),
+				];
+			});
+			if (wrong.length > 0) {
+				throw new Error(
+					"The measurement font pin did not engage - no advance-identical local() source resolved; install " +
+						`Arial/Courier New or their metric twins (fonts-liberation on bare Linux): ${wrong.join("; ")}`
+				);
+			}
+			console.log(`fonts: pinned for measurement (normal line box ${PINNED_CONTROL_PX}px at 100px font size)`);
+		}
 
 		for (const step of fixture.steps ?? []) {
 			await evaluate(cdp, step, true);
