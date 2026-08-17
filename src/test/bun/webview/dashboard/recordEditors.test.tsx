@@ -1391,9 +1391,8 @@ test("a directive row typed in the overlay absorbs only on blur, never mid-edit 
 });
 
 test("removing an overlay row voids the focus hold instead of pinning the row that shifts into its slot", () => {
-	// Rows inside the overlay are positional: removing top_p slides the absorbed _force row into the held index.
-	// The hold is stamped with the row-count shape, so the structural change voids it (a removed element fires
-	// no focusout).
+	// The hold names the removed row's stable id (a removed element fires no focusout), so after removing top_p
+	// the absorbed _force row that slides into its place carries a different id and is never pinned.
 	const root = mount(<App />);
 	pushToWebview(
 		statePush(
