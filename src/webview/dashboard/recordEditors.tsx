@@ -1,4 +1,5 @@
 import * as l10n from "@vscode/l10n";
+import { cva } from "class-variance-authority";
 import type { FocusEvent, KeyboardEvent, ReactNode } from "react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { settingScopeLabel } from "../../dashboard/presenters";
@@ -65,6 +66,7 @@ import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
 import { cn } from "./ui/cn";
 import { Input } from "./ui/input";
+import { watchPopoverFlip } from "./ui/popoverFlip";
 import { Reveal } from "./ui/reveal";
 import { Select } from "./ui/select";
 import { sendRequest } from "./vscodeApi";
@@ -1716,6 +1718,54 @@ function candidateProblem(
 const POPOVER_GAP_PX = 4;
 
 /**
+ * The field chip's states as one variant table (ui/button.tsx's idiom), so the
+ * precedence between them is declaration order rather than call-site prose:
+ * cn resolves conflicts last-wins, and `mark` is declared after `open` because
+ * reversed, the open chip's border-border swallowed the invalid border. No
+ * forced-colors border suppression, deliberately: a FILLED chip's fill is
+ * exactly what forced colours flatten into the page, so the repainted
+ * transparent border is the only thing keeping "two chips" from reading as one
+ * run of words.
+ */
+const chipVariants = cva(
+	"chip-field inline-flex flex-wrap items-baseline gap-1.5 rounded-sm border border-transparent bg-chip px-1 font-mono text-[12px] text-muted-foreground",
+	{
+		variants: {
+			// Filled at rest - the frame makes these a bounded region and the fill
+			// is what says "these are the fields"; the hairline and the input fill
+			// still arrive with the pointer or with focus, which is the moment the
+			// row has to prove it is editable.
+			editable: {
+				true: "cursor-pointer group-hover/row:border-border group-hover/row:bg-input-background group-focus-within/row:border-border group-focus-within/row:bg-input-background hover:text-foreground focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid",
+				false: "",
+			},
+			catalog: {
+				true: "chip-catalog",
+				false: "",
+			},
+			open: {
+				true: "border-border bg-input-background text-foreground",
+				false: "",
+			},
+			// One mark at a time, worst first (the parsers emit problem XOR hint;
+			// the exclusivity is this variant's shape). The mark restates the row's
+			// hover/focus-within reveal variants - separate merge groups the plain
+			// utility cannot beat, which repainted the mark grey when the pointer
+			// arrived. The border IS the whole mark - the child spans re-colour
+			// every glyph, so no text tint would paint. Invalid takes the fill
+			// tier, not --input-invalid: a 1px hairline is a graphical mark needing
+			// 3:1, and the host's validation border measures 1.33:1 on the dark
+			// chip fill.
+			mark: {
+				none: "",
+				hint: "hinted border-warn group-hover/row:border-warn group-focus-within/row:border-warn",
+				invalid: "invalid border-err-fill group-hover/row:border-err-fill group-focus-within/row:border-err-fill",
+			},
+		},
+	}
+);
+
+/**
  * The chip popovers' shared shell: anchored under its chip, focus moved in on open and
  * returned on close, Escape and outside presses closing. Escape stops propagating so a
  * popover inside an overlay closes only itself; it flips above rather than hang past
@@ -1736,49 +1786,16 @@ function PopoverShell({
 	const ref = useRef<HTMLDivElement>(null);
 	const closeRef = useRef(onClose);
 	closeRef.current = onClose;
-	// Flip decided by measurement, not at click time: the height is unknown until render,
-	// and both it and the room under it change while open - a popover that opened on-screen
-	// can end up over the edge.
+	// Flip decided by measurement (ui/popoverFlip.ts), not at click time: the height is
+	// unknown until render, and both it and the room under it change while open - a
+	// popover that opened on-screen can end up over the edge.
 	const [above, setAbove] = useState(false);
 	useLayoutEffect(() => {
 		const popover = ref.current;
 		if (popover === null) {
 			return;
 		}
-		const measure = () => {
-			// The box the CSS positions against; flipping moves the popover to exactly this box's
-			// top edge. Read per measurement: under happy-dom there is no offsetParent, which is a
-			// reason to measure nothing, not to stop watching.
-			const host = popover.offsetParent;
-			if (!(host instanceof HTMLElement)) {
-				return;
-			}
-			const hostRect = host.getBoundingClientRect();
-			const rect = popover.getBoundingClientRect();
-			// Where it WOULD end up hanging below, not where it sits now: a
-			// flipped popover no longer overflows, so measuring its current
-			// bottom would clear the flip the instant it worked and leave the
-			// popover flicking over the edge and back on every change.
-			const bottomIfBelow = hostRect.bottom + POPOVER_GAP_PX + rect.height;
-			// And only when there is more room the other way: flipping
-			// something that overflows both edges just moves the clipped part.
-			setAbove(bottomIfBelow > window.innerHeight && hostRect.top > window.innerHeight - hostRect.bottom);
-		};
-		measure();
-		// Three things move the popover relative to the edge and none of them
-		// implies the others: its own content resizing, the reader scrolling
-		// it down there (capture, because the server form's panel is its own
-		// scrollport and its scroll does not bubble), and the window resizing
-		// under all of it.
-		const observer = new ResizeObserver(measure);
-		observer.observe(popover);
-		window.addEventListener("scroll", measure, { capture: true, passive: true });
-		window.addEventListener("resize", measure, { passive: true });
-		return () => {
-			observer.disconnect();
-			window.removeEventListener("scroll", measure, { capture: true });
-			window.removeEventListener("resize", measure);
-		};
+		return watchPopoverFlip(popover, POPOVER_GAP_PX, setAbove);
 	}, []);
 	useEffect(() => {
 		const opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
@@ -2381,33 +2398,16 @@ export function RecordMatcherTable({
 								const problemId =
 									issue?.problem !== undefined ? `${tableId}-problem-${groupIndex}-${rowIndex}` : undefined;
 								const describedBy = [problemId, hintId].filter((id) => id !== undefined).join(" ") || undefined;
-								// No forced-colors border suppression, deliberately: a FILLED chip's fill is exactly
-								// what forced colours flatten into the page, so the repainted transparent border is the
-								// only thing keeping "two chips" from reading as one run of words.
+								// The chip's states resolve through chipVariants (the module's one
+								// table); worst mark first, so the exclusivity between the two marks
+								// is the variant's shape rather than merge order.
 								const chipClass = cn(
-									"chip-field inline-flex flex-wrap items-baseline gap-1.5 rounded-sm border border-transparent bg-chip px-1 font-mono text-[12px] text-muted-foreground",
-									// Filled at rest - the frame makes these a bounded region
-									// and the fill is what says "these are the fields"; the
-									// hairline and the input fill still arrive with the
-									// pointer or with focus, which is the moment the row has
-									// to prove it is editable.
-									editable &&
-										"cursor-pointer group-hover/row:border-border group-hover/row:bg-input-background group-focus-within/row:border-border group-focus-within/row:bg-input-background hover:text-foreground focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid",
-									catalog && "chip-catalog",
-									openHere && "border-border bg-input-background text-foreground",
-									// The marks come AFTER the open state: cn resolves conflicts last-wins, and reversed,
-									// the open chip's border-border swallowed the invalid border. They also restate the
-									// row's hover/focus-within reveal variants - separate merge groups the plain utility
-									// cannot beat, which repainted the mark grey when the pointer arrived.
-									issue?.hint !== undefined &&
-										"hinted border-warn group-hover/row:border-warn group-focus-within/row:border-warn",
-									// The border IS the whole mark - the child spans re-colour
-									// every glyph, so no text tint would paint. The fill tier,
-									// not --input-invalid: a 1px hairline is a graphical mark
-									// needing 3:1, and the host's validation border measures
-									// 1.33:1 on the dark chip fill.
-									issue?.problem !== undefined &&
-										"invalid border-err-fill group-hover/row:border-err-fill group-focus-within/row:border-err-fill"
+									chipVariants({
+										editable,
+										catalog,
+										open: openHere,
+										mark: issue?.problem !== undefined ? "invalid" : issue?.hint !== undefined ? "hint" : "none",
+									})
 								);
 								const body = (
 									<>
