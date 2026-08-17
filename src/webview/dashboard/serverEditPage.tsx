@@ -75,6 +75,7 @@ import { Checkbox } from "./ui/checkbox";
 import { cn } from "./ui/cn";
 import { Input } from "./ui/input";
 import { Radio } from "./ui/radio";
+import { SecretInput } from "./ui/secretInput";
 import { SectionHeader } from "./ui/section";
 import { Select } from "./ui/select";
 import { sendRequest } from "./vscodeApi";
@@ -556,32 +557,11 @@ function TextField({
 }
 
 /**
- * React mirrors a controlled input's value into the value ATTRIBUTE (and rewrites it after
- * every input event), which would put a secret's plaintext into every DOM serialization.
- * This mount ref makes the mirror inert for the node's lifetime: value property rewritten
- * first (so an untouched field cannot blank), attribute removed, defaultValue shadowed by
- * a no-op. The secret then lives only in the value property - the one residence the tests
- * permit.
- */
-function disarmValueAttributeMirror(node: HTMLInputElement | null): void {
-	if (node === null) {
-		return;
-	}
-	const current = node.value;
-	node.value = current;
-	node.removeAttribute("value");
-	Object.defineProperty(node, "defaultValue", {
-		configurable: true,
-		get: () => "",
-		set: () => undefined,
-	});
-}
-
-/**
  * One secret field: a password input plus the per-field storage choice. Secure-side values
  * never reach this page; an inline value prefills masked (settings.json already shows it).
  * Empty input or unedited prefill keeps the stored value. Invariant: the page's ONLY
- * secret-bearing input - the disarm above keeps the value out of the serialized DOM.
+ * secret-bearing input - the uncontrolled SecretInput keeps the value out of the
+ * serialized DOM (no controlled mirror, so no value attribute to leak).
  */
 function SecretField({ field, help, props }: { field: SecretFieldId; help?: string; props: FieldRenderProps }) {
 	const value = props.draft[field];
@@ -632,9 +612,8 @@ function SecretField({ field, help, props }: { field: SecretFieldId; help?: stri
 				errorId={errorId}
 			>
 				<span className="secret-input relative flex min-w-0 flex-1 items-center">
-					<Input
+					<SecretInput
 						id={id}
-						ref={disarmValueAttributeMirror}
 						// The reveal button is absolutely positioned over the field's
 						// right edge; the padding keeps the value clear of it.
 						className="min-w-0 flex-1 pr-13"
@@ -643,7 +622,7 @@ function SecretField({ field, help, props }: { field: SecretFieldId; help?: stri
 						disabled={props.disabled || value.clear}
 						aria-invalid={showProblem}
 						aria-describedby={errorId}
-						onChange={(event) => patchSecret({ value: event.currentTarget.value })}
+						onValueChange={(next) => patchSecret({ value: next })}
 						onBlur={() => props.touch(field)}
 					/>
 					<Button

@@ -17,6 +17,28 @@ import type { SecretFieldId, SecretLocation } from "../../../shared/serverEntry"
 type DeclaredServer = Extract<DashboardServer, { origin: "declared" }>;
 type ExternalServer = Extract<DashboardServer, { origin: "external" }>;
 
+/** The state cluster's keys: the fields that must move together when an override changes `state`. */
+type ServerStateKey =
+	| "state"
+	| "error"
+	| "errorEnglish"
+	| "classification"
+	| "expected"
+	| "declaredModelCount"
+	| "modelInfoUnsupported";
+
+/**
+ * Per-variant overrides for a builder whose base sits in the "ok" cluster: row fields override
+ * freely, but the state cluster rides its variant's own shape - `state: "error"` without its
+ * `error` fails to typecheck, and an "ok" override cannot smuggle error-only companions.
+ */
+type ServerOverrides<V extends DashboardServer> = Partial<Omit<V, ServerStateKey>> &
+	(
+		| Partial<Pick<Extract<V, { state: "ok" }>, ServerStateKey>>
+		| Pick<Extract<V, { state: "error" }>, ServerStateKey>
+		| Pick<Extract<V, { state: "unchecked" }>, ServerStateKey>
+	);
+
 export function makeSettings(overrides: Partial<DashboardSettings> = {}): DashboardSettings {
 	return {
 		numbers: {
@@ -119,9 +141,9 @@ const NO_SECRETS: Readonly<Record<SecretFieldId, SecretLocation>> = {
 	virtualKeyValue: "none",
 };
 
-export function makeDeclaredServer(overrides: Partial<DeclaredServer> = {}): DeclaredServer {
-	// Only the merge is cast: spreading a Partial over the state/error discriminated union is beyond the checker.
-	// The base literal stays typed, so a drifted or renamed required field fails compilation here.
+export function makeDeclaredServer(overrides: ServerOverrides<DeclaredServer> = {}): DeclaredServer {
+	// Only the merge is cast: the checker cannot prove a spread lands on one union member. The
+	// override TYPE is per-variant, so an incoherent state cluster fails at the call site.
 	const base: DeclaredServer = {
 		origin: "declared",
 		label: "Prod",
@@ -138,7 +160,7 @@ export function makeDeclaredServer(overrides: Partial<DeclaredServer> = {}): Dec
 /** A declared server whose secret fields live in the given locations. */
 export function declaredWithSecrets(
 	secrets: Partial<Record<SecretFieldId, SecretLocation>>,
-	overrides: Partial<DeclaredServer> = {}
+	overrides: ServerOverrides<DeclaredServer> = {}
 ): DeclaredServer {
 	return makeDeclaredServer({
 		hasApiKey: true,
@@ -147,7 +169,7 @@ export function declaredWithSecrets(
 	});
 }
 
-export function makeExternalServer(overrides: Partial<ExternalServer> = {}): ExternalServer {
+export function makeExternalServer(overrides: ServerOverrides<ExternalServer> = {}): ExternalServer {
 	const base: ExternalServer = {
 		origin: "external",
 		label: "Copilot",
@@ -224,8 +246,18 @@ export function poisonedStatePush(sentinel: string): ExtensionToWebviewMessage {
 
 type MisconfiguredServer = Extract<DashboardServer, { origin: "misconfigured" }>;
 
+/**
+ * A misconfigured row's overrides, base cluster "error": no "unchecked" arm, because the
+ * base's `error` would survive the spread and the unchecked variant forbids carrying one.
+ */
+type MisconfiguredOverrides = Partial<Omit<MisconfiguredServer, ServerStateKey>> &
+	(
+		| Partial<Pick<Extract<MisconfiguredServer, { state: "error" }>, ServerStateKey>>
+		| Pick<Extract<MisconfiguredServer, { state: "ok" }>, ServerStateKey>
+	);
+
 /** A servers-setting entry the parser refused: present in the setting, never synced or served. */
-export function makeMisconfiguredServer(overrides: Partial<MisconfiguredServer> = {}): MisconfiguredServer {
+export function makeMisconfiguredServer(overrides: MisconfiguredOverrides = {}): MisconfiguredServer {
 	const base: MisconfiguredServer = {
 		origin: "misconfigured",
 		label: "Broken",

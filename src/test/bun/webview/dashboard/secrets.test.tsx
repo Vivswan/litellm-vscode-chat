@@ -438,10 +438,10 @@ test("relocating an untouched prefill to secure storage posts set with the prefi
 	expectNowhere(SENTINEL);
 });
 
-test("the disarmed secret input still round-trips typing, paste, and emptying through controlled state", () => {
-	// The value-attribute disarm is DOM surgery against React's controlled-input
-	// machinery (dirty the property, drop the mounted attribute, shadow
-	// defaultValue), so every entry mode needs proof it still round-trips.
+test("the uncontrolled secret input still round-trips typing, paste, and emptying through the draft state", () => {
+	// The secret input is uncontrolled (React never holds the value, so it has
+	// nothing to mirror into the attribute), while Save posts the DRAFT - so
+	// every entry mode needs proof the draft tracks the node.
 	const root = mount(<App />);
 	const server = declaredWithSecrets({ apiKey: "settings" });
 	pushToWebview(statePush(makeState({ servers: [server] })));
@@ -459,8 +459,8 @@ test("the disarmed secret input still round-trips typing, paste, and emptying th
 	};
 	expectValue(SENTINEL);
 
-	// Keystroke-shaped entry: incremental values through the controlled loop,
-	// each commit re-attempting the mirror the disarm must keep inert.
+	// Keystroke-shaped entry: incremental values through the draft loop, each
+	// commit re-rendering the field the sync effect must leave untouched.
 	fireInput(input, "sk-a");
 	expectValue("sk-a");
 	fireInput(input, "sk-ab");
@@ -472,12 +472,12 @@ test("the disarmed secret input still round-trips typing, paste, and emptying th
 	expectValue(TYPED);
 	expectOnlyInApiKeyInput(TYPED);
 
-	// Emptying stays controlled too (an emptied prefill keeps the stored value).
+	// Emptying reaches the draft too (an emptied prefill keeps the stored value).
 	fireInput(input, "");
 	expectValue("");
 	expectNowhere(SENTINEL, TYPED);
 
-	// The controlled state is what posts: re-enter a value and save it.
+	// The draft state is what posts: re-enter a value and save it.
 	fireInput(input, TYPED);
 	resetPosted();
 	fireClick(buttonByText(page(root), "Save"));
