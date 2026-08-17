@@ -1,5 +1,6 @@
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
+import { newParamRow } from "../../../dashboard/recordDraft";
 import type {
 	SecretFieldDraft,
 	ServerFormDraft,
@@ -326,7 +327,7 @@ describe("dashboard/serverForm", () => {
 	describe("per-entry model parameters", () => {
 		test("blocked rows surface on the field slot and row-aligned, like the global editor renders them", () => {
 			const parse = parseServerForm(
-				draft({ modelParameters: [{ prefix: "gpt-4", params: [{ key: "temperature", valueText: "not json" }] }] })
+				draft({ modelParameters: [{ prefix: "gpt-4", params: [newParamRow("temperature", "not json")] }] })
 			);
 			assert.ok(!parse.ok);
 			assert.notStrictEqual(parse.problems.modelParameters, undefined, "the save summary can point at the field");
@@ -336,7 +337,7 @@ describe("dashboard/serverForm", () => {
 
 		test("a draft blocked by another field carries no row problems for clean parameter rows", () => {
 			const parse = parseServerForm(
-				draft({ label: "", modelParameters: [{ prefix: "gpt-4", params: [{ key: "top_p", valueText: "0.9" }] }] })
+				draft({ label: "", modelParameters: [{ prefix: "gpt-4", params: [newParamRow("top_p", "0.9")] }] })
 			);
 			assert.ok(!parse.ok);
 			assert.strictEqual(parse.problems.modelParameters, undefined);
@@ -349,10 +350,7 @@ describe("dashboard/serverForm", () => {
 					modelParameters: [
 						{
 							prefix: "gpt-4",
-							params: [
-								{ key: "temperature", valueText: "0.2" },
-								{ key: "stop", valueText: '["END"]' },
-							],
+							params: [newParamRow("temperature", "0.2"), newParamRow("stop", '["END"]')],
 						},
 					],
 				})
@@ -366,7 +364,7 @@ describe("dashboard/serverForm", () => {
 		test("blocked capability rows surface on the field slot and row-aligned", () => {
 			const parse = parseServerForm(
 				draft({
-					modelCapabilities: [{ prefix: "gpt-4", params: [{ key: "context_length", valueText: "not a number" }] }],
+					modelCapabilities: [{ prefix: "gpt-4", params: [newParamRow("context_length", "not a number")] }],
 				})
 			);
 			assert.ok(!parse.ok);
@@ -377,7 +375,7 @@ describe("dashboard/serverForm", () => {
 		test("unknown-key hints ride a clean parse without blocking it, gated on the entry's observed evidence", () => {
 			// No evidence in the context: the hint stays suppressed.
 			const silent = parseServerForm(
-				draft({ modelCapabilities: [{ prefix: "gpt-4", params: [{ key: "supports_web_search", valueText: "true" }] }] })
+				draft({ modelCapabilities: [{ prefix: "gpt-4", params: [newParamRow("supports_web_search", "true")] }] })
 			);
 			assert.ok(silent.ok, "unknown keys never block");
 			assert.strictEqual(silent.modelCapabilityIssues[0]?.rows[0]?.hint, undefined, "no evidence, no hint");
@@ -386,7 +384,7 @@ describe("dashboard/serverForm", () => {
 			// Observed keys lacking the field: the hint rides the clean parse.
 			const hinted = parseServerForm(
 				draft({
-					modelCapabilities: [{ prefix: "gpt-4", params: [{ key: "supports_web_search", valueText: "true" }] }],
+					modelCapabilities: [{ prefix: "gpt-4", params: [newParamRow("supports_web_search", "true")] }],
 				}),
 				{ observedModelInfoKeys: ["litellm_provider", "mode"] }
 			);
@@ -396,7 +394,7 @@ describe("dashboard/serverForm", () => {
 			// Observed keys naming the field: an observed key is real, no hint.
 			const observed = parseServerForm(
 				draft({
-					modelCapabilities: [{ prefix: "gpt-4", params: [{ key: "supports_web_search", valueText: "true" }] }],
+					modelCapabilities: [{ prefix: "gpt-4", params: [newParamRow("supports_web_search", "true")] }],
 				}),
 				{ observedModelInfoKeys: ["supports_web_search"] }
 			);
@@ -411,10 +409,10 @@ describe("dashboard/serverForm", () => {
 						{
 							prefix: "my-model",
 							params: [
-								{ key: "context_length", valueText: "128000" },
-								{ key: "supports_vision", valueText: "true" },
-								{ key: "_future", valueText: "true" },
-								{ key: "_openrouter_model", valueText: "openai/gpt-4o" },
+								newParamRow("context_length", "128000"),
+								newParamRow("supports_vision", "true"),
+								newParamRow("_future", "true"),
+								newParamRow("_openrouter_model", "openai/gpt-4o"),
 							],
 						},
 					],
@@ -529,7 +527,7 @@ describe("dashboard/serverForm", () => {
 		test("label and model-parameter problems never gate a probe; the real label still rides the intent", () => {
 			// An empty label plus a broken parameter row block Save but not Test.
 			const parse = parseServerFormForTest(
-				draft({ label: "  ", modelParameters: [{ prefix: "", params: [{ key: "", valueText: "not json" }] }] })
+				draft({ label: "  ", modelParameters: [{ prefix: "", params: [newParamRow("", "not json")] }] })
 			);
 			assert.ok(parse.ok, "connection-clean drafts must parse");
 			assert.strictEqual(parse.intent.server.label, "");
@@ -599,7 +597,7 @@ describe("dashboard/serverForm", () => {
 		test("clean capability rows and expectedFailures ride the probe intent; broken rows are dropped, not blocking", () => {
 			const withCaps = parseServerFormForTest(
 				draft({
-					modelCapabilities: [{ prefix: "my-model", params: [{ key: "supports_vision", valueText: "true" }] }],
+					modelCapabilities: [{ prefix: "my-model", params: [newParamRow("supports_vision", "true")] }],
 					expectedFailures: ["modelListing"],
 				})
 			);
@@ -609,7 +607,7 @@ describe("dashboard/serverForm", () => {
 
 			const withBrokenCaps = parseServerFormForTest(
 				draft({
-					modelCapabilities: [{ prefix: "my-model", params: [{ key: "context_length", valueText: "not a number" }] }],
+					modelCapabilities: [{ prefix: "my-model", params: [newParamRow("context_length", "not a number")] }],
 					expectedFailures: ["modelInfo"],
 				})
 			);
@@ -673,7 +671,7 @@ describe("dashboard/serverForm", () => {
 			assert.deepStrictEqual(changedServerFormFields(draft(), draft()), []);
 			const rich = draft({
 				headers: [{ name: "x-env", valueText: "prod" }],
-				modelParameters: [{ prefix: "gpt-5*", params: [{ key: "temperature", valueText: "0.2" }] }],
+				modelParameters: [{ prefix: "gpt-5*", params: [newParamRow("temperature", "0.2")] }],
 				expectedFailures: ["modelInfo"],
 				apiVersion: apiVersionDraftOf("v2"),
 			});

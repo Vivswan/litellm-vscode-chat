@@ -5,6 +5,7 @@ import {
 	directiveEligible,
 	directiveMarkedFields,
 	matcherKind,
+	newParamRow,
 	parseCapabilityGroups,
 	parseCatalogIdText,
 	parseGroups,
@@ -41,13 +42,10 @@ describe("dashboard/recordDraft", () => {
 
 		test("empty and duplicate prefixes and parameter names are flagged", () => {
 			const groups = [
-				{ prefix: "", params: [{ key: "temperature", valueText: "0.2" }] },
+				{ prefix: "", params: [newParamRow("temperature", "0.2")] },
 				{
 					prefix: "gpt-4",
-					params: [
-						{ key: "a", valueText: "1" },
-						{ key: "a", valueText: "2" },
-					],
+					params: [newParamRow("a", "1"), newParamRow("a", "2")],
 				},
 				{ prefix: "gpt-4", params: [] },
 			];
@@ -62,10 +60,7 @@ describe("dashboard/recordDraft", () => {
 			const groups = [
 				{
 					prefix: "gpt-4",
-					params: [
-						{ key: "temperature", valueText: "0.2" },
-						{ key: "stop", valueText: "not json" },
-					],
+					params: [newParamRow("temperature", "0.2"), newParamRow("stop", "not json")],
 				},
 			];
 
@@ -75,7 +70,7 @@ describe("dashboard/recordDraft", () => {
 		});
 
 		test("prototype-polluting prefixes and parameter names are rejected with a visible message", () => {
-			const groups = [{ prefix: "__proto__", params: [{ key: "constructor", valueText: "1" }] }];
+			const groups = [{ prefix: "__proto__", params: [newParamRow("constructor", "1")] }];
 
 			const problems = parsedProblems(parseGroups(groups));
 			assert.ok(problems[0]?.prefix?.includes("reserved"));
@@ -83,7 +78,7 @@ describe("dashboard/recordDraft", () => {
 		});
 
 		test("hostile rows are refused without mutating a prototype", () => {
-			const parse = parseGroups([{ prefix: "__proto__", params: [{ key: "polluted", valueText: "true" }] }]);
+			const parse = parseGroups([{ prefix: "__proto__", params: [newParamRow("polluted", "true")] }]);
 
 			assert.strictEqual(parse.ok, false, "reserved names never assemble");
 			assert.strictEqual(({} as Record<string, unknown>).polluted, undefined, "Object.prototype stays clean");
@@ -91,7 +86,7 @@ describe("dashboard/recordDraft", () => {
 
 		test("keys and prefixes are trimmed on assembly, and the record's prototype is ordinary", () => {
 			const assembled = parsedValue(
-				parseGroups([{ prefix: " gpt-4 ", params: [{ key: " temperature ", valueText: "0.2" }] }])
+				parseGroups([{ prefix: " gpt-4 ", params: [newParamRow(" temperature ", "0.2")] }])
 			);
 
 			assert.deepStrictEqual(assembled, { "gpt-4": { temperature: 0.2 } });
@@ -102,7 +97,7 @@ describe("dashboard/recordDraft", () => {
 			const value = { "gpt-4": { temperature: 0.2, _force: ["temperature"] } };
 			assert.deepStrictEqual(parsedValue(parseGroups(toGroups(value))), value, "list form round-trips");
 			assert.deepStrictEqual(
-				parsedValue(parseGroups([{ prefix: "gpt-4", params: [{ key: "_force", valueText: "true" }] }])),
+				parsedValue(parseGroups([{ prefix: "gpt-4", params: [newParamRow("_force", "true")] }])),
 				{ "gpt-4": { _force: true } },
 				"a literal true assembles untouched"
 			);
@@ -111,10 +106,7 @@ describe("dashboard/recordDraft", () => {
 				parseGroups([
 					{
 						prefix: "gpt-4",
-						params: [
-							{ key: "_force", valueText: '"temperature"' },
-							{ key: "_other_underscore", valueText: '"kept"' },
-						],
+						params: [newParamRow("_force", '"temperature"'), newParamRow("_other_underscore", '"kept"')],
 					},
 				])
 			);
@@ -193,9 +185,9 @@ describe("dashboard/recordDraft", () => {
 				{
 					prefix: "gpt-4",
 					params: [
-						{ key: "context_length", valueText: "-5" },
-						{ key: "supports_vision", valueText: "yes" },
-						{ key: "_openrouter_model", valueText: "  " },
+						newParamRow("context_length", "-5"),
+						newParamRow("supports_vision", "yes"),
+						newParamRow("_openrouter_model", "  "),
 					],
 				},
 			]);
@@ -213,10 +205,7 @@ describe("dashboard/recordDraft", () => {
 			const parse = parseCapabilityGroups([
 				{
 					prefix: "gpt-4",
-					params: [
-						{ key: "supports_web_search", valueText: "true" },
-						{ key: "_future_directive", valueText: '"x"' },
-					],
+					params: [newParamRow("supports_web_search", "true"), newParamRow("_future_directive", '"x"')],
 				},
 			]);
 			assert.ok(parse.ok);
@@ -226,7 +215,7 @@ describe("dashboard/recordDraft", () => {
 		});
 
 		test("unknown-key hints mirror the host's advisory filter over the observed evidence", () => {
-			const groups = [{ prefix: "gpt-4", params: [{ key: "supports_web_search", valueText: "true" }] }];
+			const groups = [{ prefix: "gpt-4", params: [newParamRow("supports_web_search", "true")] }];
 			const hintOf = (recognizedKeys: ReadonlySet<string> | undefined) => {
 				const parse = parseCapabilityGroups(groups, recognizedKeys);
 				assert.ok(parse.ok);
@@ -242,7 +231,7 @@ describe("dashboard/recordDraft", () => {
 			// A consumed key parses typed, so it can never hint as unknown even
 			// when the evidence lacks it - the host filter's backstop, mirrored.
 			const consumed = parseCapabilityGroups(
-				[{ prefix: "gpt-4", params: [{ key: "supports_pdf_input", valueText: "true" }] }],
+				[{ prefix: "gpt-4", params: [newParamRow("supports_pdf_input", "true")] }],
 				new Set(["max_output_tokens"])
 			);
 			assert.ok(consumed.ok);
@@ -250,7 +239,7 @@ describe("dashboard/recordDraft", () => {
 			// Prototype-named open fields ride the same path without touching
 			// Object.prototype ("toString" is a legal /model/info key).
 			const proto = parseCapabilityGroups(
-				[{ prefix: "gpt-4", params: [{ key: "toString", valueText: "1" }] }],
+				[{ prefix: "gpt-4", params: [newParamRow("toString", "1")] }],
 				new Set(["toString"])
 			);
 			assert.ok(proto.ok);
@@ -262,12 +251,12 @@ describe("dashboard/recordDraft", () => {
 				{
 					prefix: "gpt-4",
 					params: [
-						{ key: "input_cost_per_token", valueText: "0" },
-						{ key: "output_cost_per_token", valueText: "0.000002" },
-						{ key: "cache_read_input_token_cost", valueText: "-1" },
-						{ key: "supports_prompt_caching", valueText: "1" },
-						{ key: "supported_openai_params", valueText: '["temperature", "top_p"]' },
-						{ key: "long_context_input_cost_per_token", valueText: '"free"' },
+						newParamRow("input_cost_per_token", "0"),
+						newParamRow("output_cost_per_token", "0.000002"),
+						newParamRow("cache_read_input_token_cost", "-1"),
+						newParamRow("supports_prompt_caching", "1"),
+						newParamRow("supported_openai_params", '["temperature", "top_p"]'),
+						newParamRow("long_context_input_cost_per_token", '"free"'),
 					],
 				},
 			]);
@@ -295,15 +284,15 @@ describe("dashboard/recordDraft", () => {
 			const parse = parseCapabilityGroups([
 				{
 					prefix: "a",
-					params: [{ key: "supported_openai_params", valueText: "[]" }],
+					params: [newParamRow("supported_openai_params", "[]")],
 				},
 				{
 					prefix: "b",
-					params: [{ key: "supported_openai_params", valueText: '[""]' }],
+					params: [newParamRow("supported_openai_params", '[""]')],
 				},
 				{
 					prefix: "c",
-					params: [{ key: "supported_openai_params", valueText: "[1]" }],
+					params: [newParamRow("supported_openai_params", "[1]")],
 				},
 			]);
 			assert.ok(parse.ok);
@@ -317,10 +306,10 @@ describe("dashboard/recordDraft", () => {
 				{
 					prefix: "gpt-4",
 					params: [
-						{ key: "", valueText: "1" },
-						{ key: "__proto__", valueText: "1" },
-						{ key: "context_length", valueText: "1" },
-						{ key: "context_length", valueText: "2" },
+						newParamRow("", "1"),
+						newParamRow("__proto__", "1"),
+						newParamRow("context_length", "1"),
+						newParamRow("context_length", "2"),
 					],
 				},
 				{ prefix: "", params: [] },
@@ -347,7 +336,7 @@ describe("dashboard/recordDraft", () => {
 			};
 			assert.deepStrictEqual(capsValue(parseCapabilityGroups(toCapabilityGroups(value))), value);
 
-			const blocked = parseCapabilityGroups([{ prefix: "gpt-4", params: [{ key: "_fallback", valueText: "128000" }] }]);
+			const blocked = parseCapabilityGroups([{ prefix: "gpt-4", params: [newParamRow("_fallback", "128000")] }]);
 			assert.strictEqual(blocked.ok, false);
 			assert.strictEqual(blocked.issues[0]?.rows[0]?.problem?.field, "value");
 			assert.ok(
@@ -360,10 +349,7 @@ describe("dashboard/recordDraft", () => {
 			const unknown = parseCapabilityGroups([
 				{
 					prefix: "gpt-4",
-					params: [
-						{ key: "context_length", valueText: "128000" },
-						{ key: "_fallback", valueText: '["max_output_tokens"]' },
-					],
+					params: [newParamRow("context_length", "128000"), newParamRow("_fallback", '["max_output_tokens"]')],
 				},
 			]);
 			assert.ok(unknown.ok);
@@ -376,34 +362,54 @@ describe("dashboard/recordDraft", () => {
 			const openField = parseCapabilityGroups([
 				{
 					prefix: "gpt-4",
-					params: [
-						{ key: "supports_web_search", valueText: "true" },
-						{ key: "_fallback", valueText: '["supports_web_search"]' },
-					],
+					params: [newParamRow("supports_web_search", "true"), newParamRow("_fallback", '["supports_web_search"]')],
 				},
 			]);
 			assert.ok(openField.ok);
 			assert.strictEqual(openField.issues[0]?.rows[1]?.hint, undefined, "open fields are fallback-eligible");
 		});
 
-		test("directive eligibility is key-shaped: an invalid consumed VALUE does not strand its row's marks", () => {
-			// Deliberate divergence from the resolver: it drops an invalid-valued
-			// consumed field from its kept set, but the editor keeps eligibility
-			// key-shaped - the value row already hints, and value-aware
-			// eligibility would churn the checkboxes per keystroke.
+		test("an invalid consumed VALUE strands the marks naming it, exactly as the resolver reads them", () => {
+			// The resolver drops an invalid-valued consumed field from its kept
+			// set, so a _fallback or _inheritable mark naming it is diagnosed and
+			// ignored there - the parse's hints say so BEFORE the save, from the
+			// same row verdicts. Checkbox ELIGIBILITY stays key-shaped: the box
+			// still renders, only the hint is value-aware.
 			const parse = parseCapabilityGroups([
 				{
 					prefix: "gpt-4",
 					params: [
-						{ key: "input_cost_per_token", valueText: '"free"' },
-						{ key: "_fallback", valueText: '["input_cost_per_token"]' },
+						newParamRow("input_cost_per_token", '"free"'),
+						newParamRow("_fallback", '["input_cost_per_token"]'),
+						newParamRow("_inheritable", '["input_cost_per_token"]'),
 					],
 				},
 			]);
 			assert.ok(parse.ok);
 			assert.notStrictEqual(parse.issues[0]?.rows[0]?.hint, undefined, "the invalid value carries its own hint");
-			assert.strictEqual(parse.issues[0]?.rows[1]?.hint, undefined, "the _fallback row does not double-flag it");
+			assert.ok(
+				parse.issues[0]?.rows[1]?.hint?.includes("input_cost_per_token"),
+				"the fallback mark names its stranded target"
+			);
+			assert.ok(
+				parse.issues[0]?.rows[2]?.hint?.includes("input_cost_per_token"),
+				"the inheritable mark names its stranded target"
+			);
 			assert.ok(directiveEligible("_fallback", "input_cost_per_token"), "eligibility never reads the value");
+			// A VALID value keeps both marks quiet: set-by-verdict, not by key text.
+			const valid = parseCapabilityGroups([
+				{
+					prefix: "gpt-4",
+					params: [
+						newParamRow("input_cost_per_token", "0.000002"),
+						newParamRow("_fallback", '["input_cost_per_token"]'),
+						newParamRow("_inheritable", '["input_cost_per_token"]'),
+					],
+				},
+			]);
+			assert.ok(valid.ok);
+			assert.strictEqual(valid.issues[0]?.rows[1]?.hint, undefined);
+			assert.strictEqual(valid.issues[0]?.rows[2]?.hint, undefined);
 		});
 	});
 
@@ -439,7 +445,7 @@ describe("dashboard/recordDraft", () => {
 		test("marked fields read from the row: absent, false, and unreadable rows mark nothing", () => {
 			const rows = (valueText: string) => ({
 				prefix: "gpt-4",
-				params: [{ key: "temperature", valueText: "0.2" }, ...(valueText === "" ? [] : [{ key: "_force", valueText }])],
+				params: [newParamRow("temperature", "0.2"), ...(valueText === "" ? [] : [newParamRow("_force", valueText)])],
 			});
 			assert.deepStrictEqual([...directiveMarkedFields(rows(""), "_force")], []);
 			assert.deepStrictEqual([...directiveMarkedFields(rows("false"), "_force")], []);
@@ -457,29 +463,29 @@ describe("dashboard/recordDraft", () => {
 			const group = {
 				prefix: "gpt-4",
 				params: [
-					{ key: "context_length", valueText: "128000" },
-					{ key: "_openrouter_model", valueText: "openai/gpt-4o" },
-					{ key: "_fallback", valueText: "true" },
+					newParamRow("context_length", "128000"),
+					newParamRow("_openrouter_model", "openai/gpt-4o"),
+					newParamRow("_fallback", "true"),
 				],
 			};
 			assert.deepStrictEqual([...directiveMarkedFields(group, "_fallback")], ["context_length"]);
 
 			const params = {
 				prefix: "gpt-4",
-				params: [
-					{ key: "temperature", valueText: "0.2" },
-					{ key: "model", valueText: '"x"' },
-					{ key: "_force", valueText: "true" },
-				],
+				params: [newParamRow("temperature", "0.2"), newParamRow("model", '"x"'), newParamRow("_force", "true")],
 			};
 			assert.deepStrictEqual([...directiveMarkedFields(params, "_force")], ["temperature"]);
 		});
 
 		test("toggling writes the explicit list, appends the row when absent, and drops it on the last unmark", () => {
-			const bare = { prefix: "gpt-4", params: [{ key: "temperature", valueText: "0.2" }] };
+			const bare = { prefix: "gpt-4", params: [newParamRow("temperature", "0.2")] };
 
 			const marked = toggleDirectiveField(bare, "_force", "temperature", true);
-			assert.deepStrictEqual(marked.params[1], { key: "_force", valueText: '["temperature"]' });
+			const forceRow = marked.params[1];
+			assert.deepStrictEqual(
+				{ key: forceRow?.key, valueText: forceRow?.valueText },
+				{ key: "_force", valueText: '["temperature"]' }
+			);
 
 			const unmarked = toggleDirectiveField(marked, "_force", "temperature", false);
 			assert.deepStrictEqual(unmarked.params, bare.params, "the last unmark removes the directive row");
@@ -491,9 +497,9 @@ describe("dashboard/recordDraft", () => {
 			const group = {
 				prefix: "gpt-4",
 				params: [
-					{ key: "context_length", valueText: "128000" },
-					{ key: "max_output_tokens", valueText: "8192" },
-					{ key: "_fallback", valueText: "true" },
+					newParamRow("context_length", "128000"),
+					newParamRow("max_output_tokens", "8192"),
+					newParamRow("_fallback", "true"),
 				],
 			};
 			const toggled = toggleDirectiveField(group, "_fallback", "max_output_tokens", false);
@@ -501,10 +507,7 @@ describe("dashboard/recordDraft", () => {
 
 			const withUnknown = {
 				prefix: "gpt-4",
-				params: [
-					{ key: "temperature", valueText: "0.2" },
-					{ key: "_force", valueText: '["typo_entry"]' },
-				],
+				params: [newParamRow("temperature", "0.2"), newParamRow("_force", '["typo_entry"]')],
 			};
 			const kept = toggleDirectiveField(withUnknown, "_force", "temperature", true);
 			assert.strictEqual(
@@ -515,7 +518,7 @@ describe("dashboard/recordDraft", () => {
 		});
 
 		test("toggle output round-trips through the parse and the marks it reads back", () => {
-			const group = { prefix: "gpt-4", params: [{ key: "context_length", valueText: "128000" }] };
+			const group = { prefix: "gpt-4", params: [newParamRow("context_length", "128000")] };
 			const marked = toggleDirectiveField(group, "_fallback", "context_length", true);
 			const parse = parseCapabilityGroups([marked]);
 			assert.ok(parse.ok, "the rewritten row parses clean");

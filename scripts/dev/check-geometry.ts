@@ -770,6 +770,43 @@ const STATE_PAIRS: readonly StatePair[] = [
 			".chip-popover .chip-popover-actions": ["width"],
 		},
 	},
+	{
+		// The record grid's key track is a fixed range in the stylesheet, so TYPING a
+		// key - focus still in the input, no blur - must not re-solve the tracks: the
+		// first row's value cell, the grid, and the footer hold while a name far past
+		// the 24ch cap goes in. This is the no-reflow property the deleted JS
+		// key-track freeze used to approximate; the setup adds a fresh row so the
+		// typing strands no directive mark (a hint would legitimately fill a status
+		// line elsewhere).
+		name: "record-overlay-key-typing",
+		fixture: "record-overlay.ts",
+		setup: [
+			`(() => {
+				const add = [...document.querySelectorAll(".matcher-editor button")]
+					.find((b) => b.textContent.trim() === "Add parameter");
+				if (add === undefined) { throw new Error(${marker("SETUP", ": no Add parameter action in the overlay")}); }
+				add.click();
+			})()`,
+		],
+		targets: [".matcher-editor .rows", ".matcher-editor .rows > .row .cell.value", ".matcher-editor .editor-footer"],
+		siblingOf: ".matcher-editor .rows",
+		toggle: [
+			`(() => {
+				const inputs = [...document.querySelectorAll(".matcher-editor .rows input.key")];
+				const input = inputs[inputs.length - 1];
+				if (input === undefined) { throw new Error(${marker("SETUP", ": no key input in the overlay grid")}); }
+				const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+				input.focus({ preventScroll: true });
+				setter.call(input, "a_much_longer_parameter_name_than_any_track_should_chase");
+				input.dispatchEvent(new Event("input", { bubbles: true }));
+			})()`,
+		],
+		restVerify: `[...document.querySelectorAll(".matcher-editor .rows input.key")].at(-1)?.value === ""`,
+		verify:
+			`[...document.querySelectorAll(".matcher-editor .rows input.key")].at(-1)?.value === ` +
+			`"a_much_longer_parameter_name_than_any_track_should_chase" && ` +
+			`document.activeElement === [...document.querySelectorAll(".matcher-editor .rows input.key")].at(-1)`,
+	},
 ];
 
 interface WidthSurface {

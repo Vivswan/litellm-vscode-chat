@@ -6,6 +6,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act } from "react";
 import type { PrefixGroup } from "../../../../dashboard/recordDraft";
+import { newParamRow } from "../../../../dashboard/recordDraft";
 import { RecordMatcherEditorOverlay } from "../../../../webview/dashboard/recordEditors";
 import { cleanup, fireInput, mount, render, resetPosted } from "../harness";
 
@@ -29,7 +30,7 @@ function Harness({ groups, onChange }: { groups: readonly PrefixGroup[]; onChang
 
 describe("InheritFromControl keys mode", () => {
 	test("entering keys mode writes nothing; the first typed key writes the list; emptying drops the row", () => {
-		let groups: PrefixGroup[] = [{ prefix: "gpt-5.6", params: [{ key: "temperature", valueText: "0.3" }] }];
+		let groups: PrefixGroup[] = [{ prefix: "gpt-5.6", params: [newParamRow("temperature", "0.3")] }];
 		const writes: PrefixGroup[][] = [];
 		const onChange = (next: PrefixGroup[]) => {
 			writes.push(next);
@@ -76,10 +77,7 @@ describe("InheritFromControl keys mode", () => {
 		let groups: PrefixGroup[] = [
 			{
 				prefix: "gpt-5.6",
-				params: [
-					{ key: "temperature", valueText: "0.3" },
-					{ key: "_inherit_from", valueText: '["gpt-5*"]' },
-				],
+				params: [newParamRow("temperature", "0.3"), newParamRow("_inherit_from", '["gpt-5*"]')],
 			},
 		];
 		const onChange = (next: PrefixGroup[]) => {

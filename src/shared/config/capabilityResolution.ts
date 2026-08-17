@@ -14,7 +14,7 @@
 
 import type { ModelRecordMap } from "./modelMatcher";
 import type { ParsedRecord, RecordChainResolution, RecordDiagnostic, RecordLayer } from "./recordResolution";
-import { lintRecordMap, parseSharedDirectives, resolveRecordChain } from "./recordResolution";
+import { INHERITABLE_DIRECTIVE, lintRecordMap, parseSharedDirectives, resolveRecordChain } from "./recordResolution";
 
 /**
  * The registration-typed core, keyed by wire name (aligned with /model/info),
@@ -159,11 +159,29 @@ export interface ParsedCapabilityRecord extends ParsedRecord {
  * fields, and every dynamic read downstream is hasOwn-guarded).
  */
 export function parseCapabilityRecord(record: Readonly<Record<string, unknown>>): ParsedCapabilityRecord {
+	// Field keys are TRIMMED at this parse boundary, matching the editor, which
+	// judges and saves keys trimmed: a hand-padded key in settings.json means
+	// the same field on every surface instead of a padded open field the editor
+	// would silently rewrite on the next Apply. A trim collision resolves by
+	// the record's object key order, the later spelling winning. The rule is
+	// whole: the field-naming directives' list entries (`_fallback`,
+	// `_inheritable`) trim too, so a padded entry still names its trimmed
+	// field - `_inherit_from` entries stay raw, because they name MATCHER keys
+	// and the matcher grammar trims nothing. Null-prototyped so a trimmed
+	// "__proto__" defines an own key instead of walking the chain.
+	const normalized: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+	for (const [rawKey, rawValue] of Object.entries(record)) {
+		const key = rawKey.trim();
+		normalized[key] =
+			(key === FALLBACK_DIRECTIVE || key === INHERITABLE_DIRECTIVE) && Array.isArray(rawValue)
+				? rawValue.map((entry) => (typeof entry === "string" ? entry.trim() : entry))
+				: rawValue;
+	}
 	const fields: Record<string, CapabilityJsonValue> = {};
 	let openrouterModel: string | undefined;
 	const diagnostics: Omit<RecordDiagnostic, "recordKey">[] = [];
 
-	for (const [key, value] of Object.entries(record)) {
+	for (const [key, value] of Object.entries(normalized)) {
 		if (key === OPENROUTER_MODEL_DIRECTIVE) {
 			if (typeof value === "string" && value.trim() !== "") {
 				openrouterModel = value;
@@ -198,8 +216,8 @@ export function parseCapabilityRecord(record: Readonly<Record<string, unknown>>)
 	}
 
 	const fallback = new Set<string>();
-	if (Object.hasOwn(record, FALLBACK_DIRECTIVE)) {
-		const directive = record[FALLBACK_DIRECTIVE];
+	if (Object.hasOwn(normalized, FALLBACK_DIRECTIVE)) {
+		const directive = normalized[FALLBACK_DIRECTIVE];
 		if (directive === true) {
 			for (const name of Object.keys(fields)) {
 				fallback.add(name);
@@ -217,7 +235,7 @@ export function parseCapabilityRecord(record: Readonly<Record<string, unknown>>)
 		}
 	}
 
-	const shared = parseSharedDirectives(record, fields);
+	const shared = parseSharedDirectives(normalized, fields);
 	diagnostics.push(...shared.diagnostics);
 
 	return {

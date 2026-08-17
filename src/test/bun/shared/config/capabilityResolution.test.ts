@@ -99,6 +99,44 @@ describe("shared/config capabilityResolution parseCapabilityRecord", () => {
 		);
 	});
 
+	test("field keys are judged trimmed, the editor's own normalization: padded keys mean the same field", () => {
+		// One trim rule on both sides of the seam: the editor judges and saves
+		// keys trimmed, and this parse boundary reads stored records the same
+		// way, so a hand-padded settings.json key is a typed consumed field (or
+		// a padded directive is a directive) everywhere instead of a padded open
+		// field until the next Apply rewrote it.
+		const parsed = parseCapabilityRecord({
+			" context_length ": 128000,
+			"supports_vision\t": true,
+			" _fallback": ["context_length"],
+			" _inheritable ": true,
+			" _openrouter_model": "openai/gpt-4o",
+		});
+		assert.deepStrictEqual(parsed.fields, { context_length: 128000, supports_vision: true });
+		assert.deepStrictEqual([...parsed.fallback], ["context_length"]);
+		assert.deepStrictEqual([...parsed.inheritable].sort(), ["context_length", "supports_vision"]);
+		assert.strictEqual(parsed.openrouterModel, "openai/gpt-4o");
+		assert.deepStrictEqual(parsed.diagnostics, []);
+		// The field-naming directives' LIST ENTRIES trim at the same boundary, so
+		// a padded entry still names its trimmed field instead of reading as an
+		// invalid directive.
+		const paddedEntries = parseCapabilityRecord({
+			" context_length": 128000,
+			_fallback: [" context_length "],
+			_inheritable: ["context_length "],
+		});
+		assert.deepStrictEqual([...paddedEntries.fallback], ["context_length"]);
+		assert.deepStrictEqual([...paddedEntries.inheritable], ["context_length"]);
+		assert.deepStrictEqual(paddedEntries.diagnostics, []);
+		// A trim collision resolves by the record's object key order, the later
+		// spelling winning; and a padded hostile name is still just an own key.
+		const collided = parseCapabilityRecord({ context_length: 1000, " context_length": 2000 });
+		assert.strictEqual(collided.fields.context_length, 2000);
+		const hostile = parseCapabilityRecord({ " __proto__ ": { polluted: true } });
+		assert.deepStrictEqual(hostile.fields, {});
+		assert.strictEqual(({} as { polluted?: boolean }).polluted, undefined);
+	});
+
 	test("unrecognized fields keep their JSON values verbatim: strings, arrays, and objects alike", () => {
 		const parsed = parseCapabilityRecord({
 			mode: "chat",

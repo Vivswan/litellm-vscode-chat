@@ -18,7 +18,7 @@ import { isValidHeaderName, isValidHeaderValue } from "../shared/util/headers";
 import { isUnsafeRecordKey } from "../shared/util/json";
 import type { SaveServerPayload, SecretDirective } from "./endpoints";
 import type { CapabilityGroupIssues, GroupHints, GroupProblems, HeaderRow, PrefixGroup } from "./recordDraft";
-import { parseCapabilityGroups, parseGroups, parseHeaderRows } from "./recordDraft";
+import { draftRowsKey, parseCapabilityGroups, parseGroups, parseHeaderRows } from "./recordDraft";
 
 /**
  * One secret field as the form edits it. `existing` is where the value lives
@@ -193,9 +193,10 @@ export function changedServerFormFields(draft: ServerFormDraft, baseline: Server
 		if (typeof now === "string" || typeof was === "string") {
 			return now !== was;
 		}
-		// Small JSON-safe drafts, so their serialization IS their identity - no
-		// field-by-field walk that a new sub-field could silently fall out of.
-		return JSON.stringify(now) !== JSON.stringify(was);
+		// Small JSON-safe drafts, so their id-stripped serialization IS their
+		// identity - no field-by-field walk that a new sub-field could silently
+		// fall out of, and no false edit from the record rows' UI-only ids.
+		return draftRowsKey(now) !== draftRowsKey(was);
 	});
 }
 

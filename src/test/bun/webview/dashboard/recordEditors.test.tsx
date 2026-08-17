@@ -5,6 +5,7 @@
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
+import { newParamRow } from "../../../../dashboard/recordDraft";
 import { CONSUMED_CAPABILITY_FIELDS } from "../../../../shared/config/capabilityResolution";
 import { App } from "../../../../webview/dashboard/app";
 import { helpModelParameterPrefix } from "../../../../webview/dashboard/helpText";
@@ -416,7 +417,7 @@ test("a read-only other-scope problem speaks in the frame's own message row", ()
 test("the shared status slot stands alone for record displays without a write path", () => {
 	// The contract for a record display with no write path: no refusal channel means no alert region that could
 	// never speak. anyRecordProblem is the mount gate, so hints alone must not mount the row.
-	const groups = [{ prefix: "gpt-4", params: [{ key: "temperature", valueText: "oops" }] }];
+	const groups = [{ prefix: "gpt-4", params: [newParamRow("temperature", "oops")] }];
 	const issues: GroupIssueView[] = [
 		{ prefix: undefined, rows: [{ problem: { field: "value", message: "stated problem" } }] },
 	];
@@ -1142,45 +1143,30 @@ test("every field row carries its own stacked-tier cell labels, each with the co
 	}
 });
 
-test("the key track pins while focus is inside the field grid and refits once it leaves", () => {
-	// The key column is content-sized per keystroke (field-sizing), so without the pin every letter typed shoved
-	// the value column sideways. The pin holds across typing and across focus moving within the grid, and drops
-	// when focus leaves or a row is added or removed. happy-dom lays nothing out, so the cell's rect is stubbed.
+test("the key track is stylesheet-owned: no inline style ever rides the field grid", () => {
+	// The track is a fixed range in dashboard.css (content-independent, so typing cannot re-solve it); the
+	// stylesheet suite pins the template and the record-overlay-key-typing geometry pair proves the no-reflow
+	// property in a real layout. What THIS runtime can prove: no code path writes an inline pin back onto the
+	// grid - focus, typing, focus moves, and structural changes all leave the element's style empty.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2, top_p: 0.9 } }) })));
 	const section = () => sectionByHeading(root, "Model parameters");
 	const editor = openEditorFor(section(), "gpt-4");
 	const rows = () => editor.querySelector(".rows") as HTMLElement;
 	const keyInput = () => rows().querySelector(".cell.key input") as HTMLInputElement;
-	const pinOf = () => rows().style.getPropertyValue("--key-track");
+	const inlineStyle = () => rows().getAttribute("style") ?? "";
 
-	// Unmeasurable (the happy-dom default): focusing arms nothing.
 	fireFocus(keyInput());
-	expect(pinOf()).toBe("");
-	fireBlur(keyInput());
-
-	const cell = keyInput().closest(".cell.key") as HTMLElement;
-	const rect = { width: 200, height: 20, left: 0, top: 0, right: 200, bottom: 20, x: 0, y: 0, toJSON: () => ({}) };
-	cell.getBoundingClientRect = () => rect as DOMRect;
-	fireFocus(keyInput());
-	expect(pinOf()).toBe("200px");
-	// Typing does not re-measure: the pin is the whole point.
+	expect(inlineStyle()).toBe("");
 	fireInput(keyInput(), "temperature_with_a_much_longer_name");
-	expect(pinOf()).toBe("200px");
-	// Focus moving to the same row's value input keeps the pin.
+	expect(inlineStyle()).toBe("");
 	const valueInput = rows().querySelector(".cell.value input") as HTMLInputElement;
 	fireBlur(keyInput(), valueInput);
-	expect(pinOf()).toBe("200px");
-	// Focus leaving the grid releases it: the track refits once, after editing.
 	fireBlur(valueInput);
-	expect(pinOf()).toBe("");
-
-	// Re-armed, a structural change drops the pin without any blur event.
-	fireFocus(keyInput());
-	expect(pinOf()).toBe("200px");
+	expect(inlineStyle()).toBe("");
 	const remove = rows().querySelector("button[aria-label^='Remove']") as HTMLButtonElement;
 	fireClick(remove);
-	expect(pinOf()).toBe("");
+	expect(inlineStyle()).toBe("");
 });
 
 test("the overlay's field rows carry reserved status lines: empty at rest, marked when the verdict lands", () => {

@@ -3,6 +3,7 @@ import * as assert from "node:assert";
 import * as l10n from "@vscode/l10n";
 import * as fc from "fast-check";
 import {
+	newParamRow,
 	parseCapabilityGroups,
 	parseGroups,
 	parseHeaderRows,
@@ -83,7 +84,10 @@ const hostileText = fc.oneof(
 const hostileGroups = fc.array(
 	fc.record({
 		prefix: hostileText,
-		params: fc.array(fc.record({ key: hostileText, valueText: hostileText }), { maxLength: 4 }),
+		params: fc.array(
+			fc.record({ key: hostileText, valueText: hostileText }).map(({ key, valueText }) => newParamRow(key, valueText)),
+			{ maxLength: 4 }
+		),
 	}),
 	{ maxLength: 4 }
 );

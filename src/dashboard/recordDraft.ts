@@ -24,9 +24,28 @@ import { isValidHeaderName, isValidHeaderValue } from "../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../shared/util/json";
 import { formatHeaderValue, formatJsonValue, parseHeaderValue, parseJsonValue } from "./presenters";
 
-interface ParamRow {
+export interface ParamRow {
+	/** UI-only draft identity (React keys, the focus hold); never part of the row's value. */
+	readonly id: string;
 	readonly key: string;
 	readonly valueText: string;
+}
+
+/**
+ * Draft rows need an identity that survives reorders, absorptions, and edits,
+ * which neither the index nor the (duplicable) key text provides. The id is
+ * minted here, rides the row through every immutable update, and is invisible
+ * to value comparisons (draftRowsKey) and to the assembled records.
+ */
+let nextRowId = 0;
+export function newParamRow(key: string, valueText: string): ParamRow {
+	nextRowId += 1;
+	return { id: `row-${nextRowId}`, key, valueText };
+}
+
+/** Value identity of draft rows: their serialization with the UI-only row ids stripped. */
+export function draftRowsKey(rows: unknown): string {
+	return JSON.stringify(rows, (key, value: unknown) => (key === "id" ? undefined : value)) ?? "";
 }
 
 export interface PrefixGroup {
@@ -77,7 +96,7 @@ export function sortedGroupOrder(groups: readonly PrefixGroup[]): readonly numbe
 export function toGroups(value: Readonly<Record<string, Readonly<Record<string, unknown>>>>): PrefixGroup[] {
 	return Object.entries(value).map(([prefix, params]) => ({
 		prefix,
-		params: Object.entries(params).map(([key, paramValue]) => ({ key, valueText: formatJsonValue(paramValue) })),
+		params: Object.entries(params).map(([key, paramValue]) => newParamRow(key, formatJsonValue(paramValue))),
 	}));
 }
 
@@ -510,11 +529,12 @@ export function capabilityGroupsFromJsonText(text: string): RecordJsonParse<Pref
 export function toCapabilityGroups(value: Readonly<Record<string, Readonly<Record<string, unknown>>>>): PrefixGroup[] {
 	return Object.entries(value).map(([prefix, fields]) => ({
 		prefix,
-		params: Object.entries(fields).map(([key, fieldValue]) => ({
-			key,
-			valueText:
-				key === OPENROUTER_MODEL_DIRECTIVE && typeof fieldValue === "string" ? fieldValue : formatJsonValue(fieldValue),
-		})),
+		params: Object.entries(fields).map(([key, fieldValue]) =>
+			newParamRow(
+				key,
+				key === OPENROUTER_MODEL_DIRECTIVE && typeof fieldValue === "string" ? fieldValue : formatJsonValue(fieldValue)
+			)
+		),
 	}));
 }
 
@@ -620,24 +640,30 @@ export function parseCapabilityGroups(
 	const value: Record<string, Record<string, unknown>> = Object.create(null) as Record<string, Record<string, unknown>>;
 	for (const group of groups) {
 		const duplicateKeys = duplicates(group.params.map((param) => param.key.trim()));
-		// The fields this group's own rows set, deliberately KEY-shaped and
-		// value-blind: the resolver additionally excludes a consumed field whose
-		// value fails its kind, but a value-aware set would make checkbox
-		// eligibility and directive-row absorption churn under every keystroke.
-		const groupFieldKeys: ReadonlySet<string> = new Set(
-			group.params.map((param) => param.key.trim()).filter((key) => key.length > 0 && !key.startsWith("_"))
-		);
 		const prefixProblem = keyProblem(
 			group.prefix.trim(),
 			{ empty: l10n.t("Enter a model ID or matcher"), duplicate: l10n.t("Duplicate matcher key") },
 			duplicatePrefixes
 		);
-		const fields: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
-		const rows = group.params.map((param): CapabilityRowIssue => {
-			// Deliberate trim asymmetry: the editor judges and saves field keys
-			// trimmed, while the resolver reads stored records verbatim - a padded
-			// key hand-written into settings.json stays a padded open field until
-			// the next Apply normalizes it.
+		// Two passes so the group-referencing directives (`_fallback`,
+		// `_inheritable`) are judged against the loop's own row VERDICTS: the
+		// fields whose values would actually resolve, exactly the set the
+		// resolver keeps - a consumed field with an invalid value resolves
+		// unset, so a mark naming it hints as stranded here too. Entries and
+		// issues are index-aligned holders, so deferring the directive rows
+		// reorders neither the issues nor the assembled record's keys.
+		const setFieldKeys = new Set<string>();
+		const rowIssues: (CapabilityRowIssue | undefined)[] = new Array<CapabilityRowIssue | undefined>(
+			group.params.length
+		);
+		const rowEntries: (readonly [string, unknown] | undefined)[] = new Array<readonly [string, unknown] | undefined>(
+			group.params.length
+		);
+		const deferred: number[] = [];
+		group.params.forEach((param, index) => {
+			// Field keys are judged and saved trimmed; parseCapabilityRecord
+			// normalizes stored keys the same way, so a hand-padded settings.json
+			// key is judged trimmed everywhere.
 			const key = param.key.trim();
 			const problem = keyProblem(
 				key,
@@ -645,96 +671,140 @@ export function parseCapabilityGroups(
 				duplicateKeys
 			);
 			if (problem !== undefined) {
-				return { problem: { field: "name", message: problem } };
+				rowIssues[index] = { problem: { field: "name", message: problem } };
+				return;
 			}
 			if (key === OPENROUTER_MODEL_DIRECTIVE) {
 				const id = parseCatalogIdText(param.valueText);
 				if (id === undefined) {
-					return { problem: { field: "value", message: l10n.t("Enter an OpenRouter model ID, e.g. openai/gpt-4o") } };
-				}
-				fields[key] = id;
-				return {};
-			}
-			if (key === FALLBACK_DIRECTIVE) {
-				const parsed = parseDirectiveListText(param.valueText);
-				if (!parsed.ok) {
-					return {
-						problem: {
-							field: "value",
-							message: l10n.t('Enter true or a list of capability fields, e.g. ["context_length"]'),
-						},
+					rowIssues[index] = {
+						problem: { field: "value", message: l10n.t("Enter an OpenRouter model ID, e.g. openai/gpt-4o") },
 					};
+					return;
 				}
-				fields[key] = parsed.value;
-				// A non-blocking hint, the resolver's diagnose-and-ignore verdict
-				// said before the save: the setting keeps the row either way.
-				if (Array.isArray(parsed.value)) {
-					const unknown = parsed.value.find((name) => !groupFieldKeys.has(name));
-					if (unknown !== undefined) {
-						return {
-							hint: l10n.t('"{0}" is not a capability field this record sets; its fallback mark is ignored', unknown),
-						};
-					}
-				}
-				return {};
+				rowEntries[index] = [key, id];
+				rowIssues[index] = {};
+				return;
 			}
-			if (key === INHERITABLE_DIRECTIVE) {
-				const judged = judgeInheritableRow(param.valueText, groupFieldKeys);
-				if (judged.problem !== undefined) {
-					return { problem: { field: "value", message: judged.problem } };
-				}
-				fields[key] = judged.value;
-				return judged.hint !== undefined ? { hint: judged.hint } : {};
+			if (key === FALLBACK_DIRECTIVE || key === INHERITABLE_DIRECTIVE) {
+				deferred.push(index);
+				return;
 			}
 			if (key === INHERIT_FROM_DIRECTIVE) {
 				const judged = judgeInheritFromRow(param.valueText, prefixes);
 				if (judged.problem !== undefined) {
-					return { problem: { field: "value", message: judged.problem } };
+					rowIssues[index] = { problem: { field: "value", message: judged.problem } };
+					return;
 				}
-				fields[key] = judged.value;
-				return judged.hint !== undefined ? { hint: judged.hint } : {};
+				rowEntries[index] = [key, judged.value];
+				rowIssues[index] = judged.hint !== undefined ? { hint: judged.hint } : {};
+				return;
 			}
 			if (isCapabilityFieldName(key)) {
 				if (CAPABILITY_FIELDS[key] === "number") {
 					const parsed = parseJsonValue(param.valueText);
 					if (!parsed.ok || typeof parsed.value !== "number" || !Number.isInteger(parsed.value) || parsed.value <= 0) {
-						return { problem: { field: "value", message: l10n.t("Enter a positive whole number of tokens") } };
+						rowIssues[index] = {
+							problem: { field: "value", message: l10n.t("Enter a positive whole number of tokens") },
+						};
+						return;
 					}
-					fields[key] = parsed.value;
-					return {};
+					rowEntries[index] = [key, parsed.value];
+					setFieldKeys.add(key);
+					rowIssues[index] = {};
+					return;
 				}
 				const parsed = parseBooleanText(param.valueText);
 				if (parsed === undefined) {
-					return { problem: { field: "value", message: l10n.t("Enter true or false") } };
+					rowIssues[index] = { problem: { field: "value", message: l10n.t("Enter true or false") } };
+					return;
 				}
-				fields[key] = parsed;
-				return {};
+				rowEntries[index] = [key, parsed];
+				setFieldKeys.add(key);
+				rowIssues[index] = {};
+				return;
 			}
 			const parsed = parseJsonValue(param.valueText);
 			if (!parsed.ok) {
-				return { problem: { field: "value", message: parsed.error } };
+				rowIssues[index] = { problem: { field: "value", message: parsed.error } };
+				return;
 			}
-			fields[key] = parsed.value;
+			rowEntries[index] = [key, parsed.value];
 			// Advisory-typed, judged by the resolver's OWN validator: the setting
 			// keeps an invalid value and resolution leaves the field unset, so the
-			// row hints without blocking.
+			// row hints without blocking - and does NOT count as set.
 			const consumedKind = consumedFieldKind(key);
 			if (consumedKind !== undefined) {
-				return isValidConsumedCapabilityValue(consumedKind, parsed.value)
-					? {}
-					: { hint: consumedInvalidHint(consumedKind, key) };
+				if (isValidConsumedCapabilityValue(consumedKind, parsed.value)) {
+					setFieldKeys.add(key);
+					rowIssues[index] = {};
+				} else {
+					rowIssues[index] = { hint: consumedInvalidHint(consumedKind, key) };
+				}
+				return;
 			}
 			// Underscore keys are reserved for future directives and pass silently.
-			// Anything else is an OPEN field the resolver applies as-is; it hints as
-			// a possible typo only against real evidence - a known, non-empty
-			// observed /model/info key set that does not name it.
+			// Anything else is an OPEN field the resolver applies as-is (so it
+			// counts as set); it hints as a possible typo only against real
+			// evidence - a known, non-empty observed /model/info key set that does
+			// not name it.
 			if (key.startsWith("_")) {
-				return {};
+				rowIssues[index] = {};
+				return;
 			}
-			return recognizedKeys === undefined || recognizedKeys.size === 0 || recognizedKeys.has(key)
-				? {}
-				: { hint: l10n.t('"{0}" is not a field this extension knows; it is applied as an override as-is', key) };
+			setFieldKeys.add(key);
+			rowIssues[index] =
+				recognizedKeys === undefined || recognizedKeys.size === 0 || recognizedKeys.has(key)
+					? {}
+					: { hint: l10n.t('"{0}" is not a field this extension knows; it is applied as an override as-is', key) };
 		});
+		for (const index of deferred) {
+			const param = group.params[index];
+			if (param === undefined) {
+				continue;
+			}
+			const key = param.key.trim();
+			if (key === FALLBACK_DIRECTIVE) {
+				const parsed = parseDirectiveListText(param.valueText);
+				if (!parsed.ok) {
+					rowIssues[index] = {
+						problem: {
+							field: "value",
+							message: l10n.t('Enter true or a list of capability fields, e.g. ["context_length"]'),
+						},
+					};
+					continue;
+				}
+				rowEntries[index] = [key, parsed.value];
+				// A non-blocking hint, the resolver's diagnose-and-ignore verdict
+				// said before the save: the setting keeps the row either way.
+				if (Array.isArray(parsed.value)) {
+					const unknown = parsed.value.find((name) => !setFieldKeys.has(name));
+					if (unknown !== undefined) {
+						rowIssues[index] = {
+							hint: l10n.t('"{0}" is not a capability field this record sets; its fallback mark is ignored', unknown),
+						};
+						continue;
+					}
+				}
+				rowIssues[index] = {};
+				continue;
+			}
+			const judged = judgeInheritableRow(param.valueText, setFieldKeys);
+			if (judged.problem !== undefined) {
+				rowIssues[index] = { problem: { field: "value", message: judged.problem } };
+				continue;
+			}
+			rowEntries[index] = [key, judged.value];
+			rowIssues[index] = judged.hint !== undefined ? { hint: judged.hint } : {};
+		}
+		const fields: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+		for (const entry of rowEntries) {
+			if (entry !== undefined) {
+				fields[entry[0]] = entry[1];
+			}
+		}
+		const rows = rowIssues.map((issue) => issue ?? {});
 		blocked = blocked || prefixProblem !== undefined || rows.some((row) => row.problem !== undefined);
 		issues.push({ prefix: prefixProblem, rows });
 		if (prefixProblem === undefined) {
@@ -892,7 +962,7 @@ export function toggleDirectiveField(
 	}
 	const valueText = JSON.stringify(next);
 	return index < 0
-		? { ...group, params: [...group.params, { key: directive, valueText }] }
+		? { ...group, params: [...group.params, newParamRow(directive, valueText)] }
 		: { ...group, params: group.params.map((param, i) => (i === index ? { ...param, valueText } : param)) };
 }
 
@@ -963,6 +1033,6 @@ export function setInheritFromChoice(
 	}
 	const valueText = choice === "all" ? "true" : choice === "none" ? "false" : JSON.stringify(choice.keys);
 	return index < 0
-		? { ...group, params: [...group.params, { key: INHERIT_FROM_DIRECTIVE, valueText }] }
+		? { ...group, params: [...group.params, newParamRow(INHERIT_FROM_DIRECTIVE, valueText)] }
 		: { ...group, params: group.params.map((param, i) => (i === index ? { ...param, valueText } : param)) };
 }

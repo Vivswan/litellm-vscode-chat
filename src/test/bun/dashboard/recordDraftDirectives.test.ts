@@ -5,7 +5,9 @@ import {
 	capabilityGroupsFromJsonText,
 	directiveEligible,
 	directiveRowAbsorbed,
+	draftRowsKey,
 	inheritFromChoice,
+	newParamRow,
 	parseCapabilityGroups,
 	parseGroups,
 	parseInheritKeysText,
@@ -13,7 +15,7 @@ import {
 } from "../../../dashboard/recordDraft";
 
 function group(prefix: string, params: readonly [string, string][]): PrefixGroup {
-	return { prefix, params: params.map(([key, valueText]) => ({ key, valueText })) };
+	return { prefix, params: params.map(([key, valueText]) => newParamRow(key, valueText)) };
 }
 
 describe("dashboard/recordDraft inheritance directives", () => {
@@ -278,13 +280,17 @@ describe("dashboard/recordDraft inheritance directives", () => {
 				'{"gpt-4": {"context_length": 128000, "_inherit_from": false, "supports_vision": true}}'
 			);
 			assert.ok(parse.ok);
-			assert.deepStrictEqual(parse.rows, [
-				group("gpt-4", [
-					["context_length", "128000"],
-					["_inherit_from", "false"],
-					["supports_vision", "true"],
-				]),
-			]);
+			// Value identity: freshly minted row ids differ by design.
+			assert.strictEqual(
+				draftRowsKey(parse.rows),
+				draftRowsKey([
+					group("gpt-4", [
+						["context_length", "128000"],
+						["_inherit_from", "false"],
+						["supports_vision", "true"],
+					]),
+				])
+			);
 			const reparsed = parseCapabilityGroups(parse.rows);
 			assert.ok(reparsed.ok);
 			assert.deepStrictEqual(reparsed.value, {

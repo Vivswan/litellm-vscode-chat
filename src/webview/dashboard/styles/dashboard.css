@@ -1261,35 +1261,34 @@
 	/* The record field-row grid (slide-over panels only). .rows owns the tracks; each .row
 	   subgrids onto them so inputs and Remove buttons align across rows; the per-row
 	   template below is the no-subgrid fallback. Asymmetric tracks on purpose: keys are
-	   long identifiers, values short scalars, so the key track is fit-content (fed by
-	   field-sizing) and the value track takes the rest with a 10em floor - without it one
-	   long name squeezed every value box to ~115px; with an even split six of eleven names
-	   clipped mid-token. The cells' min-width: 0 lets the key track shrink under its cap.
-	   --key-track is the typing freeze (recordEditors.tsx useKeyTrackFreeze): a
-	   content-sized track re-solves per keystroke, shoving the value column sideways;
-	   unset at rest, the track sizes to the committed names. */
+	   long identifiers, values short scalars. The key track is a FIXED RANGE, never
+	   content-sized: a content-fed track (fit-content over field-sizing, the previous
+	   construction) re-solved per keystroke and shoved the value column sideways under
+	   the typing hand - a JS freeze once pinned it per focus; the fixed range makes
+	   no-reflow-while-typing a stylesheet fact (the record-overlay-key-typing geometry
+	   pair holds it). 24ch is sized so typical consumed capability names render whole
+	   (ch is the "0" advance, wider than this font's average letter, so names a few
+	   characters past 24 still fit); the six cost names past that scroll inside their
+	   input instead of starving the value track, and the chips outside the editor show
+	   them whole. The value track takes the rest with a 10em floor - without it one
+	   long name squeezed every value box to ~115px. The cells' min-width: 0 lets the
+	   key track shrink toward its 6ch floor when the panel runs short. */
 	.rows {
 		display: grid;
-		grid-template-columns: var(--key-track, fit-content(60%)) minmax(10em, 1fr) max-content max-content;
+		grid-template-columns: minmax(6ch, 24ch) minmax(10em, 1fr) max-content max-content;
 		gap: 4px 8px;
 		margin: 4px 0 8px;
 	}
 	.row {
 		display: grid;
-		grid-template-columns: var(--key-track, fit-content(60%)) minmax(10em, 1fr) auto auto;
+		grid-template-columns: minmax(6ch, 24ch) minmax(10em, 1fr) auto auto;
 		gap: 4px 8px;
 		align-items: center;
 		margin: 4px 0;
 	}
-	/* field-sizing is what lets the key TRACK see the key TEXT: without it an
-		   input's intrinsic size is its default ~20ch whatever it holds. Inputs
-		   with an explicit width (the header rows') are untouched - field-sizing
-		   only informs auto sizing - and where the property is unsupported the
-		   track falls back to that default, close to the old split. */
 	.row input.key {
 		grid-column: 1;
 		width: auto;
-		field-sizing: content;
 	}
 	.row input.value {
 		grid-column: 2;
@@ -3186,11 +3185,10 @@
 		flex-wrap: wrap;
 	}
 	/* The field rows as one grid line each: key, value, flags, remove. The
-		   column templates are the shared .rows/.row ones above (the key track
-		   sized to the names, the value track flexing, the flag and action
-		   columns hugging their content at the right edge); the column heads
-		   label the two input tracks so key-vs-value is legible before any
-		   placeholder renders. */
+		   column templates are the shared .rows/.row ones above (the fixed-range
+		   key track, the value track flexing, the flag and action columns hugging
+		   their content at the right edge); the column heads label the two input
+		   tracks so key-vs-value is legible before any placeholder renders. */
 	.matcher-editor .rows {
 		display: grid;
 		gap: 6px 8px;
@@ -3307,15 +3305,6 @@
 			   them wrap again so a long translation cannot overflow the panel. */
 		.matcher-editor .row .directive-flag {
 			flex-wrap: wrap;
-		}
-		/* Stacked, the cells are start-justified, so a content-sized key input
-			   makes every row its own width - a 5-character key rendered as a
-			   43px sliver beside full-length neighbours. The content sizing
-			   exists to feed the SHARED key track, and stacking dissolves that
-			   track, so the inputs go back to the uniform default width here. */
-		.slide-over .row input.key,
-		.matcher-editor .row input.key {
-			field-sizing: fixed;
 		}
 	}
 	/* The overlay footer pins like the form's Save row: Done leads on the
