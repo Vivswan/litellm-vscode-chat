@@ -1,10 +1,10 @@
 import * as l10n from "@vscode/l10n";
 import type { ReactElement, ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AckedMethod, NotifyingMethod } from "../../dashboard/endpoints";
-import { failuresAfterStatePush, isAckedMethod } from "../../dashboard/endpoints";
+import type { AckedMethod, NotifyingMethod, SettingWriteMethod } from "../../dashboard/endpoints";
+import { failuresAfterStatePush, isAckedMethod, SETTING_WRITE_METHODS } from "../../dashboard/endpoints";
 import { classifyOverall, latestCheckedMs } from "../../dashboard/presenters";
-import type { DashboardSectionId, DashboardServer, DashboardState } from "../../dashboard/viewModels";
+import type { DashboardSectionId, DashboardServer, DashboardState, SettingRowId } from "../../dashboard/viewModels";
 import { DASHBOARD_SECTION_IDS } from "../../dashboard/viewModels";
 import { AnnounceOnceScope, useAlertOnce } from "./announceOnce";
 import { DiagnosticsSection, pageConfigDiagnostics } from "./diagnostics";
@@ -19,8 +19,8 @@ import { Rail } from "./rail";
 import type { ServerEditRequest } from "./serverEditPage";
 import { ServerEditPage } from "./serverEditPage";
 import { ServersSection } from "./servers";
-import type { EditRecordRequest, SettingWriteFailure, SettingWriteMethod } from "./settings";
-import { SETTING_WRITE_METHODS, SettingsSection } from "./settings";
+import type { EditRecordRequest, SettingWriteFailure } from "./settings";
+import { SettingsSection } from "./settings";
 import { relativeTime, useNow } from "./time";
 import { Button } from "./ui/button";
 import { ConfirmDialog } from "./ui/dialog";
@@ -62,15 +62,16 @@ function sectionIcon(section: SectionId): ReactElement {
 }
 
 /**
- * One reported intent failure; `seq` distinguishes repeats with the same text, `id` echoes
- * the request's correlation id so the settings page can place the notice by row.
+ * One reported intent failure; `seq` distinguishes repeats with the same text, and `row`
+ * echoes the fail envelope's owning settings row so the settings page can place the notice.
  */
 interface IntentFailure {
 	readonly seq: number;
-	readonly id: string;
 	readonly message: string;
 	/** Whether the intent's durable write committed before the failure; see the fail envelope's failureKind. */
 	readonly kind: "validation" | "operation";
+	/** The refused scalar write's owning settings row; absent on every other method's failure. */
+	readonly row?: SettingRowId | undefined;
 }
 
 /**
@@ -423,7 +424,12 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 				// it; the standing store holds only push-retired notices.
 				return;
 			}
-			const failure: IntentFailure = { seq, id: message.id, message: message.message, kind: message.failureKind };
+			const failure: IntentFailure = {
+				seq,
+				message: message.message,
+				kind: message.failureKind,
+				row: message.row,
+			};
 			setFailures((current) => ({ ...current, [message.method]: failure }));
 		};
 		window.addEventListener("message", onMessage);

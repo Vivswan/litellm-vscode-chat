@@ -9,8 +9,8 @@
 import * as l10n from "@vscode/l10n";
 import type { FocusEvent, ReactNode } from "react";
 import { createContext, useContext, useEffect, useId, useState } from "react";
-import type { RequestPayload } from "../../dashboard/endpoints";
-import { WIRE_LIMITS } from "../../dashboard/endpoints";
+import type { SettingWriteMethod } from "../../dashboard/endpoints";
+import { SETTING_WRITE_METHODS, WIRE_LIMITS } from "../../dashboard/endpoints";
 import {
 	booleanSettingPresentation,
 	defaultDisplay,
@@ -86,55 +86,16 @@ export interface EditRecordRequest extends ExternalRecordEdit {
 }
 
 /**
- * The scalar-write methods this page posts, whose failures come back as standing notices
- * in App's fire-and-forget store. Declared here because placement is this page's job: each
- * notice lands under the row that posted the write, or on the section-top fallback line.
+ * One standing write failure as this page places it; App projects its store entry into
+ * this shape. `row` rides the fail envelope itself (extension-derived from the refused
+ * request), so placement needs no correlation state on this side.
  */
-export const SETTING_WRITE_METHODS = [
-	"setNumberSetting",
-	"setBooleanSetting",
-	"resetSetting",
-	"setUsageAlertThresholds",
-	"setUsageStatusBar",
-	"setTokenEstimation",
-	"setAdditionalToolSchemaKeywords",
-	"setCurrencySymbol",
-	"setUiTheme",
-	"setUiAccent",
-] as const;
-export type SettingWriteMethod = (typeof SETTING_WRITE_METHODS)[number];
-
-/** One standing write failure as this page places it; App projects its store entry into this shape. */
 export interface SettingWriteFailure {
 	/** Distinguishes repeated failures with the same text; keys the notice so role="alert" re-announces. */
 	readonly seq: number;
-	/** The failed request's correlation id, which is what names the owning row. */
-	readonly id: string;
+	/** The owning settings row, absent for a failure whose payload never parsed. */
+	readonly row?: SettingRowId | undefined;
 	readonly message: string;
-}
-
-/**
- * The row that posted each still-recent write, keyed by request id (never per method: a
- * method holds one slot, and a newer write would teleport an older failure's notice to the
- * fallback line). Module state on purpose - written in commit handlers, read only while
- * placing a failure quoting the same freshly-minted id, and bounded against long sessions.
- */
-const lastSettingWrites = new Map<string, SettingRowId>();
-const LAST_SETTING_WRITES_CAP = 64;
-
-/** Post one scalar write, remembering which row posted it (see lastSettingWrites). */
-function postSettingWrite<K extends SettingWriteMethod>(
-	method: K,
-	payload: RequestPayload<K>,
-	row: SettingRowId
-): void {
-	lastSettingWrites.set(sendRequest(method, payload), row);
-	if (lastSettingWrites.size > LAST_SETTING_WRITES_CAP) {
-		const oldest = lastSettingWrites.keys().next().value;
-		if (oldest !== undefined) {
-			lastSettingWrites.delete(oldest);
-		}
-	}
 }
 
 /** Each row's standing write failure, keyed by the owning row; SettingRow reads its own. */
@@ -238,7 +199,7 @@ function ResetButton({ title, scope, settingId }: { title: string; scope: Settin
 				size="compact"
 				className="reset"
 				aria-label={action}
-				onClick={() => postSettingWrite("resetSetting", { setting: settingId }, settingId)}
+				onClick={() => sendRequest("resetSetting", { setting: settingId })}
 			>
 				{l10n.t("Reset")}
 			</Button>
@@ -513,12 +474,12 @@ function NumberField({
 		}
 		if (parse.kind === "clear") {
 			if (value !== null) {
-				postSettingWrite("setNumberSetting", { setting: id, value: null }, id);
+				sendRequest("setNumberSetting", { setting: id, value: null });
 			}
 			return;
 		}
 		if (parse.value !== value) {
-			postSettingWrite("setNumberSetting", { setting: id, value: parse.value }, id);
+			sendRequest("setNumberSetting", { setting: id, value: parse.value });
 		}
 	};
 	// Blur and Enter both mean "done typing": commit a valid draft, and let a
@@ -631,9 +592,7 @@ function BooleanField({
 					// the title names it directly; label-named rows must not carry a
 					// second, competing name.
 					aria-label={meta !== undefined ? presentation.label : undefined}
-					onChange={(event) =>
-						postSettingWrite("setBooleanSetting", { setting: id, value: event.currentTarget.checked }, id)
-					}
+					onChange={(event) => sendRequest("setBooleanSetting", { setting: id, value: event.currentTarget.checked })}
 				/>
 			}
 		/>
@@ -914,7 +873,7 @@ function UiAccentRow({
 								value={candidate}
 								checked={accent === candidate}
 								aria-label={uiAccentLabel(candidate)}
-								onChange={() => postSettingWrite("setUiAccent", { value: candidate }, "ui.accent")}
+								onChange={() => sendRequest("setUiAccent", { value: candidate })}
 							/>
 							{/* forced-color-adjust: the swatch IS the information, so it keeps
 								its own color where the OS would repaint all four identically. */}
@@ -1076,7 +1035,7 @@ function UsageThresholdsRow({
 			return;
 		}
 		if (parsed.join(",") !== values.join(",")) {
-			postSettingWrite("setUsageAlertThresholds", { values: parsed }, "usage.alertThresholds");
+			sendRequest("setUsageAlertThresholds", { values: parsed });
 		}
 	};
 
@@ -1192,7 +1151,7 @@ function CurrencySymbolRow({
 			: undefined;
 	const commit = () => {
 		if (error === undefined && text !== value) {
-			postSettingWrite("setCurrencySymbol", { value: text }, "usage.currencySymbol");
+			sendRequest("setCurrencySymbol", { value: text });
 		}
 	};
 	return (
@@ -1283,7 +1242,7 @@ function ToolSchemaKeywordsRow({
 			return;
 		}
 		if (parsed.join(",") !== values.join(",")) {
-			postSettingWrite("setAdditionalToolSchemaKeywords", { values: parsed }, "chat.additionalToolSchemaKeywords");
+			sendRequest("setAdditionalToolSchemaKeywords", { values: parsed });
 		}
 	};
 
@@ -1624,9 +1583,9 @@ export function SettingsSection({
 				return isVisible(row);
 		}
 	};
-	// Each standing failure lands by scope: the row whose remembered write id it echoes owns
-	// it (latest seq wins when two share a row); anything unclaimed - an unknown id, or an
-	// owning row the filter hid - falls back to the always-visible section-top line.
+	// Each standing failure lands by the row its fail envelope names (latest seq wins when
+	// two share a row); anything unclaimed - a payload that never parsed carries no row, or
+	// the owning row the filter hid - falls back to the always-visible section-top line.
 	const rowFailures: Partial<Record<SettingRowId, SettingWriteFailure>> = {};
 	let unclaimedFailure: SettingWriteFailure | undefined;
 	for (const method of SETTING_WRITE_METHODS) {
@@ -1634,7 +1593,7 @@ export function SettingsSection({
 		if (failure === undefined) {
 			continue;
 		}
-		const row = lastSettingWrites.get(failure.id);
+		const row = failure.row;
 		if (row !== undefined && rowVisible(row)) {
 			const standing = rowFailures[row];
 			if (standing === undefined || failure.seq > standing.seq) {
@@ -1750,7 +1709,7 @@ export function SettingsSection({
 												value={settings.chat.tokenEstimation}
 												options={TOKEN_ESTIMATION_MODES}
 												optionLabel={tokenEstimationLabel}
-												onPick={(value) => postSettingWrite("setTokenEstimation", { value }, "chat.tokenEstimation")}
+												onPick={(value) => sendRequest("setTokenEstimation", { value })}
 												configuredScope={settings.chat.tokenEstimationScope}
 												hidden={!tokenEstimationVisible}
 											/>
@@ -1776,7 +1735,7 @@ export function SettingsSection({
 												value={settings.usage.statusBarMode}
 												options={USAGE_STATUS_BAR_MODES}
 												optionLabel={statusBarModeLabel}
-												onPick={(value) => postSettingWrite("setUsageStatusBar", { value }, "usage.statusBar")}
+												onPick={(value) => sendRequest("setUsageStatusBar", { value })}
 												configuredScope={settings.usage.statusBarScope}
 												hidden={!statusBarVisible}
 											/>
@@ -1796,7 +1755,7 @@ export function SettingsSection({
 												value={settings.appearance.theme}
 												options={UI_THEMES}
 												optionLabel={uiThemeLabel}
-												onPick={(value) => postSettingWrite("setUiTheme", { value }, "ui.theme")}
+												onPick={(value) => sendRequest("setUiTheme", { value })}
 												configuredScope={settings.appearance.themeScope}
 												hidden={!themeVisible}
 											/>

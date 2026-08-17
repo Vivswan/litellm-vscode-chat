@@ -291,9 +291,11 @@ One idiom for detail that opens in place:
   - row-level is a `.row-diagnostic` under the owning row
     (`dashboard.css .row-diagnostic`);
   - a refused setting write follows a fallback chain so it stays visible from
-    any tab: the owning row first, matched by the request id the row's write
-    posted (`settings.tsx writeFailures`); a section-top line when no mounted
-    row claims the id or the owning row is filter-hidden
+    any tab: the owning row first, named by the fail envelope itself (the
+    extension derives the row from the refused payload,
+    `src/dashboard/endpoints.ts settingWriteRow`; placement is
+    `settings.tsx writeFailures`); a section-top line when the failure carries
+    no row or the owning row is filter-hidden
     (`settings.tsx unclaimedFailure`); and a pane-top line while another tab
     is active, because a hidden subtree neither paints nor announces
     (`app.tsx awaySettingFailure`). Only executeCommand keeps a pane-top line

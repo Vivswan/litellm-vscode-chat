@@ -751,6 +751,10 @@ suite("extension/dashboard/panel", () => {
 		assert.ok(notice.kind === "fail" && notice.message.includes("at least"));
 		assert.ok(notice.kind === "fail" && notice.failureKind === "validation", "a refused intent is validation-kind");
 		assert.ok(!("classification" in notice), "a non-transport validation failure carries no classification");
+		// The fail envelope names the owning settings row, derived from the
+		// validated payload, so the page can place the notice without a
+		// correlation map of its own.
+		assert.ok(notice.kind === "fail" && notice.row === "chat.timeout");
 	});
 
 	test("a failing draft probe's transport classification rides the intentFailed notice", async () => {

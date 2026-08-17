@@ -2,9 +2,10 @@
  * A refused scalar write, standing where placement puts it: in the posting row's
  * covered description slot. The steps drive the real flow - type a value, commit
  * with Enter, read the posted request's id off the harness stub, answer it with
- * a fail envelope quoting that id - so the shot proves the id-to-row claim
- * rather than photographing a hand-placed line. The slot carries the framed
- * headline only, over the description it covers.
+ * a fail envelope that quotes the id to reach that request and names the row -
+ * so the shot proves the named row places the notice rather than photographing
+ * a hand-placed line. The slot carries the framed headline only, over the
+ * description it covers.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import { baseState } from "./shared.ts";
@@ -31,6 +32,7 @@ const fixture: RenderFixture = {
 						message:
 							"Alert thresholds must be above 0% and at most 100% - enter values like 80% or 0.8.\\nsetting litellm-vscode-chat.usage.alertThresholds: allowed range 0 < value <= 1",
 						failureKind: "validation",
+						row: "usage.alertThresholds",
 					},
 				})
 			);

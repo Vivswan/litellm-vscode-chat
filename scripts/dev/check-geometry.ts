@@ -711,6 +711,7 @@ const STATE_PAIRS: readonly StatePair[] = [
 							method: "setUsageAlertThresholds",
 							message: "Alert thresholds must be above 0% and at most 100% - enter values like 80% or 0.8.",
 							failureKind: "validation",
+							row: "usage.alertThresholds",
 						},
 					})
 				);

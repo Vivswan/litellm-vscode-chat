@@ -99,9 +99,9 @@ test("unknown message types and non-object event data are ignored without crashi
 });
 
 test("a setNumberSetting intentFailed lands on the Settings page and the next state push retires it", () => {
-	// Scalar-write failures render inside the settings section (placed by
-	// owning row, or its top line for an unclaimed id like this one) rather
-	// than on the shared pane top; the store still retires them on push.
+	// Scalar-write failures render inside the settings section (placed by the
+	// row the envelope names, or its top line for a row-less fail like this
+	// one) rather than on the shared pane top; the store retires them on push.
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState()));
 	pushToWebview({
@@ -149,20 +149,22 @@ test("a refused write is visible from another tab, and announced exactly once pe
 		method: "setCurrencySymbol",
 		message: "the write was refused",
 		failureKind: "operation",
+		row: "usage.currencySymbol",
 	});
 	// The default tab is Servers, so the away line stands, announced.
 	const away = root.querySelector(".pane > p.error[role='alert']");
 	expect(away?.textContent).toContain("The last change did not apply: the write was refused");
 
-	// On Settings the page owns the notice and the away line stands down; the
-	// failure was already spoken, so the page's line renders WITHOUT the role.
+	// On Settings the owning row claims the notice in its covered slot and the
+	// away line stands down; the failure was already spoken, so the row's line
+	// renders WITHOUT the role.
 	const settingsTab = root.querySelector("#tab-settings");
 	if (!(settingsTab instanceof HTMLElement)) {
 		throw new Error("no settings rail tab");
 	}
 	fireClick(settingsTab);
 	expect(root.querySelector(".pane > p.error")).toBeNull();
-	const claimed = root.querySelector("#panel-settings p.error");
+	const claimed = root.querySelector("#panel-settings .setting-hint .error");
 	expect(claimed?.textContent).toContain("The last change did not apply: the write was refused");
 	expect(claimed?.getAttribute("role")).toBeNull();
 
@@ -184,6 +186,7 @@ test("a refused write is visible from another tab, and announced exactly once pe
 		method: "setCurrencySymbol",
 		message: "the write was refused",
 		failureKind: "operation",
+		row: "usage.currencySymbol",
 	});
 	expect(root.querySelector(".pane > p.error[role='alert']")?.textContent).toContain(
 		"The last change did not apply: the write was refused"

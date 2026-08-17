@@ -146,16 +146,12 @@ test("a repeat failure's remounted cover leaves the focused glyph alone", () => 
 	// The cover is keyed on the failure seq (a repeat must re-announce), so a second refusal REPLACES the cover span -
 	// but the glyph is the cover's sibling, not its child, so the remount cannot touch it or the keyboard on it.
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
-	const input = settingInput(root, "chat.timeout");
-	fireInput(input, "5000");
-	fireBlur(input);
-	const posted = postedMessages.filter((message) => message.method === "setNumberSetting").pop();
 	const failureAt = (seq: number) =>
 		render(
 			<SettingsSection
 				settings={makeSettings()}
 				models={[]}
-				writeFailures={{ setNumberSetting: { seq, id: posted?.id ?? "", message: `refused (attempt ${seq})` } }}
+				writeFailures={{ setNumberSetting: { seq, row: "chat.timeout", message: `refused (attempt ${seq})` } }}
 			/>,
 			root
 		);
@@ -1478,19 +1474,12 @@ test("the settings filter finds a row by its description and its id, whichever k
 	expect(root.textContent).toContain("No settings match the filter.");
 });
 
-test("a failed write reports under the row that posted it, covering the description slot", () => {
-	// The fail envelope echoes the request id and never the payload, so the page places each standing notice under the
-	// row that posted it. Placement is the covered-description slot the parse errors already use, not an inserted
-	// block, which would move every row below it. The slot carries the framed HEADLINE only.
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
-	const input = settingInput(root, "chat.timeout");
-	fireInput(input, "5000");
-	fireBlur(input);
-	const posted = postedMessages.filter((message) => message.method === "setNumberSetting").pop();
-	expect(posted).toBeDefined();
-	cleanup();
-
-	const failure = { seq: 1, id: posted?.id ?? "", message: "the write was refused\nsetting detail line" };
+test("a failed write reports under the row the fail envelope names, covering the description slot", () => {
+	// The fail envelope carries the owning row (extension-derived from the refused payload; never payload text), so
+	// the page places each standing notice with no correlation state of its own. Placement is the covered-description
+	// slot the parse errors already use, not an inserted block, which would move every row below it. The slot carries
+	// the framed HEADLINE only.
+	const failure = { seq: 1, row: "chat.timeout" as const, message: "the write was refused\nsetting detail line" };
 	const withFailure = mount(
 		<SettingsSection settings={makeSettings()} models={[]} writeFailures={{ setNumberSetting: failure }} />
 	);
@@ -1518,18 +1507,11 @@ test("a live parse error outranks the standing write failure in the covered slot
 	// The error describes the draft under the user's fingers, the failure the
 	// commit before it; both at once would be two sentences in one cell. The
 	// failure resurfaces when the draft parses clean again.
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
-	const input = settingInput(root, "chat.timeout");
-	fireInput(input, "5000");
-	fireBlur(input);
-	const posted = postedMessages.filter((message) => message.method === "setNumberSetting").pop();
-	cleanup();
-
 	const withFailure = mount(
 		<SettingsSection
 			settings={makeSettings()}
 			models={[]}
-			writeFailures={{ setNumberSetting: { seq: 1, id: posted?.id ?? "", message: "the write was refused" } }}
+			writeFailures={{ setNumberSetting: { seq: 1, row: "chat.timeout", message: "the write was refused" } }}
 		/>
 	);
 	const failedInput = settingInput(withFailure, "chat.timeout");
@@ -1552,10 +1534,6 @@ test("a failure arriving while a parse error holds the slot still announces when
 			<SettingsSection settings={makeSettings()} models={[]} />
 		</AnnounceOnceScope>
 	);
-	const input = settingInput(container, "chat.timeout");
-	fireInput(input, "5000");
-	fireBlur(input);
-	const posted = postedMessages.filter((message) => message.method === "setNumberSetting").pop();
 	const hint = () => rowOf(settingInput(container, "chat.timeout")).querySelector(".setting-hint");
 
 	// A live parse error holds the slot when the refusal lands.
@@ -1566,7 +1544,7 @@ test("a failure arriving while a parse error holds the slot still announces when
 			<SettingsSection
 				settings={makeSettings()}
 				models={[]}
-				writeFailures={{ setNumberSetting: { seq: 1, id: posted?.id ?? "", message: "the write was refused" } }}
+				writeFailures={{ setNumberSetting: { seq: 1, row: "chat.timeout", message: "the write was refused" } }}
 			/>
 		</AnnounceOnceScope>,
 		container
@@ -1582,14 +1560,14 @@ test("a failure arriving while a parse error holds the slot still announces when
 	expect(hint()?.querySelector(".error")?.getAttribute("role")).toBeNull();
 });
 
-test("a failure no mounted row claims falls back to one section-top line", () => {
-	// An id the registry does not hold (the panel reopened since the write, or
-	// a newer write is already in flight) still has to surface somewhere.
+test("a failure no row claims falls back to one section-top line", () => {
+	// A refusal whose payload never parsed carries no row (the extension cannot
+	// derive one), and it still has to surface somewhere.
 	const root = mount(
 		<SettingsSection
 			settings={makeSettings()}
 			models={[]}
-			writeFailures={{ setUsageStatusBar: { seq: 2, id: "id-no-row-posted", message: "the write was refused" } }}
+			writeFailures={{ setUsageStatusBar: { seq: 2, message: "the write was refused" } }}
 		/>
 	);
 	expect(root.querySelector(".setting-hint .error")).toBeNull();
@@ -1609,28 +1587,13 @@ test("two methods' failures on one row keep the latest, not the method-list orde
 			numbers: { ...configured.configuredScopes.numbers, "usage.pollInterval": "global" as const },
 		},
 	};
-	const root = mount(<SettingsSection settings={settings} models={[]} />);
-	const input = settingInput(root, "usage.pollInterval");
-	fireInput(input, "45000");
-	fireBlur(input);
-	const write = postedMessages.filter((message) => message.method === "setNumberSetting").pop();
-	const reset = root.querySelector("button[aria-label='Remove the User value of Usage poll interval']");
-	if (!(reset instanceof HTMLButtonElement)) {
-		throw new Error("no reset button on the configured row");
-	}
-	fireClick(reset);
-	const resetPost = postedMessages.filter((message) => message.method === "resetSetting").pop();
-	expect(write).toBeDefined();
-	expect(resetPost).toBeDefined();
-	cleanup();
-
 	const withBoth = mount(
 		<SettingsSection
 			settings={settings}
 			models={[]}
 			writeFailures={{
-				resetSetting: { seq: 3, id: resetPost?.id ?? "", message: "the older reset failure" },
-				setNumberSetting: { seq: 9, id: write?.id ?? "", message: "the newer write failure" },
+				resetSetting: { seq: 3, row: "usage.pollInterval", message: "the older reset failure" },
+				setNumberSetting: { seq: 9, row: "usage.pollInterval", message: "the newer write failure" },
 			}}
 		/>
 	);
@@ -1640,49 +1603,14 @@ test("two methods' failures on one row keep the latest, not the method-list orde
 	expect(notice?.textContent).not.toContain("the older reset failure");
 });
 
-test("a newer write on the same method does not un-claim an older standing failure's row", () => {
-	// The registry keys by request id, one entry per write: with one slot per method, committing row B would evict row
-	// A's remembered write, and A's still-standing failure would teleport to the fallback line mid-read.
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
-	const older = settingInput(root, "chat.timeout");
-	fireInput(older, "45000");
-	fireBlur(older);
-	const olderWrite = postedMessages.filter((message) => message.method === "setNumberSetting").pop();
-	const newer = settingInput(root, "discovery.timeout");
-	fireInput(newer, "20480");
-	fireBlur(newer);
-	expect(postedMessages.filter((message) => message.method === "setNumberSetting")).toHaveLength(2);
-	cleanup();
-
-	const withFailure = mount(
-		<SettingsSection
-			settings={makeSettings()}
-			models={[]}
-			writeFailures={{ setNumberSetting: { seq: 1, id: olderWrite?.id ?? "", message: "the write was refused" } }}
-		/>
-	);
-	const row = rowOf(settingInput(withFailure, "chat.timeout"));
-	expect(row.querySelector(".setting-hint .error")?.textContent).toContain(
-		"The last change did not apply: the write was refused"
-	);
-	expect(withFailure.querySelector("p.error[role='alert']")).toBeNull();
-});
-
 test("a failure whose owning row the filter hides routes to the section-top line instead of a hidden notice", () => {
 	// The filter hides rows without unmounting them, so a claimed notice under
 	// a hidden row would be placed and invisible at once - the worst of both.
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
-	const input = settingInput(root, "chat.timeout");
-	fireInput(input, "45000");
-	fireBlur(input);
-	const posted = postedMessages.filter((message) => message.method === "setNumberSetting").pop();
-	cleanup();
-
 	const withFailure = mount(
 		<SettingsSection
 			settings={makeSettings()}
 			models={[]}
-			writeFailures={{ setNumberSetting: { seq: 1, id: posted?.id ?? "", message: "the write was refused" } }}
+			writeFailures={{ setNumberSetting: { seq: 1, row: "chat.timeout", message: "the write was refused" } }}
 		/>
 	);
 	// Visible row: the notice stands in its covered slot.

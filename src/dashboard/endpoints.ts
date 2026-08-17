@@ -34,6 +34,7 @@ import type {
 	ResettableSettingId,
 	ResolvedModelsView,
 	RevealableSettingId,
+	SettingRowId,
 	UsageStatusBarModeSetting,
 } from "./viewModels";
 
@@ -411,7 +412,9 @@ interface IntentAckMessage {
  * still the truth; "operation" means the durable write committed but a
  * follow-up effect failed, so drafts over the pre-save state are stale.
  * `message` is webview-safe text (never a secret); `classification` is the
- * transport classification behind a failed probe - enum ids, never message text.
+ * transport classification behind a failed probe - enum ids, never message
+ * text; `row` is the failed scalar write's owning settings row
+ * (settingWriteRow), extension-derived from the validated payload.
  */
 interface IntentFailMessage {
 	readonly kind: "fail";
@@ -420,6 +423,7 @@ interface IntentFailMessage {
 	readonly message: string;
 	readonly failureKind: "validation" | "operation";
 	readonly classification?: TransportErrorClassification | undefined;
+	readonly row?: SettingRowId | undefined;
 }
 
 /**
@@ -473,6 +477,71 @@ export function isAckedMethod(method: string): method is AckedMethod {
 	return (
 		Object.hasOwn(DASHBOARD_ENDPOINTS, method) && DASHBOARD_ENDPOINTS[method as DashboardMethod].outcome === "acked"
 	);
+}
+
+/**
+ * The scalar setting-write methods, whose fail envelopes carry the owning settings row
+ * (`row` on IntentFailMessage) so the Settings page can place a standing refusal under
+ * the row that posted it without keeping a correlation map of its own.
+ */
+export const SETTING_WRITE_METHODS = [
+	"setNumberSetting",
+	"setBooleanSetting",
+	"resetSetting",
+	"setUsageAlertThresholds",
+	"setUsageStatusBar",
+	"setTokenEstimation",
+	"setAdditionalToolSchemaKeywords",
+	"setCurrencySymbol",
+	"setUiTheme",
+	"setUiAccent",
+] as const satisfies readonly DashboardMethod[];
+export type SettingWriteMethod = (typeof SETTING_WRITE_METHODS)[number];
+
+/**
+ * Each scalar write's owning row, derived from the request itself: the `setting`-carrying
+ * methods name it, every other write method owns exactly one row. Derivation (rather than
+ * a webview-minted payload field) makes a row that mismatches its request unrepresentable.
+ * Exhaustive by mapped type: a method added to SETTING_WRITE_METHODS fails compilation
+ * until its row is registered here.
+ */
+const SETTING_WRITE_ROWS: { readonly [K in SettingWriteMethod]: (payload: RequestPayload<K>) => SettingRowId } = {
+	setNumberSetting: (payload) => payload.setting,
+	setBooleanSetting: (payload) => payload.setting,
+	resetSetting: (payload) => payload.setting,
+	setUsageAlertThresholds: () => "usage.alertThresholds",
+	setUsageStatusBar: () => "usage.statusBar",
+	setTokenEstimation: () => "chat.tokenEstimation",
+	setAdditionalToolSchemaKeywords: () => "chat.additionalToolSchemaKeywords",
+	setCurrencySymbol: () => "usage.currencySymbol",
+	setUiTheme: () => "ui.theme",
+	setUiAccent: () => "ui.accent",
+};
+
+/** One method-payload pair per table method; what settingWriteRow can read a row off. */
+type MethodPayload = {
+	[K in DashboardMethod]: { readonly method: K; readonly payload: RequestPayload<K> };
+}[DashboardMethod];
+
+type SettingWritePayload = {
+	[K in SettingWriteMethod]: { readonly method: K; readonly payload: RequestPayload<K> };
+}[SettingWriteMethod];
+
+function isSettingWrite(request: MethodPayload): request is SettingWritePayload {
+	return Object.hasOwn(SETTING_WRITE_ROWS, request.method);
+}
+
+/** Generic so the mapped lookup keeps the method-payload correlation the union erases. */
+function settingWriteRowOf<K extends SettingWriteMethod>(request: {
+	readonly method: K;
+	readonly payload: RequestPayload<K>;
+}): SettingRowId {
+	return SETTING_WRITE_ROWS[request.method](request.payload);
+}
+
+/** The settings row a request's failure belongs to; undefined for every non-setting-write method. */
+export function settingWriteRow(request: MethodPayload): SettingRowId | undefined {
+	return isSettingWrite(request) ? settingWriteRowOf(request) : undefined;
 }
 
 /**

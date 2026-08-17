@@ -23,7 +23,7 @@ import type {
 	RpcRequestType,
 	RpcResponseType,
 } from "../../dashboard/endpoints";
-import { DASHBOARD_ENDPOINTS } from "../../dashboard/endpoints";
+import { DASHBOARD_ENDPOINTS, settingWriteRow } from "../../dashboard/endpoints";
 import type {
 	CatalogModelSummary,
 	CatalogStatusView,
@@ -688,6 +688,10 @@ export class DashboardController implements vscode.Disposable {
 					error: error instanceof Error ? error.name : typeof error,
 				});
 			}
+			// A refused scalar write names its owning settings row, derived from the
+			// validated payload, so the page can place the notice without a
+			// correlation map of its own.
+			const row = settingWriteRow(request);
 			this.postToPanel({
 				kind: "fail",
 				id: request.id,
@@ -695,6 +699,7 @@ export class DashboardController implements vscode.Disposable {
 				message,
 				failureKind,
 				...(classification !== undefined ? { classification } : {}),
+				...(row !== undefined ? { row } : {}),
 			});
 			// One class for every refused-or-failed intent: the outcome consumer
 			// only needs "did not act as asked", and the validation/operation
