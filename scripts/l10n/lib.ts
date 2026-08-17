@@ -144,6 +144,7 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"upstreamAuthMessage",
 	"statusErrorTexts",
 	// src/dashboard record-draft and form parsers (localized problems ride the verdicts).
+	"readDirectiveValue",
 	"parseDirectiveListText",
 	"judgeInheritableRow",
 	"judgeInheritFromRow",

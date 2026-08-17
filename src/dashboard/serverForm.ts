@@ -13,6 +13,7 @@ import type {
 	SecretLocation,
 } from "../shared/serverEntry";
 import { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../shared/serverEntry";
+import type { HeaderScalar } from "../shared/util/headers";
 import { isValidHeaderName, isValidHeaderValue } from "../shared/util/headers";
 import { isUnsafeRecordKey } from "../shared/util/json";
 import type { SaveServerPayload, SecretDirective } from "./endpoints";
@@ -353,26 +354,88 @@ export type ServerFormParse =
 			readonly headerProblems: readonly (string | undefined)[];
 	  };
 
+/** The intent's secret directives, one per field, straight from the analysis' secret parses. */
+function secretDirectives(
+	secrets: Readonly<Record<SecretFieldId, SecretParse>>
+): Record<SecretFieldId, SecretDirective> {
+	return {
+		apiKey: secrets.apiKey.directive,
+		oauthClientSecret: secrets.oauthClientSecret.directive,
+		virtualKeyValue: secrets.virtualKeyValue.directive,
+	};
+}
+
 /**
- * The one shared analysis behind both parsers: parseServerForm blocks on any
- * problem, parseServerFormForTest only on the CONNECTION_FIELDS problems, so
- * the save and probe rules cannot drift.
+ * The fields whose edit invalidates a draft-connection test result: a stale
+ * PASS on edited credentials is worse than no result, so the form clears the
+ * result when any of these change. The label and the model-parameter rows do
+ * not touch the connection and keep it. Also the probe's blocking set: only
+ * these fields' problems reach the connection arm of the analysis.
  */
-interface ServerFormAnalysis {
-	readonly problems: ServerFormProblems;
+export const CONNECTION_FIELDS: readonly ServerFormField[] = [
+	"baseUrl",
+	"apiVersion",
+	"authForm",
+	"apiKey",
+	"oauthTokenUrl",
+	"oauthClientId",
+	"oauthClientSecret",
+	"oauthScopes",
+	"virtualKeyHeader",
+	"virtualKeyValue",
+	"headers",
+];
+
+/**
+ * What a connection-clean draft assembles to: everything the draft-connection
+ * probe sends. `modelCapabilities` is the parsed rows when they are clean and
+ * `{}` otherwise - the probe carries what it can, and the capability rows are
+ * not connection fields.
+ */
+interface ServerConnectionValues {
 	/** The draft's trimmed label, possibly empty or reserved (only the save blocks on that). */
 	readonly label: string;
 	readonly baseUrl: string;
 	/** The entry apiVersion the draft means: undefined for auto, "" for none, the trimmed text for custom. */
 	readonly apiVersion: string | undefined;
-	readonly secrets: Readonly<Record<SecretFieldId, SecretParse>>;
-	readonly groupsParse: ReturnType<typeof parseGroups>;
-	readonly capabilitiesParse: ReturnType<typeof parseCapabilityGroups>;
-	readonly headersParse: ReturnType<typeof parseHeaderRows>;
-	readonly budget: number | null;
+	readonly secrets: Readonly<Record<SecretFieldId, SecretDirective>>;
 	/** The active auth form's non-empty text fields, ready to spread into the payload. */
 	readonly optionalText: Readonly<Partial<Record<NonSecretOptionalFieldId, string>>>;
+	readonly headers: Record<string, HeaderScalar>;
+	readonly modelCapabilities: Record<string, Record<string, unknown>>;
 }
+
+/** What a fully clean draft assembles to: the connection values plus the save-only fields. */
+interface ServerFormValues extends ServerConnectionValues {
+	readonly modelParameters: Record<string, Record<string, unknown>>;
+	readonly budget: number | null;
+}
+
+/**
+ * The one shared analysis behind both parsers, discriminated so each consumer
+ * reads its arm instead of re-deriving it: a clean draft IS its assembled
+ * values, a blocked one carries the problems - with the connection slice
+ * discriminated again inside it, because the probe blocks only on
+ * CONNECTION_FIELDS problems. The save and probe rules cannot drift because
+ * both read this one result.
+ */
+type ServerFormAnalysis = {
+	/** Row-aligned capability issues from the parse that judged the draft; hints render on both arms. */
+	readonly modelCapabilityIssues: readonly CapabilityGroupIssues[];
+	/** Row-aligned model-parameter hints (the _force semantic warnings); non-blocking, like the capability issues. */
+	readonly modelParameterHints: readonly GroupHints[];
+} & (
+	| { readonly blocked: false; readonly values: ServerFormValues }
+	| {
+			readonly blocked: true;
+			readonly problems: ServerFormProblems;
+			readonly modelParameterProblems: readonly GroupProblems[];
+			readonly headerProblems: readonly (string | undefined)[];
+			readonly connection:
+				| { readonly blocked: false; readonly values: ServerConnectionValues }
+				| { readonly blocked: true; readonly problems: ServerFormProblems };
+	  }
+);
 
 function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): ServerFormAnalysis {
 	// The selector decides which credential fields are live: everything else is
@@ -521,28 +584,62 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 		}
 	}
 
+	const directives = secretDirectives(secrets);
+	if (
+		groupsParse.ok &&
+		capabilitiesParse.ok &&
+		headersParse.ok &&
+		!Object.values(problems).some((problem) => problem !== undefined)
+	) {
+		return {
+			blocked: false,
+			values: {
+				label,
+				baseUrl,
+				apiVersion,
+				secrets: directives,
+				optionalText,
+				headers: headersParse.value,
+				modelCapabilities: capabilitiesParse.value,
+				modelParameters: groupsParse.value,
+				budget,
+			},
+			modelCapabilityIssues: capabilitiesParse.issues,
+			modelParameterHints: groupsParse.hints,
+		};
+	}
+	const connectionProblems: { -readonly [K in ServerFormField]?: string } = {};
+	for (const field of CONNECTION_FIELDS) {
+		const problem = problems[field];
+		if (problem !== undefined) {
+			connectionProblems[field] = problem;
+		}
+	}
+	// headers is a connection field, so a clean connection implies clean header
+	// rows; the narrowing states the half the type system cannot see.
+	const connection =
+		headersParse.ok && !Object.values(connectionProblems).some((problem) => problem !== undefined)
+			? {
+					blocked: false as const,
+					values: {
+						label,
+						baseUrl,
+						apiVersion,
+						secrets: directives,
+						optionalText,
+						headers: headersParse.value,
+						modelCapabilities: capabilitiesParse.ok ? capabilitiesParse.value : {},
+					},
+				}
+			: { blocked: true as const, problems: connectionProblems };
 	return {
+		blocked: true,
 		problems,
-		label,
-		baseUrl,
-		apiVersion,
-		secrets,
-		groupsParse,
-		capabilitiesParse,
-		headersParse,
-		budget,
-		optionalText,
-	};
-}
-
-/** The intent's secret directives, one per field, straight from the analysis' secret parses. */
-function secretDirectives(
-	secrets: Readonly<Record<SecretFieldId, SecretParse>>
-): Record<SecretFieldId, SecretDirective> {
-	return {
-		apiKey: secrets.apiKey.directive,
-		oauthClientSecret: secrets.oauthClientSecret.directive,
-		virtualKeyValue: secrets.virtualKeyValue.directive,
+		modelParameterProblems: groupsParse.ok ? [] : groupsParse.problems,
+		headerProblems: headersParse.ok ? [] : headersParse.problems,
+		connection,
+		modelCapabilityIssues: capabilitiesParse.issues,
+		modelParameterHints: groupsParse.hints,
 	};
 }
 
@@ -553,80 +650,43 @@ function secretDirectives(
  * the extension surfaces the same messages through logs and the fail notice.
  */
 export function parseServerForm(draft: ServerFormDraft, context: ServerFormContext = {}): ServerFormParse {
-	const {
-		problems,
-		label,
-		baseUrl,
-		apiVersion,
-		secrets,
-		groupsParse,
-		capabilitiesParse,
-		headersParse,
-		budget,
-		optionalText,
-	} = analyzeServerForm(draft, context);
-	// Spelled out only so the ok branch narrows; a failed parse already set its field's problem.
-	if (
-		!groupsParse.ok ||
-		!capabilitiesParse.ok ||
-		!headersParse.ok ||
-		Object.values(problems).some((problem) => problem !== undefined)
-	) {
+	const analysis = analyzeServerForm(draft, context);
+	if (analysis.blocked) {
 		return {
 			ok: false,
-			problems,
-			modelParameterProblems: groupsParse.ok ? [] : groupsParse.problems,
-			modelCapabilityIssues: capabilitiesParse.issues,
-			modelParameterHints: groupsParse.hints,
-			headerProblems: headersParse.ok ? [] : headersParse.problems,
+			problems: analysis.problems,
+			modelParameterProblems: analysis.modelParameterProblems,
+			modelCapabilityIssues: analysis.modelCapabilityIssues,
+			modelParameterHints: analysis.modelParameterHints,
+			headerProblems: analysis.headerProblems,
 		};
 	}
-
+	const { values } = analysis;
 	// The record and list fields are always sent, even empty (the payload
 	// requires them); modelParameters is the one optional field.
 	const server: SaveServerPayload = {
-		label,
-		baseUrl,
-		...(apiVersion !== undefined ? { apiVersion } : {}),
-		...optionalText,
-		...(Object.keys(groupsParse.value).length > 0 ? { modelParameters: groupsParse.value } : {}),
-		modelCapabilities: capabilitiesParse.value,
+		label: values.label,
+		baseUrl: values.baseUrl,
+		...(values.apiVersion !== undefined ? { apiVersion: values.apiVersion } : {}),
+		...values.optionalText,
+		...(Object.keys(values.modelParameters).length > 0 ? { modelParameters: values.modelParameters } : {}),
+		modelCapabilities: values.modelCapabilities,
 		expectedFailures: draft.expectedFailures,
-		headers: headersParse.value,
+		headers: values.headers,
 		declaredModels: parseDeclaredModelsText(draft.declaredModels),
-		budget,
+		budget: values.budget,
 	};
 	return {
 		ok: true,
 		intent: {
 			server,
-			secrets: secretDirectives(secrets),
+			secrets: values.secrets,
 			...(context.originalLabel !== undefined ? { replaceLabel: context.originalLabel } : {}),
 		},
-		modelCapabilityIssues: capabilitiesParse.issues,
-		modelParameterHints: groupsParse.hints,
+		modelCapabilityIssues: analysis.modelCapabilityIssues,
+		modelParameterHints: analysis.modelParameterHints,
 	};
 }
-
-/**
- * The fields whose edit invalidates a draft-connection test result: a stale
- * PASS on edited credentials is worse than no result, so the form clears the
- * result when any of these change. The label and the model-parameter rows do
- * not touch the connection and keep it.
- */
-export const CONNECTION_FIELDS: readonly ServerFormField[] = [
-	"baseUrl",
-	"apiVersion",
-	"authForm",
-	"apiKey",
-	"oauthTokenUrl",
-	"oauthClientId",
-	"oauthClientSecret",
-	"oauthScopes",
-	"virtualKeyHeader",
-	"virtualKeyValue",
-	"headers",
-];
 
 /** The testServerDraft intent body a connection-clean draft parses to; the webview adds only the requestId. */
 interface ServerTestIntent {
@@ -649,26 +709,19 @@ export type ServerTestParse =
  */
 export function parseServerFormForTest(draft: ServerFormDraft, context: ServerFormContext = {}): ServerTestParse {
 	const analysis = analyzeServerForm(draft, context);
-	const { headersParse, capabilitiesParse } = analysis;
-	const problems: { -readonly [K in ServerFormField]?: string } = {};
-	for (const field of CONNECTION_FIELDS) {
-		const problem = analysis.problems[field];
-		if (problem !== undefined) {
-			problems[field] = problem;
-		}
+	const connection = analysis.blocked ? analysis.connection : { blocked: false as const, values: analysis.values };
+	if (connection.blocked) {
+		return { ok: false, problems: connection.problems };
 	}
-	// Spelled out only so the ok branch narrows; a failed parse already set problems.headers.
-	if (!headersParse.ok || Object.values(problems).some((problem) => problem !== undefined)) {
-		return { ok: false, problems };
-	}
+	const { values } = connection;
 	const server: SaveServerPayload = {
-		label: analysis.label,
-		baseUrl: analysis.baseUrl,
-		...(analysis.apiVersion !== undefined ? { apiVersion: analysis.apiVersion } : {}),
-		...analysis.optionalText,
-		modelCapabilities: capabilitiesParse.ok ? capabilitiesParse.value : {},
+		label: values.label,
+		baseUrl: values.baseUrl,
+		...(values.apiVersion !== undefined ? { apiVersion: values.apiVersion } : {}),
+		...values.optionalText,
+		modelCapabilities: values.modelCapabilities,
 		expectedFailures: draft.expectedFailures,
-		headers: headersParse.value,
+		headers: values.headers,
 		declaredModels: parseDeclaredModelsText(draft.declaredModels),
 		budget: null,
 	};
@@ -676,7 +729,7 @@ export function parseServerFormForTest(draft: ServerFormDraft, context: ServerFo
 		ok: true,
 		intent: {
 			server,
-			secrets: secretDirectives(analysis.secrets),
+			secrets: values.secrets,
 			...(context.originalLabel !== undefined ? { replaceLabel: context.originalLabel } : {}),
 		},
 	};

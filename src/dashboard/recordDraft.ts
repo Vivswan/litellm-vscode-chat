@@ -131,20 +131,53 @@ export interface GroupHints {
 }
 
 /**
- * A directive draft's reading: strict JSON `true`/`false` or an array of
- * strings, nothing else. The shared value shape of the `_fallback`, `_force`,
- * `_inheritable`, and `_inherit_from` rows.
+ * ONE parse of a directive row's value, carrying both readings its consumers
+ * take: the flag or raw list for the validating parse, plus the salvaged
+ * string entries - the resolver keeps a partly invalid list's string members,
+ * so the membership surfaces (checkboxes, chip badges) read exactly those.
+ * Structural pairing: strict and lenient can never come from two parses.
  */
-function parseDirectiveListText(text: string): { ok: true; value: boolean | string[] } | { ok: false } {
+type DirectiveValueReading =
+	| { readonly kind: "unreadable" }
+	| { readonly kind: "flag"; readonly value: boolean }
+	| {
+			readonly kind: "list";
+			/** The raw entries, invalid members included (toggles preserve them). */
+			readonly entries: readonly unknown[];
+			/** The string members only: the lenient membership reading. */
+			readonly strings: readonly string[];
+	  };
+
+function readDirectiveValue(text: string): DirectiveValueReading {
 	const parsed = parseJsonValue(text);
 	if (!parsed.ok) {
-		return { ok: false };
+		return { kind: "unreadable" };
 	}
 	if (typeof parsed.value === "boolean") {
-		return { ok: true, value: parsed.value };
+		return { kind: "flag", value: parsed.value };
 	}
-	if (Array.isArray(parsed.value) && parsed.value.every((entry): entry is string => typeof entry === "string")) {
-		return { ok: true, value: parsed.value };
+	if (Array.isArray(parsed.value)) {
+		return {
+			kind: "list",
+			entries: parsed.value,
+			strings: parsed.value.filter((entry): entry is string => typeof entry === "string"),
+		};
+	}
+	return { kind: "unreadable" };
+}
+
+/**
+ * The strict reading of a directive draft: JSON `true`/`false` or an array of
+ * ONLY strings - the shape the `_fallback`, `_force`, `_inheritable`, and
+ * `_inherit_from` rows must hold to parse clean.
+ */
+function parseDirectiveListText(text: string): { ok: true; value: boolean | string[] } | { ok: false } {
+	const reading = readDirectiveValue(text);
+	if (reading.kind === "flag") {
+		return { ok: true, value: reading.value };
+	}
+	if (reading.kind === "list" && reading.strings.length === reading.entries.length) {
+		return { ok: true, value: [...reading.strings] };
 	}
 	return { ok: false };
 }
@@ -755,10 +788,9 @@ function eligibleRowKeys(group: PrefixGroup, directive: FieldDirective): string[
 }
 
 /**
- * The directive row's membership reading, deliberately more lenient than the
- * validating parse: the resolver salvages a partly invalid list's string
- * entries, so the checkboxes must reflect exactly those. `true` means every
- * eligible row key; anything unreadable means none.
+ * The directive row's membership reading: the salvaged string entries off the
+ * one structural parse. `true` means every eligible row key; anything
+ * unreadable means none.
  */
 function directiveListedEntries(group: PrefixGroup, directive: FieldDirective): readonly string[] {
 	const index = directiveRowIndex(group, directive);
@@ -766,17 +798,11 @@ function directiveListedEntries(group: PrefixGroup, directive: FieldDirective): 
 	if (row === undefined) {
 		return [];
 	}
-	const parsed = parseJsonValue(row.valueText);
-	if (!parsed.ok) {
-		return [];
+	const reading = readDirectiveValue(row.valueText);
+	if (reading.kind === "flag") {
+		return reading.value ? eligibleRowKeys(group, directive) : [];
 	}
-	if (parsed.value === true) {
-		return eligibleRowKeys(group, directive);
-	}
-	if (Array.isArray(parsed.value)) {
-		return parsed.value.filter((entry): entry is string => typeof entry === "string");
-	}
-	return [];
+	return reading.kind === "list" ? reading.strings : [];
 }
 
 /**
@@ -849,12 +875,11 @@ export function toggleDirectiveField(
 ): PrefixGroup {
 	const index = directiveRowIndex(group, directive);
 	const row = index < 0 ? undefined : group.params[index];
-	const raw = row === undefined ? { ok: false as const } : parseJsonValue(row.valueText);
-	const base: readonly unknown[] = !raw.ok
-		? []
-		: Array.isArray(raw.value)
-			? raw.value
-			: raw.value === true
+	const reading = row === undefined ? ({ kind: "unreadable" } as const) : readDirectiveValue(row.valueText);
+	const base: readonly unknown[] =
+		reading.kind === "list"
+			? reading.entries
+			: reading.kind === "flag" && reading.value
 				? eligibleRowKeys(group, directive)
 				: [];
 	const next = enabled
@@ -891,47 +916,52 @@ export function inheritFromChoice(group: PrefixGroup): InheritFromChoice {
 	if (row === undefined) {
 		return { kind: "default" };
 	}
-	const parsed = parseDirectiveListText(row.valueText);
-	if (!parsed.ok) {
+	const reading = readDirectiveValue(row.valueText);
+	if (reading.kind === "unreadable") {
 		return { kind: "unreadable" };
 	}
-	if (parsed.value === true) {
-		return { kind: "all" };
+	if (reading.kind === "flag") {
+		return reading.value ? { kind: "all" } : { kind: "none" };
 	}
-	if (parsed.value === false || (Array.isArray(parsed.value) && parsed.value.length === 0)) {
+	if (reading.entries.length !== reading.strings.length) {
+		return { kind: "unreadable" };
+	}
+	if (reading.strings.length === 0) {
 		return { kind: "none" };
 	}
-	if (!(parsed.value as string[]).every(inheritKeyRoundTrips)) {
+	if (!reading.strings.every(inheritKeyRoundTrips)) {
 		return { kind: "unreadable" };
 	}
-	return { kind: "keys", keysText: (parsed.value as string[]).join(", ") };
+	return { kind: "keys", keysText: reading.strings.join(", ") };
+}
+
+/** The comma-joined keys input's reading: trimmed keys, empties dropped; undefined until a first key exists. */
+export function parseInheritKeysText(text: string): readonly [string, ...string[]] | undefined {
+	const keys = text
+		.split(",")
+		.map((key) => key.trim())
+		.filter((key) => key.length > 0);
+	const [first, ...rest] = keys;
+	return first === undefined ? undefined : [first, ...rest];
 }
 
 /**
  * Write the group-level `_inherit_from` choice back into the group's rows:
- * "default" removes the directive row, the others write its canonical value
- * (keysText splits on commas, trimmed, empties dropped - an all-empty list
- * writes `[]`, which the resolver reads as the barrier).
+ * "default" removes the directive row, the others write its canonical value.
+ * The keys arm takes a non-empty list BY TYPE (parseInheritKeysText's shape),
+ * so this writer cannot produce `[]`: the barrier is "none" (written as
+ * false), and a literal empty list stays expressible only through Edit as
+ * JSON.
  */
 export function setInheritFromChoice(
 	group: PrefixGroup,
-	choice: "default" | "all" | "none" | { readonly keysText: string }
+	choice: "default" | "all" | "none" | { readonly keys: readonly [string, ...string[]] }
 ): PrefixGroup {
 	const index = directiveRowIndex(group, INHERIT_FROM_DIRECTIVE);
 	if (choice === "default") {
 		return index < 0 ? group : { ...group, params: group.params.filter((_, i) => i !== index) };
 	}
-	const valueText =
-		choice === "all"
-			? "true"
-			: choice === "none"
-				? "false"
-				: JSON.stringify(
-						choice.keysText
-							.split(",")
-							.map((key) => key.trim())
-							.filter((key) => key.length > 0)
-					);
+	const valueText = choice === "all" ? "true" : choice === "none" ? "false" : JSON.stringify(choice.keys);
 	return index < 0
 		? { ...group, params: [...group.params, { key: INHERIT_FROM_DIRECTIVE, valueText }] }
 		: { ...group, params: group.params.map((param, i) => (i === index ? { ...param, valueText } : param)) };

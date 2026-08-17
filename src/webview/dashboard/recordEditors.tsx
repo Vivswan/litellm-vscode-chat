@@ -20,6 +20,7 @@ import {
 	matcherKind,
 	parseCapabilityGroups,
 	parseGroups,
+	parseInheritKeysText,
 	setInheritFromChoice,
 	sortedGroupOrder,
 	toCapabilityGroups,
@@ -301,12 +302,12 @@ function InheritFromControl({
 }) {
 	const choice = inheritFromChoice(group);
 	const id = useId();
-	// The keys mode must be enterable from scratch: picking it writes NOTHING until a key is
-	// typed (an empty `_inherit_from` list IS the barrier, so auto-writing [] would snap the
-	// select to "nothing - barrier"). The pending flag holds the UI in keys mode while the
-	// row stays absent; [] stays expressible only through Edit as JSON.
-	const [keysPending, setKeysPending] = useState(false);
-	const [pendingText, setPendingText] = useState("");
+	// Keys mode held open locally: defined means the select shows "keys" even
+	// while no row exists (picking keys writes nothing until a key is typed -
+	// setInheritFromChoice's keys arm cannot write an empty list, so the
+	// stored barrier stays "none" / Edit as JSON). The text is the input's
+	// value while no row backs it.
+	const [pending, setPending] = useState<{ readonly text: string } | undefined>(undefined);
 	if (choice.kind === "unreadable") {
 		return (
 			<span className="inherit-from">
@@ -315,20 +316,23 @@ function InheritFromControl({
 			</span>
 		);
 	}
-	const shownKind = choice.kind === "keys" ? "keys" : keysPending && choice.kind === "default" ? "keys" : choice.kind;
-	const keysText = choice.kind === "keys" ? choice.keysText : pendingText;
+	const shownKind =
+		choice.kind === "keys" ? "keys" : pending !== undefined && choice.kind === "default" ? "keys" : choice.kind;
+	const keysText = choice.kind === "keys" ? choice.keysText : (pending?.text ?? "");
 	const writeKeys = (text: string) => {
-		setPendingText(text);
-		const hasKey = text.split(",").some((key) => key.trim().length > 0);
-		if (hasKey) {
-			onChange(setInheritFromChoice(group, { keysText: text }));
+		const keys = parseInheritKeysText(text);
+		if (keys !== undefined) {
+			setPending((current) => (current === undefined ? current : { text }));
+			onChange(setInheritFromChoice(group, { keys }));
 		} else if (choice.kind === "keys") {
-			// Emptied: drop the row (never write []); the local mode keeps the
-			// input on screen for the next key. The flag must be set here too -
-			// a stored keys row entered edit with it false, and dropping the row
-			// without it would unmount the input mid-edit and steal focus.
-			setKeysPending(true);
+			// Emptied: drop the row; the pending mode keeps the input on screen
+			// for the next key - a stored keys row entered edit without local
+			// mode, and dropping the row bare would unmount the input mid-edit
+			// and steal focus.
+			setPending({ text });
 			onChange(setInheritFromChoice(group, "default"));
+		} else {
+			setPending((current) => (current === undefined ? current : { text }));
 		}
 	};
 	return (
@@ -347,13 +351,11 @@ function InheritFromControl({
 					onChange={(event) => {
 						const kind = event.currentTarget.value;
 						if (kind === "default" || kind === "all" || kind === "none") {
-							setKeysPending(false);
-							setPendingText("");
+							setPending(undefined);
 							onChange(setInheritFromChoice(group, kind));
 						} else {
 							// Enter keys mode without writing; see the comment above.
-							setKeysPending(true);
-							setPendingText(choice.kind === "keys" ? choice.keysText : "");
+							setPending({ text: choice.kind === "keys" ? choice.keysText : "" });
 							if (choice.kind !== "keys" && choice.kind !== "default") {
 								onChange(setInheritFromChoice(group, "default"));
 							}

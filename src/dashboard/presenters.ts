@@ -250,8 +250,70 @@ export interface NumberUnitBehavior {
 	readonly freeTextInput: boolean;
 }
 
-// parseDurationDraftMs and formatDuration are hoisted function declarations;
-// turning either into a const arrow would crash this table at module load.
+/** Millisecond multipliers for the duration grammar's unit suffixes. */
+const DURATION_SUFFIX_MS: Readonly<Record<string, number>> = {
+	ms: 1,
+	s: 1000,
+	m: 60000,
+	h: 3600000,
+};
+
+/**
+ * A duration draft as milliseconds: "1500ms", "90s", "5m", "1h" (suffixes
+ * case-insensitive), or a bare number meaning milliseconds; undefined for
+ * everything else, so the form renders one grammar error. Module-private:
+ * every consumer reads durations through parseNumberDraft's single verdict.
+ */
+function parseDurationDraftMs(text: string): number | undefined {
+	const trimmed = text.trim();
+	const match = /^(.*?)(ms|s|m|h)$/i.exec(trimmed);
+	if (match === null) {
+		// No suffix: the bare-number-is-ms reading. Number("") is 0, so the empty
+		// draft must never reach this helper unguarded.
+		const bare = trimmed.length === 0 ? Number.NaN : Number(trimmed);
+		return Number.isFinite(bare) ? bare : undefined;
+	}
+	const prefix = match[1] ?? "";
+	const suffix = (match[2] ?? "").toLowerCase();
+	if (prefix.trim().length === 0) {
+		return undefined;
+	}
+	const value = Number(prefix);
+	if (!Number.isFinite(value)) {
+		return undefined;
+	}
+	const scaled = value * (DURATION_SUFFIX_MS[suffix] ?? Number.NaN);
+	// The scaling can overflow ("9e307h"): a non-finite product must not read as
+	// a valid draft. Finite products round to whole milliseconds.
+	return Number.isFinite(scaled) ? Math.round(scaled) : undefined;
+}
+
+/**
+ * A millisecond count as humans read clocks: "5 min", "1 h 30 min". At most
+ * two units; a truncated remainder gets a "~" instead of false precision, with
+ * `exact` saying which happened. Sub-second values return undefined.
+ */
+function formatDuration(ms: number): { label: string; exact: boolean } | undefined {
+	if (!Number.isInteger(ms) || ms < 1000) {
+		return undefined;
+	}
+	const units: readonly (readonly [number, string])[] = [
+		[3600000, l10n.t({ message: "h", comment: ["Abbreviation for hours in durations like '1 h 30 min'."] })],
+		[60000, l10n.t({ message: "min", comment: ["Abbreviation for minutes (not minimum) in durations like '5 min'."] })],
+		[1000, l10n.t({ message: "s", comment: ["Abbreviation for seconds in durations like '90 s'."] })],
+	];
+	const parts: string[] = [];
+	let rest = ms;
+	for (const [size, name] of units) {
+		const count = Math.floor(rest / size);
+		if (count > 0 && parts.length < 2) {
+			parts.push(`${count} ${name}`);
+			rest -= count * size;
+		}
+	}
+	return { label: `${rest > 0 ? "~" : ""}${parts.join(" ")}`, exact: rest === 0 };
+}
+
 const NUMBER_UNIT_BEHAVIOR = {
 	ms: {
 		parseDraft: parseDurationDraftMs,
@@ -383,44 +445,6 @@ export function numberSettingPresentation(id: NumberSettingId): NumberSettingPre
 	}
 }
 
-/** Millisecond multipliers for the duration grammar's unit suffixes. */
-const DURATION_SUFFIX_MS: Readonly<Record<string, number>> = {
-	ms: 1,
-	s: 1000,
-	m: 60000,
-	h: 3600000,
-};
-
-/**
- * A duration draft as milliseconds: "1500ms", "90s", "5m", "1h" (suffixes
- * case-insensitive), or a bare number meaning milliseconds; undefined for
- * everything else, so the form renders one grammar error. Module-private:
- * every consumer reads durations through parseNumberDraft's single verdict.
- */
-function parseDurationDraftMs(text: string): number | undefined {
-	const trimmed = text.trim();
-	const match = /^(.*?)(ms|s|m|h)$/i.exec(trimmed);
-	if (match === null) {
-		// No suffix: the bare-number-is-ms reading. Number("") is 0, so the empty
-		// draft must never reach this helper unguarded.
-		const bare = trimmed.length === 0 ? Number.NaN : Number(trimmed);
-		return Number.isFinite(bare) ? bare : undefined;
-	}
-	const prefix = match[1] ?? "";
-	const suffix = (match[2] ?? "").toLowerCase();
-	if (prefix.trim().length === 0) {
-		return undefined;
-	}
-	const value = Number(prefix);
-	if (!Number.isFinite(value)) {
-		return undefined;
-	}
-	const scaled = value * (DURATION_SUFFIX_MS[suffix] ?? Number.NaN);
-	// The scaling can overflow ("9e307h"): a non-finite product must not read as
-	// a valid draft. Finite products round to whole milliseconds.
-	return Number.isFinite(scaled) ? Math.round(scaled) : undefined;
-}
-
 /**
  * One draft's numeric reading under the field's grammar (the unit's
  * parseDraft); undefined when the text has no reading, empty included. The
@@ -486,32 +510,6 @@ export function booleanSettingPresentation(id: BooleanSettingId): BooleanSetting
 				description: l10n.t("Fill missing model capabilities from the OpenRouter catalog, refreshed weekly."),
 			};
 	}
-}
-
-/**
- * A millisecond count as humans read clocks: "5 min", "1 h 30 min". At most
- * two units; a truncated remainder gets a "~" instead of false precision, with
- * `exact` saying which happened. Sub-second values return undefined.
- */
-function formatDuration(ms: number): { label: string; exact: boolean } | undefined {
-	if (!Number.isInteger(ms) || ms < 1000) {
-		return undefined;
-	}
-	const units: readonly (readonly [number, string])[] = [
-		[3600000, l10n.t({ message: "h", comment: ["Abbreviation for hours in durations like '1 h 30 min'."] })],
-		[60000, l10n.t({ message: "min", comment: ["Abbreviation for minutes (not minimum) in durations like '5 min'."] })],
-		[1000, l10n.t({ message: "s", comment: ["Abbreviation for seconds in durations like '90 s'."] })],
-	];
-	const parts: string[] = [];
-	let rest = ms;
-	for (const [size, name] of units) {
-		const count = Math.floor(rest / size);
-		if (count > 0 && parts.length < 2) {
-			parts.push(`${count} ${name}`);
-			rest -= count * size;
-		}
-	}
-	return { label: `${rest > 0 ? "~" : ""}${parts.join(" ")}`, exact: rest === 0 };
 }
 
 /**

@@ -8,6 +8,7 @@ import {
 	inheritFromChoice,
 	parseCapabilityGroups,
 	parseGroups,
+	parseInheritKeysText,
 	setInheritFromChoice,
 } from "../../../dashboard/recordDraft";
 
@@ -145,7 +146,9 @@ describe("dashboard/recordDraft inheritance directives", () => {
 		test("every choice written round-trips back through inheritFromChoice", () => {
 			assert.deepStrictEqual(inheritFromChoice(setInheritFromChoice(base, "all")), { kind: "all" });
 			assert.deepStrictEqual(inheritFromChoice(setInheritFromChoice(base, "none")), { kind: "none" });
-			assert.deepStrictEqual(inheritFromChoice(setInheritFromChoice(base, { keysText: "a, ,b" })), {
+			const keys = parseInheritKeysText("a, ,b");
+			assert.ok(keys !== undefined);
+			assert.deepStrictEqual(inheritFromChoice(setInheritFromChoice(base, { keys })), {
 				kind: "keys",
 				keysText: "a, b",
 			});
@@ -156,10 +159,16 @@ describe("dashboard/recordDraft inheritance directives", () => {
 			);
 		});
 
-		test("an all-empty keys text writes the empty list: the barrier, read back as none", () => {
-			const written = setInheritFromChoice(base, { keysText: " , " });
-			assert.strictEqual(written.params.at(-1)?.valueText, "[]");
-			assert.deepStrictEqual(inheritFromChoice(written), { kind: "none" });
+		test("the empty list is unwritable through the choice writer: no key parses to no keys at all", () => {
+			// The never-write-[] rule lives in the shape: parseInheritKeysText has
+			// no reading for an all-blank text, and setInheritFromChoice's keys arm
+			// takes a non-empty list by type. The barrier stays expressible as
+			// "none" (false) and as a literal [] via Edit as JSON, which still
+			// reads back as none.
+			assert.strictEqual(parseInheritKeysText(" , "), undefined);
+			assert.strictEqual(parseInheritKeysText(""), undefined);
+			assert.deepStrictEqual(parseInheritKeysText(" a ,, b "), ["a", "b"]);
+			assert.deepStrictEqual(inheritFromChoice(group("g", [["_inherit_from", "[]"]])), { kind: "none" });
 		});
 
 		test("writes replace the existing directive row in place instead of appending a duplicate", () => {
@@ -167,7 +176,7 @@ describe("dashboard/recordDraft inheritance directives", () => {
 				["_inherit_from", "true"],
 				["temperature", "0.5"],
 			]);
-			const written = setInheritFromChoice(existing, { keysText: "claude*" });
+			const written = setInheritFromChoice(existing, { keys: ["claude*"] });
 			assert.deepStrictEqual(
 				written.params.map((param) => param.key),
 				["_inherit_from", "temperature"]
