@@ -411,12 +411,26 @@ test("the settings rows' shared tracks leave the description a working column at
 		throw new Error("could not read the label cap from the settings wide-tier block in dashboard.css");
 	}
 	expect(wideBlock).toContain("grid-template-columns: subgrid");
-	// The stacked band opens where the wide tier closes: the `< threshold` block carries the two-column
-	// template, so the label column and the rows turn at one width.
-	const stacked = new RegExp(
-		String.raw`@container pane \(width < ${threshold}px\) \{[\s\S]*?grid-template-columns: auto 1fr;`
-	);
-	expect(css).toMatch(stacked);
+	// The stacked band opens where the wide tier closes: the `< threshold` block
+	// (brace-balanced, like the wide one - an unbounded scan would be satisfied
+	// by an "auto 1fr" template anywhere later in the file) carries the
+	// two-column template, so the label column and the rows turn at one width.
+	const stackedOpen = css.indexOf(`@container pane (width < ${threshold}px) {`, blockEnd);
+	expect(stackedOpen, `no stacked band opens at ${threshold}`).toBeGreaterThan(-1);
+	let stackedDepth = 0;
+	let stackedEnd = stackedOpen;
+	for (let index = css.indexOf("{", stackedOpen); index < css.length; index++) {
+		if (css[index] === "{") {
+			stackedDepth += 1;
+		} else if (css[index] === "}") {
+			stackedDepth -= 1;
+			if (stackedDepth === 0) {
+				stackedEnd = index;
+				break;
+			}
+		}
+	}
+	expect(css.slice(stackedOpen, stackedEnd)).toContain("grid-template-columns: auto 1fr");
 	// The cap is the growth limit over the floor, not under it.
 	expect(Number(cap[1])).toBeGreaterThanOrEqual(Number(wide[2]));
 	// The tracks are rem and the threshold px, so a root font size other than the CSS default of 16 would move

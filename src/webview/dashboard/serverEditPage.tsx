@@ -1800,23 +1800,25 @@ function ServerForm({
 				) : null}
 				{/* The bar's trailing facts on ONE wrap-proof line (dashboard.css .commit-status, the
 				    record footer's .editor-status discipline): zero flex basis, so the count speaking
-				    never changes the bar's wrap points or its height; the paint clips with an
-				    ellipsis while the title carries the whole text. */}
-				<span className="commit-status text-right text-[11.5px] text-muted-foreground">
-					<span
-						title={
-							unsavedCount > 0
-								? `${l10n.t("Saved to {0}", SERVERS_SETTING_ID)} - ${unsavedText(unsavedCount)}`
-								: l10n.t("Saved to {0}", SERVERS_SETTING_ID)
-						}
-					>
-						<span className="save-target">{l10n.t("Saved to {0}", SERVERS_SETTING_ID)}</span>
-						{unsavedCount > 0 ? (
-							<>
-								{" - "}
-								<span className="unsaved-count tabular-nums">{unsavedText(unsavedCount)}</span>
-							</>
-						) : null}
+				    never changes the bar's wrap points or its height. The count is the line's
+				    non-shrinking region - only the standing saved-to fact clips, with an ellipsis -
+				    while the DOM keeps the whole text (screen readers read it unclipped) and the
+				    title carries it for pointers. */}
+				<span
+					className="commit-status text-right text-[11.5px] text-muted-foreground"
+					title={
+						unsavedCount > 0
+							? `${unsavedText(unsavedCount)} - ${l10n.t("Saved to {0}", SERVERS_SETTING_ID)}`
+							: l10n.t("Saved to {0}", SERVERS_SETTING_ID)
+					}
+				>
+					{unsavedCount > 0 ? <span className="unsaved-count tabular-nums">{unsavedText(unsavedCount)}</span> : null}
+					{/* NBSP glue around the dash: the two facts are flex items, so a collapsible
+					    space at the target's start sits at its own line box's start and is trimmed. */}
+					<span className="save-target">
+						{unsavedCount > 0
+							? `\u00a0-\u00a0${l10n.t("Saved to {0}", SERVERS_SETTING_ID)}`
+							: l10n.t("Saved to {0}", SERVERS_SETTING_ID)}
 					</span>
 				</span>
 			</div>

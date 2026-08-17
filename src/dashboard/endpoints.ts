@@ -484,26 +484,24 @@ export function isAckedMethod(method: string): method is AckedMethod {
  * (`row` on IntentFailMessage) so the Settings page can place a standing refusal under
  * the row that posted it without keeping a correlation map of its own.
  */
-export const SETTING_WRITE_METHODS = [
-	"setNumberSetting",
-	"setBooleanSetting",
-	"resetSetting",
-	"setUsageAlertThresholds",
-	"setUsageStatusBar",
-	"setTokenEstimation",
-	"setAdditionalToolSchemaKeywords",
-	"setCurrencySymbol",
-	"setUiTheme",
-	"setUiAccent",
-] as const satisfies readonly DashboardMethod[];
-export type SettingWriteMethod = (typeof SETTING_WRITE_METHODS)[number];
+export type SettingWriteMethod =
+	| "setNumberSetting"
+	| "setBooleanSetting"
+	| "resetSetting"
+	| "setUsageAlertThresholds"
+	| "setUsageStatusBar"
+	| "setTokenEstimation"
+	| "setAdditionalToolSchemaKeywords"
+	| "setCurrencySymbol"
+	| "setUiTheme"
+	| "setUiAccent";
 
 /**
  * Each scalar write's owning row, derived from the request itself: the `setting`-carrying
  * methods name it, every other write method owns exactly one row. Derivation (rather than
  * a webview-minted payload field) makes a row that mismatches its request unrepresentable.
- * Exhaustive by mapped type: a method added to SETTING_WRITE_METHODS fails compilation
- * until its row is registered here.
+ * The ONE registry for the class: exhaustive over SettingWriteMethod by mapped type, and
+ * the method list below derives from it rather than standing beside it.
  */
 const SETTING_WRITE_ROWS: { readonly [K in SettingWriteMethod]: (payload: RequestPayload<K>) => SettingRowId } = {
 	setNumberSetting: (payload) => payload.setting,
@@ -517,6 +515,8 @@ const SETTING_WRITE_ROWS: { readonly [K in SettingWriteMethod]: (payload: Reques
 	setUiTheme: () => "ui.theme",
 	setUiAccent: () => "ui.accent",
 };
+
+export const SETTING_WRITE_METHODS = Object.keys(SETTING_WRITE_ROWS) as readonly SettingWriteMethod[];
 
 /** One method-payload pair per table method; what settingWriteRow can read a row off. */
 type MethodPayload = {

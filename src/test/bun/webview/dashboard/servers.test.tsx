@@ -1750,6 +1750,18 @@ test("the save bar names where the entry lands and counts what is unsaved", () =
 	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4001");
 	expect(root.querySelector(".unsaved-count")?.textContent).toBe("2 unsaved changes");
 
+	// The facts share ONE wrap-proof line (.commit-status): the count is the
+	// slot's own non-shrinking child (dashboard.css pins it flex-none), so a
+	// narrow pane's ellipsis clips only the standing saved-to fact beside it,
+	// and the slot's title carries the whole text for pointers.
+	const count = bar.querySelector(".unsaved-count") as HTMLElement;
+	const target = bar.querySelector(".save-target") as HTMLElement;
+	const slot = bar.querySelector(".commit-status") as HTMLElement;
+	expect(count.parentElement).toBe(slot);
+	expect(target.parentElement).toBe(slot);
+	expect(count.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	expect(slot.getAttribute("title")).toBe("2 unsaved changes - Saved to litellm-vscode-chat.servers");
+
 	// Typing a field back to what it was retires its count: the bar reports
 	// the difference from the entry, not the number of keystrokes.
 	fireInput(inputByLabel(root, "Label"), "Prod");

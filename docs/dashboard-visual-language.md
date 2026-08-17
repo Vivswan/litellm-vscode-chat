@@ -154,9 +154,10 @@ One idiom for actions that rest hidden on a row, and it has one home:
   the transient trails what is visible: nothing visible follows the "?" at
   rest, so the settings row's hover-only note renders after the glyph rather
   than holding a gap open mid-sentence (`settings.tsx ModifiedNote`) - and the
-  row's help glyph is ONE control at the visible sentence's tail
+  row's help glyph is ONE live control at the visible sentence's tail
   (`settings.tsx glyphTrail`): a covering error joins the glyph's own inline
-  flow while the resting text's invisible twin holds the cell's box
+  flow while the resting text's invisible twin - aria-hidden and
+  visibility-hidden, its copies inert - holds the cell's box
   (`settings.tsx SettingRow`), because a glyph painted through an overlay
   collides with the error's text in every theme and is buried whole under
   forced colors' text backplate - and a glyph remounted per tenant drops the

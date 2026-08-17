@@ -1466,23 +1466,29 @@
 		margin: 0;
 		min-height: 1lh;
 	}
-	/* The commit bar's trailing facts (where the form saves, the unsaved
-		   count), one wrap-proof line on the .editor-status discipline: zero
-		   flex basis, so the count speaking never changes the bar's wrap points
-		   or its height, and the paint clips with an ellipsis while the title
-		   carries the whole text. The hard 18px box matches .editor-status's
-		   metrics-invariant line. */
+	/* The commit bar's trailing facts, one wrap-proof line: a fixed 18px box no content
+		   or metric moves, and a 22ch floor from the count's widest text ("99 unsaved
+		   changes", ~19ch), so the wrap gives the slot its own row before the count clips.
+		   Ellipsis clips the saved-to fact only; the DOM keeps the whole text. */
 	.commit-status {
-		display: grid;
+		display: flex;
+		justify-content: flex-end;
 		align-items: center;
 		flex: 1 1 0;
-		min-width: 8ch;
-	}
-	.commit-status > * {
-		min-width: 0;
+		min-width: 22ch;
 		height: 18px;
 		line-height: 18px;
 		white-space: nowrap;
+		overflow: hidden;
+	}
+	.commit-status > .unsaved-count {
+		flex: none;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.commit-status > .save-target {
+		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}

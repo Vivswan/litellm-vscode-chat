@@ -246,8 +246,11 @@ function ModifiedNote({ scope, defaultText }: { scope: SettingScope | null; defa
 
 /**
  * The row's help glyph at the visible sentence's tail, glued to the word before it by the
- * NoBreakTail glue. ONE mount for every state of the row: the covered and resting texts
- * swap around it, so keyboard focus on the "?" survives an overlay landing or clearing.
+ * NoBreakTail glue. ONE live mount for every state of the row: the covered and resting
+ * texts swap around it, so keyboard focus on the "?" survives an overlay landing or
+ * clearing. The height twin renders an inert COPY of this trail (aria-hidden and
+ * visibility-hidden, so out of the Tab order and the accessibility tree) purely to hold
+ * the resting box.
  */
 function glyphTrail(title: string, help: string | undefined) {
 	if (help === undefined) {
@@ -319,10 +322,11 @@ function SettingRow({
 			? undefined
 			: l10n.t("The last change did not apply: {0}", statusErrorHeadline(writeFailure.message));
 	const covered = error !== undefined || failureText !== undefined;
-	// The resting flow, rendered twice while covered: once invisible as the cell's height
-	// twin, once nowhere - only the covering error and the row's one glyph paint. An
-	// AT-REST note precedes the glyph, so the "?" stays the resting description's last
-	// element; the hover-only User-scope note (or its spacing twin) trails it.
+	// The resting flow. While covered it renders once more inside the height twin -
+	// visibility-hidden AND aria-hidden, so its copies (notes, the catalog row's controls)
+	// are inert: out of the Tab order, hit-testing, and the accessibility tree. An AT-REST
+	// note precedes the glyph, so the "?" stays the resting description's last element;
+	// the hover-only User-scope note (or its spacing twin) trails it.
 	const restingFlow = (
 		<>
 			<span className="setting-desc">{description}</span>

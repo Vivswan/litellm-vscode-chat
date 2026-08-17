@@ -566,14 +566,6 @@ const STATE_PAIRS: readonly StatePair[] = [
 		toggle: [reactType("#server-baseUrl", "not a url")],
 		restVerify: `document.querySelector('[id="server-baseUrl-error"] .error') === null`,
 		verify: `document.querySelector('[id="server-baseUrl-error"] .error') !== null`,
-		expectedDrift: {
-			reason:
-				"Under the pinned measurement fonts the sticky toolbar's trailing message span wraps to a second " +
-				"line when the field problem speaks, growing the toolbar and the form 1px: the slot reserves one " +
-				"line, not a wrap-proof box. The fix belongs to the form's toolbar message slot in src/webview.",
-			where: ["#server-edit-page height"],
-			maxAbsPx: 1.5,
-		},
 	},
 	{
 		// A custom-header row's parse verdict lands in the row's reserved status
@@ -586,11 +578,6 @@ const STATE_PAIRS: readonly StatePair[] = [
 		toggle: [reactType(`${FIRST_HEADER_ROW} input[aria-label="Header name"]`, "bad header")],
 		restVerify: `document.querySelector("#server-edit-page .row .row-status.error") === null`,
 		verify: `document.querySelector("#server-edit-page .row .row-status.error") !== null`,
-		expectedDrift: {
-			reason: "The same wrapping toolbar message span as form-url-error, spoken to by the row verdict's summary.",
-			where: ["#server-edit-page height"],
-			maxAbsPx: 1.5,
-		},
 	},
 	{
 		// The matcher editor overlay's per-row verdict lands in the row's reserved
@@ -750,11 +737,6 @@ const STATE_PAIRS: readonly StatePair[] = [
 			`getComputedStyle(document.querySelector("#server-edit-page .collides-note"))` + `.visibility === "hidden"`,
 		verify:
 			`getComputedStyle(document.querySelector("#server-edit-page .collides-note"))` + `.visibility === "visible"`,
-		expectedDrift: {
-			reason: "The same wrapping toolbar message span as form-url-error, spoken to by the collision summary.",
-			where: ["#server-edit-page height"],
-			maxAbsPx: 1.5,
-		},
 	},
 	{
 		// The matcher editor's status line under the matcher input is ONE reserved
@@ -930,6 +912,24 @@ const STATE_PAIRS: readonly StatePair[] = [
 			`[...document.querySelectorAll(".matcher-editor .rows input.key")].at(-1)?.value === ` +
 			`"a_much_longer_parameter_name_than_any_track_should_chase" && ` +
 			`document.activeElement === [...document.querySelectorAll(".matcher-editor .rows input.key")].at(-1)`,
+	},
+	{
+		// The server form commit bar's trailing facts share one wrap-proof line
+		// (dashboard.css .commit-status): the unsaved count speaking must move
+		// neither the bar, the slot, nor the page - the count is the slot's
+		// non-shrinking region and only the saved-to fact clips. The verify also
+		// proves the spoken count itself is unclipped at this width.
+		name: "form-commit-bar-count",
+		fixture: "form-apikey.ts",
+		targets: ["#server-edit-page .form-card .toolbar", "#server-edit-page .commit-status", "#server-edit-page"],
+		toggle: [reactType("#server-label", "prod-renamed")],
+		restVerify: `document.querySelector(".unsaved-count") === null`,
+		verify: `(() => {
+			const count = document.querySelector(".unsaved-count");
+			if (count === null) { return false; }
+			const box = count.getBoundingClientRect();
+			return box.width > 0 && count.scrollWidth <= count.clientWidth + 0.5;
+		})()`,
 	},
 ];
 

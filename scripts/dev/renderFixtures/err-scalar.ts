@@ -50,9 +50,12 @@ const fixture: RenderFixture = {
 			if (overlay === null || !overlay.textContent.includes("Alert thresholds must be above 0%")) {
 				throw new Error("The refused write never rendered in the thresholds row's description slot");
 			}
-			const twin = row.querySelector(".setting-hint .setting-twin .setting-desc");
-			if (twin === null) {
+			const twin = row.querySelector(".setting-hint .setting-twin");
+			if (twin === null || twin.querySelector(".setting-desc") === null) {
 				throw new Error("The refused write is not covering: no resting twin holds the description slot's box");
+			}
+			if (getComputedStyle(twin).visibility !== "hidden") {
+				throw new Error("The resting twin paints: two texts would render stacked under the overlay");
 			}
 			if (overlay.textContent.includes("allowed range")) {
 				throw new Error("The refused write's technical detail line leaked into the covered slot");

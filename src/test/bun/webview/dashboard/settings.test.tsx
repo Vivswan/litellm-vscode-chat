@@ -116,6 +116,17 @@ test("an error covers the hint cell without taking its height, and the one glyph
 	const glyph = live?.querySelector("button.help");
 	expect(glyph).not.toBeNull();
 	expect(cover?.nextElementSibling).toBe(glyph?.closest(".whitespace-nowrap") as Element);
+	// ONE live control: the twin renders its own inert copy - present (it holds
+	// the resting box), inside the aria-hidden height holder - and no glyph
+	// outside the twin exists besides the live one.
+	const twinGlyph = hint?.querySelector(".setting-twin button.help");
+	expect(twinGlyph).not.toBeNull();
+	expect(twinGlyph?.closest('[aria-hidden="true"]')).not.toBeNull();
+	for (const candidate of Array.from(hint?.querySelectorAll("button.help") ?? [])) {
+		if (candidate !== glyph) {
+			expect(candidate.closest(".setting-twin")).not.toBeNull();
+		}
+	}
 });
 
 test("the help glyph is one mount: focus on it survives an overlay landing and clearing", () => {
@@ -718,13 +729,17 @@ test("the page runs full-bleed: no measure cap on the header or the groups, one 
 
 test("the title's stacked flip shares the row grid's threshold, inside the same stylesheet band", () => {
 	// The label flips left where the columns turn two-track. Both live in dashboard.css's `< 910` band now, so the
-	// claim is that ONE block carries both - a flip block of its own could drift to another width.
+	// claim is that ONE block carries both - a flip block of its own could drift to another width. The end anchor is
+	// searched FROM the flip's own block, so an "auto 1fr" elsewhere in the file cannot satisfy it.
 	const css = readFileSync(join(import.meta.dir, "../../../../webview/dashboard/styles/dashboard.css"), "utf8");
 	const stackedAt = /@container pane \(width < (\d+)px\) \{\s*\.setting-title \{\s*text-align: left;/.exec(css);
 	expect(stackedAt).not.toBeNull();
-	const band = `@container pane (width >= 560px)`;
-	const block = css.slice(css.indexOf(stackedAt?.[0] ?? ""), css.indexOf("grid-template-columns: auto 1fr"));
-	expect(block).toContain(band);
+	const start = css.indexOf(stackedAt?.[0] ?? "");
+	expect(start).toBeGreaterThan(-1);
+	const bandAt = css.indexOf("@container pane (width >= 560px)", start);
+	const templateAt = css.indexOf("grid-template-columns: auto 1fr", start);
+	expect(bandAt).toBeGreaterThan(start);
+	expect(templateAt).toBeGreaterThan(bandAt);
 });
 
 test("every settings row anchors its actions in one trailing slot: Reset then the settings.json jump", () => {
