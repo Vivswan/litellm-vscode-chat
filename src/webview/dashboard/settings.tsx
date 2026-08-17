@@ -186,42 +186,22 @@ const SETTING_GROUPS: readonly {
 ];
 
 /**
- * The one row template every row obeys, full-bleed. Wide: the TRACKS live on
- * .settings-groups and rows adopt them through two levels of subgrid, so the label gutter
- * is ONE measured width hugging the longest visible title (per-row auto tracks would
- * misalign the control edge); the actions slot is a FIXED track so modified and clean
- * rows share one explanation edge. Narrow (below 910px of pane): each row lays itself
- * out as two tracks, title keeping its compact control beside it, the control cell
- * carrying the pr-24 corner reserve under the pinned actions. The stacked band's second
- * track is a bare 1fr ON PURPOSE - minmax(auto,1fr) reserves the control's min-content
- * before the title takes anything (minmax(0,1fr) ran a 144px input under the actions;
- * the settings-band-floor fixture asserts the non-overlap). That auto minimum sets the
- * 560px one-column floor, and the two stacked tiers are exclusive @min/@max bands, not
- * two @max rules hanging on rule order. The PANE decides, not the window, and 910 sits
- * clear of the band the rail's collapse makes ambiguous (every pane width in it happens
- * TWICE as the window widens).
+ * The one row template every row obeys. The geometry lives in dashboard.css (.setting-row
+ * and its band rules, beside .settings-groups); this name is the pointer.
  */
-const SETTING_ROW_GRID =
-	"grid @min-[910px]/pane:col-span-4 @min-[910px]/pane:grid-cols-subgrid gap-x-4 @min-[560px]/pane:@max-[910px]/pane:grid-cols-[auto_1fr] @max-[560px]/pane:grid-cols-1";
+const SETTING_ROW_GRID = "setting-row";
 
 /**
- * The wide tier's shared tracks, owned by .settings-groups: auto label gutter (10rem
- * floor; growth capped by SETTING_TITLE's max-w - minmax cannot clamp max-content),
- * control, growing explanation, fixed actions. Wide tier only: below 910 the rows own
- * their stacked templates and this container must stay a plain block.
+ * The wide tier's shared tracks, owned by dashboard.css .settings-groups (rows adopt them
+ * through subgrid); this name is the pointer.
  */
-const SETTING_GRID_TRACKS =
-	"@min-[910px]/pane:grid @min-[910px]/pane:grid-cols-[minmax(10rem,max-content)_minmax(0,20rem)_minmax(0,1fr)_5.5rem] @min-[910px]/pane:gap-x-4";
+const SETTING_GRID_TRACKS = "settings-groups";
 
 /**
- * The label cell, turning at the same widths the tracks do. The 13rem cap is the gutter's
- * growth limit: a pathological translation wraps instead of starving the control column
- * (13rem + 20rem + 5.5rem + gaps still leaves ~246px of description at the 910 floor).
- * A constant because the row renders the label as `label` or `span`, and a threshold
- * spelled twice can move in one; Tailwind needs the variant literal, so no interpolation.
+ * The label cell. Its alignment, growth cap, and corner reserves live in dashboard.css
+ * .setting-title; a constant because the row renders the label as `label` or `span`.
  */
-const SETTING_TITLE =
-	"setting-title text-right font-semibold @min-[910px]/pane:max-w-[13rem] @max-[910px]/pane:text-left @max-[560px]/pane:pr-24";
+const SETTING_TITLE = "setting-title font-semibold";
 
 /**
  * The settings.json jump every row carries, in the trailing actions slot with Reset,
@@ -404,7 +384,7 @@ function SettingRow({
 		<div
 			className={cn(
 				SETTING_ROW_GRID,
-				"setting-row group/setting -ml-3 relative items-baseline gap-y-1 rounded-xs border-l-2 py-2 pl-2.5 hover:bg-accent",
+				"group/setting -ml-3 relative items-baseline gap-y-1 rounded-xs border-l-2 py-2 pl-2.5 hover:bg-accent",
 				// The right edge mirrors the record rows' (-mx-2 with px-2): the hover tint overhangs
 				// the pane's cap by 8px while the CONTENT stops exactly at it.
 				"-mr-2 pr-2",
@@ -413,31 +393,22 @@ function SettingRow({
 				// reads the RUNTIME --accent-hue chain directly: a named utility needs a @theme alias,
 				// and the last one was deleted as orphaned - the bar silently fell back to grey.
 				configuredScope !== null ? "modified border-l-(--accent-hue)" : "border-l-transparent",
-				// A compact control keeps the two-column line at every stacked
-				// width; the base template's sub-560 fallback yields to it
-				// (tailwind-merge, same variant, later wins).
-				compactControl === true && "@max-[560px]/pane:grid-cols-[auto_1fr]"
+				// A compact control keeps the two-column line at every stacked width
+				// (dashboard.css .setting-row.setting-compact).
+				compactControl === true && "setting-compact"
 			)}
 			hidden={hidden}
 		>
 			{titleFor === undefined ? (
-				<span className={cn(SETTING_TITLE, compactControl === true && "@max-[560px]/pane:pr-0")}>{title}</span>
+				<span className={SETTING_TITLE}>{title}</span>
 			) : (
-				<label className={cn(SETTING_TITLE, compactControl === true && "@max-[560px]/pane:pr-0")} htmlFor={titleFor}>
+				<label className={SETTING_TITLE} htmlFor={titleFor}>
 					{title}
 				</label>
 			)}
-			{/* The line's tail in the two-column stacked band carries the top-right corner reserve:
-			    the actions pin over the row's first line. Below 560px the control has its own line
-			    and the reserve goes back to the title - except beside a compact control. */}
-			<div
-				className={cn(
-					"setting-control flex flex-wrap items-center gap-2 @min-[560px]/pane:@max-[910px]/pane:pr-24",
-					compactControl === true && "@max-[560px]/pane:pr-24"
-				)}
-			>
-				{control}
-			</div>
+			{/* The stacked bands' corner reserves under the pinned actions ride the band rules in
+			    dashboard.css: the control cell on the two-column tiers, the title below 560px. */}
+			<div className="setting-control flex flex-wrap items-center gap-2">{control}</div>
 			{/* The error COVERS the description: while one stands, the live flow leaves the flow
 			    and overlays the resting text's invisible aria-hidden twin (dashboard.css
 			    .setting-hint), so the cell keeps its height and no row moves while you type. The
@@ -450,11 +421,6 @@ function SettingRow({
 				className={cn(
 					"setting-hint relative min-w-0 max-w-[72ch] break-words text-[0.95em] text-muted-foreground",
 					covered && "setting-covered",
-					// The second line of the two-column stacked band, under the
-					// title-and-control line; the one-column tier below 560px places
-					// it by flow, except under a compact control's kept line.
-					"@min-[560px]/pane:@max-[910px]/pane:col-span-2",
-					compactControl === true && "@max-[560px]/pane:col-span-2",
 					hintClassName
 				)}
 			>
@@ -492,11 +458,9 @@ function SettingRow({
 				) : null}
 			</div>
 			{/* The row's one actions slot: Reset then the settings.json jump, always last (the
-			    anatomy's fourth track). Placed explicitly - a description cell spanning a second row
-			    would drag the auto cursor down with it. Stacked, the slot pins to the row's top-right
-			    corner (the row is relative for this). gap-4.5 is ink-to-ink (compact buttons hand
-			    their padding back). */}
-			<div className="setting-actions flex items-center justify-end gap-4.5 self-start justify-self-end @min-[910px]/pane:col-start-4 @min-[910px]/pane:row-start-1 @max-[910px]/pane:absolute @max-[910px]/pane:top-1.5 @max-[910px]/pane:right-2">
+			    anatomy's fourth track; placement per band in dashboard.css .setting-actions).
+			    gap-4.5 is ink-to-ink (compact buttons hand their padding back). */}
+			<div className="setting-actions flex items-center justify-end gap-4.5 self-start justify-self-end">
 				{configuredScope !== null ? <ResetButton title={title} scope={configuredScope} settingId={settingId} /> : null}
 				<RevealButton title={title} settingId={settingId} />
 			</div>
@@ -1402,18 +1366,15 @@ function SettingGroup({
 	const empty = numbers.every((id) => !isVisible(id)) && booleans.every((id) => !isVisible(id)) && tailVisible !== true;
 	return (
 		// The middle subgrid layer: the group hands .settings-groups' tracks down
-		// to its rows and spans them itself. Wide tier only, like the owner.
-		<div
-			className="settings-group mt-6 @min-[910px]/pane:col-span-4 @min-[910px]/pane:grid @min-[910px]/pane:grid-cols-subgrid"
-			hidden={empty}
-		>
+		// to its rows and spans them itself (dashboard.css .settings-group).
+		<div className="settings-group mt-6" hidden={empty}>
 			{/* Sentence case, not an all-caps eyebrow: the group heading separates by weight, space,
 			    and the hairline. Full-strength foreground - the nested record editors head themselves
 			    at muted 600, and a parent that matches its children ranks nothing. */}
 			{/* The glyph is the heading's sibling, not its child: a button nested inside a heading
 			    folds its accessible name into the heading's. The rule and spacing belong to the
 			    line, so they sit on the wrapper. */}
-			<div className="settings-group-head @min-[910px]/pane:col-span-4 mt-0 mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 border-border border-b pb-1">
+			<div className="settings-group-head mt-0 mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 border-border border-b pb-1">
 				<h3 className="settings-group-title m-0 font-semibold text-[0.95em]">{title()}</h3>
 				{/* Behind the glyph, not above the rows: a group's explanation is read once, and a
 				    standing paragraph costs every later visit space while telling a returning reader
@@ -1737,7 +1698,7 @@ export function SettingsSection({
 				{/* The wide tier's track owner (SETTING_GRID_TRACKS): groups and rows
 				    subgrid onto these columns, so the label gutter is one measured
 				    width for the whole page. */}
-				<div className={cn("settings-groups", SETTING_GRID_TRACKS)}>
+				<div className={SETTING_GRID_TRACKS}>
 					{SETTING_GROUPS.map((group, index) => {
 						// Four groups carry non-scalar tails, mirroring the manifest's grouping.
 						const isModelsGroup = group.booleans.includes("models.openRouterCatalog");
@@ -1760,7 +1721,7 @@ export function SettingsSection({
 								}
 								tail={
 									isModelsGroup ? (
-										<div className="min-w-0 @min-[910px]/pane:col-span-4">
+										<div className="settings-editors min-w-0">
 											{/* The editors' apply-together save model is stated by each
 										    editor's own "?" (helpModelParametersSection and
 										    helpModelCapabilitiesSection), not by a free-standing
@@ -1871,7 +1832,7 @@ export function SettingsSection({
 						isVisible={isVisible}
 						tailVisible={importExportVisible}
 						tail={
-							<div className="settings-transfer @min-[910px]/pane:col-span-4 flex flex-wrap items-center gap-x-3.5 gap-y-1 py-2">
+							<div className="settings-transfer flex flex-wrap items-center gap-x-3.5 gap-y-1 py-2">
 								<Button
 									variant="secondary"
 									onClick={() => sendRequest("executeCommand", { command: "exportSettings" })}

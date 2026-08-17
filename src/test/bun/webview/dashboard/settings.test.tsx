@@ -2,6 +2,8 @@
  * The scalar settings form: draft parsing, commit rules, blur-gated errors, resync, Reset, scope notes, ms hints.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { act } from "react";
 import type { RpcRequest } from "../../../../dashboard/endpoints";
 import { WIRE_LIMITS } from "../../../../dashboard/endpoints";
@@ -708,27 +710,25 @@ test("the page runs full-bleed: no measure cap on the header or the groups, one 
 	for (const surface of [groups, header]) {
 		expect(Array.from(surface.classList).some((name) => name.startsWith("max-w-"))).toBe(false);
 	}
-	// The fixed actions track is what makes the edge one: the wide tier's template lives on the groups container (rows
-	// adopt it through subgrid, so the label track is one measured width for the page) and its last track is a rem.
-	const template = Array.from(groups.classList).find((name) => name.includes("grid-cols-["));
-	expect(template).toMatch(/_[\d.]+rem\]$/);
-	const row = root.querySelector(".setting-row") as HTMLElement;
-	expect(Array.from(row.classList).some((name) => name.endsWith("grid-cols-subgrid"))).toBe(true);
+	// The fixed actions track is what makes the edge one: the wide tier's template lives on .settings-groups in
+	// dashboard.css (rows adopt it through subgrid, so the label track is one measured width for the page) and its
+	// last track is a rem. happy-dom runs no cascade, so the stylesheet is where this is checkable.
+	const css = readFileSync(join(import.meta.dir, "../../../../webview/dashboard/styles/dashboard.css"), "utf8");
+	const template = /\.settings-groups \{\s*display: grid;\s*grid-template-columns: ([^;]+);/.exec(css)?.[1] ?? "";
+	expect(template).toMatch(/ [\d.]+rem$/);
+	const row = /\.setting-row \{\s*grid-column: span 4;\s*grid-template-columns: (subgrid);/.exec(css)?.[1];
+	expect(row).toBe("subgrid");
 });
 
-test("the title's stacked flip shares the row grid's threshold, read off the grid itself", () => {
-	// SETTING_TITLE's stacked variant is its own class string (Tailwind compiles only whole variants), and nothing but
-	// this stops the label flipping left at one width while the columns turn two-track at another. The prefix is
-	// derived from the row's own stacked override; the two-track template is an exclusive band, so read its @max half.
-	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
-	const row = root.querySelector(".setting-row") as HTMLElement;
-	const tracks = Array.from(row.classList).filter((name) => name.includes("grid-cols-"));
-	const stackedTemplate = "grid-cols-[auto_1fr]";
-	const band = tracks.find((name) => name.startsWith("@") && name.endsWith(stackedTemplate)) ?? "";
-	const stacked = /(@max-\[\d+px\]\/pane:)/.exec(band)?.[1] ?? "";
-	expect(stacked).toMatch(/^@max-\[\d+px\]\/pane:$/);
-	const title = root.querySelector(".setting-title") as HTMLElement;
-	expect(title.classList.contains(`${stacked}text-left`)).toBe(true);
+test("the title's stacked flip shares the row grid's threshold, inside the same stylesheet band", () => {
+	// The label flips left where the columns turn two-track. Both live in dashboard.css's `< 910` band now, so the
+	// claim is that ONE block carries both - a flip block of its own could drift to another width.
+	const css = readFileSync(join(import.meta.dir, "../../../../webview/dashboard/styles/dashboard.css"), "utf8");
+	const stackedAt = /@container pane \(width < (\d+)px\) \{\s*\.setting-title \{\s*text-align: left;/.exec(css);
+	expect(stackedAt).not.toBeNull();
+	const band = `@container pane (width >= 560px)`;
+	const block = css.slice(css.indexOf(stackedAt?.[0] ?? ""), css.indexOf("grid-template-columns: auto 1fr"));
+	expect(block).toContain(band);
 });
 
 test("every settings row anchors its actions in one trailing slot: Reset then the settings.json jump", () => {

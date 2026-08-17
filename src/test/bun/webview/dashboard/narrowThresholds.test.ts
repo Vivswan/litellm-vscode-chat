@@ -369,42 +369,61 @@ test("every pane query is spelled one of the two legal ways", () => {
 test("the settings rows' shared tracks leave the description a working column at the stack threshold", () => {
 	// The Settings page runs full-bleed on four shared tracks - label, control, description, actions - and
 	// stacks on a pane query. The description is the one elastic track, so the state to guard is a pane just
-	// above the threshold where the label cap, the fixed tracks, and the gaps leave it a word per line. All
-	// the numbers are class strings no runtime assertion can see, so this reads them out of the source.
-	const source = readFileSync(join(WEBVIEW, "settings.tsx"), "utf8");
-	// Anchored to each constant's DECLARATION rather than to the first grid in the file, the same first-match
-	// hazard the rail arithmetic documents.
-	const tracks =
-		/SETTING_GRID_TRACKS =\s*"@min-\[(\d+)px\]\/pane:grid @min-\[\d+px\]\/pane:grid-cols-\[minmax\((\d+(?:\.\d+)?)rem,max-content\)_minmax\(0,(\d+(?:\.\d+)?)rem\)_minmax\(0,1fr\)_(\d+(?:\.\d+)?)rem\]/.exec(
-			source
+	// above the threshold where the label cap, the fixed tracks, and the gaps leave it a word per line. The
+	// geometry lives in dashboard.css (the .settings-groups block), so this reads it out of the stylesheet.
+	const css = stylesheet();
+	// Anchored to the wide-tier block: the tracks, the label cap, and the gap all live inside the ONE
+	// `@container pane (width >= N px)` block that owns the settings grid, so the threshold cannot be spelled
+	// twice and drift - membership in the block is checked by brace depth below.
+	const wide =
+		/@container pane \(width >= (\d+)px\) \{\s*\.settings-groups \{\s*display: grid;\s*grid-template-columns: minmax\((\d+(?:\.\d+)?)rem, max-content\) minmax\(0, (\d+(?:\.\d+)?)rem\) minmax\(0, 1fr\) (\d+(?:\.\d+)?)rem;\s*column-gap: (\d+)px;/.exec(
+			css
 		);
-	if (tracks?.[1] === undefined || tracks[2] === undefined || tracks[3] === undefined || tracks[4] === undefined) {
-		throw new Error("could not read the shared settings tracks from SETTING_GRID_TRACKS in settings.tsx");
+	if (
+		wide?.[1] === undefined ||
+		wide[2] === undefined ||
+		wide[3] === undefined ||
+		wide[4] === undefined ||
+		wide[5] === undefined
+	) {
+		throw new Error("could not read the shared settings tracks from dashboard.css's .settings-groups block");
 	}
-	const cap = /SETTING_TITLE =\s*"[^"]*@min-\[(\d+)px\]\/pane:max-w-\[(\d+(?:\.\d+)?)rem\]/.exec(source);
-	if (cap?.[1] === undefined || cap[2] === undefined) {
-		throw new Error("could not read the label cap from SETTING_TITLE in settings.tsx");
+	const threshold = Number(wide[1]);
+	// The label cap sits in the SAME wide block (brace-balanced slice), so it flips at the same width the
+	// tracks do; the two-column stacked band opens at the same threshold's other side.
+	const blockStart = css.indexOf(wide[0]);
+	let depth = 0;
+	let blockEnd = blockStart;
+	for (let index = css.indexOf("{", blockStart); index < css.length; index++) {
+		if (css[index] === "{") {
+			depth += 1;
+		} else if (css[index] === "}") {
+			depth -= 1;
+			if (depth === 0) {
+				blockEnd = index;
+				break;
+			}
+		}
 	}
-	const row =
-		/SETTING_ROW_GRID =\s*"grid @min-\[(\d+)px\]\/pane:col-span-4 @min-\[\d+px\]\/pane:grid-cols-subgrid gap-x-4[\s\S]{0,80}?@max-\[(\d+)px\]\/pane:grid-cols-\[auto_1fr\]/.exec(
-			source
-		);
-	if (row?.[1] === undefined || row[2] === undefined) {
-		throw new Error("could not read the subgrid adoption and stack threshold from SETTING_ROW_GRID in settings.tsx");
+	const wideBlock = css.slice(blockStart, blockEnd);
+	const cap = /\.setting-title \{\s*max-width: (\d+(?:\.\d+)?)rem;/.exec(wideBlock);
+	if (cap?.[1] === undefined) {
+		throw new Error("could not read the label cap from the settings wide-tier block in dashboard.css");
 	}
-	// One threshold, spelled three ways: a drifted copy re-points the label column at one width and the rows at
-	// another.
-	const threshold = Number(row[2]);
-	expect(Number(tracks[1])).toBe(threshold);
-	expect(Number(cap[1])).toBe(threshold);
-	expect(Number(row[1])).toBe(threshold);
+	expect(wideBlock).toContain("grid-template-columns: subgrid");
+	// The stacked band opens where the wide tier closes: the `< threshold` block carries the two-column
+	// template, so the label column and the rows turn at one width.
+	const stacked = new RegExp(
+		String.raw`@container pane \(width < ${threshold}px\) \{[\s\S]*?grid-template-columns: auto 1fr;`
+	);
+	expect(css).toMatch(stacked);
 	// The cap is the growth limit over the floor, not under it.
-	expect(Number(cap[2])).toBeGreaterThanOrEqual(Number(tracks[2]));
+	expect(Number(cap[1])).toBeGreaterThanOrEqual(Number(wide[2]));
 	// The tracks are rem and the threshold px, so a root font size other than the CSS default of 16 would move
 	// one side of the comparison. That is a fact about the stylesheets rather than a constant, so it is checked.
 	expect(rootFontSizeDeclarations()).toEqual([]);
 	const gaps = 3;
-	const fixed = (Number(cap[2]) + Number(tracks[3]) + Number(tracks[4]) + gaps) * 16;
+	const fixed = (Number(cap[1]) + Number(wide[3]) + Number(wide[4])) * 16 + Number(wide[5]) * gaps;
 	// 240px is about 34 characters of 0.95em prose: a real column, not a sliver.
 	expect(threshold - fixed).toBeGreaterThanOrEqual(240);
 });

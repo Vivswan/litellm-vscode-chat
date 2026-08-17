@@ -1223,6 +1223,118 @@
 		position: absolute;
 		inset: 0;
 	}
+
+	/* ---- the settings rows' shared tracks and stacking bands ----
+	   One full-bleed template for every row (settings.tsx SettingRow renders
+	   onto these classes). Wide (pane >= 910px): the four tracks live on
+	   .settings-groups - auto label gutter (10rem floor; growth capped by
+	   .setting-title's max-width, because minmax cannot clamp max-content),
+	   control, growing explanation, fixed actions so clean and modified rows
+	   share one explanation edge - and groups and rows adopt them through two
+	   levels of subgrid, so the label gutter is ONE measured width hugging the
+	   longest visible title (per-row auto tracks would misalign the control
+	   edge). The PANE decides, not the window, and 910 sits clear of the band
+	   the rail's collapse makes ambiguous (every pane width in it happens TWICE
+	   as the window widens). */
+	.setting-row {
+		display: grid;
+		column-gap: 16px;
+	}
+	@container pane (width >= 910px) {
+		.settings-groups {
+			display: grid;
+			grid-template-columns: minmax(10rem, max-content) minmax(0, 20rem) minmax(0, 1fr) 5.5rem;
+			column-gap: 16px;
+		}
+		.settings-group {
+			display: grid;
+			grid-column: span 4;
+			grid-template-columns: subgrid;
+		}
+		.setting-row {
+			grid-column: span 4;
+			grid-template-columns: subgrid;
+		}
+		.settings-group-head,
+		.settings-editors,
+		.settings-transfer {
+			grid-column: span 4;
+		}
+		/* The label gutter's growth limit: a pathological translation wraps
+		   instead of starving the control column (13rem + 20rem + 5.5rem + the
+		   gaps still leaves ~246px of description at the 910 floor). */
+		.setting-title {
+			max-width: 13rem;
+		}
+		/* The row's one actions slot, placed explicitly: a description cell
+		   spanning a second row would drag the auto cursor down with it. */
+		.setting-actions {
+			grid-column-start: 4;
+			grid-row-start: 1;
+		}
+	}
+	.setting-title {
+		text-align: right;
+	}
+	/* The stacked tiers: below 910px of pane each row lays itself out, the
+	   title turns left, and the actions pin to the row's top-right corner (the
+	   row is relative for this), with a 6rem corner reserve under them on the
+	   row's first line. The two bands are exclusive @container ranges, not two
+	   overlapping rules hanging on source order. */
+	@container pane (width < 910px) {
+		.setting-title {
+			text-align: left;
+		}
+		.setting-actions {
+			position: absolute;
+			top: 6px;
+			right: 8px;
+		}
+		/* Two columns while both fit: the title keeps its control beside it and
+		   the description takes the line under them. The control track is a
+		   bare 1fr ON PURPOSE - minmax(auto,1fr) reserves the control's
+		   min-content before the title takes anything (minmax(0,1fr) ran a
+		   144px input under the actions; the settings-band-floor fixture
+		   asserts the non-overlap). That auto minimum sets the 560px
+		   one-column floor. The control cell carries the corner reserve, the
+		   line's tail on the row's first line. */
+		@container pane (width >= 560px) {
+			.setting-row {
+				grid-template-columns: auto 1fr;
+			}
+			.setting-control {
+				padding-right: 6rem;
+			}
+			.setting-hint {
+				grid-column: span 2;
+			}
+		}
+	}
+	/* One column under 560px, where the widest controls cannot share a line
+	   with any title without overflowing the pane; the corner reserve goes
+	   back to the title. A compact row (settings.tsx compactControl: a
+	   checkbox) keeps the two-column line at every width, so the reserve stays
+	   on its control cell. */
+	@container pane (width < 560px) {
+		.setting-row {
+			grid-template-columns: minmax(0, 1fr);
+		}
+		.setting-title {
+			padding-right: 6rem;
+		}
+		.setting-row.setting-compact {
+			grid-template-columns: auto 1fr;
+		}
+		.setting-row.setting-compact .setting-title {
+			padding-right: 0;
+		}
+		.setting-row.setting-compact .setting-control {
+			padding-right: 6rem;
+		}
+		.setting-row.setting-compact .setting-hint {
+			grid-column: span 2;
+		}
+	}
 	.setting-check {
 		display: flex;
 		align-items: flex-start;
