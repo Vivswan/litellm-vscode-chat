@@ -1466,6 +1466,26 @@
 		margin: 0;
 		min-height: 1lh;
 	}
+	/* The commit bar's trailing facts (where the form saves, the unsaved
+		   count), one wrap-proof line on the .editor-status discipline: zero
+		   flex basis, so the count speaking never changes the bar's wrap points
+		   or its height, and the paint clips with an ellipsis while the title
+		   carries the whole text. The hard 18px box matches .editor-status's
+		   metrics-invariant line. */
+	.commit-status {
+		display: grid;
+		align-items: center;
+		flex: 1 1 0;
+		min-width: 8ch;
+	}
+	.commit-status > * {
+		min-width: 0;
+		height: 18px;
+		line-height: 18px;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
 	/* The per-row force/fallback/inheritable marks: muted checkboxes on their
 		   own full line under the row's inputs, the same position on every row. */
 	.row .directive-flag {

@@ -465,6 +465,11 @@ function matcherCountAside(count: number): string {
 	return count === 1 ? l10n.t("optional - 1 matcher") : l10n.t("optional - {0} matchers", count);
 }
 
+/** The commit bar's unsaved-change count, resolved at call time (no module-level localized constants). */
+function unsavedText(count: number): string {
+	return count === 1 ? l10n.t("1 unsaved change") : l10n.t("{0} unsaved changes", count);
+}
+
 /**
  * The shared commit bar: sticky, its rule meeting the page's 860px measure and bleeding
  * into .pane's 24px gutter when the pane is what limits it. The bleed is a CLAMP, not a
@@ -1793,13 +1798,26 @@ function ServerForm({
 				{phase.phase === "prefill" ? (
 					<span className="hint m-0 text-[11.5px]">{l10n.t("Loading stored values...")}</span>
 				) : null}
-				<span className="ml-auto text-right text-[11.5px] text-muted-foreground">
-					<span className="save-target">{l10n.t("Saved to {0}", SERVERS_SETTING_ID)}</span>
-					{unsavedCount > 0 ? (
-						<span className="unsaved-count block tabular-nums">
-							{unsavedCount === 1 ? l10n.t("1 unsaved change") : l10n.t("{0} unsaved changes", unsavedCount)}
-						</span>
-					) : null}
+				{/* The bar's trailing facts on ONE wrap-proof line (dashboard.css .commit-status, the
+				    record footer's .editor-status discipline): zero flex basis, so the count speaking
+				    never changes the bar's wrap points or its height; the paint clips with an
+				    ellipsis while the title carries the whole text. */}
+				<span className="commit-status text-right text-[11.5px] text-muted-foreground">
+					<span
+						title={
+							unsavedCount > 0
+								? `${l10n.t("Saved to {0}", SERVERS_SETTING_ID)} - ${unsavedText(unsavedCount)}`
+								: l10n.t("Saved to {0}", SERVERS_SETTING_ID)
+						}
+					>
+						<span className="save-target">{l10n.t("Saved to {0}", SERVERS_SETTING_ID)}</span>
+						{unsavedCount > 0 ? (
+							<>
+								{" - "}
+								<span className="unsaved-count tabular-nums">{unsavedText(unsavedCount)}</span>
+							</>
+						) : null}
+					</span>
 				</span>
 			</div>
 			{matcherEditorView}

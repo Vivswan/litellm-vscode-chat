@@ -110,6 +110,7 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"settingScopeLabel",
 	"serverFormFieldLabel",
 	"serverFieldHelp",
+	"unsavedText",
 	"settingRowHelp",
 	"helpServersSection",
 	"helpModelsSection",
