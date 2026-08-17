@@ -849,12 +849,15 @@ export function ServerEditPage({
 	request,
 	servers,
 	onDirtyChange,
+	onTargetGone,
 	onRequestClose,
 	onSaved,
 }: {
 	request: ServerEditRequest;
 	servers: readonly DashboardServer[];
 	onDirtyChange: (dirty: boolean) => void;
+	/** The draft ceased to exist (its entry left the setting): its own channel, so a dirty report can never mean it. */
+	onTargetGone: () => void;
 	onRequestClose: () => void;
 	onSaved: () => void;
 }) {
@@ -918,13 +921,14 @@ export function ServerEditPage({
 	}
 	const target = committing ? lastResolved.current : resolved;
 	// The entry went away, taking the draft: nothing left to save, nothing to ask about.
-	// Without this the shell's guard keeps answering "dirty" for a form that no longer exists.
+	// Reported on its own channel so the shell can dismiss a standing discard question -
+	// a signal the dirty report must never carry.
 	const targetGone = target === undefined;
 	useEffect(() => {
 		if (targetGone) {
-			onDirtyChange(false);
+			onTargetGone();
 		}
-	}, [targetGone, onDirtyChange]);
+	}, [targetGone, onTargetGone]);
 	const pageRef = useRef<HTMLElement>(null);
 	// Also keyed on the form going away: the unmounting field drops focus on the body -
 	// outside the shell that hears Esc - so the keyboard would stop working.

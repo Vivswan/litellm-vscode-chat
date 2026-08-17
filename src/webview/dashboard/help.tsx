@@ -26,6 +26,20 @@ export function DocsLink({ href, label, children }: { href: DocsUrl; label: stri
 }
 
 /**
+ * Glues a trailing atomic inline (the "?" glyph, an icon-only link) to the word before it.
+ * The NBSP rides INSIDE the nowrap span because Chrome breaks before an atomic inline even
+ * directly after a no-break space, orphaning the glyph alone on the next line.
+ */
+export function NoBreakTail({ children }: { children: ReactNode }) {
+	return (
+		<span className="whitespace-nowrap">
+			{"\u00a0"}
+			{children}
+		</span>
+	);
+}
+
+/**
  * A tip over non-interactive inline content. The wrapper joins the Tab order and names the
  * tip as its accessible description, so keyboards and assistive tech reach what hover shows.
  */

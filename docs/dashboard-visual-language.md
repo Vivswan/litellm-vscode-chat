@@ -153,11 +153,14 @@ One idiom for actions that rest hidden on a row, and it has one home:
   `serverEditPage.tsx rename-note`). In a prose zone
   the transient trails what is visible: nothing visible follows the "?" at
   rest, so the settings row's hover-only note renders after the glyph rather
-  than holding a gap open mid-sentence (`settings.tsx ModifiedNote`) - and
-  while an overlay covers the zone, its help glyph re-homes to the covering
-  sentence's own tail (`settings.tsx glyphTrail`), because a glyph painted
-  through the overlay collides with the error's text in every theme and is
-  buried whole under forced colors' text backplate.
+  than holding a gap open mid-sentence (`settings.tsx ModifiedNote`) - and the
+  row's help glyph is ONE control at the visible sentence's tail
+  (`settings.tsx glyphTrail`): a covering error joins the glyph's own inline
+  flow while the resting text's invisible twin holds the cell's box
+  (`settings.tsx SettingRow`), because a glyph painted through an overlay
+  collides with the error's text in every theme and is buried whole under
+  forced colors' text backplate - and a glyph remounted per tenant drops the
+  keyboard focused on it.
 - One placement per element class, zero exceptions within the class: an element
   class has exactly one home on its surface. Row actions sit in the reserved
   trailing track (`dashboard.css .server-row`; the settings rows' actions slot,

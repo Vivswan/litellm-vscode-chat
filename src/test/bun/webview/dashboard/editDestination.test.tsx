@@ -302,6 +302,27 @@ test("an entry deleted while the question stands takes the question with it", ()
 	expect(document.getElementById("tab-overview")?.getAttribute("aria-selected")).toBe("true");
 });
 
+test("only the target's disappearance dismisses the standing question", () => {
+	// The dismissal rides the page's explicit target-gone channel, never the dirty report:
+	// a push that keeps the entry - whatever it does to the draft's evidence - leaves the
+	// question to the reader, and only the push that deletes the entry takes it along.
+	const root = mount(<App />);
+	const server = makeDeclaredServer({ label: "Prod" });
+	pushToWebview(statePush(makeState({ servers: [server] })));
+	fireClick(buttonByText(root, "Edit"));
+	fireInput(inputByLabel(page(root), "Base URL"), "http://localhost:9999");
+	fireClick(document.getElementById("tab-models") as HTMLElement);
+	expect(confirmDialog()).not.toBeNull();
+
+	// The entry survives this push: the question stands.
+	pushToWebview(statePush(makeState({ servers: [server] })));
+	expect(confirmDialog()).not.toBeNull();
+
+	// The entry leaves: the question goes with it, draft and intent included.
+	pushToWebview(statePush(makeState({ servers: [] })));
+	expect(confirmDialog()).toBeNull();
+});
+
 test("keeping the page answers the navigation too: the abandoned destination does not fire on the next exit", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));

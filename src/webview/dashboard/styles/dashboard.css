@@ -1206,6 +1206,23 @@
 		-webkit-appearance: none;
 		margin: 0;
 	}
+
+	/* The settings row's description cell. The resting text and a covering
+		   error swap inside ONE live flow whose other tenant is the row's help
+		   glyph, so the "?" never remounts and keyboard focus on it survives the
+		   swap (settings.tsx SettingRow). While covered, the live flow leaves the
+		   flow and overlays the resting text's invisible twin, which keeps the
+		   cell's height: covering never displaces, and no row moves while you
+		   type. visibility on the twin, not display: it must keep its box, and
+		   visibility also drops its copy from the accessibility tree and the Tab
+		   order. */
+	.setting-hint > .setting-twin {
+		visibility: hidden;
+	}
+	.setting-hint.setting-covered > .setting-live {
+		position: absolute;
+		inset: 0;
+	}
 	.setting-check {
 		display: flex;
 		align-items: flex-start;

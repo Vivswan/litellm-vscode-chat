@@ -41,6 +41,7 @@ function mountEditPage(
 			request={request}
 			servers={servers}
 			onDirtyChange={() => {}}
+			onTargetGone={() => {}}
 			onRequestClose={() => {}}
 			onSaved={() => {}}
 		/>

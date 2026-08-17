@@ -129,6 +129,7 @@ function mountEditPage(
 	request: ServerEditRequest = { kind: "edit", label: servers[0]?.label ?? "" },
 	handlers: Partial<{
 		onDirtyChange: (dirty: boolean) => void;
+		onTargetGone: () => void;
 		onRequestClose: () => void;
 		onSaved: () => void;
 	}> = {}
@@ -138,6 +139,7 @@ function mountEditPage(
 			request={request}
 			servers={servers}
 			onDirtyChange={handlers.onDirtyChange ?? (() => {})}
+			onTargetGone={handlers.onTargetGone ?? (() => {})}
 			onRequestClose={handlers.onRequestClose ?? (() => {})}
 			onSaved={handlers.onSaved ?? (() => {})}
 		/>
@@ -1325,6 +1327,7 @@ test("a discovery pass finishing under the open form refreshes the unknown-key h
 			request={{ kind: "edit", label: "Prod" }}
 			servers={servers}
 			onDirtyChange={() => {}}
+			onTargetGone={() => {}}
 			onRequestClose={() => {}}
 			onSaved={() => {}}
 		/>

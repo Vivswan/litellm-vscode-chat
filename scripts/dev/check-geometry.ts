@@ -167,8 +167,8 @@ const THRESHOLDS_PARSE_ERROR = `${THRESHOLDS_ROW} .setting-hint span.error[id="s
  * disambiguation).
  */
 const THRESHOLDS_REFUSAL = `${THRESHOLDS_ROW} .setting-hint .setting-cover > span.error:not([id])`;
-/** The covered slot's help glyph while an overlay stands: the "?" re-homed to the visible sentence's tail. */
-const THRESHOLDS_COVER_GLYPH = `${THRESHOLDS_ROW} .setting-hint .setting-cover button.help`;
+/** The row's ONE help glyph, in the live flow beside whichever tenant the covered slot shows. */
+const THRESHOLDS_GLYPH = `${THRESHOLDS_ROW} .setting-hint .setting-live button.help`;
 /** The first server row's home; its next sibling is the second row. */
 const FIRST_SERVER_ITEM = ".server-list > li.server-item:first-child";
 /** The chip whose popover is open - the one chip a state toggle can address across both measurements. */
@@ -297,9 +297,9 @@ const STATE_PAIRS: readonly StatePair[] = [
 	},
 	{
 		// A settings row's parse error COVERS the description, so the row must not
-		// grow. The verify also holds the covered slot's help glyph, which
-		// re-homes to the error's tail: a cover without a painted glyph is a
-		// regression this pair names.
+		// grow. The verify also holds the row's one help glyph, which trails the
+		// error's own tail while the cover stands: a cover without a painted glyph
+		// is a regression this pair names.
 		name: "settings-row-error-overlay",
 		fixture: "settings.ts",
 		targets: [THRESHOLDS_ROW],
@@ -308,7 +308,7 @@ const STATE_PAIRS: readonly StatePair[] = [
 		restVerify: `document.querySelector(${JSON.stringify(THRESHOLDS_PARSE_ERROR)}) === null`,
 		verify:
 			`document.querySelector(${JSON.stringify(THRESHOLDS_PARSE_ERROR)}) !== null && ` +
-			`(document.querySelector(${JSON.stringify(THRESHOLDS_COVER_GLYPH)})?.getBoundingClientRect().width ?? 0) > 0`,
+			`(document.querySelector(${JSON.stringify(THRESHOLDS_GLYPH)})?.getBoundingClientRect().width ?? 0) > 0`,
 	},
 	{
 		// The Copy diagnostics check-mark flash swaps the button's leading glyph
@@ -696,13 +696,13 @@ const STATE_PAIRS: readonly StatePair[] = [
 				box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
 				const posted = window.__posted.filter((m) => m.method === "setUsageAlertThresholds").pop();
 				if (posted === undefined) { throw new Error(${marker("SETUP", ": Enter posted no setUsageAlertThresholds request")}); }
-				// The reader tabs to the row's help before the refusal lands: the
-				// swap must hand focus to the cover's glyph, because the resting one
-				// goes visibility-hidden and a hidden control cannot keep the
-				// keyboard.
-				const glyph = document.querySelector(${JSON.stringify(`${THRESHOLDS_ROW} .setting-rest button.help`)});
-				if (glyph === null) { throw new Error(${marker("SETUP", ": no resting help glyph on the thresholds row")}); }
+				// The reader tabs to the row's help before the refusal lands: the row
+				// has ONE glyph outside the swapping tenants, so the same element must
+				// keep the keyboard through the cover mounting - no hand-off, no swap.
+				const glyph = document.querySelector(${JSON.stringify(THRESHOLDS_GLYPH)});
+				if (glyph === null) { throw new Error(${marker("SETUP", ": no help glyph on the thresholds row")}); }
 				glyph.focus({ preventScroll: true });
+				window.__thresholdsGlyph = glyph;
 				window.dispatchEvent(
 					new MessageEvent("message", {
 						data: {
@@ -719,8 +719,9 @@ const STATE_PAIRS: readonly StatePair[] = [
 		restVerify: `document.querySelector(${JSON.stringify(THRESHOLDS_REFUSAL)}) === null`,
 		verify:
 			`document.querySelector(${JSON.stringify(THRESHOLDS_REFUSAL)}) !== null && ` +
-			`(document.querySelector(${JSON.stringify(THRESHOLDS_COVER_GLYPH)})?.getBoundingClientRect().width ?? 0) > 0 && ` +
-			`document.activeElement === document.querySelector(${JSON.stringify(THRESHOLDS_COVER_GLYPH)})`,
+			`(document.querySelector(${JSON.stringify(THRESHOLDS_GLYPH)})?.getBoundingClientRect().width ?? 0) > 0 && ` +
+			`document.activeElement === window.__thresholdsGlyph && ` +
+			`document.activeElement === document.querySelector(${JSON.stringify(THRESHOLDS_GLYPH)})`,
 	},
 	{
 		// The server form's rename note holds its box as an invisible spacing twin

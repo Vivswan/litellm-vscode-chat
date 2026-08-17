@@ -331,9 +331,8 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	const [editing, setEditing] = useState<{ request: ServerEditRequest; key: number } | undefined>(undefined);
 	const nextEditKey = useRef(1);
 	// The page's draft has edits worth asking about. A ref, not state: nothing renders from
-	// it, and the page clears it from its own effect that runs BEFORE this component's in
-	// the same commit - state read from a closure would still say "dirty".
-	// "dirty" and raise a question about a draft that no longer exists.
+	// it, and the page reports on effects that run BEFORE this component's in the same
+	// commit - state read from a closure would still say "dirty" for a draft that is gone.
 	const editDirty = useRef(false);
 	// The guard's open question, rendered as the ConfirmDialog at the end of
 	// the shell; true only while the edit destination is on screen.
@@ -348,14 +347,14 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 	// render would re-run that effect on every render of the shell.
 	const noteEditDirty = useCallback((dirty: boolean) => {
 		editDirty.current = dirty;
-		// A draft that stopped existing takes its question with it. This leans on the dirty
-		// report being one-way: the page's ONLY false is the target-gone effect, so false here
-		// MEANS "the draft ceased to exist" - a second false call site (say, a save rebasing
-		// the baseline) would silently dismiss a standing question and must not reuse this.
-		if (!dirty) {
-			leaveIntent.current = undefined;
-			setConfirmingDiscard(false);
-		}
+	}, []);
+	// The page's explicit "the draft ceased to exist" channel, separate from the dirty
+	// report on purpose: only a target that is GONE may dismiss a standing discard
+	// question - a draft merely reading clean again must leave the question to the reader.
+	const onTargetGone = useCallback(() => {
+		editDirty.current = false;
+		leaveIntent.current = undefined;
+		setConfirmingDiscard(false);
 	}, []);
 	// Where focus goes once the destination has actually left the screen.
 	const pendingLeaveFocus = useRef<{ kind: "opener" } | { kind: "section"; section: SectionId } | undefined>(undefined);
@@ -696,6 +695,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 								request={editing.request}
 								servers={state.servers}
 								onDirtyChange={noteEditDirty}
+								onTargetGone={onTargetGone}
 								onRequestClose={requestLeaveEdit}
 								onSaved={leaveEdit}
 							/>

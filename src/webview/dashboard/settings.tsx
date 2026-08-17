@@ -8,7 +8,7 @@
 
 import * as l10n from "@vscode/l10n";
 import type { FocusEvent, ReactNode } from "react";
-import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useId, useState } from "react";
 import type { RequestPayload } from "../../dashboard/endpoints";
 import { WIRE_LIMITS } from "../../dashboard/endpoints";
 import {
@@ -43,7 +43,7 @@ import { statusErrorHeadline } from "../../shared/util/errorText";
 import { useAlertOnce } from "./announceOnce";
 import { DOCS_LINK_OPENROUTER_CATALOG, DOCS_LINK_SETTINGS } from "./docsLinks";
 import { FailureText } from "./failureText";
-import { DocsLink, Help } from "./help";
+import { DocsLink, Help, NoBreakTail } from "./help";
 import {
 	helpCurrencySymbol,
 	helpImportExportGroup,
@@ -304,20 +304,18 @@ function ModifiedNote({ scope, defaultText }: { scope: SettingScope | null; defa
 }
 
 /**
- * The row's help glyph, glued to the word before it by a nowrap span carrying the NBSP
- * INSIDE it: the glyph is an atomic inline, and Chrome breaks before an atomic inline
- * even directly after a no-break space, orphaning a lone "?". The overlay's copy
- * restores pointer-events so the "?" stays hoverable while the error stands.
+ * The row's help glyph at the visible sentence's tail, glued to the word before it by the
+ * NoBreakTail glue. ONE mount for every state of the row: the covered and resting texts
+ * swap around it, so keyboard focus on the "?" survives an overlay landing or clearing.
  */
-function glyphTrail(title: string, help: string | undefined, placement: "rest" | "cover" = "rest") {
+function glyphTrail(title: string, help: string | undefined) {
 	if (help === undefined) {
 		return null;
 	}
 	return (
-		<span className={cn("whitespace-nowrap", placement === "cover" && "pointer-events-auto")}>
-			{"\u00a0"}
+		<NoBreakTail>
 			<Help text={help} name={l10n.t("Help: {0}", title)} />
-		</span>
+		</NoBreakTail>
 	);
 }
 
@@ -374,38 +372,34 @@ function SettingRow({
 	// Announced once per failure seq. The seq reaches the hook only while this branch
 	// actually renders: fed unconditionally, a failure landing behind a parse error was
 	// marked spoken with no visible line having spoken it, and surfaced silent later.
-	// cleared.
 	const writeFailureRole = useAlertOnce(error === undefined ? writeFailure?.seq : undefined);
 	const failureText =
 		writeFailure === undefined
 			? undefined
 			: l10n.t("The last change did not apply: {0}", statusErrorHeadline(writeFailure.message));
 	const covered = error !== undefined || failureText !== undefined;
-	// The slot's visible tenant by IDENTITY, not just "covered": a repeat failure remounts
-	// the keyed cover, and swapping one cover for another destroys a focused glyph exactly
-	// like covering did - the focus hand-off must run for every change of tenant.
-	const coverKey = error !== undefined ? "error" : writeFailure !== undefined ? `failure-${writeFailure.seq}` : "rest";
-	// Focus continuity across the glyph swap: the two "?"s are two mounts of one control,
-	// and a swap can land while the reader is ON it. The visible twin takes focus before
-	// paint (useLayoutEffect beats the browser's focus fixup, so the keyboard never lands on
-	// the body); the ref remembers whether a glyph in THIS cell held focus, because the
-	// unmount direction has already dropped focus by the time the effect runs, and the
-	// activeElement guard keeps it from stealing focus from an input.
-	const hintRef = useRef<HTMLDivElement | null>(null);
-	const glyphHadFocus = useRef(false);
-	useLayoutEffect(() => {
-		const cell = hintRef.current;
-		if (!glyphHadFocus.current || cell === null) {
-			return;
-		}
-		const active = document.activeElement;
-		if (active !== null && active !== document.body && active.isConnected && !cell.contains(active)) {
-			return;
-		}
-		cell
-			.querySelector<HTMLElement>(coverKey === "rest" ? ".setting-rest button.help" : ".setting-cover button.help")
-			?.focus({ preventScroll: true });
-	}, [coverKey]);
+	// The resting flow, rendered twice while covered: once invisible as the cell's height
+	// twin, once nowhere - only the covering error and the row's one glyph paint. An
+	// AT-REST note precedes the glyph, so the "?" stays the resting description's last
+	// element; the hover-only User-scope note (or its spacing twin) trails it.
+	const restingFlow = (
+		<>
+			<span className="setting-desc">{description}</span>
+			{configuredScope !== null && configuredScope !== "global" ? (
+				<>
+					{" "}
+					<ModifiedNote scope={configuredScope} defaultText={defaultText} />
+				</>
+			) : null}
+		</>
+	);
+	const trailingNote =
+		configuredScope === "global" || (configuredScope === null && defaultText !== undefined) ? (
+			<>
+				{" "}
+				<ModifiedNote scope={configuredScope} defaultText={defaultText} />
+			</>
+		) : null;
 	return (
 		<div
 			className={cn(
@@ -444,17 +438,18 @@ function SettingRow({
 			>
 				{control}
 			</div>
-			{/* The error COVERS the description: the resting content stays, invisible, so the cell
-			    keeps its height and no row moves while you type. One wrapper over the WHOLE resting
-			    flow (covering only the description left the glyph painting through; forced colors
-			    draws an opaque backplate that buried it); display: contents keeps the wrapper out of
-			    layout. The glyph trails the description INLINE, and while covered the SAME glyph
-			    re-renders at the overlay text's own tail - a row explaining what you typed wrong is
-			    the worst moment to make its help unreachable. The cell owns breaking because it owns
-			    wrapping; the 72ch cap is a READING cap inside the growing track, not a second edge. */}
+			{/* The error COVERS the description: while one stands, the live flow leaves the flow
+			    and overlays the resting text's invisible aria-hidden twin (dashboard.css
+			    .setting-hint), so the cell keeps its height and no row moves while you type. The
+			    covering text joins the SAME inline flow as the row's ONE help glyph, which trails
+			    whichever sentence is visible - the glyph element never remounts across the swap,
+			    so keyboard focus on it survives structurally. The cell owns breaking because it
+			    owns wrapping; the 72ch cap is a READING cap inside the growing track, not a
+			    second edge. */}
 			<div
 				className={cn(
 					"setting-hint relative min-w-0 max-w-[72ch] break-words text-[0.95em] text-muted-foreground",
+					covered && "setting-covered",
 					// The second line of the two-column stacked band, under the
 					// title-and-control line; the one-column tier below 560px places
 					// it by flow, except under a compact control's kept line.
@@ -462,61 +457,37 @@ function SettingRow({
 					compactControl === true && "@max-[560px]/pane:col-span-2",
 					hintClassName
 				)}
-				ref={hintRef}
-				onFocusCapture={(event) => {
-					glyphHadFocus.current = event.target instanceof HTMLElement && event.target.matches("button.help");
-				}}
-				onBlurCapture={(event) => {
-					// A blur toward a real element is the reader leaving; so is a null-target blur from a
-					// still-connected glyph (Escape, background click). The swap itself must NOT clear the
-					// flag: removing a focused element fires no blur at all.
-					if (event.relatedTarget !== null || (event.target instanceof HTMLElement && event.target.isConnected)) {
-						glyphHadFocus.current = false;
-					}
-				}}
 			>
-				<span className={cn("setting-rest contents", covered && "invisible")}>
-					<span className="setting-desc">{description}</span>
-					{/* An AT-REST note precedes the glyph, so the "?" stays the resting description's last
-					    element; the hover-only User-scope note trails it - an invisible note before it would
-					    hold a blank gap open mid-sentence. */}
-					{configuredScope !== null && configuredScope !== "global" ? (
-						<>
-							{" "}
-							<ModifiedNote scope={configuredScope} defaultText={defaultText} />
-						</>
-					) : null}
+				<span className="setting-live">
+					{/* The slot's visible tenant. The .error span holds ONLY the message and keeps the
+					    id: aria-describedby reads the referenced subtree, and a glyph inside it would
+					    ride every announcement of the field's problem. The write-failure cover is
+					    keyed on the seq so a repeat re-mounts and announces afresh (useAlertOnce
+					    dedupes to one announcement per seq); the glyph is its sibling and outlives
+					    the remount. */}
+					{error !== undefined ? (
+						<span className="setting-cover">
+							<span className="error" id={errorId}>
+								{error}
+							</span>
+						</span>
+					) : failureText !== undefined && writeFailure !== undefined ? (
+						<span key={writeFailure.seq} className="setting-cover">
+							<span className="error" role={writeFailureRole}>
+								{failureText}
+							</span>
+						</span>
+					) : (
+						<span className="setting-rest contents">{restingFlow}</span>
+					)}
 					{glyphTrail(title, help)}
-					{/* The User-scope note - or, on a clean row that HAS a default to
-					    name, its invisible spacing twin (see ModifiedNote), so marking
-					    the row modified never re-wraps the description line. */}
-					{configuredScope === "global" || (configuredScope === null && defaultText !== undefined) ? (
-						<>
-							{" "}
-							<ModifiedNote scope={configuredScope} defaultText={defaultText} />
-						</>
-					) : null}
+					{covered ? null : trailingNote}
 				</span>
-				{/* The covering overlays. The glyph inside restores pointer-events for itself. The .error
-				    span holds ONLY the message and keeps the id: aria-describedby reads the referenced
-				    subtree, and a glyph inside it would ride every announcement of the field's problem. */}
-				{error !== undefined ? (
-					<span className="setting-cover pointer-events-none absolute inset-0">
-						<span className="error" id={errorId}>
-							{error}
-						</span>
-						{glyphTrail(title, help, "cover")}
-					</span>
-				) : failureText !== undefined && writeFailure !== undefined ? (
-					/* The write failure in the same covered slot. The seq keys the
-					   cover so a repeat of the same failure re-mounts and announces
-					   afresh; the role dedupes to one announcement per seq
-					   (useAlertOnce). */
-					<span key={writeFailure.seq} className="setting-cover pointer-events-none absolute inset-0">
-						<span className="error" role={writeFailureRole}>
-							{failureText}
-						</span>
-						{glyphTrail(title, help, "cover")}
+				{covered ? (
+					<span className="setting-twin" aria-hidden="true">
+						<span className="setting-rest contents">{restingFlow}</span>
+						{glyphTrail(title, help)}
+						{trailingNote}
 					</span>
 				) : null}
 			</div>
