@@ -5,7 +5,6 @@ import { CHARS_PER_TOKEN } from "../../../shared/conversion/textTokens";
 import {
 	AUDIO_TOKEN_ESTIMATE,
 	estimateMessagesTokens,
-	estimatePartTokens,
 	estimateToolTokens,
 	IMAGE_TOKEN_ESTIMATE,
 	PDF_TOKEN_ESTIMATE,
@@ -15,6 +14,23 @@ const fullMultimodal = { imageInput: true, audioInput: true };
 const visionOnly = { imageInput: true, audioInput: false };
 const audioOnly = { imageInput: false, audioInput: true };
 const textOnly = { imageInput: false, audioInput: false };
+
+/** Chars/4 of one transmitted text, the heuristic mode every host test runs under. */
+const textTokens = (text: string): number => Math.ceil(text.length / CHARS_PER_TOKEN);
+
+/**
+ * The synthesized image message's fixed lead-in (messages.ts). The estimate
+ * prices the converted request, so this constant is priced with it; the
+ * literal is restated here so a reworded lead-in shows up as a count change.
+ */
+const LEAD_IN_TOKENS = textTokens("Images returned by the tool calls above:");
+
+function message(role: vscode.LanguageModelChatMessageRole, content: unknown[]): vscode.LanguageModelChatMessage {
+	return { role, content, name: undefined } as vscode.LanguageModelChatMessage;
+}
+
+const userMessage = (...content: unknown[]) => message(vscode.LanguageModelChatMessageRole.User, content);
+const assistantMessage = (...content: unknown[]) => message(vscode.LanguageModelChatMessageRole.Assistant, content);
 
 suite("shared/conversion/dataPartForm", () => {
 	test("user position follows the capability gates for images and audio, and audio carries its wire format", () => {
@@ -73,24 +89,27 @@ suite("shared/conversion/dataPartForm", () => {
 
 suite("shared/conversion/tokenEstimation", () => {
 	test("text parts count characters divided by CHARS_PER_TOKEN under any gates", () => {
-		const part = new vscode.LanguageModelTextPart("hello world");
-		const expected = Math.ceil("hello world".length / CHARS_PER_TOKEN);
-		assert.strictEqual(estimatePartTokens(part, fullMultimodal), expected);
-		assert.strictEqual(estimatePartTokens(part, textOnly), expected);
+		const messages = [userMessage(new vscode.LanguageModelTextPart("hello world"))];
+		assert.strictEqual(estimateMessagesTokens(messages, fullMultimodal), textTokens("hello world"));
+		assert.strictEqual(estimateMessagesTokens(messages, textOnly), textTokens("hello world"));
 	});
 
 	test("image parts use the fixed estimate only when the model takes image input", () => {
-		const part = new vscode.LanguageModelDataPart(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), "image/png");
-		assert.strictEqual(estimatePartTokens(part, visionOnly), IMAGE_TOKEN_ESTIMATE);
-		assert.strictEqual(estimatePartTokens(part, audioOnly), 0, "the audio gate must not admit images");
-		assert.strictEqual(estimatePartTokens(part, textOnly), 0);
+		const messages = [
+			userMessage(new vscode.LanguageModelDataPart(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), "image/png")),
+		];
+		assert.strictEqual(estimateMessagesTokens(messages, visionOnly), IMAGE_TOKEN_ESTIMATE);
+		assert.strictEqual(estimateMessagesTokens(messages, audioOnly), 0, "the audio gate must not admit images");
+		assert.strictEqual(estimateMessagesTokens(messages, textOnly), 0);
 	});
 
 	test("pdf parts use the fixed estimate unconditionally, matching conversion", () => {
-		const part = new vscode.LanguageModelDataPart(new Uint8Array([0x25, 0x50, 0x44, 0x46]), "application/pdf");
-		assert.strictEqual(estimatePartTokens(part, fullMultimodal), PDF_TOKEN_ESTIMATE);
+		const messages = [
+			userMessage(new vscode.LanguageModelDataPart(new Uint8Array([0x25, 0x50, 0x44, 0x46]), "application/pdf")),
+		];
+		assert.strictEqual(estimateMessagesTokens(messages, fullMultimodal), PDF_TOKEN_ESTIMATE);
 		assert.strictEqual(
-			estimatePartTokens(part, textOnly),
+			estimateMessagesTokens(messages, textOnly),
 			PDF_TOKEN_ESTIMATE,
 			"conversion sends the file block whatever the gates say, so the estimate must count it"
 		);
@@ -98,45 +117,86 @@ suite("shared/conversion/tokenEstimation", () => {
 
 	test("audio parts use the fixed estimate only with audio input, over the wire's mime vocabulary", () => {
 		for (const mime of ["audio/wav", "audio/mpeg"]) {
-			const part = new vscode.LanguageModelDataPart(new Uint8Array([0x52, 0x49, 0x46, 0x46]), mime);
-			assert.strictEqual(estimatePartTokens(part, audioOnly), AUDIO_TOKEN_ESTIMATE, mime);
-			assert.strictEqual(estimatePartTokens(part, visionOnly), 0, mime);
+			const messages = [userMessage(new vscode.LanguageModelDataPart(new Uint8Array([0x52, 0x49, 0x46, 0x46]), mime))];
+			assert.strictEqual(estimateMessagesTokens(messages, audioOnly), AUDIO_TOKEN_ESTIMATE, mime);
+			assert.strictEqual(estimateMessagesTokens(messages, visionOnly), 0, mime);
 		}
-		const unmapped = new vscode.LanguageModelDataPart(new Uint8Array(4), "audio/ogg");
+		const unmapped = [userMessage(new vscode.LanguageModelDataPart(new Uint8Array(4), "audio/ogg"))];
 		assert.strictEqual(
-			estimatePartTokens(unmapped, fullMultimodal),
+			estimateMessagesTokens(unmapped, fullMultimodal),
 			0,
 			"audio the wire cannot carry never reaches the server and must not inflate the estimate"
 		);
 	});
 
-	test("JSON data parts count byte length divided by CHARS_PER_TOKEN under any gates", () => {
-		const payload = new TextEncoder().encode(JSON.stringify({ answer: 42 }));
-		const part = new vscode.LanguageModelDataPart(payload, "application/json");
-		const expected = Math.ceil(payload.length / CHARS_PER_TOKEN);
-		assert.strictEqual(estimatePartTokens(part, fullMultimodal), expected);
-		assert.strictEqual(estimatePartTokens(part, textOnly), expected);
+	test("text-mime data parts price the decoded text conversion transmits, not their byte count", () => {
+		// 12 Han characters: 36 UTF-8 bytes but a 12-character wire string. The
+		// estimate prices the converted request, so the character figure is the
+		// right one; the old bytes/4 walk priced 9 here.
+		const decoded = "把这个函数重构成纯函数呀";
+		const payload = new TextEncoder().encode(decoded);
+		const messages = [userMessage(new vscode.LanguageModelDataPart(payload, "text/plain"))];
+		assert.strictEqual(estimateMessagesTokens(messages, fullMultimodal), textTokens(decoded));
+		assert.strictEqual(estimateMessagesTokens(messages, textOnly), textTokens(decoded));
 	});
 
-	test("tool call parts count name plus serialized input", () => {
-		const part = new vscode.LanguageModelToolCallPart("call-1", "toolA", { foo: 1 });
-		const expected = Math.ceil(("toolA".length + JSON.stringify({ foo: 1 }).length) / CHARS_PER_TOKEN);
-		assert.strictEqual(estimatePartTokens(part, textOnly), expected);
+	test("tool call parts count name plus the exact arguments string the wire carries", () => {
+		const messages = [assistantMessage(new vscode.LanguageModelToolCallPart("call-1", "toolA", { foo: 1 }))];
+		const expected = textTokens(`toolA${JSON.stringify({ foo: 1 })}`);
+		assert.strictEqual(estimateMessagesTokens(messages, textOnly), expected);
+	});
+
+	test("a tool-call input with no JSON rendering prices the {} fallback instead of throwing", () => {
+		const throwing = {
+			toJSON: (): never => {
+				throw new Error("no rendering");
+			},
+		};
+		const silent = { toJSON: (): undefined => undefined };
+		for (const input of [throwing, silent]) {
+			const messages = [assistantMessage(new vscode.LanguageModelToolCallPart("call-1", "toolA", input as object))];
+			assert.strictEqual(
+				estimateMessagesTokens(messages, textOnly),
+				textTokens("toolA{}"),
+				"conversion ships arguments {} for this input, so the estimate prices exactly that"
+			);
+		}
 	});
 
 	test("unknown parts count as zero", () => {
-		assert.strictEqual(estimatePartTokens({ some: "object" }, fullMultimodal), 0);
+		assert.strictEqual(estimateMessagesTokens([userMessage({ some: "object" })], fullMultimodal), 0);
 	});
 
-	test("tool result parts recurse over their content with the same per-part estimates", () => {
+	test("tool results price their flattened text plus the synthesized image message they trigger", () => {
 		const text = "terminal output ".repeat(20);
 		const part = new vscode.LanguageModelToolResultPart("call-1", [
 			new vscode.LanguageModelTextPart(text),
 			new vscode.LanguageModelDataPart(new Uint8Array(4), "image/png"),
 		]);
-		const textTokens = Math.ceil(text.length / CHARS_PER_TOKEN);
-		assert.strictEqual(estimatePartTokens(part, visionOnly), textTokens + IMAGE_TOKEN_ESTIMATE);
-		assert.strictEqual(estimatePartTokens(part, textOnly), textTokens, "the image gate applies inside too");
+		// With vision, the image rides a synthesized user message whose fixed
+		// lead-in ships too, so the estimate includes it.
+		assert.strictEqual(
+			estimateMessagesTokens([userMessage(part)], visionOnly),
+			textTokens(text) + IMAGE_TOKEN_ESTIMATE + LEAD_IN_TOKENS
+		);
+		assert.strictEqual(
+			estimateMessagesTokens([userMessage(part)], textOnly),
+			textTokens(text),
+			"the image gate applies inside too"
+		);
+	});
+
+	test("consecutive tool-image turns share one synthesized message, and the estimate prices exactly that", () => {
+		const image = (): vscode.LanguageModelDataPart => new vscode.LanguageModelDataPart(new Uint8Array(4), "image/png");
+		const messages = [
+			userMessage(new vscode.LanguageModelToolResultPart("call-1", [image()])),
+			userMessage(new vscode.LanguageModelToolResultPart("call-2", [image()])),
+		];
+		assert.strictEqual(
+			estimateMessagesTokens(messages, visionOnly),
+			2 * IMAGE_TOKEN_ESTIMATE + LEAD_IN_TOKENS,
+			"one lead-in per flush, not per tool result"
+		);
 	});
 
 	test("audio and PDF inside a tool result count zero: conversion never forwards them from that path", () => {
@@ -146,25 +206,21 @@ suite("shared/conversion/tokenEstimation", () => {
 			new vscode.LanguageModelDataPart(new Uint8Array([0x52, 0x49, 0x46, 0x46]), "audio/wav"),
 			new vscode.LanguageModelDataPart(new Uint8Array([0x25, 0x50, 0x44, 0x46]), "application/pdf"),
 		]);
-		const textTokens = Math.ceil(text.length / CHARS_PER_TOKEN);
 		assert.strictEqual(
-			estimatePartTokens(part, fullMultimodal),
-			textTokens,
+			estimateMessagesTokens([userMessage(part)], fullMultimodal),
+			textTokens(text),
 			"collectToolResultContent drops tool-result audio and PDF unconditionally, so they must not inflate the budget"
 		);
 	});
 
 	test("bare strings and unknown objects in a tool result price the text conversion transmits", () => {
-		// collectToolResultContent appends a bare string verbatim and
-		// JSON-stringifies entries no other branch recognizes; both ship as
-		// tool-result text, so both price by the chars/4 rule instead of zero.
 		const raw = "raw tool output ".repeat(8);
 		const unknown = { status: "ok", rows: [1, 2, 3] };
 		const content: unknown[] = [raw, unknown];
 		const part = new vscode.LanguageModelToolResultPart("call-1", content as vscode.LanguageModelTextPart[]);
 		assert.strictEqual(
-			estimatePartTokens(part, fullMultimodal),
-			Math.ceil(raw.length / CHARS_PER_TOKEN) + Math.ceil(JSON.stringify(unknown).length / CHARS_PER_TOKEN)
+			estimateMessagesTokens([userMessage(part)], fullMultimodal),
+			textTokens(raw) + textTokens(JSON.stringify(unknown))
 		);
 	});
 
@@ -173,22 +229,26 @@ suite("shared/conversion/tokenEstimation", () => {
 		// `text +=` coerces that to the literal "undefined" on the wire.
 		const content: unknown[] = [() => {}];
 		const part = new vscode.LanguageModelToolResultPart("call-1", content as vscode.LanguageModelTextPart[]);
-		assert.strictEqual(estimatePartTokens(part, fullMultimodal), Math.ceil("undefined".length / CHARS_PER_TOKEN));
+		assert.strictEqual(estimateMessagesTokens([userMessage(part)], fullMultimodal), textTokens("undefined"));
 	});
 
 	test("prompt-tsx parts count what conversion transmits, object values included", () => {
 		const objectValue = { node: { text: "rendered prompt fragment" } };
 		const tsx = new vscode.LanguageModelPromptTsxPart(objectValue);
-		const expected = Math.ceil(JSON.stringify(objectValue).length / CHARS_PER_TOKEN);
-		assert.strictEqual(estimatePartTokens(tsx, fullMultimodal), expected);
+		const expected = textTokens(JSON.stringify(objectValue));
+		assert.strictEqual(estimateMessagesTokens([userMessage(tsx)], fullMultimodal), expected);
 
 		const inToolResult = new vscode.LanguageModelToolResultPart("call-1", [tsx]);
-		assert.strictEqual(estimatePartTokens(inToolResult, fullMultimodal), expected, "and inside tool results");
+		assert.strictEqual(
+			estimateMessagesTokens([userMessage(inToolResult)], fullMultimodal),
+			expected,
+			"and inside tool results"
+		);
 
 		const stringValue = new vscode.LanguageModelPromptTsxPart("plain text value");
 		assert.strictEqual(
-			estimatePartTokens(stringValue, fullMultimodal),
-			Math.ceil("plain text value".length / CHARS_PER_TOKEN)
+			estimateMessagesTokens([userMessage(stringValue)], fullMultimodal),
+			textTokens("plain text value")
 		);
 	});
 
@@ -196,68 +256,83 @@ suite("shared/conversion/tokenEstimation", () => {
 		// JSON.stringify returns undefined for these; conversion transmits
 		// nothing, so the estimate must not throw on the missing rendering.
 		const fnValue = new vscode.LanguageModelPromptTsxPart(() => {});
-		assert.strictEqual(estimatePartTokens(fnValue, fullMultimodal), 0);
+		assert.strictEqual(estimateMessagesTokens([userMessage(fnValue)], fullMultimodal), 0);
 
 		const toJsonUndefined = new vscode.LanguageModelPromptTsxPart({ toJSON: () => undefined });
-		assert.strictEqual(estimatePartTokens(toJsonUndefined, fullMultimodal), 0);
+		assert.strictEqual(estimateMessagesTokens([userMessage(toJsonUndefined)], fullMultimodal), 0);
 
 		const inToolResult = new vscode.LanguageModelToolResultPart("call-1", [fnValue]);
-		assert.strictEqual(estimatePartTokens(inToolResult, fullMultimodal), 0, "and inside tool results");
+		assert.strictEqual(
+			estimateMessagesTokens([userMessage(inToolResult)], fullMultimodal),
+			0,
+			"and inside tool results"
+		);
 	});
 
 	test("an empty or malformed tool result content still counts as zero without throwing", () => {
-		assert.strictEqual(estimatePartTokens(new vscode.LanguageModelToolResultPart("call-1", []), fullMultimodal), 0);
+		assert.strictEqual(
+			estimateMessagesTokens([userMessage(new vscode.LanguageModelToolResultPart("call-1", []))], fullMultimodal),
+			0
+		);
 		const noContent = new vscode.LanguageModelToolResultPart("call-1", []);
 		(noContent as unknown as { content: undefined }).content = undefined;
-		assert.strictEqual(estimatePartTokens(noContent, fullMultimodal), 0);
+		assert.strictEqual(estimateMessagesTokens([userMessage(noContent)], fullMultimodal), 0);
 	});
 
-	test("thinking parts count their text plus replayed signature and redacted data", () => {
+	test("thinking history prices exactly the replayed blocks: signed text and redacted payloads", () => {
 		const signed = { value: "x".repeat(8), metadata: { type: "thinking", signature: "s".repeat(4) } };
-		assert.strictEqual(estimatePartTokens(signed, fullMultimodal), Math.ceil(12 / CHARS_PER_TOKEN));
+		assert.strictEqual(estimateMessagesTokens([assistantMessage(signed)], fullMultimodal), textTokens("x".repeat(12)));
 
 		const redacted = { value: "", metadata: { type: "redacted_thinking", data: "d".repeat(9) } };
-		assert.strictEqual(estimatePartTokens(redacted, fullMultimodal), Math.ceil(9 / CHARS_PER_TOKEN));
+		assert.strictEqual(estimateMessagesTokens([assistantMessage(redacted)], fullMultimodal), textTokens("d".repeat(9)));
+	});
 
+	test("thinking that never replays prices zero: unsigned text, and thinking outside assistant turns", () => {
+		// A plain value-bearing object is not a thinking part (no replay
+		// metadata, not the host's class); conversion drops it, so it counts 0.
 		const plain = { value: "just thinking text" };
+		assert.strictEqual(estimateMessagesTokens([assistantMessage(plain)], fullMultimodal), 0);
+		// Conversion reads thinking out of assistant history only.
+		const signed = { value: "x".repeat(8), metadata: { signature: "s".repeat(4) } };
+		assert.strictEqual(estimateMessagesTokens([userMessage(signed)], fullMultimodal), 0);
+	});
+
+	test("a redacted payload prices even without a text value: it ships whatever the value field holds", () => {
+		// The old part walk required a string value before pricing anything, so
+		// a value-less redacted part undercounted to zero - the direction that
+		// skips host trimming and overflows server-side.
+		const redacted = { metadata: { type: "redacted_thinking", data: "d".repeat(40) } };
 		assert.strictEqual(
-			estimatePartTokens(plain, fullMultimodal),
-			Math.ceil("just thinking text".length / CHARS_PER_TOKEN)
+			estimateMessagesTokens([assistantMessage(redacted)], fullMultimodal),
+			textTokens("d".repeat(40))
 		);
 	});
 
 	test("estimateMessagesTokens sums parts across messages", () => {
-		const messages: vscode.LanguageModelChatMessage[] = [
-			{
-				role: vscode.LanguageModelChatMessageRole.User,
-				content: [
-					new vscode.LanguageModelTextPart("describe"),
-					new vscode.LanguageModelDataPart(new Uint8Array(4), "image/png"),
-				],
-				name: undefined,
-			},
+		const messages = [
+			userMessage(
+				new vscode.LanguageModelTextPart("describe"),
+				new vscode.LanguageModelDataPart(new Uint8Array(4), "image/png")
+			),
 		];
-		const textTokens = Math.ceil("describe".length / CHARS_PER_TOKEN);
-		assert.strictEqual(estimateMessagesTokens(messages, visionOnly), textTokens + IMAGE_TOKEN_ESTIMATE);
-		assert.strictEqual(estimateMessagesTokens(messages, textOnly), textTokens);
+		assert.strictEqual(estimateMessagesTokens(messages, visionOnly), textTokens("describe") + IMAGE_TOKEN_ESTIMATE);
+		assert.strictEqual(estimateMessagesTokens(messages, textOnly), textTokens("describe"));
 	});
 
 	test("assistant-history binary DataParts price as dropped; decoded text still counts", () => {
 		const textPayload = new TextEncoder().encode("decoded assistant text");
-		const messages: vscode.LanguageModelChatMessage[] = [
-			{
-				role: vscode.LanguageModelChatMessageRole.Assistant,
-				content: [
-					new vscode.LanguageModelTextPart("reply"),
-					new vscode.LanguageModelDataPart(new Uint8Array(4), "image/png"),
-					new vscode.LanguageModelDataPart(new Uint8Array(4), "application/pdf"),
-					new vscode.LanguageModelDataPart(new Uint8Array(4), "audio/wav"),
-					new vscode.LanguageModelDataPart(textPayload, "text/plain"),
-				],
-				name: undefined,
-			},
+		const messages = [
+			assistantMessage(
+				new vscode.LanguageModelTextPart("reply"),
+				new vscode.LanguageModelDataPart(new Uint8Array(4), "image/png"),
+				new vscode.LanguageModelDataPart(new Uint8Array(4), "application/pdf"),
+				new vscode.LanguageModelDataPart(new Uint8Array(4), "audio/wav"),
+				new vscode.LanguageModelDataPart(textPayload, "text/plain")
+			),
 		];
-		const expected = Math.ceil("reply".length / CHARS_PER_TOKEN) + Math.ceil(textPayload.length / CHARS_PER_TOKEN);
+		// The message's text parts join into one wire string, so the estimate
+		// prices "reply" + the decoded payload as one text, not two ceils.
+		const expected = textTokens("reply" + "decoded assistant text");
 		assert.strictEqual(
 			estimateMessagesTokens(messages, fullMultimodal),
 			expected,
@@ -269,20 +344,16 @@ suite("shared/conversion/tokenEstimation", () => {
 		const textPayload = new TextEncoder().encode("system attachment text");
 		// VS Code sends role 3 for system messages via a proposed API; the
 		// stable enum only declares User and Assistant.
-		const messages: vscode.LanguageModelChatMessage[] = [
-			{
-				role: 3 as vscode.LanguageModelChatMessageRole,
-				content: [
-					new vscode.LanguageModelTextPart("policy"),
-					new vscode.LanguageModelDataPart(new Uint8Array(4), "image/png"),
-					new vscode.LanguageModelDataPart(new Uint8Array(4), "application/pdf"),
-					new vscode.LanguageModelDataPart(new Uint8Array(4), "audio/wav"),
-					new vscode.LanguageModelDataPart(textPayload, "text/plain"),
-				],
-				name: undefined,
-			},
+		const messages = [
+			message(3 as vscode.LanguageModelChatMessageRole, [
+				new vscode.LanguageModelTextPart("policy"),
+				new vscode.LanguageModelDataPart(new Uint8Array(4), "image/png"),
+				new vscode.LanguageModelDataPart(new Uint8Array(4), "application/pdf"),
+				new vscode.LanguageModelDataPart(new Uint8Array(4), "audio/wav"),
+				new vscode.LanguageModelDataPart(textPayload, "text/plain"),
+			]),
 		];
-		const expected = Math.ceil("policy".length / CHARS_PER_TOKEN) + Math.ceil(textPayload.length / CHARS_PER_TOKEN);
+		const expected = textTokens("policy" + "system attachment text");
 		assert.strictEqual(
 			estimateMessagesTokens(messages, fullMultimodal),
 			expected,
@@ -294,6 +365,6 @@ suite("shared/conversion/tokenEstimation", () => {
 		assert.strictEqual(estimateToolTokens(undefined), 0);
 		assert.strictEqual(estimateToolTokens([]), 0);
 		const tools = [{ type: "function" as const, function: { name: "toolA", description: "does a thing" } }];
-		assert.strictEqual(estimateToolTokens(tools), Math.ceil(JSON.stringify(tools).length / CHARS_PER_TOKEN));
+		assert.strictEqual(estimateToolTokens(tools), textTokens(JSON.stringify(tools)));
 	});
 });

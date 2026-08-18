@@ -188,19 +188,3 @@ export function countTextTokens(text: string): number {
 	// cached tokenizer: the call that fired the trigger keeps its metric.
 	return twoBandFromScan(text, scan);
 }
-
-const utf8 = new TextDecoder();
-
-/**
- * Count a text-form data part (bytes that conversion decodes onto the wire).
- * The heuristic mode keeps the bytes/4 rule; the other modes decode first,
- * because both the two-band scan and a tokenizer need the characters (CJK
- * UTF-8 runs three bytes per character, so bytes/4 undercounts it even harder
- * than chars/4 does).
- */
-export function countTextBytesTokens(data: Uint8Array): number {
-	if (counting.kind === "heuristic") {
-		return Math.ceil(data.length / CHARS_PER_TOKEN);
-	}
-	return countTextTokens(utf8.decode(data));
-}

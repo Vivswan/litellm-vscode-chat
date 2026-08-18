@@ -76,9 +76,9 @@ function decodeDataPartText(part: vscode.LanguageModelDataPart): string | null {
  * What conversion transmits for a prompt-tsx part: its string value, the JSON
  * serialization of an object value, or nothing. JSON.stringify returns
  * undefined for values with no JSON rendering, so callers must treat undefined
- * as dropped. Token estimation prices this same rendering.
+ * as dropped.
  */
-export function extractPromptTsxText(part: vscode.LanguageModelPromptTsxPart): string | undefined {
+function extractPromptTsxText(part: vscode.LanguageModelPromptTsxPart): string | undefined {
 	if (typeof part.value === "string") {
 		return part.value;
 	}
@@ -286,7 +286,9 @@ export function convertMessages(
 				const id = part.callId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 				let args: string;
 				try {
-					args = JSON.stringify(part.input ?? {});
+					// `?? "{}"`: stringify returns undefined for an input whose toJSON
+					// yields no rendering, and the wire requires an arguments string.
+					args = JSON.stringify(part.input ?? {}) ?? "{}";
 				} catch {
 					args = "{}";
 				}

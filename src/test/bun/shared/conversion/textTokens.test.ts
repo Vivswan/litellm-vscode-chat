@@ -4,7 +4,6 @@ import { countTokens as cl100kCountTokens } from "gpt-tokenizer/encoding/cl100k_
 import { countTokens as o200kCountTokens } from "gpt-tokenizer/encoding/o200k_base";
 import {
 	CHARS_PER_TOKEN,
-	countTextBytesTokens,
 	countTextTokens,
 	NON_LATIN_DETECTION_MIN_CHARS,
 	NON_LATIN_DETECTION_MIN_FRACTION,
@@ -214,20 +213,5 @@ describe("shared/conversion/textTokens: the non-Latin detection threshold", () =
 		countTextTokens(CHINESE_FIXTURE);
 		countTextTokens(CHINESE_FIXTURE);
 		assert.strictEqual(fired, 2);
-	});
-});
-
-describe("shared/conversion/textTokens: text-form bytes", () => {
-	test("the heuristic mode keeps the historical bytes/4 rule", () => {
-		const bytes = new TextEncoder().encode(CHINESE_FIXTURE);
-		assert.strictEqual(countTextBytesTokens(bytes), Math.ceil(bytes.length / CHARS_PER_TOKEN));
-	});
-
-	test("the other modes decode and count the characters", () => {
-		const bytes = new TextEncoder().encode(CHINESE_FIXTURE);
-		setTextTokenCounting({ kind: "adaptive", onNonLatinDetected: () => {} });
-		assert.strictEqual(countTextBytesTokens(bytes), twoBandTextTokenEstimate(CHINESE_FIXTURE));
-		setTextTokenCounting({ kind: "tokenizer", countTokens: (text) => o200kCountTokens(text) });
-		assert.strictEqual(countTextBytesTokens(bytes), o200kCountTokens(CHINESE_FIXTURE));
 	});
 });

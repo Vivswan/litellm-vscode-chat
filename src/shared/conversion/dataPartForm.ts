@@ -28,9 +28,9 @@ export interface DataPartWireGates {
 }
 
 /**
- * The single wire-form decision for a DataPart. Message conversion and token
- * estimation both switch on this at every position, so the two can never
- * disagree about what form a part takes on the wire.
+ * The single wire-form decision for a DataPart: message conversion switches on
+ * this at every position, and token estimation prices conversion's output, so
+ * nothing else ever re-decides what form a part takes on the wire.
  *
  * Each position mirrors one conversion path exactly, and the ORDER matters.
  * User messages try the binary blocks first and fall back to the text decode,
