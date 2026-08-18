@@ -258,9 +258,15 @@ One idiom for detail that opens in place:
   inventory (`dashboard.css .server-drawer`). The warn-tier budget gloss is
   its own line class with its own single home, the drawer: between the user's
   warning and error thresholds the row's tinted meter already carries the
-  signal, so the sentence renders beside the spend facts it glosses, while a
-  crossed error threshold or an overrun budget keeps its line on the collapsed
-  surface, and a closed drawer keeps the gloss in the accessible tree - the
+  signal, so the sentence LEADS the drawer's inventory as a fact-register row -
+  the warn triangle plus tone-coloured text, never a band nested inside the
+  drawer card (`servers.tsx DrawerNoticeLine`; `dashboard.css .drawer-notice`).
+  A crossed error threshold or an overrun budget keeps its line on the
+  collapsed surface and wears the error hue: the spend scale's error tier
+  repaints the degraded rule and its headline red while the stroke geometry
+  keeps carrying the rank
+  (`dashboard.css .row-diagnostic.sev-degraded.spend-error`). A closed
+  drawer keeps the gloss in the accessible tree - the
   meter's tone is colour, which a screen reader never gets
   (`servers.tsx drawerDiagnostics`).
 - Explanatory figures stay always open: a collapse nobody wants on the figure
@@ -387,7 +393,10 @@ One idiom for detail that opens in place:
   same nominal size: the warn triangle scales up because a triangle inside a
   circle's box reads a size smaller (`dashboard.css .pill.tone-warn .dot`), and
   severity rides hue, wash, AND geometry so it survives a reader who cannot
-  separate red from amber (`dashboard.css .row-diagnostic`).
+  separate red from amber (`dashboard.css .row-diagnostic`). Hue is the one
+  channel a second scale may repaint: the spend tier recolours a degraded
+  budget line red while the stroke geometry still carries the rank
+  (`dashboard.css .row-diagnostic.sev-degraded.spend-error`).
 - The severity rules rank by stroke geometry alone - 6px double, 2px solid,
   1px dashed, the same in EVERY palette
   (`dashboard.css .row-diagnostic.sev-blocking`,
@@ -414,7 +423,9 @@ One idiom for detail that opens in place:
   2px border plus weight
   (`theme.css [data-slot="button"][data-variant="danger"]`), the pressed filter
   pill's border width (`dashboard.css .filter-pill[aria-pressed="true"]`), the
-  one-shape-per-tone dots (`dashboard.css .pill .dot`), the problem tone-text
+  one-shape-per-tone dots (`dashboard.css .pill .dot`), the drawer notice's
+  warn triangle - the tier as a shape, not only a colour
+  (`servers.tsx DrawerNoticeLine`; `icons.tsx IconWarning`), the problem tone-text
   registers' wavy underline - the editor's own problem mark, worn by `.error`
   and `.state-warn`, never by `.state-ok`, because ok is not a problem
   (`theme.css .state-warn`) - the severity rules'

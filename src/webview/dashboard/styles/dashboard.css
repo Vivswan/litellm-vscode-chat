@@ -832,6 +832,35 @@
 		border-radius: 0 var(--radius) var(--radius) 0;
 		background: var(--vscode-textBlockQuote-background, rgba(128, 128, 128, 0.07));
 	}
+	/* The drawer's leading notice - a fact-register row, not a band: a banner
+	   nested inside the drawer card read as a card in a card (user-ruled
+	   2026-08-17), so the severity rides the glyph's SHAPE (triangle warn,
+	   circle error - shapes survive forced colors, where author colour does
+	   not) and the tone text colour, with no wash, rule, or box. It leads the
+	   inventory: the sentence is what the meter sent the reader in here for. */
+	.drawer-notice {
+		display: flex;
+		gap: 8px;
+		align-items: flex-start;
+		margin: 0 0 10px;
+		font-size: 0.95em;
+	}
+	/* Optical: seats the 14px glyph on the first line's center (~19px box at 0.95em). */
+	.drawer-notice > .icon {
+		margin-top: 2px;
+	}
+	.drawer-notice-body {
+		/* A flex item's minimum is its content: an unbroken server label would
+		   otherwise widen the drawer and take the page with it, exactly the
+		   .row-diagnostic failure mode. */
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+	/* The diagnostic headline's own reading cap (.row-diagnostic-headline). */
+	.drawer-notice-text {
+		margin: 0;
+		max-width: 84ch;
+	}
 	/* The one fact whose value is an identifier rather than a number: a
 		 60-character host has no break opportunity, and a grid item's own minimum
 		 is its content, so the drawer would push the page sideways rather than
@@ -887,6 +916,22 @@
 		border-left: 2px solid var(--warn-fill);
 		background: color-mix(in srgb, var(--warn) 7%, transparent);
 		padding-left: 12px;
+	}
+	/* The spend scale's error tier on a degraded line (over budget, or past the
+	   user's error threshold): the hue says error-tier money while the 2px solid
+	   rule keeps saying degraded - the stroke geometry ranks, hue never does (the
+	   note above). The wash stays at degraded's 7%, so the tier's ink still sits
+	   below blocking's 6px double over 10%. */
+	.row-diagnostic.sev-degraded.spend-error {
+		border-left-color: var(--err-fill);
+		background: color-mix(in srgb, var(--err) 7%, transparent);
+	}
+	/* The sentence wears the readable error tier too (user-ruled: error-tier money
+	   reads red everywhere it renders), matching the drawer notice's toned text;
+	   the detail lines keep their own muted colour. Forced colors flattens this
+	   with every other hue - there the 2px rule and the hidden tier word carry it. */
+	.row-diagnostic.sev-degraded.spend-error .row-diagnostic-headline {
+		color: var(--err-text);
 	}
 	/* The quiet tier: nothing is wrong, so it gets no wash at all - an advisory
 		   tinted like a warning is how a page teaches its reader to ignore

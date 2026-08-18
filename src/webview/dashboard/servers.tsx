@@ -27,7 +27,7 @@ import { FailureText } from "./failureText";
 import { DocsLink } from "./help";
 import { helpServersSection } from "./helpText";
 import { useIntentOutcome } from "./hooks";
-import { IconAdd } from "./icons";
+import { IconAdd, IconWarning } from "./icons";
 import { capabilityIssueViews, type GroupIssueView, paramIssueViews, RecordMatcherTable } from "./recordEditors";
 import { troubleshootingLink } from "./serverEditPage";
 import { type DiagnosticSeverity, SEVERITY_ORDER, severityLabel } from "./severity";
@@ -107,7 +107,8 @@ type DiagnosticAction =
 			readonly ariaLabel: string;
 	  };
 
-interface RowDiagnostic {
+/** What a problem line carries wherever it sits; the seat arms below add the seat's own fields. */
+interface DiagnosticBase {
 	/** Stable within a row, so React keeps focus on an action button across pushes. */
 	readonly key: string;
 	readonly severity: DiagnosticSeverity;
@@ -116,13 +117,44 @@ interface RowDiagnostic {
 	/** One paragraph per line. English by policy - these land in issue reports. */
 	readonly details?: readonly string[] | undefined;
 	readonly actions: readonly DiagnosticAction[];
-	/**
-	 * Under the collapsed row (default) or inside the drawer. Drawer placement is USER-RULED
-	 * (2026-08-16) for the sub-error budget-pressure line: the tinted meter already signals
-	 * it. The diagnostic still ranks the pill and the attention count either way.
-	 */
-	readonly placement?: "drawer" | undefined;
 }
+
+/** The default seat: a banded line under the collapsed row, tinted by its severity alone. */
+interface CollapsedDiagnostic extends DiagnosticBase {
+	readonly placement?: undefined;
+	readonly tone?: undefined;
+}
+
+/**
+ * A banded line whose tier comes from the user's usage.alertThresholds rather than the severity
+ * ladder alone: past the error threshold (or past the budget) the degraded rule is repainted red,
+ * USER-RULED (2026-08-17: error-tier money problems wear error colour everywhere they render).
+ * Hue only - the severity keeps the ranking, the pill, and the hidden tier word, and the rule's
+ * stroke geometry keeps carrying the rank. Degraded by construction, because that is the one
+ * band the stylesheet repaints (`.row-diagnostic.sev-degraded.spend-error`); any other severity
+ * would set a class no rule answers.
+ */
+interface SpendErrorDiagnostic extends DiagnosticBase {
+	readonly severity: "degraded";
+	readonly tone: "error";
+	readonly placement?: undefined;
+}
+
+/**
+ * The drawer seat, USER-RULED (2026-08-16) for the sub-error budget-pressure line: the tinted
+ * meter already signals it. The diagnostic still ranks the pill and the attention count either
+ * way. Warn-tier by construction - the tone field can only be absent here, so nothing can ask
+ * the notice for a hue its triangle and its text do not have.
+ */
+interface DrawerNotice extends DiagnosticBase {
+	readonly placement: "drawer";
+	readonly tone?: undefined;
+}
+
+/** The two banded seats, which ServerDiagnosticLine renders. */
+type BandedDiagnostic = CollapsedDiagnostic | SpendErrorDiagnostic;
+
+type RowDiagnostic = BandedDiagnostic | DrawerNotice;
 
 /** A single optional detail as the details list: [] renders nothing, exactly like the old absent field. */
 function detailLines(...lines: readonly (string | undefined)[]): readonly string[] {
@@ -562,6 +594,8 @@ function usageDiagnostics(
 			found.push({
 				key: "over-budget",
 				severity: "degraded",
+				// Past the whole budget is past any error threshold: the error tone, everywhere.
+				tone: "error",
 				headline: l10n.t(
 					"{0} is over its budget by {1}.",
 					label,
@@ -572,9 +606,11 @@ function usageDiagnostics(
 		} else {
 			const tone = barPresentation(card.spentFraction, spend.thresholds).tone;
 			if (tone !== "ok") {
-				// The user's OWN thresholds split placement: past error it stays on the collapsed
-				// row like over-budget; between warning and error it moves into the drawer.
-				found.push({
+				// The user's OWN thresholds split the sentence in two seats, and the seat decides
+				// the hue: past error it stays on the collapsed row in the error tone like
+				// over-budget; between warning and error it moves into the drawer, whose notice is
+				// warn-tier by construction. One classifier, so line and meter fill can never disagree.
+				const line = {
 					key: "budget-pressure",
 					severity: "degraded",
 					headline: l10n.t(
@@ -583,12 +619,54 @@ function usageDiagnostics(
 						formatMoney(card.effectiveBudget - card.spend, spend.currencySymbol)
 					),
 					actions: [],
-					...(tone === "warn" ? { placement: "drawer" as const } : {}),
-				});
+				} as const;
+				found.push(tone === "warn" ? { ...line, placement: "drawer" } : { ...line, tone: "error" });
 			}
 		}
 	}
 	return found;
+}
+
+/** A diagnostic's action cluster, one embodiment for the banded lines and the drawer notices. */
+function DiagnosticActions({ actions }: { actions: readonly DiagnosticAction[] }) {
+	if (actions.length === 0) {
+		return null;
+	}
+	return (
+		// No live-region role here: role="status" is atomic, so a per-cluster region would
+		// read every unrelated label when a fleet-wide flag flips them all together;
+		// ServersSection's single text-only status region announces in-flight relabels.
+		<div className="row-diagnostic-actions">
+			{actions.map((action) =>
+				action.kind === "button" ? (
+					<Button
+						key={action.id}
+						variant={action.emphasized === true ? undefined : "secondary"}
+						size="compact"
+						aria-label={action.ariaLabel}
+						// aria-disabled, not disabled: the attribute drops focus to the body and a
+						// changed accessible name is announced only on the FOCUSED element, so this
+						// keeps the node focused; the handler refuses the click instead.
+						aria-disabled={action.disabled === true}
+						onClick={() => {
+							if (action.disabled !== true) {
+								action.onClick();
+							}
+						}}
+					>
+						{/* Motion beside the reworded label: a static "Checking..." on a
+						    minute-long pass reads as a stuck page. */}
+						{action.busy === true ? <span className="spinner" aria-hidden="true" /> : null}
+						{action.label}
+					</Button>
+				) : (
+					<DocsLink key={action.id} href={action.href} label={action.ariaLabel}>
+						{action.label}
+					</DocsLink>
+				)
+			)}
+		</div>
+	);
 }
 
 /**
@@ -596,9 +674,11 @@ function usageDiagnostics(
  * together (colour alone fails a red/amber-blind reader; tint alone cannot rank three
  * levels); neither reaches a screen reader, so the headline leads with the hidden tier word.
  */
-function ServerDiagnosticLine({ diagnostic }: { diagnostic: RowDiagnostic }) {
+function ServerDiagnosticLine({ diagnostic }: { diagnostic: BandedDiagnostic }) {
 	return (
-		<div className={`row-diagnostic sev-${diagnostic.severity}`}>
+		// "spend-error", not the generic .tone-error text utility: the class repaints the band's
+		// rule, wash, and headline through its own scoped rules.
+		<div className={cn(`row-diagnostic sev-${diagnostic.severity}`, diagnostic.tone === "error" && "spend-error")}>
 			<p className="row-diagnostic-headline">
 				<span className="visually-hidden">{severityLabel(diagnostic.severity, "server")} </span>
 				{diagnostic.headline}
@@ -608,41 +688,34 @@ function ServerDiagnosticLine({ diagnostic }: { diagnostic: RowDiagnostic }) {
 					{detail}
 				</p>
 			))}
-			{diagnostic.actions.length > 0 ? (
-				// No live-region role here: role="status" is atomic, so a per-cluster region would
-				// read every unrelated label when a fleet-wide flag flips them all together;
-				// ServersSection's single text-only status region announces in-flight relabels.
-				<div className="row-diagnostic-actions">
-					{diagnostic.actions.map((action) =>
-						action.kind === "button" ? (
-							<Button
-								key={action.id}
-								variant={action.emphasized === true ? undefined : "secondary"}
-								size="compact"
-								aria-label={action.ariaLabel}
-								// aria-disabled, not disabled: the attribute drops focus to the body and a
-								// changed accessible name is announced only on the FOCUSED element, so this
-								// keeps the node focused; the handler refuses the click instead.
-								aria-disabled={action.disabled === true}
-								onClick={() => {
-									if (action.disabled !== true) {
-										action.onClick();
-									}
-								}}
-							>
-								{/* Motion beside the reworded label: a static "Checking..." on a
-								    minute-long pass reads as a stuck page. */}
-								{action.busy === true ? <span className="spinner" aria-hidden="true" /> : null}
-								{action.label}
-							</Button>
-						) : (
-							<DocsLink key={action.id} href={action.href} label={action.ariaLabel}>
-								{action.label}
-							</DocsLink>
-						)
-					)}
-				</div>
-			) : null}
+			<DiagnosticActions actions={diagnostic.actions} />
+		</div>
+	);
+}
+
+/**
+ * A drawer-placed diagnostic as the inventory's leading row: the warn triangle beside the
+ * toned sentence, in the facts' own register - no band, no rule, no box (USER-RULED
+ * 2026-08-17: a banner nested in the drawer card read as a card inside a card, and its
+ * trailing seat left dead padding under the facts). The warn tier rides the glyph's SHAPE and
+ * the text colour; the hidden tier word still leads, exactly like the banded lines.
+ */
+function DrawerNoticeLine({ diagnostic }: { diagnostic: DrawerNotice }) {
+	return (
+		<div className={cn("drawer-notice", TONE_TEXT.warn)}>
+			<IconWarning />
+			<div className="drawer-notice-body">
+				<p className="drawer-notice-text">
+					<span className="visually-hidden">{severityLabel(diagnostic.severity, "server")} </span>
+					{diagnostic.headline}
+				</p>
+				{(diagnostic.details ?? []).map((detail) => (
+					<p key={detail} className="row-diagnostic-detail">
+						{detail}
+					</p>
+				))}
+				<DiagnosticActions actions={diagnostic.actions} />
+			</div>
 		</div>
 	);
 }
@@ -1175,8 +1248,8 @@ function ServerDrawer({
 	server: DashboardServer;
 	/** The row's usage card, denied cards included; absent for servers the snapshot does not cover. */
 	usage: UsageServerCardView | undefined;
-	/** The row's drawer-placed diagnostics (the warn-tier budget line); rendered beside the spend facts they gloss. */
-	notices: readonly RowDiagnostic[];
+	/** The row's drawer-placed diagnostics (the warn-tier budget line); rendered as the inventory's leading rows. */
+	notices: readonly DrawerNotice[];
 	pollingOff: boolean;
 	discoveryTimeoutMs: number;
 	now: number;
@@ -1200,6 +1273,12 @@ function ServerDrawer({
 				);
 	return (
 		<>
+			{/* The drawer-placed diagnostics LEAD the inventory (user-ruled): the sentence is
+			    what the row's tinted meter sent the reader in here for, and the trailing seat
+			    left dead padding under the facts. */}
+			{notices.map((notice) => (
+				<DrawerNoticeLine key={notice.key} diagnostic={notice} />
+			))}
 			{/* Two columns until the pane cannot hold both: the 11rem label column plus an
 			    unshrinkable longest word overflows under about 560px of pane, which the floor
 			    promises never scrolls sideways. Stacked, the dd's own bottom margin keeps the
@@ -1255,10 +1334,6 @@ function ServerDrawer({
 					<DeniedUsageFacts card={usage} />
 				) : null}
 			</dl>
-			{/* The drawer-placed diagnostics, under the spend facts they gloss. */}
-			{notices.map((notice) => (
-				<ServerDiagnosticLine key={notice.key} diagnostic={notice} />
-			))}
 			{details.map((detail) => (
 				<p key={detail} className="usage-detail mt-2 mb-0 font-mono text-[0.85em] text-muted-foreground">
 					{detail}

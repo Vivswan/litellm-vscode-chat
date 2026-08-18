@@ -4,9 +4,10 @@
  * (gateway), and one a denied key leaves without usage numbers (locked-down).
  * The point of the shot is the ABSENCE rendering - a dim dash plus the reason in
  * place, never a zero - with the entry facts leading the usage inventory. Two
- * later tenants also land here: gateway's warn-tier budget sentence sits INSIDE
- * its drawer, and a declared entry's model records list read-only under the
- * facts.
+ * later tenants also land here: gateway's warn-tier budget sentence LEADS its
+ * drawer as a glyph-plus-sentence fact row, research's over-budget line stays
+ * on the collapsed surface in the error hue under its open drawer, and a
+ * declared entry's model records list read-only under the facts.
  */
 import type { RenderFixture } from "../render-dashboard.ts";
 import serversSpend from "./servers-spend.ts";
@@ -17,7 +18,7 @@ const fixture: RenderFixture = {
 		// Two steps, not one: React commits the click's state on its own schedule,
 		// so the open assertion runs a step later, after the harness's settle.
 		`(() => {
-			for (const label of ["prod", "gateway", "locked-down"]) {
+			for (const label of ["prod", "gateway", "research", "locked-down"]) {
 				const line = Array.from(document.querySelectorAll("button.server-line")).find(
 					(candidate) => candidate.querySelector(".server-label-text")?.textContent?.trim() === label
 				);
@@ -28,7 +29,7 @@ const fixture: RenderFixture = {
 			}
 		})()`,
 		`(() => {
-			for (const label of ["prod", "gateway", "locked-down"]) {
+			for (const label of ["prod", "gateway", "research", "locked-down"]) {
 				const line = Array.from(document.querySelectorAll("button.server-line")).find(
 					(candidate) => candidate.querySelector(".server-label-text")?.textContent?.trim() === label
 				);
@@ -39,7 +40,7 @@ const fixture: RenderFixture = {
 			window.scrollTo(0, 0);
 		})()`,
 	],
-	viewport: { width: 1300, height: 1750 },
+	viewport: { width: 1300, height: 2150 },
 };
 
 export default fixture;

@@ -451,6 +451,15 @@ const SEPARATING_FILLS: readonly SeparatingFill[] = [
 		disposition: { kind: "insideBorder", why: "the same ladder's middle rung: the 2px solid rule carries the rank" },
 	},
 	{
+		selector: ".row-diagnostic.sev-degraded.spend-error",
+		declaration: "background: color-mix(in srgb, var(--err) 7%, transparent)",
+		count: 1,
+		disposition: {
+			kind: "insideBorder",
+			why: "the middle rung's error-hue repaint (over budget, or past the error threshold): same 2px solid rule, same wash weight, only the hue changed - the geometry keeps ranking where the mode discards both",
+		},
+	},
+	{
 		selector: "tbody tr:hover",
 		declaration: "background: var(--vscode-list-hoverBackground, transparent)",
 		count: 1,

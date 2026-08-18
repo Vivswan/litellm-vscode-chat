@@ -556,13 +556,16 @@ describe("the usage diagnostics", () => {
 		const root = mountServers(usage, [prodServer(), prodServer({ label: "Gateway", baseUrl: "http://gw.test" })]);
 		const lines = Array.from(root.querySelectorAll(".row-diagnostic")).map((line) => ({
 			severity: [...line.classList].find((name) => name.startsWith("sev-")),
+			errorTone: line.classList.contains("spend-error"),
 			text: (line.textContent ?? "").trim(),
 		}));
 		expect(lines).toEqual([
 			// The leading tier word is the shared severity vocabulary's hidden label
 			// (severityLabel): colour and geometry cannot reach a screen reader.
 			// Gateway's warn-tier sentence waits in the drawer (user-ruled placement).
-			{ severity: "sev-degraded", text: "Action needed: Prod is over its budget by $3.00." },
+			// Over budget is past any error threshold, so the line wears the error
+			// hue (user-ruled) while the severity - the rank - stays degraded.
+			{ severity: "sev-degraded", errorTone: true, text: "Action needed: Prod is over its budget by $3.00." },
 		]);
 		// The pill and the attention count still read the FULL ranked list -
 		// only the sentence moved.
@@ -575,9 +578,18 @@ describe("the usage diagnostics", () => {
 		);
 		expect((hiddenTwin?.textContent ?? "").trim()).toBe("Action needed: Gateway is close to its budget: $6.50 left.");
 		const gateway = openRow(root, 1);
-		expect(textOf(gateway, ".server-drawer .row-diagnostic")).toBe(
-			"Action needed: Gateway is close to its budget: $6.50 left."
-		);
+		// The open drawer renders the sentence as its LEADING fact-register row
+		// (user-ruled): a severity glyph plus toned text, never a band nested
+		// inside the drawer card - and the hidden tier word still leads it.
+		const drawer = gateway.querySelector(".server-drawer") as HTMLElement;
+		expect(drawer.querySelector(".row-diagnostic")).toBeNull();
+		const notice = drawer.firstElementChild as HTMLElement;
+		expect(notice.classList.contains("drawer-notice")).toBe(true);
+		expect(notice.classList.contains("text-warn")).toBe(true);
+		expect(notice.querySelector("svg[aria-hidden='true']")).not.toBeNull();
+		expect((notice.textContent ?? "").trim()).toBe("Action needed: Gateway is close to its budget: $6.50 left.");
+		// First row of the inventory, above the Base URL fact.
+		expect(notice.nextElementSibling?.classList.contains("server-facts")).toBe(true);
 		// The visible drawer line replaces the twin; two copies would announce twice.
 		expect(
 			Array.from(gateway.querySelectorAll(".visually-hidden")).filter(
@@ -586,12 +598,27 @@ describe("the usage diagnostics", () => {
 		).toEqual([]);
 	});
 
-	test("past the error threshold the close-to-budget sentence stays on the collapsed row", () => {
+	test("past the error threshold the close-to-budget sentence stays on the collapsed row, in the error hue", () => {
 		const usage = makeUsage({
 			servers: [makeUsageServer({ label: "Prod", spend: 48.5, effectiveBudget: 50, spentFraction: 0.97 })],
 		});
 		const root = mountServers(usage);
-		expect(textOf(root, ".row-diagnostic")).toBe("Action needed: Prod is close to its budget: $1.50 left.");
+		const line = root.querySelector(".row-diagnostic") as HTMLElement;
+		expect((line.textContent ?? "").trim()).toBe("Action needed: Prod is close to its budget: $1.50 left.");
+		// The same classifier as the meter: past the error threshold the line is
+		// error-toned (red) even though the rank - and the tier word - stay degraded.
+		expect(line.classList.contains("sev-degraded")).toBe(true);
+		expect(line.classList.contains("spend-error")).toBe(true);
+	});
+
+	test("the warn-tier drawer line never wears the error hue", () => {
+		const usage = makeUsage({
+			servers: [makeUsageServer({ label: "Prod", spend: 43.5, effectiveBudget: 50, spentFraction: 0.87 })],
+		});
+		const root = mountServers(usage);
+		const notice = openRow(root).querySelector(".server-drawer .drawer-notice") as HTMLElement;
+		expect(notice.classList.contains("text-warn")).toBe(true);
+		expect(notice.classList.contains("text-err")).toBe(false);
 	});
 
 	test("a healthy budget raises no line at all", () => {
