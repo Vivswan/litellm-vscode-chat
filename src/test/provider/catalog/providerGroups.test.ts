@@ -1282,6 +1282,16 @@ suite("provider groups: capability overrides and declared models", () => {
 			assert.strictEqual(status.state, "ok");
 			assert.strictEqual(status.servedModelCount, 2, "the declared model joins the picker count");
 			assert.strictEqual(expectDefined(statuses.at(-1)).totalModels, 2);
+			// Recorded is served: the window's snapshot lists the declared model
+			// beside the discovered one, carrying the marker the dashboard badges on.
+			const snapshot = expectDefined(provider.getServerSnapshots()[0]);
+			assert.deepStrictEqual(
+				snapshot.models.map((info) => [info.id, info.litellm.declared]),
+				[
+					["test-model", undefined],
+					["declared-model", true],
+				]
+			);
 		});
 	});
 
@@ -1318,6 +1328,13 @@ suite("provider groups: capability overrides and declared models", () => {
 				infos.map((info) => info.id),
 				["test-model"],
 				"never two models with one ID"
+			);
+			// The inert declaration must not double-record either: the window holds
+			// the discovered model once, and it is the discovered one that wins.
+			const snapshot = expectDefined(provider.getServerSnapshots()[0]);
+			assert.deepStrictEqual(
+				snapshot.models.map((info) => [info.id, info.litellm.declared]),
+				[["test-model", undefined]]
 			);
 		});
 	});
@@ -1465,27 +1482,30 @@ suite("provider groups: capability overrides and declared models", () => {
 			const declaredInfo = expectDefined(served.find((info) => info.id === "declared-model"));
 			assert.ok(!("statusIcon" in declaredInfo), "declared models never carry the stale decoration");
 
-			// The window keeps discovered models only: a removed declared ID
-			// disappears immediately even mid-outage, and the dashboard merges the
-			// projection instead.
+			// The window records exactly what the serve handed out - the stale
+			// discovered set plus the declared model - so the dashboard's list
+			// matches the picker's even mid-outage.
 			const snapshot = expectDefined(provider.getServerSnapshots().find((s) => s.status.state === "error"));
 			assert.deepStrictEqual(
 				snapshot.models.map((info) => info.id),
-				["test-model"]
-			);
-			assert.deepStrictEqual(
-				provider.declaredModelsForSnapshot(snapshot).map((info) => info.id),
-				["declared-model"]
+				["test-model", "declared-model"]
 			);
 
 			// With the declaration gone the next failing serve drops it
-			// mid-outage: no resurrection from stale snapshots.
+			// mid-outage: no resurrection from stale snapshots, because the
+			// stale-serve anchor holds discovered models only.
 			declared = undefined;
 			const withoutDeclared = await provider.provideLanguageModelChatInformation(group, cancellation());
 			assert.deepStrictEqual(
 				withoutDeclared.map((info) => info.id),
 				["test-model"],
 				"a removed declared ID takes effect immediately even mid-outage"
+			);
+			const rerecorded = expectDefined(provider.getServerSnapshots().find((s) => s.status.state === "error"));
+			assert.deepStrictEqual(
+				rerecorded.models.map((info) => info.id),
+				["test-model"],
+				"the re-record drops the declared model from the window too"
 			);
 		});
 	});

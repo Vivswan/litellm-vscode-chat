@@ -12,7 +12,7 @@ import { attachGroupServer, groupClientId, groupServerLabel, markStale } from ".
 import { buildModelInfos } from "./registration";
 import type { ServedModelDecorator } from "./servedModels";
 import type { GroupServeOutcome, GroupStatusReporter } from "./statusReporting";
-import type { DiscoveryObservations, StatusWindow } from "./statusWindow";
+import type { DiscoveryObservations, ServedModelSets, StatusWindow } from "./statusWindow";
 
 /** GroupServeOutcome minus the served-set counts, which recordAndServe derives from the served pair. */
 type ServeOutcomeShape =
@@ -127,28 +127,28 @@ export class GroupDiscovery {
 		const attach = (infos: readonly PreAttachModelInfo[]): AttachedModelInfo[] =>
 			infos.map((info) => attachGroupServer(info, groupServer));
 		// Every outcome records and serves through here: the reporter gets exactly
-		// the overridden set the return value carries, and both outcome counts
-		// derive from the same pair, so no branch can record one set and serve another.
+		// the served pair the return value carries, and both outcome counts derive
+		// from the same pair, so no branch can record one set and serve another.
 		const recordAndServe = (
-			models: { overridden: readonly PreAttachModelInfo[]; declared: readonly PreAttachModelInfo[] },
+			served: ServedModelSets,
 			outcome: ServeOutcomeShape,
 			observations: DiscoveryObservations = {}
 		): { served: AttachedModelInfo[]; discovered: AttachedModelInfo[]; declared: AttachedModelInfo[] } => {
 			// The one served-count derivation: both states record exactly what this
 			// serve hands out, so a failure still serving stale or declared models
 			// stays visible to the merged count and every verdict.
-			const servedModelCount = models.overridden.length + models.declared.length;
+			const servedModelCount = served.discovered.length + served.declared.length;
 			const recorded: GroupServeOutcome =
 				outcome.state === "ok"
 					? { ...outcome, servedModelCount }
 					: {
 							...outcome,
 							servedModelCount,
-							...(models.declared.length > 0 ? { declaredModelCount: models.declared.length } : {}),
+							...(served.declared.length > 0 ? { declaredModelCount: served.declared.length } : {}),
 						};
-			this._options.reporter.reportGroupStatus(server, groupServer, silent, recorded, models.overridden, observations);
-			const discovered = attach(models.overridden);
-			const declared = attach(models.declared);
+			this._options.reporter.reportGroupStatus(server, groupServer, silent, recorded, served, observations);
+			const discovered = attach(served.discovered);
+			const declared = attach(served.declared);
 			return { served: [...discovered, ...declared], discovered, declared };
 		};
 
@@ -160,7 +160,7 @@ export class GroupDiscovery {
 			this._options.log("Provider group is hidden by an explicit user removal; serving no models", {
 				baseUrl: server.baseUrl,
 			});
-			return recordAndServe({ overridden: [], declared: [] }, { state: "ok", hiddenByRemoval: true }).served;
+			return recordAndServe({ discovered: [], declared: [] }, { state: "ok", hiddenByRemoval: true }).served;
 		}
 
 		// The effective API root, resolved exactly the way the transport
@@ -193,13 +193,13 @@ export class GroupDiscovery {
 				// corrected root, and its store must survive.
 				this._options.cache.dropStored(server.id);
 			} else if (cached !== undefined) {
-				const { overridden, declared } = this._options.decorator.decorate(cached, server, groupServer.label);
+				const cachedServe = this._options.decorator.decorate(cached, server, groupServer.label);
 				this._options.log("Serving provider group models from the discovery cache", {
 					baseUrl: server.baseUrl,
-					count: overridden.length + declared.infos.length,
+					count: cachedServe.discovered.length + cachedServe.declared.length,
 				});
 				return recordAndServe(
-					{ overridden, declared: declared.infos },
+					cachedServe,
 					{ state: "ok", ...probeHint(cached) },
 					{
 						discoveredRawIds: cached.discoveredRawIds,
@@ -237,13 +237,13 @@ export class GroupDiscovery {
 			}
 			// Overrides and declared models are applied to what is SERVED: the
 			// discovery cache stays configuration-free, so an edit reaches the
-			// very next serve. The status window records the served (overridden)
-			// models; declared models alone are config-rebuilt every serve and
-			// never recorded.
-			const { overridden, declared } = this._options.decorator.decorate(discovered, server, groupServer.label);
+			// very next serve. The status window records both served sets, keeping
+			// declared models out of its stale-serve anchor; they are config-rebuilt
+			// every serve.
+			const freshServe = this._options.decorator.decorate(discovered, server, groupServer.label);
 			this._options.log(`Provider group at ${server.baseUrl} returned ${discovered.infos.length} models`);
 			return recordAndServe(
-				{ overridden, declared: declared.infos },
+				freshServe,
 				{ state: "ok", ...probeHint(discovered) },
 				{
 					discoveredRawIds: discovered.discoveredRawIds,
@@ -284,18 +284,20 @@ export class GroupDiscovery {
 			// empty discovered set, or a pre-outage discovery could inert-suppress
 			// a declared ID out of the only set this serve hands back.
 			const servesDeclaredOnly = !silent && expected;
-			const { overridden, declared } = this._options.decorator.decorate(
+			const failureSets = this._options.decorator.decorate(
 				!servesDeclaredOnly && stale !== undefined
 					? { infos: stale.models, discoveredRawIds: stale.discoveredRawIds }
 					: { infos: [], discoveredRawIds: [] },
 				server,
 				groupServer.label
 			);
-			// Recorded is what is served, by construction of recordAndServe. Safe
-			// against the stale source: it anchors to the last SUCCESS bundle, so
-			// this record cannot bake a mid-outage edit into later serves.
+			// Recorded is what a silent serve still hands out; the non-silent
+			// unexpected branch below throws past it, keeping the last-served set
+			// visible under the error. Safe against the stale source: it anchors to
+			// the last SUCCESS bundle, so this record cannot bake a mid-outage edit
+			// into later serves.
 			const failureServe = recordAndServe(
-				{ overridden, declared: declared.infos },
+				failureSets,
 				{
 					state: "error",
 					...texts,
@@ -310,7 +312,7 @@ export class GroupDiscovery {
 					stale !== undefined ? markStale(failureServe.discovered, new Date(stale.lastSuccessAt).toLocaleString()) : [];
 				return [...staleServed, ...failureServe.declared];
 			}
-			if (expected && declared.infos.length > 0) {
+			if (expected && failureSets.declared.length > 0) {
 				return failureServe.declared;
 			}
 			// A non-Error throw is rebuilt with the status's log-safe rendering as

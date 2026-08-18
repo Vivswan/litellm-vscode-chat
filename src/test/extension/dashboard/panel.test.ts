@@ -6,7 +6,6 @@ import { modelScopeKey } from "../../../extension/dashboard/adoptHandle";
 import type { DashboardControllerEnv, DashboardPanel, ServerResolution } from "../../../extension/dashboard/panel";
 import {
 	DashboardController,
-	declaredMergedSnapshots,
 	declaredViewsFromSetting,
 	entryParametersResolver,
 } from "../../../extension/dashboard/panel";
@@ -19,7 +18,7 @@ import { EMPTY_CATALOG_STATUS, EMPTY_USAGE_VIEW } from "../../../extension/dashb
 import { entryModelParametersFor } from "../../../extension/servers/serverSync";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
-import { expectDefined, makeModelInfo } from "../../pureHelpers";
+import { makeModelInfo } from "../../pureHelpers";
 import { makeServerStatus } from "../../testUtils";
 import { serverPayload } from "./recordedEnv";
 
@@ -1490,44 +1489,6 @@ suite("extension/dashboard/panel", () => {
 		test("an entry without modelParameters resolves to nothing, like the request path", () => {
 			const resolve = resolver({ g1: { label: "No Params", baseUrl: "http://prod.test" } });
 			assert.strictEqual(resolve("g1"), undefined);
-		});
-	});
-
-	suite("declaredMergedSnapshots", () => {
-		// The real getSnapshots closure registerDashboardCommand wires: the
-		// provider's snapshots with the declared projection appended, so the
-		// dashboard's model list equals the set the picker serves.
-		const withDeclared = {
-			discoveredRawIds: ["m1"],
-			status: makeServerStatus({ serverId: "srv-declared" }),
-			models: [makeModelInfo({ id: "m1", name: "m1" })],
-		};
-		const withoutDeclared = {
-			discoveredRawIds: [],
-			status: makeServerStatus({ serverId: "srv-plain" }),
-			models: [makeModelInfo({ id: "m2", name: "m2" })],
-		};
-
-		test("projected declared models are appended to the snapshot's discovered models", () => {
-			const declaredInfo = makeModelInfo({ id: "my-declared", name: "my-declared" });
-			const merged = declaredMergedSnapshots({
-				getServerSnapshots: () => [withDeclared],
-				declaredModelsForSnapshot: (snapshot) => (snapshot === withDeclared ? [declaredInfo] : []),
-			});
-			assert.deepStrictEqual(
-				merged.map((snapshot) => snapshot.models.map((model) => model.id)),
-				[["m1", "my-declared"]],
-				"declared models append after the discovered ones"
-			);
-			assert.strictEqual(expectDefined(merged[0]).status, withDeclared.status);
-		});
-
-		test("a snapshot with nothing declared passes through with object identity", () => {
-			const merged = declaredMergedSnapshots({
-				getServerSnapshots: () => [withoutDeclared],
-				declaredModelsForSnapshot: () => [],
-			});
-			assert.strictEqual(merged[0], withoutDeclared, "no-op merges must not rebuild the snapshot");
 		});
 	});
 });

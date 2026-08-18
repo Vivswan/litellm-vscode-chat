@@ -2,10 +2,10 @@ import type { CapabilityCatalogLookup, ModelCapabilitiesRecord } from "../../sha
 import type { ModelResolutionTable } from "../../shared/config/resolutionTable";
 import { getModelCapabilitiesConfig } from "../../shared/config/settings";
 import type { ServerConfig } from "../../shared/servers";
-import type { CapabilityOverrideOptions, DeclaredModelSynthesis } from "./capabilityOverrides";
+import type { CapabilityOverrideOptions } from "./capabilityOverrides";
 import { applyCapabilityOverrides, synthesizeDeclaredModels } from "./capabilityOverrides";
 import type { PreAttachModelInfo } from "./groupModels";
-import type { ServerModelsSnapshot } from "./statusWindow";
+import type { ServedModelSets } from "./statusWindow";
 
 /**
  * The label+URL identity entry configuration resolves against for one served
@@ -51,7 +51,7 @@ export class ServedModelDecorator {
 	 * resolver answers only when `entryLabel` and the base URL identify the same
 	 * declared entry, mirroring the request path's entry-parameters match.
 	 */
-	capabilityOptions(server: ServerConfig, entryLabel: string | undefined): CapabilityOverrideOptions {
+	private capabilityOptions(server: ServerConfig, entryLabel: string | undefined): CapabilityOverrideOptions {
 		return {
 			globalCapabilities: getModelCapabilitiesConfig(),
 			entryCapabilities:
@@ -70,14 +70,16 @@ export class ServedModelDecorator {
 	 * Everything a serve pass hands out from one discovery result and the
 	 * CURRENT configuration: the discovered infos with capability overrides
 	 * applied, plus the declared models discovery did not list (inert against
-	 * the discovered raw-ID set, suppressed on collision with a registered ID).
-	 * The status window records the overridden result; declared models stay out.
+	 * the discovered raw-ID set, suppressed on collision with a registered ID,
+	 * so the two sets are disjoint by construction). The one producer of the
+	 * pair the status window records; only the discovered set anchors stale
+	 * serving.
 	 */
 	decorate(
 		discovered: { readonly infos: readonly PreAttachModelInfo[]; readonly discoveredRawIds: readonly string[] },
 		server: ServerConfig,
 		entryLabel: string | undefined
-	): { overridden: readonly PreAttachModelInfo[]; declared: DeclaredModelSynthesis } {
+	): ServedModelSets {
 		const opts = this.capabilityOptions(server, entryLabel);
 		const overridden = applyCapabilityOverrides(discovered.infos, server, opts);
 		const declared = synthesizeDeclaredModels(
@@ -87,33 +89,6 @@ export class ServedModelDecorator {
 			1,
 			opts
 		);
-		return { overridden, declared };
-	}
-
-	/**
-	 * The declared models the current configuration synthesizes for one
-	 * status-window snapshot: snapshots stay discovered-only, so the dashboard
-	 * merges this projection into each server's model list. `identity` is the
-	 * group's own configured label resolving the entry layer, since status
-	 * labels can be display fallbacks, so the dashboard shows what the picker
-	 * serves. Display-only, so record problems do not re-log on every push.
-	 */
-	declaredModelsForSnapshot(
-		snapshot: ServerModelsSnapshot,
-		identity: EntryIdentity | undefined
-	): readonly PreAttachModelInfo[] {
-		const { status } = snapshot;
-		const server: ServerConfig = {
-			id: status.serverId,
-			label: identity?.label ?? status.label,
-			baseUrl: status.baseUrl,
-		};
-		return synthesizeDeclaredModels(
-			new Set(snapshot.discoveredRawIds),
-			new Set(snapshot.models.map((info) => info.id)),
-			server,
-			1,
-			{ ...this.capabilityOptions(server, identity?.label), log: () => {}, logAdvisory: () => {} }
-		).infos;
+		return { discovered: overridden, declared };
 	}
 }

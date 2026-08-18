@@ -21,6 +21,8 @@ const groupServer: GroupServer = { baseUrl: normalizeBaseUrl("http://litellm.tes
 
 // The window stores and returns models opaquely; one branded stand-in is enough.
 const models = [{ id: "test-model" } as PreAttachModelInfo];
+const served = { discovered: models, declared: [] };
+const NOTHING_SERVED = { discovered: [], declared: [] };
 
 // Failure reports below record the EMPTY list, exactly like groupDiscovery's
 // out-of-window failure path: stale retention must come from the recorded
@@ -47,10 +49,10 @@ function makeWindow(initialWindowMs: number) {
 describe("provider/catalog/statusWindow: the configured stale-serve window", () => {
 	test("the default window serves at ten minutes and stops past it (today's behavior)", () => {
 		const { window, clock } = makeWindow(DEFAULT_WINDOW_MS);
-		window.record(status("ok"), models, groupServer, { discoveredRawIds: ["test-model"] });
+		window.record(status("ok"), served, groupServer, { discoveredRawIds: ["test-model"] });
 
 		clock.nowMs += DEFAULT_WINDOW_MS;
-		window.record(status("error"), [], groupServer);
+		window.record(status("error"), NOTHING_SERVED, groupServer);
 		expect(window.staleServableModels("s1")?.models).toEqual(models);
 
 		clock.nowMs += 1;
@@ -59,29 +61,29 @@ describe("provider/catalog/statusWindow: the configured stale-serve window", () 
 
 	test("a zero window never serves stale, even right after the success", () => {
 		const { window } = makeWindow(0);
-		window.record(status("ok"), models, groupServer, { discoveredRawIds: ["test-model"] });
-		window.record(status("error"), [], groupServer);
+		window.record(status("ok"), served, groupServer, { discoveredRawIds: ["test-model"] });
+		window.record(status("error"), NOTHING_SERVED, groupServer);
 		expect(window.staleServableModels("s1")).toBeUndefined();
 	});
 
 	test("a longer window serves past ten minutes and honors its own bound", () => {
 		const { window, clock } = makeWindow(60 * MINUTE_MS);
-		window.record(status("ok"), models, groupServer, { discoveredRawIds: ["test-model"] });
+		window.record(status("ok"), served, groupServer, { discoveredRawIds: ["test-model"] });
 
 		clock.nowMs += 30 * MINUTE_MS;
-		window.record(status("error"), [], groupServer);
+		window.record(status("error"), NOTHING_SERVED, groupServer);
 		expect(window.staleServableModels("s1")?.models).toEqual(models);
 
 		clock.nowMs += 31 * MINUTE_MS;
-		window.record(status("error"), [], groupServer);
+		window.record(status("error"), NOTHING_SERVED, groupServer);
 		expect(window.staleServableModels("s1")).toBeUndefined();
 	});
 
 	test("a settings change reaches the next read without re-recording", () => {
 		const { window, clock, config } = makeWindow(DEFAULT_WINDOW_MS);
-		window.record(status("ok"), models, groupServer, { discoveredRawIds: ["test-model"] });
+		window.record(status("ok"), served, groupServer, { discoveredRawIds: ["test-model"] });
 		clock.nowMs += 30 * MINUTE_MS;
-		window.record(status("error"), [], groupServer);
+		window.record(status("error"), NOTHING_SERVED, groupServer);
 		expect(window.staleServableModels("s1")).toBeUndefined();
 
 		config.windowMs = 60 * MINUTE_MS;
@@ -93,18 +95,18 @@ describe("provider/catalog/statusWindow: the configured stale-serve window", () 
 		// begins. Under a fixed TTL the cycle boundary would evict the entry and
 		// lose the recorded success before the failing refresh could serve from it.
 		const { window, clock } = makeWindow(60 * MINUTE_MS);
-		window.record(status("ok"), models, groupServer, { discoveredRawIds: ["test-model"] });
+		window.record(status("ok"), served, groupServer, { discoveredRawIds: ["test-model"] });
 
 		clock.nowMs += 30 * MINUTE_MS;
 		window.beginCycle();
 		expect(window.serverIds()).toEqual(["s1"]);
-		window.record(status("error"), [], groupServer);
+		window.record(status("error"), NOTHING_SERVED, groupServer);
 		expect(window.staleServableModels("s1")?.models).toEqual(models);
 	});
 
 	test("eviction keeps its ten-minute floor with the default window (today's behavior)", () => {
 		const { window, clock } = makeWindow(DEFAULT_WINDOW_MS);
-		window.record(status("ok"), models, groupServer, { discoveredRawIds: ["test-model"] });
+		window.record(status("ok"), served, groupServer, { discoveredRawIds: ["test-model"] });
 
 		clock.nowMs += 30 * MINUTE_MS;
 		window.beginCycle();
@@ -113,12 +115,38 @@ describe("provider/catalog/statusWindow: the configured stale-serve window", () 
 
 	test("a zero window never shrinks eviction below the floor: mid-sweep entries survive the cycle boundary", () => {
 		const { window, clock } = makeWindow(0);
-		window.record(status("ok"), models, groupServer, { discoveredRawIds: ["test-model"] });
+		window.record(status("ok"), served, groupServer, { discoveredRawIds: ["test-model"] });
 
 		// One cycle boundary minutes later: the one-cycle grace plus the
 		// eviction floor keep the entry visible for the merged status view.
 		clock.nowMs += 5 * MINUTE_MS;
 		window.beginCycle();
 		expect(window.serverIds()).toEqual(["s1"]);
+	});
+});
+
+describe("provider/catalog/statusWindow: declared models in the served record", () => {
+	const declared = [{ id: "declared-model" } as PreAttachModelInfo];
+
+	test("snapshots carry the full served set, discovered then declared", () => {
+		const { window } = makeWindow(DEFAULT_WINDOW_MS);
+		window.record(status("ok"), { discovered: models, declared }, groupServer, { discoveredRawIds: ["test-model"] });
+		expect(window.snapshots().map((snapshot) => snapshot.models.map((info) => info.id))).toEqual([
+			["test-model", "declared-model"],
+		]);
+	});
+
+	test("stale serving anchors to the discovered set alone: declared models never ride the success bundle", () => {
+		const { window, clock } = makeWindow(DEFAULT_WINDOW_MS);
+		window.record(status("ok"), { discovered: models, declared }, groupServer, { discoveredRawIds: ["test-model"] });
+
+		// A mid-outage failure still serving the declared model records it, but
+		// the stale-servable bundle must stay declared-free: declared models are
+		// config-rebuilt every serve, so a staled copy would resurrect a removed
+		// declaration and collide with the fresh synthesis.
+		clock.nowMs += MINUTE_MS;
+		window.record(status("error"), { discovered: [], declared }, groupServer);
+		expect(window.staleServableModels("s1")?.models).toEqual(models);
+		expect(window.snapshots().map((snapshot) => snapshot.models.map((info) => info.id))).toEqual([["declared-model"]]);
 	});
 });

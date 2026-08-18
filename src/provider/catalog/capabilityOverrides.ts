@@ -334,10 +334,6 @@ export function applyCapabilityOverrides(
 	return changed ? out : infos;
 }
 
-export interface DeclaredModelSynthesis {
-	readonly infos: readonly PreAttachModelInfo[];
-}
-
 /**
  * Build the declared models the current configuration creates on one server.
  * A declared ID that discovery listed is inert - judged against the DISCOVERED
@@ -355,7 +351,7 @@ export function synthesizeDeclaredModels(
 	server: ServerConfig,
 	serverCount: number,
 	opts: CapabilityOverrideOptions
-): DeclaredModelSynthesis {
+): readonly PreAttachModelInfo[] {
 	const logDiagnostics = diagnosticLogger(opts);
 	// Same one-read-per-pass rule as applyCapabilityOverrides.
 	const currencySymbol = getCurrencySymbol();
@@ -415,5 +411,5 @@ export function synthesizeDeclaredModels(
 			},
 		} satisfies PreAttachModelInfo);
 	}
-	return { infos };
+	return infos;
 }

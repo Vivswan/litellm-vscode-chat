@@ -826,22 +826,6 @@ export function declaredViewsFromSetting(raw: unknown): DeclaredServerView[] {
 }
 
 /**
- * The dashboard's snapshot view: the provider's status-window snapshots with
- * the declared-model projection appended to each server's model list.
- * Declared models never enter the status window (they are config-rebuilt on
- * every serve), so this merge is what keeps the dashboard's model list equal
- * to the set the picker serves.
- */
-export function declaredMergedSnapshots(
-	provider: Pick<LiteLLMChatModelProvider, "getServerSnapshots" | "declaredModelsForSnapshot">
-): readonly ServerModelsSnapshot[] {
-	return provider.getServerSnapshots().map((snapshot) => {
-		const declared = provider.declaredModelsForSnapshot(snapshot);
-		return declared.length > 0 ? { ...snapshot, models: [...snapshot.models, ...declared] } : snapshot;
-	});
-}
-
-/**
  * Register litellm.openDashboard and litellm.showDiagnostics (the deep link
  * to the Diagnostics tab) and keep the panel in sync with the stores:
  * configuration changes re-push directly; provider status changes arrive via
@@ -883,7 +867,10 @@ export function registerDashboardCommand(
 	const settingsAccess = createSettingsAccess();
 	const controller = new DashboardController({
 		createPanel: () => createRealPanel(context.extensionUri),
-		getSnapshots: () => declaredMergedSnapshots(provider),
+		// The window records exactly what each serve handed out (declared models
+		// included), so the dashboard lists the same model set as the picker by
+		// construction - same IDs, pre-attach infos without the serve decorations.
+		getSnapshots: () => provider.getServerSnapshots(),
 		getDeclaredServers: () => {
 			// The engine's declared view is authoritative once a pass has run;
 			// right after activation it is still empty, so the setting fills in.

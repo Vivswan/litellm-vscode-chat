@@ -368,7 +368,7 @@ suite("provider/catalog capabilityOverrides properties", () => {
 				const discovered = new Set(s.items.map((item) => item.id));
 				const reserved = new Set(served.map((info) => info.id));
 				const declared = synthesizeDeclaredModels(discovered, reserved, SERVER, s.serverCount, s.opts);
-				for (const info of declared.infos) {
+				for (const info of declared) {
 					const rawId = rawModelIdFromExposed(info.id, SERVER.id);
 					assert.ok(!discovered.has(rawId), "a discovered ID must stay inert");
 					assert.ok(!reserved.has(info.id), "a reserved exposed ID must be suppressed");

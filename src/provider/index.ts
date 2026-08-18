@@ -21,7 +21,7 @@ import type { AggregatedStatus } from "../shared/servers";
 import { DiscoveryCache } from "./catalog/discoveryCache";
 import type { DiscoveredGroupModels } from "./catalog/groupDiscovery";
 import { GroupDiscovery } from "./catalog/groupDiscovery";
-import type { GroupServer, LiteLLMModelInfo, PreAttachModelInfo } from "./catalog/groupModels";
+import type { GroupServer, LiteLLMModelInfo } from "./catalog/groupModels";
 import { groupClientId, parseGroupConfiguration, parseModelMetadata } from "./catalog/groupModels";
 import type { EntryIdentity } from "./catalog/servedModels";
 import { ServedModelDecorator } from "./catalog/servedModels";
@@ -265,15 +265,6 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 			return { label: groupServer.label, baseUrl: groupServer.baseUrl };
 		}
 		return undefined;
-	}
-
-	/**
-	 * The declared models the current configuration synthesizes for one
-	 * status-window snapshot; the entry layer resolves through
-	 * capabilityEntryIdentity, the same identity the serve path uses.
-	 */
-	declaredModelsForSnapshot(snapshot: ServerModelsSnapshot): readonly PreAttachModelInfo[] {
-		return this._decorator.declaredModelsForSnapshot(snapshot, this.capabilityEntryIdentity(snapshot.status.serverId));
 	}
 
 	/**

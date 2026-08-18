@@ -343,10 +343,10 @@ suite("provider server snapshots", () => {
 		assert.strictEqual(provider.getServerSnapshots().length, 0, "a malformed group yields no snapshot");
 	});
 
-	test("the declared projection composes exactly like the group serve: same IDs, names, and entry layer", async () => {
+	test("the recorded snapshot carries the declared models exactly as the serve handed them out", async () => {
 		// Declarations are entry-level: both declared models ride the Gateway entry.
-		// A projection resolving the entry layer from the snapshot's display label
-		// instead of the group's configured label would drop the declaration.
+		// The window records the served set itself (no dashboard-side projection),
+		// so identity, names, and the entry layer cannot diverge from the serve.
 		const provider = makeProvider(undefined, "test-key", undefined, {
 			getEntryDeclaredModels: (label, baseUrl) =>
 				label === "Gateway" && baseUrl === TEST_BASE_URL ? ["entry-model", "declared-model"] : undefined,
@@ -371,18 +371,19 @@ suite("provider server snapshots", () => {
 
 			const snapshot = expectDefined(provider.getServerSnapshots()[0]);
 			assert.deepStrictEqual(
-				idAndName(provider.declaredModelsForSnapshot(snapshot)),
+				idAndName(snapshot.models.filter((info) => declaredIds.has(info.id))),
 				served,
-				"the dashboard's projection must mint exactly what the serve handed out"
+				"the window must record exactly the declared models the serve handed out"
 			);
-
-			// The snapshot's status label is display-facing; identity comes from the
-			// group's configured label.
-			const relabeled = { ...snapshot, status: { ...snapshot.status, label: "Gateway (display)" } };
 			assert.deepStrictEqual(
-				idAndName(provider.declaredModelsForSnapshot(relabeled)),
-				served,
-				"the projection must resolve identity from the group's label, never the snapshot's display label"
+				snapshot.models.filter((info) => declaredIds.has(info.id)).map((info) => info.litellm.declared),
+				[true, true],
+				"recorded declared models carry the declared marker the dashboard badges on"
+			);
+			assert.strictEqual(
+				snapshot.models.length,
+				snapshot.status.servedModelCount,
+				"the recorded list and the recorded count describe the same set"
 			);
 		});
 	});

@@ -24,6 +24,7 @@ const EVICTION_TTL_FLOOR_MS = 10 * 60 * 1000;
  */
 export interface ServerModelsSnapshot {
 	readonly status: ServerStatus;
+	/** The full set the latest serve handed out: discovered infos plus declared ones (flagged `litellm.declared`). */
 	readonly models: readonly PreAttachModelInfo[];
 	/**
 	 * The raw model IDs discovery last returned, carried forward across failure
@@ -49,7 +50,9 @@ type StatusWindowEntry = {
 	 * serving. Kept apart from `models` (what the LATEST report served) because
 	 * a failure report past the stale window records an empty `models` but must
 	 * not destroy this bundle, which a staleServeWindow raised mid-outage
-	 * serves from again.
+	 * serves from again. Holds the DISCOVERED set only: declared models are
+	 * config-rebuilt on every serve, so staling one would resurrect a removed
+	 * declaration and collide with the fresh synthesis.
 	 */
 	lastSuccess: { at: number; models: readonly PreAttachModelInfo[] } | undefined;
 	status: ServerStatus;
@@ -59,6 +62,25 @@ type StatusWindowEntry = {
 	/** The group's resolved connection; every entry is a VS Code provider group. */
 	groupServer: GroupServer;
 };
+
+/**
+ * What one serve handed the host, split by origin; produced by
+ * ServedModelDecorator.decorate (whose synthesis keeps the two sets disjoint)
+ * and recorded as-is. A named bundle because both members are info arrays:
+ * transposing positional parameters would type-check. The window serves
+ * snapshots from the union but anchors stale serving to `discovered` alone.
+ */
+export interface ServedModelSets {
+	/** Discovered infos with capability overrides applied; the stale-serve source set. */
+	readonly discovered: readonly PreAttachModelInfo[];
+	/**
+	 * The entry's declared models this serve synthesized. Disjoint from
+	 * `discovered` by construction (a declared ID discovery listed is inert, a
+	 * colliding exposed ID is suppressed) and never staled: the config rebuilds
+	 * them on every serve, so a removed declaration dies mid-outage too.
+	 */
+	readonly declared: readonly PreAttachModelInfo[];
+}
 
 /**
  * What one successful discovery observed, recorded beside its status report.
@@ -147,13 +169,14 @@ export class StatusWindow {
 	}
 
 	/**
-	 * `models` are the pre-attach infos by type, never the group-attached
+	 * `served` holds the pre-attach infos by type, never the group-attached
 	 * copies: snapshots() hands them to the dashboard, and attached copies embed
-	 * the server's credentials.
+	 * the server's credentials. Snapshots carry the full served union;
+	 * lastSuccess keeps only the discovered set (see ServedModelSets.declared).
 	 */
 	record(
 		status: ServerStatus,
-		models: readonly PreAttachModelInfo[],
+		served: ServedModelSets,
 		groupServer: GroupServer,
 		/** What the discovery observed when it succeeded; failure reports carry the previous observations forward. */
 		observations: DiscoveryObservations = {}
@@ -162,9 +185,9 @@ export class StatusWindow {
 		this.entries.set(status.serverId, {
 			cycle: this.cycle,
 			at: this.now(),
-			lastSuccess: status.state === "ok" ? { at: this.now(), models } : previous?.lastSuccess,
+			lastSuccess: status.state === "ok" ? { at: this.now(), models: served.discovered } : previous?.lastSuccess,
 			status,
-			models,
+			models: served.declared.length > 0 ? [...served.discovered, ...served.declared] : served.discovered,
 			discoveredRawIds:
 				status.state === "ok" ? (observations.discoveredRawIds ?? []) : (previous?.discoveredRawIds ?? []),
 			observedModelInfoKeys:

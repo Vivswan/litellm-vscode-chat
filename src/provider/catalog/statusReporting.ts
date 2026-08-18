@@ -1,8 +1,8 @@
 import type { TransportErrorClassification, UnservedEndpointEvidence } from "../../shared/errorClassification";
 import type { LogSafeErrorText } from "../../shared/logger";
 import type { AggregatedStatus, ServerWithKey } from "../../shared/servers";
-import type { GroupServer, PreAttachModelInfo } from "./groupModels";
-import type { DiscoveryObservations, StatusWindow } from "./statusWindow";
+import type { GroupServer } from "./groupModels";
+import type { DiscoveryObservations, ServedModelSets, StatusWindow } from "./statusWindow";
 
 /** One group serve's outcome as recorded into the status window. */
 export type GroupServeOutcome =
@@ -72,8 +72,8 @@ export class GroupStatusReporter {
 		groupServer: GroupServer,
 		silent: boolean,
 		outcome: GroupServeOutcome,
-		/** Discovered pre-attach infos only; declared models are config-rebuilt every serve and never recorded. */
-		models: readonly PreAttachModelInfo[],
+		/** The full sets this serve handed the host; the window snapshots both while stale serving anchors to discovered only. */
+		served: ServedModelSets,
 		/** What this discovery observed (raw IDs, model_info keys); see DiscoveryObservations. */
 		observations: DiscoveryObservations = {}
 	): void {
@@ -89,7 +89,7 @@ export class GroupStatusReporter {
 				hasApiKey: groupServer.apiKey.length > 0 || groupServer.oauth !== undefined,
 				...outcome,
 			},
-			models,
+			served,
 			groupServer,
 			observations
 		);

@@ -680,7 +680,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 
 	suite("synthesizeDeclaredModels", () => {
 		test("a declared ID becomes a model with the badge and its baseline", () => {
-			const { infos } = synthesizeDeclaredModels(
+			const infos = synthesizeDeclaredModels(
 				new Set(),
 				new Set(),
 				SERVER,
@@ -706,7 +706,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 		});
 
 		test("a declared ID discovery listed stays inert, even when only synthetic variants registered", () => {
-			const { infos } = synthesizeDeclaredModels(
+			const infos = synthesizeDeclaredModels(
 				new Set(["foo"]),
 				new Set(["foo:cheapest", "foo:fastest"]),
 				SERVER,
@@ -718,7 +718,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 
 		test("a declared ID colliding with a reserved exposed ID is suppressed with a warning", () => {
 			const logged: { message: string; data: unknown }[] = [];
-			const { infos } = synthesizeDeclaredModels(
+			const infos = synthesizeDeclaredModels(
 				new Set(["foo"]),
 				new Set(["foo:cheapest", "foo:fastest"]),
 				SERVER,
@@ -734,7 +734,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 		});
 
 		test("the floor backstops a bare declared ID, with the conservative outputLimitSource", () => {
-			const { infos } = synthesizeDeclaredModels(
+			const infos = synthesizeDeclaredModels(
 				new Set(),
 				new Set(),
 				SERVER,
@@ -749,7 +749,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 		});
 
 		test("multi-server synthesis namespaces the exposed ID like registration", () => {
-			const { infos } = synthesizeDeclaredModels(
+			const infos = synthesizeDeclaredModels(
 				new Set(),
 				new Set(),
 				SERVER,
@@ -763,7 +763,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 		test("a leftover global _declare directive creates nothing and stays silent", () => {
 			const logged: string[] = [];
 			const advisory: string[] = [];
-			const { infos } = synthesizeDeclaredModels(
+			const infos = synthesizeDeclaredModels(
 				new Set(),
 				new Set(),
 				SERVER,
@@ -780,7 +780,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 		});
 
 		test("a duplicated declared ID synthesizes once", () => {
-			const { infos } = synthesizeDeclaredModels(
+			const infos = synthesizeDeclaredModels(
 				new Set(),
 				new Set(),
 				SERVER,
@@ -796,7 +796,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 		test("a declared model with an entry cost record registers priced", () => {
 			// No server level exists at all for a declared model; the user's cost
 			// record is the only price source and must reach the picker.
-			const { infos } = synthesizeDeclaredModels(
+			const infos = synthesizeDeclaredModels(
 				new Set(),
 				new Set(),
 				SERVER,
@@ -815,7 +815,7 @@ suite("provider/catalog/capabilityOverrides", () => {
 		});
 
 		test("a declared model honors caching and reasoning-params records like a discovered one", () => {
-			const { infos } = synthesizeDeclaredModels(
+			const infos = synthesizeDeclaredModels(
 				new Set(),
 				new Set(),
 				SERVER,
