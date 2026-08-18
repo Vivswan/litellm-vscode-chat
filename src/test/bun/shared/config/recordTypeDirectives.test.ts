@@ -18,13 +18,15 @@
  * identifier property access (`record._force`) or a name built at runtime.
  * The copy sweep scans every l10n bundle's and package.nls file's keys and
  * translated values for directive-shaped tokens, so localized copy cannot
- * keep teaching a name the registry dropped.
+ * keep teaching a name the registry dropped. The docs sweep holds every
+ * markdown file under docs/ (translations included) to the same token grammar.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import ts from "typescript";
+import { DECLARE_DIRECTIVE } from "../../../../extension/migrations/settingsRedesign/legacyIds";
 import { parseCapabilityRecord } from "../../../../shared/config/capabilityResolution";
 import { parseParameterRecord } from "../../../../shared/config/parameterResolution";
 import type { ParsedRecord, RecordType } from "../../../../shared/config/recordResolution";
@@ -104,6 +106,14 @@ function underscoreLiterals(fileName: string): ReadonlySet<string> {
 	visit(source);
 	return found;
 }
+
+/**
+ * One token grammar for every prose sweep (localized copy and docs alike). The
+ * boundary class includes "_" so the inner slice of a dunder name never counts
+ * ("__proto__" would otherwise yield the phantom token "_proto__"). Callers use
+ * String.match, which a global regex's lastIndex cannot skew; test/exec would.
+ */
+const DIRECTIVE_TOKEN_PATTERN = /(?<![A-Za-z0-9_])_[a-z][a-z0-9_]*/g;
 
 /** One parse per file, shared by the sweep and its positive control. */
 const LITERALS_BY_FILE: ReadonlyMap<string, ReadonlySet<string>> = new Map(
@@ -196,7 +206,7 @@ describe("shared/config record-type directive registry", () => {
 				const message =
 					typeof value === "string" ? value : isRecord(value) && typeof value.message === "string" ? value.message : "";
 				for (const text of [key, message]) {
-					for (const token of text.match(/(?<![A-Za-z0-9])_[a-z][a-z0-9_]*/g) ?? []) {
+					for (const token of text.match(DIRECTIVE_TOKEN_PATTERN) ?? []) {
 						found.add(token);
 						if (!REGISTERED_DIRECTIVES.has(token)) {
 							failures.push(
@@ -222,6 +232,55 @@ describe("shared/config record-type directive registry", () => {
 		assert.ok(copyFiles.length >= 6, "the sweep no longer reaches the translated copies");
 		assert.ok(found.has(INHERIT_FROM_DIRECTIVE), "the copy sweep no longer sees _inherit_from's spelling");
 		assert.ok(found.has(INHERITABLE_DIRECTIVE), "the copy sweep no longer sees _inheritable's spelling");
+	});
+
+	test("every directive-shaped token in the docs is a registered directive", () => {
+		// The docs teach the record grammar in prose and code fences, so
+		// registered spellings are expected and pass; the sweep detects renames,
+		// where a dropped registry name would leave the docs teaching it.
+		const docsDir = path.join(REPO_ROOT, "docs");
+		// Separators normalized so the reach pins and messages read the same on every OS.
+		const docFiles = fs
+			.readdirSync(docsDir, { recursive: true, encoding: "utf8" })
+			.filter((name) => name.endsWith(".md"))
+			.map((name) => name.replaceAll("\\", "/"))
+			.sort();
+		// Non-directive tokens the docs legitimately spell, each pinned below so
+		// a dropped mention retires its entry. DECLARE_DIRECTIVE is the retired
+		// name the migration docs teach, imported from the migration's own
+		// quarantine so retiring the migration breaks this line with it;
+		// _reasoning_effort is the tail of the capability flag
+		// supports_<level>_reasoning_effort, split off by the <level> placeholder.
+		const allowedTokens: ReadonlySet<string> = new Set([DECLARE_DIRECTIVE, "_reasoning_effort"]);
+		const found = new Set<string>();
+		const failures: string[] = [];
+		for (const file of docFiles) {
+			const text = fs.readFileSync(path.join(docsDir, file), "utf8");
+			for (const token of new Set(text.match(DIRECTIVE_TOKEN_PATTERN) ?? [])) {
+				found.add(token);
+				if (!REGISTERED_DIRECTIVES.has(token) && !allowedTokens.has(token)) {
+					failures.push(
+						`docs/${file} spells "${token}", which is no registered directive: ` +
+							"update the docs (source and translations), or justify a genuine non-directive token in the allowlist"
+					);
+				}
+			}
+		}
+		assert.deepStrictEqual(failures, []);
+		// Positive controls: the walk must reach the source docs and both
+		// translation trees, and must still see every registered directive's
+		// spelling - a narrowed walk or dead pattern fails here, not silently.
+		assert.ok(docFiles.length >= 24, "the docs sweep no longer reaches the full docs tree");
+		for (const file of ["models.md", "zh-cn/models.md", "zh-tw/models.md"]) {
+			assert.ok(docFiles.includes(file), `the docs sweep no longer reaches docs/${file}`);
+		}
+		for (const name of REGISTERED_DIRECTIVES) {
+			assert.ok(found.has(name), `${name} is spelled nowhere in docs/: document it, or the walk narrowed`);
+		}
+		for (const token of allowedTokens) {
+			assert.ok(!REGISTERED_DIRECTIVES.has(token), `${token} is registered now: retire its allowlist entry`);
+			assert.ok(found.has(token), `the docs no longer spell ${token}: retire its allowlist entry`);
+		}
 	});
 
 	test("the sweep reaches every config module and sees every registered mint (its positive control)", () => {
