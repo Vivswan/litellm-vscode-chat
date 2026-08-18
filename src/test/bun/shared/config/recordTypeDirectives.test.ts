@@ -8,9 +8,19 @@
  * parser map is total over RecordType, so minting a third record type fails
  * this file's typecheck until its parser is wired in, and the loops then hold
  * it to the same mutual-flagging contract.
+ *
+ * The literal sweep below closes the remaining hole - a directive a parser
+ * HANDLES but nobody registered. It scans CODE, through an AST walk over the
+ * resolver sources' string literals, so comments and doc prose never count
+ * (a message string would, but these diagnostics carry kinds and keys, never
+ * prose). Its blind spot is a name no literal spells: identifier property
+ * access (`record._force`) or a name built at runtime.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import ts from "typescript";
 import { parseCapabilityRecord } from "../../../../shared/config/capabilityResolution";
 import { parseParameterRecord } from "../../../../shared/config/parameterResolution";
 import type { ParsedRecord, RecordType } from "../../../../shared/config/recordResolution";
@@ -19,6 +29,7 @@ import {
 	INHERITABLE_DIRECTIVE,
 	RECORD_TYPE_DIRECTIVES,
 } from "../../../../shared/config/recordResolution";
+import { REPO_ROOT } from "../../../util/repoRoot";
 
 /** Total over RecordType on purpose: a registry row without a parser fails typecheck here. */
 const PARSERS: Readonly<Record<RecordType, (record: Readonly<Record<string, unknown>>) => ParsedRecord>> = {
@@ -28,6 +39,52 @@ const PARSERS: Readonly<Record<RecordType, (record: Readonly<Record<string, unkn
 
 const RECORD_TYPES = Object.keys(RECORD_TYPE_DIRECTIVES) as readonly RecordType[];
 const SHARED_DIRECTIVES: ReadonlySet<string> = new Set([INHERITABLE_DIRECTIVE, INHERIT_FROM_DIRECTIVE]);
+
+/** The full registered vocabulary: every type-specific row plus the shared engine directives. */
+const REGISTERED_DIRECTIVES: ReadonlySet<string> = new Set([
+	...RECORD_TYPES.flatMap((type) => [...RECORD_TYPE_DIRECTIVES[type]]),
+	...SHARED_DIRECTIVES,
+]);
+
+/**
+ * Every resolver in shared/config, found by name rather than hand-listed, so a
+ * fourth one joins the sweep by existing. The mint site (recordResolution.ts)
+ * is in scope by the same rule and must be: a directive handled through an
+ * imported constant carries its literal there, not in the parser that branches
+ * on it.
+ */
+const CONFIG_DIR = path.join(REPO_ROOT, "src", "shared", "config");
+const SCANNED_SOURCES: readonly string[] = fs
+	.readdirSync(CONFIG_DIR)
+	.filter((name) => name.endsWith("Resolution.ts"))
+	.sort();
+
+/** The resolvers this suite exercises directly: the sweep may grow past them, never shrink below them. */
+const REQUIRED_SOURCES: readonly string[] = [
+	"capabilityResolution.ts",
+	"parameterResolution.ts",
+	"recordResolution.ts",
+];
+
+/** Every underscore-prefixed string literal in the file's code; the one-char "_" is the namespace probe, never a name. */
+function underscoreLiterals(fileName: string): ReadonlySet<string> {
+	const text = fs.readFileSync(path.join(CONFIG_DIR, fileName), "utf8");
+	const source = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+	const found = new Set<string>();
+	const visit = (node: ts.Node): void => {
+		if ((ts.isStringLiteralLike(node) || ts.isTemplateLiteralToken(node)) && /^_./.test(node.text)) {
+			found.add(node.text);
+		}
+		ts.forEachChild(node, visit);
+	};
+	visit(source);
+	return found;
+}
+
+/** One parse per file, shared by the sweep and its positive control. */
+const LITERALS_BY_FILE: ReadonlyMap<string, ReadonlySet<string>> = new Map(
+	SCANNED_SOURCES.map((file) => [file, underscoreLiterals(file)])
+);
 
 describe("shared/config record-type directive registry", () => {
 	test("every name is underscore-prefixed and minted in exactly one row, never a shared engine directive", () => {
@@ -74,6 +131,33 @@ describe("shared/config record-type directive registry", () => {
 				);
 			}
 			assert.deepStrictEqual(PARSERS[type]({ _future_directive: 12345 }).diagnostics, []);
+		}
+	});
+
+	test("every underscore literal in the resolver sources is a registered directive", () => {
+		const failures: string[] = [];
+		for (const [file, literals] of LITERALS_BY_FILE) {
+			for (const literal of literals) {
+				if (!REGISTERED_DIRECTIVES.has(literal)) {
+					failures.push(
+						`src/shared/config/${file} carries the unregistered underscore literal "${literal}": ` +
+							"add it to RECORD_TYPE_DIRECTIVES or the shared engine directives in recordResolution.ts"
+					);
+				}
+			}
+		}
+		assert.deepStrictEqual(failures, []);
+	});
+
+	test("the sweep reaches every resolver and sees every registered mint (its positive control)", () => {
+		// Two ways this guard could pass while proving nothing: scanning fewer
+		// files than it claims, or a walk that silently collects nothing.
+		for (const file of REQUIRED_SOURCES) {
+			assert.ok(SCANNED_SOURCES.includes(file), `the sweep no longer reaches ${file}`);
+		}
+		const found = new Set<string>([...LITERALS_BY_FILE.values()].flatMap((literals) => [...literals]));
+		for (const name of REGISTERED_DIRECTIVES) {
+			assert.ok(found.has(name), `the sweep no longer sees ${name}'s mint in the scanned sources`);
 		}
 	});
 });
