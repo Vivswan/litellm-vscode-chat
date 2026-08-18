@@ -11,8 +11,13 @@ import type { AttachedModelInfo, GroupServer, LiteLLMModelInfo, PreAttachModelIn
 import { attachGroupServer, groupClientId, groupServerLabel, markStale } from "./groupModels";
 import { buildModelInfos } from "./registration";
 import type { ServedModelDecorator } from "./servedModels";
-import type { GroupStatusReporter } from "./statusReporting";
-import type { StatusWindow } from "./statusWindow";
+import type { GroupServeOutcome, GroupStatusReporter } from "./statusReporting";
+import type { DiscoveryObservations, StatusWindow } from "./statusWindow";
+
+/** GroupServeOutcome minus the served-set counts, which recordAndServe derives from the served pair. */
+type ServeOutcomeShape =
+	| Omit<Extract<GroupServeOutcome, { state: "ok" }>, "modelCount">
+	| Omit<Extract<GroupServeOutcome, { state: "error" }>, "declaredModelCount">;
 
 /**
  * One server's cached discovery result: the registered infos plus the raw
@@ -121,6 +126,29 @@ export class GroupDiscovery {
 		};
 		const attach = (infos: readonly PreAttachModelInfo[]): AttachedModelInfo[] =>
 			infos.map((info) => attachGroupServer(info, groupServer));
+		// Every outcome records and serves through here: the reporter gets exactly
+		// the overridden set the return value carries, and both outcome counts
+		// derive from the same pair, so no branch can record one set and serve another.
+		const recordAndServe = (
+			models: { overridden: readonly PreAttachModelInfo[]; declared: readonly PreAttachModelInfo[] },
+			outcome: ServeOutcomeShape,
+			observations: DiscoveryObservations = {}
+		): { served: AttachedModelInfo[]; discovered: AttachedModelInfo[]; declared: AttachedModelInfo[] } => {
+			let recorded: GroupServeOutcome;
+			if (outcome.state === "ok") {
+				const { state, ...rest } = outcome;
+				recorded = { state, modelCount: models.overridden.length + models.declared.length, ...rest };
+			} else {
+				recorded = {
+					...outcome,
+					...(models.declared.length > 0 ? { declaredModelCount: models.declared.length } : {}),
+				};
+			}
+			this._options.reporter.reportGroupStatus(server, groupServer, silent, recorded, models.overridden, observations);
+			const discovered = attach(models.overridden);
+			const declared = attach(models.declared);
+			return { served: [...discovered, ...declared], discovered, declared };
+		};
 
 		// A group the user explicitly removed answers empty and never touches
 		// the network or the cache. Its status still reports (healthy with zero
@@ -130,14 +158,7 @@ export class GroupDiscovery {
 			this._options.log("Provider group is hidden by an explicit user removal; serving no models", {
 				baseUrl: server.baseUrl,
 			});
-			this._options.reporter.reportGroupStatus(
-				server,
-				groupServer,
-				silent,
-				{ state: "ok", modelCount: 0, hiddenByRemoval: true },
-				[]
-			);
-			return [];
+			return recordAndServe({ overridden: [], declared: [] }, { state: "ok", hiddenByRemoval: true }).served;
 		}
 
 		// The effective API root, resolved exactly the way the transport
@@ -175,18 +196,14 @@ export class GroupDiscovery {
 					baseUrl: server.baseUrl,
 					count: overridden.length + declared.infos.length,
 				});
-				this._options.reporter.reportGroupStatus(
-					server,
-					groupServer,
-					silent,
-					{ state: "ok", modelCount: overridden.length + declared.infos.length, ...probeHint(cached) },
-					overridden,
+				return recordAndServe(
+					{ overridden, declared: declared.infos },
+					{ state: "ok", ...probeHint(cached) },
 					{
 						discoveredRawIds: cached.discoveredRawIds,
 						observedModelInfoKeys: cached.observedModelInfoKeys,
 					}
-				);
-				return attach([...overridden, ...declared.infos]);
+				).served;
 			}
 		}
 
@@ -223,18 +240,14 @@ export class GroupDiscovery {
 			// never recorded.
 			const { overridden, declared } = this._options.decorator.decorate(discovered, server, groupServer.label);
 			this._options.log(`Provider group at ${server.baseUrl} returned ${discovered.infos.length} models`);
-			this._options.reporter.reportGroupStatus(
-				server,
-				groupServer,
-				silent,
-				{ state: "ok", modelCount: overridden.length + declared.infos.length, ...probeHint(discovered) },
-				overridden,
+			return recordAndServe(
+				{ overridden, declared: declared.infos },
+				{ state: "ok", ...probeHint(discovered) },
 				{
 					discoveredRawIds: discovered.discoveredRawIds,
 					observedModelInfoKeys: discovered.observedModelInfoKeys,
 				}
-			);
-			return attach([...overridden, ...declared.infos]);
+			).served;
 		} catch (error) {
 			const expected = expectedFailures.modelListing;
 			if (expected) {
@@ -270,29 +283,27 @@ export class GroupDiscovery {
 				server,
 				groupServer.label
 			);
-			// Recorded is what is served, as on the ok branches. Safe against the
-			// stale source: it anchors to the last SUCCESS bundle, so this record
-			// cannot bake a mid-outage edit into later serves.
-			this._options.reporter.reportGroupStatus(
-				server,
-				groupServer,
-				silent,
+			// Recorded is what is served, by construction of recordAndServe. Safe
+			// against the stale source: it anchors to the last SUCCESS bundle, so
+			// this record cannot bake a mid-outage edit into later serves.
+			const failureServe = recordAndServe(
+				{ overridden, declared: declared.infos },
 				{
 					state: "error",
 					...texts,
 					...(expected ? { expected: true } : {}),
-					...(declared.infos.length > 0 ? { declaredModelCount: declared.infos.length } : {}),
 				},
-				overridden,
 				{ discoveredRawIds: stale?.discoveredRawIds ?? [] }
 			);
 			if (silent) {
+				// No success anchor means nothing servable: an empty literal, not the
+				// attached set, so a decorator surprise cannot serve unmarked models.
 				const staleServed =
-					stale !== undefined ? markStale(attach(overridden), new Date(stale.lastSuccessAt).toLocaleString()) : [];
-				return [...staleServed, ...attach(declared.infos)];
+					stale !== undefined ? markStale(failureServe.discovered, new Date(stale.lastSuccessAt).toLocaleString()) : [];
+				return [...staleServed, ...failureServe.declared];
 			}
 			if (expected && declared.infos.length > 0) {
-				return attach(declared.infos);
+				return failureServe.declared;
 			}
 			// A non-Error throw is rebuilt with the status's log-safe rendering as
 			// its mirror: the display text can embed response body and must never
