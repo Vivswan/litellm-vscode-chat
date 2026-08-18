@@ -169,14 +169,17 @@ export type ServerFormProblems = Partial<Record<ServerFormField, string>>;
 
 /**
  * Which fields the draft has moved away from the baseline it opened with (the
- * save bar counts them). A secret field compares on what the user can change -
- * the typed value, the storage pick, the remove mark - never on `existing` or
- * `prefill`.
+ * save bar counts them). A secret field counts exactly when the directive Save
+ * would emit differs from the baseline's - both sides read the same
+ * auth-form-aware parse the intent assembly uses, so a whitespace-only edit or
+ * an inactive field's leftover text never counts.
  */
 export function changedServerFormFields(draft: ServerFormDraft, baseline: ServerFormDraft): readonly ServerFormField[] {
+	const nowSecrets = parseSecrets(draft);
+	const wasSecrets = parseSecrets(baseline);
 	return SERVER_FORM_FIELD_ORDER.filter((field) => {
 		if (field === "apiKey" || field === "oauthClientSecret" || field === "virtualKeyValue") {
-			return secretEdited(draft[field], baseline[field]);
+			return !sameSecretDirective(nowSecrets[field].directive, wasSecrets[field].directive);
 		}
 		if (field === "expectedFailures") {
 			// A set, not a list: comparing sequences would report a change for a
@@ -200,16 +203,15 @@ export function changedServerFormFields(draft: ServerFormDraft, baseline: Server
 	});
 }
 
-/**
- * Whether a secret field would write anything different. Reads the same rule
- * parseSecret does, so the count promises exactly what Save performs: an empty
- * field's storage pick reaches no directive, so flipping it is not an edit.
- */
-function secretEdited(now: SecretFieldDraft, was: SecretFieldDraft): boolean {
-	if (now.clear !== was.clear || now.value !== was.value) {
-		return true;
+/** A switch, not an if: a fourth directive variant then fails to compile instead of comparing by action alone. */
+function sameSecretDirective(a: SecretDirective, b: SecretDirective): boolean {
+	switch (a.action) {
+		case "keep":
+		case "clear":
+			return a.action === b.action;
+		case "set":
+			return b.action === "set" && a.location === b.location && a.value === b.value;
 	}
-	return now.value.trim().length > 0 && now.location !== was.location;
 }
 
 /** Whether the text parses as an http(s) URL with a host; the form's and the intent's shared rule. */
@@ -263,6 +265,38 @@ function parseInactiveSecret(draft: SecretFieldDraft): SecretParse {
 		return { directive: { action: "clear" }, resolves: false, visibleValue: undefined };
 	}
 	return { directive: { action: "keep" }, resolves: draft.existing !== "none", visibleValue: undefined };
+}
+
+/**
+ * Which credential forms the selector makes live: the apiKey field rides on
+ * oauth too, and the virtual-key pair on every form but none.
+ */
+function authFormActivity(authForm: AuthFormId): {
+	readonly oauth: boolean;
+	readonly apiKey: boolean;
+	readonly virtualKey: boolean;
+} {
+	const oauth = authForm === "oauth";
+	return { oauth, apiKey: authForm === "apiKey" || oauth, virtualKey: authForm !== "none" };
+}
+
+/**
+ * The draft's three secret parses, active or inactive per the picked auth form:
+ * the one selection the intent assembly and the changed-field count both read.
+ * Spelled out per field (no cast-and-loop): a secret field added to the catalog
+ * fails to compile here instead of surfacing at runtime.
+ */
+function parseSecrets(draft: ServerFormDraft): Record<SecretFieldId, SecretParse> {
+	const active = authFormActivity(draft.authForm);
+	return {
+		apiKey: active.apiKey ? parseSecret(draft.apiKey) : parseInactiveSecret(draft.apiKey),
+		oauthClientSecret: active.oauth
+			? parseSecret(draft.oauthClientSecret)
+			: parseInactiveSecret(draft.oauthClientSecret),
+		virtualKeyValue: active.virtualKey
+			? parseSecret(draft.virtualKeyValue)
+			: parseInactiveSecret(draft.virtualKeyValue),
+	};
 }
 
 /**
@@ -441,19 +475,8 @@ type ServerFormAnalysis = {
 function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): ServerFormAnalysis {
 	// The selector decides which credential fields are live: everything else is
 	// excluded from the payload and demoted to keep/clear directives.
-	const oauthActive = draft.authForm === "oauth";
-	const apiKeyActive = draft.authForm === "apiKey" || oauthActive;
-	const virtualKeyActive = draft.authForm !== "none";
-
-	// Spelled out per field (no cast-and-loop): a secret field added to the
-	// catalog fails to compile here instead of surfacing at runtime.
-	const secrets: Record<SecretFieldId, SecretParse> = {
-		apiKey: apiKeyActive ? parseSecret(draft.apiKey) : parseInactiveSecret(draft.apiKey),
-		oauthClientSecret: oauthActive
-			? parseSecret(draft.oauthClientSecret)
-			: parseInactiveSecret(draft.oauthClientSecret),
-		virtualKeyValue: virtualKeyActive ? parseSecret(draft.virtualKeyValue) : parseInactiveSecret(draft.virtualKeyValue),
-	};
+	const active = authFormActivity(draft.authForm);
+	const secrets = parseSecrets(draft);
 
 	const problems: { -readonly [K in ServerFormField]?: string } = {};
 	const label = draft.label.trim();
@@ -499,7 +522,7 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 	// stored client secret still blocks - the extension reads it as OAuth-shaped.
 	const tokenUrl = draft.oauthTokenUrl.trim();
 	const clientId = draft.oauthClientId.trim();
-	if (oauthActive) {
+	if (active.oauth) {
 		const oauthExtras = secrets.oauthClientSecret.resolves || draft.oauthScopes.trim().length > 0;
 		if (tokenUrl.length > 0 && !isUsableHttpUrl(tokenUrl)) {
 			problems.oauthTokenUrl = l10n.t("Must be a usable http(s) URL");
@@ -521,7 +544,7 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 	// block; on "none" a kept stored value blocks like the client secret above.
 	const header = draft.virtualKeyHeader.trim();
 	const virtualKey = secrets.virtualKeyValue;
-	if (virtualKeyActive) {
+	if (active.virtualKey) {
 		if (header.length > 0 && !isValidHeaderName(header)) {
 			problems.virtualKeyHeader = l10n.t("Not a valid HTTP header name");
 		} else if (virtualKey.resolves && header.length === 0) {
@@ -572,10 +595,10 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 	// Only the active form's text fields reach the payload: an inactive form's
 	// leftover text is excluded exactly like an empty input.
 	const activeText: Readonly<Record<NonSecretOptionalFieldId, string>> = {
-		oauthTokenUrl: oauthActive ? draft.oauthTokenUrl : "",
-		oauthClientId: oauthActive ? draft.oauthClientId : "",
-		oauthScopes: oauthActive ? draft.oauthScopes : "",
-		virtualKeyHeader: virtualKeyActive ? draft.virtualKeyHeader : "",
+		oauthTokenUrl: active.oauth ? draft.oauthTokenUrl : "",
+		oauthClientId: active.oauth ? draft.oauthClientId : "",
+		oauthScopes: active.oauth ? draft.oauthScopes : "",
+		virtualKeyHeader: active.virtualKey ? draft.virtualKeyHeader : "",
 	};
 	const optionalText: { -readonly [K in NonSecretOptionalFieldId]?: string } = {};
 	for (const field of NON_SECRET_OPTIONAL_FIELD_IDS) {

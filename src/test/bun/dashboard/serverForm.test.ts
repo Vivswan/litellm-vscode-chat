@@ -679,7 +679,7 @@ describe("dashboard/serverForm", () => {
 		});
 
 		test("scalar, structured, and secret edits each count once, in field order", () => {
-			const baseline = draft({ apiKey: secret({ existing: "secure" }) });
+			const baseline = draft({ authForm: "apiKey", apiKey: secret({ existing: "secure" }) });
 			const changed = {
 				...baseline,
 				label: "Staging",
@@ -691,7 +691,10 @@ describe("dashboard/serverForm", () => {
 		});
 
 		test("a secret compares on what the user can change, never on where the value already lives", () => {
-			const baseline = draft({ apiKey: secret({ existing: "settings", prefill: "sk-stored", value: "sk-stored" }) });
+			const baseline = draft({
+				authForm: "apiKey",
+				apiKey: secret({ existing: "settings", prefill: "sk-stored", value: "sk-stored" }),
+			});
 			// Same value, different provenance metadata: not an edit.
 			const rebadged = {
 				...baseline,
@@ -709,11 +712,11 @@ describe("dashboard/serverForm", () => {
 		test("what the save would not write does not count: an empty field's storage pick, a reordered failure list", () => {
 			// parseSecret returns "keep" for an empty field whatever the radio
 			// says, so flipping it writes nothing and must not read as unsaved.
-			const empty = draft({ apiKey: secret({ existing: "secure" }) });
+			const empty = draft({ authForm: "apiKey", apiKey: secret({ existing: "secure" }) });
 			const flipped = { ...empty, apiKey: secret({ existing: "secure", location: "settings" }) };
 			assert.deepStrictEqual(changedServerFormFields(flipped, empty), []);
 			// The same flip on a TYPED value does change where it lands.
-			const typed = draft({ apiKey: secret({ value: "sk-new" }) });
+			const typed = draft({ authForm: "apiKey", apiKey: secret({ value: "sk-new" }) });
 			const relocated = { ...typed, apiKey: secret({ value: "sk-new", location: "settings" }) };
 			assert.deepStrictEqual(changedServerFormFields(relocated, typed), ["apiKey"]);
 			// The checkbox set canonicalizes its order; the stored entry keeps
@@ -726,10 +729,48 @@ describe("dashboard/serverForm", () => {
 			]);
 		});
 
+		test("whitespace-only and padded edits do not count; a trim-visible one does", () => {
+			// parseSecret trims, so a lone space still saves as "keep"; the save
+			// bar must not promise a write Save will not perform.
+			const stored = draft({ authForm: "apiKey", apiKey: secret({ existing: "secure" }) });
+			const spaced = { ...stored, apiKey: { ...stored.apiKey, value: " " } };
+			assert.deepStrictEqual(intentOf(spaced).secrets.apiKey, { action: "keep" });
+			assert.deepStrictEqual(changedServerFormFields(spaced, stored), []);
+			// Trailing whitespace on an untouched inline prefill: still the
+			// prefill after the trim, so Save keeps and the count stays empty.
+			const prefilled = draft({
+				authForm: "apiKey",
+				apiKey: secret({ existing: "settings", prefill: "sk-stored", value: "sk-stored", location: "settings" }),
+			});
+			const padded = { ...prefilled, apiKey: { ...prefilled.apiKey, value: "sk-stored " } };
+			assert.deepStrictEqual(intentOf(padded).secrets.apiKey, { action: "keep" });
+			assert.deepStrictEqual(changedServerFormFields(padded, prefilled), []);
+			// Padding around a typed value saves the same trimmed set: no change;
+			// a trim-visible difference still counts.
+			const typed = draft({ authForm: "apiKey", apiKey: secret({ value: "sk-new" }) });
+			const repadded = { ...typed, apiKey: { ...typed.apiKey, value: " sk-new " } };
+			assert.deepStrictEqual(changedServerFormFields(repadded, typed), []);
+			const other = { ...typed, apiKey: { ...typed.apiKey, value: " sk-other " } };
+			assert.deepStrictEqual(changedServerFormFields(other, typed), ["apiKey"]);
+		});
+
+		test("an inactive field's leftover text does not count; its remove mark still does", () => {
+			// Typed while OAuth was picked, then the form switched back: Save
+			// emits "keep" for the inactive client secret, so the bar stays quiet.
+			const baseline = draft({ authForm: "apiKey" });
+			const leftover = { ...baseline, oauthClientSecret: secret({ value: "s3cret" }) };
+			assert.deepStrictEqual(intentOf(leftover).secrets.oauthClientSecret, { action: "keep" });
+			assert.deepStrictEqual(changedServerFormFields(leftover, baseline), []);
+			// The remove mark stays honored on an inactive field, so it counts.
+			const kept = { ...baseline, oauthClientSecret: secret({ existing: "secure" }) };
+			const cleared = { ...baseline, oauthClientSecret: secret({ existing: "secure", clear: true }) };
+			assert.deepStrictEqual(changedServerFormFields(cleared, kept), ["oauthClientSecret"]);
+		});
+
 		test("an inline prefill applied to draft and baseline alike counts as nothing to save", () => {
 			// What the form does when the readInlineSecrets response lands: the same
 			// transform runs over both, so a value the form filled in is not an edit.
-			const opened = draft({ apiKey: secret({ existing: "settings" }) });
+			const opened = draft({ authForm: "apiKey", apiKey: secret({ existing: "settings" }) });
 			const values = { apiKey: "sk-inline" } as const;
 			assert.deepStrictEqual(
 				changedServerFormFields(applyInlinePrefill(opened, values), applyInlinePrefill(opened, values)),
