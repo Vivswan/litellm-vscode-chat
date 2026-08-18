@@ -2,10 +2,10 @@ import { describe, test } from "bun:test";
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import type { SecretDirective } from "../../../dashboard/endpoints";
-import type { AuthFormId, SecretFieldDraft, ServerFormDraft } from "../../../dashboard/serverForm";
+import type { AuthFormId, SecretFieldDraft, ServerFormDraft, ServerFormField } from "../../../dashboard/serverForm";
 import { changedServerFormFields, EMPTY_SERVER_FORM, parseServerForm } from "../../../dashboard/serverForm";
 import type { SecretFieldId } from "../../../shared/serverEntry";
-import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
+import { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { resolveFuzzSeed } from "../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 100;
@@ -74,6 +74,52 @@ function sameDirective(a: SecretDirective, b: SecretDirective): boolean {
 	return a.action === b.action;
 }
 
+/** A pool value with lead/trail whitespace variety, so trim-only differences appear on both sides. */
+const paddedFrom = (...cores: readonly string[]): fc.Arbitrary<string> =>
+	fc
+		.tuple(fc.constantFrom(...cores), fc.constantFrom("", " ", "\t "), fc.constantFrom("", " "))
+		.map(([core, lead, trail]) => `${lead}${core}${trail}`);
+
+/**
+ * Whole drafts whose non-secret fields mix bare, padded, junk, and leftover
+ * values across every auth form: enough variety to reach each normalization
+ * (trim, active-gating, budget and declared-models parses) from both sides,
+ * while keeping both-sides-savable common enough for the precondition.
+ */
+const nonSecretDraft: fc.Arbitrary<ServerFormDraft> = fc
+	.record({
+		authForm: fc.constantFrom<AuthFormId>("none", "apiKey", "virtualKey", "oauth"),
+		label: paddedFrom("Prod", "Staging"),
+		baseUrl: paddedFrom("http://localhost:4000", "http://localhost:4001"),
+		apiVersion: fc.record({
+			mode: fc.constantFrom<"auto" | "none" | "custom">("auto", "none", "custom"),
+			custom: fc.constantFrom("", " ", "v2", " v2 ", "2024-01"),
+		}),
+		oauthTokenUrl: fc.oneof(
+			fc.constantFrom("", " ", "notaurl"),
+			paddedFrom("https://idp.test/token", "https://idp2.test/token")
+		),
+		oauthClientId: fc.constantFrom("", " ", "client", " client ", "client2"),
+		oauthScopes: fc.constantFrom("", " ", "read", " read write ", "write"),
+		virtualKeyHeader: fc.constantFrom("", " ", "x-key", " x-key "),
+		virtualKeyValue: fc
+			.constantFrom("", "vk", " vk ")
+			.map((value): SecretFieldDraft => ({ ...EMPTY_SERVER_FORM.virtualKeyValue, value })),
+		declaredModels: fc.constantFrom("", "\n \n", "gpt-4", " gpt-4 \ngpt-4", "gpt-4\ngpt-5", "gpt-5\ngpt-4"),
+		budget: fc.constantFrom("", " ", "5", " 5 ", "5.0", "10"),
+	})
+	.map((fields) => ({ ...EMPTY_SERVER_FORM, ...fields }));
+
+/** The fields the count normalizes; each is also a key of the assembled save payload. */
+const NORMALIZED_FIELDS = [
+	"label",
+	"baseUrl",
+	"apiVersion",
+	...NON_SECRET_OPTIONAL_FIELD_IDS,
+	"declaredModels",
+	"budget",
+] as const satisfies readonly ServerFormField[];
+
 describe("dashboard/serverForm save-bar properties", () => {
 	test("an active secret counts as changed exactly when the directive Save assembles differs from the baseline's", () => {
 		// Zero discards and dense whitespace coverage on the field the apiKey
@@ -115,6 +161,31 @@ describe("dashboard/serverForm save-bar properties", () => {
 				const changed = changedServerFormFields(now, was);
 				for (const field of SECRET_FIELD_IDS) {
 					assert.strictEqual(changed.includes(field), !sameDirective(nowWrites[field], wasWrites[field]), field);
+				}
+			}),
+			{ numRuns: NUM_RUNS, seed: SEED }
+		);
+	});
+
+	test("across arbitrary auth forms, every normalized non-secret field counts exactly when its saved value differs", () => {
+		// The exact claim of the fix: a raw draft comparison over-counts padded
+		// or inactive-leftover text here, and an over-normalized one would
+		// under-count a real edit. Blocked drafts save nothing and are outside
+		// the claim, so they are discarded.
+		fc.assert(
+			fc.property(nonSecretDraft, nonSecretDraft, (now, was) => {
+				const nowParse = parseServerForm(now);
+				const wasParse = parseServerForm(was);
+				fc.pre(nowParse.ok && wasParse.ok);
+				if (!nowParse.ok || !wasParse.ok) {
+					return;
+				}
+				const changed = changedServerFormFields(now, was);
+				for (const field of NORMALIZED_FIELDS) {
+					const savedDiffers: boolean =
+						JSON.stringify(nowParse.intent.server[field] ?? null) !==
+						JSON.stringify(wasParse.intent.server[field] ?? null);
+					assert.strictEqual(changed.includes(field), savedDiffers, field);
 				}
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }

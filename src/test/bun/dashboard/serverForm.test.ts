@@ -779,5 +779,95 @@ describe("dashboard/serverForm", () => {
 			// A prefill that reached only the draft is a real difference.
 			assert.deepStrictEqual(changedServerFormFields(applyInlinePrefill(opened, values), opened), ["apiKey"]);
 		});
+
+		test("leftover auth text on a form that does not send it does not count; the same text sent does", () => {
+			// Typed while OAuth was picked, then the selector switched to apiKey:
+			// Save excludes the inactive texts, so the bar stays quiet - and the
+			// connection caveat with it (both oauth fields are CONNECTION_FIELDS).
+			const baseline = draft({ authForm: "apiKey" });
+			const leftover = { ...baseline, oauthTokenUrl: "https://idp.test/token", oauthScopes: "read" };
+			assert.strictEqual(intentOf(leftover).server.oauthTokenUrl, undefined);
+			assert.deepStrictEqual(changedServerFormFields(leftover, baseline), []);
+			// The same texts under an active OAuth form are saved, so they count.
+			const oauthBaseline = draft({ authForm: "oauth", oauthTokenUrl: "https://idp.test/token", oauthClientId: "c" });
+			const scoped = { ...oauthBaseline, oauthScopes: "read" };
+			assert.deepStrictEqual(changedServerFormFields(scoped, oauthBaseline), ["oauthScopes"]);
+		});
+
+		test("a padded scalar saves the same trimmed value and does not count; a trim-visible edit does", () => {
+			const baseline = draft({ budget: "5" });
+			assert.deepStrictEqual(changedServerFormFields({ ...baseline, label: "Prod " }, baseline), []);
+			assert.deepStrictEqual(changedServerFormFields({ ...baseline, baseUrl: " http://localhost:4000" }, baseline), []);
+			assert.deepStrictEqual(changedServerFormFields({ ...baseline, budget: " 5 " }, baseline), []);
+			// The budget compares the number Save writes, not its spelling.
+			assert.deepStrictEqual(changedServerFormFields({ ...baseline, budget: "5.0" }, baseline), []);
+			assert.deepStrictEqual(changedServerFormFields({ ...baseline, label: "Staging" }, baseline), ["label"]);
+			assert.deepStrictEqual(changedServerFormFields({ ...baseline, budget: "6" }, baseline), ["budget"]);
+			// Unsavable budget text still counts (trimmed): the bar must not go
+			// quiet on an edit Save will refuse.
+			assert.deepStrictEqual(changedServerFormFields({ ...baseline, budget: "abc" }, baseline), ["budget"]);
+			assert.deepStrictEqual(
+				changedServerFormFields({ ...baseline, budget: " abc " }, { ...baseline, budget: "abc" }),
+				[]
+			);
+		});
+
+		test("declaredModels compares the parsed list: blank lines, padding, and duplicates never count", () => {
+			const baseline = draft({ declaredModels: "gpt-4" });
+			const noisy = { ...baseline, declaredModels: " gpt-4 \n\ngpt-4\n" };
+			assert.deepStrictEqual(intentOf(noisy).server.declaredModels, ["gpt-4"]);
+			assert.deepStrictEqual(changedServerFormFields(noisy, baseline), []);
+			// A new model and a reordered list both save a different array.
+			assert.deepStrictEqual(changedServerFormFields({ ...baseline, declaredModels: "gpt-4\ngpt-5" }, baseline), [
+				"declaredModels",
+			]);
+			const ordered = draft({ declaredModels: "gpt-4\ngpt-5" });
+			assert.deepStrictEqual(changedServerFormFields({ ...ordered, declaredModels: "gpt-5\ngpt-4" }, ordered), [
+				"declaredModels",
+			]);
+		});
+
+		test("the apiVersion custom text counts only in custom mode, trimmed; a mode switch always counts", () => {
+			const baseline = draft({ apiVersion: { mode: "custom", custom: "v2" } });
+			assert.deepStrictEqual(
+				changedServerFormFields({ ...baseline, apiVersion: { mode: "custom", custom: " v2 " } }, baseline),
+				[]
+			);
+			assert.deepStrictEqual(
+				changedServerFormFields({ ...baseline, apiVersion: { mode: "custom", custom: "v3" } }, baseline),
+				["apiVersion"]
+			);
+			// Leftover custom text under auto or none is never saved.
+			const auto = draft({ apiVersion: { mode: "auto", custom: "" } });
+			assert.deepStrictEqual(
+				changedServerFormFields({ ...auto, apiVersion: { mode: "auto", custom: "v2" } }, auto),
+				[]
+			);
+			// Custom with no text yet blocks Save, but the mode was picked: it counts.
+			assert.deepStrictEqual(changedServerFormFields({ ...auto, apiVersion: { mode: "custom", custom: "" } }, auto), [
+				"apiVersion",
+			]);
+		});
+
+		test("the always-visible controls count by draft, even when the save would write the same payload", () => {
+			// The deliberate carve-out: the auth selector and the row grids are
+			// visible controls, so a move the user can see always registers, unlike
+			// a collapsed form's hidden leftover text.
+			const stored = draft({ authForm: "apiKey", apiKey: secret({ existing: "secure" }) });
+			const switched = { ...stored, authForm: "none" as const };
+			assert.deepStrictEqual(intentOf(switched).server, intentOf(stored).server);
+			assert.deepStrictEqual(intentOf(switched).secrets, intentOf(stored).secrets);
+			assert.deepStrictEqual(changedServerFormFields(switched, stored), ["authForm"]);
+			// The row parsers trim prefixes and keys, so a padded prefix saves the
+			// same record; the grid still reports the edit.
+			const rows = draft({
+				modelCapabilities: [{ prefix: "gpt-5*", params: [newParamRow("max_output_tokens", "8")] }],
+			});
+			const padded = draft({
+				modelCapabilities: [{ prefix: " gpt-5* ", params: [newParamRow("max_output_tokens", "8")] }],
+			});
+			assert.deepStrictEqual(intentOf(padded).server.modelCapabilities, intentOf(rows).server.modelCapabilities);
+			assert.deepStrictEqual(changedServerFormFields(padded, rows), ["modelCapabilities"]);
+		});
 	});
 });

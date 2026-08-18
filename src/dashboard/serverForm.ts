@@ -169,17 +169,51 @@ export type ServerFormProblems = Partial<Record<ServerFormField, string>>;
 
 /**
  * Which fields the draft has moved away from the baseline it opened with (the
- * save bar counts them). A secret field counts exactly when the directive Save
- * would emit differs from the baseline's - both sides read the same
- * auth-form-aware parse the intent assembly uses, so a whitespace-only edit or
- * an inactive field's leftover text never counts.
+ * save bar counts them). The text and secret fields compare what Save would
+ * write, not the raw draft - the same parses the intent assembly reads - so a
+ * padded label, an inactive auth form's leftover text, or a reshuffled
+ * duplicate model line never counts. Text Save would refuse (a bad budget, a
+ * picked custom version with no text) still counts by its trimmed form: the bar
+ * must not go quiet on an edit that blocks.
+ *
+ * Four fields deliberately compare the draft instead, because their controls
+ * are always visible and a quiet bar under a move the user can see reads as
+ * broken: the auth selector (switching it can leave every directive "keep") and
+ * the three row grids (whose parsers trim names, prefixes, and keys, and whose
+ * rows can sit mid-edit and unparseable). expectedFailures is the one field
+ * compared more loosely than the payload - as a set, since the checkboxes
+ * canonicalize an order a stored entry does not have.
  */
 export function changedServerFormFields(draft: ServerFormDraft, baseline: ServerFormDraft): readonly ServerFormField[] {
 	const nowSecrets = parseSecrets(draft);
 	const wasSecrets = parseSecrets(baseline);
+	const nowText = activeOptionalText(draft);
+	const wasText = activeOptionalText(baseline);
 	return SERVER_FORM_FIELD_ORDER.filter((field) => {
 		if (field === "apiKey" || field === "oauthClientSecret" || field === "virtualKeyValue") {
 			return !sameSecretDirective(nowSecrets[field].directive, wasSecrets[field].directive);
+		}
+		if (isNonSecretOptionalField(field)) {
+			return nowText[field] !== wasText[field];
+		}
+		if (field === "label" || field === "baseUrl") {
+			return draft[field].trim() !== baseline[field].trim();
+		}
+		if (field === "apiVersion") {
+			// Save reads the custom text only in custom mode, so another mode's
+			// leftover text never counts; a mode switch always does.
+			const now = draft.apiVersion;
+			const was = baseline.apiVersion;
+			return now.mode !== was.mode || (now.mode === "custom" && now.custom.trim() !== was.custom.trim());
+		}
+		if (field === "budget") {
+			return !sameBudget(parseBudgetText(draft.budget), parseBudgetText(baseline.budget));
+		}
+		if (field === "declaredModels") {
+			return (
+				parseDeclaredModelsText(draft.declaredModels).join("\n") !==
+				parseDeclaredModelsText(baseline.declaredModels).join("\n")
+			);
 		}
 		if (field === "expectedFailures") {
 			// A set, not a list: comparing sequences would report a change for a
@@ -191,16 +225,20 @@ export function changedServerFormFields(draft: ServerFormDraft, baseline: Server
 				baseline.expectedFailures.some((category) => !now.has(category))
 			);
 		}
-		const now = draft[field];
-		const was = baseline[field];
-		if (typeof now === "string" || typeof was === "string") {
-			return now !== was;
+		if (field === "authForm") {
+			// The selector itself, by draft: see the carve-out above.
+			return draft.authForm !== baseline.authForm;
 		}
-		// Small JSON-safe drafts, so their id-stripped serialization IS their
-		// identity - no field-by-field walk that a new sub-field could silently
-		// fall out of, and no false edit from the record rows' UI-only ids.
-		return draftRowsKey(now) !== draftRowsKey(was);
+		// The row grids, by draft too. Small JSON-safe drafts, so their
+		// id-stripped serialization IS their identity - no field-by-field walk
+		// that a new sub-field could silently fall out of, and no false edit from
+		// the record rows' UI-only ids.
+		return draftRowsKey(draft[field]) !== draftRowsKey(baseline[field]);
 	});
+}
+
+function isNonSecretOptionalField(field: ServerFormField): field is NonSecretOptionalFieldId {
+	return (NON_SECRET_OPTIONAL_FIELD_IDS as readonly ServerFormField[]).includes(field);
 }
 
 /** A switch, not an if: a fourth directive variant then fails to compile instead of comparing by action alone. */
@@ -297,6 +335,41 @@ function parseSecrets(draft: ServerFormDraft): Record<SecretFieldId, SecretParse
 			? parseSecret(draft.virtualKeyValue)
 			: parseInactiveSecret(draft.virtualKeyValue),
 	};
+}
+
+/**
+ * The four optional auth texts as Save reads them: trimmed, and zeroed on any
+ * form that does not send them - the same activity selection the secret parses
+ * use, so a collapsed form's leftover text never saves and never counts.
+ */
+function activeOptionalText(draft: ServerFormDraft): Readonly<Record<NonSecretOptionalFieldId, string>> {
+	const active = authFormActivity(draft.authForm);
+	return {
+		oauthTokenUrl: active.oauth ? draft.oauthTokenUrl.trim() : "",
+		oauthClientId: active.oauth ? draft.oauthClientId.trim() : "",
+		oauthScopes: active.oauth ? draft.oauthScopes.trim() : "",
+		virtualKeyHeader: active.virtualKey ? draft.virtualKeyHeader.trim() : "",
+	};
+}
+
+/**
+ * The budget text parsed once: empty clears (null), a positive finite number
+ * saves, anything else blocks and keeps its trimmed text. Validation,
+ * assembly, and the changed-field count all read this one derivation.
+ */
+type BudgetParse = { readonly ok: true; readonly value: number | null } | { readonly ok: false; readonly text: string };
+
+function parseBudgetText(text: string): BudgetParse {
+	const trimmed = text.trim();
+	if (trimmed.length === 0) {
+		return { ok: true, value: null };
+	}
+	const value = Number(trimmed);
+	return Number.isFinite(value) && value > 0 ? { ok: true, value } : { ok: false, text: trimmed };
+}
+
+function sameBudget(a: BudgetParse, b: BudgetParse): boolean {
+	return a.ok ? b.ok && a.value === b.value : !b.ok && a.text === b.text;
 }
 
 /**
@@ -474,9 +547,12 @@ type ServerFormAnalysis = {
 
 function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): ServerFormAnalysis {
 	// The selector decides which credential fields are live: everything else is
-	// excluded from the payload and demoted to keep/clear directives.
+	// excluded from the payload and demoted to keep/clear directives. Validation
+	// and assembly both read activeText, so a field an inactive form leaves
+	// behind can neither block a save nor reach it.
 	const active = authFormActivity(draft.authForm);
 	const secrets = parseSecrets(draft);
+	const activeText = activeOptionalText(draft);
 
 	const problems: { -readonly [K in ServerFormField]?: string } = {};
 	const label = draft.label.trim();
@@ -520,10 +596,10 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 	// OAuth is one unit: the request path drops partial configurations silently,
 	// so a partial one must not save as if it worked. On any other form a KEPT
 	// stored client secret still blocks - the extension reads it as OAuth-shaped.
-	const tokenUrl = draft.oauthTokenUrl.trim();
-	const clientId = draft.oauthClientId.trim();
 	if (active.oauth) {
-		const oauthExtras = secrets.oauthClientSecret.resolves || draft.oauthScopes.trim().length > 0;
+		const tokenUrl = activeText.oauthTokenUrl;
+		const clientId = activeText.oauthClientId;
+		const oauthExtras = secrets.oauthClientSecret.resolves || activeText.oauthScopes.length > 0;
 		if (tokenUrl.length > 0 && !isUsableHttpUrl(tokenUrl)) {
 			problems.oauthTokenUrl = l10n.t("Must be a usable http(s) URL");
 		} else if ((clientId.length > 0 || oauthExtras) && tokenUrl.length === 0) {
@@ -542,9 +618,9 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 	// request path drops anything less without a trace). The sendability check
 	// reads the parsed visible value, so a cleared field's stale text cannot
 	// block; on "none" a kept stored value blocks like the client secret above.
-	const header = draft.virtualKeyHeader.trim();
 	const virtualKey = secrets.virtualKeyValue;
 	if (active.virtualKey) {
+		const header = activeText.virtualKeyHeader;
 		if (header.length > 0 && !isValidHeaderName(header)) {
 			problems.virtualKeyHeader = l10n.t("Not a valid HTTP header name");
 		} else if (virtualKey.resolves && header.length === 0) {
@@ -581,28 +657,19 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 
 	// Budget: empty means none (the payload's null clear); anything else must
 	// be a finite number greater than zero, the rule the extension re-checks.
-	const budgetText = draft.budget.trim();
+	const budgetParse = parseBudgetText(draft.budget);
 	let budget: number | null = null;
-	if (budgetText.length > 0) {
-		const budgetValue = Number(budgetText);
-		if (Number.isFinite(budgetValue) && budgetValue > 0) {
-			budget = budgetValue;
-		} else {
-			problems.budget = l10n.t("Must be a number greater than 0");
-		}
+	if (budgetParse.ok) {
+		budget = budgetParse.value;
+	} else {
+		problems.budget = l10n.t("Must be a number greater than 0");
 	}
 
 	// Only the active form's text fields reach the payload: an inactive form's
 	// leftover text is excluded exactly like an empty input.
-	const activeText: Readonly<Record<NonSecretOptionalFieldId, string>> = {
-		oauthTokenUrl: active.oauth ? draft.oauthTokenUrl : "",
-		oauthClientId: active.oauth ? draft.oauthClientId : "",
-		oauthScopes: active.oauth ? draft.oauthScopes : "",
-		virtualKeyHeader: active.virtualKey ? draft.virtualKeyHeader : "",
-	};
 	const optionalText: { -readonly [K in NonSecretOptionalFieldId]?: string } = {};
 	for (const field of NON_SECRET_OPTIONAL_FIELD_IDS) {
-		const value = activeText[field].trim();
+		const value = activeText[field];
 		if (value.length > 0) {
 			optionalText[field] = value;
 		}
