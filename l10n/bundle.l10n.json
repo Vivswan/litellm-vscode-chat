@@ -112,6 +112,7 @@
 	"A server with this label already exists": "A server with this label already exists",
 	"A single threshold goes straight to the error alert.": "A single threshold goes straight to the error alert.",
 	"A stored API key is still attached and still sent as a bearer token.": "A stored API key is still attached and still sent as a bearer token.",
+	"A stored API key is still attached; remove it with its checkbox, or pick a form that sends it": "A stored API key is still attached; remove it with its checkbox, or pick a form that sends it",
 	"A stored OAuth client secret is still attached.": "A stored OAuth client secret is still attached.",
 	"A stored OAuth client secret is still attached; remove it with its checkbox, or switch the form to OAuth": "A stored OAuth client secret is still attached; remove it with its checkbox, or switch the form to OAuth",
 	"A stored virtual key value is still attached.": "A stored virtual key value is still attached.",

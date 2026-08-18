@@ -1,7 +1,8 @@
 /**
  * The server form's webview behavior: the Authentication selector revealing exactly the picked form's fields, the
- * stored-secret legibility hints (a stored key on a shape that does not name it stays visible and removable), the
- * misconfigured row's pill and actions, the custom-header round trip, and the selector invalidating a test result.
+ * stored-secret legibility hints (a stored key on a shape that does not send it stays visible and removable, and
+ * blocks Save until removed or the form switches back), the misconfigured row's pill and actions, the custom-header
+ * round trip, and the selector invalidating a test result.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { RpcRequest } from "../../../../dashboard/endpoints";
@@ -117,7 +118,7 @@ test("the auth selector reveals exactly the picked form's fields", () => {
 	expect(root.querySelector("#server-virtualKeyHeader")).not.toBeNull();
 });
 
-test("editing a keyed entry derives the API-key form; switching to None keeps the stored key visible and removable", () => {
+test("editing a keyed entry derives the API-key form; switching to None keeps the stored key visible and blocks Save until it is removed", () => {
 	const root = mountEditPage([declaredWithSecrets({ apiKey: "secure" })]);
 	expect(authRadio(root, "API key (bearer)").checked).toBe(true);
 	expect(root.textContent).not.toContain("A stored API key is still attached");
@@ -129,7 +130,14 @@ test("editing a keyed entry derives the API-key form; switching to None keeps th
 	const remove = Array.from(root.querySelectorAll(".secret-remove input[type=checkbox]"));
 	expect(remove.length).toBe(1);
 
+	// Saving around the contradiction would write a byte-identical entry the
+	// selector snaps back from on reopen, so Save refuses and names the field.
 	resetPosted();
+	fireClick(buttonByText(root, "Save"));
+	expect(postedMessages.length).toBe(0);
+	expect(root.textContent).toContain("A stored API key is still attached; remove it with its checkbox");
+
+	// Arming the remove resolves it: the switch away saves a REAL change.
 	fireCheck(remove[0] as HTMLInputElement, true);
 	fireClick(buttonByText(root, "Save"));
 	const posted = postedMessages[0] as RpcRequest<"saveServerSetting">;

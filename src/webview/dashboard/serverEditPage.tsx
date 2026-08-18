@@ -30,6 +30,7 @@ import {
 	saveFailureDisposition,
 	sectionFailureText,
 	serverFormFieldLabel,
+	storedInactiveSecrets,
 	validateAdoptLabel,
 } from "../../dashboard/serverForm";
 import type { DashboardServer, DeclaredDashboardServer, ExternalDashboardServer } from "../../dashboard/viewModels";
@@ -1291,11 +1292,12 @@ function ServerForm({
 
 	// Kept stored secrets whose form is not selected still change the save's shape (the
 	// shape-and-storage rule, docs/servers.md#secrets-and-secret-storage), so each renders a
-	// visible hint plus its Remove checkbox instead of silently riding along.
-	const storedApiKeyOrphan =
-		(draft.authForm === "none" || draft.authForm === "virtualKey") && draft.apiKey.existing !== "none";
-	const storedVkOrphan = draft.authForm === "none" && draft.virtualKeyValue.existing !== "none";
-	const storedOauthSecretOrphan = draft.authForm !== "oauth" && draft.oauthClientSecret.existing !== "none";
+	// visible hint plus its Remove checkbox instead of silently riding along. The parse's
+	// blocking rules read the same derivation, so the way out of a block always renders.
+	const storedOrphans = storedInactiveSecrets(draft);
+	const storedApiKeyOrphan = storedOrphans.apiKey;
+	const storedVkOrphan = storedOrphans.virtualKeyValue;
+	const storedOauthSecretOrphan = storedOrphans.oauthClientSecret;
 
 	const virtualKeyPair = (
 		<>

@@ -851,13 +851,26 @@ describe("dashboard/serverForm", () => {
 
 		test("the always-visible controls count by draft, even when the save would write the same payload", () => {
 			// The deliberate carve-out: the auth selector and the row grids are
-			// visible controls, so a move the user can see always registers, unlike
-			// a collapsed form's hidden leftover text.
-			const stored = draft({ authForm: "apiKey", apiKey: secret({ existing: "secure" }) });
-			const switched = { ...stored, authForm: "none" as const };
-			assert.deepStrictEqual(intentOf(switched).server, intentOf(stored).server);
-			assert.deepStrictEqual(intentOf(switched).secrets, intentOf(stored).secrets);
-			assert.deepStrictEqual(changedServerFormFields(switched, stored), ["authForm"]);
+			// visible controls, so a move the user can see always registers. A
+			// switch that strands a stored credential is refused (the redesign
+			// suite pins that); a switch toward an unfilled form or between forms
+			// that still send everything stored stays byte-identical and counts.
+			const baseline = draft({ authForm: "none" });
+			const switched = { ...baseline, authForm: "virtualKey" as const };
+			assert.deepStrictEqual(intentOf(switched).server, intentOf(baseline).server);
+			assert.deepStrictEqual(intentOf(switched).secrets, intentOf(baseline).secrets);
+			assert.deepStrictEqual(changedServerFormFields(switched, baseline), ["authForm"]);
+			// The stored shape of that remainder: apiKey carries the virtual-key
+			// companion, so nothing is stranded and the switch saves the same entry.
+			const vkStored = draft({
+				authForm: "virtualKey",
+				virtualKeyHeader: "x-key",
+				virtualKeyValue: secret({ existing: "secure" }),
+			});
+			const toApiKey = { ...vkStored, authForm: "apiKey" as const };
+			assert.deepStrictEqual(intentOf(toApiKey).server, intentOf(vkStored).server);
+			assert.deepStrictEqual(intentOf(toApiKey).secrets, intentOf(vkStored).secrets);
+			assert.deepStrictEqual(changedServerFormFields(toApiKey, vkStored), ["authForm"]);
 			// The row parsers trim prefixes and keys, so a padded prefix saves the
 			// same record; the grid still reports the edit.
 			const rows = draft({

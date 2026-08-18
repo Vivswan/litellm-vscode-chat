@@ -1,7 +1,7 @@
 /**
- * The server form, virtual-key shape with a STORED API key: the
- * stored-apiKey activation rule must be legible (a bearer still goes out on
- * this shape; the hint and the reachable Remove checkbox are the point).
+ * The server form, virtual-key shape with a STORED API key: block-and-tell -
+ * the picked form does not send the stored key, so the warn line and Remove
+ * checkbox render and Save refuses until it is removed or the form switches back.
  */
 import type { DashboardServer, DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";

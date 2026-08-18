@@ -15,6 +15,7 @@ import {
 	parseDeclaredModelsText,
 	parseServerForm,
 	parseServerFormForTest,
+	storedInactiveSecrets,
 } from "../../../dashboard/serverForm";
 
 function draft(overrides: Partial<ServerFormDraft> = {}): ServerFormDraft {
@@ -155,9 +156,60 @@ describe("dashboard/serverForm redesign", () => {
 			const parse = parseServerForm(draft({ authForm: "none", virtualKeyValue: secret({ existing: "secure" }) }));
 			assert.ok(!parse.ok);
 			assert.notStrictEqual(parse.problems.virtualKeyValue, undefined);
-			// A stored API key does not block: the shape rule activates the bearer,
-			// which the form surfaces as a hint, not a refusal.
-			assert.ok(parseServerForm(draft({ authForm: "none", apiKey: secret({ existing: "secure" }) })).ok);
+		});
+
+		test("a kept stored API key blocks the forms that do not send it, until removed or switched back", () => {
+			// Storage counts as part of the shape: a kept stored key still activates
+			// the bearer, so saving none or virtualKey around it would write a no-op
+			// the selector snaps back from on reopen (deriveAuthForm reads the key).
+			const noneParse = parseServerForm(draft({ authForm: "none", apiKey: secret({ existing: "secure" }) }));
+			assert.ok(!noneParse.ok);
+			assert.notStrictEqual(noneParse.problems.apiKey, undefined);
+			const vkParse = parseServerForm(
+				draft({
+					authForm: "virtualKey",
+					apiKey: secret({ existing: "secure" }),
+					virtualKeyHeader: "x-key",
+					virtualKeyValue: secret({ value: "vk" }),
+				})
+			);
+			assert.ok(!vkParse.ok);
+			assert.notStrictEqual(vkParse.problems.apiKey, undefined);
+			// The oauth form sends it as the companion, so it never blocks there.
+			const oauthIntent = intentOf(
+				draft({
+					authForm: "oauth",
+					oauthTokenUrl: "https://idp.test/token",
+					oauthClientId: "client",
+					apiKey: secret({ existing: "secure" }),
+				})
+			);
+			assert.deepStrictEqual(oauthIntent.secrets.apiKey, { action: "keep" });
+			// The remove checkbox resolves it: the switch away now saves a REAL
+			// change, and the emptied entry reopens as none instead of snapping back.
+			const removed = intentOf(draft({ authForm: "none", apiKey: secret({ existing: "secure", clear: true }) }));
+			assert.deepStrictEqual(removed.secrets.apiKey, { action: "clear" });
+		});
+
+		test("storedInactiveSecrets names exactly the stored fields the picked form does not send", () => {
+			// The webview's orphan rows (warn line plus Remove checkbox) render from
+			// this, so every blocked field always has its way out on the page.
+			const stored = {
+				apiKey: secret({ existing: "secure" }),
+				oauthClientSecret: secret({ existing: "secure" }),
+				virtualKeyValue: secret({ existing: "secure" }),
+			};
+			const ring = (authForm: ServerFormDraft["authForm"]) => storedInactiveSecrets(draft({ authForm, ...stored }));
+			assert.deepStrictEqual(ring("none"), { apiKey: true, oauthClientSecret: true, virtualKeyValue: true });
+			assert.deepStrictEqual(ring("apiKey"), { apiKey: false, oauthClientSecret: true, virtualKeyValue: false });
+			assert.deepStrictEqual(ring("virtualKey"), { apiKey: true, oauthClientSecret: true, virtualKeyValue: false });
+			assert.deepStrictEqual(ring("oauth"), { apiKey: false, oauthClientSecret: false, virtualKeyValue: false });
+			// Storage is the trigger, not the selector alone.
+			assert.deepStrictEqual(storedInactiveSecrets(draft({ authForm: "none" })), {
+				apiKey: false,
+				oauthClientSecret: false,
+				virtualKeyValue: false,
+			});
 		});
 	});
 

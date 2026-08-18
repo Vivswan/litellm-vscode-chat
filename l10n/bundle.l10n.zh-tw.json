@@ -102,6 +102,7 @@
  "A server with this label already exists": "已存在使用此標籤的伺服器",
  "A single threshold goes straight to the error alert.": "單一閾值會直接觸發錯誤警示。",
  "A stored API key is still attached and still sent as a bearer token.": "仍附帶已儲存的 API 金鑰, 且仍會作為 bearer 權杖傳送。",
+ "A stored API key is still attached; remove it with its checkbox, or pick a form that sends it": "仍附有已儲存的 API 金鑰; 請用其核取方塊將其移除, 或選擇會傳送它的表單",
  "A stored OAuth client secret is still attached.": "仍附帶已儲存的 OAuth 用戶端密鑰。",
  "A stored OAuth client secret is still attached; remove it with its checkbox, or switch the form to OAuth": "仍附有已儲存的 OAuth 用戶端密碼; 請用其核取方塊將其移除, 或將表單切換為 OAuth",
  "A stored virtual key value is still attached.": "仍附帶已儲存的虛擬金鑰值。",

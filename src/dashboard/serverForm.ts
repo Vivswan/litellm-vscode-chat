@@ -319,6 +319,20 @@ function authFormActivity(authForm: AuthFormId): {
 }
 
 /**
+ * The stored secrets the picked form does not send: the webview's orphan rows
+ * (warn line plus Remove checkbox) read this, the same activity ring the
+ * blocking rules use, so a drift can never make a block unreachable.
+ */
+export function storedInactiveSecrets(draft: ServerFormDraft): Readonly<Record<SecretFieldId, boolean>> {
+	const active = authFormActivity(draft.authForm);
+	return {
+		apiKey: !active.apiKey && draft.apiKey.existing !== "none",
+		oauthClientSecret: !active.oauth && draft.oauthClientSecret.existing !== "none",
+		virtualKeyValue: !active.virtualKey && draft.virtualKeyValue.existing !== "none",
+	};
+}
+
+/**
  * The draft's three secret parses, active or inactive per the picked auth form:
  * the one selection the intent assembly and the changed-field count both read.
  * Spelled out per field (no cast-and-loop): a secret field added to the catalog
@@ -634,6 +648,15 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 	} else if (virtualKey.resolves) {
 		problems.virtualKeyValue = l10n.t(
 			"A stored virtual key value is still attached; remove it with its checkbox, or pick a form that sends it"
+		);
+	}
+
+	// The API-key twin of the two rules above: storage counts as part of the
+	// shape (docs/servers.md#secrets-and-secret-storage), so saving a form
+	// that does not send the kept key would no-op and snap back on reopen.
+	if (!active.apiKey && secrets.apiKey.resolves) {
+		problems.apiKey = l10n.t(
+			"A stored API key is still attached; remove it with its checkbox, or pick a form that sends it"
 		);
 	}
 
