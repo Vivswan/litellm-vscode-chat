@@ -1417,7 +1417,7 @@ function ServerForm({
 						</p>
 					) : (
 						<p className={cn("collides-note hint m-0 text-[11.5px]", !collides && "invisible")}>
-							{l10n.t("An entry with this label already exists; saving replaces it.")}
+							{l10n.t("An entry with this label already exists; saving replaces it and its stored credentials.")}
 						</p>
 					)}
 				</FieldUnderRow>

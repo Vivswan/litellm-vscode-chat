@@ -259,9 +259,9 @@ Where the extension needs a non-secret identity for a credential (the change det
 Stored secrets belong to the entry's label alone - the base URL plays no part. Two consequences:
 
 - A rename typed into settings.json leaves the values under the old label: the renamed entry runs uncredentialed until you set them again or re-save it from the dashboard, whose edit form moves the stored secrets to the new name for you.
-- Re-pointing a familiar label at a different host still picks up the label's stored values and sends them there. Before reusing a retired label for a server that should not see the old credential, remove the stored value first (the edit form's "Remove the stored ..." checkbox).
+- Re-pointing a familiar label at a different host still picks up the label's stored values and sends them there. Before re-pointing an entry at a server that should not see the old credential, remove the stored value first (the edit form's "Remove the stored ..." checkbox).
 
-Removing an entry does not delete its stored secrets: re-adding an entry with the same label finds them again. Removing all secrets before uninstalling is covered in [Troubleshooting](troubleshooting.md#uninstalling-and-cleanup).
+Removing an entry does not delete its stored secrets. Two routes will not reuse them: the dashboard's Add Server form, which shows no credentials, so the saved entry carries none of the leftovers and they are removed with it; and a settings import, which reconciles every secret field of every label it lands, clearing the ones the imported file does not carry. The Add Server form behaves the same way when the label is still in use - it warns that saving replaces the entry, and the replacement takes its stored credentials with it. The other routes still find them - re-adding the entry by hand in settings.json, and renaming an existing entry onto the retired label. Remove the stored value first (the edit form's "Remove the stored ..." checkbox) when the old credential must not reach the new host. Removing all secrets before uninstalling is covered in [Troubleshooting](troubleshooting.md#uninstalling-and-cleanup).
 
 ## Lifecycle: renames, removals, hidden groups
 

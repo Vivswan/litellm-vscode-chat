@@ -21,11 +21,38 @@ import { DashboardOperationError, DashboardValidationError, rawServerEntries } f
  * old label's secret blob to the new label only when the old blob holds
  * anything (`willCopy`); that same flag decides whether a failed write
  * restores the new label's blob wholesale or field by field.
+ *
+ * "upsert" is the add form saving onto a label that already has an entry (its
+ * documented "saving replaces it"): it writes in place like an edit, but the
+ * form showed a blank credential-less draft, so its secrets resolve like a
+ * create's - see entryShownByForm.
  */
 type SaveMode =
 	| { kind: "create" }
+	| { kind: "upsert"; index: number }
 	| { kind: "edit"; index: number; existing: DeclaredServer }
 	| { kind: "rename"; index: number; existing: DeclaredServer; oldLabel: string; willCopy: boolean };
+
+/**
+ * The entry the form the user saved was showing, which is what every "keep"
+ * directive means, and the one rule the save and the draft-connection test both
+ * read so a directive cannot resolve differently on the two paths.
+ *
+ * Only a draft that NAMES the entry it replaces (`replaceLabel`, which the edit
+ * form always sends and the add form never does) may resolve that entry's
+ * credentials. A draft from the blank add form showed every field as "none", so
+ * it resolves nothing - whether its label is free (a create) or already taken
+ * (an upsert, replacing the entry in place). Otherwise a retired label's
+ * leftover blob, or a replaced entry's own key, would ride to whatever host the
+ * new draft names; the caller wipes the leftovers for the same reason (the sync
+ * engine resolves a label's blob unconditionally).
+ */
+export function entryShownByForm(
+	accepted: DeclaredServer | undefined,
+	replaceLabel: string | undefined
+): DeclaredServer | undefined {
+	return replaceLabel === undefined ? undefined : accepted;
+}
 
 /**
  * What one secret field does in this save, shared by the pairing checks, the
@@ -48,7 +75,11 @@ export function planResolves(plan: SecretPlan): boolean {
 /**
  * Resolve every secret directive of a draft into its plan: what the field does
  * and where its value will live. Shared with the draft-connection test, so a
- * directive cannot mean two different values on the two paths.
+ * directive cannot mean two different values on the two paths. `existing` is
+ * the entry the saved form was showing (entryShownByForm); undefined means
+ * the form showed no credentials at all, and "keep" then resolves NOTHING - the
+ * label's leftover SecretStorage blob (removals keep blobs on purpose) must not
+ * resurrect under an entry the form showed as credential-less.
  */
 export function secretPlans(
 	secrets: Readonly<Record<SecretFieldId, SecretDirective>>,
@@ -65,6 +96,9 @@ export function secretPlans(
 			case "clear":
 				return { kind: "cleared" };
 			case "keep": {
+				if (existing === undefined) {
+					return { kind: "absent" };
+				}
 				const kept = resolveKeptSecret(existing, storedEffective, field);
 				if (kept === undefined) {
 					return { kind: "absent" };
@@ -114,11 +148,11 @@ export async function readKeepSources(
  * rule, never a re-derivation), the effective secure blob otherwise.
  */
 function resolveKeptSecret(
-	existing: DeclaredServer | undefined,
+	existing: DeclaredServer,
 	storedEffective: Partial<Readonly<Record<SecretFieldId, string>>>,
 	field: SecretFieldId
 ): { readonly value: string; readonly location: "inline" | "secure" } | undefined {
-	const inline = existing === undefined ? undefined : inlineSecretValues(existing)[field];
+	const inline = inlineSecretValues(existing)[field];
 	if (inline !== undefined) {
 		return { value: inline, location: "inline" };
 	}
@@ -128,11 +162,12 @@ function resolveKeptSecret(
 
 /**
  * Apply one saveServerSetting intent in a failure-safe order: validate
- * everything up front, then run the additive secret operations (set-secure
- * writes; a rename copies the blob to the new label) and the settings write as
- * one guarded unit, and only after the write lands run the destructive cleanup
- * (clears, dropping the stale secure copy behind an inline write, deleting the
- * old rename blob).
+ * everything up front, then run the guarded secret operations (set-secure
+ * writes; a rename copies the blob to the new label; a save whose form showed
+ * no credentials wipes the label's orphan blob fields) and the settings write
+ * as one guarded unit, and only after the write lands run the destructive
+ * cleanup (clears, dropping the stale secure copy behind an inline write,
+ * deleting the old rename blob).
  *
  * If anything in the guarded unit throws, the entry in the setting is
  * unchanged and must keep resolving what it resolved before, so the secure
@@ -183,21 +218,27 @@ export async function applySaveServerSetting(
 		throw new DashboardValidationError(`label: ${l10n.t("an entry with this label already exists")}`);
 	}
 
+	// The entry this save's form was showing, and the mode that follows from it:
+	// with no accepted entry the save appends, and with one it writes in place -
+	// as an edit or rename when the draft named it, as an upsert (the add form's
+	// documented "saving replaces it") when it did not.
+	const showing = entryShownByForm(accepted?.entry, intent.replaceLabel);
 	const mode: SaveMode =
 		accepted === undefined
 			? { kind: "create" }
-			: renaming
-				? {
-						kind: "rename",
-						index: accepted.index,
-						existing: accepted.entry,
-						oldLabel: targetLabel,
-						willCopy,
-					}
-				: { kind: "edit", index: accepted.index, existing: accepted.entry };
-	const existing = mode.kind === "create" ? undefined : mode.existing;
+			: showing === undefined
+				? { kind: "upsert", index: accepted.index }
+				: renaming
+					? {
+							kind: "rename",
+							index: accepted.index,
+							existing: showing,
+							oldLabel: targetLabel,
+							willCopy,
+						}
+					: { kind: "edit", index: accepted.index, existing: showing };
 
-	const plans = secretPlans(intent.secrets, existing, storedEffective);
+	const plans = secretPlans(intent.secrets, showing, storedEffective);
 
 	// The final entry, needed for the pairing checks below. This rebuild is
 	// the whole entry: any payload field not copied here is silently DELETED
@@ -270,9 +311,9 @@ export async function applySaveServerSetting(
 		newEntry.auth = assembled.auth;
 	}
 
-	// Phases 1 and 2 as one guarded unit: the additive secret operations, then
-	// the settings write everything hinges on. Secure values the additive steps
-	// overwrite are remembered (pre-write state) for the rollback.
+	// Phases 1 and 2 as one guarded unit: the guarded secret operations, then
+	// the settings write everything hinges on. Secure values those steps
+	// overwrite or wipe are remembered (pre-write state) for the rollback.
 	const overwritten = new Map<SecretFieldId, string | undefined>();
 	try {
 		if (mode.kind === "rename") {
@@ -283,6 +324,13 @@ export async function applySaveServerSetting(
 			if (plan.kind === "set-secure") {
 				overwritten.set(field, storedNew[field]);
 				await env.storeServerSecret(label, field, plan.value);
+			} else if (showing === undefined && storedNew[field] !== undefined) {
+				// Blobs kept from removals must not leak into an entry whose form
+				// showed no credentials (adopt's rule): the sync engine resolves the
+				// label's blob unconditionally, so a surviving orphan field would ride
+				// the new group's credentials even though no plan references it.
+				overwritten.set(field, storedNew[field]);
+				await env.storeServerSecret(label, field, undefined);
 			}
 		}
 		const next = [...entries];

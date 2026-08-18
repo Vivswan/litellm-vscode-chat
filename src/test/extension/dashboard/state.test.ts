@@ -2886,13 +2886,41 @@ suite("extension/dashboard/state", () => {
 			]);
 		});
 
-		test("a fresh label inherits an orphan secure blob for keep, exactly as a save would", async () => {
+		test("a fresh label ignores an orphan secure blob: keep on a create resolves nothing, exactly as a save would", async () => {
+			// The form showed no stored credential (a create's fields all read
+			// "none"), so the probe must not authenticate with a removed label's
+			// leftover blob.
 			const recorded = makeEnv([]);
 			recorded.storedSecrets.set("Prod", { apiKey: "sk-orphan" });
 			await draftTest(recorded);
 
 			assert.deepStrictEqual(recorded.probes, [
-				{ baseUrl: "http://prod.test", label: "Prod", apiKey: "sk-orphan", expected: NO_EXPECTED },
+				{ baseUrl: "http://prod.test", label: "Prod", apiKey: "", expected: NO_EXPECTED },
+			]);
+		});
+
+		test("an orphan OAuth or virtual-key blob does not block a create's test-connection", async () => {
+			// An orphan resolving into the pairing check would refuse the probe on
+			// fields the create form does not render.
+			const recorded = makeEnv([]);
+			recorded.storedSecrets.set("Prod", { oauthClientSecret: "cs-orphan", virtualKeyValue: "vk-orphan" });
+			await draftTest(recorded);
+
+			assert.deepStrictEqual(recorded.probes, [
+				{ baseUrl: "http://prod.test", label: "Prod", apiKey: "", expected: NO_EXPECTED },
+			]);
+		});
+
+		test("the add form over a taken label probes credential-less: no replaceLabel, nothing resolves", async () => {
+			// The add form never names an entry to replace, so neither the entry's
+			// inline key nor the label's stored blob may be probed against the newly
+			// typed base URL - the save writes the same credential-less entry.
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://old.test", auth: { apiKey: "sk-inline-old" } }]);
+			recorded.storedSecrets.set("Prod", { apiKey: "sk-stored-old" });
+			await draftTest(recorded, { server: serverPayload({ label: "Prod", baseUrl: "http://new.test" }) });
+
+			assert.deepStrictEqual(recorded.probes, [
+				{ baseUrl: "http://new.test", label: "Prod", apiKey: "", expected: NO_EXPECTED },
 			]);
 		});
 

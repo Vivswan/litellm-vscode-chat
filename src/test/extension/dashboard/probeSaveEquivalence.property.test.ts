@@ -6,15 +6,25 @@
  * credentials the saved entry's provider group would be handed (the written
  * entry parsed by serverSync's own parser, secrets resolved by buildGroupArgs
  * over the post-save blob). OAuth and the virtual key compare as complete
- * units, the only form in which the transport sends them.
+ * units, the only form in which the transport sends them. A second pin holds
+ * the host's plan resolution (derived from the entry and the blob) equal to the
+ * resolution the real form parser reports for the draft the user saved: the gap
+ * that once let a retired label's orphan blob resolve host-side behind a form
+ * showing "none".
  */
 import * as assert from "node:assert";
 import * as fc from "fast-check";
 import type { RequestPayload, SecretDirective } from "../../../dashboard/endpoints";
+import type { ServerFormDraft } from "../../../dashboard/serverForm";
+import { EMPTY_SERVER_FORM, parseServerForm } from "../../../dashboard/serverForm";
 import { executeDashboardIntent } from "../../../extension/dashboard/intents";
+import { entryShownByForm, planResolves, readKeepSources, secretPlans } from "../../../extension/dashboard/saveServer";
 import { buildGroupArgs } from "../../../extension/servers/serverSync/engine";
+import { inlineSecretValues } from "../../../extension/servers/serverSync/secrets";
 import { acceptedEntry } from "../../../extension/servers/serverSync/setting";
-import type { SecretFieldId } from "../../../shared/serverEntry";
+import type { SecretFieldId, SecretLocation } from "../../../shared/serverEntry";
+import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
+import { recordFromKeys } from "../../../shared/util/json";
 import { resolveFuzzSeed } from "../../fuzzStream";
 import { makeEnv, type RecordedEnv, serverPayload } from "./recordedEnv";
 
@@ -94,72 +104,162 @@ async function outcomeOf(run: Promise<unknown>): Promise<Error | undefined> {
 suite("extension/dashboard: probe-save equivalence", () => {
 	test("Test Connection probes exactly the credentials the saved entry's group would be handed", async () => {
 		await fc.assert(
-			fc.asyncProperty(fieldsArb, secretsArb, existingArb, blobArb, async (fields, secrets, existing, blob) => {
-				const setting = existing !== undefined ? [existing] : [];
-				const payload = {
-					server: serverPayload({ label: "Prod", baseUrl: "http://prod.test", ...compact(fields) }),
-					secrets,
-					...(existing !== undefined ? { replaceLabel: "Prod" } : {}),
-				} satisfies RequestPayload<"saveServerSetting">;
-				const seeded = (): RecordedEnv => {
+			fc.asyncProperty(
+				fieldsArb,
+				secretsArb,
+				existingArb,
+				blobArb,
+				// Independent of `existing` on purpose: an entry under the label with
+				// NO replaceLabel is the add form saving onto a taken label, the route
+				// whose secret resolution differs from an edit's.
+				fc.boolean(),
+				async (fields, secrets, existing, blob, declaresReplacement) => {
+					const setting = existing !== undefined ? [existing] : [];
+					const payload = {
+						server: serverPayload({ label: "Prod", baseUrl: "http://prod.test", ...compact(fields) }),
+						secrets,
+						...(existing !== undefined && declaresReplacement ? { replaceLabel: "Prod" } : {}),
+					} satisfies RequestPayload<"saveServerSetting">;
+					const seeded = (): RecordedEnv => {
+						const env = makeEnv(setting);
+						if (Object.keys(blob).length > 0) {
+							env.storedSecrets.set("Prod", { ...blob } as Record<string, string>);
+						}
+						return env;
+					};
+
+					const saveEnv = seeded();
+					const probeEnv = seeded();
+					const saveError = await outcomeOf(
+						executeDashboardIntent({ method: "saveServerSetting", payload }, saveEnv.env)
+					);
+					const probeError = await outcomeOf(
+						executeDashboardIntent({ method: "testServerDraft", payload }, probeEnv.env)
+					);
+
+					if (saveError !== undefined || probeError !== undefined) {
+						// A draft one path refuses, the other must refuse identically: a
+						// probe verdict for an unsavable draft (or a saved entry the probe
+						// refused to test) is exactly the divergence this pin forbids.
+						assert.strictEqual(probeError?.message, saveError?.message, "refusals must match");
+						assert.strictEqual(probeError?.name, saveError?.name);
+						return;
+					}
+
+					const written = saveEnv.serverWrites.at(-1);
+					assert.ok(written !== undefined, "the save landed a settings write");
+					const saved = acceptedEntry(written, "Prod");
+					assert.ok(saved !== undefined, "a save never writes an entry the parser rejects");
+					const args = buildGroupArgs(saved.entry, saveEnv.storedSecrets.get("Prod") ?? {});
+					const connection = probeEnv.probes[0];
+					assert.ok(connection !== undefined, "the probe ran");
+
+					// The effective credentials on each side: OAuth and the virtual key
+					// count only as complete units, mirroring the transport.
+					const savedEffective = {
+						apiKey: args.apiKey ?? "",
+						oauth:
+							args.oauthTokenUrl !== undefined && args.oauthClientId !== undefined
+								? compact({
+										tokenUrl: args.oauthTokenUrl,
+										clientId: args.oauthClientId,
+										clientSecret: args.oauthClientSecret ?? "",
+										scopes: args.oauthScopes,
+									})
+								: undefined,
+						virtualKey:
+							args.virtualKeyHeader !== undefined && args.virtualKeyValue !== undefined
+								? { header: args.virtualKeyHeader, value: args.virtualKeyValue }
+								: undefined,
+					};
+					const probeEffective = {
+						apiKey: connection.apiKey,
+						oauth: connection.oauth !== undefined ? compact({ ...connection.oauth }) : undefined,
+						virtualKey: connection.virtualKey !== undefined ? { ...connection.virtualKey } : undefined,
+					};
+					assert.deepStrictEqual(compact(probeEffective), compact(savedEffective));
+				}
+			),
+			{ seed: SEED, numRuns: NUM_RUNS }
+		);
+	});
+
+	test("a secret resolves host-side exactly when the form the user saved showed one", async () => {
+		await fc.assert(
+			fc.asyncProperty(
+				fc.record({
+					apiKey: fc.boolean(),
+					oauthClientSecret: fc.boolean(),
+					virtualKeyValue: fc.boolean(),
+				}),
+				existingArb,
+				blobArb,
+				fc.boolean(),
+				async (removals, existing, blob, declaresReplacement) => {
+					const setting = existing !== undefined ? [existing] : [];
 					const env = makeEnv(setting);
 					if (Object.keys(blob).length > 0) {
 						env.storedSecrets.set("Prod", { ...blob } as Record<string, string>);
 					}
-					return env;
-				};
-
-				const saveEnv = seeded();
-				const probeEnv = seeded();
-				const saveError = await outcomeOf(
-					executeDashboardIntent({ method: "saveServerSetting", payload }, saveEnv.env)
-				);
-				const probeError = await outcomeOf(
-					executeDashboardIntent({ method: "testServerDraft", payload }, probeEnv.env)
-				);
-
-				if (saveError !== undefined || probeError !== undefined) {
-					// A draft one path refuses, the other must refuse identically: a
-					// probe verdict for an unsavable draft (or a saved entry the probe
-					// refused to test) is exactly the divergence this pin forbids.
-					assert.strictEqual(probeError?.message, saveError?.message, "refusals must match");
-					assert.strictEqual(probeError?.name, saveError?.name);
-					return;
+					const sources = await readKeepSources(setting, "Prod", "Prod", (label) => env.env.readServerSecrets(label));
+					// Which entry the form was showing, by the production rule itself:
+					// the edit form names the entry it replaces (replaceLabel), the add
+					// form never does - not even when its label collides with an entry
+					// and the save replaces it.
+					const showing = entryShownByForm(sources.accepted?.entry, declaresReplacement ? "Prod" : undefined);
+					const editing = showing !== undefined;
+					// What that form showed per field. The edit form is prefilled from
+					// the pushed entry locations (serverSync's secretLocations rule:
+					// inline wins over the blob); the add form is EMPTY_SERVER_FORM,
+					// every field "none".
+					const inline = sources.accepted !== undefined ? inlineSecretValues(sources.accepted.entry) : {};
+					const shown = (field: SecretFieldId): SecretLocation =>
+						!editing
+							? "none"
+							: inline[field] !== undefined
+								? "settings"
+								: blob[field] !== undefined
+									? "secure"
+									: "none";
+					// The real draft, parsed by the real form parser. Auth stays on
+					// "none", where all three fields are inactive and each one's
+					// still-attached problem appears exactly when the form's own
+					// resolution says the field resolves - the webview signal this pins
+					// against the host's plans.
+					const draft: ServerFormDraft = {
+						...EMPTY_SERVER_FORM,
+						label: "Prod",
+						baseUrl: "http://prod.test",
+						...(editing
+							? recordFromKeys(SECRET_FIELD_IDS, (field) => ({
+									value: "",
+									location: "secure" as const,
+									clear: removals[field],
+									existing: shown(field),
+								}))
+							: recordFromKeys(SECRET_FIELD_IDS, (field) => ({ ...EMPTY_SERVER_FORM[field], clear: removals[field] }))),
+					};
+					const parse = parseServerForm(draft, editing ? { originalLabel: "Prod" } : { takenLabels: ["Prod"] });
+					// An inactive field's directive is clear or keep, nothing else
+					// (parseInactiveSecret never sets); the contested half is the
+					// resolution the parse reports through its problems.
+					const directives = recordFromKeys(
+						SECRET_FIELD_IDS,
+						(field): SecretDirective => (removals[field] ? { action: "clear" } : { action: "keep" })
+					);
+					const plans = secretPlans(directives, showing, sources.storedEffective);
+					for (const field of SECRET_FIELD_IDS) {
+						const formResolves = parse.ok ? false : parse.problems[field] !== undefined;
+						assert.strictEqual(
+							planResolves(plans[field]),
+							formResolves,
+							`${field}: ${removals[field] ? "removal" : "keep"} on a "${shown(field)}" location, ${
+								editing ? "edit" : "add"
+							} form`
+						);
+					}
 				}
-
-				const written = saveEnv.serverWrites.at(-1);
-				assert.ok(written !== undefined, "the save landed a settings write");
-				const saved = acceptedEntry(written, "Prod");
-				assert.ok(saved !== undefined, "a save never writes an entry the parser rejects");
-				const args = buildGroupArgs(saved.entry, saveEnv.storedSecrets.get("Prod") ?? {});
-				const connection = probeEnv.probes[0];
-				assert.ok(connection !== undefined, "the probe ran");
-
-				// The effective credentials on each side: OAuth and the virtual key
-				// count only as complete units, mirroring the transport.
-				const savedEffective = {
-					apiKey: args.apiKey ?? "",
-					oauth:
-						args.oauthTokenUrl !== undefined && args.oauthClientId !== undefined
-							? compact({
-									tokenUrl: args.oauthTokenUrl,
-									clientId: args.oauthClientId,
-									clientSecret: args.oauthClientSecret ?? "",
-									scopes: args.oauthScopes,
-								})
-							: undefined,
-					virtualKey:
-						args.virtualKeyHeader !== undefined && args.virtualKeyValue !== undefined
-							? { header: args.virtualKeyHeader, value: args.virtualKeyValue }
-							: undefined,
-				};
-				const probeEffective = {
-					apiKey: connection.apiKey,
-					oauth: connection.oauth !== undefined ? compact({ ...connection.oauth }) : undefined,
-					virtualKey: connection.virtualKey !== undefined ? { ...connection.virtualKey } : undefined,
-				};
-				assert.deepStrictEqual(compact(probeEffective), compact(savedEffective));
-			}),
+			),
 			{ seed: SEED, numRuns: NUM_RUNS }
 		);
 	});

@@ -240,6 +240,101 @@ suite("extension/dashboard/intents", () => {
 			assert.deepStrictEqual(recorded.secretOps, []);
 		});
 
+		test("a create over a removed label's orphan blob wipes it: the synced group never resurrects old credentials", async () => {
+			// The removal kept the blob; the create's form showed auth "None", so
+			// the saved entry must resolve NO credentials at sync time - the engine
+			// reads the label's blob unconditionally, so the blob must be gone.
+			const recorded = makeEnv([]);
+			recorded.storedSecrets.set("Prod", {
+				apiKey: "sk-orphan",
+				oauthClientSecret: "cs-orphan",
+				virtualKeyValue: "vk-orphan",
+			});
+			await save(recorded, {});
+
+			assert.deepStrictEqual(recorded.serverWrites, [[{ label: "Prod", baseUrl: "http://prod.test" }]]);
+			assert.deepStrictEqual(recorded.storedSecrets.get("Prod"), {}, "every orphan field is wiped");
+			assert.deepStrictEqual(
+				recorded.ops.slice(0, 3).sort(),
+				["unstore:Prod.apiKey", "unstore:Prod.oauthClientSecret", "unstore:Prod.virtualKeyValue"],
+				"every field is wiped inside the guarded unit"
+			);
+			assert.strictEqual(
+				recorded.ops[3],
+				"write",
+				"the wipes precede the write: the write's configuration event can drive a sync of its own"
+			);
+			const saved = acceptedEntry(recorded.serverWrites[0] ?? [], "Prod");
+			assert.ok(saved !== undefined);
+			const args = buildGroupArgs(saved.entry, recorded.storedSecrets.get("Prod") ?? {});
+			assert.strictEqual(args.apiKey, undefined, "the synced group carries no resurrected key");
+			assert.strictEqual(args.oauthClientSecret, undefined);
+			assert.strictEqual(args.virtualKeyValue, undefined);
+		});
+
+		test("a create's typed credential replaces the orphan blob instead of merging with it", async () => {
+			const recorded = makeEnv([]);
+			recorded.storedSecrets.set("Prod", { apiKey: "sk-orphan", oauthClientSecret: "cs-orphan" });
+			await save(recorded, {
+				secrets: { ...KEEP_ALL, apiKey: { action: "set", location: "secure", value: "sk-new" } },
+			});
+
+			assert.deepStrictEqual(
+				recorded.storedSecrets.get("Prod"),
+				{ apiKey: "sk-new" },
+				"the typed value lands; the untouched orphan fields are wiped, not kept"
+			);
+		});
+
+		test("an orphan OAuth blob does not deadlock a create: the save lands clean under auth None", async () => {
+			// An orphan resolving into the pairing check would refuse the save (and
+			// test-connection) on fields the create form does not render, leaving
+			// the label unrecoverable from the UI.
+			const recorded = makeEnv([]);
+			recorded.storedSecrets.set("Prod", { oauthClientSecret: "cs-orphan" });
+			await save(recorded, {});
+
+			assert.deepStrictEqual(recorded.serverWrites, [[{ label: "Prod", baseUrl: "http://prod.test" }]]);
+			assert.deepStrictEqual(recorded.storedSecrets.get("Prod"), {});
+		});
+
+		test("a create wipe whose settings write fails restores the orphan blob untouched", async () => {
+			// The failed create landed nothing, so the pre-save state - including
+			// the orphan blob a retried hand-written re-add may still want - is
+			// restored exactly.
+			const recorded = makeEnv([]);
+			recorded.storedSecrets.set("Prod", { apiKey: "sk-orphan" });
+			recorded.failWrites = new Error("disk full");
+			await assert.rejects(save(recorded, {}), /disk full/);
+
+			assert.deepStrictEqual(recorded.storedSecrets.get("Prod"), { apiKey: "sk-orphan" });
+			assert.strictEqual(recorded.syncRequests, 0, "a clean rollback changes nothing durable");
+		});
+
+		test("the add form saving onto a taken label replaces the entry without inheriting its credentials", async () => {
+			// No replaceLabel means the blank add form: it showed no credentials,
+			// so the replacement carries none - neither the replaced entry's inline
+			// key nor the label's stored blob may follow the new base URL.
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://old.test", auth: { apiKey: "sk-inline-old" } }]);
+			recorded.storedSecrets.set("Prod", { apiKey: "sk-stored-old" });
+			await save(recorded, { server: serverPayload({ label: "Prod", baseUrl: "http://new.test" }) });
+
+			assert.deepStrictEqual(
+				recorded.serverWrites,
+				[[{ label: "Prod", baseUrl: "http://new.test" }]],
+				"the entry is replaced in place, credential-less"
+			);
+			assert.deepStrictEqual(recorded.storedSecrets.get("Prod"), {}, "the stored value is wiped, not inherited");
+		});
+
+		test("an orphan virtual-key blob does not deadlock the add form over a taken label either", async () => {
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://old.test" }]);
+			recorded.storedSecrets.set("Prod", { virtualKeyValue: "vk-orphan" });
+			await save(recorded, { server: serverPayload({ label: "Prod", baseUrl: "http://new.test" }) });
+
+			assert.deepStrictEqual(recorded.serverWrites, [[{ label: "Prod", baseUrl: "http://new.test" }]]);
+		});
+
 		test("an edit replaces the entry in place and keep-directives carry its inline secrets over", async () => {
 			const recorded = makeEnv([
 				{ label: "A", baseUrl: "http://a.test" },
@@ -833,12 +928,24 @@ suite("extension/dashboard/intents", () => {
 				/virtualKeyValue/
 			);
 
-			const secureValue = makeEnv([]);
+			const secureValue = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
 			secureValue.storedSecrets.set("Prod", { virtualKeyValue: "vk-stored" });
 			await save(secureValue, {
 				server: serverPayload({ label: "Prod", baseUrl: "http://prod.test", virtualKeyHeader: "x-vk" }),
+				replaceLabel: "Prod",
 			});
-			assert.strictEqual(secureValue.serverWrites.length, 1, "a kept secure value satisfies the pair");
+			assert.strictEqual(secureValue.serverWrites.length, 1, "an edit's kept secure value satisfies the pair");
+
+			// A CREATE never resolves the label's blob: the same header-only draft
+			// refuses like the form does, instead of pairing with an orphan value.
+			const orphanValue = makeEnv([]);
+			orphanValue.storedSecrets.set("Prod", { virtualKeyValue: "vk-orphan" });
+			await assert.rejects(
+				save(orphanValue, {
+					server: serverPayload({ label: "Prod", baseUrl: "http://prod.test", virtualKeyHeader: "x-vk" }),
+				}),
+				/virtualKeyValue/
+			);
 
 			const valueWithoutHeader = makeEnv([]);
 			await assert.rejects(

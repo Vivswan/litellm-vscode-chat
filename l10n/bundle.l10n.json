@@ -150,7 +150,7 @@
 	"Always shown": "Always shown",
 	"Amber": "Amber",
 	"An entry with this label already exists": "An entry with this label already exists",
-	"An entry with this label already exists; saving replaces it.": "An entry with this label already exists; saving replaces it.",
+	"An entry with this label already exists; saving replaces it and its stored credentials.": "An entry with this label already exists; saving replaces it and its stored credentials.",
 	"Any model_info field, e.g. context_length, supports_vision, or input_cost_per_token; unknown names apply as-is. _openrouter_model fills from the catalog, _fallback demotes below the server's report.": "Any model_info field, e.g. context_length, supports_vision, or input_cost_per_token; unknown names apply as-is. _openrouter_model fills from the catalog, _fallback demotes below the server's report.",
 	"Applies only on models that advertise support, currently Anthropic Claude models (supports_prompt_caching); the reused prefix bills at the cache rate instead of full price.": "Applies only on models that advertise support, currently Anthropic Claude models (supports_prompt_caching); the reused prefix bills at the cache rate instead of full price.",
 	"Applies per call, and a discovery pass makes several - the model-info listing and the /models fallback each get a fresh budget - so one pass can take a multiple of this. Type 30s, 1m, or plain ms./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": {

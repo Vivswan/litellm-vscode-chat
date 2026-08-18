@@ -140,7 +140,7 @@
  "Always shown": "始终显示",
  "Amber": "琥珀色",
  "An entry with this label already exists": "已存在具有此标签的条目",
- "An entry with this label already exists; saving replaces it.": "已存在具有此标签的条目; 保存将替换它。",
+ "An entry with this label already exists; saving replaces it and its stored credentials.": "已存在具有此标签的条目; 保存将替换它及其存储的凭据。",
  "Any model_info field, e.g. context_length, supports_vision, or input_cost_per_token; unknown names apply as-is. _openrouter_model fills from the catalog, _fallback demotes below the server's report.": "任何 model_info 字段, 例如 context_length、supports_vision 或 input_cost_per_token; 不认识的名字按原样应用。_openrouter_model 从目录填充, _fallback 降级到服务器报告之下。",
  "Applies only on models that advertise support, currently Anthropic Claude models (supports_prompt_caching); the reused prefix bills at the cache rate instead of full price.": "仅在声明支持的模型上生效, 目前指 Anthropic Claude 模型 (supports_prompt_caching); 重用的前缀按缓存费率计费, 而不是全价。",
  "Applies per call, and a discovery pass makes several - the model-info listing and the /models fallback each get a fresh budget - so one pass can take a multiple of this. Type 30s, 1m, or plain ms./Do not translate the suffixes ms/s/m/h; the parser accepts only these ASCII letters.": "按单次调用计算, 而一轮发现会发出多次调用 (model-info 列表和 /models 回退各有独立预算), 因此一轮可能耗时数倍。可输入 30s、1m 或纯 ms。",

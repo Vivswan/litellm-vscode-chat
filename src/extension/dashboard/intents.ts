@@ -515,9 +515,11 @@ export async function executeDashboardIntent(
 					l10n.t("No servers setting entry has this label; the server is managed outside the setting")
 				);
 			}
-			// The label's secure-side secrets are kept on purpose: re-adding the
-			// label picks them up again, and the provider group itself survives
-			// anyway (VS Code offers no programmatic group removal).
+			// The label's secure-side secrets are kept on purpose: a hand-written
+			// re-add of the entry still resolves them, and the provider group
+			// itself survives anyway (VS Code offers no programmatic group
+			// removal). A dashboard create over the label wipes them instead - the
+			// form showed no credentials, so none may resurrect (saveServer.ts).
 			await env.writeServersSetting(next);
 			env.requestServerSync();
 			return undefined;
