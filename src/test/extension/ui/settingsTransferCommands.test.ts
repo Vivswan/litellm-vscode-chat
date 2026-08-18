@@ -485,6 +485,36 @@ suite("settingsTransferCommands import flow", () => {
 		assert.deepStrictEqual(note.actions, ["Undo Import"]);
 	});
 
+	test("appending a label with no secrets in the file wipes an orphaned stored blob", async () => {
+		// A blob can outlive its entry (the entry was removed, the blob stayed);
+		// importing that label fresh must not hand the leftover credential to the
+		// imported server.
+		const world = makeWorld({}, { retired: { apiKey: "LEFTOVER-KEY", virtualKeyValue: "LEFTOVER-VK" } });
+		stageEnvelope(world, { servers: [{ label: "retired", baseUrl: "http://r:4000" }] });
+		await runImportSettingsFlow(world.env);
+		assert.deepStrictEqual(world.settings.get(SERVERS_SETTING_KEY), [{ label: "retired", baseUrl: "http://r:4000" }]);
+		assert.strictEqual(
+			world.secretValues.get(serverSecretsKey("retired")),
+			undefined,
+			"the imported entry carries no secrets, so the label's stored blob must be gone"
+		);
+		assert.deepStrictEqual(world.collisionPrompts, [], "no settings entry exists, so nothing collides");
+		assert.match(onlyNotification(world).message, /1 server added/);
+	});
+
+	test("appending a label with secrets in the file replaces an orphaned stored blob exactly", async () => {
+		const world = makeWorld({}, { retired: { apiKey: "LEFTOVER-KEY", virtualKeyValue: "LEFTOVER-VK" } });
+		stageEnvelope(world, {
+			servers: [{ label: "retired", baseUrl: "http://r:4000", auth: { apiKey: "FILE-KEY" } }],
+		});
+		await runImportSettingsFlow(world.env);
+		assert.deepStrictEqual(
+			blobOf(world, "retired"),
+			{ apiKey: "FILE-KEY" },
+			"the blob is exactly the file's secrets; no leftover field may survive"
+		);
+	});
+
 	test("overwrite replaces the entry in place, replaces the blob, and clears stale fields", async () => {
 		const world = makeWorld(
 			{
