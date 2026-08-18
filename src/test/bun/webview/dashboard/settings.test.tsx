@@ -9,6 +9,7 @@ import type { RpcRequest } from "../../../../dashboard/endpoints";
 import { WIRE_LIMITS } from "../../../../dashboard/endpoints";
 import { isBoundViolation, parseNumberDraft } from "../../../../dashboard/presenters";
 import { NUMBER_SETTING_IDS } from "../../../../dashboard/viewModels";
+import { OPENROUTER_MODEL_DIRECTIVE } from "../../../../shared/config/recordResolution";
 import { AnnounceOnceScope } from "../../../../webview/dashboard/announceOnce";
 import { App } from "../../../../webview/dashboard/app";
 import { settingRowHelp } from "../../../../webview/dashboard/helpText";
@@ -892,7 +893,7 @@ test("with the catalog setting off the row shows the inert hint instead of the s
 	// The off-state consequence moved into the row's "?" with the description;
 	// asserted on the tip element itself, not row.textContent, which would
 	// pass merely because the hidden bubble stays mounted.
-	expect(row.querySelector(".setting-hint .tip-bubble")?.textContent).toContain("_openrouter_model");
+	expect(row.querySelector(".setting-hint .tip-bubble")?.textContent).toContain(OPENROUTER_MODEL_DIRECTIVE);
 	expect(Array.from(row.querySelectorAll("button")).map((b) => (b.textContent ?? "").trim())).not.toContain("Refresh");
 });
 

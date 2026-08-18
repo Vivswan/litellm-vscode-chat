@@ -10,6 +10,7 @@
 import * as l10n from "@vscode/l10n";
 import type { ReactNode } from "react";
 import type { CapabilityLevel } from "../../shared/config/capabilityResolution";
+import { OPENROUTER_MODEL_DIRECTIVE } from "../../shared/config/recordResolution";
 import { HoverTip } from "./help";
 
 /**
@@ -144,7 +145,7 @@ export function capabilityProvenance(
 		case "directive":
 			return {
 				source: { scope: "OpenRouter", recordKey: key },
-				mark: { word: "_openrouter_model", mono: true },
+				mark: { word: OPENROUTER_MODEL_DIRECTIVE, mono: true },
 			};
 		case "catalog":
 			return {

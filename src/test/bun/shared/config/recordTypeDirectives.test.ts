@@ -9,12 +9,12 @@
  * this file's typecheck until its parser is wired in, and the loops then hold
  * it to the same mutual-flagging contract.
  *
- * The literal sweep below closes the remaining hole - a directive a parser
+ * The literal sweep below closes the remaining hole - a directive a module
  * HANDLES but nobody registered. It scans CODE, through an AST walk over the
- * resolver sources' string literals, so comments and doc prose never count
- * (a message string would, but these diagnostics carry kinds and keys, never
- * prose). Its blind spot is a name no literal spells: identifier property
- * access (`record._force`) or a name built at runtime.
+ * string literals of every module in src/shared/config, so comments and doc
+ * prose never count (a message string would, but these diagnostics carry
+ * kinds and keys, never prose). Its blind spot is a name no literal spells:
+ * identifier property access (`record._force`) or a name built at runtime.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -29,6 +29,7 @@ import {
 	INHERITABLE_DIRECTIVE,
 	RECORD_TYPE_DIRECTIVES,
 } from "../../../../shared/config/recordResolution";
+import { isUnsafeRecordKey } from "../../../../shared/util/json";
 import { REPO_ROOT } from "../../../util/repoRoot";
 
 /** Total over RecordType on purpose: a registry row without a parser fails typecheck here. */
@@ -47,32 +48,51 @@ const REGISTERED_DIRECTIVES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Every resolver in shared/config, found by name rather than hand-listed, so a
- * fourth one joins the sweep by existing. The mint site (recordResolution.ts)
- * is in scope by the same rule and must be: a directive handled through an
- * imported constant carries its literal there, not in the parser that branches
- * on it.
+ * Every module in shared/config, found by directory listing rather than
+ * hand-listed, so a new one joins the sweep by existing. The whole tree is in
+ * scope because directive consumers are not only the parsers: the mint site
+ * (recordResolution.ts) carries the literals of directives handled through
+ * imported constants, and any config module may branch on a directive name.
  */
 const CONFIG_DIR = path.join(REPO_ROOT, "src", "shared", "config");
 const SCANNED_SOURCES: readonly string[] = fs
 	.readdirSync(CONFIG_DIR)
-	.filter((name) => name.endsWith("Resolution.ts"))
+	.filter((name) => name.endsWith(".ts"))
 	.sort();
 
-/** The resolvers this suite exercises directly: the sweep may grow past them, never shrink below them. */
+/** The modules the sweep must reach: it may grow past them, never shrink below them. */
 const REQUIRED_SOURCES: readonly string[] = [
+	"capabilityDisplay.ts",
 	"capabilityResolution.ts",
+	"commandIds.ts",
+	"modelMatcher.ts",
+	"openRouterCatalog.ts",
 	"parameterResolution.ts",
 	"recordResolution.ts",
+	"resolutionTable.ts",
+	"settingSpec.ts",
+	"settings.ts",
+	"storageKeys.ts",
 ];
 
-/** Every underscore-prefixed string literal in the file's code; the one-char "_" is the namespace probe, never a name. */
+/**
+ * Every underscore-prefixed string literal in the file's code; the one-char "_" is the
+ * namespace probe, never a name. Reserved object-plumbing names ("__proto__") are exempt
+ * by the same predicate the record grammar enforces: isUnsafeRecordKey rejects them as
+ * record keys, so no such literal could ever be a directive. No such literal exists in
+ * code today (the tree's are all in comments); the carve-out pre-empts the next
+ * hardening one rather than excusing an existing one.
+ */
 function underscoreLiterals(fileName: string): ReadonlySet<string> {
 	const text = fs.readFileSync(path.join(CONFIG_DIR, fileName), "utf8");
 	const source = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 	const found = new Set<string>();
 	const visit = (node: ts.Node): void => {
-		if ((ts.isStringLiteralLike(node) || ts.isTemplateLiteralToken(node)) && /^_./.test(node.text)) {
+		if (
+			(ts.isStringLiteralLike(node) || ts.isTemplateLiteralToken(node)) &&
+			/^_./.test(node.text) &&
+			!isUnsafeRecordKey(node.text)
+		) {
 			found.add(node.text);
 		}
 		ts.forEachChild(node, visit);
@@ -134,7 +154,7 @@ describe("shared/config record-type directive registry", () => {
 		}
 	});
 
-	test("every underscore literal in the resolver sources is a registered directive", () => {
+	test("every underscore literal in the shared/config sources is a registered directive", () => {
 		const failures: string[] = [];
 		for (const [file, literals] of LITERALS_BY_FILE) {
 			for (const literal of literals) {
@@ -149,7 +169,7 @@ describe("shared/config record-type directive registry", () => {
 		assert.deepStrictEqual(failures, []);
 	});
 
-	test("the sweep reaches every resolver and sees every registered mint (its positive control)", () => {
+	test("the sweep reaches every config module and sees every registered mint (its positive control)", () => {
 		// Two ways this guard could pass while proving nothing: scanning fewer
 		// files than it claims, or a walk that silently collects nothing.
 		for (const file of REQUIRED_SOURCES) {

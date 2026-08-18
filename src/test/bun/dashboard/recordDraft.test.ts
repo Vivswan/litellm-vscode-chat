@@ -17,6 +17,13 @@ import {
 	toggleExpectedFailure,
 	toHeaderRows,
 } from "../../../dashboard/recordDraft";
+import {
+	INHERIT_FROM_DIRECTIVE,
+	INHERITABLE_DIRECTIVE,
+	OPENROUTER_MODEL_DIRECTIVE,
+	RECORD_TYPE_DIRECTIVES,
+	wrongTypeDirectives,
+} from "../../../shared/config/recordResolution";
 
 function parsedValue<P extends GroupsParse | HeaderRowsParse>(parse: P): Extract<P, { ok: true }>["value"] {
 	if (!parse.ok) {
@@ -410,6 +417,63 @@ describe("dashboard/recordDraft", () => {
 			assert.ok(valid.ok);
 			assert.strictEqual(valid.issues[0]?.rows[1]?.hint, undefined);
 			assert.strictEqual(valid.issues[0]?.rows[2]?.hint, undefined);
+		});
+	});
+
+	describe("wrong-record-type directive hints", () => {
+		// The pin: each editor's hint set IS the registry's sibling row - the same
+		// names the resolver later diagnoses wrong-record-type - over the whole
+		// directive vocabulary plus an unknown underscore key. Expectations read
+		// the registry ROWS directly, not wrongTypeDirectives, so the editor and
+		// the helper cannot drift together past this suite.
+		const universe = [
+			...Object.values(RECORD_TYPE_DIRECTIVES).flat(),
+			INHERITABLE_DIRECTIVE,
+			INHERIT_FROM_DIRECTIVE,
+			"_future_directive",
+		];
+
+		test("the parameters editor hints exactly the capabilities row's names, without blocking", () => {
+			const expected = new Set<string>(RECORD_TYPE_DIRECTIVES.capabilities);
+			for (const name of universe) {
+				const parse = parseGroups([{ prefix: "gpt-4", params: [newParamRow(name, "true")] }]);
+				assert.ok(parse.ok, `${name} must not block`);
+				const hint = parse.hints[0]?.params[0];
+				if (expected.has(name)) {
+					assert.ok(hint?.includes(name), `${name} must hint as the wrong record type`);
+				} else {
+					assert.strictEqual(hint, undefined, `${name} must not hint`);
+				}
+			}
+		});
+
+		test("the capabilities editor hints exactly the parameters row's names, without blocking", () => {
+			const expected = new Set<string>(RECORD_TYPE_DIRECTIVES.parameters);
+			for (const name of universe) {
+				const parse = parseCapabilityGroups([{ prefix: "gpt-4", params: [newParamRow(name, "true")] }]);
+				assert.ok(parse.ok, `${name} must not block`);
+				const hint = parse.issues[0]?.rows[0]?.hint;
+				if (expected.has(name)) {
+					assert.ok(hint?.includes(name), `${name} must hint as the wrong record type`);
+				} else {
+					assert.strictEqual(hint, undefined, `${name} must not hint`);
+				}
+			}
+		});
+
+		test("a wrong-type row with an unreadable value blocks and stays hint-free: problem XOR hint", () => {
+			// _openrouter_model in a parameters group is the live case: the
+			// capability editor teaches bare catalog IDs, which are not JSON.
+			const parse = parseGroups([
+				{ prefix: "gpt-4", params: [newParamRow(OPENROUTER_MODEL_DIRECTIVE, "openai/gpt-4o")] },
+			]);
+			assert.strictEqual(parse.ok, false, "an unreadable value blocks");
+			assert.strictEqual(parse.hints[0]?.params[0], undefined, "a blocked row carries no hint beside its problem");
+		});
+
+		test("the helper both editors read agrees with the registry rows", () => {
+			assert.deepStrictEqual([...wrongTypeDirectives("parameters")], [...RECORD_TYPE_DIRECTIVES.capabilities]);
+			assert.deepStrictEqual([...wrongTypeDirectives("capabilities")], [...RECORD_TYPE_DIRECTIVES.parameters]);
 		});
 	});
 

@@ -20,6 +20,7 @@ import {
 	INHERIT_FROM_DIRECTIVE,
 	INHERITABLE_DIRECTIVE,
 	OPENROUTER_MODEL_DIRECTIVE,
+	wrongTypeDirectives,
 } from "../shared/config/recordResolution";
 import type { ExpectedFailureCategory } from "../shared/serverEntry";
 import { EXPECTED_FAILURE_CATEGORIES } from "../shared/serverEntry";
@@ -103,6 +104,14 @@ export function toGroups(value: Readonly<Record<string, Readonly<Record<string, 
 		params: Object.entries(params).map(([key, paramValue]) => newParamRow(key, formatJsonValue(paramValue))),
 	}));
 }
+
+/**
+ * The sibling record types' directive names, straight from the registry: what
+ * each editor hints as belonging to the other record type. The resolver later
+ * diagnoses the same names as wrong-record-type, from the same rows.
+ */
+const PARAMETER_WRONG_TYPE_DIRECTIVES: ReadonlySet<string> = new Set(wrongTypeDirectives("parameters"));
+const CAPABILITY_WRONG_TYPE_DIRECTIVES: ReadonlySet<string> = new Set(wrongTypeDirectives("capabilities"));
 
 function duplicates(values: readonly string[]): Set<string> {
 	const seen = new Set<string>();
@@ -344,6 +353,12 @@ export function parseGroups(groups: readonly PrefixGroup[]): GroupsParse {
 				return { field: "value", message: parsed.error };
 			}
 			params[param.key.trim()] = parsed.value;
+			// A sibling record type's directive: the setting keeps the row and the
+			// resolver diagnoses it wrong-record-type, so the editor hints here too.
+			// Below the value parse, so a row never carries a problem AND a hint.
+			if (PARAMETER_WRONG_TYPE_DIRECTIVES.has(param.key.trim())) {
+				paramHints[index] = l10n.t('"{0}" belongs to capability records and is ignored here', param.key.trim());
+			}
 			return undefined;
 		});
 		blocked = blocked || prefixProblem !== undefined || paramProblems.some((problem) => problem !== undefined);
@@ -747,13 +762,16 @@ export function parseCapabilityGroups(
 				}
 				return;
 			}
-			// Underscore keys are reserved for future directives and pass silently.
-			// Anything else is an OPEN field the resolver applies as-is (so it
-			// counts as set); it hints as a possible typo only against real
-			// evidence - a known, non-empty observed /model/info key set that does
-			// not name it.
+			// Underscore keys are reserved for future directives and pass silently,
+			// except a sibling record type's directive, which the resolver later
+			// diagnoses wrong-record-type, so the editor hints here too. Anything
+			// else is an OPEN field the resolver applies as-is (so it counts as
+			// set); it hints as a possible typo only against real evidence - a
+			// known, non-empty observed /model/info key set that does not name it.
 			if (key.startsWith("_")) {
-				rowIssues[index] = {};
+				rowIssues[index] = CAPABILITY_WRONG_TYPE_DIRECTIVES.has(key)
+					? { hint: l10n.t('"{0}" belongs to parameters records and is ignored here', key) }
+					: {};
 				return;
 			}
 			setFieldKeys.add(key);
