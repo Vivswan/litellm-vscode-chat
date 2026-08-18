@@ -4,13 +4,13 @@ import { classifyOverall } from "../../dashboard/presenters";
 import { CMD } from "../../shared/config/commandIds";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
 import type { AggregatedStatus } from "../../shared/servers";
-import { unexpectedFailureCount, unexpectedServerFailures } from "../../shared/servers";
+import { unexpectedServerFailures } from "../../shared/servers";
 import { statusErrorHeadline } from "../../shared/util/errorText";
 import { SETUP_HINT_DOCS_URLS } from "../../shared/util/links";
 import { openUrl } from "../../shared/util/openUrl";
 import type { Timer } from "../../shared/util/timer";
 import { PendingCall, REAL_TIMER } from "../../shared/util/timer";
-import { zeroModelStatusTexts } from "./status";
+import { zeroModelJudgment } from "./status";
 
 // The headline extraction lives in shared/util/errorText so the dashboard
 // webview splits messages the same way.
@@ -279,14 +279,16 @@ export class Notifier implements vscode.Disposable {
 				actions: [reconfigureAction(), reportIssueAction()],
 			};
 		}
-		if (status.totalModels === 0) {
-			// Hidden groups explain the zero models: the toast names the real
-			// cause and the recovery instead of blaming the proxy configuration,
-			// sharing wording with the status tooltip. Only while nothing failed
-			// unexpectedly - a genuine failure in the mix must not be papered
-			// over with restore advice.
-			const zeroTexts = zeroModelStatusTexts(status.serverStatuses);
-			if (zeroTexts.hiddenCount > 0 && unexpectedFailureCount(status.serverStatuses) === 0) {
+		// The shared zero-model judgment (zeroModelJudgment owns the gating
+		// rule): it stands down on any verdict that already explains itself, so
+		// a degraded window keeps the failure story the other surfaces tell.
+		const zero = zeroModelJudgment(status.serverStatuses, status.totalModels);
+		if (zero !== undefined) {
+			if (zero.hiddenCount > 0) {
+				// Hidden groups explain the zero models: the toast names the removal
+				// and the recovery, sharing its wording with the status tooltip. The
+				// connected verdict proves nothing failed unexpectedly, so no genuine
+				// failure is being papered over with restore advice.
 				return {
 					tag: "no-models",
 					// Distinct from "no-models" ON PURPOSE, mirroring the all-failed
@@ -295,7 +297,7 @@ export class Notifier implements vscode.Disposable {
 					// cause, not a new one.
 					signature: "no-models-hidden",
 					kind: "warning",
-					message: l10n.t("LiteLLM: {0}", zeroTexts.display),
+					message: l10n.t("LiteLLM: {0}", zero.display),
 					actions: [reconfigureAction(l10n.t("Open Dashboard")), reportIssueAction()],
 				};
 			}
@@ -303,7 +305,7 @@ export class Notifier implements vscode.Disposable {
 				tag: "no-models",
 				signature: "no-models",
 				kind: "warning",
-				message: l10n.t("LiteLLM: Your servers returned no models. Check your LiteLLM proxy configuration."),
+				message: l10n.t("LiteLLM: {0}", zero.display),
 				actions: [testConnectionAction(l10n.t("Check Server")), reconfigureAction(), reportIssueAction()],
 			};
 		}

@@ -131,9 +131,9 @@ Check the status bar first - it names the failure class.
 - A warning icon on models you did see before means a background refresh failed and the extension is serving the last known list flagged stale - see [Timeouts and retries](#timeouts-and-retries).
 - Everything shows connected, yet nothing appears under your server's label, and your Copilot seat comes from an organization (Copilot Business or Enterprise): the organization's "Bring your own language model key" policy is disabled. The hiding happens inside Copilot, so the extension's own diagnostics all report success; ask your Copilot administrator to enable the policy, then reload VS Code.
 
-### "Server returned 0 models"
+### "The server answered but listed no models"
 
-Your LiteLLM proxy is running but has no models configured.
+Your LiteLLM proxy is reachable but has no models configured (the log line reads `Servers returned 0 models`).
 
 - Check your LiteLLM proxy configuration (`litellm_config.yaml`).
 - Run `litellm --config your_config.yaml` to start the proxy with models.

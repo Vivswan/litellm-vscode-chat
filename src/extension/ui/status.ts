@@ -103,17 +103,41 @@ export function isZeroModelVerdict(status: ConnectionStatus): boolean {
 	return serverStatuses.length > 0 && unexpectedFailureCount(serverStatuses) === 0;
 }
 
-/**
- * The zero-model verdict's two renderings, shared by the status tooltip and
- * the notifier toast so the surfaces cannot disagree: a localized display
- * message that names the real cause, and the English log rendering (a
- * classification, never response-derived text) for the issue-report buffer.
- */
-export function zeroModelStatusTexts(serverStatuses: readonly ServerStatus[]): {
+/** What the zero-model judgment renders when it claims the headline; see zeroModelJudgment. */
+export interface ZeroModelTexts {
 	display: string;
 	logSafe: LogSafeErrorText;
 	hiddenCount: number;
-} {
+}
+
+/**
+ * The one zero-model judgment, shared by the status bar and every notifier
+ * zero-model branch so the toast and the tooltip cannot disagree. It derives
+ * its own verdict, so no caller can hand it a stale one: zero models claims
+ * the headline only when classifyOverall says "connected" - every server
+ * answered (or failed expectedly) yet the catalog is empty, so nothing else
+ * explains the situation. Every other verdict already tells its own story -
+ * failures, needs-declare, waiting - and a zero-model claim beside it would
+ * contradict the surface users are told to check.
+ */
+export function zeroModelJudgment(
+	serverStatuses: readonly ServerStatus[],
+	totalModels: number
+): ZeroModelTexts | undefined {
+	if (totalModels !== 0 || classifyOverall(serverStatuses) !== "connected") {
+		return undefined;
+	}
+	return zeroModelStatusTexts(serverStatuses);
+}
+
+/**
+ * The zero-model verdict's two renderings, reached only through
+ * zeroModelJudgment so no surface can mint its own zero-model prose: a
+ * localized display message that names the real cause, and the English log
+ * rendering (a classification, never response-derived text) for the
+ * issue-report buffer.
+ */
+function zeroModelStatusTexts(serverStatuses: readonly ServerStatus[]): ZeroModelTexts {
 	const hiddenCount = serverStatuses.filter(isHiddenGroupServerStatus).length;
 	const answeredCount = serverStatuses.filter(
 		(status) => status.state === "ok" && status.hiddenByRemoval !== true
@@ -712,15 +736,15 @@ export class StatusBarManager {
 				void this.updateStatusBar({ state: "connecting", attention: false, lastChecked: now });
 				return;
 			case "connected": {
-				if (totalModels === 0) {
-					const texts = zeroModelStatusTexts(serverStatuses);
-					this.logger.log(`Warning: ${texts.logSafe}`);
+				const zero = zeroModelJudgment(serverStatuses, totalModels);
+				if (zero !== undefined) {
+					this.logger.log(`Warning: ${zero.logSafe}`);
 					void this.updateStatusBar({
 						state: "error",
 						// Display localizes; the log-safe rendering stays English by policy.
 						// No classification: this verdict is synthetic, not a transport failure.
-						error: texts.display,
-						logSafeError: texts.logSafe,
+						error: zero.display,
+						logSafeError: zero.logSafe,
 						serverStatuses,
 						totalModels: 0,
 						lastChecked: now,

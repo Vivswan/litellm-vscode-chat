@@ -208,6 +208,7 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"parseFailureMessage",
 	"gateMessage",
 	"zeroModelStatusTexts",
+	"zeroModelJudgment",
 	"openUsageAction",
 	"serverTooltipLines",
 	"renderUsageStatus",

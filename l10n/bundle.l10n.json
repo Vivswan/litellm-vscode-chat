@@ -537,7 +537,6 @@
 	"LiteLLM: This looks like a setup problem (the server rejected the API key). The troubleshooting guide usually resolves it faster than a GitHub issue.": "LiteLLM: This looks like a setup problem (the server rejected the API key). The troubleshooting guide usually resolves it faster than a GitHub issue.",
 	"LiteLLM: This looks like a setup state, not a bug (a server hidden by an explicit removal answers with no models). Restoring it from the dashboard's server list is faster than a GitHub issue.": "LiteLLM: This looks like a setup state, not a bug (a server hidden by an explicit removal answers with no models). Restoring it from the dashboard's server list is faster than a GitHub issue.",
 	"LiteLLM: You opened an issue report that looks the same as one from {0}. Adding details to the existing issue helps more than a new report.": "LiteLLM: You opened an issue report that looks the same as one from {0}. Adding details to the existing issue helps more than a new report.",
-	"LiteLLM: Your servers returned no models. Check your LiteLLM proxy configuration.": "LiteLLM: Your servers returned no models. Check your LiteLLM proxy configuration.",
 	"LiteLLM: {0}": "LiteLLM: {0}",
 	"Loading": "Loading",
 	"Loading stored values...": "Loading stored values...",

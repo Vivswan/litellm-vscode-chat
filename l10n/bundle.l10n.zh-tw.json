@@ -487,7 +487,6 @@
  "LiteLLM: This looks like a setup problem (the server rejected the API key). The troubleshooting guide usually resolves it faster than a GitHub issue.": "LiteLLM: 這看起來是設定問題 (伺服器拒絕了 API 金鑰)。疑難排解指南通常比提交 GitHub 問題更快解決。",
  "LiteLLM: This looks like a setup state, not a bug (a server hidden by an explicit removal answers with no models). Restoring it from the dashboard's server list is faster than a GitHub issue.": "LiteLLM: 這看起來是一種設定狀態而不是程式缺陷 (被明確移除而隱藏的伺服器不會回傳任何模型)。從儀表板的伺服器清單中還原它通常比提交 GitHub 問題更快。",
  "LiteLLM: You opened an issue report that looks the same as one from {0}. Adding details to the existing issue helps more than a new report.": "LiteLLM: 這份問題回報與您{0}開啟的那份看起來相同。在現有 Issue 中補充細節, 比再提交一份新回報更有幫助。",
- "LiteLLM: Your servers returned no models. Check your LiteLLM proxy configuration.": "LiteLLM: 您的伺服器未回傳任何模型。請檢查 LiteLLM Proxy 設定。",
  "LiteLLM: {0}": "LiteLLM: {0}",
  "Loading": "載入中",
  "Loading stored values...": "正在載入儲存的值...",

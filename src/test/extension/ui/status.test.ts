@@ -2,12 +2,11 @@ import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { classifyOverall } from "../../../dashboard/presenters";
 import { detectSetupProblem } from "../../../extension/ui/setupGate";
-import type { StatusItemLike, StatusItemView } from "../../../extension/ui/status";
-import { StatusBarManager } from "../../../extension/ui/status";
-import { LAST_CONNECTION_STATUS_KEY } from "../../../shared/config/storageKeys";
+import type { StatusBarManager, StatusItemLike } from "../../../extension/ui/status";
 import type { TransportErrorClassification } from "../../../shared/errorClassification";
-import { Logger, markLogSafe } from "../../../shared/logger";
+import { markLogSafe } from "../../../shared/logger";
 import type { ServerStatus } from "../../../shared/servers";
+import { createStatusBarManager, RecordingItem } from "./statusBarHarness";
 
 // Managers create real, visible status bar items in the shared test host, so
 // every created context is tracked and disposed after each test.
@@ -19,50 +18,12 @@ function createManager(
 	recorder?: { appendLog(line: string): void; recordError(source: string, error: unknown): void },
 	item?: StatusItemLike
 ): StatusBarManager {
-	const mementoStore = new Map<string, unknown>();
-	if (persistedStatus !== undefined) {
-		mementoStore.set(LAST_CONNECTION_STATUS_KEY, persistedStatus);
-	}
-	const globalState = {
-		get: (key: string, defaultValue?: unknown) => (mementoStore.has(key) ? mementoStore.get(key) : defaultValue),
-		update: async (key: string, value: unknown) => {
-			mementoStore.set(key, value);
-		},
-	} as unknown as vscode.Memento;
-	const context = {
-		subscriptions: [],
-		globalState,
-	} as unknown as vscode.ExtensionContext;
-	createdContexts.push(context);
-	// ALWAYS a recording surface: StatusBarManager takes the item as a required
-	// parameter precisely so a suite can never create a real, visible status bar
-	// item in the shared test host (the guard test below pins the invariant).
-	return new StatusBarManager(
-		context,
-		new Logger({ info() {}, error() {} }, recorder),
-		hasConfiguredServers,
-		item ?? new RecordingItem()
-	);
-}
-
-/** A recording status-bar surface, so the suite can pin rendered text and severity. */
-class RecordingItem implements StatusItemLike {
-	command: string | vscode.Command | undefined = undefined;
-	views: StatusItemView[] = [];
-	dispose(): void {}
-	render(view: StatusItemView): void {
-		this.views.push(view);
-	}
-	show(): void {}
-	hide(): void {}
-
-	get last(): StatusItemView {
-		const view = this.views.at(-1);
-		if (view === undefined) {
-			throw new assert.AssertionError({ message: "nothing was rendered" });
-		}
-		return view;
-	}
+	// ALWAYS a recording surface (the harness defaults to one): a suite can
+	// never create a real, visible status bar item in the shared test host
+	// (the guard test below pins the invariant).
+	const harness = createStatusBarManager({ persistedStatus, hasConfiguredServers, recorder, item });
+	createdContexts.push(harness.context);
+	return harness.manager;
 }
 
 /** The single restored element, narrowed to the error variant or failing loudly. */

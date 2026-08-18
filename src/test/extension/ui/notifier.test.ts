@@ -2,12 +2,14 @@ import * as assert from "node:assert";
 import { APIConnectionError } from "openai";
 import * as vscode from "vscode";
 import { Notifier, reconfigureAction } from "../../../extension/ui/notifier";
+import { zeroModelJudgment } from "../../../extension/ui/status";
 import { mapSdkError, statusErrorTexts } from "../../../provider/transport/errorMapping";
 import type { TransportErrorClassification } from "../../../shared/errorClassification";
 import { publicErrorText } from "../../../shared/logger";
 import type { AggregatedStatus, ServerStatus } from "../../../shared/servers";
 import type { Timer } from "../../../shared/util/timer";
 import { expectDefined } from "../../pureHelpers";
+import { createStatusBarManager, RecordingItem } from "./statusBarHarness";
 
 suite("extension/ui/notifier", () => {
 	let toasts: { kind: "info" | "warning" | "error"; message: string; buttons: string[] }[];
@@ -238,20 +240,18 @@ suite("extension/ui/notifier", () => {
 		assert.ok(toast.message.includes("answered but listed no models"), toast.message);
 	});
 
-	test("a hidden group beside an unexpected failure keeps the plain no-models warning", () => {
-		// A genuine failure is in the mix: restore advice must not paper over it,
-		// so the toast keeps the wording that points at checking the servers.
+	test("a hidden group beside an unexpected failure is a degraded window: the notifier stands down", () => {
+		// A genuine failure is in the mix, so the verdict is degraded and the
+		// status bar says "1 server unreachable"; a zero-model toast beside it
+		// would blame the catalog for what is really an outage. The judgment
+		// claims the headline only when the verdict explains nothing.
 		const notifier = new Notifier(() => true);
 		notifier.handleAggregatedStatus({
 			serverStatuses: [hiddenGroupStatus("srv-hidden"), errorStatus("ECONNREFUSED")],
 			totalModels: 0,
 			silent: true,
 		});
-		assert.strictEqual(toasts.length, 1);
-		const toast = expectDefined(toasts[0]);
-		assert.ok(toast.message.includes("returned no models"), toast.message);
-		assert.ok(!toast.message.includes("hidden"), toast.message);
-		assert.deepStrictEqual(toast.buttons, ["Check Server", "Reconfigure", "Report Issue"]);
+		assert.strictEqual(toasts.length, 0, "the degraded window's story belongs to the degraded surfaces");
 	});
 
 	test("all failures expected with nothing declared warns needs-declare, not 'returned no models'", () => {
@@ -272,10 +272,10 @@ suite("extension/ui/notifier", () => {
 		assert.deepStrictEqual(toast.buttons, ["Reconfigure", "Report Issue"]);
 	});
 
-	test("an expected failure beside a reachable zero-model server keeps the plain no-models warning", () => {
-		// A healthy server DID return an (empty) list, so "returned no models"
-		// is the truthful description; needs-declare needs every server failing
-		// expectedly.
+	test("an expected failure beside a reachable zero-model server keeps the zero-model warning", () => {
+		// A healthy server DID return an (empty) list, so the answered-but-empty
+		// wording is the truthful description; needs-declare needs every server
+		// failing expectedly.
 		const notifier = new Notifier(() => true);
 		notifier.handleAggregatedStatus({
 			serverStatuses: [okStatus(0), expectedErrorStatus("404 page not found", "srv2")],
@@ -283,7 +283,77 @@ suite("extension/ui/notifier", () => {
 			silent: true,
 		});
 		assert.strictEqual(toasts.length, 1);
-		assert.ok(expectDefined(toasts[0]).message.includes("returned no models"));
+		assert.ok(expectDefined(toasts[0]).message.includes("answered but listed no models"));
+	});
+
+	suite("the zero-model judgment is the one text source for toast and tooltip", () => {
+		// The verdict/status table: every zero-model shape the judgment claims,
+		// and every neighboring verdict it must stand down for. The equality pin
+		// below is the guard that no surface re-minted its own zero-model prose.
+		const table: { name: string; serverStatuses: ServerStatus[]; totalModels: number }[] = [
+			{ name: "one answering-empty server", serverStatuses: [okStatus(0)], totalModels: 0 },
+			{ name: "several answering-empty servers", serverStatuses: [okStatus(0), okStatus(0)], totalModels: 0 },
+			{ name: "a hidden group alone", serverStatuses: [hiddenGroupStatus()], totalModels: 0 },
+			{
+				name: "a hidden group beside an answering-empty server",
+				serverStatuses: [hiddenGroupStatus("srv-hidden"), okStatus(0)],
+				totalModels: 0,
+			},
+			{
+				name: "an expected failure beside an answering-empty server",
+				serverStatuses: [okStatus(0), expectedErrorStatus("404 page not found", "srv2")],
+				totalModels: 0,
+			},
+			{
+				name: "an unreachable server beside an answering-empty server (degraded)",
+				serverStatuses: [okStatus(0), errorStatus("ECONNREFUSED")],
+				totalModels: 0,
+			},
+			{
+				name: "a hidden group beside an unexpected failure (degraded)",
+				serverStatuses: [hiddenGroupStatus("srv-hidden"), errorStatus("ECONNREFUSED")],
+				totalModels: 0,
+			},
+			{ name: "every server failed unexpectedly (error)", serverStatuses: [errorStatus("boom")], totalModels: 0 },
+			{
+				name: "expected failures only (needs-declare)",
+				serverStatuses: [expectedErrorStatus("404 page not found")],
+				totalModels: 0,
+			},
+			{ name: "healthy servers with models (connected)", serverStatuses: [okStatus(3)], totalModels: 3 },
+		];
+
+		for (const { name, serverStatuses, totalModels } of table) {
+			test(name, async () => {
+				const judgment = zeroModelJudgment(serverStatuses, totalModels);
+				const report: AggregatedStatus = { serverStatuses, totalModels, silent: true };
+				new Notifier(() => true).handleAggregatedStatus(report);
+				const item = new RecordingItem();
+				const { manager, context } = createStatusBarManager({ item });
+				try {
+					manager.handleAggregatedStatus(report);
+					await new Promise((resolve) => setImmediate(resolve));
+					if (judgment !== undefined) {
+						// The equality pin: both surfaces render the one function's text.
+						assert.strictEqual(toasts.length, 1, "the zero-model judgment must toast");
+						assert.strictEqual(expectDefined(toasts[0]).message, `LiteLLM: ${judgment.display}`);
+						assert.ok(item.last.tooltip.includes(judgment.display), item.last.tooltip);
+						assert.ok(item.last.tooltip.includes("No models available"), item.last.tooltip);
+					} else {
+						// Stood down: neither surface may carry the judgment's wording.
+						for (const surface of [item.last.tooltip, ...toasts.map((toast) => toast.message)]) {
+							assert.ok(!surface.includes("listed no models"), surface);
+							assert.ok(!surface.includes("hidden by an explicit removal"), surface);
+						}
+						assert.ok(!item.last.tooltip.includes("No models available"), item.last.tooltip);
+					}
+				} finally {
+					for (const disposable of context.subscriptions) {
+						disposable.dispose();
+					}
+				}
+			});
+		}
 	});
 
 	test("an empty status window stays silent while servers are configured elsewhere", () => {
