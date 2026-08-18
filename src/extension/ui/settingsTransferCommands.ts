@@ -867,6 +867,48 @@ async function notifyKeptSnapshot(env: SettingsTransferEnv, failures: number): P
 	);
 }
 
+/** The raw servers-array items carrying `label`, trimmed as the setting's own label grammar trims. */
+function rawEntriesOf(raw: unknown, label: string): unknown[] {
+	if (!Array.isArray(raw)) {
+		return [];
+	}
+	return raw.filter((item) => isRecord(item) && typeof item.label === "string" && item.label.trim() === label);
+}
+
+/**
+ * The rule every abandoned undo applies: a restored blob belongs only under an
+ * entry the restore also put back, so while an imported entry is still live its
+ * pre-import credential would reach the imported host, and those blobs are
+ * cleared again. A failed write can leave a label half-restored, so success is
+ * not tracked - the kept snapshot restores whatever this removes once a retry
+ * lands the entries too. The compare is raw entry identity rather than the
+ * connection fingerprint: only a byte-identical entry proves the blob is under
+ * the entry it was recorded for, and a needless clear is recoverable while a
+ * served retired credential is not.
+ */
+async function reclearUnrestoredBlobs(
+	env: SettingsTransferEnv,
+	blobWrites: readonly { readonly label: string }[],
+	targetServersRaw: unknown
+): Promise<number> {
+	let failures = 0;
+	const liveServersRaw = env.settings.readGlobal(SERVERS_SETTING_KEY);
+	for (const { label } of blobWrites) {
+		if (JSON.stringify(rawEntriesOf(liveServersRaw, label)) === JSON.stringify(rawEntriesOf(targetServersRaw, label))) {
+			continue;
+		}
+		try {
+			await env.deleteServerSecrets(label);
+		} catch (error) {
+			failures += 1;
+			env.log("Undo import: re-clearing a restored secret under an unrestored entry failed", {
+				error: errorClass(error),
+			});
+		}
+	}
+	return failures;
+}
+
 /** LiteLLM: Undo Last Settings Import - the wholesale pre-import snapshot restore. */
 export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<void> {
 	try {
@@ -937,6 +979,7 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 			// Stop before the settings phase: writing the servers setting now would
 			// wake the sync engine against partially restored credentials. The slot
 			// is kept, so a retry finishes the job.
+			failures += await reclearUnrestoredBlobs(env, restore.blobWrites, targetServersRaw);
 			env.log("Undo import: some blob restores failed; the settings phase was not started", { failures });
 			await notifyKeptSnapshot(env, failures);
 			return;
@@ -955,14 +998,16 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 				failures += 1;
 			}
 		}
-		env.requestServerSync();
 		if (failures > 0) {
+			failures += await reclearUnrestoredBlobs(env, restore.blobWrites, targetServersRaw);
+			env.requestServerSync();
 			// The slot is kept: what failed this time may succeed on a retry,
 			// and clearing it would strand the un-restored remainder.
 			env.log("Undo import: some restore steps failed; the snapshot was kept", { failures });
 			await notifyKeptSnapshot(env, failures);
 			return;
 		}
+		env.requestServerSync();
 		await env.clearSnapshotSlot();
 		env.log("Settings import undone", {
 			settings: restore.settingWrites.length,

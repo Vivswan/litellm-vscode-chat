@@ -54,7 +54,7 @@ interface FakeWorld {
 	armSecretFailureOnServersWrite: boolean;
 	/** SecretStorage keys whose store() fails (delete still works: a targeted mid-unit failure). */
 	failSecretStoreKeys: Set<string>;
-	/** Every mutation in arrival order: "settings:<key>", "secret-store:<key>", "secret-delete:<key>". */
+	/** Every mutation and sync request in arrival order: "settings:<key>", "secret-store:<key>", "secret-delete:<key>", "sync". */
 	ops: string[];
 	/** The raw SecretStorage map behind readServerSecrets/updateServerSecret. */
 	secretValues: Map<string, string>;
@@ -239,6 +239,7 @@ function makeWorld(
 		homeDir: () => "/home/fake",
 		extensionVersion: "9.9.9-test",
 		requestServerSync: () => {
+			world.ops.push("sync");
 			world.syncRequests += 1;
 		},
 		log: (message, data) => {
@@ -781,7 +782,7 @@ suite("settingsTransferCommands import flow", () => {
 		const note = onlyNotification(world);
 		assert.deepStrictEqual(note.actions, [], "a run that wrote nothing has nothing to undo");
 		assert.match(note.message, /1 server skipped/);
-		assert.deepStrictEqual(world.ops, []);
+		assert.deepStrictEqual(world.ops, ["sync"], "a no-op run writes nothing and only wakes the engine");
 	});
 
 	test("an import whose every write fails restores the previous snapshot and offers no undo", async () => {
@@ -987,6 +988,11 @@ suite("settingsTransferCommands undo flow", () => {
 		await runUndoLastImportFlow(world.env);
 		assert.ok(!world.ops.some((op) => op.startsWith("settings:")), "no settings write may follow a blob failure");
 		assert.strictEqual(world.settings.get("chat.timeout"), 1, "the imported settings stay until the retry");
+		assert.strictEqual(
+			world.secretValues.get(serverSecretsKey("a")),
+			undefined,
+			"the abandoned restore leaves no blob under the still-imported entry"
+		);
 		assert.notStrictEqual(world.snapshotSlot, undefined, "the slot is kept for the retry");
 		assert.strictEqual(world.syncRequests, syncRequestsAfterImport, "nothing woke the engine, so nothing re-syncs");
 		const note = onlyNotification(world);
@@ -1000,6 +1006,101 @@ suite("settingsTransferCommands undo flow", () => {
 		assert.strictEqual(world.settings.get("chat.timeout"), 9999);
 		assert.deepStrictEqual(blobOf(world, "a"), { apiKey: "PRE-KEY" });
 		assert.strictEqual(world.snapshotSlot, undefined);
+	});
+
+	test("a failed settings phase re-clears restored blobs whose entries did not restore", async () => {
+		// Blobs restore before settings; when the servers write then fails, the
+		// imported entries are still live, and a restored pre-import blob under
+		// one of them would hand a retired credential to the imported host.
+		const world = makeWorld(
+			{ servers: [{ label: "kept", baseUrl: "http://k:4000" }] },
+			{ kept: { apiKey: "KEPT-KEY" }, retired: { apiKey: "RETIRED-KEY" } }
+		);
+		stageEnvelope(world, {
+			servers: [
+				{ label: "kept", baseUrl: "http://k:4000" },
+				{ label: "retired", baseUrl: "http://r:4000" },
+			],
+		});
+		world.answers.collisions = { kept: "overwrite" };
+		await runImportSettingsFlow(world.env);
+		assert.strictEqual(world.secretValues.get(serverSecretsKey("retired")), undefined, "the import wiped the orphan");
+		world.notifications = [];
+		world.ops = [];
+
+		world.failWrites.add(SERVERS_SETTING_KEY);
+		await runUndoLastImportFlow(world.env);
+		assert.strictEqual(
+			world.secretValues.get(serverSecretsKey("retired")),
+			undefined,
+			"the restored orphan blob must be cleared again while its imported entry is still live"
+		);
+		assert.deepStrictEqual(
+			blobOf(world, "kept"),
+			{ apiKey: "KEPT-KEY" },
+			"a label whose live entry already matches the snapshot keeps its restored blob"
+		);
+		assert.notStrictEqual(world.snapshotSlot, undefined, "the slot is kept for the retry");
+		const note = onlyNotification(world);
+		assert.strictEqual(note.kind, "warning");
+		assert.match(note.message, /snapshot was kept/);
+		const lastDelete = world.ops.lastIndexOf(`secret-delete:${serverSecretsKey("retired")}`);
+		assert.ok(lastDelete !== -1 && lastDelete < world.ops.indexOf("sync"), "the re-clear precedes waking the engine");
+
+		// The retry restores the orphan blob and removes the imported entry together.
+		world.failWrites.clear();
+		world.notifications = [];
+		await runUndoLastImportFlow(world.env);
+		assert.deepStrictEqual(world.settings.get(SERVERS_SETTING_KEY), [{ label: "kept", baseUrl: "http://k:4000" }]);
+		assert.deepStrictEqual(blobOf(world, "retired"), { apiKey: "RETIRED-KEY" });
+		assert.deepStrictEqual(blobOf(world, "kept"), { apiKey: "KEPT-KEY" });
+		assert.strictEqual(world.snapshotSlot, undefined);
+	});
+
+	test("a settings phase that fails while the servers write lands keeps every restored blob", async () => {
+		// The false-positive direction: the entries are back, so the restored
+		// credentials belong exactly where they are and nothing may clear them.
+		const world = makeWorld(
+			{ "chat.timeout": 9999, servers: [{ label: "a", baseUrl: "http://old:4000" }] },
+			{ a: { apiKey: "PRE-KEY" } }
+		);
+		stageEnvelope(world, {
+			"chat.timeout": 1,
+			servers: [{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: "NEW-KEY" } }],
+		});
+		world.answers.collisions = { a: "overwrite" };
+		await runImportSettingsFlow(world.env);
+		world.notifications = [];
+
+		world.failWrites.add("chat.timeout");
+		await runUndoLastImportFlow(world.env);
+		assert.deepStrictEqual(world.settings.get(SERVERS_SETTING_KEY), [{ label: "a", baseUrl: "http://old:4000" }]);
+		assert.deepStrictEqual(blobOf(world, "a"), { apiKey: "PRE-KEY" }, "the entry is back, so its blob stays restored");
+		const note = onlyNotification(world);
+		assert.strictEqual(note.kind, "warning");
+		assert.match(note.message, /1 step failed/);
+	});
+
+	test("a re-clear that itself fails counts into the kept-snapshot warning", async () => {
+		const world = makeWorld({ servers: [{ label: "a", baseUrl: "http://old:4000" }] }, { a: { apiKey: "PRE-KEY" } });
+		stageEnvelope(world, {
+			servers: [{ label: "a", baseUrl: "http://new:4000", auth: { apiKey: "NEW-KEY" } }],
+		});
+		world.answers.collisions = { a: "overwrite" };
+		await runImportSettingsFlow(world.env);
+		world.notifications = [];
+
+		// The servers write fails, and its failure arms the secret store, so the
+		// re-clear of the label's restored blob fails too.
+		world.failWrites.add(SERVERS_SETTING_KEY);
+		world.armSecretFailureOnServersWrite = true;
+		await runUndoLastImportFlow(world.env);
+		assert.deepStrictEqual(blobOf(world, "a"), { apiKey: "PRE-KEY" }, "the clear failed, so the blob is still there");
+		const note = onlyNotification(world);
+		assert.strictEqual(note.kind, "warning");
+		assert.match(note.message, /2 steps failed/, "the unmitigated hazard is counted, not silent");
+		assert.notStrictEqual(world.snapshotSlot, undefined, "the slot is kept for the retry");
+		assert.ok(world.logs.some((line) => line.includes("re-clearing a restored secret")));
 	});
 
 	test("undo asks for confirmation with the snapshot time; declining restores nothing", async () => {
