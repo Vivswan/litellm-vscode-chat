@@ -807,18 +807,26 @@ export class UsagePoller {
 /**
  * The closed failure vocabulary for a transient endpoint error, judged from
  * the thrown error's own classification (never its message): undefined for
- * anything that is not a classified transport error.
+ * anything that is not a classified transport error. Exhaustive over the
+ * transport kinds so a new kind is a compile error here, not a silent "http".
  */
 function failureClassificationOf(error: unknown): UsageFailureClassification | undefined {
 	if (!(error instanceof RequestError)) {
 		return undefined;
 	}
-	if (error.kind === "timeout") {
-		return "timeout";
+	switch (error.kind) {
+		case "timeout":
+			return "timeout";
+		// The server never answered; the OAuth token exchange surfaces these too.
+		case "network":
+		case "connection":
+		case "certificate":
+			return "network";
+		// "auth" and "http" mean the server answered; the status says how.
+		// "aborted" is not a network signal either, so it keeps the same arm.
+		case "auth":
+		case "http":
+		case "aborted":
+			return "http";
 	}
-	if (error.kind === "network") {
-		return "network";
-	}
-	// "auth" and "http" both mean the server answered; the status says how.
-	return "http";
 }

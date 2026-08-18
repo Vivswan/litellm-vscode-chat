@@ -7,6 +7,7 @@ import {
 	AuthenticationError,
 } from "openai";
 import { CancellationError, LanguageModelError } from "vscode";
+import { OAuthTokenSource } from "../../../provider/transport/auth";
 import {
 	type MapErrorContext,
 	mapSdkError,
@@ -301,12 +302,12 @@ suite("provider/transport/errorMapping", () => {
 	});
 
 	suite("connection errors", () => {
-		test("ECONNREFUSED in the cause chain maps to the connection message", () => {
+		test("ECONNREFUSED in the cause chain maps to the connection message with the cause on the detail line", () => {
 			const err = connectionError(new Error("connect ECONNREFUSED 127.0.0.1:4000"));
 			const mapped = expectRequestError(mapSdkError(err, chatCtx), "connection");
 			assert.strictEqual(
 				mapped.message,
-				"Connection Error: Unable to connect to http://litellm.test. Please check that the server is running and the URL is correct."
+				"Connection Error: Unable to connect to http://litellm.test. Please check that the server is running and the URL is correct.\n\nDetails: fetch failed (cause: connect ECONNREFUSED 127.0.0.1:4000)"
 			);
 			assert.strictEqual(mapped.cause, err);
 			// Nothing listens on that port - the one connection failure where "is
@@ -319,9 +320,13 @@ suite("provider/transport/errorMapping", () => {
 				Object.assign(new Error("getaddrinfo ENOTFOUND litellm.internal"), { code: "ENOTFOUND" })
 			);
 			const mapped = expectRequestError(mapSdkError(err, chatCtx), "connection");
-			assert.strictEqual(
+			assertStartsWith(
 				mapped.message,
 				"Connection Error: Unable to connect to http://litellm.test. Please check that the server is running and the URL is correct."
+			);
+			assert.ok(
+				mapped.message.endsWith("\n\nDetails: fetch failed (cause: getaddrinfo ENOTFOUND litellm.internal)"),
+				mapped.message
 			);
 			// DNS failure does not establish the proxy is stopped (a mistyped hostname
 			// resolves nowhere with the proxy running fine), so no hint.
@@ -361,6 +366,209 @@ suite("provider/transport/errorMapping", () => {
 					"\n\nDetails: SSL certificate error for http://litellm.test: unable to verify the first certificate (UNABLE_TO_VERIFY_LEAF_SIGNATURE)"
 				),
 				mapped.message
+			);
+		});
+	});
+
+	suite("socket-failure classifier parity (chat transport vs OAuth token endpoint)", () => {
+		// Both entry points classify the same raw fetch failures through the one
+		// shared classifier: identical kind and identical cause-detail
+		// extraction, with only the context-sanctioned advice differing. The
+		// expected headlines are pinned per entry point so every wording
+		// difference is a decision recorded here, not drift.
+		const URL_UNDER_TEST = "http://litellm.test";
+
+		/** Drive the OAuth exchange's socket-failure tail: fetch rejects with the synthetic failure on every retry. */
+		async function oauthSocketFailure(makeFailure: () => unknown): Promise<RequestError> {
+			const realFetch = globalThis.fetch;
+			globalThis.fetch = () => Promise.reject(makeFailure());
+			try {
+				await new OAuthTokenSource().getToken(
+					{ tokenUrl: URL_UNDER_TEST, clientId: "client-1", clientSecret: "secret-1" },
+					"chat",
+					5000
+				);
+			} catch (error) {
+				assert.ok(error instanceof RequestError, `expected a RequestError, got ${String(error)}`);
+				return error;
+			} finally {
+				globalThis.fetch = realFetch;
+			}
+			assert.fail("expected the token exchange to reject");
+		}
+
+		/** The undici shape both entry points see: TypeError "fetch failed" carrying the socket failure as its cause. */
+		function fetchFailure(deepest: unknown): TypeError {
+			return Object.assign(new TypeError("fetch failed"), { cause: deepest });
+		}
+
+		/** The chat-surface join split back into headline and detail. */
+		function parts(message: string): { headline: string; detail: string } {
+			const [headline = "", detail = ""] = message.split("\n\nDetails: ");
+			return { headline, detail };
+		}
+
+		const CHAT_CONNECTION_HEADLINE =
+			"Connection Error: Unable to connect to http://litellm.test. Please check that the server is running and the URL is correct.";
+		const OAUTH_CONNECTION_HEADLINE =
+			"Connection Error: Unable to connect to the OAuth token endpoint at http://litellm.test. Please check that the OAuth token URL is correct and the identity provider is reachable.";
+
+		const cases: {
+			name: string;
+			deepest: () => unknown;
+			kind: RequestError["kind"];
+			detail: string;
+			chatHeadline: string;
+			oauthHeadline: string;
+			chatSetupHint?: "proxy-not-running";
+		}[] = [
+			{
+				name: "an expired certificate",
+				deepest: () => new Error("certificate has expired"),
+				kind: "certificate",
+				// The expired headline states the diagnosis itself, so no detail line.
+				detail: "",
+				chatHeadline:
+					"SSL Certificate Error: The SSL certificate for http://litellm.test has expired. Please contact your LiteLLM server administrator to renew the certificate, or update your base URL.",
+				oauthHeadline:
+					"SSL Certificate Error: The SSL certificate for the OAuth token endpoint at http://litellm.test has expired. Please contact your identity provider's administrator to renew the certificate, or update the OAuth token URL in this server's settings.",
+			},
+			{
+				name: "an expired certificate signalled by code alone",
+				deepest: () => Object.assign(new Error("socket connect failure"), { code: "CERT_HAS_EXPIRED" }),
+				kind: "certificate",
+				detail: "",
+				chatHeadline:
+					"SSL Certificate Error: The SSL certificate for http://litellm.test has expired. Please contact your LiteLLM server administrator to renew the certificate, or update your base URL.",
+				oauthHeadline:
+					"SSL Certificate Error: The SSL certificate for the OAuth token endpoint at http://litellm.test has expired. Please contact your identity provider's administrator to renew the certificate, or update the OAuth token URL in this server's settings.",
+			},
+			{
+				name: "an unverifiable certificate",
+				deepest: () =>
+					Object.assign(new Error("unable to verify the first certificate"), {
+						code: "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+					}),
+				kind: "certificate",
+				detail:
+					"SSL certificate error for http://litellm.test: unable to verify the first certificate (UNABLE_TO_VERIFY_LEAF_SIGNATURE)",
+				chatHeadline:
+					"The server's SSL certificate couldn't be verified, so the connection was blocked. Trust the server's certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your LiteLLM server administrator.",
+				oauthHeadline:
+					"The identity provider's SSL certificate couldn't be verified, so the connection was blocked. Trust its certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your identity provider's administrator.",
+			},
+			{
+				name: "ECONNREFUSED",
+				deepest: () => new Error("connect ECONNREFUSED 127.0.0.1:4000"),
+				kind: "connection",
+				detail: "fetch failed (cause: connect ECONNREFUSED 127.0.0.1:4000)",
+				chatHeadline: CHAT_CONNECTION_HEADLINE,
+				oauthHeadline: OAUTH_CONNECTION_HEADLINE,
+				// Sanctioned per-endpoint difference: at the server "is the proxy
+				// running?" is certain; at the token endpoint the stopped process
+				// would be the identity provider, so the OAuth side gets no hint.
+				chatSetupHint: "proxy-not-running",
+			},
+			{
+				name: "ENOTFOUND",
+				deepest: () => Object.assign(new Error("getaddrinfo ENOTFOUND litellm.internal"), { code: "ENOTFOUND" }),
+				kind: "connection",
+				detail: "fetch failed (cause: getaddrinfo ENOTFOUND litellm.internal)",
+				chatHeadline: CHAT_CONNECTION_HEADLINE,
+				oauthHeadline: OAUTH_CONNECTION_HEADLINE,
+			},
+			{
+				name: "an AggregateError of parallel connect attempts",
+				// Node's happy-eyeballs shape: the aggregate's own message is empty
+				// and the first attempt carries the actionable socket text.
+				deepest: () =>
+					Object.assign(
+						new AggregateError([
+							Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:4000"), { code: "ECONNREFUSED" }),
+							Object.assign(new Error("connect ECONNREFUSED [::1]:4000"), { code: "ECONNREFUSED" }),
+						]),
+						{ code: "ECONNREFUSED" }
+					),
+				kind: "connection",
+				detail: "fetch failed (cause: connect ECONNREFUSED 127.0.0.1:4000)",
+				chatHeadline: CHAT_CONNECTION_HEADLINE,
+				oauthHeadline: OAUTH_CONNECTION_HEADLINE,
+				// Still an ECONNREFUSED, so the chat side keeps its sanctioned hint.
+				chatSetupHint: "proxy-not-running",
+			},
+			{
+				name: "an AggregateError carrying only a code",
+				// The aggregate stays the deepest link when it has no Error members,
+				// so its bare code is the only cause text available.
+				deepest: () => Object.assign(new AggregateError([]), { code: "ECONNREFUSED" }),
+				kind: "connection",
+				detail: "fetch failed (cause: ECONNREFUSED)",
+				chatHeadline: CHAT_CONNECTION_HEADLINE,
+				oauthHeadline: OAUTH_CONNECTION_HEADLINE,
+				chatSetupHint: "proxy-not-running",
+			},
+			{
+				name: "a deep cause chain ending in an unroutable network",
+				deepest: () =>
+					new Error("request dispatch failed", {
+						cause: new Error("socket dial error", {
+							cause: Object.assign(new Error("connect ENETUNREACH 10.0.0.1:443"), { code: "ENETUNREACH" }),
+						}),
+					}),
+				kind: "network",
+				detail: "fetch failed (cause: connect ENETUNREACH 10.0.0.1:443)",
+				chatHeadline:
+					"Could not reach http://litellm.test. Check your network, VPN, or proxy settings, and that the server is up.",
+				oauthHeadline:
+					"Network Error: Unable to reach the OAuth token endpoint at http://litellm.test. Please check that the URL is correct and the identity provider is reachable.",
+			},
+		];
+
+		for (const c of cases) {
+			test(`${c.name} classifies identically at both entry points`, async () => {
+				const chat = expectRequestError(
+					mapSdkError(new APIConnectionError({ cause: fetchFailure(c.deepest()) }), chatCtx),
+					c.kind
+				);
+				const oauth = await oauthSocketFailure(() => fetchFailure(c.deepest()));
+
+				// One classification rule: identical kind, identical cause-detail extraction.
+				assert.strictEqual(oauth.kind, chat.kind);
+				assert.strictEqual(parts(chat.message).detail, c.detail);
+				assert.strictEqual(parts(oauth.message).detail, parts(chat.message).detail);
+
+				// The sanctioned differences: advice wording per endpoint, the chat-only
+				// setup hint, and the token-endpoint provenance mark.
+				assert.strictEqual(parts(chat.message).headline, c.chatHeadline);
+				assert.strictEqual(parts(oauth.message).headline, c.oauthHeadline);
+				assert.strictEqual(chat.setupHint, c.chatSetupHint);
+				assert.strictEqual(oauth.setupHint, undefined, "token-endpoint failures never carry a setup hint");
+				assert.strictEqual(oauth.oauthTokenEndpoint, true);
+				assert.strictEqual(chat.oauthTokenEndpoint, undefined);
+
+				// English fallback: both entry points keep byte-faithful mirrors.
+				assert.strictEqual(chat.englishMessage, chat.message);
+				assert.strictEqual(oauth.englishMessage, oauth.message);
+			});
+		}
+
+		test("a TimeoutError link classifies as timeout at both entry points, each rendering its own budget message", async () => {
+			// The classifier's onTimeout parameter is the one sanctioned
+			// classification-level hand-back: the kind is one rule, but the message
+			// stays endpoint-owned because each endpoint has its own budget.
+			const deepest = () => new DOMException("The operation was aborted due to timeout", "TimeoutError");
+
+			const chat = expectRequestError(
+				mapSdkError(new APIConnectionError({ cause: fetchFailure(deepest()) }), chatCtx),
+				"timeout"
+			);
+			assert.strictEqual(chat.message, timeoutMessage(chatCtx));
+
+			const oauth = await oauthSocketFailure(() => fetchFailure(deepest()));
+			assert.strictEqual(oauth.kind, "timeout");
+			assert.strictEqual(
+				oauth.message,
+				'OAuth token request to http://litellm.test timed out after 5000ms. Increase the "litellm-vscode-chat.discovery.timeout" setting if your identity provider needs more time.'
 			);
 		});
 	});

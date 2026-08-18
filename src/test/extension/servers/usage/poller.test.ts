@@ -740,6 +740,26 @@ suite("extension/servers/usage poller", () => {
 		assert.strictEqual(availabilityOf(h, "alpha"), "unavailable");
 	});
 
+	test("never-answered transport kinds classify as network failures, not http", async () => {
+		// The shared socket-failure classifier surfaces "connection" and
+		// "certificate" from the OAuth token exchange; the usage vocabulary folds
+		// every never-answered kind into "network", so the drawer and the refresh
+		// toast say "network error" rather than implying the server answered.
+		const h = makeHarness({ intervalMs: 0 });
+		for (const kind of ["connection", "certificate"] as const) {
+			h.client.keyInfoResult = new RequestError("no answer", kind, {
+				englishMessage: "no answer",
+				oauthTokenEndpoint: true,
+			});
+			await h.poller.refreshNow();
+			assert.deepStrictEqual(
+				stateOf(h, "alpha").endpoints.keyInfo,
+				{ kind: "error", classification: "network" },
+				`kind ${kind} must read as a network failure`
+			);
+		}
+	});
+
 	test("consecutive statusless failures back off scheduled attempts, doubling to a 16x cap", async () => {
 		// The dead-address shape: timeouts with no HTTP status classify as
 		// error-kind, and before the backoff they re-burned the full discovery

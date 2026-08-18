@@ -235,9 +235,11 @@ suite("provider/transport/auth", () => {
 			);
 		});
 
-		test("the network detail unwraps one level of cause to the socket error code", async () => {
+		test("a DNS failure classifies as a connection error with the cause chain on the detail line", async () => {
 			// Under undici a DNS failure surfaces as TypeError "fetch failed" with
-			// the real reason on error.cause; the detail line must carry that reason.
+			// the real reason on error.cause; the shared socket-failure classifier
+			// gives it the same "connection" kind and cause-detail extraction as
+			// the chat and discovery transports, with token-endpoint advice.
 			const realFetch = globalThis.fetch;
 			globalThis.fetch = () =>
 				Promise.reject(
@@ -248,13 +250,18 @@ suite("provider/transport/auth", () => {
 			try {
 				const source = new OAuthTokenSource();
 
-				const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", 5000), "network");
+				const error = await expectRequestError(source.getToken(oauthConfig(), "discovery", 5000), "connection");
 
-				assert.ok(error.message.includes("fetch failed: ENOTFOUND"), `unexpected message: ${error.message}`);
 				assert.ok(
-					error.message.includes("\nfetch failed: ENOTFOUND"),
+					error.message.includes(`Unable to connect to the OAuth token endpoint at ${TOKEN_URL}`),
+					`unexpected message: ${error.message}`
+				);
+				assert.ok(
+					error.message.includes("\nfetch failed (cause: getaddrinfo ENOTFOUND idp.test)"),
 					`the discovery detail sits under the headline on its own line: ${error.message}`
 				);
+				assert.strictEqual(error.setupHint, undefined, "the proxy-not-running hint would name the wrong process");
+				assert.strictEqual(error.oauthTokenEndpoint, true, "usage-availability classification keys on this flag");
 			} finally {
 				globalThis.fetch = realFetch;
 			}

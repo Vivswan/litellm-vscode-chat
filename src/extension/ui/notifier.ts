@@ -255,10 +255,11 @@ export class Notifier implements vscode.Disposable {
 				// The dedup signature is an internal English key, never displayed.
 				// It keys on the HEADLINE plus the setup hint, matching what the
 				// toast shows: the detail line's server-derived churn is not new
-				// information, while distinct causes can share display text
-				// (ENOTFOUND and ECONNREFUSED render the same message, but only
-				// the latter carries proxy-not-running), so a failure whose hint
-				// changes must re-fire the toast carrying the docs action.
+				// information, while distinct causes can share a headline
+				// (ENOTFOUND and ECONNREFUSED render the same connection headline
+				// over different cause details, but only the latter carries
+				// proxy-not-running), so a failure whose hint changes must re-fire
+				// the toast carrying the docs action.
 				signature: `all-failed:${statusErrorHeadline(firstFailure.error)}:${firstFailure.classification?.setupHint ?? ""}`,
 				kind: "error",
 				message: l10n.t("LiteLLM: {0}", statusErrorHeadline(firstFailure.error)),

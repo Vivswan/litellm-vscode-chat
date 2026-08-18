@@ -6,7 +6,7 @@ import { isValidHeaderValue } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
 import { sleepUnlessAborted } from "../../shared/util/timer";
 import { DISCOVERY_MAX_RETRIES } from "../catalog/discovery";
-import { type MapErrorContext, RequestError, twoPartTexts } from "./errorMapping";
+import { type MapErrorContext, RequestError, socketFailureRequestError, twoPartTexts } from "./errorMapping";
 
 /**
  * OAuth2 client-credentials authentication for gateways behind an identity
@@ -431,43 +431,14 @@ async function exchangeClientCredentials(
 	if (lastFailure instanceof RequestError) {
 		throw lastFailure;
 	}
-	const detail = socketFailureDetail(lastFailure);
-	const headline = {
-		display: l10n.t(
-			"Network Error: Unable to reach the OAuth token endpoint at {0}. Please check that the URL is correct and the identity provider is reachable.",
-			config.tokenUrl
-		),
-		english: `Network Error: Unable to reach the OAuth token endpoint at ${config.tokenUrl}. Please check that the URL is correct and the identity provider is reachable.`,
-	};
-	// A failure with no socket-level text gets the headline alone rather than
-	// a trailing blank detail; the mirror stays byte-faithful either way.
-	const texts = twoPartTexts(surface, headline, detail);
-	throw new RequestError(texts.message, "network", {
-		cause: lastFailure,
-		englishMessage: texts.englishMessage,
-	});
-}
-
-/**
- * The socket-level failure text with one level of cause unwrapped: under the
- * extension host's undici fetch, failures surface as a TypeError whose message
- * is literally "fetch failed" with the real reason in error.cause. Runtime
- * error-object text only - this must never be handed a response payload. Total
- * by construction: a hostile getter on cause/code/message must not replace the
- * network error with its own throw.
- */
-function socketFailureDetail(failure: unknown): string {
-	try {
-		if (!(failure instanceof Error)) {
-			return "";
-		}
-		const cause = failure.cause instanceof AggregateError ? failure.cause.errors[0] : failure.cause;
-		const code = cause instanceof Error ? (cause as { code?: unknown }).code : undefined;
-		const causeMessage = cause instanceof Error && typeof cause.message === "string" ? cause.message : "";
-		const reason = typeof code === "string" && code !== "" ? code : causeMessage;
-		const message = typeof failure.message === "string" ? failure.message : "";
-		return collapseWhitespace([message, reason].filter((part) => part !== "").join(": "));
-	} catch {
-		return "";
-	}
+	// The shared socket-failure classifier: identical kind and cause-detail
+	// rules as the chat and discovery transports, with token-endpoint advice.
+	// Its timeout arm renders this exchange's own budget message; the exchange's
+	// signal-governed timeouts have already thrown above.
+	throw socketFailureRequestError(
+		lastFailure,
+		lastFailure,
+		{ endpoint: "oauthToken", surface, url: config.tokenUrl },
+		() => timeoutError(config.tokenUrl, timeoutMs, lastFailure)
+	);
 }

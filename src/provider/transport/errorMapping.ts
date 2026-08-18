@@ -47,9 +47,10 @@ export class RequestError extends MirroredError {
 	 */
 	readonly unsupportedEndpoint?: "modelListing";
 	/**
-	 * Set by auth.ts at the OAuth token-endpoint construction sites: the
-	 * failure happened during the token exchange, BEFORE the target endpoint
-	 * was called, so consumers judging the target endpoint from this error must
+	 * Set at the OAuth token-endpoint construction sites (auth.ts and the
+	 * shared socket-failure classifier's oauthToken context): the failure
+	 * happened during the token exchange, BEFORE the target endpoint was
+	 * called, so consumers judging the target endpoint from this error must
 	 * treat it as proving nothing about that endpoint.
 	 */
 	readonly oauthTokenEndpoint?: true;
@@ -245,7 +246,17 @@ function causeChain(err: unknown): ChainLink[] {
 		}
 		chain.push(link);
 		try {
-			current = current.cause;
+			const next: unknown = current.cause;
+			if (next instanceof Error) {
+				current = next;
+			} else if (current instanceof AggregateError && current.errors[0] instanceof Error) {
+				// Undici aggregates parallel connect attempts (IPv4 + IPv6) into an
+				// AggregateError whose own message is empty; the first attempt
+				// carries the actionable socket text.
+				current = current.errors[0];
+			} else {
+				break;
+			}
 		} catch {
 			break;
 		}
@@ -253,17 +264,25 @@ function causeChain(err: unknown): ChainLink[] {
 	return chain;
 }
 
+/** One link's diagnostic text: its message, or its bare code when the message is empty (Node's AggregateError shape). */
+function linkText(link: ChainLink | undefined): string {
+	if (link === undefined) {
+		return "";
+	}
+	return link.message !== "" ? link.message : (link.code ?? "");
+}
+
 /**
- * One compact diagnostic from the cause chain: the first message (trailing
+ * One compact diagnostic from the cause chain: the first link's text (trailing
  * period trimmed) plus the deepest distinct cause. Compacted so a multi-line
  * cause cannot break the two-line message shape.
  */
 function chainDetail(chain: ChainLink[], fallbackMessage: string): string {
 	const fallback = typeof fallbackMessage === "string" ? fallbackMessage : "";
-	const first = chain[0]?.message ?? fallback;
-	const deepest = chain.at(-1)?.message;
+	const first = chain.length > 0 ? linkText(chain[0]) : fallback;
+	const deepest = linkText(chain.at(-1));
 	const head = first.replace(/\.$/, "");
-	const joined = deepest !== undefined && deepest !== "" && deepest !== first ? `${head} (cause: ${deepest})` : head;
+	const joined = deepest !== "" && deepest !== first ? `${head} (cause: ${deepest})` : head;
 	return compactText(joined, 300);
 }
 
@@ -634,6 +653,188 @@ export function streamErrorFrame(error: Record<string, unknown>): RequestError {
 }
 
 /**
+ * Where a non-HTTP fetch failure happened. The endpoint varies ADVICE only -
+ * which headline renders, which URL it names, whether a setup hint is certain -
+ * never the classification: kind and cause-detail extraction are one rule for
+ * the chat, discovery, and OAuth token-endpoint callers.
+ */
+interface SocketFailureContext {
+	endpoint: "chat" | "discovery" | "oauthToken";
+	/** The surface whose two-part join renders the message; the token exchange fails toward its caller's surface. */
+	surface: MapErrorContext["surface"];
+	/** The URL the advice names: the server base URL, or the OAuth token endpoint. */
+	url: string;
+}
+
+/** Expired-certificate advice per endpoint: who renews it, and which URL setting to revisit. */
+function expiredCertificateHeadline(ctx: SocketFailureContext): LocalizedText {
+	if (ctx.endpoint === "oauthToken") {
+		return {
+			display: l10n.t(
+				"SSL Certificate Error: The SSL certificate for the OAuth token endpoint at {0} has expired. Please contact your identity provider's administrator to renew the certificate, or update the OAuth token URL in this server's settings.",
+				ctx.url
+			),
+			english: `SSL Certificate Error: The SSL certificate for the OAuth token endpoint at ${ctx.url} has expired. Please contact your identity provider's administrator to renew the certificate, or update the OAuth token URL in this server's settings.`,
+		};
+	}
+	return {
+		display: l10n.t(
+			"SSL Certificate Error: The SSL certificate for {0} has expired. Please contact your LiteLLM server administrator to renew the certificate, or update your base URL.",
+			ctx.url
+		),
+		english: `SSL Certificate Error: The SSL certificate for ${ctx.url} has expired. Please contact your LiteLLM server administrator to renew the certificate, or update your base URL.`,
+	};
+}
+
+/** Unverified-certificate advice per endpoint: whose certificate authority to trust or whose admin to call. */
+function unverifiedCertificateHeadline(ctx: SocketFailureContext): LocalizedText {
+	if (ctx.endpoint === "oauthToken") {
+		return {
+			display: l10n.t(
+				"The identity provider's SSL certificate couldn't be verified, so the connection was blocked. Trust its certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your identity provider's administrator."
+			),
+			english:
+				"The identity provider's SSL certificate couldn't be verified, so the connection was blocked. Trust its certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your identity provider's administrator.",
+		};
+	}
+	return {
+		display: l10n.t(
+			"The server's SSL certificate couldn't be verified, so the connection was blocked. Trust the server's certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your LiteLLM server administrator."
+		),
+		english:
+			"The server's SSL certificate couldn't be verified, so the connection was blocked. Trust the server's certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your LiteLLM server administrator.",
+	};
+}
+
+/** Nothing-answered advice per endpoint: which process to check and which URL setting names it. */
+function connectionHeadline(ctx: SocketFailureContext): LocalizedText {
+	if (ctx.endpoint === "oauthToken") {
+		return {
+			display: l10n.t(
+				"Connection Error: Unable to connect to the OAuth token endpoint at {0}. Please check that the OAuth token URL is correct and the identity provider is reachable.",
+				ctx.url
+			),
+			english: `Connection Error: Unable to connect to the OAuth token endpoint at ${ctx.url}. Please check that the OAuth token URL is correct and the identity provider is reachable.`,
+		};
+	}
+	return {
+		display: l10n.t(
+			"Connection Error: Unable to connect to {0}. Please check that the server is running and the URL is correct.",
+			ctx.url
+		),
+		english: `Connection Error: Unable to connect to ${ctx.url}. Please check that the server is running and the URL is correct.`,
+	};
+}
+
+/** Generic could-not-reach advice per endpoint; chat and discovery keep their distinct framing of what was lost. */
+function unreachableHeadline(ctx: SocketFailureContext): LocalizedText {
+	if (ctx.endpoint === "oauthToken") {
+		return {
+			display: l10n.t(
+				"Network Error: Unable to reach the OAuth token endpoint at {0}. Please check that the URL is correct and the identity provider is reachable.",
+				ctx.url
+			),
+			english: `Network Error: Unable to reach the OAuth token endpoint at ${ctx.url}. Please check that the URL is correct and the identity provider is reachable.`,
+		};
+	}
+	return ctx.endpoint === "chat"
+		? {
+				display: l10n.t(
+					"Could not reach {0}. Check your network, VPN, or proxy settings, and that the server is up.",
+					ctx.url
+				),
+				english: `Could not reach ${ctx.url}. Check your network, VPN, or proxy settings, and that the server is up.`,
+			}
+		: {
+				display: l10n.t(
+					"Could not reach {0} to list its models. Check your network, VPN, or proxy settings, and that the server is up.",
+					ctx.url
+				),
+				english: `Could not reach ${ctx.url} to list its models. Check your network, VPN, or proxy settings, and that the server is up.`,
+			};
+}
+
+/**
+ * The one classifier for every non-HTTP fetch failure: the chat and discovery
+ * transports (via mapSdkError) and the OAuth token exchange (auth.ts) all
+ * classify the same raw socket failures here, so an expired certificate or an
+ * ECONNREFUSED gets the same kind and the same cause-detail extraction
+ * whichever endpoint tripped it; only the advice wording follows the context.
+ * `root` is where the cause chain starts (the SDK error's cause, or the raw
+ * fetch rejection), `cause` is what the RequestError carries. A TimeoutError
+ * link defers to `onTimeout`: timeout messages stay endpoint-owned because
+ * each endpoint has its own budget (the OAuth exchange's hard bound is not the
+ * chat timeout).
+ */
+export function socketFailureRequestError(
+	root: unknown,
+	cause: unknown,
+	ctx: SocketFailureContext,
+	onTimeout: () => RequestError
+): RequestError {
+	const chain = causeChain(root);
+	const haystack = chain.map((link) => `${link.message} ${link.code ?? ""}`).join(" ");
+	if (chain.some((link) => link.name === "TimeoutError")) {
+		return onTimeout();
+	}
+	const oauthMark = ctx.endpoint === "oauthToken" ? { oauthTokenEndpoint: true as const } : {};
+	if (haystack.includes("certificate has expired") || haystack.includes("CERT_HAS_EXPIRED")) {
+		// The headline already states the socket-level diagnosis, so it carries
+		// no detail line - at any endpoint.
+		const headline = expiredCertificateHeadline(ctx);
+		return new RequestError(headline.display, "certificate", {
+			cause,
+			englishMessage: headline.english,
+			...oauthMark,
+		});
+	}
+	if (haystack.includes("certificate")) {
+		// The deepest chain link naming the certificate carries the socket-level
+		// diagnosis; the joined haystack is never rendered (it splices unrelated
+		// wrapper messages together). Node's hostname-mismatch text embeds the
+		// server-supplied SAN list, so the public surfaces get the classification.
+		const certLink =
+			[...chain].reverse().find((link) => link.message.includes("certificate") || (link.code ?? "").includes("CERT")) ??
+			chain.at(-1);
+		const certMessage = compactText(certLink?.message ?? "", 300);
+		const certCode = certLink?.code !== undefined ? compactText(certLink.code, 80) : "";
+		const certText = certMessage !== "" ? `${certMessage}${certCode !== "" ? ` (${certCode})` : ""}` : certCode;
+		const detail = `SSL certificate error for ${ctx.url}${certText !== "" ? `: ${certText}` : ""}`;
+		const texts = twoPartTexts(ctx.surface, unverifiedCertificateHeadline(ctx), detail);
+		return new RequestError(texts.message, "certificate", {
+			cause,
+			logClassification: "RequestError(certificate, unverified)",
+			englishMessage: texts.englishMessage,
+			...oauthMark,
+		});
+	}
+	// An empty cause chain gets no detail line rather than a trailing blank.
+	const detail = chainDetail(chain, "");
+	if (haystack.includes("ENOTFOUND") || haystack.includes("ECONNREFUSED")) {
+		const texts = twoPartTexts(ctx.surface, connectionHeadline(ctx), detail);
+		return new RequestError(texts.message, "connection", {
+			cause,
+			englishMessage: texts.englishMessage,
+			// ECONNREFUSED at the server means the host answered "nothing listens
+			// on that port", so "is the proxy running?" is certainly the right
+			// first question. At the token endpoint the stopped process would be
+			// the identity provider, not the proxy, and ENOTFOUND is DNS (the
+			// process may run fine behind a mistyped hostname) - so no hint.
+			...(ctx.endpoint !== "oauthToken" && haystack.includes("ECONNREFUSED")
+				? { setupHint: "proxy-not-running" as const }
+				: {}),
+			...oauthMark,
+		});
+	}
+	const texts = twoPartTexts(ctx.surface, unreachableHeadline(ctx), detail);
+	return new RequestError(texts.message, "network", {
+		cause,
+		englishMessage: texts.englishMessage,
+		...oauthMark,
+	});
+}
+
+/**
  * Map an error thrown by the openai SDK transport onto the provider's typed
  * errors. Every mapped message follows the two-part shape: a plain-language
  * headline (localized) plus one compact English technical line - never a
@@ -751,93 +952,12 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 	}
 
 	if (err instanceof APIConnectionError) {
-		const chain = causeChain(err.cause);
-		const haystack = chain.map((link) => `${link.message} ${link.code ?? ""}`).join(" ");
-
-		if (chain.some((link) => link.name === "TimeoutError")) {
-			return timeoutRequestError(ctx, err);
-		}
-		if (haystack.includes("certificate has expired") || haystack.includes("CERT_HAS_EXPIRED")) {
-			return new RequestError(
-				l10n.t(
-					"SSL Certificate Error: The SSL certificate for {0} has expired. Please contact your LiteLLM server administrator to renew the certificate, or update your base URL.",
-					ctx.baseUrl
-				),
-				"certificate",
-				{
-					cause: err,
-					englishMessage: `SSL Certificate Error: The SSL certificate for ${ctx.baseUrl} has expired. Please contact your LiteLLM server administrator to renew the certificate, or update your base URL.`,
-				}
-			);
-		}
-		if (haystack.includes("certificate")) {
-			// The deepest chain link naming the certificate carries the
-			// socket-level diagnosis; the joined haystack is never rendered (it
-			// splices unrelated wrapper messages together). Node's
-			// hostname-mismatch text embeds the server-supplied SAN list, so the
-			// public surfaces get the classification.
-			const certLink =
-				[...chain]
-					.reverse()
-					.find((link) => link.message.includes("certificate") || (link.code ?? "").includes("CERT")) ?? chain.at(-1);
-			const certMessage = compactText(certLink?.message ?? err.message, 300);
-			const certCode = certLink?.code !== undefined ? compactText(certLink.code, 80) : "";
-			const detail = `SSL certificate error for ${ctx.baseUrl}: ${certMessage}${certCode !== "" ? ` (${certCode})` : ""}`;
-			const headline: LocalizedText = {
-				display: l10n.t(
-					"The server's SSL certificate couldn't be verified, so the connection was blocked. Trust the server's certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your LiteLLM server administrator."
-				),
-				english:
-					"The server's SSL certificate couldn't be verified, so the connection was blocked. Trust the server's certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your LiteLLM server administrator.",
-			};
-			const texts = twoPartTexts(ctx.surface, headline, detail);
-			return new RequestError(texts.message, "certificate", {
-				cause: err,
-				logClassification: "RequestError(certificate, unverified)",
-				englishMessage: texts.englishMessage,
-			});
-		}
-		if (haystack.includes("ENOTFOUND") || haystack.includes("ECONNREFUSED")) {
-			return new RequestError(
-				l10n.t(
-					"Connection Error: Unable to connect to {0}. Please check that the server is running and the URL is correct.",
-					ctx.baseUrl
-				),
-				"connection",
-				{
-					cause: err,
-					englishMessage: `Connection Error: Unable to connect to ${ctx.baseUrl}. Please check that the server is running and the URL is correct.`,
-					// ECONNREFUSED means the host answered "nothing listens on that
-					// port", so "is the proxy running?" is certainly the right first
-					// question. ENOTFOUND is a DNS failure - the proxy may be running
-					// fine behind a mistyped hostname - so it gets no hint.
-					...(haystack.includes("ECONNREFUSED") ? { setupHint: "proxy-not-running" as const } : {}),
-				}
-			);
-		}
-		const detail = chainDetail(chain, err.message);
-		const headline: LocalizedText =
-			ctx.surface === "chat"
-				? {
-						display: l10n.t(
-							"Could not reach {0}. Check your network, VPN, or proxy settings, and that the server is up.",
-							ctx.baseUrl
-						),
-						english: `Could not reach ${ctx.baseUrl}. Check your network, VPN, or proxy settings, and that the server is up.`,
-					}
-				: {
-						display: l10n.t(
-							"Could not reach {0} to list its models. Check your network, VPN, or proxy settings, and that the server is up.",
-							ctx.baseUrl
-						),
-						english: `Could not reach ${ctx.baseUrl} to list its models. Check your network, VPN, or proxy settings, and that the server is up.`,
-					};
-		// An empty cause chain gets no detail line rather than a trailing blank.
-		const texts = twoPartTexts(ctx.surface, headline, detail);
-		return new RequestError(texts.message, "network", {
-			cause: err,
-			englishMessage: texts.englishMessage,
-		});
+		return socketFailureRequestError(
+			err.cause,
+			err,
+			{ endpoint: ctx.surface, surface: ctx.surface, url: ctx.baseUrl },
+			() => timeoutRequestError(ctx, err)
+		);
 	}
 
 	if (err instanceof RequestError || err instanceof MirroredError || err instanceof CancellationError) {

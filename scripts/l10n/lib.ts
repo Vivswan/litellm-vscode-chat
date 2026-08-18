@@ -189,6 +189,11 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"discoveryHttpHeadline",
 	"streamErrorFrame",
 	"mapSdkError",
+	"expiredCertificateHeadline",
+	"unverifiedCertificateHeadline",
+	"connectionHeadline",
+	"unreachableHeadline",
+	"socketFailureRequestError",
 	// src/extension pure returners (labels, actions, rendered texts).
 	"validateNumberSetting",
 	"usageHttpError",

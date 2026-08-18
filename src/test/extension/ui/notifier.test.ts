@@ -500,11 +500,13 @@ suite("extension/ui/notifier", () => {
 			assert.deepStrictEqual(expectDefined(toasts[1]).buttons, ["Reconfigure", "Troubleshooting Docs", "Report Issue"]);
 		});
 
-		test("distinct causes sharing display text re-fire: DNS failure then connection refused", () => {
-			// Composed from real transport mappings so the shared-text premise cannot
-			// drift: ENOTFOUND and ECONNREFUSED render the same connection message, but
-			// only ECONNREFUSED carries proxy-not-running, so a text-only signature would
-			// suppress the toast offering the docs action.
+		test("distinct causes sharing a toast headline re-fire: DNS failure then connection refused", () => {
+			// Composed from real transport mappings so the shared-headline premise
+			// cannot drift: ENOTFOUND and ECONNREFUSED render the same connection
+			// headline (the toast line the signature keys on; the cause detail below
+			// it differs and is excluded), but only ECONNREFUSED carries
+			// proxy-not-running, so a text-only signature would suppress the toast
+			// offering the docs action.
 			const ctx = { surface: "discovery" as const, baseUrl: "http://litellm.test", timeoutMs: 5000 };
 			const connectionFailure = (deepest: string) =>
 				statusErrorTexts(
@@ -515,9 +517,14 @@ suite("extension/ui/notifier", () => {
 						ctx
 					)
 				);
+			const headlineOf = (text: string) => text.split("\n")[0];
 			const dns = connectionFailure("getaddrinfo ENOTFOUND litellm.test");
 			const refused = connectionFailure("connect ECONNREFUSED 127.0.0.1:4000");
-			assert.strictEqual(dns.error, refused.error, "the premise: both causes share one display text");
+			assert.strictEqual(
+				headlineOf(dns.error),
+				headlineOf(refused.error),
+				"the premise: both causes share one toast headline"
+			);
 			assert.strictEqual(dns.classification?.setupHint, undefined, "DNS failure must carry no hint");
 			assert.strictEqual(refused.classification?.setupHint, "proxy-not-running");
 
