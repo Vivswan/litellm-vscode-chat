@@ -14,6 +14,7 @@ import {
 	DEFAULT_UI_ACCENT,
 	DEFAULT_UI_THEME,
 	isIntegerSetting,
+	isUsableThreshold,
 	MIN_TIMEOUT_MS,
 	MODEL_CAPABILITIES_SETTING_KEY,
 	MODEL_PARAMETERS_SETTING_KEY,
@@ -240,9 +241,7 @@ export function normalizeUsageAlertThresholds(raw: unknown, log?: LogFn): readon
 		log?.("Invalid usage.alertThresholds configuration, using the default", { configured: typeof raw });
 		return DEFAULT_USAGE_ALERT_THRESHOLDS;
 	}
-	const valid = raw.filter(
-		(value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 1
-	);
+	const valid = raw.filter((value): value is number => typeof value === "number" && isUsableThreshold(value));
 	if (valid.length < raw.length) {
 		log?.("Ignoring usage.alertThresholds entries outside (0, 1]", { ignored: raw.length - valid.length });
 	}

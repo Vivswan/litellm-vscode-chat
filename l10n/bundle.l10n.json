@@ -474,7 +474,7 @@
 	},
 	"LiteLLM usage request to {0} timed out after {1}ms. Increase the \"{2}.discovery.timeout\" setting if your server needs more time.": "LiteLLM usage request to {0} timed out after {1}ms. Increase the \"{2}.discovery.timeout\" setting if your server needs more time.",
 	"LiteLLM usage request to {0} was rejected ({1}). The configured key may not be allowed to read usage data on this server.": "LiteLLM usage request to {0} was rejected ({1}). The configured key may not be allowed to read usage data on this server.",
-	"LiteLLM: \"{0}\" has used {1}% of its budget (alert at {2}%)": "LiteLLM: \"{0}\" has used {1}% of its budget (alert at {2}%)",
+	"LiteLLM: \"{0}\" has used {1} of its budget (alert at {2})": "LiteLLM: \"{0}\" has used {1} of its budget (alert at {2})",
 	"LiteLLM: Add Server - API Key": "LiteLLM: Add Server - API Key",
 	"LiteLLM: Add Server - Base URL": "LiteLLM: Add Server - Base URL",
 	"LiteLLM: Add Server - Label": "LiteLLM: Add Server - Label",

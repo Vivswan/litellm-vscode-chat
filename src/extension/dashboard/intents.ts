@@ -15,6 +15,7 @@ import type {
 } from "../../dashboard/endpoints";
 import { unitBehavior } from "../../dashboard/presenters";
 import { isUsableHttpUrl } from "../../dashboard/serverForm";
+import { usableThresholds } from "../../dashboard/spendFormat";
 import { CMD, INTERNAL_CMD, manageCommandTitle } from "../../shared/config/commandIds";
 import type { NumberSettingId } from "../../shared/config/settingSpec";
 import {
@@ -22,6 +23,7 @@ import {
 	CONFIG_SECTION,
 	CURRENCY_SYMBOL_SETTING_KEY,
 	isIntegerSetting,
+	isUsableThreshold,
 	NUMBER_SETTING_SPECS,
 	TOKEN_ESTIMATION_SETTING_KEY,
 	UI_ACCENT_SETTING_KEY,
@@ -453,9 +455,9 @@ export async function executeDashboardIntent(
 		case "setUsageAlertThresholds": {
 			// Out-of-range values are refused rather than silently dropped: the
 			// dashboard's editor validates the same rule, so anything else is a
-			// bypassing caller. Written sorted and deduplicated - the canonical
-			// form normalization would produce anyway.
-			const invalid = intent.payload.values.some((value) => !(value > 0 && value <= 1));
+			// bypassing caller. Written in the canonical deduplicated ascending
+			// form the normalization pipeline would produce anyway.
+			const invalid = intent.payload.values.some((value) => !isUsableThreshold(value));
 			if (invalid) {
 				throw new DashboardValidationError(
 					`${l10n.t("Alert thresholds must be above 0% and at most 100% - enter values like 80% or 0.8.")}\n${l10n.t(
@@ -465,8 +467,7 @@ export async function executeDashboardIntent(
 					)}`
 				);
 			}
-			const canonical = [...new Set(intent.payload.values)].sort((a, b) => a - b);
-			await env.updateSetting(USAGE_ALERT_THRESHOLDS_SETTING_KEY, canonical);
+			await env.updateSetting(USAGE_ALERT_THRESHOLDS_SETTING_KEY, usableThresholds(intent.payload.values));
 			return undefined;
 		}
 		case "refreshCatalog":

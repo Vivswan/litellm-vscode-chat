@@ -38,7 +38,13 @@ import type {
 	UiAccent,
 	UiTheme,
 } from "../../shared/config/settingSpec";
-import { NUMBER_SETTING_SPECS, TOKEN_ESTIMATION_MODES, UI_ACCENTS, UI_THEMES } from "../../shared/config/settingSpec";
+import {
+	isUsableThreshold,
+	NUMBER_SETTING_SPECS,
+	TOKEN_ESTIMATION_MODES,
+	UI_ACCENTS,
+	UI_THEMES,
+} from "../../shared/config/settingSpec";
 import { statusErrorHeadline } from "../../shared/util/errorText";
 import { useAlertOnce } from "./announceOnce";
 import { DOCS_LINK_OPENROUTER_CATALOG, DOCS_LINK_SETTINGS } from "./docsLinks";
@@ -916,7 +922,7 @@ function parseThresholdBox(
 		return { kind: "invalid" };
 	}
 	const value = percent || parsed > 1 ? parsed / 100 : parsed;
-	if (!(value > 0 && value <= 1)) {
+	if (!isUsableThreshold(value)) {
 		return { kind: "invalid" };
 	}
 	return { kind: "value", value };

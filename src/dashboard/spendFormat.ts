@@ -6,6 +6,8 @@
  * never wear two tones.
  */
 
+import { isUsableThreshold } from "../shared/config/settingSpec";
+
 export type SpendTone = "ok" | "warn" | "error";
 
 /**
@@ -24,10 +26,9 @@ export function formatPercent(fraction: number): string {
 	return `${Math.round(fraction * 100)}%`;
 }
 
-/** The thresholds that participate in the scale: finite fractions in (0, 1], deduplicated and ascending. */
+/** The thresholds that participate in the scale: usable per the shared (0, 1] rule, deduplicated and ascending. */
 export function usableThresholds(thresholds: readonly number[]): number[] {
-	const usable = thresholds.filter((t) => Number.isFinite(t) && t > 0 && t <= 1);
-	return [...new Set(usable)].sort((a, b) => a - b);
+	return [...new Set(thresholds.filter(isUsableThreshold))].sort((a, b) => a - b);
 }
 
 /**

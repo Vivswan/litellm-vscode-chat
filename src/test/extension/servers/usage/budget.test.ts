@@ -1,4 +1,5 @@
 import * as assert from "node:assert";
+import { usableThresholds } from "../../../../dashboard/spendFormat";
 import type { BudgetStatus, ResolveBudgetInput } from "../../../../extension/servers/usage";
 import { crossedThresholds, newlyCrossedThresholds, resolveBudget } from "../../../../extension/servers/usage";
 import {
@@ -116,6 +117,21 @@ suite("shared/config/settings usageAlertThresholds normalization", () => {
 	test("a non-array falls back to the default; an empty array is a deliberate off switch", () => {
 		assert.deepStrictEqual(normalizeUsageAlertThresholds("0.8"), DEFAULT_USAGE_ALERT_THRESHOLDS);
 		assert.deepStrictEqual(normalizeUsageAlertThresholds([]), []);
+	});
+
+	test("agrees with the dashboard's usableThresholds on number arrays: one (0, 1] rule, two layers", () => {
+		// shared/config cannot import src/dashboard, so the dedup+sort tail exists
+		// twice (the (0, 1] bound is the shared isUsableThreshold predicate); this
+		// pin holds the two list normalizers together, on number arrays only.
+		const rows: readonly (readonly number[])[] = [
+			[0.95, 0.8, 0.8, 1],
+			[0.8, 0, -0.5, 2, Number.NaN, Number.POSITIVE_INFINITY],
+			[],
+			[1, Number.MIN_VALUE, 0.5, 0.5],
+		];
+		for (const row of rows) {
+			assert.deepStrictEqual(normalizeUsageAlertThresholds([...row]), usableThresholds(row), `row [${row.join(", ")}]`);
+		}
 	});
 });
 

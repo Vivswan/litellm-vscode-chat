@@ -145,18 +145,18 @@ export function renderUsageStatus(
 		serverTooltipLines(state, nowMs, freshByLabel.get(state.label) === true, currencySymbol)
 	);
 	const lowest = usableThresholds(thresholds)[0];
-	if (lowest !== undefined) {
-		// The item's number is one server's ratio; the count keeps the other
-		// tripped servers from hiding behind the maximum.
-		const overCount = fractions.filter((fraction) => fraction >= lowest).length;
-		const others = overCount - (position.worst >= lowest ? 1 : 0);
-		if (others > 0) {
-			tooltipLines.push(
-				others === 1
-					? l10n.t("1 other server is over an alert threshold")
-					: l10n.t("{0} other servers are over an alert threshold", others)
-			);
-		}
+	// The item's number is one server's ratio; the count keeps the other
+	// tripped servers from hiding behind the maximum. Over-budget is its own
+	// state, not a threshold crossing: it counts even with no thresholds,
+	// matching the shared tone map's past-100%-is-error rule.
+	const tripped = (fraction: number) => fraction > 1 || (lowest !== undefined && fraction >= lowest);
+	const others = fractions.filter(tripped).length - (tripped(position.worst) ? 1 : 0);
+	if (others > 0) {
+		tooltipLines.push(
+			others === 1
+				? l10n.t("1 other server is over an alert threshold")
+				: l10n.t("{0} other servers are over an alert threshold", others)
+		);
 	}
 	return { text: formatPercent(position.worst), severity, tooltipLines };
 }

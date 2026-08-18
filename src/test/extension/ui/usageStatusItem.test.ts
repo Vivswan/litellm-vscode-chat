@@ -287,6 +287,20 @@ suite("extension/ui usageStatusItem renderUsageStatus", () => {
 				"no line when the worst server is the only one over"
 			);
 		});
+
+		test("over-budget always counts: with an empty threshold list a second over-budget server still shows", () => {
+			const worst = usageState("alpha", { spend: 150, effectiveBudget: 100 });
+			const alsoOverBudget = usageState("beta", { spend: 120, effectiveBudget: 100 });
+			const under = usageState("gamma", { spend: 99, effectiveBudget: 100 });
+			const view = expectVisible(render([worst, alsoOverBudget, under], { thresholds: [] }));
+			assert.ok(view.tooltipLines.includes("1 other server is over an alert threshold"), view.tooltipLines.join("\n"));
+
+			const alone = expectVisible(render([worst, under], { thresholds: [] }));
+			assert.ok(
+				alone.tooltipLines.every((line) => !line.includes("over an alert threshold")),
+				"under-budget servers never count without a threshold"
+			);
+		});
 	});
 });
 

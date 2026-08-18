@@ -9,6 +9,7 @@
 
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
+import { formatPercent } from "../../dashboard/spendFormat";
 import { INTERNAL_CMD } from "../../shared/config/commandIds";
 import type { UsageStore } from "../servers/usage/store";
 import type { MessageAction } from "./notifier";
@@ -34,14 +35,13 @@ export class UsageAlerts implements vscode.Disposable {
 				return;
 			}
 			const highest = Math.max(...event.newlyCrossedThresholds);
-			const spentPercent = Math.round((event.state.budget.spentFraction ?? highest) * 100);
 			void this.show(
 				"warning",
 				l10n.t(
-					'LiteLLM: "{0}" has used {1}% of its budget (alert at {2}%)',
+					'LiteLLM: "{0}" has used {1} of its budget (alert at {2})',
 					event.label,
-					spentPercent,
-					Math.round(highest * 100)
+					formatPercent(event.state.budget.spentFraction ?? highest),
+					formatPercent(highest)
 				),
 				[openUsageAction(), dismissAction()]
 			);

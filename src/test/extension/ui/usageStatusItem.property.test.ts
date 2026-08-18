@@ -334,8 +334,10 @@ suite("extension/ui renderUsageStatus properties", () => {
 					return sum + (hasDetails ? 2 : 1);
 				}, 0);
 				const { fractions, worst, lowest } = oracle(states, nowMs, pollIntervalMs, thresholds);
-				const overCount = lowest === undefined ? 0 : fractions.filter((fraction) => fraction >= lowest).length;
-				const others = overCount - (worst !== undefined && lowest !== undefined && worst >= lowest ? 1 : 0);
+				// Over an alert threshold, or over the whole budget - the latter
+				// counts even with an empty threshold list.
+				const tripped = (fraction: number) => fraction > 1 || (lowest !== undefined && fraction >= lowest);
+				const others = fractions.filter(tripped).length - (worst !== undefined && tripped(worst) ? 1 : 0);
 				const expected = perServer + (others > 0 ? 1 : 0);
 				assert.strictEqual(
 					view.tooltipLines.length,

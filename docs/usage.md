@@ -132,7 +132,7 @@ Past 100%, the item shows the literal number (`112%`) - the panel's meter just f
 
 The last row is the staleness rule doing its job: the item never shows a stale number as if it were current. Stale servers are excluded from the aggregation and noted in the tooltip; when *no* server has fresh data, the item hides entirely - the connection item already tells the outage story, and a second red thing would add nothing.
 
-The tooltip carries the full per-server breakdown: spend, both budgets, the percentage, the reset date, how many *other* servers are over a threshold, and when the data was last updated. Clicking the item opens [the usage panel](#the-usage-panel).
+The tooltip carries the full per-server breakdown: spend, both budgets, the percentage, the reset date, how many *other* servers are over a threshold (over-budget servers count even with an empty threshold list), and when the data was last updated. Clicking the item opens [the usage panel](#the-usage-panel).
 
 Edge cases the rules above imply, spelled out:
 

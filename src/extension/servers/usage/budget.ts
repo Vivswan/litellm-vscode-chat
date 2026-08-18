@@ -8,6 +8,8 @@
  * stays in the status so the UI can show it beside the effective one.
  */
 
+import { usableThresholds } from "../../../dashboard/spendFormat";
+
 /** Which source provided the effective budget. */
 type BudgetSource = "entry" | "key" | "none";
 
@@ -75,16 +77,15 @@ export function resolveBudget(input: ResolveBudgetInput): BudgetStatus {
 
 /**
  * The configured alert fractions the spend fraction sits at or above,
- * deduplicated and ascending. An unknown fraction crosses nothing. Only usable
- * fractions participate (finite, in (0, 1]), so a raw threshold list cannot
- * smuggle a NaN or a zero that every spend would "cross".
+ * deduplicated and ascending. An unknown fraction crosses nothing. Which
+ * fractions participate is the shared usableThresholds rule, so a raw
+ * threshold list cannot smuggle a NaN or a zero that every spend would "cross".
  */
 export function crossedThresholds(spentFraction: number | undefined, thresholds: readonly number[]): number[] {
 	if (spentFraction === undefined || !Number.isFinite(spentFraction)) {
 		return [];
 	}
-	const usable = thresholds.filter((t) => Number.isFinite(t) && t > 0 && t <= 1);
-	return [...new Set(usable)].filter((t) => spentFraction >= t).sort((a, b) => a - b);
+	return usableThresholds(thresholds).filter((t) => spentFraction >= t);
 }
 
 /**

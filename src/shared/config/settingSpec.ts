@@ -141,6 +141,16 @@ export const BOOLEAN_SETTING_SPECS = {
 export type BooleanSettingId = keyof typeof BOOLEAN_SETTING_SPECS;
 
 /**
+ * Whether one number is a usable usage.alertThresholds value: finite, in
+ * (0, 1]. The single statement of the bound - the dashboard's list normalizer,
+ * the settings reader, the intent boundary's refusal, and the editor's parser
+ * all ask this predicate.
+ */
+export function isUsableThreshold(value: number): boolean {
+	return Number.isFinite(value) && value > 0 && value <= 1;
+}
+
+/**
  * The settings under the config section with no scalar spec: the object and
  * array settings plus the free and enum strings. Their value grammars live
  * with their readers; this list only names the keys.
