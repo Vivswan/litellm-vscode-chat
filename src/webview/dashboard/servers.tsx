@@ -651,12 +651,14 @@ function usageDiagnostics(
 						label,
 						formatMoney(card.effectiveBudget - card.spend, spend.currencySymbol)
 					);
+			// The row's one staleness vocabulary, cause and all: the band qualifies a
+			// non-fresh figure with stalenessText verbatim, so it can never name the
+			// state differently than the drawer's fact.
+			const staleness = stalenessText(card);
 			const line = {
 				key: overBudget ? "over-budget" : "budget-pressure",
 				severity: "degraded",
-				// The meter's freshness rule, the same `fresh` field: a non-fresh number
-				// still shows, but never unqualified.
-				headline: card.fresh ? figures : `${figures} ${l10n.t("The spend number is stale and may be out of date.")}`,
+				headline: staleness === undefined ? figures : l10n.t("{0} Spend figure: {1}.", figures, staleness),
 				actions: [],
 			} as const;
 			found.push(tone === "warn" ? { ...line, placement: "drawer" } : { ...line, tone: "error" });

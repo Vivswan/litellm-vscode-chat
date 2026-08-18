@@ -766,13 +766,47 @@ describe("the usage diagnostics", () => {
 		expect(textOf(stale, ".spend-note")).toBe("stale");
 		const staleLine = stale.querySelector(".row-diagnostic") as HTMLElement;
 		expect(staleLine.textContent).toContain("Prod is over its budget by $3.00.");
-		expect(staleLine.textContent).toContain("The spend number is stale and may be out of date.");
+		expect(staleLine.textContent).toContain("Spend figure: stale.");
 		cleanup();
 		const fresh = mountServers(rowFor(true));
 		expect(fresh.querySelector(".spend-note")).toBeNull();
 		const freshLine = fresh.querySelector(".row-diagnostic") as HTMLElement;
 		expect(freshLine.textContent).toContain("Prod is over its budget by $3.00.");
 		expect(freshLine.textContent).not.toContain("stale");
+	});
+
+	test("the band's qualifier is the drawer's staleness fact verbatim, for every cause", () => {
+		// One staleness pipeline: whatever words the drawer's "Spend last updated"
+		// fact uses for the cause, the band uses unchanged - a denied key must not
+		// read "stale" on one surface and "denied" on another.
+		const causes: readonly { keyInfo: UsageServerView["keyInfo"]; text: string }[] = [
+			{ keyInfo: { kind: "ok" }, text: "stale" },
+			{ keyInfo: { kind: "error", classification: "timeout" }, text: "last refresh failed" },
+			{ keyInfo: { kind: "unavailable", reason: "forbidden", status: 403 }, text: "usage access denied" },
+		];
+		for (const cause of causes) {
+			const root = mountServers(
+				makeUsage({
+					servers: [
+						makeUsageServer({
+							label: "Prod",
+							spend: 28,
+							effectiveBudget: 25,
+							spentFraction: 1.12,
+							fresh: false,
+							lastUpdatedAt: NOW - 25 * 60_000,
+							keyInfo: cause.keyInfo,
+						}),
+					],
+				})
+			);
+			const band = Array.from(root.querySelectorAll(".row-diagnostic")).find((line) =>
+				(line.textContent ?? "").includes("over its budget")
+			) as HTMLElement;
+			expect(band.textContent).toContain(`Spend figure: ${cause.text}.`);
+			expect(factOf(openRow(root), "Spend last updated")).toContain(cause.text);
+			cleanup();
+		}
 	});
 
 	test("the warn-tier drawer line never wears the error hue", () => {
