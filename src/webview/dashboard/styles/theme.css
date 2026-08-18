@@ -243,7 +243,7 @@ body.vscode-high-contrast-light [data-slot="reveal"] {
 	/* The named radii, declared at runtime because dashboard.css reads them directly (the
 	   @theme block is inline, so a utility's --radius-* never exists on the page). One
 	   radius per shape class: chip (machine-text chips, provenance badges), pill (the
-	   near-pill toggles, whose rounder box makes filled-vs-outline read as a toggle),
+	   filter bar's chrome - toggles and the scope chip - whose rounder box reads as controls),
 	   field (same value as chip today, a separate token because the classes may part). */
 	--radius-chip: calc(var(--radius) - 2px);
 	--radius-pill: 9px;

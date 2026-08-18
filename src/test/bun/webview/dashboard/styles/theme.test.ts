@@ -61,6 +61,9 @@ const REQUIRED_UTILITIES = [
 	// The badge's shape: the one chip radius token, bound as a var utility so
 	// the badge moves with the token instead of agreeing with it by arithmetic.
 	"rounded-(--radius-chip)",
+	// The field chrome's shape, same binding: input, select, and the declared
+	// models textarea move with --radius-field the same way.
+	"rounded-(--radius-field)",
 	"focus-visible:outline-ring",
 	"disabled:opacity-60",
 	"disabled:bg-transparent",
@@ -236,11 +239,26 @@ test("the palette and radius resets keep Tailwind's defaults unreachable", async
 	// by the coincident calc(var(--radius) - 2px), and the token is the one
 	// knob the chip shape class is supposed to have. Read as the variants' own
 	// base string, so a doc comment naming rounded-sm is the prose it is.
-	const badge = readFileSync(path.resolve(import.meta.dir, "../../../../../webview/dashboard/ui/badge.tsx"), "utf8");
+	const componentsDir = path.resolve(import.meta.dir, "../../../../../webview/dashboard");
+	const badge = readFileSync(path.resolve(componentsDir, "ui/badge.tsx"), "utf8");
 	const badgeBase = /cva\(\s*"([^"]*)"/.exec(badge)?.[1];
 	expect(badgeBase, "no cva base string in badge.tsx").toBeDefined();
 	expect(badgeBase).toContain("rounded-(--radius-chip)");
 	expect(badgeBase).not.toContain("rounded-sm");
+	// The remaining tsx chip and field sites bind their tokens the same way: a
+	// rounded-sm in these files would re-mint the coincidence the badge shed.
+	// Exact counts, because a site quietly losing its binding is the regression.
+	const boundSites = [
+		{ file: "recordEditors.tsx", utility: "rounded-(--radius-chip)", count: 3 },
+		{ file: "serverEditPage.tsx", utility: "rounded-(--radius-field)", count: 1 },
+		{ file: "ui/input.tsx", utility: "rounded-(--radius-field)", count: 1 },
+		{ file: "ui/select.tsx", utility: "rounded-(--radius-field)", count: 1 },
+	] as const;
+	for (const site of boundSites) {
+		const source = readFileSync(path.resolve(componentsDir, site.file), "utf8");
+		expect(source, `${site.file} re-minted rounded-sm`).not.toContain("rounded-sm");
+		expect(occurrences(source, site.utility), `${site.file} lost a token binding`).toBe(site.count);
+	}
 });
 
 /**

@@ -1728,7 +1728,7 @@ const POPOVER_GAP_PX = 4;
  * run of words.
  */
 const chipVariants = cva(
-	"chip-field inline-flex flex-wrap items-baseline gap-1.5 rounded-sm border border-transparent bg-chip px-1 font-mono text-[12px] text-muted-foreground",
+	"chip-field inline-flex flex-wrap items-baseline gap-1.5 rounded-(--radius-chip) border border-transparent bg-chip px-1 font-mono text-[12px] text-muted-foreground",
 	{
 		variants: {
 			// Filled at rest - the frame makes these a bounded region and the fill
@@ -2362,7 +2362,7 @@ export function RecordMatcherTable({
 							{/* The matcher wears the chip chrome OUTLINED where the field
 							    chips are FILLED: one radius system, two fills - identity
 							    reads as a container, data as contents. */}
-							<code className="matcher-key rounded-sm border border-border px-1 font-mono text-[12px] text-foreground [overflow-wrap:anywhere]">
+							<code className="matcher-key rounded-(--radius-chip) border border-border px-1 font-mono text-[12px] text-foreground [overflow-wrap:anywhere]">
 								{matcherName}
 							</code>
 							<span className="matcher-kind text-[11px] text-muted-foreground">
@@ -2496,7 +2496,7 @@ export function RecordMatcherTable({
 								<span className="chip-anchor">
 									<button
 										type="button"
-										className="chip-field chip-add rounded-sm border border-transparent px-1 text-muted-foreground group-hover/row:border-border group-focus-within/row:border-border hover:text-foreground focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid"
+										className="chip-field chip-add rounded-(--radius-chip) border border-transparent px-1 text-muted-foreground group-hover/row:border-border group-focus-within/row:border-border hover:text-foreground focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid"
 										aria-expanded={addOpen}
 										disabled={disabled}
 										aria-label={l10n.t('Add a field to "{0}"', matcherName)}

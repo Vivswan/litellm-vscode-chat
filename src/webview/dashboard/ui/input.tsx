@@ -7,7 +7,7 @@ export function Input({ className, ...props }: ComponentProps<"input">) {
 		<input
 			data-slot="input"
 			className={cn(
-				"rounded-sm border border-input bg-input-background px-1.5 py-[3px] text-input-foreground placeholder:text-input-placeholder focus:outline-1 focus:-outline-offset-1 focus:outline-ring focus:outline-solid aria-invalid:border-input-invalid",
+				"rounded-(--radius-field) border border-input bg-input-background px-1.5 py-[3px] text-input-foreground placeholder:text-input-placeholder focus:outline-1 focus:-outline-offset-1 focus:outline-ring focus:outline-solid aria-invalid:border-input-invalid",
 				className
 			)}
 			{...props}

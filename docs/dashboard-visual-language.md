@@ -229,11 +229,16 @@ job each:
 Chip radius never mints a fresh literal. The named tokens live in theme.css
 (`theme.css --radius-chip`, `theme.css --radius-pill`,
 `theme.css --radius-field`, declared at runtime on `:root` beside `--radius`),
-and every plain-CSS chip, pill, or field rule reads its token, as does the badge
-primitive, which binds the chip token as a utility rather than restating its
-arithmetic: the machine-text chips wear `--radius-chip`, and the toggle pills
-wear `--radius-pill`, the one near-pill radius that makes filled-vs-outline read
-as a toggle rather than a chip.
+and every chip, pill, or field rule reads its token: the plain-CSS rules
+through var(), and the tsx sites - the badge, the record editors' chips, and
+the input, select, and textarea chrome - as var utilities
+(`ui/badge.tsx rounded-(--radius-chip)`,
+`ui/input.tsx rounded-(--radius-field)`) rather than restating the arithmetic.
+The machine-text chips wear `--radius-chip`, and the filter bar's chrome wears
+`--radius-pill` - the toggle pills and the dismissible server-scope chip
+beside them (`dashboard.css .filter-pill`, `dashboard.css .chip`) - the one
+near-pill radius that keeps that transient row reading as controls rather
+than chips.
 
 ## 5. Disclosure
 

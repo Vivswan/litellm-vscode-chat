@@ -12,7 +12,7 @@ export function Select({ className, ...props }: ComponentProps<"select">) {
 		<select
 			data-slot="select"
 			className={cn(
-				"rounded-sm border border-dropdown bg-dropdown-background px-1.5 py-[3px] text-dropdown-foreground focus:outline-1 focus:-outline-offset-1 focus:outline-ring focus:outline-solid",
+				"rounded-(--radius-field) border border-dropdown bg-dropdown-background px-1.5 py-[3px] text-dropdown-foreground focus:outline-1 focus:-outline-offset-1 focus:outline-ring focus:outline-solid",
 				className
 			)}
 			{...props}
