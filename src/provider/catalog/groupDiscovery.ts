@@ -270,6 +270,9 @@ export class GroupDiscovery {
 				server,
 				groupServer.label
 			);
+			// Recorded is what is served, as on the ok branches. Safe against the
+			// stale source: it anchors to the last SUCCESS bundle, so this record
+			// cannot bake a mid-outage edit into later serves.
 			this._options.reporter.reportGroupStatus(
 				server,
 				groupServer,
@@ -280,7 +283,7 @@ export class GroupDiscovery {
 					...(expected ? { expected: true } : {}),
 					...(declared.infos.length > 0 ? { declaredModelCount: declared.infos.length } : {}),
 				},
-				stale?.models ?? [],
+				overridden,
 				{ discoveredRawIds: stale?.discoveredRawIds ?? [] }
 			);
 			if (silent) {

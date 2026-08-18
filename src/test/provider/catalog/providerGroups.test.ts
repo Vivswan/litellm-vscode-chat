@@ -641,6 +641,44 @@ suite("provider groups", () => {
 		});
 	});
 
+	test("a mid-outage override edit reaches the recorded snapshot, not just the served stale set", async () => {
+		// The failure branch must record the very overridden set it serves:
+		// recording the window's undecorated stale models would leave the
+		// dashboard showing pre-edit limits while the picker serves edited ones.
+		const provider = makeProvider();
+		let fail = false;
+		mswServer.use(
+			http.get(MODEL_INFO_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))),
+			http.get(MODELS_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)))
+		);
+
+		// withConfig reads this object live, so mutating it mid-callback is a
+		// real settings change between refreshes.
+		const config: Record<string, unknown> = { "discovery.cacheTtl": 0 };
+		await withConfig(config, async () => {
+			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
+
+			fail = true;
+			config["models.capabilities"] = { "test-model": { max_output_tokens: 2048 } };
+			const served = await provider.provideLanguageModelChatInformation(
+				groupOptions({ baseUrl: TEST_BASE_URL }),
+				cancellation()
+			);
+			const staleInfo = expectDefined(served[0]);
+			assert.strictEqual(expectDefined(staleInfo.statusIcon).id, "warning", "the served set stays stale-flagged");
+			assert.strictEqual(staleInfo.maxOutputTokens, 2048, "the edit reaches the served stale set");
+
+			const snapshot = expectDefined(provider.getServerSnapshots().find((s) => s.status.state === "error"));
+			const recorded = expectDefined(snapshot.models[0]);
+			assert.strictEqual(
+				recorded.maxOutputTokens,
+				staleInfo.maxOutputTokens,
+				"the snapshot records the same overridden set the picker serves"
+			);
+			assert.ok(!("statusIcon" in recorded), "snapshots stay undecorated pre-attach data");
+		});
+	});
+
 	test("stale serving is bounded by the last successful discovery, not by the failure reports", async () => {
 		// Clock-injected: each failed refresh re-records the entry (refreshing its
 		// report timestamp), so only the success anchor can age the window out.
