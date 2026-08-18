@@ -23,8 +23,8 @@ Each row's Status pill is one of six states:
 | Status | Meaning |
 |--------|---------|
 | Connected | Discovery succeeded |
-| Error | The last check failed |
-| Sync issue | The server answers, but its last settings sync reported a problem, typically the [group update limitation](servers.md#lifecycle-renames-removals-hidden-groups) |
+| Error | The last check failed and the server is serving no models |
+| Sync issue | The server answers, but its last settings sync reported a problem - typically the [group update limitation](servers.md#lifecycle-renames-removals-hidden-groups) - or the last check failed while the entry's [declared models](servers.md#declared-models) keep serving |
 | Expected failure | Discovery failed only in categories the entry's [`discovery.expectedFailures`](servers.md#discovery-and-expected-failures) declares, and no models are declared to serve |
 | Misconfigured | The entry itself is invalid - for example more than one [auth form](servers.md#authentication) - and is not used until fixed |
 | Not checked | Declared, but no discovery pass has seen it yet |
