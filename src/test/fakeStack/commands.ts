@@ -917,7 +917,7 @@ const COMMAND_TABLE: ReadonlyArray<{
 	{
 		verb: "error",
 		usage: `${COMMAND_SIGIL}error:<status>`,
-		description: "fail with that HTTP status (400, 401, 403, 404, 408, 409, 422, 429, 500, 502, 503, 504)",
+		description: `fail with that HTTP status (${[...ERROR_STATUSES].sort((a, b) => a - b).join(", ")})`,
 		run(arg, context, command) {
 			const trimmed = arg?.trim() ?? "";
 			const status = /^\d+$/.test(trimmed) ? Number(trimmed) : undefined;

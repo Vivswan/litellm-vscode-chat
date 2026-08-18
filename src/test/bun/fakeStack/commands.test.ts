@@ -315,6 +315,22 @@ describe("fakeStack commands: numeric domains and diagnostics", () => {
 			{ type: "error", statusCode: 429 }
 		);
 	});
+
+	test(`the ${COMMAND_SIGIL}error help lists exactly the statuses the gate accepts, ascending`, () => {
+		// The description derives from the gate's own set; this pins the
+		// agreement from the outside, both ways, over the whole status range.
+		const description = COMMANDS.find((command) => command.verb === "error")?.description ?? "";
+		const listed = (/\(([^)]*)\)/.exec(description)?.[1] ?? "").split(", ").map(Number);
+		const accepted: number[] = [];
+		for (let status = 100; status <= 599; status++) {
+			const result = dispatchCommand(makeContext(`${COMMAND_SIGIL}error:${status}`));
+			if (result !== undefined && result.scenario.type === "error") {
+				accepted.push(status);
+			}
+		}
+		assert.ok(accepted.length > 0, "the gate accepts at least one status");
+		assert.deepStrictEqual(listed, accepted, "the advertised and accepted statuses are the same ascending list");
+	});
 });
 
 describe("fakeStack commands: behavior", () => {
