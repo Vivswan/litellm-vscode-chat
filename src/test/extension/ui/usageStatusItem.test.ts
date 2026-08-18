@@ -1,8 +1,8 @@
 import * as assert from "node:assert";
-import { formatMoney, spendTone } from "../../../dashboard/spendFormat";
+import { formatMoney, spendTone, stalenessText } from "../../../dashboard/spendFormat";
 import { usageFreshnessWindowMs } from "../../../extension/servers/usage/freshness";
-import type { ServerUsageState } from "../../../extension/servers/usage/store";
-import { UNPROBED_ENDPOINTS, UsageStore } from "../../../extension/servers/usage/store";
+import type { ServerUsageState, UsageEndpointState } from "../../../extension/servers/usage/store";
+import { UNPROBED_ENDPOINTS, UsageStore, usageAvailabilityOf } from "../../../extension/servers/usage/store";
 import type { StatusItemLike, StatusItemView } from "../../../extension/ui/status";
 import { renderUsageStatus, UsageStatusBar } from "../../../extension/ui/usageStatusItem";
 
@@ -19,6 +19,8 @@ interface UsageStateOptions {
 	readonly lastUpdatedAt?: number | undefined;
 	readonly budgetResetAt?: number | undefined;
 	readonly keyInfoOk?: boolean;
+	/** The full /key/info standing, when a test drives the staleness cause; wins over keyInfoOk for the standing. */
+	readonly keyInfo?: UsageEndpointState;
 }
 
 /** A key-answering server state; spend/budget default to a healthy 42% position. */
@@ -26,11 +28,15 @@ function usageState(label: string, options: UsageStateOptions = {}): ServerUsage
 	const spend = options.spend ?? 21;
 	const effectiveBudget = "effectiveBudget" in options ? options.effectiveBudget : 50;
 	const keyInfoOk = options.keyInfoOk ?? true;
+	const endpoints = {
+		...UNPROBED_ENDPOINTS,
+		keyInfo: options.keyInfo ?? (keyInfoOk ? ({ kind: "ok" } as const) : ({ kind: "error" } as const)),
+	};
 	return {
 		label,
 		baseUrl: `http://${label}.test`,
-		endpoints: { ...UNPROBED_ENDPOINTS, keyInfo: keyInfoOk ? { kind: "ok" } : { kind: "error" } },
-		availability: keyInfoOk ? "available" : "unknown",
+		endpoints,
+		availability: usageAvailabilityOf(endpoints),
 		lastUpdatedAt: "lastUpdatedAt" in options ? options.lastUpdatedAt : NOW - 60_000,
 		// The freshness rule and tooltip read the SPEND age; the tests' single
 		// lastUpdatedAt option means exactly that.
@@ -272,6 +278,30 @@ suite("extension/ui usageStatusItem renderUsageStatus", () => {
 			assert.ok(tooltip.includes("beta: $30.00 of $60.00 (50%)"), tooltip);
 			assert.ok(tooltip.includes("stale - last updated 25 minutes ago"), tooltip);
 			assert.ok(tooltip.includes("gamma: $5.00 spent, no budget"), tooltip);
+		});
+
+		test("a stale line names its cause through the shared staleness vocabulary", () => {
+			// One staleness pipeline across surfaces: the tooltip composes its
+			// timestamp around the exact words the dashboard's row marker, drawer
+			// fact, and budget band use, so a denied key can never read "stale"
+			// in the status bar and "denied" on the Servers page.
+			const causes: readonly { keyInfo: UsageEndpointState; text: string }[] = [
+				{ keyInfo: { kind: "ok" }, text: "stale" },
+				{ keyInfo: { kind: "error", classification: "timeout" }, text: "last refresh failed" },
+				{ keyInfo: { kind: "unavailable", reason: "forbidden", status: 403 }, text: "usage access denied" },
+			];
+			for (const cause of causes) {
+				assert.strictEqual(stalenessText(false, cause.keyInfo), cause.text);
+				const fresh = usageState("alpha", { spend: 21, effectiveBudget: 50 });
+				const stale = usageState("beta", {
+					spend: 30,
+					effectiveBudget: 60,
+					lastUpdatedAt: NOW - 25 * 60_000,
+					keyInfo: cause.keyInfo,
+				});
+				const tooltip = expectVisible(render([fresh, stale])).tooltipLines.join("\n");
+				assert.ok(tooltip.includes(`${cause.text} - last updated 25 minutes ago`), tooltip);
+			}
 		});
 
 		test("counts the other fresh servers over a threshold", () => {

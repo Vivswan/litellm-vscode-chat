@@ -4,7 +4,14 @@ import { Fragment, useEffect, useId, useState } from "react";
 import { latestCheckedMs } from "../../dashboard/presenters";
 import { parseCapabilityGroups, parseGroups, toGroups } from "../../dashboard/recordDraft";
 import { sectionFailureText, serverFormFieldLabel } from "../../dashboard/serverForm";
-import { barPresentation, formatMoney, formatPercent, spendTone, worstSpendTone } from "../../dashboard/spendFormat";
+import {
+	barPresentation,
+	formatMoney,
+	formatPercent,
+	spendTone,
+	stalenessText,
+	worstSpendTone,
+} from "../../dashboard/spendFormat";
 import type { UsageEndpointId } from "../../dashboard/usageEndpoints";
 import { USAGE_ENDPOINT_PATHS } from "../../dashboard/usageEndpoints";
 import type {
@@ -654,7 +661,7 @@ function usageDiagnostics(
 			// The row's one staleness vocabulary, cause and all: the band qualifies a
 			// non-fresh figure with stalenessText verbatim, so it can never name the
 			// state differently than the drawer's fact.
-			const staleness = stalenessText(card);
+			const staleness = stalenessText(card.fresh, card.keyInfo);
 			const line = {
 				key: overBudget ? "over-budget" : "budget-pressure",
 				severity: "degraded",
@@ -991,25 +998,6 @@ function neverUpdatedText(standing: UsageEndpointStandingView): string {
 }
 
 /**
- * What is wrong with a non-fresh age, in the row annotation's own words so marker and drawer
- * never name the state differently: the state has ONE term ("stale", the row marker's word),
- * and the drawer adds the cause instead where one is known. Undefined while the data is fresh.
- */
-function stalenessText(server: UsageServerView): string | undefined {
-	if (server.fresh) {
-		return undefined;
-	}
-	if (server.keyInfo.kind === "error") {
-		return l10n.t("last refresh failed");
-	}
-	if (server.keyInfo.kind === "unavailable" && server.keyInfo.reason === "forbidden") {
-		return l10n.t("usage access denied");
-	}
-	// Merely old (laptop asleep, polling off): the plain history marker, the row's own word.
-	return l10n.t("stale");
-}
-
-/**
  * The Spend fact's reason when /key/info gave no spend number, keyed by the standing: the ONE
  * map for both drawers (reporting and denied), so the wording cannot fork again. The dash
  * beside it already says the number is missing, and the remedy lives in the row's diagnostic,
@@ -1250,7 +1238,7 @@ function UsageFacts({
 	now: number;
 	currencySymbol: string;
 }) {
-	const staleness = stalenessText(server);
+	const staleness = stalenessText(server.fresh, server.keyInfo);
 	const spendReason = server.spend === undefined ? spendMissingReason(server.keyInfo, pollingOff) : undefined;
 	// On a never-fetched server both facts would answer with the same sentence; the second
 	// drops its reason rather than repeating the first word for word.

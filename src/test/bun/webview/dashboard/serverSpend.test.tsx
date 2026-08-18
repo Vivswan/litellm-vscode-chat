@@ -4,6 +4,7 @@
  * reason, never a zero), the diagnostics tiers, the meta summary, the refresh gate.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { stalenessText } from "../../../../dashboard/spendFormat";
 import type {
 	DashboardServer,
 	DashboardUsage,
@@ -778,13 +779,17 @@ describe("the usage diagnostics", () => {
 	test("the band's qualifier is the drawer's staleness fact verbatim, for every cause", () => {
 		// One staleness pipeline: whatever words the drawer's "Spend last updated"
 		// fact uses for the cause, the band uses unchanged - a denied key must not
-		// read "stale" on one surface and "denied" on another.
+		// read "stale" on one surface and "denied" on another. The expected words
+		// are pinned against the shared vocabulary itself (stalenessText), the
+		// same function the status bar tooltip composes around.
 		const causes: readonly { keyInfo: UsageServerView["keyInfo"]; text: string }[] = [
 			{ keyInfo: { kind: "ok" }, text: "stale" },
 			{ keyInfo: { kind: "error", classification: "timeout" }, text: "last refresh failed" },
 			{ keyInfo: { kind: "unavailable", reason: "forbidden", status: 403 }, text: "usage access denied" },
 		];
 		for (const cause of causes) {
+			expect(stalenessText(false, cause.keyInfo)).toBe(cause.text);
+			expect(stalenessText(true, cause.keyInfo)).toBeUndefined();
 			const root = mountServers(
 				makeUsage({
 					servers: [

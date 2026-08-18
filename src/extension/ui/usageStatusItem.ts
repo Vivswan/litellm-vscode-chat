@@ -15,7 +15,13 @@
 import * as l10n from "@vscode/l10n";
 import type * as vscode from "vscode";
 import type { SpendTone } from "../../dashboard/spendFormat";
-import { formatMoney, formatPercent, usableThresholds, worstSpendTone } from "../../dashboard/spendFormat";
+import {
+	formatMoney,
+	formatPercent,
+	stalenessText,
+	usableThresholds,
+	worstSpendTone,
+} from "../../dashboard/spendFormat";
 import type { UsageStatusBarMode } from "../../shared/config/settings";
 import type { Clock, Timer } from "../../shared/util/timer";
 import { PendingCall, REAL_TIMER, SYSTEM_CLOCK } from "../../shared/util/timer";
@@ -54,7 +60,11 @@ function relativeTime(thenMs: number, nowMs: number): string {
 	return new Date(thenMs).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
 }
 
-/** The two tooltip lines for one server with spend data; the detail line notes staleness explicitly. */
+/**
+ * The two tooltip lines for one server with spend data; a non-fresh detail
+ * line names its staleness through the shared vocabulary (stalenessText), so
+ * the tooltip and the dashboard cannot call the same cause different things.
+ */
 function serverTooltipLines(state: ServerUsageState, nowMs: number, fresh: boolean, currencySymbol: string): string[] {
 	const { budget } = state;
 	const spend = budget.spend;
@@ -94,10 +104,11 @@ function serverTooltipLines(state: ServerUsageState, nowMs: number, fresh: boole
 		);
 	}
 	if (state.spendUpdatedAt !== undefined) {
+		const staleness = stalenessText(fresh, state.endpoints.keyInfo);
 		details.push(
-			fresh
+			staleness === undefined
 				? l10n.t("updated {0}", relativeTime(state.spendUpdatedAt, nowMs))
-				: l10n.t("stale - last updated {0}", relativeTime(state.spendUpdatedAt, nowMs))
+				: l10n.t("{0} - last updated {1}", staleness, relativeTime(state.spendUpdatedAt, nowMs))
 		);
 	}
 	return details.length > 0 ? [headline, `  ${details.join(", ")}`] : [headline];

@@ -1,14 +1,40 @@
 /**
  * The spend vocabulary every surface shares: how money and budget percentages
- * print, and how a spend fraction maps onto the ok/warn/error scale. The
- * row meters, the row diagnostics, the Servers header, and the status bar all
- * read these, so one spend can never print two strings and one fraction can
- * never wear two tones.
+ * print, how a spend fraction maps onto the ok/warn/error scale, and what a
+ * non-fresh figure calls its staleness. The row meters, the row diagnostics,
+ * the Servers header, and the status bar all read these, so one spend can
+ * never print two strings, one fraction can never wear two tones, and one
+ * staleness can never wear two names.
  */
 
+import * as l10n from "@vscode/l10n";
 import { isUsableThreshold } from "../shared/config/settingSpec";
+import type { UsageEndpointStandingView } from "./viewModels";
 
 export type SpendTone = "ok" | "warn" | "error";
+
+/**
+ * What is wrong with a non-fresh spend age, in ONE vocabulary for every
+ * surface: the state has one term ("stale", the row marker's word), and the
+ * cause replaces it where the /key/info standing knows one. The dashboard's
+ * drawer fact and budget band print this verbatim, the status bar tooltip
+ * composes its timestamp around it, and the row marker shares the plain
+ * "stale" key on purpose (a marker names the state, never the cause), so no
+ * surface can name the state differently. Undefined while the data is fresh.
+ */
+export function stalenessText(fresh: boolean, keyInfo: UsageEndpointStandingView): string | undefined {
+	if (fresh) {
+		return undefined;
+	}
+	if (keyInfo.kind === "error") {
+		return l10n.t("last refresh failed");
+	}
+	if (keyInfo.kind === "unavailable" && keyInfo.reason === "forbidden") {
+		return l10n.t("usage access denied");
+	}
+	// Merely old (laptop asleep, polling off): the plain history marker, the row's own word.
+	return l10n.t("stale");
+}
 
 /**
  * An amount as every spend surface prints it: the configured currency symbol
