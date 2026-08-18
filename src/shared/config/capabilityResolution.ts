@@ -14,7 +14,13 @@
 
 import type { ModelRecordMap } from "./modelMatcher";
 import type { ParsedRecord, RecordChainResolution, RecordDiagnostic, RecordLayer } from "./recordResolution";
-import { INHERITABLE_DIRECTIVE, lintRecordMap, parseSharedDirectives, resolveRecordChain } from "./recordResolution";
+import {
+	INHERITABLE_DIRECTIVE,
+	lintRecordMap,
+	parseMarkingDirective,
+	parseSharedDirectives,
+	resolveRecordChain,
+} from "./recordResolution";
 
 /**
  * The registration-typed core, keyed by wire name (aligned with /model/info),
@@ -215,25 +221,8 @@ export function parseCapabilityRecord(record: Readonly<Record<string, unknown>>)
 		}
 	}
 
-	const fallback = new Set<string>();
-	if (Object.hasOwn(normalized, FALLBACK_DIRECTIVE)) {
-		const directive = normalized[FALLBACK_DIRECTIVE];
-		if (directive === true) {
-			for (const name of Object.keys(fields)) {
-				fallback.add(name);
-			}
-		} else if (Array.isArray(directive)) {
-			for (const name of directive) {
-				if (typeof name === "string" && Object.hasOwn(fields, name)) {
-					fallback.add(name);
-				} else {
-					diagnostics.push({ kind: "invalid-directive", key: FALLBACK_DIRECTIVE });
-				}
-			}
-		} else if (directive !== false) {
-			diagnostics.push({ kind: "invalid-directive", key: FALLBACK_DIRECTIVE });
-		}
-	}
+	const fallback = parseMarkingDirective(normalized, FALLBACK_DIRECTIVE, fields);
+	diagnostics.push(...fallback.diagnostics);
 
 	const shared = parseSharedDirectives(normalized, fields);
 	diagnostics.push(...shared.diagnostics);
@@ -242,7 +231,7 @@ export function parseCapabilityRecord(record: Readonly<Record<string, unknown>>)
 		fields,
 		inheritable: shared.inheritable,
 		forced: new Set(),
-		fallback,
+		fallback: fallback.marked,
 		inheritFrom: shared.inheritFrom,
 		...(openrouterModel !== undefined ? { openrouterModel } : {}),
 		diagnostics,

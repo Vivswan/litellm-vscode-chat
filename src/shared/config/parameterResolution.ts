@@ -15,7 +15,7 @@
 
 import type { ModelRecordMap } from "./modelMatcher";
 import type { ParsedRecord, RecordChainResolution, RecordDiagnostic, RecordLayer } from "./recordResolution";
-import { lintRecordMap, parseSharedDirectives, resolveRecordChain } from "./recordResolution";
+import { lintRecordMap, parseMarkingDirective, parseSharedDirectives, resolveRecordChain } from "./recordResolution";
 
 // The record grammar is shared machinery; the parameters-side consumers
 // import it through this module (the capability side re-exports its own).
@@ -117,32 +117,11 @@ export function parseParameterRecord(record: Readonly<Record<string, unknown>>):
 		}
 	}
 
-	const diagnostics: Omit<RecordDiagnostic, "recordKey">[] = [];
-	const forced = new Set<string>();
-	if (Object.hasOwn(record, FORCE_DIRECTIVE)) {
-		const directive = record[FORCE_DIRECTIVE];
-		if (directive === true) {
-			for (const key of Object.keys(fields)) {
-				if (isForceableParameter(key)) {
-					forced.add(key);
-				}
-			}
-		} else if (Array.isArray(directive)) {
-			for (const name of directive) {
-				if (typeof name !== "string") {
-					diagnostics.push({ kind: "invalid-directive", key: FORCE_DIRECTIVE });
-				} else if (!isForceableParameter(name)) {
-					diagnostics.push({ kind: "unforceable-key", key: name });
-				} else if (!Object.hasOwn(fields, name)) {
-					diagnostics.push({ kind: "invalid-directive", key: FORCE_DIRECTIVE });
-				} else {
-					forced.add(name);
-				}
-			}
-		} else if (directive !== false) {
-			diagnostics.push({ kind: "invalid-directive", key: FORCE_DIRECTIVE });
-		}
-	}
+	const force = parseMarkingDirective(record, FORCE_DIRECTIVE, fields, {
+		allows: isForceableParameter,
+		refusalKind: "unforceable-key",
+	});
+	const diagnostics: Omit<RecordDiagnostic, "recordKey">[] = [...force.diagnostics];
 
 	for (const directive of WRONG_TYPE_DIRECTIVES) {
 		if (Object.hasOwn(record, directive)) {
@@ -156,7 +135,7 @@ export function parseParameterRecord(record: Readonly<Record<string, unknown>>):
 	return {
 		fields,
 		inheritable: shared.inheritable,
-		forced,
+		forced: force.marked,
 		fallback: new Set(),
 		inheritFrom: shared.inheritFrom,
 		diagnostics,

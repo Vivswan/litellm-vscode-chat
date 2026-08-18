@@ -76,10 +76,57 @@ export interface ParsedRecord {
 }
 
 /**
- * Parse the two engine-owned directives out of one raw record. The marking
- * lists may only name the record's own fields: a receiver cannot re-mark
- * inherited fields, and naming an absent field is an invalid-directive
- * diagnostic with the name skipped.
+ * The one parse of the marking-directive grammar, shared by `_inheritable`
+ * (here), `_force` (parameters records), and `_fallback` (capabilities
+ * records). `markable` narrows which keys may carry the mark (`_force`'s
+ * forceability rule), and the two arms narrow differently by design: `true`
+ * skips a refused field silently, while a refused list entry is diagnosed under
+ * its own name with the caller's kind, ahead of the own-field check.
+ */
+export function parseMarkingDirective(
+	record: Readonly<Record<string, unknown>>,
+	directiveName: string,
+	fields: Readonly<Record<string, unknown>>,
+	markable?: {
+		readonly allows: (key: string) => boolean;
+		readonly refusalKind: RecordDiagnosticKind;
+	}
+): { marked: ReadonlySet<string>; diagnostics: readonly Omit<RecordDiagnostic, "recordKey">[] } {
+	const diagnostics: Omit<RecordDiagnostic, "recordKey">[] = [];
+	const marked = new Set<string>();
+	if (!Object.hasOwn(record, directiveName)) {
+		return { marked, diagnostics };
+	}
+	const directive = record[directiveName];
+	if (directive === true) {
+		for (const name of Object.keys(fields)) {
+			if (markable === undefined || markable.allows(name)) {
+				marked.add(name);
+			}
+		}
+	} else if (Array.isArray(directive)) {
+		for (const name of directive) {
+			if (typeof name !== "string") {
+				diagnostics.push({ kind: "invalid-directive", key: directiveName });
+			} else if (markable !== undefined && !markable.allows(name)) {
+				diagnostics.push({ kind: markable.refusalKind, key: name });
+			} else if (!Object.hasOwn(fields, name)) {
+				diagnostics.push({ kind: "invalid-directive", key: directiveName });
+			} else {
+				marked.add(name);
+			}
+		}
+	} else if (directive !== false) {
+		diagnostics.push({ kind: "invalid-directive", key: directiveName });
+	}
+	return { marked, diagnostics };
+}
+
+/**
+ * Parse the two engine-owned directives out of one raw record: `_inheritable`
+ * through parseMarkingDirective, `_inherit_from` here. Marking only the
+ * record's OWN fields is that grammar's rule, and the reason a receiver cannot
+ * re-mark what it inherited.
  */
 export function parseSharedDirectives(
 	record: Readonly<Record<string, unknown>>,
@@ -89,26 +136,8 @@ export function parseSharedDirectives(
 	inheritFrom: InheritFromDirective;
 	diagnostics: Omit<RecordDiagnostic, "recordKey">[];
 } {
-	const diagnostics: Omit<RecordDiagnostic, "recordKey">[] = [];
-	const inheritable = new Set<string>();
-	if (Object.hasOwn(record, INHERITABLE_DIRECTIVE)) {
-		const directive = record[INHERITABLE_DIRECTIVE];
-		if (directive === true) {
-			for (const name of Object.keys(fields)) {
-				inheritable.add(name);
-			}
-		} else if (Array.isArray(directive)) {
-			for (const name of directive) {
-				if (typeof name === "string" && Object.hasOwn(fields, name)) {
-					inheritable.add(name);
-				} else {
-					diagnostics.push({ kind: "invalid-directive", key: INHERITABLE_DIRECTIVE });
-				}
-			}
-		} else if (directive !== false) {
-			diagnostics.push({ kind: "invalid-directive", key: INHERITABLE_DIRECTIVE });
-		}
-	}
+	const inheritable = parseMarkingDirective(record, INHERITABLE_DIRECTIVE, fields);
+	const diagnostics: Omit<RecordDiagnostic, "recordKey">[] = [...inheritable.diagnostics];
 
 	let inheritFrom: InheritFromDirective = { kind: "default" };
 	if (Object.hasOwn(record, INHERIT_FROM_DIRECTIVE)) {
@@ -134,7 +163,7 @@ export function parseSharedDirectives(
 		}
 	}
 
-	return { inheritable, inheritFrom, diagnostics };
+	return { inheritable: inheritable.marked, inheritFrom, diagnostics };
 }
 
 /** One resolved field: the value plus the markings that ride with it from its source record. */
