@@ -91,24 +91,26 @@ export function overallStatusText(
 }
 
 /**
- * The entry-params-inactive classification as diagnostics prose: fixed text
- * derived from the classification alone, so every surface names it the same
- * way. English by policy - these lines land in public issue reports.
+ * The entry-*-inactive classifications as diagnostics prose: each notice names
+ * its affected fields, and one composer appends the shared cause-and-remedy
+ * clause so the four texts cannot drift apart. English by policy - these lines
+ * land in public issue reports.
  */
-const ENTRY_PARAMS_INACTIVE_TEXT =
-	"per-entry modelParameters are not applied (the provider group does not carry this entry's labeled identity); delete the group's object from the models file (chatLanguageModels.json), reload the window, and run Sync Models Now, or save the entry under a new label";
+function entryInactiveText(subject: string): string {
+	return `${subject} (the provider group does not carry this entry's labeled identity); delete the group's object from the models file (chatLanguageModels.json), reload the window, and run Sync Models Now, or save the entry under a new label`;
+}
 
-/** The capabilities twin of ENTRY_PARAMS_INACTIVE_TEXT; English by the same issue-report policy. */
-const ENTRY_CAPABILITIES_INACTIVE_TEXT =
-	"per-entry modelCapabilities, declared models, and expectedFailures are not applied (the provider group does not carry this entry's labeled identity); delete the group's object from the models file (chatLanguageModels.json), reload the window, and run Sync Models Now, or save the entry under a new label";
+const ENTRY_PARAMS_INACTIVE_TEXT = entryInactiveText("per-entry modelParameters are not applied");
 
-/** The custom-headers twin of ENTRY_PARAMS_INACTIVE_TEXT; English by the same issue-report policy. */
-const ENTRY_HEADERS_INACTIVE_TEXT =
-	"per-entry custom headers are not applied (the provider group does not carry this entry's labeled identity); delete the group's object from the models file (chatLanguageModels.json), reload the window, and run Sync Models Now, or save the entry under a new label";
+const ENTRY_CAPABILITIES_INACTIVE_TEXT = entryInactiveText(
+	"per-entry modelCapabilities, declared models, and expectedFailures are not applied"
+);
 
-/** The apiVersion twin of ENTRY_PARAMS_INACTIVE_TEXT; English by the same issue-report policy. */
-const ENTRY_API_VERSION_INACTIVE_TEXT =
-	"the per-entry API version override is not applied, requests use the auto rule (the provider group does not carry this entry's labeled identity); delete the group's object from the models file (chatLanguageModels.json), reload the window, and run Sync Models Now, or save the entry under a new label";
+const ENTRY_HEADERS_INACTIVE_TEXT = entryInactiveText("per-entry custom headers are not applied");
+
+const ENTRY_API_VERSION_INACTIVE_TEXT = entryInactiveText(
+	"the per-entry API version override is not applied, requests use the auto rule"
+);
 
 /** The expected-failure-with-nothing-to-serve line; English by the same issue-report policy. */
 const EXPECTED_FAILURES_NOTHING_DECLARED_TEXT =

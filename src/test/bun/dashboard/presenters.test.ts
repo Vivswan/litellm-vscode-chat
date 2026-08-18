@@ -273,6 +273,31 @@ describe("dashboard/presenters renderers", () => {
 			assert.ok(line.includes("run Sync Models Now"), line);
 		});
 
+		test("the custom-headers twin of the params-inactive line names its own fields", () => {
+			const line = serverOutcomeText(declaredServer({ modelCount: 2, notices: ["entry-headers-inactive"] }));
+			assert.ok(line.startsWith("OK (2 models) - per-entry custom headers are not applied"), line);
+			assert.ok(line.includes("run Sync Models Now"), line);
+		});
+
+		test("the four entry-*-inactive notices share one composed cause-and-remedy clause", () => {
+			// Each notice is its own subject plus the clause the composer appends;
+			// the clause is pinned here once, as users paste it into issue reports.
+			const clause =
+				" (the provider group does not carry this entry's labeled identity); delete the group's object from the models file (chatLanguageModels.json), reload the window, and run Sync Models Now, or save the entry under a new label";
+			const notices = [
+				"entry-params-inactive",
+				"entry-capabilities-inactive",
+				"entry-headers-inactive",
+				"entry-api-version-inactive",
+			] as const;
+			const subjects = notices.map((notice) => {
+				const [text = ""] = serverOutcomeParts(declaredServer({ modelCount: 1, notices: [notice] })).notice;
+				assert.ok(text.endsWith(clause), `${notice}: ${text}`);
+				return text.slice(0, -clause.length);
+			});
+			assert.strictEqual(new Set(subjects).size, notices.length, "each notice names its own affected fields");
+		});
+
 		test("a row carrying both inactive notices lists them both, params first", () => {
 			const line = serverOutcomeText(
 				declaredServer({ modelCount: 2, notices: ["entry-params-inactive", "entry-capabilities-inactive"] })
