@@ -2,8 +2,9 @@ import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { LiteLLMModelInfo } from "../../../provider/catalog/groupModels";
 import { ChatClient } from "../../../provider/transport/chatClient";
+import { convertMessages } from "../../../shared/conversion/messages";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
-import { withFetch } from "../../pureHelpers";
+import { makeLogger, withFetch } from "../../pureHelpers";
 import { withConfig } from "../../testUtils";
 
 function controllableStream(): { stream: ReadableStream<Uint8Array>; push(text: string): void; close(): void } {
@@ -145,6 +146,58 @@ suite("provider/transport/chatClient", () => {
 				assert.equal(dataParts.length, 1, "the audio clip must surface as one DataPart");
 				const part = dataParts[0] as vscode.LanguageModelDataPart;
 				assert.equal(part.mimeType, "audio/mpeg", "the pass-through audio.format parameter names the encoding");
+			}
+		);
+	});
+
+	test("a validation-rejected request emits zero conversion-side logs and never reaches fetch", async () => {
+		// A history that both fails validation (unpaired tool call) and would log
+		// during conversion (a DataPart with no wire mapping).
+		const rejectedMessages: vscode.LanguageModelChatRequestMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [
+					new vscode.LanguageModelTextPart("hi"),
+					new vscode.LanguageModelDataPart(new Uint8Array([1, 2, 3]), "application/octet-stream"),
+				],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelToolCallPart("call_1", "lookup", {})],
+				name: undefined,
+			},
+		];
+		const conversionLogPattern = /Skipping LanguageModelDataPart|Tool returned/;
+
+		// Positive control: converting this history does emit the drop log, so the
+		// zero-logs assertion below cannot pass vacuously.
+		const controlLogs: string[] = [];
+		convertMessages(rejectedMessages, { log: (message) => controlLogs.push(message) });
+		assert.ok(
+			controlLogs.some((message) => conversionLogPattern.test(message)),
+			`the control conversion must log the dropped DataPart, got ${JSON.stringify(controlLogs)}`
+		);
+
+		let fetchCalled = false;
+		await withFetch(
+			async () => {
+				fetchCalled = true;
+				throw new Error("a validation-rejected request must never reach fetch");
+			},
+			async () => {
+				const { logger, lines } = makeLogger();
+				const client = new ChatClient({ userAgent: "test-agent", logger });
+
+				const token = new vscode.CancellationTokenSource().token;
+				await assert.rejects(
+					client.send({ model, messages: rejectedMessages, options, progress: collector().progress, token }),
+					/missing a tool result/
+				);
+
+				assert.strictEqual(fetchCalled, false, "the rejected request must never leave the machine");
+				const leaked = lines.filter((message) => conversionLogPattern.test(message));
+				assert.deepStrictEqual(leaked, [], "a validation-rejected request must emit zero conversion-side logs");
 			}
 		);
 	});

@@ -297,6 +297,10 @@ export class ChatClient {
 		const customHeaders = this.customHeadersFor(connection.entryLabel, connection.baseUrl);
 		const apiVersion = this.apiVersionFor(connection.entryLabel, connection.baseUrl);
 		const requestTimeout = getRequestTimeout(this.log);
+		// Validation runs before conversion: a rejected request must not pay the
+		// base64 conversion or push conversion's media-drop logs into the public
+		// issue-report buffer for a request that never leaves the machine.
+		validateRequest(messages);
 		// Capability gates for message conversion: the registered imageInput
 		// capability decides whether image DataParts ride the wire, and the
 		// LiteLLM-derived audio metadata decides whether audio DataParts become
@@ -304,7 +308,6 @@ export class ChatClient {
 		// output, so it counts the same transmitted forms the request carries.
 		const wireGates = { imageInput: metadata.imageInput, audioInput: metadata.supportsAudioInput };
 		const converted = convertMessages(messages, { log: this.log, ...wireGates });
-		validateRequest(messages);
 		const toolConfig = convertTools(options, getAdditionalToolSchemaKeywords(this.log));
 
 		const maxTools = getMaxToolsPerRequest(this.log);
