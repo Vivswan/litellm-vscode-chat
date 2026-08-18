@@ -258,12 +258,58 @@ export function convertMessages(
 	// message, so the flush waits for the first non-tool message: exactly one
 	// image message per turn, after its last tool message, never interleaved.
 	let pendingToolImages: OpenAIChatImageUrlContentBlock[] = [];
-	const push = (message: OpenAIChatMessage): void => {
+	// Open-answer count per wire id of the emitted tool_calls turns. Tool calls
+	// may ride non-assistant messages with their answers arriving messages later,
+	// so the backend adjacency rule above needs a wire-level guarantee: while any
+	// call is open, everything but its answers defers until the turns close.
+	const openCalls = new Map<string, number>();
+	let openTotal = 0;
+	const deferred: { message: OpenAIChatMessage; toolImages?: OpenAIChatImageUrlContentBlock[] | undefined }[] = [];
+	const emit = (message: OpenAIChatMessage, toolImages?: OpenAIChatImageUrlContentBlock[]): void => {
 		if (message.role !== "tool" && pendingToolImages.length > 0) {
 			out.push({ role: "user", content: [{ type: "text", text: TOOL_IMAGES_LEAD_IN }, ...pendingToolImages] });
 			pendingToolImages = [];
 		}
+		if (message.role === "assistant") {
+			for (const call of message.tool_calls ?? []) {
+				openCalls.set(call.id, (openCalls.get(call.id) ?? 0) + 1);
+				openTotal++;
+			}
+		} else if (message.role === "tool") {
+			const count = openCalls.get(message.tool_call_id) ?? 0;
+			if (count > 0) {
+				openCalls.set(message.tool_call_id, count - 1);
+				openTotal--;
+			}
+		}
 		out.push(message);
+		if (toolImages) {
+			// Attached only now, so a deferred tool message's images cannot flush
+			// ahead of the tool message they came from.
+			pendingToolImages.push(...toolImages);
+		}
+	};
+	const mustDefer = (message: OpenAIChatMessage): boolean =>
+		openTotal > 0 && !(message.role === "tool" && (openCalls.get(message.tool_call_id) ?? 0) > 0);
+	const push = (message: OpenAIChatMessage, toolImages?: OpenAIChatImageUrlContentBlock[]): void => {
+		if (mustDefer(message)) {
+			deferred.push({ message, toolImages });
+			return;
+		}
+		emit(message, toolImages);
+		// Drain by first-emittable, not head-only: emitting a deferred tool_calls
+		// message reopens a turn, and its answers may sit behind other deferrals.
+		// Terminates because every iteration removes one entry.
+		for (;;) {
+			const index = deferred.findIndex((entry) => !mustDefer(entry.message));
+			if (index < 0) {
+				break;
+			}
+			const [entry] = deferred.splice(index, 1);
+			if (entry) {
+				emit(entry.message, entry.toolImages);
+			}
+		}
 	};
 	// One dropped-DataPart log per conversion: a media-heavy history would
 	// otherwise evict the whole issue-report buffer on every turn.
@@ -346,15 +392,16 @@ export function convertMessages(
 		if (toolCalls.length > 0) {
 			push({
 				role: "assistant",
-				content: textParts.join("") || undefined,
+				// A non-assistant turn's text stays on its own message below;
+				// copying it here would ship it twice and misattribute the speaker.
+				content: (role === "assistant" ? textParts.join("") : "") || undefined,
 				tool_calls: toolCalls,
 				...(thinkingBlocks.length > 0 ? { thinking_blocks: thinkingBlocks } : {}),
 			});
 		}
 
 		for (const tr of toolResults) {
-			push({ role: "tool", tool_call_id: tr.callId, content: tr.content.text });
-			pendingToolImages.push(...tr.content.images);
+			push({ role: "tool", tool_call_id: tr.callId, content: tr.content.text }, tr.content.images);
 		}
 
 		// contentBlocks is non-empty exactly when a binary block converted above,
@@ -382,6 +429,11 @@ export function convertMessages(
 				push({ role, content: text });
 			}
 		}
+	}
+	// Only a call that never got its answer leaves a deferral behind; validation
+	// rejects such histories before send, but conversion stays total.
+	for (const entry of deferred) {
+		emit(entry.message, entry.toolImages);
 	}
 	// Images from a trailing tool turn still need their message.
 	if (pendingToolImages.length > 0) {

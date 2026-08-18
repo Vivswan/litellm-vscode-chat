@@ -21,8 +21,10 @@ type ConversationEvent =
 
 /**
  * How an adversarial generator corrupts one tool exchange. "empty-pair" is the
- * shape validation accepts and the mint repairs; the others must be rejected
- * before send.
+ * shape validation accepts and the mint repairs; "user-call",
+ * "user-call-text", and "nested-call" are valid exotic shapes (the calls ride
+ * user messages, so validation's positional walk never sees them); the rest
+ * must be rejected before send.
  */
 type ExchangeCorruption =
 	| "none"
@@ -31,12 +33,24 @@ type ExchangeCorruption =
 	| "empty-result"
 	| "drop-result"
 	| "double-result"
-	| "stray-result";
+	| "stray-result"
+	| "user-call"
+	| "user-call-text"
+	| "nested-call";
 
 interface AdversarialEvent {
 	callId: string;
 	corruption: ExchangeCorruption;
 }
+
+/** The corruption kinds whose exchange closes cleanly, so a history of only these must pass validation. */
+const SENDABLE_CORRUPTIONS: ReadonlySet<ExchangeCorruption> = new Set([
+	"none",
+	"empty-pair",
+	"user-call",
+	"user-call-text",
+	"nested-call",
+]);
 
 // Nonempty: the converter intentionally drops messages whose only content is
 // the empty string, and an empty conversation is rejected by validateRequest.
@@ -112,7 +126,10 @@ const corruptionArb: fc.Arbitrary<ExchangeCorruption> = fc.constantFrom(
 	"empty-result",
 	"drop-result",
 	"double-result",
-	"stray-result"
+	"stray-result",
+	"user-call",
+	"user-call-text",
+	"nested-call"
 );
 
 // A tiny id pool (with the mint's own prefix in it) makes cross-exchange
@@ -122,7 +139,7 @@ const adversarialEventArb: fc.Arbitrary<AdversarialEvent> = fc.record({
 	corruption: corruptionArb,
 });
 
-/** Expand corruption-tagged exchanges into messages; only "none" and "empty-pair" leave a sendable history. */
+/** Expand corruption-tagged exchanges into messages; only SENDABLE_CORRUPTIONS leave a sendable history. */
 function buildAdversarialMessages(events: AdversarialEvent[]): vscode.LanguageModelChatRequestMessage[] {
 	const messages: vscode.LanguageModelChatRequestMessage[] = [];
 	const assistant = (id: string): void => {
@@ -166,6 +183,43 @@ function buildAdversarialMessages(events: AdversarialEvent[]): vscode.LanguageMo
 			case "stray-result":
 				user([event.callId]);
 				break;
+			// The two user-sourced shapes are sendable: pairing is role-agnostic
+			// and validation's positional walk covers only assistant messages.
+			case "user-call":
+				messages.push(
+					message(vscode.LanguageModelChatMessageRole.User, [
+						new vscode.LanguageModelToolCallPart(event.callId, "fn", {}),
+					])
+				);
+				messages.push(message(vscode.LanguageModelChatMessageRole.User, [new vscode.LanguageModelTextPart("between")]));
+				user([event.callId]);
+				break;
+			case "user-call-text":
+				messages.push(
+					message(vscode.LanguageModelChatMessageRole.User, [
+						new vscode.LanguageModelToolCallPart(event.callId, "fn", {}),
+						new vscode.LanguageModelTextPart("alongside"),
+					])
+				);
+				user([event.callId]);
+				break;
+			case "nested-call": {
+				// A second turn opens inside the first, with text between; the inner
+				// id must differ or the history is a duplicate-live reject instead.
+				const inner = event.callId === "call_1" ? "call_2" : "call_1";
+				messages.push(
+					message(vscode.LanguageModelChatMessageRole.User, [
+						new vscode.LanguageModelToolCallPart(event.callId, "fn", {}),
+					])
+				);
+				messages.push(
+					message(vscode.LanguageModelChatMessageRole.User, [new vscode.LanguageModelToolCallPart(inner, "fn", {})])
+				);
+				messages.push(message(vscode.LanguageModelChatMessageRole.User, [new vscode.LanguageModelTextPart("mid")]));
+				user([inner]);
+				user([event.callId]);
+				break;
+			}
 			default:
 				event.corruption satisfies never;
 		}
@@ -175,24 +229,36 @@ function buildAdversarialMessages(events: AdversarialEvent[]): vscode.LanguageMo
 
 /**
  * The wire-pairing bijection LiteLLM's backends enforce: every tool message
- * answers an open tool_call and every tool_call gets exactly one answer. An
- * id may recur once answered (some backends mint the same id every turn), so
- * matching is by open count, not global uniqueness.
+ * answers an open tool_call and every tool_call gets exactly one answer,
+ * with the answers directly following their tool_calls message - backends
+ * reject a non-tool message interleaved into an open turn. An id may recur
+ * once answered (some backends mint the same id every turn), so matching is
+ * by open count, not global uniqueness.
  */
 function assertWirePaired(converted: WireMessage[]): void {
 	const open = new Map<string, number>();
+	let openTotal = 0;
 	for (const wireMessage of converted) {
+		if (openTotal > 0) {
+			assert.strictEqual(
+				wireMessage.role,
+				"tool",
+				"a non-tool message may never land between a tool_calls message and its answers"
+			);
+		}
 		const ids = (wireMessage.tool_calls ?? []).map((call) => call.id);
 		assert.strictEqual(new Set(ids).size, ids.length, "one tool_calls array must not repeat an id");
 		for (const id of ids) {
 			assert.notStrictEqual(id, "", "an empty tool_call id must never ship");
 			open.set(id, (open.get(id) ?? 0) + 1);
+			openTotal++;
 		}
 		if (wireMessage.role === "tool") {
 			const id = wireMessage.tool_call_id ?? "";
 			const count = open.get(id) ?? 0;
 			assert.ok(count > 0, `tool message ${id} answers no open tool call`);
 			open.set(id, count - 1);
+			openTotal--;
 		}
 	}
 	for (const [id, count] of open) {
@@ -212,7 +278,7 @@ suite("shared/messages convertMessages properties", () => {
 					assert.ok(e instanceof Error, "validation must reject with an Error");
 					passed = false;
 				}
-				const repairable = events.every((e) => e.corruption === "none" || e.corruption === "empty-pair");
+				const repairable = events.every((e) => SENDABLE_CORRUPTIONS.has(e.corruption));
 				if (repairable) {
 					// Non-vacuity: whole-pair shapes (empty ids included) must stay sendable.
 					assert.ok(passed, "a history of complete call/result pairs must pass validation");

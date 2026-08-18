@@ -624,6 +624,124 @@ suite("shared/conversion/messages", () => {
 		});
 	});
 
+	suite("tool calls sourced outside assistant messages", () => {
+		// Pairing is role-agnostic and validation's positional walk covers only
+		// assistant messages, so these shapes reach conversion; the wire must
+		// still keep every tool answer directly after its tool_calls message.
+		function userMsg(parts: unknown[]): vscode.LanguageModelChatMessage {
+			return {
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: parts,
+				name: undefined,
+			} as vscode.LanguageModelChatMessage;
+		}
+
+		test("user text alongside a user-sourced call ships once, after the tool answer", () => {
+			const out = convertMessages([
+				userMsg([new vscode.LanguageModelToolCallPart("call_1", "fn", {}), new vscode.LanguageModelTextPart("note")]),
+				userMsg([new vscode.LanguageModelToolResultPart("call_1", [new vscode.LanguageModelTextPart("ok")])]),
+			]) as ConvertedMessage[];
+			assert.deepEqual(
+				out.map((m) => m.role),
+				["assistant", "tool", "user"],
+				"nothing may land between the tool_calls message and its answer"
+			);
+			assert.strictEqual(expectDefined(out[0]).content, undefined, "user text must not ride the assistant message");
+			assert.strictEqual(expectDefined(out[2]).content, "note", "the user text ships exactly once");
+		});
+
+		test("a plain text message between a user-sourced call and its answer defers past the answer", () => {
+			const out = convertMessages([
+				userMsg([new vscode.LanguageModelToolCallPart("call_1", "fn", {})]),
+				userMsg([new vscode.LanguageModelTextPart("between")]),
+				userMsg([new vscode.LanguageModelToolResultPart("call_1", [new vscode.LanguageModelTextPart("ok")])]),
+			]) as ConvertedMessage[];
+			assert.deepEqual(
+				out.map((m) => m.role),
+				["assistant", "tool", "user"]
+			);
+			assert.strictEqual(expectDefined(out[2]).content, "between");
+		});
+
+		test("two user-sourced turns interleaved in the input emit as two closed turns", () => {
+			const out = convertMessages([
+				userMsg([new vscode.LanguageModelToolCallPart("call_a", "fn", {})]),
+				userMsg([new vscode.LanguageModelToolCallPart("call_b", "fn", {})]),
+				userMsg([new vscode.LanguageModelToolResultPart("call_a", [new vscode.LanguageModelTextPart("a")])]),
+				userMsg([new vscode.LanguageModelToolResultPart("call_b", [new vscode.LanguageModelTextPart("b")])]),
+			]) as ConvertedMessage[];
+			assert.deepEqual(
+				out.map((m) => [m.role, m.tool_call_id ?? m.tool_calls?.[0]?.id]),
+				[
+					["assistant", "call_a"],
+					["tool", "call_a"],
+					["assistant", "call_b"],
+					["tool", "call_b"],
+				],
+				"each turn closes before the next opens"
+			);
+		});
+
+		test("text inside nested open turns defers past both answers", () => {
+			// The drain is first-emittable, not head-only: reopening a turn while
+			// draining must not strand its answer behind an earlier deferral.
+			const out = convertMessages([
+				userMsg([new vscode.LanguageModelToolCallPart("call_a", "fn", {})]),
+				userMsg([new vscode.LanguageModelToolCallPart("call_b", "fn", {})]),
+				userMsg([new vscode.LanguageModelTextPart("mid")]),
+				userMsg([new vscode.LanguageModelToolResultPart("call_b", [new vscode.LanguageModelTextPart("b")])]),
+				userMsg([new vscode.LanguageModelToolResultPart("call_a", [new vscode.LanguageModelTextPart("a")])]),
+			]) as ConvertedMessage[];
+			assert.deepEqual(
+				out.map((m) => [m.role, m.tool_call_id ?? m.tool_calls?.[0]?.id ?? m.content]),
+				[
+					["assistant", "call_a"],
+					["tool", "call_a"],
+					["assistant", "call_b"],
+					["tool", "call_b"],
+					["user", "mid"],
+				],
+				"both turns close before the deferred text ships"
+			);
+		});
+
+		test("a deferred tool answer's images still ride one user message after it", () => {
+			const png = new vscode.LanguageModelDataPart(new Uint8Array([1, 2, 3]), "image/png");
+			const out = convertMessages(
+				[
+					userMsg([new vscode.LanguageModelToolCallPart("call_a", "fn", {})]),
+					userMsg([new vscode.LanguageModelToolCallPart("call_b", "fn", {})]),
+					userMsg([new vscode.LanguageModelToolResultPart("call_b", [png])]),
+					userMsg([new vscode.LanguageModelToolResultPart("call_a", [new vscode.LanguageModelTextPart("a")])]),
+				],
+				{ imageInput: true }
+			) as ConvertedMessage[];
+			assert.deepEqual(
+				out.map((m) => m.role),
+				["assistant", "tool", "assistant", "tool", "user"],
+				"the image message follows the deferred tool message it came from"
+			);
+			const blocks = expectDefined(out[4]).content as unknown as Array<{ type: string }>;
+			assert.deepEqual(
+				blocks.map((b) => b.type),
+				["text", "image_url"]
+			);
+		});
+
+		test("an unanswered call still ships every deferred message at the end", () => {
+			// Validation rejects this history before send; conversion stays total.
+			const out = convertMessages([
+				userMsg([new vscode.LanguageModelToolCallPart("call_1", "fn", {})]),
+				userMsg([new vscode.LanguageModelTextPart("trailing")]),
+			]) as ConvertedMessage[];
+			assert.deepEqual(
+				out.map((m) => m.role),
+				["assistant", "user"]
+			);
+			assert.strictEqual(expectDefined(out[1]).content, "trailing");
+		});
+	});
+
 	suite("audio input", () => {
 		function userWithAudio(mime: string): vscode.LanguageModelChatMessage[] {
 			const clip = new vscode.LanguageModelDataPart(new Uint8Array([0x52, 0x49, 0x46, 0x46]), mime);
