@@ -82,3 +82,27 @@ jobs:
         if: steps.head.outputs.current == 'true'
         with:
           token: ${{ secrets.REPO_PLATFORM_TOKEN || github.token }}
+      # release-please runs two phases: create releases for merged PRs still
+      # labeled "autorelease: pending" (relabeling them "autorelease:
+      # tagged"), then propose the next release PR. Phase 2 silently ABORTS
+      # - green - while any pending label remains ("untagged, merged release
+      # PRs outstanding"), so a pending label the action cannot clear parks
+      # release-please with no red anywhere. Check AFTER the action so its
+      # recovery phase always gets its turn first: a label still pending
+      # here survived a real attempt. The 30-minute grace covers labels
+      # legitimately still pending right after a merge (a parallel publish
+      # pipeline, API eventual consistency).
+      - name: Fail when a stale pending release PR parks release-please
+        if: steps.head.outputs.current == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cutoff="$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
+          stale="$(gh pr list --state merged --label 'autorelease: pending' \
+            --limit 100 --json number,mergedAt \
+            --jq "[.[] | select(.mergedAt < \"$cutoff\") | \"#\\(.number)\"] | join(\", \")")"
+          if [ -n "$stale" ]; then
+            echo "::error::merged release PR(s) $stale have worn 'autorelease: pending' for over 30 minutes, so release-please refuses to propose any new release ('untagged, merged release PRs outstanding'). Finish or abandon that release, then move the label to 'autorelease: tagged'."
+            exit 1
+          fi
