@@ -833,7 +833,9 @@ export function ModelsSection({
 																<span className="price-per"> {l10n.t("per M")}</span>
 															</>
 														) : (
-															l10n.t("price unknown")
+															// The price pills' own word for the same fact, so
+															// the row and the filter can never disagree.
+															priceFilterLabel("unpriced")
 														)}
 													</span>
 													{/* Only what the model CAN do. The negative answer is one

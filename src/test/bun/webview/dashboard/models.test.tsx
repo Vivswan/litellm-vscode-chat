@@ -3,6 +3,7 @@
  * the pricing tooltip) and the filter, server-scope, and server-column rules.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { priceFilterLabel } from "../../../../dashboard/modelFilters";
 import { ModelsSection } from "../../../../webview/dashboard/models";
 import { makeModel } from "../fixtures";
 import { buttonByText, cleanup, fireClick, fireInput, fireSelect, mount, render, resetPosted } from "../harness";
@@ -62,9 +63,10 @@ test("a row reads as two lines - name and meta, then a spec sentence - with the 
 	expect(rows[0]?.querySelector(".model-line-2 .visually-hidden")).toBeNull();
 
 	// The bare model: no price at all says so in words rather than with a dash
-	// nobody can read, and a model that can do none of the four prints no
-	// capability clause at all rather than an empty one.
-	expect(line2(rows[1] as Element)).toContain("price unknown");
+	// nobody can read - and in the price pills' OWN words (priceFilterLabel), so
+	// the row and the filter can never disagree - and a model that can do none
+	// of the four prints no capability clause at all rather than an empty one.
+	expect(rows[1]?.querySelector(".model-cost")?.textContent).toBe(priceFilterLabel("unpriced"));
 	expect(rows[1]?.querySelector(".model-caps")).toBeNull();
 	expect(rows[1]?.querySelectorAll("del").length).toBe(0);
 

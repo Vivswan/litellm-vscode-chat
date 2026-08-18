@@ -1068,13 +1068,10 @@
 	"bundled snapshot": "bundled snapshot",
 	"caching": "caching",
 	"catalog": "catalog",
-	"catalog (directive {0})": "catalog (directive {0})",
-	"catalog match": "catalog match",
 	"cl100k_base tokenizer (GPT-4 era)": "cl100k_base tokenizer (GPT-4 era)",
 	"could not restore {0} for server \"{1}\"; the settings entry is unchanged (after a rename, the changed values sit under the new label)": "could not restore {0} for server \"{1}\"; the settings entry is unchanged (after a rename, the changed values sit under the new label)",
 	"couldn't be fetched yet - retries on the next refresh": "couldn't be fetched yet - retries on the next refresh",
 	"declared": "declared",
-	"default": "default",
 	"default: {0}": "default: {0}",
 	"derived": "derived",
 	"e.g. 50": "e.g. 50",
@@ -1094,7 +1091,6 @@
 	"editing User settings; a value set in Workspace settings is changed there": "editing User settings; a value set in Workspace settings is changed there",
 	"enter a label": "enter a label",
 	"enter the key sent in this header": "enter the key sent in this header",
-	"entry fallback {0}": "entry fallback {0}",
 	"entry {0}": "entry {0}",
 	"entry/Provenance badge: the value comes from this server entry's own record": {
 		"message": "entry",
@@ -1124,7 +1120,6 @@
 			"Checkbox label on a parameter row; marks the value as forced over runtime options."
 		]
 	},
-	"forced": "forced",
 	"h/Abbreviation for hours in durations like '1 h 30 min'.": {
 		"message": "h",
 		"comment": [
@@ -1139,7 +1134,6 @@
 		]
 	},
 	"inheritance stops here": "inheritance stops here",
-	"inherited from {0}": "inherited from {0}",
 	"inherited from/Directive mark on a resolved value: the winning record inherited it from the record named next": {
 		"message": "inherited from",
 		"comment": [
@@ -1228,7 +1222,6 @@
 	},
 	"secret storage": "secret storage",
 	"server entry key {0}": "server entry key {0}",
-	"server-reported": "server-reported",
 	"server/Provenance badge: the value is what the LiteLLM server reported": {
 		"message": "server",
 		"comment": [
@@ -1244,9 +1237,7 @@
 	"setting {0}: no value given; the setting is not clearable": "setting {0}: no value given; the setting is not clearable",
 	"settings": "settings",
 	"settings (visible)": "settings (visible)",
-	"settings fallback {0}": "settings fallback {0}",
 	"settings key {0}": "settings key {0}",
-	"settings {0}": "settings {0}",
 	"showing {0} of {1}": "showing {0} of {1}",
 	"spend hasn't loaded for this server yet": "spend hasn't loaded for this server yet",
 	"stale": "stale",

@@ -6,6 +6,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ConfigDiagnosticView, ResolvedModelsView } from "../../../../dashboard/viewModels";
 import { DiagnosticsSection, pageConfigDiagnostics } from "../../../../webview/dashboard/diagnostics";
+import { capabilityProvenancePhrase, parameterProvenancePhrase } from "../../../../webview/dashboard/provenance";
 import { makeDeclaredServer } from "../fixtures";
 import {
 	buttonByText,
@@ -553,6 +554,49 @@ describe("Resolved models", () => {
 		expect(tree?.textContent).toContain('"gpt*5" is listed under Configuration above.');
 	});
 
+	test("tree marks wear the record editors' directive words, never a re-minted 'forced'", () => {
+		const { root } = mountDiagnostics({
+			view: makeView({
+				trees: [
+					{
+						kind: "capabilities",
+						layer: "global",
+						roots: [
+							{
+								key: "*",
+								fields: [
+									{ name: "max_tokens", valueText: "4096", inheritable: true, forced: true, fallback: false },
+									{ name: "context_length", valueText: "128000", inheritable: false, forced: false, fallback: true },
+								],
+								barrier: false,
+								children: [],
+								models: [],
+							},
+						],
+						unmatchedModelIds: [],
+						invalidKeys: [],
+					},
+				],
+			}),
+		});
+		const tree = root.querySelector(".record-tree");
+		expect(tree?.textContent).toContain("max_tokens 4096 (inheritable, force)");
+		expect(tree?.textContent).toContain("context_length 128000 (fallback)");
+	});
+
+	test("every table chip speaks the one provenance vocabulary, phrase register included", () => {
+		// The chips must render EXACTLY what the shared phrase functions say for the
+		// fixture's cells: a local level-word literal in the table is the drift this pins out.
+		const { root } = mountDiagnostics({});
+		const chips = Array.from(root.querySelectorAll("table.resolved-models .chip-prov")).map((chip) => chip.textContent);
+		expect(chips).toEqual([
+			parameterProvenancePhrase({ layer: "global", key: "gpt-5*" }),
+			capabilityProvenancePhrase({ level: "server" }),
+			capabilityProvenancePhrase({ level: "catalog", key: "anthropic/claude-4" }),
+		]);
+		expect(chips).toEqual(["settings gpt-5*", "server", "OpenRouter anthropic/claude-4; matched"]);
+	});
+
 	test("an invalid matcher key is told once: Configuration owns the verdict, the tree points", () => {
 		// The tree names the key (a record the reader wrote must not silently
 		// vanish from the figure) but defers the verdict to the ranked row above,
@@ -686,7 +730,7 @@ describe("Resolved models", () => {
 		expect(lineTip?.querySelector('[role="tooltip"]')?.textContent).toContain("cache_read_input_token_cost 5e-7");
 		// Uniform source: exactly one provenance chip on the whole line.
 		expect(pricing?.querySelectorAll(".chip-prov").length).toBe(1);
-		expect(pricing?.querySelector(".chip-prov")?.textContent).toBe("server-reported");
+		expect(pricing?.querySelector(".chip-prov")?.textContent).toBe("server");
 		// The non-cost field keeps its own cell, friendly-labeled, with the
 		// wire key on a focusable tip of its own.
 		const context = cells.find((cell) => cell.textContent?.includes("Context length"));
@@ -727,7 +771,7 @@ describe("Resolved models", () => {
 		expect(parts[1]?.querySelector(".chip-prov")).toBeNull();
 		expect(parts[2]?.querySelector(".chip-prov")?.textContent).toBe("entry gpt-5.6");
 		const chips = Array.from(pricing?.querySelectorAll(".chip-prov") ?? []).map((chip) => chip.textContent);
-		expect(chips).toEqual(["server-reported", "entry gpt-5.6"]);
+		expect(chips).toEqual(["server", "entry gpt-5.6"]);
 	});
 
 	test("a uniform non-server pricing line keeps its source's key on the single chip", () => {
@@ -779,7 +823,7 @@ describe("Resolved models", () => {
 		const tip = cell?.querySelector(".tip-wrap");
 		expect(tip?.getAttribute("tabindex")).toBe("0");
 		expect(tip?.querySelector('[role="tooltip"]')?.textContent).toBe(`supported_openai_params ${JSON.stringify(list)}`);
-		expect(cell?.querySelector(".chip-prov")?.textContent).toBe("server-reported");
+		expect(cell?.querySelector(".chip-prov")?.textContent).toBe("server");
 		// The visible cell shows only the bare count - the label beside it
 		// already says "parameters" - and the array lives in the tip.
 		expect(cell?.querySelector(".tip-wrap > span:not(.tip-bubble)")?.textContent).toBe("5");
@@ -805,6 +849,6 @@ describe("Resolved models", () => {
 			candidate.textContent?.includes('"cheap"')
 		);
 		expect(cell).not.toBeUndefined();
-		expect(cell?.querySelector(".chip-prov")?.textContent).toBe("server-reported");
+		expect(cell?.querySelector(".chip-prov")?.textContent).toBe("server");
 	});
 });

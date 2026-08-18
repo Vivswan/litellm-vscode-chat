@@ -14,6 +14,7 @@ import {
 	costUnitLabel,
 	formatCostPerMillion,
 	isCostCapabilityField,
+	isTokenCapabilityField,
 	parameterCountText,
 } from "../../../../shared/config/capabilityDisplay";
 import { CONSUMED_CAPABILITY_FIELDS } from "../../../../shared/config/capabilityResolution";
@@ -122,6 +123,24 @@ describe("shared/config/capabilityDisplay labels", () => {
 			assert.ok(isCostCapabilityField(name));
 		}
 		assert.ok(!isCostCapabilityField("context_length"));
+	});
+
+	test("the token-field predicate is exactly the consumed number-kind vocabulary", () => {
+		// Mirrors the cost pin above: the inspectors' token formatting derives from
+		// the kind map, so a new number-kind field can never render unseparated.
+		const consumedNumbers = Object.entries(CONSUMED_CAPABILITY_FIELDS)
+			.filter(([, kind]) => kind === "number")
+			.map(([name]) => name);
+		assert.ok(consumedNumbers.length > 0, "the consumed vocabulary must keep a number kind");
+		for (const name of consumedNumbers) {
+			assert.ok(isTokenCapabilityField(name), `token predicate misses number-kind field ${name}`);
+		}
+		for (const name of Object.keys(CONSUMED_CAPABILITY_FIELDS)) {
+			assert.strictEqual(isTokenCapabilityField(name), CONSUMED_CAPABILITY_FIELDS[name] === "number");
+		}
+		assert.ok(!isTokenCapabilityField("input_cost_per_token"));
+		assert.ok(!isTokenCapabilityField("supports_vision"));
+		assert.ok(!isTokenCapabilityField("some_open_field"));
 	});
 
 	test("the parameter count picks the singular and plural readings", () => {

@@ -6,6 +6,7 @@
  */
 
 import * as l10n from "@vscode/l10n";
+import { CONSUMED_CAPABILITY_FIELDS } from "./capabilityResolution";
 
 /**
  * The eight cost fields in display order: the base tier, then the long-context
@@ -30,6 +31,22 @@ const COST_FIELD_SET: ReadonlySet<string> = new Set(COST_CAPABILITY_FIELDS);
 /** Whether a capability key is one of the eight per-token cost fields. */
 export function isCostCapabilityField(name: string): name is CostCapabilityField {
 	return COST_FIELD_SET.has(name);
+}
+
+/**
+ * The token-count fields, derived from the consumed vocabulary's "number" kind
+ * (the same derivation the record editors' inputs use), so a new number-kind
+ * field renders as a token count the day it is consumed.
+ */
+const TOKEN_FIELD_SET: ReadonlySet<string> = new Set(
+	Object.entries(CONSUMED_CAPABILITY_FIELDS)
+		.filter(([, kind]) => kind === "number")
+		.map(([name]) => name)
+);
+
+/** Whether a capability key's numbers render as token counts; other numbers (costs aside) render plain. */
+export function isTokenCapabilityField(name: string): boolean {
+	return TOKEN_FIELD_SET.has(name);
 }
 
 /**

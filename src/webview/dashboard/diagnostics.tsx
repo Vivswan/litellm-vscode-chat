@@ -20,7 +20,6 @@ import type {
 	RecordTreeView,
 	ResolvedCapCell,
 	ResolvedModelRow,
-	ResolvedParamCell,
 	RevealableSettingId,
 } from "../../dashboard/viewModels";
 import {
@@ -57,6 +56,13 @@ import {
 } from "./icons";
 import type { InspectorSection } from "./modelInspector";
 import { ProblemBand } from "./problemBand";
+import {
+	capabilityProvenancePhrase,
+	fallbackWord,
+	forceWord,
+	inheritableWord,
+	parameterProvenancePhrase,
+} from "./provenance";
 import { type DiagnosticSeverity, SEVERITY_ORDER } from "./severity";
 import { AbsentDatum } from "./ui/absent";
 import { Button } from "./ui/button";
@@ -515,26 +521,14 @@ function ConfigDiagnostics({ diagnostics }: { diagnostics: readonly ConfigDiagno
 	);
 }
 
-/** One tree node's own-fields summary: "temperature 0.3 (inheritable, forced)". */
+/** One tree node's own-fields summary: "temperature 0.3 (inheritable, force)". */
 function nodeFieldText(field: RecordTreeNode["fields"][number]): string {
+	// The directive words come from the one vocabulary (./provenance and the
+	// record editors' chips), never re-minted here.
 	const marks = [
-		...(field.inheritable
-			? [
-					l10n.t({
-						message: "inheritable",
-						comment: ["Checkbox label on a record row; marks the field as inheritable by more specific records."],
-					}),
-				]
-			: []),
-		...(field.forced ? [l10n.t("forced")] : []),
-		...(field.fallback
-			? [
-					l10n.t({
-						message: "fallback",
-						comment: ["Checkbox label on a capability row; applies the value only where the server reports none."],
-					}),
-				]
-			: []),
+		...(field.inheritable ? [inheritableWord()] : []),
+		...(field.forced ? [forceWord()] : []),
+		...(field.fallback ? [fallbackWord()] : []),
 	];
 	return `${field.name} ${field.valueText}${marks.length > 0 ? ` (${marks.join(", ")})` : ""}`;
 }
@@ -622,48 +616,6 @@ function RecordTree({ tree }: { tree: RecordTreeView }) {
 	);
 }
 
-/** A parameter cell's provenance, one compact phrase. */
-function paramProvenance(cell: ResolvedParamCell): string {
-	const base = cell.layer === "entry" ? l10n.t("entry {0}", cell.key) : l10n.t("settings {0}", cell.key);
-	const marks = [
-		...(cell.forced === true ? [l10n.t("forced")] : []),
-		// "inherited from X" earns its words only when X is another record; a
-		// value a record holds itself is already named by the base phrase.
-		...(cell.inheritedFrom !== undefined && cell.inheritedFrom !== cell.key
-			? [l10n.t("inherited from {0}", cell.inheritedFrom)]
-			: []),
-	];
-	return marks.length > 0 ? `${base}; ${marks.join(", ")}` : base;
-}
-
-/** A capability cell's provenance, one compact phrase (the caps inspector's level names, shortened). */
-function capProvenance(cell: ResolvedCapCell): string {
-	const inherited =
-		cell.inheritedFrom !== undefined && cell.inheritedFrom !== cell.key
-			? `; ${l10n.t("inherited from {0}", cell.inheritedFrom)}`
-			: "";
-	switch (cell.level) {
-		case "entry":
-			return l10n.t("entry {0}", cell.key ?? "") + inherited;
-		case "global":
-			return l10n.t("settings {0}", cell.key ?? "") + inherited;
-		case "directive":
-			return l10n.t("catalog (directive {0})", cell.key ?? "");
-		case "server":
-			return l10n.t("server-reported");
-		case "entry-fallback":
-			return l10n.t("entry fallback {0}", cell.key ?? "") + inherited;
-		case "global-fallback":
-			return l10n.t("settings fallback {0}", cell.key ?? "") + inherited;
-		case "catalog":
-			return l10n.t("catalog match");
-		case "derived":
-			return l10n.t("derived");
-		case "floor":
-			return l10n.t("default");
-	}
-}
-
 /**
  * A table chip's text with every space-separated token held whole: below the 920px pane
  * tier chips may wrap internally, and an unguarded wrap breaks record keys at hyphens -
@@ -709,7 +661,7 @@ function CapabilityCell({ cell }: { cell: ResolvedCapCell }) {
 				</code>
 			)}
 			<span className="chip-prov">
-				<ChipTokens text={capProvenance(cell)} />
+				<ChipTokens text={capabilityProvenancePhrase(cell)} />
 			</span>
 		</span>
 	);
@@ -744,7 +696,7 @@ function ParamsListCell({ cell }: { cell: ResolvedCapCell }) {
 				<span>{String(list.length)}</span>
 			</HoverTip>
 			<span className="chip-prov">
-				<ChipTokens text={capProvenance(cell)} />
+				<ChipTokens text={capabilityProvenancePhrase(cell)} />
 			</span>
 		</span>
 	);
@@ -785,7 +737,7 @@ function CapabilityCells({ cells, currencySymbol }: { cells: readonly ResolvedCa
 	// seen wins ties); parts from any other source carry their own chip.
 	const provenanceCounts = new Map<string, number>();
 	for (const entry of pricing) {
-		const provenance = capProvenance(entry.cell);
+		const provenance = capabilityProvenancePhrase(entry.cell);
 		provenanceCounts.set(provenance, (provenanceCounts.get(provenance) ?? 0) + 1);
 	}
 	let dominant = "";
@@ -813,7 +765,7 @@ function CapabilityCells({ cells, currencySymbol }: { cells: readonly ResolvedCa
 					    reader to infer a source it cannot see. */}
 					<HoverTip
 						tip={pricing
-							.map((entry) => `${entry.cell.name} ${entry.cell.valueText} (${capProvenance(entry.cell)})`)
+							.map((entry) => `${entry.cell.name} ${entry.cell.valueText} (${capabilityProvenancePhrase(entry.cell)})`)
 							.join(", ")}
 					>
 						<span className="resolved-field">{pricingFieldLabel(currencySymbol)}</span>
@@ -825,7 +777,7 @@ function CapabilityCells({ cells, currencySymbol }: { cells: readonly ResolvedCa
 						<ChipTokens text={dominant} />
 					</span>
 					{pricing.map((entry) => {
-						const provenance = capProvenance(entry.cell);
+						const provenance = capabilityProvenancePhrase(entry.cell);
 						return (
 							<span key={entry.cell.name} className="resolved-price-part">
 								{capabilityDisplayLabel(entry.cell.name)}{" "}
@@ -1009,7 +961,7 @@ function ResolvedModels({
 																		<span className="whitespace-nowrap">{cell.valueText}</span>
 																	</code>
 																	<span className="chip-prov">
-																		<ChipTokens text={paramProvenance(cell)} />
+																		<ChipTokens text={parameterProvenancePhrase(cell)} />
 																	</span>
 																</span>
 															))

@@ -24,6 +24,7 @@ import {
 	costUnitLabel,
 	formatCostPerMillion,
 	isCostCapabilityField,
+	isTokenCapabilityField,
 	parameterCountText,
 } from "../../shared/config/capabilityDisplay";
 import type {
@@ -43,7 +44,7 @@ import type {
 	ShadowedParameterValue,
 } from "../../shared/config/parameterResolution";
 import { DEFAULT_MAX_TOKENS_CAP } from "../../shared/config/parameterResolution";
-import { FALLBACK_DIRECTIVE, OPENROUTER_MODEL_DIRECTIVE } from "../../shared/config/recordResolution";
+import { FALLBACK_DIRECTIVE } from "../../shared/config/recordResolution";
 import { DOCS_LINK_CAPS_INSPECTOR, DOCS_LINK_PARAMS_INSPECTOR } from "./docsLinks";
 import { HoverTip } from "./help";
 import { helpCapsInspector, helpParamsInspector } from "./helpText";
@@ -52,14 +53,12 @@ import { formatTokens } from "./models";
 import type { MarkView, ProvenanceView } from "./provenance";
 import {
 	approxWidthCh,
-	entryScope,
-	fallbackWord,
+	capabilityProvenance,
 	forceWord,
 	inheritedWord,
 	Mark,
 	Provenance,
-	serverScope,
-	settingsScope,
+	parameterProvenance,
 } from "./provenance";
 import { RecordChainFigure } from "./recordChain";
 import { SlideOver } from "./slideOver";
@@ -82,79 +81,6 @@ const SECTION_ELEMENT_ID: Record<InspectorSection, string> = {
 	params: "inspector-params-section",
 	caps: "inspector-caps-section",
 };
-
-/** The parameter layers as a badge: the scope that set the value plus its winning record key. */
-function parameterProvenance(ref: ParameterSourceRef): ProvenanceView {
-	return { scope: ref.layer === "entry" ? entryScope() : settingsScope(), recordKey: ref.key };
-}
-
-/**
- * The capability walk's levels as a badge plus, where a directive did the work, its
- * mark: a `_fallback` fill is a record wearing a directive, not a level of its own, so
- * the badge names the source and the mark names the directive.
- */
-function capabilityProvenance(
-	level: CapabilityLevel,
-	key: string | undefined
-): { readonly source: ProvenanceView; readonly mark?: MarkView } {
-	switch (level) {
-		case "entry":
-			return { source: { scope: entryScope(), recordKey: key } };
-		case "global":
-			return { source: { scope: settingsScope(), recordKey: key } };
-		// The one mark that INVERTS the badge: an ordinary entry or settings
-		// record beats the server's report, a `_fallback` fill loses to it. The
-		// word cannot carry that, so the sentence rides its tip.
-		case "entry-fallback":
-			return { source: { scope: entryScope(), recordKey: key }, mark: fallbackMark() };
-		case "global-fallback":
-			return { source: { scope: settingsScope(), recordKey: key }, mark: fallbackMark() };
-		case "server":
-			return { source: { scope: serverScope() } };
-		// The two catalog marks say exactly how the level was chosen, so neither carries a tip:
-		// a tip here would be one Tab stop per row repeating identical text, and every field of
-		// a server that reports nothing can land on these levels at once.
-		case "directive":
-			return {
-				source: { scope: "OpenRouter", recordKey: key },
-				mark: { word: OPENROUTER_MODEL_DIRECTIVE, mono: true },
-			};
-		case "catalog":
-			return {
-				source: { scope: "OpenRouter", recordKey: key },
-				mark: {
-					word: l10n.t({ message: "matched", comment: ["Directive mark: the catalog entry was matched, not named"] }),
-				},
-			};
-		case "derived":
-			return {
-				source: {
-					// Bare t(), matching the Diagnostics tree's own "derived".
-					scope: l10n.t("derived"),
-					tip: l10n.t("Context length minus max output tokens: nothing declared this field directly."),
-				},
-			};
-		case "floor":
-			return {
-				source: {
-					scope: l10n.t({
-						message: "built-in default",
-						comment: ["Provenance badge: nothing declared the field, so the extension's own floor applies"],
-					}),
-				},
-			};
-	}
-}
-
-/** The `_fallback` mark and the precedence rule the word alone cannot state. */
-function fallbackMark(): MarkView {
-	return {
-		word: fallbackWord(),
-		detail: l10n.t(
-			"Fills the field only where the server reported nothing; the server's own value wins when it has one."
-		),
-	};
-}
 
 /** The not-sent annotations, resolved at call time (no module-level localized constants). */
 function skipReasonText(reason: "underscore" | "provider-owned"): string {
@@ -274,9 +200,6 @@ const CONSUMED_BOOLEAN_ORDER: readonly string[] = [
 /** The consumed list fields that close the capabilities section; the params list has a section of its own. */
 const CONSUMED_LIST_ORDER: readonly string[] = ["reasoning_effort_levels"];
 
-/** The number fields that render as token counts; other numbers (costs aside) render plain. */
-const TOKEN_FIELDS: ReadonlySet<string> = new Set(["context_length", "max_input_tokens", "max_output_tokens"]);
-
 /**
  * Where the stylesheet's ellipsis can start clipping a value cell. PAIRED WITH the
  * .res-col-value share in dashboard.css: move one and this moves too, or values clip
@@ -353,7 +276,7 @@ function formatValue(name: string, value: CapabilityJsonValue, currencySymbol: s
 		if (isCostCapabilityField(name)) {
 			return formatCostPerMillion(value, currencySymbol);
 		}
-		return TOKEN_FIELDS.has(name) ? formatTokens(value) : String(value);
+		return isTokenCapabilityField(name) ? formatTokens(value) : String(value);
 	}
 	if (name === "supported_openai_params" && Array.isArray(value) && value.every((item) => typeof item === "string")) {
 		// The count alone: the winning list renders in full in its own block
