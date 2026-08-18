@@ -25,6 +25,7 @@ import {
 	DASHBOARD_STYLESHEET_FILENAME,
 	WEBVIEW_DIST_SEGMENTS,
 } from "../../src/shared/webviewPaths.ts";
+import { OVERFLOW_SIDEWAYS_MARKER, OWN_WIDTH_ONLY_MARKER } from "./overflowMarkers.ts";
 import { RENDER_EPOCH_MS } from "./renderClock.ts";
 
 /** Every host theme a render can emulate; the fixture field, page builder and flag parser all read this. */
@@ -1049,9 +1050,11 @@ async function assertNoHorizontalOverflow(cdp: CdpConnection, width: number): Pr
 		clientWidth: number;
 		culprits: readonly string[];
 	};
+	// The marker is the machine channel check-overflow greps; the prose after
+	// it is for humans and free to change.
 	throw new Error(
-		`The page scrolls sideways at ${width}px: ${overflow}px past a ${clientWidth}px viewport.\n  ` +
-			culprits.join("\n  ")
+		`${OVERFLOW_SIDEWAYS_MARKER} The page scrolls sideways at ${width}px: ` +
+			`${overflow}px past a ${clientWidth}px viewport.\n  ${culprits.join("\n  ")}`
 	);
 }
 
@@ -1600,7 +1603,9 @@ async function main(): Promise<void> {
 		await assertNoHorizontalOverflow(cdp, width);
 		const sweeping = fixture.measuredAtOwnWidth !== true;
 		if (!sweeping && (sweepWidths.length > 0 || paneWidths.length > 0)) {
-			console.log("skipped the width sweep: this fixture's state was measured at its own width");
+			console.log(
+				`${OWN_WIDTH_ONLY_MARKER} skipped the width sweep: this fixture's state was measured at its own width`
+			);
 		}
 		const aimed = sweeping && paneWidths.length > 0 ? await windowWidthsForPanes(cdp, paneWidths, height, dpr) : [];
 		const failures: string[] = [

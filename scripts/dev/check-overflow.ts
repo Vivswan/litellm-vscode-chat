@@ -22,6 +22,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { parseArgs } from "node:util";
+import { OVERFLOW_SIDEWAYS_MARKER, OWN_WIDTH_ONLY_MARKER } from "./overflowMarkers.ts";
 
 const REPO_ROOT = path.resolve(__dirname, "../..");
 const FIXTURE_DIR = path.join(REPO_ROOT, "scripts/dev/renderFixtures");
@@ -173,13 +174,14 @@ async function main(): Promise<void> {
 	}
 	// Counted apart so a stale fixture cannot read as a layout regression, or
 	// hide one: a page that does not fit is what this sweeps for, while a fixture
-	// whose own steps threw never got as far as being measured.
-	const overflowing = failed.filter((result) => result.output.includes("scrolls sideways"));
-	const unrunnable = failed.filter((result) => !result.output.includes("scrolls sideways"));
+	// whose own steps threw never got as far as being measured. Classified by
+	// the harness's markers alone, never by its human-facing prose.
+	const overflowing = failed.filter((result) => result.output.includes(OVERFLOW_SIDEWAYS_MARKER));
+	const unrunnable = failed.filter((result) => !result.output.includes(OVERFLOW_SIDEWAYS_MARKER));
 	// Also counted apart, because they were asserted once rather than swept (the
 	// fixture's measuredAtOwnWidth opt-out): folding them in would claim coverage
 	// they opted out of.
-	const ownWidthOnly = results.filter((result) => result.ok && result.output.includes("skipped the width sweep"));
+	const ownWidthOnly = results.filter((result) => result.ok && result.output.includes(OWN_WIDTH_ONLY_MARKER));
 	const swept = results.length - failed.length - ownWidthOnly.length;
 	console.log(`\n${swept}/${results.length} fixtures fit at every declared width`);
 	if (ownWidthOnly.length > 0) {
