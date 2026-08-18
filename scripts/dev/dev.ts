@@ -25,7 +25,7 @@ import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { VENDOR_ID } from "../../src/shared/config/commandIds";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../src/shared/config/settingSpec";
-import { DEV_SEED_FILENAME, type DevSeed, type DevSeedModels } from "../../src/shared/devSeed";
+import { DEV_SEED_FILENAME, type DevSeed, type DevSeedEntry, type DevSeedModels } from "../../src/shared/devSeed";
 import { composeSetting, readEnvFile, STACK_DEFAULTS } from "../stack/litellmConfig";
 import { DEMO_USAGE_KEYS, type SeededDemoUsage } from "./seedDemoUsage";
 
@@ -111,9 +111,10 @@ process.on("SIGINT", onSignal);
 process.on("SIGTERM", onSignal);
 
 /**
- * The main entry's group identity, known before the stack starts. Only this
- * participates in the profile fingerprint, because only it shapes the host's
- * provider groups; the full seed is assembled after the stack is up.
+ * The main entry's group identity, known before the stack starts. It joins the
+ * usage and error entries' identities in the profile fingerprint - together
+ * they shape the host's provider groups; the full seed is assembled after the
+ * stack is up.
  */
 const seedIdentity = {
 	label: "Fake LiteLLM",
@@ -156,6 +157,44 @@ const DEMO_MAIN_ENTRY_MODELS: DevSeedModels = {
 	parameters: { "gpt-5.2-mini": { max_tokens: 4000, temperature: 0.2 } },
 };
 
+// ── Demo error servers ───────────────────────────────────────────────────────
+// Error-state entries, seeded verbatim (nothing to measure), so the Servers
+// page always shows failure presentation beside the healthy demos.
+const DEMO_ERROR_ENTRIES: readonly DevSeedEntry[] = [
+	{
+		// Port 4 is IANA-unassigned, outside every OS ephemeral range, and
+		// privileged on Unix-likes, so nothing plausibly listens there: discovery
+		// fails fast (instant connection refusal on the row), not a timeout wait.
+		label: "Dev Error (unreachable)",
+		baseUrl: "http://localhost:4",
+		apiKey: "sk-dev-error-unreachable",
+	},
+	{
+		// The real proxy with a key it never issued: LiteLLM answers 401, which
+		// classifies as an auth error (never retried, never re-wrapped).
+		label: "Dev Error (bad key)",
+		baseUrl: seedIdentity.baseUrl,
+		apiKey: "sk-dev-error-bad-key",
+	},
+	{
+		// A healthy server whose entry records are broken: an invalid regex
+		// matcher (warning) plus a misspelled capability field the observed
+		// /model/info keys expose as a likely typo (advisory), both on Diagnostics.
+		label: "Dev Error (misconfigured)",
+		baseUrl: seedIdentity.baseUrl,
+		apiKey,
+		models: {
+			parameters: { "/[unclosed/": { temperature: 0.5 } },
+			capabilities: { "*": { supports_visoin: true } },
+		},
+	},
+];
+
+// DEV_NO_ERROR_SEED=1 drops the error zoo for a clean Servers page (e.g.
+// healthy-state presentation work). The fingerprint below tracks the choice,
+// so flipping the flag resets the profile and removes the other mode's entries.
+const errorEntries: readonly DevSeedEntry[] = process.env.DEV_NO_ERROR_SEED === "1" ? [] : DEMO_ERROR_ENTRIES;
+
 // Profile preflight, before anything starts or gets written, so a refusal exits
 // with no stack to tear down and no seed on disk. The host's provider-group
 // command is add-only, so a group left by an earlier run with a different port,
@@ -192,6 +231,7 @@ const markerFile = join(profileDir, "seed-fingerprint");
 const seedGroupIdentity = [
 	seedIdentity,
 	...DEMO_USAGE_KEYS.map((spec) => ({ label: spec.label, baseUrl: seedIdentity.baseUrl, apiKey: spec.key })),
+	...errorEntries.map(({ label, baseUrl, apiKey: entryKey }) => ({ label, baseUrl, apiKey: entryKey })),
 ];
 // codeql[js/insufficient-password-hash] -- not password storage: a change-detection fingerprint of the dev seed (well-known local test keys)
 const seedFingerprint = createHash("sha256").update(JSON.stringify(seedGroupIdentity)).digest("hex");
@@ -449,16 +489,15 @@ const seed: DevSeed = {
 	...seedIdentity,
 	openDashboard: true,
 	models: DEMO_MAIN_ENTRY_MODELS,
-	...(demoUsage.length > 0
-		? {
-				entries: demoUsage.map(({ spec, entryBudget }) => ({
-					label: spec.label,
-					baseUrl: seedIdentity.baseUrl,
-					apiKey: spec.key,
-					...(entryBudget !== undefined ? { budget: entryBudget } : {}),
-				})),
-			}
-		: {}),
+	entries: [
+		...demoUsage.map(({ spec, entryBudget }) => ({
+			label: spec.label,
+			baseUrl: seedIdentity.baseUrl,
+			apiKey: spec.key,
+			...(entryBudget !== undefined ? { budget: entryBudget } : {}),
+		})),
+		...errorEntries,
+	],
 	records: DEMO_GLOBAL_RECORDS,
 };
 writeFileSync(join(root, DEV_SEED_FILENAME), `${JSON.stringify(seed, null, "\t")}\n`);
@@ -468,6 +507,14 @@ console.log(`[dev] seed written for ${seed.baseUrl}`);
 console.log(
 	"[dev] demo model records are active (temperature/top_p defaults; gpt-5* forces temperature=1) - delete .dev-profile to reset"
 );
+// The error rows would otherwise read as a broken stack while debugging.
+if (errorEntries.length > 0) {
+	console.log(
+		"[dev] error-state demo servers are seeded (unreachable / bad key / misconfigured records); their failing rows are intentional - DEV_NO_ERROR_SEED=1 skips them"
+	);
+} else {
+	console.log("[dev] DEV_NO_ERROR_SEED=1: skipping the error-state demo servers");
+}
 
 // ── Live log follow ──────────────────────────────────────────────────────────
 // The terminal stays attached: both container logs and the extension's output
