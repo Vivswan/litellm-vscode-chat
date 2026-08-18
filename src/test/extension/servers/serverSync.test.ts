@@ -34,6 +34,7 @@ import {
 	entryDeclaredModelsFor,
 	entryHeadersFor,
 	rawDeclaredLabels,
+	stillDeclaredIn,
 } from "../../../extension/servers/serverSync/setting";
 import { groupClientId, parseGroupConfiguration } from "../../../provider/catalog/groupModels";
 import { CMD } from "../../../shared/config/commandIds";
@@ -2033,6 +2034,14 @@ suite("extension/servers/serverSync: the nested entry shape", () => {
 			const raw = [{ label: "S", baseUrl: "http://s.test", auth: { apiKey: 42 } }];
 			assert.deepStrictEqual(parseServersSetting(raw).entries, []);
 			assert.deepStrictEqual([...rawDeclaredLabels(raw)], ["S"]);
+		});
+
+		test("stillDeclaredIn judges presence, not acceptance, and a non-array container proves nothing", () => {
+			const present = stillDeclaredIn([{ label: "S", baseUrl: "http://s.test", auth: { apiKey: 42 } }]);
+			assert.ok(present("S"), "a misconfigured entry's label is still declared");
+			assert.ok(!present("gone"), "a label no raw entry carries reads as removed");
+			assert.ok(stillDeclaredIn(undefined)("anything"), "a non-array container reads everything as present");
+			assert.ok(!stillDeclaredIn([])("anything"), "an empty array is a real remove-everything");
 		});
 	});
 

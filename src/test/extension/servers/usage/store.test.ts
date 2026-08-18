@@ -65,8 +65,8 @@ suite("extension/servers/usage store", () => {
 		store.upsert(state("alpha"), []);
 		store.upsert(state("beta"), []);
 
-		store.prune(new Set(["alpha"]));
-		store.prune(new Set(["alpha"]));
+		store.prune((label) => label === "alpha");
+		store.prune((label) => label === "alpha");
 
 		assert.deepStrictEqual(events, ["updated:alpha", "updated:beta", "removed:beta"]);
 		assert.strictEqual(store.get("beta"), undefined);

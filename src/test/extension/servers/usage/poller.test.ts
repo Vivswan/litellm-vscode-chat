@@ -612,6 +612,47 @@ suite("extension/servers/usage poller", () => {
 		assert.strictEqual(h.client.calls.keyInfo, 1);
 	});
 
+	test("a mid-edit malformed entry is present, not removed: state survives and the repair re-fires no alert", async () => {
+		const h = makeHarness({ intervalMs: 0 });
+		h.client.keyInfoResult = { ...KEY_OK, spend: 90 };
+		await h.poller.refreshNow();
+		assert.deepStrictEqual(stateOf(h, "alpha").budget.crossedThresholds, [0.8]);
+		const crossingEvents = () =>
+			h.events.filter((event) => event.kind === "updated" && event.newlyCrossedThresholds.length > 0);
+		assert.strictEqual(crossingEvents().length, 1);
+
+		// One keystroke away from valid: the auth is momentarily misconfigured,
+		// so the parser rejects the entry while its label stays present.
+		h.setServers([{ label: "alpha", baseUrl: "http://one.test", auth: { oauth: {} } }]);
+		h.poller.applyServersChange();
+		await h.poller.refreshNow();
+
+		assert.ok(h.poller.store.get("alpha") !== undefined, "a mid-edit entry must keep its usage state");
+		assert.ok(!h.events.some((event) => event.kind === "removed"), "presence, not acceptance, decides removal");
+		assert.strictEqual(h.client.calls.keyInfo, 1, "a misconfigured entry is skipped, never fetched");
+
+		// The repair: the crossing was already alerted and must not re-fire.
+		h.setServers([{ label: "alpha", baseUrl: "http://one.test", apiKey: "sk-1" }]);
+		h.poller.applyServersChange();
+		await h.poller.refreshNow();
+
+		assert.deepStrictEqual(stateOf(h, "alpha").budget.crossedThresholds, [0.8]);
+		assert.strictEqual(crossingEvents().length, 1, "the repaired entry must not re-fire the shown alert");
+	});
+
+	test("a non-array servers value proves nothing about any label: no usage state is pruned", async () => {
+		const h = makeHarness({ intervalMs: 0 });
+		await h.poller.refreshNow();
+		assert.ok(h.poller.store.get("alpha") !== undefined);
+
+		h.setServers(undefined);
+		h.poller.applyServersChange();
+		await h.poller.refreshNow();
+
+		assert.ok(h.poller.store.get("alpha") !== undefined, "a malformed container must not read as removal");
+		assert.ok(!h.events.some((event) => event.kind === "removed"));
+	});
+
 	test("an unreadable secrets blob skips the server's fetches for the pass and logs a classification", async () => {
 		const h = makeHarness({ intervalMs: 0, readSecrets: () => Promise.reject(new Error("store broken")) });
 

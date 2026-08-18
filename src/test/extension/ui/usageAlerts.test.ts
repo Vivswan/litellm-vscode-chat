@@ -111,7 +111,7 @@ suite("extension/ui usageAlerts", () => {
 		const { store, toasts, alerts } = harness();
 		store.upsert(stateAt("prod", 0.5, []), []);
 
-		store.prune(new Set());
+		store.prune(() => false);
 		assert.strictEqual(toasts.length, 0);
 
 		alerts.dispose();

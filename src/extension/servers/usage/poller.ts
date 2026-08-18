@@ -24,11 +24,11 @@ import type { Clock, Timer } from "../../../shared/util/timer";
 import { PendingCall, REAL_TIMER, SYSTEM_CLOCK } from "../../../shared/util/timer";
 import type { StoredServerSecrets } from "../serverSync/secrets";
 import type { DeclaredServer } from "../serverSync/setting";
-import { parseServersSetting } from "../serverSync/setting";
+import { parseServersSetting, stillDeclaredIn } from "../serverSync/setting";
 import { newlyCrossedThresholds, resolveBudget } from "./budget";
-import type { ActivityWindow, DailyUsage, KeyUsage, UsageConnection, UserUsage } from "./spendClient";
-import { activityWindow, usageConnectionFor, usageUnavailabilityOf } from "./spendClient";
-import type { UsageEndpointId, UsageEndpointState, UsageEndpointStates, UsageFailureClassification } from "./store";
+import type { ActivityWindow, DailyUsage, KeyUsage, UsageConnection, UsageEndpointId, UserUsage } from "./spendClient";
+import { activityWindow, USAGE_ENDPOINT_PATHS, usageConnectionFor, usageUnavailabilityOf } from "./spendClient";
+import type { UsageEndpointState, UsageEndpointStates, UsageFailureClassification } from "./store";
 import { UNPROBED_ENDPOINTS, UsageStore, usageAvailabilityOf } from "./store";
 
 /** How many calendar days the daily-activity window reaches back (today included). */
@@ -111,13 +111,6 @@ export interface UsageRefreshOutcome {
 	readonly servers: readonly UsageServerRefreshOutcome[];
 }
 
-/** The usage endpoint paths as the failure summary prints them (English protocol terms). */
-const ENDPOINT_PATH: Readonly<Record<UsageEndpointId, string>> = {
-	keyInfo: "/key/info",
-	dailyActivity: "/user/daily/activity",
-	userInfo: "/user/info",
-};
-
 function describeEndpointFailure(failure: UsageEndpointFailure): string {
 	const how =
 		failure.status !== undefined
@@ -127,7 +120,7 @@ function describeEndpointFailure(failure: UsageEndpointFailure): string {
 				: failure.classification === "network"
 					? "network error"
 					: "failed";
-	return `${ENDPOINT_PATH[failure.endpoint]} ${how}${failure.reason !== undefined ? ` ${failure.reason}` : ""}`;
+	return `${USAGE_ENDPOINT_PATHS[failure.endpoint]} ${how}${failure.reason !== undefined ? ` ${failure.reason}` : ""}`;
 }
 
 /**
@@ -262,15 +255,17 @@ export class UsagePoller {
 	}
 
 	/**
-	 * React to a servers-setting change: drop servers that left the setting, and
-	 * re-probe availability for the rest (an edited entry may point at a
-	 * different proxy or carry new credentials). With the interval at 0 the
-	 * pending probe waits for the next explicit refresh, keeping the documented
-	 * "no background requests" promise.
+	 * React to a servers-setting change: drop servers whose label left the
+	 * setting, and re-probe availability for the rest (an edited entry may point
+	 * at a different proxy or carry new credentials). Removal is presence, not
+	 * acceptance (the sync engine's rule, via stillDeclaredIn): a mid-edit
+	 * malformed entry keeps its state, standings, and crossings, so repairing
+	 * it cannot re-fire already-shown alerts. With the interval at 0 the
+	 * pending probe waits for the next explicit refresh, keeping the
+	 * documented "no background requests" promise.
 	 */
 	applyServersChange(): void {
-		const { entries } = parseServersSetting(this.env.readServersSetting());
-		this.prune(new Set(entries.map((entry) => entry.label)));
+		this.prune(stillDeclaredIn(this.env.readServersSetting()));
 		this.probePending = true;
 		if (this.env.pollIntervalMs() > 0) {
 			this.schedule(this.serversChangeRefreshDelayMs());
@@ -442,8 +437,9 @@ export class UsagePoller {
 	}
 
 	private async runPass(force: boolean): Promise<UsageRefreshOutcome | undefined> {
-		const { entries } = parseServersSetting(this.env.readServersSetting());
-		this.prune(new Set(entries.map((entry) => entry.label)));
+		const rawSetting = this.env.readServersSetting();
+		const { entries } = parseServersSetting(rawSetting);
+		this.prune(stillDeclaredIn(rawSetting));
 		const thresholds = this.env.alertThresholds();
 		const servers: UsageServerRefreshOutcome[] = [];
 		for (const entry of entries) {
@@ -606,11 +602,10 @@ export class UsagePoller {
 		// The pass snapshots the entries at its start, so a concurrent
 		// applyServersChange may have pruned this label mid-fetch; writing the
 		// state back would resurrect a server the "removed" event already
-		// announced. Re-read presence at the last moment instead.
-		const stillDeclared = parseServersSetting(this.env.readServersSetting()).entries.some(
-			(declared) => declared.label === entry.label
-		);
-		if (!stillDeclared) {
+		// announced. Re-read presence at the last moment instead - presence, not
+		// acceptance (stillDeclaredIn), so an entry the user is mid-edit
+		// malforming keeps its refreshed state.
+		if (!stillDeclaredIn(this.env.readServersSetting())(entry.label)) {
 			return undefined;
 		}
 		const budget = resolveBudget({
@@ -670,10 +665,10 @@ export class UsagePoller {
 	}
 
 	/** Drop servers no longer declared from the store AND the backoff bookkeeping. */
-	private prune(keepLabels: ReadonlySet<string>): void {
-		this.store.prune(keepLabels);
+	private prune(stillDeclared: (label: string) => boolean): void {
+		this.store.prune(stillDeclared);
 		for (const label of [...this.errorStreaks.keys()]) {
-			if (!keepLabels.has(label)) {
+			if (!stillDeclared(label)) {
 				this.errorStreaks.delete(label);
 			}
 		}

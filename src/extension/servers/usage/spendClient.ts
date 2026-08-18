@@ -36,27 +36,35 @@ import { inlineSecretValues } from "../serverSync/secrets";
 import type { DeclaredServer } from "../serverSync/setting";
 
 /**
- * Usage endpoint paths, relative to the server root (NOT the /v1 API root). The
- * helpers take the entry's apiVersion so serverRootOf can undo a version
- * segment the user wrote into the base URL.
+ * Usage endpoint paths, relative to the server root (NOT the /v1 API root),
+ * keyed by endpoint id in probe order. One table feeds the URL builders here
+ * and the poller's refresh-failure summary (English protocol terms), so the
+ * toast can only name a path the client actually calls. The helpers take the
+ * entry's apiVersion so serverRootOf can undo a version segment the user
+ * wrote into the base URL.
  */
-const KEY_INFO_PATH = "/key/info";
-const USER_INFO_PATH = "/user/info";
-const DAILY_ACTIVITY_PATH = "/user/daily/activity";
+export const USAGE_ENDPOINT_PATHS = {
+	keyInfo: "/key/info",
+	dailyActivity: "/user/daily/activity",
+	userInfo: "/user/info",
+} as const;
+
+/** The usage endpoints tracked per server: the path table's keys ARE the vocabulary. */
+export type UsageEndpointId = keyof typeof USAGE_ENDPOINT_PATHS;
 
 /** The absolute own-key info endpoint (no `key` param: the caller's own key). */
 export function keyInfoUrl(baseUrl: string, apiVersion: string | undefined): string {
-	return `${serverRootOf(baseUrl, apiVersion)}${KEY_INFO_PATH}`;
+	return `${serverRootOf(baseUrl, apiVersion)}${USAGE_ENDPOINT_PATHS.keyInfo}`;
 }
 
 /** The absolute user-rollup endpoint; only called when the key carries a user. */
 export function userInfoUrl(baseUrl: string, apiVersion: string | undefined): string {
-	return `${serverRootOf(baseUrl, apiVersion)}${USER_INFO_PATH}`;
+	return `${serverRootOf(baseUrl, apiVersion)}${USAGE_ENDPOINT_PATHS.userInfo}`;
 }
 
 /** The absolute daily-activity endpoint; requests carry start_date/end_date. */
 export function dailyActivityUrl(baseUrl: string, apiVersion: string | undefined): string {
-	return `${serverRootOf(baseUrl, apiVersion)}${DAILY_ACTIVITY_PATH}`;
+	return `${serverRootOf(baseUrl, apiVersion)}${USAGE_ENDPOINT_PATHS.dailyActivity}`;
 }
 
 /**

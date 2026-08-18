@@ -22,7 +22,7 @@ import { isUnsafeRecordKey } from "../../../shared/util/json";
 import type { StoredServerSecrets } from "./secrets";
 import { inlineSecretValues } from "./secrets";
 import type { DeclaredServer, EntryModelCapabilities, EntryModelParameters } from "./setting";
-import { acceptedEntry, parseServersSetting, rawDeclaredLabels } from "./setting";
+import { acceptedEntry, parseServersSetting, stillDeclaredIn } from "./setting";
 
 /**
  * Which failure class produced a view's syncError. "upsertFailed": the add
@@ -700,22 +700,13 @@ export class ServerSyncEngine implements vscode.Disposable {
 		printedByLabel: ReadonlyMap<string, string>
 	): Promise<void> {
 		const currentLabels = new Set(entries.map((entry) => entry.label));
-		// Removal detection wants "the user removed the entry", not "this pass
-		// could not accept it": a label any raw entry still carries (malformed
-		// mid-edit, or a duplicate) is present, not removed - a tombstone written
+		// Removal detection uses the shared still-declared predicate: presence,
+		// not this pass's acceptance (see stillDeclaredIn) - a tombstone written
 		// for a present entry would suppress a group the user did not remove.
-		// Removal proof also needs the CONTAINER to be currently valid, and only
-		// an array is: the setting declares an array schema with a [] default, so
-		// a real "remove everything" arrives as an empty array, while an
-		// undefined, null, or otherwise non-array value is a malformed or partial
-		// state that proves nothing about any label - everything reads as present.
 		// Detection still keys on the fingerprint map: a record is the evidence a
 		// group was (probably) created for the label, so an entry that never
 		// synced leaves no shell and raises no event.
-		const settingParseable = Array.isArray(rawSetting);
-		const rawLabels = settingParseable ? rawDeclaredLabels(rawSetting) : undefined;
-		const labelStillPresent = (label: string) =>
-			currentLabels.has(label) || rawLabels === undefined || rawLabels.has(label);
+		const labelStillPresent = stillDeclaredIn(rawSetting);
 		const removed = Object.keys(previous).filter((label) => !labelStillPresent(label));
 		// A present-but-rejected label also KEEPS its records: the pass-end writes
 		// below rebuild both maps from the accepted entries, and without this

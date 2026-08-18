@@ -511,6 +511,26 @@ export function rawDeclaredLabels(raw: unknown): Set<string> {
 }
 
 /**
+ * The still-declared predicate every removal decision shares (the sync
+ * engine's removal detector and the usage poller's prunes): a label is still
+ * declared while ANY raw entry carries it, acceptance aside, so a mid-edit
+ * malformed entry stays present - "the user removed the entry" and "this pass
+ * could not accept it" must never be confused. Removal proof also needs the
+ * CONTAINER to be currently valid, and only an array is: the setting declares
+ * an array schema with a [] default, so a real "remove everything" arrives as
+ * an empty array, while an undefined, null, or otherwise non-array value is a
+ * malformed or partial state that proves nothing about any label - everything
+ * reads as present.
+ */
+export function stillDeclaredIn(raw: unknown): (label: string) => boolean {
+	if (!Array.isArray(raw)) {
+		return () => true;
+	}
+	const labels = rawDeclaredLabels(raw);
+	return (label) => labels.has(label);
+}
+
+/**
  * The declared entry the extension-side per-entry reads resolve against: the
  * entry acceptedEntry resolves for `label`, and only when that entry also
  * declares the server the request or refresh is routed to (base URLs compared

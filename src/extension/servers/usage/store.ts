@@ -12,10 +12,7 @@
  */
 
 import type { BudgetStatus } from "./budget";
-import type { DailyUsage, KeyUsage, UsageUnavailableReason, UserUsage } from "./spendClient";
-
-/** The usage endpoints tracked per server, in probe order. */
-export type UsageEndpointId = "keyInfo" | "dailyActivity" | "userInfo";
+import type { DailyUsage, KeyUsage, UsageEndpointId, UsageUnavailableReason, UserUsage } from "./spendClient";
 
 /**
  * How a transient endpoint failure failed, as a closed vocabulary (never
@@ -143,9 +140,9 @@ export class UsageStore {
 	}
 
 	/** Poller-only: drop servers no longer declared; each removal notifies. */
-	prune(keepLabels: ReadonlySet<string>): void {
+	prune(stillDeclared: (label: string) => boolean): void {
 		for (const label of [...this.states.keys()]) {
-			if (!keepLabels.has(label)) {
+			if (!stillDeclared(label)) {
 				this.states.delete(label);
 				this.emit({ kind: "removed", label });
 			}
