@@ -76,19 +76,19 @@ describe("the spend unit", () => {
 	test("shows the percentage with the shared severity tone and the meter beneath it", () => {
 		const usageFor = (spentFraction: number) =>
 			makeUsage({ servers: [makeUsageServer({ label: "Prod", spend: 21, spentFraction })] });
-		const cases: readonly [number, string][] = [
-			[0.42, "text-ok"],
+		const cases: readonly [number, string, string][] = [
+			[0.42, "42%", "text-ok"],
 			// Reaching a threshold counts as crossing it (the fixture thresholds
 			// are 0.8 and 0.95); over budget shows the literal percentage.
-			[0.8, "text-warn"],
-			[1.12, "text-err"],
+			[0.8, "80%", "text-warn"],
+			[1.12, "112%", "text-err"],
 		];
-		for (const [fraction, tone] of cases) {
+		for (const [fraction, percent, tone] of cases) {
 			const root = mountServers(usageFor(fraction));
 			const unit = root.querySelector(".server-usage .spend-unit") as HTMLElement;
 			// The hidden noun is the number's name - there is no column header.
 			expect(unit.querySelector(".visually-hidden")?.textContent).toContain("Budget spent");
-			expect(unit.textContent).toContain(`${Math.round(fraction * 100)}%`);
+			expect(unit.textContent).toContain(percent);
 			expect(unit.querySelector(`.${tone}`)).not.toBeNull();
 			// The meter under the number: the axis marks the 100% extent and the
 			// fill carries its forced-colors colour, so the meter can never read
@@ -205,6 +205,24 @@ describe("the drawer", () => {
 		fireClick(line);
 		expect(line.getAttribute("aria-expanded")).toBe("false");
 		expect(root.querySelector(".server-drawer")).toBeNull();
+	});
+
+	test("the drawer's rates floor like every percent: a lossy rate never prints a clean 100%", () => {
+		// The rates ride the same formatPercent as the budget figures, so the
+		// floor semantics reach them too: 3 failures in 1841 must not read as
+		// a perfect run.
+		const usage = makeUsage({
+			servers: [
+				makeUsageServer({
+					label: "Prod",
+					requests: { total: 1841, successRate: 1838 / 1841, cacheHitRate: 0.9999 },
+					dailyActivity: { kind: "ok" },
+				}),
+			],
+		});
+		const row = openRow(mountServers(usage));
+		expect(factOf(row, "Success rate")).toBe("99%");
+		expect(factOf(row, "Cache hit rate")).toBe("99%");
 	});
 
 	test("a configured currency symbol reaches every money figure on the row and in the drawer", () => {
@@ -731,6 +749,27 @@ describe("the usage diagnostics", () => {
 		const line = root.querySelector(".row-diagnostic") as HTMLElement;
 		expect((line.textContent ?? "").trim()).toBe("Action needed: Prod is over its budget by $7.50.");
 		expect(line.classList.contains("tier-error")).toBe(true);
+	});
+
+	test("the band and the meter agree on freshness: both wear the stale qualifier, or neither does", () => {
+		// One rule, the viewModel's `fresh` field: an over-budget row whose usage
+		// endpoint stops answering must not band an unqualified red beside a
+		// "stale"-marked meter.
+		const rowFor = (fresh: boolean) =>
+			makeUsage({
+				servers: [makeUsageServer({ label: "Prod", spend: 28, effectiveBudget: 25, spentFraction: 1.12, fresh })],
+			});
+		const stale = mountServers(rowFor(false));
+		expect(textOf(stale, ".spend-note")).toBe("stale");
+		const staleLine = stale.querySelector(".row-diagnostic") as HTMLElement;
+		expect(staleLine.textContent).toContain("Prod is over its budget by $3.00.");
+		expect(staleLine.textContent).toContain("The spend number is stale and may be out of date.");
+		cleanup();
+		const fresh = mountServers(rowFor(true));
+		expect(fresh.querySelector(".spend-note")).toBeNull();
+		const freshLine = fresh.querySelector(".row-diagnostic") as HTMLElement;
+		expect(freshLine.textContent).toContain("Prod is over its budget by $3.00.");
+		expect(freshLine.textContent).not.toContain("stale");
 	});
 
 	test("the warn-tier drawer line never wears the error hue", () => {

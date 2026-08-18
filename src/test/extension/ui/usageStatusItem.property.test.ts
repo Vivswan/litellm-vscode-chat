@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import * as fc from "fast-check";
+import { formatPercent } from "../../../dashboard/spendFormat";
 import type { BudgetStatus } from "../../../extension/servers/usage/budget";
 import { resolveBudget } from "../../../extension/servers/usage/budget";
 import { isUsageFresh, usageFreshnessWindowMs } from "../../../extension/servers/usage/freshness";
@@ -202,8 +203,9 @@ suite("extension/ui renderUsageStatus properties", () => {
 					return;
 				}
 				assert.ok(view !== "hidden", "a contributing server must render");
-				// The literal worst-fresh ratio: 112% stays 112%, no clamping.
-				assert.strictEqual(view.text, `${Math.round((worst as number) * 100)}%`);
+				// The literal worst-fresh ratio through the one shared formatter: 112%
+				// stays 112%, no clamping (the floor semantics are spendFormat's own pin).
+				assert.strictEqual(view.text, formatPercent(worst as number));
 				assert.strictEqual(view.severity, severity);
 			}),
 			{ numRuns: NUM_RUNS, seed: SEED }

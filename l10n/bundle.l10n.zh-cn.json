@@ -868,6 +868,7 @@
  "The server reports a billing problem with this key.": "服务器报告此密钥存在计费问题。",
  "The server's SSL certificate couldn't be verified, so the connection was blocked. Trust the server's certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your LiteLLM server administrator.": "无法验证服务器的 SSL 证书, 连接已被阻止。请在本机信任该服务器的证书颁发机构 (例如通过 NODE_EXTRA_CA_CERTS), 或联系你的 LiteLLM 服务器管理员。",
  "The server's root URL, e.g. http://localhost:4000 - discovery and chat requests are sent relative to it, so no model-specific path. Trailing slashes are normalized.": "服务器的根 URL, 例如 http://localhost:4000 - 发现与聊天请求都相对于它发送, 因此不要包含特定模型的路径。末尾的斜杠会被规范化。",
+ "The spend number is stale and may be out of date.": "支出数字已过时, 可能与最新情况不符。",
  "The undo changed 1 server's connection settings; its dashboard row will show the steps to reconnect.": "撤销更改了 1 个服务器的连接设置; 它在仪表板中的行会显示重新连接的步骤。",
  "The undo changed {0} servers' connection settings; their dashboard rows will show the steps to reconnect.": "撤销更改了 {0} 个服务器的连接设置; 它们在仪表板中的行会显示重新连接的步骤。",
  "The value cannot be sent as an HTTP header": "该值无法作为 HTTP 标头发送",

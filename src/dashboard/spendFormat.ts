@@ -21,9 +21,28 @@ export function formatMoney(amount: number, currencySymbol: string): string {
 		: `${currencySymbol}${amount.toFixed(2)}`;
 }
 
-/** The literal percentage, past 100 included (over-budget shows the real number). */
+/**
+ * The greatest whole percent the fraction has actually reached under the
+ * scale's >= comparison, past 100 included (over-budget shows the real
+ * number). A floor, never a round: every threshold test is `fraction >=
+ * threshold`, so 0.995 must print "99%" beside its ok tone, not a "100%"
+ * the fraction never reached. The drawer's request rates (success, cache
+ * hit) print through the same floor - a lossy rate can never round up to a
+ * clean "100%". Whole percents on purpose - the thresholds are
+ * whole-percent-shaped and every consumer is a compact chip, so a decimal
+ * would add width without adding truth.
+ */
 export function formatPercent(fraction: number): string {
-	return `${Math.round(fraction * 100)}%`;
+	const scaled = Math.floor(fraction * 100);
+	if (!Number.isFinite(scaled)) {
+		return `${scaled}%`;
+	}
+	// One bounded step aligns the raw floor with the >= comparison itself:
+	// fraction * 100 lands within an ulp of the true product (0.57 * 100 floats
+	// to 56.999...), so the floor misses the greatest whole percent with
+	// fraction >= percent / 100 by at most one, in either direction.
+	const percent = fraction >= (scaled + 1) / 100 ? scaled + 1 : fraction < scaled / 100 ? scaled - 1 : scaled;
+	return `${percent}%`;
 }
 
 /** The thresholds that participate in the scale: usable per the shared (0, 1] rule, deduplicated and ascending. */

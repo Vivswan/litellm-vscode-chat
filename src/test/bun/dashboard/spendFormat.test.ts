@@ -5,6 +5,7 @@
  * status bar all read. Pure functions, so this suite renders nothing.
  */
 import { describe, expect, test } from "bun:test";
+import * as fc from "fast-check";
 import {
 	barPresentation,
 	formatMoney,
@@ -13,6 +14,10 @@ import {
 	usableThresholds,
 	worstSpendTone,
 } from "../../../dashboard/spendFormat";
+import { resolveFuzzSeed } from "../../fuzzStream";
+
+const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 300;
+const SEED = resolveFuzzSeed();
 
 describe("spendTone", () => {
 	test("the whole fraction-to-tone table, threshold edge cases included", () => {
@@ -76,9 +81,45 @@ describe("worstSpendTone", () => {
 });
 
 describe("formatting", () => {
-	test("percentages show the literal number past 100", () => {
+	test("percentages floor to the greatest whole percent reached, past 100 included", () => {
+		// A floor, never a round: the tone map compares fraction >= threshold, so
+		// 0.995 beside two-threshold [0.8, 0.95] tones error but must not claim
+		// a "100%" it never reached; likewise 0.845 has not reached 85%.
 		expect(formatPercent(1.12)).toBe("112%");
-		expect(formatPercent(0.845)).toBe("85%");
+		expect(formatPercent(0.845)).toBe("84%");
+		expect(formatPercent(0.995)).toBe("99%");
+		// Float artifacts stay corrected: 0.57 * 100 floats to 56.999..., yet the
+		// 0.57 threshold IS reached at 0.57 under >=, so the floor may not drop it.
+		expect(formatPercent(0.57)).toBe("57%");
+		expect(formatPercent(0.29)).toBe("29%");
+		expect(formatPercent(0)).toBe("0%");
+	});
+
+	test("pathological fractions terminate: non-finite products and integers past ulp-1 territory", () => {
+		// The computation is bounded by construction; these inputs are the ones
+		// where a corrective walk would spin (Infinity - 1 === Infinity, and
+		// percent + 1 is a value no-op past 2^53).
+		expect(formatPercent(Number.NaN)).toBe("NaN%");
+		expect(formatPercent(Number.POSITIVE_INFINITY)).toBe("Infinity%");
+		expect(formatPercent(Number.MAX_VALUE)).toBe("Infinity%");
+		expect(formatPercent(2 ** 53)).toMatch(/^\d+%$/);
+	});
+
+	test("the monotonicity pin: no rendered percent the fraction has not reached under >=", () => {
+		// The property every threshold surface leans on: if the string says "80%",
+		// then fraction >= 0.80 is true under the exact comparison spendTone and
+		// the alert store run - and the percent is the greatest such, so the
+		// display never understates a crossing either.
+		fc.assert(
+			fc.property(fc.double({ min: 0, max: 10, noNaN: true, noDefaultInfinity: true }), (fraction) => {
+				const rendered = formatPercent(fraction);
+				const percent = Number(rendered.slice(0, -1));
+				expect(Number.isInteger(percent)).toBe(true);
+				expect(fraction >= percent / 100).toBe(true);
+				expect(fraction >= (percent + 1) / 100).toBe(false);
+			}),
+			{ seed: SEED, numRuns: NUM_RUNS }
+		);
 	});
 
 	test("money amounts keep cents below 1000 and take the configured symbol verbatim", () => {

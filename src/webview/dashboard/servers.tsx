@@ -633,20 +633,23 @@ function usageDiagnostics(
 		const tone = spendTone(card.spentFraction, spend.thresholds);
 		if (tone !== "ok") {
 			const overBudget = card.spentFraction > 1;
+			const figures = overBudget
+				? l10n.t(
+						"{0} is over its budget by {1}.",
+						label,
+						formatMoney(card.spend - card.effectiveBudget, spend.currencySymbol)
+					)
+				: l10n.t(
+						"{0} is close to its budget: {1} left.",
+						label,
+						formatMoney(card.effectiveBudget - card.spend, spend.currencySymbol)
+					);
 			const line = {
 				key: overBudget ? "over-budget" : "budget-pressure",
 				severity: "degraded",
-				headline: overBudget
-					? l10n.t(
-							"{0} is over its budget by {1}.",
-							label,
-							formatMoney(card.spend - card.effectiveBudget, spend.currencySymbol)
-						)
-					: l10n.t(
-							"{0} is close to its budget: {1} left.",
-							label,
-							formatMoney(card.effectiveBudget - card.spend, spend.currencySymbol)
-						),
+				// The meter's freshness rule, the same `fresh` field: a non-fresh number
+				// still shows, but never unqualified.
+				headline: card.fresh ? figures : `${figures} ${l10n.t("The spend number is stale and may be out of date.")}`,
 				actions: [],
 			} as const;
 			found.push(tone === "warn" ? { ...line, placement: "drawer" } : { ...line, tone: "error" });

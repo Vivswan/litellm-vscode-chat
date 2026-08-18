@@ -868,6 +868,7 @@
  "The server reports a billing problem with this key.": "伺服器回報此金鑰有計費問題。",
  "The server's SSL certificate couldn't be verified, so the connection was blocked. Trust the server's certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your LiteLLM server administrator.": "無法驗證伺服器的 SSL 憑證, 連線已被封鎖。請在本機信任該伺服器的憑證授權單位 (例如透過 NODE_EXTRA_CA_CERTS), 或聯絡您的 LiteLLM 伺服器管理員。",
  "The server's root URL, e.g. http://localhost:4000 - discovery and chat requests are sent relative to it, so no model-specific path. Trailing slashes are normalized.": "伺服器的根 URL, 例如 http://localhost:4000 - 探索與聊天請求都相對於它送出, 因此不要包含特定模型的路徑。結尾的斜線會被正規化。",
+ "The spend number is stale and may be out of date.": "支出數字已過時, 可能與最新情況不符。",
  "The undo changed 1 server's connection settings; its dashboard row will show the steps to reconnect.": "復原變更了 1 個伺服器的連線設定; 它在儀表板中的列會顯示重新連線的步驟。",
  "The undo changed {0} servers' connection settings; their dashboard rows will show the steps to reconnect.": "復原變更了 {0} 個伺服器的連線設定; 它們在儀表板中的列會顯示重新連線的步驟。",
  "The value cannot be sent as an HTTP header": "此值無法作為 HTTP 標頭傳送",

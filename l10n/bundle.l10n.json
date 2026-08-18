@@ -983,6 +983,7 @@
 	"The server reports a billing problem with this key.": "The server reports a billing problem with this key.",
 	"The server's SSL certificate couldn't be verified, so the connection was blocked. Trust the server's certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your LiteLLM server administrator.": "The server's SSL certificate couldn't be verified, so the connection was blocked. Trust the server's certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your LiteLLM server administrator.",
 	"The server's root URL, e.g. http://localhost:4000 - discovery and chat requests are sent relative to it, so no model-specific path. Trailing slashes are normalized.": "The server's root URL, e.g. http://localhost:4000 - discovery and chat requests are sent relative to it, so no model-specific path. Trailing slashes are normalized.",
+	"The spend number is stale and may be out of date.": "The spend number is stale and may be out of date.",
 	"The undo changed 1 server's connection settings; its dashboard row will show the steps to reconnect.": "The undo changed 1 server's connection settings; its dashboard row will show the steps to reconnect.",
 	"The undo changed {0} servers' connection settings; their dashboard rows will show the steps to reconnect.": "The undo changed {0} servers' connection settings; their dashboard rows will show the steps to reconnect.",
 	"The value cannot be sent as an HTTP header": "The value cannot be sent as an HTTP header",
