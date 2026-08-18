@@ -1,16 +1,17 @@
 /**
  * The probe-save equivalence pin (seed-pinned, FUZZ_RUNS-scaled): for
  * arbitrary drafts - field combinations, secret directives, an existing entry
- * with inline credentials, a stored blob - Test Connection and Save either
- * refuse with the SAME message, or the connection the probe sends equals the
- * credentials the saved entry's provider group would be handed (the written
- * entry parsed by serverSync's own parser, secrets resolved by buildGroupArgs
- * over the post-save blob). OAuth and the virtual key compare as complete
- * units, the only form in which the transport sends them. A second pin holds
- * the host's plan resolution (derived from the entry and the blob) equal to the
- * resolution the real form parser reports for the draft the user saved: the gap
- * that once let a retired label's orphan blob resolve host-side behind a form
- * showing "none".
+ * with inline credentials, a stored blob, a label that keeps or renames the
+ * entry - Test Connection and Save either refuse with the SAME message, or the
+ * connection the probe sends equals the credentials the saved entry's provider
+ * group would be handed (the written entry parsed by serverSync's own parser,
+ * secrets resolved by buildGroupArgs over the post-save blob). OAuth and the
+ * virtual key compare as complete units, the only form in which the transport
+ * sends them. A second pin holds the host's plan resolution (derived from the
+ * entry and the blob) equal to the resolution the real form parser reports for
+ * the draft the user saved: the gap that once let a retired label's orphan
+ * blob resolve host-side behind a form showing "none" - on a fresh label and
+ * on a rename onto one alike.
  */
 import * as assert from "node:assert";
 import * as fc from "fast-check";
@@ -87,6 +88,16 @@ const blobArb: fc.Arbitrary<Partial<Record<SecretFieldId, string>>> = fc.record(
 	{ requiredKeys: [] }
 );
 
+/** A retired label's leftover blob, seeded under the draft's label when it differs from "Prod". */
+const orphanArb: fc.Arbitrary<Partial<Record<SecretFieldId, string>>> = fc.record(
+	{
+		apiKey: fc.constant("sk-test-orphan-key"),
+		oauthClientSecret: fc.constant("sk-test-orphan-cs"),
+		virtualKeyValue: fc.constant("sk-test-orphan-vkv"),
+	},
+	{ requiredKeys: [] }
+);
+
 function compact(record: Record<string, unknown>): Record<string, unknown> {
 	return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined));
 }
@@ -109,14 +120,19 @@ suite("extension/dashboard: probe-save equivalence", () => {
 				secretsArb,
 				existingArb,
 				blobArb,
+				orphanArb,
 				// Independent of `existing` on purpose: an entry under the label with
 				// NO replaceLabel is the add form saving onto a taken label, the route
 				// whose secret resolution differs from an edit's.
 				fc.boolean(),
-				async (fields, secrets, existing, blob, declaresReplacement) => {
+				// The draft's label, independent of the replaced entry's: "Renamed"
+				// with a replaceLabel is a rename, whose keeps must resolve the source
+				// entry alone - never the orphan blob seeded under "Renamed".
+				fc.constantFrom("Prod", "Renamed"),
+				async (fields, secrets, existing, blob, orphan, declaresReplacement, label) => {
 					const setting = existing !== undefined ? [existing] : [];
 					const payload = {
-						server: serverPayload({ label: "Prod", baseUrl: "http://prod.test", ...compact(fields) }),
+						server: serverPayload({ label, baseUrl: "http://prod.test", ...compact(fields) }),
 						secrets,
 						...(existing !== undefined && declaresReplacement ? { replaceLabel: "Prod" } : {}),
 					} satisfies RequestPayload<"saveServerSetting">;
@@ -124,6 +140,9 @@ suite("extension/dashboard: probe-save equivalence", () => {
 						const env = makeEnv(setting);
 						if (Object.keys(blob).length > 0) {
 							env.storedSecrets.set("Prod", { ...blob } as Record<string, string>);
+						}
+						if (label !== "Prod" && Object.keys(orphan).length > 0) {
+							env.storedSecrets.set(label, { ...orphan } as Record<string, string>);
 						}
 						return env;
 					};
@@ -148,9 +167,9 @@ suite("extension/dashboard: probe-save equivalence", () => {
 
 					const written = saveEnv.serverWrites.at(-1);
 					assert.ok(written !== undefined, "the save landed a settings write");
-					const saved = acceptedEntry(written, "Prod");
+					const saved = acceptedEntry(written, label);
 					assert.ok(saved !== undefined, "a save never writes an entry the parser rejects");
-					const args = buildGroupArgs(saved.entry, saveEnv.storedSecrets.get("Prod") ?? {});
+					const args = buildGroupArgs(saved.entry, saveEnv.storedSecrets.get(label) ?? {});
 					const connection = probeEnv.probes[0];
 					assert.ok(connection !== undefined, "the probe ran");
 
@@ -194,14 +213,24 @@ suite("extension/dashboard: probe-save equivalence", () => {
 				}),
 				existingArb,
 				blobArb,
+				orphanArb,
 				fc.boolean(),
-				async (removals, existing, blob, declaresReplacement) => {
+				// A draft label of "Renamed" makes an edit a rename; the orphan blob
+				// seeded under it must never count as shown.
+				fc.constantFrom("Prod", "Renamed"),
+				async (removals, existing, blob, orphan, declaresReplacement, label) => {
 					const setting = existing !== undefined ? [existing] : [];
 					const env = makeEnv(setting);
 					if (Object.keys(blob).length > 0) {
 						env.storedSecrets.set("Prod", { ...blob } as Record<string, string>);
 					}
-					const sources = await readKeepSources(setting, "Prod", "Prod", (label) => env.env.readServerSecrets(label));
+					if (label !== "Prod" && Object.keys(orphan).length > 0) {
+						env.storedSecrets.set(label, { ...orphan } as Record<string, string>);
+					}
+					const targetLabel = declaresReplacement ? "Prod" : label;
+					const sources = await readKeepSources(setting, label, targetLabel, (secretsLabel) =>
+						env.env.readServerSecrets(secretsLabel)
+					);
 					// Which entry the form was showing, by the production rule itself:
 					// the edit form names the entry it replaces (replaceLabel), the add
 					// form never does - not even when its label collides with an entry
@@ -228,7 +257,7 @@ suite("extension/dashboard: probe-save equivalence", () => {
 					// against the host's plans.
 					const draft: ServerFormDraft = {
 						...EMPTY_SERVER_FORM,
-						label: "Prod",
+						label,
 						baseUrl: "http://prod.test",
 						...(editing
 							? recordFromKeys(SECRET_FIELD_IDS, (field) => ({
@@ -247,7 +276,7 @@ suite("extension/dashboard: probe-save equivalence", () => {
 						SECRET_FIELD_IDS,
 						(field): SecretDirective => (removals[field] ? { action: "clear" } : { action: "keep" })
 					);
-					const plans = secretPlans(directives, showing, sources.storedEffective);
+					const plans = secretPlans(directives, showing, sources.storedOld);
 					for (const field of SECRET_FIELD_IDS) {
 						const formResolves = parse.ok ? false : parse.problems[field] !== undefined;
 						assert.strictEqual(

@@ -124,7 +124,7 @@ export async function applyTestServerDraft(
 	// the probe tests exactly the credentials the form displayed - never a
 	// retired label's leftovers, and never a replaced entry's own key.
 	const showing = entryShownByForm(sources.accepted?.entry, intent.replaceLabel);
-	const plans = secretPlans(intent.secrets, showing, sources.storedEffective);
+	const plans = secretPlans(intent.secrets, showing, sources.storedOld);
 	const inlineValues: { -readonly [K in SecretFieldId]?: string } = {};
 	const secureValues: { -readonly [K in SecretFieldId]?: string } = {};
 	for (const field of SECRET_FIELD_IDS) {
@@ -138,7 +138,7 @@ export async function applyTestServerDraft(
 				secureValues[field] = plan.value;
 				break;
 			case "stored": {
-				const stored = sources.storedEffective[field];
+				const stored = sources.storedOld[field];
 				if (stored !== undefined) {
 					secureValues[field] = stored;
 				}

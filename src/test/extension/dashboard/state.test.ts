@@ -2929,6 +2929,22 @@ suite("extension/dashboard/state", () => {
 			]);
 		});
 
+		test("a rename draft's keep resolves the source entry alone, never the new label's orphan blob", async () => {
+			// The edit form showed "Old", which holds nothing, so the retired
+			// label's leftover under the typed new label must not ride the probe -
+			// the same rule the save applies when it wipes that blob.
+			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
+			recorded.storedSecrets.set("New", { apiKey: "sk-orphan" });
+			await draftTest(recorded, {
+				server: serverPayload({ label: "New", baseUrl: "http://prod.test" }),
+				replaceLabel: "Old",
+			});
+
+			assert.deepStrictEqual(recorded.probes, [
+				{ baseUrl: "http://prod.test", label: "New", apiKey: "", expected: NO_EXPECTED },
+			]);
+		});
+
 		test("clear probes without the credential even when one is stored", async () => {
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test", apiKey: "sk-inline" }]);
 			await draftTest(recorded, {

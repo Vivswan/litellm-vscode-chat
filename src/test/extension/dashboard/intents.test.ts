@@ -782,18 +782,72 @@ suite("extension/dashboard/intents", () => {
 			assert.deepStrictEqual(recorded.storedSecrets.get("New"), { virtualKeyValue: "vk-1" });
 		});
 
-		test("a rename with keep directives also resolves against an orphan blob under the new label", async () => {
-			// copyServerSecrets is a no-op on an empty source, so the orphan
-			// survives the save and the sync engine adopts it; the pairing check
-			// must agree instead of refusing a save the engine would satisfy.
+		test("a rename with keep directives never resolves an orphan blob under the new label", async () => {
+			// The form showed the source entry, which holds no virtual-key value,
+			// so the retired label's leftover must not satisfy the pair: the save
+			// refuses before any effect instead of adopting the orphan.
 			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
 			recorded.storedSecrets.set("New", { virtualKeyValue: "vk-orphan" });
+			await assert.rejects(
+				save(recorded, {
+					server: serverPayload({ label: "New", baseUrl: "http://prod.test", virtualKeyHeader: "x-vk" }),
+					replaceLabel: "Old",
+				}),
+				/virtualKeyValue/
+			);
+
+			assert.deepStrictEqual(recorded.serverWrites, []);
+			assert.deepStrictEqual(recorded.secretOps, [], "refused before any secret operation");
+		});
+
+		test("a rename onto a retired label wipes its orphan blob; the source's own secrets still travel", async () => {
+			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test", auth: { apiKey: "sk-inline-old" } }]);
+			recorded.storedSecrets.set("New", { apiKey: "sk-orphan", virtualKeyValue: "vk-orphan" });
 			await save(recorded, {
-				server: serverPayload({ label: "New", baseUrl: "http://prod.test", virtualKeyHeader: "x-vk" }),
+				server: serverPayload({ label: "New", baseUrl: "http://prod.test" }),
 				replaceLabel: "Old",
 			});
 
-			assert.strictEqual(recorded.serverWrites.length, 1);
+			assert.deepStrictEqual(recorded.storedSecrets.get("New"), {}, "the retired label's leftover blob is wiped");
+			assert.deepStrictEqual(
+				recorded.serverWrites,
+				[[{ label: "New", baseUrl: "http://prod.test", auth: { apiKey: "sk-inline-old" } }]],
+				"the source entry's inline key travels to the new label"
+			);
+			assert.deepStrictEqual(
+				recorded.ops,
+				["copy:Old->New", "unstore:New.apiKey", "unstore:New.virtualKeyValue", "write", "deleteBlob:Old"],
+				"the wipe runs inside the guarded unit, before the write"
+			);
+		});
+
+		test("a rename whose source holds a blob replaces the target's orphan wholesale with it", async () => {
+			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
+			recorded.storedSecrets.set("Old", { apiKey: "sk-old" });
+			recorded.storedSecrets.set("New", { virtualKeyValue: "vk-orphan" });
+			await save(recorded, {
+				server: serverPayload({ label: "New", baseUrl: "http://prod.test" }),
+				replaceLabel: "Old",
+			});
+
+			assert.deepStrictEqual(recorded.storedSecrets.get("New"), { apiKey: "sk-old" }, "the orphan does not survive");
+		});
+
+		test("a rename with an empty source blob restores the wiped orphan when the settings write fails", async () => {
+			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
+			recorded.storedSecrets.set("New", { apiKey: "sk-orphan" });
+			recorded.failWrites = new Error("disk full");
+			await assert.rejects(
+				save(recorded, { server: serverPayload({ label: "New", baseUrl: "http://prod.test" }), replaceLabel: "Old" }),
+				/disk full/
+			);
+
+			assert.deepStrictEqual(
+				recorded.storedSecrets.get("New"),
+				{ apiKey: "sk-orphan" },
+				"the unchanged setting still resolves what it resolved before"
+			);
+			assert.strictEqual(recorded.syncRequests, 0, "a clean rollback changes nothing durable");
 		});
 
 		test("a non-empty old blob replaces the orphan wholesale on rename, and pairing tracks that", async () => {

@@ -19,8 +19,10 @@ import { DashboardOperationError, DashboardValidationError, rawServerEntries } f
  * How one save lands in the servers setting, computed once so the pairing
  * checks, the guarded apply, and the cleanup agree on it. A rename copies the
  * old label's secret blob to the new label only when the old blob holds
- * anything (`willCopy`); that same flag decides whether a failed write
- * restores the new label's blob wholesale or field by field.
+ * anything (`willCopy`); an empty old blob wipes the new label's leftover
+ * fields instead, so either way the new label ends up serving only the renamed
+ * entry's own secrets. The same flag decides whether a failed write restores
+ * the new label's blob wholesale or field by field.
  *
  * "upsert" is the add form saving onto a label that already has an entry (its
  * documented "saving replaces it"): it writes in place like an edit, but the
@@ -40,12 +42,14 @@ type SaveMode =
  *
  * Only a draft that NAMES the entry it replaces (`replaceLabel`, which the edit
  * form always sends and the add form never does) may resolve that entry's
- * credentials. A draft from the blank add form showed every field as "none", so
- * it resolves nothing - whether its label is free (a create) or already taken
- * (an upsert, replacing the entry in place). Otherwise a retired label's
- * leftover blob, or a replaced entry's own key, would ride to whatever host the
- * new draft names; the caller wipes the leftovers for the same reason (the sync
- * engine resolves a label's blob unconditionally).
+ * credentials - and only that entry's: its inline fields and its own label's
+ * blob, never a blob already sitting under the draft's new label. A draft from
+ * the blank add form showed every field as "none", so it resolves nothing -
+ * whether its label is free (a create) or already taken (an upsert, replacing
+ * the entry in place). Otherwise a retired label's leftover blob, or a replaced
+ * entry's own key, would ride to whatever host the new draft names; the caller
+ * wipes such leftovers for the same reason (the sync engine resolves a label's
+ * blob unconditionally).
  */
 export function entryShownByForm(
 	accepted: DeclaredServer | undefined,
@@ -76,15 +80,17 @@ export function planResolves(plan: SecretPlan): boolean {
  * Resolve every secret directive of a draft into its plan: what the field does
  * and where its value will live. Shared with the draft-connection test, so a
  * directive cannot mean two different values on the two paths. `existing` is
- * the entry the saved form was showing (entryShownByForm); undefined means
- * the form showed no credentials at all, and "keep" then resolves NOTHING - the
- * label's leftover SecretStorage blob (removals keep blobs on purpose) must not
- * resurrect under an entry the form showed as credential-less.
+ * the entry the saved form was showing (entryShownByForm) and `storedShown` is
+ * that entry's own label's blob (KeepSources.storedOld); an undefined entry
+ * means the form showed no credentials at all, and "keep" then resolves
+ * NOTHING - a label's leftover SecretStorage blob (removals keep blobs on
+ * purpose) must not resurrect under an entry the form showed as
+ * credential-less.
  */
 export function secretPlans(
 	secrets: Readonly<Record<SecretFieldId, SecretDirective>>,
 	existing: DeclaredServer | undefined,
-	storedEffective: Partial<Readonly<Record<SecretFieldId, string>>>
+	storedShown: Partial<Readonly<Record<SecretFieldId, string>>>
 ): Readonly<Record<SecretFieldId, SecretPlan>> {
 	return recordFromKeys(SECRET_FIELD_IDS, (field): SecretPlan => {
 		const directive = secrets[field];
@@ -99,7 +105,7 @@ export function secretPlans(
 				if (existing === undefined) {
 					return { kind: "absent" };
 				}
-				const kept = resolveKeptSecret(existing, storedEffective, field);
+				const kept = resolveKeptSecret(existing, storedShown, field);
 				if (kept === undefined) {
 					return { kind: "absent" };
 				}
@@ -113,17 +119,17 @@ export function secretPlans(
  * What "keep" directives resolve against for a draft that writes `label` over
  * the entry `targetLabel` names: the accepted entry being replaced (so a
  * rejected same-label sibling cannot shadow it) and the secure-side blobs
- * involved. `storedEffective` is the blob the saved entry's label will read
- * afterwards: a rename copies the old label's blob only when it holds
- * anything, so an empty old blob leaves an orphan blob under the new label
- * serving. Shared with the draft-connection test, so "keep" cannot mean two
- * different values on the two paths.
+ * involved. Keeps resolve `storedOld` alone - the blob under the label the
+ * form was showing. `storedNew`, the blob already under the draft's label, is
+ * never resolved (on a rename it is a retired label's leftover, which the save
+ * replaces via the copy or wipes) and rides along only for the save's
+ * overwrite and rollback bookkeeping. Shared with the draft-connection test,
+ * so "keep" cannot mean two different values on the two paths.
  */
 export interface KeepSources {
 	readonly accepted: { readonly index: number; readonly entry: DeclaredServer } | undefined;
 	readonly storedOld: Partial<Readonly<Record<SecretFieldId, string>>>;
 	readonly storedNew: Partial<Readonly<Record<SecretFieldId, string>>>;
-	readonly storedEffective: Partial<Readonly<Record<SecretFieldId, string>>>;
 	/** Whether a rename will copy the old label's blob (it holds anything). */
 	readonly willCopy: boolean;
 }
@@ -139,32 +145,33 @@ export async function readKeepSources(
 	const storedOld = await readServerSecrets(targetLabel);
 	const storedNew = renaming ? await readServerSecrets(label) : storedOld;
 	const willCopy = renaming && Object.keys(storedOld).length > 0;
-	return { accepted, storedOld, storedNew, storedEffective: willCopy ? storedOld : storedNew, willCopy };
+	return { accepted, storedOld, storedNew, willCopy };
 }
 
 /**
  * The value one "keep" directive resolves to, and where it lives: inline
  * exactly when the sync engine reads it inline (its own inlineSecretValues
- * rule, never a re-derivation), the effective secure blob otherwise.
+ * rule, never a re-derivation), the shown label's secure blob otherwise.
  */
 function resolveKeptSecret(
 	existing: DeclaredServer,
-	storedEffective: Partial<Readonly<Record<SecretFieldId, string>>>,
+	storedShown: Partial<Readonly<Record<SecretFieldId, string>>>,
 	field: SecretFieldId
 ): { readonly value: string; readonly location: "inline" | "secure" } | undefined {
 	const inline = inlineSecretValues(existing)[field];
 	if (inline !== undefined) {
 		return { value: inline, location: "inline" };
 	}
-	const stored = storedEffective[field];
+	const stored = storedShown[field];
 	return stored !== undefined ? { value: stored, location: "secure" } : undefined;
 }
 
 /**
  * Apply one saveServerSetting intent in a failure-safe order: validate
  * everything up front, then run the guarded secret operations (set-secure
- * writes; a rename copies the blob to the new label; a save whose form showed
- * no credentials wipes the label's orphan blob fields) and the settings write
+ * writes; a rename copies the blob to the new label; a save whose form never
+ * showed the label's blob - a create, an upsert, or a rename with nothing to
+ * copy - wipes the label's leftover blob fields) and the settings write
  * as one guarded unit, and only after the write lands run the destructive
  * cleanup (clears, dropping the stale secure copy behind an inline write,
  * deleting the old rename blob).
@@ -198,7 +205,7 @@ export async function applySaveServerSetting(
 	// helper reads what the sync engine will read for this label after the save
 	// (see KeepSources), so the pairing checks and the draft test share one
 	// "keep" truth.
-	const { accepted, storedOld, storedNew, storedEffective, willCopy } = await readKeepSources(
+	const { accepted, storedOld, storedNew, willCopy } = await readKeepSources(
 		entries,
 		label,
 		targetLabel,
@@ -238,7 +245,7 @@ export async function applySaveServerSetting(
 						}
 					: { kind: "edit", index: accepted.index, existing: showing };
 
-	const plans = secretPlans(intent.secrets, showing, storedEffective);
+	const plans = secretPlans(intent.secrets, showing, storedOld);
 
 	// The final entry, needed for the pairing checks below. This rebuild is
 	// the whole entry: any payload field not copied here is silently DELETED
@@ -314,6 +321,14 @@ export async function applySaveServerSetting(
 	// Phases 1 and 2 as one guarded unit: the guarded secret operations, then
 	// the settings write everything hinges on. Secure values those steps
 	// overwrite or wipe are remembered (pre-write state) for the rollback.
+	// A leftover blob field under the saved label is wiped when no plan can
+	// reference it: a create or upsert form showed no credentials, and a rename
+	// form showed the SOURCE entry, whose copy replaces the target blob only
+	// when the source holds anything (wiping after a copy would delete copied
+	// fields, so the two are exclusive). The wipe precedes the settings write
+	// and every wiped field is rollback-restored on a throw, so the gap's
+	// failure direction is a briefly missing credential, never a leaked one.
+	const wipesLeftovers = showing === undefined || (mode.kind === "rename" && !mode.willCopy);
 	const overwritten = new Map<SecretFieldId, string | undefined>();
 	try {
 		if (mode.kind === "rename") {
@@ -324,11 +339,7 @@ export async function applySaveServerSetting(
 			if (plan.kind === "set-secure") {
 				overwritten.set(field, storedNew[field]);
 				await env.storeServerSecret(label, field, plan.value);
-			} else if (showing === undefined && storedNew[field] !== undefined) {
-				// Blobs kept from removals must not leak into an entry whose form
-				// showed no credentials (adopt's rule): the sync engine resolves the
-				// label's blob unconditionally, so a surviving orphan field would ride
-				// the new group's credentials even though no plan references it.
+			} else if (wipesLeftovers && storedNew[field] !== undefined) {
 				overwritten.set(field, storedNew[field]);
 				await env.storeServerSecret(label, field, undefined);
 			}
