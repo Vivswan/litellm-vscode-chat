@@ -40,19 +40,26 @@ function objectTag(value: unknown): string {
 }
 
 /**
+ * A duck-typed optional string field of an unknown thrown value, total: a
+ * hostile getter must not break logging, so a throwing read is no value.
+ */
+function stringFieldOf(error: unknown, field: "logClassification" | "englishMessage"): string | undefined {
+	try {
+		const value = (error as Record<string, unknown> | null | undefined)?.[field];
+		return typeof value === "string" ? value : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
  * The classification-only rendering offered by errors whose message embeds
  * response-derived text. The canonical producer is MirroredError, but the read
  * stays duck-typed and total, because anything can be thrown at a logging
  * boundary.
  */
 export function classificationOf(error: unknown): string | undefined {
-	try {
-		const classification = (error as { logClassification?: unknown } | null | undefined)?.logClassification;
-		return typeof classification === "string" ? classification : undefined;
-	} catch {
-		// A hostile logClassification getter must not break logging.
-		return undefined;
-	}
+	return stringFieldOf(error, "logClassification");
 }
 
 /**
@@ -62,13 +69,7 @@ export function classificationOf(error: unknown): string | undefined {
  * logs or public issues. Duck-typed and total, like classificationOf.
  */
 function englishMessageOf(error: unknown): string | undefined {
-	try {
-		const english = (error as { englishMessage?: unknown } | null | undefined)?.englishMessage;
-		return typeof english === "string" ? english : undefined;
-	} catch {
-		// A hostile englishMessage getter must not break logging.
-		return undefined;
-	}
+	return stringFieldOf(error, "englishMessage");
 }
 
 /**
@@ -101,33 +102,49 @@ export function publicErrorText(error: unknown): LogSafeErrorText {
 }
 
 /**
- * The public rendering of a thrown value's stack. When the value classifies or
- * mirrors its message, V8's `${name}: ${message}` prefix is stripped BY
- * LENGTH, never by line shape: an http body can contain lines shaped like
- * stack frames, so a shape filter alone would keep attacker-controlled lines.
- * A stack not starting with the exact prefix fails closed to the replacement
- * alone.
+ * The single stack sanitizer behind every public stack rendering: strip V8's
+ * `${name}: ${message}` first line BY LENGTH, never by line shape - an http
+ * body can contain lines shaped like stack frames, so a shape filter alone
+ * would keep attacker-controlled lines - and reattach the real call frames
+ * under the caller's replacement first line. A stack not starting with the
+ * exact prefix fails closed to the replacement alone. Takes the stack as the
+ * caller's already-narrowed value so a hostile getter cannot swap it between
+ * the check and the strip; name/message reads can still throw, so each caller
+ * wraps this in its own catch fallback.
+ */
+function sanitizeStack(error: Error, stack: string, firstLine: string): string {
+	const prefix = `${error.name}: ${error.message}`;
+	if (!stack.startsWith(prefix)) {
+		return firstLine;
+	}
+	const frames = stack
+		.slice(prefix.length)
+		.split("\n")
+		.filter((line) => /^\s+at /.test(line));
+	return [firstLine, ...frames].join("\n");
+}
+
+/**
+ * The public rendering of a thrown value's stack (the issue-report buffer and
+ * the latest-error snapshot). When the value classifies or mirrors its
+ * message, sanitizeStack swaps the message line for the classification or the
+ * English mirror.
  */
 export function publicErrorStack(error: unknown): string | undefined {
 	try {
-		if (!(error instanceof Error) || typeof error.stack !== "string") {
+		if (!(error instanceof Error)) {
+			return undefined;
+		}
+		const stack = error.stack;
+		if (typeof stack !== "string") {
 			return undefined;
 		}
 		const classification = classificationOf(error);
 		const english = englishMessageOf(error);
 		if (classification === undefined && english === undefined) {
-			return error.stack;
+			return stack;
 		}
-		const replacement = classification ?? `${error.name}: ${english}`;
-		const prefix = `${error.name}: ${error.message}`;
-		if (!error.stack.startsWith(prefix)) {
-			return replacement;
-		}
-		const frames = error.stack
-			.slice(prefix.length)
-			.split("\n")
-			.filter((line) => /^\s+at /.test(line));
-		return [replacement, ...frames].join("\n");
+		return sanitizeStack(error, stack, classification ?? `${error.name}: ${english}`);
 	} catch {
 		// classificationOf and englishMessageOf are total; a hostile
 		// stack/name/message getter loses its frames, never breaks logging.
@@ -137,29 +154,23 @@ export function publicErrorStack(error: unknown): string | undefined {
 
 /**
  * The stack for the output channel, total against hostile proxies. The channel
- * stays English, so a mirrored error's prefix is stripped BY LENGTH and
- * replaced with the English mirror, failing closed to the mirror line alone
- * rather than printing a possibly-localized first line.
+ * stays English, so sanitizeStack swaps a mirrored error's message line for
+ * the English mirror rather than printing a possibly-localized first line.
  */
 function channelErrorStack(error: unknown): string | undefined {
 	try {
-		if (!(error instanceof Error) || typeof error.stack !== "string" || error.stack.length === 0) {
+		if (!(error instanceof Error)) {
+			return undefined;
+		}
+		const stack = error.stack;
+		if (typeof stack !== "string" || stack.length === 0) {
 			return undefined;
 		}
 		const english = englishMessageOf(error);
 		if (english === undefined) {
-			return error.stack;
+			return stack;
 		}
-		const replacement = `${error.name}: ${english}`;
-		const prefix = `${error.name}: ${error.message}`;
-		if (!error.stack.startsWith(prefix)) {
-			return replacement;
-		}
-		const frames = error.stack
-			.slice(prefix.length)
-			.split("\n")
-			.filter((line) => /^\s+at /.test(line));
-		return [replacement, ...frames].join("\n");
+		return sanitizeStack(error, stack, `${error.name}: ${english}`);
 	} catch {
 		return undefined;
 	}
