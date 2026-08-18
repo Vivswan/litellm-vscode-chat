@@ -9,6 +9,10 @@ import {
 	executeDashboardIntent,
 	readInlineSecretValues,
 } from "../../../extension/dashboard/intents";
+import { buildGroupArgs } from "../../../extension/servers/serverSync/engine";
+import { acceptedEntry, parseServersSetting } from "../../../extension/servers/serverSync/setting";
+import { stripEntrySecrets } from "../../../extension/settingsTransfer/secretSurgery";
+import { isRecord } from "../../../shared/util/json";
 import { KEEP_ALL, makeEnv, type RecordedEnv, serverPayload } from "./recordedEnv";
 
 /** The intent body a clean draft parses to; fails the test if the draft has problems. */
@@ -1022,10 +1026,17 @@ suite("extension/dashboard/intents", () => {
 					{
 						label: "Adopted",
 						baseUrl: "http://ext.test",
-						oauthTokenUrl: "https://idp.test/token",
-						oauthClientId: "client-1",
-						oauthScopes: "read write",
-						virtualKeyHeader: "x-litellm-api-key",
+						// The NESTED auth shape the sync engine parses, secure-routed
+						// values omitted: a flat credential field would sync
+						// credential-less and escape the no-secrets export's strip.
+						auth: {
+							oauth: {
+								tokenUrl: "https://idp.test/token",
+								clientId: "client-1",
+								scopes: "read write",
+								virtualKey: { header: "x-litellm-api-key" },
+							},
+						},
 					},
 				],
 			]);
@@ -1050,9 +1061,59 @@ suite("extension/dashboard/intents", () => {
 			});
 
 			assert.deepStrictEqual(recorded.serverWrites, [
-				[{ label: "Adopted", baseUrl: "http://ext.test", apiKey: "sk-live" }],
+				[{ label: "Adopted", baseUrl: "http://ext.test", auth: { apiKey: "sk-live" } }],
 			]);
 			assert.deepStrictEqual(recorded.secretOps, [], "nothing goes secure-side when settings was chosen");
+		});
+
+		test("the adopted entry is parser-accepted and its group args carry every copied credential", async () => {
+			// The healing guarantee by construction: what adopt writes is already
+			// the shape the sync engine parses, so the entry serves its
+			// credentials immediately, no activation-time restructure needed.
+			const recorded = makeEnv([]);
+			recorded.adoptionCredentials = FULL_CREDENTIALS;
+
+			await adopt(recorded);
+
+			const written = recorded.serverWrites.at(-1);
+			assert.ok(written !== undefined);
+			assert.deepStrictEqual(parseServersSetting(written).problems, [], "the adopted entry parses clean");
+			const accepted = acceptedEntry(written, "Adopted");
+			assert.ok(accepted !== undefined, "the adopted entry is accepted, not just carried");
+			const args = buildGroupArgs(accepted.entry, recorded.storedSecrets.get("Adopted") ?? {});
+			assert.strictEqual(args.apiKey, "sk-live");
+			assert.strictEqual(args.oauthTokenUrl, "https://idp.test/token");
+			assert.strictEqual(args.oauthClientId, "client-1");
+			assert.strictEqual(args.oauthClientSecret, "oauth-secret");
+			assert.strictEqual(args.oauthScopes, "read write");
+			assert.strictEqual(args.virtualKeyHeader, "x-litellm-api-key");
+			assert.strictEqual(args.virtualKeyValue, "vk-live");
+		});
+
+		test("a no-secrets strip of a fully inlined adopted entry certifies and removes every credential", async () => {
+			// The export-hole closure: with every secret routed to settings, the
+			// adopted entry holds them all inline - and the no-secrets export's
+			// strip must reach every one, which only the nested auth shape allows.
+			const recorded = makeEnv([]);
+			recorded.adoptionCredentials = FULL_CREDENTIALS;
+
+			await adopt(recorded, {
+				secrets: { apiKey: "settings", oauthClientSecret: "settings", virtualKeyValue: "settings" },
+			});
+
+			const entry = recorded.serverWrites.at(-1)?.[0];
+			assert.ok(isRecord(entry));
+			const stripped = stripEntrySecrets(entry);
+			assert.strictEqual(stripped.unsanitizable, false, "an adopted entry must be exportable without secrets");
+			const rendered = JSON.stringify(stripped.entry);
+			for (const secret of ["sk-live", "oauth-secret", "vk-live"]) {
+				assert.ok(!rendered.includes(secret), `the no-secrets export must not carry ${secret}`);
+			}
+			assert.deepStrictEqual(stripped.secrets, {
+				apiKey: "sk-live",
+				oauthClientSecret: "oauth-secret",
+				virtualKeyValue: "vk-live",
+			});
 		});
 
 		test("refuses a label collision with an existing declared entry", async () => {
@@ -1139,7 +1200,7 @@ suite("extension/dashboard/intents", () => {
 			});
 
 			assert.deepStrictEqual(recorded.serverWrites, [
-				[{ label: "Adopted", baseUrl: "http://ext.test", apiKey: "sk-live" }],
+				[{ label: "Adopted", baseUrl: "http://ext.test", auth: { apiKey: "sk-live" } }],
 			]);
 			assert.deepStrictEqual(
 				recorded.storedSecrets.get("Adopted"),

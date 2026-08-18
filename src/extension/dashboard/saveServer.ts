@@ -5,12 +5,13 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import type { RequestPayload } from "../../dashboard/endpoints";
+import type { RequestPayload, SecretDirective } from "../../dashboard/endpoints";
 import type { SecretFieldId } from "../../shared/serverEntry";
-import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { recordFromKeys } from "../../shared/util/json";
 import type { DeclaredServer } from "../servers/serverSync";
 import { acceptedEntry, inlineSecretValues } from "../servers/serverSync";
+import { assembleEntryAuth, pairingFailureMessage } from "./entryAuth";
 import type { IntentEnvironment } from "./intents";
 import { DashboardOperationError, DashboardValidationError, rawServerEntries } from "./intents";
 
@@ -31,7 +32,7 @@ type SaveMode =
  * guarded apply, and the cleanup. "cleared" stays distinct from "absent":
  * cleanup deletes the stored value only for cleared fields.
  */
-type SecretPlan =
+export type SecretPlan =
 	| { kind: "set-inline"; value: string }
 	| { kind: "set-secure"; value: string }
 	| { kind: "kept-inline"; value: string }
@@ -40,8 +41,38 @@ type SecretPlan =
 	| { kind: "absent" };
 
 /** Whether the field will hold a value once the plan is applied. */
-function planResolves(plan: SecretPlan): boolean {
+export function planResolves(plan: SecretPlan): boolean {
 	return plan.kind !== "cleared" && plan.kind !== "absent";
+}
+
+/**
+ * Resolve every secret directive of a draft into its plan: what the field does
+ * and where its value will live. Shared with the draft-connection test, so a
+ * directive cannot mean two different values on the two paths.
+ */
+export function secretPlans(
+	secrets: Readonly<Record<SecretFieldId, SecretDirective>>,
+	existing: DeclaredServer | undefined,
+	storedEffective: Partial<Readonly<Record<SecretFieldId, string>>>
+): Readonly<Record<SecretFieldId, SecretPlan>> {
+	return recordFromKeys(SECRET_FIELD_IDS, (field): SecretPlan => {
+		const directive = secrets[field];
+		switch (directive.action) {
+			case "set":
+				return directive.location === "secure"
+					? { kind: "set-secure", value: directive.value }
+					: { kind: "set-inline", value: directive.value };
+			case "clear":
+				return { kind: "cleared" };
+			case "keep": {
+				const kept = resolveKeptSecret(existing, storedEffective, field);
+				if (kept === undefined) {
+					return { kind: "absent" };
+				}
+				return kept.location === "inline" ? { kind: "kept-inline", value: kept.value } : { kind: "stored" };
+			}
+		}
+	});
 }
 
 /**
@@ -82,7 +113,7 @@ export async function readKeepSources(
  * exactly when the sync engine reads it inline (its own inlineSecretValues
  * rule, never a re-derivation), the effective secure blob otherwise.
  */
-export function resolveKeptSecret(
+function resolveKeptSecret(
 	existing: DeclaredServer | undefined,
 	storedEffective: Partial<Readonly<Record<SecretFieldId, string>>>,
 	field: SecretFieldId
@@ -166,24 +197,7 @@ export async function applySaveServerSetting(
 				: { kind: "edit", index: accepted.index, existing: accepted.entry };
 	const existing = mode.kind === "create" ? undefined : mode.existing;
 
-	const plans = recordFromKeys(SECRET_FIELD_IDS, (field): SecretPlan => {
-		const directive = intent.secrets[field];
-		switch (directive.action) {
-			case "set":
-				return directive.location === "secure"
-					? { kind: "set-secure", value: directive.value }
-					: { kind: "set-inline", value: directive.value };
-			case "clear":
-				return { kind: "cleared" };
-			case "keep": {
-				const kept = resolveKeptSecret(existing, storedEffective, field);
-				if (kept === undefined) {
-					return { kind: "absent" };
-				}
-				return kept.location === "inline" ? { kind: "kept-inline", value: kept.value } : { kind: "stored" };
-			}
-		}
-	});
+	const plans = secretPlans(intent.secrets, existing, storedEffective);
 
 	// The final entry, needed for the pairing checks below. This rebuild is
 	// the whole entry: any payload field not copied here is silently DELETED
@@ -199,14 +213,6 @@ export async function applySaveServerSetting(
 	if (intent.server.apiVersion !== undefined) {
 		newEntry.apiVersion = intent.server.apiVersion.trim();
 	}
-	const usable = (value: string | undefined): string | undefined => {
-		const trimmed = value?.trim();
-		return trimmed !== undefined && trimmed.length > 0 ? trimmed : undefined;
-	};
-	const oauthTokenUrl = usable(intent.server.oauthTokenUrl);
-	const oauthClientId = usable(intent.server.oauthClientId);
-	const oauthScopes = usable(intent.server.oauthScopes);
-	const virtualKeyHeader = usable(intent.server.virtualKeyHeader);
 	// An empty record reads as absent everywhere (the parser omits it), so it
 	// is not written either.
 	const models: Record<string, unknown> = {};
@@ -241,64 +247,28 @@ export async function applySaveServerSetting(
 		newEntry.budget = intent.server.budget;
 	}
 
-	// OAuth is one unit, mirroring serverForm's rules: the request path drops
-	// partial configurations silently, so anything OAuth-shaped requires the
-	// token URL and client ID pair.
-	const oauthExtras = planResolves(plans.oauthClientSecret) || oauthScopes !== undefined;
-	if ((oauthClientId !== undefined || oauthExtras) && oauthTokenUrl === undefined) {
-		throw new DashboardValidationError(`oauthTokenUrl: ${l10n.t("OAuth needs the token URL and client ID")}`);
-	}
-	if ((oauthTokenUrl !== undefined || oauthExtras) && oauthClientId === undefined) {
-		throw new DashboardValidationError(`oauthClientId: ${l10n.t("OAuth needs the token URL and client ID")}`);
-	}
-
-	// The virtual key pair is both-or-neither, like the form enforces.
-	const virtualKeyResolves = planResolves(plans.virtualKeyValue);
-	if (virtualKeyHeader !== undefined && !virtualKeyResolves) {
-		throw new DashboardValidationError(`virtualKeyValue: ${l10n.t("enter the key sent in this header")}`);
-	}
-	if (virtualKeyHeader === undefined && virtualKeyResolves) {
-		throw new DashboardValidationError(`virtualKeyHeader: ${l10n.t("name the header that carries the key")}`);
-	}
-
-	/**
-	 * Assemble the entry's auth object from the flat fields once the plans'
-	 * inline values are known. Values resting in secret storage stay omitted
-	 * (the parser's stored-slot resolution finds them at sync time). With oauth
-	 * configured the other credentials nest inside it as companions; without it
-	 * an apiKey and a virtualKey are the apiKey form and its sibling companion
-	 * (forms rank oauth > apiKey > virtualKey).
-	 */
-	const applyAuth = (inline: Partial<Record<SecretFieldId, string>>): void => {
-		const virtualKey: Record<string, string> | undefined =
-			virtualKeyHeader !== undefined
-				? {
-						header: virtualKeyHeader,
-						...(inline.virtualKeyValue !== undefined ? { value: inline.virtualKeyValue } : {}),
-					}
-				: undefined;
-		const auth: Record<string, unknown> = {};
-		if (oauthTokenUrl !== undefined && oauthClientId !== undefined) {
-			auth.oauth = {
-				tokenUrl: oauthTokenUrl,
-				clientId: oauthClientId,
-				...(inline.oauthClientSecret !== undefined ? { clientSecret: inline.oauthClientSecret } : {}),
-				...(oauthScopes !== undefined ? { scopes: oauthScopes } : {}),
-				...(inline.apiKey !== undefined ? { apiKey: inline.apiKey } : {}),
-				...(virtualKey !== undefined ? { virtualKey } : {}),
-			};
-		} else {
-			if (inline.apiKey !== undefined) {
-				auth.apiKey = inline.apiKey;
-			}
-			if (virtualKey !== undefined) {
-				auth.virtualKey = virtualKey;
-			}
+	// The entry's auth object, assembled once by the shared assembler: pairing
+	// (OAuth as one unit, the virtual key pair both-or-neither) is enforced
+	// against the resolved secrets - a value resting in SecretStorage counts as
+	// present - while only the inline plan values enter the written shape, so
+	// secure values stay out of the setting and resolve at sync time.
+	const inlineValues: { -readonly [K in SecretFieldId]?: string } = {};
+	for (const field of SECRET_FIELD_IDS) {
+		const plan = plans[field];
+		if (plan.kind === "set-inline" || plan.kind === "kept-inline") {
+			inlineValues[field] = plan.value;
 		}
-		if (Object.keys(auth).length > 0) {
-			newEntry.auth = auth;
-		}
-	};
+	}
+	const assembled = assembleEntryAuth(
+		{ ...pickNonSecretOptionalFields(intent.server), ...inlineValues },
+		recordFromKeys(SECRET_FIELD_IDS, (field) => planResolves(plans[field]))
+	);
+	if (assembled.failure !== undefined) {
+		throw new DashboardValidationError(pairingFailureMessage(assembled.failure));
+	}
+	if (assembled.auth !== undefined) {
+		newEntry.auth = assembled.auth;
+	}
 
 	// Phases 1 and 2 as one guarded unit: the additive secret operations, then
 	// the settings write everything hinges on. Secure values the additive steps
@@ -308,25 +278,13 @@ export async function applySaveServerSetting(
 		if (mode.kind === "rename") {
 			await env.copyServerSecrets(mode.oldLabel, label);
 		}
-		const inlineValues: { -readonly [K in SecretFieldId]?: string } = {};
 		for (const field of SECRET_FIELD_IDS) {
 			const plan = plans[field];
-			switch (plan.kind) {
-				case "set-inline":
-				case "kept-inline":
-					inlineValues[field] = plan.value;
-					break;
-				case "set-secure":
-					overwritten.set(field, storedNew[field]);
-					await env.storeServerSecret(label, field, plan.value);
-					break;
-				case "stored":
-				case "cleared":
-				case "absent":
-					break;
+			if (plan.kind === "set-secure") {
+				overwritten.set(field, storedNew[field]);
+				await env.storeServerSecret(label, field, plan.value);
 			}
 		}
-		applyAuth(inlineValues);
 		const next = [...entries];
 		if (mode.kind === "create") {
 			next.push(newEntry);

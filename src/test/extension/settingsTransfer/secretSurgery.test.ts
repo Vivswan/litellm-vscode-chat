@@ -170,6 +170,53 @@ suite("extension/settingsTransfer/secretSurgery", () => {
 			(entry as Record<string, unknown>).label = "mutated";
 			assert.strictEqual(raw.label, "A");
 		});
+
+		test("flat top-level secret fields (the pre-redesign shape) move into the blob 1:1", () => {
+			// The strip both closes the export hole (no plaintext rides out) and
+			// keeps the import lossless (the value lands in SecretStorage under
+			// its unchanged field id).
+			const raw = {
+				label: "A",
+				baseUrl: "http://a.test",
+				apiKey: "sk-test-flat",
+				oauthClientSecret: " sk-test-flat-cs ",
+				virtualKeyValue: "sk-test-flat-vk",
+				oauthTokenUrl: "http://idp.test/token",
+			};
+			const stripped = stripEntrySecrets(raw);
+			assert.strictEqual(stripped.unsanitizable, false, "the flat shape is fully sanitizable");
+			assert.deepStrictEqual(stripped.secrets, {
+				apiKey: "sk-test-flat",
+				oauthClientSecret: "sk-test-flat-cs",
+				virtualKeyValue: "sk-test-flat-vk",
+			});
+			// Non-secret flat fields ride through as inert junk for the
+			// activation-time restructure; the secret positions are emptied.
+			assert.deepStrictEqual(stripped.entry, {
+				label: "A",
+				baseUrl: "http://a.test",
+				oauthTokenUrl: "http://idp.test/token",
+			});
+		});
+
+		test("a nested auth position outranks its flat twin on a blob-slot collision", () => {
+			const raw = { label: "A", baseUrl: "http://a.test", apiKey: "sk-flat-old", auth: { apiKey: "sk-nested-new" } };
+			const stripped = stripEntrySecrets(raw);
+			assert.deepStrictEqual(stripped.secrets, { apiKey: "sk-nested-new" });
+			assert.deepStrictEqual(stripped.entry, { label: "A", baseUrl: "http://a.test" });
+			assert.strictEqual(stripped.unsanitizable, false);
+		});
+
+		test("a container left at a flat secret key flags unsanitizable; textless occupants do not", () => {
+			for (const flat of [{ apiKey: ["sk-test-hidden"] }, { virtualKeyValue: { nested: "sk-test-hidden" } }]) {
+				const raw = { label: "A", baseUrl: "http://a.test", ...flat };
+				assert.strictEqual(stripEntrySecrets(raw).unsanitizable, true, JSON.stringify(flat));
+			}
+			for (const flat of [{ apiKey: "   " }, { apiKey: 42 }, { oauthClientSecret: null }]) {
+				const raw = { label: "A", baseUrl: "http://a.test", ...flat };
+				assert.strictEqual(stripEntrySecrets(raw).unsanitizable, false, JSON.stringify(flat));
+			}
+		});
 	});
 
 	suite("materializeEntrySecrets", () => {

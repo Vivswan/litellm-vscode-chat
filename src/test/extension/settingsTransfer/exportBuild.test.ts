@@ -167,6 +167,25 @@ suite("extension/settingsTransfer/exportBuild", () => {
 		assert.ok(JSON.stringify(withSecrets.envelope).includes("sk-hidden"));
 	});
 
+	test("an entry carrying the pre-redesign flat credential shape exports with the secret stripped", async () => {
+		// A flat top-level apiKey maps 1:1 onto the blob's field id, so the
+		// no-secrets export keeps the entry and removes the value - the same
+		// lossless take the import relies on for old-format files.
+		const servers = [
+			{ label: "A", baseUrl: "http://a.test", auth: { apiKey: "sk-a" } },
+			{ label: "B", baseUrl: "http://b.test", apiKey: "sk-test-flat" },
+		];
+		const withoutSecrets = await buildSettingsExport(
+			env({ readGlobalSetting: readerFor({ [SERVERS_SETTING_KEY]: servers }) })
+		);
+		assert.deepStrictEqual(withoutSecrets.envelope.settings[SERVERS_SETTING_KEY], [
+			{ label: "A", baseUrl: "http://a.test" },
+			{ label: "B", baseUrl: "http://b.test" },
+		]);
+		assert.strictEqual(withoutSecrets.omittedUnsanitizableCount, 0);
+		assert.ok(!JSON.stringify(withoutSecrets.envelope).includes("sk-test-flat"));
+	});
+
 	test("the walk covers exactly ALL_SETTING_KEYS", async () => {
 		const seen: string[] = [];
 		await buildSettingsExport(

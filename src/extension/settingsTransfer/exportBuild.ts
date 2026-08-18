@@ -4,9 +4,9 @@
  * ride only on the caller's explicit choice: included materializes each labeled
  * entry's SecretStorage blob inline, excluded strips inline secret values and
  * discards them, leaving no placeholders. Shapes the sanitizer does not
- * recognize (a non-array servers value, non-record elements, entries whose auth
- * shape the strip cannot certify secret-free) are omitted from a no-secrets
- * export rather than trusted.
+ * recognize (a non-array servers value, non-record elements, entries the strip
+ * cannot certify secret-free) are omitted from a no-secrets export rather than
+ * trusted.
  *
  * No direct vscode usage; the one impurity is the serverSync setting parser's
  * label rule. The host command injects the reads.
@@ -45,9 +45,9 @@ export interface SettingsExportResult {
 	readonly unmaterializedSecretCount: number;
 	/**
 	 * Server shapes a no-secrets export omitted as unsanitizable: a non-array
-	 * servers value, each non-record element, each entry whose auth shape the
-	 * strip cannot certify secret-free. Always 0 when includeSecrets is true;
-	 * reported so the omission is never silent.
+	 * servers value, each non-record element, each entry the strip cannot
+	 * certify secret-free. Always 0 when includeSecrets is true; reported so
+	 * the omission is never silent.
 	 */
 	readonly omittedUnsanitizableCount: number;
 }

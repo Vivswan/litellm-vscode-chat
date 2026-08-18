@@ -932,6 +932,7 @@
 	"The connection to {0} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.": "The connection to {0} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.",
 	"The conversation is too long for this model - trim it, remove attachments, or start a new chat.": "The conversation is too long for this model - trim it, remove attachments, or start a new chat.",
 	"The deepest reasoning tier, on models that offer one": "The deepest reasoning tier, on models that offer one",
+	"The draft's credentials do not form a valid server entry": "The draft's credentials do not form a valid server entry",
 	"The entry being edited no longer exists in the servers setting; close the form and retry": "The entry being edited no longer exists in the servers setting; close the form and retry",
 	"The extension's settings, same as the Settings editor. Reset removes your value so the next scope's value or the built-in default shows through.": "The extension's settings, same as the Settings editor. Reset removes your value so the next scope's value or the built-in default shows through.",
 	"The fastest reasoning tier, on models that offer one below Low": "The fastest reasoning tier, on models that offer one below Low",

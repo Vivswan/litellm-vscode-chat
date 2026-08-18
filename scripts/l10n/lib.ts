@@ -138,6 +138,7 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"parseServerFormForTest",
 	"validateAdoptLabel",
 	"sectionFailureText",
+	"pairingFailureMessage",
 	"authMessage",
 	"reasoningOnlyResponseMessage",
 	"timeoutMessage",

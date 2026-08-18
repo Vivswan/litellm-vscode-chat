@@ -399,6 +399,21 @@ suite("extension/settingsTransfer/importPlan", () => {
 			assert.ok(!JSON.stringify(application.serversValue).includes("sk-1"));
 		});
 
+		test("a pre-redesign flat entry imports losslessly: kept, its flat secrets moved to secret storage", () => {
+			// Old-format export files (flat credential fields, envelope v1) must
+			// keep importing: the entry lands, the secret leaves the settings
+			// file for SecretStorage, and the activation-time restructure heals
+			// the remaining flat non-secret fields.
+			const incoming = [server("Old", { apiKey: "sk-test-flat", oauthTokenUrl: "http://idp.test/token" })];
+			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, undefined);
+			assert.strictEqual(plan.incomingServers[0]?.skipped, false, "the flat shape must not be skipped");
+			const application = resolveImportPlan(plan, {});
+			assert.deepStrictEqual(application.serversValue, [server("Old", { oauthTokenUrl: "http://idp.test/token" })]);
+			assert.deepStrictEqual(application.secretWrites, [{ label: "Old", secrets: { apiKey: "sk-test-flat" } }]);
+			assert.strictEqual(application.counts.imported, 1);
+			assert.ok(!JSON.stringify(application.serversValue).includes("sk-test-flat"));
+		});
+
 		test("plan-skipped entries and within-file duplicate labels count as skipped", () => {
 			const incoming = [server("A"), { baseUrl: "http://nolabel.test" }, server("A", { budget: 9 })];
 			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, undefined);

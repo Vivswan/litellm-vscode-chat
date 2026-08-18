@@ -220,16 +220,16 @@ export function planSettingsImport(
 			const reports = serverSettingReports(value);
 			value.forEach((raw: unknown, index) => {
 				const report = reports[index] ?? { index, problems: [], accepted: false };
-				// An uncertifiable auth shape must not land in the settings file
-				// (its text is presumed to be a credential); the entry skips with
-				// the reason beside the parser's own problem lines.
+				// An uncertifiable shape must not land in the settings file (its
+				// text is presumed to be a credential); the entry skips with the
+				// reason beside the parser's own problem lines.
 				if (isRecord(raw) && stripEntrySecrets(raw).unsanitizable) {
 					incomingServers.push({
 						raw,
 						report: {
 							...report,
 							accepted: false,
-							problems: [...report.problems, "carries auth text the import cannot move into secret storage"],
+							problems: [...report.problems, "carries credential text the import cannot move into secret storage"],
 						},
 						skipped: true,
 					});

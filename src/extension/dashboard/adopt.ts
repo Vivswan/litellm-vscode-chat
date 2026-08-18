@@ -10,13 +10,14 @@ import type { RequestPayload } from "../../dashboard/endpoints";
 import { isUsableHttpUrl } from "../../dashboard/serverForm";
 import type { GroupServer } from "../../provider/catalog/groupModels";
 import type { ServerModelsSnapshot } from "../../provider/catalog/statusWindow";
-import type { OptionalEntryFields, SecretFieldId } from "../../shared/serverEntry";
-import { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import type { OptionalEntryFieldId, OptionalEntryFields, SecretFieldId } from "../../shared/serverEntry";
+import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
-import { isUnsafeRecordKey } from "../../shared/util/json";
+import { isUnsafeRecordKey, recordFromKeys } from "../../shared/util/json";
 import type { DeclaredServerView } from "../servers/serverSync";
 import { acceptedEntry } from "../servers/serverSync";
 import { adoptSourceHandle } from "./adoptHandle";
+import { assembleEntryAuth, pairingFailureMessage } from "./entryAuth";
 import type { IntentEnvironment } from "./intents";
 import { DashboardOperationError, DashboardValidationError, rawServerEntries } from "./intents";
 import { joinDeclared, labeledSnapshots } from "./state";
@@ -148,26 +149,51 @@ export async function applyAdoptServer(
 	}
 
 	const credentials = env.resolveAdoptionCredentials(baseUrl, intent.sourceHandle);
-	const newEntry: Record<string, string> = { label, baseUrl };
-	for (const field of NON_SECRET_OPTIONAL_FIELD_IDS) {
+	// The adopted entry assembles through the shared assembler into the NESTED
+	// auth object the sync engine parses: secrets the user routed to settings
+	// join the inline fields; secure-routed values stay out of the entry and
+	// land in SecretStorage below. Writing any flat credential field here would
+	// sync credential-less and escape the no-secrets export's auth-subtree strip.
+	const inlineFields: { -readonly [K in OptionalEntryFieldId]?: string | undefined } = {
+		...pickNonSecretOptionalFields(credentials ?? {}),
+	};
+	const secureCopies = new Map<SecretFieldId, string>();
+	for (const field of SECRET_FIELD_IDS) {
 		const value = credentials?.[field];
-		if (value !== undefined) {
-			newEntry[field] = value;
+		if (value === undefined) {
+			continue;
+		}
+		if (intent.secrets[field] === "secure") {
+			secureCopies.set(field, value);
+		} else {
+			inlineFields[field] = value;
 		}
 	}
+	const assembled = assembleEntryAuth(
+		inlineFields,
+		recordFromKeys(SECRET_FIELD_IDS, (field) => credentials?.[field] !== undefined)
+	);
+	if (assembled.failure !== undefined) {
+		// Unreachable for a live group's credentials (its OAuth and virtual-key
+		// units are complete by construction); fail closed rather than adopt a
+		// partial form the parser would reject.
+		throw new DashboardValidationError(pairingFailureMessage(assembled.failure));
+	}
+	const newEntry: Record<string, unknown> = {
+		label,
+		baseUrl,
+		...(assembled.auth !== undefined ? { auth: assembled.auth } : {}),
+	};
 
 	const storedBefore = await env.readServerSecrets(label);
 	const overwritten = new Map<SecretFieldId, string | undefined>();
 	try {
 		for (const field of SECRET_FIELD_IDS) {
-			const value = credentials?.[field];
-			if (value !== undefined && intent.secrets[field] === "secure") {
+			const copied = secureCopies.get(field);
+			if (copied !== undefined) {
 				overwritten.set(field, storedBefore[field]);
-				await env.storeServerSecret(label, field, value);
+				await env.storeServerSecret(label, field, copied);
 				continue;
-			}
-			if (value !== undefined) {
-				newEntry[field] = value;
 			}
 			// Blobs kept from removals must not leak into the adopted entry.
 			if (storedBefore[field] !== undefined) {

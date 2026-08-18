@@ -1,8 +1,8 @@
 /**
  * The testServerDraft intent's apply path: resolve the draft's credentials
- * (secret directives included, so a "keep" reads the stored value exactly the
- * way a save would, through saveServer.ts's shared helpers) and run one
- * discovery probe against them.
+ * through the save path's own machinery (its secret plans, the shared auth
+ * assembler, serverSync's parser and group-args resolution - so probe and
+ * save cannot diverge) and run one discovery probe against them.
  *
  * Read-only by contract: no settings write, no provider-group or status
  * mutation, no cross-probe caching, and the resolved credential values flow
@@ -22,9 +22,14 @@ import { ChatClient } from "../../provider/transport/chatClient";
 import { RequestError } from "../../provider/transport/errorMapping";
 import { transportClassificationOf } from "../../shared/errorClassification";
 import type { SecretFieldId } from "../../shared/serverEntry";
+import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import { recordFromKeys } from "../../shared/util/json";
+import { buildGroupArgs } from "../servers/serverSync/engine";
+import { acceptedEntry } from "../servers/serverSync/setting";
+import { assembleEntryAuth, pairingFailureMessage } from "./entryAuth";
 import type { IntentEnvironment } from "./intents";
 import { DashboardValidationError, rawServerEntries } from "./intents";
-import { readKeepSources, resolveKeptSecret } from "./saveServer";
+import { planResolves, readKeepSources, secretPlans } from "./saveServer";
 
 /**
  * One draft's connection material, fully resolved: what the probe needs and
@@ -77,17 +82,25 @@ function draftDeclaredModelIds(payload: readonly string[]): readonly string[] {
 }
 
 /**
- * Apply one testServerDraft intent: resolve each secret directive to the
- * value the draft means (set: the typed value; clear: nothing; keep: the
- * stored value the entry `replaceLabel` names resolves, inline winning over
- * secure like the sync engine), enforce the same cross-field pairing rules a
- * save enforces (a partial OAuth or virtual-key configuration would probe
- * unauthenticated and report a lie), and hand the assembled connection to the
- * injected probe. A terminal discovery failure in a declared expectedFailures
- * category resolves to the expected-failure outcome instead of throwing;
- * every other transport failure is re-thrown as a validation-kind error
- * carrying the transport's user-facing message, so the panel boundary logs a
- * classification only, never response text.
+ * The placeholder identity the parse-back entry carries: the parser needs a
+ * usable label and baseUrl, but only the parsed credential fields are read.
+ */
+const PARSE_BACK_LABEL = "draft";
+
+/**
+ * Apply one testServerDraft intent. The probe's credentials derive from the
+ * production pipeline itself: the draft's directives resolve through the save
+ * path's own secret plans, the same shared assembler builds the auth object a
+ * save would write, serverSync's parser reads it back, and buildGroupArgs
+ * resolves the secure-side values - so the probed configuration equals the
+ * saved entry's group configuration by construction. Pairing failures (a
+ * partial OAuth or virtual-key configuration would probe unauthenticated and
+ * report a lie) surface as the same field-routed messages a save raises. A
+ * terminal discovery failure in a declared expectedFailures category resolves
+ * to the expected-failure outcome instead of throwing; every other transport
+ * failure is re-thrown as a validation-kind error carrying the transport's
+ * user-facing message, so the panel boundary logs a classification only,
+ * never response text.
  */
 export async function applyTestServerDraft(
 	intent: RequestPayload<"testServerDraft">,
@@ -107,45 +120,57 @@ export async function applyTestServerDraft(
 			l10n.t("The entry being edited no longer exists in the servers setting; close the form and retry")
 		);
 	}
-	const existing = sources.accepted?.entry;
-	const resolveDirective = (field: SecretFieldId): string | undefined => {
-		const directive = intent.secrets[field];
-		switch (directive.action) {
-			case "set":
-				return directive.value;
-			case "clear":
-				return undefined;
-			case "keep":
-				return resolveKeptSecret(existing, sources.storedEffective, field)?.value;
+	const plans = secretPlans(intent.secrets, sources.accepted?.entry, sources.storedEffective);
+	const inlineValues: { -readonly [K in SecretFieldId]?: string } = {};
+	const secureValues: { -readonly [K in SecretFieldId]?: string } = {};
+	for (const field of SECRET_FIELD_IDS) {
+		const plan = plans[field];
+		switch (plan.kind) {
+			case "set-inline":
+			case "kept-inline":
+				inlineValues[field] = plan.value;
+				break;
+			case "set-secure":
+				secureValues[field] = plan.value;
+				break;
+			case "stored": {
+				const stored = sources.storedEffective[field];
+				if (stored !== undefined) {
+					secureValues[field] = stored;
+				}
+				break;
+			}
+			case "cleared":
+			case "absent":
+				break;
 		}
-	};
-	const apiKey = resolveDirective("apiKey") ?? "";
-	const oauthClientSecret = resolveDirective("oauthClientSecret");
-	const virtualKeyValue = resolveDirective("virtualKeyValue");
-	const oauthTokenUrl = trimmedOptional(intent.server.oauthTokenUrl);
-	const oauthClientId = trimmedOptional(intent.server.oauthClientId);
-	const oauthScopes = trimmedOptional(intent.server.oauthScopes);
-	const virtualKeyHeader = trimmedOptional(intent.server.virtualKeyHeader);
-
-	// The save path's pairing rules verbatim (applySaveServerSetting): OAuth is
-	// one unit and the virtual key is both-or-neither. The request path drops
-	// partial configurations silently, so probing one would report a verdict
-	// for a configuration the saved entry would never send.
-	const oauthExtras = oauthClientSecret !== undefined || oauthScopes !== undefined;
-	if ((oauthClientId !== undefined || oauthExtras) && oauthTokenUrl === undefined) {
-		// The "fieldId:" prefix stays an ASCII identifier outside the translation:
-		// sectionFailureText routes the failure onto the right form section by it.
-		throw new DashboardValidationError(`oauthTokenUrl: ${l10n.t("OAuth needs the token URL and client ID")}`);
 	}
-	if ((oauthTokenUrl !== undefined || oauthExtras) && oauthClientId === undefined) {
-		throw new DashboardValidationError(`oauthClientId: ${l10n.t("OAuth needs the token URL and client ID")}`);
+	const assembled = assembleEntryAuth(
+		{ ...pickNonSecretOptionalFields(intent.server), ...inlineValues },
+		recordFromKeys(SECRET_FIELD_IDS, (field) => planResolves(plans[field]))
+	);
+	if (assembled.failure !== undefined) {
+		throw new DashboardValidationError(pairingFailureMessage(assembled.failure));
 	}
-	if (virtualKeyHeader !== undefined && virtualKeyValue === undefined) {
-		throw new DashboardValidationError(`virtualKeyValue: ${l10n.t("enter the key sent in this header")}`);
+	// Read the assembled auth back through the sync engine's own parser and
+	// resolve the secure-side values like buildGroupArgs does at sync time:
+	// what rides the probe is what the saved entry's group would be handed.
+	const parsed = acceptedEntry(
+		[
+			{
+				label: PARSE_BACK_LABEL,
+				baseUrl: "http://draft.invalid",
+				...(assembled.auth !== undefined ? { auth: assembled.auth } : {}),
+			},
+		],
+		PARSE_BACK_LABEL
+	);
+	if (parsed === undefined) {
+		// Unreachable by construction (the assembler emits only shapes the
+		// parser accepts); fail closed rather than probe a guessed shape.
+		throw new DashboardValidationError(l10n.t("The draft's credentials do not form a valid server entry"));
 	}
-	if (virtualKeyHeader === undefined && virtualKeyValue !== undefined) {
-		throw new DashboardValidationError(`virtualKeyHeader: ${l10n.t("name the header that carries the key")}`);
-	}
+	const resolved = buildGroupArgs(parsed.entry, secureValues);
 
 	// Header values normalized to strings as the setting parser stores them.
 	const draftHeaders: Readonly<Record<string, string>> = Object.fromEntries(
@@ -159,20 +184,20 @@ export async function applyTestServerDraft(
 		...(trimmedOptional(intent.server.label) !== undefined ? { label: trimmedOptional(intent.server.label) } : {}),
 		// "" is a real override (append nothing) and must ride the probe.
 		...(intent.server.apiVersion !== undefined ? { apiVersion: intent.server.apiVersion.trim() } : {}),
-		apiKey,
+		apiKey: resolved.apiKey ?? "",
 		...(Object.keys(draftHeaders).length > 0 ? { headers: draftHeaders } : {}),
-		...(oauthTokenUrl !== undefined && oauthClientId !== undefined
+		...(resolved.oauthTokenUrl !== undefined && resolved.oauthClientId !== undefined
 			? {
 					oauth: {
-						tokenUrl: oauthTokenUrl,
-						clientId: oauthClientId,
-						clientSecret: oauthClientSecret ?? "",
-						...(oauthScopes !== undefined ? { scopes: oauthScopes } : {}),
+						tokenUrl: resolved.oauthTokenUrl,
+						clientId: resolved.oauthClientId,
+						clientSecret: resolved.oauthClientSecret ?? "",
+						...(resolved.oauthScopes !== undefined ? { scopes: resolved.oauthScopes } : {}),
 					},
 				}
 			: {}),
-		...(virtualKeyHeader !== undefined && virtualKeyValue !== undefined
-			? { virtualKey: { header: virtualKeyHeader, value: virtualKeyValue } }
+		...(resolved.virtualKeyHeader !== undefined && resolved.virtualKeyValue !== undefined
+			? { virtualKey: { header: resolved.virtualKeyHeader, value: resolved.virtualKeyValue } }
 			: {}),
 		expected: {
 			modelInfo: intent.server.expectedFailures.includes("modelInfo"),

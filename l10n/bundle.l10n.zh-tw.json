@@ -817,6 +817,7 @@
  "The connection to {0} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.": "擷取模型時與 {0} 的連線中斷 - 回應始終未完成。請重試; 如果持續發生, 請檢查網路以及任何 VPN 或 Proxy。",
  "The conversation is too long for this model - trim it, remove attachments, or start a new chat.": "對話對此模型而言過長 - 請精簡對話、移除附件, 或開始新的聊天。",
  "The deepest reasoning tier, on models that offer one": "最深的推理檔位, 用於提供該檔的模型",
+ "The draft's credentials do not form a valid server entry": "草稿的憑證無法構成有效的伺服器項目",
  "The entry being edited no longer exists in the servers setting; close the form and retry": "正在編輯的項目已不存在於 servers 設定中; 請關閉表單後重試",
  "The extension's settings, same as the Settings editor. Reset removes your value so the next scope's value or the built-in default shows through.": "延伸模組的設定, 與設定編輯器相同。「重設」會移除您的值, 讓下一個範圍的值或內建預設值生效。",
  "The fastest reasoning tier, on models that offer one below Low": "最快的推理檔位, 用於提供低於 Low 檔的模型",

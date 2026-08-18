@@ -2,9 +2,11 @@
  * Secret surgery on one raw servers-setting entry, over the five nested secret
  * positions the auth grammar admits (per parseAuth): `auth.apiKey`,
  * `auth.oauth.apiKey`, `auth.oauth.clientSecret`, `auth.virtualKey.value`, and
- * `auth.oauth.virtualKey.value`. Export-without-secrets strips them out; import
- * moves them from the file into SecretStorage; export-with-secrets materializes
- * stored blobs back into the entry.
+ * `auth.oauth.virtualKey.value` - plus the pre-redesign flat shape's top-level
+ * secret fields, which map 1:1 onto the blob's ids. Export-without-secrets
+ * strips them out; import moves them from the file into SecretStorage;
+ * export-with-secrets materializes stored blobs back into the nested
+ * positions.
  *
  * Strip trims what it takes (the inline settings grammar trims, so the trimmed
  * text IS the value the file carries); materialize places stored values
@@ -15,6 +17,7 @@
  */
 
 import type { SecretFieldId } from "../../shared/serverEntry";
+import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { isRecord } from "../../shared/util/json";
 import type { StoredServerSecrets } from "../servers/serverSync/secrets";
 
@@ -52,19 +55,24 @@ export interface StrippedEntry {
 	readonly entry: Readonly<Record<string, unknown>>;
 	/**
 	 * The removed values by flat secret field, ready for SecretStorage writes.
-	 * Two positions collide onto one field only in an auth shape parseAuth would
-	 * reject; positions are walked in the module-comment order and a later one
-	 * overwrites an earlier one.
+	 * The flat top-level positions are taken first, so on a collision a nested
+	 * auth position (the newer intent, matching the migration's merge rule)
+	 * overwrites the flat one; within the auth subtree, positions are walked in
+	 * the module-comment order and a later one overwrites an earlier one (two
+	 * nested positions collide onto one field only in an auth shape parseAuth
+	 * would reject). The take is PER FIELD, so a hand-mixed entry keeps a flat
+	 * secret whose field the nested side does not set, even though the
+	 * migration's own merge lets the nested object win wholesale.
 	 */
 	readonly secrets: StoredServerSecrets;
 	/**
-	 * True when the stripped entry's auth subtree still carries text (or a
-	 * container that could hold text) anywhere but the grammar's known
-	 * non-secret text positions (`oauth.tokenUrl`, `oauth.clientId`,
-	 * `oauth.scopes`, a virtualKey's `header`). The `auth` object exists to hold
-	 * credentials, so leftover text at an unknown or malformed position is
-	 * presumed to be one and a no-secrets export must omit the entry rather than
-	 * trust it. Textless scalars are mere misconfiguration and stay sanitizable.
+	 * True when the stripped entry still carries text the strip cannot vouch
+	 * for: anywhere in the auth subtree but the grammar's known non-secret text
+	 * positions (`oauth.tokenUrl`, `oauth.clientId`, `oauth.scopes`, a
+	 * virtualKey's `header`), or a container left at a top-level secret-named
+	 * field. A no-secrets export omits such an entry rather than trust it, and
+	 * the import skips it rather than land unmovable credential text. Textless
+	 * scalars are mere misconfiguration and stay sanitizable.
 	 */
 	readonly unsanitizable: boolean;
 }
@@ -129,6 +137,18 @@ function certifyStrippedAuth(auth: unknown): boolean {
 export function stripEntrySecrets(rawEntry: Readonly<Record<string, unknown>>): StrippedEntry {
 	const entry = cloneJson(rawEntry) as Record<string, unknown>;
 	const secrets: MutableSecrets = {};
+	// The pre-redesign flat shape parked secrets at the entry's top level under
+	// the blob's own field ids, so they move 1:1 - taken FIRST, letting a
+	// nested auth position win a blob-slot collision (see StrippedEntry.secrets).
+	// A container left at one of these keys could still hide text; that flags
+	// the entry rather than being guessed at.
+	let flatResidue = false;
+	for (const field of SECRET_FIELD_IDS) {
+		takeSecret(entry, field, field, secrets);
+		if (!textless(entry[field])) {
+			flatResidue = true;
+		}
+	}
 	const auth = entry.auth;
 	let removed = false;
 	if (isRecord(auth)) {
@@ -151,7 +171,7 @@ export function stripEntrySecrets(rawEntry: Readonly<Record<string, unknown>>): 
 			delete entry.auth;
 		}
 	}
-	return { entry, secrets, unsanitizable: !certifyStrippedAuth(entry.auth) };
+	return { entry, secrets, unsanitizable: !certifyStrippedAuth(entry.auth) || flatResidue };
 }
 
 /** materializeEntrySecrets' outcome: the entry with blob values inlined where legal. */
