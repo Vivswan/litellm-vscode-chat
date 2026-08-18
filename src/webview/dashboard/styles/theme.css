@@ -239,6 +239,12 @@ body.vscode-high-contrast-light [data-slot="reveal"] {
 	--border: var(--vscode-widget-border, var(--vscode-panel-border));
 	--input: var(--vscode-input-border, var(--vscode-widget-border, var(--vscode-panel-border)));
 	--ring: var(--vscode-focusBorder);
+	/* The focus ring's one geometry beside its one color: every focus rule and utility
+	   binds these. The inset offset is the named variant for fields and scrollports
+	   (a ring outside their box is clipped or sits on a fill), derived from the width. */
+	--ring-w: 1px;
+	--ring-offset: 1px;
+	--ring-offset-inset: calc(-1 * var(--ring-w));
 	--radius: 4px;
 	/* The named radii, declared at runtime because dashboard.css reads them directly (the
 	   @theme block is inline, so a utility's --radius-* never exists on the page). One

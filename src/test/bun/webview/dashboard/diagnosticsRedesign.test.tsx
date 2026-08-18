@@ -621,7 +621,7 @@ describe("Resolved models", () => {
 		const cell = rows.find((row) => row.textContent?.includes("claude-4"))?.querySelector(".resolved-cells");
 		const absent = cell?.querySelector("span.hint");
 		expect(absent?.querySelector('[aria-hidden="true"]')?.textContent).toBe("-");
-		expect(absent?.querySelector(".sr-only")?.textContent).toBe("no parameters resolved");
+		expect(absent?.querySelector(".visually-hidden")?.textContent).toBe("no parameters resolved");
 	});
 
 	test("an empty Capabilities cell says so the same way instead of rendering a silent gap", () => {
@@ -648,7 +648,7 @@ describe("Resolved models", () => {
 		for (const cell of cells) {
 			expect(cell.querySelector('span.hint [aria-hidden="true"]')?.textContent).toBe("-");
 		}
-		expect(cells[1]?.querySelector(".sr-only")?.textContent).toBe("no capabilities resolved");
+		expect(cells[1]?.querySelector(".visually-hidden")?.textContent).toBe("no capabilities resolved");
 	});
 
 	test("cost cells collapse into one $/M pricing line with one badge when the source is uniform", () => {

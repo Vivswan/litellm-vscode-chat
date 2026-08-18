@@ -12,7 +12,7 @@ export function Radio({ className, ...props }: Omit<ComponentProps<"input">, "ty
 			type="radio"
 			data-slot="radio"
 			className={cn(
-				"accent-primary focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid",
+				"accent-primary focus-visible:outline-(length:--ring-w) focus-visible:outline-offset-(--ring-offset) focus-visible:outline-ring focus-visible:outline-solid",
 				className
 			)}
 			{...props}

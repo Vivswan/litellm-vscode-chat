@@ -23,7 +23,7 @@ import { cn } from "./cn";
  * with it.
  */
 const buttonVariants = cva(
-	"inline-flex cursor-pointer items-center justify-center mx-(--btn-mx) gap-1.5 rounded-sm border border-control-outline transition-[color,background-color,border-color,outline-color,opacity] duration-[120ms] ease-out focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid disabled:cursor-default disabled:bg-transparent disabled:text-disabled-foreground disabled:opacity-60 aria-disabled:cursor-default aria-disabled:bg-transparent aria-disabled:text-disabled-foreground aria-disabled:opacity-60",
+	"inline-flex cursor-pointer items-center justify-center mx-(--btn-mx) gap-1.5 rounded-sm border border-control-outline transition-[color,background-color,border-color,outline-color,opacity] duration-[120ms] ease-out focus-visible:outline-(length:--ring-w) focus-visible:outline-offset-(--ring-offset) focus-visible:outline-ring focus-visible:outline-solid disabled:cursor-default disabled:bg-transparent disabled:text-disabled-foreground disabled:opacity-60 aria-disabled:cursor-default aria-disabled:bg-transparent aria-disabled:text-disabled-foreground aria-disabled:opacity-60",
 	{
 		variants: {
 			variant: {

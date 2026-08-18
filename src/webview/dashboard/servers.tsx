@@ -1165,7 +1165,7 @@ function BudgetFact({ server, currencySymbol }: { server: UsageServerView; curre
 
 /**
  * The request-statistics facts. A missing window has exactly ONE cause, stated once on the
- * Requests fact; the computed rates show bare dashes (sr-only "not reported" intact). The
+ * Requests fact; the computed rates show bare dashes (visually-hidden "not reported" intact). The
  * present-window branch keeps per-dash reasons - there the denominators miss independently.
  */
 function RequestFacts({ server }: { server: UsageServerView }) {
@@ -1597,7 +1597,7 @@ function ServerRow({
 				    it cut the row into two boxes. */}
 				<button
 					type="button"
-					className="server-line rounded-sm border border-control-outline text-left focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid"
+					className="server-line rounded-sm border border-control-outline text-left focus-visible:outline-(length:--ring-w) focus-visible:outline-offset-(--ring-offset-inset) focus-visible:outline-ring focus-visible:outline-solid"
 					aria-expanded={open}
 					// Only while the drawer exists: aria-controls at an unmounted id dangles.
 					aria-controls={open ? drawerId : undefined}
@@ -1619,7 +1619,7 @@ function ServerRow({
 							{/* The scheme is its own element so the stylesheet can hide it from the
 							    paint alone. */}
 							{url.scheme.length > 0 ? (
-								<span className={url.quiet ? "url-scheme quiet" : "url-scheme"}>{url.scheme}</span>
+								<span className={url.quiet ? "url-scheme visually-hidden" : "url-scheme"}>{url.scheme}</span>
 							) : null}
 							<UrlBreaks text={url.rest} />
 						</span>

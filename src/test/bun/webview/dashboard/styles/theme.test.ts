@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
+	type Block,
 	blocks,
 	compileDashboard,
 	compileTheme,
@@ -76,9 +77,14 @@ const REQUIRED_UTILITIES = [
 	"bg-hue-violet",
 	"bg-hue-teal",
 	"bg-hue-amber",
-	"sr-only",
 	"has-[:checked]:outline-foreground",
 	"forced-color-adjust-none",
+	// The swatch's checked mark and its shared offset ride the ring geometry
+	// tokens rather than literals; the swatch is the one outline consumer whose
+	// offset applies outside a :focus selector, so the focus-geometry guard
+	// below cannot see it and the scan pin here is its only enforcement.
+	"outline-offset-(--ring-offset)",
+	"has-[:checked]:outline-(length:--ring-w)",
 	// The reveal primitive's whole class set (ui/reveal.tsx, models.tsx's row
 	// scope included): the reveal is invisible to the component suites
 	// (happy-dom runs no cascade), so a scan regression would strand every
@@ -265,13 +271,15 @@ test("the palette and radius resets keep Tailwind's defaults unreachable", async
  * The colour an `outline`/`outline-color` declaration states, or "" when it states none: widths and
  * style keywords come out, so a rule setting only geometry is the no-colour rule it is and anything
  * left is a colour that has to be the token. Every colour syntax survives the strips - the length
- * pattern only ever eats digits and units, and `#000` still leaves its hash.
+ * pattern only ever eats digits and units, `#000` still leaves its hash, and only the canonical
+ * width token comes out (any other var() in width position reads as a colour and fails).
  */
 function outlineColor(declarations: string): string {
 	return [...declarations.matchAll(/(?:^|[;{\s])outline(?:-color)?:\s*([^;]+)/g)]
 		.map((match) => (match[1] ?? "").trim())
 		.join(" ")
 		.replace(/\b(?:none|solid|dashed|dotted|double|groove|ridge|inset|outset|auto|thin|medium|thick)\b/g, "")
+		.replace(/var\(--ring-w\)/g, "")
 		.replace(/[\d.]+(?:px|rem|em)?/g, "")
 		.trim();
 }
@@ -302,11 +310,125 @@ test("every focus rule takes its color from the ring token, never the host's foc
 	// The counts are the walk's positive control: a parser finding no focus rules,
 	// or none stating a colour, would satisfy the emptiness above vacuously. Exact,
 	// not floors - one rule losing its ring is precisely the regression - and Bun
-	// splits a grouped selector, so `button:focus-visible, a:focus-visible` counts
-	// twice. Update deliberately when a focus surface is added or removed.
+	// splits a grouped selector, so the button/a/.tip-wrap global counts three
+	// times. Update deliberately when a focus surface is added or removed.
 	const ringed = (css: string) => focusRules(css).filter((rule) => outlineColor(rule.body) === "var(--ring)");
-	expect(ringed(sheets.dashboard)).toHaveLength(8);
+	expect(ringed(sheets.dashboard)).toHaveLength(5);
 	expect(ringed(sheets.theme)).toHaveLength(3);
+});
+
+/** Every outline-family declaration a rule body states, comments already stripped. */
+function outlineDeclarations(declarations: string): { property: string; value: string }[] {
+	return [...declarations.matchAll(/(?:^|[;{\s])(outline(?:-[a-z]+)?):\s*([^;}]+)/g)].map((match) => ({
+		property: match[1] ?? "",
+		value: (match[2] ?? "").trim(),
+	}));
+}
+
+test("every focus rule takes its geometry from the ring tokens, never a literal", async () => {
+	// The ring's colour rides --ring (above); its geometry rides --ring-w and the two
+	// offset tokens, so a focus rule or utility spelling `1px` or an off-token offset is
+	// a second ring geometry - the fork this system replaced at a dozen sites. The inset
+	// offset is the one named variant (fields and scrollports whose ring would be clipped
+	// or sit on a fill); anything else fails here.
+	const sheets = { theme: await compileTheme(), dashboard: await compileDashboard() };
+	const OFFSETS = ["var(--ring-offset)", "var(--ring-offset-inset)"];
+	for (const css of Object.values(sheets)) {
+		for (const rule of blocks(css).filter((rule) => rule.prelude.includes(":focus"))) {
+			const body = rule.body.replace(/\/\*[\s\S]*?\*\//g, "");
+			for (const { property, value } of outlineDeclarations(body)) {
+				const where = `${rule.prelude} { ${property}: ${value} }`;
+				// No literal length in any outline declaration on a focus rule: the token
+				// names carry no digits, so one digit is a geometry spelled outside them.
+				expect(value, `a focus rule spells outline geometry of its own: ${where}`).not.toMatch(/\d/);
+				if (property === "outline-offset") {
+					expect(OFFSETS, `an off-token focus offset: ${where}`).toContain(value);
+				}
+				if (property === "outline-width") {
+					expect(value, `an off-token focus width: ${where}`).toBe("var(--ring-w)");
+				}
+				if (property === "outline") {
+					expect(value.startsWith("var(--ring-w) "), `a shorthand off the width token: ${where}`).toBe(true);
+				}
+			}
+		}
+	}
+	// Positive controls, exact: the offset statements per sheet and variant, so a parser
+	// finding no outline declarations cannot pass vacuously and a surface changing its
+	// variant is a deliberate update here. Dashboard: the button/a/.tip-wrap global (Bun
+	// splits it into three) outset; the windowed scrollport and the record JSON textarea
+	// inset. Theme: the focus-visible outset utility; the focus and focus-visible inset ones.
+	const offsetRules = (css: string, token: string) =>
+		blocks(css).filter(
+			(rule) =>
+				rule.prelude.includes(":focus") &&
+				outlineDeclarations(rule.body).some(
+					(declaration) => declaration.property === "outline-offset" && declaration.value === token
+				)
+		);
+	expect(offsetRules(sheets.dashboard, "var(--ring-offset)")).toHaveLength(3);
+	expect(offsetRules(sheets.dashboard, "var(--ring-offset-inset)")).toHaveLength(2);
+	expect(offsetRules(sheets.theme, "var(--ring-offset)")).toHaveLength(1);
+	expect(offsetRules(sheets.theme, "var(--ring-offset-inset)")).toHaveLength(2);
+	// The tokens themselves: canonical values in the compiled theme, minted exactly once
+	// across both sources (the --axis idiom - a second declaration further down would win),
+	// with the inset offset derived from the width so the two cannot part.
+	expect(sheets.theme).toContain("--ring-w: 1px;");
+	expect(sheets.theme).toContain("--ring-offset: 1px;");
+	expect(sheets.theme).toContain("--ring-offset-inset: calc(-1 * var(--ring-w));");
+	for (const token of ["--ring-w:", "--ring-offset:", "--ring-offset-inset:"]) {
+		const declarations = [themeEntry, dashboardEntry].flatMap((entry) => [
+			...readFileSync(entry, "utf8")
+				.replace(/\/\*[\s\S]*?\*\//g, "")
+				.matchAll(new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")),
+		]);
+		expect(declarations, `${token} must be minted exactly once`).toHaveLength(1);
+	}
+});
+
+test("one screen-reader-only recipe: .visually-hidden, with its width-tier mirrors declaration-identical", async () => {
+	// Markup carries .visually-hidden for every unconditional case (Tailwind's sr-only
+	// twin was retired, ui/absent.tsx included). The rules that force the recipe inside a
+	// width tier - where a markup class cannot - are deliberate copies, and this pin is
+	// what keeps them copies: a rule stating ANY of the recipe's hiding devices (`clip:`,
+	// a `clip-path: inset` respelling, or the 1px box) is read as an embodiment and must
+	// match the canonical rule declaration for declaration (sorted, because the printer
+	// reorders them). Fail-closed: a fourth copy that diverges fails on equality, and the
+	// exact count makes a new mirror a deliberate update here.
+	const sortedDeclarations = (body: string) =>
+		body
+			.replace(/\/\*[\s\S]*?\*\//g, "")
+			.split(";")
+			.map((declaration) => declaration.replace(/\s+/g, " ").trim())
+			.filter((declaration) => declaration.length > 0)
+			.sort()
+			.join("; ");
+	const hidesFromPaint = (body: string) =>
+		body.includes("clip:") ||
+		body.includes("clip-path: inset") ||
+		(body.includes("width: 1px") && body.includes("height: 1px"));
+	const unconditional = (rule: Block) => !rule.context.some((prelude) => /^@(?:media|container)\b/.test(prelude));
+	const copies = blocks(await compileDashboard()).filter(
+		(rule) => !rule.prelude.startsWith("@") && hidesFromPaint(rule.body)
+	);
+	expect(copies).toHaveLength(4);
+	const canonical = copies.filter(unconditional);
+	expect(canonical).toHaveLength(1);
+	expect(canonical[0]?.prelude).toBe(".visually-hidden");
+	// The recipe itself, pinned once: the mirrors then agree with it by equality.
+	expect(sortedDeclarations(canonical[0]?.body ?? "")).toBe(
+		"border: 0; clip: rect(0 0 0 0); height: 1px; margin: -1px; overflow: hidden; padding: 0; position: absolute; white-space: nowrap; width: 1px"
+	);
+	for (const mirror of copies.filter((rule) => !unconditional(rule))) {
+		expect(sortedDeclarations(mirror.body), `${mirror.prelude} diverged from .visually-hidden`).toBe(
+			sortedDeclarations(canonical[0]?.body ?? "")
+		);
+	}
+	// And the theme sheet mints no second embodiment: no sr-only utility (nothing uses
+	// it, so the scan must not emit it) and no hiding recipe of its own.
+	const theme = await compileTheme();
+	expect(theme).not.toContain(".sr-only");
+	expect(blocks(theme).filter((rule) => !rule.prelude.startsWith("@") && hidesFromPaint(rule.body))).toBeEmpty();
 });
 
 test("the cascade puts the dashboard stylesheet below utilities", async () => {

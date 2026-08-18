@@ -16,6 +16,21 @@
 		padding: 0;
 	}
 
+	/* The page's ONE screen-reader-only recipe: markup carries this class for every
+	   unconditional case, and the width-tier rules that force it mid-query are
+	   declaration-identical mirrors, equality test-pinned. */
+	.visually-hidden {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		margin: -1px;
+		padding: 0;
+		overflow: hidden;
+		clip: rect(0 0 0 0);
+		white-space: nowrap;
+		border: 0;
+	}
+
 	/* The shell: a rail flush to the window edge, and a pane that scrolls
 		   beside it. The rail is sticky rather than fixed so it stays part of the
 		   flex row - a fixed rail would need the pane to reserve its width by
@@ -304,8 +319,8 @@
 		border-bottom: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
 	}
 	.table-scroll.windowed:focus-visible {
-		outline: 1px solid var(--ring);
-		outline-offset: -1px;
+		outline: var(--ring-w) solid var(--ring);
+		outline-offset: var(--ring-offset-inset);
 	}
 	/* Every model row shares one rhythm, windowed or not: two lines at a fixed
 		   height, so a long name or a missing price cannot make one row taller
@@ -374,10 +389,6 @@
 	}
 	button.model-disclosure:hover {
 		background: transparent;
-	}
-	button.model-disclosure:focus-visible {
-		outline: 1px solid var(--ring);
-		outline-offset: 1px;
 	}
 	/* Both lines clip rather than wrap: the fixed row height is the windowing
 		   arithmetic's anchor, and a wrapped line would break it. */
@@ -627,7 +638,10 @@
 		color: var(--vscode-descriptionForeground);
 	}
 	/* Machine text, so monospace, and it is the row's flexible column: a long
-		   URL ellipsizes rather than pushing the status and counts off the line. */
+		   URL ellipsizes rather than pushing the status and counts off the line.
+		   The https:// scheme rides .visually-hidden from markup (servers.tsx
+		   urlParts): eight characters at the FRONT of the ellipsizing run were
+		   what survived while the ellipsis ate the host. */
 	.server-url {
 		font-family: var(--vscode-editor-font-family, monospace);
 		font-size: 0.92em;
@@ -635,21 +649,6 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-	}
-	/* The https:// scheme stops being painted at EVERY width but stays in the row (screen
-	   readers, copy, find-in-page): eight characters at the FRONT of an ellipsizing run
-	   were what survived while the ellipsis ate the host. An http:// URL keeps its scheme
-	   on screen - insecure is news. */
-	.server-url .url-scheme.quiet {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		margin: -1px;
-		padding: 0;
-		overflow: hidden;
-		clip: rect(0 0 0 0);
-		white-space: nowrap;
-		border: 0;
 	}
 	.server-count,
 	.server-usage {
@@ -1037,10 +1036,13 @@
 		opacity: 0.5;
 		cursor: default;
 	}
+	/* The page-wide focus ring: every keyboard-focusable surface takes the ring
+	   tokens' one geometry from here or from a focus utility - never respelled. */
 	button:focus-visible,
-	a:focus-visible {
-		outline: 1px solid var(--ring);
-		outline-offset: 1px;
+	a:focus-visible,
+	.tip-wrap[tabindex]:focus-visible {
+		outline: var(--ring-w) solid var(--ring);
+		outline-offset: var(--ring-offset);
 	}
 
 	/* .error and .state-warn carry no rule here: their one presentation (color
@@ -1089,10 +1091,6 @@
 	button.help:hover {
 		color: var(--vscode-foreground);
 		border-color: var(--vscode-foreground);
-	}
-	button.help:focus-visible {
-		outline: 1px solid var(--ring);
-		outline-offset: 1px;
 	}
 	/* The page's one tooltip bubble (ui/tip.tsx decides when it shows and
 		 measures where; ONLY that primitive renders this class). It mirrors the
@@ -1232,10 +1230,6 @@
 		   pills): layout only - the bubble and its reveal are the tip primitive's. */
 	.tip-wrap {
 		display: inline-flex;
-	}
-	.tip-wrap[tabindex]:focus-visible {
-		outline: 1px solid var(--ring);
-		outline-offset: 1px;
 	}
 	.tip-wrap + .tip-wrap {
 		margin-left: 4px;
@@ -1775,9 +1769,9 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		/* Each voice is its own containing block: the refusal's sr-only detail
-			 span is absolutely positioned at the end of the unwrapped text run,
-			 and with its containing block outside this overflow it parked
+		/* Each voice is its own containing block: the refusal's visually-hidden
+			 detail span is absolutely positioned at the end of the unwrapped text
+			 run, and with its containing block outside this overflow it parked
 			 scrollable width past the pane's edge. */
 		position: relative;
 	}
@@ -1810,8 +1804,8 @@
 		padding: 4px 8px;
 	}
 	.record-json textarea:focus {
-		outline: 1px solid var(--ring);
-		outline-offset: -1px;
+		outline: var(--ring-w) solid var(--ring);
+		outline-offset: var(--ring-offset-inset);
 	}
 	/* The side door's one reserved status line under the textarea (the
 		   .row-status idiom): the parse verdict lands per keystroke, and a line
@@ -2614,10 +2608,6 @@
 		background: var(--ghost-hover);
 		color: var(--foreground);
 	}
-	.filter-pill:focus-visible {
-		outline: 1px solid var(--ring);
-		outline-offset: 1px;
-	}
 	@media (prefers-reduced-motion: reduce) {
 		.filter-pill {
 			transition: none;
@@ -3177,18 +3167,6 @@
 	}
 
 	/* === The record matcher tables (Settings tab + server form) === */
-	/* Screen-reader-only text (the edit column's header). */
-	.visually-hidden {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		margin: -1px;
-		padding: 0;
-		overflow: hidden;
-		clip: rect(0 0 0 0);
-		white-space: nowrap;
-		border: 0;
-	}
 	/* A record key is a wire identifier with no break opportunity of its own,
 		   and the vocabulary is open: supports_parallel_function_calling is a
 		   real one and is wider than a narrow pane. The chip around it can wrap
@@ -3693,7 +3671,8 @@
 		 is said twice: the pill beside it reads "Misconfigured" and the line
 		 below it opens "... is switched off until this entry is fixed". At this
 		 width it was costing the label its own name - "broken" rendered as a
-		 sliver of an ellipsis next to an intact "not in use". */
+		 sliver of an ellipsis next to an intact "not in use". Width-forced, so it
+		 cannot be a markup class: a .visually-hidden mirror, equality test-pinned. */
 		.server-name .server-tag {
 			position: absolute;
 			width: 1px;
@@ -3785,6 +3764,8 @@
 		.server-actions {
 			opacity: 1;
 		}
+		/* Width-forced, so it cannot be a markup class: a .visually-hidden mirror,
+		 declaration-identical by test pin. */
 		.server-status .pill-time {
 			position: absolute;
 			width: 1px;
@@ -3879,7 +3860,8 @@
 		/* Nothing is dropped from the document, only from the paint: every label,
 		 the brand (the page's only h1) and the fleet's verdict stay readable to
 		 assistive tech, so the accessible name of every control is the same at
-		 500px as at 1500px. */
+		 500px as at 1500px. Width-forced, so it cannot be a markup class: a
+		 .visually-hidden mirror, equality test-pinned. */
 		.rail-brand,
 		.rail-label,
 		.rail-synced,

@@ -261,8 +261,8 @@ export type IntentFailureOutcome = Extract<IntentOutcome, { result: "fail" }>;
 
 function FailureNote({ failure, dirty }: { failure: IntentFailureOutcome | undefined; dirty: boolean }) {
 	// Always mounted, speaking or not (dashboard.css .editor-status): the refusal lands
-	// async and must not move the action bar. Headline only, full message in title and an
-	// sr-only span; role="alert" needs the element to pre-exist. Text stays webview-only.
+	// async and must not move the action bar. Headline only, full message in title and a
+	// visually-hidden span; role="alert" needs the element to pre-exist. Text stays webview-only.
 	const spoken = dirty ? failure : undefined;
 	const detail = spoken !== undefined ? statusErrorDetail(spoken.message) : undefined;
 	return (
@@ -274,7 +274,7 @@ function FailureNote({ failure, dirty }: { failure: IntentFailureOutcome | undef
 			{spoken !== undefined
 				? l10n.t("Saving failed - your edits are kept: {0}", statusErrorHeadline(spoken.message))
 				: ""}
-			{detail !== undefined ? <span className="sr-only"> {detail}</span> : null}
+			{detail !== undefined ? <span className="visually-hidden"> {detail}</span> : null}
 		</p>
 	);
 }
@@ -1738,7 +1738,7 @@ const chipVariants = cva(
 			// still arrive with the pointer or with focus, which is the moment the
 			// row has to prove it is editable.
 			editable: {
-				true: "cursor-pointer group-hover/row:border-border group-hover/row:bg-input-background group-focus-within/row:border-border group-focus-within/row:bg-input-background hover:text-foreground focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid",
+				true: "cursor-pointer group-hover/row:border-border group-hover/row:bg-input-background group-focus-within/row:border-border group-focus-within/row:bg-input-background hover:text-foreground focus-visible:outline-(length:--ring-w) focus-visible:outline-offset-(--ring-offset) focus-visible:outline-ring focus-visible:outline-solid",
 				false: "",
 			},
 			catalog: {
@@ -2498,7 +2498,7 @@ export function RecordMatcherTable({
 								<span className="chip-anchor">
 									<button
 										type="button"
-										className="chip-field chip-add rounded-(--radius-chip) border border-transparent px-1 text-muted-foreground group-hover/row:border-border group-focus-within/row:border-border hover:text-foreground focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-ring focus-visible:outline-solid"
+										className="chip-field chip-add rounded-(--radius-chip) border border-transparent px-1 text-muted-foreground group-hover/row:border-border group-focus-within/row:border-border hover:text-foreground focus-visible:outline-(length:--ring-w) focus-visible:outline-offset-(--ring-offset) focus-visible:outline-ring focus-visible:outline-solid"
 										aria-expanded={addOpen}
 										disabled={disabled}
 										aria-label={l10n.t('Add a field to "{0}"', matcherName)}

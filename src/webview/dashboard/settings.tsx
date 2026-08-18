@@ -869,10 +869,10 @@ function UiAccentRow({
 							key={candidate}
 							// The checked ring is the foreground, not the accent: a violet
 							// ring around the violet swatch is not a selection marker.
-							className="cursor-pointer rounded-full p-0.5 outline-offset-1 has-[:checked]:outline-1 has-[:checked]:outline-foreground has-[:checked]:outline-solid has-[:focus-visible]:outline-1 has-[:focus-visible]:outline-ring has-[:focus-visible]:outline-solid"
+							className="cursor-pointer rounded-full p-0.5 outline-offset-(--ring-offset) has-[:checked]:outline-(length:--ring-w) has-[:checked]:outline-foreground has-[:checked]:outline-solid has-[:focus-visible]:outline-(length:--ring-w) has-[:focus-visible]:outline-ring has-[:focus-visible]:outline-solid"
 						>
 							<Radio
-								className="sr-only"
+								className="visually-hidden"
 								name="ui-accent"
 								value={candidate}
 								checked={accent === candidate}

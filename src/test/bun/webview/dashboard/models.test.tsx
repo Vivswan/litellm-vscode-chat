@@ -59,7 +59,7 @@ test("a row reads as two lines - name and meta, then a spec sentence - with the 
 	// aria-hidden visual half and no visually-hidden spoken half to disagree.
 	const caps = rows[0]?.querySelector(".model-caps") as HTMLElement;
 	expect(caps.getAttribute("aria-hidden")).toBeNull();
-	expect(rows[0]?.querySelector(".model-line-2 .sr-only")).toBeNull();
+	expect(rows[0]?.querySelector(".model-line-2 .visually-hidden")).toBeNull();
 
 	// The bare model: no price at all says so in words rather than with a dash
 	// nobody can read, and a model that can do none of the four prints no

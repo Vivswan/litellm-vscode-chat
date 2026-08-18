@@ -25,7 +25,7 @@ export function AbsentDatum({
 	return (
 		<span className={className}>
 			<span aria-hidden="true">-</span>
-			{children ?? <span className="sr-only">{reason ?? l10n.t("not reported")}</span>}
+			{children ?? <span className="visually-hidden">{reason ?? l10n.t("not reported")}</span>}
 		</span>
 	);
 }

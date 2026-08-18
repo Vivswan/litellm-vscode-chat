@@ -13,14 +13,14 @@ test("the dash is aria-hidden and the default reason is screen-reader-only", () 
 	const root = mount(<AbsentDatum className="hint" />);
 	const wrapper = root.querySelector("span.hint");
 	expect(wrapper?.querySelector('[aria-hidden="true"]')?.textContent).toBe("-");
-	expect(wrapper?.querySelector(".sr-only")?.textContent).toBe("not reported");
+	expect(wrapper?.querySelector(".visually-hidden")?.textContent).toBe("not reported");
 });
 
 test("a reason replaces the default text but keeps the hidden register", () => {
 	const root = mount(<AbsentDatum className="text-muted-foreground" reason="no parameters resolved" />);
 	const wrapper = root.querySelector("span.text-muted-foreground");
 	expect(wrapper?.querySelector('[aria-hidden="true"]')?.textContent).toBe("-");
-	expect(wrapper?.querySelector(".sr-only")?.textContent).toBe("no parameters resolved");
+	expect(wrapper?.querySelector(".visually-hidden")?.textContent).toBe("no parameters resolved");
 });
 
 test("a visible child stands in for the hidden reason entirely", () => {
@@ -32,6 +32,6 @@ test("a visible child stands in for the hidden reason entirely", () => {
 	const wrapper = root.querySelector("span.hint");
 	expect(wrapper?.querySelector('[aria-hidden="true"]')?.textContent).toBe("-");
 	// The visible words are the reason; a hidden duplicate would be read twice.
-	expect(wrapper?.querySelector(".sr-only")).toBeNull();
+	expect(wrapper?.querySelector(".visually-hidden")).toBeNull();
 	expect(wrapper?.querySelector(".why")?.textContent).toBe("the key does not report one");
 });

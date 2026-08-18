@@ -192,7 +192,7 @@ One idiom for actions that rest hidden on a row, and it has one home:
   3" at rest is a tautology (`diagnostics.tsx ResolvedModels`); and when the
   narrow server row must shed something, the `https://` scheme goes first while
   insecure `http://` stays painted - insecure is news
-  (`dashboard.css .server-url .url-scheme.quiet`).
+  (`servers.tsx urlParts`).
 - Exemption: debugging surfaces where provenance IS the content. The model
   inspector's whole vocabulary is provenance (`dashboard.css .model-inspector`),
   and the resolved-models table renders a provenance chip beside every value at

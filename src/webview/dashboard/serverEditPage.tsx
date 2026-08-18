@@ -1712,7 +1712,7 @@ function ServerForm({
 				>
 					<textarea
 						id="server-declaredModels"
-						className="w-full rounded-(--radius-field) border border-input bg-input-background px-1.5 py-[3px] font-mono text-[12px] text-input-foreground placeholder:text-input-placeholder focus:outline-1 focus:-outline-offset-1 focus:outline-ring focus:outline-solid"
+						className="w-full rounded-(--radius-field) border border-input bg-input-background px-1.5 py-[3px] font-mono text-[12px] text-input-foreground placeholder:text-input-placeholder focus:outline-(length:--ring-w) focus:outline-offset-(--ring-offset-inset) focus:outline-ring focus:outline-solid"
 						rows={3}
 						placeholder={l10n.t("One model ID per line, e.g. deepseek-r1")}
 						value={draft.declaredModels}

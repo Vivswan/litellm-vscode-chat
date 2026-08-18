@@ -407,8 +407,8 @@ test("a read-only other-scope problem speaks in the frame's own message row", ()
 	expect(verdict?.classList.contains("error")).toBe(true);
 	expect(verdict?.textContent).toContain("gpt-4");
 	expect(verdict?.textContent).toContain("Enter true or a list of parameter names");
-	// Visible words, not an sr-only echo: the line is the frame's one visible explanation of the red border.
-	expect(verdict?.classList.contains("sr-only")).toBe(false);
+	// Visible words, not a visually-hidden echo: the line is the frame's one visible explanation of the red border.
+	expect(verdict?.classList.contains("visually-hidden")).toBe(false);
 	expect(verdict?.getAttribute("title")).toContain("Enter true or a list of parameter names");
 	// No write path here, so no refusal voice shares the slot.
 	expect(other.querySelector(".failure-note")).toBeNull();
@@ -1561,11 +1561,13 @@ test("an intentFailed after Apply reopens the draft dirty with the failure note"
 	});
 	// The draft returns dirty and retryable; a failed write must not render as applied. The note is the frame's
 	// reserved one-line slot, so only the headline rides the LINE while the arbitrary-length detail survives
-	// without geometry - in the title and an sr-only span, this slot being the failure's only surface.
+	// without geometry - in the title and a visually-hidden span, this slot being the failure's only surface.
 	const note = section().querySelector(".failure-note");
 	expect(note?.classList.contains("error")).toBe(true);
 	expect(note?.firstChild?.textContent).toBe("Saving failed - your edits are kept: gpt-4: refused by validation.");
-	expect(note?.querySelector(".sr-only")?.textContent).toContain("technical detail the reserved line must not carry");
+	expect(note?.querySelector(".visually-hidden")?.textContent).toContain(
+		"technical detail the reserved line must not carry"
+	);
 	expect(note?.getAttribute("title")).toBe(
 		"gpt-4: refused by validation.\ntechnical detail the reserved line must not carry"
 	);

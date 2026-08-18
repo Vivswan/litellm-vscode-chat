@@ -110,13 +110,13 @@ test("a row's URL keeps its exact configured text, with only the https scheme ma
 		// the rest, but hiding is all it does.
 		"HTTPS://loud.example.com",
 	]);
-	expect(urls[0]?.querySelector(".url-scheme.quiet")?.textContent).toBe("https://");
+	expect(urls[0]?.querySelector(".url-scheme.visually-hidden")?.textContent).toBe("https://");
 	expect(urls[1]?.querySelector(".url-scheme")).toBe(null);
 	// A scheme with nothing after it is the whole value, so it stays painted:
 	// marked quiet it would render as an empty space at narrow, which is the
 	// width at which being told the entry is half-typed matters most.
-	expect(urls[2]?.querySelector(".url-scheme.quiet")).toBe(null);
-	expect(urls[3]?.querySelector(".url-scheme.quiet")?.textContent).toBe("HTTPS://");
+	expect(urls[2]?.querySelector(".url-scheme.visually-hidden")).toBe(null);
+	expect(urls[3]?.querySelector(".url-scheme.visually-hidden")?.textContent).toBe("HTTPS://");
 });
 
 /**
