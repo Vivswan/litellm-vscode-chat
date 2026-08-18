@@ -7,6 +7,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import type { CapabilityLevel, EffectiveCapabilities } from "../../../../shared/config/capabilityResolution";
 import { projectEffectiveParameters } from "../../../../shared/config/parameterResolution";
+import { INHERIT_FROM_DIRECTIVE } from "../../../../shared/config/recordResolution";
 import { App } from "../../../../webview/dashboard/app";
 import type { ModelCapabilitiesResponse, ModelParametersResponse } from "../../../../webview/dashboard/modelInspector";
 import { ModelInspector } from "../../../../webview/dashboard/modelInspector";
@@ -555,6 +556,26 @@ test("an invalid matcher key renders its own diagnostic", () => {
 		globalParameters: { "gpt*4o": { temperature: 0.2 }, "gpt-4o": { top_p: 0.5 } },
 	});
 	expect(root.textContent).toContain('"gpt*4o" is not a valid matcher key and never matches');
+});
+
+test("the params section's unknown-inherit-key message spells the directive by its registered name", () => {
+	// The message must spell the directive literally for l10n extraction, so a
+	// registry rename would leave it (and its translations) telling users about
+	// a gone directive; this pin fails the rename until the message moves too.
+	const root = mountParamsAnswered({
+		globalParameters: { "gpt-4o": { temperature: 0.2, _inherit_from: ["missing"] } },
+	});
+	expect(textOf(root, ".record-problems")).toContain(`"${INHERIT_FROM_DIRECTIVE}" names "missing"`);
+});
+
+test("the caps section's unknown-inherit-key message spells the directive by its registered name", () => {
+	// The capability side's copy of the same message; the same rename pin.
+	const root = mountCapsAnswered(
+		makeCapabilities({
+			diagnostics: [{ kind: "unknown-inherit-key", key: "missing", layer: "global", recordKey: "gpt-4" }],
+		})
+	);
+	expect(textOf(root, ".record-problems")).toContain(`"${INHERIT_FROM_DIRECTIVE}" names "missing"`);
 });
 
 test("clean configuration renders no diagnostics block", () => {

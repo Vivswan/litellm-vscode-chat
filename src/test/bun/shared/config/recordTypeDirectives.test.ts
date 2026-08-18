@@ -9,12 +9,16 @@
  * this file's typecheck until its parser is wired in, and the loops then hold
  * it to the same mutual-flagging contract.
  *
- * The literal sweep below closes the remaining hole - a directive a module
- * HANDLES but nobody registered. It scans CODE, through an AST walk over the
- * string literals of every module in src/shared/config, so comments and doc
+ * The literal sweeps below close the remaining hole - a directive a module
+ * HANDLES but nobody registered, or a name UI copy still spells after a
+ * rename. The source sweep scans CODE, through an AST walk over the string
+ * literals of every module in src/shared/config, so comments and doc
  * prose never count (a message string would, but these diagnostics carry
  * kinds and keys, never prose). Its blind spot is a name no literal spells:
  * identifier property access (`record._force`) or a name built at runtime.
+ * The copy sweep scans every l10n bundle's and package.nls file's keys and
+ * translated values for directive-shaped tokens, so localized copy cannot
+ * keep teaching a name the registry dropped.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -29,7 +33,7 @@ import {
 	INHERITABLE_DIRECTIVE,
 	RECORD_TYPE_DIRECTIVES,
 } from "../../../../shared/config/recordResolution";
-import { isUnsafeRecordKey } from "../../../../shared/util/json";
+import { isRecord, isUnsafeRecordKey } from "../../../../shared/util/json";
 import { REPO_ROOT } from "../../../util/repoRoot";
 
 /** Total over RecordType on purpose: a registry row without a parser fails typecheck here. */
@@ -167,6 +171,57 @@ describe("shared/config record-type directive registry", () => {
 			}
 		}
 		assert.deepStrictEqual(failures, []);
+	});
+
+	test("every directive-shaped token in the localized copy is a registered directive", () => {
+		// UI copy necessarily spells directive names inside localized literals
+		// (extraction needs whole sentences), so a registry rename would leave
+		// those messages teaching a gone name. Fail closed over every l10n
+		// bundle's and package.nls file's keys AND translated values -
+		// translations keep directive tokens verbatim - so neither the source
+		// copy nor a locale can drift stale.
+		const l10nDir = path.join(REPO_ROOT, "l10n");
+		const copyFiles = [
+			...fs
+				.readdirSync(l10nDir)
+				.filter((name) => name.startsWith("bundle.l10n") && name.endsWith(".json"))
+				.map((name) => path.join("l10n", name)),
+			...fs.readdirSync(REPO_ROOT).filter((name) => name.startsWith("package.nls") && name.endsWith(".json")),
+		].sort();
+		const found = new Set<string>();
+		const failures: string[] = [];
+		for (const file of copyFiles) {
+			const bundle = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, file), "utf8")) as Record<string, unknown>;
+			for (const [key, value] of Object.entries(bundle)) {
+				const message =
+					typeof value === "string" ? value : isRecord(value) && typeof value.message === "string" ? value.message : "";
+				for (const text of [key, message]) {
+					for (const token of text.match(/(?<![A-Za-z0-9])_[a-z][a-z0-9_]*/g) ?? []) {
+						found.add(token);
+						if (!REGISTERED_DIRECTIVES.has(token)) {
+							failures.push(
+								`${file} entry "${key}" spells "${token}", which is no registered directive: ` +
+									"rename the copy wherever it is minted, re-run l10n:extract, and retranslate"
+							);
+						}
+					}
+				}
+			}
+		}
+		assert.deepStrictEqual(failures, []);
+		// Positive controls: the source bundle, the settings-UI nls file, and
+		// their translations must all be in the sweep; the modelInspector suite
+		// pins rendered messages that spell _inherit_from, and _inheritable is
+		// spelled only in the nls files, so a sweep that stops seeing either is
+		// a broken or narrowed walk.
+		assert.ok(
+			copyFiles.includes(path.join("l10n", "bundle.l10n.json")),
+			"the sweep no longer reaches the source bundle"
+		);
+		assert.ok(copyFiles.includes("package.nls.json"), "the sweep no longer reaches the settings-UI copy");
+		assert.ok(copyFiles.length >= 6, "the sweep no longer reaches the translated copies");
+		assert.ok(found.has(INHERIT_FROM_DIRECTIVE), "the copy sweep no longer sees _inherit_from's spelling");
+		assert.ok(found.has(INHERITABLE_DIRECTIVE), "the copy sweep no longer sees _inheritable's spelling");
 	});
 
 	test("the sweep reaches every config module and sees every registered mint (its positive control)", () => {

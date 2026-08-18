@@ -1749,8 +1749,8 @@ const chipVariants = cva(
 				true: "border-border bg-input-background text-foreground",
 				false: "",
 			},
-			// One mark at a time, worst first (the parsers emit problem XOR hint;
-			// the exclusivity is this variant's shape). The mark restates the row's
+			// One mark at a time, worst first (a row may carry a problem AND a
+			// hint; the problem wins this variant's shape). The mark restates the row's
 			// hover/focus-within reveal variants - separate merge groups the plain
 			// utility cannot beat, which repainted the mark grey when the pointer
 			// arrived. The border IS the whole mark - the child spans re-colour

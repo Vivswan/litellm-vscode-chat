@@ -154,9 +154,10 @@ export interface GroupProblems {
 }
 
 /**
- * Row-aligned non-blocking notes for one prefix group: the `_force` row's
- * semantic warnings. The setting keeps such rows and the resolver diagnoses
- * them at request time, so the editor flags without refusing.
+ * Row-aligned non-blocking notes for one prefix group: directive semantics
+ * and wrong-type notes. The setting keeps such rows and the resolver
+ * diagnoses them at request time, so the editor flags without refusing; a
+ * wrong-type note may ride beside a row's blocking value problem.
  */
 export interface GroupHints {
 	readonly params: readonly (string | undefined)[];
@@ -348,17 +349,18 @@ export function parseGroups(groups: readonly PrefixGroup[]): GroupsParse {
 				paramHints[index] = judged.hint;
 				return undefined;
 			}
+			// A sibling record type's directive: the setting keeps the row and the
+			// resolver diagnoses it wrong-record-type, so the editor hints here too.
+			// Keyed BEFORE the value parse - fixing the value would not make the
+			// key any less ignored, so the hint rides beside a value problem.
+			if (PARAMETER_WRONG_TYPE_DIRECTIVES.has(param.key.trim())) {
+				paramHints[index] = l10n.t('"{0}" belongs to capability records and is ignored here', param.key.trim());
+			}
 			const parsed = parseJsonValue(param.valueText);
 			if (!parsed.ok) {
 				return { field: "value", message: parsed.error };
 			}
 			params[param.key.trim()] = parsed.value;
-			// A sibling record type's directive: the setting keeps the row and the
-			// resolver diagnoses it wrong-record-type, so the editor hints here too.
-			// Below the value parse, so a row never carries a problem AND a hint.
-			if (PARAMETER_WRONG_TYPE_DIRECTIVES.has(param.key.trim())) {
-				paramHints[index] = l10n.t('"{0}" belongs to capability records and is ignored here', param.key.trim());
-			}
 			return undefined;
 		});
 		blocked = blocked || prefixProblem !== undefined || paramProblems.some((problem) => problem !== undefined);
@@ -743,9 +745,16 @@ export function parseCapabilityGroups(
 				rowIssues[index] = {};
 				return;
 			}
+			// A sibling record type's directive, which the resolver later diagnoses
+			// wrong-record-type: minted from the key BEFORE the value parse -
+			// fixing the value would not make the key any less ignored, so the
+			// hint rides beside a value problem.
+			const wrongTypeHint = CAPABILITY_WRONG_TYPE_DIRECTIVES.has(key)
+				? l10n.t('"{0}" belongs to parameters records and is ignored here', key)
+				: undefined;
 			const parsed = parseJsonValue(param.valueText);
 			if (!parsed.ok) {
-				rowIssues[index] = { problem: { field: "value", message: parsed.error } };
+				rowIssues[index] = { problem: { field: "value", message: parsed.error }, hint: wrongTypeHint };
 				return;
 			}
 			rowEntries[index] = [key, parsed.value];
@@ -763,15 +772,13 @@ export function parseCapabilityGroups(
 				return;
 			}
 			// Underscore keys are reserved for future directives and pass silently,
-			// except a sibling record type's directive, which the resolver later
-			// diagnoses wrong-record-type, so the editor hints here too. Anything
-			// else is an OPEN field the resolver applies as-is (so it counts as
-			// set); it hints as a possible typo only against real evidence - a
-			// known, non-empty observed /model/info key set that does not name it.
+			// except a sibling record type's directive, whose hint was minted above.
+			// Anything else is an OPEN field the resolver applies as-is (so it
+			// counts as set); it hints as a possible typo only against real
+			// evidence - a known, non-empty observed /model/info key set that does
+			// not name it.
 			if (key.startsWith("_")) {
-				rowIssues[index] = CAPABILITY_WRONG_TYPE_DIRECTIVES.has(key)
-					? { hint: l10n.t('"{0}" belongs to parameters records and is ignored here', key) }
-					: {};
+				rowIssues[index] = wrongTypeHint !== undefined ? { hint: wrongTypeHint } : {};
 				return;
 			}
 			setFieldKeys.add(key);

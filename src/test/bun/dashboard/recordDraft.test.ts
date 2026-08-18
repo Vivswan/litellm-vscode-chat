@@ -461,14 +461,43 @@ describe("dashboard/recordDraft", () => {
 			}
 		});
 
-		test("a wrong-type row with an unreadable value blocks and stays hint-free: problem XOR hint", () => {
+		test("a wrong-type row with an unreadable value blocks AND hints: the key alone decides", () => {
 			// _openrouter_model in a parameters group is the live case: the
-			// capability editor teaches bare catalog IDs, which are not JSON.
+			// capability editor teaches bare catalog IDs, which are not JSON. The
+			// JSON problem still blocks the save, but fixing the value would not
+			// make the key any less ignored, so the hint rides beside the problem.
 			const parse = parseGroups([
 				{ prefix: "gpt-4", params: [newParamRow(OPENROUTER_MODEL_DIRECTIVE, "openai/gpt-4o")] },
 			]);
-			assert.strictEqual(parse.ok, false, "an unreadable value blocks");
-			assert.strictEqual(parse.hints[0]?.params[0], undefined, "a blocked row carries no hint beside its problem");
+			assert.ok(!parse.ok, "an unreadable value blocks");
+			assert.strictEqual(parse.problems[0]?.params[0]?.field, "value");
+			assert.ok(
+				parse.hints[0]?.params[0]?.includes(OPENROUTER_MODEL_DIRECTIVE),
+				"the wrong-type hint rides beside the value problem"
+			);
+		});
+
+		test("unreadable values silence no wrong-type hint in either editor, and hint nothing else", () => {
+			const paramExpected = new Set<string>(RECORD_TYPE_DIRECTIVES.capabilities);
+			const capsExpected = new Set<string>(RECORD_TYPE_DIRECTIVES.parameters);
+			for (const name of universe) {
+				const params = parseGroups([{ prefix: "gpt-4", params: [newParamRow(name, "bare text")] }]);
+				const paramHint = params.hints[0]?.params[0];
+				if (paramExpected.has(name)) {
+					assert.strictEqual(params.ok, false, `${name}'s unreadable value must still block`);
+					assert.ok(paramHint?.includes(name), `${name} must hint beside its value problem`);
+				} else {
+					assert.strictEqual(paramHint, undefined, `${name} must not hint`);
+				}
+				const caps = parseCapabilityGroups([{ prefix: "gpt-4", params: [newParamRow(name, "bare text")] }]);
+				const capsHint = caps.issues[0]?.rows[0]?.hint;
+				if (capsExpected.has(name)) {
+					assert.strictEqual(caps.ok, false, `${name}'s unreadable value must still block`);
+					assert.ok(capsHint?.includes(name), `${name} must hint beside its value problem`);
+				} else {
+					assert.strictEqual(capsHint, undefined, `${name} must not hint`);
+				}
+			}
 		});
 
 		test("the helper both editors read agrees with the registry rows", () => {

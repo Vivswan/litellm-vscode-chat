@@ -456,7 +456,7 @@ export type ServerFormParse =
 			 * advisory hints never block a save but must still render.
 			 */
 			readonly modelCapabilityIssues: readonly CapabilityGroupIssues[];
-			/** Row-aligned model-parameter hints (the _force semantic warnings); non-blocking, like the capability issues. */
+			/** Row-aligned model-parameter hints (directive semantics and wrong-type notes); non-blocking, like the capability issues. */
 			readonly modelParameterHints: readonly GroupHints[];
 	  }
 	| {
@@ -544,7 +544,7 @@ interface ServerFormValues extends ServerConnectionValues {
 type ServerFormAnalysis = {
 	/** Row-aligned capability issues from the parse that judged the draft; hints render on both arms. */
 	readonly modelCapabilityIssues: readonly CapabilityGroupIssues[];
-	/** Row-aligned model-parameter hints (the _force semantic warnings); non-blocking, like the capability issues. */
+	/** Row-aligned model-parameter hints (directive semantics and wrong-type notes); non-blocking, like the capability issues. */
 	readonly modelParameterHints: readonly GroupHints[];
 } & (
 	| { readonly blocked: false; readonly values: ServerFormValues }
