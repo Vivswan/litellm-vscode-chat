@@ -716,6 +716,23 @@ describe("the usage diagnostics", () => {
 		expect(line.classList.contains("tier-error")).toBe(true);
 	});
 
+	test("over budget with alerts off (empty thresholds): meter fill and diagnostic both wear the error tone", () => {
+		// The regression this suite exists to forbid: the shared map owns the
+		// >1-is-error rule, so an ok-toned 130% meter can never sit beside an
+		// error-toned over-budget band.
+		const usage = makeUsage({
+			thresholds: [],
+			servers: [makeUsageServer({ label: "Prod", spend: 32.5, effectiveBudget: 25, spentFraction: 1.3 })],
+		});
+		const root = mountServers(usage);
+		const unit = root.querySelector(".server-usage .spend-unit") as HTMLElement;
+		expect(unit.querySelector(".text-err")).not.toBeNull();
+		expect(unit.querySelector(".bg-err-fill")).not.toBeNull();
+		const line = root.querySelector(".row-diagnostic") as HTMLElement;
+		expect((line.textContent ?? "").trim()).toBe("Action needed: Prod is over its budget by $7.50.");
+		expect(line.classList.contains("tier-error")).toBe(true);
+	});
+
 	test("the warn-tier drawer line never wears the error hue", () => {
 		const usage = makeUsage({
 			servers: [makeUsageServer({ label: "Prod", spend: 43.5, effectiveBudget: 50, spentFraction: 0.87 })],
@@ -768,6 +785,16 @@ describe("the header", () => {
 		// excluded nothing.
 		expect(meta).toContain("worst budget use 87%");
 		expect(meta).not.toContain("stale rows excluded");
+	});
+
+	test("the worst-budget clause reads the pushed spentFraction, never a re-division of spend by budget", () => {
+		// A deliberately inconsistent card: if the header divided 43.5/50 itself
+		// it would print 87% and this pin would catch the second pipeline.
+		const usage = makeUsage({
+			servers: [makeUsageServer({ label: "Prod", spend: 43.5, effectiveBudget: 50, spentFraction: 0.92, fresh: true })],
+		});
+		const meta = textOf(mountServers(usage), ".section-meta");
+		expect(meta).toContain("worst budget use 92%");
 	});
 
 	test("Refresh now posts the intent and disables while a pass is in flight", () => {

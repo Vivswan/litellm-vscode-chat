@@ -94,7 +94,7 @@ The same rule covers a machine that was offline or asleep: no polls run while it
 
 ## Alerts
 
-`usage.alertThresholds` is a list of fractions of the effective budget, each above 0 and at most 1; reaching a threshold counts as crossing it (at 80.0% the 0.8 alert fires, and a `[1.0]` threshold fires when spend equals the budget). Out-of-range values are dropped and reported as a configuration diagnostic. The default `[0.8, 0.95]` warns at 80% and again at 95%. The list is deduplicated and sorted for you; an empty list turns alerts off.
+`usage.alertThresholds` is a list of fractions of the effective budget, each above 0 and at most 1; reaching a threshold counts as crossing it (at 80.0% the 0.8 alert fires, and a `[1.0]` threshold fires when spend equals the budget). Out-of-range values are dropped and reported as a configuration diagnostic. The default `[0.8, 0.95]` warns at 80% and again at 95%. The list is deduplicated and sorted for you; an empty list turns alert notifications off (being over the whole budget still shows as the error tone - see [the status bar](#the-status-bar)).
 
 - Crossing a threshold shows **one** notification per server and threshold - polling every five minutes does not mean a toast every five minutes. When one poll jumps past several thresholds at once, only the highest fires. All budget notifications use one severity; the escalating color story lives in the [status bar](#the-status-bar).
 - A tripped threshold re-arms when spend drops back below it: a new billing period, a raised budget, and the alert is live again for next time.
@@ -111,7 +111,7 @@ A shorter list works the same way, with one wrinkle on the [status bar](#the-sta
 | Value | Behavior |
 |---|---|
 | `"always"` (default) | visible whenever there is something to show |
-| `"alerts-only"` | hidden until a threshold trips, visible while one is tripped |
+| `"alerts-only"` | hidden until a threshold trips (or a budget is exceeded), visible while one is |
 | `"off"` | never shown |
 
 The item's text is one thing only: the spend percentage of the **worst fresh server** - the highest spend-to-effective-budget ratio among servers with [fresh data](#polling) and a budget. Everything else lives in the tooltip.
@@ -121,13 +121,14 @@ The item's text is one thing only: the spend percentage of the **worst fresh ser
 | every fresh server under its thresholds (`"always"`) | the worst percentage, plain - e.g. `42%` |
 | any fresh server over the lowest threshold | the percentage on a warning background |
 | any fresh server over the highest threshold | the percentage on an error background |
-| `"alerts-only"`, nothing over a threshold | nothing |
+| any fresh server over its whole budget | the percentage on an error background, whatever the threshold list says |
+| `"alerts-only"`, nothing over a threshold or budget | nothing |
 | no server has a budget, or `"off"` | nothing |
 | no fresh data at all | nothing |
 
 With a custom threshold list, the severity scale tops out at the highest configured threshold: crossing the highest gets the error background, crossing any lower one the warning background - so a single-threshold list goes straight to the error background when crossed; it is the alarm.
 
-Past 100%, the item shows the literal number (`112%`) - the panel's meter just fills, with the real percentage beside it and the overshoot spelled out on the line ("over budget by $3.00").
+Past 100%, the item shows the literal number (`112%`) - the panel's meter just fills, with the real percentage beside it and the overshoot spelled out on the line ("over budget by $3.00"). Being over the whole budget is past any threshold: the item, the meter, and the over-budget line all wear the error tone, even with an empty threshold list (which otherwise turns escalation off).
 
 The last row is the staleness rule doing its job: the item never shows a stale number as if it were current. Stale servers are excluded from the aggregation and noted in the tooltip; when *no* server has fresh data, the item hides entirely - the connection item already tells the outage story, and a second red thing would add nothing.
 

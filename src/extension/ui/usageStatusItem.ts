@@ -14,6 +14,8 @@
 
 import * as l10n from "@vscode/l10n";
 import type * as vscode from "vscode";
+import type { SpendTone } from "../../dashboard/spendFormat";
+import { formatMoney, formatPercent, usableThresholds, worstSpendTone } from "../../dashboard/spendFormat";
 import type { UsageStatusBarMode } from "../../shared/config/settings";
 import type { Clock, Timer } from "../../shared/util/timer";
 import { PendingCall, REAL_TIMER, SYSTEM_CLOCK } from "../../shared/util/timer";
@@ -21,32 +23,19 @@ import { isUsageFresh, usageFreshnessWindowMs } from "../servers/usage/freshness
 import type { ServerUsageState, UsageStore } from "../servers/usage/store";
 import type { StatusItemLike } from "./status";
 
-/** A visible rendering; "hidden" means the item shows nothing. Severity tops out at the highest threshold. */
+/** A visible rendering; "hidden" means the item shows nothing. Severity follows the shared spend tone map. */
 export interface UsageStatusView {
 	readonly text: string;
 	readonly severity: "plain" | "warning" | "error";
 	readonly tooltipLines: readonly string[];
 }
 
-/** The thresholds that participate: finite fractions in (0, 1], deduplicated and ascending. */
-function usableThresholds(thresholds: readonly number[]): number[] {
-	const usable = thresholds.filter((t) => Number.isFinite(t) && t > 0 && t <= 1);
-	return [...new Set(usable)].sort((a, b) => a - b);
-}
-
-/**
- * An amount as every usage surface prints it, prefixed with the configured
- * usage.currencySymbol (display only - the server's numbers are never
- * converted; the empty symbol renders the bare number).
- */
-function money(amount: number, currencySymbol: string): string {
-	return `${currencySymbol}${amount.toFixed(2)}`;
-}
-
-/** A spend fraction as the integer percent the item and tooltip show; past 100% the literal number (112%). */
-function percentOf(fraction: number): number {
-	return Math.round(fraction * 100);
-}
+/** The status bar's embodiment of the shared spend tones: ok is the plain background. */
+const SEVERITY_BY_TONE: Readonly<Record<SpendTone, UsageStatusView["severity"]>> = {
+	ok: "plain",
+	warn: "warning",
+	error: "error",
+};
 
 /** "Last updated" as a short relative phrase, falling back to the locale string past a day. */
 function relativeTime(thenMs: number, nowMs: number): string {
@@ -74,26 +63,26 @@ function serverTooltipLines(state: ServerUsageState, nowMs: number, fresh: boole
 	}
 	let headline: string;
 	if (budget.effectiveBudget !== undefined && budget.spentFraction !== undefined) {
-		const percent = percentOf(budget.spentFraction);
+		const percent = formatPercent(budget.spentFraction);
 		headline =
 			budget.keyBudget !== undefined && budget.keyBudget !== budget.effectiveBudget
 				? l10n.t(
-						"{0}: {1} of {2} ({3}%) - key reports {4}",
+						"{0}: {1} of {2} ({3}) - key reports {4}",
 						state.label,
-						money(spend, currencySymbol),
-						money(budget.effectiveBudget, currencySymbol),
+						formatMoney(spend, currencySymbol),
+						formatMoney(budget.effectiveBudget, currencySymbol),
 						percent,
-						money(budget.keyBudget, currencySymbol)
+						formatMoney(budget.keyBudget, currencySymbol)
 					)
 				: l10n.t(
-						"{0}: {1} of {2} ({3}%)",
+						"{0}: {1} of {2} ({3})",
 						state.label,
-						money(spend, currencySymbol),
-						money(budget.effectiveBudget, currencySymbol),
+						formatMoney(spend, currencySymbol),
+						formatMoney(budget.effectiveBudget, currencySymbol),
 						percent
 					);
 	} else {
-		headline = l10n.t("{0}: {1} spent, no budget", state.label, money(spend, currencySymbol));
+		headline = l10n.t("{0}: {1} spent, no budget", state.label, formatMoney(spend, currencySymbol));
 	}
 	const details: string[] = [];
 	if (budget.budgetResetAt !== undefined) {
@@ -117,10 +106,12 @@ function serverTooltipLines(state: ServerUsageState, nowMs: number, fresh: boole
 /**
  * The whole rendering decision, pure. Hidden when the mode says so, when no
  * server has fresh data, when no fresh server has a budget to compute a
- * fraction against, and in alerts-only mode while nothing fresh sits at or
- * above the lowest configured threshold. Severity tops out at the highest
- * configured threshold, so a single-threshold list goes straight to the error
- * background; an empty list renders plain forever.
+ * fraction against, and in alerts-only mode while the shared spend tone reads
+ * ok. The severity is the shared fraction-to-tone map (src/dashboard's
+ * spendTone via worstSpendTone): warning at the lowest usable threshold, error
+ * at the highest - so a single-threshold list goes straight to the error
+ * background - and past the whole budget error even with an empty threshold
+ * list; an empty list otherwise renders plain.
  */
 export function renderUsageStatus(
 	states: readonly ServerUsageState[],
@@ -141,15 +132,11 @@ export function renderUsageStatus(
 		(state) => freshByLabel.get(state.label) === true && state.budget.spentFraction !== undefined
 	);
 	const fractions = contributing.map((state) => state.budget.spentFraction ?? 0);
-	if (fractions.length === 0) {
+	const position = worstSpendTone(fractions, thresholds);
+	if (position === undefined) {
 		return "hidden";
 	}
-	const worst = Math.max(...fractions);
-	const usable = usableThresholds(thresholds);
-	const lowest = usable[0];
-	const highest = usable.at(-1);
-	const severity: UsageStatusView["severity"] =
-		highest !== undefined && worst >= highest ? "error" : lowest !== undefined && worst >= lowest ? "warning" : "plain";
+	const severity = SEVERITY_BY_TONE[position.tone];
 	if (mode === "alerts-only" && severity === "plain") {
 		return "hidden";
 	}
@@ -157,11 +144,12 @@ export function renderUsageStatus(
 	const tooltipLines = states.flatMap((state) =>
 		serverTooltipLines(state, nowMs, freshByLabel.get(state.label) === true, currencySymbol)
 	);
+	const lowest = usableThresholds(thresholds)[0];
 	if (lowest !== undefined) {
 		// The item's number is one server's ratio; the count keeps the other
 		// tripped servers from hiding behind the maximum.
 		const overCount = fractions.filter((fraction) => fraction >= lowest).length;
-		const others = overCount - (worst >= lowest ? 1 : 0);
+		const others = overCount - (position.worst >= lowest ? 1 : 0);
 		if (others > 0) {
 			tooltipLines.push(
 				others === 1
@@ -170,7 +158,7 @@ export function renderUsageStatus(
 			);
 		}
 	}
-	return { text: `${percentOf(worst)}%`, severity, tooltipLines };
+	return { text: formatPercent(position.worst), severity, tooltipLines };
 }
 
 export interface UsageStatusBarOptions {

@@ -4,6 +4,7 @@ import { Fragment, useEffect, useId, useState } from "react";
 import { latestCheckedMs } from "../../dashboard/presenters";
 import { parseCapabilityGroups, parseGroups, toGroups } from "../../dashboard/recordDraft";
 import { sectionFailureText, serverFormFieldLabel } from "../../dashboard/serverForm";
+import { barPresentation, formatMoney, formatPercent, spendTone, worstSpendTone } from "../../dashboard/spendFormat";
 import type {
 	DashboardServer,
 	DashboardUsage,
@@ -33,7 +34,7 @@ import { ProblemBand } from "./problemBand";
 import { capabilityIssueViews, type GroupIssueView, paramIssueViews, RecordMatcherTable } from "./recordEditors";
 import { troubleshootingLink } from "./serverEditPage";
 import { type DiagnosticSeverity, SEVERITY_ORDER, severityLabel } from "./severity";
-import { barPresentation, formatMoney, formatPercent, TONE_FILL, TONE_TEXT } from "./spendFormat";
+import { TONE_FILL, TONE_TEXT } from "./spendTones";
 import { relativeTime } from "./time";
 import { AbsentDatum } from "./ui/absent";
 import { Badge } from "./ui/badge";
@@ -623,38 +624,30 @@ function usageDiagnostics(
 	if (card.spend !== undefined && card.effectiveBudget !== undefined && card.spentFraction !== undefined) {
 		// Degraded per the tier contract: the reader set the budget to be told before it runs
 		// out. The line says how far past or how much is left; no action fixes a budget.
-		if (card.spentFraction > 1) {
-			found.push({
-				key: "over-budget",
+		// The shared map owns the whole tone decision - past the whole budget it is error even
+		// with an empty threshold list - so line, meter fill, and status bar cannot split. The
+		// tone also picks the seat: warn waits in the drawer (the tinted meter already signals
+		// it), error stays banded on the collapsed row in the error hue.
+		const tone = spendTone(card.spentFraction, spend.thresholds);
+		if (tone !== "ok") {
+			const overBudget = card.spentFraction > 1;
+			const line = {
+				key: overBudget ? "over-budget" : "budget-pressure",
 				severity: "degraded",
-				// Past the whole budget is past any error threshold: the error tone, everywhere.
-				tone: "error",
-				headline: l10n.t(
-					"{0} is over its budget by {1}.",
-					label,
-					formatMoney(card.spend - card.effectiveBudget, spend.currencySymbol)
-				),
+				headline: overBudget
+					? l10n.t(
+							"{0} is over its budget by {1}.",
+							label,
+							formatMoney(card.spend - card.effectiveBudget, spend.currencySymbol)
+						)
+					: l10n.t(
+							"{0} is close to its budget: {1} left.",
+							label,
+							formatMoney(card.effectiveBudget - card.spend, spend.currencySymbol)
+						),
 				actions: [],
-			});
-		} else {
-			const tone = barPresentation(card.spentFraction, spend.thresholds).tone;
-			if (tone !== "ok") {
-				// The user's OWN thresholds split the sentence in two seats, and the seat decides
-				// the hue: past error it stays on the collapsed row in the error tone like
-				// over-budget; between warning and error it moves into the drawer, whose notice is
-				// warn-tier by construction. One classifier, so line and meter fill can never disagree.
-				const line = {
-					key: "budget-pressure",
-					severity: "degraded",
-					headline: l10n.t(
-						"{0} is close to its budget: {1} left.",
-						label,
-						formatMoney(card.effectiveBudget - card.spend, spend.currencySymbol)
-					),
-					actions: [],
-				} as const;
-				found.push(tone === "warn" ? { ...line, placement: "drawer" } : { ...line, tone: "error" });
-			}
+			} as const;
+			found.push(tone === "warn" ? { ...line, placement: "drawer" } : { ...line, tone: "error" });
 		}
 	}
 	return { lines: found, usageDetailsCarried: carried };
@@ -1810,20 +1803,16 @@ function HiddenGroupsLine({ hidden }: { hidden: readonly HiddenGroup[] }) {
 
 /**
  * The worst FRESH server's spend against its budget - deliberately not a total: two entries
- * sharing a key would count its spend twice. The status bar takes the same maximum
- * (docs/usage.md), so the two cannot disagree. A budget-less server contributes nothing.
+ * sharing a key would count its spend twice. It reads the pushed spentFraction (the host's
+ * resolveBudget computed it, never re-divided here) and reduces through the same
+ * worstSpendTone as the status bar (docs/usage.md), so the two cannot disagree. A
+ * budget-less server contributes nothing.
  */
 function worstFreshBudgetFraction(usage: DashboardUsage | undefined): number | undefined {
 	const fractions = (usage?.servers ?? []).flatMap((server) =>
-		server.kind === "usage" &&
-		server.fresh &&
-		server.spend !== undefined &&
-		server.effectiveBudget !== undefined &&
-		server.effectiveBudget > 0
-			? [server.spend / server.effectiveBudget]
-			: []
+		server.kind === "usage" && server.fresh && server.spentFraction !== undefined ? [server.spentFraction] : []
 	);
-	return fractions.length === 0 ? undefined : Math.max(...fractions);
+	return worstSpendTone(fractions, usage?.thresholds ?? [])?.worst;
 }
 
 /**

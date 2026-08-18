@@ -683,7 +683,7 @@
 		 puts it there) - as a third line it arrived asynchronously when the
 		 poll staled a row and moved every row below it. The severity tones and
 		 the meter's axis-and-fill treatment ride the component's utility
-		 classes (spendFormat.ts's shared tables). */
+		 classes (spendTones.ts's shared tables). */
 	.spend-unit {
 		display: inline-grid;
 		justify-items: end;

@@ -179,11 +179,13 @@ function oracle(
 	const severity =
 		worst === undefined
 			? undefined
-			: highest !== undefined && worst >= highest
+			: worst > 1
 				? "error"
-				: lowest !== undefined && worst >= lowest
-					? "warning"
-					: "plain";
+				: highest !== undefined && worst >= highest
+					? "error"
+					: lowest !== undefined && worst >= lowest
+						? "warning"
+						: "plain";
 	return { fractions, worst, lowest, highest, severity };
 }
 
@@ -228,7 +230,11 @@ suite("extension/ui renderUsageStatus properties", () => {
 					warnings += 1;
 				}
 				if (lowest === undefined) {
-					assert.strictEqual(view.severity, "plain", "an empty usable list renders plain forever");
+					assert.strictEqual(
+						view.severity,
+						worst > 1 ? "error" : "plain",
+						"an empty usable list renders plain up to the whole budget, error past it"
+					);
 				}
 				if (lowest !== undefined && lowest === highest) {
 					assert.strictEqual(
@@ -238,7 +244,7 @@ suite("extension/ui renderUsageStatus properties", () => {
 					);
 				}
 				if (view.severity === "error") {
-					assert.ok(highest !== undefined && worst >= highest);
+					assert.ok(worst > 1 || (highest !== undefined && worst >= highest));
 				}
 				if (view.severity === "warning") {
 					assert.ok(lowest !== undefined && worst >= lowest && (highest === undefined || worst < highest));

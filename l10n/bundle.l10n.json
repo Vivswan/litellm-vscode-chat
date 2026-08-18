@@ -1376,7 +1376,7 @@
 	"{0}'s spend numbers didn't refresh: the last check failed; it retries automatically with increasing delay.": "{0}'s spend numbers didn't refresh: the last check failed; it retries automatically with increasing delay.",
 	"{0}, last sync {1}": "{0}, last sync {1}",
 	"{0}, {1}": "{0}, {1}",
-	"{0}: {1} of {2} ({3}%)": "{0}: {1} of {2} ({3}%)",
-	"{0}: {1} of {2} ({3}%) - key reports {4}": "{0}: {1} of {2} ({3}%) - key reports {4}",
+	"{0}: {1} of {2} ({3})": "{0}: {1} of {2} ({3})",
+	"{0}: {1} of {2} ({3}) - key reports {4}": "{0}: {1} of {2} ({3}) - key reports {4}",
 	"{0}: {1} spent, no budget": "{0}: {1} spent, no budget"
 }

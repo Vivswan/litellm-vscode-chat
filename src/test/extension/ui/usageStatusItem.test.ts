@@ -1,4 +1,5 @@
 import * as assert from "node:assert";
+import { formatMoney, spendTone } from "../../../dashboard/spendFormat";
 import { usageFreshnessWindowMs } from "../../../extension/servers/usage/freshness";
 import type { ServerUsageState } from "../../../extension/servers/usage/store";
 import { UNPROBED_ENDPOINTS, UsageStore } from "../../../extension/servers/usage/store";
@@ -152,9 +153,31 @@ suite("extension/ui usageStatusItem renderUsageStatus", () => {
 		assert.strictEqual(below.severity, "plain");
 	});
 
-	test("an empty threshold list renders plain forever, even far past the budget", () => {
-		const view = expectVisible(render([usageState("alpha", { spend: 200, effectiveBudget: 100 })], { thresholds: [] }));
-		assert.strictEqual(view.severity, "plain");
+	test("the background is the shared spend tone: one map for the meter, the diagnostic, and this item", () => {
+		// The cross-surface equality pin over the threshold edge cases, the empty
+		// list and past-100% included: whatever tone src/dashboard's map assigns,
+		// the item's severity is its fixed embodiment - never a second scale.
+		const severityByTone = { ok: "plain", warn: "warning", error: "error" } as const;
+		for (const fraction of [0.42, 0.5, 0.8, 0.95, 1, 1.12]) {
+			for (const thresholds of [[], [0.5], [0.8, 0.95], [1]] as const) {
+				const view = expectVisible(
+					render([usageState("alpha", { spend: fraction * 100, effectiveBudget: 100 })], { thresholds })
+				);
+				assert.strictEqual(
+					view.severity,
+					severityByTone[spendTone(fraction, thresholds)],
+					`fraction ${fraction} with thresholds [${thresholds.join(", ")}]`
+				);
+			}
+		}
+	});
+
+	test("an empty threshold list renders plain up to the whole budget, then error: over-budget outranks alerts-off", () => {
+		const under = expectVisible(render([usageState("alpha", { spend: 99, effectiveBudget: 100 })], { thresholds: [] }));
+		assert.strictEqual(under.severity, "plain");
+
+		const over = expectVisible(render([usageState("alpha", { spend: 200, effectiveBudget: 100 })], { thresholds: [] }));
+		assert.strictEqual(over.severity, "error");
 	});
 
 	test("alerts-only shows the item only while something fresh sits at or above the lowest threshold", () => {
@@ -168,11 +191,15 @@ suite("extension/ui usageStatusItem renderUsageStatus", () => {
 		assert.strictEqual(tripped.severity, "warning");
 	});
 
-	test("alerts-only with an empty threshold list never shows", () => {
+	test("alerts-only with an empty threshold list shows only past the whole budget (the one tone left)", () => {
 		assert.strictEqual(
-			render([usageState("alpha", { spend: 200, effectiveBudget: 100 })], { mode: "alerts-only", thresholds: [] }),
+			render([usageState("alpha", { spend: 99, effectiveBudget: 100 })], { mode: "alerts-only", thresholds: [] }),
 			"hidden"
 		);
+		const over = expectVisible(
+			render([usageState("alpha", { spend: 200, effectiveBudget: 100 })], { mode: "alerts-only", thresholds: [] })
+		);
+		assert.strictEqual(over.severity, "error");
 	});
 
 	test("alerts-only follows freshness: an over-threshold server going stale hides the item", () => {
@@ -209,6 +236,15 @@ suite("extension/ui usageStatusItem renderUsageStatus", () => {
 			);
 			const tooltip = view.tooltipLines.join("\n");
 			assert.ok(tooltip.includes("prod: $42.00 of $50.00 (84%) - key reports $100.00"), tooltip);
+		});
+
+		test("a four-figure amount prints exactly as the dashboard card would: the shared formatMoney, never toFixed", () => {
+			// The cross-surface money pin: one spend, one string, tooltip and card
+			// alike. formatMoney's own shape is pinned in the bun spendFormat suite.
+			const view = expectVisible(render([usageState("prod", { spend: 1500, effectiveBudget: 2000, keyBudget: 2000 })]));
+			const tooltip = view.tooltipLines.join("\n");
+			assert.ok(tooltip.includes(`prod: ${formatMoney(1500, "$")} of ${formatMoney(2000, "$")} (75%)`), tooltip);
+			assert.ok(!tooltip.includes("1500.00"), tooltip);
 		});
 
 		test("prints amounts with the configured currency symbol verbatim; the empty symbol leaves bare numbers", () => {
