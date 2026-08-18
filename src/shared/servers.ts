@@ -84,6 +84,22 @@ export function isErrorServerStatus(status: ServerStatus): status is ServerStatu
 	return status.state === "error";
 }
 
+/**
+ * The failures the entry's expectedFailures does NOT declare. Expected failures
+ * are configured as normal, so every failure verdict and failure count reads
+ * this filter, never raw isErrorServerStatus.
+ */
+export function unexpectedServerFailures(statuses: readonly ServerStatus[]): ServerStatusError[] {
+	return statuses.filter(
+		(status): status is ServerStatusError => isErrorServerStatus(status) && status.expected !== true
+	);
+}
+
+/** The "N servers unreachable" count every surface renders; expected failures stay out (see unexpectedServerFailures). */
+export function unexpectedFailureCount(statuses: readonly ServerStatus[]): number {
+	return unexpectedServerFailures(statuses).length;
+}
+
 /** True for a healthy status whose zero models are explained by an explicit user removal (a hidden group). */
 export function isHiddenGroupServerStatus(status: ServerStatus): boolean {
 	return status.state === "ok" && status.hiddenByRemoval === true;

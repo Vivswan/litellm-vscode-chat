@@ -1,13 +1,19 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { z } from "zod";
+import { classifyOverall } from "../../dashboard/presenters";
 import { LAST_CONNECTION_STATUS_KEY } from "../../shared/config/storageKeys";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
 import { SETUP_HINT_KINDS, TRANSPORT_ERROR_KINDS } from "../../shared/errorClassification";
 import type { Logger, LogSafeErrorText } from "../../shared/logger";
 import { markLogSafe } from "../../shared/logger";
 import type { AggregatedStatus, ServerStatus } from "../../shared/servers";
-import { isErrorServerStatus, isHiddenGroupServerStatus } from "../../shared/servers";
+import {
+	isErrorServerStatus,
+	isHiddenGroupServerStatus,
+	unexpectedFailureCount,
+	unexpectedServerFailures,
+} from "../../shared/servers";
 
 /** Every connection state, the single source for the union type and the persisted-status schema. */
 const CONNECTION_STATES = ["not-configured", "connecting", "loading", "connected", "degraded", "error"] as const;
@@ -94,10 +100,7 @@ export function isZeroModelVerdict(status: ConnectionStatus): boolean {
 		return false;
 	}
 	const serverStatuses = status.serverStatuses ?? [];
-	return (
-		serverStatuses.length > 0 &&
-		serverStatuses.every((server) => !isErrorServerStatus(server) || server.expected === true)
-	);
+	return serverStatuses.length > 0 && unexpectedFailureCount(serverStatuses) === 0;
 }
 
 /**
@@ -590,11 +593,9 @@ export class StatusBarManager {
 			}
 			case "degraded": {
 				const count = current.totalModels;
-				// Expected failures are not "unreachable" in the verdict's sense;
-				// only unexpected ones count (see handleAggregatedStatus).
-				const failedCount = current.serverStatuses.filter(
-					(status) => isErrorServerStatus(status) && status.expected !== true
-				).length;
+				// Expected failures are not "unreachable" in the verdict's sense; the
+				// shared count excludes them (see handleAggregatedStatus).
+				const failedCount = unexpectedFailureCount(current.serverStatuses);
 				const available = count === 1 ? l10n.t("1 model available") : l10n.t("{0} models available", count);
 				const unreachable =
 					failedCount === 1 ? l10n.t("1 server unreachable") : l10n.t("{0} servers unreachable", failedCount);
@@ -647,74 +648,93 @@ export class StatusBarManager {
 			return;
 		}
 
-		const failures = serverStatuses.filter(isErrorServerStatus);
-		// Failures the entry's expectedFailures declares are excluded from the
-		// failure verdicts, and an expected failure still serving declared
-		// models counts as serving. The branch rules mirror classifyOverall
-		// exactly - red only when EVERY server failed unexpectedly, degraded on
-		// any unexpected failure - so the dashboard headline and this status bar
-		// can never disagree on a line users paste into issue reports.
-		const unexpectedFailures = failures.filter((failure) => failure.expected !== true);
-		const firstFailure = unexpectedFailures[0];
+		// The one verdict pipeline: classifyOverall owns the branch rules (red
+		// only when EVERY server failed unexpectedly, degraded on any unexpected
+		// failure, needs-declare when everything failed expectedly with nothing
+		// declared), shared with the dashboard headline and the notifier, so the
+		// surfaces can never disagree on a line users paste into issue reports.
+		// This method only maps verdicts onto status-bar states.
+		const verdict = classifyOverall(serverStatuses);
+		const firstFailure = unexpectedServerFailures(serverStatuses)[0];
 		// Declared models serve through ANY discovery failure, so a failed server
-		// with declarations still counts as serving; expectedness decides the
-		// verdict, not the count.
+		// with declarations still counts as serving in the log lines.
+		const failures = serverStatuses.filter(isErrorServerStatus);
 		const servingCount =
 			serverStatuses.length -
 			failures.length +
 			failures.filter((failure) => (failure.declaredModelCount ?? 0) > 0).length;
 
-		if (firstFailure !== undefined && unexpectedFailures.length === serverStatuses.length) {
-			// logSafeError, never error: this line lands in the issue-report buffer.
-			this.logger.log(`All servers failed: ${firstFailure.logSafeError}`);
-			void this.updateStatusBar({
-				state: "error",
-				error: firstFailure.error,
-				logSafeError: firstFailure.logSafeError,
-				...(firstFailure.classification !== undefined ? { classification: firstFailure.classification } : {}),
-				serverStatuses,
-				totalModels: 0,
-				lastChecked: now,
-			});
-		} else if (firstFailure !== undefined) {
-			this.logger.log(
-				`Partial success: ${servingCount} serving, ${unexpectedFailures.length} failed, ${totalModels} models`
-			);
-			void this.updateStatusBar({
-				state: "degraded",
-				serverStatuses,
-				totalModels,
-				lastChecked: now,
-			});
-		} else if (totalModels === 0) {
-			if (servingCount === 0) {
+		switch (verdict) {
+			case "not-configured":
+				// Unreachable: the empty window returned above. Render it honestly.
+				void this.updateStatusBar({ state: "not-configured", lastChecked: now });
+				return;
+			case "error": {
+				if (firstFailure === undefined) {
+					// Unreachable: a status window carries no misconfigured rows, so
+					// the error verdict guarantees an unexpected failure.
+					return;
+				}
+				// logSafeError, never error: this line lands in the issue-report buffer.
+				this.logger.log(`All servers failed: ${firstFailure.logSafeError}`);
+				void this.updateStatusBar({
+					state: "error",
+					error: firstFailure.error,
+					logSafeError: firstFailure.logSafeError,
+					...(firstFailure.classification !== undefined ? { classification: firstFailure.classification } : {}),
+					serverStatuses,
+					totalModels: 0,
+					lastChecked: now,
+				});
+				return;
+			}
+			case "degraded":
+				this.logger.log(
+					`Partial success: ${servingCount} serving, ${unexpectedFailureCount(serverStatuses)} failed, ${totalModels} models`
+				);
+				void this.updateStatusBar({
+					state: "degraded",
+					serverStatuses,
+					totalModels,
+					lastChecked: now,
+				});
+				return;
+			case "needs-declare":
 				// Every server failed expectedly with nothing declared: the status
-				// bar's twin of classifyOverall's needs-declare verdict - the
-				// actionable warning, never the zero-model red branch.
+				// bar's rendering of the needs-declare verdict - the actionable
+				// warning, never the zero-model red branch.
 				this.logger.log("All discovery failures are expected and no models are declared");
 				void this.updateStatusBar({ state: "connecting", attention: true, lastChecked: now });
 				return;
+			case "waiting":
+				// Unreachable: a status window has no unchecked rows. The spinner is
+				// the honest rendering of a checked-nothing verdict.
+				void this.updateStatusBar({ state: "connecting", attention: false, lastChecked: now });
+				return;
+			case "connected": {
+				if (totalModels === 0) {
+					const texts = zeroModelStatusTexts(serverStatuses);
+					this.logger.log(`Warning: ${texts.logSafe}`);
+					void this.updateStatusBar({
+						state: "error",
+						// Display localizes; the log-safe rendering stays English by policy.
+						// No classification: this verdict is synthetic, not a transport failure.
+						error: texts.display,
+						logSafeError: texts.logSafe,
+						serverStatuses,
+						totalModels: 0,
+						lastChecked: now,
+					});
+					return;
+				}
+				this.logger.log(`Successfully fetched ${totalModels} models from ${servingCount} server(s)`);
+				void this.updateStatusBar({
+					state: "connected",
+					serverStatuses,
+					totalModels,
+					lastChecked: now,
+				});
 			}
-			const texts = zeroModelStatusTexts(serverStatuses);
-			this.logger.log(`Warning: ${texts.logSafe}`);
-			void this.updateStatusBar({
-				state: "error",
-				// Display localizes; the log-safe rendering stays English by policy.
-				// No classification: this verdict is synthetic, not a transport failure.
-				error: texts.display,
-				logSafeError: texts.logSafe,
-				serverStatuses,
-				totalModels: 0,
-				lastChecked: now,
-			});
-		} else {
-			this.logger.log(`Successfully fetched ${totalModels} models from ${servingCount} server(s)`);
-			void this.updateStatusBar({
-				state: "connected",
-				serverStatuses,
-				totalModels,
-				lastChecked: now,
-			});
 		}
 	}
 }

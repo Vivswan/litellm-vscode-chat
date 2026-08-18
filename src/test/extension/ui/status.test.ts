@@ -620,6 +620,22 @@ suite("extension/ui/status", () => {
 			assert.strictEqual(manager.connectionStatus.state, "degraded", "a declared-serving server counts as serving");
 		});
 
+		test("the degraded tooltip counts only unexpected failures, like both command toasts", async () => {
+			// One expected + one real failure once showed "1 unreachable" here and
+			// "2" in the toasts; the shared count pins the surfaces together.
+			const item = new RecordingItem();
+			const manager = createManager(undefined, () => true, undefined, item);
+			manager.handleAggregatedStatus({
+				serverStatuses: [okServer, unexpectedFailure, expectedFailure()],
+				totalModels: 3,
+				silent: true,
+			});
+			await new Promise((resolve) => setImmediate(resolve));
+
+			assert.ok(item.last.tooltip.includes("1 server unreachable"), item.last.tooltip);
+			assert.ok(!item.last.tooltip.includes("2 servers unreachable"), item.last.tooltip);
+		});
+
 		test("expected and declaredModelCount survive the persisted round trip; junk drops the field only", () => {
 			const manager = createManager({
 				state: "degraded",

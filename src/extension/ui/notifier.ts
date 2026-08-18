@@ -1,9 +1,10 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
+import { classifyOverall } from "../../dashboard/presenters";
 import { CMD } from "../../shared/config/commandIds";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
 import type { AggregatedStatus } from "../../shared/servers";
-import { isErrorServerStatus } from "../../shared/servers";
+import { unexpectedFailureCount, unexpectedServerFailures } from "../../shared/servers";
 import { statusErrorHeadline } from "../../shared/util/errorText";
 import { SETUP_HINT_DOCS_URLS } from "../../shared/util/links";
 import { openUrl } from "../../shared/util/openUrl";
@@ -225,7 +226,12 @@ export class Notifier implements vscode.Disposable {
 	}
 
 	private evaluate(status: AggregatedStatus): NotifierOutcome {
-		if (status.serverStatuses.length === 0) {
+		// The one verdict pipeline: classifyOverall owns the branch rules (shared
+		// with the status bar and the dashboard headline, so the toast can never
+		// contradict the surfaces it points at); this method only maps verdicts
+		// onto toasts.
+		const verdict = classifyOverall(status.serverStatuses);
+		if (verdict === "not-configured") {
 			if (this.hasConfiguredServers()) {
 				return { tag: "suppressed" };
 			}
@@ -237,14 +243,13 @@ export class Notifier implements vscode.Disposable {
 				actions: [reconfigureAction(configureNowLabel())],
 			};
 		}
-		const failures = status.serverStatuses.filter(isErrorServerStatus);
-		// Expected failures never toast red: the entry declared them normal. The
-		// all-failed rule mirrors the status bar and classifyOverall (red only
-		// when EVERY server failed unexpectedly), so the toast can never
-		// contradict the surfaces it points at.
-		const unexpectedFailures = failures.filter((failure) => failure.expected !== true);
-		const firstFailure = unexpectedFailures[0];
-		if (firstFailure !== undefined && unexpectedFailures.length === status.serverStatuses.length) {
+		if (verdict === "error") {
+			const firstFailure = unexpectedServerFailures(status.serverStatuses)[0];
+			if (firstFailure === undefined) {
+				// Unreachable: a status window carries no misconfigured rows, so the
+				// error verdict guarantees an unexpected failure.
+				return { tag: "recovered" };
+			}
 			return {
 				tag: "all-failed",
 				// The dedup signature is an internal English key, never displayed.
@@ -260,28 +265,28 @@ export class Notifier implements vscode.Disposable {
 				actions: notifierErrorActions(firstFailure.classification),
 			};
 		}
+		if (verdict === "needs-declare") {
+			// Everything failed expectedly with nothing declared: discovery never
+			// returned a list, so "returned no models" would misdescribe it. The
+			// toast points at the fix the dashboard and status bar name too.
+			return {
+				tag: "no-models",
+				signature: "needs-declare",
+				kind: "warning",
+				message: l10n.t(
+					"LiteLLM: Discovery is declared unavailable and no models are declared. Add IDs to the entry's discovery.declared list."
+				),
+				actions: [reconfigureAction(), reportIssueAction()],
+			};
+		}
 		if (status.totalModels === 0) {
-			// All-expected failures with nothing declared get the needs-declare
-			// message the dashboard and status bar show: discovery never
-			// returned a list, so "returned no models" would misdescribe it.
-			if (unexpectedFailures.length === 0 && failures.length === status.serverStatuses.length && failures.length > 0) {
-				return {
-					tag: "no-models",
-					signature: "needs-declare",
-					kind: "warning",
-					message: l10n.t(
-						"LiteLLM: Discovery is declared unavailable and no models are declared. Add IDs to the entry's discovery.declared list."
-					),
-					actions: [reconfigureAction(), reportIssueAction()],
-				};
-			}
 			// Hidden groups explain the zero models: the toast names the real
 			// cause and the recovery instead of blaming the proxy configuration,
 			// sharing wording with the status tooltip. Only while nothing failed
 			// unexpectedly - a genuine failure in the mix must not be papered
 			// over with restore advice.
 			const zeroTexts = zeroModelStatusTexts(status.serverStatuses);
-			if (zeroTexts.hiddenCount > 0 && unexpectedFailures.length === 0) {
+			if (zeroTexts.hiddenCount > 0 && unexpectedFailureCount(status.serverStatuses) === 0) {
 				return {
 					tag: "no-models",
 					// Distinct from "no-models" ON PURPOSE, mirroring the all-failed

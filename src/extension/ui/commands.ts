@@ -7,7 +7,7 @@ import { publicErrorStack, publicErrorText } from "../../shared/logger";
 import type { SecretFieldId } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import type { ServerStatus } from "../../shared/servers";
-import { isErrorServerStatus, isHiddenGroupServerStatus } from "../../shared/servers";
+import { isHiddenGroupServerStatus, unexpectedFailureCount } from "../../shared/servers";
 import { GITHUB_DOCS_URL, GITHUB_REPO_URL } from "../../shared/util/links";
 import { openUrl } from "../../shared/util/openUrl";
 import type { DashboardController } from "../dashboard/panel";
@@ -150,7 +150,9 @@ export async function runConnectionTest(
 				break;
 			}
 			case "degraded": {
-				const failed = status.serverStatuses.filter(isErrorServerStatus).length;
+				// The shared unreachable count: expected failures stay out, matching
+				// the status bar tooltip's reading of the same window.
+				const failed = unexpectedFailureCount(status.serverStatuses);
 				logger.log(`WARNING: ${failed} server(s) unreachable`);
 				const total = status.totalModels;
 				void showActionableMessage(
@@ -281,7 +283,9 @@ async function runModelSyncPass(
 				break;
 			}
 			case "degraded": {
-				const failed = status.serverStatuses.filter(isErrorServerStatus).length;
+				// The same shared unreachable count as the connection test's toast
+				// and the status bar tooltip.
+				const failed = unexpectedFailureCount(status.serverStatuses);
 				logger.log(`Model sync finished with issues: ${failed} server(s) unreachable`);
 				const total = status.totalModels;
 				void showActionableMessage(
