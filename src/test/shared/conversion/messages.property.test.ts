@@ -19,6 +19,25 @@ type ConversationEvent =
 	| { kind: "user-image"; text: string }
 	| { kind: "tool-exchange"; callId: string; name: string; args: Record<string, unknown>; result: string };
 
+/**
+ * How an adversarial generator corrupts one tool exchange. "empty-pair" is the
+ * shape validation accepts and the mint repairs; the others must be rejected
+ * before send.
+ */
+type ExchangeCorruption =
+	| "none"
+	| "empty-pair"
+	| "empty-call"
+	| "empty-result"
+	| "drop-result"
+	| "double-result"
+	| "stray-result";
+
+interface AdversarialEvent {
+	callId: string;
+	corruption: ExchangeCorruption;
+}
+
 // Nonempty: the converter intentionally drops messages whose only content is
 // the empty string, and an empty conversation is rejected by validateRequest.
 const textArb = fc.string({ minLength: 1, maxLength: 40 });
@@ -86,7 +105,126 @@ interface WireMessage {
 	tool_call_id?: string;
 }
 
+const corruptionArb: fc.Arbitrary<ExchangeCorruption> = fc.constantFrom(
+	"none",
+	"empty-pair",
+	"empty-call",
+	"empty-result",
+	"drop-result",
+	"double-result",
+	"stray-result"
+);
+
+// A tiny id pool (with the mint's own prefix in it) makes cross-exchange
+// reuse, duplicate-live ids, and mint collisions all reachable.
+const adversarialEventArb: fc.Arbitrary<AdversarialEvent> = fc.record({
+	callId: fc.constantFrom("call_1", "call_2", "call_synth_0"),
+	corruption: corruptionArb,
+});
+
+/** Expand corruption-tagged exchanges into messages; only "none" and "empty-pair" leave a sendable history. */
+function buildAdversarialMessages(events: AdversarialEvent[]): vscode.LanguageModelChatRequestMessage[] {
+	const messages: vscode.LanguageModelChatRequestMessage[] = [];
+	const assistant = (id: string): void => {
+		messages.push(
+			message(vscode.LanguageModelChatMessageRole.Assistant, [new vscode.LanguageModelToolCallPart(id, "fn", {})])
+		);
+	};
+	const user = (ids: string[]): void => {
+		messages.push(
+			message(
+				vscode.LanguageModelChatMessageRole.User,
+				ids.map((id) => new vscode.LanguageModelToolResultPart(id, [new vscode.LanguageModelTextPart("ok")]))
+			)
+		);
+	};
+	for (const event of events) {
+		switch (event.corruption) {
+			case "none":
+				assistant(event.callId);
+				user([event.callId]);
+				break;
+			case "empty-pair":
+				assistant("");
+				user([""]);
+				break;
+			case "empty-call":
+				assistant("");
+				user([event.callId]);
+				break;
+			case "empty-result":
+				assistant(event.callId);
+				user([""]);
+				break;
+			case "drop-result":
+				assistant(event.callId);
+				break;
+			case "double-result":
+				assistant(event.callId);
+				user([event.callId, event.callId]);
+				break;
+			case "stray-result":
+				user([event.callId]);
+				break;
+			default:
+				event.corruption satisfies never;
+		}
+	}
+	return messages;
+}
+
+/**
+ * The wire-pairing bijection LiteLLM's backends enforce: every tool message
+ * answers an open tool_call and every tool_call gets exactly one answer. An
+ * id may recur once answered (some backends mint the same id every turn), so
+ * matching is by open count, not global uniqueness.
+ */
+function assertWirePaired(converted: WireMessage[]): void {
+	const open = new Map<string, number>();
+	for (const wireMessage of converted) {
+		const ids = (wireMessage.tool_calls ?? []).map((call) => call.id);
+		assert.strictEqual(new Set(ids).size, ids.length, "one tool_calls array must not repeat an id");
+		for (const id of ids) {
+			assert.notStrictEqual(id, "", "an empty tool_call id must never ship");
+			open.set(id, (open.get(id) ?? 0) + 1);
+		}
+		if (wireMessage.role === "tool") {
+			const id = wireMessage.tool_call_id ?? "";
+			const count = open.get(id) ?? 0;
+			assert.ok(count > 0, `tool message ${id} answers no open tool call`);
+			open.set(id, count - 1);
+		}
+	}
+	for (const [id, count] of open) {
+		assert.strictEqual(count, 0, `tool call ${id} never got its tool result`);
+	}
+}
+
 suite("shared/messages convertMessages properties", () => {
+	test("any history that passes validateRequest converts to wire-paired messages", () => {
+		fc.assert(
+			fc.property(fc.array(adversarialEventArb, { minLength: 1, maxLength: 8 }), (events) => {
+				const messages = buildAdversarialMessages(events);
+				let passed = true;
+				try {
+					validateRequest(messages);
+				} catch (e) {
+					assert.ok(e instanceof Error, "validation must reject with an Error");
+					passed = false;
+				}
+				const repairable = events.every((e) => e.corruption === "none" || e.corruption === "empty-pair");
+				if (repairable) {
+					// Non-vacuity: whole-pair shapes (empty ids included) must stay sendable.
+					assert.ok(passed, "a history of complete call/result pairs must pass validation");
+				}
+				if (passed) {
+					assertWirePaired(convertMessages(messages, { imageInput: true }) as WireMessage[]);
+				}
+			}),
+			{ numRuns: NUM_RUNS, seed: SEED }
+		);
+	});
+
 	test("well-paired conversations convert without throwing and pass validation", () => {
 		fc.assert(
 			fc.property(fc.array(eventArb, { minLength: 1, maxLength: 8 }), (events) => {

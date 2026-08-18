@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
-import { convertMessages, isToolResultPart } from "../../../shared/conversion/messages";
+import { convertMessages } from "../../../shared/conversion/messages";
+import { isToolResultPart } from "../../../shared/conversion/toolCallIds";
 import { expectDefined } from "../../pureHelpers";
 
 interface OpenAIToolCall {
@@ -821,6 +822,49 @@ suite("shared/conversion/messages", () => {
 			const call = expectDefined(expectDefined(out[0]).tool_calls?.[0]);
 			assert.ok(call.id.length > 0, "an empty callId would break tool-call/result pairing on the wire");
 			assert.strictEqual(call.function.arguments, "{}");
+		});
+
+		test("an empty-id call/result pair ships one minted id on both halves", () => {
+			const out = convertMessages([
+				{
+					role: vscode.LanguageModelChatMessageRole.Assistant,
+					content: [new vscode.LanguageModelToolCallPart("", "lookup", { q: 1 })],
+					name: undefined,
+				} as vscode.LanguageModelChatMessage,
+				{
+					role: vscode.LanguageModelChatMessageRole.User,
+					content: [new vscode.LanguageModelToolResultPart("", [new vscode.LanguageModelTextPart("ok")])],
+					name: undefined,
+				} as vscode.LanguageModelChatMessage,
+			]) as Array<{ role: string; tool_calls?: { id: string }[]; tool_call_id?: string }>;
+			const callId = expectDefined(expectDefined(out[0]).tool_calls?.[0]).id;
+			// Deterministic mint: the same history always ships the same id.
+			assert.strictEqual(callId, "call_synth_0");
+			assert.strictEqual(expectDefined(out[1]).tool_call_id, callId, "the result must reference the minted id");
+		});
+
+		test("minted ids never collide with a real id already in the history", () => {
+			const out = convertMessages([
+				{
+					role: vscode.LanguageModelChatMessageRole.Assistant,
+					content: [
+						new vscode.LanguageModelToolCallPart("call_synth_0", "real", {}),
+						new vscode.LanguageModelToolCallPart("", "minted", {}),
+					],
+					name: undefined,
+				} as vscode.LanguageModelChatMessage,
+				{
+					role: vscode.LanguageModelChatMessageRole.User,
+					content: [
+						new vscode.LanguageModelToolResultPart("call_synth_0", [new vscode.LanguageModelTextPart("a")]),
+						new vscode.LanguageModelToolResultPart("", [new vscode.LanguageModelTextPart("b")]),
+					],
+					name: undefined,
+				} as vscode.LanguageModelChatMessage,
+			]) as Array<{ role: string; tool_calls?: { id: string }[]; tool_call_id?: string }>;
+			const minted = expectDefined(expectDefined(out[0]).tool_calls?.[1]).id;
+			assert.notStrictEqual(minted, "call_synth_0", "the mint must skip ids the history already uses");
+			assert.strictEqual(expectDefined(out[2]).tool_call_id, minted, "the empty-id result pairs with the minted call");
 		});
 
 		test("a null or primitive part in assistant content is ignored", () => {

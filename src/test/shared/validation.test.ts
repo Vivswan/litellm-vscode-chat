@@ -108,4 +108,151 @@ suite("shared/validation", () => {
 			}
 		);
 	});
+
+	test("an empty-id call with an empty-id result passes: the pair is minted, not rejected", () => {
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [new vscode.LanguageModelToolCallPart("", "toolA", {})],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelToolResultPart("", [new vscode.LanguageModelTextPart("ok")])],
+				name: undefined,
+			},
+		];
+		assert.doesNotThrow(() => validateRequest(messages));
+	});
+
+	test("two empty-id calls with one empty-id result no longer collapse into a passing pair", () => {
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [
+					new vscode.LanguageModelToolCallPart("", "toolA", {}),
+					new vscode.LanguageModelToolCallPart("", "toolB", {}),
+				],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelToolResultPart("", [new vscode.LanguageModelTextPart("ok")])],
+				name: undefined,
+			},
+		];
+		assert.throws(
+			() => validateRequest(messages),
+			(e: unknown) => {
+				assert.ok(e instanceof Error);
+				// The unanswered half surfaces under its minted wire id, never "".
+				assert.match(e.message, /Unpaired tool call IDs: call_synth_1\./);
+				assert.strictEqual(
+					(e as Error & { logClassification?: string }).logClassification,
+					"ValidationError(unpaired tool calls: 1)"
+				);
+				return true;
+			}
+		);
+	});
+
+	test("a tool result answering no tool call is rejected instead of shipping an unreferenced tool message", () => {
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelToolResultPart("call-9", [new vscode.LanguageModelTextPart("orphan")])],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelTextPart("hi")],
+				name: undefined,
+			},
+		];
+		assert.throws(
+			() => validateRequest(messages),
+			(e: unknown) => {
+				assert.ok(e instanceof Error);
+				assert.match(e.message, /Tool results with no matching tool call: call-9\./);
+				assert.ok(e.message.includes("\n\nDetails: "), e.message);
+				assert.strictEqual((e as Error & { englishMessage?: string }).englishMessage, e.message);
+				// The ids are response-derived, so the classification carries counts only.
+				assert.strictEqual(
+					(e as Error & { logClassification?: string }).logClassification,
+					"ValidationError(tool pairing: 0 unpaired, 1 stray, 0 duplicate)"
+				);
+				return true;
+			}
+		);
+	});
+
+	test("a second result for an already-answered call is rejected as stray", () => {
+		const call = new vscode.LanguageModelToolCallPart("call-1", "toolA", {});
+		const result = (): vscode.LanguageModelToolResultPart =>
+			new vscode.LanguageModelToolResultPart("call-1", [new vscode.LanguageModelTextPart("ok")]);
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{ role: vscode.LanguageModelChatMessageRole.Assistant, content: [call], name: undefined },
+			{ role: vscode.LanguageModelChatMessageRole.User, content: [result()], name: undefined },
+			{ role: vscode.LanguageModelChatMessageRole.User, content: [result()], name: undefined },
+		];
+		assert.throws(
+			() => validateRequest(messages),
+			(e: unknown) => {
+				assert.ok(e instanceof Error);
+				assert.match(e.message, /Tool results with no matching tool call: call-1\./);
+				return true;
+			}
+		);
+	});
+
+	test("a call id reused while still awaiting its result is rejected; reuse after the answer is fine", () => {
+		const call = (): vscode.LanguageModelToolCallPart => new vscode.LanguageModelToolCallPart("call-1", "toolA", {});
+		const result = (): vscode.LanguageModelToolResultPart =>
+			new vscode.LanguageModelToolResultPart("call-1", [new vscode.LanguageModelTextPart("ok")]);
+		// Some backends mint the same id every turn; consumed-then-reused stays legal.
+		const reuseAcrossTurns: vscode.LanguageModelChatMessage[] = [
+			{ role: vscode.LanguageModelChatMessageRole.Assistant, content: [call()], name: undefined },
+			{ role: vscode.LanguageModelChatMessageRole.User, content: [result()], name: undefined },
+			{ role: vscode.LanguageModelChatMessageRole.Assistant, content: [call()], name: undefined },
+			{ role: vscode.LanguageModelChatMessageRole.User, content: [result()], name: undefined },
+		];
+		assert.doesNotThrow(() => validateRequest(reuseAcrossTurns));
+
+		const duplicateLive: vscode.LanguageModelChatMessage[] = [
+			{ role: vscode.LanguageModelChatMessageRole.Assistant, content: [call(), call()], name: undefined },
+			{ role: vscode.LanguageModelChatMessageRole.User, content: [result(), result()], name: undefined },
+		];
+		assert.throws(
+			() => validateRequest(duplicateLive),
+			(e: unknown) => {
+				assert.ok(e instanceof Error);
+				assert.match(e.message, /Tool call IDs reused while still awaiting a result: call-1\./);
+				return true;
+			}
+		);
+	});
+
+	test("a tool call outside an assistant message still needs its result", () => {
+		// Conversion ships tool-call parts wherever they sit, so an unanswered
+		// call in a user message would reach the wire unreferenced.
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelToolCallPart("call-7", "toolA", {})],
+				name: undefined,
+			},
+		];
+		assert.throws(
+			() => validateRequest(messages),
+			(e: unknown) => {
+				assert.ok(e instanceof Error);
+				assert.match(e.message, /Unpaired tool call IDs: call-7\./);
+				assert.strictEqual(
+					(e as Error & { logClassification?: string }).logClassification,
+					"ValidationError(tool pairing: 1 unpaired, 0 stray, 0 duplicate)"
+				);
+				return true;
+			}
+		);
+	});
 });

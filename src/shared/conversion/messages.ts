@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { type DataPartWireForm, type DataPartWireGates, dataPartWireForm } from "./dataPartForm";
 import { isImageMimeType, isSafeMimeType, isTextMimeType } from "./mime";
 import { thinkingPartCtor } from "./thinkingPart";
+import { isToolResultPart, pairToolCallIds, wireIdKey } from "./toolCallIds";
 import type {
 	OpenAIChatContentBlock,
 	OpenAIChatFileContentBlock,
@@ -90,10 +91,6 @@ function extractPromptTsxText(part: vscode.LanguageModelPromptTsxPart): string |
 		}
 	}
 	return undefined;
-}
-
-export function isToolResultPart(value: unknown): value is vscode.LanguageModelToolResultPart {
-	return value instanceof vscode.LanguageModelToolResultPart;
 }
 
 function mapRole(message: vscode.LanguageModelChatRequestMessage, log?: LogFn): Exclude<OpenAIChatRole, "tool"> {
@@ -271,7 +268,10 @@ export function convertMessages(
 	// One dropped-DataPart log per conversion: a media-heavy history would
 	// otherwise evict the whole issue-report buffer on every turn.
 	let loggedDroppedDataPart = false;
-	for (const m of messages) {
+	// One pairing decides every wire id; validation rejects on the same
+	// analysis, so both halves of a pair always ship the same id.
+	const pairing = pairToolCallIds(messages);
+	for (const [messageIndex, m] of messages.entries()) {
 		const role = mapRole(m, log);
 		const textParts: string[] = [];
 		const toolCalls: OpenAIToolCall[] = [];
@@ -279,11 +279,12 @@ export function convertMessages(
 		const contentBlocks: OpenAIChatContentBlock[] = [];
 		const thinkingEntries: ThinkingHistoryEntry[] = [];
 
-		for (const part of m.content ?? []) {
+		for (const [partIndex, part] of (m.content ?? []).entries()) {
 			if (part instanceof vscode.LanguageModelTextPart) {
 				textParts.push(part.value);
 			} else if (part instanceof vscode.LanguageModelToolCallPart) {
-				const id = part.callId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+				// The pairing covers every tool-call part; `?? part.callId` only satisfies the type.
+				const id = pairing.wireIds.get(wireIdKey(messageIndex, partIndex)) ?? part.callId;
 				let args: string;
 				try {
 					// `?? "{}"`: stringify returns undefined for an input whose toJSON
@@ -294,7 +295,10 @@ export function convertMessages(
 				}
 				toolCalls.push({ id, type: "function", function: { name: part.name, arguments: args } });
 			} else if (isToolResultPart(part)) {
-				toolResults.push({ callId: part.callId, content: collectToolResultContent(part, gates, log) });
+				toolResults.push({
+					callId: pairing.wireIds.get(wireIdKey(messageIndex, partIndex)) ?? part.callId,
+					content: collectToolResultContent(part, gates, log),
+				});
 			} else if (part instanceof vscode.LanguageModelDataPart) {
 				// Only user messages carry binary content blocks on the wire, so
 				// assistant-side media resolves to "text" or "none" and the turn's

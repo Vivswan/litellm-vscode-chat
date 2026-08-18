@@ -167,6 +167,7 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"refreshUsageCommandTitle",
 	"chatErrorMessage",
 	"toolPairingHeadline",
+	"toolMismatchHeadline",
 	"validateRequest",
 	// src/provider error constructors, catalog presenters, and schema builders.
 	"unparseableModelsResponse",
