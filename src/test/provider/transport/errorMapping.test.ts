@@ -16,6 +16,7 @@ import {
 	timeoutMessage,
 	timeoutRequestError,
 	toLanguageModelError,
+	twoPartTexts,
 } from "../../../provider/transport/errorMapping";
 import { localizedError, MirroredError } from "../../../shared/mirroredError";
 import { DEFAULT_API_VERSION } from "../../../shared/util/baseUrl";
@@ -625,6 +626,106 @@ suite("provider/transport/errorMapping", () => {
 			assert.ok(wrapped instanceof LanguageModelError, `expected LanguageModelError, got ${String(wrapped)}`);
 			assert.strictEqual(wrapped.code, LanguageModelError.NotFound().code);
 			assert.strictEqual(wrapped.cause, mapped);
+		});
+	});
+
+	suite("envelope classification parity (HTTP response vs mid-stream frame)", () => {
+		// The same LiteLLM envelope must sort into the same class - and so the
+		// same chat headline - whether it arrives as an HTTP error response or
+		// as an in-band stream error frame after the 200.
+		const cases: {
+			name: string;
+			status: number;
+			envelope: Record<string, unknown>;
+			headline: string;
+			token: string;
+		}[] = [
+			{
+				name: "budget",
+				status: 429,
+				envelope: {
+					message: "Budget has been exceeded! Current cost: 0.40, Max budget: 0.37",
+					type: "budget_exceeded",
+					code: "429",
+				},
+				headline: "This key's budget is used up - requests will fail until the budget resets or an admin raises it.",
+				token: ", budget_exceeded",
+			},
+			{
+				name: "rate-limit",
+				status: 429,
+				envelope: { message: "Rate limit reached for model", type: "rate_limit_error", code: "429" },
+				headline: "The server is handling too many requests - wait a moment and try again.",
+				token: "",
+			},
+			{
+				name: "context-window",
+				status: 400,
+				envelope: {
+					message: "This model's maximum context length is 8192 tokens",
+					type: "context_window_exceeded",
+					code: "400",
+				},
+				headline: "The conversation is too long for this model - trim it, remove attachments, or start a new chat.",
+				token: ", context_window_exceeded",
+			},
+		];
+		for (const c of cases) {
+			test(`a ${c.name} envelope gets the same headline over HTTP and mid-stream`, () => {
+				const http = expectRequestError(
+					mapSdkError(APIError.generate(c.status, { error: c.envelope }, undefined, new Headers()), chatCtx),
+					"http"
+				);
+				assertStartsWith(http.message, c.headline);
+				assert.strictEqual(http.logClassification, `RequestError(http, status ${c.status}${c.token})`);
+				assert.strictEqual(http.englishMessage, http.message, "English fallback: the two renderings coincide");
+
+				const frame = streamErrorFrame(c.envelope);
+				assertStartsWith(frame.message, c.headline);
+				assert.strictEqual(frame.status, undefined, "no status may be derived from the envelope");
+				assert.strictEqual(frame.logClassification, `RequestError(http, in-band stream error frame${c.token})`);
+				assert.strictEqual(frame.englishMessage, frame.message, "English fallback: the two renderings coincide");
+			});
+		}
+
+		test("a mid-stream context-window frame gives the conversation-too-long advice, never the generic retry advice", () => {
+			const frame = streamErrorFrame({
+				message: "litellm.ContextWindowExceededError: input is too long",
+				type: "context_window_exceeded",
+			});
+			assertStartsWith(frame.message, "The conversation is too long for this model");
+			assert.ok(!frame.message.includes("trying again may work"), frame.message);
+		});
+	});
+
+	suite("twoPartTexts (the one headline+detail join)", () => {
+		test("joins per surface and applies the identical join to the English mirror", () => {
+			const headline = { display: "AFFICHAGE", english: "HEADLINE" };
+			const chat = twoPartTexts("chat", headline, "detail line");
+			assert.strictEqual(chat.message, "AFFICHAGE\n\nDetails: detail line");
+			assert.strictEqual(chat.englishMessage, "HEADLINE\n\nDetails: detail line");
+			const discovery = twoPartTexts("discovery", headline, "detail line");
+			assert.strictEqual(discovery.message, "AFFICHAGE\ndetail line");
+			assert.strictEqual(discovery.englishMessage, "HEADLINE\ndetail line");
+		});
+
+		test("an English headline yields a byte-identical message and mirror on both surfaces", () => {
+			// Under the test host's English fallback the display headline IS the
+			// English headline, so the two products must coincide byte for byte.
+			const headline = { display: "same text", english: "same text" };
+			for (const surface of ["chat", "discovery"] as const) {
+				const texts = twoPartTexts(surface, headline, "LiteLLM 500: boom");
+				assert.strictEqual(texts.englishMessage, texts.message);
+			}
+		});
+
+		test("an empty detail renders the headline alone on both surfaces", () => {
+			const headline = { display: "affichage", english: "english" };
+			for (const surface of ["chat", "discovery"] as const) {
+				const texts = twoPartTexts(surface, headline, "");
+				assert.strictEqual(texts.message, "affichage");
+				assert.strictEqual(texts.englishMessage, "english");
+			}
 		});
 	});
 

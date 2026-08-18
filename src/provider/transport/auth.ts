@@ -1,13 +1,12 @@
 import * as l10n from "@vscode/l10n";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
-import { chatErrorMessage, englishChatErrorMessage } from "../../shared/mirroredError";
 import { collapseWhitespace } from "../../shared/util/errorText";
 import { fingerprint } from "../../shared/util/fingerprint";
 import { isValidHeaderValue } from "../../shared/util/headers";
 import { isRecord } from "../../shared/util/json";
 import { sleepUnlessAborted } from "../../shared/util/timer";
 import { DISCOVERY_MAX_RETRIES } from "../catalog/discovery";
-import { type MapErrorContext, RequestError } from "./errorMapping";
+import { type MapErrorContext, RequestError, twoPartTexts } from "./errorMapping";
 
 /**
  * OAuth2 client-credentials authentication for gateways behind an identity
@@ -41,25 +40,6 @@ export interface VirtualKeyConfig {
  * request states the surface it fails toward.
  */
 export type OAuthErrorSurface = MapErrorContext["surface"];
-
-/**
- * Both renderings of a two-part token-endpoint failure, joined per surface:
- * chat carries the "Details:" lead-in after a blank line (Copilot Chat's error
- * block flattens newlines), discovery the single "\n" the status surfaces
- * split on. The English mirror is byte-faithful to the English display.
- */
-function twoPartTexts(
-	surface: OAuthErrorSurface,
-	headline: { display: string; english: string },
-	detail: string
-): { message: string; englishMessage: string } {
-	return surface === "chat"
-		? {
-				message: chatErrorMessage(headline.display, detail),
-				englishMessage: englishChatErrorMessage(headline.english, detail),
-			}
-		: { message: `${headline.display}\n${detail}`, englishMessage: `${headline.english}\n${detail}` };
-}
 
 /**
  * Non-secret identity of a credential set: what makes OAuth credentials "the
@@ -461,10 +441,7 @@ async function exchangeClientCredentials(
 	};
 	// A failure with no socket-level text gets the headline alone rather than
 	// a trailing blank detail; the mirror stays byte-faithful either way.
-	const texts =
-		detail === ""
-			? { message: headline.display, englishMessage: headline.english }
-			: twoPartTexts(surface, headline, detail);
+	const texts = twoPartTexts(surface, headline, detail);
 	throw new RequestError(texts.message, "network", {
 		cause: lastFailure,
 		englishMessage: texts.englishMessage,

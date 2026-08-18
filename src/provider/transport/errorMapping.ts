@@ -289,8 +289,7 @@ interface ErrorEnvelope {
 	code: string | undefined;
 }
 
-function errorEnvelopeOf(err: APIError): ErrorEnvelope | undefined {
-	const raw = err.error;
+function errorEnvelopeOf(raw: unknown): ErrorEnvelope | undefined {
 	if (typeof raw !== "object" || raw === null) {
 		return undefined;
 	}
@@ -340,9 +339,37 @@ type HttpErrorClass =
 	| "unavailable"
 	| "unexpected";
 
-function classifyHttpError(status: number, envelope: ErrorEnvelope | undefined): HttpErrorClass {
+/**
+ * The one classifier for both delivery paths of the same LiteLLM envelope: an
+ * HTTP error response (status known) and an in-band stream error frame (the
+ * response was already 200, so there is no status). The failure marks and
+ * message signatures are detected once here so the two paths cannot drift.
+ * Without a status only the classes the envelope itself proves may be claimed
+ * - everything else returns undefined and the frame keeps its generic
+ * interrupted-stream headline. One asymmetry is inherent: with a status the
+ * status arbitrates (429 is rate-limited whatever the message says, the
+ * context-window signatures count only at 400); a frame has no status, so its
+ * envelope is judged alone, in budget > context-window > rate-limit order.
+ */
+function classifyEnvelope(envelope: ErrorEnvelope | undefined, status: number): HttpErrorClass;
+function classifyEnvelope(envelope: ErrorEnvelope | undefined, status?: number): HttpErrorClass | undefined;
+function classifyEnvelope(envelope: ErrorEnvelope | undefined, status?: number): HttpErrorClass | undefined {
 	const marks = `${envelope?.type ?? ""} ${envelope?.code ?? ""}`;
-	const budget = marks.includes("budget_exceeded") || /budget has been exceeded/i.test(envelope?.message ?? "");
+	const message = envelope?.message ?? "";
+	const budget = marks.includes("budget_exceeded") || /budget has been exceeded/i.test(message);
+	const contextWindow =
+		marks.includes("context_window_exceeded") ||
+		marks.includes("context_length_exceeded") ||
+		/context (window|length)/i.test(message);
+	if (status === undefined) {
+		return budget
+			? "budget_exceeded"
+			: contextWindow
+				? "context_window_exceeded"
+				: marks.includes("rate_limit")
+					? "rate_limited"
+					: undefined;
+	}
 	if ((status === 429 || status === 400) && budget) {
 		return "budget_exceeded";
 	}
@@ -350,10 +377,6 @@ function classifyHttpError(status: number, envelope: ErrorEnvelope | undefined):
 		return "rate_limited";
 	}
 	if (status === 400) {
-		const contextWindow =
-			marks.includes("context_window_exceeded") ||
-			marks.includes("context_length_exceeded") ||
-			/context (window|length)/i.test(envelope?.message ?? "");
 		return contextWindow ? "context_window_exceeded" : "invalid_request";
 	}
 	if (status === 403) {
@@ -383,7 +406,32 @@ interface LocalizedText {
 	english: string;
 }
 
-/** The chat-surface headline per error class; streamErrorFrame reuses the budget and rate-limit entries. */
+/**
+ * Both renderings of a two-part error message, joined per surface: chat
+ * carries the "Details:" lead-in after a blank line (Copilot Chat's error
+ * block flattens newlines), discovery the single "\n" the dashboard and
+ * tooltips split on. The English mirror is byte-faithful to the English
+ * display: the same join applied to the English headline and the same detail.
+ * An empty detail renders the headline alone rather than a trailing blank
+ * detail line.
+ */
+export function twoPartTexts(
+	surface: MapErrorContext["surface"],
+	headline: LocalizedText,
+	detail: string
+): { message: string; englishMessage: string } {
+	if (detail === "") {
+		return { message: headline.display, englishMessage: headline.english };
+	}
+	return surface === "chat"
+		? {
+				message: chatErrorMessage(headline.display, detail),
+				englishMessage: englishChatErrorMessage(headline.english, detail),
+			}
+		: { message: `${headline.display}\n${detail}`, englishMessage: `${headline.english}\n${detail}` };
+}
+
+/** The chat-surface headline per error class; streamErrorFrame reuses the entries of the classes classifiable without a status. */
 function chatHttpHeadline(cls: HttpErrorClass): LocalizedText {
 	switch (cls) {
 		case "budget_exceeded":
@@ -543,19 +591,12 @@ function discoveryHttpDetail(status: number, err: APIError, envelope: ErrorEnvel
  * Blocked.
  */
 export function streamErrorFrame(error: Record<string, unknown>): RequestError {
-	const message = typeof error.message === "string" && error.message.trim() !== "" ? error.message : undefined;
-	const type = meaningfulString(error.type);
-	const code = typeof error.code === "number" ? String(error.code) : meaningfulString(error.code);
+	const envelope = errorEnvelopeOf(error);
 	// A frame carrying a known failure class gets that class's headline (a
-	// budget frame must not promise that trying again may work); classified
-	// FROM the envelope, never quoting it.
-	const marks = `${type ?? ""} ${code ?? ""}`;
-	const knownClass: HttpErrorClass | undefined =
-		marks.includes("budget_exceeded") || /budget has been exceeded/i.test(message ?? "")
-			? "budget_exceeded"
-			: marks.includes("rate_limit")
-				? "rate_limited"
-				: undefined;
+	// budget or context-window frame must not promise that trying again may
+	// work); classified FROM the envelope by the same classifier as the HTTP
+	// path, never quoting it.
+	const knownClass = classifyEnvelope(envelope);
 	const headline: LocalizedText =
 		knownClass !== undefined
 			? chatHttpHeadline(knownClass)
@@ -567,23 +608,28 @@ export function streamErrorFrame(error: Record<string, unknown>): RequestError {
 						"The server reported an error while it was streaming this reply, so the response was interrupted. This is often temporary - trying again may work; if it repeats, the detail below shows what the server said.",
 				};
 	let detail = "LiteLLM stream error";
-	if (type !== undefined) {
-		detail += ` ${type}`;
-	}
-	if (code !== undefined) {
-		detail += ` (${code})`;
-	}
-	if (message !== undefined) {
-		detail += `: ${compactText(message, 300)}`;
-	}
-	if (type === undefined && code === undefined && message === undefined) {
+	if (envelope === undefined) {
 		detail = "LiteLLM stream error (no detail provided by the server)";
+	} else {
+		if (envelope.type !== undefined) {
+			detail += ` ${envelope.type}`;
+		}
+		if (envelope.code !== undefined) {
+			detail += ` (${envelope.code})`;
+		}
+		if (envelope.message !== undefined) {
+			detail += `: ${compactText(envelope.message, 300)}`;
+		}
 	}
-	return new RequestError(chatErrorMessage(headline.display, detail), "http", {
+	// The classifier's closed-set token may ride the classification (the same
+	// rule as the HTTP path); the response text itself never does.
+	const token = knownClass === "budget_exceeded" || knownClass === "context_window_exceeded" ? `, ${knownClass}` : "";
+	const texts = twoPartTexts("chat", headline, detail);
+	return new RequestError(texts.message, "http", {
 		// The detail is response-derived; the distinct classification keeps a
 		// mid-stream death recognizable in an issue.
-		logClassification: "RequestError(http, in-band stream error frame)",
-		englishMessage: englishChatErrorMessage(headline.english, detail),
+		logClassification: `RequestError(http, in-band stream error frame${token})`,
+		englishMessage: texts.englishMessage,
 	});
 }
 
@@ -591,12 +637,9 @@ export function streamErrorFrame(error: Record<string, unknown>): RequestError {
  * Map an error thrown by the openai SDK transport onto the provider's typed
  * errors. Every mapped message follows the two-part shape: a plain-language
  * headline (localized) plus one compact English technical line - never a
- * re-serialized response envelope. The join is per surface: chat messages
- * carry the "Details:" lead-in after a blank line (Copilot Chat's error block
- * flattens newlines), discovery messages the single "\n" the dashboard and
- * tooltips split on. Network classification walks the full cause chain because
- * the SDK adds a wrapper level over the socket/TLS error that carries the
- * actionable string.
+ * re-serialized response envelope - joined per surface by twoPartTexts.
+ * Network classification walks the full cause chain because the SDK adds a
+ * wrapper level over the socket/TLS error that carries the actionable string.
  */
 export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 	if (err instanceof APIError && typeof err.status === "number") {
@@ -617,7 +660,7 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 						setupHint: "configure-api-key",
 					});
 		}
-		const envelope = errorEnvelopeOf(err);
+		const envelope = errorEnvelopeOf(err.error);
 		// 404 gets its own guidance per surface: on discovery it almost always
 		// means the base URL points at something that is not a LiteLLM proxy
 		// (wrong port, a path that is not the API root); on chat it usually means
@@ -630,21 +673,22 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 				// as an error envelope with a message.
 				const typeSeg = envelope?.type !== undefined ? ` ${envelope.type}` : "";
 				const detail =
-					envelope?.message !== undefined ? `\nLiteLLM 404${typeSeg}: ${compactText(envelope.message, 240)}` : "";
-				return new RequestError(
-					`${l10n.t(
+					envelope?.message !== undefined ? `LiteLLM 404${typeSeg}: ${compactText(envelope.message, 240)}` : "";
+				const headline: LocalizedText = {
+					display: l10n.t(
 						"Failed to fetch LiteLLM models: the server at {0} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.",
 						ctx.baseUrl
-					)}${detail}`,
-					"http",
-					{
-						status: 404,
-						cause: err,
-						logClassification: "RequestError(http, status 404, discovery)",
-						englishMessage: `Failed to fetch LiteLLM models: the server at ${ctx.baseUrl} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.${detail}`,
-						setupHint: "check-base-url",
-					}
-				);
+					),
+					english: `Failed to fetch LiteLLM models: the server at ${ctx.baseUrl} answered 404 - it responded, but does not serve the LiteLLM API at this address. Check the base URL: the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2, and note the LiteLLM proxy's default port is 4000.`,
+				};
+				const texts = twoPartTexts("discovery", headline, detail);
+				return new RequestError(texts.message, "http", {
+					status: 404,
+					cause: err,
+					logClassification: "RequestError(http, status 404, discovery)",
+					englishMessage: texts.englishMessage,
+					setupHint: "check-base-url",
+				});
 			}
 			// The envelope code outranks the type here, and the non-envelope
 			// recovery keeps the nginx/wrong-server signature of a mispointed
@@ -658,29 +702,25 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 			const text =
 				envelope?.message !== undefined ? compactText(envelope.message, 300) : recoveredSdkText(404, err, 200);
 			const detail = text !== "" ? `LiteLLM 404${kind}: ${text}` : `LiteLLM 404${kind}`;
-			return new RequestError(
-				chatErrorMessage(
-					l10n.t(
-						'The server did not recognize this request - the model may have been removed from the proxy. Run "{0}" to refresh the model list; if every request fails this way, check the base URL (the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2).',
-						syncModelsCommandTitle()
-					),
-					detail
+			// "LiteLLM: Sync Models Now" is the palette title package.json
+			// contributes (the manageCommandTitle mirror pattern).
+			const headline: LocalizedText = {
+				display: l10n.t(
+					'The server did not recognize this request - the model may have been removed from the proxy. Run "{0}" to refresh the model list; if every request fails this way, check the base URL (the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2).',
+					syncModelsCommandTitle()
 				),
-				"http",
-				{
-					status: 404,
-					cause: err,
-					logClassification: "RequestError(http, status 404, chat)",
-					// "LiteLLM: Sync Models Now" is the palette title package.json
-					// contributes (the manageCommandTitle mirror pattern).
-					englishMessage: englishChatErrorMessage(
-						'The server did not recognize this request - the model may have been removed from the proxy. Run "LiteLLM: Sync Models Now" to refresh the model list; if every request fails this way, check the base URL (the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2).',
-						detail
-					),
-				}
-			);
+				english:
+					'The server did not recognize this request - the model may have been removed from the proxy. Run "LiteLLM: Sync Models Now" to refresh the model list; if every request fails this way, check the base URL (the extension appends /v1 unless the URL already ends in a version segment like /v1 or /v2).',
+			};
+			const texts = twoPartTexts("chat", headline, detail);
+			return new RequestError(texts.message, "http", {
+				status: 404,
+				cause: err,
+				logClassification: "RequestError(http, status 404, chat)",
+				englishMessage: texts.englishMessage,
+			});
 		}
-		const cls = classifyHttpError(err.status, envelope);
+		const cls = classifyEnvelope(envelope, err.status);
 		const headline = ctx.surface === "chat" ? chatHttpHeadline(cls) : discoveryHttpHeadline(cls);
 		const detail =
 			ctx.surface === "chat"
@@ -690,15 +730,12 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		// (classify FROM the body, never quote it); the response text itself
 		// rides only in message/englishMessage.
 		const token = cls === "budget_exceeded" || cls === "context_window_exceeded" ? `, ${cls}` : "";
-		const message =
-			ctx.surface === "chat" ? chatErrorMessage(headline.display, detail) : `${headline.display}\n${detail}`;
-		const english =
-			ctx.surface === "chat" ? englishChatErrorMessage(headline.english, detail) : `${headline.english}\n${detail}`;
-		return new RequestError(message, "http", {
+		const texts = twoPartTexts(ctx.surface, headline, detail);
+		return new RequestError(texts.message, "http", {
 			status: err.status,
 			cause: err,
 			logClassification: `RequestError(http, status ${err.status}${token})`,
-			englishMessage: english,
+			englishMessage: texts.englishMessage,
 		});
 	}
 
@@ -753,18 +790,12 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 				english:
 					"The server's SSL certificate couldn't be verified, so the connection was blocked. Trust the server's certificate authority on this machine (for example via NODE_EXTRA_CA_CERTS), or contact your LiteLLM server administrator.",
 			};
-			return new RequestError(
-				ctx.surface === "chat" ? chatErrorMessage(headline.display, detail) : `${headline.display}\n${detail}`,
-				"certificate",
-				{
-					cause: err,
-					logClassification: "RequestError(certificate, unverified)",
-					englishMessage:
-						ctx.surface === "chat"
-							? englishChatErrorMessage(headline.english, detail)
-							: `${headline.english}\n${detail}`,
-				}
-			);
+			const texts = twoPartTexts(ctx.surface, headline, detail);
+			return new RequestError(texts.message, "certificate", {
+				cause: err,
+				logClassification: "RequestError(certificate, unverified)",
+				englishMessage: texts.englishMessage,
+			});
 		}
 		if (haystack.includes("ENOTFOUND") || haystack.includes("ECONNREFUSED")) {
 			return new RequestError(
@@ -802,21 +833,10 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 						english: `Could not reach ${ctx.baseUrl} to list its models. Check your network, VPN, or proxy settings, and that the server is up.`,
 					};
 		// An empty cause chain gets no detail line rather than a trailing blank.
-		const message =
-			detail === ""
-				? headline.display
-				: ctx.surface === "chat"
-					? chatErrorMessage(headline.display, detail)
-					: `${headline.display}\n${detail}`;
-		const english =
-			detail === ""
-				? headline.english
-				: ctx.surface === "chat"
-					? englishChatErrorMessage(headline.english, detail)
-					: `${headline.english}\n${detail}`;
-		return new RequestError(message, "network", {
+		const texts = twoPartTexts(ctx.surface, headline, detail);
+		return new RequestError(texts.message, "network", {
 			cause: err,
-			englishMessage: english,
+			englishMessage: texts.englishMessage,
 		});
 	}
 
@@ -859,37 +879,39 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 			const chainText = chainDetail(chain, topMessage);
 			if (ctx.surface === "chat") {
 				const detail = `Connection to ${ctx.baseUrl} closed mid-response${chainText !== "" ? `: ${chainText}` : ""}`;
-				return new RequestError(
-					chatErrorMessage(
-						l10n.t(
+				const texts = twoPartTexts(
+					"chat",
+					{
+						display: l10n.t(
 							"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server."
 						),
-						detail
-					),
-					"network",
-					{
-						cause: err,
-						englishMessage: englishChatErrorMessage(
+						english:
 							"The connection dropped before the model finished replying, so the answer may be cut short. Try again; if it keeps happening, check any proxy or load balancer between you and the server.",
-							detail
-						),
-					}
+					},
+					detail
 				);
+				return new RequestError(texts.message, "network", {
+					cause: err,
+					englishMessage: texts.englishMessage,
+				});
 			}
 			// Distinct from the never-connected discovery headline above: here the
 			// server did respond, then the connection died.
-			const suffix = chainText !== "" ? `\n${chainText}` : "";
-			return new RequestError(
-				`${l10n.t(
-					"The connection to {0} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.",
-					ctx.baseUrl
-				)}${suffix}`,
-				"network",
+			const texts = twoPartTexts(
+				"discovery",
 				{
-					cause: err,
-					englishMessage: `The connection to ${ctx.baseUrl} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.${suffix}`,
-				}
+					display: l10n.t(
+						"The connection to {0} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.",
+						ctx.baseUrl
+					),
+					english: `The connection to ${ctx.baseUrl} dropped while fetching models - the response never completed. Try again; if it keeps happening, check your network and any VPN or proxy.`,
+				},
+				chainText
 			);
+			return new RequestError(texts.message, "network", {
+				cause: err,
+				englishMessage: texts.englishMessage,
+			});
 		}
 	}
 
@@ -917,18 +939,13 @@ export function mapSdkError(err: unknown, ctx: MapErrorContext): Error {
 		),
 		english: "The request failed unexpectedly. Try again; if it keeps happening, report an issue so we can look at it.",
 	};
-	return new MirroredError(
-		ctx.surface === "chat" ? chatErrorMessage(tailHeadline.display, detail) : `${tailHeadline.display}\n${detail}`,
-		{
-			cause: err,
-			englishMessage:
-				ctx.surface === "chat"
-					? englishChatErrorMessage(tailHeadline.english, detail)
-					: `${tailHeadline.english}\n${detail}`,
-			logClassification:
-				err instanceof Error
-					? `unhandled Error in transport (${name}, ${ctx.surface})`
-					: `non-Error throw in transport (${name}, ${ctx.surface})`,
-		}
-	);
+	const texts = twoPartTexts(ctx.surface, tailHeadline, detail);
+	return new MirroredError(texts.message, {
+		cause: err,
+		englishMessage: texts.englishMessage,
+		logClassification:
+			err instanceof Error
+				? `unhandled Error in transport (${name}, ${ctx.surface})`
+				: `non-Error throw in transport (${name}, ${ctx.surface})`,
+	});
 }

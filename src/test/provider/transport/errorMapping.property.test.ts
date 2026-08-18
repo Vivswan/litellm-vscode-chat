@@ -6,6 +6,7 @@ import {
 	mapSdkError,
 	RequestError,
 	timeoutMessage,
+	twoPartTexts,
 } from "../../../provider/transport/errorMapping";
 import { manageCommandTitle } from "../../../shared/config/commandIds";
 import { resolveFuzzSeed } from "../../fuzzStream";
@@ -208,6 +209,34 @@ suite("provider/errorMapping properties", () => {
 						assert.match(detail, marker, mapped.message);
 						assert.ok(!detail.includes('{"error"'), `never a re-serialized envelope: ${mapped.message}`);
 					}
+				}
+			),
+			{ numRuns: NUM_RUNS, seed: SEED }
+		);
+	});
+
+	test("every twoPartTexts product keeps the display/English pairing byte-faithful", () => {
+		// Pinned against the naive join: the English mirror is the SAME join
+		// applied to the English headline and the SAME detail, on both surfaces,
+		// with an empty detail rendering the headline alone. The chat "Details:"
+		// lead-in localizes, so the display leg holds under the test host's
+		// English fallback; the englishMessage leg is locale-independent.
+		fc.assert(
+			fc.property(
+				fc.constantFrom<MapErrorContext["surface"]>("chat", "discovery"),
+				fc.string(),
+				fc.string(),
+				fc.string(),
+				(surface, display, english, detail) => {
+					const texts = twoPartTexts(surface, { display, english }, detail);
+					const join = (headline: string) =>
+						detail === ""
+							? headline
+							: surface === "chat"
+								? `${headline}\n\nDetails: ${detail}`
+								: `${headline}\n${detail}`;
+					assert.strictEqual(texts.message, join(display));
+					assert.strictEqual(texts.englishMessage, join(english));
 				}
 			),
 			{ numRuns: NUM_RUNS, seed: SEED }
