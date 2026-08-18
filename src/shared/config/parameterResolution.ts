@@ -15,7 +15,14 @@
 
 import type { ModelRecordMap } from "./modelMatcher";
 import type { ParsedRecord, RecordChainResolution, RecordDiagnostic, RecordLayer } from "./recordResolution";
-import { lintRecordMap, parseMarkingDirective, parseSharedDirectives, resolveRecordChain } from "./recordResolution";
+import {
+	FORCE_DIRECTIVE,
+	lintRecordMap,
+	parseMarkingDirective,
+	parseSharedDirectives,
+	resolveRecordChain,
+	wrongTypeDirectives,
+} from "./recordResolution";
 
 // The record grammar is shared machinery; the parameters-side consumers
 // import it through this module (the capability side re-exports its own).
@@ -67,15 +74,6 @@ export function parameterSkipReason(key: string): ParameterSkipReason | undefine
 }
 
 /**
- * Marks all (`true`) or the listed parameter fields as FORCED: forced fields
- * beat runtime modelOptions and the picker configuration on the wire.
- * Provider-owned and underscore keys are unforceable (diagnosed and skipped),
- * except max_tokens, which is provider-owned on the wire but user-settable by
- * design, so a forced value tops the max_tokens chain.
- */
-export const FORCE_DIRECTIVE = "_force";
-
-/**
  * Whether `_force` may mark this key. Everything settable is forceable: of the
  * provider-owned keys only max_tokens is settable, so it alone escapes the
  * refusal. The record editors' force checkboxes consult it too, so the editor
@@ -85,8 +83,8 @@ export function isForceableParameter(key: string): boolean {
 	return key === "max_tokens" || parameterSkipReason(key) === undefined;
 }
 
-/** Capability-record directives, known here only to diagnose them as the wrong record type. */
-const WRONG_TYPE_DIRECTIVES = ["_fallback", "_openrouter_model"] as const;
+/** The capability side's directives, derived from the shared registry, diagnosed as the wrong record type. */
+const WRONG_TYPE_DIRECTIVES = wrongTypeDirectives("parameters");
 
 /** "entry" is the declared server entry's own record; "global" the models.parameters setting. */
 export type ParameterConfigLayer = RecordLayer;
@@ -101,10 +99,10 @@ export interface ParameterDiagnostic extends RecordDiagnostic {
  * key is a pass-through field (the vocabulary stays open), `_force` marks
  * forced fields (refusing provider-owned and underscore names, and names the
  * record does not set), and the shared inheritance directives parse in
- * recordResolution. Capability directives are diagnosed as the wrong record
- * type; truly unknown underscore keys stay silently ignored for forward
- * compatibility. Exported for the record-level consumers; resolution goes
- * through resolveParameterLayer.
+ * recordResolution. The capability side's directives (registry-derived) are
+ * diagnosed as the wrong record type; truly unknown underscore keys stay
+ * silently ignored for forward compatibility. Exported for the record-level
+ * consumers; resolution goes through resolveParameterLayer.
  */
 export function parseParameterRecord(record: Readonly<Record<string, unknown>>): ParsedRecord {
 	const fields: Record<string, unknown> = {};

@@ -13,12 +13,12 @@ import type { ModelConfigurationRequestParams } from "../../../provider/catalog/
 import { buildRequestBody } from "../../../provider/transport/request";
 import type { ModelParametersRecord } from "../../../shared/config/parameterResolution";
 import {
-	FORCE_DIRECTIVE,
 	parameterSkipReason,
 	projectEffectiveParameters,
 	resolveMaxTokens,
 	resolveModelParameters,
 } from "../../../shared/config/parameterResolution";
+import { FORCE_DIRECTIVE } from "../../../shared/config/recordResolution";
 import { getModelParametersConfig, normalizeModelParameters } from "../../../shared/config/settings";
 import type { OpenAIChatMessage } from "../../../shared/conversion/wire";
 import { resolveFuzzSeed } from "../../fuzzStream";

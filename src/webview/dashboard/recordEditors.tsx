@@ -32,13 +32,15 @@ import {
 	toggleDirectiveField,
 } from "../../dashboard/recordDraft";
 import type { DashboardModel, ScopedRecordSetting, SettingScope } from "../../dashboard/viewModels";
+import { CONSUMED_CAPABILITY_FIELDS } from "../../shared/config/capabilityResolution";
 import {
-	CONSUMED_CAPABILITY_FIELDS,
 	FALLBACK_DIRECTIVE,
+	FORCE_DIRECTIVE,
+	INHERIT_FROM_DIRECTIVE,
+	INHERITABLE_DIRECTIVE,
 	OPENROUTER_MODEL_DIRECTIVE,
-} from "../../shared/config/capabilityResolution";
-import { FORCE_DIRECTIVE } from "../../shared/config/parameterResolution";
-import { INHERIT_FROM_DIRECTIVE, INHERITABLE_DIRECTIVE } from "../../shared/config/recordResolution";
+	RECORD_TYPE_DIRECTIVES,
+} from "../../shared/config/recordResolution";
 import { statusErrorDetail, statusErrorHeadline } from "../../shared/util/errorText";
 import { DOCS_LINK_MODEL_CAPABILITIES, DOCS_LINK_MODEL_PARAMETERS } from "./docsLinks";
 import { DocsLink, Help } from "./help";
@@ -738,7 +740,7 @@ export function capabilityKeySuggestions(observedKeys?: readonly string[]): read
 		.filter((key) => key.length > 0 && !key.startsWith("_") && !known.has(key))
 		.sort()
 		.slice(0, OBSERVED_SUGGESTION_LIMIT);
-	return [...consumed, ...observed, FALLBACK_DIRECTIVE, OPENROUTER_MODEL_DIRECTIVE];
+	return [...consumed, ...observed, ...RECORD_TYPE_DIRECTIVES.capabilities];
 }
 
 /** The no-evidence list (consumed fields plus directives), the fallback wherever no observed set is known. */

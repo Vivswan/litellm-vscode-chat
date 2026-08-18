@@ -27,11 +27,8 @@ import type {
 	EffectiveCapabilities,
 	ModelCapabilitiesRecord,
 } from "../../../shared/config/capabilityResolution";
-import {
-	capabilityField,
-	OPENROUTER_MODEL_DIRECTIVE,
-	resolveModelCapabilities,
-} from "../../../shared/config/capabilityResolution";
+import { capabilityField, resolveModelCapabilities } from "../../../shared/config/capabilityResolution";
+import { OPENROUTER_MODEL_DIRECTIVE } from "../../../shared/config/recordResolution";
 import { ModelResolutionTable } from "../../../shared/config/resolutionTable";
 import { getCurrencySymbol } from "../../../shared/config/settings";
 import { resolveFuzzSeed } from "../../fuzzStream";

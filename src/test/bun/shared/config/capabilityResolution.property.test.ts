@@ -42,14 +42,17 @@ import {
 	CAPABILITY_FLOOR,
 	CONSUMED_CAPABILITY_FIELDS,
 	capabilityField,
-	FALLBACK_DIRECTIVE,
-	OPENROUTER_MODEL_DIRECTIVE,
 	resolveCapabilityLayer,
 	resolveCapabilityOverrides,
 	resolveModelCapabilities,
 } from "../../../../shared/config/capabilityResolution";
 import type { ParsedRecord, RecordChainResolution } from "../../../../shared/config/recordResolution";
-import { parseSharedDirectives, resolveRecordChain } from "../../../../shared/config/recordResolution";
+import {
+	FALLBACK_DIRECTIVE,
+	OPENROUTER_MODEL_DIRECTIVE,
+	parseSharedDirectives,
+	resolveRecordChain,
+} from "../../../../shared/config/recordResolution";
 import { resolveFuzzSeed } from "../../../fuzzStream";
 
 const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 200;

@@ -22,6 +22,45 @@ import { compareSpecificity, matchChain, matcherMatches, parseMatcherKey } from 
 export const INHERITABLE_DIRECTIVE = "_inheritable";
 export const INHERIT_FROM_DIRECTIVE = "_inherit_from";
 
+/**
+ * Marks all (`true`) or the listed parameter fields as FORCED: forced fields
+ * beat runtime modelOptions and the picker configuration on the wire. Parsed
+ * and enforced in parameterResolution.ts.
+ */
+export const FORCE_DIRECTIVE = "_force";
+
+/**
+ * Demotes all (`true`) or the listed capability fields from override level to
+ * fallback level: applied BELOW the server-reported value instead of above it.
+ * Parsed and enforced in capabilityResolution.ts.
+ */
+export const FALLBACK_DIRECTIVE = "_fallback";
+
+/**
+ * Names an OpenRouter catalog entry whose capabilities backfill fields the
+ * record leaves unset. Parsed and enforced in capabilityResolution.ts.
+ */
+export const OPENROUTER_MODEL_DIRECTIVE = "_openrouter_model";
+
+/**
+ * Every type-specific directive name, minted once, keyed by the owning record
+ * type. This module treats it as data - the parsers attach the behavior: each
+ * derives its own vocabulary from its row and diagnoses the other rows' names
+ * as wrong-record-type (wrongTypeDirectives), so a directive added or renamed
+ * here reaches both sides by construction.
+ */
+export const RECORD_TYPE_DIRECTIVES = {
+	parameters: [FORCE_DIRECTIVE],
+	capabilities: [FALLBACK_DIRECTIVE, OPENROUTER_MODEL_DIRECTIVE],
+} as const satisfies Readonly<Record<string, readonly string[]>>;
+
+export type RecordType = keyof typeof RECORD_TYPE_DIRECTIVES;
+
+/** The sibling record types' directive names: exactly what `own`'s parser flags as wrong-record-type. */
+export function wrongTypeDirectives(own: RecordType): readonly string[] {
+	return Object.entries(RECORD_TYPE_DIRECTIVES).flatMap(([type, names]) => (type === own ? [] : names));
+}
+
 /** "entry" is the declared server entry's own record map; "global" the models.* setting. */
 export type RecordLayer = "entry" | "global";
 

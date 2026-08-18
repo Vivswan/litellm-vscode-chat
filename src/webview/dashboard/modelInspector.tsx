@@ -34,7 +34,7 @@ import type {
 	EffectiveCapabilityField,
 	ShadowedCapabilityValue,
 } from "../../shared/config/capabilityResolution";
-import { capabilityField, FALLBACK_DIRECTIVE } from "../../shared/config/capabilityResolution";
+import { capabilityField } from "../../shared/config/capabilityResolution";
 import type {
 	EffectiveParameterRow,
 	ParameterDiagnostic,
@@ -43,6 +43,7 @@ import type {
 	ShadowedParameterValue,
 } from "../../shared/config/parameterResolution";
 import { DEFAULT_MAX_TOKENS_CAP } from "../../shared/config/parameterResolution";
+import { FALLBACK_DIRECTIVE, OPENROUTER_MODEL_DIRECTIVE } from "../../shared/config/recordResolution";
 import { DOCS_LINK_CAPS_INSPECTOR, DOCS_LINK_PARAMS_INSPECTOR } from "./docsLinks";
 import { HoverTip } from "./help";
 import { helpCapsInspector, helpParamsInspector } from "./helpText";
@@ -116,7 +117,7 @@ function capabilityProvenance(
 		case "directive":
 			return {
 				source: { scope: "OpenRouter", recordKey: key },
-				mark: { word: "_openrouter_model", mono: true },
+				mark: { word: OPENROUTER_MODEL_DIRECTIVE, mono: true },
 			};
 		case "catalog":
 			return {

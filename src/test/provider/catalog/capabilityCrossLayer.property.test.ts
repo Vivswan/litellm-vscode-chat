@@ -41,12 +41,11 @@ import {
 	CONSUMED_CAPABILITY_FIELDS,
 	capabilityField,
 	EMPTY_CATALOG_LOOKUP,
-	FALLBACK_DIRECTIVE,
-	OPENROUTER_MODEL_DIRECTIVE,
 	resolveCapabilityLayer,
 	resolveModelCapabilities,
 } from "../../../shared/config/capabilityResolution";
 import type { RecordChainResolution } from "../../../shared/config/recordResolution";
+import { FALLBACK_DIRECTIVE, OPENROUTER_MODEL_DIRECTIVE } from "../../../shared/config/recordResolution";
 import { ModelResolutionTable } from "../../../shared/config/resolutionTable";
 import { getCurrencySymbol } from "../../../shared/config/settings";
 import { resolveFuzzSeed } from "../../fuzzStream";

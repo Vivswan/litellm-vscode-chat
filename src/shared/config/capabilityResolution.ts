@@ -15,11 +15,14 @@
 import type { ModelRecordMap } from "./modelMatcher";
 import type { ParsedRecord, RecordChainResolution, RecordDiagnostic, RecordLayer } from "./recordResolution";
 import {
+	FALLBACK_DIRECTIVE,
 	INHERITABLE_DIRECTIVE,
 	lintRecordMap,
+	OPENROUTER_MODEL_DIRECTIVE,
 	parseMarkingDirective,
 	parseSharedDirectives,
 	resolveRecordChain,
+	wrongTypeDirectives,
 } from "./recordResolution";
 
 /**
@@ -120,18 +123,8 @@ export function capabilityField<T>(bag: Readonly<Record<string, T | undefined>>,
 	return Object.hasOwn(bag, name) ? bag[name] : undefined;
 }
 
-/** Names an OpenRouter catalog entry whose capabilities backfill fields the record leaves unset. */
-export const OPENROUTER_MODEL_DIRECTIVE = "_openrouter_model";
-
-/**
- * Demotes all (`true`) or the listed capability fields from override level to
- * fallback level: applied BELOW the server-reported value instead of above it.
- * The marking rides with each field wherever inheritance carries it.
- */
-export const FALLBACK_DIRECTIVE = "_fallback";
-
-/** The parameters-record directive, known here only to diagnose it as the wrong record type. */
-const FORCE_DIRECTIVE_WRONG_TYPE = "_force";
+/** The parameter side's directives, derived from the shared registry, diagnosed as the wrong record type. */
+const WRONG_TYPE_DIRECTIVES: ReadonlySet<string> = new Set(wrongTypeDirectives("capabilities"));
 
 /** A models.capabilities record map: matcher key to capability fields and directives. */
 export type ModelCapabilitiesRecord = ModelRecordMap;
@@ -157,12 +150,13 @@ export interface ParsedCapabilityRecord extends ParsedRecord {
  * non-underscore key is kept verbatim with an informational unrecognized-key
  * diagnostic - validation is advisory, never gating. `_openrouter_model` must
  * be a non-blank string; `_fallback` must be `true` (all kept fields), a list
- * of field names the record keeps, or `false`. `_force` is diagnosed as the
- * wrong record type; the shared inheritance directives parse in
- * recordResolution; other underscore keys are ignored without diagnosis
- * (forward compatibility), which also keeps a hostile own "__proto__" key out
- * of the field object (other prototype names like "toString" are legal open
- * fields, and every dynamic read downstream is hasOwn-guarded).
+ * of field names the record keeps, or `false`. The parameter side's directives
+ * (registry-derived, `_force` today) are diagnosed as the wrong record type;
+ * the shared inheritance directives parse in recordResolution; other
+ * underscore keys are ignored without diagnosis (forward compatibility),
+ * which also keeps a hostile own "__proto__" key out of the field object
+ * (other prototype names like "toString" are legal open fields, and every
+ * dynamic read downstream is hasOwn-guarded).
  */
 export function parseCapabilityRecord(record: Readonly<Record<string, unknown>>): ParsedCapabilityRecord {
 	// Field keys are TRIMMED at this parse boundary, matching the editor, which
@@ -196,7 +190,7 @@ export function parseCapabilityRecord(record: Readonly<Record<string, unknown>>)
 			}
 			continue;
 		}
-		if (key === FORCE_DIRECTIVE_WRONG_TYPE) {
+		if (WRONG_TYPE_DIRECTIVES.has(key)) {
 			diagnostics.push({ kind: "wrong-record-type", key });
 			continue;
 		}

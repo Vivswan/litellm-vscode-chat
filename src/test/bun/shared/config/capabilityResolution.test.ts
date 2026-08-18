@@ -24,16 +24,15 @@ import {
 	CAPABILITY_FLOOR,
 	capabilityField,
 	EMPTY_CATALOG_LOOKUP,
-	FALLBACK_DIRECTIVE,
 	FLOOR_CONTEXT_LENGTH,
 	FLOOR_MAX_OUTPUT_TOKENS,
 	filterUnrecognizedKeyDiagnostics,
-	OPENROUTER_MODEL_DIRECTIVE,
 	parseCapabilityRecord,
 	resolveCapabilityOverrides,
 	resolveModelCapabilities,
 } from "../../../../shared/config/capabilityResolution";
 import { resolveMaxTokens } from "../../../../shared/config/parameterResolution";
+import { FALLBACK_DIRECTIVE, OPENROUTER_MODEL_DIRECTIVE } from "../../../../shared/config/recordResolution";
 
 /** A catalog over literal entries: exact IDs and unambiguous post-vendor suffixes answer found. */
 function makeCatalog(entries: Record<string, Partial<CapabilityFieldValues>>): CapabilityCatalogLookup {

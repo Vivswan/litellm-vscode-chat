@@ -10,13 +10,17 @@ import type { CapabilityFieldName, CapabilityValueKind } from "../shared/config/
 import {
 	CAPABILITY_FIELDS,
 	CONSUMED_CAPABILITY_FIELDS,
-	FALLBACK_DIRECTIVE,
 	isValidConsumedCapabilityValue,
-	OPENROUTER_MODEL_DIRECTIVE,
 } from "../shared/config/capabilityResolution";
 import { compareSpecificity, parseMatcherKey } from "../shared/config/modelMatcher";
-import { FORCE_DIRECTIVE, isForceableParameter } from "../shared/config/parameterResolution";
-import { INHERIT_FROM_DIRECTIVE, INHERITABLE_DIRECTIVE } from "../shared/config/recordResolution";
+import { isForceableParameter } from "../shared/config/parameterResolution";
+import {
+	FALLBACK_DIRECTIVE,
+	FORCE_DIRECTIVE,
+	INHERIT_FROM_DIRECTIVE,
+	INHERITABLE_DIRECTIVE,
+	OPENROUTER_MODEL_DIRECTIVE,
+} from "../shared/config/recordResolution";
 import type { ExpectedFailureCategory } from "../shared/serverEntry";
 import { EXPECTED_FAILURE_CATEGORIES } from "../shared/serverEntry";
 import type { HeaderScalar } from "../shared/util/headers";
