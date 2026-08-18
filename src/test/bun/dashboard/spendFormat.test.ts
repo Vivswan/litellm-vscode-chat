@@ -10,6 +10,7 @@ import {
 	barPresentation,
 	formatMoney,
 	formatPercent,
+	formatPercentExact,
 	spendTone,
 	usableThresholds,
 	worstSpendTone,
@@ -120,6 +121,16 @@ describe("formatting", () => {
 			}),
 			{ seed: SEED, numRuns: NUM_RUNS }
 		);
+	});
+
+	test("configured trigger points render unfloored, float noise trimmed", () => {
+		// formatPercent floors reached amounts under the >= scale; a threshold the
+		// user WROTE has nothing to floor - 0.855 is the 85.5% trigger, not "85%".
+		expect(formatPercentExact(0.855)).toBe("85.5%");
+		expect(formatPercentExact(0.85)).toBe("85%");
+		expect(formatPercentExact(1)).toBe("100%");
+		// Float noise stays trimmed: 0.565 * 100 floats just below 56.5.
+		expect(formatPercentExact(0.565)).toBe("56.5%");
 	});
 
 	test("money amounts keep cents below 1000 and take the configured symbol verbatim", () => {

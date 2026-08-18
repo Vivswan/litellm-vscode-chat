@@ -22,6 +22,7 @@ import {
 	settingScopeLabel,
 	unitBehavior,
 } from "../../dashboard/presenters";
+import { formatPercentExact } from "../../dashboard/spendFormat";
 import type {
 	CatalogStatusView,
 	DashboardModel,
@@ -899,11 +900,6 @@ function UiAccentRow({
 	);
 }
 
-/** A stored fraction as the percent text the threshold inputs display, float noise trimmed. */
-function percentText(value: number): string {
-	return `${Number((value * 100).toPrecision(12))}%`;
-}
-
 /**
  * One threshold box's parse: a fraction (0.8), a percentage (80%), or a bare number
  * above 1 read as percent. The docs' bound applies after conversion: (0, 1].
@@ -1000,12 +996,12 @@ function UsageThresholdsRow({
 }) {
 	// Stored -> boxes: [low, high] fills both; a single value is the error
 	// threshold by the alerts' semantics, so it fills the Error box alone.
-	const externalWarning = values.length === 2 ? percentText(values[0] as number) : "";
+	const externalWarning = values.length === 2 ? formatPercentExact(values[0] as number) : "";
 	const externalError =
 		values.length === 2
-			? percentText(values[1] as number)
+			? formatPercentExact(values[1] as number)
 			: values.length === 1
-				? percentText(values[0] as number)
+				? formatPercentExact(values[0] as number)
 				: "";
 	const [warningText, setWarningText] = useState(externalWarning);
 	const [errorText, setErrorText] = useState(externalError);
@@ -1060,8 +1056,8 @@ function UsageThresholdsRow({
 	const semanticsHint = custom
 		? l10n.t(
 				"Warns from {0}; errors at {1}.",
-				percentText(values[0] as number),
-				percentText(values[values.length - 1] as number)
+				formatPercentExact(values[0] as number),
+				formatPercentExact(values[values.length - 1] as number)
 			)
 		: parsed === undefined
 			? undefined
@@ -1093,7 +1089,7 @@ function UsageThresholdsRow({
 			control={
 				custom ? (
 					<>
-						<span className="font-mono tabular-nums">{values.map(percentText).join(", ")}</span>
+						<span className="font-mono tabular-nums">{values.map(formatPercentExact).join(", ")}</span>
 						<span className="hint">{l10n.t("Custom list - edit in settings.json.")}</span>
 					</>
 				) : (

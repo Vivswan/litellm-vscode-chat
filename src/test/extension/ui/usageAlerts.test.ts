@@ -70,7 +70,7 @@ suite("extension/ui usageAlerts", () => {
 		const toast = toasts[0];
 		assert.ok(toast !== undefined);
 		assert.strictEqual(toast.kind, "warning", "all budget notifications use the one severity");
-		assert.strictEqual(toast.message, 'LiteLLM: "prod" has used 97% of its budget (alert at 95%)');
+		assert.strictEqual(toast.message, 'LiteLLM: "prod" has used at least 97% of its budget (alert at 95%)');
 	});
 
 	test("the toast names the server, the threshold, and the current spend percentage", () => {
@@ -78,11 +78,21 @@ suite("extension/ui usageAlerts", () => {
 
 		store.upsert(stateAt("staging", 0.82, [0.8]), [0.8]);
 
-		assert.strictEqual(toasts[0]?.message, 'LiteLLM: "staging" has used 82% of its budget (alert at 80%)');
+		assert.strictEqual(toasts[0]?.message, 'LiteLLM: "staging" has used at least 82% of its budget (alert at 80%)');
 		assert.deepStrictEqual(
 			toasts[0]?.actions.map((action) => action.label),
 			["Open Usage", "Dismiss"]
 		);
+	});
+
+	test("a non-whole threshold renders exactly as configured while the spend still floors", () => {
+		const { store, toasts } = harness();
+
+		store.upsert(stateAt("prod", 0.858, [0.855]), [0.855]);
+
+		// The floored spend reads below the threshold it just crossed, which only
+		// "at least" makes true: 85% is a lower bound, 85.5% the exact trigger.
+		assert.strictEqual(toasts[0]?.message, 'LiteLLM: "prod" has used at least 85% of its budget (alert at 85.5%)');
 	});
 
 	test("a re-armed threshold (spend dropped below, then crossed again) toasts again", () => {

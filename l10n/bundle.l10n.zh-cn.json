@@ -428,7 +428,7 @@
  "LiteLLM usage request to {0} failed: {1}/{1} is the HTTP status code the server answered with": "对 {0} 的 LiteLLM 用量请求失败: {1}",
  "LiteLLM usage request to {0} timed out after {1}ms. Increase the \"{2}.discovery.timeout\" setting if your server needs more time.": "对 {0} 的 LiteLLM 用量请求在 {1}ms 后超时。如果你的服务器需要更多时间, 请调大「{2}.discovery.timeout」设置。",
  "LiteLLM usage request to {0} was rejected ({1}). The configured key may not be allowed to read usage data on this server.": "对 {0} 的 LiteLLM 用量请求被拒绝 ({1})。所配置的密钥可能无权读取此服务器上的用量数据。",
- "LiteLLM: \"{0}\" has used {1} of its budget (alert at {2})": "LiteLLM: 「{0}」已使用其预算的 {1} (警报阈值 {2})",
+ "LiteLLM: \"{0}\" has used at least {1} of its budget (alert at {2})": "LiteLLM: 「{0}」已使用其预算的至少 {1} (警报阈值 {2})",
  "LiteLLM: Add Server - API Key": "LiteLLM: 添加服务器 - API 密钥",
  "LiteLLM: Add Server - Base URL": "LiteLLM: 添加服务器 - 基础 URL",
  "LiteLLM: Add Server - Label": "LiteLLM: 添加服务器 - 标签",

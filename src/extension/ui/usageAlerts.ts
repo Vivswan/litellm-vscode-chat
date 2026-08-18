@@ -9,7 +9,7 @@
 
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
-import { formatPercent } from "../../dashboard/spendFormat";
+import { formatPercent, formatPercentExact } from "../../dashboard/spendFormat";
 import { INTERNAL_CMD } from "../../shared/config/commandIds";
 import type { UsageStore } from "../servers/usage/store";
 import type { MessageAction } from "./notifier";
@@ -35,13 +35,18 @@ export class UsageAlerts implements vscode.Disposable {
 				return;
 			}
 			const highest = Math.max(...event.newlyCrossedThresholds);
+			// Spend floors, so "at least" is what makes 85% beside a crossed 85.5%
+			// true rather than contradictory; the threshold renders exactly, even
+			// standing in for a fraction the store did not carry.
+			const spentFraction = event.state.budget.spentFraction;
+			const spentText = spentFraction === undefined ? formatPercentExact(highest) : formatPercent(spentFraction);
 			void this.show(
 				"warning",
 				l10n.t(
-					'LiteLLM: "{0}" has used {1} of its budget (alert at {2})',
+					'LiteLLM: "{0}" has used at least {1} of its budget (alert at {2})',
 					event.label,
-					formatPercent(event.state.budget.spentFraction ?? highest),
-					formatPercent(highest)
+					spentText,
+					formatPercentExact(highest)
 				),
 				[openUsageAction(), dismissAction()]
 			);

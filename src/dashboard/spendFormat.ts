@@ -45,6 +45,17 @@ export function formatPercent(fraction: number): string {
 	return `${percent}%`;
 }
 
+/**
+ * A configured trigger point as configured: 0.855 is "85.5%", never a floored
+ * "85%". formatPercent serves REACHED quantities compared under >=; this
+ * serves the configured values themselves (threshold inputs, alert texts),
+ * which have nothing to floor. Twelve significant digits, so float noise
+ * trims away and a longer decimal than any threshold needs rounds.
+ */
+export function formatPercentExact(fraction: number): string {
+	return `${Number((fraction * 100).toPrecision(12))}%`;
+}
+
 /** The thresholds that participate in the scale: usable per the shared (0, 1] rule, deduplicated and ascending. */
 export function usableThresholds(thresholds: readonly number[]): number[] {
 	return [...new Set(thresholds.filter(isUsableThreshold))].sort((a, b) => a - b);

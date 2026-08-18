@@ -980,6 +980,15 @@ test("the thresholds row renders the stored pair as percents and commits an edit
 	expect(postedMessages).toEqual([]);
 });
 
+test("a non-whole stored threshold reaches the boxes exactly, not floored to a whole percent", () => {
+	// The alert toast and this row print one configured number through the same
+	// exact renderer; a floor here would restate 0.855 as the 85% it is not.
+	const root = mount(<SettingsSection settings={settingsWithThresholds([0.855, 0.99])} models={[]} />);
+	const { warning, error } = thresholdBoxes(root);
+	expect(warning.value).toBe("85.5%");
+	expect(error.value).toBe("99%");
+});
+
 test("thresholds accept fractions, percent signs, and bare numbers above 1 as percents", () => {
 	const root = mount(<SettingsSection settings={makeSettings()} models={[]} />);
 	const { warning, error } = thresholdBoxes(root);
