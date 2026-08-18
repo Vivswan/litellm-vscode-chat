@@ -216,11 +216,11 @@ describe("Configuration diagnostics", () => {
 		// two wholly inert pieces of configuration first, then the partly
 		// ignored ones, then the field that applies as written.
 		expect(items.map((li) => li.className)).toEqual([
-			"row-diagnostic sev-blocking",
-			"row-diagnostic sev-blocking",
-			"row-diagnostic sev-degraded",
-			"row-diagnostic sev-degraded",
-			"row-diagnostic sev-advisory",
+			"row-diagnostic tier-error",
+			"row-diagnostic tier-error",
+			"row-diagnostic tier-warn",
+			"row-diagnostic tier-warn",
+			"row-diagnostic tier-advisory",
 		]);
 		const text = items.map((li) => li.textContent ?? "");
 		expect(text[0]).toContain('"gpt*5"');
@@ -343,7 +343,7 @@ describe("Configuration diagnostics", () => {
 		const root = mountConfig(diagnostics);
 		const item = root.querySelector(".config-diagnostics li");
 		// Switched off entirely, so it ranks with the wholly inert configuration.
-		expect(item?.className).toBe("row-diagnostic sev-blocking");
+		expect(item?.className).toBe("row-diagnostic tier-error");
 		expect(item?.querySelector(".row-diagnostic-headline")?.textContent).toContain(
 			"Server entry #1 is switched off until it is fixed."
 		);
@@ -365,7 +365,7 @@ describe("Configuration diagnostics", () => {
 		expect(pageConfigDiagnostics(diagnostics)).toHaveLength(1);
 		const root = mountConfig(diagnostics);
 		const item = root.querySelector(".config-diagnostics li");
-		expect(item?.className).toBe("row-diagnostic sev-degraded");
+		expect(item?.className).toBe("row-diagnostic tier-warn");
 		expect(item?.querySelector(".row-diagnostic-headline")?.textContent).toContain(
 			'Server entry "prod" runs without part of its configuration.'
 		);
@@ -403,7 +403,7 @@ describe("Configuration diagnostics", () => {
 		const root = mountConfig([{ kind: "thresholds", dropped: 1, severity: "advisory" }]);
 		// A diagnostic the rail badge leaves untinted must not render as an
 		// actionable row underneath it.
-		expect(root.querySelector(".config-diagnostics li")?.className).toBe("row-diagnostic sev-advisory");
+		expect(root.querySelector(".config-diagnostics li")?.className).toBe("row-diagnostic tier-advisory");
 	});
 
 	test("repeated reveal buttons get accessible names that tell them apart", () => {
@@ -508,7 +508,7 @@ describe("Configuration diagnostics", () => {
 			},
 		]);
 		const item = root.querySelector(".config-diagnostics li");
-		expect(item?.className).toBe("row-diagnostic sev-advisory");
+		expect(item?.className).toBe("row-diagnostic tier-advisory");
 		expect(item?.textContent).toContain('"supports_web_search"');
 		expect(item?.textContent).toContain("applies as written");
 	});

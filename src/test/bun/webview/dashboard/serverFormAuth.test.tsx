@@ -163,7 +163,7 @@ test("a misconfigured row shows the Misconfigured pill, drops Edit, and leaves t
 	// consequence leads, and the parser's report follows as the detail.
 	const lines = Array.from(root.querySelectorAll(".row-diagnostic"));
 	expect(lines.length).toBe(1);
-	expect(lines[0]?.classList.contains("sev-blocking")).toBe(true);
+	expect(lines[0]?.classList.contains("tier-error")).toBe(true);
 	expect(lines[0]?.textContent).toContain("Broken is switched off");
 	expect(lines[0]?.textContent).toContain(broken.problems[0] ?? "");
 	// The row it belongs to, not the one below it.

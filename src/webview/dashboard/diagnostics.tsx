@@ -56,7 +56,8 @@ import {
 	IconStar,
 } from "./icons";
 import type { InspectorSection } from "./modelInspector";
-import { type DiagnosticSeverity, SEVERITY_ORDER, severityLabel } from "./severity";
+import { ProblemBand } from "./problemBand";
+import { type DiagnosticSeverity, SEVERITY_ORDER } from "./severity";
 import { AbsentDatum } from "./ui/absent";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -408,56 +409,59 @@ function configProblem(diagnostic: PageConfigDiagnostic): ConfigProblem {
 }
 
 /**
- * One problem, behind a severity rule. The class names are the server rows' own:
- * severity is one vocabulary, and two stylesheets spelling three tiers would drift. The
- * rule's own geometry (6px double, 2px solid, 1px dashed) ranks the tiers by itself -
- * hue and wash cannot, for a red/amber-blind reader or under forced colours.
+ * One problem, through the one band pipeline: severity is one vocabulary, and a second
+ * renderer spelling its own tiers is exactly the drift ProblemBand exists to prevent.
+ * This page's location badges and reveal actions ride the band's slots.
  */
 function ConfigProblemLine({ problem }: { problem: ConfigProblem }) {
 	return (
-		<li className={`row-diagnostic sev-${problem.severity}`}>
-			<p className="row-diagnostic-headline">
-				<span className="visually-hidden">{severityLabel(problem.severity, "configuration")} </span>
-				{problem.headline}
-			</p>
-			{problem.where.length > 0 ? (
-				<p className="row-diagnostic-where">
-					{problem.where.map((where, index) => (
-						<Fragment key={where}>
-							{/* The badges are separated only by a 4px gap and a hairline
-							    outline, so to a screen reader they would run together as
-							    "models.parametersentry prod" without this. */}
-							{index > 0 ? <span className="visually-hidden">, </span> : null}
-							<span className="chip-prov">{where}</span>
-						</Fragment>
-					))}
-				</p>
-			) : null}
-			{problem.detail !== undefined ? <p className="row-diagnostic-detail">{problem.detail}</p> : null}
-			{problem.actions.length > 0 ? (
-				<div className="row-diagnostic-actions">
-					{problem.actions.map((action) =>
-						action.kind === "reveal" ? (
-							// The verb is REVEAL, never rewrite: it opens the file at the
-							// setting and leaves the editing to the person who owns it.
-							<Button
-								key={action.subject}
-								variant="secondary"
-								size="compact"
-								aria-label={l10n.t("Show in settings.json: {0} in {1}", action.subject, action.setting)}
-								onClick={() => sendRequest("revealSetting", { setting: action.setting })}
-							>
-								{l10n.t("Show in settings.json")}
-							</Button>
-						) : (
-							<DocsLink key={action.href} href={action.href} label={action.ariaLabel}>
-								{action.label}
-							</DocsLink>
-						)
-					)}
-				</div>
-			) : null}
-		</li>
+		<ProblemBand
+			as="li"
+			severity={problem.severity}
+			subject="configuration"
+			headline={problem.headline}
+			where={
+				problem.where.length > 0 ? (
+					<p className="row-diagnostic-where">
+						{problem.where.map((where, index) => (
+							<Fragment key={where}>
+								{/* The badges are separated only by a 4px gap and a hairline
+								    outline, so to a screen reader they would run together as
+								    "models.parametersentry prod" without this. */}
+								{index > 0 ? <span className="visually-hidden">, </span> : null}
+								<span className="chip-prov">{where}</span>
+							</Fragment>
+						))}
+					</p>
+				) : undefined
+			}
+			details={problem.detail !== undefined ? [problem.detail] : undefined}
+			actions={
+				problem.actions.length > 0 ? (
+					<div className="row-diagnostic-actions">
+						{problem.actions.map((action) =>
+							action.kind === "reveal" ? (
+								// The verb is REVEAL, never rewrite: it opens the file at the
+								// setting and leaves the editing to the person who owns it.
+								<Button
+									key={action.subject}
+									variant="secondary"
+									size="compact"
+									aria-label={l10n.t("Show in settings.json: {0} in {1}", action.subject, action.setting)}
+									onClick={() => sendRequest("revealSetting", { setting: action.setting })}
+								>
+									{l10n.t("Show in settings.json")}
+								</Button>
+							) : (
+								<DocsLink key={action.href} href={action.href} label={action.ariaLabel}>
+									{action.label}
+								</DocsLink>
+							)
+						)}
+					</div>
+				) : undefined
+			}
+		/>
 	);
 }
 

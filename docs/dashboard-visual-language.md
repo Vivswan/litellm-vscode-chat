@@ -222,8 +222,8 @@ job each:
   "these are the fields", and pointer or focus brings the border and input
   fill that prove the row editable (`recordEditors.tsx chipClass`). Outline
   plus mono stays the rule for inert machine text. The chip's two marks rank
-  by the severity rules' own solid-vs-dashed channel where forced colors
-  repaint their red and amber borders: 2px solid reads invalid, 2px dashed
+  by a solid-vs-dashed channel of their own where forced colors repaints
+  their red and amber borders: 2px solid reads invalid, 2px dashed
   reads hint (`theme.css .chip-field.hinted`).
 
 Chip radius never mints a fresh literal. The named tokens live in theme.css
@@ -262,10 +262,12 @@ One idiom for detail that opens in place:
   the warn triangle plus tone-coloured text, never a band nested inside the
   drawer card (`servers.tsx DrawerNoticeLine`; `dashboard.css .drawer-notice`).
   A crossed error threshold or an overrun budget keeps its line on the
-  collapsed surface and wears the error hue: the spend scale's error tier
-  repaints the degraded rule and its headline red while the stroke geometry
-  keeps carrying the rank
-  (`dashboard.css .row-diagnostic.sev-degraded.spend-error`). A closed
+  collapsed surface and paints the error tier - the same presentation a
+  blocking failure wears, because error-tier money reads as an error
+  everywhere it renders - while the severity, the pill, and the hidden tier
+  word keep carrying the rank
+  (`servers.tsx usageDiagnostics` sets the tone; the lift is
+  `problemBand.tsx bandTier`). A closed
   drawer keeps the gloss in the accessible tree - the
   meter's tone is colour, which a screen reader never gets
   (`servers.tsx drawerDiagnostics`).
@@ -392,29 +394,47 @@ One idiom for detail that opens in place:
 - Every member of a tone vocabulary carries comparable perceptual weight at the
   same nominal size: the warn triangle scales up because a triangle inside a
   circle's box reads a size smaller (`dashboard.css .pill.tone-warn .dot`), and
-  severity rides hue, wash, AND geometry so it survives a reader who cannot
-  separate red from amber (`dashboard.css .row-diagnostic`). Hue is the one
-  channel a second scale may repaint: the spend tier recolours a degraded
-  budget line red while the stroke geometry still carries the rank
-  (`dashboard.css .row-diagnostic.sev-degraded.spend-error`).
-- The severity rules rank by stroke geometry alone - 6px double, 2px solid,
-  1px dashed, the same in EVERY palette
-  (`dashboard.css .row-diagnostic.sev-blocking`,
-  `dashboard.css .row-diagnostic.sev-degraded`,
-  `dashboard.css .row-diagnostic.sev-advisory`): more ink and a different
-  shape per tier, so the ranking never asks hue or wash to carry it and
-  survives forced colors unchanged. Blocking is 6px because `double` cuts the
-  width into three equal parts: a 4px double is two ~1.33px antialiased
-  strands that read LIGHTER than degraded's crisp 2px solid - the loudest
-  tier rendering quietest - in ordinary themes exactly as under forced colors
-  (the derivation above `dashboard.css .row-diagnostic.sev-blocking`).
+  every problem band renders through ONE pipeline - `problemBand.tsx ProblemBand`
+  turns a severity, plus the spend scale's one tier lift, into the band's whole
+  presentation, and nothing else may mint the band classes
+  (`src/test/bun/webview/dashboard/problemBandPipeline.test.ts`), because three
+  hand-rolled band treatments once coexisted on one page as visible drift.
+- In color modes every toned band wears the SAME 2px solid bar, and the tier
+  rides hue plus the headline's text colour: error red for blocking failures
+  and error-tier money alike, warn amber for degraded
+  (`dashboard.css .row-diagnostic.tier-error`,
+  `dashboard.css .row-diagnostic.tier-warn`); the advisory tier keeps its
+  quieter 1px dash, no wash, and untinted text
+  (`dashboard.css .row-diagnostic.tier-advisory`). Two "error" treatments with
+  different bar weights on one page read as a mistake, not a rank: the ranking
+  lives in the order, the pill, and the hidden tier word, and the headline
+  alone takes the tier colour - detail lines stay muted everywhere a band
+  renders (`dashboard.css .row-diagnostic-detail`). Deliberate trade, named:
+  this spends the in-band geometry channel in color modes, so error against
+  warn there rides hue alone for a red/amber-blind reader - on server rows
+  the pill's one-shape-per-tone dot backstops the rank (section 4), and on
+  the Diagnostics page, which renders bare bands, the worst-first order and
+  the sentence itself carry it; the bordered modes below restore geometry
+  outright.
+- The bordered modes - forced colors, and the HC themes that never trip its
+  media query - re-rank the tiers by stroke geometry, because that is exactly
+  where hue and wash stop existing: 6px double over 2px solid over 1px dashed,
+  more ink and a different shape per step, restated in both spellings (the
+  `@media (forced-colors: active)` override and the
+  `body.vscode-high-contrast` twins on
+  `dashboard.css .row-diagnostic.tier-error`). The error tier is 6px because
+  `double` cuts the width into three equal parts: a 4px double is two ~1.33px
+  antialiased strands that read LIGHTER than the 2px solid below it - the
+  loudest tier rendering quietest. One compensation formula keeps every tier's
+  text on one x whatever width the rule takes
+  (`dashboard.css --band-x`).
 - The 2px state floor: a stroke that carries a state by itself never falls
   below 2px per strand, because thinner snaps to a hairline at some display
   densities - the muted ring meets it (`dashboard.css .pill.tone-muted .dot`),
-  as does each strand of blocking's double. A stroke under the floor carries
-  a state only as part of an ensemble beside its words: the advisory tier's
-  1px dash under its ranked sentence
-  (`dashboard.css .row-diagnostic.sev-advisory`).
+  as does each strand of the bordered error tier's double. A stroke under the
+  floor carries a state only as part of an ensemble beside its words: the
+  advisory tier's 1px dash under its ranked sentence
+  (`dashboard.css .row-diagnostic.tier-advisory`).
 - Under forced colors, author colour is not a channel: every state that must
   survive there carries at least one of width, weight, shape, spacing, or a
   system colour keyword. The keyword clause is not a hedge -
@@ -428,8 +448,8 @@ One idiom for detail that opens in place:
   (`servers.tsx DrawerNoticeLine`; `icons.tsx IconWarning`), the problem tone-text
   registers' wavy underline - the editor's own problem mark, worn by `.error`
   and `.state-warn`, never by `.state-ok`, because ok is not a problem
-  (`theme.css .state-warn`) - the severity rules'
-  stroke geometry (`dashboard.css .row-diagnostic.sev-blocking`), and the
+  (`theme.css .state-warn`) - the problem bands' bordered
+  geometry ranking (`dashboard.css .row-diagnostic.tier-error`), and the
   selected rail tab's Highlight edge bar
   (`dashboard.css .rail-nav .rail-tab[aria-selected="true"]`).
 - A visually-hidden string never repairs a visual defect: forced-colors and

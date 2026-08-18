@@ -233,7 +233,7 @@ test("a noticed entry states its inactive surfaces under its own row, not in a s
 	expect(line.textContent).toContain("per-server model parameters");
 	// Degraded, not advisory: the group may be serving this entry WITHOUT settings the user wrote, and advisory
 	// would also keep the row out of the summary count.
-	expect(line.classList.contains("sev-degraded")).toBe(true);
+	expect(line.classList.contains("tier-warn")).toBe(true);
 	expect(root.querySelector(".section-meta")?.textContent).toContain("1 needs attention");
 	// The remedy the retired banner spelled out survives on the line.
 	expect(line.textContent).toContain("chatLanguageModels.json");
@@ -1526,8 +1526,8 @@ test("an expected failure serving declared models reads Connected, and states th
 	expect(line?.textContent).toContain("Gateway");
 	// The entry declared this failure category and is serving through it, so
 	// nothing is wrong: quiet tier, and never the blocking one.
-	expect(line?.classList.contains("sev-advisory")).toBe(true);
-	expect(root.querySelector(".row-diagnostic.sev-blocking")).toBeNull();
+	expect(line?.classList.contains("tier-advisory")).toBe(true);
+	expect(root.querySelector(".row-diagnostic.tier-error")).toBeNull();
 	// It still says what the server said, for the reader who wants the cause.
 	expect(line?.textContent).toContain("404 on /models");
 });
@@ -1545,7 +1545,7 @@ test("an expected failure with nothing declared reads blocking and offers Declar
 	// Serving nothing at all is the definition of blocking: the tier is a promise about whether someone has to
 	// act, not a volume knob, and an expected CAUSE does not put models in the picker.
 	const line = root.querySelector(".row-diagnostic");
-	expect(line?.classList.contains("sev-blocking")).toBe(true);
+	expect(line?.classList.contains("tier-error")).toBe(true);
 	// The blocking tier's hidden rank word in this page's server subject (severityLabel); the spend suite pins
 	// the degraded word.
 	expect(line?.querySelector(".visually-hidden")?.textContent).toBe("Serving nothing: ");
@@ -1563,7 +1563,7 @@ test("an unserved model-info probe raises the quiet declare hint; the two-step c
 	// The models serve and the configuration applies as written, so this is the
 	// quiet tier - and stays out of the needs-attention count.
 	const line = root.querySelector(".row-diagnostic");
-	expect(line?.classList.contains("sev-advisory")).toBe(true);
+	expect(line?.classList.contains("tier-advisory")).toBe(true);
 	expect(line?.textContent).toContain("model-info probe never answers");
 	expect(line?.textContent).toContain('"expectedFailures": ["modelInfo"]');
 	expect(root.textContent).not.toContain("needs attention");

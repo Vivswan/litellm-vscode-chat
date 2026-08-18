@@ -28,6 +28,7 @@ import { DocsLink } from "./help";
 import { helpServersSection } from "./helpText";
 import { useIntentOutcome } from "./hooks";
 import { IconAdd, IconWarning } from "./icons";
+import { ProblemBand } from "./problemBand";
 import { capabilityIssueViews, type GroupIssueView, paramIssueViews, RecordMatcherTable } from "./recordEditors";
 import { troubleshootingLink } from "./serverEditPage";
 import { type DiagnosticSeverity, SEVERITY_ORDER, severityLabel } from "./severity";
@@ -126,13 +127,12 @@ interface CollapsedDiagnostic extends DiagnosticBase {
 }
 
 /**
- * A banded line whose tier comes from the user's usage.alertThresholds rather than the severity
- * ladder alone: past the error threshold (or past the budget) the degraded rule is repainted red,
- * USER-RULED (2026-08-17: error-tier money problems wear error colour everywhere they render).
- * Hue only - the severity keeps the ranking, the pill, and the hidden tier word, and the rule's
- * stroke geometry keeps carrying the rank. Degraded by construction, because that is the one
- * band the stylesheet repaints (`.row-diagnostic.sev-degraded.spend-error`); any other severity
- * would set a class no rule answers.
+ * A banded line whose paint tier comes from the user's usage.alertThresholds rather than the
+ * severity ladder alone: past the error threshold (or past the budget) the tone lifts the
+ * band to the error tier, USER-RULED (2026-08-17: error-tier money problems wear error
+ * colour everywhere they render). Paint only - the severity keeps the ranking, the pill,
+ * and the hidden tier word. Degraded by construction: a blocking line is already error-tier,
+ * and an advisory means nothing is wrong, so neither has a tone to lift.
  */
 interface SpendErrorDiagnostic extends DiagnosticBase {
 	readonly severity: "degraded";
@@ -670,26 +670,20 @@ function DiagnosticActions({ actions }: { actions: readonly DiagnosticAction[] }
 }
 
 /**
- * One problem, indented under the row that owns it. Rule colour and tint carry the severity
- * together (colour alone fails a red/amber-blind reader; tint alone cannot rank three
- * levels); neither reaches a screen reader, so the headline leads with the hidden tier word.
+ * One problem, indented under the row that owns it, through the one band pipeline: the
+ * severity ranks it, the spend tone may lift its paint tier, and ProblemBand turns that
+ * pair into the band's bar, hue, and headline text.
  */
 function ServerDiagnosticLine({ diagnostic }: { diagnostic: BandedDiagnostic }) {
 	return (
-		// "spend-error", not the generic .tone-error text utility: the class repaints the band's
-		// rule, wash, and headline through its own scoped rules.
-		<div className={cn(`row-diagnostic sev-${diagnostic.severity}`, diagnostic.tone === "error" && "spend-error")}>
-			<p className="row-diagnostic-headline">
-				<span className="visually-hidden">{severityLabel(diagnostic.severity, "server")} </span>
-				{diagnostic.headline}
-			</p>
-			{(diagnostic.details ?? []).map((detail) => (
-				<p key={detail} className="row-diagnostic-detail">
-					{detail}
-				</p>
-			))}
-			<DiagnosticActions actions={diagnostic.actions} />
-		</div>
+		<ProblemBand
+			severity={diagnostic.severity}
+			subject="server"
+			tone={diagnostic.tone}
+			headline={diagnostic.headline}
+			details={diagnostic.details}
+			actions={<DiagnosticActions actions={diagnostic.actions} />}
+		/>
 	);
 }
 

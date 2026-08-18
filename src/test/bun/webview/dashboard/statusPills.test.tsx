@@ -89,7 +89,7 @@ test("an ok row still carrying a sync error shows the warn tone, matching its ow
 	// The full error text stays visible and selectable under the row. A row that kept serving is degraded, not
 	// blocking, and the tone says so on both.
 	const diagnostic = root.querySelector(".row-diagnostic");
-	expect(diagnostic?.classList.contains("sev-degraded")).toBe(true);
+	expect(diagnostic?.classList.contains("tier-warn")).toBe(true);
 	expect(diagnostic?.textContent).toContain("the group upsert failed");
 	expect(diagnostic?.textContent).toContain("Prod");
 });
@@ -149,10 +149,13 @@ test("the pill's tone follows the row's worst diagnostic, so the dot and the lin
 		// and "no diagnostic" must not read as health.
 		{ server: makeDeclaredServer({ label: "Fresh", baseUrl: "http://g", state: "unchecked" }), tone: "tone-muted" },
 	];
-	const severityToTone: Readonly<Record<string, string>> = {
-		"sev-blocking": "tone-error",
-		"sev-degraded": "tone-warn",
-		"sev-advisory": "tone-ok",
+	// These rows carry no spend tone, so each band's paint tier maps 1:1 onto its
+	// severity; the spend tone's lift (a degraded band painted error-tier) is the
+	// one sanctioned divergence and has its own suite (serverSpend.test.tsx).
+	const tierToTone: Readonly<Record<string, string>> = {
+		"tier-error": "tone-error",
+		"tier-warn": "tone-warn",
+		"tier-advisory": "tone-ok",
 	};
 	for (const { server, tone } of cases) {
 		const root = mountSection([server]);
@@ -161,8 +164,8 @@ test("the pill's tone follows the row's worst diagnostic, so the dot and the lin
 		// And the line beneath it, where there is one, ranks the row identically.
 		const line = root.querySelector(".row-diagnostic");
 		if (line !== null) {
-			const severity = [...line.classList].find((name) => name.startsWith("sev-")) ?? "";
-			expect(severityToTone[severity], `${server.label} line ${severity}`).toBe(tone);
+			const tier = [...line.classList].find((name) => name.startsWith("tier-")) ?? "";
+			expect(tierToTone[tier], `${server.label} line ${tier}`).toBe(tone);
 		}
 		cleanup();
 	}

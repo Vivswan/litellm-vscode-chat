@@ -171,6 +171,9 @@ const THRESHOLDS_REFUSAL = `${THRESHOLDS_ROW} .setting-hint .setting-cover > spa
 const THRESHOLDS_GLYPH = `${THRESHOLDS_ROW} .setting-hint .setting-live button.help`;
 /** The first server row's home; its next sibling is the second row. */
 const FIRST_SERVER_ITEM = ".server-list > li.server-item:first-child";
+/** The locked-down row (servers-spend.ts's fifth server), whose band is the page's one warn-tier band. */
+const LOCKED_DOWN_ITEM = ".server-list > li.server-item:nth-child(5)";
+const LOCKED_DOWN_BAND = `${LOCKED_DOWN_ITEM} .row-diagnostic`;
 /** The chip whose popover is open - the one chip a state toggle can address across both measurements. */
 const OPEN_CHIP = ".chip-anchor:has(.chip-popover) > button.chip-field";
 /** The server edit form's first custom-header row (the only .row users on that page are the header rows). */
@@ -251,6 +254,27 @@ function reactType(selector: string, value: string): string {
  * intended presentation delta named in its comment and everything else held.
  */
 const STATE_PAIRS: readonly StatePair[] = [
+	{
+		// The band pipeline's one-geometry claim (problemBand.tsx): lifting a
+		// band's paint tier - warn to error, the spend lift - changes hue, wash,
+		// and headline text, but every toned tier wears the same 2px bar and the
+		// --band-x formula holds the text x, so neither the band nor the row
+		// below may move.
+		name: "problem-band-tier-lift",
+		fixture: "servers-spend.ts",
+		targets: [LOCKED_DOWN_BAND, LOCKED_DOWN_ITEM],
+		siblingOf: LOCKED_DOWN_ITEM,
+		toggle: [
+			`document.querySelector(${JSON.stringify(LOCKED_DOWN_BAND)}).classList.replace("tier-warn", "tier-error")`,
+		],
+		restVerify:
+			`(() => { const band = document.querySelector(${JSON.stringify(LOCKED_DOWN_BAND)}); ` +
+			// The label check pins the nth-child guess to the row it means: another
+			// warn band drifting into fifth place must fail here, not measure wrongly.
+			`return band !== null && band.classList.contains("tier-warn") && ` +
+			`band.textContent.includes("locked-down"); })()`,
+		verify: `document.querySelector(${JSON.stringify(LOCKED_DOWN_BAND)}).classList.contains("tier-error")`,
+	},
 	{
 		// Marking a settings row modified may change the gutter border's COLOR and
 		// reveal the Reset action (opacity only); the row's box and the row below

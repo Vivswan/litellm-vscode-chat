@@ -870,18 +870,15 @@
 		overflow-wrap: anywhere;
 	}
 	/* ---- a row's problems --------------------------------------------------
-	   Indented under the row that owns them, behind a severity rule. The rule's
-	   colour and the tint move together: colour alone excludes anyone who cannot
-	   separate red from amber, and a tint alone is too weak to rank three
-	   levels, so blocking and advisory differ in both. */
-	/* Severity rides three channels - hue, wash, and the rule's own weight and
-		   style - but only the RULE can rank alone. Hue fails the reader who
-		   cannot separate red from amber, and the washes fail everyone: measured
-		   composited they sit ~1.01:1 apart in dark and ~1.05:1 in light, one
-		   wash to any eye, there to say "toned" rather than to say which tone.
-		   So the rule's geometry (6px double / 2px solid / 1px dashed) carries
-		   the ranking by itself, in every palette and under forced colors, where
-		   hue and wash stop existing entirely. */
+	   Indented under the row that owns them, behind a tier rule. ONE presentation
+	   pipeline: problemBand.tsx mints `.row-diagnostic.tier-*` and these rules
+	   turn the tier into bar, hue, wash, and headline text - nothing else may
+	   paint a band (problemBandPipeline.test.ts). In color modes every toned band
+	   wears the SAME 2px solid bar and the tier rides hue plus headline text:
+	   error red, warn amber - two "error" treatments with different bar weights
+	   on one page read as a mistake, not a rank (the ranking itself lives in the
+	   order, the pill, and the hidden tier word). The bordered modes below
+	   re-rank by stroke geometry, where hue stops existing. */
 	.row-diagnostic {
 		grid-column: 1 / -1;
 		/* It spans every track the list shares, so - exactly like the row's second
@@ -892,69 +889,74 @@
 		overflow-wrap: anywhere;
 		/* The accent-rail geometry (.model-detail's comment): rail 8px in,
 			 right edge on the list's own, the shared radius token. */
+		/* One compensation formula instead of a padding per tier and width: the
+			 rule plus the left padding always sum to --band-x, so every tier starts
+			 its text on one x whatever width the rule takes - including the
+			 bordered modes' 6px double, which would otherwise need its own padding
+			 at every width tier. */
+		--band-x: 14px;
+		--band-rule-w: 2px;
+		--band-rule-style: solid;
+		--band-rule-color: var(--vscode-descriptionForeground);
 		margin: 2px 0 6px 8px;
-		padding: 6px 10px;
-		border-left: 2px solid var(--vscode-descriptionForeground);
+		padding: 6px 10px 6px calc(var(--band-x) - var(--band-rule-w));
+		border-left: var(--band-rule-w) var(--band-rule-style) var(--band-rule-color);
 		border-radius: 0 var(--radius) var(--radius) 0;
 	}
-	/* Double, not merely thicker, and 6px in EVERY palette: the washes cannot rank the two
-	   tiers (composited 1.01:1 apart in dark), so the rule is the ranking channel. A 4px
-	   double is a broken rung - `double` cuts the width into three, so 4px yields two
-	   ~1.33px antialiased strands reading LIGHTER than degraded's crisp 2px solid. 6px
-	   gives two crisp 2px strokes: more ink AND a different shape, surviving forced
-	   colours and any palette. */
-	.row-diagnostic.sev-blocking {
-		border-left: 6px double var(--err-fill);
-		background: color-mix(in srgb, var(--err) 10%, transparent);
-		padding-left: 8px;
+	/* The toned tiers set hue, wash, and headline text ONLY - never geometry: one
+	   bar weight is the whole point, and the washes sit one step from invisible
+	   anyway (composited ~1.01:1 apart in dark), there to say "toned", not to
+	   rank. Blocking failures and error-tier money wear this identically. */
+	.row-diagnostic.tier-error {
+		--band-rule-color: var(--err-fill);
+		background: color-mix(in srgb, var(--err) 8%, transparent);
 	}
-	/* padding-left absorbs the rule-width difference (6px double vs 2px vs
-		   1px), so all three tiers start their text on one x. The rules keep one
-		   shared edge because the margin stays constant; without the compensation
-		   the content edge tracked severity for no informational reason. */
-	.row-diagnostic.sev-degraded {
-		border-left: 2px solid var(--warn-fill);
-		background: color-mix(in srgb, var(--warn) 7%, transparent);
-		padding-left: 12px;
-	}
-	/* The spend scale's error tier on a degraded line (over budget, or past the
-	   user's error threshold): the hue says error-tier money while the 2px solid
-	   rule keeps saying degraded - the stroke geometry ranks, hue never does (the
-	   note above). The wash stays at degraded's 7%, so the tier's ink still sits
-	   below blocking's 6px double over 10%. */
-	.row-diagnostic.sev-degraded.spend-error {
-		border-left-color: var(--err-fill);
-		background: color-mix(in srgb, var(--err) 7%, transparent);
-	}
-	/* The sentence wears the readable error tier too (user-ruled: error-tier money
-	   reads red everywhere it renders), matching the drawer notice's toned text;
-	   the detail lines keep their own muted colour. Forced colors flattens this
-	   with every other hue - there the 2px rule and the hidden tier word carry it. */
-	.row-diagnostic.sev-degraded.spend-error .row-diagnostic-headline {
+	.row-diagnostic.tier-error .row-diagnostic-headline {
 		color: var(--err-text);
 	}
-	/* The quiet tier: nothing is wrong, so it gets no wash at all - an advisory
-		   tinted like a warning is how a page teaches its reader to ignore
-		   warnings. It still needs a rule anyone can SEE, though: the border token
-		   it used to read measured 1.27:1 against its own background, under the
-		   3:1 a graphical object needs, which made the quiet tier quietly
-		   invisible. The description foreground is a text token, so it clears that
-		   with room, and the dashed 1px keeps it unmistakably the lightest of the
-		   three without needing colour to say so. */
-	.row-diagnostic.sev-advisory {
-		border-left: 1px dashed var(--vscode-descriptionForeground);
-		background: transparent;
-		padding-left: 13px;
+	.row-diagnostic.tier-warn {
+		--band-rule-color: var(--warn-fill);
+		background: color-mix(in srgb, var(--warn) 8%, transparent);
 	}
-	/* Forced colours discard every background, so the washes above stop existing
-		   and the rules all resolve to the same system colour. The rules' weight
-		   and style already rank the tiers on their own (the geometry above is the
-		   same in every palette); GrayText is the one hint the mode itself offers
-		   for "this one matters least". */
+	.row-diagnostic.tier-warn .row-diagnostic-headline {
+		color: var(--warn-text);
+	}
+	/* The quiet tier: nothing is wrong, so it gets no wash and no toned text -
+		 an advisory tinted like a warning is how a page teaches its reader to
+		 ignore warnings. It still needs a rule anyone can SEE: the description
+		 foreground is a text token, so it clears the 3:1 a graphical object
+		 needs, and the dashed 1px keeps it unmistakably the lightest tier
+		 without asking colour to say so. */
+	.row-diagnostic.tier-advisory {
+		--band-rule-w: 1px;
+		--band-rule-style: dashed;
+		background: transparent;
+	}
+	/* The bordered modes: forced colors discards hue, wash, and the toned
+		 headline outright, and a high-contrast theme keeps hue only barely -
+		 exactly the readers the one-bar color mapping abandons. Here the rank
+		 rides stroke geometry instead: 6px double over 2px solid over 1px dashed,
+		 more ink AND a different shape per step. 6px, never 4: `double` cuts the
+		 width into three, so a 4px double is two ~1.33px antialiased strands
+		 reading LIGHTER than the 2px solid below it. The padding formula above
+		 absorbs the width change at every size tier. */
 	@media (forced-colors: active) {
-		.row-diagnostic.sev-advisory {
-			border-left-color: GrayText;
+		.row-diagnostic.tier-error {
+			--band-rule-w: 6px;
+			--band-rule-style: double;
 		}
+		/* GrayText is the one hint the mode itself offers for "matters least". */
+		.row-diagnostic.tier-advisory {
+			--band-rule-color: GrayText;
+		}
+	}
+	/* The high-contrast twins: VS Code's HC themes never trip the forced-colors
+		 query, so the geometry ranking is restated for them (theme.css's twin
+		 pattern). */
+	body.vscode-high-contrast .row-diagnostic.tier-error,
+	body.vscode-high-contrast-light .row-diagnostic.tier-error {
+		--band-rule-w: 6px;
+		--band-rule-style: double;
 	}
 	.row-diagnostic-headline {
 		margin: 0;
@@ -3756,20 +3758,11 @@
 		}
 		/* Tighter under a two-line row: the paddings were sized against a
 		 one-line row above them (the 8px rail indent is the base rule's at
-		 every tier). The per-tier padding-left keeps absorbing the rule-width
-		 difference at this size too, against this tier's 8px base. */
+		 every tier). --band-x restates the text x for this size and the base
+		 rule's calc keeps absorbing whatever width the rule takes here too. */
 		.row-diagnostic {
-			padding: 5px 8px;
-		}
-		.row-diagnostic.sev-degraded {
-			padding-left: 10px;
-		}
-		.row-diagnostic.sev-advisory {
-			padding-left: 11px;
-		}
-		/* The 6px blocking rule against this tier's 8px base. */
-		.row-diagnostic.sev-blocking {
-			padding-left: 6px;
+			--band-x: 12px;
+			padding: 5px 8px 5px calc(var(--band-x) - var(--band-rule-w));
 		}
 		.server-drawer {
 			padding: 8px 10px 10px;

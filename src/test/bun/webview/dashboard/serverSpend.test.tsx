@@ -420,7 +420,7 @@ describe("the usage diagnostics", () => {
 		});
 		const root = mountServers(usage);
 		const line = root.querySelector(".row-diagnostic") as HTMLElement;
-		expect(line.classList.contains("sev-degraded")).toBe(true);
+		expect(line.classList.contains("tier-warn")).toBe(true);
 		expect(line.textContent).toContain("Usage is unavailable for Prod: this key isn't allowed to read its usage.");
 		expect(line.textContent).toContain("Ask whoever issued the key");
 		const details = Array.from(line.querySelectorAll(".row-diagnostic-detail")).map((node) => node.textContent ?? "");
@@ -464,7 +464,7 @@ describe("the usage diagnostics", () => {
 		});
 		const root = mountServers(usage);
 		const line = root.querySelector(".row-diagnostic") as HTMLElement;
-		expect(line.classList.contains("sev-degraded")).toBe(true);
+		expect(line.classList.contains("tier-warn")).toBe(true);
 		expect(line.textContent).toContain("Prod can't read request statistics");
 		// The real status rides through - a 401 must not render as a hardcoded 403.
 		expect(line.textContent).toContain("LiteLLM /user/daily/activity: HTTP 401");
@@ -487,7 +487,7 @@ describe("the usage diagnostics", () => {
 		});
 		const root = mountServers(usage);
 		const line = root.querySelector(".row-diagnostic") as HTMLElement;
-		expect(line.classList.contains("sev-degraded")).toBe(true);
+		expect(line.classList.contains("tier-warn")).toBe(true);
 		expect(line.textContent).toContain("Prod can't read its spend");
 		expect(line.textContent).toContain("LiteLLM /key/info: HTTP 401");
 		expect(textOf(root, ".section-meta")).toContain("1 needs attention");
@@ -508,7 +508,7 @@ describe("the usage diagnostics", () => {
 		});
 		const root = mountServers(usage);
 		const line = root.querySelector(".row-diagnostic") as HTMLElement;
-		expect(line.classList.contains("sev-advisory")).toBe(true);
+		expect(line.classList.contains("tier-advisory")).toBe(true);
 		expect(line.textContent).toContain("Prod's spend numbers didn't refresh");
 		expect(line.textContent).toContain("retries automatically with increasing delay");
 		expect(textOf(line, ".row-diagnostic-detail")).toBe("LiteLLM /key/info: HTTP 429 on the last attempt");
@@ -555,17 +555,16 @@ describe("the usage diagnostics", () => {
 		});
 		const root = mountServers(usage, [prodServer(), prodServer({ label: "Gateway", baseUrl: "http://gw.test" })]);
 		const lines = Array.from(root.querySelectorAll(".row-diagnostic")).map((line) => ({
-			severity: [...line.classList].find((name) => name.startsWith("sev-")),
-			errorTone: line.classList.contains("spend-error"),
+			tier: [...line.classList].find((name) => name.startsWith("tier-")),
 			text: (line.textContent ?? "").trim(),
 		}));
 		expect(lines).toEqual([
 			// The leading tier word is the shared severity vocabulary's hidden label
 			// (severityLabel): colour and geometry cannot reach a screen reader.
 			// Gateway's warn-tier sentence waits in the drawer (user-ruled placement).
-			// Over budget is past any error threshold, so the line wears the error
-			// hue (user-ruled) while the severity - the rank - stays degraded.
-			{ severity: "sev-degraded", errorTone: true, text: "Action needed: Prod is over its budget by $3.00." },
+			// Over budget is past any error threshold, so the band paints the error
+			// tier (user-ruled) while the severity - the rank - stays degraded.
+			{ tier: "tier-error", text: "Action needed: Prod is over its budget by $3.00." },
 		]);
 		// The pill and the attention count still read the FULL ranked list -
 		// only the sentence moved.
@@ -605,10 +604,10 @@ describe("the usage diagnostics", () => {
 		const root = mountServers(usage);
 		const line = root.querySelector(".row-diagnostic") as HTMLElement;
 		expect((line.textContent ?? "").trim()).toBe("Action needed: Prod is close to its budget: $1.50 left.");
-		// The same classifier as the meter: past the error threshold the line is
-		// error-toned (red) even though the rank - and the tier word - stay degraded.
-		expect(line.classList.contains("sev-degraded")).toBe(true);
-		expect(line.classList.contains("spend-error")).toBe(true);
+		// The same classifier as the meter: past the error threshold the band
+		// paints the error tier (the same paint as a blocking failure) even though
+		// the rank - and the tier word - stay degraded.
+		expect(line.classList.contains("tier-error")).toBe(true);
 	});
 
 	test("the warn-tier drawer line never wears the error hue", () => {

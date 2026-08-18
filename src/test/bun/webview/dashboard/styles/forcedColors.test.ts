@@ -436,27 +436,21 @@ const SEPARATING_FILLS: readonly SeparatingFill[] = [
 		disposition: { kind: "insideBorder", why: "the same accent rail as .model-detail, the idiom's one geometry" },
 	},
 	{
-		selector: ".row-diagnostic.sev-blocking",
-		declaration: "background: color-mix(in srgb, var(--err) 10%, transparent)",
+		selector: ".row-diagnostic.tier-error",
+		declaration: "background: color-mix(in srgb, var(--err) 8%, transparent)",
 		count: 1,
 		disposition: {
 			kind: "insideBorder",
-			why: "the severity rules' geometry (6px double against 2px solid against 1px dashed) ranks the tiers alone by design; the wash only says toned, and the rules' own comment already plans for the mode discarding it",
+			why: "the wash only says toned; under forced colors the band pipeline's bordered override re-ranks the tiers by stroke geometry (6px double over 2px solid over 1px dashed), so the discarded wash carries nothing",
 		},
 	},
 	{
-		selector: ".row-diagnostic.sev-degraded",
-		declaration: "background: color-mix(in srgb, var(--warn) 7%, transparent)",
-		count: 1,
-		disposition: { kind: "insideBorder", why: "the same ladder's middle rung: the 2px solid rule carries the rank" },
-	},
-	{
-		selector: ".row-diagnostic.sev-degraded.spend-error",
-		declaration: "background: color-mix(in srgb, var(--err) 7%, transparent)",
+		selector: ".row-diagnostic.tier-warn",
+		declaration: "background: color-mix(in srgb, var(--warn) 8%, transparent)",
 		count: 1,
 		disposition: {
 			kind: "insideBorder",
-			why: "the middle rung's error-hue repaint (over budget, or past the error threshold): same 2px solid rule, same wash weight, only the hue changed - the geometry keeps ranking where the mode discards both",
+			why: "the same band pipeline's middle tier: the 2px solid rule survives and the bordered geometry ranking places it under error's 6px double",
 		},
 	},
 	{
