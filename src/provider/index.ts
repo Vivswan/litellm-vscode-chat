@@ -434,6 +434,9 @@ export class LiteLLMChatModelProvider implements LanguageModelChatProvider<LiteL
 		}
 		// The same capability gates the chat path sends under, so the host's
 		// budget prices the same transmitted forms the request would carry.
+		// Known overcount: pricing one message at a time synthesizes the
+		// tool-image lead-in per message where the real request emits it once
+		// per turn (~10 tokens, the safe direction).
 		const metadata = parseModelMetadata(model, (message, data) => this.log(message, data));
 		return estimateMessagesTokens([text], {
 			imageInput: metadata.imageInput,

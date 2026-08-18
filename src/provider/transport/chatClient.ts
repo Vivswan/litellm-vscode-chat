@@ -12,7 +12,7 @@ import {
 } from "../../shared/config/settings";
 import { convertMessages } from "../../shared/conversion/messages";
 import { applyPromptCacheBreakpoints } from "../../shared/conversion/promptCache";
-import { estimateMessagesTokens, estimateToolTokens } from "../../shared/conversion/tokenEstimation";
+import { estimateToolTokens, estimateWireMessagesTokens } from "../../shared/conversion/tokenEstimation";
 import { convertTools } from "../../shared/conversion/tools";
 import type { Logger } from "../../shared/logger";
 import { chatErrorMessage, englishChatErrorMessage, localizedError } from "../../shared/mirroredError";
@@ -297,12 +297,11 @@ export class ChatClient {
 		const customHeaders = this.customHeadersFor(connection.entryLabel, connection.baseUrl);
 		const apiVersion = this.apiVersionFor(connection.entryLabel, connection.baseUrl);
 		const requestTimeout = getRequestTimeout(this.log);
-		// Capability gates for message conversion and token estimation: the
-		// registered imageInput capability decides whether image DataParts ride
-		// the wire, and the LiteLLM-derived audio metadata decides whether audio
-		// DataParts become input_audio. The pre-send limit check below prices the
-		// prompt under the same gates, so it counts the same transmitted forms
-		// the request carries.
+		// Capability gates for message conversion: the registered imageInput
+		// capability decides whether image DataParts ride the wire, and the
+		// LiteLLM-derived audio metadata decides whether audio DataParts become
+		// input_audio. The pre-send limit check below prices this conversion's
+		// output, so it counts the same transmitted forms the request carries.
 		const wireGates = { imageInput: metadata.imageInput, audioInput: metadata.supportsAudioInput };
 		const converted = convertMessages(messages, { log: this.log, ...wireGates });
 		validateRequest(messages);
@@ -329,7 +328,10 @@ export class ChatClient {
 				? applyPromptCacheBreakpoints({ messages: converted, tools: toolConfig?.tools })
 				: { messages: converted, tools: toolConfig?.tools };
 
-		const inputTokenCount = estimateMessagesTokens(messages, wireGates);
+		// Price the very message array the request sends, never a second
+		// conversion of the same input; cache_control markers are token-neutral.
+		// Tools price unmarked: a marker would be JSON.stringified as content.
+		const inputTokenCount = estimateWireMessagesTokens(openaiMessages);
 		const toolTokenCount = estimateToolTokens(toolConfig?.tools);
 		const tokenLimit = Math.max(1, model.maxInputTokens);
 		if (inputTokenCount + toolTokenCount > tokenLimit) {

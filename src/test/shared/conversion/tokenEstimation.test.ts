@@ -1,14 +1,17 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import { dataPartWireForm } from "../../../shared/conversion/dataPartForm";
+import { applyPromptCacheBreakpoints } from "../../../shared/conversion/promptCache";
 import { CHARS_PER_TOKEN } from "../../../shared/conversion/textTokens";
 import {
 	AUDIO_TOKEN_ESTIMATE,
 	estimateMessagesTokens,
 	estimateToolTokens,
+	estimateWireMessagesTokens,
 	IMAGE_TOKEN_ESTIMATE,
 	PDF_TOKEN_ESTIMATE,
 } from "../../../shared/conversion/tokenEstimation";
+import type { OpenAIChatMessage } from "../../../shared/conversion/wire";
 
 const fullMultimodal = { imageInput: true, audioInput: true };
 const visionOnly = { imageInput: true, audioInput: false };
@@ -317,6 +320,33 @@ suite("shared/conversion/tokenEstimation", () => {
 		];
 		assert.strictEqual(estimateMessagesTokens(messages, visionOnly), textTokens("describe") + IMAGE_TOKEN_ESTIMATE);
 		assert.strictEqual(estimateMessagesTokens(messages, textOnly), textTokens("describe"));
+	});
+
+	test("cache_control markers are token-neutral across all three marker kinds", () => {
+		// The chat path prices the cache-marked array it sends, so every marker
+		// placement must leave the count unchanged: the string-content wrap, the
+		// block-level marker, and the tool-role message-level marker.
+		const wire: OpenAIChatMessage[] = [
+			{ role: "system", content: "You are helpful." },
+			{
+				role: "user",
+				content: [
+					{ type: "text", text: "describe" },
+					{ type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } },
+				],
+			},
+			{
+				role: "assistant",
+				content: "calling a tool",
+				tool_calls: [{ id: "call_1", type: "function", function: { name: "search", arguments: '{"q":"x"}' } }],
+				thinking_blocks: [{ type: "thinking", thinking: "thinking text", signature: "sig" }],
+			},
+			{ role: "tool", tool_call_id: "call_1", content: "tool output" },
+		];
+		const marked = applyPromptCacheBreakpoints({ messages: wire }).messages;
+		const markers = JSON.stringify(marked).match(/cache_control/g) ?? [];
+		assert.strictEqual(markers.length, 3, "system, first-user, and rolling tool anchors must all mark");
+		assert.strictEqual(estimateWireMessagesTokens(marked), estimateWireMessagesTokens(wire));
 	});
 
 	test("assistant-history binary DataParts price as dropped; decoded text still counts", () => {

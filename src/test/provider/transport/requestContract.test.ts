@@ -6,6 +6,9 @@ import { attachGroupServer } from "../../../provider/catalog/groupModels";
 import { ChatClient } from "../../../provider/transport/chatClient";
 import { resolveModelParameters } from "../../../shared/config/parameterResolution";
 import { getModelParametersConfig } from "../../../shared/config/settings";
+import { convertMessages } from "../../../shared/conversion/messages";
+import { estimateWireMessagesTokens } from "../../../shared/conversion/tokenEstimation";
+import type { OpenAIChatMessage } from "../../../shared/conversion/wire";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import {
 	CHAT_COMPLETIONS_URL,
@@ -1252,6 +1255,38 @@ suite("provider/request contract", () => {
 				/token limit exceeded before send/
 			);
 			assert.deepStrictEqual(requests, [], "Over-limit requests must be rejected before any network call");
+		});
+
+		test("the pre-send estimate prices exactly the message array the request sends", async () => {
+			// The sandwich pins the budget to the wire array: at a limit equal to
+			// the estimate the request ships and its recorded messages price back
+			// to that number; one token lower rejects unsent. Any pass that alters
+			// the array between pricing and sending breaks one of the two legs.
+			const messages = [userMessage("first message, some words"), userMessage("and a second one")];
+			const expected = estimateWireMessagesTokens(convertMessages(messages, { imageInput: false, audioInput: false }));
+			const body = await captureRequestBody(
+				makeProvider(TEST_BASE_URL),
+				makeModelInfo({ maxInputTokens: expected }),
+				{ toolMode: vscode.LanguageModelChatToolMode.Auto },
+				{ messages }
+			);
+			assert.strictEqual(
+				estimateWireMessagesTokens(body.messages as OpenAIChatMessage[]),
+				expected,
+				"the sent messages must price back to the pre-send estimate"
+			);
+			const requests = trackUnexpectedRequests();
+			await assert.rejects(
+				makeProvider(TEST_BASE_URL).provideLanguageModelChatResponse(
+					attachGroupServer(makeModelInfo({ maxInputTokens: expected - 1 }), testGroupServer()),
+					messages,
+					{ toolMode: vscode.LanguageModelChatToolMode.Auto } as vscode.ProvideLanguageModelChatResponseOptions,
+					{ report: () => {} },
+					new vscode.CancellationTokenSource().token
+				),
+				new RegExp(`local estimate ${expected} tokens \\(messages \\+ tools\\), input limit ${expected - 1}`)
+			);
+			assert.deepStrictEqual(requests, [], "one token under the estimate must reject before any network call");
 		});
 
 		test("rejects requests with more than 128 tools without sending a request", async () => {

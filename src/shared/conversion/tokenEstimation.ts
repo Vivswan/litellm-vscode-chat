@@ -84,23 +84,32 @@ function wireMessageTokens(message: OpenAIChatMessage): number {
 }
 
 /**
+ * Price an already-converted request: transmitted text through the installed
+ * counter, binary blocks at their fixed estimates. Callers that hold the
+ * array they send price that very array, so conversion runs once per request.
+ * Wire scaffolding (roles, ids, JSON punctuation) and `cache_control` markers
+ * are deliberately unpriced.
+ */
+export function estimateWireMessagesTokens(messages: readonly OpenAIChatMessage[]): number {
+	let total = 0;
+	for (const message of messages) {
+		total += wireMessageTokens(message);
+	}
+	return total;
+}
+
+/**
  * Price the request by converting the messages and pricing what conversion
- * emits: transmitted text through the installed counter, binary blocks at
- * their fixed estimates. The one walk over message parts is conversion's own,
- * so the estimate cannot disagree with the transmitted text; when a second
- * walk drifted, the budget undercounted, the host skipped trimming, and the
- * request overflowed server-side. Wire scaffolding (roles, ids, JSON
- * punctuation) is deliberately unpriced.
+ * emits. The one walk over message parts is conversion's own, so the estimate
+ * cannot disagree with the transmitted text; when a second walk drifted, the
+ * budget undercounted, the host skipped trimming, and the request overflowed
+ * server-side.
  */
 export function estimateMessagesTokens(
 	msgs: readonly vscode.LanguageModelChatRequestMessage[],
 	options: TokenEstimationOptions
 ): number {
-	let total = 0;
-	for (const message of convertMessages(msgs, options)) {
-		total += wireMessageTokens(message);
-	}
-	return total;
+	return estimateWireMessagesTokens(convertMessages(msgs, options));
 }
 
 export function estimateToolTokens(tools: readonly OpenAIFunctionToolDef[] | undefined): number {
