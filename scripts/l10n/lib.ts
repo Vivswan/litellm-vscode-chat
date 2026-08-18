@@ -336,8 +336,8 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"pillVerdict",
 	"neverUpdatedText",
 	"stalenessText",
-	"spendUnknownText",
-	"requestsMissingText",
+	"spendMissingReason",
+	"requestsMissingReason",
 	"serversMeta",
 	"entryInactiveFixText",
 	// Thunk-table resolver, hand-registered (see the census limit above).

@@ -1079,7 +1079,6 @@
  "the settings-migration guide": "设置迁移指南",
  "the usage and budgets guide": "用量与预算指南",
  "the window reports no prompt tokens": "该时间窗口未报告提示 token",
- "this key can't read its own spend - ask whoever issued it to allow /key/info, then use Refresh now": "此密钥无法读取自身的消费数据 - 请让颁发者允许 /key/info, 然后使用「立即刷新」",
  "this key isn't allowed to read its spend": "此密钥无权读取其消费数据",
  "this key isn't allowed to read request statistics on this server": "此密钥无权读取此服务器上的请求统计数据",
  "this label is already in use": "此标签已被使用",

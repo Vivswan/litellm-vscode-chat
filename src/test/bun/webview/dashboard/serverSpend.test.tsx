@@ -4,7 +4,12 @@
  * reason, never a zero), the diagnostics tiers, the meta summary, the refresh gate.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { DashboardServer, DashboardUsage, UsageServerView } from "../../../../dashboard/viewModels";
+import type {
+	DashboardServer,
+	DashboardUsage,
+	UsageForbiddenServerView,
+	UsageServerView,
+} from "../../../../dashboard/viewModels";
 import { ServersSection } from "../../../../webview/dashboard/servers";
 import { makeDeclaredServer, makeForbiddenUsageServer, makeUsage, makeUsageServer } from "../fixtures";
 import {
@@ -379,6 +384,51 @@ describe("the drawer", () => {
 		expect(factOf(mixedRow, "Requests, 30 days")).toContain("this key isn't allowed to read request statistics");
 	});
 
+	test("both drawers' missing-number reasons come from the one standing-to-reason map", () => {
+		// One map per fact for BOTH drawers (reporting and denied): for every standing the two
+		// must answer word for word, so the prose cannot fork per drawer again - the forbidden
+		// spend wording had already drifted between them once.
+		const spendReasonOf = (root: ParentNode) => factOf(openRow(root), "Spend");
+		const requestsReasonOf = (root: ParentNode) => factOf(openRow(root), "Requests, 30 days");
+		const normal = (overrides: Partial<UsageServerView>) =>
+			mountServers(
+				makeUsage({
+					servers: [makeUsageServer({ label: "Prod", spend: undefined, requests: undefined, ...overrides })],
+				})
+			);
+		const denied = (overrides: Partial<UsageForbiddenServerView>) =>
+			mountServers(
+				makeUsage({
+					servers: [makeForbiddenUsageServer({ label: "Prod", baseUrl: "http://localhost:4000", ...overrides })],
+				})
+			);
+		const forbidden = { kind: "unavailable", reason: "forbidden", status: 403 } as const;
+		const unsupported = { kind: "unavailable", reason: "unsupported", status: 404 } as const;
+
+		// The reconciled forbidden spend clause: a lowercase dash annotation, remedy-free (the
+		// remedy lives in the row's diagnostic), identical in both drawers.
+		const forbiddenSpend = spendReasonOf(normal({ keyInfo: forbidden }));
+		expect(forbiddenSpend).toContain("this key isn't allowed to read its spend");
+		expect(forbiddenSpend).not.toContain("ask whoever issued");
+		cleanup();
+		expect(spendReasonOf(denied({ keyInfo: forbidden }))).toBe(forbiddenSpend);
+		cleanup();
+
+		const unsupportedSpend = spendReasonOf(normal({ keyInfo: unsupported }));
+		cleanup();
+		expect(spendReasonOf(denied({ keyInfo: unsupported }))).toBe(unsupportedSpend);
+		cleanup();
+
+		const forbiddenRequests = requestsReasonOf(normal({ dailyActivity: forbidden }));
+		cleanup();
+		expect(requestsReasonOf(denied({ dailyActivity: forbidden }))).toBe(forbiddenRequests);
+		cleanup();
+
+		const unsupportedRequests = requestsReasonOf(normal({ dailyActivity: unsupported }));
+		cleanup();
+		expect(requestsReasonOf(denied({ dailyActivity: unsupported }))).toBe(unsupportedRequests);
+	});
+
 	test("an external row's drawer carries the provenance story the badge used to hide in a tip", () => {
 		const root = mount(
 			<ServersSection
@@ -544,6 +594,62 @@ describe("the usage diagnostics", () => {
 		);
 		expect(detail).toContain("timed out after 45000ms");
 		expect(detail).toContain("discovery.timeout");
+	});
+
+	test("every endpoint detail line renders exactly once across the row - never doubled, never dropped", () => {
+		// The drawer prints only the details the diagnostics report NOT carrying, so a changed
+		// emission condition either doubles a "LiteLLM <path>" line or drops it - this sweep
+		// fails on both, for every diagnostic-emitting standing combination.
+		const keyInfoCases: readonly { readonly standing: UsageServerView["keyInfo"]; readonly lines: number }[] = [
+			{ standing: { kind: "ok" }, lines: 0 },
+			{ standing: { kind: "unknown" }, lines: 0 },
+			// The drawer's inventory detail.
+			{ standing: { kind: "unavailable", reason: "unsupported", status: 404 }, lines: 1 },
+			// The spend-denied diagnostic's detail.
+			{ standing: { kind: "unavailable", reason: "forbidden", status: 403 }, lines: 1 },
+			// The advisory refresh-failure diagnostic's detail.
+			{ standing: { kind: "error", status: 500, classification: "http" }, lines: 1 },
+		];
+		const activityCases: readonly { readonly standing: UsageServerView["dailyActivity"]; readonly lines: number }[] = [
+			{ standing: { kind: "ok" }, lines: 0 },
+			// No detail at all: the Requests fact's own reason covers it.
+			{ standing: { kind: "unavailable", reason: "unsupported", status: 404 }, lines: 0 },
+			// The statistics-denied diagnostic's detail.
+			{ standing: { kind: "unavailable", reason: "forbidden", status: 403 }, lines: 1 },
+			// The drawer's inventory detail.
+			{ standing: { kind: "error", status: 502, classification: "http" }, lines: 1 },
+		];
+		const count = (text: string, needle: string) => text.split(needle).length - 1;
+		for (const keyInfo of keyInfoCases) {
+			for (const dailyActivity of activityCases) {
+				const usage = makeUsage({
+					servers: [
+						makeUsageServer({ label: "Prod", keyInfo: keyInfo.standing, dailyActivity: dailyActivity.standing }),
+					],
+				});
+				const text = openRow(mountServers(usage)).textContent ?? "";
+				const which = `${JSON.stringify(keyInfo.standing)} + ${JSON.stringify(dailyActivity.standing)}`;
+				expect(count(text, "LiteLLM /key/info"), which).toBe(keyInfo.lines);
+				expect(count(text, "LiteLLM /user/daily/activity"), which).toBe(dailyActivity.lines);
+				cleanup();
+			}
+		}
+		// The whole-card denial carries both details on its one diagnostic; nothing re-prints them.
+		const deniedCards = [
+			makeForbiddenUsageServer({ label: "Prod", baseUrl: "http://localhost:4000" }),
+			makeForbiddenUsageServer({
+				label: "Prod",
+				baseUrl: "http://localhost:4000",
+				keyInfo: { kind: "unavailable", reason: "unsupported", status: 404 },
+				dailyActivity: { kind: "unavailable", reason: "forbidden", status: 403 },
+			}),
+		];
+		for (const card of deniedCards) {
+			const text = openRow(mountServers(makeUsage({ servers: [card] }))).textContent ?? "";
+			expect(count(text, "LiteLLM /key/info")).toBe(1);
+			expect(count(text, "LiteLLM /user/daily/activity")).toBe(1);
+			cleanup();
+		}
 	});
 
 	test("budget pressure splits by the user's thresholds: error-tier lines stay collapsed, warn-tier moves to the drawer", () => {

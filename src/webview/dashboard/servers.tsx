@@ -10,6 +10,7 @@ import type {
 	ExternalDashboardServer,
 	HiddenGroup,
 	InactiveEntryNotice,
+	UsageEndpointStandingView,
 	UsageForbiddenServerView,
 	UsageServerCardView,
 	UsageServerView,
@@ -171,7 +172,18 @@ interface SpendContext {
 	readonly discoveryTimeoutMs: number;
 }
 
-/** Every problem one server has, worst first, attached to the row that owns it. */
+/** The two usage endpoints whose standings turn into English detail lines. */
+type UsageEndpoint = "keyInfo" | "dailyActivity";
+
+/** One row's problems plus the usage endpoints whose detail line a diagnostic carries. */
+interface RowDiagnostics {
+	/** Every problem the server has, worst first. */
+	readonly lines: readonly RowDiagnostic[];
+	/** The drawer's inventory prints only the endpoint details NOT in this set, so a line never doubles or drops. */
+	readonly usageDetailsCarried: ReadonlySet<UsageEndpoint>;
+}
+
+/** Every problem one server has, attached to the row that owns it. */
 function serverDiagnostics(
 	server: DashboardServer,
 	/** The row's usage card (denied cards included); its problems rank beside the discovery ones. */
@@ -198,7 +210,7 @@ function serverDiagnostics(
 		/** That pass was explicitly requested; only then does a Refresh now wear its busy label. */
 		readonly refreshingExplicitly?: boolean;
 	}
-): readonly RowDiagnostic[] {
+): RowDiagnostics {
 	// The two-step declare control: the plain button arms, the armed pair
 	// confirms or cancels (the Remove idiom). Only rows wired with the
 	// callbacks - declared entries - get any of it.
@@ -302,14 +314,14 @@ function serverDiagnostics(
 	}
 	const error = server.error;
 	const inactive = INACTIVE_NOTICES.filter((notice) => server.notices?.includes(notice) === true);
+	// The one health walk: this branch's severity and the pill's word read the same verdict.
+	const verdict = serverHealth(server);
 	if (error !== undefined && server.origin !== "misconfigured") {
-		const declared = server.declaredModelCount ?? 0;
-		const expected = server.expected === true;
 		const headline = statusErrorHeadline(error);
-		if (!expected) {
+		if (verdict === "degraded" || verdict === "blocking") {
 			// A live group whose sync failed keeps serving what it had (degraded);
 			// one that has nothing serves nothing (blocking).
-			const serving = server.state === "ok" || server.modelCount > 0;
+			const serving = verdict === "degraded";
 			// Where the declare action is withheld, the identity fix rides the details - unless
 			// the entry-inactive line below renders and says the same sentence itself.
 			const declareWithheld =
@@ -323,7 +335,7 @@ function serverDiagnostics(
 			const cause = declarationAdvice ? l10n.t("the server answers, but its models listing fails.") : headline;
 			found.push({
 				key: "discovery-error",
-				severity: serving ? "degraded" : "blocking",
+				severity: verdict,
 				headline: serving
 					? l10n.t("{0} is serving its last known models; the newest sync failed: {1}", server.label, cause)
 					: l10n.t("{0} is serving no models: {1}", server.label, cause),
@@ -377,9 +389,10 @@ function serverDiagnostics(
 						: []),
 				],
 			});
-		} else if (declared > 0) {
+		} else if (verdict === "expected") {
 			// Quiet tier: the entry declared this failure and named models to serve through it.
 			// The server's own words ride the detail lines, not the headline (colon chaining).
+			const declared = server.declaredModelCount ?? 0;
 			found.push({
 				key: "expected-serving",
 				severity: "advisory",
@@ -482,15 +495,23 @@ function serverDiagnostics(
 			],
 		});
 	}
+	let usageDetailsCarried: ReadonlySet<UsageEndpoint> = new Set();
 	if (usage !== undefined) {
-		found.push(...usageDiagnostics(server.label, usage, spend, actions));
+		const problems = usageDiagnostics(server.label, usage, spend, actions);
+		found.push(...problems.lines);
+		usageDetailsCarried = problems.usageDetailsCarried;
 	}
-	return [...found].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
+	return {
+		lines: [...found].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]),
+		usageDetailsCarried,
+	};
 }
 
 /**
  * The row's spend and usage problems, ranked by the same tiers as everything else on it: one
- * classifier, so the summary count can never disagree with what a row renders.
+ * classifier, so the summary count can never disagree with what a row renders. Every English
+ * endpoint detail a diagnostic carries is recorded through `carry`, so the drawer's remainder
+ * derives from the emissions themselves rather than a hand-copied predicate.
  */
 function usageDiagnostics(
 	label: string,
@@ -501,7 +522,16 @@ function usageDiagnostics(
 		readonly refreshing?: boolean;
 		readonly refreshingExplicitly?: boolean;
 	}
-): readonly RowDiagnostic[] {
+): RowDiagnostics {
+	const carried = new Set<UsageEndpoint>();
+	// Attaching an endpoint's detail to a diagnostic and marking it consumed are one move;
+	// an absent detail marks nothing, so "carried" always means "a diagnostic prints it".
+	const carry = (endpoint: UsageEndpoint, detail: string | undefined): string | undefined => {
+		if (detail !== undefined) {
+			carried.add(endpoint);
+		}
+		return detail;
+	};
 	// The fix every usage problem shares: the fleet-wide refreshUsage intent. Disabled during
 	// ANY pass (one serialized engine); the busy label only for an explicit one.
 	const refreshNow = (id: string): DiagnosticAction[] =>
@@ -524,21 +554,24 @@ function usageDiagnostics(
 	if (card.kind === "forbidden") {
 		// USER RULING (2026-08-14): a denied usage key is DEGRADED, not advisory - nothing
 		// here clears itself; only a human can change the key's permission.
-		return [
-			{
-				key: "usage-denied",
-				severity: "degraded",
-				headline: l10n.t(
-					"Usage is unavailable for {0}: this key isn't allowed to read its usage. Ask whoever issued the key to allow it, then use Refresh now - the extension won't re-check on its own.",
-					label
-				),
-				details: detailLines(
-					forbiddenRowDetail("/key/info", card.keyInfo),
-					forbiddenRowDetail("/user/daily/activity", card.dailyActivity)
-				),
-				actions: refreshNow("usage-denied-refresh"),
-			},
-		];
+		return {
+			lines: [
+				{
+					key: "usage-denied",
+					severity: "degraded",
+					headline: l10n.t(
+						"Usage is unavailable for {0}: this key isn't allowed to read its usage. Ask whoever issued the key to allow it, then use Refresh now - the extension won't re-check on its own.",
+						label
+					),
+					details: detailLines(
+						carry("keyInfo", forbiddenRowDetail("/key/info", card.keyInfo)),
+						carry("dailyActivity", forbiddenRowDetail("/user/daily/activity", card.dailyActivity))
+					),
+					actions: refreshNow("usage-denied-refresh"),
+				},
+			],
+			usageDetailsCarried: carried,
+		};
 	}
 	const found: RowDiagnostic[] = [];
 	if (card.keyInfo.kind === "unavailable" && card.keyInfo.reason === "forbidden") {
@@ -551,7 +584,7 @@ function usageDiagnostics(
 				"{0} can't read its spend: this key isn't allowed to. Ask whoever issued the key to allow /key/info, then use Refresh now - the extension won't re-check on its own.",
 				label
 			),
-			details: detailLines(forbiddenRowDetail("/key/info", card.keyInfo)),
+			details: detailLines(carry("keyInfo", forbiddenRowDetail("/key/info", card.keyInfo))),
 			actions: refreshNow("spend-denied-refresh"),
 		});
 	}
@@ -563,7 +596,7 @@ function usageDiagnostics(
 				"{0} can't read request statistics: this key isn't allowed to. After the key's permissions change, use Refresh now to re-check.",
 				label
 			),
-			details: detailLines(forbiddenRowDetail("/user/daily/activity", card.dailyActivity)),
+			details: detailLines(carry("dailyActivity", forbiddenRowDetail("/user/daily/activity", card.dailyActivity))),
 			actions: refreshNow("statistics-denied-refresh"),
 		});
 	}
@@ -583,7 +616,7 @@ function usageDiagnostics(
 						"{0}'s spend numbers didn't refresh: the last check failed; it retries automatically with increasing delay.",
 						label
 					),
-			details: detailLines(keyInfoDetail(card, spend.discoveryTimeoutMs)),
+			details: detailLines(carry("keyInfo", keyInfoDetail(card, spend.discoveryTimeoutMs))),
 			actions: refreshNow("usage-refresh-failed-refresh"),
 		});
 	}
@@ -624,7 +657,7 @@ function usageDiagnostics(
 			}
 		}
 	}
-	return found;
+	return { lines: found, usageDetailsCarried: carried };
 }
 
 /** A diagnostic's action cluster, one embodiment for the banded lines and the drawer notices. */
@@ -732,12 +765,53 @@ function entryInactiveFixText(): string {
 }
 
 /**
+ * The row's discovery health, classified ONCE: the pill's word, the discovery diagnostic's
+ * severity, and (through the ranked diagnostics) the dot's tone all render from this verdict,
+ * so a second state walk can never put "Error" beside a warn dot again.
+ */
+type ServerHealthVerdict =
+	| "misconfigured"
+	| "unchecked"
+	/** Discovery is clean. */
+	| "serving"
+	/** The newest sync failed, but the group keeps serving models. */
+	| "degraded"
+	/** An unexpected failure, and nothing serves. */
+	| "blocking"
+	/** Failing only where the entry expects it, declared models serving. */
+	| "expected"
+	/** The expected category hit, and nothing is declared to serve through it. */
+	| "expected-blocking";
+
+function serverHealth(server: DashboardServer): ServerHealthVerdict {
+	if (server.origin === "misconfigured") {
+		// Origin outranks state: the entry never reaches discovery.
+		return "misconfigured";
+	}
+	switch (server.state) {
+		case "unchecked":
+			return "unchecked";
+		case "ok":
+			return server.error === undefined ? "serving" : "degraded";
+		case "error":
+			if (server.expected === true) {
+				return (server.declaredModelCount ?? 0) > 0 ? "expected" : "expected-blocking";
+			}
+			// A group whose sync failed keeps serving what it had; one with nothing serves nothing.
+			return server.modelCount > 0 ? "degraded" : "blocking";
+	}
+}
+
+/**
  * The dot's tone, derived from the row's WORST diagnostic - one classifier, never a second
  * computed beside it. An advisory-only row stays plain "ok": an advisory means nothing is
  * wrong, and tinting the dot for one would be the false alarm the tier itself refuses.
  */
-function pillTone(server: DashboardServer, worst: DiagnosticSeverity | undefined): "ok" | "warn" | "error" | "muted" {
-	if (server.origin !== "misconfigured" && server.state === "unchecked") {
+function pillTone(
+	verdict: ServerHealthVerdict,
+	worst: DiagnosticSeverity | undefined
+): "ok" | "warn" | "error" | "muted" {
+	if (verdict === "unchecked") {
 		// No verdict to tone yet - and no diagnostic either, which would read as health.
 		return "muted";
 	}
@@ -752,31 +826,35 @@ function pillTone(server: DashboardServer, worst: DiagnosticSeverity | undefined
 }
 
 /**
- * The row's plain-language verdict. Words only, no hover tips: the pill sits inside the
+ * The verdict said in words. Words only, no hover tips: the pill sits inside the
  * disclosure button, and a focusable tip wrapper inside a button is a nesting fault.
  */
-function pillVerdict(server: DashboardServer): string {
-	if (server.origin === "misconfigured") {
-		// Origin outranks state: the entry never reaches discovery.
-		return l10n.t("Misconfigured");
-	}
-	if (server.state === "ok") {
-		return server.error !== undefined ? l10n.t("Sync issue") : l10n.t("Connected");
-	}
-	if (server.state === "error") {
-		if (server.expected === true) {
+function pillVerdict(verdict: ServerHealthVerdict): string {
+	switch (verdict) {
+		case "misconfigured":
+			return l10n.t("Misconfigured");
+		case "unchecked":
+			return l10n.t("Not checked");
+		case "serving":
+			return l10n.t("Connected");
+		case "degraded":
+			// Serving through a failed sync, whichever state carries it - the same
+			// degraded rank the row's diagnostic holds, so word and dot agree.
+			return l10n.t("Sync issue");
+		case "blocking":
+			return l10n.t("Error");
+		case "expected":
 			// One state, one name across tabs: still-serving reads Connected here exactly as
 			// the Diagnostics grid reads it OK.
-			return (server.declaredModelCount ?? 0) > 0 ? l10n.t("Connected") : l10n.t("Expected failure");
-		}
-		return l10n.t("Error");
+			return l10n.t("Connected");
+		case "expected-blocking":
+			return l10n.t("Expected failure");
 	}
-	return l10n.t("Not checked");
 }
 
 /**
- * The row's status pill: tone dot, verdict, and discovery age. The tone comes from the row's
- * diagnostics, so word and tone can never drift apart.
+ * The row's status pill: tone dot, verdict, and discovery age. Word and tone read the same
+ * classifiers the row's diagnostics rank by, so the pill can never drift from the lines.
  */
 function StatusPill({
 	server,
@@ -788,14 +866,14 @@ function StatusPill({
 	worst: DiagnosticSeverity | undefined;
 	now: number;
 }) {
+	const verdict = serverHealth(server);
 	const checked = server.lastChecked === undefined ? undefined : relativeTime(server.lastChecked, now);
 	// An unchecked row has no time to show, and "just now" would be a lie.
-	const time =
-		checked === undefined || server.state === "unchecked" ? null : <span className="pill-time">{checked}</span>;
+	const time = checked === undefined || verdict === "unchecked" ? null : <span className="pill-time">{checked}</span>;
 	return (
-		<span className={`pill tone-${pillTone(server, worst)}`}>
+		<span className={`pill tone-${pillTone(verdict, worst)}`}>
 			<span className="dot" />
-			{pillVerdict(server)}
+			{pillVerdict(verdict)}
 			{time}
 		</span>
 	);
@@ -892,9 +970,9 @@ function SpendUnit({
  * Why a server has never reported spend, per the /key/info standing. Reasons are lowercase
  * clauses across the whole drawer - they annotate a dash, they are not sentences.
  */
-function neverUpdatedText(server: UsageServerView): string {
-	if (server.keyInfo.kind === "unavailable") {
-		return server.keyInfo.reason === "forbidden"
+function neverUpdatedText(standing: UsageEndpointStandingView): string {
+	if (standing.kind === "unavailable") {
+		return standing.reason === "forbidden"
 			? l10n.t("this key isn't allowed to read its spend")
 			: l10n.t("this server doesn't report spend");
 	}
@@ -920,14 +998,16 @@ function stalenessText(server: UsageServerView): string | undefined {
 }
 
 /**
- * The spend fact's reason when /key/info gave no spend number, branched on the standing. The
- * dash beside it already says the number is missing, so no branch restates that.
+ * The Spend fact's reason when /key/info gave no spend number, keyed by the standing: the ONE
+ * map for both drawers (reporting and denied), so the wording cannot fork again. The dash
+ * beside it already says the number is missing, and the remedy lives in the row's diagnostic,
+ * so no branch restates either.
  */
-function spendUnknownText(server: UsageServerView, pollingOff: boolean): string {
-	switch (server.keyInfo.kind) {
+function spendMissingReason(standing: UsageEndpointStandingView, pollingOff: boolean): string {
+	switch (standing.kind) {
 		case "unavailable":
-			return server.keyInfo.reason === "forbidden"
-				? l10n.t("this key can't read its own spend - ask whoever issued it to allow /key/info, then use Refresh now")
+			return standing.reason === "forbidden"
+				? l10n.t("this key isn't allowed to read its spend")
 				: l10n.t("this server doesn't report spend for this key");
 		case "ok":
 			return l10n.t("this server doesn't report spend for this key");
@@ -948,6 +1028,11 @@ function forbiddenLine(path: string, status: number | undefined): string {
 	return `LiteLLM ${path}:${status !== undefined ? ` HTTP ${status} -` : ""} this key may not read usage data`;
 }
 
+/** forbiddenLine's unsupported twin: one template for an endpoint this server does not serve. */
+function notServedLine(path: string, status: number | undefined): string {
+	return `LiteLLM ${path}: not served on this server${status !== undefined ? ` (HTTP ${status})` : ""}`;
+}
+
 /**
  * The /key/info technical detail, undefined when nothing is wrong. English by policy (pasted
  * into issue reports), built from closed enums and numbers only - response text never exists
@@ -963,9 +1048,7 @@ function keyInfoDetail(server: UsageServerView, discoveryTimeoutMs: number): str
 		case "unavailable":
 			return standing.reason === "forbidden"
 				? forbiddenLine("/key/info", standing.status)
-				: `LiteLLM /key/info: not served on this server${
-						standing.status !== undefined ? ` (HTTP ${standing.status})` : ""
-					}; request stats still update`;
+				: `${notServedLine("/key/info", standing.status)}; request stats still update`;
 		case "error": {
 			if (standing.classification === "timeout") {
 				return `LiteLLM /key/info: timed out after ${discoveryTimeoutMs}ms (whole-call bound incl. retries). If the server is just slow, raise the discovery.timeout setting.`;
@@ -1006,12 +1089,13 @@ function activityDetail(server: UsageServerView): string | undefined {
 }
 
 /**
- * The requests fact's reason when /user/daily/activity has no retained window; the Refresh
- * now remedy for a denied key lives in the row's diagnostic, not here.
+ * The Requests fact's reason when /user/daily/activity has no retained window, keyed by the
+ * standing: the one map for both drawers. The Refresh now remedy for a denied key lives in
+ * the row's diagnostic, not here.
  */
-function requestsMissingText(server: UsageServerView): string {
-	if (server.dailyActivity.kind === "unavailable") {
-		return server.dailyActivity.reason === "forbidden"
+function requestsMissingReason(standing: UsageEndpointStandingView): string {
+	if (standing.kind === "unavailable") {
+		return standing.reason === "forbidden"
 			? l10n.t("this key isn't allowed to read request statistics on this server")
 			: l10n.t("this server does not serve /user/daily/activity (a normal shape on some setups)");
 	}
@@ -1022,13 +1106,11 @@ function requestsMissingText(server: UsageServerView): string {
  * The English detail line for one denied endpoint standing (a mixed 404-plus-403 server
  * states both facts); same English-by-policy, closed-enums-only rules as keyInfoDetail.
  */
-function forbiddenRowDetail(path: string, standing: UsageServerCardView["keyInfo"]): string | undefined {
+function forbiddenRowDetail(path: string, standing: UsageEndpointStandingView): string | undefined {
 	if (standing.kind !== "unavailable") {
 		return undefined;
 	}
-	return standing.reason === "forbidden"
-		? forbiddenLine(path, standing.status)
-		: `LiteLLM ${path}: not served on this server${standing.status !== undefined ? ` (HTTP ${standing.status})` : ""}`;
+	return standing.reason === "forbidden" ? forbiddenLine(path, standing.status) : notServedLine(path, standing.status);
 }
 
 /** One fact row: every fact has the same shape, so a half-reported server reads like a full one. */
@@ -1102,7 +1184,7 @@ function RequestFacts({ server }: { server: UsageServerView }) {
 		return (
 			<>
 				<Fact label={l10n.t("Requests, 30 days")}>
-					<Absent reason={requestsMissingText(server)} />
+					<Absent reason={requestsMissingReason(server.dailyActivity)} />
 				</Fact>
 				<Fact label={l10n.t("Success rate")}>
 					<Absent />
@@ -1150,10 +1232,10 @@ function UsageFacts({
 	currencySymbol: string;
 }) {
 	const staleness = stalenessText(server);
-	const spendReason = server.spend === undefined ? spendUnknownText(server, pollingOff) : undefined;
+	const spendReason = server.spend === undefined ? spendMissingReason(server.keyInfo, pollingOff) : undefined;
 	// On a never-fetched server both facts would answer with the same sentence; the second
 	// drops its reason rather than repeating the first word for word.
-	const neverUpdated = neverUpdatedText(server);
+	const neverUpdated = neverUpdatedText(server.keyInfo);
 	return (
 		<>
 			<Fact label={l10n.t("Spend")}>
@@ -1184,22 +1266,15 @@ function UsageFacts({
 
 /**
  * The usage facts a denied key left without numbers: the SAME rows as a reporting server's,
- * dashed, so a denied drawer does not look like a shorter kind of server. One reason per
- * refused endpoint, on the fact that owns it; the remedy lives in the row's diagnostic.
+ * dashed, so a denied drawer does not look like a shorter kind of server. Reasons come from
+ * the same per-fact maps the reporting drawer reads, one per refused endpoint, on the fact
+ * that owns it; the remedy lives in the row's diagnostic.
  */
-function DeniedUsageFacts({ card }: { card: UsageForbiddenServerView }) {
-	const spendReason =
-		card.keyInfo.kind === "unavailable" && card.keyInfo.reason === "unsupported"
-			? l10n.t("this server doesn't report spend")
-			: l10n.t("this key isn't allowed to read its spend");
-	const requestsReason =
-		card.dailyActivity.kind === "unavailable" && card.dailyActivity.reason === "unsupported"
-			? l10n.t("this server does not serve /user/daily/activity (a normal shape on some setups)")
-			: l10n.t("this key isn't allowed to read request statistics on this server");
+function DeniedUsageFacts({ card, pollingOff }: { card: UsageForbiddenServerView; pollingOff: boolean }) {
 	return (
 		<>
 			<Fact label={l10n.t("Spend")}>
-				<Absent reason={spendReason} />
+				<Absent reason={spendMissingReason(card.keyInfo, pollingOff)} />
 			</Fact>
 			<Fact label={l10n.t("Budget")}>
 				<Absent />
@@ -1208,7 +1283,7 @@ function DeniedUsageFacts({ card }: { card: UsageForbiddenServerView }) {
 				<Absent />
 			</Fact>
 			<Fact label={l10n.t("Requests, 30 days")}>
-				<Absent reason={requestsReason} />
+				<Absent reason={requestsMissingReason(card.dailyActivity)} />
 			</Fact>
 			<Fact label={l10n.t("Success rate")}>
 				<Absent />
@@ -1233,6 +1308,7 @@ function ServerDrawer({
 	server,
 	usage,
 	notices,
+	carriedDetails,
 	pollingOff,
 	discoveryTimeoutMs,
 	now,
@@ -1244,6 +1320,8 @@ function ServerDrawer({
 	usage: UsageServerCardView | undefined;
 	/** The row's drawer-placed diagnostics (the warn-tier budget line); rendered as the inventory's leading rows. */
 	notices: readonly DrawerNotice[];
+	/** The endpoint details the row's diagnostics already carry; the inventory prints only the remainder. */
+	carriedDetails: ReadonlySet<UsageEndpoint>;
 	pollingOff: boolean;
 	discoveryTimeoutMs: number;
 	now: number;
@@ -1257,13 +1335,8 @@ function ServerDrawer({
 		numbers === undefined
 			? []
 			: detailLines(
-					numbers.keyInfo.kind === "error" ||
-						(numbers.keyInfo.kind === "unavailable" && numbers.keyInfo.reason === "forbidden")
-						? undefined
-						: keyInfoDetail(numbers, discoveryTimeoutMs),
-					numbers.dailyActivity.kind === "unavailable" && numbers.dailyActivity.reason === "forbidden"
-						? undefined
-						: activityDetail(numbers)
+					carriedDetails.has("keyInfo") ? undefined : keyInfoDetail(numbers, discoveryTimeoutMs),
+					carriedDetails.has("dailyActivity") ? undefined : activityDetail(numbers)
 				);
 	return (
 		<>
@@ -1325,7 +1398,7 @@ function ServerDrawer({
 				{numbers !== undefined ? (
 					<UsageFacts server={numbers} pollingOff={pollingOff} now={now} currencySymbol={currencySymbol} />
 				) : usage?.kind === "forbidden" ? (
-					<DeniedUsageFacts card={usage} />
+					<DeniedUsageFacts card={usage} pollingOff={pollingOff} />
 				) : null}
 			</dl>
 			{details.map((detail) => (
@@ -1499,7 +1572,7 @@ function ServerRow({
 	// row, and a closed dashboard forgets, exactly like the model rows.
 	const [open, setOpen] = useState(false);
 	const drawerId = useId();
-	const diagnostics = serverDiagnostics(server, usage, spend, {
+	const { lines: diagnostics, usageDetailsCarried } = serverDiagnostics(server, usage, spend, {
 		onEdit,
 		onRetry,
 		retrying,
@@ -1650,6 +1723,7 @@ function ServerRow({
 						server={server}
 						usage={usage}
 						notices={drawerDiagnostics}
+						carriedDetails={usageDetailsCarried}
 						pollingOff={spend.pollingOff}
 						discoveryTimeoutMs={spend.discoveryTimeoutMs}
 						now={now}
@@ -1894,7 +1968,7 @@ export function ServersSection({
 	// render - a second predicate would drift. Advisories excluded on purpose; a denied
 	// usage key counts, per the tier contract's user-ruled carve-out.
 	const attentionCount = servers.filter((server) =>
-		serverDiagnostics(server, usageFor(server), spend, { onEdit: () => {}, onRetry: () => {} }).some(
+		serverDiagnostics(server, usageFor(server), spend, { onEdit: () => {}, onRetry: () => {} }).lines.some(
 			(diagnostic) => diagnostic.severity !== "advisory"
 		)
 	).length;

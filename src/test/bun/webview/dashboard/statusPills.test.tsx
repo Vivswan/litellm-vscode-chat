@@ -94,6 +94,29 @@ test("an ok row still carrying a sync error shows the warn tone, matching its ow
 	expect(diagnostic?.textContent).toContain("Prod");
 });
 
+test("an error-state row still serving models reads Sync issue beside the warn dot, never Error", () => {
+	// The one-classifier guard: a declared entry serving through an UNEXPECTED failure ranks
+	// degraded (its diagnostic says "serving its last known models"), so the word must be the
+	// degraded verdict's. A second state walk once put "Error" beside this row's warn dot.
+	const root = mountSection([
+		makeDeclaredServer({
+			label: "Gateway",
+			state: "error",
+			error: "boom on the newest sync",
+			declaredModelCount: 2,
+			modelCount: 2,
+		}),
+	]);
+	const pill = root.querySelector(".server-list .pill");
+	expect(pill?.textContent).toContain("Sync issue");
+	expect(pill?.textContent).not.toContain("Error");
+	expect(pill?.classList.contains("tone-warn")).toBe(true);
+	// The word, the dot, and the line all say the same verdict: degraded, still serving.
+	const diagnostic = root.querySelector(".row-diagnostic");
+	expect(diagnostic?.classList.contains("tier-warn")).toBe(true);
+	expect(diagnostic?.textContent).toContain("serving its last known models");
+});
+
 test("the pill's tone follows the row's worst diagnostic, so the dot and the line never disagree", () => {
 	// One classifier, one output: a pill working the row out for itself put two verdicts on one server and let them
 	// contradict each other in public.
@@ -121,6 +144,17 @@ test("the pill's tone follows the row's worst diagnostic, so the dot and the lin
 		{
 			server: makeDeclaredServer({ label: "Down", baseUrl: "http://d", state: "error", error: "refused" }),
 			tone: "tone-error",
+		},
+		// Degraded: the same failure while models keep serving - warn, not the blocking red.
+		{
+			server: makeDeclaredServer({
+				label: "Serving",
+				baseUrl: "http://h",
+				state: "error",
+				error: "refused",
+				modelCount: 2,
+			}),
+			tone: "tone-warn",
 		},
 		// SEVERAL problems at once: the dot must take the worst, not the first found. This row carries an
 		// inactive-entry notice (degraded) alongside a failure that serves nothing (blocking).

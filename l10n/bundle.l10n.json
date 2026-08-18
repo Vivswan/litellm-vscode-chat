@@ -1264,7 +1264,6 @@
 	"the settings-migration guide": "the settings-migration guide",
 	"the usage and budgets guide": "the usage and budgets guide",
 	"the window reports no prompt tokens": "the window reports no prompt tokens",
-	"this key can't read its own spend - ask whoever issued it to allow /key/info, then use Refresh now": "this key can't read its own spend - ask whoever issued it to allow /key/info, then use Refresh now",
 	"this key isn't allowed to read its spend": "this key isn't allowed to read its spend",
 	"this key isn't allowed to read request statistics on this server": "this key isn't allowed to read request statistics on this server",
 	"this label is already in use": "this label is already in use",

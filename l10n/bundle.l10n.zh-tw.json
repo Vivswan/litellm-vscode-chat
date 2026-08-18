@@ -1079,7 +1079,6 @@
  "the settings-migration guide": "設定移轉指南",
  "the usage and budgets guide": "用量與預算指南",
  "the window reports no prompt tokens": "該時間窗未回報提示 token",
- "this key can't read its own spend - ask whoever issued it to allow /key/info, then use Refresh now": "此金鑰無法讀取自身的花費資料 - 請讓核發者允許 /key/info, 然後使用「立即重新整理」",
  "this key isn't allowed to read its spend": "此金鑰無權讀取其花費資料",
  "this key isn't allowed to read request statistics on this server": "此金鑰無權讀取此伺服器上的請求統計資料",
  "this label is already in use": "此標籤已被使用",
