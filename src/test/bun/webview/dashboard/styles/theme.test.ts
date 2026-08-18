@@ -58,6 +58,9 @@ const REQUIRED_UTILITIES = [
 	"bg-warn-chip",
 	"text-warn-chip-foreground",
 	"bg-chip",
+	// The badge's shape: the one chip radius token, bound as a var utility so
+	// the badge moves with the token instead of agreeing with it by arithmetic.
+	"rounded-(--radius-chip)",
 	"focus-visible:outline-ring",
 	"disabled:opacity-60",
 	"disabled:bg-transparent",
@@ -229,6 +232,63 @@ test("the palette and radius resets keep Tailwind's defaults unreachable", async
 	// The base shape literal is retired the same way: a 4px radius written
 	// into the dashboard sheet is a fork of --radius.
 	expect(readFileSync(dashboardEntry, "utf8")).not.toContain("border-radius: 4px");
+	// The badge binds the chip token itself, not rounded-sm: the two agree only
+	// by the coincident calc(var(--radius) - 2px), and the token is the one
+	// knob the chip shape class is supposed to have. Read as the variants' own
+	// base string, so a doc comment naming rounded-sm is the prose it is.
+	const badge = readFileSync(path.resolve(import.meta.dir, "../../../../../webview/dashboard/ui/badge.tsx"), "utf8");
+	const badgeBase = /cva\(\s*"([^"]*)"/.exec(badge)?.[1];
+	expect(badgeBase, "no cva base string in badge.tsx").toBeDefined();
+	expect(badgeBase).toContain("rounded-(--radius-chip)");
+	expect(badgeBase).not.toContain("rounded-sm");
+});
+
+/**
+ * The colour an `outline`/`outline-color` declaration states, or "" when it states none: widths and
+ * style keywords come out, so a rule setting only geometry is the no-colour rule it is and anything
+ * left is a colour that has to be the token. Every colour syntax survives the strips - the length
+ * pattern only ever eats digits and units, and `#000` still leaves its hash.
+ */
+function outlineColor(declarations: string): string {
+	return [...declarations.matchAll(/(?:^|[;{\s])outline(?:-color)?:\s*([^;]+)/g)]
+		.map((match) => (match[1] ?? "").trim())
+		.join(" ")
+		.replace(/\b(?:none|solid|dashed|dotted|double|groove|ridge|inset|outset|auto|thin|medium|thick)\b/g, "")
+		.replace(/[\d.]+(?:px|rem|em)?/g, "")
+		.trim();
+}
+
+test("every focus rule takes its color from the ring token, never the host's focusBorder", async () => {
+	// theme.css remaps --ring per accent and to contrastActiveBorder under high
+	// contrast, and the tsx primitives follow it through outline-ring - so a
+	// stylesheet focus rule spelling a colour of its own is a second ring colour
+	// in the same view under any non-blue accent or HC theme. Asserted as the
+	// positive claim rather than a ban on --vscode-focusBorder alone, so a
+	// hardcoded hex fails here too. Keyed on the :focus selectors, which is the
+	// boundary: a ring painted by a class the script toggles is out of reach, and
+	// the dashboard has none.
+	const sheets = { theme: await compileTheme(), dashboard: await compileDashboard() };
+	const focusRules = (css: string) => blocks(css).filter((rule) => rule.prelude.includes(":focus"));
+	for (const css of Object.values(sheets)) {
+		const bodies = focusRules(css).map((rule) => ({
+			prelude: rule.prelude,
+			body: rule.body.replace(/\/\*[\s\S]*?\*\//g, ""),
+		}));
+		const colored = bodies.map((rule) => ({ prelude: rule.prelude, color: outlineColor(rule.body) }));
+		expect(colored.filter((rule) => rule.color !== "" && rule.color !== "var(--ring)")).toBeEmpty();
+		// The token is the whole route, so the host variable may not reach a focus
+		// rule by any property: box-shadow and border-color paint a ring too, and
+		// neither is an outline the check above can see.
+		expect(bodies.filter((rule) => rule.body.includes("--vscode-focusBorder"))).toBeEmpty();
+	}
+	// The counts are the walk's positive control: a parser finding no focus rules,
+	// or none stating a colour, would satisfy the emptiness above vacuously. Exact,
+	// not floors - one rule losing its ring is precisely the regression - and Bun
+	// splits a grouped selector, so `button:focus-visible, a:focus-visible` counts
+	// twice. Update deliberately when a focus surface is added or removed.
+	const ringed = (css: string) => focusRules(css).filter((rule) => outlineColor(rule.body) === "var(--ring)");
+	expect(ringed(sheets.dashboard)).toHaveLength(8);
+	expect(ringed(sheets.theme)).toHaveLength(3);
 });
 
 test("the cascade puts the dashboard stylesheet below utilities", async () => {

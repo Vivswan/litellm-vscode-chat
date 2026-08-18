@@ -9,7 +9,7 @@ import { cn } from "./cn";
  * as one more filter pill under forced colors - shape is a channel every palette
  * leaves alone.
  */
-const badgeVariants = cva("inline-block whitespace-nowrap rounded-sm px-1.5 text-[0.85em]", {
+const badgeVariants = cva("inline-block whitespace-nowrap rounded-(--radius-chip) px-1.5 text-[0.85em]", {
 	variants: {
 		variant: {
 			default: "bg-chip text-muted-foreground",

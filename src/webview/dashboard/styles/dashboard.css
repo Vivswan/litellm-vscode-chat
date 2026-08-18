@@ -304,7 +304,7 @@
 		border-bottom: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.2));
 	}
 	.table-scroll.windowed:focus-visible {
-		outline: 1px solid var(--vscode-focusBorder);
+		outline: 1px solid var(--ring);
 		outline-offset: -1px;
 	}
 	/* Every model row shares one rhythm, windowed or not: two lines at a fixed
@@ -376,7 +376,7 @@
 		background: transparent;
 	}
 	button.model-disclosure:focus-visible {
-		outline: 1px solid var(--vscode-focusBorder);
+		outline: 1px solid var(--ring);
 		outline-offset: 1px;
 	}
 	/* Both lines clip rather than wrap: the fixed row height is the windowing
@@ -1039,7 +1039,7 @@
 	}
 	button:focus-visible,
 	a:focus-visible {
-		outline: 1px solid var(--vscode-focusBorder);
+		outline: 1px solid var(--ring);
 		outline-offset: 1px;
 	}
 
@@ -1091,7 +1091,7 @@
 		border-color: var(--vscode-foreground);
 	}
 	button.help:focus-visible {
-		outline: 1px solid var(--vscode-focusBorder);
+		outline: 1px solid var(--ring);
 		outline-offset: 1px;
 	}
 	/* The page's one tooltip bubble (ui/tip.tsx decides when it shows and
@@ -1234,7 +1234,7 @@
 		display: inline-flex;
 	}
 	.tip-wrap[tabindex]:focus-visible {
-		outline: 1px solid var(--vscode-focusBorder);
+		outline: 1px solid var(--ring);
 		outline-offset: 1px;
 	}
 	.tip-wrap + .tip-wrap {
@@ -1810,7 +1810,7 @@
 		padding: 4px 8px;
 	}
 	.record-json textarea:focus {
-		outline: 1px solid var(--vscode-focusBorder);
+		outline: 1px solid var(--ring);
 		outline-offset: -1px;
 	}
 	/* The side door's one reserved status line under the textarea (the
@@ -2615,7 +2615,7 @@
 		color: var(--foreground);
 	}
 	.filter-pill:focus-visible {
-		outline: 1px solid var(--vscode-focusBorder);
+		outline: 1px solid var(--ring);
 		outline-offset: 1px;
 	}
 	@media (prefers-reduced-motion: reduce) {
@@ -3055,8 +3055,8 @@
 		   column. Neutral by construction: outline and description foreground,
 		   never a severity colour, because provenance says where a value came
 		   from and never whether that is a problem. The radius is the named chip
-		   token (theme.css's --radius-chip, the rounded-sm arithmetic): one shape
-		   for every chip, and a near-pill read as a toggle. */
+		   token (theme.css's --radius-chip): one shape for every chip, and a
+		   near-pill read as a toggle. */
 	.chip-prov,
 	.resolved-matched .chip-matcher {
 		font-family: var(--vscode-editor-font-family, monospace);
