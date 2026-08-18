@@ -21,7 +21,7 @@ const base = baseState({
 			origin: "declared",
 			label: "prod",
 			baseUrl: "https://litellm.example.com",
-			modelCount: 0,
+			servedModelCount: 0,
 			hasApiKey: true,
 			hasOAuth: false,
 			state: "unchecked",

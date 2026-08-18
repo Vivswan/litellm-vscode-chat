@@ -29,11 +29,11 @@ export type SetupProblem = SetupHintKind | "not-configured" | "hidden-groups";
  * The gate's verdict, read from the CURRENT connection status only - never from
  * the issue reporter's historical latestError, which is never cleared, so a
  * healthy user must not be gated by an old failure. An error status without a
- * setup hint is treated as a real bug and goes straight to GitHub, except the
- * zero-model verdict WHOLLY explained by hidden groups: that state is
- * user-chosen configuration, so the gate offers the restore instead. A
- * zero-model verdict a hidden group only partly explains never gates - the
- * server that answered empty may be a real bug.
+ * setup hint is treated as a real bug and goes straight to GitHub. The
+ * zero-model state (connected, nothing served) gates only when hidden groups
+ * WHOLLY explain it: that state is user-chosen configuration, so the gate
+ * offers the restore instead. A zero-model state a hidden group only partly
+ * explains never gates - the server that answered empty may be a real bug.
  *
  * One staleness window is accepted: at cold start the status is last session's
  * restored verdict until the first refresh, so a since-fixed setup problem can
@@ -43,17 +43,17 @@ export function detectSetupProblem(status: ConnectionStatus): SetupProblem | und
 	switch (status.state) {
 		case "not-configured":
 			return "not-configured";
-		case "error": {
-			if (status.classification?.setupHint !== undefined) {
-				return status.classification.setupHint;
-			}
-			const serverStatuses = status.serverStatuses ?? [];
+		case "error":
+			return status.classification?.setupHint;
+		case "connected": {
+			// The zero-model state rides "connected" (nothing failed); a verdict
+			// WHOLLY explained by hidden groups gates as the user-chosen setup it is.
 			const whollyExplainedByHidden =
-				serverStatuses.some(isHiddenGroupServerStatus) &&
-				serverStatuses.every(
+				status.serverStatuses.some(isHiddenGroupServerStatus) &&
+				status.serverStatuses.every(
 					(server) => isHiddenGroupServerStatus(server) || (server.state === "error" && server.expected === true)
 				);
-			return (status.totalModels ?? 0) === 0 && whollyExplainedByHidden ? "hidden-groups" : undefined;
+			return status.totalModels === 0 && whollyExplainedByHidden ? "hidden-groups" : undefined;
 		}
 		default:
 			return undefined;

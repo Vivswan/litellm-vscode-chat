@@ -24,7 +24,7 @@ const RESEARCH_SERVER: DashboardServer = {
 	...PROD_SERVER,
 	label: "research",
 	baseUrl: "https://research.example.com",
-	modelCount: 2,
+	servedModelCount: 2,
 	lastChecked: minutesAgoIso(25),
 };
 
@@ -32,7 +32,7 @@ const SANDBOX_SERVER: DashboardServer = {
 	...PROD_SERVER,
 	label: "sandbox",
 	baseUrl: "http://localhost:4000",
-	modelCount: 1,
+	servedModelCount: 1,
 	hasApiKey: false,
 	lastChecked: minutesAgoIso(2),
 };
@@ -41,7 +41,7 @@ const LOCKED_SERVER: DashboardServer = {
 	...PROD_SERVER,
 	label: "locked-down",
 	baseUrl: "https://locked.example.com",
-	modelCount: 4,
+	servedModelCount: 4,
 	lastChecked: minutesAgoIso(4),
 };
 

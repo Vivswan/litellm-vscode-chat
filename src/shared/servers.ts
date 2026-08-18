@@ -22,13 +22,19 @@ interface ServerStatusCommon {
 	label: string;
 	baseUrl: string;
 	lastChecked: string;
+	/**
+	 * How many models this server serves RIGHT NOW, regardless of state: the
+	 * one field every aggregate count and every serving verdict reads. On an
+	 * error status it counts what the failure still serves (stale-window models
+	 * plus declared models), so serving-through-failure stays visible.
+	 */
+	servedModelCount: number;
 	/** Whether the configuration carries credentials; the secrets themselves never leave their store. */
 	hasApiKey?: boolean | undefined;
 }
 
 interface ServerStatusOk extends ServerStatusCommon {
 	state: "ok";
-	modelCount: number;
 	/**
 	 * True when the group serves zero models because the user hid it, not
 	 * because the server listed none: suppression never touches the network, so
@@ -69,9 +75,12 @@ export interface ServerStatusError extends ServerStatusCommon {
 	 * downgrade from this flag.
 	 */
 	expected?: boolean | undefined;
-	/** How many declared models the server keeps serving despite the failure; absent means none. */
+	/**
+	 * The declared subset of servedModelCount: how many of the still-served
+	 * models exist only because the entry declares them. Presentation wording
+	 * ("N declared models") reads this; counts and verdicts read servedModelCount.
+	 */
 	declaredModelCount?: number | undefined;
-	modelCount?: undefined;
 }
 
 /**
@@ -80,7 +89,7 @@ export interface ServerStatusError extends ServerStatusCommon {
  */
 export type ServerStatus = ServerStatusOk | ServerStatusError;
 
-export function isErrorServerStatus(status: ServerStatus): status is ServerStatusError {
+function isErrorServerStatus(status: ServerStatus): status is ServerStatusError {
 	return status.state === "error";
 }
 

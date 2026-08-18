@@ -61,7 +61,7 @@ test("Copy diagnostics stays English under a configured bundle while the server 
 	pushToWebview(
 		statePush(
 			makeState({
-				servers: [makeDeclaredServer({ label: "Prod", modelCount: 1, lastChecked })],
+				servers: [makeDeclaredServer({ label: "Prod", servedModelCount: 1, lastChecked })],
 				models: [makeModel()],
 				diagnostics: [
 					{

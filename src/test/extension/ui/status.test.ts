@@ -80,7 +80,7 @@ suite("extension/ui/status", () => {
 				label: "Prod",
 				baseUrl: "http://prod.test",
 				state: "ok",
-				modelCount: 3,
+				servedModelCount: 3,
 				lastChecked: new Date().toISOString(),
 			},
 			{
@@ -88,7 +88,7 @@ suite("extension/ui/status", () => {
 				label: "Backup",
 				baseUrl: "http://backup.test",
 				state: "ok",
-				modelCount: 4,
+				servedModelCount: 4,
 				lastChecked: new Date().toISOString(),
 			},
 		];
@@ -118,6 +118,7 @@ suite("extension/ui/status", () => {
 				state: "error",
 				error: "boom",
 				logSafeError: markLogSafe("RequestError(connection)"),
+				servedModelCount: 0,
 				lastChecked: new Date().toISOString(),
 			};
 			createManager(undefined, () => true, undefined, item).handleAggregatedStatus({
@@ -150,6 +151,7 @@ suite("extension/ui/status", () => {
 			state: "error",
 			error: "LiteLLM API error: 502\n<html>internal-billing-host-MARKER</html>",
 			logSafeError: markLogSafe("RequestError(http, status 502)"),
+			servedModelCount: 0,
 			lastChecked: new Date().toISOString(),
 		};
 
@@ -167,8 +169,9 @@ suite("extension/ui/status", () => {
 		assert.ok(status.state === "error" && status.error.includes("MARKER"), "the display surface keeps the full text");
 	});
 
-	test("an all-failed report copies the first failure's classification; the zero-models synthetic carries none", () => {
-		const manager = createManager(undefined, () => true);
+	test("an all-failed report copies the first failure's classification; the zero-models state carries none", async () => {
+		const item = new RecordingItem();
+		const manager = createManager(undefined, () => true, undefined, item);
 		const classification: TransportErrorClassification = { kind: "http", status: 404, setupHint: "check-base-url" };
 		const failed: ServerStatus = {
 			serverId: "srv1",
@@ -178,6 +181,7 @@ suite("extension/ui/status", () => {
 			error: "answered 404",
 			logSafeError: markLogSafe("RequestError(http, status 404, discovery)"),
 			classification,
+			servedModelCount: 0,
 			lastChecked: new Date().toISOString(),
 		};
 
@@ -191,13 +195,17 @@ suite("extension/ui/status", () => {
 			label: "Prod",
 			baseUrl: "http://prod.test",
 			state: "ok",
-			modelCount: 0,
+			servedModelCount: 0,
 			lastChecked: new Date().toISOString(),
 		};
 		manager.handleAggregatedStatus({ serverStatuses: [ok], totalModels: 0, silent: true });
+		await new Promise((resolve) => setImmediate(resolve));
 		const zeroModels = manager.connectionStatus;
-		assert.ok(zeroModels.state === "error");
-		assert.ok(!("classification" in zeroModels), "the synthetic zero-models verdict is not a transport failure");
+		// The zero-model judgment is not a transport failure: the state stays the
+		// honest "connected" (which carries no classification by construction)
+		// and the bar renders the shared warning.
+		assert.ok(zeroModels.state === "connected");
+		assert.strictEqual(item.last.severity, "warning");
 	});
 
 	suite("the zero-model verdict names its cause", () => {
@@ -206,7 +214,7 @@ suite("extension/ui/status", () => {
 			label: "Prod",
 			baseUrl: "http://prod.test",
 			state: "ok",
-			modelCount: 0,
+			servedModelCount: 0,
 			hiddenByRemoval: true,
 			lastChecked: new Date().toISOString(),
 		});
@@ -215,7 +223,7 @@ suite("extension/ui/status", () => {
 			label: "Backup",
 			baseUrl: "http://backup.test",
 			state: "ok",
-			modelCount: 0,
+			servedModelCount: 0,
 			lastChecked: new Date().toISOString(),
 		});
 
@@ -234,14 +242,17 @@ suite("extension/ui/status", () => {
 			manager.handleAggregatedStatus({ serverStatuses: [hiddenGroup()], totalModels: 0, silent: true });
 			await new Promise((resolve) => setImmediate(resolve));
 
+			// The state is the honest "connected" (nothing failed); the rendering
+			// carries the warning, one severity with the notifier and the commands.
 			const status = manager.connectionStatus;
-			assert.ok(status.state === "error");
-			assert.ok(status.error.includes("1 server is hidden by an explicit removal"), status.error);
-			assert.ok(status.error.includes("Restore it from the dashboard's server list"), status.error);
-			assert.strictEqual(status.logSafeError, "Servers returned 0 models (1 hidden by user removal)");
+			assert.ok(status.state === "connected");
+			assert.strictEqual(status.totalModels, 0);
+			assert.strictEqual(item.last.severity, "warning");
+			assert.strictEqual(item.last.text, "$(warning) LiteLLM");
 			assert.ok(!item.last.tooltip.includes("Connection failed"), item.last.tooltip);
 			assert.ok(item.last.tooltip.includes("No models available"), item.last.tooltip);
-			assert.ok(item.last.tooltip.includes("hidden by an explicit removal"), item.last.tooltip);
+			assert.ok(item.last.tooltip.includes("1 server is hidden by an explicit removal"), item.last.tooltip);
+			assert.ok(item.last.tooltip.includes("Restore it from the dashboard's server list"), item.last.tooltip);
 			// The log line is the English classification, never the localized display.
 			assert.ok(
 				bufferLines.some((line) => line.includes("Servers returned 0 models (1 hidden by user removal)")),
@@ -249,21 +260,19 @@ suite("extension/ui/status", () => {
 			);
 		});
 
-		test("a hidden group beside an answering-empty server names both causes", () => {
-			const manager = createManager(undefined, () => true);
+		test("a hidden group beside an answering-empty server names both causes", async () => {
+			const item = new RecordingItem();
+			const manager = createManager(undefined, () => true, undefined, item);
 			manager.handleAggregatedStatus({
 				serverStatuses: [hiddenGroup(), answeredEmpty()],
 				totalModels: 0,
 				silent: true,
 			});
-			const status = manager.connectionStatus;
-			assert.ok(status.state === "error");
-			assert.ok(status.error.includes("1 server is hidden by an explicit removal"), status.error);
-			assert.ok(status.error.includes("The remaining servers answered but listed no models"), status.error);
-			assert.strictEqual(
-				status.logSafeError,
-				"Servers returned 0 models (1 hidden by user removal; 1 answered with an empty listing)"
-			);
+			await new Promise((resolve) => setImmediate(resolve));
+			assert.strictEqual(manager.connectionStatus.state, "connected");
+			assert.strictEqual(item.last.severity, "warning");
+			assert.ok(item.last.tooltip.includes("1 server is hidden by an explicit removal"), item.last.tooltip);
+			assert.ok(item.last.tooltip.includes("The remaining servers answered but listed no models"), item.last.tooltip);
 		});
 
 		test("a server that answered with an empty listing is said to have answered, never to have failed", async () => {
@@ -272,23 +281,22 @@ suite("extension/ui/status", () => {
 			manager.handleAggregatedStatus({ serverStatuses: [answeredEmpty()], totalModels: 0, silent: true });
 			await new Promise((resolve) => setImmediate(resolve));
 
-			const status = manager.connectionStatus;
-			assert.ok(status.state === "error");
-			assert.strictEqual(status.error, "The server answered but listed no models.");
-			assert.strictEqual(status.logSafeError, "Servers returned 0 models (answered with an empty listing)");
+			assert.strictEqual(manager.connectionStatus.state, "connected");
+			assert.strictEqual(item.last.severity, "warning");
+			assert.ok(item.last.tooltip.includes("The server answered but listed no models."), item.last.tooltip);
 			assert.ok(!item.last.tooltip.includes("Connection failed"), item.last.tooltip);
 		});
 
-		test("several answering-empty servers get the plural wording", () => {
-			const manager = createManager(undefined, () => true);
+		test("several answering-empty servers get the plural wording", async () => {
+			const item = new RecordingItem();
+			const manager = createManager(undefined, () => true, undefined, item);
 			manager.handleAggregatedStatus({
 				serverStatuses: [answeredEmpty("srv1"), answeredEmpty("srv2")],
 				totalModels: 0,
 				silent: true,
 			});
-			const status = manager.connectionStatus;
-			assert.ok(status.state === "error");
-			assert.strictEqual(status.error, "Your servers answered but listed no models.");
+			await new Promise((resolve) => setImmediate(resolve));
+			assert.ok(item.last.tooltip.includes("Your servers answered but listed no models."), item.last.tooltip);
 		});
 
 		test("a genuine all-failed report keeps the connection-failure wording", async () => {
@@ -303,6 +311,7 @@ suite("extension/ui/status", () => {
 						state: "error",
 						error: "ECONNREFUSED",
 						logSafeError: markLogSafe("RequestError(connection)"),
+						servedModelCount: 0,
 						lastChecked: new Date().toISOString(),
 					},
 				],
@@ -317,22 +326,43 @@ suite("extension/ui/status", () => {
 
 		test("hiddenByRemoval survives the persisted round trip; junk drops the field, never the element", () => {
 			const manager = createManager({
-				state: "error",
-				error: "1 server is hidden by an explicit removal and serves no models.",
-				logSafeError: "Servers returned 0 models (1 hidden by user removal)",
+				state: "connected",
 				totalModels: 0,
 				serverStatuses: [
-					{ label: "Prod", baseUrl: "http://prod.test", state: "ok", modelCount: 0, hiddenByRemoval: true },
-					{ label: "Junky", baseUrl: "http://junk.test", state: "ok", modelCount: 0, hiddenByRemoval: "yes" },
+					{ label: "Prod", baseUrl: "http://prod.test", state: "ok", servedModelCount: 0, hiddenByRemoval: true },
+					{ label: "Junky", baseUrl: "http://junk.test", state: "ok", servedModelCount: 0, hiddenByRemoval: "yes" },
 				],
 			});
 			const status = manager.connectionStatus;
-			assert.ok(status.state === "error");
-			const [hidden, junky] = status.serverStatuses ?? [];
+			assert.ok(status.state === "connected");
+			const [hidden, junky] = status.serverStatuses;
 			assert.ok(hidden?.state === "ok");
 			assert.strictEqual(hidden.hiddenByRemoval, true);
 			assert.ok(junky?.state === "ok", "junk optional fields never drop the element");
 			assert.ok(!("hiddenByRemoval" in junky) || junky.hiddenByRemoval === undefined);
+		});
+
+		test("a zero-model verdict persisted as an error by an older version restores as the connected warning", async () => {
+			// Pre-rename sessions persisted the zero-model judgment as a synthetic
+			// error status; the normalizing restore rebuilds the honest state and
+			// the renderer derives the same warning it gives a fresh report.
+			const item = new RecordingItem();
+			const manager = createManager(
+				{
+					state: "error",
+					error: "The server answered but listed no models.",
+					logSafeError: "Servers returned 0 models (answered with an empty listing)",
+					totalModels: 0,
+					serverStatuses: [{ label: "Prod", baseUrl: "http://prod.test", state: "ok", modelCount: 0 }],
+				},
+				() => true,
+				undefined,
+				item
+			);
+			await new Promise((resolve) => setImmediate(resolve));
+			assert.strictEqual(manager.connectionStatus.state, "connected");
+			assert.strictEqual(item.last.severity, "warning");
+			assert.ok(item.last.tooltip.includes("No models available"), item.last.tooltip);
 		});
 
 		test("a restored zero-model verdict with a hidden group still gates the issue reporter", () => {
@@ -351,8 +381,8 @@ suite("extension/ui/status", () => {
 		});
 
 		test("a restored error that lost its server statuses keeps the connection-failure rendering", async () => {
-			// isZeroModelVerdict fails closed on an empty status list: without the
-			// statuses there is no proof the servers answered.
+			// The restore normalization fails closed on an empty status list:
+			// without the statuses there is no proof the servers answered.
 			const item = new RecordingItem();
 			const manager = createManager(
 				{ state: "error", error: "boom", logSafeError: "RequestError(connection)" },
@@ -406,7 +436,7 @@ suite("extension/ui/status", () => {
 				label: "Prod",
 				baseUrl: "http://prod.test",
 				state: "ok",
-				modelCount: 2,
+				servedModelCount: 2,
 				lastChecked: new Date().toISOString(),
 			};
 
@@ -481,6 +511,7 @@ suite("extension/ui/status", () => {
 			error: "discovery down",
 			logSafeError: markLogSafe("RequestError(http, status 404)"),
 			expected: true,
+			servedModelCount: declaredModelCount ?? 0,
 			...(declaredModelCount !== undefined ? { declaredModelCount } : {}),
 			lastChecked: new Date().toISOString(),
 		});
@@ -489,7 +520,7 @@ suite("extension/ui/status", () => {
 			label: "Prod",
 			baseUrl: "http://prod.test",
 			state: "ok",
-			modelCount: 3,
+			servedModelCount: 3,
 			lastChecked: new Date().toISOString(),
 		};
 		const unexpectedFailure: ServerStatus = {
@@ -499,6 +530,7 @@ suite("extension/ui/status", () => {
 			state: "error",
 			error: "boom",
 			logSafeError: markLogSafe("RequestError(connection)"),
+			servedModelCount: 0,
 			lastChecked: new Date().toISOString(),
 		};
 
@@ -506,7 +538,7 @@ suite("extension/ui/status", () => {
 			// The two headline surfaces must move together: the dashboard's shared
 			// verdict says needs-declare, and the status bar shows the actionable
 			// warning instead of the zero-model red branch.
-			assert.strictEqual(classifyOverall([{ state: "error", expected: true }]), "needs-declare");
+			assert.strictEqual(classifyOverall([{ state: "error", expected: true, servedModelCount: 0 }]), "needs-declare");
 			const manager = createManager(undefined, () => true);
 			manager.handleAggregatedStatus({ serverStatuses: [expectedFailure()], totalModels: 0, silent: true });
 			assert.deepStrictEqual(
@@ -518,7 +550,7 @@ suite("extension/ui/status", () => {
 
 		test("an expected failure serving declared models reads as connected, not degraded", () => {
 			assert.strictEqual(
-				classifyOverall([{ state: "error", expected: true, declaredModelCount: 2 }]),
+				classifyOverall([{ state: "error", expected: true, servedModelCount: 2 }]),
 				"connected",
 				"the shared dashboard verdict"
 			);
@@ -532,13 +564,19 @@ suite("extension/ui/status", () => {
 		});
 
 		test("an expected failure beside a healthy server never degrades the verdict", () => {
-			assert.strictEqual(classifyOverall([{ state: "ok" }, { state: "error", expected: true }]), "connected");
+			assert.strictEqual(
+				classifyOverall([
+					{ state: "ok", servedModelCount: 3 },
+					{ state: "error", expected: true, servedModelCount: 0 },
+				]),
+				"connected"
+			);
 			const manager = createManager(undefined, () => true);
 			manager.handleAggregatedStatus({ serverStatuses: [okServer, expectedFailure()], totalModels: 3, silent: true });
 			assert.strictEqual(manager.connectionStatus.state, "connected");
 		});
 
-		test("an unexpected failure degrades; red needs EVERY server failing unexpectedly, mirroring classifyOverall", () => {
+		test("an unexpected failure degrades; red needs EVERY server failing unexpectedly AND nothing serving", () => {
 			const manager = createManager(undefined, () => true);
 			manager.handleAggregatedStatus({
 				serverStatuses: [okServer, unexpectedFailure, expectedFailure()],
@@ -552,7 +590,10 @@ suite("extension/ui/status", () => {
 			// failure beside an unexpected one is degraded, never the red
 			// all-failed verdict, on the dashboard AND the status bar.
 			assert.strictEqual(
-				classifyOverall([{ state: "error" }, { state: "error", expected: true }]),
+				classifyOverall([
+					{ state: "error", servedModelCount: 0 },
+					{ state: "error", expected: true, servedModelCount: 0 },
+				]),
 				"degraded",
 				"the shared dashboard verdict"
 			);
@@ -564,11 +605,29 @@ suite("extension/ui/status", () => {
 			const mixed = manager.connectionStatus;
 			assert.strictEqual(mixed.state, "degraded");
 
-			assert.strictEqual(classifyOverall([{ state: "error" }]), "error");
+			assert.strictEqual(classifyOverall([{ state: "error", servedModelCount: 0 }]), "error");
 			manager.handleAggregatedStatus({ serverStatuses: [unexpectedFailure], totalModels: 0, silent: true });
 			const red = manager.connectionStatus;
 			assert.ok(red.state === "error");
 			assert.strictEqual(red.error, "boom");
+		});
+
+		test("an all-failed window still serving its stale-window models reads degraded, never dead", async () => {
+			// The serving test precedes the all-failed verdict: a failed group whose
+			// stale window (or declarations) still serves models cannot show a red
+			// "Connection failed" while the picker serves them.
+			assert.strictEqual(classifyOverall([{ state: "error", servedModelCount: 5 }]), "degraded");
+			const item = new RecordingItem();
+			const manager = createManager(undefined, () => true, undefined, item);
+			const staleServing: ServerStatus = { ...unexpectedFailure, servedModelCount: 5 };
+			manager.handleAggregatedStatus({ serverStatuses: [staleServing], totalModels: 5, silent: true });
+			await new Promise((resolve) => setImmediate(resolve));
+
+			const status = manager.connectionStatus;
+			assert.strictEqual(status.state, "degraded");
+			assert.strictEqual(item.last.severity, "warning");
+			assert.ok(item.last.tooltip.includes("5 models available"), item.last.tooltip);
+			assert.ok(item.last.tooltip.includes("1 server unreachable"), item.last.tooltip);
 		});
 
 		test("an expected failure with declared models rescues an otherwise all-failed report to degraded", () => {
@@ -597,7 +656,7 @@ suite("extension/ui/status", () => {
 			assert.ok(!item.last.tooltip.includes("2 servers unreachable"), item.last.tooltip);
 		});
 
-		test("expected and declaredModelCount survive the persisted round trip; junk drops the field only", () => {
+		test("expected, servedModelCount, and declaredModelCount survive the persisted round trip; junk drops the field only", () => {
 			const manager = createManager({
 				state: "degraded",
 				totalModels: 1,
@@ -609,6 +668,7 @@ suite("extension/ui/status", () => {
 						error: "discovery down",
 						logSafeError: "RequestError(http, status 404)",
 						expected: true,
+						servedModelCount: 3,
 						declaredModelCount: 1,
 					},
 					{
@@ -618,6 +678,7 @@ suite("extension/ui/status", () => {
 						error: "boom",
 						logSafeError: "RequestError(connection)",
 						expected: "yes",
+						servedModelCount: -1,
 						declaredModelCount: -3,
 					},
 				],
@@ -627,10 +688,34 @@ suite("extension/ui/status", () => {
 			const [restored, junky] = status.serverStatuses;
 			assert.ok(restored?.state === "error");
 			assert.strictEqual(restored.expected, true);
+			assert.strictEqual(restored.servedModelCount, 3);
 			assert.strictEqual(restored.declaredModelCount, 1);
 			assert.ok(junky?.state === "error", "junk optional fields never drop the element");
 			assert.ok(!("expected" in junky) || junky.expected === undefined);
+			assert.strictEqual(junky.servedModelCount, 0, "junk counts fall back to zero, never negative");
 			assert.ok(!("declaredModelCount" in junky) || junky.declaredModelCount === undefined);
+		});
+
+		test("a pre-rename error element's declared count is the served-count fallback on restore", () => {
+			const manager = createManager({
+				state: "degraded",
+				totalModels: 1,
+				serverStatuses: [
+					{
+						state: "error",
+						label: "Gateway",
+						baseUrl: "http://gw.test",
+						error: "discovery down",
+						logSafeError: "RequestError(http, status 404)",
+						expected: true,
+						declaredModelCount: 2,
+					},
+				],
+			});
+			const status = manager.connectionStatus;
+			assert.ok(status.state === "degraded");
+			const restored = expectErrorElement(status.serverStatuses);
+			assert.strictEqual(restored.servedModelCount, 2, "pre-rename statuses served exactly their declared models");
 		});
 	});
 
@@ -830,7 +915,7 @@ suite("extension/ui/status", () => {
 				label: "Prod",
 				baseUrl: "http://prod.test",
 				state: "ok",
-				modelCount: 2,
+				servedModelCount: 2,
 				lastChecked: "2026-07-26T00:00:00.000Z",
 			};
 			const manager = createManager({
@@ -846,7 +931,7 @@ suite("extension/ui/status", () => {
 			});
 		});
 
-		test("an ok element without a model count and an error element without a message are malformed", () => {
+		test("an ok element without a served count under either name and an error element without a message are malformed", () => {
 			// The same shapes the legacy diagnostics renderer refuses to print
 			// ("OK (undefined models)", "Error: undefined") never survive the
 			// restore; an empty error message counts as none.
@@ -868,7 +953,14 @@ suite("extension/ui/status", () => {
 				state: "connected",
 				totalModels: 1,
 				serverStatuses: [
-					{ serverId: 42, hasApiKey: "yes", label: "Prod", baseUrl: "http://prod.test", state: "ok", modelCount: 1 },
+					{
+						serverId: 42,
+						hasApiKey: "yes",
+						label: "Prod",
+						baseUrl: "http://prod.test",
+						state: "ok",
+						servedModelCount: 1,
+					},
 				],
 			});
 
@@ -876,12 +968,19 @@ suite("extension/ui/status", () => {
 				state: "connected",
 				totalModels: 1,
 				serverStatuses: [
-					{ serverId: "", label: "Prod", baseUrl: "http://prod.test", state: "ok", modelCount: 1, lastChecked: "" },
+					{
+						serverId: "",
+						label: "Prod",
+						baseUrl: "http://prod.test",
+						state: "ok",
+						servedModelCount: 1,
+						lastChecked: "",
+					},
 				],
 			});
 		});
 
-		test("an element missing serverId or lastChecked still restores with empty defaults", () => {
+		test("a pre-rename ok element's modelCount is the served-count fallback on restore", () => {
 			// Older versions' elements are classified by serverId in diagnostics; a
 			// missing one reads as a legacy (non-group) entry, not junk.
 			const manager = createManager({
@@ -894,7 +993,14 @@ suite("extension/ui/status", () => {
 				state: "connected",
 				totalModels: 1,
 				serverStatuses: [
-					{ serverId: "", label: "Prod", baseUrl: "http://prod.test", state: "ok", modelCount: 1, lastChecked: "" },
+					{
+						serverId: "",
+						label: "Prod",
+						baseUrl: "http://prod.test",
+						state: "ok",
+						servedModelCount: 1,
+						lastChecked: "",
+					},
 				],
 			});
 		});

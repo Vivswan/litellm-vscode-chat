@@ -29,8 +29,8 @@ const models = [{ id: "test-model" } as PreAttachModelInfo];
 function status(state: "ok" | "error", serverId = "s1"): ServerStatus {
 	const common = { serverId, label: "Default", baseUrl: "http://litellm.test", lastChecked: "now" };
 	return state === "ok"
-		? { ...common, state, modelCount: 1 }
-		: { ...common, state, error: "boom", logSafeError: markLogSafe("boom") };
+		? { ...common, state, servedModelCount: 1 }
+		: { ...common, state, error: "boom", logSafeError: markLogSafe("boom"), servedModelCount: 0 };
 }
 
 /** A window on a fake clock with a mutable configured stale-serve window. */

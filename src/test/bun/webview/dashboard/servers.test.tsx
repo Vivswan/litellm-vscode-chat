@@ -64,7 +64,7 @@ test("a server row keeps the shape the narrow stylesheet folds: one disclosure b
 	// Every narrow rule keys off this structure: the disclosure button and the actions cluster are SIBLINGS
 	// under a non-interactive wrapper, with the second line's members inside .server-meta. Move a badge out or
 	// rename a part and the fold breaks at every width with this suite green - happy-dom has no cascade.
-	const root = mountSection([makeDeclaredServer({ label: "Prod", modelCount: 2 })]);
+	const root = mountSection([makeDeclaredServer({ label: "Prod", servedModelCount: 2 })]);
 	const row = root.querySelector(".server-row");
 	expect(row).not.toBeNull();
 	expect(Array.from(row?.children ?? []).map((child) => child.className.split(" ")[0])).toEqual([
@@ -834,7 +834,7 @@ test("an external row's drawer states the provenance classification, or the hone
 test("the drawer's model count is a scope link only when the section is given onShowModels", () => {
 	// The link lives in the drawer: the row is one disclosure button and a button cannot contain a button.
 	// Direct mounts without the callback (and zero-count rows) keep the count as plain text.
-	const plain = mountSection([makeDeclaredServer({ label: "Prod", modelCount: 3 })]);
+	const plain = mountSection([makeDeclaredServer({ label: "Prod", servedModelCount: 3 })]);
 	fireClick(plain.querySelector("button.server-line") as HTMLElement);
 	expect(plain.querySelector("button[aria-label='Show models from Prod']")).toBeNull();
 
@@ -845,7 +845,7 @@ test("the drawer's model count is a scope link only when the section is given on
 			onEditServer={() => {}}
 			onAdoptServer={() => {}}
 			onAddServer={() => {}}
-			servers={[makeDeclaredServer({ label: "Prod", modelCount: 3 }), makeDeclaredServer({ label: "Empty" })]}
+			servers={[makeDeclaredServer({ label: "Prod", servedModelCount: 3 }), makeDeclaredServer({ label: "Empty" })]}
 			now={Date.now()}
 			onShowModels={(label) => labels.push(label)}
 		/>
@@ -1511,7 +1511,7 @@ test("an expected failure serving declared models reads Connected, and states th
 			error: "404 on /models",
 			expected: true,
 			declaredModelCount: 2,
-			modelCount: 2,
+			servedModelCount: 2,
 		}),
 	]);
 	// Serving declared models reads Connected: one state, one name across tabs.
@@ -1558,7 +1558,9 @@ test("an expected failure with nothing declared reads blocking and offers Declar
 });
 
 test("an unserved model-info probe raises the quiet declare hint; the two-step confirm posts declareExpectedFailure", () => {
-	const root = mountSection([makeDeclaredServer({ label: "Ollama", modelCount: 3, modelInfoUnsupported: "timeout" })]);
+	const root = mountSection([
+		makeDeclaredServer({ label: "Ollama", servedModelCount: 3, modelInfoUnsupported: "timeout" }),
+	]);
 
 	// The models serve and the configuration applies as written, so this is the
 	// quiet tier - and stays out of the needs-attention count.
@@ -1601,7 +1603,7 @@ test("no declare button on a row whose entry fields are inactive, but the adviso
 	const root = mountSection([
 		makeDeclaredServer({
 			label: "Ollama",
-			modelCount: 3,
+			servedModelCount: 3,
 			modelInfoUnsupported: "timeout",
 			entryFieldsInactive: true,
 			notices: ["entry-capabilities-inactive"],
@@ -1623,7 +1625,7 @@ test("the withheld declare button on an unproven-identity row leaves the advisor
 	const root = mountSection([
 		makeDeclaredServer({
 			label: "Ollama",
-			modelCount: 3,
+			servedModelCount: 3,
 			modelInfoUnsupported: "timeout",
 			entryFieldsInactive: true,
 		}),

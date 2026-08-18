@@ -63,7 +63,7 @@ function mountDiagnostics(overrides?: Parameters<typeof makeState>[0]) {
 		statePush(
 			makeState(
 				overrides ?? {
-					servers: [makeDeclaredServer({ label: "Prod", modelCount: 2 })],
+					servers: [makeDeclaredServer({ label: "Prod", servedModelCount: 2 })],
 					models: [makeModel(), makeModel({ id: "second", name: "Second" })],
 				}
 			)
@@ -105,7 +105,7 @@ function copyDiagnostics(root: ParentNode): string {
 test("the per-server outcome grid is gone: the server rows own every fact it repeated", () => {
 	const root = mountDiagnostics({
 		servers: [
-			makeDeclaredServer({ label: "Prod", modelCount: 2, lastChecked: new Date().toISOString() }),
+			makeDeclaredServer({ label: "Prod", servedModelCount: 2, lastChecked: new Date().toISOString() }),
 			makeDeclaredServer({
 				label: "Broken",
 				baseUrl: "http://localhost:4001",
@@ -137,7 +137,7 @@ test("Copy diagnostics puts the connection block on the clipboard as plain text 
 	const lastChecked = new Date(Date.now() - 5 * 60 * 1000).toISOString();
 	const root = mountDiagnostics({
 		servers: [
-			makeDeclaredServer({ label: "Prod", modelCount: 2, lastChecked }),
+			makeDeclaredServer({ label: "Prod", servedModelCount: 2, lastChecked }),
 			makeDeclaredServer({
 				label: "Broken",
 				baseUrl: "http://localhost:4001",
@@ -174,7 +174,7 @@ test("Copy diagnostics carries the configuration diagnostics, worst first, in En
 	// existed the copy carried only connections - so an issue about an inert
 	// matcher key pasted a report that never mentioned it.
 	const root = mountDiagnostics({
-		servers: [makeDeclaredServer({ label: "Prod", modelCount: 1 })],
+		servers: [makeDeclaredServer({ label: "Prod", servedModelCount: 1 })],
 		models: [makeModel()],
 		diagnostics: [
 			{
@@ -220,7 +220,9 @@ test("Copy diagnostics carries the configuration diagnostics, worst first, in En
 });
 
 test("the copied block says Never with nothing checked yet, and drops the legacy line with an empty registry", () => {
-	const root = mountDiagnostics({ servers: [makeDeclaredServer({ label: "New", state: "unchecked", modelCount: 0 })] });
+	const root = mountDiagnostics({
+		servers: [makeDeclaredServer({ label: "New", state: "unchecked", servedModelCount: 0 })],
+	});
 	const copied = copyDiagnostics(root);
 	expect(copied).toContain("Waiting for first sync");
 	expect(copied).toContain("Servers configured: 1");
@@ -284,7 +286,7 @@ test("Copy diagnostics never pastes a base URL: legacy leftovers and URL-scoped 
 	// never reach logs or issue reports". A URL-scoped key IS a base URL and can
 	// carry credentials, so the copy keeps the classification and drops the value.
 	const root = mountDiagnostics({
-		servers: [makeDeclaredServer({ label: "Prod", modelCount: 1 })],
+		servers: [makeDeclaredServer({ label: "Prod", servedModelCount: 1 })],
 		models: [makeModel()],
 		diagnostics: [
 			{
@@ -336,7 +338,7 @@ test("Copy diagnostics reports an entry whose problems no server row states, and
 	// hidden groups contribute no server row at all - a hidden-only install
 	// would otherwise paste "Configuration diagnostics: 0".
 	const root = mountDiagnostics({
-		servers: [makeDeclaredServer({ label: "Prod", modelCount: 1 })],
+		servers: [makeDeclaredServer({ label: "Prod", servedModelCount: 1 })],
 		models: [makeModel()],
 		diagnostics: [
 			{

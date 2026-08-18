@@ -153,11 +153,13 @@ function buildServer(
 		...(snapshot.observedModelInfoKeys !== undefined ? { observedModelInfoKeys: snapshot.observedModelInfoKeys } : {}),
 	} as const;
 	return status.state === "ok"
-		? { ...base, state: "ok", modelCount: status.modelCount }
+		? { ...base, state: "ok", servedModelCount: status.servedModelCount }
 		: {
 				...base,
 				state: "error",
-				modelCount: 0,
+				// The served count is truthful on every state: a failed group still
+				// serving its stale-window models says so.
+				servedModelCount: status.servedModelCount,
 				error: status.error,
 				errorEnglish: status.logSafeError,
 				...(status.classification !== undefined ? { classification: status.classification } : {}),
@@ -255,38 +257,40 @@ function declaredOutcome(
 ):
 	| {
 			state: "ok";
-			modelCount: number;
+			servedModelCount: number;
 			error?: string | undefined;
 			errorEnglish?: string | undefined;
 			modelInfoUnsupported?: UnservedEndpointEvidence | undefined;
 	  }
 	| {
 			state: "error";
-			modelCount: number;
+			servedModelCount: number;
 			error: string;
 			errorEnglish?: string | undefined;
 			classification?: TransportErrorClassification | undefined;
 			expected?: boolean | undefined;
 			declaredModelCount?: number | undefined;
 	  }
-	| { state: "unchecked"; modelCount: number } {
+	| { state: "unchecked"; servedModelCount: number } {
 	if (status?.state === "ok") {
 		return {
 			state: "ok",
-			modelCount: status.modelCount,
+			servedModelCount: status.servedModelCount,
 			error: syncError,
 			...(status.modelInfoUnsupported !== undefined ? { modelInfoUnsupported: status.modelInfoUnsupported } : {}),
 		};
 	}
 	if (status?.state === "error") {
 		return syncError !== undefined
-			? { state: "error", modelCount: 0, error: syncError }
+			? // The sync error outranks the live error's text, but the served count
+				// stays the live truth: the group keeps serving what it had.
+				{ state: "error", servedModelCount: status.servedModelCount, error: syncError }
 			: {
 					state: "error",
-					// Declared models keep serving through ANY discovery failure (they
-					// are config-rebuilt, not discovered), so the row's count must
-					// match the picker whether or not the failure was expected.
-					modelCount: status.declaredModelCount ?? 0,
+					// Stale-window and declared models serve through ANY discovery
+					// failure, so the row's count must match the picker whether or not
+					// the failure was expected.
+					servedModelCount: status.servedModelCount,
 					error: status.error,
 					errorEnglish: status.logSafeError,
 					...(status.classification !== undefined ? { classification: status.classification } : {}),
@@ -295,8 +299,8 @@ function declaredOutcome(
 				};
 	}
 	return syncError !== undefined
-		? { state: "error", modelCount: 0, error: syncError }
-		: { state: "unchecked", modelCount: 0 };
+		? { state: "error", servedModelCount: 0, error: syncError }
+		: { state: "unchecked", servedModelCount: 0 };
 }
 
 /** A rejected entry that has the identity a row needs: both fields narrowed, so no call site defaults them. */
@@ -487,7 +491,7 @@ function buildServers(
 		servers.push({
 			label: report.label,
 			baseUrl: report.baseUrl,
-			modelCount: 0,
+			servedModelCount: 0,
 			hasApiKey: false,
 			hasOAuth: false,
 			origin: "misconfigured",

@@ -532,7 +532,7 @@ suite("provider groups", () => {
 		assert.deepStrictEqual(seen, [["Prod", TEST_BASE_URL]], "judged by status label and normalized base URL");
 		const serverStatus = expectDefined(expectDefined(statuses[0]).serverStatuses[0]);
 		assert.strictEqual(serverStatus.state, "ok", "a suppressed group is not an error");
-		assert.strictEqual(serverStatus.state === "ok" && serverStatus.modelCount, 0);
+		assert.strictEqual(serverStatus.state === "ok" && serverStatus.servedModelCount, 0);
 		assert.strictEqual(
 			serverStatus.state === "ok" && serverStatus.hiddenByRemoval,
 			true,
@@ -1280,7 +1280,7 @@ suite("provider groups: capability overrides and declared models", () => {
 			);
 			const status = expectDefined(expectDefined(statuses.at(-1)).serverStatuses[0]);
 			assert.strictEqual(status.state, "ok");
-			assert.strictEqual(status.modelCount, 2, "the declared model joins the picker count");
+			assert.strictEqual(status.servedModelCount, 2, "the declared model joins the picker count");
 			assert.strictEqual(expectDefined(statuses.at(-1)).totalModels, 2);
 		});
 	});
@@ -1383,6 +1383,59 @@ suite("provider groups: capability overrides and declared models", () => {
 			(e: unknown) => e instanceof Error,
 			"an unexpected non-silent failure still throws"
 		);
+	});
+
+	test("a non-silent expected failure with a stale anchor records exactly the declared set it returns", async () => {
+		// The declared-only serve must not count the stale set the silent path
+		// would serve: recording stale+declared here once made totalModels claim
+		// models this serve never handed back.
+		const state = { expected: false, declared: ["gw-model"] as readonly string[] };
+		const provider = makeProvider(undefined, "test-key", undefined, {
+			getExpectedFailures: () => (state.expected ? ["modelInfo", "modelListing"] : undefined),
+			getEntryDeclaredModels: () => state.declared,
+		});
+		const statuses: AggregatedStatus[] = [];
+		provider.setStatusCallback((status) => statuses.push(status));
+		let fail = false;
+		mswServer.use(
+			http.get(MODEL_INFO_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD))),
+			http.get(MODELS_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(DEFAULT_DISCOVERY_PAYLOAD)))
+		);
+
+		await withConfig({ "discovery.cacheTtl": 0 }, async () => {
+			// A healthy pass anchors the stale window with test-model.
+			await provider.provideLanguageModelChatInformation(
+				groupOptions({ baseUrl: TEST_BASE_URL, label: "Gateway" }, false),
+				cancellation()
+			);
+			fail = true;
+			state.expected = true;
+			const served = await provider.provideLanguageModelChatInformation(
+				groupOptions({ baseUrl: TEST_BASE_URL, label: "Gateway" }, false),
+				cancellation()
+			);
+			assert.deepStrictEqual(
+				served.map((info) => info.id),
+				["gw-model"],
+				"the non-silent expected path serves the declared set alone"
+			);
+			const status = expectDefined(expectDefined(statuses.at(-1)).serverStatuses[0]);
+			assert.strictEqual(status.state === "error" && status.servedModelCount, 1, "recorded is what is served");
+			assert.strictEqual(expectDefined(statuses.at(-1)).totalModels, 1, "no stale overcount in the merged total");
+
+			// A declared ID the stale set contains must not be inert-suppressed out
+			// of the ONLY set this serve returns.
+			state.declared = ["test-model"];
+			const declaredOnly = await provider.provideLanguageModelChatInformation(
+				groupOptions({ baseUrl: TEST_BASE_URL, label: "Gateway" }, false),
+				cancellation()
+			);
+			assert.deepStrictEqual(
+				declaredOnly.map((info) => info.id),
+				["test-model"],
+				"the pre-outage discovery cannot suppress the declared ID"
+			);
+		});
 	});
 
 	test("a failing refresh merges declared models un-staled with the stale-decorated last known set", async () => {

@@ -78,7 +78,7 @@ function mountApp() {
 				// The count matches the models below it: a row claiming zero while
 				// serving two renders its count as plain text, and the navigation
 				// this file pins hangs off the count link.
-				servers: [makeDeclaredServer({ modelCount: 2 })],
+				servers: [makeDeclaredServer({ servedModelCount: 2 })],
 				models: [makeModel(), makeModel({ id: "second", name: "Second" })],
 			})
 		)
@@ -90,8 +90,8 @@ function mountApp() {
 function scopedState() {
 	return makeState({
 		servers: [
-			makeDeclaredServer({ label: "Prod", modelCount: 2 }),
-			makeDeclaredServer({ label: "Staging", baseUrl: "http://localhost:4001", modelCount: 1 }),
+			makeDeclaredServer({ label: "Prod", servedModelCount: 2 }),
+			makeDeclaredServer({ label: "Staging", baseUrl: "http://localhost:4001", servedModelCount: 1 }),
 		],
 		models: [
 			makeModel({ id: "gpt-a", name: "Alpha", serverLabel: "Prod" }),
@@ -370,7 +370,7 @@ test("the scope clears itself when the scoped server leaves the list", () => {
 	expect(root.querySelector(".chip")).not.toBeNull();
 
 	const remaining = makeState({
-		servers: [makeDeclaredServer({ label: "Prod", modelCount: 2 })],
+		servers: [makeDeclaredServer({ label: "Prod", servedModelCount: 2 })],
 		models: [
 			makeModel({ id: "gpt-a", name: "Alpha", serverLabel: "Prod" }),
 			makeModel({ id: "gpt-b", name: "Bravo", serverLabel: "Prod" }),
@@ -386,7 +386,7 @@ test("a zero model count renders as plain text in the drawer, not a scope link",
 	pushToWebview(
 		statePush(
 			makeState({
-				servers: [makeDeclaredServer({ label: "Fresh", modelCount: 0 })],
+				servers: [makeDeclaredServer({ label: "Fresh", servedModelCount: 0 })],
 				models: [],
 			})
 		)
@@ -411,8 +411,8 @@ test("scoping rewinds a deeply scrolled windowed table to the new list's top", (
 		statePush(
 			makeState({
 				servers: [
-					makeDeclaredServer({ label: "Prod", modelCount: 60 }),
-					makeDeclaredServer({ label: "Staging", baseUrl: "http://localhost:4001", modelCount: 60 }),
+					makeDeclaredServer({ label: "Prod", servedModelCount: 60 }),
+					makeDeclaredServer({ label: "Staging", baseUrl: "http://localhost:4001", servedModelCount: 60 }),
 				],
 				models,
 			})

@@ -10,13 +10,13 @@ import { unexpectedFailureCount, unexpectedServerFailures } from "../../../share
  * configured as normal and never counts.
  */
 
-function ok(serverId: string, modelCount = 3): ServerStatus {
+function ok(serverId: string, servedModelCount = 3): ServerStatus {
 	return {
 		serverId,
 		label: serverId,
 		baseUrl: `http://${serverId}.test`,
 		state: "ok",
-		modelCount,
+		servedModelCount,
 		lastChecked: "2026-07-26T00:00:00.000Z",
 	};
 }
@@ -29,6 +29,7 @@ function failure(serverId: string, overrides: { expected?: boolean; declaredMode
 		state: "error",
 		error: "boom",
 		logSafeError: markLogSafe("RequestError(connection)"),
+		servedModelCount: overrides.declaredModelCount ?? 0,
 		...(overrides.expected !== undefined ? { expected: overrides.expected } : {}),
 		...(overrides.declaredModelCount !== undefined ? { declaredModelCount: overrides.declaredModelCount } : {}),
 		lastChecked: "2026-07-26T00:00:00.000Z",

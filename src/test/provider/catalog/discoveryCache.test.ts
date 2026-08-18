@@ -334,7 +334,7 @@ suite("provider group discovery caching", () => {
 		const status = expectDefined(statuses.at(-1), "the cached hit must still report status");
 		const serverStatus = expectDefined(status.serverStatuses[0]);
 		assert.strictEqual(serverStatus.state, "ok");
-		assert.strictEqual(serverStatus.modelCount, 1);
+		assert.strictEqual(serverStatus.servedModelCount, 1);
 	});
 
 	test("a cached hit reports with the caller's silent flag, not a remembered one", async () => {

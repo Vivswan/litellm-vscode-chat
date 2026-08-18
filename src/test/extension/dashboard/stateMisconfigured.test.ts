@@ -38,7 +38,7 @@ suite("extension/dashboard/state misconfigured rows", () => {
 		assert.strictEqual(row.label, "Broken");
 		assert.strictEqual(row.baseUrl, "http://broken.test");
 		assert.strictEqual(row.state, "error");
-		assert.strictEqual(row.modelCount, 0);
+		assert.strictEqual(row.servedModelCount, 0);
 		assert.deepStrictEqual(row.problems, ["auth must pick one form"]);
 		// English by the issue-report policy, on both the display and the mirror.
 		assert.strictEqual(row.error, MISCONFIGURED_TEXT);

@@ -4,6 +4,7 @@ import { detectSetupProblem, type SetupProblem, showSetupProblemGate } from "../
 import type { ConnectionStatus } from "../../../extension/ui/status";
 import { SETUP_HINT_KINDS } from "../../../shared/errorClassification";
 import { markLogSafe } from "../../../shared/logger";
+import type { ServerStatus } from "../../../shared/servers";
 import { makeServerStatus } from "../../testUtils";
 
 suite("extension/ui/setupGate", () => {
@@ -14,6 +15,13 @@ suite("extension/ui/setupGate", () => {
 			logSafeError: markLogSafe("boom"),
 			...overrides,
 		};
+	}
+
+	/** The zero-model state rides "connected" now (nothing failed); the gate reads it from there. */
+	function connectedStatus(
+		overrides: { totalModels?: number; serverStatuses?: ServerStatus[] } = {}
+	): ConnectionStatus {
+		return { state: "connected", totalModels: 0, serverStatuses: [], ...overrides };
 	}
 
 	test("a not-configured status is the not-configured problem", () => {
@@ -41,9 +49,9 @@ suite("extension/ui/setupGate", () => {
 		// The only group is tombstone-suppressed and the rollup built the
 		// synthetic zero-model verdict, so Report Issue must route through the
 		// gate instead of opening a blank issue.
-		const status = errorStatus({
+		const status = connectedStatus({
 			totalModels: 0,
-			serverStatuses: [makeServerStatus({ modelCount: 0, hiddenByRemoval: true })],
+			serverStatuses: [makeServerStatus({ servedModelCount: 0, hiddenByRemoval: true })],
 		});
 		assert.strictEqual(detectSetupProblem(status), "hidden-groups");
 	});
@@ -51,9 +59,9 @@ suite("extension/ui/setupGate", () => {
 	test("a zero-model verdict from servers that answered empty is not a setup problem", () => {
 		// The server genuinely listed no models: that may be a real bug, so it
 		// goes straight to GitHub like any unclassified error.
-		const status = errorStatus({
+		const status = connectedStatus({
 			totalModels: 0,
-			serverStatuses: [makeServerStatus({ modelCount: 0 })],
+			serverStatuses: [makeServerStatus({ servedModelCount: 0 })],
 		});
 		assert.strictEqual(detectSetupProblem(status), undefined);
 	});
@@ -61,21 +69,21 @@ suite("extension/ui/setupGate", () => {
 	test("a hidden group beside an answering-empty server does not gate: the removal only partly explains it", () => {
 		// The answering-empty server may be a real bug; the gate must not stand
 		// between it and GitHub just because a hidden group also exists.
-		const status = errorStatus({
+		const status = connectedStatus({
 			totalModels: 0,
 			serverStatuses: [
-				makeServerStatus({ modelCount: 0, hiddenByRemoval: true }),
-				makeServerStatus({ serverId: "srv2", modelCount: 0 }),
+				makeServerStatus({ servedModelCount: 0, hiddenByRemoval: true }),
+				makeServerStatus({ serverId: "srv2", servedModelCount: 0 }),
 			],
 		});
 		assert.strictEqual(detectSetupProblem(status), undefined);
 	});
 
 	test("a hidden group beside an expected failure still gates: both outcomes are user-declared", () => {
-		const status = errorStatus({
+		const status = connectedStatus({
 			totalModels: 0,
 			serverStatuses: [
-				makeServerStatus({ modelCount: 0, hiddenByRemoval: true }),
+				makeServerStatus({ servedModelCount: 0, hiddenByRemoval: true }),
 				makeServerStatus({ serverId: "srv2", state: "error", error: "discovery down", expected: true }),
 			],
 		});
@@ -85,9 +93,12 @@ suite("extension/ui/setupGate", () => {
 	test("a hidden group beside served models never gates", () => {
 		// Models are being served, so zero-models cannot be the complaint; the
 		// hidden group is irrelevant to whatever error carried this status.
-		const status = errorStatus({
+		const status = connectedStatus({
 			totalModels: 3,
-			serverStatuses: [makeServerStatus({ modelCount: 0, hiddenByRemoval: true }), makeServerStatus({ modelCount: 3 })],
+			serverStatuses: [
+				makeServerStatus({ servedModelCount: 0, hiddenByRemoval: true }),
+				makeServerStatus({ servedModelCount: 3 }),
+			],
 		});
 		assert.strictEqual(detectSetupProblem(status), undefined);
 	});
@@ -96,18 +107,21 @@ suite("extension/ui/setupGate", () => {
 		const status = errorStatus({
 			totalModels: 0,
 			classification: { kind: "connection", setupHint: "proxy-not-running" },
-			serverStatuses: [makeServerStatus({ modelCount: 0, hiddenByRemoval: true })],
+			serverStatuses: [makeServerStatus({ servedModelCount: 0, hiddenByRemoval: true })],
 		});
 		assert.strictEqual(detectSetupProblem(status), "proxy-not-running");
 	});
 
 	test("healthy and transient states are never setup problems", () => {
 		const statuses: ConnectionStatus[] = [
-			{ state: "connected", totalModels: 3, serverStatuses: [makeServerStatus({ modelCount: 3 })] },
+			{ state: "connected", totalModels: 3, serverStatuses: [makeServerStatus({ servedModelCount: 3 })] },
 			{
 				state: "degraded",
 				totalModels: 1,
-				serverStatuses: [makeServerStatus({ modelCount: 1 }), makeServerStatus({ state: "error", error: "down" })],
+				serverStatuses: [
+					makeServerStatus({ servedModelCount: 1 }),
+					makeServerStatus({ state: "error", error: "down" }),
+				],
 			},
 			{ state: "loading" },
 			{ state: "connecting", attention: true },

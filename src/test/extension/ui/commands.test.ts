@@ -172,7 +172,7 @@ suite("extension/ui/commands", () => {
 			const statusBar = makeStatusBar({
 				state: "connected",
 				totalModels: 3,
-				serverStatuses: [makeServerStatus({ modelCount: 3 })],
+				serverStatuses: [makeServerStatus({ servedModelCount: 3 })],
 			});
 			const provider = {
 				provideLanguageModelChatInformation: async () => [],
@@ -189,16 +189,14 @@ suite("extension/ui/commands", () => {
 
 		test("the zero-model verdict is not framed as a connection failure; a hidden group earns Open Dashboard", async () => {
 			// The verdict text already names the removal and the recovery, so the
-			// "Connection failed - " framing must not wrap it.
+			// "Connection failed - " framing must not wrap it; warning-grade like
+			// the bar and the notifier (one judgment, one severity).
 			const lines: string[] = [];
 			const bufferLogger = new Logger({ info: (line: string) => lines.push(line), error: () => {} });
 			const statusBar = makeStatusBar({
-				state: "error",
-				error:
-					"1 server is hidden by an explicit removal and serves no models. Restore it from the dashboard's server list.",
-				logSafeError: markLogSafe("Servers returned 0 models (1 hidden by user removal)"),
+				state: "connected",
 				totalModels: 0,
-				serverStatuses: [makeServerStatus({ modelCount: 0, hiddenByRemoval: true })],
+				serverStatuses: [makeServerStatus({ servedModelCount: 0, hiddenByRemoval: true })],
 			});
 			const provider = {
 				provideLanguageModelChatInformation: async () => [],
@@ -208,6 +206,7 @@ suite("extension/ui/commands", () => {
 			const toasts = await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, bufferLogger));
 
 			const toast = expectDefined(toasts[0]);
+			assert.strictEqual(toast.kind, "warning");
 			assert.ok(!toast.message.includes("Connection failed"), toast.message);
 			assert.ok(toast.message.includes("hidden by an explicit removal"), toast.message);
 			assert.deepStrictEqual(toast.buttons, ["View Output", "Open Dashboard", "Report Issue"]);
@@ -221,7 +220,7 @@ suite("extension/ui/commands", () => {
 			const statusBar = makeStatusBar({
 				state: "connected",
 				totalModels: 1,
-				serverStatuses: [makeServerStatus({ modelCount: 1 })],
+				serverStatuses: [makeServerStatus({ servedModelCount: 1 })],
 			});
 			let refreshed = 0;
 			const provider = {
@@ -240,7 +239,7 @@ suite("extension/ui/commands", () => {
 			const statusBar = makeStatusBar({
 				state: "connected",
 				totalModels: 2,
-				serverStatuses: [makeServerStatus({ modelCount: 2 })],
+				serverStatuses: [makeServerStatus({ servedModelCount: 2 })],
 			});
 			let release: (() => void) | undefined;
 			const blocked = new Promise<void>((resolve) => {
@@ -273,7 +272,10 @@ suite("extension/ui/commands", () => {
 					await statusBar.updateStatusBar({
 						state: "degraded",
 						totalModels: 2,
-						serverStatuses: [makeServerStatus({ modelCount: 2 }), makeServerStatus({ state: "error", error: "down" })],
+						serverStatuses: [
+							makeServerStatus({ servedModelCount: 2 }),
+							makeServerStatus({ state: "error", error: "down" }),
+						],
 					});
 					return [];
 				},
@@ -298,7 +300,7 @@ suite("extension/ui/commands", () => {
 						state: "degraded",
 						totalModels: 2,
 						serverStatuses: [
-							makeServerStatus({ modelCount: 2 }),
+							makeServerStatus({ servedModelCount: 2 }),
 							makeServerStatus({ serverId: "srv2", state: "error", error: "down" }),
 							makeServerStatus({ serverId: "srv3", state: "error", error: "404 on /models", expected: true }),
 						],
@@ -523,7 +525,7 @@ suite("extension/ui/commands", () => {
 			const statusBar = makeStatusBar({
 				state: "connected",
 				totalModels: 1,
-				serverStatuses: [makeServerStatus({ modelCount: 1 })],
+				serverStatuses: [makeServerStatus({ servedModelCount: 1 })],
 			});
 			let releaseRefresh: (() => void) | undefined;
 			const provider = {
@@ -559,17 +561,16 @@ suite("extension/ui/commands", () => {
 			const lines: string[] = [];
 			const bufferLogger = new Logger({ info: (line: string) => lines.push(line), error: () => {} });
 			const statusBar = makeStatusBar({
-				state: "error",
-				error: "The server answered but listed no models.",
-				logSafeError: markLogSafe("Servers returned 0 models (answered with an empty listing)"),
+				state: "connected",
 				totalModels: 0,
-				serverStatuses: [makeServerStatus({ modelCount: 0 })],
+				serverStatuses: [makeServerStatus({ servedModelCount: 0 })],
 			});
 			const provider = { refreshViaHost: async () => {} };
 
 			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, bufferLogger));
 
 			const toast = expectDefined(toasts[0]);
+			assert.strictEqual(toast.kind, "warning");
 			assert.strictEqual(toast.message, "LiteLLM: The server answered but listed no models.");
 			assert.deepStrictEqual(toast.buttons, ["View Output", "Reconfigure", "Report Issue"]);
 			assert.ok(
@@ -593,7 +594,7 @@ suite("extension/ui/commands", () => {
 			const statusBar = makeStatusBar({
 				state: "connected",
 				totalModels: 3,
-				serverStatuses: [makeServerStatus({ modelCount: 3 })],
+				serverStatuses: [makeServerStatus({ servedModelCount: 3 })],
 			});
 			let refreshed = 0;
 			const provider = {
@@ -620,7 +621,7 @@ suite("extension/ui/commands", () => {
 			const statusBar = makeStatusBar({
 				state: "connected",
 				totalModels: 2,
-				serverStatuses: [makeServerStatus({ modelCount: 2 })],
+				serverStatuses: [makeServerStatus({ servedModelCount: 2 })],
 			});
 			const provider = {
 				refreshViaHost: async () => {
@@ -734,7 +735,10 @@ suite("extension/ui/commands", () => {
 					await statusBar.updateStatusBar({
 						state: "degraded",
 						totalModels: 2,
-						serverStatuses: [makeServerStatus({ modelCount: 2 }), makeServerStatus({ state: "error", error: "down" })],
+						serverStatuses: [
+							makeServerStatus({ servedModelCount: 2 }),
+							makeServerStatus({ state: "error", error: "down" }),
+						],
 					});
 				},
 			};
@@ -758,7 +762,7 @@ suite("extension/ui/commands", () => {
 						state: "degraded",
 						totalModels: 2,
 						serverStatuses: [
-							makeServerStatus({ modelCount: 2 }),
+							makeServerStatus({ servedModelCount: 2 }),
 							makeServerStatus({ serverId: "srv2", state: "error", error: "down" }),
 							makeServerStatus({ serverId: "srv3", state: "error", error: "404 on /models", expected: true }),
 						],
@@ -777,7 +781,7 @@ suite("extension/ui/commands", () => {
 			const statusBar = makeStatusBar({
 				state: "connected",
 				totalModels: 1,
-				serverStatuses: [makeServerStatus({ modelCount: 1 })],
+				serverStatuses: [makeServerStatus({ servedModelCount: 1 })],
 			});
 			let release: (() => void) | undefined;
 			const blocked = new Promise<void>((resolve) => {
@@ -808,7 +812,7 @@ suite("extension/ui/commands", () => {
 			const statusBar = makeStatusBar({
 				state: "connected",
 				totalModels: 1,
-				serverStatuses: [makeServerStatus({ modelCount: 1 })],
+				serverStatuses: [makeServerStatus({ servedModelCount: 1 })],
 			});
 			const provider = {
 				refreshViaHost: async () => {
@@ -1022,7 +1026,7 @@ suite("extension/ui/commands", () => {
 			try {
 				await runReportIssue(
 					makeRegistry(),
-					() => ({ state: "connected", totalModels: 2, serverStatuses: [makeServerStatus({ modelCount: 2 })] }),
+					() => ({ state: "connected", totalModels: 2, serverStatuses: [makeServerStatus({ servedModelCount: 2 })] }),
 					"1.2.3",
 					"9.9.9",
 					reporter,
@@ -1084,7 +1088,7 @@ suite("extension/ui/commands", () => {
 				assert.strictEqual(openedIssueUrls.length, 0, "no issue opens before the gate is answered");
 				// The world changes while the dialog sits unanswered; the report must
 				// still carry the snapshot the gate judged.
-				status = { state: "connected", totalModels: 1, serverStatuses: [makeServerStatus({ modelCount: 1 })] };
+				status = { state: "connected", totalModels: 1, serverStatuses: [makeServerStatus({ servedModelCount: 1 })] };
 				expectDefined(answer)("Report Anyway");
 				await waitFor(() => openedIssueUrls.length > 0, "Report Anyway to open the issue");
 			} finally {
@@ -1103,7 +1107,7 @@ suite("extension/ui/commands", () => {
 			const healthy: ConnectionStatus = {
 				state: "connected",
 				totalModels: 2,
-				serverStatuses: [makeServerStatus({ modelCount: 2 })],
+				serverStatuses: [makeServerStatus({ servedModelCount: 2 })],
 			};
 
 			interface HintMocks {
@@ -1278,7 +1282,7 @@ suite("extension/ui/commands", () => {
 					await runReportIssue(registry, () => healthy, "1.2.3", "9.9.9", reporter, storage.memento);
 					await runReportIssue(
 						registry,
-						() => ({ state: "connected", totalModels: 3, serverStatuses: [makeServerStatus({ modelCount: 3 })] }),
+						() => ({ state: "connected", totalModels: 3, serverStatuses: [makeServerStatus({ servedModelCount: 3 })] }),
 						"1.2.3",
 						"9.9.9",
 						reporter,

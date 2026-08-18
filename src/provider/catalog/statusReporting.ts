@@ -8,7 +8,8 @@ import type { DiscoveryObservations, StatusWindow } from "./statusWindow";
 export type GroupServeOutcome =
 	| {
 			state: "ok";
-			modelCount: number;
+			/** See ServerStatusCommon: the models this serve handed the host. */
+			servedModelCount: number;
 			/** See ServerStatusOk: zero models because the user hid the group, never a server outcome. */
 			hiddenByRemoval?: boolean;
 			/** See ServerStatusOk: the serve fell back to /models past an unserved-looking model-info probe. */
@@ -21,6 +22,9 @@ export type GroupServeOutcome =
 			classification?: TransportErrorClassification;
 			/** See ServerStatusError: the truthful error stays; presentation derives the downgrade. */
 			expected?: boolean;
+			/** See ServerStatusCommon: what the failure still serves (stale-window plus declared models). */
+			servedModelCount: number;
+			/** See ServerStatusError: the declared subset of servedModelCount. */
 			declaredModelCount?: number;
 	  };
 
@@ -56,13 +60,10 @@ export class GroupStatusReporter {
 			return;
 		}
 		const serverStatuses = this._window.snapshots().map((snapshot) => snapshot.status);
-		// Declared models serve through ANY discovery failure (config-rebuilt,
-		// never discovered): the picker lists them, so the aggregate count must
-		// match whether or not the failure was expected.
-		const totalModels = serverStatuses.reduce(
-			(sum, s) => sum + (s.state === "ok" ? s.modelCount : (s.declaredModelCount ?? 0)),
-			0
-		);
+		// servedModelCount is the one field answering "how many models does this
+		// server serve right now" on every state: stale-window and declared models
+		// keep counting through failures, matching what the picker lists.
+		const totalModels = serverStatuses.reduce((sum, s) => sum + s.servedModelCount, 0);
 		this._callback({ serverStatuses, totalModels, silent });
 	}
 

@@ -174,7 +174,7 @@ describe("the drawer", () => {
 				}),
 			],
 		});
-		const root = mountServers(usage, [prodServer({ modelCount: 3, hasApiKey: true, lastChecked: undefined })]);
+		const root = mountServers(usage, [prodServer({ servedModelCount: 3, hasApiKey: true, lastChecked: undefined })]);
 		const line = root.querySelector("button.server-line") as HTMLButtonElement;
 		expect(line.getAttribute("aria-expanded")).toBe("false");
 		expect(root.querySelector(".server-drawer")).toBeNull();
@@ -285,7 +285,10 @@ describe("the drawer", () => {
 		const root = mountServers(usage);
 		expect(textOf(root, ".spend-note")).toBe("stale");
 		const updated = factOf(openRow(root), "Spend last updated");
-		expect(updated).toContain("possibly stale");
+		// One staleness vocabulary: the drawer uses the row marker's word, never a
+		// hedged synonym ("possibly stale" once named the same state differently).
+		expect(updated).toContain("stale");
+		expect(updated).not.toContain("possibly");
 		expect(updated).toContain("25 min ago");
 	});
 
@@ -456,7 +459,7 @@ describe("the drawer", () => {
 						origin: "external",
 						label: "Copilot",
 						baseUrl: "http://copilot.example:4000",
-						modelCount: 2,
+						servedModelCount: 2,
 						hasApiKey: true,
 						hasOAuth: false,
 						state: "ok",

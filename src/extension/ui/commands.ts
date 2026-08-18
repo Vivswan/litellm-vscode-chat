@@ -7,7 +7,7 @@ import { publicErrorStack, publicErrorText } from "../../shared/logger";
 import type { SecretFieldId } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import type { ServerStatus } from "../../shared/servers";
-import { isHiddenGroupServerStatus, unexpectedFailureCount } from "../../shared/servers";
+import { unexpectedFailureCount } from "../../shared/servers";
 import { GITHUB_DOCS_URL, GITHUB_REPO_URL } from "../../shared/util/links";
 import { openUrl } from "../../shared/util/openUrl";
 import type { DashboardController } from "../dashboard/panel";
@@ -29,8 +29,8 @@ import {
 } from "./notifier";
 import { profileUserFileUri } from "./profilePath";
 import { detectSetupProblem, showSetupProblemGate } from "./setupGate";
-import type { ConnectionStatus } from "./status";
-import { isZeroModelVerdict, statusServerStatuses } from "./status";
+import type { ConnectionStatus, ZeroModelTexts } from "./status";
+import { zeroModelJudgment } from "./status";
 
 const GITHUB_NEW_ISSUE_FEATURE = `${GITHUB_REPO_URL}/issues/new?labels=enhancement&title=%5BFeature%5D+`;
 
@@ -61,19 +61,16 @@ interface ConnectionTestableProvider extends ModelInfoProvider, HostRefreshableP
 
 /**
  * The toast for the synthetic zero-model verdict, shared by the connection
- * test and the model sync: the verdict text already names the cause and the
- * recovery, so the "Connection failed"/"sync failed" framing must not wrap it,
- * and a hidden group earns the Open Dashboard label - the restore lives in the
- * dashboard's server list.
+ * test and the model sync: warning-grade like every other surface of this
+ * judgment (bar, hero, notifier), the verdict text already names the cause and
+ * the recovery, so the "Connection failed"/"sync failed" framing must not wrap
+ * it, and a hidden group earns the Open Dashboard label - the restore lives in
+ * the dashboard's server list.
  */
-function showZeroModelOutcomeToast(
-	status: Extract<ConnectionStatus, { state: "error" }>,
-	outputChannel: vscode.OutputChannel
-): void {
-	const hidden = statusServerStatuses(status).some(isHiddenGroupServerStatus);
-	void showActionableMessage("error", l10n.t("LiteLLM: {0}", status.error), [
+function showZeroModelOutcomeToast(zero: ZeroModelTexts, outputChannel: vscode.OutputChannel): void {
+	void showActionableMessage("warning", l10n.t("LiteLLM: {0}", zero.display), [
 		viewOutputAction(outputChannel),
-		hidden ? reconfigureAction(l10n.t("Open Dashboard")) : reconfigureAction(),
+		zero.hiddenCount > 0 ? reconfigureAction(l10n.t("Open Dashboard")) : reconfigureAction(),
 		reportIssueAction(),
 	]);
 }
@@ -139,6 +136,14 @@ export async function runConnectionTest(
 
 		switch (status.state) {
 			case "connected": {
+				// The shared zero-model judgment: connected-with-nothing-to-serve is
+				// a warning here exactly like the bar and the notifier.
+				const zero = zeroModelJudgment(status.serverStatuses, status.totalModels);
+				if (zero !== undefined) {
+					logger.log(`Connection test finished with 0 models: ${zero.logSafe}`);
+					showZeroModelOutcomeToast(zero, outputChannel);
+					break;
+				}
 				const count = status.totalModels;
 				logger.log(`SUCCESS: ${count} models available`);
 				void showActionableMessage(
@@ -174,13 +179,6 @@ export async function runConnectionTest(
 				break;
 			}
 			case "error":
-				if (isZeroModelVerdict(status)) {
-					// Every server answered (or failed only expectedly): not a
-					// connection failure, so the toast carries the verdict as-is.
-					logger.log(`Connection test finished with 0 models: ${status.logSafeError}`);
-					showZeroModelOutcomeToast(status, outputChannel);
-					break;
-				}
 				// The toast carries the transport headline verbatim (it already
 				// says what to do); a classified failure only adds the docs action.
 				void showActionableMessage(
@@ -272,6 +270,13 @@ async function runModelSyncPass(
 		const status = statusBar.connectionStatus;
 		switch (status.state) {
 			case "connected": {
+				// The same warning-grade zero-model treatment as the connection test.
+				const zero = zeroModelJudgment(status.serverStatuses, status.totalModels);
+				if (zero !== undefined) {
+					logger.log(`Model sync finished with 0 models: ${zero.logSafe}`);
+					showZeroModelOutcomeToast(zero, outputChannel);
+					break;
+				}
 				const count = status.totalModels;
 				logger.log(`Model sync finished: ${count} models available`);
 				void showActionableMessage(
@@ -307,13 +312,6 @@ async function runModelSyncPass(
 				break;
 			}
 			case "error":
-				if (isZeroModelVerdict(status)) {
-					// Not a failed sync: the servers answered. logSafeError carries
-					// the English classification for the issue-report buffer.
-					logger.log(`Model sync finished with 0 models: ${status.logSafeError}`);
-					showZeroModelOutcomeToast(status, outputChannel);
-					break;
-				}
 				// logSafeError, never error: this line lands in the issue-report
 				// buffer. Same headline-only classification treatment as the
 				// connection test's error toast.

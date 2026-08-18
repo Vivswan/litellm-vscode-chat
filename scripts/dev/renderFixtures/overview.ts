@@ -21,7 +21,7 @@ const fixture: RenderFixture = {
 						label: "renamed",
 						baseUrl: "https://old.example.com",
 						state: "ok",
-						modelCount: 1,
+						servedModelCount: 1,
 						notices: ["entry-params-inactive", "entry-headers-inactive", "entry-api-version-inactive"],
 					} as DashboardServer,
 				],

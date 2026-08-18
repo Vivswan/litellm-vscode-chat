@@ -38,13 +38,13 @@ suite("extension/ui/notifier", () => {
 
 	teardown(() => restore());
 
-	function okStatus(modelCount: number): ServerStatus {
+	function okStatus(servedModelCount: number): ServerStatus {
 		return {
 			serverId: "srv1",
 			label: "Default",
 			baseUrl: "http://litellm.test",
 			state: "ok",
-			modelCount,
+			servedModelCount,
 			lastChecked: new Date().toISOString(),
 		};
 	}
@@ -57,6 +57,7 @@ suite("extension/ui/notifier", () => {
 			state: "error",
 			error,
 			logSafeError: publicErrorText(error),
+			servedModelCount: 0,
 			...(classification !== undefined ? { classification } : {}),
 			lastChecked: new Date().toISOString(),
 		};
@@ -71,6 +72,7 @@ suite("extension/ui/notifier", () => {
 			state: "error",
 			error,
 			logSafeError: publicErrorText(error),
+			servedModelCount: 0,
 			expected: true,
 			lastChecked: new Date().toISOString(),
 		};
@@ -197,7 +199,7 @@ suite("extension/ui/notifier", () => {
 			label: "Default",
 			baseUrl: "http://litellm.test",
 			state: "ok",
-			modelCount: 0,
+			servedModelCount: 0,
 			hiddenByRemoval: true,
 			lastChecked: new Date().toISOString(),
 		};

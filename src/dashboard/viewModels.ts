@@ -85,7 +85,12 @@ export interface HiddenGroup {
 interface DashboardServerBase {
 	readonly label: string;
 	readonly baseUrl: string;
-	readonly modelCount: number;
+	/**
+	 * How many models this server serves RIGHT NOW, regardless of state: the
+	 * same field the merged counts and every serving verdict read. An error row
+	 * still serving stale-window or declared models carries their count here.
+	 */
+	readonly servedModelCount: number;
 	/** ISO timestamp of the last discovery attempt; absent while unchecked. */
 	readonly lastChecked?: string | undefined;
 	/** Whether the server has credentials configured anywhere; never the credentials themselves. */
@@ -199,7 +204,7 @@ export type DashboardServer = DashboardServerBase &
 				 * counts depend on it), but presentation treats it as expected.
 				 */
 				readonly expected?: boolean | undefined;
-				/** How many declared models this server keeps serving despite the failure. */
+				/** The declared subset of servedModelCount; drives the "N declared models" wording. */
 				readonly declaredModelCount?: number | undefined;
 				readonly modelInfoUnsupported?: undefined;
 		  }

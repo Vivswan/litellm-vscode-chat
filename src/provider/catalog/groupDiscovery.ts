@@ -16,8 +16,8 @@ import type { DiscoveryObservations, StatusWindow } from "./statusWindow";
 
 /** GroupServeOutcome minus the served-set counts, which recordAndServe derives from the served pair. */
 type ServeOutcomeShape =
-	| Omit<Extract<GroupServeOutcome, { state: "ok" }>, "modelCount">
-	| Omit<Extract<GroupServeOutcome, { state: "error" }>, "declaredModelCount">;
+	| Omit<Extract<GroupServeOutcome, { state: "ok" }>, "servedModelCount">
+	| Omit<Extract<GroupServeOutcome, { state: "error" }>, "servedModelCount" | "declaredModelCount">;
 
 /**
  * One server's cached discovery result: the registered infos plus the raw
@@ -134,16 +134,18 @@ export class GroupDiscovery {
 			outcome: ServeOutcomeShape,
 			observations: DiscoveryObservations = {}
 		): { served: AttachedModelInfo[]; discovered: AttachedModelInfo[]; declared: AttachedModelInfo[] } => {
-			let recorded: GroupServeOutcome;
-			if (outcome.state === "ok") {
-				const { state, ...rest } = outcome;
-				recorded = { state, modelCount: models.overridden.length + models.declared.length, ...rest };
-			} else {
-				recorded = {
-					...outcome,
-					...(models.declared.length > 0 ? { declaredModelCount: models.declared.length } : {}),
-				};
-			}
+			// The one served-count derivation: both states record exactly what this
+			// serve hands out, so a failure still serving stale or declared models
+			// stays visible to the merged count and every verdict.
+			const servedModelCount = models.overridden.length + models.declared.length;
+			const recorded: GroupServeOutcome =
+				outcome.state === "ok"
+					? { ...outcome, servedModelCount }
+					: {
+							...outcome,
+							servedModelCount,
+							...(models.declared.length > 0 ? { declaredModelCount: models.declared.length } : {}),
+						};
 			this._options.reporter.reportGroupStatus(server, groupServer, silent, recorded, models.overridden, observations);
 			const discovered = attach(models.overridden);
 			const declared = attach(models.declared);
@@ -276,8 +278,14 @@ export class GroupDiscovery {
 			// (non-silent) still throws, except that an expected failure with
 			// declared models serves the declared set instead.
 			const stale = this._options.window.staleServableModels(server.id);
+			// A non-silent expected failure serves the declared set ALONE (the
+			// return below), so its record must not count the stale set the silent
+			// path would serve - and the declared synthesis must run against the
+			// empty discovered set, or a pre-outage discovery could inert-suppress
+			// a declared ID out of the only set this serve hands back.
+			const servesDeclaredOnly = !silent && expected;
 			const { overridden, declared } = this._options.decorator.decorate(
-				stale !== undefined
+				!servesDeclaredOnly && stale !== undefined
 					? { infos: stale.models, discoveredRawIds: stale.discoveredRawIds }
 					: { infos: [], discoveredRawIds: [] },
 				server,
@@ -293,7 +301,7 @@ export class GroupDiscovery {
 					...texts,
 					...(expected ? { expected: true } : {}),
 				},
-				{ discoveredRawIds: stale?.discoveredRawIds ?? [] }
+				{ discoveredRawIds: servesDeclaredOnly ? [] : (stale?.discoveredRawIds ?? []) }
 			);
 			if (silent) {
 				// No success anchor means nothing servable: an empty literal, not the

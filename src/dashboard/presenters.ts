@@ -12,17 +12,20 @@ import type { HeaderScalar } from "../shared/util/headers";
 import type { DashboardServer, DeclaredServerNotice, SettingScope } from "./viewModels";
 
 /**
- * The overall configuration verdict, shared by the dashboard hero and the
- * Diagnostics tab so their headline judgement cannot drift. Only real failures
- * count: unchecked entries stay neutral, and so do failures the entry's
- * expectedFailures declares (expected-and-serving-nothing yields
- * "needs-declare"). Misconfigured entries are neutral too - except that a
- * configuration of ONLY misconfigured entries is an error, not "waiting".
+ * The overall configuration verdict, shared by the dashboard hero, the status
+ * bar, the notifier, and the Diagnostics tab so their headline judgement
+ * cannot drift. Only real failures count: unchecked entries stay neutral, and
+ * so do failures the entry's expectedFailures declares
+ * (expected-and-serving-nothing yields "needs-declare"). Misconfigured entries
+ * are neutral too - except that a configuration of ONLY misconfigured entries
+ * is an error, not "waiting". Serving-through-failure is degraded, never dead:
+ * a window whose every server failed unexpectedly but still serves models
+ * (stale-window or declared) reads "degraded", matching the row pills.
  */
 export type OverallVerdict = "not-configured" | "error" | "degraded" | "waiting" | "connected" | "needs-declare";
 
 export function classifyOverall(
-	servers: readonly (Pick<DashboardServer, "state" | "expected" | "declaredModelCount"> & {
+	servers: readonly (Pick<DashboardServer, "state" | "expected" | "servedModelCount"> & {
 		readonly origin?: DashboardServer["origin"];
 	})[]
 ): OverallVerdict {
@@ -33,16 +36,17 @@ export function classifyOverall(
 	if (transport.length === 0) {
 		return "error";
 	}
+	// The serving test precedes the all-failed verdict: servedModelCount answers
+	// "does this server serve right now" on every state, so a failure still
+	// serving stale or declared models can never read as dead.
+	const serving = transport.some((server) => server.state === "ok" || server.servedModelCount > 0);
 	const errors = transport.filter((server) => server.state === "error" && server.expected !== true).length;
-	if (errors === transport.length) {
+	if (errors === transport.length && !serving) {
 		return "error";
 	}
 	if (errors > 0) {
 		return "degraded";
 	}
-	const serving = transport.some(
-		(server) => server.state === "ok" || (server.state === "error" && (server.declaredModelCount ?? 0) > 0)
-	);
 	if (serving) {
 		return "connected";
 	}
@@ -86,7 +90,12 @@ export function overallStatusText(
 		case "needs-declare":
 			return "Expected discovery failures; no declared models (add IDs to the entry's discovery.declared)";
 		case "connected":
-			return `Connected (${modelCount} models)`;
+			// The zero-model reading is the same warning every other surface gives
+			// this state (see zeroModelJudgment): connected, nothing failed, and
+			// still nothing to serve.
+			return modelCount === 0
+				? "Connected, but 0 models are served (servers listed none)"
+				: `Connected (${modelCount} models)`;
 	}
 }
 
@@ -141,7 +150,7 @@ function noticeText(notice: DeclaredServerNotice): string {
 export interface ServerOutcomeParts {
 	/** The verdict as a Status cell shows it. */
 	readonly status: "OK" | "Error" | "Misconfigured" | "Not checked yet";
-	/** The model-count clause an "ok" line parenthesizes ("3 models"); absent on other states. */
+	/** The model-count clause the line parenthesizes ("3 models", "2 models still served"); absent when nothing serves. */
 	readonly models?: string | undefined;
 	/**
 	 * The row's error: an "error" state's message (with the English
@@ -162,12 +171,13 @@ export function serverOutcomeParts(server: DashboardServer): ServerOutcomeParts 
 	}
 	switch (server.state) {
 		case "ok":
-			return { status: "OK", models: `${server.modelCount} models`, error: server.error, notice };
+			return { status: "OK", models: `${server.servedModelCount} models`, error: server.error, notice };
 		case "error": {
 			if (server.expected === true) {
 				// Truthful error, expected presentation: the "(expected)" annotation
-				// stays English (it lands in issue reports). A row still serving
-				// declared models reads as OK-with-note.
+				// stays English (it lands in issue reports). A row still serving -
+				// declared models, or the stale window's last known list - reads as
+				// OK-with-note, the same quiet verdict the row pill gives it.
 				const detail = statusErrorDetail(server.error);
 				const headline = `${statusErrorHeadline(server.error)} (expected)`;
 				const error = detail === undefined ? headline : `${headline}\n${detail}`;
@@ -176,7 +186,20 @@ export function serverOutcomeParts(server: DashboardServer): ServerOutcomeParts 
 					const models = declared === 1 ? "1 declared model" : `${declared} declared models`;
 					return { status: "OK", models, error, notice };
 				}
+				if (server.servedModelCount > 0) {
+					const models =
+						server.servedModelCount === 1 ? "1 model still served" : `${server.servedModelCount} models still served`;
+					return { status: "OK", models, error, notice };
+				}
 				return { status: "Error", error, notice };
+			}
+			// An unexpected failure that still serves (stale-window or declared
+			// models) says so beside the truthful error, so the paste line agrees
+			// with the row pill that the server is degraded, not dead.
+			if (server.servedModelCount > 0) {
+				const models =
+					server.servedModelCount === 1 ? "1 model still served" : `${server.servedModelCount} models still served`;
+				return { status: "Error", models, error: server.error, notice };
 			}
 			return { status: "Error", error: server.error, notice };
 		}

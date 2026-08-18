@@ -393,8 +393,10 @@ function serverDiagnostics(
 				],
 			});
 		} else if (verdict === "expected") {
-			// Quiet tier: the entry declared this failure and named models to serve through it.
-			// The server's own words ride the detail lines, not the headline (colon chaining).
+			// Quiet tier: the entry declared this failure and something still serves
+			// through it - its declared models, or the stale window's last known
+			// list. The server's own words ride the detail lines, not the headline
+			// (colon chaining).
 			const declared = server.declaredModelCount ?? 0;
 			found.push({
 				key: "expected-serving",
@@ -402,11 +404,16 @@ function serverDiagnostics(
 				headline:
 					declared === 1
 						? l10n.t("{0} serves 1 declared model; discovery fails only where this entry expects it to.", server.label)
-						: l10n.t(
-								"{0} serves {1} declared models; discovery fails only where this entry expects it to.",
-								server.label,
-								declared
-							),
+						: declared > 1
+							? l10n.t(
+									"{0} serves {1} declared models; discovery fails only where this entry expects it to.",
+									server.label,
+									declared
+								)
+							: l10n.t(
+									"{0} serves its last known models; discovery fails only where this entry expects it to.",
+									server.label
+								),
 				details: detailLines(headline, statusErrorDetail(error)),
 				actions: [],
 			});
@@ -793,10 +800,14 @@ function serverHealth(server: DashboardServer): ServerHealthVerdict {
 			return server.error === undefined ? "serving" : "degraded";
 		case "error":
 			if (server.expected === true) {
-				return (server.declaredModelCount ?? 0) > 0 ? "expected" : "expected-blocking";
+				// Serving through the declared-normal failure (declared models or the
+				// stale window) is the quiet expected state; alarming would contradict
+				// the aggregate, which never counts expected failures as failures.
+				return server.servedModelCount > 0 ? "expected" : "expected-blocking";
 			}
-			// A group whose sync failed keeps serving what it had; one with nothing serves nothing.
-			return server.modelCount > 0 ? "degraded" : "blocking";
+			// A group whose sync failed keeps serving what it had (servedModelCount
+			// counts the stale-window and declared models); one with nothing serves nothing.
+			return server.servedModelCount > 0 ? "degraded" : "blocking";
 	}
 }
 
@@ -979,7 +990,8 @@ function neverUpdatedText(standing: UsageEndpointStandingView): string {
 
 /**
  * What is wrong with a non-fresh age, in the row annotation's own words so marker and drawer
- * never name the state differently. Undefined while the data is fresh.
+ * never name the state differently: the state has ONE term ("stale", the row marker's word),
+ * and the drawer adds the cause instead where one is known. Undefined while the data is fresh.
  */
 function stalenessText(server: UsageServerView): string | undefined {
 	if (server.fresh) {
@@ -991,8 +1003,8 @@ function stalenessText(server: UsageServerView): string | undefined {
 	if (server.keyInfo.kind === "unavailable" && server.keyInfo.reason === "forbidden") {
 		return l10n.t("usage access denied");
 	}
-	// Merely old (laptop asleep, polling off): the plain history marker.
-	return l10n.t("possibly stale");
+	// Merely old (laptop asleep, polling off): the plain history marker, the row's own word.
+	return l10n.t("stale");
 }
 
 /**
@@ -1371,7 +1383,7 @@ function ServerDrawer({
 					    (measure words and word order move). It lives here, not on the row - the row
 					    is one disclosure button, and a button cannot contain a button. A zero stays
 					    plain text, since an empty scoped list has nothing to show. */}
-					{onShowModels !== undefined && server.modelCount > 0 ? (
+					{onShowModels !== undefined && server.servedModelCount > 0 ? (
 						<Button
 							variant="secondary"
 							size="compact"
@@ -1379,12 +1391,12 @@ function ServerDrawer({
 							aria-label={l10n.t("Show models from {0}", server.label)}
 							onClick={() => onShowModels(server.label)}
 						>
-							{server.modelCount === 1 ? l10n.t("1 model") : l10n.t("{0} models", server.modelCount)}
+							{server.servedModelCount === 1 ? l10n.t("1 model") : l10n.t("{0} models", server.servedModelCount)}
 						</Button>
-					) : server.modelCount === 1 ? (
+					) : server.servedModelCount === 1 ? (
 						l10n.t("1 model")
 					) : (
-						l10n.t("{0} models", server.modelCount)
+						l10n.t("{0} models", server.servedModelCount)
 					)}
 				</Fact>
 				<Fact label={l10n.t("Discovery last checked")}>
@@ -1639,7 +1651,7 @@ function ServerRow({
 							{/* The count carries its own noun. Plain text here (a button cannot contain
 							    a button); the link into the scoped Models list lives in the drawer. */}
 							<span className="count-plain">
-								{server.modelCount === 1 ? l10n.t("1 model") : l10n.t("{0} models", server.modelCount)}
+								{server.servedModelCount === 1 ? l10n.t("1 model") : l10n.t("{0} models", server.servedModelCount)}
 							</span>
 						</span>
 						<span className="server-usage">

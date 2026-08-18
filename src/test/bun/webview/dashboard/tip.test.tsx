@@ -203,7 +203,7 @@ function mountCollapsedApp() {
 	pushToWebview(
 		statePush(
 			makeState({
-				servers: [makeDeclaredServer({ modelCount: 2, lastChecked: new Date().toISOString() })],
+				servers: [makeDeclaredServer({ servedModelCount: 2, lastChecked: new Date().toISOString() })],
 				models: [makeModel(), makeModel({ id: "second", name: "Second" })],
 			})
 		)

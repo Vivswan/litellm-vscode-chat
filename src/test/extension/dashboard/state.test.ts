@@ -306,7 +306,7 @@ suite("extension/dashboard/state", () => {
 				[
 					{
 						discoveredRawIds: [],
-						status: makeServerStatus({ label: "Prod", baseUrl: "http://prod.test", modelCount: 4 }),
+						status: makeServerStatus({ label: "Prod", baseUrl: "http://prod.test", servedModelCount: 4 }),
 						models: [],
 					},
 				],
@@ -326,7 +326,7 @@ suite("extension/dashboard/state", () => {
 			const server = state.servers[0];
 			assert.strictEqual(server?.origin, "declared");
 			assert.strictEqual(server?.state, "ok");
-			assert.strictEqual(server?.modelCount, 4);
+			assert.strictEqual(server?.servedModelCount, 4);
 			assert.strictEqual(server?.hasApiKey, true, "a secure-side key counts");
 			assert.strictEqual(server?.hasOAuth, true);
 			assert.deepStrictEqual(server?.config?.secrets, {
@@ -345,7 +345,7 @@ suite("extension/dashboard/state", () => {
 							serverId: "g1",
 							label: "x.example",
 							baseUrl: "https://x.example",
-							modelCount: 3,
+							servedModelCount: 3,
 						}),
 						models: [makeModelInfo({ id: "m1", name: "m1" })],
 					},
@@ -359,7 +359,7 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(server?.label, "Production");
 			assert.strictEqual(server?.origin, "declared");
 			assert.strictEqual(server?.state, "ok");
-			assert.strictEqual(server?.modelCount, 3);
+			assert.strictEqual(server?.servedModelCount, 3);
 			assert.strictEqual(state.models[0]?.serverLabel, "Production", "models adopt the declared label");
 		});
 
@@ -368,12 +368,17 @@ suite("extension/dashboard/state", () => {
 				[
 					{
 						discoveredRawIds: [],
-						status: makeServerStatus({ serverId: "s1", label: "Staging", baseUrl: "http://x.test", modelCount: 1 }),
+						status: makeServerStatus({
+							serverId: "s1",
+							label: "Staging",
+							baseUrl: "http://x.test",
+							servedModelCount: 1,
+						}),
 						models: [],
 					},
 					{
 						discoveredRawIds: [],
-						status: makeServerStatus({ serverId: "s2", label: "Prod", baseUrl: "http://x.test", modelCount: 9 }),
+						status: makeServerStatus({ serverId: "s2", label: "Prod", baseUrl: "http://x.test", servedModelCount: 9 }),
 						models: [],
 					},
 				],
@@ -386,8 +391,8 @@ suite("extension/dashboard/state", () => {
 
 			const byLabel = new Map(state.servers.map((server) => [server.label, server]));
 			assert.strictEqual(state.servers.length, 2);
-			assert.strictEqual(byLabel.get("Prod")?.modelCount, 9);
-			assert.strictEqual(byLabel.get("Staging")?.modelCount, 1);
+			assert.strictEqual(byLabel.get("Prod")?.servedModelCount, 9);
+			assert.strictEqual(byLabel.get("Staging")?.servedModelCount, 1);
 		});
 
 		test("entries sharing a base URL with different credentials join by group client ID, never swapped", () => {
@@ -403,7 +408,7 @@ suite("extension/dashboard/state", () => {
 							serverId: "group:fp-staging:http://x.test",
 							label: "x.test",
 							baseUrl: "http://x.test",
-							modelCount: 1,
+							servedModelCount: 1,
 						}),
 						models: [],
 					},
@@ -413,7 +418,7 @@ suite("extension/dashboard/state", () => {
 							serverId: "group:fp-prod:http://x.test",
 							label: "x.test",
 							baseUrl: "http://x.test",
-							modelCount: 9,
+							servedModelCount: 9,
 						}),
 						models: [],
 					},
@@ -431,8 +436,8 @@ suite("extension/dashboard/state", () => {
 
 			const byLabel = new Map(state.servers.map((server) => [server.label, server]));
 			assert.strictEqual(state.servers.length, 2);
-			assert.strictEqual(byLabel.get("Prod")?.modelCount, 9);
-			assert.strictEqual(byLabel.get("Staging")?.modelCount, 1);
+			assert.strictEqual(byLabel.get("Prod")?.servedModelCount, 9);
+			assert.strictEqual(byLabel.get("Staging")?.servedModelCount, 1);
 			assert.ok(!JSON.stringify(state).includes("fp-prod"), "the join key never reaches the webview state");
 		});
 
@@ -447,7 +452,7 @@ suite("extension/dashboard/state", () => {
 							serverId: "group:fp-old:http://x.test",
 							label: "x.test",
 							baseUrl: "http://x.test",
-							modelCount: 2,
+							servedModelCount: 2,
 						}),
 						models: [],
 					},
@@ -457,7 +462,7 @@ suite("extension/dashboard/state", () => {
 			);
 
 			assert.strictEqual(state.servers.length, 1, "no duplicate external row");
-			assert.strictEqual(state.servers[0]?.modelCount, 2);
+			assert.strictEqual(state.servers[0]?.servedModelCount, 2);
 		});
 
 		test("two declared entries mirroring one pre-label group share its snapshot instead of one reading unchecked", () => {
@@ -473,7 +478,7 @@ suite("extension/dashboard/state", () => {
 							serverId: "group:fp-shared:http://x.test",
 							label: "x.test",
 							baseUrl: "http://x.test",
-							modelCount: 3,
+							servedModelCount: 3,
 						}),
 						models: [],
 					},
@@ -498,9 +503,9 @@ suite("extension/dashboard/state", () => {
 			const byLabel = new Map(state.servers.map((server) => [server.label, server]));
 			assert.strictEqual(state.servers.length, 2, "no third external row for the shared snapshot");
 			assert.strictEqual(byLabel.get("Prod")?.state, "ok");
-			assert.strictEqual(byLabel.get("Prod")?.modelCount, 3);
+			assert.strictEqual(byLabel.get("Prod")?.servedModelCount, 3);
 			assert.strictEqual(byLabel.get("Staging")?.state, "ok", "the second entry shares the live status");
-			assert.strictEqual(byLabel.get("Staging")?.modelCount, 3);
+			assert.strictEqual(byLabel.get("Staging")?.servedModelCount, 3);
 			assert.ok(!JSON.stringify(state).includes("fp-shared"), "the join key never reaches the webview state");
 		});
 
@@ -516,7 +521,7 @@ suite("extension/dashboard/state", () => {
 							serverId: "group:fp-shared:http://x.test",
 							label: "x.test",
 							baseUrl: "http://x.test",
-							modelCount: 2,
+							servedModelCount: 2,
 						}),
 						models: [makeModelInfo({ id: "m1", name: "m1" }), makeModelInfo({ id: "m2", name: "m2" })],
 					},
@@ -556,7 +561,7 @@ suite("extension/dashboard/state", () => {
 							serverId: "group:fp-shared:http://x.test",
 							label: "x.test",
 							baseUrl: "http://x.test",
-							modelCount: 2,
+							servedModelCount: 2,
 						}),
 						models: [makeModelInfo({ id: "m1", name: "m1" }), makeModelInfo({ id: "m2", name: "m2" })],
 					},
@@ -584,7 +589,7 @@ suite("extension/dashboard/state", () => {
 			);
 			const staging = state.servers.find((server) => server.label === "Staging");
 			assert.strictEqual(staging?.state, "ok", "the shared live status still rides the row");
-			assert.strictEqual(staging?.modelCount, 2);
+			assert.strictEqual(staging?.servedModelCount, 2);
 			assert.strictEqual(staging?.error, "The host rejected the provider group upsert");
 		});
 
@@ -599,7 +604,7 @@ suite("extension/dashboard/state", () => {
 							serverId: "group:fp-shared:http://x.test",
 							label: "x.test",
 							baseUrl: "http://x.test",
-							modelCount: 1,
+							servedModelCount: 1,
 						}),
 						models: [makeModelInfo({ id: "m1", name: "m1" })],
 					},
@@ -638,7 +643,7 @@ suite("extension/dashboard/state", () => {
 							serverId: "group:fp-shared:http://x.test",
 							label: "x.test",
 							baseUrl: "http://x.test",
-							modelCount: 1,
+							servedModelCount: 1,
 						}),
 						models: [makeModelInfo({ id: "m1", name: "m1" })],
 					},
@@ -673,7 +678,7 @@ suite("extension/dashboard/state", () => {
 							serverId: "group:labeled:fp-a:http://x.test",
 							label: "Prod",
 							baseUrl: "http://x.test",
-							modelCount: 1,
+							servedModelCount: 1,
 						}),
 						models: [makeModelInfo({ id: "m1", name: "m1" })],
 					},
@@ -683,7 +688,7 @@ suite("extension/dashboard/state", () => {
 							serverId: "group:labeled:fp-b:http://x.test",
 							label: "Staging",
 							baseUrl: "http://x.test",
-							modelCount: 1,
+							servedModelCount: 1,
 						}),
 						models: [makeModelInfo({ id: "m1", name: "m1" })],
 					},
@@ -721,7 +726,7 @@ suite("extension/dashboard/state", () => {
 							serverId: "group:fp-shared:http://x.test",
 							label: "x.test",
 							baseUrl: "http://x.test",
-							modelCount: 3,
+							servedModelCount: 3,
 						}),
 						models: [],
 					},
@@ -764,7 +769,7 @@ suite("extension/dashboard/state", () => {
 							serverId: "group:fp-prod-labeled:http://x.test",
 							label: "x.test",
 							baseUrl: "http://x.test",
-							modelCount: 3,
+							servedModelCount: 3,
 						}),
 						models: [],
 					},
@@ -797,7 +802,7 @@ suite("extension/dashboard/state", () => {
 							serverId: "group:fp-other:http://x.test",
 							label: "x.test",
 							baseUrl: "http://x.test",
-							modelCount: 3,
+							servedModelCount: 3,
 						}),
 						models: [],
 					},
@@ -827,7 +832,7 @@ suite("extension/dashboard/state", () => {
 							serverId: "group:fp-other:http://x.test",
 							label: "x.test",
 							baseUrl: "http://x.test",
-							modelCount: 3,
+							servedModelCount: 3,
 						}),
 						models: [],
 					},
@@ -859,7 +864,7 @@ suite("extension/dashboard/state", () => {
 							serverId: "group:fp-a:http://x.test",
 							label: "x.test",
 							baseUrl: "http://x.test",
-							modelCount: 3,
+							servedModelCount: 3,
 						}),
 						models: [],
 					},
@@ -907,7 +912,7 @@ suite("extension/dashboard/state", () => {
 				[
 					{
 						discoveredRawIds: [],
-						status: makeServerStatus({ label: "Prod", baseUrl: "http://prod.test", state: "ok", modelCount: 4 }),
+						status: makeServerStatus({ label: "Prod", baseUrl: "http://prod.test", state: "ok", servedModelCount: 4 }),
 						models: [],
 					},
 				],
@@ -918,7 +923,7 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(state.servers.length, 1);
 			assert.strictEqual(state.servers[0]?.state, "ok", "the live group is genuinely serving");
 			assert.strictEqual(state.servers[0]?.error, "group update unavailable");
-			assert.strictEqual(state.servers[0]?.modelCount, 4);
+			assert.strictEqual(state.servers[0]?.servedModelCount, 4);
 		});
 
 		test("external rows carry an opaque, push-stable adopt handle; declared rows do not", () => {
@@ -1468,7 +1473,7 @@ suite("extension/dashboard/state", () => {
 							serverId: "group:fp-other:http://x.test",
 							label: "x.test",
 							baseUrl: "http://x.test",
-							modelCount: 3,
+							servedModelCount: 3,
 						}),
 						models: [],
 					},
@@ -1546,7 +1551,7 @@ suite("extension/dashboard/state", () => {
 			assert.ok(server?.state === "error");
 			assert.strictEqual(server.expected, true);
 			assert.strictEqual(server.declaredModelCount, 2);
-			assert.strictEqual(server.modelCount, 2, "declared models join the row's count");
+			assert.strictEqual(server.servedModelCount, 2, "declared models join the row's count");
 			assert.strictEqual(server.notices, undefined, "declared models mean nothing to flag");
 		});
 
@@ -1560,7 +1565,7 @@ suite("extension/dashboard/state", () => {
 							label: "Prod",
 							baseUrl: "http://x.test",
 							state: "ok",
-							modelCount: 1,
+							servedModelCount: 1,
 							modelInfoUnsupported: "timeout",
 						}),
 						models: [],
@@ -1608,7 +1613,7 @@ suite("extension/dashboard/state", () => {
 			);
 			const server = state.servers[0];
 			assert.ok(server?.state === "error");
-			assert.strictEqual(server.modelCount, 0);
+			assert.strictEqual(server.servedModelCount, 0);
 			assert.deepStrictEqual(server.notices, ["expected-failures-nothing-declared"]);
 		});
 

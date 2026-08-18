@@ -159,9 +159,16 @@ function ToastHost({
 
 /**
  * The hero's overall verdict, mapped from the shared classifyOverall (with the tab's
- * legacy-registry rule mirrored), so the strip and the tab never disagree.
+ * legacy-registry rule mirrored), so the strip and the tab never disagree. Exported for
+ * the cross-surface vocabulary suite. Connected-with-zero-models is the shared warning
+ * state (see zeroModelJudgment host-side): the word names it and the tone matches the
+ * status bar's warning, never a green beside a warning bar.
  */
-function overallState(servers: readonly DashboardServer[], legacyServerCount: number): Overall {
+export function overallState(
+	servers: readonly DashboardServer[],
+	legacyServerCount: number,
+	modelCount: number
+): Overall {
 	switch (classifyOverall(servers)) {
 		case "not-configured":
 			// The legacy registry is real configuration even though it
@@ -181,7 +188,9 @@ function overallState(servers: readonly DashboardServer[], legacyServerCount: nu
 			// forward in the word itself.
 			return { tone: "warn", word: l10n.t("No declared models") };
 		case "connected":
-			return { tone: "ok", word: l10n.t("Connected") };
+			return modelCount === 0
+				? { tone: "warn", word: l10n.t("Connected, no models") }
+				: { tone: "ok", word: l10n.t("Connected") };
 	}
 }
 
@@ -680,7 +689,7 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 					active={activeSection}
 					onSelect={selectSection}
 					serverCount={state.servers.length}
-					overall={overallState(state.servers, state.legacyServerCount)}
+					overall={overallState(state.servers, state.legacyServerCount, state.models.length)}
 					synced={lastSync(state.servers, now)}
 				/>
 				<div className="pane">

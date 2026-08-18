@@ -31,7 +31,7 @@ function declaredServer(overrides: Partial<DeclaredServer> = {}): DashboardServe
 		origin: "declared",
 		label: "Prod",
 		baseUrl: "http://prod.test",
-		modelCount: 0,
+		servedModelCount: 0,
 		hasApiKey: false,
 		hasOAuth: false,
 		state: "ok",
@@ -45,7 +45,7 @@ function misconfiguredServer(problems: readonly string[]): DashboardServer {
 		origin: "misconfigured",
 		label: "Broken",
 		baseUrl: "http://broken.test",
-		modelCount: 0,
+		servedModelCount: 0,
 		hasApiKey: false,
 		hasOAuth: false,
 		state: "error",
@@ -67,18 +67,21 @@ describe("dashboard/presenters renderers", () => {
 		});
 
 		test("legacy leftovers never override a configured verdict", () => {
-			const servers = [declaredServer({ state: "ok", modelCount: 3 })];
+			const servers = [declaredServer({ state: "ok", servedModelCount: 3 })];
 			assert.strictEqual(overallStatusText(servers, 3, 2), "Connected (3 models)");
 		});
 
 		test("every server reachable reads as connected with the model count", () => {
-			const servers = [declaredServer({ modelCount: 4 }), declaredServer({ label: "Backup", modelCount: 2 })];
+			const servers = [
+				declaredServer({ servedModelCount: 4 }),
+				declaredServer({ label: "Backup", servedModelCount: 2 }),
+			];
 			assert.strictEqual(overallStatusText(servers, 6), "Connected (6 models)");
 		});
 
 		test("one failing server among reachable ones reads as degraded", () => {
 			const servers = [
-				declaredServer({ modelCount: 4 }),
+				declaredServer({ servedModelCount: 4 }),
 				declaredServer({ label: "Backup", state: "error", error: "connection refused" }),
 			];
 			assert.strictEqual(overallStatusText(servers, 4), "Degraded (4 models, some servers failed)");
@@ -100,7 +103,7 @@ describe("dashboard/presenters renderers", () => {
 
 		test("expected failures never count as failures: declared models read as connected", () => {
 			const servers = [
-				declaredServer({ modelCount: 4 }),
+				declaredServer({ servedModelCount: 4 }),
 				declaredServer({
 					label: "Gateway",
 					state: "error",
@@ -125,7 +128,7 @@ describe("dashboard/presenters renderers", () => {
 		test("a misconfigured entry beside a healthy server stays neutral: connected, not degraded", () => {
 			// The status bar cannot see misconfigured entries, so counting them here
 			// would split the headline from the bar.
-			const servers = [misconfiguredServer(["auth must pick one form"]), declaredServer({ modelCount: 3 })];
+			const servers = [misconfiguredServer(["auth must pick one form"]), declaredServer({ servedModelCount: 3 })];
 			assert.strictEqual(classifyOverall(servers), "connected");
 			assert.strictEqual(overallStatusText(servers, 3), "Connected (3 models)");
 		});
@@ -167,11 +170,11 @@ describe("dashboard/presenters renderers", () => {
 
 	describe("serverOutcomeText", () => {
 		test("a reachable server reads OK with its model count", () => {
-			assert.strictEqual(serverOutcomeText(declaredServer({ modelCount: 3 })), "OK (3 models)");
+			assert.strictEqual(serverOutcomeText(declaredServer({ servedModelCount: 3 })), "OK (3 models)");
 		});
 
 		test("a reachable server whose sync failed shows both the models and the sync error", () => {
-			const server = declaredServer({ modelCount: 2, error: "upsert refused" });
+			const server = declaredServer({ servedModelCount: 2, error: "upsert refused" });
 			assert.strictEqual(serverOutcomeText(server), "OK (2 models) - upsert refused");
 		});
 
@@ -248,7 +251,7 @@ describe("dashboard/presenters renderers", () => {
 		test("an entry whose group cannot serve its per-entry parameters says so on a healthy line", () => {
 			// The row is healthy, which is why the line must call the inactive
 			// parameters out.
-			const line = serverOutcomeText(declaredServer({ modelCount: 2, notices: ["entry-params-inactive"] }));
+			const line = serverOutcomeText(declaredServer({ servedModelCount: 2, notices: ["entry-params-inactive"] }));
 			assert.ok(line.startsWith("OK (2 models) - per-entry modelParameters are not applied"), line);
 			assert.ok(line.includes("run Sync Models Now"), line);
 		});
@@ -256,14 +259,14 @@ describe("dashboard/presenters renderers", () => {
 		test("an entry whose group cannot serve its apiVersion override says so on a healthy line", () => {
 			// Same policy as the params notice: healthy row, English diagnostics
 			// prose, and the line must say requests fell back to the auto rule.
-			const line = serverOutcomeText(declaredServer({ modelCount: 2, notices: ["entry-api-version-inactive"] }));
+			const line = serverOutcomeText(declaredServer({ servedModelCount: 2, notices: ["entry-api-version-inactive"] }));
 			assert.ok(line.startsWith("OK (2 models) - the per-entry API version override is not applied"), line);
 			assert.ok(line.includes("requests use the auto rule"), line);
 			assert.ok(line.includes("run Sync Models Now"), line);
 		});
 
 		test("the capabilities twin of the params-inactive line names its own fields", () => {
-			const line = serverOutcomeText(declaredServer({ modelCount: 2, notices: ["entry-capabilities-inactive"] }));
+			const line = serverOutcomeText(declaredServer({ servedModelCount: 2, notices: ["entry-capabilities-inactive"] }));
 			assert.ok(
 				line.startsWith(
 					"OK (2 models) - per-entry modelCapabilities, declared models, and expectedFailures are not applied"
@@ -274,7 +277,7 @@ describe("dashboard/presenters renderers", () => {
 		});
 
 		test("the custom-headers twin of the params-inactive line names its own fields", () => {
-			const line = serverOutcomeText(declaredServer({ modelCount: 2, notices: ["entry-headers-inactive"] }));
+			const line = serverOutcomeText(declaredServer({ servedModelCount: 2, notices: ["entry-headers-inactive"] }));
 			assert.ok(line.startsWith("OK (2 models) - per-entry custom headers are not applied"), line);
 			assert.ok(line.includes("run Sync Models Now"), line);
 		});
@@ -291,7 +294,7 @@ describe("dashboard/presenters renderers", () => {
 				"entry-api-version-inactive",
 			] as const;
 			const subjects = notices.map((notice) => {
-				const [text = ""] = serverOutcomeParts(declaredServer({ modelCount: 1, notices: [notice] })).notice;
+				const [text = ""] = serverOutcomeParts(declaredServer({ servedModelCount: 1, notices: [notice] })).notice;
 				assert.ok(text.endsWith(clause), `${notice}: ${text}`);
 				return text.slice(0, -clause.length);
 			});
@@ -300,7 +303,7 @@ describe("dashboard/presenters renderers", () => {
 
 		test("a row carrying both inactive notices lists them both, params first", () => {
 			const line = serverOutcomeText(
-				declaredServer({ modelCount: 2, notices: ["entry-params-inactive", "entry-capabilities-inactive"] })
+				declaredServer({ servedModelCount: 2, notices: ["entry-params-inactive", "entry-capabilities-inactive"] })
 			);
 			assert.ok(line.includes("per-entry modelParameters are not applied"), line);
 			assert.ok(
@@ -329,15 +332,15 @@ describe("dashboard/presenters renderers", () => {
 			// what lands in issue reports. Re-deriving one from the other keeps the
 			// two surfaces from drifting.
 			const cases: DashboardServer[] = [
-				declaredServer({ modelCount: 3 }),
-				declaredServer({ modelCount: 2, error: "upsert refused" }),
+				declaredServer({ servedModelCount: 3 }),
+				declaredServer({ servedModelCount: 2, error: "upsert refused" }),
 				declaredServer({ state: "error", error: "connection refused" }),
 				declaredServer({ state: "unchecked" }),
-				declaredServer({ modelCount: 2, notices: ["entry-params-inactive"] }),
-				declaredServer({ modelCount: 2, error: "upsert refused", notices: ["entry-params-inactive"] }),
+				declaredServer({ servedModelCount: 2, notices: ["entry-params-inactive"] }),
+				declaredServer({ servedModelCount: 2, error: "upsert refused", notices: ["entry-params-inactive"] }),
 				declaredServer({ state: "error", error: "connection refused", notices: ["entry-params-inactive"] }),
 				declaredServer({ state: "unchecked", notices: ["entry-params-inactive"] }),
-				declaredServer({ modelCount: 2, notices: ["entry-params-inactive", "entry-capabilities-inactive"] }),
+				declaredServer({ servedModelCount: 2, notices: ["entry-params-inactive", "entry-capabilities-inactive"] }),
 				declaredServer({ state: "error", error: "404", expected: true, declaredModelCount: 2 }),
 				declaredServer({
 					state: "error",
@@ -346,7 +349,7 @@ describe("dashboard/presenters renderers", () => {
 					notices: ["expected-failures-nothing-declared"],
 				}),
 				declaredServer({ state: "error", error: "headline\nLiteLLM 403: detail line" }),
-				declaredServer({ modelCount: 2, error: "headline\nHTTP 502: upsert detail" }),
+				declaredServer({ servedModelCount: 2, error: "headline\nHTTP 502: upsert detail" }),
 				declaredServer({
 					state: "error",
 					error: "headline\nHTTP 404: detail line",

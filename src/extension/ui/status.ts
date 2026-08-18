@@ -8,12 +8,7 @@ import { SETUP_HINT_KINDS, TRANSPORT_ERROR_KINDS } from "../../shared/errorClass
 import type { Logger, LogSafeErrorText } from "../../shared/logger";
 import { markLogSafe } from "../../shared/logger";
 import type { AggregatedStatus, ServerStatus } from "../../shared/servers";
-import {
-	isErrorServerStatus,
-	isHiddenGroupServerStatus,
-	unexpectedFailureCount,
-	unexpectedServerFailures,
-} from "../../shared/servers";
+import { isHiddenGroupServerStatus, unexpectedFailureCount, unexpectedServerFailures } from "../../shared/servers";
 
 /** Every connection state, the single source for the union type and the persisted-status schema. */
 const CONNECTION_STATES = ["not-configured", "connecting", "loading", "connected", "degraded", "error"] as const;
@@ -90,16 +85,12 @@ export function statusTotalModels(status: ConnectionStatus): number | undefined 
 
 /**
  * Whether an error status is the synthetic zero-model verdict rather than a
- * transport failure, so "Connection failed" would misdescribe it. Derived from
- * the carried server statuses, never from the message text, so restored
- * verdicts classify the same as fresh ones; an error that lost its statuses
- * keeps the plain connection-failure rendering.
+ * transport failure. Only RESTORE consults this: versions before the
+ * zero-model state moved to "connected" persisted it as an error, and the
+ * normalizing parse rebuilds the honest state. Derived from the carried server
+ * statuses, never from the message text.
  */
-export function isZeroModelVerdict(status: ConnectionStatus): boolean {
-	if (status.state !== "error") {
-		return false;
-	}
-	const serverStatuses = status.serverStatuses ?? [];
+function isLegacyZeroModelVerdict(serverStatuses: readonly ServerStatus[]): boolean {
 	return serverStatuses.length > 0 && unexpectedFailureCount(serverStatuses) === 0;
 }
 
@@ -217,7 +208,11 @@ const persistedServerStatusSchema = z.discriminatedUnion("state", [
 		state: z.literal("ok"),
 		label: z.string(),
 		baseUrl: z.string(),
-		modelCount: z.number(),
+		// The served count under its current name, with the pre-rename modelCount
+		// accepted as the fallback reading; an ok element carrying neither cannot
+		// render honestly, so restoreServerStatus drops it as malformed.
+		servedModelCount: z.number().int().nonnegative().optional().catch(undefined),
+		modelCount: z.number().int().nonnegative().optional().catch(undefined),
 		hiddenByRemoval: z.boolean().optional().catch(undefined),
 		serverId: z.string().optional().catch(undefined),
 		lastChecked: z.string().optional().catch(undefined),
@@ -234,6 +229,7 @@ const persistedServerStatusSchema = z.discriminatedUnion("state", [
 		logSafeError: z.string().min(1).optional().catch(undefined),
 		classification: persistedClassificationSchema,
 		expected: z.boolean().optional().catch(undefined),
+		servedModelCount: z.number().int().nonnegative().optional().catch(undefined),
 		declaredModelCount: z.number().int().nonnegative().optional().catch(undefined),
 		serverId: z.string().optional().catch(undefined),
 		lastChecked: z.string().optional().catch(undefined),
@@ -255,28 +251,35 @@ function restoreServerStatus(value: unknown): ServerStatus | undefined {
 		lastChecked: element.lastChecked ?? "",
 		...(element.hasApiKey !== undefined ? { hasApiKey: element.hasApiKey } : {}),
 	};
-	return element.state === "ok"
-		? {
-				...common,
-				state: "ok",
-				modelCount: element.modelCount,
-				...(element.hiddenByRemoval !== undefined ? { hiddenByRemoval: element.hiddenByRemoval } : {}),
-			}
-		: {
-				...common,
-				state: "error",
-				error: element.error,
-				// A status persisted before logSafeError existed carries a display
-				// message that may embed response text, so the restore fails closed
-				// instead of promoting it to the log-safe slot. A present value was
-				// written by publicErrorText, so re-branding it is sound.
-				logSafeError: element.logSafeError !== undefined ? markLogSafe(element.logSafeError) : RESTORED_ERROR_LOG_TEXT,
-				...(element.classification !== undefined
-					? { classification: restoredClassification(element.classification) }
-					: {}),
-				...(element.expected !== undefined ? { expected: element.expected } : {}),
-				...(element.declaredModelCount !== undefined ? { declaredModelCount: element.declaredModelCount } : {}),
-			};
+	if (element.state === "ok") {
+		const servedModelCount = element.servedModelCount ?? element.modelCount;
+		if (servedModelCount === undefined) {
+			// An ok element without a count under either name is malformed.
+			return undefined;
+		}
+		return {
+			...common,
+			state: "ok",
+			servedModelCount,
+			...(element.hiddenByRemoval !== undefined ? { hiddenByRemoval: element.hiddenByRemoval } : {}),
+		};
+	}
+	return {
+		...common,
+		state: "error",
+		error: element.error,
+		// Pre-rename statuses carried no served count; their declared count was
+		// the whole served set, so it is the honest fallback reading.
+		servedModelCount: element.servedModelCount ?? element.declaredModelCount ?? 0,
+		// A status persisted before logSafeError existed carries a display
+		// message that may embed response text, so the restore fails closed
+		// instead of promoting it to the log-safe slot. A present value was
+		// written by publicErrorText, so re-branding it is sound.
+		logSafeError: element.logSafeError !== undefined ? markLogSafe(element.logSafeError) : RESTORED_ERROR_LOG_TEXT,
+		...(element.classification !== undefined ? { classification: restoredClassification(element.classification) } : {}),
+		...(element.expected !== undefined ? { expected: element.expected } : {}),
+		...(element.declaredModelCount !== undefined ? { declaredModelCount: element.declaredModelCount } : {}),
+	};
 }
 
 /** The fail-closed log rendering for error statuses restored from a version that persisted no logSafeError. */
@@ -334,6 +337,12 @@ function restoreConnectionStatus(value: unknown): ConnectionStatus | undefined {
 				// An error that lost its message cannot render honestly; it is as
 				// stale as a restored connecting, so it degrades the same way.
 				return { state: "connecting", attention: true, ...lastChecked };
+			}
+			if (isLegacyZeroModelVerdict(serverStatuses)) {
+				// A pre-rename session persisted the zero-model verdict as an error;
+				// the state is honestly "connected with nothing to serve" and the
+				// connected renderer derives the same warning from the statuses.
+				return { state: "connected", totalModels: raw.totalModels ?? 0, serverStatuses, ...lastChecked };
 			}
 			return {
 				state: "error",
@@ -596,6 +605,18 @@ export class StatusBarManager {
 				});
 				break;
 			case "connected": {
+				// The shared zero-model judgment: connected-with-nothing-to-serve is
+				// ONE consistently rendered warning (bar, hero, notifier, Test
+				// Connection all warning-grade), never a red connection failure.
+				const zero = zeroModelJudgment(current.serverStatuses, current.totalModels);
+				if (zero !== undefined) {
+					this._statusBarItem.render({
+						text: l10n.t("$(warning) LiteLLM"),
+						tooltip: l10n.t("No models available\n{0}\nClick for details", zero.display),
+						severity: "warning",
+					});
+					break;
+				}
 				const count = current.totalModels;
 				const serverCount = current.serverStatuses.length;
 				// The counts live in the tooltip, not the item's text: the bar
@@ -633,11 +654,7 @@ export class StatusBarManager {
 			case "error":
 				this._statusBarItem.render({
 					text: l10n.t("$(error) LiteLLM"),
-					// The synthetic zero-model verdict is not a connection failure, so
-					// the tooltip's first line must not blame the connection.
-					tooltip: isZeroModelVerdict(current)
-						? l10n.t("No models available\n{0}\nClick for details", current.error)
-						: l10n.t("Connection failed\n{0}\nClick for details", current.error),
+					tooltip: l10n.t("Connection failed\n{0}\nClick for details", current.error),
 					severity: "error",
 				});
 				break;
@@ -680,13 +697,9 @@ export class StatusBarManager {
 		// This method only maps verdicts onto status-bar states.
 		const verdict = classifyOverall(serverStatuses);
 		const firstFailure = unexpectedServerFailures(serverStatuses)[0];
-		// Declared models serve through ANY discovery failure, so a failed server
-		// with declarations still counts as serving in the log lines.
-		const failures = serverStatuses.filter(isErrorServerStatus);
-		const servingCount =
-			serverStatuses.length -
-			failures.length +
-			failures.filter((failure) => (failure.declaredModelCount ?? 0) > 0).length;
+		// Serving means serving on ANY state: a failed server still serving its
+		// stale-window or declared models counts in the log lines.
+		const servingCount = serverStatuses.filter((status) => status.state === "ok" || status.servedModelCount > 0).length;
 
 		switch (verdict) {
 			case "not-configured":
@@ -699,6 +712,8 @@ export class StatusBarManager {
 					// the error verdict guarantees an unexpected failure.
 					return;
 				}
+				// The error verdict now proves nothing serves (a serving failure reads
+				// degraded), so the zero count is derived, not assumed.
 				// logSafeError, never error: this line lands in the issue-report buffer.
 				this.logger.log(`All servers failed: ${firstFailure.logSafeError}`);
 				void this.updateStatusBar({
@@ -738,20 +753,13 @@ export class StatusBarManager {
 			case "connected": {
 				const zero = zeroModelJudgment(serverStatuses, totalModels);
 				if (zero !== undefined) {
+					// The state stays the honest "connected": the servers answered and
+					// nothing failed. The connected renderer derives the same judgment
+					// and presents it as a warning, never a connection failure.
 					this.logger.log(`Warning: ${zero.logSafe}`);
-					void this.updateStatusBar({
-						state: "error",
-						// Display localizes; the log-safe rendering stays English by policy.
-						// No classification: this verdict is synthetic, not a transport failure.
-						error: zero.display,
-						logSafeError: zero.logSafe,
-						serverStatuses,
-						totalModels: 0,
-						lastChecked: now,
-					});
-					return;
+				} else {
+					this.logger.log(`Successfully fetched ${totalModels} models from ${servingCount} server(s)`);
 				}
-				this.logger.log(`Successfully fetched ${totalModels} models from ${servingCount} server(s)`);
 				void this.updateStatusBar({
 					state: "connected",
 					serverStatuses,

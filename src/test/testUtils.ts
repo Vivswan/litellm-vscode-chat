@@ -208,13 +208,19 @@ type ServerStatusOverrides = Partial<
 	Pick<ServerStatus, "serverId" | "label" | "baseUrl" | "lastChecked" | "hasApiKey">
 > &
 	(
-		| { state?: "ok"; modelCount?: number; hiddenByRemoval?: boolean; modelInfoUnsupported?: "timeout" | "status" }
+		| {
+				state?: "ok";
+				servedModelCount?: number;
+				hiddenByRemoval?: boolean;
+				modelInfoUnsupported?: "timeout" | "status";
+		  }
 		| {
 				state: "error";
 				error: string;
 				logSafeError?: string;
 				classification?: TransportErrorClassification;
 				expected?: boolean;
+				servedModelCount?: number;
 				declaredModelCount?: number;
 		  }
 	);
@@ -233,6 +239,8 @@ export function makeServerStatus(overrides: ServerStatusOverrides = {}): ServerS
 				...common,
 				state: "error",
 				error: overrides.error,
+				// An error still serves its declared models unless the test says otherwise.
+				servedModelCount: overrides.servedModelCount ?? overrides.declaredModelCount ?? 0,
 				// Tests hand plain strings; the helper is the one place that brands
 				// them.
 				logSafeError:
@@ -244,7 +252,7 @@ export function makeServerStatus(overrides: ServerStatusOverrides = {}): ServerS
 		: {
 				...common,
 				state: "ok",
-				modelCount: overrides.modelCount ?? 4,
+				servedModelCount: overrides.servedModelCount ?? 4,
 				...(overrides.hiddenByRemoval !== undefined ? { hiddenByRemoval: overrides.hiddenByRemoval } : {}),
 				...(overrides.modelInfoUnsupported !== undefined
 					? { modelInfoUnsupported: overrides.modelInfoUnsupported }

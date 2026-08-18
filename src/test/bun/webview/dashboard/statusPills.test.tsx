@@ -81,7 +81,7 @@ test("each server state renders its pill tone, verdict, and relative check time"
 
 test("an ok row still carrying a sync error shows the warn tone, matching its own diagnostic line", () => {
 	const root = mountSection([
-		makeDeclaredServer({ label: "Prod", state: "ok", error: "the group upsert failed", modelCount: 3 }),
+		makeDeclaredServer({ label: "Prod", state: "ok", error: "the group upsert failed", servedModelCount: 3 }),
 	]);
 	const pill = root.querySelector(".server-list .pill");
 	expect(pill?.classList.contains("tone-warn")).toBe(true);
@@ -104,7 +104,7 @@ test("an error-state row still serving models reads Sync issue beside the warn d
 			state: "error",
 			error: "boom on the newest sync",
 			declaredModelCount: 2,
-			modelCount: 2,
+			servedModelCount: 2,
 		}),
 	]);
 	const pill = root.querySelector(".server-list .pill");
@@ -132,6 +132,7 @@ test("the pill's tone follows the row's worst diagnostic, so the dot and the lin
 				error: "404 on /models",
 				expected: true,
 				declaredModelCount: 2,
+				servedModelCount: 2,
 			}),
 			tone: "tone-ok",
 		},
@@ -152,7 +153,7 @@ test("the pill's tone follows the row's worst diagnostic, so the dot and the lin
 				baseUrl: "http://h",
 				state: "error",
 				error: "refused",
-				modelCount: 2,
+				servedModelCount: 2,
 			}),
 			tone: "tone-warn",
 		},

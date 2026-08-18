@@ -16,7 +16,7 @@ const UNCHECKED_SERVER: DashboardServer = {
 	origin: "declared",
 	label: "staging",
 	baseUrl: "https://staging.example.com",
-	modelCount: 0,
+	servedModelCount: 0,
 	hasApiKey: true,
 	hasOAuth: false,
 	state: "unchecked",
