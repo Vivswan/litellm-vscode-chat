@@ -27,6 +27,7 @@ import {
 	statusErrorHeadline,
 	viewOutputAction,
 } from "./notifier";
+import { profileUserFileUri } from "./profilePath";
 import { detectSetupProblem, showSetupProblemGate } from "./setupGate";
 import type { ConnectionStatus } from "./status";
 import { isZeroModelVerdict, statusServerStatuses } from "./status";
@@ -485,33 +486,24 @@ export function registerReportIssueCommand(
 	);
 }
 
-/** The host's provider-groups file, relative to the profile's User directory. */
+/** The host's provider-groups file, directly under the profile's User directory. */
 const GROUPS_FILE_NAME = "chatLanguageModels.json";
 
 /**
- * Where VS Code keeps the provider groups: `<profile User dir>/chatLanguageModels.json`.
- * Derived from the extension's global storage location instead of any OS path:
- * `globalStorage/<extension-id>` always sits directly under the profile's User
- * directory, so the file is two levels up. Best-effort by necessity: VS Code
- * exposes no API for this file, and a profile configured to inherit its
- * language models keeps the governing file in another profile's directory.
- */
-function resolveGroupsFileUri(globalStorageUri: vscode.Uri): vscode.Uri {
-	return vscode.Uri.joinPath(globalStorageUri, "..", "..", GROUPS_FILE_NAME);
-}
-
-/**
  * Open the host's provider-groups JSON in an editor tab: the one place a
- * leftover provider group can be deleted (VS Code offers no removal API). The
- * failure toast covers both ways the open can fail: the file does not exist
- * yet, or this window cannot reach the desktop profile that holds it. The log
- * line stays classification-only: the resolved path embeds the local user name
- * and the log buffer feeds public issue reports.
+ * leftover provider group can be deleted (VS Code offers no removal API).
+ * Best-effort by necessity: VS Code exposes no API for this file, and a
+ * profile configured to inherit its language models keeps the governing file
+ * in another profile's directory. The failure toast covers both ways the open
+ * can fail: the file does not exist yet, or this window cannot reach the
+ * desktop profile that holds it. The log line stays classification-only: the
+ * resolved path embeds the local user name and the log buffer feeds public
+ * issue reports.
  */
 export function registerOpenGroupsFileCommand(context: vscode.ExtensionContext, logger: Logger): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand(INTERNAL_CMD.openGroupsFile, async () => {
-			const uri = resolveGroupsFileUri(context.globalStorageUri);
+			const uri = profileUserFileUri(context.globalStorageUri, GROUPS_FILE_NAME);
 			try {
 				const document = await vscode.workspace.openTextDocument(uri);
 				await vscode.window.showTextDocument(document, { preview: false });

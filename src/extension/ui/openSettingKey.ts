@@ -14,6 +14,7 @@ import * as vscode from "vscode";
 import { INTERNAL_CMD } from "../../shared/config/commandIds";
 import { CONFIG_SECTION } from "../../shared/config/settingSpec";
 import type { Logger } from "../../shared/logger";
+import { profileUserFileUri } from "./profilePath";
 
 /** The host command that opens (and creates if needed) the profile's user settings.json. */
 const OPEN_USER_SETTINGS_JSON = "workbench.action.openSettingsJson";
@@ -65,14 +66,13 @@ export async function openUserSettingAtKey(
 }
 
 /**
- * Where the profile keeps its user settings.json: globalStorage/<ext-id> sits
- * directly under the profile's User directory (default and named profiles
- * alike), so the file is two levels up. The reveal compares the opened editor
- * against this path and stands down on a mismatch - a workspace
- * .vscode/settings.json that wins focus must never receive the selection.
+ * Where the profile keeps its user settings.json (see profileUserFileUri for
+ * the derivation). The reveal compares the opened editor against this path and
+ * stands down on a mismatch - a workspace .vscode/settings.json that wins
+ * focus must never receive the selection.
  */
 export function resolveUserSettingsUri(globalStorageUri: vscode.Uri): vscode.Uri {
-	return vscode.Uri.joinPath(globalStorageUri, "..", "..", "settings.json");
+	return profileUserFileUri(globalStorageUri, "settings.json");
 }
 
 /**

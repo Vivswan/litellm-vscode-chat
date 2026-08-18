@@ -6,7 +6,6 @@
  */
 
 import * as assert from "node:assert";
-import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import type { StatusItemView } from "../../../extension/ui/status";
@@ -19,6 +18,7 @@ import {
 import type { UsageStatusBarOptions } from "../../../extension/ui/usageStatusItem";
 import { UsageStatusBar } from "../../../extension/ui/usageStatusItem";
 import { Logger } from "../../../shared/logger";
+import { countOccurrences, shippedSources } from "../../sourceScan";
 
 /**
  * Each singleton vscode surface and the one file allowed to create it. A second creation
@@ -31,25 +31,6 @@ const SINGLETON_CREATION_POINTS: readonly { readonly api: string; readonly file:
 	{ api: "createOutputChannel", file: path.join("src", "extension.ts") },
 	{ api: "createWebviewPanel", file: path.join("src", "extension", "dashboard", "panel.ts") },
 ];
-
-/** Repo root from the compiled test's location (out/test/extension/ui -> repo). */
-function repoRoot(): string {
-	return path.resolve(__dirname, "..", "..", "..", "..");
-}
-
-function sourceFilesUnder(dir: string): string[] {
-	const entries = fs.readdirSync(dir, { withFileTypes: true });
-	const files: string[] = [];
-	for (const entry of entries) {
-		const full = path.join(dir, entry.name);
-		if (entry.isDirectory()) {
-			files.push(...sourceFilesUnder(full));
-		} else if (/\.(ts|tsx)$/.test(entry.name)) {
-			files.push(full);
-		}
-	}
-	return files;
-}
 
 function makeContext(): vscode.ExtensionContext {
 	const store = new Map<string, unknown>();
@@ -78,11 +59,7 @@ function makeLogger(lines: string[]): Logger {
 
 suite("extension/ui statusItemRegistry", () => {
 	test("every singleton vscode surface has exactly one creation call in src/", () => {
-		const srcDir = path.join(repoRoot(), "src");
-		const testDir = path.join(srcDir, "test");
-		const sources = sourceFilesUnder(srcDir)
-			.filter((file) => !file.startsWith(testDir))
-			.map((file) => ({ file: path.relative(repoRoot(), file), text: fs.readFileSync(file, "utf8") }));
+		const sources = shippedSources();
 		for (const { api, file } of SINGLETON_CREATION_POINTS) {
 			// Match call expressions, not bare names: prose comments may name an
 			// API without calling it.
@@ -93,8 +70,11 @@ suite("extension/ui statusItemRegistry", () => {
 				[file],
 				api
 			);
-			const occurrences = (callers[0]?.text.split(call).length ?? 1) - 1;
-			assert.strictEqual(occurrences, 1, `${api} must have exactly one call in ${file}`);
+			assert.strictEqual(
+				countOccurrences(callers[0]?.text ?? "", call),
+				1,
+				`${api} must have exactly one call in ${file}`
+			);
 		}
 	});
 
