@@ -20,6 +20,7 @@
  */
 
 import * as l10n from "@vscode/l10n";
+import { USAGE_ENDPOINT_PATHS } from "../../../dashboard/usageEndpoints";
 import { DISCOVERY_MAX_RETRIES } from "../../../provider/catalog/discovery";
 import type { OAuthConfig, VirtualKeyConfig } from "../../../provider/transport/auth";
 import { OAuthTokenSource } from "../../../provider/transport/auth";
@@ -35,22 +36,9 @@ import type { StoredServerSecrets } from "../serverSync/secrets";
 import { inlineSecretValues } from "../serverSync/secrets";
 import type { DeclaredServer } from "../serverSync/setting";
 
-/**
- * Usage endpoint paths, relative to the server root (NOT the /v1 API root),
- * keyed by endpoint id in probe order. One table feeds the URL builders here
- * and the poller's refresh-failure summary (English protocol terms), so the
- * toast can only name a path the client actually calls. The helpers take the
- * entry's apiVersion so serverRootOf can undo a version segment the user
- * wrote into the base URL.
- */
-export const USAGE_ENDPOINT_PATHS = {
-	keyInfo: "/key/info",
-	dailyActivity: "/user/daily/activity",
-	userInfo: "/user/info",
-} as const;
-
-/** The usage endpoints tracked per server: the path table's keys ARE the vocabulary. */
-export type UsageEndpointId = keyof typeof USAGE_ENDPOINT_PATHS;
+// The URL builders over the shared USAGE_ENDPOINT_PATHS table: each takes the
+// entry's apiVersion so serverRootOf can undo a version segment the user wrote
+// into the base URL.
 
 /** The absolute own-key info endpoint (no `key` param: the caller's own key). */
 export function keyInfoUrl(baseUrl: string, apiVersion: string | undefined): string {

@@ -17,6 +17,8 @@
  * response-derived text, which for usage payloads includes hashed keys).
  */
 
+import type { UsageEndpointId } from "../../../dashboard/usageEndpoints";
+import { USAGE_ENDPOINT_PATHS } from "../../../dashboard/usageEndpoints";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { NUMBER_SETTING_SPECS } from "../../../shared/config/settingSpec";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
@@ -26,8 +28,8 @@ import type { StoredServerSecrets } from "../serverSync/secrets";
 import type { DeclaredServer } from "../serverSync/setting";
 import { parseServersSetting, stillDeclaredIn } from "../serverSync/setting";
 import { newlyCrossedThresholds, resolveBudget } from "./budget";
-import type { ActivityWindow, DailyUsage, KeyUsage, UsageConnection, UsageEndpointId, UserUsage } from "./spendClient";
-import { activityWindow, USAGE_ENDPOINT_PATHS, usageConnectionFor, usageUnavailabilityOf } from "./spendClient";
+import type { ActivityWindow, DailyUsage, KeyUsage, UsageConnection, UserUsage } from "./spendClient";
+import { activityWindow, usageConnectionFor, usageUnavailabilityOf } from "./spendClient";
 import type { UsageEndpointState, UsageEndpointStates, UsageFailureClassification } from "./store";
 import { UNPROBED_ENDPOINTS, UsageStore, usageAvailabilityOf } from "./store";
 

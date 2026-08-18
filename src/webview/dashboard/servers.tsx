@@ -5,6 +5,8 @@ import { latestCheckedMs } from "../../dashboard/presenters";
 import { parseCapabilityGroups, parseGroups, toGroups } from "../../dashboard/recordDraft";
 import { sectionFailureText, serverFormFieldLabel } from "../../dashboard/serverForm";
 import { barPresentation, formatMoney, formatPercent, spendTone, worstSpendTone } from "../../dashboard/spendFormat";
+import type { UsageEndpointId } from "../../dashboard/usageEndpoints";
+import { USAGE_ENDPOINT_PATHS } from "../../dashboard/usageEndpoints";
 import type {
 	DashboardServer,
 	DashboardUsage,
@@ -174,7 +176,7 @@ interface SpendContext {
 }
 
 /** The two usage endpoints whose standings turn into English detail lines. */
-type UsageEndpoint = "keyInfo" | "dailyActivity";
+type UsageEndpoint = Extract<UsageEndpointId, "keyInfo" | "dailyActivity">;
 
 /** One row's problems plus the usage endpoints whose detail line a diagnostic carries. */
 interface RowDiagnostics {
@@ -565,8 +567,8 @@ function usageDiagnostics(
 						label
 					),
 					details: detailLines(
-						carry("keyInfo", forbiddenRowDetail("/key/info", card.keyInfo)),
-						carry("dailyActivity", forbiddenRowDetail("/user/daily/activity", card.dailyActivity))
+						carry("keyInfo", forbiddenRowDetail("keyInfo", card.keyInfo)),
+						carry("dailyActivity", forbiddenRowDetail("dailyActivity", card.dailyActivity))
 					),
 					actions: refreshNow("usage-denied-refresh"),
 				},
@@ -585,7 +587,7 @@ function usageDiagnostics(
 				"{0} can't read its spend: this key isn't allowed to. Ask whoever issued the key to allow /key/info, then use Refresh now - the extension won't re-check on its own.",
 				label
 			),
-			details: detailLines(carry("keyInfo", forbiddenRowDetail("/key/info", card.keyInfo))),
+			details: detailLines(carry("keyInfo", forbiddenRowDetail("keyInfo", card.keyInfo))),
 			actions: refreshNow("spend-denied-refresh"),
 		});
 	}
@@ -597,7 +599,7 @@ function usageDiagnostics(
 				"{0} can't read request statistics: this key isn't allowed to. After the key's permissions change, use Refresh now to re-check.",
 				label
 			),
-			details: detailLines(carry("dailyActivity", forbiddenRowDetail("/user/daily/activity", card.dailyActivity))),
+			details: detailLines(carry("dailyActivity", forbiddenRowDetail("dailyActivity", card.dailyActivity))),
 			actions: refreshNow("statistics-denied-refresh"),
 		});
 	}
@@ -1013,16 +1015,19 @@ function spendMissingReason(standing: UsageEndpointStandingView, pollingOff: boo
 	}
 }
 
+/** The path a detail line may print: only the shared table's strings ever reach a template. */
+type UsageEndpointPath = (typeof USAGE_ENDPOINT_PATHS)[UsageEndpoint];
+
 /**
  * The one English template for a forbidden endpoint standing, so pasted issue reports stay
  * uniform; the fix and re-probe live in the surrounding diagnostic, refusal alone here.
  */
-function forbiddenLine(path: string, status: number | undefined): string {
+function forbiddenLine(path: UsageEndpointPath, status: number | undefined): string {
 	return `LiteLLM ${path}:${status !== undefined ? ` HTTP ${status} -` : ""} this key may not read usage data`;
 }
 
 /** forbiddenLine's unsupported twin: one template for an endpoint this server does not serve. */
-function notServedLine(path: string, status: number | undefined): string {
+function notServedLine(path: UsageEndpointPath, status: number | undefined): string {
 	return `LiteLLM ${path}: not served on this server${status !== undefined ? ` (HTTP ${status})` : ""}`;
 }
 
@@ -1033,18 +1038,19 @@ function notServedLine(path: string, status: number | undefined): string {
  */
 function keyInfoDetail(server: UsageServerView, discoveryTimeoutMs: number): string | undefined {
 	const standing = server.keyInfo;
+	const path = USAGE_ENDPOINT_PATHS.keyInfo;
 	switch (standing.kind) {
 		case "ok":
-			return server.spend === undefined ? "LiteLLM /key/info: OK, no spend field" : undefined;
+			return server.spend === undefined ? `LiteLLM ${path}: OK, no spend field` : undefined;
 		case "unknown":
-			return server.spend === undefined ? "LiteLLM /key/info: waiting on the first fetch" : undefined;
+			return server.spend === undefined ? `LiteLLM ${path}: waiting on the first fetch` : undefined;
 		case "unavailable":
 			return standing.reason === "forbidden"
-				? forbiddenLine("/key/info", standing.status)
-				: `${notServedLine("/key/info", standing.status)}; request stats still update`;
+				? forbiddenLine(path, standing.status)
+				: `${notServedLine(path, standing.status)}; request stats still update`;
 		case "error": {
 			if (standing.classification === "timeout") {
-				return `LiteLLM /key/info: timed out after ${discoveryTimeoutMs}ms (whole-call bound incl. retries). If the server is just slow, raise the discovery.timeout setting.`;
+				return `LiteLLM ${path}: timed out after ${discoveryTimeoutMs}ms (whole-call bound incl. retries). If the server is just slow, raise the discovery.timeout setting.`;
 			}
 			const how =
 				standing.status !== undefined
@@ -1052,7 +1058,7 @@ function keyInfoDetail(server: UsageServerView, discoveryTimeoutMs: number): str
 					: standing.classification === "network"
 						? "network error"
 						: "request failed";
-			return `LiteLLM /key/info: ${how} on the last attempt`;
+			return `LiteLLM ${path}: ${how} on the last attempt`;
 		}
 	}
 }
@@ -1060,13 +1066,14 @@ function keyInfoDetail(server: UsageServerView, discoveryTimeoutMs: number): str
 /** The /user/daily/activity detail line, same English-template rules as keyInfoDetail. */
 function activityDetail(server: UsageServerView): string | undefined {
 	const standing = server.dailyActivity;
+	const path = USAGE_ENDPOINT_PATHS.dailyActivity;
 	switch (standing.kind) {
 		case "ok":
 		case "unknown":
 			return undefined;
 		case "unavailable":
 			// Unsupported needs no detail: the fact's own reason covers it.
-			return standing.reason === "forbidden" ? forbiddenLine("/user/daily/activity", standing.status) : undefined;
+			return standing.reason === "forbidden" ? forbiddenLine(path, standing.status) : undefined;
 		case "error": {
 			const how =
 				standing.status !== undefined
@@ -1076,7 +1083,7 @@ function activityDetail(server: UsageServerView): string | undefined {
 						: standing.classification === "network"
 							? "network error"
 							: "request failed";
-			return `LiteLLM /user/daily/activity: ${how}`;
+			return `LiteLLM ${path}: ${how}`;
 		}
 	}
 }
@@ -1098,11 +1105,13 @@ function requestsMissingReason(standing: UsageEndpointStandingView): string {
 /**
  * The English detail line for one denied endpoint standing (a mixed 404-plus-403 server
  * states both facts); same English-by-policy, closed-enums-only rules as keyInfoDetail.
+ * Takes the endpoint id so the printed path can only come from the shared table.
  */
-function forbiddenRowDetail(path: string, standing: UsageEndpointStandingView): string | undefined {
+function forbiddenRowDetail(endpoint: UsageEndpoint, standing: UsageEndpointStandingView): string | undefined {
 	if (standing.kind !== "unavailable") {
 		return undefined;
 	}
+	const path = USAGE_ENDPOINT_PATHS[endpoint];
 	return standing.reason === "forbidden" ? forbiddenLine(path, standing.status) : notServedLine(path, standing.status);
 }
 

@@ -11,8 +11,9 @@
  * Deliberately vscode-free so the unit suites drive it directly.
  */
 
+import type { UsageEndpointId } from "../../../dashboard/usageEndpoints";
 import type { BudgetStatus } from "./budget";
-import type { DailyUsage, KeyUsage, UsageEndpointId, UsageUnavailableReason, UserUsage } from "./spendClient";
+import type { DailyUsage, KeyUsage, UsageUnavailableReason, UserUsage } from "./spendClient";
 
 /**
  * How a transient endpoint failure failed, as a closed vocabulary (never
