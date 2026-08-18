@@ -11,6 +11,8 @@
 // spend. Reruns add spend (spend IS the demo) and re-pin to the same fractions;
 // a stack recreate starts from zero and the next dev run rebuilds them.
 
+import type { FakeModelAlias } from "../../src/test/fakeStack/models";
+
 /** One demo key's identity and target budget state. Every value is a deliberately obvious local fixture. */
 export interface DemoUsageKeySpec {
 	/** The literal bearer token; /key/generate accepts a caller-chosen value. */
@@ -28,8 +30,11 @@ export interface DemoUsageKeySpec {
 	 * fraction instead: the entry-over-key override demo.
 	 */
 	readonly entryBudgetRatio?: number;
-	/** The fake model the demo completions run against (pricing varies the spend). */
-	readonly model: string;
+	/**
+	 * The fake model the demo completions run against (pricing varies the
+	 * spend); catalog-typed, so a rename fails typecheck.
+	 */
+	readonly model: FakeModelAlias;
 }
 
 export const DEMO_USAGE_KEYS: readonly DemoUsageKeySpec[] = [

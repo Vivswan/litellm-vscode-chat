@@ -34,7 +34,7 @@ import {
 	parseOnlyLabels,
 } from "../src/test/dockerTestLabels";
 import { PLAYBACK_MODEL } from "../src/test/fakeStack/models";
-import { resolveComposeCommand } from "./stack/composeCommand";
+import { resolveComposeCommand, runCompose } from "./stack/composeCommand";
 import { composeSetting, ensureGeneratedConfig, readEnvFile, STACK_DEFAULTS } from "./stack/litellmConfig";
 import { seedStackUsageBudgetKey } from "./stack/seedUsage";
 
@@ -121,9 +121,23 @@ const masterKey = setting("LITELLM_MASTER_KEY", STACK_DEFAULTS.LITELLM_MASTER_KE
 const baseUrl = `http://localhost:${litellmPort}`;
 const fakeUrl = `http://localhost:${fakePort}`;
 
-const compose = resolveComposeCommand().join(" ");
+// Resolved eagerly so a missing runtime fails before any work; the resolution
+// is memoized, so every compose call below reuses this same runtime.
+const composeDisplay = resolveComposeCommand().join(" ");
 const run = (command: string, env: Record<string, string> = {}): void => {
 	execSync(command, { stdio: "inherit", env: { ...process.env, ...env } });
+};
+// Compose goes through the shared no-shell executor (runCompose), so a quoted
+// COMPOSE_CMD behaves identically here and in scripts/stack/compose.ts. A
+// non-zero exit throws with `status`, keeping execSync's error shape for the
+// catch and teardown paths.
+const compose = (...composeArgs: string[]): void => {
+	const status = runCompose(composeArgs);
+	if (status !== 0) {
+		throw Object.assign(new Error(`${composeDisplay} ${composeArgs.join(" ")} exited with status ${status}`), {
+			status,
+		});
+	}
 };
 
 let failed = false;
@@ -134,11 +148,11 @@ async function main(): Promise<void> {
 		// --force-recreate makes a stack already running with a different config
 		// pick this one up instead of poisoning the run.
 		ensureGeneratedConfig({ realProviders: false });
-		console.log(`\nStarting the LiteLLM stack via "${compose}"...`);
+		console.log(`\nStarting the LiteLLM stack via "${composeDisplay}"...`);
 		// 180 over the litellm healthcheck's 90s start_period: --wait-timeout is
 		// hard wall clock, so a cold runner's first-boot prisma migration needs
 		// real headroom before the shard dies.
-		run(`${compose} up -d --wait --wait-timeout 180 --force-recreate`);
+		compose("up", "-d", "--wait", "--wait-timeout", "180", "--force-recreate");
 
 		// The usage/budget fixture key must exist before any suite runs: the
 		// docker-usage smoke suite reads it directly, later usage suites spend
@@ -194,7 +208,7 @@ async function main(): Promise<void> {
 		failed = true;
 		console.error("\nDocker test run failed; recent LiteLLM logs:");
 		try {
-			run(`${compose} logs litellm --tail 100`);
+			compose("logs", "litellm", "--tail", "100");
 		} catch {
 			// Logs are best-effort; the original failure is what matters.
 		}
@@ -205,7 +219,7 @@ async function main(): Promise<void> {
 			console.log(`\nKEEP_DOCKER_STACK=1: stack left running at ${baseUrl} (fake backend at ${fakeUrl})`);
 		} else {
 			try {
-				run(`${compose} down -v`);
+				compose("down", "-v");
 			} catch (teardownError) {
 				// Teardown noise must not replace the original test failure.
 				console.error(`Teardown failed: ${String(teardownError)}`);

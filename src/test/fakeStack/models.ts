@@ -83,7 +83,9 @@ export interface FakeModel {
 /** Flat pricing shared byte-identically by both gpt-5.2 deployments (the merge trap). */
 const GPT_52_PRICING: FakeModelPricing = { inputCostPerToken: 1.25e-6, outputCostPerToken: 1e-5 };
 
-export const FAKE_MODELS: readonly FakeModel[] = [
+// Declared `as const` so FakeModelAlias can derive the literal alias union;
+// FAKE_MODELS below re-exposes it at the plain catalog type.
+const FAKE_MODEL_DEFS = [
 	{
 		// The flagship: full capabilities, cache costs, and the above-200k tier
 		// (reachable: 1M declared input) so the long-context tier synthesis and
@@ -162,7 +164,16 @@ export const FAKE_MODELS: readonly FakeModel[] = [
 		deployments: [{ upstreamModel: "fake-blocked" }],
 		blocked: true,
 	},
-];
+] as const satisfies readonly FakeModel[];
+
+export const FAKE_MODELS: readonly FakeModel[] = FAKE_MODEL_DEFS;
+
+/**
+ * The catalog's alias union: consumers that name a model (the dev usage seed's
+ * DEMO_USAGE_KEYS) type against this, so a catalog rename fails typecheck
+ * instead of surfacing at runtime. Test-suite oracles stay independent literals.
+ */
+export type FakeModelAlias = (typeof FAKE_MODEL_DEFS)[number]["alias"];
 
 /** Upstream ids the fake backend serves; blocked deployments are excluded, as real discovery never reaches them. */
 export const FAKE_MODEL_UPSTREAM_IDS: readonly string[] = FAKE_MODELS.filter((model) => !model.blocked).flatMap(

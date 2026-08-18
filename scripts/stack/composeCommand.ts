@@ -19,17 +19,27 @@ function probes(candidate: string[]): boolean {
 	return result.status === 0;
 }
 
+// Resolved once per process: every compose call in a run (up, logs, down) must
+// use the same runtime, probed once, exactly as when call sites resolved a
+// single command string up front.
+let resolved: readonly string[] | undefined;
+
 export function resolveComposeCommand(): string[] {
+	if (resolved !== undefined) {
+		return [...resolved];
+	}
 	const override = process.env.COMPOSE_CMD?.trim();
 	if (override) {
-		return [...override.split(/\s+/), ...COMPOSE_FILE_ARGS];
+		resolved = [...override.split(/\s+/), ...COMPOSE_FILE_ARGS];
+		return [...resolved];
 	}
 	for (const candidate of [
 		["docker", "compose"],
 		["podman", "compose"],
 	]) {
 		if (probes(candidate)) {
-			return [...candidate, ...COMPOSE_FILE_ARGS];
+			resolved = [...candidate, ...COMPOSE_FILE_ARGS];
+			return [...resolved];
 		}
 	}
 	console.error(
@@ -38,12 +48,21 @@ export function resolveComposeCommand(): string[] {
 	process.exit(1);
 }
 
-/** Run a compose subcommand with inherited stdio; returns the exit code. */
+/**
+ * Run a compose subcommand with inherited stdio; returns the exit code. The
+ * one compose executor: the resolved argv is spawned directly, never re-parsed
+ * by a shell, so a quoted COMPOSE_CMD means the same thing on every path.
+ */
 export function runCompose(args: string[]): number {
 	const [command, ...base] = resolveComposeCommand();
 	if (!command) {
 		return 1;
 	}
 	const result = spawnSync(command, [...base, ...args], { stdio: "inherit" });
+	if (result.error) {
+		// An unprobed COMPOSE_CMD override can name a missing binary; spawnSync
+		// reports that as `error` with no status, which must not die silently.
+		console.error(`[compose] could not run "${command}": ${result.error.message}`);
+	}
 	return result.status ?? 1;
 }
