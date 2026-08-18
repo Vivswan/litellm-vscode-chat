@@ -510,6 +510,12 @@ export function rawDeclaredLabels(raw: unknown): Set<string> {
 	return labels;
 }
 
+/** The label the sync side would keep for one raw entry (rawDeclaredLabels' rule, per element), or undefined. */
+export function declaredEntryLabel(rawEntry: unknown): string | undefined {
+	const [label] = rawDeclaredLabels([rawEntry]);
+	return label;
+}
+
 /**
  * The still-declared predicate every removal decision shares (the sync
  * engine's removal detector and the usage poller's prunes): a label is still

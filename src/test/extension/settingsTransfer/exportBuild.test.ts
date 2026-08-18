@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import type { StoredServerSecrets } from "../../../extension/servers/serverSync/secrets";
 import type { SettingsExportEnv, SettingsExportResult } from "../../../extension/settingsTransfer/exportBuild";
-import { buildSettingsExport, declaredEntryLabel } from "../../../extension/settingsTransfer/exportBuild";
+import { buildSettingsExport } from "../../../extension/settingsTransfer/exportBuild";
 import { ALL_SETTING_KEYS, CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../../shared/config/settingSpec";
 
 function env(overrides: Partial<SettingsExportEnv>): SettingsExportEnv {
@@ -22,14 +22,6 @@ suite("extension/settingsTransfer/exportBuild", () => {
 	test("the frozen signature", () => {
 		const build: (env: SettingsExportEnv) => Promise<SettingsExportResult> = buildSettingsExport;
 		assert.strictEqual(typeof build, "function");
-	});
-
-	test("declaredEntryLabel mirrors rawDeclaredLabels' per-entry rule", () => {
-		assert.strictEqual(declaredEntryLabel({ label: " alpha " }), "alpha");
-		assert.strictEqual(declaredEntryLabel({ label: "" }), undefined);
-		assert.strictEqual(declaredEntryLabel({ label: "__proto__" }), undefined);
-		assert.strictEqual(declaredEntryLabel({ label: 42 }), undefined);
-		assert.strictEqual(declaredEntryLabel("not-an-object"), undefined);
 	});
 
 	test("only keys with an explicit globalValue enter the file, and the counts state it", async () => {

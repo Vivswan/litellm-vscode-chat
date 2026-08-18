@@ -15,7 +15,7 @@ import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serv
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { isUnsafeRecordKey, recordFromKeys } from "../../shared/util/json";
 import type { DeclaredServerView } from "../servers/serverSync";
-import { acceptedEntry } from "../servers/serverSync";
+import { rawDeclaredLabels } from "../servers/serverSync/setting";
 import { adoptSourceHandle } from "./adoptHandle";
 import { assembleEntryAuth, pairingFailureMessage } from "./entryAuth";
 import type { IntentEnvironment } from "./intents";
@@ -144,7 +144,10 @@ export async function applyAdoptServer(
 		throw new DashboardValidationError(`baseUrl: ${l10n.t("not a usable http(s) URL")}`);
 	}
 	const entries = rawServerEntries(env.readServersSetting());
-	if (acceptedEntry(entries, label) !== undefined) {
+	// Raw labels count as taken (the webview's own rule): adoption always
+	// creates a new entry, and a parser-rejected sibling still occupies its
+	// label, so appending beside it would land two entries under one label.
+	if (rawDeclaredLabels(entries).has(label)) {
 		throw new DashboardValidationError(`label: ${l10n.t("an entry with this label already exists")}`);
 	}
 

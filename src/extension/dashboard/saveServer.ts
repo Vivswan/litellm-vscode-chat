@@ -11,6 +11,7 @@ import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serv
 import { recordFromKeys } from "../../shared/util/json";
 import type { DeclaredServer } from "../servers/serverSync";
 import { acceptedEntry, inlineSecretValues } from "../servers/serverSync";
+import { declaredEntryLabel, rawDeclaredLabels } from "../servers/serverSync/setting";
 import { assembleEntryAuth, pairingFailureMessage } from "./entryAuth";
 import type { IntentEnvironment } from "./intents";
 import { DashboardOperationError, DashboardValidationError, rawServerEntries } from "./intents";
@@ -217,7 +218,10 @@ export async function applySaveServerSetting(
 		);
 	}
 	const renaming = targetLabel !== label;
-	if (renaming && acceptedEntry(entries, label) !== undefined) {
+	// Raw labels count as taken (the webview's own rule): a parser-rejected
+	// entry still occupies its label, and a rename beside it would land two
+	// entries under one label.
+	if (renaming && rawDeclaredLabels(entries).has(label)) {
 		// The "fieldId:" prefix is what sectionFailureText matches against the
 		// internal field names to route the failure onto the right form section,
 		// so it stays an ASCII identifier outside the translation. Same rule for
@@ -226,24 +230,26 @@ export async function applySaveServerSetting(
 	}
 
 	// The entry this save's form was showing, and the mode that follows from it:
-	// with no accepted entry the save appends, and with one it writes in place -
-	// as an edit or rename when the draft named it, as an upsert (the add form's
-	// documented "saving replaces it") when it did not.
+	// with no entry carrying the label the save appends, and with one it writes
+	// in place - as an edit or rename when the draft named it, as an upsert (the
+	// add form's documented "saving replaces it") when it did not. The fallback
+	// index covers the parser-rejected carrier an acceptedEntry lookup misses.
 	const showing = entryShownByForm(accepted?.entry, intent.replaceLabel);
+	const writeIndex = accepted?.index ?? entries.findIndex((item) => declaredEntryLabel(item) === label);
 	const mode: SaveMode =
-		accepted === undefined
+		writeIndex === -1
 			? { kind: "create" }
 			: showing === undefined
-				? { kind: "upsert", index: accepted.index }
+				? { kind: "upsert", index: writeIndex }
 				: renaming
 					? {
 							kind: "rename",
-							index: accepted.index,
+							index: writeIndex,
 							existing: showing,
 							oldLabel: targetLabel,
 							willCopy,
 						}
-					: { kind: "edit", index: accepted.index, existing: showing };
+					: { kind: "edit", index: writeIndex, existing: showing };
 
 	const plans = secretPlans(intent.secrets, showing, storedOld);
 

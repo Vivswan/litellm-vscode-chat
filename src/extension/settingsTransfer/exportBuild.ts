@@ -15,7 +15,7 @@
 import { ALL_SETTING_KEYS, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import { isRecord } from "../../shared/util/json";
 import type { StoredServerSecrets } from "../servers/serverSync/secrets";
-import { rawDeclaredLabels } from "../servers/serverSync/setting";
+import { declaredEntryLabel } from "../servers/serverSync/setting";
 import type { SettingsExportEnvelope } from "./envelope";
 import { buildEnvelope } from "./envelope";
 import { materializeEntrySecrets, stripEntrySecrets } from "./secretSurgery";
@@ -50,12 +50,6 @@ export interface SettingsExportResult {
 	 * the omission is never silent.
 	 */
 	readonly omittedUnsanitizableCount: number;
-}
-
-/** The label the sync side would keep for one raw entry (rawDeclaredLabels' rule, per element), or undefined. */
-export function declaredEntryLabel(rawEntry: unknown): string | undefined {
-	const [label] = rawDeclaredLabels([rawEntry]);
-	return label;
 }
 
 /** Build the export envelope; see the module comment for the walk and the secret handling. */

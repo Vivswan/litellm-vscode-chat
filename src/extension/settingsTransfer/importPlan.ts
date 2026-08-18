@@ -21,8 +21,12 @@ import { OPTIONAL_ENTRY_FIELDS } from "../../shared/serverEntry";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import type { StoredServerSecrets } from "../servers/serverSync/secrets";
 import type { DeclaredServer, ServerEntryReport } from "../servers/serverSync/setting";
-import { acceptedEntry, rawDeclaredLabels, serverSettingReports } from "../servers/serverSync/setting";
-import { declaredEntryLabel } from "./exportBuild";
+import {
+	acceptedEntry,
+	declaredEntryLabel,
+	rawDeclaredLabels,
+	serverSettingReports,
+} from "../servers/serverSync/setting";
 import { stripEntrySecrets } from "./secretSurgery";
 
 /**

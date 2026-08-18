@@ -335,6 +335,47 @@ suite("extension/dashboard/intents", () => {
 			assert.deepStrictEqual(recorded.serverWrites, [[{ label: "Prod", baseUrl: "http://new.test" }]]);
 		});
 
+		test("the add form saving onto a parser-rejected raw entry's label replaces it, never appends beside it", async () => {
+			// The rejected entry still occupies its label; appending would land two
+			// raw entries under one label, with the parser refusing the second.
+			const recorded = makeEnv([
+				{ label: "A", baseUrl: "http://a.test" },
+				{ label: "Prod", baseUrl: "http://old.test", auth: {} },
+			]);
+			recorded.storedSecrets.set("Prod", { apiKey: "sk-orphan" });
+			await save(recorded, { server: serverPayload({ label: "Prod", baseUrl: "http://new.test" }) });
+
+			assert.deepStrictEqual(
+				recorded.serverWrites,
+				[
+					[
+						{ label: "A", baseUrl: "http://a.test" },
+						{ label: "Prod", baseUrl: "http://new.test" },
+					],
+				],
+				"the rejected entry is replaced in place"
+			);
+			assert.deepStrictEqual(recorded.storedSecrets.get("Prod"), {}, "the replacement stays credential-less");
+		});
+
+		test("a labeled fragment with no baseUrl counts as taken: a rename refuses it, the add form replaces it", async () => {
+			// Deliberately wider than the parser's occupancy set: two raw carriers
+			// under one label are refused even where the parser would have
+			// tolerated the second (a fragment never claims its label).
+			const refused = makeEnv([{ label: "A", baseUrl: "http://a.test" }, { label: "B" }]);
+			await assert.rejects(
+				save(refused, { server: serverPayload({ label: "B", baseUrl: "http://a.test" }), replaceLabel: "A" }),
+				/already exists/
+			);
+			assert.deepStrictEqual(refused.serverWrites, []);
+			assert.deepStrictEqual(refused.secretCopies, []);
+			assert.deepStrictEqual(refused.secretOps, []);
+
+			const replaced = makeEnv([{ label: "B" }]);
+			await save(replaced, { server: serverPayload({ label: "B", baseUrl: "http://new.test" }) });
+			assert.deepStrictEqual(replaced.serverWrites, [[{ label: "B", baseUrl: "http://new.test" }]]);
+		});
+
 		test("an edit replaces the entry in place and keep-directives carry its inline secrets over", async () => {
 			const recorded = makeEnv([
 				{ label: "A", baseUrl: "http://a.test" },
@@ -908,6 +949,23 @@ suite("extension/dashboard/intents", () => {
 			assert.deepStrictEqual(recorded.secretOps, []);
 		});
 
+		test("renaming onto a label held only by a parser-rejected raw entry is refused too", async () => {
+			// The rejected sibling still occupies its label in the raw array; a
+			// rename landing beside it would leave two entries under one label.
+			const recorded = makeEnv([
+				{ label: "A", baseUrl: "http://a.test" },
+				{ label: "B", baseUrl: "http://b.test", auth: {} },
+			]);
+			await assert.rejects(
+				save(recorded, { server: serverPayload({ label: "B", baseUrl: "http://a.test" }), replaceLabel: "A" }),
+				/already exists/
+			);
+
+			assert.deepStrictEqual(recorded.serverWrites, []);
+			assert.deepStrictEqual(recorded.secretCopies, []);
+			assert.deepStrictEqual(recorded.secretOps, []);
+		});
+
 		test("an edit whose entry vanished from the setting is refused instead of appending a duplicate", async () => {
 			const recorded = makeEnv([{ label: "Other", baseUrl: "http://other.test" }]);
 			await assert.rejects(save(recorded, { replaceLabel: "Gone" }), /no longer exists/);
@@ -1279,6 +1337,21 @@ suite("extension/dashboard/intents", () => {
 
 		test("refuses a label collision with an existing declared entry", async () => {
 			const recorded = makeEnv([{ label: "Adopted", baseUrl: "http://other.test" }]);
+			recorded.adoptionCredentials = FULL_CREDENTIALS;
+
+			await assert.rejects(
+				() => adopt(recorded),
+				(error: unknown) =>
+					error instanceof Error && error.name === "DashboardValidationError" && /already exists/.test(error.message)
+			);
+			assert.deepStrictEqual(recorded.serverWrites, []);
+			assert.deepStrictEqual(recorded.secretOps, []);
+		});
+
+		test("refuses a label collision with a parser-rejected raw entry too", async () => {
+			// Adoption always appends; a rejected entry still occupies its label,
+			// so appending beside it would land two entries under one label.
+			const recorded = makeEnv([{ label: "Adopted", baseUrl: "http://other.test", auth: {} }]);
 			recorded.adoptionCredentials = FULL_CREDENTIALS;
 
 			await assert.rejects(

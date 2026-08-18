@@ -30,6 +30,7 @@ import {
 	updateServerSecret,
 } from "../../../extension/servers/serverSync";
 import {
+	declaredEntryLabel,
 	entryApiVersionFor,
 	entryDeclaredModelsFor,
 	entryHeadersFor,
@@ -2034,6 +2035,14 @@ suite("extension/servers/serverSync: the nested entry shape", () => {
 			const raw = [{ label: "S", baseUrl: "http://s.test", auth: { apiKey: 42 } }];
 			assert.deepStrictEqual(parseServersSetting(raw).entries, []);
 			assert.deepStrictEqual([...rawDeclaredLabels(raw)], ["S"]);
+		});
+
+		test("declaredEntryLabel mirrors rawDeclaredLabels' per-entry rule", () => {
+			assert.strictEqual(declaredEntryLabel({ label: " alpha " }), "alpha");
+			assert.strictEqual(declaredEntryLabel({ label: "" }), undefined);
+			assert.strictEqual(declaredEntryLabel({ label: "__proto__" }), undefined);
+			assert.strictEqual(declaredEntryLabel({ label: 42 }), undefined);
+			assert.strictEqual(declaredEntryLabel("not-an-object"), undefined);
 		});
 
 		test("stillDeclaredIn judges presence, not acceptance, and a non-array container proves nothing", () => {
