@@ -4,16 +4,19 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import * as fc from "fast-check";
 import { act } from "react";
 import type { RpcRequest } from "../../../../dashboard/endpoints";
 import { WIRE_LIMITS } from "../../../../dashboard/endpoints";
 import { isBoundViolation, parseNumberDraft } from "../../../../dashboard/presenters";
+import { formatPercentExact } from "../../../../dashboard/spendFormat";
 import { NUMBER_SETTING_IDS } from "../../../../dashboard/viewModels";
 import { OPENROUTER_MODEL_DIRECTIVE } from "../../../../shared/config/recordResolution";
 import { AnnounceOnceScope } from "../../../../webview/dashboard/announceOnce";
 import { App } from "../../../../webview/dashboard/app";
 import { settingRowHelp } from "../../../../webview/dashboard/helpText";
-import { SettingsSection } from "../../../../webview/dashboard/settings";
+import { parseThresholdBox, SettingsSection } from "../../../../webview/dashboard/settings";
+import { resolveFuzzSeed } from "../../../fuzzStream";
 import { makeSettings, makeState, statePush } from "../fixtures";
 import {
 	buttonByText,
@@ -38,6 +41,9 @@ beforeEach(() => {
 afterEach(() => {
 	cleanup();
 });
+
+const NUM_RUNS = Number(process.env.FUZZ_RUNS) || 300;
+const SEED = resolveFuzzSeed();
 
 function settingInput(root: ParentNode, id: string): HTMLInputElement {
 	const input = root.querySelector(`#setting-${CSS.escape(id)}`);
@@ -1074,6 +1080,65 @@ test("an invalid threshold shows its error live and never posts: 0, over 100%, a
 	}
 	// The valid box alone must not commit around the invalid one.
 	expect(error.getAttribute("aria-invalid")).toBe("false");
+});
+
+test("render -> parse -> render is a fixed point for every representable threshold", () => {
+	// The property commit() leans on: the box text a stored value renders to
+	// must reparse to a value that renders the same text, or an untouched box
+	// would read as an edit. Value space is NOT a fixed point (the specimen
+	// below), so the rendered vocabulary is the one the pair compares in.
+	fc.assert(
+		fc.property(
+			// The full representable range, with half the budget spent where real
+			// thresholds live so the property is not all denormal exponents.
+			fc.oneof(
+				fc.double({ min: Number.MIN_VALUE, max: 1, noNaN: true }),
+				fc.double({ min: 0.001, max: 1, noNaN: true })
+			),
+			(threshold) => {
+				const rendered = formatPercentExact(threshold);
+				const parsed = parseThresholdBox(rendered);
+				expect(parsed.kind).toBe("value");
+				if (parsed.kind === "value") {
+					expect(formatPercentExact(parsed.value)).toBe(rendered);
+				}
+			}
+		),
+		{ seed: SEED, numRuns: NUM_RUNS }
+	);
+	// The 0.533 specimen: reparse lands an ulp low, yet the render is stable.
+	expect(formatPercentExact(0.533)).toBe("53.3%");
+	expect(parseThresholdBox("53.3%")).toEqual({ kind: "value", value: 0.5329999999999999 });
+	expect(formatPercentExact(0.5329999999999999)).toBe("53.3%");
+});
+
+test("an untouched threshold box never rewrites settings on focus and blur", () => {
+	// 0.533 is one of the stored values whose reparse shifts by an ulp; before
+	// commit() compared rendered strings, focusing and leaving this box rewrote
+	// settings.json to 0.5329999999999999 with no edit anywhere.
+	const root = mount(<SettingsSection settings={settingsWithThresholds([0.533, 0.9])} models={[]} />);
+	const { warning, error } = thresholdBoxes(root);
+	expect(warning.value).toBe("53.3%");
+	expect(error.value).toBe("90%");
+	for (const box of [warning, error]) {
+		box.focus();
+		fireBlur(box);
+		fireKeyDown(box, "Enter");
+	}
+	expect(postedMessages).toEqual([]);
+});
+
+test("an unsorted stored pair still normalizes on an untouched blur: ordering is a real difference", () => {
+	// The no-rewrite guarantee compares rendered values in position, so a
+	// stored [high, low] list the boxes display swapped commits back sorted -
+	// a deliberate normalizing write, not float noise.
+	const root = mount(<SettingsSection settings={settingsWithThresholds([0.9, 0.533])} models={[]} />);
+	const { warning } = thresholdBoxes(root);
+	warning.focus();
+	fireBlur(warning);
+	expect(postedCalls()).toEqual([
+		{ method: "setUsageAlertThresholds", payload: { values: [0.5329999999999999, 0.9] } },
+	]);
 });
 
 test("a hand-written list of 3+ values renders read-only with the values, the hint, and the reveal button", () => {

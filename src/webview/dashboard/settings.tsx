@@ -903,8 +903,10 @@ function UiAccentRow({
 /**
  * One threshold box's parse: a fraction (0.8), a percentage (80%), or a bare number
  * above 1 read as percent. The docs' bound applies after conversion: (0, 1].
+ * Lossy in value space by an ulp ("53.3%" is not 0.533 back), but render ->
+ * parse -> render IS a fixed point, which is the space commit() compares in.
  */
-function parseThresholdBox(
+export function parseThresholdBox(
 	text: string
 ): { readonly kind: "empty" } | { readonly kind: "value"; readonly value: number } | { readonly kind: "invalid" } {
 	const trimmed = text.trim();
@@ -1040,7 +1042,10 @@ function UsageThresholdsRow({
 		if (parsed === undefined) {
 			return;
 		}
-		if (parsed.join(",") !== values.join(",")) {
+		// "Did the user change anything" compares in the vocabulary the boxes
+		// show: reparsing a rendered percent lands an ulp off the stored value,
+		// so a raw compare reads an untouched blur as an edit.
+		if (parsed.map(formatPercentExact).join(",") !== values.map(formatPercentExact).join(",")) {
 			sendRequest("setUsageAlertThresholds", { values: parsed });
 		}
 	};
