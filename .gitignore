@@ -28,7 +28,15 @@ ThirdPartyNotices.txt
 # npm lockfile (using Bun instead)
 package-lock.json
 
-.husky/_/
+# Husky's generated hook runtime - except the tracked bootstrap files that
+# keep the hook layer fail-closed in fresh worktrees (a directory exclude
+# would forbid the re-inclusions, hence the file glob). A new hook script
+# needs its shim re-included here; hooksFailClosed.test.ts derives the
+# required set from the tracked hook scripts and fails without it.
+.husky/_/*
+!.husky/_/pre-commit
+!.husky/_/commit-msg
+!.husky/_/h
 
 # One-shot seed dropped by `bun run dev`, consumed on activation
 .dev-seed.json

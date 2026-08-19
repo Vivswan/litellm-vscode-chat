@@ -1,8 +1,12 @@
 #!/bin/sh
 
 # Refuse to mutate the repo during commits. Dependencies should already exist.
+# This guard is the fail-closed floor for fresh worktrees: the .husky/_
+# bootstrap files are tracked so git always finds a hook to run, and a
+# checkout that never ran bun install lands here instead of silently
+# committing with no hooks at all.
 if [ ! -d node_modules ]; then
-	echo "Dependencies are missing. Run 'bun install' before committing."
+	echo "Dependencies are missing. Run 'bun install' in this checkout before committing (fresh worktrees start without node_modules)."
 	exit 1
 fi
 
