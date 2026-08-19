@@ -238,11 +238,271 @@ const GUARD_FIXTURES: readonly { readonly name: string; readonly source: string;
 		flagged: true,
 	},
 	{
-		// This guard matches callee text, so `.call` and a destructured `t` slip
-		// past it; vscodeL10nOffenses bans both shapes, making the split a
-		// documented division of labour rather than a gap.
-		name: "t invoked through .call at module scope (the one-API guard's job, not this one's)",
+		// Forwarding stripped: .call/.apply/.bind cannot launder a freeze past
+		// the callee match (vscodeL10nOffenses bans this shape too).
+		name: "t invoked through .call at module scope",
 		source: 'const TITLE = l10n.t.call(undefined, "x");\n',
+		flagged: true,
+	},
+	{
+		name: "a lazy helper invoked through .call at module scope",
+		source: "const TITLE = manageCommandTitle.call(undefined);\n",
+		flagged: true,
+	},
+	{
+		name: "a lazy helper invoked through .apply at module scope",
+		source: "const TITLE = manageCommandTitle.apply(undefined, []);\n",
+		flagged: true,
+	},
+	{
+		name: "a lazy helper bound and invoked at module scope",
+		source: "const TITLE = manageCommandTitle.bind(undefined)();\n",
+		flagged: true,
+	},
+	{
+		name: "a lazy helper invoked through a literal element-access .call at module scope",
+		source: 'const TITLE = manageCommandTitle["call"](undefined);\n',
+		flagged: true,
+	},
+	{
+		name: "a lazy helper invoked through a computed member at module scope",
+		source: "const TITLE = manageCommandTitle[member]();\n",
+		flagged: true,
+	},
+	{
+		name: "a lazy helper called through a local namespace import at module scope",
+		source: 'import * as helpers from "./helpers";\nconst FROZEN = helpers.manageCommandTitle();\n',
+		flagged: true,
+	},
+	{
+		name: "a lazy member element-accessed off a local namespace import at module scope",
+		source: 'import * as helpers from "./helpers";\nconst FROZEN = helpers["manageCommandTitle"]();\n',
+		flagged: true,
+	},
+	{
+		name: "a lazy member aliased off a local namespace import and called at module scope",
+		source:
+			'import * as helpers from "./helpers";\nconst alias = helpers.manageCommandTitle;\nconst FROZEN = alias();\n',
+		flagged: true,
+	},
+	{
+		name: "a local namespace member invoked through .call at module scope",
+		source: 'import * as helpers from "./helpers";\nconst FROZEN = helpers.manageCommandTitle.call(undefined);\n',
+		flagged: true,
+	},
+	{
+		name: "a package namespace member call stays quiet (members are not census names)",
+		source: 'import * as helpers from "helpers";\nconst OK = helpers.manageCommandTitle();\n',
+		flagged: false,
+	},
+	{
+		name: "a thunk-table property call stays outside the callee match (the documented limit)",
+		source: "const OK = TABLE.manageCommandTitle();\n",
+		flagged: false,
+	},
+	{
+		name: "a lazy helper passed as an argument at module scope stays quiet (a reference, not an invocation)",
+		source: "register(manageCommandTitle);\n",
+		flagged: false,
+	},
+	{
+		name: "a comma-expression callee resolves to its result",
+		source: "const TITLE = (0, manageCommandTitle)();\n",
+		flagged: true,
+	},
+	{
+		name: "a ternary callee flags through either branch",
+		source: "const TITLE = (enabled ? manageCommandTitle : plain)();\n",
+		flagged: true,
+	},
+	{
+		name: "a logical-fallback callee flags through either side",
+		source: "const TITLE = (custom ?? manageCommandTitle)();\n",
+		flagged: true,
+	},
+	{
+		name: "a ternary callee of untracked names stays quiet",
+		source: "const VALUE = (enabled ? firstThing : secondThing)();\n",
+		flagged: false,
+	},
+	{
+		name: "a function literal in one callee branch evaluates eagerly",
+		source: 'const TITLE = (enabled ? () => l10n.t("x") : plain)();\n',
+		flagged: true,
+	},
+	{
+		// The composition: stripping exposes a fresh choosing shape underneath,
+		// and the resolution re-flattens to a fixed point.
+		name: "a ternary receiver behind .call flags through either branch",
+		source: "const TITLE = (enabled ? manageCommandTitle : plain).call(undefined);\n",
+		flagged: true,
+	},
+	{
+		name: "a comma receiver behind .call resolves to its result",
+		source: "const TITLE = (0, manageCommandTitle).call(undefined);\n",
+		flagged: true,
+	},
+	{
+		name: "a logical-fallback receiver behind .apply flags through either side",
+		source: "const TITLE = (custom ?? manageCommandTitle).apply(undefined, []);\n",
+		flagged: true,
+	},
+	{
+		name: "a ternary receiver bound and invoked flags",
+		source: "const TITLE = (enabled ? manageCommandTitle : plain).bind(undefined)();\n",
+		flagged: true,
+	},
+	{
+		name: "an inline function in a ternary receiver behind .call evaluates eagerly",
+		source: 'const TITLE = (enabled ? () => l10n.t("a") : plain).call(undefined);\n',
+		flagged: true,
+	},
+	{
+		name: "a ternary receiver of untracked names behind .call stays quiet",
+		source: "const VALUE = (enabled ? someThing : otherThing).call(undefined);\n",
+		flagged: false,
+	},
+	{
+		name: "a ternary receiver behind a computed member call flags through either branch",
+		source: "const TITLE = (enabled ? manageCommandTitle : plain)[member]();\n",
+		flagged: true,
+	},
+	{
+		name: "an inline function in a ternary receiver behind a computed member call evaluates eagerly",
+		source: 'const TITLE = (enabled ? () => l10n.t("a") : plain)[member]();\n',
+		flagged: true,
+	},
+	{
+		name: "a forwarder in a choosing receiver behind .call still forwards",
+		source: "const TITLE = (enabled ? Reflect.apply : plain).call(Reflect, manageCommandTitle, undefined, []);\n",
+		flagged: true,
+	},
+	{
+		name: "a logical-assignment callee resolves to either side",
+		source: "let held: (() => string) | undefined;\nconst TITLE = (held ||= manageCommandTitle)();\n",
+		flagged: true,
+	},
+	{
+		name: "an inline function constructed with new runs its body",
+		source: 'const FROZEN = new (function () {\n\tregister(l10n.t("x"));\n})();\n',
+		flagged: true,
+	},
+	{
+		name: "a computed member call on an inline function evaluates it",
+		source: 'const FROZEN = (() => l10n.t("x"))[member]();\n',
+		flagged: true,
+	},
+	{
+		name: "an inline class extending a lazy local namespace member",
+		source:
+			'import * as helpers from "./h";\nconst FROZEN = new (class extends helpers.DashboardController {})(context);\n',
+		flagged: true,
+	},
+	{
+		// bind evaluates nothing itself, but a module-scope bind of a lazy
+		// helper only exists to be called; flagging it is deliberate.
+		name: "a lazy helper bound without invocation still flags",
+		source: "const HELD = manageCommandTitle.bind(undefined);\n",
+		flagged: true,
+	},
+	{
+		name: "an ordinary member call on a name sharing a census spelling stays quiet",
+		source: "const ROWS = railSections.map((entry) => entry);\n",
+		flagged: false,
+	},
+	{
+		name: "toString on a lazy helper stays quiet (no localization runs)",
+		source: "const SOURCE = manageCommandTitle.toString();\n",
+		flagged: false,
+	},
+	{
+		name: "Reflect.apply of a lazy helper at module scope",
+		source: "const TITLE = Reflect.apply(manageCommandTitle, undefined, []);\n",
+		flagged: true,
+	},
+	{
+		name: "Reflect.construct of a lazy class at module scope",
+		source: "const PANEL = Reflect.construct(DashboardController, [context]);\n",
+		flagged: true,
+	},
+	{
+		name: "Function.prototype.call.call of a lazy helper at module scope",
+		source: "const TITLE = Function.prototype.call.call(manageCommandTitle, undefined);\n",
+		flagged: true,
+	},
+	{
+		name: "Reflect.apply of an untracked name stays quiet",
+		source: "const VALUE = Reflect.apply(somethingElse, undefined, []);\n",
+		flagged: false,
+	},
+	{
+		// .call shifts the forwarder's target one slot right; every direct
+		// argument of a recognized forwarder is checked.
+		name: "Reflect.apply forwarded through .call still flags",
+		source: "const TITLE = Reflect.apply.call(Reflect, manageCommandTitle, undefined, []);\n",
+		flagged: true,
+	},
+	{
+		name: "Reflect.apply of an inline function evaluates it",
+		source: 'const TITLE = Reflect.apply(() => l10n.t("x"), undefined, []);\n',
+		flagged: true,
+	},
+	{
+		name: "Reflect.construct of an inline localizing class",
+		source: 'const FROZEN = Reflect.construct(\n\tclass {\n\t\tlabel = l10n.t("x");\n\t},\n\t[]\n);\n',
+		flagged: true,
+	},
+	{
+		name: "a non-forwarder Reflect member keeps a tracked argument as a reference",
+		source: "const KEYS = Reflect.ownKeys(manageCommandTitle);\n",
+		flagged: false,
+	},
+	{
+		// Text matching is the decision (see isCallerForwarder): a re-spelled
+		// forwarder stays outside, like every custom wrapper.
+		name: "a globalThis-spelled forwarder stays quiet (the documented boundary)",
+		source: "const TITLE = globalThis.Reflect.apply(manageCommandTitle, undefined, []);\n",
+		flagged: false,
+	},
+	{
+		name: "a rebound Reflect forwarder stays quiet (the documented boundary)",
+		source: "const R = Reflect;\nconst TITLE = R.apply(manageCommandTitle, undefined, []);\n",
+		flagged: false,
+	},
+	{
+		// A spread is a value in a structure - the documented data-flow boundary.
+		name: "a spread argument to a forwarder stays quiet (the documented limit)",
+		source: "const TITLE = Reflect.apply(...[manageCommandTitle]);\n",
+		flagged: false,
+	},
+	{
+		name: "an inline function invoked through .call evaluates eagerly",
+		source: 'const FROZEN = (() => l10n.t("x")).call(undefined);\n',
+		flagged: true,
+	},
+	{
+		name: "an inline localizing class constructed from a callee branch",
+		source: 'const FROZEN = new (enabled\n\t? class {\n\t\t\tlabel = l10n.t("x");\n\t\t}\n\t: Plain)();\n',
+		flagged: true,
+	},
+	{
+		name: "a computed member call on a lazy local namespace member",
+		source: 'import * as helpers from "./h";\nconst FROZEN = helpers.manageCommandTitle[member]();\n',
+		flagged: true,
+	},
+	{
+		// The namespace's `call` export is a module member, not Function.prototype:
+		// stripping must stop at the namespace read.
+		name: "a local namespace member named call still resolves as a member",
+		source: 'import * as helpers from "./h";\nconst call = () => l10n.t("x");\nconst FROZEN = helpers.call();\n',
+		flagged: true,
+	},
+	{
+		// Statics stay out of construction evidence, so the class is not lazy and
+		// the member call is unreadable - the documented boundary, not a hole
+		// this guard claims to cover.
+		name: "a member call reaching a localizing class static stays quiet (the documented limit)",
+		source: 'class C {\n\tstatic label(): string {\n\t\treturn l10n.t("x");\n\t}\n}\nconst TITLE = C.label();\n',
 		flagged: false,
 	},
 	{
@@ -488,11 +748,286 @@ const REVERSE_CENSUS_FIXTURES: readonly {
 		expected: [],
 	},
 	{
-		// Binding a name to a value in flight is data-flow analysis, not a
-		// name-following walk.
-		name: "an argument bound to a parameter stays invisible (the documented limit)",
+		// The parameter name `title` still binds a value in flight and is never
+		// followed; the ARGUMENT reference is the binding's own edge now.
+		name: "an argument-position helper taints the binding it feeds (the parameter name stays unfollowed)",
 		sources: [{ file: "a.ts", contents: "export const wraps = ((title) => () => title())(manageCommandTitle);\n" }],
 		census: ["manageCommandTitle"],
+		expected: ["wraps"],
+	},
+	{
+		name: "a helper passing a censused helper as a direct argument is an obligation",
+		sources: [{ file: "a.ts", contents: "export function wires(): void {\n\tregister(manageCommandTitle);\n}\n" }],
+		census: ["manageCommandTitle"],
+		expected: ["wires"],
+	},
+	{
+		name: "a helper passing a censused helper behind a ternary argument is an obligation",
+		sources: [
+			{
+				file: "a.ts",
+				contents: "export function wires(): void {\n\tregister(enabled ? manageCommandTitle : plain);\n}\n",
+			},
+		],
+		census: ["manageCommandTitle"],
+		expected: ["wires"],
+	},
+	{
+		name: "a helper nested inside an array-literal argument stays invisible (the documented limit)",
+		sources: [{ file: "a.ts", contents: "export function wires(): void {\n\tregister([manageCommandTitle]);\n}\n" }],
+		census: ["manageCommandTitle"],
+		expected: [],
+	},
+	{
+		name: "a spread argument stays invisible (the documented limit)",
+		sources: [{ file: "a.ts", contents: "export function wires(): void {\n\tregister(...[manageCommandTitle]);\n}\n" }],
+		census: ["manageCommandTitle"],
+		expected: [],
+	},
+	{
+		name: "a helper forwarding a censused helper through .call is an obligation",
+		sources: [
+			{
+				file: "a.ts",
+				contents: "export function wraps(): string {\n\treturn manageCommandTitle.call(undefined);\n}\n",
+			},
+		],
+		census: ["manageCommandTitle"],
+		expected: ["wraps"],
+	},
+	{
+		name: "l10n.t forwarded through .call still reads as direct",
+		sources: [
+			{ file: "a.ts", contents: 'export function wraps(): string {\n\treturn l10n.t.call(undefined, "x");\n}\n' },
+		],
+		census: [],
+		expected: ["wraps"],
+	},
+	{
+		name: "a member call through a local namespace import resolves by member name",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'import * as helpers from "./titles";\nexport function wraps(): string {\n\treturn helpers.title();\n}\n',
+			},
+			{ file: "titles.ts", contents: 'export function title(): string {\n\treturn l10n.t("x");\n}\n' },
+		],
+		census: [],
+		expected: ["title", "wraps"],
+	},
+	{
+		name: "a censused member called through a local namespace import is an obligation",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'import * as helpers from "./titles";\nexport function wraps(): string {\n\treturn helpers.title();\n}\n',
+			},
+		],
+		census: ["title"],
+		expected: ["wraps"],
+	},
+	{
+		name: "a local namespace member passed as a direct argument is the caller's edge",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'import * as helpers from "./titles";\nexport function wires(): void {\n\tregister(helpers.title);\n}\n',
+			},
+		],
+		census: ["title"],
+		expected: ["wires"],
+	},
+	{
+		name: "a local namespace member bound to an alias is a member-named obligation",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'import * as helpers from "./titles";\nconst alias = helpers.title;\nexport const wraps = () => alias();\n',
+			},
+		],
+		census: ["title"],
+		expected: ["alias", "wraps"],
+	},
+	{
+		name: "a censused member element-accessed through a local namespace import is an obligation",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'import * as helpers from "./titles";\nexport function wraps(): string {\n\treturn helpers["title"]();\n}\n',
+			},
+		],
+		census: ["title"],
+		expected: ["wraps"],
+	},
+	{
+		name: "a package namespace member call stays invisible (members are not census names)",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'import * as path from "node:path";\nexport function wraps(): string {\n\treturn path.join("a", "b");\n}\n',
+			},
+		],
+		census: ["join"],
+		expected: [],
+	},
+	{
+		name: "a deeper namespace chain stays invisible (the documented limit)",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'import * as helpers from "./titles";\nexport function wraps(): string {\n\treturn helpers.sub.title();\n}\n',
+			},
+		],
+		census: ["title"],
+		expected: [],
+	},
+	{
+		name: "a computed member call edges its receiver",
+		sources: [
+			{
+				file: "a.ts",
+				contents: "export function wraps(): string {\n\treturn manageCommandTitle[member]();\n}\n",
+			},
+		],
+		census: ["manageCommandTitle"],
+		expected: ["wraps"],
+	},
+	{
+		name: "a computed member call on a censused local namespace member edges that member",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					'import * as helpers from "./t";\nexport function wraps(): string {\n\treturn helpers.title[member]();\n}\n',
+			},
+		],
+		census: ["title"],
+		expected: ["wraps"],
+	},
+	{
+		name: "a literal element-access thunk-table call stays invisible (the documented limit)",
+		sources: [{ file: "a.ts", contents: 'export function via(): string {\n\treturn TABLE["surface"]();\n}\n' }],
+		census: [],
+		expected: [],
+	},
+	{
+		name: "a local namespace export named call resolves as a member, not Function.prototype",
+		sources: [
+			{
+				file: "a.ts",
+				contents: 'import * as helpers from "./t";\nexport function wraps(): string {\n\treturn helpers.call();\n}\n',
+			},
+		],
+		census: ["call"],
+		expected: ["wraps"],
+	},
+	{
+		name: "a ternary callee marks its helper through either branch",
+		sources: [
+			{
+				file: "a.ts",
+				contents: "export const wraps = () => (enabled ? manageCommandTitle : plain)();\n",
+			},
+		],
+		census: ["manageCommandTitle"],
+		expected: ["wraps"],
+	},
+	{
+		name: "a ternary receiver behind .call marks its helper (the composition re-flattens)",
+		sources: [
+			{
+				file: "a.ts",
+				contents: "export const wraps = () => (enabled ? manageCommandTitle : plain).call(undefined);\n",
+			},
+		],
+		census: ["manageCommandTitle"],
+		expected: ["wraps"],
+	},
+	{
+		name: "a ternary receiver behind a computed member call marks its helper",
+		sources: [
+			{
+				file: "a.ts",
+				contents: "export const wraps = () => (enabled ? manageCommandTitle : plain)[member]();\n",
+			},
+		],
+		census: ["manageCommandTitle"],
+		expected: ["wraps"],
+	},
+	{
+		name: "a logical-assignment callee marks its helper through either side",
+		sources: [
+			{
+				file: "a.ts",
+				contents:
+					"export function wraps(): string {\n\tlet held: (() => string) | undefined;\n\treturn (held ??= manageCommandTitle)();\n}\n",
+			},
+		],
+		census: ["manageCommandTitle"],
+		expected: ["wraps"],
+	},
+	{
+		name: "a binding to a forwarding member aliases its receiver",
+		sources: [
+			{
+				file: "a.ts",
+				contents: "const grab = manageCommandTitle.call;\nexport const wraps = () => grab(undefined);\n",
+			},
+		],
+		census: ["manageCommandTitle"],
+		expected: ["grab", "wraps"],
+	},
+	{
+		name: "a class extending a censused local namespace member is an obligation",
+		sources: [
+			{
+				file: "a.ts",
+				contents: 'import * as helpers from "./t";\nexport class Derived extends helpers.Base {}\n',
+			},
+		],
+		census: ["Base"],
+		expected: ["Derived"],
+	},
+	{
+		// Matching is by spelling, the guard's own rule: a scalar parameter
+		// sharing a census name taints its helper. Deliberate over-inclusion.
+		name: "an argument sharing a census spelling taints its helper (syntactic matching, pinned intentional)",
+		sources: [
+			{
+				file: "a.ts",
+				contents: "export function sends(formatValue: number): string {\n\treturn String(formatValue);\n}\n",
+			},
+		],
+		census: ["formatValue"],
+		expected: ["sends"],
+	},
+	{
+		name: "Reflect.apply of a censused helper taints the caller through the argument edge",
+		sources: [
+			{
+				file: "a.ts",
+				contents: "export function wires(): void {\n\tReflect.apply(manageCommandTitle, undefined, []);\n}\n",
+			},
+		],
+		census: ["manageCommandTitle"],
+		expected: ["wires"],
+	},
+	{
+		name: "a class localizing only in a STATIC method stays out of the census (the documented limit)",
+		sources: [
+			{
+				file: "a.ts",
+				contents: 'export class Statics {\n\tstatic label(): string {\n\t\treturn l10n.t("x");\n\t}\n}\n',
+			},
+		],
+		census: [],
 		expected: [],
 	},
 	{

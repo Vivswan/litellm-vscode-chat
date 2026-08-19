@@ -92,13 +92,24 @@ export function serializeBundle(bundle: l10nJsonFormat): string {
  * because the roots `new` evaluates are walked whole, deferred bodies included.
  *
  * Both directions follow NAMES bound by declaration, assignment, alias, or
- * default - never values in flight. So a helper reached through a thunk
- * table's PROPERTY call is invisible (inactiveSurfacesText is the known case,
- * registered by hand), and so is a name that takes its value at invocation
- * time: an argument bound to a parameter, a for-of or catch binding, a
- * destructuring projection. Following those is data-flow analysis, which this
- * gate deliberately is not; fixtures pin the boundary so it stays a decision
- * rather than a discovery.
+ * default - never values in flight. Conservative extensions keep common
+ * indirections visible without becoming data-flow analysis: a callee flattens
+ * through its choosing shapes (every ternary or fallback branch judged),
+ * .call/.apply/.bind links strip off it (`helper.call(...)` reads as
+ * `helper`), a member read off a namespace import of a LOCAL module resolves
+ * by member name (`helpers.title()`, `helpers["title"]()`, and `const t =
+ * helpers.title` all read as `title`), a computed member call reads as its
+ * receiver, and an identifier or resolvable member in direct ARGUMENT
+ * position taints the calling scope (`register(label)` gives the caller an
+ * edge to `label`, since the walk cannot see whether the callee invokes it).
+ * What stays invisible: a thunk table's PROPERTY call off a plain object
+ * (inactiveSurfacesText is the known case, registered by hand), a member call
+ * reaching a class STATIC that localizes (statics stay out of construction
+ * evidence), and a name that takes its value at invocation time - a parameter
+ * binding, a for-of or catch binding, a destructuring projection, a spread or
+ * an identifier nested inside an argument's array or object literal.
+ * Following those is data-flow analysis, which this gate deliberately is not;
+ * fixtures pin the boundary so it stays a decision rather than a discovery.
  */
 export const LAZY_L10N_HELPERS: readonly string[] = [
 	"configureNowLabel",
@@ -553,38 +564,220 @@ function isAssigningOperator(kind: ts.SyntaxKind): boolean {
 	);
 }
 
+/** The Function.prototype members that forward an invocation to their receiver. */
+const FORWARDING_MEMBERS = new Set(["call", "apply", "bind"]);
+
+/** A property access, or an element access whose key is a string literal - one member read either way. */
+function memberNameOf(node: ts.Expression): { readonly object: ts.Expression; readonly member: string } | undefined {
+	if (ts.isPropertyAccessExpression(node)) {
+		return { object: node.expression, member: node.name.text };
+	}
+	if (ts.isElementAccessExpression(node)) {
+		const key = unwrapExpression(node.argumentExpression);
+		if (ts.isStringLiteralLike(key)) {
+			return { object: node.expression, member: key.text };
+		}
+	}
+	return undefined;
+}
+
+/**
+ * Strip trailing .call/.apply/.bind links (unwrapping at each step, element
+ * access with a literal key included) so `helper.call(...)` and
+ * `helper["call"](...)` read as `helper` and `l10n.t.call(...)` as `l10n.t`.
+ * A local namespace import's member named `call`/`apply`/`bind` is that
+ * module's own export, not Function.prototype, so stripping stops there. A
+ * receiver whose genuine method shares one of those names over-strips into a
+ * harmless extra edge, and a bare `.bind` flags even uninvoked - deliberate
+ * conservatism; reference the helper plainly instead.
+ */
+function stripForwarding(node: ts.Expression, sourceFile: ts.SourceFile): ts.Expression {
+	let current = unwrapExpression(node);
+	for (;;) {
+		if (namespaceMemberName(current, sourceFile) !== undefined) {
+			return current;
+		}
+		const read = memberNameOf(current);
+		if (read === undefined || !FORWARDING_MEMBERS.has(read.member)) {
+			return current;
+		}
+		current = unwrapExpression(read.object);
+	}
+}
+
+/**
+ * Local (relative-specifier) namespace-import names of one file, computed once
+ * per SourceFile. The "." prefix is the locality test: a tsconfig `paths`
+ * alias or a package subpath would not resolve here (none exist in shipped
+ * source; the check is defensive, not load-bearing).
+ */
+const localNamespaceCache = new WeakMap<ts.SourceFile, ReadonlySet<string>>();
+function localNamespaceImports(sourceFile: ts.SourceFile): ReadonlySet<string> {
+	const cached = localNamespaceCache.get(sourceFile);
+	if (cached !== undefined) {
+		return cached;
+	}
+	const names = new Set<string>();
+	for (const statement of sourceFile.statements) {
+		if (
+			ts.isImportDeclaration(statement) &&
+			statement.importClause?.isTypeOnly !== true &&
+			statement.importClause?.namedBindings !== undefined &&
+			ts.isNamespaceImport(statement.importClause.namedBindings) &&
+			ts.isStringLiteral(statement.moduleSpecifier) &&
+			statement.moduleSpecifier.text.startsWith(".")
+		) {
+			names.add(statement.importClause.namedBindings.name.text);
+		}
+	}
+	localNamespaceCache.set(sourceFile, names);
+	return names;
+}
+
+/**
+ * The member name a member read resolves to when its object is a LOCAL
+ * namespace import: `helpers.title` (and `helpers["title"]`) reads as
+ * `title`, joining the graph under the member's own name (matching stays by
+ * name, the guard's rule). Package and builtin namespaces (`path.join`)
+ * resolve to nothing - their members are not census names - and deeper
+ * chains (`helpers.sub.title`) stay outside.
+ */
+function namespaceMemberName(expression: ts.Expression, sourceFile: ts.SourceFile): string | undefined {
+	const read = memberNameOf(expression);
+	if (read === undefined) {
+		return undefined;
+	}
+	const object = unwrapExpression(read.object);
+	if (ts.isIdentifier(object) && localNamespaceImports(sourceFile).has(object.text)) {
+		return read.member;
+	}
+	return undefined;
+}
+
+/**
+ * Every intermediate form the resolution visits - branch flattening and
+ * forwarding stripping interleaved to a FIXED POINT, each candidate recorded
+ * BEFORE its strip. Stripping can expose a fresh choosing shape underneath
+ * (`(flag ? helper : plain).call(...)`), and a branch can expose fresh
+ * forwarding, so the two interleave until stable. Terminates because both
+ * steps strictly descend; the seen set covers repeats.
+ */
+function resolutionTrace(expression: ts.Expression, sourceFile: ts.SourceFile): ts.Expression[] {
+	const visited: ts.Expression[] = [];
+	const queue = possibleValues(expression);
+	const seen = new Set<ts.Expression>();
+	while (queue.length > 0) {
+		const candidate = queue.pop() as ts.Expression;
+		if (seen.has(candidate)) {
+			continue;
+		}
+		seen.add(candidate);
+		visited.push(candidate);
+		const stripped = stripForwarding(candidate, sourceFile);
+		if (stripped !== candidate) {
+			queue.push(...possibleValues(stripped));
+		}
+	}
+	return visited;
+}
+
+/**
+ * The fixed point's RESOLVED candidates: the trace's stable forms, carrying
+ * no wrapper, choosing shape, or forwarding link. The one shared resolution
+ * pipeline for callees, forwarder targets, alias sources, and argument taint;
+ * forwarder DETECTION reads the whole trace instead, since resolving erases
+ * the forwarding spelling that identifies a forwarder.
+ */
+function calleeCandidates(expression: ts.Expression, sourceFile: ts.SourceFile): ts.Expression[] {
+	return resolutionTrace(expression, sourceFile).filter(
+		(candidate) => stripForwarding(candidate, sourceFile) === candidate
+	);
+}
+
 /**
  * Walk `roots` for every invocation shape - calls, tagged templates, `new` -
- * noting a direct l10n.t/vscode.l10n.t hit or a bare-identifier edge, callees
- * unwrapped so parens and type wrappers hide nothing. Bare-identifier variable
- * initializers and assignment right-hand sides count as edges too, so a
- * FUNCTION-LOCAL alias becomes the enclosing declaration's own edge.
+ * noting a direct l10n.t/vscode.l10n.t hit or a bare-identifier edge. Every
+ * resolution site - callees, alias sources, direct arguments - reads through
+ * calleeCandidates, so choosing shapes and .call/.apply/.bind forwarding
+ * resolve to a fixed point wherever they nest; a local namespace import's
+ * member resolves to the member's name, and a computed member call
+ * (`helper[key]()`) edges its receiver, since the member cannot be read.
+ * Bare-identifier variable initializers and assignment right-hand sides count
+ * as edges too, so a FUNCTION-LOCAL alias becomes the enclosing declaration's
+ * own edge, and a direct argument (identifier or local-namespace member) is
+ * the calling declaration's edge as well - the walk cannot see whether the
+ * callee invokes what it is handed.
  */
 function invocationEvidence(roots: readonly ts.Node[], sourceFile: ts.SourceFile): InvocationEvidence {
 	const evidence: InvocationEvidence = { direct: false, callees: new Set<string>() };
 	const note = (calleeExpression: ts.Expression): void => {
-		const callee = unwrapExpression(calleeExpression);
-		const calleeText = callee.getText(sourceFile);
-		if (calleeText === "l10n.t" || calleeText === "vscode.l10n.t") {
-			evidence.direct = true;
-		} else if (ts.isIdentifier(callee)) {
-			evidence.callees.add(callee.text);
+		for (const callee of calleeCandidates(calleeExpression, sourceFile)) {
+			const calleeText = callee.getText(sourceFile);
+			if (calleeText === "l10n.t" || calleeText === "vscode.l10n.t") {
+				evidence.direct = true;
+				continue;
+			}
+			if (ts.isIdentifier(callee)) {
+				evidence.callees.add(callee.text);
+				continue;
+			}
+			const member = namespaceMemberName(callee, sourceFile);
+			if (member !== undefined) {
+				evidence.callees.add(member);
+				continue;
+			}
+			// A computed member call on a bare name or a local-namespace member:
+			// the member is unreadable, so the receiver carries the edge (a lazy
+			// function's only meaningful members are its forwarders), resolved
+			// through the same pipeline so a choosing receiver flattens. Literal
+			// keys resolved above; a key on any other receiver stays the
+			// thunk-table boundary.
+			if (ts.isElementAccessExpression(callee)) {
+				const key = unwrapExpression(callee.argumentExpression);
+				if (!ts.isStringLiteralLike(key)) {
+					for (const receiver of calleeCandidates(callee.expression, sourceFile)) {
+						if (ts.isIdentifier(receiver)) {
+							evidence.callees.add(receiver.text);
+						} else {
+							const receiverMember = namespaceMemberName(receiver, sourceFile);
+							if (receiverMember !== undefined) {
+								evidence.callees.add(receiverMember);
+							}
+						}
+					}
+				}
+			}
 		}
 	};
 	const noteAliasSources = (rhs: ts.Expression): void => {
-		for (const source of possibleValues(rhs)) {
+		for (const source of calleeCandidates(rhs, sourceFile)) {
 			if (ts.isIdentifier(source)) {
 				evidence.callees.add(source.text);
+			} else {
+				const member = namespaceMemberName(source, sourceFile);
+				if (member !== undefined) {
+					evidence.callees.add(member);
+				}
 			}
+		}
+	};
+	// Direct arguments only: an identifier nested in an array or object
+	// literal, or behind a spread, is a value in a structure - the documented
+	// data-flow boundary, pinned by fixtures.
+	const noteArguments = (args: readonly ts.Expression[] | undefined): void => {
+		for (const argument of args ?? []) {
+			noteAliasSources(argument);
 		}
 	};
 	const dig = (node: ts.Node): void => {
 		if (ts.isCallExpression(node)) {
 			note(node.expression);
+			noteArguments(node.arguments);
 		} else if (ts.isTaggedTemplateExpression(node)) {
 			note(node.tag);
 		} else if (ts.isNewExpression(node)) {
 			note(node.expression);
+			noteArguments(node.arguments);
 		}
 		// A default aliases exactly like a variable initializer does, wherever it
 		// binds: `wrap(title = manageCommandTitle)` and `{ title = ... } = {}`.
@@ -634,9 +827,17 @@ function classConstructionEvidence(cls: ts.ClassLikeDeclaration, sourceFile: ts.
 	const evidence = invocationEvidence(roots, sourceFile);
 	for (const clause of cls.heritageClauses ?? []) {
 		for (const type of clause.types) {
-			const base = unwrapExpression(type.expression);
-			if (ts.isIdentifier(base)) {
-				evidence.callees.add(base.text);
+			// A base resolves like a callee: choosing shapes flatten, and a
+			// local namespace member reads by member name.
+			for (const base of calleeCandidates(type.expression, sourceFile)) {
+				if (ts.isIdentifier(base)) {
+					evidence.callees.add(base.text);
+				} else {
+					const member = namespaceMemberName(base, sourceFile);
+					if (member !== undefined) {
+						evidence.callees.add(member);
+					}
+				}
 			}
 		}
 	}
@@ -773,9 +974,10 @@ function collectTopLevelFunctions(file: string, contents: string): HelperNode[] 
 	};
 	const isFunctionLiteral = (node: ts.Node): boolean => ts.isArrowFunction(node) || ts.isFunctionExpression(node);
 	// One binding of a name to a right-hand side, judged for EVERY value the
-	// RHS can hand over (possibleValues flattens ternaries and fallbacks).
+	// RHS can hand over (calleeCandidates flattens choosing shapes and strips
+	// forwarding to a fixed point, so `const t = helper.call` aliases helper).
 	const handleBinding = (name: ts.Identifier, rhs: ts.Expression): void => {
-		for (const source of possibleValues(rhs)) {
+		for (const source of calleeCandidates(rhs, sourceFile)) {
 			if (isFunctionLiteral(source)) {
 				push(name.text, name, invocationEvidence([source], sourceFile), "function");
 			} else if (ts.isCallExpression(source) && isFunctionLiteral(unwrapExpression(source.expression))) {
@@ -784,6 +986,13 @@ function collectTopLevelFunctions(file: string, contents: string): HelperNode[] 
 				push(name.text, name, classConstructionEvidence(source, sourceFile), "class");
 			} else if (ts.isIdentifier(source)) {
 				pushAlias(name.text, name, source.text);
+			} else {
+				// A local namespace import's member is the same alias by member
+				// name: `const t = helpers.title` mints a `title` obligation.
+				const member = namespaceMemberName(source, sourceFile);
+				if (member !== undefined) {
+					pushAlias(name.text, name, member);
+				}
 			}
 		}
 	};
@@ -882,6 +1091,12 @@ function possibleValues(rhs: ts.Expression): ts.Expression[] {
 		) {
 			return [...possibleValues(source.left), ...possibleValues(source.right)];
 		}
+		// A logical assignment's VALUE is one side or the other, exactly like
+		// the logical operator it compounds: `(held ||= helper)()` calls helper.
+		// Plain `=` yields its right side alone, below.
+		if (operator !== ts.SyntaxKind.EqualsToken && isAssigningOperator(operator)) {
+			return [...possibleValues(source.left), ...possibleValues(source.right)];
+		}
 		if (operator === ts.SyntaxKind.CommaToken || operator === ts.SyntaxKind.EqualsToken) {
 			return possibleValues(source.right);
 		}
@@ -959,7 +1174,7 @@ function fileLazyNames(sourceFile: ts.SourceFile, census: readonly string[]): Se
 		bindings.push({ name, direct: evidence.direct, callees: evidence.callees });
 	};
 	const bind = (name: string, rhs: ts.Expression): void => {
-		for (const source of possibleValues(rhs)) {
+		for (const source of calleeCandidates(rhs, sourceFile)) {
 			if (isFunctionLiteral(source)) {
 				collectFrom(name, source);
 			} else if (ts.isCallExpression(source) && isFunctionLiteral(unwrapExpression(source.expression))) {
@@ -970,6 +1185,12 @@ function fileLazyNames(sourceFile: ts.SourceFile, census: readonly string[]): Se
 				collectClass(name, source);
 			} else if (ts.isIdentifier(source)) {
 				bindings.push({ name, direct: false, callees: new Set([source.text]) });
+			} else {
+				// A local namespace import's member aliases by member name too.
+				const member = namespaceMemberName(source, sourceFile);
+				if (member !== undefined) {
+					bindings.push({ name, direct: false, callees: new Set([member]) });
+				}
 			}
 		}
 	};
@@ -1041,11 +1262,21 @@ function fileLazyNames(sourceFile: ts.SourceFile, census: readonly string[]): Se
  * name-following limits: literals, templates, type wrappers, control flow, and IIFEs are
  * searched, while function bodies, object methods and accessors, and instance
  * property initializers defer and pass. Class STATICS do not defer. Callable
- * names come from fileLazyNames plus the census, matched unwrapped.
+ * names come from fileLazyNames plus the census; a callee resolves through
+ * calleeCandidates - branch flattening and forwarding stripping interleaved
+ * to a fixed point - then a local namespace import's member call matches by
+ * member name, a computed member call (`helper[key]()`) matches by its
+ * receiver, and the caller-side forwarders (Reflect.apply, Reflect.construct,
+ * Function.prototype.call/apply) match by every direct argument - tracked
+ * names, inline functions, and inline classes alike.
  *
- * The residual is what callee TEXT cannot express: `l10n.t.call(...)` and a
- * destructured `t`. vscodeL10nOffenses bans both shapes outright, a division
- * of labour both guards' fixtures pin rather than a hole.
+ * The residual is what these matches cannot express: a destructured `t`
+ * (vscodeL10nOffenses bans that shape outright), a custom wrapper invoking
+ * its argument (module-scope references stay deliberately quiet), a
+ * re-spelled forwarder (`globalThis.Reflect.apply`, a rebound `Reflect` -
+ * text matching is the decision, see isCallerForwarder), and a member call
+ * reaching a class STATIC that localizes - all pinned by fixtures as the
+ * boundary, not discovered.
  */
 export function moduleScopeL10nOffenses(contents: string, fileName: string): number[] {
 	const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
@@ -1061,12 +1292,89 @@ export function moduleScopeL10nOffenses(contents: string, fileName: string): num
 
 	// Walk what evaluates at module load. Function bodies are skipped unless
 	// invoked on the spot, which evaluates them eagerly.
-	const flagIfTracked = (node: ts.Node, calleeExpression: ts.Expression): void => {
-		// The UNWRAPPED callee text: a paren or type wrapper must not launder
-		// a module-scope freeze past this match.
-		const callee = unwrap(calleeExpression).getText(sourceFile);
-		if (callee === "l10n.t" || callee === "vscode.l10n.t" || tracked.has(callee)) {
+
+	/** Whether one flattened callee candidate resolves a tracked name or l10n.t. */
+	const candidateIsTracked = (candidate: ts.Expression): boolean => {
+		const callee = stripForwarding(candidate, sourceFile);
+		const calleeText = callee.getText(sourceFile);
+		if (calleeText === "l10n.t" || calleeText === "vscode.l10n.t" || tracked.has(calleeText)) {
+			return true;
+		}
+		const member = namespaceMemberName(callee, sourceFile);
+		if (member !== undefined && tracked.has(member)) {
+			return true;
+		}
+		// A COMPUTED member call on a tracked name or a tracked local-namespace
+		// member: the key is unreadable and a lazy function's only meaningful
+		// members are its forwarders; the receiver resolves through the same
+		// pipeline so a choosing receiver flattens. Literal keys resolved
+		// above; ordinary member calls on a name that merely shares a census
+		// spelling (`lastSync.toISOString()`) stay quiet.
+		if (ts.isElementAccessExpression(callee)) {
+			const key = unwrap(callee.argumentExpression);
+			if (!ts.isStringLiteralLike(key)) {
+				for (const receiver of calleeCandidates(callee.expression, sourceFile)) {
+					if (ts.isIdentifier(receiver) && tracked.has(receiver.text)) {
+						return true;
+					}
+					const receiverMember = namespaceMemberName(receiver, sourceFile);
+					if (receiverMember !== undefined && tracked.has(receiverMember)) {
+						return true;
+					}
+				}
+			}
+		}
+		return false;
+	};
+
+	// The caller-side forwarders invoke what they are handed: stripping
+	// Reflect.apply / Function.prototype.call/apply leaves their bare
+	// receivers, and Reflect.construct strips nothing. Matching is by TEXT, so
+	// `globalThis.Reflect.apply` or a rebound `const R = Reflect` stays quiet -
+	// deliberate obfuscation, left outside like every custom wrapper, because
+	// treating arbitrary arguments as callees would contradict the sanctioned
+	// `register(helper)` reference pattern.
+	const isCallerForwarder = (candidate: ts.Expression): boolean => {
+		const stripped = stripForwarding(candidate, sourceFile);
+		const strippedText = stripped.getText(sourceFile);
+		return (
+			strippedText === "Reflect.construct" ||
+			(stripped !== candidate && (strippedText === "Reflect" || strippedText === "Function.prototype"))
+		);
+	};
+
+	/** An inline class whose construction-time roots resolve a tracked name or l10n.t flags at `node`. */
+	const flagInlineClass = (node: ts.Node, cls: ts.ClassExpression): void => {
+		const evidence = classConstructionEvidence(cls, sourceFile);
+		if (evidence.direct || [...evidence.callees].some((callee) => tracked.has(callee))) {
 			offenses.push(sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1);
+		}
+	};
+
+	const flagIfTracked = (node: ts.Node, calleeExpression: ts.Expression, args?: readonly ts.Expression[]): void => {
+		// calleeCandidates resolves the callee to a fixed point, so no choosing
+		// shape, paren, type wrapper, or .call/.apply/.bind link - however
+		// nested - may launder a freeze past this match.
+		for (const candidate of calleeCandidates(calleeExpression, sourceFile)) {
+			if (candidateIsTracked(candidate)) {
+				offenses.push(sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1);
+				return;
+			}
+		}
+		// EVERY argument of a recognized forwarder, not just the first:
+		// `Reflect.apply.call(...)` shifts its target one slot right, and a
+		// tracked name has no business in any forwarder slot at module scope.
+		// Forwarder detection reads the whole resolution TRACE - the resolved
+		// forms erase the forwarding spelling that identifies one.
+		if (args !== undefined && resolutionTrace(calleeExpression, sourceFile).some(isCallerForwarder)) {
+			for (const argument of args) {
+				for (const target of calleeCandidates(argument, sourceFile)) {
+					if (candidateIsTracked(target)) {
+						offenses.push(sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1);
+						return;
+					}
+				}
+			}
 		}
 	};
 	// A function invoked ON THE SPOT evaluates its parameter defaults as well as
@@ -1079,15 +1387,44 @@ export function moduleScopeL10nOffenses(contents: string, fileName: string): num
 		}
 		scan(invoked.body);
 	};
+	// Every inline function a callee can resolve to: a plain branch, one under
+	// forwarding (`(fn).call(...)`), or one behind a computed member read
+	// (`(fn)[key]()` invokes some member of fn - its forwarders in practice),
+	// the receiver resolved through the same pipeline.
+	const scanInvokedCandidates = (expression: ts.Expression): void => {
+		for (const candidate of calleeCandidates(expression, sourceFile)) {
+			if (ts.isArrowFunction(candidate) || ts.isFunctionExpression(candidate)) {
+				scanInvoked(candidate);
+			} else if (ts.isElementAccessExpression(candidate)) {
+				for (const receiver of calleeCandidates(candidate.expression, sourceFile)) {
+					if (ts.isArrowFunction(receiver) || ts.isFunctionExpression(receiver)) {
+						scanInvoked(receiver);
+					}
+				}
+			}
+		}
+	};
 	const scan = (node: ts.Node): void => {
 		if (ts.isCallExpression(node)) {
-			flagIfTracked(node, node.expression);
-			const invoked = unwrap(node.expression);
-			if (ts.isArrowFunction(invoked) || ts.isFunctionExpression(invoked)) {
-				scanInvoked(invoked);
-			} else {
-				scan(node.expression);
+			flagIfTracked(node, node.expression, node.arguments);
+			// A function literal in ANY branch of the callee evaluates eagerly
+			// when that branch is picked, however deep choosing shapes and
+			// forwarding nest; a computed member call on an inline function
+			// evaluates it too, and a recognized forwarder's arguments evaluate
+			// its inline function and class targets the same way.
+			scanInvokedCandidates(node.expression);
+			if (resolutionTrace(node.expression, sourceFile).some(isCallerForwarder)) {
+				for (const argument of node.arguments) {
+					for (const target of calleeCandidates(argument, sourceFile)) {
+						if (ts.isArrowFunction(target) || ts.isFunctionExpression(target)) {
+							scanInvoked(target);
+						} else if (ts.isClassExpression(target)) {
+							flagInlineClass(node, target);
+						}
+					}
+				}
 			}
+			scan(node.expression);
 			for (const argument of node.arguments) {
 				scan(argument);
 			}
@@ -1097,25 +1434,22 @@ export function moduleScopeL10nOffenses(contents: string, fileName: string): num
 		// module-load invocations exactly like a call, tag-IIFE included.
 		if (ts.isTaggedTemplateExpression(node)) {
 			flagIfTracked(node, node.tag);
-			const invoked = unwrap(node.tag);
-			if (ts.isArrowFunction(invoked) || ts.isFunctionExpression(invoked)) {
-				scanInvoked(invoked);
-			} else {
-				scan(node.tag);
-			}
+			scanInvokedCandidates(node.tag);
+			scan(node.tag);
 			scan(node.template);
 			return;
 		}
 		if (ts.isNewExpression(node)) {
-			flagIfTracked(node, node.expression);
+			flagIfTracked(node, node.expression, node.arguments);
 			// Constructing an INLINE class runs its constructor, parameter
 			// defaults, and instance property initializers on the spot, and
-			// extends invokes the base constructor.
-			const constructed = unwrap(node.expression);
-			if (ts.isClassExpression(constructed)) {
-				const evidence = classConstructionEvidence(constructed, sourceFile);
-				if (evidence.direct || [...evidence.callees].some((callee) => tracked.has(callee))) {
-					offenses.push(sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1);
+			// extends invokes the base constructor - in ANY callee branch; an
+			// inline FUNCTION constructed with new runs its body the same way.
+			for (const candidate of calleeCandidates(node.expression, sourceFile)) {
+				if (ts.isClassExpression(candidate)) {
+					flagInlineClass(node, candidate);
+				} else if (ts.isFunctionExpression(candidate)) {
+					scanInvoked(candidate);
 				}
 			}
 			scan(node.expression);
