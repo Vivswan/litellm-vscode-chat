@@ -78,13 +78,16 @@ class FakeClient implements UsageFetchClient {
 	userResult: EndpointResult<UserUsage> = { spend: undefined, maxBudget: undefined, budgetResetAt: undefined };
 	calls = { keyInfo: 0, dailyActivity: 0, userInfo: 0 };
 	lastWindow: ActivityWindow | undefined;
+	/** Every /key/info connection, for pairing assertions; test-memory only, never logged. */
+	readonly keyConnections: UsageConnection[] = [];
 
 	private answer<T>(result: EndpointResult<T>): Promise<T> {
 		return result instanceof RequestError ? Promise.reject(result) : Promise.resolve(result);
 	}
 
-	fetchKeyInfo(_connection: UsageConnection): Promise<KeyUsage> {
+	fetchKeyInfo(connection: UsageConnection): Promise<KeyUsage> {
 		this.calls.keyInfo += 1;
+		this.keyConnections.push(connection);
 		return this.answer(this.keyInfoResult);
 	}
 
@@ -233,6 +236,31 @@ suite("extension/servers/usage poller", () => {
 			"the daily-activity request carries the documented window"
 		);
 		assert.deepStrictEqual(h.timer.pending(), [], "refreshNow with polling off must not start a cadence");
+	});
+
+	test("a servers edit landing mid-pass skips the probe: the stale entry never pairs with the fresh secret", async () => {
+		// The pass snapshots the entries at its start and reads each server's
+		// secrets later; this edit lands inside that window. Without the
+		// pre-probe re-read the authenticated call goes out with the rotated
+		// key against the OLD host. The skip says nothing untruthful (no store
+		// write), and the next refresh probes the true pairing.
+		let h: Harness | undefined;
+		const readSecrets = async () => {
+			h?.setServers([{ label: "alpha", baseUrl: "http://two.test" }]);
+			return { apiKey: "sk-for-two" };
+		};
+		h = makeHarness({ intervalMs: 0, servers: [{ label: "alpha", baseUrl: "http://one.test" }], readSecrets });
+
+		await h.poller.refreshNow();
+		assert.strictEqual(h.client.calls.keyInfo, 0, "no authenticated call may pair one.test with sk-for-two");
+		assert.strictEqual(h.poller.store.get("alpha"), undefined, "the skipped pass stores nothing");
+
+		await h.poller.refreshNow();
+		assert.strictEqual(h.client.calls.keyInfo, 1, "the follow-up refresh probes normally");
+		const connection = h.client.keyConnections[0];
+		assert.ok(connection !== undefined);
+		assert.strictEqual(connection.baseUrl, "http://two.test");
+		assert.strictEqual(connection.apiKey, "sk-for-two");
 	});
 
 	test("start() schedules an initial pass, and each pass reschedules at the interval", async () => {

@@ -26,7 +26,7 @@ import type { Clock, Timer } from "../../../shared/util/timer";
 import { PendingCall, REAL_TIMER, SYSTEM_CLOCK } from "../../../shared/util/timer";
 import type { StoredServerSecrets } from "../serverSync/secrets";
 import type { DeclaredServer } from "../serverSync/setting";
-import { parseServersSetting, stillDeclaredIn } from "../serverSync/setting";
+import { acceptedEntry, parseServersSetting, stillDeclaredIn } from "../serverSync/setting";
 import { newlyCrossedThresholds, resolveBudget } from "./budget";
 import type { ActivityWindow, DailyUsage, KeyUsage, UsageConnection, UserUsage } from "./spendClient";
 import { activityWindow, usageConnectionFor, usageUnavailabilityOf } from "./spendClient";
@@ -111,6 +111,15 @@ export interface UsageServerRefreshOutcome {
 /** A completed refresh pass's per-server outcomes; refreshNow resolves with it (undefined when disposed mid-pass). */
 export interface UsageRefreshOutcome {
 	readonly servers: readonly UsageServerRefreshOutcome[];
+}
+
+/**
+ * Whether two resolved connections are identical, field for field. JSON over
+ * usageConnectionFor's fixed construction order; the rendering carries secret
+ * values, so it stays in memory and is never logged.
+ */
+function sameConnection(a: UsageConnection, b: UsageConnection): boolean {
+	return JSON.stringify(a) === JSON.stringify(b);
 }
 
 function describeEndpointFailure(failure: UsageEndpointFailure): string {
@@ -516,6 +525,17 @@ export class UsagePoller {
 		}
 		if (stored !== undefined) {
 			const connection = usageConnectionFor(entry, stored);
+			// The entries were snapshotted at the pass start and this entry's
+			// secrets read just now, so an edit landing in between would pair a
+			// stale entry with fresh credentials. Re-read the entry immediately
+			// before the authenticated calls and compare the RESOLVED connection
+			// (presence alone would still let a re-point send this credential to
+			// the old host); on any difference the server is skipped and the
+			// servers-change refresh probes the true pairing.
+			const fresh = acceptedEntry(this.env.readServersSetting(), entry.label);
+			if (fresh === undefined || !sameConnection(usageConnectionFor(fresh.entry, stored), connection)) {
+				return undefined;
+			}
 
 			if (this.shouldAttempt(entry.label, "keyInfo", endpoints.keyInfo)) {
 				try {

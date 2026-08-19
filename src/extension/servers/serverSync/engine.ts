@@ -433,6 +433,26 @@ export class ServerSyncEngine implements vscode.Disposable {
 	}
 
 	/**
+	 * Whether the entry still resolves to exactly the group args this pass is
+	 * about to add: one fresh setting read and one fresh secrets read, compared
+	 * by fingerprint. Anything else - the entry gone or edited, the secrets
+	 * rotated, a read failing - reads as "not current" and the add is skipped,
+	 * fail closed (the pass that follows the change reads truth).
+	 */
+	private async entryStillCurrent(label: string, printed: string): Promise<boolean> {
+		try {
+			const fresh = acceptedEntry(this.env.readServersSetting(), label);
+			if (fresh === undefined) {
+				return false;
+			}
+			const stored = await this.env.readSecrets(fresh.entry.label);
+			return groupArgsFingerprint(buildGroupArgs(fresh.entry, stored)) === printed;
+		} catch {
+			return false;
+		}
+	}
+
+	/**
 	 * Carry the record for an entry this pass leaves unsynced: this window's
 	 * last-known-good, or, when the session map has never seen the label, the
 	 * store's record - presence-only, since a stale read can only under-report,
@@ -552,6 +572,16 @@ export class ServerSyncEngine implements vscode.Disposable {
 				syncError = SALT_UNAVAILABLE_MESSAGE;
 				syncErrorClass = "secretsUnreadable";
 				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
+			} else if (!(await this.entryStillCurrent(entry.label, printed))) {
+				// Re-read immediately before the irreversible add, for the same
+				// reason: the setting was read once at pass start and the secrets
+				// just above, so an edit landing in either window would pair a
+				// stale entry with fresh secrets (or the reverse) - and an add-only
+				// host makes that pairing permanent. Skipped silently: whatever
+				// changed the setting or the secrets triggers its own follow-up
+				// pass, which reads truth.
+				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
+				this.env.log("Server entry changed mid-pass; group add skipped", { label: entry.label });
 			} else {
 				try {
 					await this.env.addProviderGroup(args);

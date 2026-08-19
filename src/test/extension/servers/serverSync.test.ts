@@ -291,6 +291,61 @@ suite("extension/servers/serverSync", () => {
 			assert.deepStrictEqual(Object.keys(recorded.fingerprints).sort(), ["A", "B"]);
 		});
 
+		test("a mid-pass settings edit skips the add: a stale entry never pairs with fresh secrets", async () => {
+			// The pass reads the setting once and each entry's secrets later; this
+			// edit lands inside that window (the readSecrets await). Without the
+			// pre-add re-read the add goes out pairing the OLD host with the NEW
+			// secret - permanent, because the host is add-only. The skip is
+			// silent, and the next pass syncs the true pairing.
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://old.test" }], { A: { apiKey: "sk-new" } });
+			const originalRead = recorded.env.readSecrets.bind(recorded.env);
+			recorded.env.readSecrets = async (label) => {
+				recorded.setting = [{ label: "A", baseUrl: "http://new.test" }];
+				return originalRead(label);
+			};
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+
+			assert.strictEqual(recorded.upserts.length, 0, "no group may pair old.test with the rotated secret");
+			assert.ok(
+				recorded.logged.some(([message]) => message.includes("changed mid-pass")),
+				"the skip logs a classification"
+			);
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, undefined, "a silent skip, not an error state");
+
+			await engine.syncNow();
+			assert.deepStrictEqual(
+				recorded.upserts.map((args) => [args.baseUrl, args.apiKey]),
+				[["http://new.test", "sk-new"]],
+				"the follow-up pass adds the true pairing"
+			);
+		});
+
+		test("a secret rotated mid-pass skips the add too: the submitted args always match a fresh read", async () => {
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }], { A: { apiKey: "sk-1" } });
+			const originalRead = recorded.env.readSecrets.bind(recorded.env);
+			let rotated = false;
+			recorded.env.readSecrets = async (label) => {
+				const value = await originalRead(label);
+				if (!rotated) {
+					// The rotation lands after the loop's read and before the add.
+					rotated = true;
+					recorded.secrets = { A: { apiKey: "sk-2" } };
+				}
+				return value;
+			};
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			assert.strictEqual(recorded.upserts.length, 0, "the pre-rotation args must not reach the host");
+
+			await engine.syncNow();
+			assert.deepStrictEqual(
+				recorded.upserts.map((args) => args.apiKey),
+				["sk-2"],
+				"the follow-up pass adds the rotated secret"
+			);
+		});
+
 		test("an unchanged entry skips the upsert; a changed secret re-upserts", async () => {
 			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://a.test" }], { A: { apiKey: "sk-1" } });
 			const engine = new ServerSyncEngine(recorded.env);
