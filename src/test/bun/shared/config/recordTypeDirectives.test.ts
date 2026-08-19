@@ -19,7 +19,8 @@
  * The copy sweep scans every l10n bundle's and package.nls file's keys and
  * translated values for directive-shaped tokens, so localized copy cannot
  * keep teaching a name the registry dropped. The docs sweep holds every
- * markdown file under docs/ (translations included) to the same token grammar.
+ * markdown file under docs/ (translations included) and the README files
+ * (the Marketplace landing page) to the same token grammar.
  */
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
@@ -33,6 +34,7 @@ import type { ParsedRecord, RecordType } from "../../../../shared/config/recordR
 import {
 	INHERIT_FROM_DIRECTIVE,
 	INHERITABLE_DIRECTIVE,
+	OPENROUTER_MODEL_DIRECTIVE,
 	RECORD_TYPE_DIRECTIVES,
 } from "../../../../shared/config/recordResolution";
 import { isRecord, isUnsafeRecordKey } from "../../../../shared/util/json";
@@ -234,7 +236,7 @@ describe("shared/config record-type directive registry", () => {
 		assert.ok(found.has(INHERITABLE_DIRECTIVE), "the copy sweep no longer sees _inheritable's spelling");
 	});
 
-	test("every directive-shaped token in the docs is a registered directive", () => {
+	test("every directive-shaped token in the docs and README files is a registered directive", () => {
 		// The docs teach the record grammar in prose and code fences, so
 		// registered spellings are expected and pass; the sweep detects renames,
 		// where a dropped registry name would leave the docs teaching it.
@@ -243,8 +245,15 @@ describe("shared/config record-type directive registry", () => {
 		const docFiles = fs
 			.readdirSync(docsDir, { recursive: true, encoding: "utf8" })
 			.filter((name) => name.endsWith(".md"))
-			.map((name) => name.replaceAll("\\", "/"))
+			.map((name) => `docs/${name.replaceAll("\\", "/")}`)
 			.sort();
+		// The README files spell directives in Marketplace-facing prose (the
+		// privacy paragraph names _openrouter_model). CHANGELOG.md stays out
+		// deliberately: its historical release notes correctly keep retired names.
+		const readmeFiles: ReadonlySet<string> = new Set(
+			fs.readdirSync(REPO_ROOT).filter((name) => name.startsWith("README") && name.endsWith(".md"))
+		);
+		const sweptFiles = [...docFiles, ...readmeFiles].sort();
 		// Non-directive tokens the docs legitimately spell, each pinned below so
 		// a dropped mention retires its entry. DECLARE_DIRECTIVE is the retired
 		// name the migration docs teach, imported from the migration's own
@@ -252,34 +261,46 @@ describe("shared/config record-type directive registry", () => {
 		// _reasoning_effort is the tail of the capability flag
 		// supports_<level>_reasoning_effort, split off by the <level> placeholder.
 		const allowedTokens: ReadonlySet<string> = new Set([DECLARE_DIRECTIVE, "_reasoning_effort"]);
-		const found = new Set<string>();
+		// Per-leg token sets, so the docs completeness pins below keep their
+		// original claim (documented in docs/, not merely mentioned in a README).
+		const docsFound = new Set<string>();
+		const readmeFound = new Set<string>();
 		const failures: string[] = [];
-		for (const file of docFiles) {
-			const text = fs.readFileSync(path.join(docsDir, file), "utf8");
+		for (const file of sweptFiles) {
+			const legFound = readmeFiles.has(file) ? readmeFound : docsFound;
+			const text = fs.readFileSync(path.join(REPO_ROOT, file), "utf8");
 			for (const token of new Set(text.match(DIRECTIVE_TOKEN_PATTERN) ?? [])) {
-				found.add(token);
+				legFound.add(token);
 				if (!REGISTERED_DIRECTIVES.has(token) && !allowedTokens.has(token)) {
 					failures.push(
-						`docs/${file} spells "${token}", which is no registered directive: ` +
+						`${file} spells "${token}", which is no registered directive: ` +
 							"update the docs (source and translations), or justify a genuine non-directive token in the allowlist"
 					);
 				}
 			}
 		}
 		assert.deepStrictEqual(failures, []);
-		// Positive controls: the walk must reach the source docs and both
-		// translation trees, and must still see every registered directive's
-		// spelling - a narrowed walk or dead pattern fails here, not silently.
+		// Positive controls: the walk must reach the source docs, both
+		// translation trees, and every README, and must still see every
+		// registered directive's spelling - a narrowed walk or dead pattern
+		// fails here, not silently.
 		assert.ok(docFiles.length >= 24, "the docs sweep no longer reaches the full docs tree");
-		for (const file of ["models.md", "zh-cn/models.md", "zh-tw/models.md"]) {
-			assert.ok(docFiles.includes(file), `the docs sweep no longer reaches docs/${file}`);
+		for (const file of ["docs/models.md", "docs/zh-cn/models.md", "docs/zh-tw/models.md"]) {
+			assert.ok(docFiles.includes(file), `the docs sweep no longer reaches ${file}`);
 		}
+		for (const file of ["README.md", "README.zh-cn.md", "README.zh-tw.md"]) {
+			assert.ok(readmeFiles.has(file), `the sweep no longer reaches ${file}`);
+		}
+		assert.ok(
+			readmeFound.has(OPENROUTER_MODEL_DIRECTIVE),
+			"the README files no longer spell _openrouter_model: point this control at a token they do spell"
+		);
 		for (const name of REGISTERED_DIRECTIVES) {
-			assert.ok(found.has(name), `${name} is spelled nowhere in docs/: document it, or the walk narrowed`);
+			assert.ok(docsFound.has(name), `${name} is spelled nowhere in docs/: document it, or the walk narrowed`);
 		}
 		for (const token of allowedTokens) {
 			assert.ok(!REGISTERED_DIRECTIVES.has(token), `${token} is registered now: retire its allowlist entry`);
-			assert.ok(found.has(token), `the docs no longer spell ${token}: retire its allowlist entry`);
+			assert.ok(docsFound.has(token), `the docs no longer spell ${token}: retire its allowlist entry`);
 		}
 	});
 
