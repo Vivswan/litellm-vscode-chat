@@ -198,30 +198,48 @@ export class ServerRegistry {
 		}
 		const idx = this.servers.indexOf(previous);
 		const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
+		// The secret goes in first, like addServerUnguarded: if the entry persist
+		// below fails, the entry still names its old host and the old key is
+		// restored - the reverse order could leave a re-pointed entry paired with
+		// the old host's key when the secret write fails after the persist.
+		let previousKey: string | undefined;
+		if (apiKey !== undefined) {
+			previousKey = await this.secrets.get(apiKeySecret(id));
+			if (apiKey) {
+				await this.secrets.store(apiKeySecret(id), apiKey);
+			} else {
+				await this.secrets.delete(apiKeySecret(id));
+			}
+		}
 		this.servers[idx] = { id, label, baseUrl: normalizedBaseUrl };
 		try {
 			await this.persist();
 		} catch (error) {
 			this.servers[idx] = previous;
+			if (apiKey !== undefined) {
+				try {
+					if (previousKey === undefined) {
+						await this.secrets.delete(apiKeySecret(id));
+					} else {
+						await this.secrets.store(apiKeySecret(id), previousKey);
+					}
+				} catch {
+					// Best-effort on this legacy pre-migration surface: the failed
+					// persist is what the caller sees and retries.
+				}
+			}
 			throw error;
 		}
 		// A server the group migration skipped is resolved by renaming or
 		// repointing it, so the marker lifts as soon as the entry mutation
-		// persists - before the secret operations below, which may fail
-		// transiently and must not leave the server permanently skipped. A marker
-		// another window adds in the same instant self-heals by re-skipping.
+		// persists - the earlier secret operations may fail transiently and must
+		// not leave the server permanently skipped. A marker another window adds
+		// in the same instant self-heals by re-skipping.
 		if (previous.label !== label || previous.baseUrl !== normalizedBaseUrl) {
 			const skipped = this.globalState.get<unknown>(SKIPPED_MIGRATION_SERVERS_KEY);
 			if (Array.isArray(skipped) && skipped.includes(id)) {
 				const remaining = skipped.filter((skippedId) => skippedId !== id);
 				await this.globalState.update(SKIPPED_MIGRATION_SERVERS_KEY, remaining.length > 0 ? remaining : undefined);
-			}
-		}
-		if (apiKey !== undefined) {
-			if (apiKey) {
-				await this.secrets.store(apiKeySecret(id), apiKey);
-			} else {
-				await this.secrets.delete(apiKeySecret(id));
 			}
 		}
 	}

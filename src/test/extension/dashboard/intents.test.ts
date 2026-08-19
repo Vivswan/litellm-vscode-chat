@@ -308,6 +308,74 @@ suite("extension/dashboard/intents", () => {
 			assert.deepStrictEqual(recorded.storedOwners.get("Prod"), { apiKey: "http://old.test" });
 		});
 
+		test("the write merges over a fresh read: a concurrent sibling edit is never reverted", async () => {
+			// The guarded secret operations await between the plan's setting read
+			// and the settings write; a sibling entry edited in that window
+			// (another window, a hand edit) must ride into the written array
+			// instead of being silently reverted by the pass-start snapshot.
+			const initial = [
+				{ label: "A", baseUrl: "http://a.test" },
+				{ label: "Prod", baseUrl: "http://prod.test" },
+			];
+			const edited = [
+				{ label: "A", baseUrl: "http://a-edited.test", budget: 7 },
+				{ label: "Prod", baseUrl: "http://prod.test" },
+			];
+			const recorded = makeEnv(initial);
+			const replace = await displayedReplace(recorded, "Prod");
+			let reads = 0;
+			recorded.env.readServersSetting = () => (reads++ === 0 ? initial : edited);
+			await save(recorded, {
+				server: serverPayload({ label: "Prod", baseUrl: "http://prod-new.test" }),
+				replace,
+			});
+
+			assert.deepStrictEqual(recorded.serverWrites, [
+				[
+					{ label: "A", baseUrl: "http://a-edited.test", budget: 7 },
+					{ label: "Prod", baseUrl: "http://prod-new.test" },
+				],
+			]);
+		});
+
+		test("a target that drifted between the plan and the write refuses inside the guarded unit", async () => {
+			// The displayed-identity check ran against the plan-time read; a target
+			// swapped after it must refuse at write time too, with every staged
+			// secret rolled back - writing would land a mix of the drifted entry's
+			// array position and this form's fields.
+			const initial = [{ label: "Prod", baseUrl: "http://prod.test" }];
+			const drifted = [{ label: "Prod", baseUrl: "http://swapped.test" }];
+			const recorded = makeEnv(initial);
+			const replace = await displayedReplace(recorded, "Prod");
+			let reads = 0;
+			recorded.env.readServersSetting = () => (reads++ === 0 ? initial : drifted);
+			await assert.rejects(
+				save(recorded, {
+					server: serverPayload({ label: "Prod", baseUrl: "http://prod.test" }),
+					secrets: { ...KEEP_ALL, apiKey: { action: "set", location: "secure", value: "sk-staged" } },
+					replace,
+				}),
+				/changed in the servers setting/
+			);
+			assert.deepStrictEqual(recorded.serverWrites, [], "nothing may be written over the drifted entry");
+			assert.deepStrictEqual(
+				recorded.storedSecrets.get("Prod"),
+				{},
+				"the staged secret is rolled back with the refusal"
+			);
+		});
+
+		test("a concurrent create under the same label refuses instead of appending a duplicate", async () => {
+			const recorded = makeEnv([]);
+			let reads = 0;
+			recorded.env.readServersSetting = () => (reads++ === 0 ? [] : [{ label: "Prod", baseUrl: "http://theirs.test" }]);
+			await assert.rejects(
+				save(recorded, { server: serverPayload({ label: "Prod", baseUrl: "http://mine.test" }) }),
+				/already exists/
+			);
+			assert.deepStrictEqual(recorded.serverWrites, []);
+		});
+
 		test("a create over a removed label's orphan blob wipes it: the synced group never resurrects old credentials", async () => {
 			// The removal kept the blob; the create's form showed auth "None", so
 			// the saved entry must resolve NO credentials at sync time - the engine

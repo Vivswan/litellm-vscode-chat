@@ -4,6 +4,7 @@
  * intents.ts for its size; executeDashboardIntent is the only caller.
  */
 
+import { isDeepStrictEqual } from "node:util";
 import * as l10n from "@vscode/l10n";
 import type { ReplacedEntryIdentity, RequestPayload, SecretDirective } from "../../dashboard/endpoints";
 import type { SecretFieldId } from "../../shared/serverEntry";
@@ -223,6 +224,16 @@ function resolveKeptSecret(
  * cleanup (clears, dropping the stale secure copy behind an inline write,
  * deleting the old rename blob).
  *
+ * The staged secrets are observable before the settings write lands (the
+ * unit's steps await), which is by design, not a hole: each staged value
+ * carries the ownership stamp of the entry being saved, so a sync pass that
+ * reads the standing entry with the staged blob refuses the pairing
+ * (resolveOwnedSecrets; serverSync.test.ts pins the window), and a stage for
+ * an unchanged destination is the user's own credential going where they sent
+ * it. The settings write itself lands on a FRESH read of the array with only
+ * the target element replaced, refusing when the target drifted, so a
+ * concurrent sibling edit is merged instead of silently reverted.
+ *
  * If anything in the guarded unit throws, the entry in the setting is
  * unchanged and must keep resolving what it resolved before, so the secure
  * side is rolled back: a rename restores the new label's whole pre-copy blob,
@@ -255,7 +266,7 @@ export async function applySaveServerSetting(
 	const sources = await readKeepSources(entries, label, targetLabel, (secretsLabel) =>
 		env.readServerSecrets(secretsLabel)
 	);
-	const { accepted, storedOld, storedOldRecord, storedNewRecord, willCopy } = sources;
+	const { storedOld, storedOldRecord, storedNewRecord, willCopy } = sources;
 	// The entry this save's form was showing - verified against the identity
 	// the form displayed, refused when it is gone or changed - and the mode
 	// that follows from it: with no entry carrying the label the save appends,
@@ -275,9 +286,13 @@ export async function applySaveServerSetting(
 		throw new DashboardValidationError(`label: ${l10n.t("an entry with this label already exists")}`);
 	}
 
-	// The fallback index covers the parser-rejected carrier an acceptedEntry
-	// lookup misses.
-	const writeIndex = accepted?.index ?? entries.findIndex((item) => declaredEntryLabel(item) === label);
+	// The one rule for WHICH element an in-place save replaces, read again at
+	// write time over the fresh array: the accepted entry under the target
+	// label, or - the fallback that covers the parser-rejected carrier an
+	// acceptedEntry lookup misses - the first raw carrier of the draft's label.
+	const indexOfTarget = (list: readonly unknown[]): number =>
+		acceptedEntry(list, targetLabel)?.index ?? list.findIndex((item) => declaredEntryLabel(item) === label);
+	const writeIndex = indexOfTarget(entries);
 	const mode: SaveMode =
 		writeIndex === -1
 			? { kind: "create" }
@@ -431,11 +446,35 @@ export async function applySaveServerSetting(
 				await env.storeServerSecret(label, field, undefined, undefined);
 			}
 		}
-		const next = [...entries];
+		// The array is re-read at write time and the new entry lands in THAT
+		// array: the guarded secret operations above await, so a sibling entry
+		// edited concurrently (another window, a hand edit) would be silently
+		// reverted by writing the pass-start snapshot. The TARGET element must
+		// still be byte-identical to the one the plans resolved against - and a
+		// create's label still free - or the save refuses inside the guarded
+		// unit (the rollback above restores every staged secret). The window
+		// that remains is the write itself: VS Code's configuration update is
+		// last-write-wins across windows and offers nothing smaller.
+		const freshEntries = rawServerEntries(env.readServersSetting());
+		const next = [...freshEntries];
 		if (mode.kind === "create") {
+			if (rawDeclaredLabels(freshEntries).has(label)) {
+				throw new DashboardValidationError(`label: ${l10n.t("an entry with this label already exists")}`);
+			}
 			next.push(newEntry);
 		} else {
-			next[mode.index] = newEntry;
+			if (mode.kind === "rename" && rawDeclaredLabels(freshEntries).has(label)) {
+				throw new DashboardValidationError(`label: ${l10n.t("an entry with this label already exists")}`);
+			}
+			const freshIndex = indexOfTarget(freshEntries);
+			if (freshIndex === -1 || !isDeepStrictEqual(freshEntries[freshIndex], entries[mode.index])) {
+				throw new DashboardValidationError(
+					l10n.t(
+						"The entry being edited changed in the servers setting while the form was open; close the form and retry"
+					)
+				);
+			}
+			next[freshIndex] = newEntry;
 		}
 		await env.writeServersSetting(next);
 	} catch (error) {

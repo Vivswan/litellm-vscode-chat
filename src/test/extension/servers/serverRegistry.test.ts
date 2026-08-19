@@ -114,6 +114,49 @@ suite("extension/servers/serverRegistry", () => {
 			assert.strictEqual(registry.getServers().length, 0);
 			assert.strictEqual(storage.secretStore.size, 0, "The stored secret must be rolled back");
 		});
+
+		test("updateServer stores the key first: a failing key write leaves the entry at its old host", async () => {
+			// The reverse order (entry persist, then key write) left a re-pointed
+			// entry paired with the OLD host's key when the key write failed - the
+			// legacy request path then sent that key to the new host.
+			let failStore = false;
+			const storage = failingStorage(makeExtensionStorage(), {
+				failOn: { secretStore: () => (failStore ? new Error("keychain locked") : undefined) },
+			});
+			const registry = new ServerRegistry(storage.memento, storage.secrets);
+			const server = await registry.addServer("Original", "http://old:4000", "old-key");
+			failStore = true;
+
+			await assert.rejects(
+				registry.updateServer(server.id, "Renamed", "http://new:5000", "new-key"),
+				/keychain locked/
+			);
+
+			assert.deepStrictEqual(registry.getServers(), [server], "the entry must not re-point without its new key");
+			assert.strictEqual(storage.secretStore.get(apiKeySecret(server.id)), "old-key");
+		});
+
+		test("updateServer rolls the staged key back when the entry persist fails", async () => {
+			let failPersist = false;
+			const storage = failingStorage(makeExtensionStorage(), {
+				failOn: { mementoUpdate: () => (failPersist ? new Error("registry write failed") : undefined) },
+			});
+			const registry = new ServerRegistry(storage.memento, storage.secrets);
+			const server = await registry.addServer("Original", "http://old:4000", "old-key");
+			failPersist = true;
+
+			await assert.rejects(
+				registry.updateServer(server.id, "Renamed", "http://new:5000", "new-key"),
+				/registry write failed/
+			);
+
+			assert.deepStrictEqual(registry.getServers(), [server]);
+			assert.strictEqual(
+				storage.secretStore.get(apiKeySecret(server.id)),
+				"old-key",
+				"the staged key is rolled back with the entry"
+			);
+		});
 	});
 
 	suite("getServers validation", () => {
