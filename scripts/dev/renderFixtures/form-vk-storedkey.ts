@@ -5,7 +5,7 @@
  */
 import type { DashboardServer, DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
-import { baseState, PROD_SERVER } from "./shared.ts";
+import { baseState, PROD_SERVER, provenSecrets } from "./shared.ts";
 
 const state: DashboardState = baseState({
 	servers: [
@@ -13,7 +13,7 @@ const state: DashboardState = baseState({
 			...PROD_SERVER,
 			label: "vk-gateway",
 			config: {
-				secrets: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "secure" },
+				secrets: provenSecrets({ apiKey: "secure", virtualKeyValue: "secure" }),
 				virtualKeyHeader: "x-litellm-api-key",
 			},
 		} as DashboardServer,

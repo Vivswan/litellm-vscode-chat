@@ -13,7 +13,14 @@ import { helpEntryModelParameterPrefix } from "../../../../webview/dashboard/hel
 import type { ServerEditRequest } from "../../../../webview/dashboard/serverEditPage";
 import { ServerEditPage } from "../../../../webview/dashboard/serverEditPage";
 import { ServersSection } from "../../../../webview/dashboard/servers";
-import { declaredWithSecrets, makeDeclaredServer, makeExternalServer, makeState, statePush } from "../fixtures";
+import {
+	declaredWithSecrets,
+	makeDeclaredServer,
+	makeExternalServer,
+	makeState,
+	provenSecrets,
+	statePush,
+} from "../fixtures";
 import {
 	accessibleNameOf,
 	buttonByText,
@@ -258,7 +265,7 @@ test("the edit form round-trips per-entry model parameters into the save intent"
 		makeDeclaredServer({
 			label: "Prod",
 			config: {
-				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				secrets: provenSecrets(),
 				modelParameters: { "gpt-4": { temperature: 0.2 } },
 			},
 		}),
@@ -622,7 +629,7 @@ test("Custom with no text blocks Save with the version-segment problem, in view 
 });
 
 test("an entry's apiVersion prefills the matching mode", () => {
-	const secrets = { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } as const;
+	const secrets = provenSecrets();
 
 	// "" prefills None.
 	const noneRoot = mountShell([makeDeclaredServer({ label: "Bare", config: { secrets, apiVersion: "" } })]);
@@ -800,7 +807,7 @@ test("a declared row's drawer lists the entry's own records read-only; an entry 
 		makeDeclaredServer({
 			label: "Prod",
 			config: {
-				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				secrets: provenSecrets(),
 				modelParameters: { "gpt-5*": { temperature: 0.2, _force: ["temperature"] } },
 				modelCapabilities: { "*": { supports_reasoning: true } },
 			},
@@ -840,7 +847,7 @@ test("the drawer's records wear the inactive caveat, and only on the family the 
 			entryFieldsInactive: true,
 			notices: ["entry-params-inactive"],
 			config: {
-				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				secrets: provenSecrets(),
 				modelParameters: { "gpt-5*": { temperature: 0.2 } },
 				modelCapabilities: { "*": { supports_reasoning: true } },
 			},
@@ -1287,7 +1294,7 @@ test("the edit form round-trips model capabilities and expected failures into th
 		makeDeclaredServer({
 			label: "Prod",
 			config: {
-				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				secrets: provenSecrets(),
 				modelCapabilities: { "my-model": { context_length: 128000, supports_vision: true } },
 				expectedFailures: ["modelListing"],
 			},
@@ -1499,7 +1506,7 @@ test("a preserved invalid consumed value keeps the raw JSON input instead of a t
 		makeDeclaredServer({
 			label: "Prod",
 			config: {
-				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				secrets: provenSecrets(),
 				modelCapabilities: { "gpt-4": { input_cost_per_token: "free", supports_prompt_caching: 1 } },
 			},
 		}),
@@ -1559,7 +1566,7 @@ test("fallback checkbox: marking a capability row through its chip popover saves
 		makeDeclaredServer({
 			label: "Prod",
 			config: {
-				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				secrets: provenSecrets(),
 				modelCapabilities: { "gpt-4": { context_length: 128000 } },
 			},
 		}),
@@ -1587,7 +1594,7 @@ test("fallback checkbox: a support-flag row carries its own box beside the value
 		makeDeclaredServer({
 			label: "Prod",
 			config: {
-				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				secrets: provenSecrets(),
 				modelCapabilities: { "gpt-4": { supports_vision: true } },
 			},
 		}),
@@ -1617,7 +1624,7 @@ test("fallback checkbox: a hand-written _fallback true loads checked and saves u
 		makeDeclaredServer({
 			label: "Prod",
 			config: {
-				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				secrets: provenSecrets(),
 				modelCapabilities: { "gpt-4": { context_length: 128000, _fallback: true } },
 			},
 		}),
@@ -1938,7 +1945,7 @@ test("the record rows and the expected-failure checkboxes keep a programmatic gr
 		makeDeclaredServer({
 			label: "Prod",
 			config: {
-				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				secrets: provenSecrets(),
 				modelParameters: { "gpt-4": { temperature: 0.2 } },
 			},
 		}),
@@ -2108,7 +2115,7 @@ test("the entry table's compact [+] add popover draws on the same entry-scoped v
 			label: "Prod",
 			observedModelInfoKeys: ["prod_only_key"],
 			config: {
-				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				secrets: provenSecrets(),
 				modelCapabilities: { "gpt-4": { context_length: 128000 } },
 			},
 		}),
@@ -2130,7 +2137,7 @@ test("a nested overlay hears Esc alone: it closes, the form beneath survives and
 		makeDeclaredServer({
 			label: "Prod",
 			config: {
-				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				secrets: provenSecrets(),
 				modelParameters: { "gpt-4": { temperature: 0.2 } },
 			},
 		}),

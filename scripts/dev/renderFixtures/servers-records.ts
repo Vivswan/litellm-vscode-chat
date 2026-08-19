@@ -7,7 +7,7 @@
  */
 import type { DashboardServer } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
-import { baseState, minutesAgoIso, NO_SECRETS } from "./shared.ts";
+import { baseState, minutesAgoIso, NO_SECRETS, provenSecrets } from "./shared.ts";
 
 const RECORDS_SERVER: DashboardServer = {
 	origin: "declared",
@@ -19,7 +19,7 @@ const RECORDS_SERVER: DashboardServer = {
 	state: "ok",
 	lastChecked: minutesAgoIso(2),
 	config: {
-		secrets: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "none" },
+		secrets: provenSecrets({ apiKey: "secure" }),
 		modelParameters: { "gpt-5*": { temperature: 0.2, _force: ["temperature"] }, "*": { max_tokens: 4096 } },
 		modelCapabilities: {
 			"gpt-5*": { supports_reasoning: true, _fallback: ["supports_reasoning"] },

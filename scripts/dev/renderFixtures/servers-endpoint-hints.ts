@@ -10,7 +10,7 @@
  */
 import type { DashboardServer } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
-import { baseState, PROD_SERVER } from "./shared.ts";
+import { baseState, PROD_SERVER, provenSecrets } from "./shared.ts";
 
 const OLLAMA_ROW: DashboardServer = {
 	origin: "declared",
@@ -22,7 +22,7 @@ const OLLAMA_ROW: DashboardServer = {
 	state: "ok",
 	modelInfoUnsupported: "timeout",
 	lastChecked: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
-	config: { secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } },
+	config: { secrets: provenSecrets() },
 };
 
 const LISTING_UNSERVED_ROW: DashboardServer = {
@@ -39,7 +39,7 @@ const LISTING_UNSERVED_ROW: DashboardServer = {
 		'The models listing failed, but this server answers. If it never serves the models listing, declare that on the "bare-gateway" entry: "expectedFailures": ["modelListing"], with model IDs in "discovery.declared".\nGET https://gateway.example.com/v1/models answered HTTP 404; model info answered',
 	classification: { kind: "http", status: 404, unsupportedEndpoint: "modelListing" },
 	lastChecked: new Date(Date.now() - 60 * 1000).toISOString(),
-	config: { secrets: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "none" } },
+	config: { secrets: provenSecrets({ apiKey: "secure" }) },
 };
 
 const fixture: RenderFixture = {

@@ -60,7 +60,7 @@ import {
 import type { OpenRouterCatalogStore } from "../openRouterCatalog";
 import type { GroupRemovalStore } from "../servers/groupRemovals";
 import type { ServerRegistry } from "../servers/serverRegistry";
-import type { DeclaredServerView, ServerSyncEngine } from "../servers/serverSync";
+import type { ServerSyncEngine } from "../servers/serverSync";
 import {
 	deleteServerSecrets,
 	parseServersSetting,
@@ -86,7 +86,13 @@ import {
 	readInlineSecretValues,
 } from "./intents";
 import { buildResolvedModelsView, resolveModelRecordChains } from "./resolvedModels";
-import type { EntryCapabilitiesRecord, EntryParametersResolution, RemovedGroupsView, SettingsReader } from "./state";
+import type {
+	DeclaredServersInput,
+	EntryCapabilitiesRecord,
+	EntryParametersResolution,
+	RemovedGroupsView,
+	SettingsReader,
+} from "./state";
 import {
 	buildDashboardState,
 	mostSpecificGlobalRecordKey,
@@ -143,7 +149,8 @@ export interface DashboardControllerEnv extends IntentEnvironment {
 	/** Create the panel with its HTML already set. */
 	createPanel(): DashboardPanel;
 	getSnapshots(): readonly ServerModelsSnapshot[];
-	getDeclaredServers(): readonly DeclaredServerView[];
+	/** The declared views with their proof source (engine pass vs pre-first-pass settings fallback). */
+	getDeclaredServers(): DeclaredServersInput;
 	/** The legacy registry's servers, reduced to base URLs; see DashboardState.legacyServerCount. */
 	getLegacyServers(): readonly { readonly baseUrl: string }[];
 	/** The removal bookkeeping (tombstones and orphan origins) the state builder folds in. */
@@ -409,7 +416,7 @@ export class DashboardController implements vscode.Disposable {
 		const entryReports = serverSettingReports(this.env.readServersSetting());
 		// The parked-headers hint stands only while externally managed groups
 		// exist; externality here is the same join the servers table renders.
-		const hasExternalGroups = joinDeclared(labeledSnapshots(snapshots), declared).unmatched.size > 0;
+		const hasExternalGroups = joinDeclared(labeledSnapshots(snapshots), declared.views).unmatched.size > 0;
 		const removedGroups = this.env.getRemovedGroups();
 		const wasGroupObserved = (label: string, baseUrl: string) =>
 			this._observedGroupIdentities.has(observedIdentityKey(label, baseUrl));
@@ -431,12 +438,12 @@ export class DashboardController implements vscode.Disposable {
 					parkedGlobalHeadersValue: this.env.getParkedGlobalHeaders(),
 					hasExternalGroups,
 					entryReports,
-					declared,
+					declared: declared.views,
 					// The same list the servers section's hidden-groups line renders.
 					hiddenGroups: visibleHiddenGroups(removedGroups, wasGroupObserved),
 					// The advisory-hint evidence: per entry its own server's observed
 					// set, global records the cross-server union.
-					observedKeysByEntry: observedKeysByEntryLabel(snapshots, declared),
+					observedKeysByEntry: observedKeysByEntryLabel(snapshots, declared.views),
 					observedKeysUnion: observedModelInfoKeysUnion(snapshots),
 				}),
 			}),
@@ -558,7 +565,7 @@ export class DashboardController implements vscode.Disposable {
 					reader: this.env.settingsReader(),
 					resolveEntryParameters: (serverId) => this.env.serverResolution.resolveEntryParameters(serverId),
 					resolveEntryCapabilities: (serverId) => this.env.serverResolution.resolveEntryCapabilities(serverId),
-					declared: this.env.getDeclaredServers(),
+					declared: this.env.getDeclaredServers().views,
 					catalog: this.env.getCatalogLookup(),
 					resolution: this.env.serverResolution.getResolutionTable?.(),
 				}),
@@ -805,11 +812,13 @@ export function entryParametersResolver(
  * inline value reads as "settings", anything else as "none" (a secure blob
  * may exist, but checking it is async and state pushes carry locations, never
  * values), so the shared rule is fed an empty blob rather than re-derived
- * here. A row served from this fallback can therefore under-report a secure
- * location until the first pass replaces it.
+ * here. The producer owns the "settings-fallback" tag - these views leave
+ * this function already marked, so the state builder treats that "none" as
+ * unproven instead of fact; the first pass replaces them with the engine's
+ * proven views.
  */
-export function declaredViewsFromSetting(raw: unknown): DeclaredServerView[] {
-	return parseServersSetting(raw).entries.map((entry) => {
+export function declaredViewsFromSetting(raw: unknown): DeclaredServersInput {
+	const views = parseServersSetting(raw).entries.map((entry) => {
 		const secrets = secretLocations(entry, {});
 		return {
 			label: entry.label,
@@ -825,6 +834,7 @@ export function declaredViewsFromSetting(raw: unknown): DeclaredServerView[] {
 			secrets,
 		};
 	});
+	return { source: "settings-fallback", views };
 }
 
 /**
@@ -875,10 +885,11 @@ export function registerDashboardCommand(
 		getSnapshots: () => provider.getServerSnapshots(),
 		getDeclaredServers: () => {
 			// The engine's declared view is authoritative once a pass has run;
-			// right after activation it is still empty, so the setting fills in.
+			// right after activation it is still empty, so the setting fills in,
+			// already tagged "settings-fallback" by its producer.
 			const declared = syncEngine.getDeclared();
 			if (declared.length > 0) {
-				return declared;
+				return { source: "engine", views: declared };
 			}
 			return declaredViewsFromSetting(
 				vscode.workspace.getConfiguration(CONFIG_SECTION).get<unknown>(SERVERS_SETTING_KEY)

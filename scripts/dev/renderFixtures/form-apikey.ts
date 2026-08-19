@@ -1,14 +1,14 @@
 /** The server form, API-key shape: bearer key + virtual-key companion, headers, discovery, budget. */
 import type { DashboardServer, DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
-import { baseState, MODELS, PROD_SERVER } from "./shared.ts";
+import { baseState, MODELS, PROD_SERVER, provenSecrets } from "./shared.ts";
 
 const state: DashboardState = baseState({
 	servers: [
 		{
 			...PROD_SERVER,
 			config: {
-				secrets: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "secure" },
+				secrets: provenSecrets({ apiKey: "secure", virtualKeyValue: "secure" }),
 				virtualKeyHeader: "x-litellm-api-key",
 				headers: { "x-routing-env": "prod", "x-trace-source": "vscode" },
 				modelParameters: { "gpt-5*": { temperature: 0.2, _force: ["temperature"] } },

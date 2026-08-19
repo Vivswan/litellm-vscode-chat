@@ -141,6 +141,13 @@ const NO_SECRETS: Readonly<Record<SecretFieldId, SecretLocation>> = {
 	virtualKeyValue: "none",
 };
 
+/** Proven secret locations (the engine's post-pass truth) with the given fields overridden. */
+export function provenSecrets(
+	overrides: Partial<Record<SecretFieldId, SecretLocation>> = {}
+): Extract<DeclaredServer["config"]["secrets"], { kind: "proven" }> {
+	return { kind: "proven", locations: { ...NO_SECRETS, ...overrides } };
+}
+
 export function makeDeclaredServer(overrides: ServerOverrides<DeclaredServer> = {}): DeclaredServer {
 	// Only the merge is cast: the checker cannot prove a spread lands on one union member. The
 	// override TYPE is per-variant, so an incoherent state cluster fails at the call site.
@@ -152,21 +159,31 @@ export function makeDeclaredServer(overrides: ServerOverrides<DeclaredServer> = 
 		hasApiKey: false,
 		hasOAuth: false,
 		state: "ok",
-		config: { secrets: NO_SECRETS },
+		config: { secrets: provenSecrets() },
 	};
 	return { ...base, ...overrides } as DeclaredServer;
 }
 
-/** A declared server whose secret fields live in the given locations. */
+/** A declared server whose secret fields live in the given (proven) locations. */
 export function declaredWithSecrets(
 	secrets: Partial<Record<SecretFieldId, SecretLocation>>,
 	overrides: ServerOverrides<DeclaredServer> = {}
 ): DeclaredServer {
 	return makeDeclaredServer({
 		hasApiKey: true,
-		config: { secrets: { ...NO_SECRETS, ...secrets } },
+		config: { secrets: provenSecrets(secrets) },
 		...overrides,
 	});
+}
+
+/**
+ * A declared row from the pre-first-pass settings fallback: its secret
+ * locations are unproven, so it carries none - and is no edit target. The
+ * unproven marker wins over any config override; a helper named for the
+ * marker must not silently hand back a proven row.
+ */
+export function makeUnprovenServer(overrides: ServerOverrides<DeclaredServer> = {}): DeclaredServer {
+	return makeDeclaredServer({ ...overrides, config: { secrets: { kind: "unproven" } } });
 }
 
 export function makeExternalServer(overrides: ServerOverrides<ExternalServer> = {}): ExternalServer {
@@ -237,7 +254,10 @@ export function poisonedStatePush(sentinel: string): ExtensionToWebviewMessage {
 		apiKey: sentinel,
 		secretValue: sentinel,
 		config: {
-			secrets: { apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "secure" },
+			secrets: {
+				kind: "proven",
+				locations: { apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "secure" },
+			},
 			apiKey: sentinel,
 			values: { apiKey: sentinel },
 		},

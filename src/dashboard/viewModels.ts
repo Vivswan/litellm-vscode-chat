@@ -25,13 +25,28 @@ import type {
 /** A per-entry modelParameters record: model-ID prefix to request parameters. Non-secret user configuration. */
 export type EntryModelParametersPayload = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 
+/**
+ * Where a declared row's secrets live, discriminated on whether the push could
+ * PROVE it: proving "none" requires reading the entry's SecretStorage blob,
+ * which the pre-first-pass settings fallback cannot do synchronously. The
+ * unproven variant carries no locations at all, so a view cannot claim
+ * proven-empty when it means unproven - nothing downstream can read a location
+ * it does not have. Values never ride either variant.
+ */
+export type ServerSecretsView =
+	| { readonly kind: "proven"; readonly locations: Readonly<Record<SecretFieldId, SecretLocation>> }
+	| { readonly kind: "unproven"; readonly locations?: undefined };
+
+/** The proven variant alone: what the edit form's prefill and frozen identity are built from. */
+type ProvenServerSecrets = Extract<ServerSecretsView, { kind: "proven" }>;
+
 /** A per-entry modelCapabilities record: model-ID prefix to capability fields and directives. Non-secret. */
 export type EntryModelCapabilitiesPayload = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 
 /** The non-secret configuration of a declared server, for the edit form's prefill. */
 interface DashboardServerConfig extends NonSecretOptionalFields {
-	/** Where each secret currently lives; the values themselves never reach the webview. */
-	readonly secrets: Readonly<Record<SecretFieldId, SecretLocation>>;
+	/** Where each secret currently lives, when proven; the values themselves never reach the webview. */
+	readonly secrets: ServerSecretsView;
 	/** The entry's apiVersion override ("" is a real value: append nothing); the edit form's prefill. */
 	readonly apiVersion?: string | undefined;
 	/** The entry's own modelParameters, when it has any; the edit form's prefill. */
@@ -226,6 +241,21 @@ export type DashboardServer = DashboardServerBase &
  */
 export type DeclaredDashboardServer = Extract<DashboardServer, { origin: "declared" }>;
 export type ExternalDashboardServer = Extract<DashboardServer, { origin: "external" }>;
+
+/**
+ * A declared row whose secret locations are proven: the only rows the edit
+ * form may open on, since its prefill and frozen replace identity both read
+ * the locations. Narrowing to this type is how "unproven rows are not edit
+ * targets" holds by construction rather than by a check someone remembers.
+ */
+export type EditableDashboardServer = DeclaredDashboardServer & {
+	readonly config: { readonly secrets: ProvenServerSecrets };
+};
+
+/** The one narrowing to an edit-form target; the edit page and any affordance gate read this, not their own test. */
+export function isEditableServer(server: DashboardServer): server is EditableDashboardServer {
+	return server.origin === "declared" && server.config.secrets.kind === "proven";
+}
 
 /** One registered model, reduced to display facts. Costs are USD per million tokens, as registration converted them. */
 export interface DashboardModel {

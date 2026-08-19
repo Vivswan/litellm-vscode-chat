@@ -136,7 +136,7 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 			const state = buildDashboardState({
 				snapshots: row.window.map((status) => ({ status, models: [] })),
 				reader: EMPTY_READER,
-				declared: declaredViews(row),
+				declared: { source: "engine", views: declaredViews(row) },
 				entryReports: rejects,
 				isGroupSnapshot: () => true,
 				removedGroups: {

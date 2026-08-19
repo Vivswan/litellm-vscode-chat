@@ -10,7 +10,7 @@ import type { DashboardServer } from "../../../../dashboard/viewModels";
 import type { ServerEditRequest } from "../../../../webview/dashboard/serverEditPage";
 import { ServerEditPage } from "../../../../webview/dashboard/serverEditPage";
 import { ServersSection } from "../../../../webview/dashboard/servers";
-import { declaredWithSecrets, makeDeclaredServer, makeMisconfiguredServer } from "../fixtures";
+import { declaredWithSecrets, makeDeclaredServer, makeMisconfiguredServer, provenSecrets } from "../fixtures";
 import {
 	buttonByText,
 	cleanup,
@@ -192,7 +192,7 @@ test("the header rows round-trip through the save intent, edits and additions in
 		makeDeclaredServer({
 			label: "Prod",
 			config: {
-				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+				secrets: provenSecrets(),
 				headers: { "x-routing-env": "prod" },
 			},
 		}),

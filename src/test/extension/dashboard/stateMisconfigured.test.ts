@@ -50,7 +50,7 @@ suite("extension/dashboard/state misconfigured rows", () => {
 		const state = buildDashboardState({
 			snapshots: [],
 			reader: READER,
-			declared: [makeDeclared({ label: "Taken" })],
+			declared: { source: "engine", views: [makeDeclared({ label: "Taken" })] },
 			entryReports: [
 				rejectedReport({ index: 0, label: undefined }),
 				rejectedReport({ index: 1, baseUrl: undefined }),
@@ -70,7 +70,7 @@ suite("extension/dashboard/state misconfigured rows", () => {
 		const state = buildDashboardState({
 			snapshots: [],
 			reader: READER,
-			declared: [makeDeclared({ label: "Partial", baseUrl: "http://partial.test" })],
+			declared: { source: "engine", views: [makeDeclared({ label: "Partial", baseUrl: "http://partial.test" })] },
 			entryReports: [
 				{
 					index: 0,
@@ -92,7 +92,7 @@ suite("extension/dashboard/state misconfigured rows", () => {
 		const state = buildDashboardState({
 			snapshots: [],
 			reader: READER,
-			declared: [makeDeclared({ label: "Zeta", baseUrl: "http://z.test" })],
+			declared: { source: "engine", views: [makeDeclared({ label: "Zeta", baseUrl: "http://z.test" })] },
 			entryReports: [rejectedReport({ label: "Alpha", baseUrl: "http://a.test" })],
 		});
 
@@ -117,14 +117,17 @@ suite("extension/dashboard/state misconfigured rows", () => {
 				},
 			],
 			reader: READER,
-			declared: [
-				makeDeclared({
-					label: "Prod",
-					baseUrl: "http://x.test",
-					expectedClientId: "group:fp-labeled:http://x.test",
-					headers: { "x-team": "a" },
-				}),
-			],
+			declared: {
+				source: "engine",
+				views: [
+					makeDeclared({
+						label: "Prod",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:fp-labeled:http://x.test",
+						headers: { "x-team": "a" },
+					}),
+				],
+			},
 		});
 
 		assert.deepStrictEqual(state.servers[0]?.notices, ["entry-headers-inactive"]);
@@ -147,14 +150,17 @@ suite("extension/dashboard/state misconfigured rows", () => {
 					},
 				],
 				reader: READER,
-				declared: [
-					makeDeclared({
-						label: "Prod",
-						baseUrl: "http://x.test",
-						expectedClientId: "group:fp-labeled:http://x.test",
-						apiVersion,
-					}),
-				],
+				declared: {
+					source: "engine",
+					views: [
+						makeDeclared({
+							label: "Prod",
+							baseUrl: "http://x.test",
+							expectedClientId: "group:fp-labeled:http://x.test",
+							apiVersion,
+						}),
+					],
+				},
 			});
 
 			assert.deepStrictEqual(
@@ -178,15 +184,18 @@ suite("extension/dashboard/state misconfigured rows", () => {
 				},
 			],
 			reader: READER,
-			declared: [
-				makeDeclared({
-					label: "Prod",
-					baseUrl: "http://x.test",
-					expectedClientId: "group:fp-labeled:http://x.test",
-					headers: { "x-team": "a" },
-					modelParameters: { "gpt-4": { temperature: 0.2 } },
-				}),
-			],
+			declared: {
+				source: "engine",
+				views: [
+					makeDeclared({
+						label: "Prod",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:fp-labeled:http://x.test",
+						headers: { "x-team": "a" },
+						modelParameters: { "gpt-4": { temperature: 0.2 } },
+					}),
+				],
+			},
 		});
 
 		assert.strictEqual(state.servers[0]?.notices, undefined);

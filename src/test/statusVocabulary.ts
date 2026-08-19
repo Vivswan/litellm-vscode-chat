@@ -121,7 +121,10 @@ function errorStatus(overrides: {
 	};
 }
 
-const NO_SECRETS = { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } as const;
+const NO_SECRETS = {
+	kind: "proven",
+	locations: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+} as const;
 
 /**
  * A declared dashboard row mirroring one window status, with the notices the

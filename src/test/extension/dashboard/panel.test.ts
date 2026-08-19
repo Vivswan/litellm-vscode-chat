@@ -10,6 +10,7 @@ import {
 	entryParametersResolver,
 } from "../../../extension/dashboard/panel";
 import type {
+	DeclaredServersInput,
 	EntryCapabilitiesRecord,
 	EntryParametersResolution,
 	SettingsReader,
@@ -98,6 +99,8 @@ interface Harness {
 	loggedMessages: [string, unknown][];
 	settingsValues: Record<string, unknown>;
 	serversSetting: unknown[];
+	/** What getDeclaredServers answers; defaults to the engine's empty view. */
+	declaredServers: DeclaredServersInput;
 	/** What getSnapshots answers; defaults to one healthy "srv1" server serving "m1". */
 	snapshots: ReturnType<DashboardControllerEnv["getSnapshots"]>;
 	/** The legacy registry's servers, as getLegacyServers reports them. */
@@ -147,7 +150,7 @@ function makeHarness(): Harness {
 			return fake.panel;
 		},
 		getSnapshots: () => harness.snapshots,
-		getDeclaredServers: () => [],
+		getDeclaredServers: () => harness.declaredServers,
 		getLegacyServers: () => harness.legacyServers,
 		getRemovedGroups: () => ({ tombstones: [], origins: [] }),
 		serverResolution,
@@ -233,6 +236,7 @@ function makeHarness(): Harness {
 		loggedMessages,
 		settingsValues,
 		serversSetting: [],
+		declaredServers: { source: "engine", views: [] },
 		snapshots: [{ status: makeServerStatus(), models: [makeModelInfo({ id: "m1", name: "m1" })] }],
 		legacyServers: [],
 		entryResolutions: {},
@@ -431,12 +435,15 @@ suite("extension/dashboard/panel", () => {
 	});
 
 	suite("declaredViewsFromSetting", () => {
-		test("maps accepted entries with setting-provable secret locations only", () => {
-			const views = declaredViewsFromSetting([
+		test("maps accepted entries with setting-provable secret locations only, tagged settings-fallback", () => {
+			const declared = declaredViewsFromSetting([
 				{ label: "Inline", baseUrl: "http://a.test", auth: { apiKey: "sk-inline" } },
 				{ label: "Bare", baseUrl: "http://b.test", auth: { virtualKey: { header: "x-vk" } } },
 			]);
 
+			// The producer owns the tag: fallback views cannot leave untagged.
+			assert.strictEqual(declared.source, "settings-fallback");
+			const views = declared.views;
 			assert.strictEqual(views.length, 2);
 			assert.strictEqual(views[0]?.label, "Inline");
 			assert.strictEqual(views[0]?.baseUrl, "http://a.test");
@@ -456,7 +463,7 @@ suite("extension/dashboard/panel", () => {
 			// The fallback covers the window before the first sync pass lands;
 			// dropping these fields there would blank the edit form's prefill
 			// (and, for a saved-through draft, silently delete them).
-			const views = declaredViewsFromSetting([
+			const { views } = declaredViewsFromSetting([
 				{
 					label: "Prod",
 					baseUrl: "http://a.test",
@@ -478,8 +485,41 @@ suite("extension/dashboard/panel", () => {
 		});
 
 		test("junk settings read as empty", () => {
-			assert.deepStrictEqual(declaredViewsFromSetting("not an array"), []);
-			assert.deepStrictEqual(declaredViewsFromSetting([{ label: 42 }]), []);
+			assert.deepStrictEqual(declaredViewsFromSetting("not an array").views, []);
+			assert.deepStrictEqual(declaredViewsFromSetting([{ label: 42 }]).views, []);
+		});
+	});
+
+	test("a fallback-sourced push carries unproven secret locations; the engine's push proves them", () => {
+		// The window between activation and the first sync pass: the fallback
+		// cannot read secret blobs, so its rows must not claim proven-"none".
+		const harness = makeHarness();
+		harness.snapshots = [];
+		harness.declaredServers = declaredViewsFromSetting([{ label: "Prod", baseUrl: "http://prod.test" }]);
+		harness.controller.open();
+		const fake = harness.panels[0];
+		assert.ok(fake);
+		const fallbackRow = lastState(fake).state.servers[0];
+		assert.ok(fallbackRow?.origin === "declared");
+		assert.deepStrictEqual(fallbackRow.config.secrets, { kind: "unproven" });
+
+		// The first pass lands: the same label now pushes proven locations.
+		harness.declaredServers = {
+			source: "engine",
+			views: [
+				{
+					label: "Prod",
+					baseUrl: "http://prod.test",
+					secrets: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "none" },
+				},
+			],
+		};
+		harness.controller.refresh();
+		const provenRow = lastState(fake).state.servers[0];
+		assert.ok(provenRow?.origin === "declared");
+		assert.deepStrictEqual(provenRow.config.secrets, {
+			kind: "proven",
+			locations: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "none" },
 		});
 	});
 

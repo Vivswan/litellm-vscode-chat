@@ -1,14 +1,14 @@
 /** The server form, OAuth shape with companions (X-API-Key rider + virtual-key header). */
 import type { DashboardServer, DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
-import { baseState, GATEWAY_SERVER } from "./shared.ts";
+import { baseState, GATEWAY_SERVER, provenSecrets } from "./shared.ts";
 
 const state: DashboardState = baseState({
 	servers: [
 		{
 			...GATEWAY_SERVER,
 			config: {
-				secrets: { apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "secure" },
+				secrets: provenSecrets({ apiKey: "secure", oauthClientSecret: "secure", virtualKeyValue: "secure" }),
 				oauthTokenUrl: "https://idp.example.com/oauth2/token",
 				oauthClientId: "litellm-vscode",
 				oauthScopes: "litellm.read litellm.write",

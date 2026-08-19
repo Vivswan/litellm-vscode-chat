@@ -6,7 +6,14 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { App } from "../../../../webview/dashboard/app";
-import { declaredWithSecrets, makeDeclaredServer, makeExternalServer, makeState, statePush } from "../fixtures";
+import {
+	declaredWithSecrets,
+	makeDeclaredServer,
+	makeExternalServer,
+	makeState,
+	makeUnprovenServer,
+	statePush,
+} from "../fixtures";
 import {
 	buttonByText,
 	cleanup,
@@ -242,6 +249,58 @@ test("an entry deleted under an open page says so instead of editing something t
 	expect(page(root).textContent).toContain("This server is gone");
 	fireClick(buttonByText(page(root), "Back to servers"));
 	expect(root.querySelector(".server-edit-page")).toBeNull();
+});
+
+test("an unproven row is no edit target: the page waits, and the proving push opens the form on the PROVEN identity", () => {
+	// The pre-first-pass fallback cannot read secret blobs, so its rows carry
+	// unproven locations. A form mounted over a guessed "none" would freeze a
+	// wrong identity and earn a spurious refusal on save; the page must wait.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [makeUnprovenServer({ label: "Prod" })] })));
+	fireClick(buttonByText(root, "Edit"));
+
+	expect(page(root).textContent).toContain("Checking where this server's secrets are stored");
+	// Not a form (nothing to freeze), and not the gone card (the entry exists).
+	expect(page(root).querySelector("input")).toBeNull();
+	expect(page(root).textContent).not.toContain("This server is gone");
+
+	// The first pass proves a secure key; the SAME open request resolves into
+	// the form, whose frozen identity is the proven one - never fallback "none".
+	pushToWebview(statePush(makeState({ servers: [declaredWithSecrets({ apiKey: "secure" }, { label: "Prod" })] })));
+	expect(inputByLabel(page(root), "Label").value).toBe("Prod");
+	resetPosted();
+	fireClick(buttonByText(page(root), "Save"));
+	expect(lastRequest("saveServerSetting").payload.replace?.secrets).toEqual({
+		apiKey: "secure",
+		oauthClientSecret: "none",
+		virtualKeyValue: "none",
+	});
+});
+
+test("the waiting page is never a trap: Back to servers leaves it like any clean page", () => {
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [makeUnprovenServer({ label: "Prod" })] })));
+	fireClick(buttonByText(root, "Edit"));
+	expect(page(root).textContent).toContain("Checking where this server's secrets are stored");
+
+	fireClick(buttonByText(page(root), "Back to servers"));
+	expect(root.querySelector(".server-edit-page")).toBeNull();
+	expect(confirmDialog()).toBeNull();
+});
+
+test("a row turning unproven under an open form does not tear it down: the draft survives later uncertainty", () => {
+	// A degraded sync pass (an unreadable blob) can mark a row unproven AFTER
+	// the form opened on its proven push. Swapping the form for the waiting
+	// card would silently drop the draft; the form keeps its last proven
+	// target, and the frozen identity still guards the save extension-side.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Prod" })] })));
+	fireClick(buttonByText(root, "Edit"));
+	fireInput(inputByLabel(page(root), "Base URL"), "http://localhost:9999");
+
+	pushToWebview(statePush(makeState({ servers: [makeUnprovenServer({ label: "Prod" })] })));
+	expect(page(root).textContent).not.toContain("Checking where this server's secrets are stored");
+	expect(inputByLabel(page(root), "Base URL").value).toBe("http://localhost:9999");
 });
 
 test("a pending adopt never traps the reader: leaving works and the late ack still lands as the notice", () => {

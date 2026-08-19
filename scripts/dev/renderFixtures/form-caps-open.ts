@@ -8,7 +8,7 @@
  */
 import type { DashboardServer, DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
-import { baseState, MODELS, PROD_SERVER, worstCaseRecordFields } from "./shared.ts";
+import { baseState, MODELS, PROD_SERVER, provenSecrets, worstCaseRecordFields } from "./shared.ts";
 
 const state: DashboardState = baseState({
 	servers: [
@@ -23,7 +23,7 @@ const state: DashboardState = baseState({
 				"supported_openai_params",
 			],
 			config: {
-				secrets: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "none" },
+				secrets: provenSecrets({ apiKey: "secure" }),
 				modelCapabilities: {
 					"gpt-5*": {
 						...worstCaseRecordFields(),

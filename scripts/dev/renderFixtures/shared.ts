@@ -9,7 +9,9 @@ import type {
 	DashboardState,
 	DashboardUsage,
 	ResolvedModelsView,
+	ServerSecretsView,
 } from "../../../src/dashboard/viewModels.ts";
+import type { SecretFieldId, SecretLocation } from "../../../src/shared/serverEntry.ts";
 import { RENDER_EPOCH_MS } from "../renderClock.ts";
 
 // The harness freezes the page's clock to the same instant, so every
@@ -24,7 +26,15 @@ export function minutesAgoMs(minutes: number): number {
 	return NOW - minutes * 60_000;
 }
 
-export const NO_SECRETS = { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } as const;
+/** Proven secret locations (the engine's post-pass truth) with the given fields overridden. */
+export function provenSecrets(overrides: Partial<Record<SecretFieldId, SecretLocation>> = {}): ServerSecretsView {
+	return {
+		kind: "proven",
+		locations: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none", ...overrides },
+	};
+}
+
+export const NO_SECRETS: ServerSecretsView = provenSecrets();
 
 export const PROD_SERVER: DashboardServer = {
 	origin: "declared",
@@ -36,7 +46,7 @@ export const PROD_SERVER: DashboardServer = {
 	state: "ok",
 	lastChecked: minutesAgoIso(2),
 	config: {
-		secrets: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "none" },
+		secrets: provenSecrets({ apiKey: "secure" }),
 		headers: { "x-routing-env": "prod" },
 		modelParameters: { "gpt-5*": { temperature: 0.2, _force: ["temperature"] } },
 		budget: 50,
@@ -57,7 +67,7 @@ export const GATEWAY_SERVER: DashboardServer = {
 	declaredModelCount: 1,
 	lastChecked: minutesAgoIso(9),
 	config: {
-		secrets: { apiKey: "none", oauthClientSecret: "secure", virtualKeyValue: "secure" },
+		secrets: provenSecrets({ oauthClientSecret: "secure", virtualKeyValue: "secure" }),
 		oauthTokenUrl: "https://idp.example.com/oauth2/token",
 		oauthClientId: "litellm-vscode",
 		virtualKeyHeader: "x-litellm-api-key",

@@ -34,7 +34,13 @@ import {
 	storedInactiveSecrets,
 	validateAdoptLabel,
 } from "../../dashboard/serverForm";
-import type { DashboardServer, DeclaredDashboardServer, ExternalDashboardServer } from "../../dashboard/viewModels";
+import type {
+	DashboardServer,
+	DeclaredDashboardServer,
+	EditableDashboardServer,
+	ExternalDashboardServer,
+} from "../../dashboard/viewModels";
+import { isEditableServer } from "../../dashboard/viewModels";
 import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import type { SetupHintKind, TransportErrorClassification } from "../../shared/errorClassification";
 import type { ExpectedFailureCategory, SecretFieldId, SecretLocation } from "../../shared/serverEntry";
@@ -88,10 +94,15 @@ import { sendRequest } from "./vscodeApi";
  */
 const SERVERS_SETTING_ID = `${CONFIG_SECTION}.${SERVERS_SETTING_KEY}`;
 
-/** What the open form is for, decided once where it opens so no component re-derives it. */
+/**
+ * What the open form is for, decided once where it opens so no component re-derives it.
+ * An edit target is an EditableDashboardServer BY TYPE: a row whose secret locations are
+ * still unproven (the pre-first-pass fallback) cannot construct one, so no form can
+ * freeze a wrong identity from it.
+ */
 export type FormTarget =
 	| { readonly kind: "add" }
-	| { readonly kind: "edit"; readonly original: DeclaredDashboardServer }
+	| { readonly kind: "edit"; readonly original: EditableDashboardServer }
 	| { readonly kind: "adopt"; readonly server: ExternalDashboardServer };
 
 /** The targets ServerForm handles; adoption renders AdoptForm instead. */
@@ -199,18 +210,19 @@ function draftFor(target: ServerFormTarget): ServerFormDraft {
 		return EMPTY_SERVER_FORM;
 	}
 	const original = target.original;
+	const locations = original.config.secrets.locations;
 	return {
 		label: original.label,
 		baseUrl: original.baseUrl,
 		apiVersion: apiVersionDraftOf(original.config.apiVersion),
-		authForm: deriveAuthForm(original.config),
+		authForm: deriveAuthForm({ ...original.config, secrets: locations }),
 		oauthTokenUrl: original.config.oauthTokenUrl ?? "",
 		oauthClientId: original.config.oauthClientId ?? "",
 		oauthScopes: original.config.oauthScopes ?? "",
 		virtualKeyHeader: original.config.virtualKeyHeader ?? "",
-		apiKey: secretDraft(original.config.secrets.apiKey),
-		oauthClientSecret: secretDraft(original.config.secrets.oauthClientSecret),
-		virtualKeyValue: secretDraft(original.config.secrets.virtualKeyValue),
+		apiKey: secretDraft(locations.apiKey),
+		oauthClientSecret: secretDraft(locations.oauthClientSecret),
+		virtualKeyValue: secretDraft(locations.virtualKeyValue),
 		headers: toHeaderRows(original.config.headers ?? {}),
 		declaredModels: (original.config.declaredModels ?? []).join("\n"),
 		budget: original.config.budget !== undefined ? String(original.config.budget) : "",
@@ -917,16 +929,25 @@ export function ServerEditPage({
 	// Memoized so the resolved target is one object for as long as its rows are: a fresh
 	// object per render turned the prefill effect into a render loop.
 	const resolved = useMemo(() => resolveEditTarget(request, servers), [request, servers]);
-	const lastResolved = useRef(resolved);
+	const lastResolved = useRef<FormTarget | undefined>(undefined);
 	// A commit in flight freezes the WHOLE target: the save's write comes back as a state
 	// push, so a rename resolves the old label to nothing (a save that worked reads as a
 	// deleted entry) and a secret moving storage resolves a DIFFERENT object that restarts
 	// the prefill - both read the result of a commit still in flight.
 	const committing = savingId !== undefined || adopting !== undefined;
-	if (resolved !== undefined && !committing) {
+	if (resolved !== undefined && resolved !== "locations-unproven" && !committing) {
 		lastResolved.current = resolved;
 	}
-	const target = committing ? lastResolved.current : resolved;
+	// A row turning unproven UNDER an open form must not tear the form down
+	// (the draft dies with it): the form keeps its last proven target - the
+	// frozen identity still guards the save extension-side. Only a page that
+	// never had a proven target waits.
+	const settled =
+		resolved === "locations-unproven" && lastResolved.current !== undefined ? lastResolved.current : resolved;
+	const target = committing ? lastResolved.current : settled;
+	// The row exists but the fallback push could not prove its secret locations
+	// yet: not an edit target, so the page waits for the first pass's push.
+	const waitingForProof = target === "locations-unproven";
 	// The entry went away, taking the draft: nothing left to save, nothing to ask about.
 	// Reported on its own channel so the shell can dismiss a standing discard question -
 	// a signal the dirty report must never carry.
@@ -937,9 +958,10 @@ export function ServerEditPage({
 		}
 	}, [targetGone, onTargetGone]);
 	const pageRef = useRef<HTMLElement>(null);
-	// Also keyed on the form going away: the unmounting field drops focus on the body -
-	// outside the shell that hears Esc - so the keyboard would stop working.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: targetGone is the trigger, not a value the body reads - the form going away is what leaves focus homeless
+	// Also keyed on the form going away or arriving (the waiting card resolving into it):
+	// the unmounting field or button drops focus on the body - outside the shell that
+	// hears Esc - so the keyboard would stop working.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: targetGone and waitingForProof are the triggers, not values the body reads - a page swap is what leaves focus homeless
 	useEffect(() => {
 		const page = pageRef.current;
 		if (page?.contains(document.activeElement) === true) {
@@ -947,7 +969,7 @@ export function ServerEditPage({
 		}
 		const field = page?.querySelector<HTMLElement>("input, select, textarea");
 		(field ?? page)?.focus();
-	}, [targetGone]);
+	}, [targetGone, waitingForProof]);
 	// tabIndex -1: the page takes focus itself when it holds no field, never in the tab order.
 	// The id is where the discard-confirm modal returns focus on "keep editing".
 	const page = (children: ReactNode) => (
@@ -969,6 +991,25 @@ export function ServerEditPage({
 				<h3 id="server-form-title">{l10n.t("This server is gone")}</h3>
 				<p className="hint">
 					{l10n.t("It was removed while you were editing it - by another window or an edit to settings.json.")}
+				</p>
+				<div className="toolbar">
+					<Button onClick={onRequestClose}>{l10n.t("Back to servers")}</Button>
+				</div>
+			</div>
+		);
+	}
+	if (target === "locations-unproven") {
+		// The pre-first-pass fallback cannot prove where this entry's secrets live
+		// (an API key may sit in secret storage it has not read), so no form opens
+		// on it: a form frozen over guessed locations would only earn a refusal on
+		// save. The first pass's push resolves this card into the form by itself.
+		return page(
+			<div className="form-card server-form">
+				<h3 id="server-form-title">{l10n.t("Checking where this server's secrets are stored")}</h3>
+				<p className="hint">
+					{l10n.t(
+						"The first sync is confirming this entry's secret locations, e.g. an API key in secret storage. Editing opens here as soon as it finishes."
+					)}
 				</p>
 				<div className="toolbar">
 					<Button onClick={onRequestClose}>{l10n.t("Back to servers")}</Button>
@@ -1037,8 +1078,14 @@ export function ServerEditPage({
 /**
  * The request read against the live rows: absent when the row is gone or cannot
  * round-trip the form (a misconfigured entry, which the list offers no edit for).
+ * "locations-unproven" is a declared row the pre-first-pass fallback served: its
+ * secret locations are not proven yet, so it is not an edit target - the page
+ * waits, and the first pass's push resolves it into one.
  */
-function resolveEditTarget(request: ServerEditRequest, servers: readonly DashboardServer[]): FormTarget | undefined {
+function resolveEditTarget(
+	request: ServerEditRequest,
+	servers: readonly DashboardServer[]
+): FormTarget | "locations-unproven" | undefined {
 	if (request.kind === "add") {
 		return { kind: "add" };
 	}
@@ -1046,7 +1093,10 @@ function resolveEditTarget(request: ServerEditRequest, servers: readonly Dashboa
 		const original = servers.find(
 			(server): server is DeclaredDashboardServer => server.origin === "declared" && server.label === request.label
 		);
-		return original === undefined ? undefined : { kind: "edit", original };
+		if (original === undefined) {
+			return undefined;
+		}
+		return isEditableServer(original) ? { kind: "edit", original } : "locations-unproven";
 	}
 	const server = servers.find(
 		(candidate): candidate is ExternalDashboardServer =>
@@ -1104,7 +1154,7 @@ function ServerForm({
 					baseUrl: target.original.baseUrl,
 					...(target.original.config.apiVersion !== undefined ? { apiVersion: target.original.config.apiVersion } : {}),
 					...pickNonSecretOptionalFields(target.original.config),
-					secrets: target.original.config.secrets,
+					secrets: target.original.config.secrets.locations,
 				}
 			: undefined
 	);

@@ -38,7 +38,9 @@ function declaredServer(overrides: Partial<DeclaredServer> = {}): DashboardServe
 		hasApiKey: false,
 		hasOAuth: false,
 		state: "ok",
-		config: { secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } },
+		config: {
+			secrets: { kind: "proven", locations: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } },
+		},
 	};
 	return { ...base, ...overrides } as DeclaredServer;
 }

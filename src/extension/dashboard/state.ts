@@ -18,6 +18,7 @@ import type {
 	ExternalServerProvenance,
 	HiddenGroup,
 	ScopedRecordSetting,
+	ServerSecretsView,
 	SettingScope,
 } from "../../dashboard/viewModels";
 import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS } from "../../dashboard/viewModels";
@@ -60,11 +61,12 @@ import {
 	USAGE_STATUS_BAR_SETTING_KEY,
 } from "../../shared/config/settings";
 import type { TransportErrorClassification, UnservedEndpointEvidence } from "../../shared/errorClassification";
-import { pickNonSecretOptionalFields } from "../../shared/serverEntry";
+import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import type { ServerStatus } from "../../shared/servers";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { recordFromKeys } from "../../shared/util/json";
 import type { DeclaredServerView, ServerEntryReport } from "../servers/serverSync";
+import { SALT_UNAVAILABLE_MESSAGE } from "../servers/serverSync";
 import { declaredPresentation } from "../servers/syncFailureOverlay";
 import type { SettingsInspection } from "../settingsAccess";
 import { resolveConfiguredScope, resolveUpdateScope } from "../settingsAccess";
@@ -208,6 +210,43 @@ function declaredOutcome(
 export type DrawableReject = ServerEntryReport & { readonly label: string; readonly baseUrl: string };
 
 /**
+ * The declared views with the one fact the views themselves cannot carry:
+ * whether their secret locations come from a real blob read. The sync engine
+ * reads the secret blobs; the pre-first-pass settings fallback cannot check
+ * SecretStorage synchronously, so a field it reports "none" may really be
+ * "secure". The tag is producer-owned - declaredViewsFromSetting returns its
+ * views already marked "settings-fallback" - and proof is still judged per
+ * view (secretsView): an engine view whose own blob read failed is as blind
+ * as the fallback.
+ */
+export type DeclaredServersInput =
+	| { readonly source: "engine"; readonly views: readonly DeclaredServerView[] }
+	| { readonly source: "settings-fallback"; readonly views: readonly DeclaredServerView[] };
+
+/**
+ * One declared view's secrets as the push may claim them. An engine view is
+ * proven by its blob read - except when its locations are a guess: the
+ * engine's "secretsUnreadable" class covers a failed blob read (locations
+ * degraded to the inline-only reading) AND salt-durability skips whose read
+ * succeeded, distinguishable only by the sync message, so anything but the
+ * salt message reads as guessed (fail closed; the class deserves splitting
+ * engine-side). Without a blob read, a view is proven only when every secret
+ * field reads "settings": inline wins over any blob, so the setting alone
+ * proves those - while a "none" is just "no inline value", and the row must
+ * say unproven instead of denying a secure blob nobody read.
+ */
+function secretsView(view: DeclaredServerView, source: DeclaredServersInput["source"]): ServerSecretsView {
+	const locationsGuessed = view.syncErrorClass === "secretsUnreadable" && view.syncError !== SALT_UNAVAILABLE_MESSAGE;
+	if (
+		(source === "engine" && !locationsGuessed) ||
+		SECRET_FIELD_IDS.every((field) => view.secrets[field] === "settings")
+	) {
+		return { kind: "proven", locations: view.secrets };
+	}
+	return { kind: "unproven" };
+}
+
+/**
  * The rejected servers-setting entries that earn a row of their own, in
  * setting order. A reject sits in the setting, so a silently missing row would
  * read as a removal - but a row needs an honest identity to draw, and four
@@ -265,11 +304,12 @@ export function rejectsWithOwnRow(
  */
 function buildServers(
 	labeled: readonly LabeledSnapshot[],
-	declared: readonly DeclaredServerView[],
+	declaredInput: DeclaredServersInput,
 	entryReports: readonly ServerEntryReport[],
 	removedGroups: RemovedGroupsView,
 	isGroupSnapshot: (serverId: string) => boolean
 ): { servers: DashboardServer[]; snapshotLabels: string[][] } {
+	const declared = declaredInput.views;
 	const { matchedByDeclared, unmatched } = joinDeclared(labeled, declared);
 	// The removal bookkeeping is keyed by the snapshot's own status label (never
 	// the display label, which can carry a collision ordinal) plus the
@@ -371,7 +411,7 @@ function buildServers(
 			config: {
 				...pickNonSecretOptionalFields(view),
 				...(view.apiVersion !== undefined ? { apiVersion: view.apiVersion } : {}),
-				secrets: view.secrets,
+				secrets: secretsView(view, declaredInput.source),
 				...(view.modelParameters !== undefined ? { modelParameters: view.modelParameters } : {}),
 				...(view.modelCapabilities !== undefined ? { modelCapabilities: view.modelCapabilities } : {}),
 				...(view.expectedFailures !== undefined && view.expectedFailures.length > 0
@@ -652,7 +692,8 @@ export type EntryParametersResolution = {
 export interface DashboardStateInputs {
 	readonly snapshots: readonly ServerModelsSnapshot[];
 	readonly reader: SettingsReader;
-	readonly declared?: readonly DeclaredServerView[];
+	/** The declared views with their proof source; see DeclaredServersInput. Defaults to the engine's empty list. */
+	readonly declared?: DeclaredServersInput;
 	/** The per-entry acceptance reports (serverSettingReports); drives the Misconfigured rows. */
 	readonly entryReports?: readonly ServerEntryReport[];
 	/** The legacy registry's servers, reduced to base URLs; see DashboardState.legacyServerCount. */
@@ -749,7 +790,7 @@ export function buildDashboardState(inputs: DashboardStateInputs): DashboardStat
 	const {
 		snapshots,
 		reader,
-		declared = [],
+		declared = { source: "engine", views: [] },
 		entryReports = [],
 		legacyServers = [],
 		removedGroups = NO_REMOVED_GROUPS,

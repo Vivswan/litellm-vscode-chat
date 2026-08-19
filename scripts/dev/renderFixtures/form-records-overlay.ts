@@ -5,14 +5,14 @@
  */
 import type { DashboardServer, DashboardState } from "../../../src/dashboard/viewModels.ts";
 import type { RenderFixture } from "../render-dashboard.ts";
-import { baseState, MODELS, PROD_SERVER } from "./shared.ts";
+import { baseState, MODELS, PROD_SERVER, provenSecrets } from "./shared.ts";
 
 const state: DashboardState = baseState({
 	servers: [
 		{
 			...PROD_SERVER,
 			config: {
-				secrets: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "none" },
+				secrets: provenSecrets({ apiKey: "secure" }),
 				modelParameters: {
 					"gpt-5*": { temperature: 0.2, _force: ["temperature"] },
 					"*": { top_p: 0.9, _inheritable: true },

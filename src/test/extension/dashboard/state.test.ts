@@ -35,6 +35,7 @@ import {
 	resolveDashboardModelParameters,
 } from "../../../extension/dashboard/state";
 import type { DeclaredServerView } from "../../../extension/servers/serverSync";
+import { SALT_UNAVAILABLE_MESSAGE, SECRETS_READ_FAILED_MESSAGE } from "../../../extension/servers/serverSync";
 import { DEFAULT_REASONING_EFFORT_LEVELS, reasoningEffortSchema } from "../../../provider/catalog/modelConfiguration";
 import { RequestError } from "../../../provider/transport/errorMapping";
 import { EMPTY_CATALOG_LOOKUP } from "../../../shared/config/capabilityResolution";
@@ -88,12 +89,14 @@ function makeReader(
 /**
  * buildDashboardState in the positional shorthand these suites were written
  * against; inputs it does not cover (entryReports, catalog, usage, diagnostics)
- * go through buildDashboardState's options object directly.
+ * go through buildDashboardState's options object directly. Declared views are
+ * wrapped as the ENGINE's (locations proven); the settings-fallback source has
+ * its own explicit suite below.
  */
 function buildState(
 	snapshots: DashboardStateInputs["snapshots"],
 	reader: SettingsReader,
-	declared?: DashboardStateInputs["declared"],
+	declared?: readonly DeclaredServerView[],
 	legacyServers?: DashboardStateInputs["legacyServers"],
 	removedGroups?: DashboardStateInputs["removedGroups"],
 	isGroupSnapshot?: DashboardStateInputs["isGroupSnapshot"]
@@ -101,7 +104,7 @@ function buildState(
 	return buildDashboardState({
 		snapshots,
 		reader,
-		...(declared !== undefined ? { declared } : {}),
+		...(declared !== undefined ? { declared: { source: "engine", views: declared } } : {}),
 		...(legacyServers !== undefined ? { legacyServers } : {}),
 		...(removedGroups !== undefined ? { removedGroups } : {}),
 		...(isGroupSnapshot !== undefined ? { isGroupSnapshot } : {}),
@@ -329,9 +332,8 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(server?.hasApiKey, true, "a secure-side key counts");
 			assert.strictEqual(server?.hasOAuth, true);
 			assert.deepStrictEqual(server?.config?.secrets, {
-				apiKey: "secure",
-				oauthClientSecret: "settings",
-				virtualKeyValue: "none",
+				kind: "proven",
+				locations: { apiKey: "secure", oauthClientSecret: "settings", virtualKeyValue: "none" },
 			});
 		});
 
@@ -917,6 +919,175 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(state.servers[0]?.state, "error", "the sync failure outranks the live ok state");
 			assert.strictEqual(state.servers[0]?.error, "group update unavailable");
 			assert.strictEqual(state.servers[0]?.servedModelCount, 4, "the served count stays the live truth");
+		});
+
+		suite("secret-location proof", () => {
+			/** The one declared row of a state, narrowed for its config. */
+			function declaredRow(state: ReturnType<typeof buildState>) {
+				const server = state.servers[0];
+				assert.ok(server?.origin === "declared", "expected one declared row");
+				return server;
+			}
+
+			test("engine views push proven locations", () => {
+				const state = buildDashboardState({
+					snapshots: [],
+					reader: makeReader({}),
+					declared: {
+						source: "engine",
+						views: [
+							makeDeclared({ secrets: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "none" } }),
+						],
+					},
+				});
+
+				assert.deepStrictEqual(declaredRow(state).config.secrets, {
+					kind: "proven",
+					locations: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "none" },
+				});
+			});
+
+			test("the settings fallback pushes unproven, never proven-none", () => {
+				// The fallback cannot read secret blobs synchronously, so its "none"
+				// is only "no inline value". Pushing it as fact froze a wrong identity
+				// into edit forms opened in that window, whose saves then refused as
+				// "the entry changed"; the row must say unproven instead - and the
+				// unproven shape carries NO locations, so nothing can read one.
+				const state = buildDashboardState({
+					snapshots: [],
+					reader: makeReader({}),
+					declared: {
+						source: "settings-fallback",
+						views: [makeDeclared({ secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } })],
+					},
+				});
+
+				assert.deepStrictEqual(declaredRow(state).config.secrets, { kind: "unproven" });
+			});
+
+			test("a fallback view with every secret inline is proven by the setting itself", () => {
+				// Inline wins over any blob, so all-"settings" locations need no blob
+				// read: the setting alone proves them, and the row stays editable.
+				const state = buildDashboardState({
+					snapshots: [],
+					reader: makeReader({}),
+					declared: {
+						source: "settings-fallback",
+						views: [
+							makeDeclared({
+								secrets: { apiKey: "settings", oauthClientSecret: "settings", virtualKeyValue: "settings" },
+							}),
+						],
+					},
+				});
+
+				assert.deepStrictEqual(declaredRow(state).config.secrets, {
+					kind: "proven",
+					locations: { apiKey: "settings", oauthClientSecret: "settings", virtualKeyValue: "settings" },
+				});
+			});
+
+			test("one inline field does not prove the others: the row stays unproven", () => {
+				const state = buildDashboardState({
+					snapshots: [],
+					reader: makeReader({}),
+					declared: {
+						source: "settings-fallback",
+						views: [
+							makeDeclared({ secrets: { apiKey: "settings", oauthClientSecret: "none", virtualKeyValue: "none" } }),
+						],
+					},
+				});
+
+				assert.deepStrictEqual(declaredRow(state).config.secrets, { kind: "unproven" });
+			});
+
+			test("an engine view whose own blob read failed is as blind as the fallback: unproven", () => {
+				// The engine substitutes an empty blob when SecretStorage refuses the
+				// read (syncErrorClass "secretsUnreadable"), so its "none" is the same
+				// guess the fallback makes; the engine tag alone must not prove it.
+				const state = buildDashboardState({
+					snapshots: [],
+					reader: makeReader({}),
+					declared: {
+						source: "engine",
+						views: [
+							makeDeclared({
+								secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+								syncError: SECRETS_READ_FAILED_MESSAGE,
+								syncErrorClass: "secretsUnreadable",
+							}),
+						],
+					},
+				});
+
+				assert.deepStrictEqual(declaredRow(state).config.secrets, { kind: "unproven" });
+			});
+
+			test("a salt-durability skip read its blob, so its locations stay proven despite the shared class", () => {
+				// The engine reuses "secretsUnreadable" for salt-durability skips
+				// whose secret read SUCCEEDED (only the message differs); marking
+				// those unproven would lock the row out of editing all session.
+				const state = buildDashboardState({
+					snapshots: [],
+					reader: makeReader({}),
+					declared: {
+						source: "engine",
+						views: [
+							makeDeclared({
+								secrets: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "none" },
+								syncError: SALT_UNAVAILABLE_MESSAGE,
+								syncErrorClass: "secretsUnreadable",
+							}),
+						],
+					},
+				});
+
+				assert.deepStrictEqual(declaredRow(state).config.secrets, {
+					kind: "proven",
+					locations: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "none" },
+				});
+			});
+
+			test("an unreadable blob with every secret inline still proves, and a non-read sync failure proves as usual", () => {
+				const state = buildDashboardState({
+					snapshots: [],
+					reader: makeReader({}),
+					declared: {
+						source: "engine",
+						views: [
+							makeDeclared({
+								secrets: { apiKey: "settings", oauthClientSecret: "settings", virtualKeyValue: "settings" },
+								syncError: SECRETS_READ_FAILED_MESSAGE,
+								syncErrorClass: "secretsUnreadable",
+							}),
+							// An upsert failure happens AFTER a successful blob read, so
+							// its locations stay proven facts.
+							makeDeclared({
+								label: "Upsert",
+								baseUrl: "http://upsert.test",
+								secrets: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "none" },
+								syncError: "upsert refused",
+								syncErrorClass: "upsertFailed",
+							}),
+						],
+					},
+				});
+
+				const byLabel = new Map(state.servers.map((server) => [server.label, server]));
+				const inline = byLabel.get("Prod");
+				assert.ok(inline?.origin === "declared");
+				assert.deepStrictEqual(inline.config.secrets, {
+					kind: "proven",
+					locations: { apiKey: "settings", oauthClientSecret: "settings", virtualKeyValue: "settings" },
+				});
+				const upsert = byLabel.get("Upsert");
+				assert.ok(upsert?.origin === "declared");
+				assert.deepStrictEqual(upsert.config.secrets, {
+					kind: "proven",
+					locations: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "none" },
+				});
+			});
 		});
 
 		test("external rows carry an opaque, push-stable adopt handle; declared rows do not", () => {
