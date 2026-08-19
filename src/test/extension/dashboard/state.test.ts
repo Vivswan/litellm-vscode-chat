@@ -1565,7 +1565,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-prod-labeled:http://x.test",
 							label: "Prod",
