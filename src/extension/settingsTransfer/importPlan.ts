@@ -20,6 +20,7 @@ import {
 import type { SecretFieldId } from "../../shared/serverEntry";
 import { OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
+import { restructureServers } from "../migrations/settingsRedesign/entries";
 import type { StoredSecretOwners, StoredServerSecrets } from "../servers/serverSync/secrets";
 import { secretDestination } from "../servers/serverSync/secrets";
 import type { DeclaredServer, ServerEntryReport } from "../servers/serverSync/setting";
@@ -60,10 +61,12 @@ export interface SkippedKey {
 /** One entry of the file's servers array, with its acceptance verdict for the preview. */
 export interface IncomingServer {
 	/**
-	 * The raw entry exactly as the file carries it - inline secret values
-	 * included when the file was exported with them. It must never cross the
-	 * webview boundary or reach the log buffer; the preview surfaces render the
-	 * report beside it, not the entry itself.
+	 * The entry as the import would write it: the file's entry normalized to
+	 * the current settings shape (the settings-redesign restructure, so a
+	 * pre-redesign flat export lands working entries instead of waiting for
+	 * the next activation's migration), inline secret values still in place.
+	 * It must never cross the webview boundary or reach the log buffer; the
+	 * preview surfaces render the report beside it, not the entry itself.
 	 */
 	readonly raw: unknown;
 	/** The entry's verdict, from the same serverSettingReports pass the dashboard diagnostics run. */
@@ -223,8 +226,15 @@ export function planSettingsImport(
 				skippedKeys.push({ key, reason: "wrong-type" });
 				continue;
 			}
-			const reports = serverSettingReports(value);
-			value.forEach((raw: unknown, index) => {
+			// Normalize to the current settings shape FIRST - the same restructure
+			// the activation migration applies, index-stable. A pre-redesign flat
+			// export otherwise lands entries the parser reads as credential-less
+			// until the next activation (its group syncs mis-credentialed), and
+			// the flat-vs-nested collision rule stays the migration's one rule.
+			const restructured = restructureServers(value).value;
+			const incoming: readonly unknown[] = Array.isArray(restructured) ? restructured : value;
+			const reports = serverSettingReports(incoming);
+			incoming.forEach((raw: unknown, index) => {
 				const report = reports[index] ?? { index, problems: [], accepted: false };
 				// An uncertifiable shape must not land in the settings file (its
 				// text is presumed to be a credential); the entry skips with the

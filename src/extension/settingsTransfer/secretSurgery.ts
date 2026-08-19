@@ -3,7 +3,8 @@
  * positions the auth grammar admits (per parseAuth): `auth.apiKey`,
  * `auth.oauth.apiKey`, `auth.oauth.clientSecret`, `auth.virtualKey.value`, and
  * `auth.oauth.virtualKey.value` - plus the pre-redesign flat shape's top-level
- * secret fields, which map 1:1 onto the blob's ids. Export-without-secrets
+ * secret fields, which map 1:1 onto the blob's ids when no record-shaped auth
+ * object outranks them (see StrippedEntry.secrets). Export-without-secrets
  * strips them out; import moves them from the file into SecretStorage;
  * export-with-secrets materializes stored blobs back into the nested
  * positions.
@@ -55,14 +56,16 @@ export interface StrippedEntry {
 	readonly entry: Readonly<Record<string, unknown>>;
 	/**
 	 * The removed values by flat secret field, ready for SecretStorage writes.
-	 * The flat top-level positions are taken first, so on a collision a nested
-	 * auth position (the newer intent, matching the migration's merge rule)
-	 * overwrites the flat one; within the auth subtree, positions are walked in
-	 * the module-comment order and a later one overwrites an earlier one (two
+	 * Flat-vs-nested collisions resolve by the settings-redesign migration's
+	 * OWN rule, so a transfer can never change which credentials an entry
+	 * sends: a record-shaped `auth` object wins WHOLESALE - flat secret text
+	 * beside it is removed and DISCARDED, never moved into the blob, exactly
+	 * as the activation migration discards it - and only an entry without a
+	 * record auth maps its flat fields 1:1 onto the blob's ids (the pre-
+	 * redesign shape). Within the auth subtree, positions are walked in the
+	 * module-comment order and a later one overwrites an earlier one (two
 	 * nested positions collide onto one field only in an auth shape parseAuth
-	 * would reject). The take is PER FIELD, so a hand-mixed entry keeps a flat
-	 * secret whose field the nested side does not set, even though the
-	 * migration's own merge lets the nested object win wholesale.
+	 * would reject).
 	 */
 	readonly secrets: StoredServerSecrets;
 	/**
@@ -138,13 +141,21 @@ export function stripEntrySecrets(rawEntry: Readonly<Record<string, unknown>>): 
 	const entry = cloneJson(rawEntry) as Record<string, unknown>;
 	const secrets: MutableSecrets = {};
 	// The pre-redesign flat shape parked secrets at the entry's top level under
-	// the blob's own field ids, so they move 1:1 - taken FIRST, letting a
-	// nested auth position win a blob-slot collision (see StrippedEntry.secrets).
-	// A container left at one of these keys could still hide text; that flags
-	// the entry rather than being guessed at.
+	// the blob's own field ids. Beside a record-shaped auth object they DISCARD
+	// instead (the migration's nested-wins-wholesale rule; see
+	// StrippedEntry.secrets); without one they move 1:1. A container left at
+	// one of these keys could still hide text; that flags the entry rather
+	// than being guessed at.
+	const nestedAuthWins = isRecord(rawEntry.auth);
 	let flatResidue = false;
 	for (const field of SECRET_FIELD_IDS) {
-		takeSecret(entry, field, field, secrets);
+		if (nestedAuthWins) {
+			if (usableText(entry[field]) !== undefined) {
+				delete entry[field];
+			}
+		} else {
+			takeSecret(entry, field, field, secrets);
+		}
 		if (!textless(entry[field])) {
 			flatResidue = true;
 		}

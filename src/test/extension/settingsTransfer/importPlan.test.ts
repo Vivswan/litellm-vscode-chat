@@ -401,21 +401,49 @@ suite("extension/settingsTransfer/importPlan", () => {
 			assert.ok(!JSON.stringify(application.serversValue).includes("sk-1"));
 		});
 
-		test("a pre-redesign flat entry imports losslessly: kept, its flat secrets moved to secret storage", () => {
+		test("a pre-redesign flat entry lands restructured, its flat secrets moved to secret storage", () => {
 			// Old-format export files (flat credential fields, envelope v1) must
-			// keep importing: the entry lands, the secret leaves the settings
-			// file for SecretStorage, and the activation-time restructure heals
-			// the remaining flat non-secret fields.
+			// keep importing AND work immediately: the entry lands in the current
+			// shape (the same restructure the activation migration applies), so
+			// its group never syncs credential-less while waiting for the next
+			// activation. The lone oauthTokenUrl is a partial OAuth the old
+			// runtime ignored; the restructure drops it like the migration does.
 			const incoming = [server("Old", { apiKey: "sk-test-flat", oauthTokenUrl: "http://idp.test/token" })];
 			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, undefined);
 			assert.strictEqual(plan.incomingServers[0]?.skipped, false, "the flat shape must not be skipped");
 			const application = resolveImportPlan(plan, {});
-			assert.deepStrictEqual(application.serversValue, [server("Old", { oauthTokenUrl: "http://idp.test/token" })]);
+			assert.deepStrictEqual(application.serversValue, [server("Old")]);
 			assert.deepStrictEqual(application.secretWrites, [
 				{ label: "Old", secrets: { apiKey: "sk-test-flat" }, owners: { apiKey: "http://old.test" } },
 			]);
 			assert.strictEqual(application.counts.imported, 1);
 			assert.ok(!JSON.stringify(application.serversValue).includes("sk-test-flat"));
+		});
+
+		test("a pre-redesign flat OAuth export lands new-shaped with its client secret paired to the token URL", () => {
+			const incoming = [
+				server("Old", {
+					oauthTokenUrl: "http://idp.test/token",
+					oauthClientId: "cid",
+					oauthClientSecret: "cs-test-1",
+				}),
+			];
+			const plan = planSettingsImport({ [SERVERS_SETTING_KEY]: incoming }, undefined);
+			const application = resolveImportPlan(plan, {});
+			assert.deepStrictEqual(application.serversValue, [
+				{ ...server("Old"), auth: { oauth: { tokenUrl: "http://idp.test/token", clientId: "cid" } } },
+			]);
+			// The ownership stamp pairs the moved client secret with the token URL
+			// the restructured entry actually sends it to; pre-restructure the
+			// entry parsed credential-less and the stamp would have refused it.
+			assert.deepStrictEqual(application.secretWrites, [
+				{
+					label: "Old",
+					secrets: { oauthClientSecret: "cs-test-1" },
+					owners: { oauthClientSecret: "http://idp.test/token" },
+				},
+			]);
+			assert.ok(!JSON.stringify(application.serversValue).includes("cs-test-1"));
 		});
 
 		test("plan-skipped entries and within-file duplicate labels count as skipped", () => {

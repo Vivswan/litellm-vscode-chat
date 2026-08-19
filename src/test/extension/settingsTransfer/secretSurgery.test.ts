@@ -207,6 +207,24 @@ suite("extension/settingsTransfer/secretSurgery", () => {
 			assert.strictEqual(stripped.unsanitizable, false);
 		});
 
+		test("a record auth wins WHOLESALE: a flat secret beside it is discarded, never moved into the blob", () => {
+			// The settings-redesign migration drops every flat auth field once a
+			// nested auth object exists, so the transfer must too - taking the
+			// flat virtualKeyValue into the blob would make an export+import
+			// round trip send a credential the migrated live entry never sends.
+			const raw = {
+				label: "A",
+				baseUrl: "http://a.test",
+				virtualKeyValue: "vk-flat-forgotten",
+				auth: { apiKey: "sk-nested" },
+			};
+			const stripped = stripEntrySecrets(raw);
+			assert.deepStrictEqual(stripped.secrets, { apiKey: "sk-nested" });
+			assert.deepStrictEqual(stripped.entry, { label: "A", baseUrl: "http://a.test" });
+			assert.strictEqual(stripped.unsanitizable, false);
+			assert.ok(!JSON.stringify(stripped).includes("vk-flat-forgotten"));
+		});
+
 		test("a container left at a flat secret key flags unsanitizable; textless occupants do not", () => {
 			for (const flat of [{ apiKey: ["sk-test-hidden"] }, { virtualKeyValue: { nested: "sk-test-hidden" } }]) {
 				const raw = { label: "A", baseUrl: "http://a.test", ...flat };
