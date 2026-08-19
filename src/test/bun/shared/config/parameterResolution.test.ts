@@ -106,7 +106,7 @@ describe("shared/config parameterResolution resolveModelParameters", () => {
 		assert.deepStrictEqual(resolved.sources.get("top_p")?.source, { layer: "global", key: "gpt-5*" });
 	});
 
-	test("an inherited field is attributed to its writer, with inheritedFrom as the signal", () => {
+	test("an inherited field is attributed to its writer, with the winning record on inheritedBy", () => {
 		const resolved = resolveModelParameters({
 			rawModelId: "gpt-5.6",
 			globalParameters: {
@@ -116,8 +116,8 @@ describe("shared/config parameterResolution resolveModelParameters", () => {
 		});
 		const topP = resolved.sources.get("top_p");
 		assert.deepStrictEqual(topP?.source, { layer: "global", key: "*" });
-		assert.strictEqual(topP?.inheritedFrom, "*");
-		assert.strictEqual(resolved.sources.get("temperature")?.inheritedFrom, undefined, "own fields are not inherited");
+		assert.strictEqual(topP?.inheritedBy, "gpt-5*", "the winning record that inherited the value, never its writer");
+		assert.strictEqual(resolved.sources.get("temperature")?.inheritedBy, undefined, "own fields are not inherited");
 	});
 
 	test("forced fields ride into forcedParams, and a global force beats a plain entry value", () => {
@@ -152,7 +152,7 @@ describe("shared/config parameterResolution resolveModelParameters", () => {
 		});
 		assert.deepStrictEqual(resolved.forcedParams, { temperature: 1 });
 		assert.strictEqual(resolved.sources.get("temperature")?.forced, true);
-		assert.strictEqual(resolved.sources.get("temperature")?.inheritedFrom, "gpt*");
+		assert.strictEqual(resolved.sources.get("temperature")?.inheritedBy, "gpt-5.6");
 	});
 
 	test("forcing a provider-owned or underscore key is refused with the unforceable-key diagnostic", () => {
@@ -330,7 +330,7 @@ describe("shared/config parameterResolution projectEffectiveParameters", () => {
 			"unknown underscore keys are reserved and never surface as rows"
 		);
 		const topP = projection.rows.find((row) => row.name === "top_p");
-		assert.strictEqual(topP?.inheritedFrom, "*");
+		assert.strictEqual(topP?.inheritedBy, "gpt-5*");
 		assert.deepStrictEqual(projection.maxTokens, { value: 32000, source: "declared" });
 	});
 

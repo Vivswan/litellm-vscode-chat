@@ -43,7 +43,7 @@ const fixture: RenderFixture = {
 							value: 0.3,
 							sent: true,
 							source: { layer: "global", key: "gpt-5*" },
-							inheritedFrom: "gpt-5*",
+							inheritedBy: "gpt-5.6",
 							shadowed: [{ layer: "global", key: "*", value: 0.7 }],
 						},
 						{

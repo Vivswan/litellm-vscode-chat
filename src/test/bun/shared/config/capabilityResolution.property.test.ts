@@ -381,7 +381,7 @@ function frozenParse(record: Readonly<Record<string, unknown>>): FrozenParsed {
 interface FrozenCandidate {
 	readonly level: CapabilityLevel;
 	readonly key?: string | undefined;
-	readonly inheritedFrom?: string | undefined;
+	readonly inheritedBy?: string | undefined;
 	readonly value: number | boolean;
 }
 
@@ -417,7 +417,7 @@ function frozenResolve(input: ResolveModelCapabilitiesInput): {
 		resolution: RecordChainResolution,
 		name: CapabilityFieldName,
 		wantFallback: boolean
-	): { value: number | boolean; key: string; inheritedFrom?: string } | undefined => {
+	): { value: number | boolean; key: string; inheritedBy?: string } | undefined => {
 		const field = resolution.fields.get(name);
 		if (field === undefined || field.fallback !== wantFallback) {
 			return undefined;
@@ -426,7 +426,7 @@ function frozenResolve(input: ResolveModelCapabilitiesInput): {
 			value: field.value as number | boolean,
 			key: field.sourceKey,
 			...(resolution.winnerKey !== undefined && field.sourceKey !== resolution.winnerKey
-				? { inheritedFrom: field.sourceKey }
+				? { inheritedBy: resolution.winnerKey }
 				: {}),
 		};
 	};
@@ -476,11 +476,11 @@ function frozenResolve(input: ResolveModelCapabilitiesInput): {
 			value: winner.value,
 			level: winner.level,
 			...(winner.key !== undefined ? { key: winner.key } : {}),
-			...(winner.inheritedFrom !== undefined ? { inheritedFrom: winner.inheritedFrom } : {}),
+			...(winner.inheritedBy !== undefined ? { inheritedBy: winner.inheritedBy } : {}),
 			shadowed: shadowed.map((candidate) => ({
 				level: candidate.level,
 				...(candidate.key !== undefined ? { key: candidate.key } : {}),
-				...(candidate.inheritedFrom !== undefined ? { inheritedFrom: candidate.inheritedFrom } : {}),
+				...(candidate.inheritedBy !== undefined ? { inheritedBy: candidate.inheritedBy } : {}),
 				value: candidate.value,
 			})),
 		};
@@ -751,9 +751,9 @@ describe("shared/config capabilityResolution properties", () => {
 					return {
 						value: field.value as CapabilityJsonValue,
 						key: field.sourceKey,
-						inheritedFrom:
+						inheritedBy:
 							resolution.winnerKey !== undefined && field.sourceKey !== resolution.winnerKey
-								? field.sourceKey
+								? resolution.winnerKey
 								: undefined,
 					};
 				};
@@ -764,7 +764,7 @@ describe("shared/config capabilityResolution properties", () => {
 							value: CapabilityJsonValue;
 							level: CapabilityLevel;
 							key?: string | undefined;
-							inheritedFrom?: string | undefined;
+							inheritedBy?: string | undefined;
 					  }
 					| undefined => {
 					const entryOverride = layerField(entry, name, false);
@@ -808,7 +808,7 @@ describe("shared/config capabilityResolution properties", () => {
 					assert.deepStrictEqual(field.value, expected.value, name);
 					assert.strictEqual(field.level, expected.level, name);
 					assert.strictEqual(field.key, expected.key, name);
-					assert.strictEqual(field.inheritedFrom, expected.inheritedFrom, name);
+					assert.strictEqual(field.inheritedBy, expected.inheritedBy, name);
 				}
 				// And nothing else: every non-core effective field is a user-set or
 				// server-carried extra from the sets above.

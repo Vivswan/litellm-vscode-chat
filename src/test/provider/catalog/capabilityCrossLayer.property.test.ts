@@ -627,14 +627,14 @@ suite("provider/catalog capability cross-layer properties", () => {
 						value: field.value as CapabilityJsonValue,
 						key: field.sourceKey,
 						...(resolution.winnerKey !== undefined && field.sourceKey !== resolution.winnerKey
-							? { inheritedFrom: field.sourceKey }
+							? { inheritedBy: resolution.winnerKey }
 							: {}),
 					};
 				};
 				interface Candidate {
 					readonly level: CapabilityLevel;
 					readonly key?: string;
-					readonly inheritedFrom?: string;
+					readonly inheritedBy?: string;
 					readonly value: CapabilityJsonValue;
 				}
 				const candidatesFor = (name: string): Candidate[] => {
@@ -686,11 +686,11 @@ suite("provider/catalog capability cross-layer properties", () => {
 						value: winner.value,
 						level: winner.level,
 						...(winner.key !== undefined ? { key: winner.key } : {}),
-						...(winner.inheritedFrom !== undefined ? { inheritedFrom: winner.inheritedFrom } : {}),
+						...(winner.inheritedBy !== undefined ? { inheritedBy: winner.inheritedBy } : {}),
 						shadowed: shadowed.map((candidate) => ({
 							level: candidate.level,
 							...(candidate.key !== undefined ? { key: candidate.key } : {}),
-							...(candidate.inheritedFrom !== undefined ? { inheritedFrom: candidate.inheritedFrom } : {}),
+							...(candidate.inheritedBy !== undefined ? { inheritedBy: candidate.inheritedBy } : {}),
 							value: candidate.value,
 						})),
 					};

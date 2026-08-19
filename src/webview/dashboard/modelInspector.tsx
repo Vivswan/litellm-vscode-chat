@@ -53,11 +53,13 @@ import { formatTokens } from "./models";
 import type { MarkView, ProvenanceView } from "./provenance";
 import {
 	approxWidthCh,
+	CellMarks,
+	capabilityCellProvenance,
 	capabilityProvenance,
 	forceWord,
-	inheritedWord,
 	Mark,
 	Provenance,
+	parameterCellProvenance,
 	parameterProvenance,
 } from "./provenance";
 import { RecordChainFigure } from "./recordChain";
@@ -374,27 +376,19 @@ function ParameterRow({
 	/** The per-row jump to the record that owns the value; absent, no affordance renders. */
 	onEditSource?: ((source: ParameterSourceRef) => void) | undefined;
 }) {
+	const { source, marks } = parameterCellProvenance({
+		layer: row.source.layer,
+		key: row.source.key,
+		forced: row.forced,
+		inheritedBy: row.inheritedBy,
+	});
 	return (
 		<>
 			<tr className={row.sent ? undefined : "res-not-sent"}>
 				<td className="res-name">{row.name}</td>
 				<ValueCell text={formatJsonValue(row.value)} numeric={typeof row.value === "number"} />
 				<td className="res-source">
-					<Provenance source={parameterProvenance(row.source)} />{" "}
-					{row.inheritedFrom !== undefined ? (
-						<Mark mark={{ word: inheritedWord() }}>
-							{" "}
-							<code>{row.inheritedFrom}</code>
-						</Mark>
-					) : null}{" "}
-					{row.forced === true ? (
-						<Mark
-							mark={{
-								word: forceWord(),
-								detail: l10n.t("Overrides runtime options and the picker configuration."),
-							}}
-						/>
-					) : null}{" "}
+					<Provenance source={source} /> <CellMarks marks={marks} />{" "}
 					{row.skipReason !== undefined ? (
 						<span className="mark-quiet">
 							<HoverTip tip={skipReasonText(row.skipReason)}>
@@ -460,7 +454,11 @@ function FieldRow({
 	/** The per-row jump to the record that owns the value; renders only on record-sourced rows. */
 	onEditField?: ((level: CapabilityLevel, key: string) => void) | undefined;
 }) {
-	const { source, mark } = capabilityProvenance(field.level, field.key);
+	const { source, marks } = capabilityCellProvenance({
+		level: field.level,
+		key: field.key,
+		inheritedBy: field.inheritedBy,
+	});
 	const editable =
 		onEditField !== undefined &&
 		field.key !== undefined &&
@@ -476,13 +474,7 @@ function FieldRow({
 				</td>
 				<ValueCell text={formatValue(name, field.value, currencySymbol)} numeric={typeof field.value === "number"} />
 				<td className="res-source">
-					<Provenance source={source} /> {mark !== undefined ? <Mark mark={mark} /> : null}{" "}
-					{field.inheritedFrom !== undefined ? (
-						<Mark mark={{ word: inheritedWord() }}>
-							{" "}
-							<code>{field.inheritedFrom}</code>
-						</Mark>
-					) : null}
+					<Provenance source={source} /> <CellMarks marks={marks} />
 					{editable ? (
 						<RowEdit
 							label={capabilityEditLabel(field.level, field.key ?? "", serverLabel)}
@@ -644,7 +636,11 @@ function SupportedParamsBlock({
 	const items = (
 		Array.isArray(field.value) ? field.value.filter((item): item is string => typeof item === "string") : []
 	).sort();
-	const { source, mark } = capabilityProvenance(field.level, field.key);
+	const { source, marks } = capabilityCellProvenance({
+		level: field.level,
+		key: field.key,
+		inheritedBy: field.inheritedBy,
+	});
 	const editable =
 		onEditField !== undefined &&
 		field.key !== undefined &&
@@ -659,7 +655,7 @@ function SupportedParamsBlock({
 				meta={
 					<>
 						<span className="params-count">{parameterCountText(items.length)}</span> <Provenance source={source} />{" "}
-						{mark !== undefined ? <Mark mark={mark} /> : null}
+						<CellMarks marks={marks} />
 					</>
 				}
 				action={

@@ -999,7 +999,7 @@
  "inheritable fields (default)": "可繼承欄位 (預設)",
  "inheritable/Checkbox label on a record row; marks the field as inheritable by more specific records.": "可繼承",
  "inheritance stops here": "繼承到此為止",
- "inherited from/Directive mark on a resolved value: the winning record inherited it from the record named next": "繼承自",
+ "inherited by/Directive mark on a resolved value: the record named next inherited it from the badge's source record": "繼承方",
  "inherits": "繼承",
  "inherits custom": "繼承自訂",
  "inherits everything": "繼承全部",

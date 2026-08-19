@@ -351,7 +351,7 @@ export function buildResolvedModelsView(query: ResolvedModelsQuery): ResolvedMod
 				valueText: formatJsonValue(resolvedParams.params[name]),
 				layer: source.source.layer,
 				key: source.source.key,
-				...(source.inheritedFrom !== undefined ? { inheritedFrom: source.inheritedFrom } : {}),
+				...(source.inheritedBy !== undefined ? { inheritedBy: source.inheritedBy } : {}),
 				...(source.forced === true ? { forced: true as const } : {}),
 			}))
 			.sort((a, b) => a.name.localeCompare(b.name));
@@ -375,7 +375,7 @@ export function buildResolvedModelsView(query: ResolvedModelsQuery): ResolvedMod
 							valueText: formatJsonValue(field.value),
 							level: field.level,
 							...(field.key !== undefined ? { key: field.key } : {}),
-							...(field.inheritedFrom !== undefined ? { inheritedFrom: field.inheritedFrom } : {}),
+							...(field.inheritedBy !== undefined ? { inheritedBy: field.inheritedBy } : {}),
 						},
 					]
 		);

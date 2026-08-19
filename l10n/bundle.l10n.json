@@ -1154,10 +1154,10 @@
 		]
 	},
 	"inheritance stops here": "inheritance stops here",
-	"inherited from/Directive mark on a resolved value: the winning record inherited it from the record named next": {
-		"message": "inherited from",
+	"inherited by/Directive mark on a resolved value: the record named next inherited it from the badge's source record": {
+		"message": "inherited by",
 		"comment": [
-			"Directive mark on a resolved value: the winning record inherited it from the record named next"
+			"Directive mark on a resolved value: the record named next inherited it from the badge's source record"
 		]
 	},
 	"inherits": "inherits",

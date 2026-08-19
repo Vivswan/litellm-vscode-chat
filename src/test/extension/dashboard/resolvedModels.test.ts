@@ -96,13 +96,17 @@ suite("extension/dashboard/resolvedModels", () => {
 			assert.strictEqual(claudeTemperature?.layer, "global");
 		});
 
-		test("an inherited field's cell names the record it came from; a forced field carries its mark", () => {
+		test("an inherited field's cell names the winning record that inherited it; a forced field carries its mark", () => {
 			const view = buildResolvedModelsView(
 				makeQuery({
 					reader: makeReader({
 						"models.parameters": {
 							"gpt*": { temperature: 0.5, _inheritable: true },
 							"gpt-4": { top_p: 1, _force: ["top_p"], _inherit_from: true },
+						},
+						"models.capabilities": {
+							"gpt*": { context_length: 9000, _inheritable: true },
+							"gpt-4": { supports_vision: true, _inherit_from: true },
 						},
 					}),
 				})
@@ -111,10 +115,16 @@ suite("extension/dashboard/resolvedModels", () => {
 			const gpt4 = view.rows.find((row) => row.rawId === "gpt-4");
 			const temperature = gpt4?.parameters.find((cell) => cell.name === "temperature");
 			assert.strictEqual(temperature?.key, "gpt*", "the value's home record, the place to edit it");
-			assert.strictEqual(temperature?.inheritedFrom, "gpt*");
+			assert.strictEqual(temperature?.inheritedBy, "gpt-4", "the winning record, not the value's home");
 			const topP = gpt4?.parameters.find((cell) => cell.name === "top_p");
 			assert.strictEqual(topP?.forced, true);
-			assert.ok(!("inheritedFrom" in (topP ?? {})), "an own field carries no inheritance mark");
+			assert.ok(!("inheritedBy" in (topP ?? {})), "an own field carries no inheritance mark");
+
+			const contextLength = gpt4?.capabilities.find((cell) => cell.name === "context_length");
+			assert.strictEqual(contextLength?.key, "gpt*", "the capability walk keeps the value's home record");
+			assert.strictEqual(contextLength?.inheritedBy, "gpt-4", "and names the winning record that inherited it");
+			const vision = gpt4?.capabilities.find((cell) => cell.name === "supports_vision");
+			assert.ok(!("inheritedBy" in (vision ?? {})), "a capability the winner wrote itself carries no mark");
 		});
 
 		test("open capability fields render extra rows with level and key provenance; the core seven stay put", () => {

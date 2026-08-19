@@ -3140,13 +3140,13 @@
 		margin-bottom: 4px;
 	}
 	/* Inside the table alone, and only once the pane is genuinely narrow, a
-		   provenance chip may wrap at its own spaces: the longest chips ("catalog
-		   (directive ...)", an inherited-from phrase) are what decide the table's
-		   minimum width, and holding them to one line pushed the Inspect column
-		   past a ~900px pane's edge - a half-clipped button at rest. The 920px
-		   tier is the stylesheet's existing wide-to-narrow threshold; above it
-		   the chips stay one line, because a chip folding while space sits
-		   beside it reads as a bug. */
+		   provenance chip may wrap at its own spaces: the longest chips (a badge
+		   plus its marks, e.g. a key wearing force and the inherited mark's own
+		   key) are what decide the table's minimum width, and holding them to one
+		   line pushed the Inspect column past a ~900px pane's edge - a half-clipped
+		   button at rest. The 920px tier is the stylesheet's existing wide-to-narrow
+		   threshold; above it the chips stay one line, because a chip folding while
+		   space sits beside it reads as a bug. */
 	@container pane (width < 920px) {
 		.resolved-scroll .chip-prov {
 			white-space: normal;

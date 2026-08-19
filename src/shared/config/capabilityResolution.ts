@@ -376,8 +376,8 @@ export interface ResolvedCapabilityOverrideField<V extends CapabilityJsonValue =
 	readonly level: CapabilityOverrideLevel;
 	/** The record key whose literal field set it (entry/global) or the directive's catalog ID (directive). */
 	readonly key: string;
-	/** Present when the layer's winning record inherited the field; names the source record (== key). */
-	readonly inheritedFrom?: string | undefined;
+	/** Present when the layer's winning record inherited the field from `key`; names that winning record. */
+	readonly inheritedBy?: string | undefined;
 	/** Lower override levels that also set this field, highest first. */
 	readonly shadowed: readonly ShadowedCapabilityValue[];
 }
@@ -392,8 +392,8 @@ export interface CapabilityFallbackCandidate<V extends CapabilityJsonValue = Cap
 	readonly level: CapabilityFallbackLevel;
 	/** The record key whose literal field carries the value. */
 	readonly key: string;
-	/** Present when the layer's winning record inherited the field; names the source record (== key). */
-	readonly inheritedFrom?: string | undefined;
+	/** Present when the layer's winning record inherited the field from `key`; names that winning record. */
+	readonly inheritedBy?: string | undefined;
 	readonly value: V;
 }
 
@@ -463,7 +463,7 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
 		resolution: RecordChainResolution,
 		name: string,
 		wantFallback: boolean
-	): { value: CapabilityJsonValue; key: string; inheritedFrom?: string } | undefined => {
+	): { value: CapabilityJsonValue; key: string; inheritedBy?: string } | undefined => {
 		const field = resolution.fields.get(name);
 		if (field === undefined || field.fallback !== wantFallback) {
 			return undefined;
@@ -474,7 +474,7 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
 			value: field.value as CapabilityJsonValue,
 			key: field.sourceKey,
 			...(resolution.winnerKey !== undefined && field.sourceKey !== resolution.winnerKey
-				? { inheritedFrom: field.sourceKey }
+				? { inheritedBy: resolution.winnerKey }
 				: {}),
 		};
 	};
@@ -483,7 +483,7 @@ export function resolveCapabilityOverrides(input: ResolveCapabilityOverridesInpu
 		const layered: {
 			level: CapabilityOverrideLevel;
 			key: string;
-			inheritedFrom?: string;
+			inheritedBy?: string;
 			value: CapabilityJsonValue;
 		}[] = [];
 		const fromEntry = layerField(entry, name, false);
@@ -611,8 +611,8 @@ export interface EffectiveCapabilityField<V extends CapabilityJsonValue = Capabi
 	readonly level: CapabilityLevel;
 	/** The source record key (entry/global/fallback) or catalog entry ID (directive/catalog); absent elsewhere. */
 	readonly key?: string | undefined;
-	/** Present when the level's winning record inherited the field; names the source record (== key). */
-	readonly inheritedFrom?: string | undefined;
+	/** Present when the level's winning record inherited the field from `key`; names that winning record. */
+	readonly inheritedBy?: string | undefined;
 	/** Every lower level that also carried a value, highest first; floor and derived never shadow. */
 	readonly shadowed: readonly ShadowedCapabilityValue[];
 }
@@ -642,7 +642,7 @@ export interface EffectiveCapabilities {
 interface LevelCandidate {
 	readonly level: CapabilityLevel;
 	readonly key?: string | undefined;
-	readonly inheritedFrom?: string | undefined;
+	readonly inheritedBy?: string | undefined;
 	readonly value: CapabilityJsonValue;
 }
 
@@ -656,7 +656,7 @@ function resolveField(
 			value: override.value,
 			level: override.level,
 			key: override.key,
-			...(override.inheritedFrom !== undefined ? { inheritedFrom: override.inheritedFrom } : {}),
+			...(override.inheritedBy !== undefined ? { inheritedBy: override.inheritedBy } : {}),
 			shadowed: [...override.shadowed, ...lower],
 		};
 	}
@@ -668,7 +668,7 @@ function resolveField(
 		value: winner.value,
 		level: winner.level,
 		...(winner.key !== undefined ? { key: winner.key } : {}),
-		...(winner.inheritedFrom !== undefined ? { inheritedFrom: winner.inheritedFrom } : {}),
+		...(winner.inheritedBy !== undefined ? { inheritedBy: winner.inheritedBy } : {}),
 		shadowed,
 	};
 }

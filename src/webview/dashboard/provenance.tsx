@@ -8,7 +8,7 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import type { CapabilityLevel } from "../../shared/config/capabilityResolution";
 import { OPENROUTER_MODEL_DIRECTIVE } from "../../shared/config/recordResolution";
 import { HoverTip } from "./help";
@@ -92,11 +92,11 @@ export function fallbackWord(): string {
 	});
 }
 
-/** The inherited mark's word; the key it inherited from renders beside it, in the monospace register. */
-export function inheritedWord(): string {
+/** The inherited mark's word; the winning record that inherited the value renders beside it, in the monospace register. */
+function inheritedWord(): string {
 	return l10n.t({
-		message: "inherited from",
-		comment: ["Directive mark on a resolved value: the winning record inherited it from the record named next"],
+		message: "inherited by",
+		comment: ["Directive mark on a resolved value: the record named next inherited it from the badge's source record"],
 	});
 }
 
@@ -184,44 +184,106 @@ function fallbackMark(): MarkView {
 	};
 }
 
+/**
+ * One mark of a cell's provenance run: the word (with its rule one tip away)
+ * and, for the inherited mark, the record key it points at - data beside the
+ * word, never inside the tip.
+ */
+export interface CellMark {
+	readonly mark: MarkView;
+	readonly operand?: string | undefined;
+}
+
+/** The `_force` mark and the precedence rule the word alone cannot state. */
+function forcedCellMark(): CellMark {
+	return {
+		mark: {
+			word: forceWord(),
+			detail: l10n.t("Overrides runtime options and the picker configuration."),
+		},
+	};
+}
+
+/**
+ * The inherited mark: names the layer's winning record, which pulled the value
+ * from the badge's record instead of writing it. No tip - like the catalog
+ * marks, the word and the key state the whole fact, and a tip would buy a Tab
+ * stop per inherited row for text the row already shows.
+ */
+function inheritedCellMark(inheritedBy: string): CellMark {
+	return { mark: { word: inheritedWord() }, operand: inheritedBy };
+}
+
+/** A parameter cell's provenance-bearing fields, as both registers read them. */
+export interface ParameterCellProvenance {
+	readonly layer: "entry" | "global";
+	readonly key: string;
+	readonly forced?: true | undefined;
+	readonly inheritedBy?: string | undefined;
+}
+
+/** A capability cell's provenance-bearing fields, as both registers read them. */
+export interface CapabilityCellProvenance {
+	readonly level: CapabilityLevel;
+	readonly key?: string | undefined;
+	readonly inheritedBy?: string | undefined;
+}
+
+/**
+ * THE parameter cell derivation, shared by both registers: the inspectors
+ * render this badge and mark list, and the phrase register words the same
+ * list, so the two panels cannot disagree about which marks a cell wears or
+ * which keys they name.
+ */
+export function parameterCellProvenance(cell: ParameterCellProvenance): {
+	readonly source: ProvenanceView;
+	readonly marks: readonly CellMark[];
+} {
+	return {
+		source: parameterProvenance(cell),
+		marks: [
+			...(cell.forced === true ? [forcedCellMark()] : []),
+			...(cell.inheritedBy !== undefined ? [inheritedCellMark(cell.inheritedBy)] : []),
+		],
+	};
+}
+
+/** The capability cell derivation; same contract as parameterCellProvenance. */
+export function capabilityCellProvenance(cell: CapabilityCellProvenance): {
+	readonly source: ProvenanceView;
+	readonly marks: readonly CellMark[];
+} {
+	const { source, mark } = capabilityProvenance(cell.level, cell.key);
+	return {
+		source,
+		marks: [
+			...(mark !== undefined ? [{ mark }] : []),
+			...(cell.inheritedBy !== undefined ? [inheritedCellMark(cell.inheritedBy)] : []),
+		],
+	};
+}
+
+/** A mark in the compact-phrase register: the word plus the key it points at. */
+function markPhrase(cellMark: CellMark): string {
+	return cellMark.operand === undefined ? cellMark.mark.word : `${cellMark.mark.word} ${cellMark.operand}`;
+}
+
 /** A provenance in the compact-phrase register: "scope key; mark, mark". */
 function provenancePhrase(source: ProvenanceView, marks: readonly string[]): string {
 	const base = source.recordKey === undefined ? source.scope : `${source.scope} ${source.recordKey}`;
 	return marks.length > 0 ? `${base}; ${marks.join(", ")}` : base;
 }
 
-/**
- * The inherited mark's phrase words, emitted on PRESENCE: both resolvers set
- * `inheritedFrom` only when the winning record inherited the field, and always
- * to the source record's own key - so presence is the whole signal, exactly as
- * the inspectors' badge register reads it.
- */
-function inheritedMarkWords(inheritedFrom: string | undefined): readonly string[] {
-	return inheritedFrom !== undefined ? [`${inheritedWord()} ${inheritedFrom}`] : [];
-}
-
 /** A parameter cell's provenance in the compact-phrase register (the diagnostics table's chips). */
-export function parameterProvenancePhrase(cell: {
-	readonly layer: "entry" | "global";
-	readonly key: string;
-	readonly forced?: true | undefined;
-	readonly inheritedFrom?: string | undefined;
-}): string {
-	const marks = [...(cell.forced === true ? [forceWord()] : []), ...inheritedMarkWords(cell.inheritedFrom)];
-	return provenancePhrase(parameterProvenance(cell), marks);
+export function parameterProvenancePhrase(cell: ParameterCellProvenance): string {
+	const { source, marks } = parameterCellProvenance(cell);
+	return provenancePhrase(source, marks.map(markPhrase));
 }
 
-/** A capability cell's provenance in the compact-phrase register, from the same map as the badge. */
-export function capabilityProvenancePhrase(cell: {
-	readonly level: CapabilityLevel;
-	readonly key?: string | undefined;
-	readonly inheritedFrom?: string | undefined;
-}): string {
-	const { source, mark } = capabilityProvenance(cell.level, cell.key);
-	return provenancePhrase(source, [
-		...(mark === undefined ? [] : [mark.word]),
-		...inheritedMarkWords(cell.inheritedFrom),
-	]);
+/** A capability cell's provenance in the compact-phrase register, from the same derivation as the badges. */
+export function capabilityProvenancePhrase(cell: CapabilityCellProvenance): string {
+	const { source, marks } = capabilityCellProvenance(cell);
+	return provenancePhrase(source, marks.map(markPhrase));
 }
 
 /**
@@ -258,4 +320,32 @@ export function Mark({ mark, children }: { mark: MarkView; children?: ReactNode 
 		</span>
 	);
 	return mark.detail === undefined ? body : <HoverTip tip={mark.detail}>{body}</HoverTip>;
+}
+
+/**
+ * A cell's marks in the badge register, exactly the list the phrase register
+ * words: the inspectors' source cells render their cell derivation through
+ * here, so the two registers stay one vocabulary by construction.
+ */
+export function CellMarks({ marks }: { marks: readonly CellMark[] }) {
+	return (
+		<>
+			{marks.map((cellMark, index) => (
+				// Positional key: the list is derived per render and never reordered,
+				// and keying by the word would rest on translations never colliding.
+				// biome-ignore lint/suspicious/noArrayIndexKey: see above
+				<Fragment key={index}>
+					{index > 0 ? " " : null}
+					<Mark mark={cellMark.mark}>
+						{cellMark.operand !== undefined ? (
+							<>
+								{" "}
+								<code>{cellMark.operand}</code>
+							</>
+						) : null}
+					</Mark>
+				</Fragment>
+			))}
+		</>
+	);
 }

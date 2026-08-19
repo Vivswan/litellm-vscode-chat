@@ -216,7 +216,12 @@ job each:
 - Provenance chip: outline plus mono, and never severity-toned - provenance
   says where a value came from, never whether that is a problem
   (`dashboard.css .chip-prov`, `dashboard.css .model-inspector .prov`, and
-  `dashboard.css .row-diagnostic-where`).
+  `dashboard.css .row-diagnostic-where`). Its words come from one derivation
+  for both registers, the inspectors' badge-plus-marks and the diagnostics
+  table's compact phrase (`provenance.tsx parameterCellProvenance`), and a
+  mark's key is always the one the badge lacks: the badge names the record
+  that owns the value, the inherited mark the winning record that pulled it
+  in (`provenance.tsx inheritedCellMark`).
 - Field chip: a record row's key/value cell (`recordEditors.tsx chip-field`).
   The registers' one ruled carve-out: these chips carry mono machine text on
   the soft fill, because they are controls, not labels - the fill is what says

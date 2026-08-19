@@ -333,7 +333,7 @@ describe("shared/config capabilityResolution resolveCapabilityOverrides", () => 
 			catalog: EMPTY_CATALOG_LOOKUP,
 		});
 		assert.deepStrictEqual(resolved.fallbackFields.context_length, [
-			{ level: "global-fallback", key: "gpt*", inheritedFrom: "gpt*", value: 111 },
+			{ level: "global-fallback", key: "gpt*", inheritedBy: "gpt-4*", value: 111 },
 		]);
 		assert.strictEqual(resolved.fields.supports_vision?.level, "global");
 	});

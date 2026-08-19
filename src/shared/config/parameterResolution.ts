@@ -180,10 +180,10 @@ interface ResolvedParameterSource {
 	readonly source: ResolvedSourceRef;
 	/**
 	 * Present exactly when the winning layer's record did not write the field
-	 * itself: it was inherited, and this names the record it came from (always
-	 * equal to source.key - presence is the signal).
+	 * itself: it inherited it from source.key, and this names that winning
+	 * record (never equal to source.key by construction).
 	 */
-	readonly inheritedFrom?: string;
+	readonly inheritedBy?: string;
 	/** Lower-precedence layers that also set this key; present only when one really did. */
 	readonly shadowed: readonly (ResolvedSourceRef & { readonly value: unknown })[];
 	/** Present exactly when the value's source record `_force`-marks this key. */
@@ -238,13 +238,13 @@ export function resolveModelParameters(input: ResolveModelParametersInput): Reso
 		layer: ParameterConfigLayer,
 		resolution: RecordChainResolution,
 		name: string
-	): { source: ResolvedSourceRef; inheritedFrom?: string } => {
+	): { source: ResolvedSourceRef; inheritedBy?: string } => {
 		const field = resolution.fields.get(name);
 		const sourceKey = field?.sourceKey ?? resolution.winnerKey ?? "";
 		return {
 			source: { layer, key: sourceKey },
 			...(field !== undefined && resolution.winnerKey !== undefined && field.sourceKey !== resolution.winnerKey
-				? { inheritedFrom: field.sourceKey }
+				? { inheritedBy: resolution.winnerKey }
 				: {}),
 		};
 	};
@@ -349,8 +349,8 @@ export interface EffectiveParameterRow {
 	readonly sent: boolean;
 	readonly skipReason?: ParameterSkipReason | undefined;
 	readonly source: ParameterSourceRef;
-	/** Present when the winning record inherited the value; names the source record (== source.key). */
-	readonly inheritedFrom?: string | undefined;
+	/** Present when the winning record inherited the value from source.key; names that winning record. */
+	readonly inheritedBy?: string | undefined;
 	readonly shadowed: readonly ShadowedParameterValue[];
 	/** Present exactly when `_force` marks this key: the value beats runtime options and the picker. */
 	readonly forced?: true;
@@ -449,7 +449,7 @@ export function projectResolvedParameters(
 			sent: skipReason === undefined,
 			...(skipReason !== undefined ? { skipReason } : {}),
 			source: sourceRef(attribution.source),
-			...(attribution.inheritedFrom !== undefined ? { inheritedFrom: attribution.inheritedFrom } : {}),
+			...(attribution.inheritedBy !== undefined ? { inheritedBy: attribution.inheritedBy } : {}),
 			shadowed: attribution.shadowed.map((shadow) => ({ ...sourceRef(shadow), value: shadow.value })),
 			...(attribution.forced === true ? { forced: true } : {}),
 		});

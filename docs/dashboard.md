@@ -142,7 +142,7 @@ The Diagnostics section also renders the extension's precomputed resolution tabl
 └─ (everything else)             -> 0.7 - 0.9
 ```
 
-- **The flat table**: one row per model with its final resolved values, each carrying a provenance chip (own, inherited from `key`, forced, fallback, server, catalog, floor), a filter box (by model ID or by matcher key - "show everything `gpt-5*` touched"), and a per-row Inspect action opening the model's [inspector](#effective-parameters) in place, over the Diagnostics page.
+- **The flat table**: one row per model with its final resolved values, each carrying a provenance chip (own, inherited by the winning record, forced, fallback, server, catalog, floor), a filter box (by model ID or by matcher key - "show everything `gpt-5*` touched"), and a per-row Inspect action opening the model's [inspector](#effective-parameters) in place, over the Diagnostics page.
 
 One honesty note about the tree: it is drawn against the models your servers serve *right now*. A record node - a regex key especially - shows the live models it currently matches, not everything it could ever match, so the tree changes when the model list does. For the definitive answer about one model, the flat table's per-model row and the inspector are the canonical view.
 

@@ -697,7 +697,8 @@ export interface ResolvedParamCell {
 	readonly layer: "entry" | "global";
 	/** The record key whose literal field carries the value. */
 	readonly key: string;
-	readonly inheritedFrom?: string | undefined;
+	/** Present when the winning record inherited the value from `key`; names that winning record. */
+	readonly inheritedBy?: string | undefined;
 	readonly forced?: true | undefined;
 }
 
@@ -707,7 +708,8 @@ export interface ResolvedCapCell {
 	readonly valueText: string;
 	readonly level: CapabilityLevel;
 	readonly key?: string | undefined;
-	readonly inheritedFrom?: string | undefined;
+	/** Present when the level's winning record inherited the value from `key`; names that winning record. */
+	readonly inheritedBy?: string | undefined;
 }
 
 export interface ResolvedModelRow {

@@ -335,14 +335,19 @@ export const RESOLVED_VIEW: ResolvedModelsView = {
 					children: [
 						{
 							key: "gpt-5*",
-							fields: [{ name: "temperature", valueText: "0.3", inheritable: true, forced: false, fallback: false }],
+							fields: [{ name: "temperature", valueText: "0.3", inheritable: true, forced: true, fallback: false }],
 							barrier: true,
 							inheritFrom: "false",
-							children: [],
-							models: [
-								{ id: "gpt-5.6", resolvedText: "temperature 0.3, max_tokens 8192" },
-								{ id: "gpt-5-mini", resolvedText: "temperature 0.3" },
+							children: [
+								{
+									key: "gpt-5.6",
+									fields: [],
+									barrier: false,
+									children: [],
+									models: [{ id: "gpt-5.6", resolvedText: "temperature 0.3, max_tokens 8192" }],
+								},
 							],
+							models: [{ id: "gpt-5-mini", resolvedText: "temperature 0.3" }],
 						},
 						{
 							key: "claude-sonnet-4",
@@ -403,14 +408,14 @@ export const RESOLVED_VIEW: ResolvedModelsView = {
 			serverLabel: "prod",
 			rawId: "gpt-5.6",
 			scopeKey: "s-prod",
-			matchedKeys: ["*", "gpt-5*"],
+			matchedKeys: ["*", "gpt-5*", "gpt-5.6"],
 			parameters: [
 				{
 					name: "temperature",
 					valueText: "0.3",
 					layer: "global",
 					key: "gpt-5*",
-					inheritedFrom: "gpt-5*",
+					inheritedBy: "gpt-5.6",
 					forced: true,
 				},
 				{ name: "max_tokens", valueText: "8192", layer: "entry", key: "gpt-5.6" },

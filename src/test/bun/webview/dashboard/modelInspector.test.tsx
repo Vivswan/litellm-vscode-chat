@@ -490,7 +490,7 @@ test("an entry override names the entry layer and shows the shadowed global valu
 	expect(shadowed.querySelector(".res-value del")?.textContent).toBe("0.8");
 });
 
-test("an inherited field renders its writer key with the inherited-from note", () => {
+test("an inherited field renders its writer badge with the winning record on the inherited mark", () => {
 	const root = mountParamsAnswered({
 		globalParameters: {
 			"*": { top_p: 0.9, _inheritable: true },
@@ -499,11 +499,11 @@ test("an inherited field renders its writer key with the inherited-from note", (
 	});
 	const rows = Array.from(root.querySelectorAll("table.resolution tbody tr"));
 	const texts = rows.map((row) => (row.textContent ?? "").replace(/\s+/g, " ").trim());
-	// The inheritance is a quiet directive mark naming the record it came from,
-	// beside the badge naming the record that won.
-	expect(texts.some((text) => text.includes("settings *") && text.includes("inherited from *"))).toBe(true);
+	// The inheritance is a quiet directive mark naming the winning record that
+	// pulled the value in, beside the badge naming the record that wrote it.
+	expect(texts.some((text) => text.includes("settings *") && text.includes("inherited by gpt-4*"))).toBe(true);
 	expect(texts.some((text) => text.includes("settings gpt-4*") && !text.includes("inherited"))).toBe(true);
-	expect(root.querySelector(".mark")?.textContent?.replace(/\s+/g, " ").trim()).toBe("inherited from *");
+	expect(root.querySelector(".mark")?.textContent?.replace(/\s+/g, " ").trim()).toBe("inherited by gpt-4*");
 });
 
 test("unknown underscore keys never surface; provider-owned keys render muted with the not-sent reason", () => {
@@ -946,7 +946,7 @@ test("declared, directive-not-found, inherited fields, and diagnostics all rende
 			directive: { kind: "not-found", id: "openai/nope" },
 			fields: {
 				...makeCapabilities().fields,
-				context_length: { value: 200000, level: "global", key: "gpt*", inheritedFrom: "gpt*", shadowed: [] },
+				context_length: { value: 200000, level: "global", key: "gpt*", inheritedBy: "gpt-4", shadowed: [] },
 			},
 			diagnostics: [{ kind: "unrecognized-key", key: "supports_web_search", layer: "global", recordKey: "gpt-4" }],
 		}),
@@ -955,7 +955,7 @@ test("declared, directive-not-found, inherited fields, and diagnostics all rende
 	const text = root.textContent ?? "";
 	expect(text).toContain("Declared model");
 	expect(text).toContain('"openai/nope" was not found');
-	expect(root.querySelector("tbody .mark")?.textContent?.replace(/\s+/g, " ").trim()).toBe("inherited from gpt*");
+	expect(root.querySelector("tbody .mark")?.textContent?.replace(/\s+/g, " ").trim()).toBe("inherited by gpt-4");
 	expect(text).toContain('"supports_web_search" is not a field this extension knows');
 });
 
