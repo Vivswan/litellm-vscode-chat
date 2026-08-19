@@ -17,15 +17,17 @@ import type { FingerprintSaltSession } from "../../fingerprintSalt";
 import { showActionableMessage } from "../../ui/notifier";
 import type { GroupRemovalStore } from "../groupRemovals";
 import type { RemovedEntryEvent, ServerSyncEngine, ServerSyncEnv } from "./engine";
-import { inlineSecretValues, readServerSecrets, updateServerSecret } from "./secrets";
+import { inlineSecretValues, readServerSecretsRecord, secretDestination, updateServerSecret } from "./secrets";
 import type { EntryModelCapabilities, EntryModelParameters } from "./setting";
 import {
+	acceptedEntry,
 	entryApiVersionFor,
 	entryDeclaredModelsFor,
 	entryExpectedFailuresFor,
 	entryHeadersFor,
 	entryModelCapabilitiesFor,
 	entryModelParametersFor,
+	nonSecretIdentityMatches,
 	parseServersSetting,
 } from "./setting";
 
@@ -111,7 +113,7 @@ export function createServerSyncEnv(
 	}
 	return {
 		readServersSetting: readRawServersSetting,
-		readSecrets: (label) => readServerSecrets(context.secrets, label),
+		readSecrets: (label) => readServerSecretsRecord(context.secrets, label),
 		addProviderGroup: (args) => vscode.commands.executeCommand("lm.addLanguageModelsProviderGroup", args),
 		confirmFingerprintsDurable: async () => (await fingerprintSalt.confirmDurable()) === "durable",
 		getFingerprints: () => {
@@ -341,13 +343,41 @@ export function registerSetServerSecretCommand(
 			if (value === undefined) {
 				return;
 			}
-			await updateServerSecret(context.secrets, entryPick.label, fieldPick.field, value.length > 0 ? value : undefined);
+			// The label is re-resolved AFTER the prompts and must still name the
+			// entry the quick pick displayed: the prompts stay open indefinitely,
+			// and an entry swapped in under the label meanwhile (another window, a
+			// hand edit of settings.json) would receive a secret the user entered
+			// for a different host. The same identity comparison the dashboard's
+			// save path refuses through; nothing durable happened, so re-running
+			// the command shows fresh truth.
+			const fresh = acceptedEntry(readRawServersSetting(), entryPick.label);
+			if (fresh === undefined || !nonSecretIdentityMatches(fresh.entry, entryPick.entry)) {
+				logger.log("Set Server Secret refused: the entry changed while the prompts were open", {
+					label: entryPick.label,
+				});
+				void vscode.window.showWarningMessage(
+					l10n.t(
+						'The server entry "{0}" changed while the prompts were open, so nothing was stored. Run the command again.',
+						entryPick.label
+					)
+				);
+				return;
+			}
+			await updateServerSecret(
+				context.secrets,
+				entryPick.label,
+				fieldPick.field,
+				value.length > 0 ? value : undefined,
+				// The stamp records the deliberate pairing: this value belongs to
+				// the destination the just-verified entry names.
+				secretDestination(fresh.entry, fieldPick.field)
+			);
 			logger.log("Server secret updated from the palette", {
 				label: entryPick.label,
 				field: fieldPick.field,
 				cleared: value.length === 0,
 			});
-			if (value.length > 0 && inlineSecretValues(entryPick.entry)[fieldPick.field] !== undefined) {
+			if (value.length > 0 && inlineSecretValues(fresh.entry)[fieldPick.field] !== undefined) {
 				// Inline settings values outrank the stored blob (the inlineSecretValues
 				// rule buildGroupArgs resolves through), so the just-stored secret
 				// stays dormant until the inline one is removed.

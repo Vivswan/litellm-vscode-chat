@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import type { StoredServerSecrets } from "../../../extension/servers/serverSync/secrets";
+import type { StoredSecretsRecord, StoredServerSecrets } from "../../../extension/servers/serverSync/secrets";
 import type { PreImportSnapshot, SnapshotEntry, SnapshotRestore } from "../../../extension/settingsTransfer/snapshot";
 import { buildPreImportSnapshot, planSnapshotRestore } from "../../../extension/settingsTransfer/snapshot";
 import { ALL_SETTING_KEYS } from "../../../shared/config/settingSpec";
@@ -8,7 +8,7 @@ suite("extension/settingsTransfer/snapshot", () => {
 	test("the frozen signatures and the entry shape", () => {
 		const build: (
 			readGlobalSetting: (key: string) => unknown,
-			readServerSecrets: (label: string) => Promise<StoredServerSecrets>,
+			readServerSecrets: (label: string) => Promise<StoredSecretsRecord>,
 			touchedLabels: readonly string[]
 		) => Promise<PreImportSnapshot> = buildPreImportSnapshot;
 		const restore: (snapshot: PreImportSnapshot) => SnapshotRestore = planSnapshotRestore;
@@ -24,7 +24,7 @@ suite("extension/settingsTransfer/snapshot", () => {
 		const blobs: Record<string, StoredServerSecrets> = { A: { apiKey: "sk-a" }, B: {} };
 		const snapshot = await buildPreImportSnapshot(
 			(key) => values[key],
-			(label) => Promise.resolve(blobs[label] ?? {}),
+			(label) => Promise.resolve({ values: blobs[label] ?? {}, owners: {} }),
 			["A", "B", "A"]
 		);
 		assert.deepStrictEqual(Object.keys(snapshot.settings), [...ALL_SETTING_KEYS]);
@@ -42,7 +42,7 @@ suite("extension/settingsTransfer/snapshot", () => {
 	test("the snapshot is JSON-safe by construction on the settings side", async () => {
 		const snapshot = await buildPreImportSnapshot(
 			(key) => (key === "chat.timeout" ? 1 : undefined),
-			() => Promise.resolve({}),
+			() => Promise.resolve({ values: {}, owners: {} }),
 			[]
 		);
 		assert.deepStrictEqual(JSON.parse(JSON.stringify(snapshot.settings)), snapshot.settings);
@@ -67,7 +67,7 @@ suite("extension/settingsTransfer/snapshot", () => {
 				{ key: "servers", value: [] },
 			],
 			settingRemovals: ["usage.statusBar"],
-			blobWrites: [{ label: "A", secrets: { apiKey: "sk-a" } }],
+			blobWrites: [{ label: "A", secrets: { apiKey: "sk-a" }, owners: {} }],
 			blobRemovals: ["B"],
 		});
 	});
@@ -80,7 +80,7 @@ suite("extension/settingsTransfer/snapshot", () => {
 		const blobs: Record<string, StoredServerSecrets> = { kept: { virtualKeyValue: "vk" } };
 		const snapshot = await buildPreImportSnapshot(
 			(key) => values[key],
-			(label) => Promise.resolve(blobs[label] ?? {}),
+			(label) => Promise.resolve({ values: blobs[label] ?? {}, owners: {} }),
 			["kept", "appended-by-import"]
 		);
 		const restore = planSnapshotRestore(snapshot);

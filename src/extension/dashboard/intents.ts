@@ -44,9 +44,11 @@ import { isValidHeaderName, isValidHeaderValue } from "../../shared/util/headers
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import { EXTENSION_SETTINGS_FILTER } from "../servers/serverManagement";
 import { acceptedEntry, inlineSecretValues } from "../servers/serverSync";
+import type { StoredSecretsRecord } from "../servers/serverSync/secrets";
+import { nonSecretIdentityMatches } from "../servers/serverSync/setting";
 import type { AdoptableGroupCredentials } from "./adopt";
 import { applyAdoptServer } from "./adopt";
-import { applySaveServerSetting, nonSecretIdentityMatches } from "./saveServer";
+import { applySaveServerSetting } from "./saveServer";
 import type { DraftConnection } from "./testDraftConnection";
 import { applyTestServerDraft } from "./testDraftConnection";
 
@@ -97,10 +99,20 @@ export interface IntentEnvironment {
 	/** The servers array a write would replace (the user-scope value; the setting is machine-scoped). */
 	readServersSetting(): unknown;
 	writeServersSetting(value: readonly unknown[]): Promise<void>;
-	/** Write one secure-side secret field for a label; undefined deletes it. The value must never be logged. */
-	storeServerSecret(label: string, field: SecretFieldId, value: string | undefined): Promise<void>;
-	/** A label's secure-side blob; read for pairing validation and write rollback, never logged. */
-	readServerSecrets(label: string): Promise<Partial<Readonly<Record<SecretFieldId, string>>>>;
+	/**
+	 * Write one secure-side secret field for a label; undefined deletes it.
+	 * `owner` is the ownership stamp - the destination the value is being
+	 * paired with (secretDestination), or undefined only when deleting or
+	 * restoring a recorded pre-write state. The value must never be logged.
+	 */
+	storeServerSecret(
+		label: string,
+		field: SecretFieldId,
+		value: string | undefined,
+		owner: string | undefined
+	): Promise<void>;
+	/** A label's secure-side blob with its ownership stamps; read for pairing validation and write rollback, never logged. */
+	readServerSecrets(label: string): Promise<StoredSecretsRecord>;
 	/** Delete a label's whole secure-side blob (the cleanup half of a rename). */
 	deleteServerSecrets(label: string): Promise<void>;
 	/** Ask the sync engine for a pass; secure-only changes fire no configuration event. */

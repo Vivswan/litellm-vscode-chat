@@ -47,7 +47,7 @@ suite("extension/settingsTransfer/importPlan", () => {
 			report: { index: 0, label: "A", baseUrl: "http://a.test", problems: [], accepted: true },
 			skipped: false,
 		};
-		const secretWrite: SecretWrite = { label: "A", secrets: {} };
+		const secretWrite: SecretWrite = { label: "A", secrets: {}, owners: {} };
 		assert.ok(write && skipped && decision && collision && incoming && secretWrite);
 	});
 
@@ -344,7 +344,9 @@ suite("extension/settingsTransfer/importPlan", () => {
 			// mutated, never reordered.
 			assert.strictEqual(application.serversValue?.[0], current[0]);
 			assert.strictEqual(application.serversValue?.[2], current[2]);
-			assert.deepStrictEqual(application.secretWrites, [{ label: "B", secrets: { apiKey: "sk-new" } }]);
+			assert.deepStrictEqual(application.secretWrites, [
+				{ label: "B", secrets: { apiKey: "sk-new" }, owners: { apiKey: "http://new-b.test" } },
+			]);
 			assert.deepStrictEqual(application.touchedLabels, ["B"]);
 			assert.deepStrictEqual(application.counts, { imported: 0, overwritten: 1, renamed: 0, skipped: 0 });
 		});
@@ -393,8 +395,8 @@ suite("extension/settingsTransfer/importPlan", () => {
 			// The empty record still matters at apply time: stale blob fields not
 			// among the writes are cleared.
 			assert.deepStrictEqual(application.secretWrites, [
-				{ label: "Keys", secrets: { apiKey: "sk-1" } },
-				{ label: "NoKeys", secrets: {} },
+				{ label: "Keys", secrets: { apiKey: "sk-1" }, owners: { apiKey: "http://keys.test" } },
+				{ label: "NoKeys", secrets: {}, owners: {} },
 			]);
 			assert.ok(!JSON.stringify(application.serversValue).includes("sk-1"));
 		});
@@ -409,7 +411,9 @@ suite("extension/settingsTransfer/importPlan", () => {
 			assert.strictEqual(plan.incomingServers[0]?.skipped, false, "the flat shape must not be skipped");
 			const application = resolveImportPlan(plan, {});
 			assert.deepStrictEqual(application.serversValue, [server("Old", { oauthTokenUrl: "http://idp.test/token" })]);
-			assert.deepStrictEqual(application.secretWrites, [{ label: "Old", secrets: { apiKey: "sk-test-flat" } }]);
+			assert.deepStrictEqual(application.secretWrites, [
+				{ label: "Old", secrets: { apiKey: "sk-test-flat" }, owners: { apiKey: "http://old.test" } },
+			]);
 			assert.strictEqual(application.counts.imported, 1);
 			assert.ok(!JSON.stringify(application.serversValue).includes("sk-test-flat"));
 		});
@@ -432,13 +436,17 @@ suite("extension/settingsTransfer/importPlan", () => {
 			assert.strictEqual(plan.secretFieldCount, 0, "only the representative's inline secrets count");
 			const application = resolveImportPlan(plan, {});
 			assert.deepStrictEqual(application.serversValue, [server("A", { budget: 7 })]);
-			assert.deepStrictEqual(application.secretWrites, [{ label: "A", secrets: {} }]);
+			assert.deepStrictEqual(application.secretWrites, [{ label: "A", secrets: {}, owners: {} }]);
 			assert.deepStrictEqual(application.counts, { imported: 1, overwritten: 0, renamed: 0, skipped: 1 });
 
 			// With no claiming sibling, the fragment itself still imports.
 			const alone = resolveImportPlan(planSettingsImport({ [SERVERS_SETTING_KEY]: [fragment] }, undefined), {});
 			assert.deepStrictEqual(alone.serversValue, [{ label: "A" }]);
-			assert.deepStrictEqual(alone.secretWrites, [{ label: "A", secrets: { apiKey: "sk-frag" } }]);
+			// The fragment has no usable baseUrl, so its secret is stamped for no
+			// destination ("") and stays refused until a deliberate re-pairing.
+			assert.deepStrictEqual(alone.secretWrites, [
+				{ label: "A", secrets: { apiKey: "sk-frag" }, owners: { apiKey: "" } },
+			]);
 		});
 
 		test("a garbage current servers value is replaced by the merged array instead of crashing", () => {
@@ -465,7 +473,9 @@ suite("extension/settingsTransfer/importPlan", () => {
 			]);
 			const application = resolveImportPlan(plan, { A: { action: "rename", newLabel: "  A-new  " } });
 			assert.deepStrictEqual(application.serversValue, [server("A"), { ...server("A"), label: "A-new" }]);
-			assert.deepStrictEqual(application.secretWrites, [{ label: "A-new", secrets: { apiKey: "sk" } }]);
+			assert.deepStrictEqual(application.secretWrites, [
+				{ label: "A-new", secrets: { apiKey: "sk" }, owners: { apiKey: "http://a.test" } },
+			]);
 			assert.deepStrictEqual(application.touchedLabels, ["A-new"]);
 		});
 

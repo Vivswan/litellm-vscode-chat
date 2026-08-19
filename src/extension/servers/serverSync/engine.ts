@@ -19,8 +19,8 @@ import { OPTIONAL_ENTRY_FIELDS, pickNonSecretOptionalFields } from "../../../sha
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { fingerprint } from "../../../shared/util/fingerprint";
 import { isUnsafeRecordKey } from "../../../shared/util/json";
-import type { StoredServerSecrets } from "./secrets";
-import { inlineSecretValues, secretLocations } from "./secrets";
+import type { StoredSecretsRecord, StoredServerSecrets } from "./secrets";
+import { inlineSecretValues, resolveOwnedSecrets, secretLocations } from "./secrets";
 import type { DeclaredServer, EntryModelCapabilities, EntryModelParameters } from "./setting";
 import { acceptedEntry, parseServersSetting, stillDeclaredIn } from "./setting";
 
@@ -29,8 +29,9 @@ import { acceptedEntry, parseServersSetting, stillDeclaredIn } from "./setting";
  * failed outright (non-duplicate), so no live group was created for the entry's
  * configuration. "blocked": a group with the name exists and the host refused
  * the duplicate. "secretsUnreadable": the pass skipped the entry, because its
- * stored secrets could not be read or the fingerprint salt could not be
- * confirmed durable (SALT_UNAVAILABLE_MESSAGE tells the two apart in the view).
+ * stored secrets could not be used - unreadable, refused by the ownership
+ * check, or the fingerprint salt could not be confirmed durable (the message
+ * text tells the cases apart in the view).
  * The dashboard reads the distinction: a shared snapshot's models are
  * duplicated per claiming entry EXCEPT upsertFailed claimants, whose group is
  * the one the host provably does not have.
@@ -105,7 +106,7 @@ export type RemovedEntryEvent =
 export interface ServerSyncEnv {
 	/** The effective litellm-vscode-chat.servers value: what the settings side declares. */
 	readServersSetting(): unknown;
-	readSecrets(label: string): Promise<StoredServerSecrets>;
+	readSecrets(label: string): Promise<StoredSecretsRecord>;
 	/** The host's provider-group upsert; args are the group configuration with the name and vendor. */
 	addProviderGroup(args: Readonly<Record<string, string>>): Thenable<unknown>;
 	/**
@@ -225,6 +226,16 @@ export const GROUP_UPDATE_UNAVAILABLE_MESSAGE =
  */
 export const SECRETS_READ_FAILED_MESSAGE =
 	"Reading this entry's stored secrets failed, so it was not synced. Run Sync Models Now to retry.";
+
+/**
+ * The classified text for an entry whose stored secret is stamped for a
+ * different destination (see resolveOwnedSecrets). The entry is skipped, not
+ * synced without the credential: the host is add-only, so a credential-less
+ * group created now would be permanent. Re-pairing is deliberate: the user
+ * re-enters or removes the stored value.
+ */
+export const SECRET_OWNERSHIP_MISMATCH_MESSAGE =
+	"A stored secret for this entry was saved for a different server address, so the entry was not synced. Set the secret again (edit the server in the dashboard, or run LiteLLM: Set Server Secret), or remove the stored value.";
 
 /**
  * The classified text for a pass skipped because the fingerprint salt could not
@@ -349,14 +360,18 @@ export class ServerSyncEngine implements vscode.Disposable {
 	 * logged and never ride a state push. The group serving path is otherwise
 	 * host-invoked only, so the litellm._test.refreshEntryModels command resolves
 	 * through this to drive the provider's group path for a declared entry
-	 * directly. Undefined when no accepted entry carries the label.
+	 * directly. Undefined when no accepted entry carries the label. Stored
+	 * secrets resolve through the ownership check; a refused field simply stays
+	 * out (this path only serves the internal test command, which must never
+	 * send a credential the engine itself would refuse).
 	 */
 	async resolveGroupArgs(label: string): Promise<Record<string, string> | undefined> {
 		const match = acceptedEntry(this.env.readServersSetting(), label);
 		if (match === undefined) {
 			return undefined;
 		}
-		return buildGroupArgs(match.entry, await this.env.readSecrets(match.entry.label));
+		const record = await this.env.readSecrets(match.entry.label);
+		return buildGroupArgs(match.entry, resolveOwnedSecrets(match.entry, record).values);
 	}
 
 	requestSync(): void {
@@ -452,9 +467,10 @@ export class ServerSyncEngine implements vscode.Disposable {
 	/**
 	 * Whether the entry still resolves to exactly the group args this pass is
 	 * about to add: one fresh setting read and one fresh secrets read, compared
-	 * by fingerprint. Anything else - the entry gone or edited, the secrets
-	 * rotated, a read failing - reads as "not current" and the add is skipped,
-	 * fail closed (the pass that follows the change reads truth).
+	 * by fingerprint over the ownership-resolved values. Anything else - the
+	 * entry gone or edited, the secrets rotated or newly refused, a read
+	 * failing - reads as "not current" and the add is skipped, fail closed
+	 * (the pass that follows the change reads truth).
 	 */
 	private async entryStillCurrent(label: string, printed: string): Promise<boolean> {
 		try {
@@ -462,8 +478,11 @@ export class ServerSyncEngine implements vscode.Disposable {
 			if (fresh === undefined) {
 				return false;
 			}
-			const stored = await this.env.readSecrets(fresh.entry.label);
-			return groupArgsFingerprint(buildGroupArgs(fresh.entry, stored)) === printed;
+			const owned = resolveOwnedSecrets(fresh.entry, await this.env.readSecrets(fresh.entry.label));
+			if (owned.refused.length > 0) {
+				return false;
+			}
+			return groupArgsFingerprint(buildGroupArgs(fresh.entry, owned.values)) === printed;
 		} catch {
 			return false;
 		}
@@ -518,6 +537,7 @@ export class ServerSyncEngine implements vscode.Disposable {
 		const printedByLabel = new Map<string, string>();
 		for (const entry of entries) {
 			let stored: StoredServerSecrets = {};
+			let refusedFields: readonly SecretFieldId[] = [];
 			let secretsUnreadable = false;
 			// The entry's user-facing message for THIS pass: exactly one branch
 			// below decides it, and only this iteration's view reads it. What
@@ -526,7 +546,12 @@ export class ServerSyncEngine implements vscode.Disposable {
 			let syncError: string | undefined;
 			let syncErrorClass: SyncErrorClass | undefined;
 			try {
-				stored = await this.env.readSecrets(entry.label);
+				// The ownership check runs at the read boundary, before any branch
+				// (a forced pass included): a stored value stamped for a different
+				// destination must never enter the args this pass could submit.
+				const owned = resolveOwnedSecrets(entry, await this.env.readSecrets(entry.label));
+				stored = owned.values;
+				refusedFields = owned.refused;
 			} catch (error) {
 				// A failed secret read must not abort the pass: later entries still
 				// need their sync, and an earlier successful add must still reach
@@ -551,6 +576,22 @@ export class ServerSyncEngine implements vscode.Disposable {
 				// host call and no retry bookkeeping (the stored retry state stays
 				// put on purpose); last-known-good carries.
 				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
+			} else if (refusedFields.length > 0) {
+				// The ownership check refused a stored value this entry would have
+				// used: the pairing must not reach the host at all. Proceeding
+				// without the credential would create a permanent credential-less
+				// group (the host is add-only), so the entry skips like an
+				// unreadable blob, with the actionable message instead. Checked on
+				// forced passes too - an activation force-sync is exactly where a
+				// delete-failure residual would otherwise pair a surviving blob
+				// with a re-declared label at another host.
+				syncError = SECRET_OWNERSHIP_MISMATCH_MESSAGE;
+				syncErrorClass = "secretsUnreadable";
+				this.carryLastGood(entry.label, previous, next, this.env.getFingerprints()[entry.label]);
+				this.env.log("A stored secret is stamped for a different destination; entry not synced", {
+					label: entry.label,
+					fields: refusedFields,
+				});
 			} else if (!saltDurable) {
 				// The same skip for a different unreadable secret: fingerprints
 				// computed under an unconfirmed salt cannot be recognized by any

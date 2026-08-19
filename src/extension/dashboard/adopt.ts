@@ -15,7 +15,8 @@ import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serv
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { isUnsafeRecordKey, recordFromKeys } from "../../shared/util/json";
 import type { DeclaredServerView } from "../servers/serverSync";
-import { rawDeclaredLabels } from "../servers/serverSync/setting";
+import { secretDestination } from "../servers/serverSync/secrets";
+import { acceptedEntry, rawDeclaredLabels } from "../servers/serverSync/setting";
 import { adoptSourceHandle } from "./adoptHandle";
 import { joinDeclared, labeledSnapshots } from "./declaredJoin";
 import { assembleEntryAuth, pairingFailureMessage } from "./entryAuth";
@@ -188,20 +189,25 @@ export async function applyAdoptServer(
 		...(assembled.auth !== undefined ? { auth: assembled.auth } : {}),
 	};
 
+	// The ownership stamp for each secure copy: the adopted entry's own
+	// destinations, derived from the entry as the parser reads it back.
+	const adoptedEntry = acceptedEntry([newEntry], label)?.entry;
+	const destinationOf = (field: SecretFieldId): string => secretDestination(adoptedEntry ?? { baseUrl }, field);
+
 	const storedBefore = await env.readServerSecrets(label);
-	const overwritten = new Map<SecretFieldId, string | undefined>();
+	const overwritten = new Map<SecretFieldId, { value: string | undefined; owner: string | undefined }>();
 	try {
 		for (const field of SECRET_FIELD_IDS) {
 			const copied = secureCopies.get(field);
 			if (copied !== undefined) {
-				overwritten.set(field, storedBefore[field]);
-				await env.storeServerSecret(label, field, copied);
+				overwritten.set(field, { value: storedBefore.values[field], owner: storedBefore.owners[field] });
+				await env.storeServerSecret(label, field, copied, destinationOf(field));
 				continue;
 			}
 			// Blobs kept from removals must not leak into the adopted entry.
-			if (storedBefore[field] !== undefined) {
-				overwritten.set(field, storedBefore[field]);
-				await env.storeServerSecret(label, field, undefined);
+			if (storedBefore.values[field] !== undefined) {
+				overwritten.set(field, { value: storedBefore.values[field], owner: storedBefore.owners[field] });
+				await env.storeServerSecret(label, field, undefined, undefined);
 			}
 		}
 		await env.writeServersSetting([...entries, newEntry]);
@@ -209,7 +215,7 @@ export async function applyAdoptServer(
 		let restoreFailed = false;
 		for (const [field, previous] of overwritten) {
 			try {
-				await env.storeServerSecret(label, field, previous);
+				await env.storeServerSecret(label, field, previous.value, previous.owner);
 			} catch {
 				restoreFailed = true;
 				env.log("Restoring a secure value after a failed adoption also failed", { field });

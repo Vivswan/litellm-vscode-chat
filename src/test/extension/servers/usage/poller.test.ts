@@ -143,7 +143,7 @@ function makeHarness(
 	const clock: Clock = { now: () => nowMs };
 	const env: UsagePollerEnv = {
 		readServersSetting: () => servers,
-		readSecrets: options.readSecrets ?? (() => Promise.resolve({})),
+		readSecrets: options.readSecrets ?? (() => Promise.resolve({ values: {}, owners: {} })),
 		client,
 		pollIntervalMs: () => intervalMs,
 		...(options.initialRefreshDelayMs !== undefined
@@ -247,7 +247,7 @@ suite("extension/servers/usage poller", () => {
 		let h: Harness | undefined;
 		const readSecrets = async () => {
 			h?.setServers([{ label: "alpha", baseUrl: "http://two.test" }]);
-			return { apiKey: "sk-for-two" };
+			return { values: { apiKey: "sk-for-two" }, owners: {} };
 		};
 		h = makeHarness({ intervalMs: 0, servers: [{ label: "alpha", baseUrl: "http://one.test" }], readSecrets });
 
@@ -432,7 +432,7 @@ suite("extension/servers/usage poller", () => {
 			intervalMs: 300_000,
 			readSecrets: async () => {
 				await gate;
-				return {};
+				return { values: {}, owners: {} };
 			},
 		});
 		h.poller.start();
@@ -545,7 +545,7 @@ suite("extension/servers/usage poller", () => {
 				if (secretReads > 1) {
 					await gate;
 				}
-				return {};
+				return { values: {}, owners: {} };
 			},
 		});
 		await h.poller.refreshNow();
@@ -691,6 +691,27 @@ suite("extension/servers/usage poller", () => {
 		assert.ok(h.logs.some((line) => line.includes("stored secrets failed")));
 	});
 
+	test("a stored secret stamped for another destination skips the probes and acknowledges the refresh", async () => {
+		// The same ownership check the sync engine applies: the label's surviving
+		// blob belongs to http://retired.test, so no authenticated probe may pair
+		// it with this entry's host.
+		const h = makeHarness({
+			intervalMs: 0,
+			readSecrets: async () => ({ values: { apiKey: "sk-old" }, owners: { apiKey: "http://retired.test" } }),
+		});
+
+		const outcome = await h.poller.refreshNow();
+
+		assert.strictEqual(h.client.calls.keyInfo, 0, "the refused credential must never ride a probe");
+		assert.strictEqual(outcome?.servers[0]?.secretsMismatched, true);
+		assert.strictEqual(
+			usageRefreshFailureSummary(outcome),
+			"alpha: a stored secret belongs to a different server address"
+		);
+		assert.ok(h.logs.some((line) => line.includes("stamped for a different destination")));
+		assert.ok(!h.logs.join("\n").includes("sk-old"), "no log line carries the value");
+	});
+
 	test("dispose cancels the pending tick", () => {
 		const h = makeHarness({ intervalMs: 300_000 });
 		h.poller.start();
@@ -774,7 +795,7 @@ suite("extension/servers/usage poller", () => {
 			intervalMs: 0,
 			readSecrets: async () => {
 				await gate;
-				return {};
+				return { values: {}, owners: {} };
 			},
 		});
 

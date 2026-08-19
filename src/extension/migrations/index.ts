@@ -5,6 +5,7 @@ import type { ServerRegistry } from "../servers/serverRegistry";
 import { legacySingleServerMigration } from "./legacySingleServer";
 import { registryToProviderGroupsMigration } from "./registryToProviderGroups";
 import { settingsRedesignMigration } from "./settingsRedesign/apply";
+import { stampSecretOwnersMigration } from "./stampSecretOwners";
 
 export interface MigrationContext {
 	globalState: vscode.Memento;
@@ -60,6 +61,7 @@ export const MIGRATIONS: readonly ExtensionMigration[] = [
 	legacySingleServerMigration,
 	registryToProviderGroupsMigration,
 	settingsRedesignMigration,
+	stampSecretOwnersMigration,
 ];
 
 /** Best-effort: a failing migration logs once and the rest still run; never rejects. */

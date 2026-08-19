@@ -249,6 +249,65 @@ suite("extension/dashboard/intents", () => {
 			assert.deepStrictEqual(recorded.secretOps, []);
 		});
 
+		test("a secure-side set stamps the value with the entry's destination", async () => {
+			const recorded = makeEnv([]);
+			await save(recorded, {
+				server: serverPayload({ label: "Prod", baseUrl: "http://prod.test/" }),
+				secrets: { ...KEEP_ALL, apiKey: { action: "set", location: "secure", value: "sk-new" } },
+			});
+			assert.deepStrictEqual(recorded.secretOps, [["Prod", "apiKey", "sk-new"]]);
+			assert.deepStrictEqual(recorded.secretOwners, ["http://prod.test"], "the stamp is the normalized base URL");
+		});
+
+		test("a kept stored secret stamped for another destination resolves nothing", async () => {
+			// The removal-keeps-blobs leftover under a re-declared label: the
+			// dashboard displayed the refused field as no credential (the engine's
+			// owned view), so the form's keep must resolve nothing - not hand the
+			// retired value to the entry's host through the save.
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
+			recorded.storedSecrets.set("Prod", { apiKey: "sk-retired" });
+			recorded.storedOwners.set("Prod", { apiKey: "http://retired.test" });
+			await save(recorded, { replace: await displayedReplace(recorded, "Prod") });
+
+			assert.deepStrictEqual(recorded.serverWrites, [[{ label: "Prod", baseUrl: "http://prod.test" }]]);
+			// The dormant mismatched field stays put (an edit wipes nothing); it
+			// simply never resolves for this entry.
+			assert.deepStrictEqual(recorded.secretOps, []);
+			assert.deepStrictEqual(recorded.storedSecrets.get("Prod"), { apiKey: "sk-retired" });
+		});
+
+		test("an edit that re-points the host re-stamps a kept stored secret for the new destination", async () => {
+			// The form showed the field as stored and the user saved the entry
+			// around it while re-pointing the host: exactly the deliberate pairing
+			// a stamp records, so the value keeps working at the new destination.
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://old.test" }]);
+			recorded.storedSecrets.set("Prod", { apiKey: "sk-kept" });
+			recorded.storedOwners.set("Prod", { apiKey: "http://old.test" });
+			await save(recorded, {
+				server: serverPayload({ label: "Prod", baseUrl: "http://new.test" }),
+				replace: await displayedReplace(recorded, "Prod"),
+			});
+
+			assert.deepStrictEqual(recorded.secretOps, [["Prod", "apiKey", "sk-kept"]]);
+			assert.deepStrictEqual(recorded.secretOwners, ["http://new.test"]);
+			assert.deepStrictEqual(recorded.storedOwners.get("Prod"), { apiKey: "http://new.test" });
+		});
+
+		test("a failed settings write rolls a re-stamp back, value and stamp alike", async () => {
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://old.test" }]);
+			recorded.storedSecrets.set("Prod", { apiKey: "sk-kept" });
+			recorded.storedOwners.set("Prod", { apiKey: "http://old.test" });
+			recorded.failWrites = new Error("settings store refused");
+			await assert.rejects(
+				save(recorded, {
+					server: serverPayload({ label: "Prod", baseUrl: "http://new.test" }),
+					replace: await displayedReplace(recorded, "Prod"),
+				})
+			);
+			assert.deepStrictEqual(recorded.storedSecrets.get("Prod"), { apiKey: "sk-kept" });
+			assert.deepStrictEqual(recorded.storedOwners.get("Prod"), { apiKey: "http://old.test" });
+		});
+
 		test("a create over a removed label's orphan blob wipes it: the synced group never resurrects old credentials", async () => {
 			// The removal kept the blob; the create's form showed auth "None", so
 			// the saved entry must resolve NO credentials at sync time - the engine

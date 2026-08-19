@@ -7,7 +7,7 @@ import { ALL_SETTING_KEYS, CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../../
 function env(overrides: Partial<SettingsExportEnv>): SettingsExportEnv {
 	return {
 		readGlobalSetting: () => undefined,
-		readServerSecrets: () => Promise.resolve({}),
+		readServerSecrets: () => Promise.resolve({ values: {}, owners: {} }),
 		extensionVersion: "0.4.5",
 		includeSecrets: false,
 		...overrides,
@@ -61,7 +61,7 @@ suite("extension/settingsTransfer/exportBuild", () => {
 				readGlobalSetting: readerFor({ [SERVERS_SETTING_KEY]: servers }),
 				readServerSecrets: () => {
 					secretReads += 1;
-					return Promise.resolve({ apiKey: "from-storage" });
+					return Promise.resolve({ values: { apiKey: "from-storage" }, owners: {} });
 				},
 			})
 		);
@@ -96,7 +96,7 @@ suite("extension/settingsTransfer/exportBuild", () => {
 				readGlobalSetting: readerFor({ [SERVERS_SETTING_KEY]: servers }),
 				readServerSecrets: (label) => {
 					readLabels.push(label);
-					return Promise.resolve(blobs[label] ?? {});
+					return Promise.resolve({ values: blobs[label] ?? {}, owners: {} });
 				},
 			})
 		);
@@ -112,6 +112,32 @@ suite("extension/settingsTransfer/exportBuild", () => {
 		assert.strictEqual(result.secretFieldCount, 3);
 		assert.strictEqual(result.unmaterializedSecretCount, 1);
 		assert.strictEqual(result.serverCount, 3);
+	});
+
+	test("a stored value stamped for another destination never materializes into the file", async () => {
+		// Materializing it inline would hand the retired credential to the
+		// entry's current host on any import: inline values bypass the ownership
+		// check, so the export must apply it here instead.
+		const servers = [{ label: "A", baseUrl: "http://a.test" }];
+		const result = await buildSettingsExport(
+			env({
+				includeSecrets: true,
+				readGlobalSetting: readerFor({ [SERVERS_SETTING_KEY]: servers }),
+				readServerSecrets: () =>
+					Promise.resolve({
+						values: { apiKey: "sk-retired", virtualKeyValue: "vk-current" },
+						owners: { apiKey: "http://retired.test", virtualKeyValue: "http://a.test" },
+					}),
+			})
+		);
+		assert.deepStrictEqual(result.envelope.settings[SERVERS_SETTING_KEY], [
+			// The matching-stamp virtualKeyValue has no header home in this entry,
+			// so it counts unmaterialized; the mismatched apiKey is refused.
+			{ label: "A", baseUrl: "http://a.test" },
+		]);
+		assert.strictEqual(result.mismatchedSecretCount, 1);
+		assert.strictEqual(result.unmaterializedSecretCount, 1);
+		assert.ok(!JSON.stringify(result.envelope).includes("sk-retired"));
 	});
 
 	test("a non-array servers value rides only into a with-secrets export; a no-secrets one omits it", async () => {

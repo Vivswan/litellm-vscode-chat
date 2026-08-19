@@ -28,6 +28,13 @@ import {
 	ServerSyncEngine,
 	updateServerSecret,
 } from "../../../extension/servers/serverSync";
+import { SECRET_OWNERSHIP_MISMATCH_MESSAGE } from "../../../extension/servers/serverSync/engine";
+import {
+	readServerSecretsRecord,
+	resolveOwnedSecrets,
+	secretDestination,
+	stampServerSecretOwner,
+} from "../../../extension/servers/serverSync/secrets";
 import {
 	declaredEntryLabel,
 	entryApiVersionFor,
@@ -72,6 +79,8 @@ interface Recorded {
 	env: ServerSyncEnv;
 	setting: unknown;
 	secrets: Record<string, StoredServerSecrets>;
+	/** Ownership stamps the fake blob read reports beside the values, by label. */
+	secretOwners: Record<string, Partial<Record<"apiKey" | "oauthClientSecret" | "virtualKeyValue", string>>>;
 	/** When set, addProviderGroup rejects for these labels. */
 	failLabels: Set<string>;
 	/** When set, addProviderGroup rejects these labels the way an add-only host refuses an existing name. */
@@ -92,12 +101,16 @@ function makeSyncEnv(setting: unknown = [], secrets: Record<string, StoredServer
 		loggedErrors: [],
 		setting,
 		secrets,
+		secretOwners: {},
 		failLabels: new Set(),
 		duplicateLabels: new Set(),
 		saltDurable: true,
 		env: {
 			readServersSetting: () => recorded.setting,
-			readSecrets: async (label) => recorded.secrets[label] ?? {},
+			readSecrets: async (label) => ({
+				values: recorded.secrets[label] ?? {},
+				owners: recorded.secretOwners[label] ?? {},
+			}),
 			confirmFingerprintsDurable: async () => recorded.saltDurable,
 			addProviderGroup: async (args) => {
 				if (recorded.failLabels.has(args.name ?? "")) {
@@ -194,14 +207,14 @@ suite("extension/servers/serverSync", () => {
 	suite("secret blobs", () => {
 		test("read/update round-trip one field at a time; an emptied blob deletes the key", async () => {
 			const store = makeSecretStore();
-			await updateServerSecret(store, "Prod", "apiKey", "sk-1");
-			await updateServerSecret(store, "Prod", "virtualKeyValue", "vk-1");
+			await updateServerSecret(store, "Prod", "apiKey", "sk-1", undefined);
+			await updateServerSecret(store, "Prod", "virtualKeyValue", "vk-1", undefined);
 			assert.deepStrictEqual(await readServerSecrets(store, "Prod"), { apiKey: "sk-1", virtualKeyValue: "vk-1" });
 
-			await updateServerSecret(store, "Prod", "apiKey", undefined);
+			await updateServerSecret(store, "Prod", "apiKey", undefined, undefined);
 			assert.deepStrictEqual(await readServerSecrets(store, "Prod"), { virtualKeyValue: "vk-1" });
 
-			await updateServerSecret(store, "Prod", "virtualKeyValue", undefined);
+			await updateServerSecret(store, "Prod", "virtualKeyValue", undefined, undefined);
 			assert.strictEqual(store.values.has(serverSecretsKey("Prod")), false, "an empty blob leaves no key behind");
 		});
 
@@ -214,6 +227,179 @@ suite("extension/servers/serverSync", () => {
 			const store = makeSecretStore({ [serverSecretsKey("Old")]: JSON.stringify({ apiKey: "sk-1" }) });
 			await deleteServerSecrets(store, "Old");
 			assert.strictEqual(store.values.has(serverSecretsKey("Old")), false);
+		});
+
+		test("ownership stamps round-trip beside their values and die with them", async () => {
+			const store = makeSecretStore();
+			await updateServerSecret(store, "Prod", "apiKey", "sk-1", "http://prod.test");
+			await updateServerSecret(store, "Prod", "virtualKeyValue", "vk-1", undefined);
+			assert.deepStrictEqual(await readServerSecretsRecord(store, "Prod"), {
+				values: { apiKey: "sk-1", virtualKeyValue: "vk-1" },
+				owners: { apiKey: "http://prod.test" },
+			});
+			// The values-only read is unchanged: old readers ignore the stamp key.
+			assert.deepStrictEqual(await readServerSecrets(store, "Prod"), { apiKey: "sk-1", virtualKeyValue: "vk-1" });
+
+			await updateServerSecret(store, "Prod", "apiKey", undefined, undefined);
+			assert.deepStrictEqual(await readServerSecretsRecord(store, "Prod"), {
+				values: { virtualKeyValue: "vk-1" },
+				owners: {},
+			});
+		});
+
+		test("a pre-stamping blob reads with empty owners; stampServerSecretOwner back-fills without overwriting", async () => {
+			const store = makeSecretStore({
+				[serverSecretsKey("Old")]: JSON.stringify({ apiKey: "sk-1", virtualKeyValue: "vk-1" }),
+			});
+			assert.deepStrictEqual((await readServerSecretsRecord(store, "Old")).owners, {});
+
+			await stampServerSecretOwner(store, "Old", "apiKey", "http://a.test");
+			// Never overwrites: a second stamp for another destination is a no-op.
+			await stampServerSecretOwner(store, "Old", "apiKey", "http://b.test");
+			// Never invents: stamping a field with no value writes nothing.
+			await stampServerSecretOwner(store, "Old", "oauthClientSecret", "http://idp.test");
+			assert.deepStrictEqual(await readServerSecretsRecord(store, "Old"), {
+				values: { apiKey: "sk-1", virtualKeyValue: "vk-1" },
+				owners: { apiKey: "http://a.test" },
+			});
+		});
+
+		test("concurrent writes to one label serialize: a cleared field cannot resurrect", async () => {
+			// A SecretStore whose reads yield, so unserialized read-modify-writes
+			// would interleave: both writers read the same snapshot and the last
+			// store wins, resurrecting the cleared apiKey (the pre-fix defect).
+			const values = new Map<string, string>([[serverSecretsKey("Prod"), JSON.stringify({ apiKey: "sk-live" })]]);
+			const store: SecretStore = {
+				get: async (key) => {
+					await new Promise((resolve) => setTimeout(resolve, 1));
+					return values.get(key);
+				},
+				store: async (key, value) => {
+					values.set(key, value);
+				},
+				delete: async (key) => {
+					values.delete(key);
+				},
+			};
+			await Promise.all([
+				updateServerSecret(store, "Prod", "apiKey", undefined, undefined),
+				updateServerSecret(store, "Prod", "virtualKeyValue", "vk-new", "http://prod.test"),
+			]);
+			assert.deepStrictEqual(await readServerSecretsRecord(store, "Prod"), {
+				values: { virtualKeyValue: "vk-new" },
+				owners: { virtualKeyValue: "http://prod.test" },
+			});
+		});
+
+		test("resolveOwnedSecrets: matching or missing stamps resolve, mismatches refuse unless inline shadows them", () => {
+			const entry: DeclaredServer = {
+				label: "A",
+				baseUrl: "http://a.test/",
+				oauthTokenUrl: "https://idp.test/token",
+			};
+			assert.strictEqual(secretDestination(entry, "apiKey"), "http://a.test");
+			assert.strictEqual(secretDestination(entry, "oauthClientSecret"), "https://idp.test/token");
+
+			const record = {
+				values: { apiKey: "sk-1", oauthClientSecret: "cs-1", virtualKeyValue: "vk-1" },
+				owners: { apiKey: "http://a.test", oauthClientSecret: "https://other-idp.test/token" },
+			};
+			assert.deepStrictEqual(resolveOwnedSecrets(entry, record), {
+				values: { apiKey: "sk-1", virtualKeyValue: "vk-1" },
+				refused: ["oauthClientSecret"],
+			});
+
+			// The same mismatch behind an inline value is dormant: dropped from the
+			// resolution but not a refusal (the inline value is what would be sent).
+			const shadowed: DeclaredServer = { ...entry, oauthClientSecret: "cs-inline" };
+			assert.deepStrictEqual(resolveOwnedSecrets(shadowed, record), {
+				values: { apiKey: "sk-1", virtualKeyValue: "vk-1" },
+				refused: [],
+			});
+
+			// A stamp recorded with no destination ("") refuses once the entry
+			// gains one: re-pairing stays deliberate.
+			const stampedEmpty = { values: { oauthClientSecret: "cs-1" }, owners: { oauthClientSecret: "" } };
+			assert.deepStrictEqual(resolveOwnedSecrets(entry, stampedEmpty), {
+				values: {},
+				refused: ["oauthClientSecret"],
+			});
+		});
+	});
+
+	suite("secret ownership refusal", () => {
+		test("a stored secret stamped for another destination refuses the entry, forced passes included", async () => {
+			// The delete-failure residual and the removal-keeps-blobs re-add alike:
+			// the label's surviving blob belongs to http://retired.test, and the
+			// entry now declares http://new.test. Pre-stamping, buildGroupArgs
+			// resolved the blob by label alone and the activation force-sync sent
+			// the retired credential to the new host permanently.
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://new.test" }], { A: { apiKey: "sk-retired" } });
+			recorded.secretOwners = { A: { apiKey: "http://retired.test" } };
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow(true);
+
+			assert.strictEqual(recorded.upserts.length, 0, "the refused pairing must never reach the host");
+			const view = engine.getDeclared()[0];
+			assert.strictEqual(view?.syncError, SECRET_OWNERSHIP_MISMATCH_MESSAGE);
+			assert.strictEqual(view?.syncErrorClass, "secretsUnreadable");
+			assert.strictEqual(view?.secrets.apiKey, "none", "a refused field displays as no credential");
+			const line = recorded.logged.find(([message]) => message.includes("stamped for a different destination"));
+			assert.ok(line, "the skip logs a classification");
+			assert.ok(!JSON.stringify(recorded.logged).includes("sk-retired"), "no log line carries the value");
+		});
+
+		test("the save path's staging window is covered: a staged secret for a re-pointed host refuses until the settings write lands", async () => {
+			// A dashboard save stages secure writes BEFORE the settings write. A
+			// pass running inside that window reads the OLD entry with the NEW
+			// blob - a consistent snapshot entryStillCurrent cannot catch. The
+			// staged value carries the stamp of the entry being SAVED, so the
+			// ownership check refuses the transient pairing; once the settings
+			// write lands, the next pass syncs the true pairing.
+			const recorded = makeSyncEnv([{ label: "A", baseUrl: "http://old.test" }], { A: { apiKey: "sk-new" } });
+			recorded.secretOwners = { A: { apiKey: "http://new.test" } };
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+			assert.strictEqual(recorded.upserts.length, 0, "old.test must never receive the staged credential");
+
+			recorded.setting = [{ label: "A", baseUrl: "http://new.test" }];
+			await engine.syncNow();
+			assert.deepStrictEqual(
+				recorded.upserts.map((args) => [args.baseUrl, args.apiKey]),
+				[["http://new.test", "sk-new"]]
+			);
+			assert.strictEqual(engine.getDeclared()[0]?.syncError, undefined);
+		});
+
+		test("a matching stamp and a pre-stamping blob both sync; an inline value keeps a mismatch dormant", async () => {
+			const recorded = makeSyncEnv(
+				[
+					{ label: "Stamped", baseUrl: "http://stamped.test" },
+					{ label: "Legacy", baseUrl: "http://legacy.test" },
+					{ label: "Inline", baseUrl: "http://inline.test", auth: { apiKey: "sk-inline" } },
+				],
+				{
+					Stamped: { apiKey: "sk-stamped" },
+					Legacy: { apiKey: "sk-legacy" },
+					Inline: { apiKey: "sk-mismatched" },
+				}
+			);
+			recorded.secretOwners = {
+				Stamped: { apiKey: "http://stamped.test" },
+				Inline: { apiKey: "http://elsewhere.test" },
+			};
+			const engine = new ServerSyncEngine(recorded.env);
+			await engine.syncNow();
+
+			assert.deepStrictEqual(
+				recorded.upserts.map((args) => [args.name, args.apiKey]),
+				[
+					["Stamped", "sk-stamped"],
+					["Legacy", "sk-legacy"],
+					["Inline", "sk-inline"],
+				]
+			);
+			assert.ok(engine.getDeclared().every((view) => view.syncError === undefined));
 		});
 	});
 
@@ -1850,6 +2036,54 @@ suite("extension/servers/serverSync", () => {
 				(vscode.window as Record<string, unknown>).showInputBox = original.showInputBox;
 				(vscode.window as Record<string, unknown>).showWarningMessage = original.showWarningMessage;
 			}
+		});
+
+		test("refuses to store when the entry changed while the prompts were open", async () => {
+			const original = {
+				showQuickPick: vscode.window.showQuickPick,
+				showInputBox: vscode.window.showInputBox,
+				showWarningMessage: vscode.window.showWarningMessage,
+			};
+			const warnings: string[] = [];
+			// Mutated inside the input stub: the prompts stay open indefinitely,
+			// and this models a hand edit of settings.json re-pointing the label at
+			// another host while the user types the secret.
+			const sectionValues: Record<string, unknown> = {
+				servers: [{ label: "Drift Probe", baseUrl: "http://old.test" }],
+			};
+			(vscode.window as Record<string, unknown>).showQuickPick = async (items: { label: string }[]) => items[0];
+			(vscode.window as Record<string, unknown>).showInputBox = async () => {
+				sectionValues.servers = [{ label: "Drift Probe", baseUrl: "http://re-pointed.test" }];
+				return "sk-typed-for-old";
+			};
+			(vscode.window as Record<string, unknown>).showWarningMessage = async (message: string) => {
+				warnings.push(message);
+				return undefined;
+			};
+			const linesBefore = (
+				(await vscode.commands.executeCommand("litellm._test.getSessionLogs", 0)) as { lines: string[] }
+			).lines.length;
+			try {
+				await withConfig(sectionValues, async () => {
+					await vscode.commands.executeCommand(CMD.setServerSecret);
+				});
+			} finally {
+				(vscode.window as Record<string, unknown>).showQuickPick = original.showQuickPick;
+				(vscode.window as Record<string, unknown>).showInputBox = original.showInputBox;
+				(vscode.window as Record<string, unknown>).showWarningMessage = original.showWarningMessage;
+			}
+			assert.strictEqual(warnings.length, 1, "the drift must warn exactly once");
+			assert.ok(/changed while the prompts were open/.test(warnings[0] ?? ""), warnings[0] ?? "no warning shown");
+			assert.ok(!(warnings[0] ?? "").includes("sk-"), "the warning never carries the entered value");
+			// The lossless session tee proves the refusal: the classification line
+			// landed and the store-success line never did, so updateServerSecret
+			// was never reached.
+			const batch = (await vscode.commands.executeCommand("litellm._test.getSessionLogs", 0)) as {
+				lines: string[];
+			};
+			const delta = batch.lines.slice(linesBefore).join("\n");
+			assert.ok(delta.includes("Set Server Secret refused"), delta);
+			assert.ok(!delta.includes("Server secret updated from the palette"), "nothing may be stored on drift");
 		});
 	});
 });

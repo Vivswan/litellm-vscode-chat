@@ -134,7 +134,7 @@ export function createDevSeedEnv(secrets: vscode.SecretStorage): DevSeedEnv {
 		// replaces by label, so writing the merged array back to global is safe.
 		readServersSetting: () => settings.readEffective(SERVERS_SETTING_KEY),
 		writeServersSetting: (value) => settings.writeGlobal(SERVERS_SETTING_KEY, value),
-		clearApiKey: (label) => updateServerSecret(secrets, label, "apiKey", undefined),
+		clearApiKey: (label) => updateServerSecret(secrets, label, "apiKey", undefined, undefined),
 		// The GLOBAL value, not the effective one: the record settings are
 		// window-scoped and the seed merges what it reads back into the global
 		// scope, so an effective read could copy a workspace value into user

@@ -9,6 +9,7 @@ import type { IntentEnvironment } from "../../../extension/dashboard/intents";
 import type { DraftConnection } from "../../../extension/dashboard/testDraftConnection";
 import type { DeclaredServer } from "../../../extension/servers/serverSync";
 import { acceptedEntry, inlineSecretValues, secretLocations } from "../../../extension/servers/serverSync";
+import { resolveOwnedSecrets } from "../../../extension/servers/serverSync/secrets";
 import type { NonSecretOptionalFields } from "../../../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import { recordFromKeys } from "../../../shared/util/json";
@@ -56,7 +57,10 @@ export async function displayedReplace(recorded: RecordedEnv, label: string): Pr
 		label,
 		baseUrl: match.entry.baseUrl,
 		...displayedFields(match.entry),
-		secrets: secretLocations(match.entry, await recorded.env.readServerSecrets(label)),
+		secrets: secretLocations(
+			match.entry,
+			resolveOwnedSecrets(match.entry, await recorded.env.readServerSecrets(label)).values
+		),
 	};
 }
 
@@ -102,14 +106,18 @@ export interface RecordedEnv {
 	commands: [string, ...unknown[]][];
 	/** Every writeServersSetting call, whole arrays. */
 	serverWrites: unknown[][];
-	/** Every storeServerSecret call. */
+	/** Every storeServerSecret call: label, field, value. */
 	secretOps: [string, string, string | undefined][];
+	/** Every storeServerSecret call's ownership stamp, aligned with secretOps by index. */
+	secretOwners: (string | undefined)[];
 	/** Every deleteServerSecrets call. */
 	secretDeletes: string[];
 	/** Every mutation in call order, for atomicity-ordering assertions. */
 	ops: string[];
 	/** The fake secure store's blobs by label; mutated by the secret operations like the real one. */
 	storedSecrets: Map<string, Record<string, string>>;
+	/** The fake store's ownership stamps by label, mutated alongside storedSecrets. */
+	storedOwners: Map<string, Record<string, string>>;
 	/** Every env.log call; classifications only. */
 	logs: [string, unknown][];
 	syncRequests: number;
@@ -159,9 +167,11 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 		commands: [],
 		serverWrites: [],
 		secretOps: [],
+		secretOwners: [],
 		secretDeletes: [],
 		ops: [],
 		storedSecrets: new Map(),
+		storedOwners: new Map(),
 		logs: [],
 		syncRequests: 0,
 		adoptionLookups: [],
@@ -194,7 +204,7 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 				currentSetting = visible;
 				recorded.afterWrite?.(visible);
 			},
-			storeServerSecret: async (label, field, value) => {
+			storeServerSecret: async (label, field, value, owner) => {
 				if (value === undefined && recorded.failUnstore !== undefined) {
 					throw recorded.failUnstore;
 				}
@@ -206,19 +216,29 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 					throw new Error("keychain locked");
 				}
 				recorded.secretOps.push([label, field, value]);
+				recorded.secretOwners.push(owner);
 				recorded.ops.push(`${value === undefined ? "unstore" : "store"}:${label}.${field}`);
 				const blob = { ...recorded.storedSecrets.get(label) };
+				const owners = { ...recorded.storedOwners.get(label) };
 				if (value === undefined) {
 					delete blob[field];
+					delete owners[field];
 				} else {
 					blob[field] = value;
+					if (owner === undefined) {
+						delete owners[field];
+					} else {
+						owners[field] = owner;
+					}
 				}
 				recorded.storedSecrets.set(label, blob);
+				recorded.storedOwners.set(label, owners);
 			},
 			readServerSecrets: async (label) => {
-				const blob = { ...recorded.storedSecrets.get(label) };
+				const values = { ...recorded.storedSecrets.get(label) };
+				const owners = { ...recorded.storedOwners.get(label) };
 				recorded.onSecretsRead?.(label);
-				return blob;
+				return { values, owners };
 			},
 			deleteServerSecrets: async (label) => {
 				if (recorded.failBlobDeletes !== undefined) {
@@ -227,6 +247,7 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 				recorded.secretDeletes.push(label);
 				recorded.ops.push(`deleteBlob:${label}`);
 				recorded.storedSecrets.delete(label);
+				recorded.storedOwners.delete(label);
 			},
 			requestServerSync: () => {
 				recorded.syncRequests += 1;

@@ -24,7 +24,8 @@ import { NUMBER_SETTING_SPECS } from "../../../shared/config/settingSpec";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import type { Clock, Timer } from "../../../shared/util/timer";
 import { PendingCall, REAL_TIMER, SYSTEM_CLOCK } from "../../../shared/util/timer";
-import type { StoredServerSecrets } from "../serverSync/secrets";
+import type { StoredSecretsRecord, StoredServerSecrets } from "../serverSync/secrets";
+import { resolveOwnedSecrets } from "../serverSync/secrets";
 import type { DeclaredServer } from "../serverSync/setting";
 import { acceptedEntry, parseServersSetting, stillDeclaredIn } from "../serverSync/setting";
 import { newlyCrossedThresholds, resolveBudget } from "./budget";
@@ -65,7 +66,7 @@ export interface UsageFetchClient {
 export interface UsagePollerEnv {
 	/** The effective litellm-vscode-chat.servers value: which servers exist and their entry budgets. */
 	readServersSetting(): unknown;
-	readSecrets(label: string): Promise<StoredServerSecrets>;
+	readSecrets(label: string): Promise<StoredSecretsRecord>;
 	readonly client: UsageFetchClient;
 	/** Read at decision time so a setting edit needs no rebuild; 0 means polling is off. */
 	pollIntervalMs(): number;
@@ -106,6 +107,8 @@ export interface UsageServerRefreshOutcome {
 	readonly succeededAny: boolean;
 	/** The pass never reached the network: the entry's stored secrets could not be read. */
 	readonly secretsUnreadable?: true | undefined;
+	/** The pass never reached the network: a stored secret is stamped for a different destination (resolveOwnedSecrets). */
+	readonly secretsMismatched?: true | undefined;
 }
 
 /** A completed refresh pass's per-server outcomes; refreshNow resolves with it (undefined when disposed mid-pass). */
@@ -144,6 +147,9 @@ function describeEndpointFailure(failure: UsageEndpointFailure): string {
 function actionableFailureText(server: UsageServerRefreshOutcome): string | undefined {
 	if (server.secretsUnreadable === true) {
 		return `${server.label}: stored secrets unreadable`;
+	}
+	if (server.secretsMismatched === true) {
+		return `${server.label}: a stored secret belongs to a different server address`;
 	}
 	const failures = server.failures.filter((failure) => failure.reason !== "unsupported");
 	if (failures.length === 0) {
@@ -510,8 +516,24 @@ export class UsagePoller {
 
 		let stored: StoredServerSecrets | undefined;
 		let secretsUnreadable = false;
+		let secretsMismatched = false;
 		try {
-			stored = await this.env.readSecrets(entry.label);
+			// The same ownership check the sync engine applies at its read
+			// boundary: a stored value stamped for a different destination must
+			// never ride an authenticated probe to this entry's host.
+			const owned = resolveOwnedSecrets(entry, await this.env.readSecrets(entry.label));
+			if (owned.refused.length > 0) {
+				// Skipped like an unreadable blob (probing without the credential
+				// would only manufacture 401 noise); the carried state keeps
+				// rendering and the sync engine's view carries the actionable text.
+				secretsMismatched = true;
+				this.env.log("A stored secret is stamped for a different destination; usage refresh skipped", {
+					label: entry.label,
+					fields: owned.refused,
+				});
+			} else {
+				stored = owned.values;
+			}
 		} catch (error) {
 			// Skipped for this pass, like the sync engine's unreadable-secrets
 			// branch: the next pass reads again, and the carried state keeps
@@ -667,7 +689,13 @@ export class UsagePoller {
 			},
 			newly
 		);
-		return { label: entry.label, failures, succeededAny, ...(secretsUnreadable ? { secretsUnreadable: true } : {}) };
+		return {
+			label: entry.label,
+			failures,
+			succeededAny,
+			...(secretsUnreadable ? { secretsUnreadable: true } : {}),
+			...(secretsMismatched ? { secretsMismatched: true } : {}),
+		};
 	}
 
 	/**

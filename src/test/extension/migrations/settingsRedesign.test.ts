@@ -1568,10 +1568,14 @@ suite("extension/migrations/settingsRedesign: migration wiring", () => {
 		};
 		assert.strictEqual(settingsRedesignMigration.phase, "pre-registration");
 		assert.ok(MIGRATIONS.includes(settingsRedesignMigration), "the migration must be registered");
-		assert.strictEqual(
-			MIGRATIONS[MIGRATIONS.length - 1],
-			settingsRedesignMigration,
-			"chronologically the newest migration runs last"
+		assert.ok(
+			MIGRATIONS.indexOf(settingsRedesignMigration) >
+				Math.max(
+					...MIGRATIONS.filter((migration) => migration.sourceRelease < settingsRedesignMigration.sourceRelease).map(
+						(migration) => MIGRATIONS.indexOf(migration)
+					)
+				),
+			"chronologically newer migrations run after older ones"
 		);
 
 		const outcome = await settingsRedesignMigration.run(ctx);

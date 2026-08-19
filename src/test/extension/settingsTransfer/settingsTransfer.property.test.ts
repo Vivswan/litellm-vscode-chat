@@ -213,7 +213,7 @@ suite("extension/settingsTransfer property: export -> import round trip", () => 
 					}
 					const exported = await buildSettingsExport({
 						readGlobalSetting: (key) => state[key],
-						readServerSecrets: (label) => Promise.resolve(blobs[label] ?? {}),
+						readServerSecrets: (label) => Promise.resolve({ values: blobs[label] ?? {}, owners: {} }),
 						extensionVersion: "9.9.9",
 						includeSecrets,
 					});
@@ -332,7 +332,7 @@ suite("extension/settingsTransfer property: export -> import round trip", () => 
 				}
 				const exported = await buildSettingsExport({
 					readGlobalSetting: (key) => (key === SERVERS_SETTING_KEY ? servers : undefined),
-					readServerSecrets: (label) => Promise.resolve(blobs[label] ?? {}),
+					readServerSecrets: (label) => Promise.resolve({ values: blobs[label] ?? {}, owners: {} }),
 					extensionVersion: "9.9.9",
 					includeSecrets: true,
 				});
@@ -386,7 +386,7 @@ suite("extension/settingsTransfer property: snapshot restore", () => {
 				async (settingsBefore, blobsBefore, touchedLabels, settingsAfter, blobsAfter) => {
 					const snapshot = await buildPreImportSnapshot(
 						(key) => settingsBefore[key],
-						(label) => Promise.resolve(blobsBefore[label] ?? {}),
+						(label) => Promise.resolve({ values: blobsBefore[label] ?? {}, owners: {} }),
 						touchedLabels
 					);
 					const restore = planSnapshotRestore(snapshot);

@@ -14,8 +14,9 @@
 
 import { ALL_SETTING_KEYS, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import { isRecord } from "../../shared/util/json";
-import type { StoredServerSecrets } from "../servers/serverSync/secrets";
-import { declaredEntryLabel } from "../servers/serverSync/setting";
+import type { StoredSecretsRecord, StoredServerSecrets } from "../servers/serverSync/secrets";
+import { resolveOwnedSecrets } from "../servers/serverSync/secrets";
+import { acceptedEntry, declaredEntryLabel } from "../servers/serverSync/setting";
 import type { SettingsExportEnvelope } from "./envelope";
 import { buildEnvelope } from "./envelope";
 import { materializeEntrySecrets, stripEntrySecrets } from "./secretSurgery";
@@ -24,8 +25,8 @@ import { materializeEntrySecrets, stripEntrySecrets } from "./secretSurgery";
 export interface SettingsExportEnv {
 	/** One key's user-scope (global) value; undefined reads as key-absent and stays out of the file. */
 	readonly readGlobalSetting: (key: string) => unknown;
-	/** The label's SecretStorage blob; consulted only when includeSecrets is true. */
-	readonly readServerSecrets: (label: string) => Promise<StoredServerSecrets>;
+	/** The label's SecretStorage blob with its ownership stamps; consulted only when includeSecrets is true. */
+	readonly readServerSecrets: (label: string) => Promise<StoredSecretsRecord>;
 	/** Stamped into the envelope's exportedBy field; informational only. */
 	readonly extensionVersion: string;
 	/** The user's explicit per-export choice; true writes secret values into the file in plaintext. */
@@ -44,6 +45,14 @@ export interface SettingsExportResult {
 	/** Blob secret fields with no legal inline position in their entry; reported in the success note when nonzero. */
 	readonly unmaterializedSecretCount: number;
 	/**
+	 * Blob secret fields whose ownership stamp names a different destination
+	 * than their entry (resolveOwnedSecrets refuses the pairing), left out of
+	 * the file: materializing one inline would hand a retired credential to the
+	 * entry's current host on any import, since inline values bypass the
+	 * ownership check. Reported so the omission is never silent.
+	 */
+	readonly mismatchedSecretCount: number;
+	/**
 	 * Server shapes a no-secrets export omitted as unsanitizable: a non-array
 	 * servers value, each non-record element, each entry the strip cannot
 	 * certify secret-free. Always 0 when includeSecrets is true; reported so
@@ -59,6 +68,7 @@ export async function buildSettingsExport(env: SettingsExportEnv): Promise<Setti
 	let serverCount = 0;
 	let secretFieldCount = 0;
 	let unmaterializedSecretCount = 0;
+	let mismatchedSecretCount = 0;
 	let omittedUnsanitizableCount = 0;
 
 	for (const key of ALL_SETTING_KEYS) {
@@ -115,8 +125,29 @@ export async function buildSettingsExport(env: SettingsExportEnv): Promise<Setti
 				exported.push(rawEntry);
 				continue;
 			}
-			const blob = await env.readServerSecrets(label);
-			const materialized = materializeEntrySecrets(rawEntry, blob);
+			const record = await env.readServerSecrets(label);
+			// Only values the ownership check would let this entry use may
+			// materialize into the file (see mismatchedSecretCount). An entry the
+			// parser rejects has no destinations to compare, so its stamped
+			// fields all refuse (fail closed) and unstamped ones ride as before.
+			const parsed = acceptedEntry([rawEntry], label)?.entry;
+			let usable: StoredServerSecrets;
+			if (parsed !== undefined) {
+				const owned = resolveOwnedSecrets(parsed, record);
+				usable = owned.values;
+				mismatchedSecretCount += owned.refused.length;
+			} else {
+				const values: Record<string, string> = {};
+				for (const [field, value] of Object.entries(record.values)) {
+					if (record.owners[field as keyof typeof record.owners] === undefined) {
+						values[field] = value;
+					} else {
+						mismatchedSecretCount += 1;
+					}
+				}
+				usable = values;
+			}
+			const materialized = materializeEntrySecrets(rawEntry, usable);
 			unmaterializedSecretCount += materialized.unmaterialized;
 			secretFieldCount += Object.keys(stripEntrySecrets(materialized.entry).secrets).length;
 			exported.push(materialized.entry);
@@ -131,6 +162,7 @@ export async function buildSettingsExport(env: SettingsExportEnv): Promise<Setti
 		serverCount,
 		secretFieldCount,
 		unmaterializedSecretCount,
+		mismatchedSecretCount,
 		omittedUnsanitizableCount,
 	};
 }

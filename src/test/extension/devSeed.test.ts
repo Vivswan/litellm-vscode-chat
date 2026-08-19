@@ -24,7 +24,7 @@ function makeEnv(initialSetting?: unknown, initialRecords?: { parameters?: unkno
 			writes.push([...value]);
 			setting = value;
 		},
-		clearApiKey: (label) => updateServerSecret(storage.secrets, label, "apiKey", undefined),
+		clearApiKey: (label) => updateServerSecret(storage.secrets, label, "apiKey", undefined, undefined),
 		readModelRecords: (kind) => records[kind],
 		writeModelRecords: async (kind, value) => {
 			recordWrites.push({ kind, value });
@@ -160,7 +160,7 @@ suite("extension/devSeed", () => {
 		);
 		const fake = makeEnv();
 		// A previous run's secure-side key: the seed must clear it so the inline key is unambiguously the one in effect.
-		await updateServerSecret(fake.secrets, "Seeded", "apiKey", "sk-previous-run");
+		await updateServerSecret(fake.secrets, "Seeded", "apiKey", "sk-previous-run", undefined);
 		const originalWrite = fake.env.writeServersSetting;
 		fake.env.writeServersSetting = async (value) => {
 			assert.ok(await seedFileGone(dir), "the file must be deleted before anything acts on the seed");
@@ -221,7 +221,7 @@ suite("extension/devSeed", () => {
 			})
 		);
 		const fake = makeEnv([{ label: "Other", baseUrl: "http://other.test" }]);
-		await updateServerSecret(fake.secrets, "Dev Usage (over)", "apiKey", "sk-previous-run");
+		await updateServerSecret(fake.secrets, "Dev Usage (over)", "apiKey", "sk-previous-run", undefined);
 
 		await consumeDevSeed(dir, fake.env, makeLogger().logger);
 
@@ -326,7 +326,7 @@ suite("extension/devSeed", () => {
 	test("an empty seed key clears the previous run's stored one", async () => {
 		const dir = await makeSeedDir(JSON.stringify({ label: "Seeded", baseUrl: "http://localhost:4000" }));
 		const fake = makeEnv();
-		await updateServerSecret(fake.secrets, "Seeded", "apiKey", "sk-stale");
+		await updateServerSecret(fake.secrets, "Seeded", "apiKey", "sk-stale", undefined);
 
 		await consumeDevSeed(dir, fake.env, makeLogger().logger);
 
@@ -363,7 +363,7 @@ suite("extension/devSeed", () => {
 			JSON.stringify({ label: "Seeded", baseUrl: "http://localhost:4000", apiKey: "sk-test" })
 		);
 		const fake = makeEnv();
-		await updateServerSecret(fake.secrets, "Seeded", "apiKey", "sk-previous-run");
+		await updateServerSecret(fake.secrets, "Seeded", "apiKey", "sk-previous-run", undefined);
 		fake.env.clearApiKey = async () => {
 			throw new Error("secret store refused");
 		};

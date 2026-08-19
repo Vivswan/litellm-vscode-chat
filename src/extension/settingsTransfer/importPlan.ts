@@ -17,9 +17,11 @@ import {
 	SERVERS_SETTING_KEY,
 	USAGE_STATUS_BAR_SETTING_KEY,
 } from "../../shared/config/settingSpec";
-import { OPTIONAL_ENTRY_FIELDS } from "../../shared/serverEntry";
+import type { SecretFieldId } from "../../shared/serverEntry";
+import { OPTIONAL_ENTRY_FIELDS, SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
-import type { StoredServerSecrets } from "../servers/serverSync/secrets";
+import type { StoredSecretOwners, StoredServerSecrets } from "../servers/serverSync/secrets";
+import { secretDestination } from "../servers/serverSync/secrets";
 import type { DeclaredServer, ServerEntryReport } from "../servers/serverSync/setting";
 import {
 	acceptedEntry,
@@ -308,6 +310,14 @@ export interface SecretWrite {
 	readonly label: string;
 	/** The fields to store; blob fields the label already holds but this record omits are cleared as stale. */
 	readonly secrets: StoredServerSecrets;
+	/**
+	 * The ownership stamp per stored field: the destination the imported entry
+	 * pairs it with (the import IS the deliberate pairing). Derived from the
+	 * written entry as the parser reads it back; an entry the parser rejects
+	 * stamps what its raw text still names, "" where nothing does - fail
+	 * closed, so fixing the entry re-pairs the secret deliberately.
+	 */
+	readonly owners: StoredSecretOwners;
 }
 
 /** The exact writes the host flow applies (settings first, the servers array last). */
@@ -365,7 +375,17 @@ export function resolveImportPlan(plan: ImportPlan, decisions: CollisionDecision
 
 	const land = (label: string, rawEntry: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> => {
 		const stripped = stripEntrySecrets(rawEntry);
-		secretWrites.push({ label, secrets: stripped.secrets });
+		// The stamp target is the entry as it will be written and parsed back;
+		// see SecretWrite.owners for the fail-closed fallback.
+		const parsed = acceptedEntry([stripped.entry], label)?.entry;
+		const target = parsed ?? { baseUrl: typeof rawEntry.baseUrl === "string" ? rawEntry.baseUrl.trim() : "" };
+		const owners: { -readonly [K in SecretFieldId]?: string } = {};
+		for (const field of SECRET_FIELD_IDS) {
+			if (stripped.secrets[field] !== undefined) {
+				owners[field] = secretDestination(target, field);
+			}
+		}
+		secretWrites.push({ label, secrets: stripped.secrets, owners });
 		if (!touched.has(label)) {
 			touched.add(label);
 			touchedLabels.push(label);

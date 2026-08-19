@@ -24,8 +24,13 @@ import {
 	normalizeModelCapabilities,
 	normalizeModelParameters,
 } from "../../../shared/config/settings";
-import type { ExpectedFailureCategory, OptionalEntryFieldId, OptionalEntryFields } from "../../../shared/serverEntry";
-import { isExpectedFailureCategory } from "../../../shared/serverEntry";
+import type {
+	ExpectedFailureCategory,
+	NonSecretOptionalFields,
+	OptionalEntryFieldId,
+	OptionalEntryFields,
+} from "../../../shared/serverEntry";
+import { isExpectedFailureCategory, NON_SECRET_OPTIONAL_FIELD_IDS } from "../../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { HEADER_NAME_PATTERN } from "../../../shared/util/headers";
 import { isRecord, isUnsafeRecordKey } from "../../../shared/util/json";
@@ -64,6 +69,28 @@ export type DeclaredServer = {
 	/** The entry's manual usage budget in USD (non-secret user configuration); the usage surfaces read it. */
 	readonly budget?: number;
 } & OptionalEntryFields;
+
+/**
+ * Whether an entry still matches the non-secret half of a destination
+ * identity: the base URL, the apiVersion override, and the non-secret auth
+ * fields. These decide WHERE resolved secrets are sent (the OAuth client
+ * secret goes to the token URL, the keys to the base URL), so any drift means
+ * the label's stored values no longer belong to those destinations. `other`
+ * is a displayed form identity, another parsed entry, or a quick-pick's
+ * snapshot of one; all carry the same field shape. The dashboard's save and
+ * probe paths and the Set Server Secret palette all refuse through this one
+ * comparison.
+ */
+export function nonSecretIdentityMatches(
+	entry: DeclaredServer,
+	other: NonSecretOptionalFields & { readonly baseUrl: string; readonly apiVersion?: string | undefined }
+): boolean {
+	return (
+		normalizeBaseUrl(entry.baseUrl) === normalizeBaseUrl(other.baseUrl) &&
+		entry.apiVersion === other.apiVersion &&
+		NON_SECRET_OPTIONAL_FIELD_IDS.every((field) => entry[field] === other[field])
+	);
+}
 
 function usableString(value: unknown): string | undefined {
 	if (typeof value !== "string") {

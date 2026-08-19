@@ -15,7 +15,7 @@
 
 import { ALL_SETTING_KEYS } from "../../shared/config/settingSpec";
 import { isUnsafeRecordKey } from "../../shared/util/json";
-import type { StoredServerSecrets } from "../servers/serverSync/secrets";
+import type { StoredSecretOwners, StoredSecretsRecord, StoredServerSecrets } from "../servers/serverSync/secrets";
 
 /**
  * One recorded pre-import value: present with the exact value, or recorded
@@ -24,12 +24,23 @@ import type { StoredServerSecrets } from "../servers/serverSync/secrets";
  */
 export type SnapshotEntry<V> = { readonly present: true; readonly value: V } | { readonly present: false };
 
+/**
+ * One label's recorded blob: the values plus their ownership stamps, so a
+ * restore puts back stamps exactly as they were (a value restored unstamped
+ * would resolve for entries its stamp refused). `owners` is absent when the
+ * recorded blob carried no stamps - and on snapshots from before stamps
+ * existed, which restore unstamped like the blobs they recorded.
+ */
+export type SnapshotBlobEntry =
+	| { readonly present: true; readonly value: StoredServerSecrets; readonly owners?: StoredSecretOwners }
+	| { readonly present: false };
+
 /** Everything undo needs to put the world back exactly as it was before the import. */
 export interface PreImportSnapshot {
 	/** Every litellm-vscode-chat.* key's user-scope value at snapshot time, keyed without the section prefix. */
 	readonly settings: Readonly<Record<string, SnapshotEntry<unknown>>>;
 	/** The previous blob of every label the import touches (overwritten, renamed-to, appended). */
-	readonly blobs: Readonly<Record<string, SnapshotEntry<StoredServerSecrets>>>;
+	readonly blobs: Readonly<Record<string, SnapshotBlobEntry>>;
 	/** Snapshot time, ISO 8601; the undo summary states it. */
 	readonly at: string;
 }
@@ -40,7 +51,7 @@ export interface PreImportSnapshot {
  */
 export async function buildPreImportSnapshot(
 	readGlobalSetting: (key: string) => unknown,
-	readServerSecrets: (label: string) => Promise<StoredServerSecrets>,
+	readServerSecrets: (label: string) => Promise<StoredSecretsRecord>,
 	touchedLabels: readonly string[]
 ): Promise<PreImportSnapshot> {
 	const settings: Record<string, SnapshotEntry<unknown>> = {};
@@ -48,17 +59,24 @@ export async function buildPreImportSnapshot(
 		const value = readGlobalSetting(key);
 		settings[key] = value === undefined ? { present: false } : { present: true, value };
 	}
-	const blobs: Record<string, SnapshotEntry<StoredServerSecrets>> = {};
+	const blobs: Record<string, SnapshotBlobEntry> = {};
 	for (const label of touchedLabels) {
 		// Reserved names can never be real labels, and bracket assignment under
 		// one would corrupt the record.
 		if (isUnsafeRecordKey(label) || Object.hasOwn(blobs, label)) {
 			continue;
 		}
-		const blob = await readServerSecrets(label);
+		const record = await readServerSecrets(label);
 		// An empty blob and a missing SecretStorage key are the same state to
-		// readServerSecrets, so both record as absent (the restore deletes).
-		blobs[label] = Object.keys(blob).length > 0 ? { present: true, value: blob } : { present: false };
+		// the record read, so both record as absent (the restore deletes).
+		blobs[label] =
+			Object.keys(record.values).length > 0
+				? {
+						present: true,
+						value: record.values,
+						...(Object.keys(record.owners).length > 0 ? { owners: record.owners } : {}),
+					}
+				: { present: false };
 	}
 	return { settings, blobs, at: new Date().toISOString() };
 }
@@ -73,8 +91,12 @@ export interface SnapshotRestore {
 	readonly settingWrites: readonly { readonly key: string; readonly value: unknown }[];
 	/** Keys recorded absent, to remove from the user scope. */
 	readonly settingRemovals: readonly string[];
-	/** Labels whose recorded blob is written back whole. */
-	readonly blobWrites: readonly { readonly label: string; readonly secrets: StoredServerSecrets }[];
+	/** Labels whose recorded blob is written back whole, ownership stamps included. */
+	readonly blobWrites: readonly {
+		readonly label: string;
+		readonly secrets: StoredServerSecrets;
+		readonly owners: StoredSecretOwners;
+	}[];
 	/** Labels recorded blob-less, whose current blob is deleted (an appended label's import-written secrets leave with it). */
 	readonly blobRemovals: readonly string[];
 }
@@ -90,11 +112,11 @@ export function planSnapshotRestore(snapshot: PreImportSnapshot): SnapshotRestor
 			settingRemovals.push(key);
 		}
 	}
-	const blobWrites: { label: string; secrets: StoredServerSecrets }[] = [];
+	const blobWrites: { label: string; secrets: StoredServerSecrets; owners: StoredSecretOwners }[] = [];
 	const blobRemovals: string[] = [];
 	for (const [label, entry] of Object.entries(snapshot.blobs)) {
 		if (entry.present) {
-			blobWrites.push({ label, secrets: entry.value });
+			blobWrites.push({ label, secrets: entry.value, owners: entry.owners ?? {} });
 		} else {
 			blobRemovals.push(label);
 		}

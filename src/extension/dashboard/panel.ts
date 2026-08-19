@@ -65,11 +65,11 @@ import {
 	deleteServerSecrets,
 	parseServersSetting,
 	readEntryModelParameters,
-	readServerSecrets,
 	secretLocations,
 	serverSettingReports,
 	updateServerSecret,
 } from "../servers/serverSync";
+import { readServerSecretsRecord } from "../servers/serverSync/secrets";
 import type { UsagePoller } from "../servers/usage";
 import { isUsageFresh, notifyUsageRefreshFailure } from "../servers/usage";
 import { createSettingsAccess } from "../settingsAccess";
@@ -950,8 +950,8 @@ export function registerDashboardCommand(
 		// writes always target the user-scope value.
 		readServersSetting: () => settingsAccess.readGlobal(SERVERS_SETTING_KEY),
 		writeServersSetting: (value) => settingsAccess.writeGlobal(SERVERS_SETTING_KEY, value),
-		storeServerSecret: (label, field, value) => updateServerSecret(context.secrets, label, field, value),
-		readServerSecrets: (label) => readServerSecrets(context.secrets, label),
+		storeServerSecret: (label, field, value, owner) => updateServerSecret(context.secrets, label, field, value, owner),
+		readServerSecrets: (label) => readServerSecretsRecord(context.secrets, label),
 		deleteServerSecrets: (label) => deleteServerSecrets(context.secrets, label),
 		requestServerSync: () => syncEngine.requestSync(),
 		// The adopt intent's credential source: the provider's in-memory group

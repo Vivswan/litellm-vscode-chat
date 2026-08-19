@@ -1,7 +1,8 @@
 import * as assert from "node:assert";
 import * as vscode from "vscode";
 import type { SecretStore, StoredServerSecrets } from "../../../extension/servers/serverSync";
-import { readServerSecrets, updateServerSecret } from "../../../extension/servers/serverSync";
+import { updateServerSecret } from "../../../extension/servers/serverSync";
+import { readServerSecretsRecord } from "../../../extension/servers/serverSync/secrets";
 import type { SettingsAccess, SettingsInspection } from "../../../extension/settingsAccess";
 import type {
 	ImportPreviewSummary,
@@ -214,8 +215,8 @@ function makeWorld(
 	world.env = {
 		settings: access,
 		prompts,
-		readServerSecrets: (label) => readServerSecrets(secretStore, label),
-		updateServerSecret: (label, field, value) => updateServerSecret(secretStore, label, field, value),
+		readServerSecrets: (label) => readServerSecretsRecord(secretStore, label),
+		updateServerSecret: (label, field, value, owner) => updateServerSecret(secretStore, label, field, value, owner),
 		deleteServerSecrets: async (label) => secretStore.delete(serverSecretsKey(label)),
 		readSnapshotSlot: async () => world.snapshotSlot,
 		writeSnapshotSlot: async (serialized) => {
@@ -256,10 +257,23 @@ function makeWorld(
 	return world;
 }
 
-/** The label's stored blob as the map holds it right now. */
+/** The label's stored secret VALUES as the map holds them right now; the ownership stamps ride ownersOf. */
 function blobOf(world: FakeWorld, label: string): StoredServerSecrets {
 	const raw = world.secretValues.get(serverSecretsKey(label));
-	return raw === undefined ? {} : (JSON.parse(raw) as StoredServerSecrets);
+	if (raw === undefined) {
+		return {};
+	}
+	const { _owner, ...values } = JSON.parse(raw) as StoredServerSecrets & { _owner?: Record<string, string> };
+	return values;
+}
+
+/** The label's ownership stamps as stored, for the stamping assertions. */
+function ownersOf(world: FakeWorld, label: string): Record<string, string> {
+	const raw = world.secretValues.get(serverSecretsKey(label));
+	if (raw === undefined) {
+		return {};
+	}
+	return (JSON.parse(raw) as { _owner?: Record<string, string> })._owner ?? {};
 }
 
 /** Point the open dialog at a fake file holding `contents`. */
@@ -485,6 +499,9 @@ suite("settingsTransferCommands import flow", () => {
 		assert.strictEqual(world.settings.get("chat.timeout"), 1234);
 		assert.deepStrictEqual(world.settings.get(SERVERS_SETTING_KEY), [{ label: "new", baseUrl: "http://new:4000" }]);
 		assert.deepStrictEqual(blobOf(world, "new"), { apiKey: "MOVED-SECRET" });
+		// The import IS the deliberate pairing, so the moved value is stamped for
+		// the imported entry's destination.
+		assert.deepStrictEqual(ownersOf(world, "new"), { apiKey: "http://new:4000" });
 		assert.ok(world.syncRequests >= 1);
 		const note = onlyNotification(world);
 		assert.strictEqual(note.kind, "info");

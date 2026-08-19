@@ -2,6 +2,7 @@ import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import type { LiteLLMModelInfo } from "../../provider/catalog/groupModels";
 import { CMD, INTERNAL_CMD } from "../../shared/config/commandIds";
+import { CONFIG_SECTION, SERVERS_SETTING_KEY } from "../../shared/config/settingSpec";
 import type { ErrorRecorder, Logger } from "../../shared/logger";
 import { publicErrorStack, publicErrorText } from "../../shared/logger";
 import type { SecretFieldId } from "../../shared/serverEntry";
@@ -14,6 +15,8 @@ import type { DashboardController } from "../dashboard/panel";
 import type { ServerRegistry } from "../servers/serverRegistry";
 import type { ServerSyncEngine } from "../servers/serverSync";
 import { updateServerSecret } from "../servers/serverSync";
+import { secretDestination } from "../servers/serverSync/secrets";
+import { acceptedEntry } from "../servers/serverSync/setting";
 import { buildDiagnosticsSnapshot } from "./diagnostics";
 import type { IssueReporter } from "./issueReporter";
 import { readLastIssueReport, rememberIssueReport, reportFingerprint } from "./issueReporter";
@@ -565,7 +568,15 @@ export function registerTestCommands(
 				if (!(SECRET_FIELD_IDS as readonly string[]).includes(field)) {
 					throw new Error(`Unknown secret field: ${field}`);
 				}
-				return updateServerSecret(context.secrets, label, field as SecretFieldId, value);
+				// Stamped like the palette when the label resolves to a declared
+				// entry; a secret seeded before its entry is declared writes
+				// unstamped and resolves anywhere, like a pre-stamping blob.
+				const entry = acceptedEntry(
+					vscode.workspace.getConfiguration(CONFIG_SECTION).get(SERVERS_SETTING_KEY),
+					label
+				)?.entry;
+				const owner = entry !== undefined ? secretDestination(entry, field as SecretFieldId) : undefined;
+				return updateServerSecret(context.secrets, label, field as SecretFieldId, value, owner);
 			}
 		),
 		vscode.commands.registerCommand("litellm._test.getDeclaredServers", () => syncEngine.getDeclared()),

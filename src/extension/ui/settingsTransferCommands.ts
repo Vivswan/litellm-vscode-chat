@@ -20,8 +20,8 @@ import type { SecretFieldId } from "../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../shared/serverEntry";
 import { isRecord, isUnsafeRecordKey } from "../../shared/util/json";
 import type { ServerSyncEngine } from "../servers/serverSync/engine";
-import type { StoredServerSecrets } from "../servers/serverSync/secrets";
-import { deleteServerSecrets, readServerSecrets, updateServerSecret } from "../servers/serverSync/secrets";
+import type { StoredSecretOwners, StoredSecretsRecord, StoredServerSecrets } from "../servers/serverSync/secrets";
+import { deleteServerSecrets, readServerSecretsRecord, updateServerSecret } from "../servers/serverSync/secrets";
 import { rawDeclaredLabels } from "../servers/serverSync/setting";
 import type { SettingsAccess } from "../settingsAccess";
 import { createSettingsAccess } from "../settingsAccess";
@@ -34,7 +34,7 @@ import {
 	resolveImportPlan,
 	suggestRenamedLabel,
 } from "../settingsTransfer/importPlan";
-import type { PreImportSnapshot, SnapshotEntry } from "../settingsTransfer/snapshot";
+import type { PreImportSnapshot, SnapshotBlobEntry, SnapshotEntry } from "../settingsTransfer/snapshot";
 import { buildPreImportSnapshot, planSnapshotRestore } from "../settingsTransfer/snapshot";
 import type { MessageAction } from "./notifier";
 import { showActionableMessage } from "./notifier";
@@ -92,8 +92,14 @@ export interface SettingsTransferPrompts {
 export interface SettingsTransferEnv {
 	readonly settings: SettingsAccess;
 	readonly prompts: SettingsTransferPrompts;
-	readServerSecrets(label: string): Promise<StoredServerSecrets>;
-	updateServerSecret(label: string, field: SecretFieldId, value: string | undefined): Promise<void>;
+	readServerSecrets(label: string): Promise<StoredSecretsRecord>;
+	/** Write one field; undefined deletes it. `owner` is the ownership stamp for a written value; see updateServerSecret. */
+	updateServerSecret(
+		label: string,
+		field: SecretFieldId,
+		value: string | undefined,
+		owner: string | undefined
+	): Promise<void>;
 	deleteServerSecrets(label: string): Promise<void>;
 	/** The one pre-import snapshot slot (SecretStorage; the snapshot is secret-capable whole). */
 	readSnapshotSlot(): Promise<string | undefined>;
@@ -277,8 +283,8 @@ export function createSettingsTransferEnv(
 	return {
 		settings: createSettingsAccess(),
 		prompts: createSettingsTransferPrompts(),
-		readServerSecrets: (label) => readServerSecrets(context.secrets, label),
-		updateServerSecret: (label, field, value) => updateServerSecret(context.secrets, label, field, value),
+		readServerSecrets: (label) => readServerSecretsRecord(context.secrets, label),
+		updateServerSecret: (label, field, value, owner) => updateServerSecret(context.secrets, label, field, value, owner),
 		deleteServerSecrets: (label) => deleteServerSecrets(context.secrets, label),
 		readSnapshotSlot: async () => context.secrets.get(PRE_IMPORT_SNAPSHOT_SECRET),
 		writeSnapshotSlot: async (serialized) => context.secrets.store(PRE_IMPORT_SNAPSHOT_SECRET, serialized),
@@ -370,6 +376,16 @@ export async function runExportSettingsFlow(env: SettingsTransferEnv): Promise<v
 						)
 			);
 		}
+		if (result.mismatchedSecretCount > 0) {
+			notes.push(
+				result.mismatchedSecretCount === 1
+					? l10n.t("1 stored secret belongs to a different server address and is not in the file.")
+					: l10n.t(
+							"{0} stored secrets belong to different server addresses and are not in the file.",
+							result.mismatchedSecretCount
+						)
+			);
+		}
 		if (result.omittedUnsanitizableCount > 0) {
 			notes.push(
 				result.omittedUnsanitizableCount === 1
@@ -385,6 +401,7 @@ export async function runExportSettingsFlow(env: SettingsTransferEnv): Promise<v
 			servers: result.serverCount,
 			includeSecrets: secretsChoice === "include",
 			unmaterialized: result.unmaterializedSecretCount,
+			mismatched: result.mismatchedSecretCount,
 			omitted: result.omittedUnsanitizableCount,
 		});
 		await env.prompts.notify("info", notes.join(" "), [
@@ -421,10 +438,19 @@ function parseFailureMessage(reason: "not-json" | "not-an-export" | "newer-versi
 async function applyServersUnit(
 	env: SettingsTransferEnv,
 	serversValue: readonly unknown[],
-	secretWrites: readonly { readonly label: string; readonly secrets: StoredServerSecrets }[],
+	secretWrites: readonly {
+		readonly label: string;
+		readonly secrets: StoredServerSecrets;
+		readonly owners: StoredSecretOwners;
+	}[],
 	settingsLanded: boolean
 ): Promise<"landed" | "rolled-back" | "rollback-failed"> {
-	const overwritten: { label: string; field: SecretFieldId; previous: string | undefined }[] = [];
+	const overwritten: {
+		label: string;
+		field: SecretFieldId;
+		previous: string | undefined;
+		previousOwner: string | undefined;
+	}[] = [];
 	try {
 		for (const write of secretWrites) {
 			const storedBefore = await env.readServerSecrets(write.label);
@@ -432,22 +458,27 @@ async function applyServersUnit(
 				// An undefined value clears the field: one the imported entry does
 				// not set is stale under this label.
 				const value = write.secrets[field];
-				if (value === undefined && storedBefore[field] === undefined) {
+				if (value === undefined && storedBefore.values[field] === undefined) {
 					continue;
 				}
-				await env.updateServerSecret(write.label, field, value);
+				await env.updateServerSecret(write.label, field, value, value !== undefined ? write.owners[field] : undefined);
 				// Recorded only after the write landed: updateServerSecret's
 				// read-modify-write leaves the blob untouched when it throws.
-				overwritten.push({ label: write.label, field, previous: storedBefore[field] });
+				overwritten.push({
+					label: write.label,
+					field,
+					previous: storedBefore.values[field],
+					previousOwner: storedBefore.owners[field],
+				});
 			}
 		}
 		await env.settings.writeGlobal(SERVERS_SETTING_KEY, serversValue);
 		return "landed";
 	} catch (error) {
 		const unrestoredLabels = new Set<string>();
-		for (const { label, field, previous } of [...overwritten].reverse()) {
+		for (const { label, field, previous, previousOwner } of [...overwritten].reverse()) {
 			try {
-				await env.updateServerSecret(label, field, previous);
+				await env.updateServerSecret(label, field, previous, previousOwner);
 			} catch {
 				unrestoredLabels.add(label);
 				env.log("Restoring a stored secret after a failed settings import also failed", { field });
@@ -536,7 +567,7 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 		const prePlan = planSettingsImport(parsed.settings, currentServersRaw);
 		const storedSecrets: Record<string, StoredServerSecrets> = {};
 		for (const collision of prePlan.collisions) {
-			storedSecrets[collision.label] = await env.readServerSecrets(collision.label);
+			storedSecrets[collision.label] = (await env.readServerSecrets(collision.label)).values;
 		}
 		const plan = planSettingsImport(parsed.settings, currentServersRaw, storedSecrets);
 
@@ -826,7 +857,7 @@ function parseSnapshotSlot(serialized: string): PreImportSnapshot | undefined {
 			return undefined;
 		}
 	}
-	const blobs: Record<string, SnapshotEntry<StoredServerSecrets>> = {};
+	const blobs: Record<string, SnapshotBlobEntry> = {};
 	for (const [label, entry] of Object.entries(parsed.blobs)) {
 		// Real labels are always trimmed, non-empty, and non-reserved; anything
 		// else would write a SecretStorage key no server entry can ever read.
@@ -865,7 +896,27 @@ function parseSnapshotSlot(serialized: string): PreImportSnapshot | undefined {
 			}
 			blob[field as SecretFieldId] = value;
 		}
-		blobs[label] = { present: true, value: blob };
+		// Ownership stamps are optional (snapshots predating them carry none)
+		// but when present must be the builder's shape: stamp strings ("" is a
+		// real stamp) on fields the value record holds.
+		let owners: { -readonly [K in SecretFieldId]?: string } | undefined;
+		if ("owners" in entry && entry.owners !== undefined) {
+			if (!isRecord(entry.owners)) {
+				return undefined;
+			}
+			owners = {};
+			for (const [field, owner] of Object.entries(entry.owners)) {
+				if (
+					!(SECRET_FIELD_IDS as readonly string[]).includes(field) ||
+					typeof owner !== "string" ||
+					blob[field as SecretFieldId] === undefined
+				) {
+					return undefined;
+				}
+				owners[field as SecretFieldId] = owner;
+			}
+		}
+		blobs[label] = { present: true, value: blob, ...(owners !== undefined ? { owners } : {}) };
 	}
 	return { settings, blobs, at: parsed.at };
 }
@@ -970,7 +1021,7 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 		const targetServersRaw = serversEntry?.present === true ? serversEntry.value : undefined;
 		const currentBlobs: Record<string, StoredServerSecrets> = {};
 		for (const label of new Set([...rawDeclaredLabels(currentServersRaw), ...rawDeclaredLabels(targetServersRaw)])) {
-			currentBlobs[label] = await env.readServerSecrets(label);
+			currentBlobs[label] = (await env.readServerSecrets(label)).values;
 		}
 		const targetBlobs: Record<string, StoredServerSecrets> = { ...currentBlobs };
 		for (const [label, entry] of Object.entries(snapshot.blobs)) {
@@ -989,9 +1040,10 @@ export async function runUndoLastImportFlow(env: SettingsTransferEnv): Promise<v
 		// restore first and the engine wakes to a consistent pre-import state.
 		for (const write of restore.blobWrites) {
 			try {
-				// Field by field, absent fields cleared, so the blob is restored WHOLE.
+				// Field by field, absent fields cleared, so the blob is restored
+				// WHOLE - values and ownership stamps alike.
 				for (const field of SECRET_FIELD_IDS) {
-					await env.updateServerSecret(write.label, field, write.secrets[field]);
+					await env.updateServerSecret(write.label, field, write.secrets[field], write.owners[field]);
 				}
 			} catch {
 				failures += 1;

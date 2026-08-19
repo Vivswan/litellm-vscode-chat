@@ -197,7 +197,7 @@ function makeHarness(): Harness {
 			}
 			secretOps.push([label, field, value]);
 		},
-		readServerSecrets: async () => ({}),
+		readServerSecrets: async () => ({ values: {}, owners: {} }),
 		deleteServerSecrets: async () => {},
 		requestServerSync: () => {},
 		resolveAdoptionCredentials: () => undefined,
