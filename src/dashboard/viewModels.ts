@@ -764,6 +764,6 @@ export interface DashboardState {
  * arrive in stale deep links; the shell's unknown-section guard drops those,
  * which a test pins.
  */
-export const DASHBOARD_SECTION_IDS = ["overview", "models", "diagnostics", "settings"] as const;
+export const DASHBOARD_SECTION_IDS = ["overview", "settings", "models", "diagnostics"] as const;
 
 export type DashboardSectionId = (typeof DASHBOARD_SECTION_IDS)[number];
