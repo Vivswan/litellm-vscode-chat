@@ -904,6 +904,55 @@ suite("provider/transport/errorMapping", () => {
 			assertStartsWith(frame.message, "The conversation is too long for this model");
 			assert.ok(!frame.message.includes("trying again may work"), frame.message);
 		});
+
+		test("a statusless frame merely mentioning the context window keeps the generic interrupted-stream headline", () => {
+			// No status vouches for the frame, so a bare mention proves nothing:
+			// "trim the conversation" would be wrong advice for an upstream that
+			// died for another reason while talking about its context window.
+			const frame = streamErrorFrame({
+				message: "The upstream provider failed while preparing the model's context window",
+			});
+			assertStartsWith(frame.message, "The server reported an error while it was streaming this reply");
+			assert.strictEqual(frame.logClassification, "RequestError(http, in-band stream error frame)");
+		});
+
+		test("a statusless frame naming the maximum context length without a limit figure stays generic too", () => {
+			// The signature is the exceedance, not the word "maximum": a message
+			// describing the limit without overrunning it proves nothing.
+			const frame = streamErrorFrame({
+				message: "The upstream failed while reading the model's maximum context length",
+			});
+			assertStartsWith(frame.message, "The server reported an error while it was streaming this reply");
+			assert.strictEqual(frame.logClassification, "RequestError(http, in-band stream error frame)");
+		});
+
+		test("a statusless frame whose message proves the exceedance classifies without the structured marks", () => {
+			const frame = streamErrorFrame({
+				message: "This model's maximum context length is 8192 tokens. However, your messages resulted in 9021 tokens.",
+			});
+			assertStartsWith(frame.message, "The conversation is too long for this model");
+			assert.strictEqual(
+				frame.logClassification,
+				"RequestError(http, in-band stream error frame, context_window_exceeded)"
+			);
+		});
+
+		test("a 400 with a bare context-window mention still classifies as context-window (the status vouches)", () => {
+			const http = expectRequestError(
+				mapSdkError(
+					APIError.generate(
+						400,
+						{ error: { message: "the request does not fit this model's context window" } },
+						undefined,
+						new Headers()
+					),
+					chatCtx
+				),
+				"http"
+			);
+			assertStartsWith(http.message, "The conversation is too long for this model");
+			assert.strictEqual(http.logClassification, "RequestError(http, status 400, context_window_exceeded)");
+		});
 	});
 
 	suite("twoPartTexts (the one headline+detail join)", () => {

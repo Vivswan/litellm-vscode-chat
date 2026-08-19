@@ -367,8 +367,11 @@ type HttpErrorClass =
  * - everything else returns undefined and the frame keeps its generic
  * interrupted-stream headline. One asymmetry is inherent: with a status the
  * status arbitrates (429 is rate-limited whatever the message says, the
- * context-window signatures count only at 400); a frame has no status, so its
- * envelope is judged alone, in budget > context-window > rate-limit order.
+ * context-window signatures count only at 400, where the status vouches that
+ * the request was refused and the mention just picks the flavor); a frame has
+ * no status, so its envelope is judged alone, in budget > context-window >
+ * rate-limit order, and a bare context-window mention proves nothing there -
+ * the structured marks or an exceedance signature must accompany it.
  */
 function classifyEnvelope(envelope: ErrorEnvelope | undefined, status: number): HttpErrorClass;
 function classifyEnvelope(envelope: ErrorEnvelope | undefined, status?: number): HttpErrorClass | undefined;
@@ -376,14 +379,17 @@ function classifyEnvelope(envelope: ErrorEnvelope | undefined, status?: number):
 	const marks = `${envelope?.type ?? ""} ${envelope?.code ?? ""}`;
 	const message = envelope?.message ?? "";
 	const budget = marks.includes("budget_exceeded") || /budget has been exceeded/i.test(message);
-	const contextWindow =
-		marks.includes("context_window_exceeded") ||
-		marks.includes("context_length_exceeded") ||
-		/context (window|length)/i.test(message);
+	const contextWindowMarks = marks.includes("context_window_exceeded") || marks.includes("context_length_exceeded");
+	const contextWindowMention = /context (window|length)/i.test(message);
 	if (status === undefined) {
+		// The signature is exceed/too-long/too-large or OpenAI's exact
+		// "maximum context length is N" shape; a bare "maximum" proves nothing.
+		const contextWindowProven =
+			contextWindowMarks ||
+			(contextWindowMention && /exceed|too (long|large)|maximum context length is \d/i.test(message));
 		return budget
 			? "budget_exceeded"
-			: contextWindow
+			: contextWindowProven
 				? "context_window_exceeded"
 				: marks.includes("rate_limit")
 					? "rate_limited"
@@ -396,7 +402,7 @@ function classifyEnvelope(envelope: ErrorEnvelope | undefined, status?: number):
 		return "rate_limited";
 	}
 	if (status === 400) {
-		return contextWindow ? "context_window_exceeded" : "invalid_request";
+		return contextWindowMarks || contextWindowMention ? "context_window_exceeded" : "invalid_request";
 	}
 	if (status === 403) {
 		return envelope !== undefined ? "model_access" : "forbidden";
