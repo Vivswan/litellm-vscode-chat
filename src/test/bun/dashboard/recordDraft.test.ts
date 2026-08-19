@@ -91,13 +91,43 @@ describe("dashboard/recordDraft", () => {
 			assert.strictEqual(({} as Record<string, unknown>).polluted, undefined, "Object.prototype stays clean");
 		});
 
-		test("keys and prefixes are trimmed on assembly, and the record's prototype is ordinary", () => {
+		test("matcher and parameter keys persist verbatim, and the record's prototype is ordinary", () => {
+			// The matcher grammar and parseParameterRecord trim nothing: a padded
+			// matcher is an exact key for the padded ID and a padded parameter is
+			// its own live field, so Apply must not silently canonicalize either.
 			const assembled = parsedValue(
 				parseGroups([{ prefix: " gpt-4 ", params: [newParamRow(" temperature ", "0.2")] }])
 			);
 
-			assert.deepStrictEqual(assembled, { "gpt-4": { temperature: 0.2 } });
+			assert.deepStrictEqual(assembled, { " gpt-4 ": { " temperature ": 0.2 } });
 			assert.strictEqual(Object.getPrototypeOf(assembled), Object.prototype, "the prototype stays untouched");
+		});
+
+		test("a padded sibling-directive spelling is a live field: no ignored hint, saved verbatim", () => {
+			// " _fallback" does not start with "_", so the resolver passes it
+			// through to LiteLLM as a parameter named " _fallback"; only the
+			// exact "_fallback" spelling is the wrong-record-type directive.
+			const parse = parseGroups([
+				{ prefix: "gpt-4", params: [newParamRow(" _fallback", '"x"'), newParamRow("_fallback", "true")] },
+			]);
+			assert.ok(parse.ok);
+			assert.deepStrictEqual(parse.value, { "gpt-4": { " _fallback": "x", _fallback: true } });
+			assert.strictEqual(parse.hints[0]?.params[0], undefined, "the live field carries no wrong-type hint");
+			assert.match(parse.hints[0]?.params[1] ?? "", /belongs to capability records/);
+		});
+
+		test("a padded directive spelling is not the directive: ' _force' rows parse as open JSON fields", () => {
+			const parse = parseGroups([{ prefix: "gpt-4", params: [newParamRow(" _force", '["temperature"]')] }]);
+			assert.ok(parse.ok);
+			assert.deepStrictEqual(parse.value, { "gpt-4": { " _force": ["temperature"] } });
+		});
+
+		test("parameter keys that differ only by padding are distinct fields, not duplicates", () => {
+			const parse = parseGroups([
+				{ prefix: "gpt-4", params: [newParamRow("temperature", "0.2"), newParamRow("temperature ", "0.7")] },
+			]);
+			assert.ok(parse.ok);
+			assert.deepStrictEqual(parse.value, { "gpt-4": { temperature: 0.2, "temperature ": 0.7 } });
 		});
 
 		test("a _force row takes true, false, or a list of names; anything else blocks with the example", () => {
@@ -540,15 +570,18 @@ describe("dashboard/recordDraft", () => {
 				prefix: "gpt-4",
 				params: [newParamRow("temperature", "0.2"), ...(valueText === "" ? [] : [newParamRow("_force", valueText)])],
 			});
-			assert.deepStrictEqual([...directiveMarkedFields(rows(""), "_force")], []);
-			assert.deepStrictEqual([...directiveMarkedFields(rows("false"), "_force")], []);
-			assert.deepStrictEqual([...directiveMarkedFields(rows("not json"), "_force")], []);
-			assert.deepStrictEqual([...directiveMarkedFields(rows('["temperature"]'), "_force")], ["temperature"]);
+			assert.deepStrictEqual([...directiveMarkedFields("params", rows(""), "_force")], []);
+			assert.deepStrictEqual([...directiveMarkedFields("params", rows("false"), "_force")], []);
+			assert.deepStrictEqual([...directiveMarkedFields("params", rows("not json"), "_force")], []);
+			assert.deepStrictEqual([...directiveMarkedFields("params", rows('["temperature"]'), "_force")], ["temperature"]);
 			// A partly invalid list still marks its string entries: the resolver
 			// salvages those, so the checkbox must not read a forced field as
 			// unmarked. Toggling keeps the non-string junk in place.
-			assert.deepStrictEqual([...directiveMarkedFields(rows('[42, "temperature"]'), "_force")], ["temperature"]);
-			const salvaged = toggleDirectiveField(rows('[42, "temperature"]'), "_force", "temperature", false);
+			assert.deepStrictEqual(
+				[...directiveMarkedFields("params", rows('[42, "temperature"]'), "_force")],
+				["temperature"]
+			);
+			const salvaged = toggleDirectiveField("params", rows('[42, "temperature"]'), "_force", "temperature", false);
 			assert.strictEqual(salvaged.params[1]?.valueText, "[42]", "unmarking preserves the junk entry, still flagged");
 		});
 
@@ -561,29 +594,33 @@ describe("dashboard/recordDraft", () => {
 					newParamRow("_fallback", "true"),
 				],
 			};
-			assert.deepStrictEqual([...directiveMarkedFields(group, "_fallback")], ["context_length"]);
+			assert.deepStrictEqual([...directiveMarkedFields("caps", group, "_fallback")], ["context_length"]);
 
 			const params = {
 				prefix: "gpt-4",
 				params: [newParamRow("temperature", "0.2"), newParamRow("model", '"x"'), newParamRow("_force", "true")],
 			};
-			assert.deepStrictEqual([...directiveMarkedFields(params, "_force")], ["temperature"]);
+			assert.deepStrictEqual([...directiveMarkedFields("params", params, "_force")], ["temperature"]);
 		});
 
 		test("toggling writes the explicit list, appends the row when absent, and drops it on the last unmark", () => {
 			const bare = { prefix: "gpt-4", params: [newParamRow("temperature", "0.2")] };
 
-			const marked = toggleDirectiveField(bare, "_force", "temperature", true);
+			const marked = toggleDirectiveField("params", bare, "_force", "temperature", true);
 			const forceRow = marked.params[1];
 			assert.deepStrictEqual(
 				{ key: forceRow?.key, valueText: forceRow?.valueText },
 				{ key: "_force", valueText: '["temperature"]' }
 			);
 
-			const unmarked = toggleDirectiveField(marked, "_force", "temperature", false);
+			const unmarked = toggleDirectiveField("params", marked, "_force", "temperature", false);
 			assert.deepStrictEqual(unmarked.params, bare.params, "the last unmark removes the directive row");
 
-			assert.strictEqual(toggleDirectiveField(bare, "_force", "temperature", false), bare, "no row, no change");
+			assert.strictEqual(
+				toggleDirectiveField("params", bare, "_force", "temperature", false),
+				bare,
+				"no row, no change"
+			);
 		});
 
 		test("a hand-written true expands to the eligible keys on the first toggle; unknown entries are kept", () => {
@@ -595,14 +632,14 @@ describe("dashboard/recordDraft", () => {
 					newParamRow("_fallback", "true"),
 				],
 			};
-			const toggled = toggleDirectiveField(group, "_fallback", "max_output_tokens", false);
+			const toggled = toggleDirectiveField("caps", group, "_fallback", "max_output_tokens", false);
 			assert.strictEqual(toggled.params[2]?.valueText, '["context_length"]', "true becomes the explicit remainder");
 
 			const withUnknown = {
 				prefix: "gpt-4",
 				params: [newParamRow("temperature", "0.2"), newParamRow("_force", '["typo_entry"]')],
 			};
-			const kept = toggleDirectiveField(withUnknown, "_force", "temperature", true);
+			const kept = toggleDirectiveField("params", withUnknown, "_force", "temperature", true);
 			assert.strictEqual(
 				kept.params[1]?.valueText,
 				'["typo_entry","temperature"]',
@@ -612,13 +649,49 @@ describe("dashboard/recordDraft", () => {
 
 		test("toggle output round-trips through the parse and the marks it reads back", () => {
 			const group = { prefix: "gpt-4", params: [newParamRow("context_length", "128000")] };
-			const marked = toggleDirectiveField(group, "_fallback", "context_length", true);
+			const marked = toggleDirectiveField("caps", group, "_fallback", "context_length", true);
 			const parse = parseCapabilityGroups([marked]);
 			assert.ok(parse.ok, "the rewritten row parses clean");
 			assert.deepStrictEqual(parse.value, {
 				"gpt-4": { context_length: 128000, _fallback: ["context_length"] },
 			});
-			assert.ok(directiveMarkedFields(marked, "_fallback").has("context_length"));
+			assert.ok(directiveMarkedFields("caps", marked, "_fallback").has("context_length"));
+		});
+
+		test("capability list entries read and save trimmed, the resolver's own parse boundary", () => {
+			// parseCapabilityRecord trims `_fallback`/`_inheritable` entries, so a
+			// padded entry is ACTIVE host-side: the checkbox must read it as
+			// marking its field, never hint it stranded, and save it trimmed.
+			const group = {
+				prefix: "gpt-4",
+				params: [newParamRow("context_length", "128000"), newParamRow("_fallback", '[" context_length "]')],
+			};
+			assert.ok(directiveMarkedFields("caps", group, "_fallback").has("context_length"));
+			const parse = parseCapabilityGroups([group]);
+			assert.ok(parse.ok);
+			assert.deepStrictEqual(parse.value, { "gpt-4": { context_length: 128000, _fallback: ["context_length"] } });
+			assert.strictEqual(parse.issues[0]?.rows[1]?.hint, undefined, "an active mark is never hinted stranded");
+			// Unchecking removes every spelling that names the field: the padded
+			// entry cannot survive its own checkbox and reactivate on reload.
+			const untoggled = toggleDirectiveField("caps", group, "_fallback", "context_length", false);
+			assert.deepStrictEqual(
+				untoggled.params.map((param) => param.key),
+				["context_length"],
+				"the last unmark drops the row, padded spelling included"
+			);
+		});
+
+		test("parameter list entries match verbatim: a padded entry marks nothing and hints stranded", () => {
+			// parseParameterRecord matches `_force` entries against field keys
+			// exactly, so "temperature " does not force "temperature".
+			const group = {
+				prefix: "gpt-4",
+				params: [newParamRow("temperature", "0.2"), newParamRow("_force", '["temperature "]')],
+			};
+			assert.ok(!directiveMarkedFields("params", group, "_force").has("temperature"));
+			const parse = parseGroups([group]);
+			assert.ok(parse.ok);
+			assert.match(parse.hints[0]?.params[1] ?? "", /"temperature " is not a parameter this record sets/);
 		});
 	});
 

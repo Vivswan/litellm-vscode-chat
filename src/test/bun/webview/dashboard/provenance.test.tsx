@@ -51,25 +51,31 @@ describe("webview/dashboard/provenance phrase register", () => {
 		}
 	});
 
-	test("an inherited capability value appends the badge register's inherited mark words", () => {
-		expect(capabilityProvenancePhrase({ level: "entry", key: "gpt-4", inheritedFrom: "base" })).toBe(
-			"entry gpt-4; inherited from base"
+	test("an inherited value appends the inherited mark on presence, like the inspectors' badge register", () => {
+		// Both resolvers set inheritedFrom only when the winning record
+		// inherited the field, and always to the source record's own key
+		// (source.key): presence IS the signal, so the equal shape - the only
+		// shape production emits - must speak the mark.
+		expect(capabilityProvenancePhrase({ level: "global", key: "gpt*", inheritedFrom: "gpt*" })).toBe(
+			"settings gpt*; inherited from gpt*"
 		);
-		expect(capabilityProvenancePhrase({ level: "entry-fallback", key: "gpt-4", inheritedFrom: "base" })).toBe(
-			"entry gpt-4; fallback, inherited from base"
+		expect(capabilityProvenancePhrase({ level: "entry-fallback", key: "gpt-4", inheritedFrom: "gpt-4" })).toBe(
+			"entry gpt-4; fallback, inherited from gpt-4"
 		);
-		// A value a record holds itself is already named by the base phrase.
-		expect(capabilityProvenancePhrase({ level: "global", key: "gpt*", inheritedFrom: "gpt*" })).toBe("settings gpt*");
+		// Absent means the winning record wrote the field itself: no mark.
+		expect(capabilityProvenancePhrase({ level: "entry", key: "gpt-4" })).toBe("entry gpt-4");
 	});
 
 	test("parameter phrases speak the badge scopes and the editors' directive word, never 'forced'", () => {
 		expect(parameterProvenancePhrase({ layer: "entry", key: "gpt-4*" })).toBe("entry gpt-4*");
 		expect(parameterProvenancePhrase({ layer: "global", key: "*" })).toBe("settings *");
 		expect(parameterProvenancePhrase({ layer: "entry", key: "gpt-4*", forced: true })).toBe("entry gpt-4*; force");
-		expect(parameterProvenancePhrase({ layer: "global", key: "*", forced: true, inheritedFrom: "base" })).toBe(
-			"settings *; force, inherited from base"
+		expect(parameterProvenancePhrase({ layer: "global", key: "*", forced: true, inheritedFrom: "*" })).toBe(
+			"settings *; force, inherited from *"
 		);
-		expect(parameterProvenancePhrase({ layer: "global", key: "*", inheritedFrom: "*" })).toBe("settings *");
+		expect(parameterProvenancePhrase({ layer: "global", key: "*", inheritedFrom: "*" })).toBe(
+			"settings *; inherited from *"
+		);
 	});
 
 	test("the parameter badge and phrase share one scope word per layer", () => {

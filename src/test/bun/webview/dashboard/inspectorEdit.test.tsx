@@ -9,7 +9,7 @@ import type { ScopedRecordSetting } from "../../../../dashboard/viewModels";
 import type { ModelParametersResponse } from "../../../../webview/dashboard/modelInspector";
 import { ModelInspector } from "../../../../webview/dashboard/modelInspector";
 import type { ExternalRecordEdit } from "../../../../webview/dashboard/recordEditors";
-import { ModelParametersEditor } from "../../../../webview/dashboard/recordEditors";
+import { ModelCapabilitiesEditor, ModelParametersEditor } from "../../../../webview/dashboard/recordEditors";
 import { makeModel } from "../fixtures";
 import { buttonByText, cleanup, lastRequest, mount, postedRequests, render, resetPosted, respondTo } from "../harness";
 
@@ -217,7 +217,18 @@ describe("the editors' external-edit landing", () => {
 	function Harness({ external }: { external: ExternalRecordEdit | undefined }) {
 		return (
 			<ModelParametersEditor
-				scoped={makeScopedRecord({ "gpt-5*": { temperature: 0.3 }, "*": { top_p: 0.9 } })}
+				scoped={makeScopedRecord({ "gpt-5*": { temperature: 0.3 }, "*": { top_p: 0.9 }, " gpt-4*": { seed: 1 } })}
+				models={[]}
+				external={external}
+			/>
+		);
+	}
+
+	/** The capabilities twin of Harness: its landing effect is a separate copy. */
+	function CapsHarness({ external }: { external: ExternalRecordEdit | undefined }) {
+		return (
+			<ModelCapabilitiesEditor
+				scoped={makeScopedRecord({ "*": { context_length: 131072 }, " gpt-4*": { max_output_tokens: 8192 } })}
 				models={[]}
 				external={external}
 			/>
@@ -263,8 +274,45 @@ describe("the editors' external-edit landing", () => {
 		expect(overlay.querySelector<HTMLInputElement>("input.key")?.value).toBe("claude-4");
 		// The draft group joined the table (sorted view: the exact ID lands
 		// after the glob) but is not applied - drafts only land on Apply.
-		expect(matcherKeys(root)).toEqual(["*", "gpt-5*", "claude-4"]);
+		expect(matcherKeys(root)).toEqual(["*", "gpt-5*", " gpt-4*", "claude-4"]);
 		expect(postedRequests("setModelParameters")).toHaveLength(0);
+	});
+
+	test("a padded stored matcher opens too, in BOTH editors: the jump compares keys RAW", async () => {
+		// The request carries the stored record key (field.sourceKey, verbatim
+		// from the settings map) and the draft holds the stored prefix; the
+		// matcher grammar trims neither, so a trimmed comparison on either side
+		// would leave the inspector's per-row jump silently dead. " gpt-4*" is a
+		// valid glob whose raw and trimmed spellings differ.
+		const root = mount(<Harness external={undefined} />);
+		void act(() => {
+			render(<Harness external={{ seq: 1, key: " gpt-4*", create: false }} />, root);
+		});
+		await settle();
+
+		const overlay = root.querySelector<HTMLElement>(".matcher-editor");
+		if (overlay === null) {
+			throw new Error("the jump did not open the padded record's matcher editor overlay");
+		}
+		expect(overlay.querySelector<HTMLInputElement>("input.key")?.value).toBe(" gpt-4*");
+		// Opened, not minted: the group count is unchanged and nothing applies.
+		expect(matcherKeys(root)).toEqual(["*", "gpt-5*", " gpt-4*"]);
+		expect(buttonByText(root, "Apply").disabled).toBe(true);
+
+		// The capabilities editor carries its own copy of the landing effect,
+		// so it is pinned separately: one trimmed side there would be the same
+		// dead affordance.
+		const capsRoot = mount(<CapsHarness external={undefined} />);
+		void act(() => {
+			render(<CapsHarness external={{ seq: 1, key: " gpt-4*", create: false }} />, capsRoot);
+		});
+		await settle();
+		const capsOverlay = capsRoot.querySelector<HTMLElement>(".matcher-editor");
+		if (capsOverlay === null) {
+			throw new Error("the capabilities jump did not open the padded record's overlay");
+		}
+		expect(capsOverlay.querySelector<HTMLInputElement>("input.key")?.value).toBe(" gpt-4*");
+		expect(matcherKeys(capsRoot)).toEqual(["*", " gpt-4*"]);
 	});
 
 	test("a request for a key that vanished (create off) is a no-op", async () => {
@@ -274,6 +322,6 @@ describe("the editors' external-edit landing", () => {
 		});
 		await settle();
 		expect(root.querySelector(".matcher-editor")).toBeNull();
-		expect(matcherKeys(root)).toEqual(["*", "gpt-5*"]);
+		expect(matcherKeys(root)).toEqual(["*", "gpt-5*", " gpt-4*"]);
 	});
 });

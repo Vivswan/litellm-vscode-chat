@@ -190,9 +190,14 @@ function provenancePhrase(source: ProvenanceView, marks: readonly string[]): str
 	return marks.length > 0 ? `${base}; ${marks.join(", ")}` : base;
 }
 
-/** The inherited mark's phrase words; a value a record holds itself is already named by the base phrase. */
-function inheritedMarkWords(key: string | undefined, inheritedFrom: string | undefined): readonly string[] {
-	return inheritedFrom !== undefined && inheritedFrom !== key ? [`${inheritedWord()} ${inheritedFrom}`] : [];
+/**
+ * The inherited mark's phrase words, emitted on PRESENCE: both resolvers set
+ * `inheritedFrom` only when the winning record inherited the field, and always
+ * to the source record's own key - so presence is the whole signal, exactly as
+ * the inspectors' badge register reads it.
+ */
+function inheritedMarkWords(inheritedFrom: string | undefined): readonly string[] {
+	return inheritedFrom !== undefined ? [`${inheritedWord()} ${inheritedFrom}`] : [];
 }
 
 /** A parameter cell's provenance in the compact-phrase register (the diagnostics table's chips). */
@@ -202,7 +207,7 @@ export function parameterProvenancePhrase(cell: {
 	readonly forced?: true | undefined;
 	readonly inheritedFrom?: string | undefined;
 }): string {
-	const marks = [...(cell.forced === true ? [forceWord()] : []), ...inheritedMarkWords(cell.key, cell.inheritedFrom)];
+	const marks = [...(cell.forced === true ? [forceWord()] : []), ...inheritedMarkWords(cell.inheritedFrom)];
 	return provenancePhrase(parameterProvenance(cell), marks);
 }
 
@@ -215,7 +220,7 @@ export function capabilityProvenancePhrase(cell: {
 	const { source, mark } = capabilityProvenance(cell.level, cell.key);
 	return provenancePhrase(source, [
 		...(mark === undefined ? [] : [mark.word]),
-		...inheritedMarkWords(cell.key, cell.inheritedFrom),
+		...inheritedMarkWords(cell.inheritedFrom),
 	]);
 }
 

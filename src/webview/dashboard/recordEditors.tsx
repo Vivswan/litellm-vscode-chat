@@ -25,6 +25,7 @@ import {
 	parseCapabilityGroups,
 	parseGroups,
 	parseInheritKeysText,
+	resolvedFieldName,
 	setInheritFromChoice,
 	sortedGroupOrder,
 	toCapabilityGroups,
@@ -44,7 +45,7 @@ import {
 } from "../../shared/config/recordResolution";
 import { statusErrorDetail, statusErrorHeadline } from "../../shared/util/errorText";
 import { DOCS_LINK_MODEL_CAPABILITIES, DOCS_LINK_MODEL_PARAMETERS } from "./docsLinks";
-import { DocsLink, Help } from "./help";
+import { DocsLink, Help, HoverTip } from "./help";
 import {
 	helpCapabilityName,
 	helpCapabilityPrefix,
@@ -305,18 +306,20 @@ function OtherScopeNote({ scope }: { scope: SettingScope }) {
  * silently rewrite the user's text.
  */
 function InheritFromControl({
+	kind,
 	group,
 	disabled,
 	hint,
 	onChange,
 }: {
+	kind: RecordEditorKind;
 	group: PrefixGroup;
 	disabled: boolean;
 	/** The absorbed `_inherit_from` row's non-blocking note (an unknown record key), rendered beside the control. */
 	hint?: string | undefined;
 	onChange: (next: PrefixGroup) => void;
 }) {
-	const choice = inheritFromChoice(group);
+	const choice = inheritFromChoice(kind, group);
 	const id = useId();
 	// Keys mode held open locally: defined means the select shows "keys" even
 	// while no row exists (picking keys writes nothing until a key is typed -
@@ -339,14 +342,14 @@ function InheritFromControl({
 		const keys = parseInheritKeysText(text);
 		if (keys !== undefined) {
 			setPending((current) => (current === undefined ? current : { text }));
-			onChange(setInheritFromChoice(group, { keys }));
+			onChange(setInheritFromChoice(kind, group, { keys }));
 		} else if (choice.kind === "keys") {
 			// Emptied: drop the row; the pending mode keeps the input on screen
 			// for the next key - a stored keys row entered edit without local
 			// mode, and dropping the row bare would unmount the input mid-edit
 			// and steal focus.
 			setPending({ text });
-			onChange(setInheritFromChoice(group, "default"));
+			onChange(setInheritFromChoice(kind, group, "default"));
 		} else {
 			setPending((current) => (current === undefined ? current : { text }));
 		}
@@ -365,15 +368,15 @@ function InheritFromControl({
 					disabled={disabled}
 					value={shownKind}
 					onChange={(event) => {
-						const kind = event.currentTarget.value;
-						if (kind === "default" || kind === "all" || kind === "none") {
+						const selected = event.currentTarget.value;
+						if (selected === "default" || selected === "all" || selected === "none") {
 							setPending(undefined);
-							onChange(setInheritFromChoice(group, kind));
+							onChange(setInheritFromChoice(kind, group, selected));
 						} else {
 							// Enter keys mode without writing; see the comment above.
 							setPending({ text: choice.kind === "keys" ? choice.keysText : "" });
 							if (choice.kind !== "keys" && choice.kind !== "default") {
-								onChange(setInheritFromChoice(group, "default"));
+								onChange(setInheritFromChoice(kind, group, "default"));
 							}
 						}
 					}}
@@ -406,17 +409,20 @@ function InheritFromControl({
  * matches inherit them.
  */
 function InheritableFlag({
+	kind,
 	group,
 	fieldKey,
 	disabled,
 	onChange,
 }: {
+	kind: RecordEditorKind;
 	group: PrefixGroup;
+	/** The row's key in the resolver's reading (resolvedFieldName). */
 	fieldKey: string;
 	disabled: boolean;
 	onChange: (next: PrefixGroup) => void;
 }) {
-	const marked = directiveMarkedFields(group, INHERITABLE_DIRECTIVE);
+	const marked = directiveMarkedFields(kind, group, INHERITABLE_DIRECTIVE);
 	if (!directiveEligible(INHERITABLE_DIRECTIVE, fieldKey)) {
 		return null;
 	}
@@ -430,7 +436,7 @@ function InheritableFlag({
 					checked={marked.has(fieldKey)}
 					disabled={disabled}
 					onChange={(event) =>
-						onChange(toggleDirectiveField(group, INHERITABLE_DIRECTIVE, fieldKey, event.currentTarget.checked))
+						onChange(toggleDirectiveField(kind, group, INHERITABLE_DIRECTIVE, fieldKey, event.currentTarget.checked))
 					}
 				/>
 				{l10n.t({
@@ -535,19 +541,21 @@ function ParamGroupsFields({
 	const focusHold = useFocusedRow();
 	// The group's `_force` marks, derived once per render from the same
 	// rows the checkboxes rewrite, so box state and row text cannot drift.
-	const forcedFields = directiveMarkedFields(group, FORCE_DIRECTIVE);
+	const forcedFields = directiveMarkedFields("params", group, FORCE_DIRECTIVE);
 	// The wrong-record-type rows' description ids, one namespace per editor.
 	const wrongTypeIdBase = useId();
 	// The control-backed directive rows the grid absorbs: the Inherits
 	// select and the per-row checkboxes are their single representation.
 	// A row those controls cannot fully display - an unreadable value, a
 	// duplicate key, or a hinted stranded entry - stays visible and
-	// editable, and a row being typed in absorbs only on blur.
+	// editable, and a row being typed in absorbs only on blur. Row keys read
+	// RAW throughout this editor: parseParameterRecord trims nothing, so a
+	// padded " _inherit_from" is a live field, not the directive.
 	const rowAbsorbed = (index: number): boolean =>
 		!focusHold.focused(group.params[index]?.id ?? "") &&
-		directiveRowAbsorbed(group, index, PARAM_FLAG_DIRECTIVES) &&
-		(group.params[index]?.key.trim() === INHERIT_FROM_DIRECTIVE || hints?.params[index] === undefined);
-	const inheritFromIndex = group.params.findIndex((param) => param.key.trim() === INHERIT_FROM_DIRECTIVE);
+		directiveRowAbsorbed("params", group, index, PARAM_FLAG_DIRECTIVES) &&
+		(group.params[index]?.key === INHERIT_FROM_DIRECTIVE || hints?.params[index] === undefined);
+	const inheritFromIndex = group.params.findIndex((param) => param.key === INHERIT_FROM_DIRECTIVE);
 	// The grid's column heads label rendered rows; an empty group keeps
 	// just the add action instead of heads over nothing.
 	const anyRowVisible = group.params.some((_, index) => !rowAbsorbed(index));
@@ -580,6 +588,7 @@ function ParamGroupsFields({
 			</div>
 			<div className="editor-section">
 				<InheritFromControl
+					kind="params"
 					group={group}
 					disabled={inert}
 					hint={inheritFromIndex >= 0 && rowAbsorbed(inheritFromIndex) ? hints?.params[inheritFromIndex] : undefined}
@@ -605,13 +614,17 @@ function ParamGroupsFields({
 						if (rowAbsorbed(paramIndex)) {
 							return null;
 						}
-						const removeLabel =
-							param.key.trim().length > 0 ? l10n.t('Remove "{0}"', param.key.trim()) : l10n.t("Remove");
+						// The label names the field as the record stores it (verbatim
+						// here); emptiness is the one judgment made trimmed, matching
+						// the parse's own refusal of a whitespace-only name.
+						const removeLabel = param.key.trim().length > 0 ? l10n.t('Remove "{0}"', param.key) : l10n.t("Remove");
 						const rowProblem = problems?.params[paramIndex]?.message;
 						const rowHint = hints?.params[paramIndex];
 						// The wrong-record-type badge in the row's flag cell, its sentence
 						// wired to the key input: the same fact the table's chips badge.
-						const wrongType = wrongRecordTypeHint("params", param.key.trim());
+						// RAW key, like every classification in this editor - a padded
+						// sibling-directive spelling is a live field, not an ignored row.
+						const wrongType = wrongRecordTypeHint("params", param.key);
 						const wrongTypeId = wrongType === undefined ? undefined : `${wrongTypeIdBase}-${param.id}`;
 						return (
 							<div className="row" key={param.id} {...focusHold.rowFocusProps(param.id)}>
@@ -667,7 +680,7 @@ function ParamGroupsFields({
 								    Directive rows carry no flag checkboxes (a directive cannot be forced or inherited);
 								    unforceable keys keep the box visible but disabled, the help naming why. A sibling
 								    record type's directive fills the cell with the "ignored" badge instead. */}
-								{param.key.trim().startsWith("_") || param.key.trim().length === 0 ? (
+								{param.key.startsWith("_") || param.key.trim().length === 0 ? (
 									wrongType === undefined || wrongTypeId === undefined ? null : (
 										<WrongTypeFlagCell note={wrongType} id={wrongTypeId} />
 									)
@@ -675,12 +688,18 @@ function ParamGroupsFields({
 									<span className="cell directive-flag">
 										<label>
 											<Checkbox
-												aria-label={l10n.t('Force "{0}"', param.key.trim())}
-												checked={forcedFields.has(param.key.trim())}
-												disabled={inert || !directiveEligible(FORCE_DIRECTIVE, param.key.trim())}
+												aria-label={l10n.t('Force "{0}"', param.key)}
+												checked={forcedFields.has(param.key)}
+												disabled={inert || !directiveEligible(FORCE_DIRECTIVE, param.key)}
 												onChange={(event) =>
 													onChange(
-														toggleDirectiveField(group, FORCE_DIRECTIVE, param.key.trim(), event.currentTarget.checked)
+														toggleDirectiveField(
+															"params",
+															group,
+															FORCE_DIRECTIVE,
+															param.key,
+															event.currentTarget.checked
+														)
 													)
 												}
 											/>
@@ -690,11 +709,15 @@ function ParamGroupsFields({
 											})}
 										</label>
 										<Help
-											text={
-												directiveEligible(FORCE_DIRECTIVE, param.key.trim()) ? helpForceFlag() : helpForceFlagDisabled()
-											}
+											text={directiveEligible(FORCE_DIRECTIVE, param.key) ? helpForceFlag() : helpForceFlagDisabled()}
 										/>
-										<InheritableFlag group={group} fieldKey={param.key.trim()} disabled={inert} onChange={onChange} />
+										<InheritableFlag
+											kind="params"
+											group={group}
+											fieldKey={param.key}
+											disabled={inert}
+											onChange={onChange}
+										/>
 									</span>
 								)}
 								<Button
@@ -1162,7 +1185,7 @@ function CapabilityGroupsFields({
 	const focusHold = useFocusedRow();
 	// The group's `_fallback` marks, derived once per render from the
 	// rows the checkboxes rewrite.
-	const fallbackFields = directiveMarkedFields(group, FALLBACK_DIRECTIVE);
+	const fallbackFields = directiveMarkedFields("caps", group, FALLBACK_DIRECTIVE);
 	// The wrong-record-type rows' description ids, one namespace per editor.
 	const wrongTypeIdBase = useId();
 	// The control-backed directive rows the grid absorbs, with this editor's flag set. What
@@ -1171,9 +1194,12 @@ function CapabilityGroupsFields({
 	// that evidence could suppress.
 	const rowAbsorbed = (index: number): boolean =>
 		!focusHold.focused(group.params[index]?.id ?? "") &&
-		directiveRowAbsorbed(group, index, CAPABILITY_FLAG_DIRECTIVES) &&
-		(group.params[index]?.key.trim() === INHERIT_FROM_DIRECTIVE || issues?.rows[index]?.hint === undefined);
-	const inheritFromIndex = group.params.findIndex((param) => param.key.trim() === INHERIT_FROM_DIRECTIVE);
+		directiveRowAbsorbed("caps", group, index, CAPABILITY_FLAG_DIRECTIVES) &&
+		(resolvedFieldName("caps", group.params[index]?.key ?? "") === INHERIT_FROM_DIRECTIVE ||
+			issues?.rows[index]?.hint === undefined);
+	const inheritFromIndex = group.params.findIndex(
+		(param) => resolvedFieldName("caps", param.key) === INHERIT_FROM_DIRECTIVE
+	);
 	// The grid's column heads label rendered rows; an empty group keeps
 	// just the add action instead of heads over nothing.
 	const anyRowVisible = group.params.some((_, index) => !rowAbsorbed(index));
@@ -1205,6 +1231,7 @@ function CapabilityGroupsFields({
 			</div>
 			<div className="editor-section">
 				<InheritFromControl
+					kind="caps"
 					group={group}
 					disabled={inert}
 					hint={
@@ -1233,7 +1260,7 @@ function CapabilityGroupsFields({
 							return null;
 						}
 						const issue = issues?.rows[paramIndex];
-						const key = param.key.trim();
+						const key = resolvedFieldName("caps", param.key);
 						const kind = capabilityControlKind(key, param.valueText);
 						const numberProps = kind === "number" || kind === "cost" ? numberInputProps(kind) : undefined;
 						const removeLabel = key.length > 0 ? l10n.t('Remove "{0}"', key) : l10n.t("Remove");
@@ -1324,7 +1351,9 @@ function CapabilityGroupsFields({
 												checked={fallbackFields.has(key)}
 												disabled={inert}
 												onChange={(event) =>
-													onChange(toggleDirectiveField(group, FALLBACK_DIRECTIVE, key, event.currentTarget.checked))
+													onChange(
+														toggleDirectiveField("caps", group, FALLBACK_DIRECTIVE, key, event.currentTarget.checked)
+													)
 												}
 											/>
 											{l10n.t({
@@ -1335,7 +1364,7 @@ function CapabilityGroupsFields({
 											})}
 										</label>
 										<Help text={helpFallbackFlag()} />
-										<InheritableFlag group={group} fieldKey={key} disabled={inert} onChange={onChange} />
+										<InheritableFlag kind="caps" group={group} fieldKey={key} disabled={inert} onChange={onChange} />
 									</span>
 								) : wrongType !== undefined && wrongTypeId !== undefined ? (
 									<WrongTypeFlagCell note={wrongType} id={wrongTypeId} />
@@ -1623,8 +1652,8 @@ const INHERIT_CELL = "inherit-cell shrink-0 text-[11px] text-muted-foreground";
  * A row's short reading of its `_inherit_from` state; nothing where the group takes the
  * default - the mark appears exactly where a choice was made.
  */
-function InheritsSummary({ group }: { group: PrefixGroup }) {
-	const choice = inheritFromChoice(group);
+function InheritsSummary({ kind, group }: { kind: RecordEditorKind; group: PrefixGroup }) {
+	const choice = inheritFromChoice(kind, group);
 	switch (choice.kind) {
 		case "default":
 			return null;
@@ -1686,17 +1715,18 @@ interface ChipFlag {
  * One directive mark word, on a chip or in a row's flag cell. The user-set
  * marks wear the accent's readable label tier - a permanent word at 11px on
  * the chip fill, where the raw hue measures 2.83:1. The wrong-record-type
- * "ignored" badge wears the warn text tier instead and carries its sentence as
- * the tooltip; the chip's dashed border stays the tone's mark, so the word
- * only names it.
+ * "ignored" badge wears the warn text tier instead; the chip's dashed border
+ * stays the tone's mark, so the word only names it. The sentence itself is the
+ * carrier's job - the editable chip describes it through aria-describedby plus
+ * the card's status line, the read-only chip through a HoverTip - because a
+ * native title neither renders reliably in the webview host nor shows on
+ * keyboard focus (see help.tsx).
  */
 function ChipFlagWord({ flag }: { flag: ChipFlag }) {
 	return flag.note === undefined ? (
 		<span className="chip-flag text-[11px] text-accent-text">{flag.word}</span>
 	) : (
-		<span className="chip-flag chip-flag-ignored text-[11px] text-warn" title={flag.note}>
-			{flag.word}
-		</span>
+		<span className="chip-flag chip-flag-ignored text-[11px] text-warn">{flag.word}</span>
 	);
 }
 
@@ -1717,16 +1747,16 @@ function WrongTypeFlagCell({ note, id }: { note: string; id: string }) {
 	);
 }
 
-/** The flag badges one field chip carries, derived from the same rows the toggles rewrite. */
+/** The flag badges one field chip carries, derived from the same rows the toggles rewrite; `key` in the resolver's reading. */
 function chipFlags(kind: RecordEditorKind, group: PrefixGroup, key: string): ChipFlag[] {
 	const flags: ChipFlag[] = [];
-	if (kind === "params" && directiveMarkedFields(group, FORCE_DIRECTIVE).has(key)) {
+	if (kind === "params" && directiveMarkedFields(kind, group, FORCE_DIRECTIVE).has(key)) {
 		flags.push({ id: "force", word: forceWord() });
 	}
-	if (kind === "caps" && directiveMarkedFields(group, FALLBACK_DIRECTIVE).has(key)) {
+	if (kind === "caps" && directiveMarkedFields(kind, group, FALLBACK_DIRECTIVE).has(key)) {
 		flags.push({ id: "fallback", word: fallbackWord() });
 	}
-	if (directiveMarkedFields(group, INHERITABLE_DIRECTIVE).has(key)) {
+	if (directiveMarkedFields(kind, group, INHERITABLE_DIRECTIVE).has(key)) {
 		flags.push({ id: "inheritable", word: inheritableWord() });
 	}
 	const note = wrongRecordTypeHint(kind, key);
@@ -1757,13 +1787,13 @@ function chipRowIndices(
 	return group.params
 		.map((_, index) => index)
 		.filter((index) => {
-			const key = group.params[index]?.key.trim() ?? "";
+			const key = resolvedFieldName(kind, group.params[index]?.key ?? "");
 			// The pin compares RAW, like the popover identity it serves.
 			if (pinnedKey !== undefined && group.params[index]?.key === pinnedKey) {
 				return true;
 			}
 			const absorbed =
-				directiveRowAbsorbed(group, index, flagDirectivesFor(kind)) &&
+				directiveRowAbsorbed(kind, group, index, flagDirectivesFor(kind)) &&
 				(key === INHERIT_FROM_DIRECTIVE || issueRows[index]?.hint === undefined);
 			return !absorbed;
 		});
@@ -1981,7 +2011,9 @@ function FieldChipPopover({
 	if (group === undefined || row === undefined) {
 		return null;
 	}
-	const key = row.key.trim();
+	// The key in the resolver's reading: trimmed for capability records,
+	// verbatim for parameters records (a padded key is its own live field).
+	const key = resolvedFieldName(kind, row.key);
 	const patchValue = (valueText: string) =>
 		onChange(
 			groups.map((g, i) =>
@@ -2004,8 +2036,8 @@ function FieldChipPopover({
 			onClose();
 		}
 	};
-	const forcedFields = directiveMarkedFields(group, FORCE_DIRECTIVE);
-	const fallbackFields = directiveMarkedFields(group, FALLBACK_DIRECTIVE);
+	const forcedFields = directiveMarkedFields(kind, group, FORCE_DIRECTIVE);
+	const fallbackFields = directiveMarkedFields(kind, group, FALLBACK_DIRECTIVE);
 	return (
 		<PopoverShell label={l10n.t('Edit field "{0}"', key)} align={align} onClose={onClose}>
 			<span className="popover-label">{l10n.t("Value")}</span>
@@ -2049,7 +2081,7 @@ function FieldChipPopover({
 										onChange(
 											groups.map((g, i) =>
 												i === groupIndex
-													? toggleDirectiveField(g, FORCE_DIRECTIVE, key, event.currentTarget.checked)
+													? toggleDirectiveField(kind, g, FORCE_DIRECTIVE, key, event.currentTarget.checked)
 													: g
 											)
 										)
@@ -2073,7 +2105,7 @@ function FieldChipPopover({
 										onChange(
 											groups.map((g, i) =>
 												i === groupIndex
-													? toggleDirectiveField(g, FALLBACK_DIRECTIVE, key, event.currentTarget.checked)
+													? toggleDirectiveField(kind, g, FALLBACK_DIRECTIVE, key, event.currentTarget.checked)
 													: g
 											)
 										)
@@ -2085,6 +2117,7 @@ function FieldChipPopover({
 						</>
 					) : null}
 					<InheritableFlag
+						kind={kind}
 						group={group}
 						fieldKey={key}
 						disabled={disabled}
@@ -2147,10 +2180,15 @@ function AddFieldPopover({
 	if (group === undefined) {
 		return null;
 	}
-	const trimmed = key.trim();
-	const problem = trimmed.length === 0 ? undefined : candidateProblem(kind, groups, groupIndex, { key, valueText });
-	const canAdd = trimmed.length > 0 && problem === undefined;
-	const valueKind = kind === "caps" ? capabilityControlKind(trimmed, valueText) : "json";
+	// ONE reading of the typed key - the resolver's - shared by the validation
+	// probe, the flag simulation, and the commit, so the popover can never
+	// judge one row and land another: for a parameters record the key commits
+	// verbatim (a padded " _fallback" stays the live field the probe judged).
+	const name = resolvedFieldName(kind, key);
+	const problem =
+		key.trim().length === 0 ? undefined : candidateProblem(kind, groups, groupIndex, { key: name, valueText });
+	const canAdd = key.trim().length > 0 && problem === undefined;
+	const valueKind = kind === "caps" ? capabilityControlKind(name, valueText) : "json";
 	const numberProps = valueKind === "number" || valueKind === "cost" ? numberInputProps(valueKind) : undefined;
 	const setKeyAndSeed = (nextKey: string) => {
 		setKey(nextKey);
@@ -2163,8 +2201,8 @@ function AddFieldPopover({
 	// What the group's directive rows would already mark on the candidate once
 	// its row lands (simulated with a probe row appended, so a literal true's
 	// expansion sees the new key; the commit mints the real row).
-	const withCandidate: PrefixGroup = { ...group, params: [...group.params, probeRow(trimmed, valueText)] };
-	const impliedFlag = (flag: FieldDirective): boolean => directiveMarkedFields(withCandidate, flag).has(trimmed);
+	const withCandidate: PrefixGroup = { ...group, params: [...group.params, probeRow(name, valueText)] };
+	const impliedFlag = (flag: FieldDirective): boolean => directiveMarkedFields(kind, withCandidate, flag).has(name);
 	const flagChecked = (flag: FieldDirective): boolean => flagOverrides[flag] ?? impliedFlag(flag);
 	const toggleLocalFlag = (flag: FieldDirective, enabled: boolean) =>
 		setFlagOverrides((current) => ({ ...current, [flag]: enabled }));
@@ -2172,17 +2210,17 @@ function AddFieldPopover({
 		if (!canAdd) {
 			return;
 		}
-		let next: PrefixGroup = { ...group, params: [...group.params, newParamRow(trimmed, valueText)] };
+		let next: PrefixGroup = { ...group, params: [...group.params, newParamRow(name, valueText)] };
 		// Only explicit choices touch the directive rows, and only when they
 		// change what the rows already say: an untouched box over a literal
 		// `true` must never explode it into a list.
 		for (const flag of [FORCE_DIRECTIVE, FALLBACK_DIRECTIVE, INHERITABLE_DIRECTIVE] as const) {
 			const desired = flagOverrides[flag];
-			if (desired === undefined || !directiveEligible(flag, trimmed)) {
+			if (desired === undefined || !directiveEligible(flag, name)) {
 				continue;
 			}
-			if (directiveMarkedFields(next, flag).has(trimmed) !== desired) {
-				next = toggleDirectiveField(next, flag, trimmed, desired);
+			if (directiveMarkedFields(kind, next, flag).has(name) !== desired) {
+				next = toggleDirectiveField(kind, next, flag, name, desired);
 			}
 		}
 		onChange(groups.map((g, i) => (i === groupIndex ? next : g)));
@@ -2235,28 +2273,28 @@ function AddFieldPopover({
 					}}
 				/>
 			)}
-			{trimmed.length > 0 && !trimmed.startsWith("_") ? (
+			{key.trim().length > 0 && !name.startsWith("_") ? (
 				<div className="chip-popover-flags">
 					{kind === "params" ? (
 						<>
 							<label>
 								<Checkbox
-									aria-label={l10n.t('Force "{0}"', trimmed)}
+									aria-label={l10n.t('Force "{0}"', name)}
 									checked={flagChecked(FORCE_DIRECTIVE)}
-									disabled={disabled || !directiveEligible(FORCE_DIRECTIVE, trimmed)}
+									disabled={disabled || !directiveEligible(FORCE_DIRECTIVE, name)}
 									onChange={(event) => toggleLocalFlag(FORCE_DIRECTIVE, event.currentTarget.checked)}
 								/>
 								{forceWord()}
 							</label>
-							<Help text={directiveEligible(FORCE_DIRECTIVE, trimmed) ? helpForceFlag() : helpForceFlagDisabled()} />
+							<Help text={directiveEligible(FORCE_DIRECTIVE, name) ? helpForceFlag() : helpForceFlagDisabled()} />
 						</>
 					) : null}
 					{/* Same open-vocabulary rule as the edit popover's fallback mark. */}
-					{kind === "caps" && directiveEligible(FALLBACK_DIRECTIVE, trimmed) ? (
+					{kind === "caps" && directiveEligible(FALLBACK_DIRECTIVE, name) ? (
 						<>
 							<label>
 								<Checkbox
-									aria-label={l10n.t('Fall back for "{0}"', trimmed)}
+									aria-label={l10n.t('Fall back for "{0}"', name)}
 									checked={flagChecked(FALLBACK_DIRECTIVE)}
 									disabled={disabled}
 									onChange={(event) => toggleLocalFlag(FALLBACK_DIRECTIVE, event.currentTarget.checked)}
@@ -2268,7 +2306,7 @@ function AddFieldPopover({
 					) : null}
 					<label>
 						<Checkbox
-							aria-label={l10n.t('Mark "{0}" inheritable', trimmed)}
+							aria-label={l10n.t('Mark "{0}" inheritable', name)}
 							checked={flagChecked(INHERITABLE_DIRECTIVE)}
 							disabled={disabled}
 							onChange={(event) => toggleLocalFlag(INHERITABLE_DIRECTIVE, event.currentTarget.checked)}
@@ -2464,7 +2502,7 @@ export function RecordMatcherTable({
 								if (row === undefined) {
 									return null;
 								}
-								const key = row.key.trim();
+								const key = resolvedFieldName(kind, row.key);
 								const issue = issueView?.rows[rowIndex];
 								const catalog = kind === "caps" && key === OPENROUTER_MODEL_DIRECTIVE;
 								// Chip identity mirrors the group's: the RAW key plus the
@@ -2495,6 +2533,11 @@ export function RecordMatcherTable({
 										mark: issue?.problem !== undefined ? "invalid" : issue?.hint !== undefined ? "hint" : "none",
 									})
 								);
+								const flags = chipFlags(kind, group, key);
+								// The wrong-record-type sentence, when a flag carries one: the
+								// read-only chip's HoverTip below is its only reachable carrier
+								// (the editable chip describes it through aria-describedby).
+								const flagNote = flags.find((flag) => flag.note !== undefined)?.note;
 								const body = (
 									<>
 										{catalog ? (
@@ -2505,7 +2548,7 @@ export function RecordMatcherTable({
 											</code>
 										)}
 										<span className="chip-value max-w-[14em] truncate text-foreground">{row.valueText}</span>
-										{chipFlags(kind, group, key).map((flag) => (
+										{flags.map((flag) => (
 											<ChipFlagWord flag={flag} key={flag.id} />
 										))}
 									</>
@@ -2544,6 +2587,14 @@ export function RecordMatcherTable({
 												<span className="visually-hidden">{l10n.t("Edit field")}</span>
 												{body}
 											</button>
+										) : flagNote !== undefined ? (
+											// A read-only chip cannot open the popover and a native
+											// title never reliably renders in the webview host, so
+											// the flag's sentence rides the tip primitive: hover,
+											// keyboard focus, and aria-describedby all reach it.
+											<HoverTip tip={flagNote}>
+												<span className={chipClass}>{body}</span>
+											</HoverTip>
 										) : (
 											<span className={chipClass}>{body}</span>
 										)}
@@ -2606,7 +2657,7 @@ export function RecordMatcherTable({
 								</span>
 							) : null}
 						</span>
-						<InheritsSummary group={group} />
+						<InheritsSummary kind={kind} group={group} />
 						{editable ? (
 							/**
 							 * Pushed to the row's end only in the wrapping tier (the wide grid has no free space).
@@ -2882,7 +2933,9 @@ export function ModelParametersEditor({
 		closeEditing();
 	};
 	// The inspectors' configure-jump lands in the overlay: the existing record
-	// opens directly, a create request appends the draft group first. Inert
+	// opens directly, a create request appends the draft group first. Matcher
+	// keys compare RAW on both sides - the request carries the stored record key
+	// and the draft holds the stored prefix, and the grammar trims neither. Inert
 	// while the JSON view is open (rewriting a JSON draft would lose text).
 	// Keyed on the request's seq so repeating the same jump re-opens.
 	const externalSeq = external?.seq;
@@ -2892,7 +2945,7 @@ export function ModelParametersEditor({
 		if (external === undefined || externalSeq === undefined || jsonOpen) {
 			return;
 		}
-		const index = groups.findIndex((group) => group.prefix.trim() === external.key);
+		const index = groups.findIndex((group) => group.prefix === external.key);
 		if (index >= 0) {
 			openEditor(index);
 			return;
@@ -3187,7 +3240,7 @@ export function ModelCapabilitiesEditor({
 		if (external === undefined || externalSeq === undefined || jsonOpen) {
 			return;
 		}
-		const index = groups.findIndex((group) => group.prefix.trim() === external.key);
+		const index = groups.findIndex((group) => group.prefix === external.key);
 		if (index >= 0) {
 			openEditor(index);
 			return;

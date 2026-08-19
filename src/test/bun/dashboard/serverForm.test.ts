@@ -871,13 +871,14 @@ describe("dashboard/serverForm", () => {
 			assert.deepStrictEqual(intentOf(toApiKey).server, intentOf(vkStored).server);
 			assert.deepStrictEqual(intentOf(toApiKey).secrets, intentOf(vkStored).secrets);
 			assert.deepStrictEqual(changedServerFormFields(toApiKey, vkStored), ["authForm"]);
-			// The row parsers trim prefixes and keys, so a padded prefix saves the
-			// same record; the grid still reports the edit.
+			// Matcher keys persist verbatim (the grammar trims nothing), so the
+			// byte-identical example is a padded VALUE: the JSON parse reads the
+			// same number, and the grid still reports the edit.
 			const rows = draft({
 				modelCapabilities: [{ prefix: "gpt-5*", params: [newParamRow("max_output_tokens", "8")] }],
 			});
 			const padded = draft({
-				modelCapabilities: [{ prefix: " gpt-5* ", params: [newParamRow("max_output_tokens", "8")] }],
+				modelCapabilities: [{ prefix: "gpt-5*", params: [newParamRow("max_output_tokens", " 8 ")] }],
 			});
 			assert.deepStrictEqual(intentOf(padded).server.modelCapabilities, intentOf(rows).server.modelCapabilities);
 			assert.deepStrictEqual(changedServerFormFields(padded, rows), ["modelCapabilities"]);

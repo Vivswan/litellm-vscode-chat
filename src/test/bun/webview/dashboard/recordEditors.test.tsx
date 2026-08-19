@@ -385,6 +385,32 @@ test("other-scope records render as the same table without edit affordances, chi
 	expect(other.querySelector(".editor-actions")).toBeNull();
 });
 
+test("a read-only chip's ignored badge explains itself through the tip primitive", () => {
+	// The read-only chip opens no popover and a native title neither renders
+	// reliably in the webview host nor shows on keyboard focus, so the
+	// wrong-record-type sentence rides a HoverTip: one tab stop with the
+	// sentence as the chip's accessible description.
+	const root = mount(<App />);
+	const settings = makeSettings({
+		modelParameters: {
+			editScope: "global",
+			value: {},
+			otherScopes: [{ scope: "workspace", value: { "gpt-4": { temperature: 0.2, _fallback: true } } }],
+			effective: { "gpt-4": { temperature: 0.2 } },
+		},
+	});
+	pushToWebview(statePush(makeState({ settings })));
+
+	const other = sectionByHeading(root, "Model parameters").querySelector(".other-scope") as HTMLElement;
+	const wrap = other.querySelector(".tip-wrap") as HTMLElement;
+	expect(wrap).not.toBeNull();
+	expect(wrap.querySelector(".chip-flag-ignored")?.textContent).toBe("ignored");
+	expect(wrap.getAttribute("tabindex")).toBe("0");
+	expect(accessibleDescriptionOf(wrap)).toBe('"_fallback" belongs to capability records and is ignored here');
+	// The unflagged chip stays untipped: a Tab stop with nothing to say.
+	expect(other.querySelectorAll(".tip-wrap")).toHaveLength(1);
+});
+
 test("a read-only other-scope problem speaks in the frame's own message row", () => {
 	// A read-only chip's invalid mark is a border with no popover behind it, so the frame mounts its
 	// footer-position message row exactly while a problem stands. Static per push, so the conditional row
@@ -657,7 +683,9 @@ test("a capability directive in a parameters record badges its chip ignored, sen
 		// is the approved constraint and nothing else pins it.
 		expect(badge?.className).toContain("text-warn");
 		const sentence = `"${key}" belongs to capability records and is ignored here`;
-		expect(badge?.getAttribute("title")).toBe(sentence);
+		// No native title: it neither renders reliably in the webview host nor
+		// shows on keyboard focus, so the sentence rides the description alone.
+		expect(badge?.getAttribute("title")).toBeNull();
 		expect(accessibleDescriptionOf(chipFor(section(), key))).toContain(sentence);
 	}
 });
@@ -701,7 +729,10 @@ test("a parameters directive in a capability record badges ignored; the home-rec
 	const caps = () => sectionByHeading(root, "Model capabilities");
 	const badge = chipFor(caps(), "_force").querySelector(".chip-flag-ignored");
 	expect(badge?.textContent).toBe("ignored");
-	expect(badge?.getAttribute("title")).toBe('"_force" belongs to parameters records and is ignored here');
+	expect(badge?.getAttribute("title")).toBeNull();
+	expect(accessibleDescriptionOf(chipFor(caps(), "_force"))).toContain(
+		'"_force" belongs to parameters records and is ignored here'
+	);
 	// The home-record directives stay unbadged: `_fallback` absorbs into its
 	// field's badge, the catalog chip is `_openrouter_model` at home, and the
 	// parameters record's own `_force` absorbs likewise.
@@ -728,7 +759,7 @@ test("the matcher editor mounts the ignored badge in its flag cell and wires the
 	const badge = editor.querySelector(".row .directive-flag .chip-flag-ignored");
 	const sentence = '"_openrouter_model" belongs to capability records and is ignored here';
 	expect(badge?.textContent).toBe("ignored");
-	expect(badge?.getAttribute("title")).toBe(sentence);
+	expect(badge?.getAttribute("title")).toBeNull();
 	// The overlay's aria-describedby story: the key input that carries the
 	// stranded directive is described by the sentence, not just bordered.
 	const keyInput = Array.from(editor.querySelectorAll<HTMLInputElement>(".rows input.key")).find(
@@ -757,7 +788,7 @@ test("the capability matcher editor badges a parameters directive the same way",
 	const badge = editor.querySelector(".row .directive-flag .chip-flag-ignored");
 	const sentence = '"_force" belongs to parameters records and is ignored here';
 	expect(badge?.textContent).toBe("ignored");
-	expect(badge?.getAttribute("title")).toBe(sentence);
+	expect(badge?.getAttribute("title")).toBeNull();
 	const keyInput = Array.from(editor.querySelectorAll<HTMLInputElement>(".rows input.key")).find(
 		(input) => input.value === "_force"
 	) as HTMLInputElement;
@@ -911,6 +942,29 @@ test("the add popover refuses an invalid candidate: the error renders in place a
 	expect((buttonByText(popover(), "Add field") as HTMLButtonElement).disabled).toBe(true);
 	// The draft never went dirty.
 	expect((buttonByText(section(), "Apply") as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("the add popover commits a padded parameter key verbatim: the probe judges the row that lands", () => {
+	// One resolver reading for validation and commit: for a parameters record
+	// the typed " _fallback" is a live pass-through field, so it lands exactly
+	// as judged - never trimmed into an inert wrong-record-type directive.
+	const root = mount(<App />);
+	pushToWebview(statePush(makeState({ settings: settingsWithParams({ "gpt-4": { temperature: 0.2 } }) })));
+	const section = () => sectionByHeading(root, "Model parameters");
+
+	fireClick(section().querySelector("button.chip-add") as HTMLButtonElement);
+	const popover = () => popoverOf(section());
+	fireInput(popover().querySelector("input.key") as HTMLInputElement, " _fallback");
+	fireInput(popover().querySelector("input.value") as HTMLInputElement, '"x"');
+	fireClick(buttonByText(popover(), "Add field"));
+	expect(chipKeys(section())).toEqual(["temperature", " _fallback"]);
+	// A live field, not an ignored directive: no wrong-record-type badge.
+	expect(chipFlagsOf(section(), " _fallback")).toEqual([]);
+	resetPosted();
+	fireClick(buttonByText(section(), "Apply"));
+	expect(postedRecordWrites()).toEqual([
+		{ type: "setModelParameters", value: { "gpt-4": { temperature: 0.2, " _fallback": "x" } } },
+	]);
 });
 
 test("the capability add popover seeds a support flag true and offers the fallback mark", () => {
