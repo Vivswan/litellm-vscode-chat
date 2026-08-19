@@ -806,7 +806,9 @@ function serverHealth(server: DashboardServer): ServerHealthVerdict {
 		case "unchecked":
 			return "unchecked";
 		case "ok":
-			return server.error === undefined ? "serving" : "degraded";
+			// A sync failure never rides an "ok" row: declaredOutcome turns it into
+			// an error row that keeps its served count, so serving is unqualified.
+			return "serving";
 		case "error":
 			if (server.expected === true) {
 				// Serving through the declared-normal failure (declared models or the

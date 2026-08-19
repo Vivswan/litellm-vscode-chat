@@ -77,6 +77,7 @@ import { isUsageFresh, notifyUsageRefreshFailure } from "../servers/usage";
 import { createSettingsAccess } from "../settingsAccess";
 import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "./adopt";
 import { buildConfigDiagnostics } from "./configDiagnostics";
+import { joinDeclared, labeledSnapshots } from "./declaredJoin";
 import { buildDashboardHtml } from "./html";
 import { parseDashboardRequest } from "./intentSchema";
 import type { IntentAckNotice, IntentEnvironment } from "./intents";
@@ -90,8 +91,6 @@ import { buildResolvedModelsView, resolveModelRecordChains } from "./resolvedMod
 import type { EntryCapabilitiesRecord, EntryParametersResolution, RemovedGroupsView, SettingsReader } from "./state";
 import {
 	buildDashboardState,
-	joinDeclared,
-	labeledSnapshots,
 	mostSpecificGlobalRecordKey,
 	observedKeysByEntryLabel,
 	observedModelInfoKeysUnion,

@@ -21,7 +21,6 @@ test("coherent state-cluster overrides compile and win the merge", () => {
 
 	// The ok cluster's own optional companions need no state key.
 	expect(makeDeclaredServer({ modelInfoUnsupported: "timeout" }).modelInfoUnsupported).toBe("timeout");
-	expect(makeDeclaredServer({ error: "upsert failed" }).state).toBe("ok");
 	expect(makeDeclaredServer({ state: "unchecked" }).state).toBe("unchecked");
 
 	expect(makeExternalServer({ state: "error", error: "boom" }).error).toBe("boom");
@@ -37,6 +36,8 @@ test("incoherent state-cluster overrides fail to typecheck", () => {
 	makeDeclaredServer({ state: "error" });
 	// @ts-expect-error: an ok row cannot smuggle the error cluster's `expected`
 	makeDeclaredServer({ state: "ok", expected: true });
+	// @ts-expect-error: an ok row cannot carry an error - a sync failure is an error row keeping its served count
+	makeDeclaredServer({ error: "upsert failed" });
 	// @ts-expect-error: an unchecked row carries no error
 	makeDeclaredServer({ state: "unchecked", error: "x" });
 	// @ts-expect-error: a key on no variant is a typo, not an override

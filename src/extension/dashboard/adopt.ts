@@ -17,10 +17,10 @@ import { isUnsafeRecordKey, recordFromKeys } from "../../shared/util/json";
 import type { DeclaredServerView } from "../servers/serverSync";
 import { rawDeclaredLabels } from "../servers/serverSync/setting";
 import { adoptSourceHandle } from "./adoptHandle";
+import { joinDeclared, labeledSnapshots } from "./declaredJoin";
 import { assembleEntryAuth, pairingFailureMessage } from "./entryAuth";
 import type { IntentEnvironment } from "./intents";
 import { DashboardOperationError, DashboardValidationError, rawServerEntries } from "./intents";
-import { joinDeclared, labeledSnapshots } from "./state";
 
 /**
  * A live group's connection material flattened to servers-setting field names,

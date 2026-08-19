@@ -126,7 +126,7 @@ suite("extension/ui/notifier", () => {
 	function makeNotifier(hasConfiguredServers: () => boolean) {
 		const clock = manualTimer();
 		return {
-			notifier: new Notifier(hasConfiguredServers, 5000, clock.timer),
+			notifier: new Notifier(hasConfiguredServers, () => [], 5000, clock.timer),
 			elapseGrace: clock.elapseGrace,
 			pendingCount: clock.pendingCount,
 		};
@@ -157,7 +157,10 @@ suite("extension/ui/notifier", () => {
 	});
 
 	test("different failure message counts as a new condition", () => {
-		const notifier = new Notifier(() => false);
+		const notifier = new Notifier(
+			() => false,
+			() => []
+		);
 		notifier.handleAggregatedStatus(allFailed("ECONNREFUSED"));
 		notifier.handleAggregatedStatus(allFailed("401 Unauthorized"));
 		notifier.handleAggregatedStatus(allFailed("401 Unauthorized"));
@@ -185,7 +188,10 @@ suite("extension/ui/notifier", () => {
 	});
 
 	test("a silent failure toasts even when the same failure was seen non-silently first", () => {
-		const notifier = new Notifier(() => false);
+		const notifier = new Notifier(
+			() => false,
+			() => []
+		);
 		notifier.handleAggregatedStatus(allFailed("ECONNREFUSED", false));
 		notifier.handleAggregatedStatus(allFailed("ECONNREFUSED", true));
 		assert.strictEqual(toasts.length, 1, "The non-silent pass must not consume the dedup signature");
@@ -206,7 +212,10 @@ suite("extension/ui/notifier", () => {
 	}
 
 	test("zero models with reachable servers warns with recovery actions", () => {
-		const notifier = new Notifier(() => false);
+		const notifier = new Notifier(
+			() => false,
+			() => []
+		);
 		notifier.handleAggregatedStatus(noModels());
 		assert.strictEqual(toasts.length, 1);
 		const toast = expectDefined(toasts[0]);
@@ -218,7 +227,10 @@ suite("extension/ui/notifier", () => {
 	test("zero models explained by a hidden group names the removal and opens the dashboard, never blames the proxy", () => {
 		// The only group is hidden by an explicit removal; "Check your LiteLLM
 		// proxy configuration" was actively wrong here.
-		const notifier = new Notifier(() => true);
+		const notifier = new Notifier(
+			() => true,
+			() => []
+		);
 		notifier.handleAggregatedStatus({ serverStatuses: [hiddenGroupStatus()], totalModels: 0, silent: true });
 		assert.strictEqual(toasts.length, 1);
 		const toast = expectDefined(toasts[0]);
@@ -230,7 +242,10 @@ suite("extension/ui/notifier", () => {
 	});
 
 	test("a hidden group beside an answering-empty server names both causes in one toast", () => {
-		const notifier = new Notifier(() => true);
+		const notifier = new Notifier(
+			() => true,
+			() => []
+		);
 		notifier.handleAggregatedStatus({
 			serverStatuses: [hiddenGroupStatus("srv-hidden"), okStatus(0)],
 			totalModels: 0,
@@ -247,7 +262,10 @@ suite("extension/ui/notifier", () => {
 		// status bar says "1 server unreachable"; a zero-model toast beside it
 		// would blame the catalog for what is really an outage. The judgment
 		// claims the headline only when the verdict explains nothing.
-		const notifier = new Notifier(() => true);
+		const notifier = new Notifier(
+			() => true,
+			() => []
+		);
 		notifier.handleAggregatedStatus({
 			serverStatuses: [hiddenGroupStatus("srv-hidden"), errorStatus("ECONNREFUSED")],
 			totalModels: 0,
@@ -260,7 +278,10 @@ suite("extension/ui/notifier", () => {
 		// Discovery never returned a list here, so the toast mirrors the dashboard
 		// and status bar's needs-declare verdict and points at the fix (the
 		// entry's discovery.declared list).
-		const notifier = new Notifier(() => true);
+		const notifier = new Notifier(
+			() => true,
+			() => []
+		);
 		notifier.handleAggregatedStatus({
 			serverStatuses: [expectedErrorStatus("404 page not found")],
 			totalModels: 0,
@@ -278,7 +299,10 @@ suite("extension/ui/notifier", () => {
 		// A healthy server DID return an (empty) list, so the answered-but-empty
 		// wording is the truthful description; needs-declare needs every server
 		// failing expectedly.
-		const notifier = new Notifier(() => true);
+		const notifier = new Notifier(
+			() => true,
+			() => []
+		);
 		notifier.handleAggregatedStatus({
 			serverStatuses: [okStatus(0), expectedErrorStatus("404 page not found", "srv2")],
 			totalModels: 0,
@@ -329,7 +353,10 @@ suite("extension/ui/notifier", () => {
 			test(name, async () => {
 				const judgment = zeroModelJudgment(serverStatuses, totalModels);
 				const report: AggregatedStatus = { serverStatuses, totalModels, silent: true };
-				new Notifier(() => true).handleAggregatedStatus(report);
+				new Notifier(
+					() => true,
+					() => []
+				).handleAggregatedStatus(report);
 				const item = new RecordingItem();
 				const { manager, context } = createStatusBarManager({ item });
 				try {
@@ -359,7 +386,10 @@ suite("extension/ui/notifier", () => {
 	});
 
 	test("an empty status window stays silent while servers are configured elsewhere", () => {
-		const notifier = new Notifier(() => true);
+		const notifier = new Notifier(
+			() => true,
+			() => []
+		);
 		notifier.handleAggregatedStatus(noServers());
 		assert.strictEqual(toasts.length, 0, "declared or group-served servers must suppress the no-servers claim");
 		// Real failures are not gated: reachability problems are true regardless
@@ -454,7 +484,10 @@ suite("extension/ui/notifier", () => {
 		test("a hint-carrying classification keeps today's message and adds Troubleshooting Docs", () => {
 			// The transport message already carries its own advice; the
 			// classification's whole value on the toast is the docs action.
-			const notifier = new Notifier(() => false);
+			const notifier = new Notifier(
+				() => false,
+				() => []
+			);
 			notifier.handleAggregatedStatus(
 				allFailed("Connection Error: Unable to connect to http://litellm.test.", true, hinted)
 			);
@@ -466,7 +499,10 @@ suite("extension/ui/notifier", () => {
 		});
 
 		test("without a classification the toast renders exactly today's message and actions", () => {
-			const notifier = new Notifier(() => false);
+			const notifier = new Notifier(
+				() => false,
+				() => []
+			);
 			notifier.handleAggregatedStatus(allFailed("ECONNREFUSED"));
 			const toast = expectDefined(toasts[0]);
 			assert.strictEqual(toast.message, "LiteLLM: ECONNREFUSED");
@@ -477,7 +513,10 @@ suite("extension/ui/notifier", () => {
 			// A classified error whose construction site opted out of a hint (a
 			// timeout, an upstream-auth 401) must not grow a docs button with no
 			// cause-specific target.
-			const notifier = new Notifier(() => false);
+			const notifier = new Notifier(
+				() => false,
+				() => []
+			);
 			notifier.handleAggregatedStatus(allFailed("timed out", true, { kind: "timeout" }));
 			const toast = expectDefined(toasts[0]);
 			assert.strictEqual(toast.message, "LiteLLM: timed out");
@@ -485,7 +524,10 @@ suite("extension/ui/notifier", () => {
 		});
 
 		test("the same text with the same hint still dedups", () => {
-			const notifier = new Notifier(() => false);
+			const notifier = new Notifier(
+				() => false,
+				() => []
+			);
 			notifier.handleAggregatedStatus(allFailed("boom", true, hinted));
 			notifier.handleAggregatedStatus(allFailed("boom", true, hinted));
 			assert.strictEqual(toasts.length, 1, "an unchanged failure must not re-fire");
@@ -495,7 +537,10 @@ suite("extension/ui/notifier", () => {
 			// The signature keys on error text PLUS hint: the hint identifies the
 			// cause, so its arrival is new information (and the first toast that
 			// carries the Troubleshooting Docs action), not a duplicate.
-			const notifier = new Notifier(() => false);
+			const notifier = new Notifier(
+				() => false,
+				() => []
+			);
 			notifier.handleAggregatedStatus(allFailed("boom"));
 			notifier.handleAggregatedStatus(allFailed("boom", true, hinted));
 			assert.strictEqual(toasts.length, 2, "the hinted re-report must not dedup against the bare one");
@@ -530,7 +575,10 @@ suite("extension/ui/notifier", () => {
 			assert.strictEqual(dns.classification?.setupHint, undefined, "DNS failure must carry no hint");
 			assert.strictEqual(refused.classification?.setupHint, "proxy-not-running");
 
-			const notifier = new Notifier(() => false);
+			const notifier = new Notifier(
+				() => false,
+				() => []
+			);
 			notifier.handleAggregatedStatus(allFailed(dns.error, true, dns.classification));
 			notifier.handleAggregatedStatus(allFailed(refused.error, true, refused.classification));
 			assert.strictEqual(toasts.length, 2, "the refused connection must not dedup against the DNS failure");
@@ -540,7 +588,10 @@ suite("extension/ui/notifier", () => {
 
 	suite("two-part failure messages", () => {
 		test("the toast carries the headline line only, and detail churn does not re-fire it", () => {
-			const notifier = new Notifier(() => false);
+			const notifier = new Notifier(
+				() => false,
+				() => []
+			);
 			notifier.handleAggregatedStatus(
 				allFailed("The server could not be reached.\nGET http://litellm.test/v1/models: ECONNREFUSED")
 			);
@@ -558,7 +609,10 @@ suite("extension/ui/notifier", () => {
 	test("a suppressed empty window preserves dedup, so a recurring error toasts once", () => {
 		// A group-configured install whose groupless refresh reports an empty
 		// window between per-group refreshes.
-		const notifier = new Notifier(() => true);
+		const notifier = new Notifier(
+			() => true,
+			() => []
+		);
 		notifier.handleAggregatedStatus(allFailed("ECONNREFUSED"));
 		assert.strictEqual(toasts.length, 1);
 		// The empty window is suppressed (not recovered), so it must not reset the
@@ -570,7 +624,10 @@ suite("extension/ui/notifier", () => {
 	});
 
 	test("a genuine recovery still re-arms dedup", () => {
-		const notifier = new Notifier(() => true);
+		const notifier = new Notifier(
+			() => true,
+			() => []
+		);
 		notifier.handleAggregatedStatus(allFailed("ECONNREFUSED"));
 		notifier.handleAggregatedStatus(success());
 		notifier.handleAggregatedStatus(allFailed("ECONNREFUSED"));

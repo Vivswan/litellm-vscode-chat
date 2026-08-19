@@ -82,13 +82,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		}
 	}
 
-	const { statusBar, notifier } = wireStatusSurfaces(context, logger, hasConfiguredServers);
 	const servers = wireServers(context, logger, ua, {
 		fingerprintSalt: storage.fingerprintSalt,
 		groupRemovals: storage.groupRemovals,
 		catalogStore,
 		notifyModelsChanged,
 	});
+	// After wireServers: both surfaces read the sync engine's declared views for
+	// the sync-failure overlay.
+	const { statusBar, notifier } = wireStatusSurfaces(context, logger, hasConfiguredServers, () =>
+		servers.syncEngine.getDeclared()
+	);
 	const dashboard = wireDashboard(context, logger, {
 		provider,
 		syncEngine: servers.syncEngine,
@@ -110,11 +114,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// The docker-resolution suite's deterministic catalog seeding (inert in
 	// production).
 	registerOpenRouterCatalogTestSeam(context, catalogStore);
+	// Wired before the first sync pass so its completion re-judges the status
+	// surfaces (the pass's sync failures reach the bar with no provider report).
+	wireStatusFanout(context, logger, { provider, syncEngine: servers.syncEngine, statusBar, notifier, dashboard });
 	// The first pass runs off the activation path: it may hit the host command
 	// (which validates groups against the provider) and the network. Forced,
 	// so groups edited or deleted natively since the last session reconcile.
 	void servers.syncEngine.syncNow(true);
-	wireStatusFanout(logger, { provider, statusBar, notifier, dashboard });
 
 	// Hands registry servers to VS Code as provider groups. The host validates
 	// each group by calling the registered provider, so this phase runs after

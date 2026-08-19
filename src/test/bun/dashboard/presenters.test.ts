@@ -208,9 +208,11 @@ describe("dashboard/presenters renderers", () => {
 			assert.strictEqual(serverOutcomeText(declaredServer({ servedModelCount: 3 })), "OK (3 models)");
 		});
 
-		test("a reachable server whose sync failed shows both the models and the sync error", () => {
-			const server = declaredServer({ servedModelCount: 2, error: "upsert refused" });
-			assert.strictEqual(serverOutcomeText(server), "OK (2 models) - upsert refused");
+		test("a reachable server whose sync failed reads Error with its still-served count", () => {
+			// declaredOutcome renders a sync failure as an error row keeping the
+			// live served count, so the paste line says both facts.
+			const server = declaredServer({ state: "error", error: "upsert refused", servedModelCount: 2 });
+			assert.strictEqual(serverOutcomeText(server), "Error (2 models still served): upsert refused");
 		});
 
 		test("a failing server reads its error", () => {
@@ -404,11 +406,16 @@ describe("dashboard/presenters renderers", () => {
 			// two surfaces from drifting.
 			const cases: DashboardServer[] = [
 				declaredServer({ servedModelCount: 3 }),
-				declaredServer({ servedModelCount: 2, error: "upsert refused" }),
+				declaredServer({ state: "error", error: "upsert refused", servedModelCount: 2 }),
 				declaredServer({ state: "error", error: "connection refused" }),
 				declaredServer({ state: "unchecked" }),
 				declaredServer({ servedModelCount: 2, notices: ["entry-params-inactive"] }),
-				declaredServer({ servedModelCount: 2, error: "upsert refused", notices: ["entry-params-inactive"] }),
+				declaredServer({
+					state: "error",
+					error: "upsert refused",
+					servedModelCount: 2,
+					notices: ["entry-params-inactive"],
+				}),
 				declaredServer({ state: "error", error: "connection refused", notices: ["entry-params-inactive"] }),
 				declaredServer({ state: "unchecked", notices: ["entry-params-inactive"] }),
 				declaredServer({ servedModelCount: 2, notices: ["entry-params-inactive", "entry-capabilities-inactive"] }),
@@ -421,7 +428,7 @@ describe("dashboard/presenters renderers", () => {
 					notices: ["expected-failures-nothing-declared"],
 				}),
 				declaredServer({ state: "error", error: "headline\nLiteLLM 403: detail line" }),
-				declaredServer({ servedModelCount: 2, error: "headline\nHTTP 502: upsert detail" }),
+				declaredServer({ state: "error", error: "headline\nHTTP 502: upsert detail", servedModelCount: 2 }),
 				declaredServer({
 					state: "error",
 					error: "headline\nHTTP 404: detail line",

@@ -589,8 +589,8 @@ suite("extension/dashboard/state", () => {
 				["Prod/m1", "Prod/m2"]
 			);
 			const staging = state.servers.find((server) => server.label === "Staging");
-			assert.strictEqual(staging?.state, "ok", "the shared live status still rides the row");
-			assert.strictEqual(staging?.servedModelCount, 2);
+			assert.strictEqual(staging?.state, "error", "the sync failure outranks the shared live status");
+			assert.strictEqual(staging?.servedModelCount, 2, "the served count stays the live truth");
 			assert.strictEqual(staging?.error, "The host rejected the provider group upsert");
 		});
 
@@ -905,10 +905,11 @@ suite("extension/dashboard/state", () => {
 			assert.strictEqual(byLabel.get("Broken")?.error, "upsert refused");
 		});
 
-		test("a sync error rides a reachable row without erasing the live facts", () => {
-			// The host cannot update the group, so the reachable "ok" group runs the
-			// entry's OLD configuration: the error field carries the sync error,
-			// outranking any live error text, while state and counts keep rendering.
+		test("a sync error outranks a reachable group's ok state without erasing the live counts", () => {
+			// The host cannot update the group, so the reachable group runs the
+			// entry's OLD configuration: the row is an error carrying the sync text
+			// (the same shape the status bar's overlay judges), while the served
+			// count keeps the live truth.
 			const state = buildState(
 				[
 					{
@@ -922,9 +923,9 @@ suite("extension/dashboard/state", () => {
 			);
 
 			assert.strictEqual(state.servers.length, 1);
-			assert.strictEqual(state.servers[0]?.state, "ok", "the live group is genuinely serving");
+			assert.strictEqual(state.servers[0]?.state, "error", "the sync failure outranks the live ok state");
 			assert.strictEqual(state.servers[0]?.error, "group update unavailable");
-			assert.strictEqual(state.servers[0]?.servedModelCount, 4);
+			assert.strictEqual(state.servers[0]?.servedModelCount, 4, "the served count stays the live truth");
 		});
 
 		test("external rows carry an opaque, push-stable adopt handle; declared rows do not", () => {

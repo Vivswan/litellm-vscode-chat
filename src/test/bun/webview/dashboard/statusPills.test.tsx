@@ -79,9 +79,11 @@ test("each server state renders its pill tone, verdict, and relative check time"
 	expect(unchecked?.closest(".tip-wrap")).toBeNull();
 });
 
-test("an ok row still carrying a sync error shows the warn tone, matching its own diagnostic line", () => {
+test("a serving row whose sync failed shows the warn tone, matching its own diagnostic line", () => {
+	// declaredOutcome's sync branch: an error row that keeps the live served
+	// count - degraded, never blocking, on the pill and the line alike.
 	const root = mountSection([
-		makeDeclaredServer({ label: "Prod", state: "ok", error: "the group upsert failed", servedModelCount: 3 }),
+		makeDeclaredServer({ label: "Prod", state: "error", error: "the group upsert failed", servedModelCount: 3 }),
 	]);
 	const pill = root.querySelector(".server-list .pill");
 	expect(pill?.classList.contains("tone-warn")).toBe(true);

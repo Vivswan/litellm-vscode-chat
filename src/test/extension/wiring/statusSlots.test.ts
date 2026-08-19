@@ -58,7 +58,12 @@ suite("extension/wiring statusSlots", () => {
 			// already owns in this host; capture instead of colliding. Stubbed inside
 			// the try so a throw below still restores it.
 			(vscode.commands as Record<string, unknown>).registerCommand = () => ({ dispose() {} });
-			wireStatusSurfaces(context, logger, () => false);
+			wireStatusSurfaces(
+				context,
+				logger,
+				() => false,
+				() => []
+			);
 			wireUsageSurfaces(context, logger, {
 				usagePoller: fakePoller,
 				dashboard: { open: () => {}, refresh: () => {} },

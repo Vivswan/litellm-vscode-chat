@@ -217,9 +217,10 @@ export interface ServerOutcomeParts {
 	/** The model-count clause the line parenthesizes ("3 models", "2 models still served"); absent when nothing serves. */
 	readonly models?: string | undefined;
 	/**
-	 * The row's error: an "error" state's message (with the English
-	 * "(expected)" annotation when the entry expects the category), or the sync
-	 * failure an "ok" row can still carry.
+	 * The row's error: an "error" state's message, with the English
+	 * "(expected)" annotation when the entry expects the category. A sync
+	 * failure is an error row (declaredOutcome), so an "ok" row never carries
+	 * one.
 	 */
 	readonly error?: string | undefined;
 	/** The row's warning notices, fixed classification text, one line each. */
@@ -235,7 +236,7 @@ export function serverOutcomeParts(server: DashboardServer): ServerOutcomeParts 
 	}
 	switch (server.state) {
 		case "ok":
-			return { status: "OK", models: `${server.servedModelCount} models`, error: server.error, notice };
+			return { status: "OK", models: `${server.servedModelCount} models`, notice };
 		case "error": {
 			if (server.expected === true) {
 				// Truthful error, expected presentation: the "(expected)" annotation
@@ -287,8 +288,8 @@ export function serverOutcomeParts(server: DashboardServer): ServerOutcomeParts 
  */
 export function serverOutcomeText(server: DashboardServer): string {
 	const parts = serverOutcomeParts(server);
-	// "OK (2 models) - <sync error>" vs "Error: <error>": the error joins an
-	// OK line as an aside and an Error line as its object.
+	// "OK (2 declared models) - <error (expected)>" vs "Error: <error>": the
+	// error joins an OK line as an aside and an Error line as its object.
 	const status = parts.models === undefined ? parts.status : `${parts.status} (${parts.models})`;
 	// A two-part error (headline "\n" detail) flattens to one physical line:
 	// this is the copy-paste issue-report form.

@@ -109,8 +109,9 @@ interface DashboardServerBase {
 /**
  * One server row: a declared entry, a live provider group, or both merged
  * (joined by label and base URL). Secrets never reach the webview; only their
- * locations do. An "ok" row may STILL carry an error (a declared entry whose
- * group upsert failed while a live group keeps serving). `errorEnglish` is the
+ * locations do. A declared entry whose group sync failed is an "error" row
+ * even over a live group that keeps serving: the sync error outranks the live
+ * state while `servedModelCount` keeps the live truth. `errorEnglish` is the
  * log-safe English rendering the copyable diagnostics block substitutes, so
  * pasted reports stay English.
  */
@@ -177,8 +178,8 @@ export type DashboardServer = DashboardServerBase &
 	(
 		| {
 				readonly state: "ok";
-				readonly error?: string | undefined;
-				readonly errorEnglish?: string | undefined;
+				readonly error?: undefined;
+				readonly errorEnglish?: undefined;
 				readonly classification?: undefined;
 				readonly expected?: undefined;
 				readonly declaredModelCount?: undefined;

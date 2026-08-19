@@ -7,6 +7,7 @@
 
 import * as assert from "node:assert";
 import type * as vscode from "vscode";
+import type { DeclaredServerView } from "../../../extension/servers/serverSync";
 import type { StatusItemLike, StatusItemView } from "../../../extension/ui/status";
 import { StatusBarManager } from "../../../extension/ui/status";
 import { LAST_CONNECTION_STATUS_KEY } from "../../../shared/config/storageKeys";
@@ -41,6 +42,8 @@ export function createStatusBarManager(
 	options: {
 		persistedStatus?: unknown;
 		hasConfiguredServers?: (() => boolean) | undefined;
+		/** The sync engine's declared views for the sync-failure overlay; none by default. */
+		getDeclared?: (() => readonly DeclaredServerView[]) | undefined;
 		recorder?: { appendLog(line: string): void; recordError(source: string, error: unknown): void } | undefined;
 		item?: StatusItemLike | undefined;
 	} = {}
@@ -62,6 +65,7 @@ export function createStatusBarManager(
 		context,
 		new Logger({ info() {}, error() {} }, options.recorder),
 		options.hasConfiguredServers ?? (() => false),
+		options.getDeclared ?? (() => []),
 		options.item ?? new RecordingItem()
 	);
 	return { manager, context };

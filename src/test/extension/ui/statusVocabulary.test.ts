@@ -13,9 +13,11 @@ import * as vscode from "vscode";
 import { classifyOverall, overallStatusText } from "../../../dashboard/presenters";
 import { buildDashboardState, type SettingsReader } from "../../../extension/dashboard/state";
 import type { DeclaredServerView } from "../../../extension/servers/serverSync";
+import { applySyncFailures } from "../../../extension/servers/syncFailureOverlay";
 import { Notifier } from "../../../extension/ui/notifier";
 import { isHiddenGroupServerStatus } from "../../../shared/servers";
 import type { Timer } from "../../../shared/util/timer";
+import type { WindowStateRow } from "../../statusVocabulary";
 import { aggregateContradictions, uncoveredPills, uncoveredVerdicts, WINDOW_STATE_ROWS } from "../../statusVocabulary";
 import { createStatusBarManager, RecordingItem } from "./statusBarHarness";
 
@@ -28,6 +30,27 @@ const IMMEDIATE_TIMER: Timer = {
 };
 
 const EMPTY_READER: SettingsReader = { get: () => undefined, inspect: () => ({ defaultValue: undefined }) };
+
+/**
+ * The row's declared rows as sync-engine views: what the state builder joins
+ * and what the bar's and notifier's overlay reads, with the row's sync
+ * failures riding as syncError - the same one input on every surface.
+ */
+function declaredViews(row: WindowStateRow): DeclaredServerView[] {
+	return row.rows
+		.filter((server) => server.origin === "declared")
+		.map((server) => {
+			const failure = row.syncFailures?.find((candidate) => candidate.label === server.label);
+			return {
+				label: server.label,
+				baseUrl: server.baseUrl,
+				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } as const,
+				expectedClientId: row.window.find((status) => status.label === server.label)?.serverId,
+				syncError: failure?.message,
+				syncErrorClass: failure?.failureClass,
+			};
+		});
+}
 
 suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 	const createdContexts: vscode.ExtensionContext[] = [];
@@ -83,16 +106,10 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 		// removal store feeds the real builder.
 		for (const row of WINDOW_STATE_ROWS) {
 			const declaredRows = row.rows.filter((server) => server.origin === "declared");
-			const declared: DeclaredServerView[] = declaredRows.map((server) => ({
-				label: server.label,
-				baseUrl: server.baseUrl,
-				secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
-				expectedClientId: row.window.find((status) => status.label === server.label)?.serverId,
-			}));
 			const state = buildDashboardState({
 				snapshots: row.window.map((status) => ({ status, models: [], discoveredRawIds: [] })),
 				reader: EMPTY_READER,
-				declared,
+				declared: declaredViews(row),
 				isGroupSnapshot: () => true,
 				removedGroups: {
 					tombstones: row.window
@@ -141,15 +158,17 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 		}
 	});
 
-	test("one verdict from both inputs: the window and the dashboard rows classify identically", () => {
+	test("one verdict from both inputs: the overlaid window and the dashboard rows classify identically", () => {
 		for (const row of WINDOW_STATE_ROWS) {
 			assert.strictEqual(
 				classifyOverall(row.rows, { hiddenGroupCount: row.hiddenGroups ?? 0 }),
 				row.expect.verdict,
 				`${row.name}: rows verdict`
 			);
-			if (row.window.length > 0) {
-				assert.strictEqual(classifyOverall(row.window), row.expect.verdict, `${row.name}: window verdict`);
+			// The bar's real input: the window with the row's sync failures overlaid.
+			const overlaid = applySyncFailures(row.window, declaredViews(row));
+			if (overlaid.length > 0) {
+				assert.strictEqual(classifyOverall(overlaid), row.expect.verdict, `${row.name}: window verdict`);
 			}
 		}
 	});
@@ -157,7 +176,11 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 	test("the status bar renders each window state with the table's state and severity", async () => {
 		for (const row of WINDOW_STATE_ROWS) {
 			const item = new RecordingItem();
-			const harness = createStatusBarManager({ hasConfiguredServers: () => row.configured, item });
+			const harness = createStatusBarManager({
+				hasConfiguredServers: () => row.configured,
+				getDeclared: () => declaredViews(row),
+				item,
+			});
 			createdContexts.push(harness.context);
 			harness.manager.handleAggregatedStatus({
 				serverStatuses: [...row.window],
@@ -176,7 +199,12 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 			toasts.length = 0;
 			// Zero grace on an immediate timer: the deferred no-servers claim (the
 			// not-configured row) fires inside the test instead of 15s later.
-			const notifier = new Notifier(() => row.configured, 0, IMMEDIATE_TIMER);
+			const notifier = new Notifier(
+				() => row.configured,
+				() => declaredViews(row),
+				0,
+				IMMEDIATE_TIMER
+			);
 			notifier.handleAggregatedStatus({
 				serverStatuses: [...row.window],
 				totalModels: row.totalModels,

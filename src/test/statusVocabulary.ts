@@ -48,6 +48,17 @@ export interface WindowStateRow {
 	readonly name: string;
 	/** The provider-reported status window, exactly as handleAggregatedStatus and the notifier receive it. */
 	readonly window: readonly ServerStatus[];
+	/**
+	 * Declared entries whose provider-group sync failed, by entry label: the
+	 * sync-failure overlay's input beside the window. The host suite feeds them
+	 * to the bar and notifier as declared views carrying syncError and its
+	 * class (the class gates the overlay's no-live-status synthesis).
+	 */
+	readonly syncFailures?: readonly {
+		readonly label: string;
+		readonly message: string;
+		readonly failureClass: "upsertFailed" | "blocked" | "secretsUnreadable";
+	}[];
 	/** The merged count reportMerged would derive from the window (asserted, not assumed). */
 	readonly totalModels: number;
 	/** Whether servers are configured (the bar's and notifier's shared gate); every row but not-configured. */
@@ -173,6 +184,27 @@ function misconfiguredRow(name: string): DashboardServer {
 	};
 }
 
+/**
+ * A declared row whose provider-group sync failed, mirroring declaredOutcome's
+ * sync branch: an error row carrying the sync message, with the live status's
+ * served count when a group serves and zero (no lastChecked either) when the
+ * entry never reached discovery.
+ */
+function syncFailedRow(name: string, message: string, live?: ServerStatus): DashboardServer {
+	return {
+		origin: "declared",
+		label: name,
+		baseUrl: `http://${name}.test`,
+		servedModelCount: live?.servedModelCount ?? 0,
+		hasApiKey: false,
+		hasOAuth: false,
+		...(live !== undefined ? { lastChecked: live.lastChecked } : {}),
+		state: "error",
+		error: message,
+		config: { secrets: NO_SECRETS },
+	};
+}
+
 const allFailedDeclaredServing = errorStatus({ servedModelCount: 2, declaredModelCount: 2, error: "HTTP 500" });
 const staleServing = errorStatus({ servedModelCount: 3 });
 const answeredEmpty = okStatus({ servedModelCount: 0 });
@@ -200,6 +232,12 @@ const expectedMixedServing = errorStatus({
 const expectedDead = errorStatus({ serverId: "gw", servedModelCount: 0, expected: true, error: "404 on /models" });
 const unexpectedDead = errorStatus({ serverId: "down", servedModelCount: 0, error: "boom" });
 const healthy = okStatus({ servedModelCount: 3 });
+const liveBeforeSyncFailure = okStatus({ serverId: "live", servedModelCount: 2 });
+
+/** Sync-failure fixtures: engine-classified texts (the real constants' shape), never host-derived. */
+const UPSERT_FAILED = "The host rejected the provider group upsert";
+const UPDATE_UNAVAILABLE =
+	"A VS Code provider group already uses this name, and VS Code cannot update an existing group.";
 
 /**
  * The window states the initiative's integration findings came from, plus the
@@ -209,13 +247,23 @@ const healthy = okStatus({ servedModelCount: 3 });
  * has seen exists only as a dashboard row, and the bar's configured-gate
  * renders the empty window as the neutral spinner; the misconfigured row rides
  * beside it, since a parser-refused entry never reaches the window either.
+ * Sync failures never enter the window either; the two sync-failure rows pin
+ * the overlay (applySyncFailures) that folds them into the bar's and
+ * notifier's input.
  *
- * Known residual (left deliberately, per the vocabulary rulings - it needs
- * plumbing of its own, not this vocabulary):
- * a never-checked entry whose provider-group SYNC failed shows an error row
- * in the dashboard (the sync error) while the status bar - which reads only
- * the discovery window - still says "connecting". Reconciling that needs
- * sync failures plumbed into the bar's input.
+ * Known residuals (left deliberately - each needs plumbing or a vocabulary
+ * ruling of its own, not this table):
+ * 1. The sync-failure residual is narrowed, not gone: a blocked or
+ *    secretsUnreadable entry with no live status renders a red dashboard row
+ *    while the bar shows the spinner, because the overlay synthesizes only
+ *    for upsertFailed (the one class proving no group exists; synthesizing
+ *    for the others raced the first discovery report red). Transient for
+ *    blocked - the name-holding group reports - but persistent for an entry
+ *    whose secrets were never readable, since no group was ever created.
+ * 2. Several sync-failed claimants sharing one snapshot collapse to one
+ *    window status while the dashboard renders one row each; with a shared
+ *    snapshot serving zero beside a clean claimant, the window can read
+ *    "error" where the rows read "degraded".
  */
 export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 	{
@@ -462,6 +510,45 @@ export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 			statusLine: "Connected (3 models)",
 			notifier: "none",
 			pills: [{ word: "Connected", tone: "ok" }],
+		},
+	},
+	{
+		name: "a declared entry discovery never saw, whose provider-group sync failed",
+		// Empty window on purpose: the failed upsert means no group exists to
+		// report, so only the overlay can carry the failure to the bar
+		// (upsertFailed is the one class that proves the absence).
+		window: [],
+		syncFailures: [{ label: "pending", message: UPSERT_FAILED, failureClass: "upsertFailed" }],
+		totalModels: 0,
+		configured: true,
+		rows: [syncFailedRow("pending", UPSERT_FAILED)],
+		expect: {
+			severityClass: "error",
+			verdict: "error",
+			bar: { state: "error", severity: "error" },
+			hero: { word: "Error", tone: "error" },
+			statusLine: `Error: ${UPSERT_FAILED}`,
+			notifier: { kind: "error", contains: "rejected the provider group upsert" },
+			pills: [{ word: "Error", tone: "error" }],
+		},
+	},
+	{
+		name: "a live group serving models while its entry's sync stays blocked",
+		window: [liveBeforeSyncFailure],
+		syncFailures: [{ label: "live", message: UPDATE_UNAVAILABLE, failureClass: "blocked" }],
+		totalModels: 2,
+		configured: true,
+		rows: [syncFailedRow("live", UPDATE_UNAVAILABLE, liveBeforeSyncFailure)],
+		expect: {
+			// Serving through the failed sync: degraded everywhere, never the ok
+			// window's "Connected" beside a red dashboard row.
+			severityClass: "warn",
+			verdict: "degraded",
+			bar: { state: "degraded", severity: "warning" },
+			hero: { word: "Degraded", tone: "warn" },
+			statusLine: "Degraded (2 models, some servers failed)",
+			notifier: "none",
+			pills: [{ word: "Sync issue", tone: "warn" }],
 		},
 	},
 	{

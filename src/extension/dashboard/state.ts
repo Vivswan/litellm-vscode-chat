@@ -65,9 +65,12 @@ import type { ServerStatus } from "../../shared/servers";
 import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { recordFromKeys } from "../../shared/util/json";
 import type { DeclaredServerView, ServerEntryReport } from "../servers/serverSync";
+import { declaredPresentation } from "../servers/syncFailureOverlay";
 import type { SettingsInspection } from "../settingsAccess";
 import { resolveConfiguredScope, resolveUpdateScope } from "../settingsAccess";
 import { adoptSourceHandle, modelScopeKey } from "./adoptHandle";
+import type { LabeledSnapshot } from "./declaredJoin";
+import { joinDeclared, labeledSnapshots } from "./declaredJoin";
 
 /**
  * The removal bookkeeping the state builder folds in: the identities the user
@@ -94,43 +97,6 @@ export interface SettingsReader {
 	get(key: string): unknown;
 	/** Per-scope values for `key`, as WorkspaceConfiguration.inspect reports them. */
 	inspect(key: string): SettingsInspection | undefined;
-}
-
-/**
- * Snapshots joined with the display label their server renders under. Labels
- * are not unique (two provider groups can point at one host with different
- * credentials), so colliding labels get a positional suffix; the opaque server
- * IDs stay out of the state because they embed a credential fingerprint.
- */
-interface LabeledSnapshot {
-	readonly snapshot: ServerModelsSnapshot;
-	readonly label: string;
-}
-
-export function labeledSnapshots(snapshots: readonly ServerModelsSnapshot[]): LabeledSnapshot[] {
-	// The serverId tiebreak keeps the sort total: the status window re-inserts
-	// refreshed entries at the end, so without it two groups on one host would
-	// swap ordinals whenever their insertion order churned.
-	const sorted = [...snapshots].sort(
-		(a, b) =>
-			a.status.label.localeCompare(b.status.label) ||
-			a.status.baseUrl.localeCompare(b.status.baseUrl) ||
-			a.status.serverId.localeCompare(b.status.serverId)
-	);
-	const labelCounts = new Map<string, number>();
-	for (const { status } of sorted) {
-		labelCounts.set(status.label, (labelCounts.get(status.label) ?? 0) + 1);
-	}
-	const seen = new Map<string, number>();
-	return sorted.map((snapshot) => {
-		const { label } = snapshot.status;
-		if ((labelCounts.get(label) ?? 0) < 2) {
-			return { snapshot, label };
-		}
-		const ordinal = (seen.get(label) ?? 0) + 1;
-		seen.set(label, ordinal);
-		return { snapshot, label: `${label} (${ordinal})` };
-	});
 }
 
 function buildServer(
@@ -167,87 +133,13 @@ function buildServer(
 }
 
 /**
- * Which pairing pass joined a declared entry to its snapshot. Only the
- * identity pass proves the serving group carries the entry's label, which is
- * what buildServers flags entries on: any other pass means the entry's own
- * modelParameters may not apply.
- */
-type JoinPass = "identity" | "connection" | "label-url" | "url";
-
-/**
- * Pair declared entries with live snapshots, in four passes: the group client
- * ID (credential-fingerprinted, so entries sharing a base URL with different
- * credentials join exactly), then the label-agnostic connection ID
- * non-exclusively (groups created before entry labels flowed into their
- * configurations report under one shared identity, and every entry mirroring
- * that connection is honestly described by it), then label plus base URL, then
- * base URL alone. Shared by the state builder and the adopt intent's source
- * resolution, which must agree on which snapshots are external.
- */
-export function joinDeclared(
-	labeled: readonly LabeledSnapshot[],
-	declared: readonly DeclaredServerView[]
-): {
-	/** The labeled snapshot each declared entry matched, with the pass that matched it, by declared index. */
-	matchedByDeclared: Map<number, { entry: LabeledSnapshot; pass: JoinPass }>;
-	/** Labeled snapshots no declared entry claimed: the external rows. */
-	unmatched: Set<LabeledSnapshot>;
-} {
-	const unmatched = new Set<LabeledSnapshot>(labeled);
-	const matchedByDeclared = new Map<number, { entry: LabeledSnapshot; pass: JoinPass }>();
-	const passes: readonly {
-		pass: JoinPass;
-		match: (snapshot: ServerModelsSnapshot, view: DeclaredServerView) => boolean;
-		/** A shared pass lets several entries claim one snapshot; only equal join keys can collide (see the doc above). */
-		shared?: boolean;
-	}[] = [
-		{
-			pass: "identity",
-			match: (snapshot, view) =>
-				view.expectedClientId !== undefined && snapshot.status.serverId === view.expectedClientId,
-		},
-		{
-			pass: "connection",
-			match: (snapshot, view) =>
-				view.expectedConnectionId !== undefined && snapshot.status.serverId === view.expectedConnectionId,
-			shared: true,
-		},
-		{
-			pass: "label-url",
-			match: (snapshot, view) =>
-				snapshot.status.label === view.label &&
-				normalizeBaseUrl(snapshot.status.baseUrl) === normalizeBaseUrl(view.baseUrl),
-		},
-		{
-			pass: "url",
-			match: (snapshot, view) => normalizeBaseUrl(snapshot.status.baseUrl) === normalizeBaseUrl(view.baseUrl),
-		},
-	];
-	for (const pass of passes) {
-		// Snapshots this pass already handed out, still claimable when shared.
-		const claimed = new Set<LabeledSnapshot>();
-		declared.forEach((view, declaredIndex) => {
-			if (matchedByDeclared.has(declaredIndex)) {
-				return;
-			}
-			const pool = pass.shared === true ? [...unmatched, ...claimed] : [...unmatched];
-			const found = pool.find((entry) => pass.match(entry.snapshot, view));
-			if (found !== undefined) {
-				matchedByDeclared.set(declaredIndex, { entry: found, pass: pass.pass });
-				claimed.add(found);
-				unmatched.delete(found);
-			}
-		});
-	}
-	return { matchedByDeclared, unmatched };
-}
-
-/**
- * The state slice of a declared row. The sync error always rides the row's
- * error (a live status's own error cannot mask it): the group still serving is
- * the entry's OLD configuration, and the remove-and-resync instruction must
- * show. A reachable group keeps its live state. `errorEnglish` (the transport
- * error's log-safe English) and `classification` (enum ids only,
+ * The state slice of a declared row, decided by the shared sync-failure rule
+ * (declaredPresentation): a sync error outranks the live status - even a
+ * healthy one, since the group still serving is the entry's OLD configuration
+ * and the remove-and-resync instruction must show - while the served count
+ * stays the live truth. The status bar's overlay (applySyncFailures) consumes
+ * the same rule, so the row and the bar cannot disagree. `errorEnglish` (the
+ * transport error's log-safe English) and `classification` (enum ids only,
  * protocol-legal) ride exactly when the row's error IS the transport error; a
  * sync error carries neither.
  */
@@ -258,8 +150,6 @@ function declaredOutcome(
 	| {
 			state: "ok";
 			servedModelCount: number;
-			error?: string | undefined;
-			errorEnglish?: string | undefined;
 			modelInfoUnsupported?: UnservedEndpointEvidence | undefined;
 	  }
 	| {
@@ -272,35 +162,34 @@ function declaredOutcome(
 			declaredModelCount?: number | undefined;
 	  }
 	| { state: "unchecked"; servedModelCount: number } {
-	if (status?.state === "ok") {
+	const presentation = declaredPresentation(status, syncError);
+	if (presentation.kind === "sync-failed") {
+		return { state: "error", servedModelCount: presentation.servedModelCount, error: presentation.error };
+	}
+	// The second test is what narrows `status` below: "unchecked" already means
+	// an absent status, but the kind alone tells the compiler nothing.
+	if (presentation.kind === "unchecked" || status === undefined) {
+		return { state: "unchecked", servedModelCount: 0 };
+	}
+	if (status.state === "ok") {
 		return {
 			state: "ok",
 			servedModelCount: status.servedModelCount,
-			error: syncError,
 			...(status.modelInfoUnsupported !== undefined ? { modelInfoUnsupported: status.modelInfoUnsupported } : {}),
 		};
 	}
-	if (status?.state === "error") {
-		return syncError !== undefined
-			? // The sync error outranks the live error's text, but the served count
-				// stays the live truth: the group keeps serving what it had.
-				{ state: "error", servedModelCount: status.servedModelCount, error: syncError }
-			: {
-					state: "error",
-					// Stale-window and declared models serve through ANY discovery
-					// failure, so the row's count must match the picker whether or not
-					// the failure was expected.
-					servedModelCount: status.servedModelCount,
-					error: status.error,
-					errorEnglish: status.logSafeError,
-					...(status.classification !== undefined ? { classification: status.classification } : {}),
-					...(status.expected === true ? { expected: true } : {}),
-					...(status.declaredModelCount !== undefined ? { declaredModelCount: status.declaredModelCount } : {}),
-				};
-	}
-	return syncError !== undefined
-		? { state: "error", servedModelCount: 0, error: syncError }
-		: { state: "unchecked", servedModelCount: 0 };
+	return {
+		state: "error",
+		// Stale-window and declared models serve through ANY discovery
+		// failure, so the row's count must match the picker whether or not
+		// the failure was expected.
+		servedModelCount: status.servedModelCount,
+		error: status.error,
+		errorEnglish: status.logSafeError,
+		...(status.classification !== undefined ? { classification: status.classification } : {}),
+		...(status.expected === true ? { expected: true } : {}),
+		...(status.declaredModelCount !== undefined ? { declaredModelCount: status.declaredModelCount } : {}),
+	};
 }
 
 /** A rejected entry that has the identity a row needs: both fields narrowed, so no call site defaults them. */

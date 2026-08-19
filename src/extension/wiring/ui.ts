@@ -10,7 +10,7 @@ import type { DashboardController } from "../dashboard/panel";
 import type { ManagementUiMode } from "../servers/serverManagement";
 import { registerManageCommand } from "../servers/serverManagement";
 import type { ServerRegistry } from "../servers/serverRegistry";
-import type { ServerSyncEngine } from "../servers/serverSync";
+import type { DeclaredServerView, ServerSyncEngine } from "../servers/serverSync";
 import {
 	registerHelpAndFeedbackCommand,
 	registerOpenGroupsFileCommand,
@@ -31,12 +31,15 @@ import { StatusBarManager, StatusItem } from "../ui/status";
 export function wireStatusSurfaces(
 	context: vscode.ExtensionContext,
 	logger: Logger,
-	hasConfiguredServers: () => boolean
+	hasConfiguredServers: () => boolean,
+	/** The sync engine's declared views, for both surfaces' sync-failure overlay. */
+	getDeclared: () => readonly DeclaredServerView[]
 ): { statusBar: StatusBarManager; notifier: Notifier } {
 	const statusBar = new StatusBarManager(
 		context,
 		logger,
 		hasConfiguredServers,
+		getDeclared,
 		new StatusItem({
 			slot: "connection",
 			alignment: vscode.StatusBarAlignment.Right,
@@ -45,7 +48,7 @@ export function wireStatusSurfaces(
 			log: (message) => logger.log(message),
 		})
 	);
-	const notifier = new Notifier(hasConfiguredServers);
+	const notifier = new Notifier(hasConfiguredServers, getDeclared);
 	// Disposal withdraws an armed no-servers claim, so its deferred toast
 	// cannot fire from a deactivated extension.
 	context.subscriptions.push(notifier);
@@ -54,18 +57,22 @@ export function wireStatusSurfaces(
 
 /**
  * Status bar, refresh notifications, and the dashboard share one status
- * callback, isolated so one consumer's failure cannot starve the others.
+ * callback, isolated so one consumer's failure cannot starve the others; sync
+ * passes re-judge the two overlay consumers, since a sync-only change (a
+ * failed upsert, a blocked entry clearing) never fires the status callback.
  */
 export function wireStatusFanout(
+	context: vscode.ExtensionContext,
 	logger: Logger,
 	deps: {
-		provider: LiteLLMChatModelProvider;
+		provider: Pick<LiteLLMChatModelProvider, "setStatusCallback">;
+		syncEngine: Pick<ServerSyncEngine, "onDidSync">;
 		statusBar: StatusBarManager;
 		notifier: Notifier;
 		dashboard: Pick<DashboardController, "refresh">;
 	}
 ): void {
-	const { provider, statusBar, notifier, dashboard } = deps;
+	const { provider, syncEngine, statusBar, notifier, dashboard } = deps;
 	provider.setStatusCallback((aggStatus: AggregatedStatus) => {
 		try {
 			statusBar.handleAggregatedStatus(aggStatus);
@@ -83,6 +90,22 @@ export function wireStatusFanout(
 			logger.error("Dashboard refresh failed", error);
 		}
 	});
+	// The dashboard already re-renders per pass (wireDashboard's own onDidSync
+	// subscription); these two read the sync outcome only through the overlay.
+	context.subscriptions.push(
+		syncEngine.onDidSync(() => {
+			try {
+				statusBar.refreshFromSync();
+			} catch (error) {
+				logger.error("Status bar sync refresh failed", error);
+			}
+			try {
+				notifier.refreshFromSync();
+			} catch (error) {
+				logger.error("Notifier sync refresh failed", error);
+			}
+		})
+	);
 }
 
 /**

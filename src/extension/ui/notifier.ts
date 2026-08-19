@@ -10,6 +10,8 @@ import { SETUP_HINT_DOCS_URLS } from "../../shared/util/links";
 import { openUrl } from "../../shared/util/openUrl";
 import type { Timer } from "../../shared/util/timer";
 import { PendingCall, REAL_TIMER } from "../../shared/util/timer";
+import type { DeclaredServerView } from "../servers/serverSync";
+import { applySyncFailures } from "../servers/syncFailureOverlay";
 import { zeroModelJudgment } from "./status";
 
 // The headline extraction lives in shared/util/errorText so the dashboard
@@ -149,9 +151,17 @@ export class Notifier implements vscode.Disposable {
 	private _lastNotifiedSignature: string | undefined;
 	/** The armed no-servers claim; not pending when none is armed. */
 	private readonly pendingClaim: PendingCall;
+	/** The last provider report, pre-overlay; see refreshFromSync. */
+	private lastStatus: AggregatedStatus | undefined;
 
 	constructor(
 		private readonly hasConfiguredServers: () => boolean,
+		/**
+		 * The declared entries as of the last sync pass, for the sync-failure
+		 * overlay (applySyncFailures) - the same input the status bar judges, so
+		 * the toast can never contradict the bar it points at.
+		 */
+		private readonly getDeclared: () => readonly DeclaredServerView[],
 		private readonly graceMs: number = NO_SERVERS_GRACE_MS,
 		timer: Timer = REAL_TIMER
 	) {
@@ -168,6 +178,7 @@ export class Notifier implements vscode.Disposable {
 	}
 
 	handleAggregatedStatus(status: AggregatedStatus): void {
+		this.lastStatus = status;
 		const outcome = this.evaluate(status);
 		if (outcome.tag === "recovered") {
 			// A healthy refresh resets dedup so a recovered-then-broken setup
@@ -206,6 +217,20 @@ export class Notifier implements vscode.Disposable {
 		void showActionableMessage(outcome.kind, outcome.message, outcome.actions);
 	}
 
+	/**
+	 * Re-judge the last provider report after a sync pass: a sync-only change
+	 * moves the overlay without any provider report firing the status callback.
+	 * The signature dedup makes re-judging the same world a no-op, and before
+	 * any report only a non-empty overlay carries news worth judging.
+	 */
+	refreshFromSync(): void {
+		const base = this.lastStatus ?? { serverStatuses: [], totalModels: 0, silent: true };
+		if (this.lastStatus === undefined && applySyncFailures(base.serverStatuses, this.getDeclared()).length === 0) {
+			return;
+		}
+		this.handleAggregatedStatus(base);
+	}
+
 	private armNoServersClaim(condition: NotifiableCondition): void {
 		if (this.pendingClaim.pending || condition.signature === this._lastNotifiedSignature) {
 			return;
@@ -226,11 +251,14 @@ export class Notifier implements vscode.Disposable {
 	}
 
 	private evaluate(status: AggregatedStatus): NotifierOutcome {
+		// The same overlaid window the status bar judges (see applySyncFailures):
+		// sync failures never enter the provider report itself.
+		const serverStatuses = applySyncFailures(status.serverStatuses, this.getDeclared());
 		// The one verdict pipeline: classifyOverall owns the branch rules (shared
 		// with the status bar and the dashboard headline, so the toast can never
 		// contradict the surfaces it points at); this method only maps verdicts
 		// onto toasts.
-		const verdict = classifyOverall(status.serverStatuses);
+		const verdict = classifyOverall(serverStatuses);
 		if (verdict === "not-configured") {
 			if (this.hasConfiguredServers()) {
 				return { tag: "suppressed" };
@@ -244,7 +272,7 @@ export class Notifier implements vscode.Disposable {
 			};
 		}
 		if (verdict === "error") {
-			const firstFailure = unexpectedServerFailures(status.serverStatuses)[0];
+			const firstFailure = unexpectedServerFailures(serverStatuses)[0];
 			if (firstFailure === undefined) {
 				// Unreachable: a status window carries no misconfigured rows, so the
 				// error verdict guarantees an unexpected failure.
@@ -283,7 +311,7 @@ export class Notifier implements vscode.Disposable {
 		// The shared zero-model judgment (zeroModelJudgment owns the gating
 		// rule): it stands down on any verdict that already explains itself, so
 		// a degraded window keeps the failure story the other surfaces tell.
-		const zero = zeroModelJudgment(status.serverStatuses, status.totalModels);
+		const zero = zeroModelJudgment(serverStatuses, status.totalModels);
 		if (zero !== undefined) {
 			if (zero.hiddenCount > 0) {
 				// Hidden groups explain the zero models: the toast names the removal

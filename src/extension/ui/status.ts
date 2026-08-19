@@ -9,6 +9,8 @@ import type { Logger, LogSafeErrorText } from "../../shared/logger";
 import { markLogSafe } from "../../shared/logger";
 import type { AggregatedStatus, ServerStatus } from "../../shared/servers";
 import { isHiddenGroupServerStatus, unexpectedFailureCount, unexpectedServerFailures } from "../../shared/servers";
+import type { DeclaredServerView } from "../servers/serverSync";
+import { applySyncFailures } from "../servers/syncFailureOverlay";
 
 /** Every connection state, the single source for the union type and the persisted-status schema. */
 const CONNECTION_STATES = ["not-configured", "connecting", "loading", "connected", "degraded", "error"] as const;
@@ -487,6 +489,20 @@ export class StatusBarManager {
 	 * only: never persisted, and a new session starts false.
 	 */
 	private lastConnectingAttention = false;
+	/**
+	 * The last provider report, pre-overlay, so refreshFromSync can re-render
+	 * with fresh declared views: sync outcomes change the overlay without any
+	 * provider report. Session state; the empty report stands in before the
+	 * first callback, exactly what the groupless cold-start refresh sends.
+	 */
+	private lastAggregated: AggregatedStatus | undefined;
+	/**
+	 * The overlaid window last judged, for refreshFromSync's no-change skip.
+	 * A JSON rendering is deterministic here: both sides serialize the same
+	 * base status objects through the same overlay construction, so equal
+	 * worlds stringify equal.
+	 */
+	private lastJudgedOverlay: string | undefined;
 
 	constructor(
 		private readonly context: vscode.ExtensionContext,
@@ -498,6 +514,12 @@ export class StatusBarManager {
 		 * issue reports, so the claim must be honest.
 		 */
 		private readonly hasConfiguredServers: () => boolean,
+		/**
+		 * The declared entries as of the last sync pass, for the sync-failure
+		 * overlay: sync failures never enter the provider's status window, so the
+		 * bar reads them from here (applySyncFailures).
+		 */
+		private readonly getDeclared: () => readonly DeclaredServerView[],
 		/**
 		 * The rendering surface, REQUIRED so no code path can create a real
 		 * status bar item by accident: activation passes the real StatusItem
@@ -637,8 +659,15 @@ export class StatusBarManager {
 	}
 
 	handleAggregatedStatus(aggStatus: AggregatedStatus): void {
+		this.lastAggregated = aggStatus;
 		const now = new Date().toISOString();
-		const { serverStatuses, totalModels } = aggStatus;
+		// Sync failures never enter the provider's status window (a failed upsert
+		// has no group to report, and a blocked group keeps reporting its old
+		// configuration as healthy), so the bar judges the overlaid window - the
+		// same precedence the dashboard rows render.
+		const serverStatuses = applySyncFailures(aggStatus.serverStatuses, this.getDeclared());
+		this.lastJudgedOverlay = JSON.stringify(serverStatuses);
+		const { totalModels } = aggStatus;
 
 		if (serverStatuses.length === 0) {
 			// The empty window is only a not-configured verdict when nothing else
@@ -742,5 +771,27 @@ export class StatusBarManager {
 				});
 			}
 		}
+	}
+
+	/**
+	 * Re-judge the last provider report after a sync pass: a sync-only change
+	 * (an upsert failing, a blocked entry clearing) moves the overlay without
+	 * any provider report firing the status callback. Judged only when the
+	 * overlaid window actually changed: replaying an unchanged report must not
+	 * escalate the connecting spinner (a second FRESH empty report is the
+	 * evidence of persistence, a sync pass is not) or duplicate log lines.
+	 * Before any report, only a non-empty overlay says something a restored
+	 * status does not.
+	 */
+	refreshFromSync(): void {
+		const base = this.lastAggregated ?? { serverStatuses: [], totalModels: 0, silent: true };
+		const overlaid = applySyncFailures(base.serverStatuses, this.getDeclared());
+		if (this.lastAggregated === undefined && overlaid.length === 0) {
+			return;
+		}
+		if (JSON.stringify(overlaid) === this.lastJudgedOverlay) {
+			return;
+		}
+		this.handleAggregatedStatus(base);
 	}
 }

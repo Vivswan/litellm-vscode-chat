@@ -125,6 +125,7 @@ suite("extension/ui statusItemRegistry", () => {
 				context,
 				logger,
 				() => false,
+				() => [],
 				new StatusItem({
 					slot: "connection",
 					alignment: vscode.StatusBarAlignment.Right,
