@@ -13,6 +13,7 @@ import { BOOLEAN_SETTING_IDS, NUMBER_SETTING_IDS } from "../../../dashboard/view
 import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "../../../extension/dashboard/adopt";
 import { modelScopeKey } from "../../../extension/dashboard/adoptHandle";
 import { parseDashboardRequest } from "../../../extension/dashboard/intentSchema";
+import type { IntentAckNotice } from "../../../extension/dashboard/intents";
 import {
 	DashboardValidationError,
 	executeDashboardIntent,
@@ -1617,6 +1618,42 @@ suite("extension/dashboard/state", () => {
 			assert.deepStrictEqual(server.notices, ["expected-failures-nothing-declared"]);
 		});
 
+		test("an expected failure serving only the stale window raises no needs-declare notice", () => {
+			// The notice gates on servedModelCount, like every other serving
+			// verdict: a row quietly serving its last known list must not carry a
+			// paste line contradicting itself ("still served" beside "add IDs").
+			const state = buildState(
+				[
+					{
+						discoveredRawIds: [],
+						status: makeServerStatus({
+							serverId: "group:fp-prod-labeled:http://x.test",
+							label: "Prod",
+							baseUrl: "http://x.test",
+							state: "error",
+							error: "404 on /models",
+							expected: true,
+							servedModelCount: 3,
+						}),
+						models: [],
+					},
+				],
+				makeReader({}),
+				[
+					makeDeclared({
+						label: "Prod",
+						baseUrl: "http://x.test",
+						expectedClientId: "group:fp-prod-labeled:http://x.test",
+						expectedFailures: ["modelListing"],
+					}),
+				]
+			);
+			const server = state.servers[0];
+			assert.ok(server?.state === "error");
+			assert.strictEqual(server.servedModelCount, 3);
+			assert.strictEqual(server.notices, undefined, "the stale window serves, so there is nothing to declare");
+		});
+
 		test("a declared model's badge marker rides the dashboard model; discovered models carry none", () => {
 			const state = buildState(
 				[
@@ -2646,7 +2683,7 @@ suite("extension/dashboard/state", () => {
 		const draftTest = (
 			recorded: RecordedEnv,
 			partial: Partial<RequestPayload<"testServerDraft">> = {}
-		): Promise<string | undefined> =>
+		): Promise<IntentAckNotice | undefined> =>
 			executeDashboardIntent(
 				{
 					method: "testServerDraft",
@@ -2717,7 +2754,11 @@ suite("extension/dashboard/state", () => {
 			assert.deepStrictEqual(recorded.probes, [
 				{ baseUrl: "http://prod.test", label: "Prod", apiKey: "sk-draft", expected: NO_EXPECTED },
 			]);
-			assert.strictEqual(notice, "Connected - 0 models");
+			// Zero models is the shared zero-model warning, never a green success.
+			assert.deepStrictEqual(notice, {
+				message: "Connected - 0 models. The server answered but listed no models.",
+				tone: "warning",
+			});
 			// The no-mutation contract: a probe leaves every store untouched.
 			assert.deepStrictEqual(recorded.serverWrites, []);
 			assert.deepStrictEqual(recorded.secretOps, []);
@@ -2825,7 +2866,7 @@ suite("extension/dashboard/state", () => {
 			]);
 		});
 
-		test("an expected modelListing failure with nothing declared still reports the expected outcome", async () => {
+		test("an expected modelListing failure with nothing declared warns: the needs-declare state, not a pass", async () => {
 			const recorded = makeEnv([]);
 			recorded.probeError = new RequestError("404 page not found", "http", {
 				status: 404,
@@ -2834,7 +2875,10 @@ suite("extension/dashboard/state", () => {
 			const notice = await draftTest(recorded, {
 				server: serverPayload({ label: "Prod", baseUrl: "http://prod.test", expectedFailures: ["modelListing"] }),
 			});
-			assert.strictEqual(notice, "Discovery failed (expected) - serving 0 declared models");
+			assert.deepStrictEqual(notice, {
+				message: "Discovery failed (expected) and no models are declared. Add model IDs to Declared models.",
+				tone: "warning",
+			});
 		});
 
 		test("a failure outside the expected categories still fails the intent", async () => {

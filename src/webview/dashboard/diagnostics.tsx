@@ -1023,12 +1023,13 @@ function diagnosticsReportText(
 	servers: readonly DashboardServer[],
 	modelCount: number,
 	legacyServerCount: number,
+	hiddenGroupCount: number,
 	diagnostics: readonly ConfigDiagnosticView[]
 ): string {
 	const copyServers = servers.map(withEnglishError);
 	const checkedMs = latestCheckedMs(copyServers);
 	const lines = [
-		overallStatusText(copyServers, modelCount, legacyServerCount),
+		overallStatusText(copyServers, modelCount, { legacyServerCount, hiddenGroupCount }),
 		`Servers configured: ${copyServers.length}`,
 		`Last checked: ${checkedMs === undefined ? "Never" : new Date(checkedMs).toISOString()}`,
 	];
@@ -1047,15 +1048,13 @@ function diagnosticsReportText(
 	for (const problem of problems) {
 		lines.push(`  ${englishDiagnosticLine(problem)}`);
 	}
-	// Hidden groups are the one dropped kind with no other route into the paste: they
-	// contribute no server row, so a hidden-only install would otherwise assert a clean
-	// setup. A count, never the labels - those are user text.
-	const hidden = diagnostics.reduce(
-		(total, diagnostic) => (diagnostic.kind === "hidden-groups" ? total + diagnostic.labels.length : total),
-		0
-	);
-	if (hidden > 0) {
-		lines.push(`Hidden provider groups: ${hidden}`);
+	// Hidden groups are the one dropped kind with no other route into the paste:
+	// they contribute no server row, so a hidden-only install would otherwise
+	// assert a clean setup. The count the shell passed (state.hiddenGroups), so
+	// the headline verdict and this line cannot disagree; never the labels -
+	// those are user text.
+	if (hiddenGroupCount > 0) {
+		lines.push(`Hidden provider groups: ${hiddenGroupCount}`);
 	}
 	return lines.join("\n");
 }
@@ -1083,11 +1082,14 @@ function DiagnosticsTools({
 	servers,
 	modelCount,
 	legacyServerCount,
+	hiddenGroupCount,
 	diagnostics,
 }: {
 	servers: readonly DashboardServer[];
 	modelCount: number;
 	legacyServerCount: number;
+	/** How many provider groups an explicit removal hides (state.hiddenGroups); the report's verdict and count read it. */
+	hiddenGroupCount: number;
 	/** Copied alongside the connection facts; the page's subject rides its own report. */
 	diagnostics: readonly ConfigDiagnosticView[];
 }) {
@@ -1108,7 +1110,7 @@ function DiagnosticsTools({
 	}, [copiedAt]);
 	const copyDiagnostics = () => {
 		navigator.clipboard
-			?.writeText(diagnosticsReportText(servers, modelCount, legacyServerCount, diagnostics))
+			?.writeText(diagnosticsReportText(servers, modelCount, legacyServerCount, hiddenGroupCount, diagnostics))
 			.catch(() => {});
 		setCopiedAt((current) => current + 1);
 	};
@@ -1168,6 +1170,7 @@ export function DiagnosticsSection({
 	servers,
 	modelCount,
 	legacyServerCount,
+	hiddenGroupCount,
 	diagnostics,
 	active,
 	stateSeq,
@@ -1177,6 +1180,8 @@ export function DiagnosticsSection({
 	servers: readonly DashboardServer[];
 	modelCount: number;
 	legacyServerCount: number;
+	/** How many provider groups an explicit removal hides (state.hiddenGroups.length); Copy diagnostics reads it. */
+	hiddenGroupCount: number;
 	diagnostics: readonly ConfigDiagnosticView[];
 	/** Whether the Diagnostics tab is the visible one; the resolved view requests only while shown. */
 	active: boolean;
@@ -1203,6 +1208,7 @@ export function DiagnosticsSection({
 				servers={servers}
 				modelCount={modelCount}
 				legacyServerCount={legacyServerCount}
+				hiddenGroupCount={hiddenGroupCount}
 				diagnostics={diagnostics}
 			/>
 			<Support />

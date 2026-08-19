@@ -6,6 +6,7 @@
 import * as l10n from "@vscode/l10n";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { IntentAckTone } from "../../dashboard/endpoints";
 import type { GroupProblems, HeaderRow } from "../../dashboard/recordDraft";
 import { toCapabilityGroups, toGroups, toggleExpectedFailure, toHeaderRows } from "../../dashboard/recordDraft";
 import type {
@@ -138,7 +139,7 @@ type FormPhase =
 type TestState =
 	| { readonly kind: "idle" }
 	| { readonly kind: "testing"; readonly requestId: string }
-	| { readonly kind: "pass"; readonly text: string }
+	| { readonly kind: "pass"; readonly text: string; readonly tone?: IntentAckTone | undefined }
 	| {
 			readonly kind: "fail";
 			readonly text: string;
@@ -1163,7 +1164,13 @@ function ServerForm({
 			return;
 		}
 		if (testOutcome.result === "ok") {
-			setTestState({ kind: "pass", text: testOutcome.message ?? l10n.t("Connected") });
+			setTestState({
+				kind: "pass",
+				text: testOutcome.message ?? l10n.t("Connected"),
+				// The zero-model probe passes with a warning tone (the shared
+				// zero-model vocabulary); a quiet success carries none.
+				...(testOutcome.tone !== undefined ? { tone: testOutcome.tone } : {}),
+			});
 		} else {
 			setTestState({
 				kind: "fail",
@@ -1441,7 +1448,10 @@ function ServerForm({
 						)}
 					</Button>
 					{testState.kind === "pass" ? (
-						<span className="test-result state-ok text-[11.5px]" role="status">
+						<span
+							className={cn("test-result text-[11.5px]", testState.tone === "warning" ? "state-warn" : "state-ok")}
+							role="status"
+						>
 							{testState.text}
 						</span>
 					) : null}

@@ -730,6 +730,14 @@ export interface DashboardState {
 	readonly hiddenGroups: readonly HiddenGroup[];
 	readonly models: readonly DashboardModel[];
 	/**
+	 * The merged served-model count: the sum of every snapshot's
+	 * servedModelCount, the same reduce behind the status bar's totalModels.
+	 * The hero and the diagnostics paste line read this, never models.length -
+	 * the models table lists a multi-claimant snapshot once per claimant, so
+	 * the row count can overcount what the window actually serves.
+	 */
+	readonly servedModelCount: number;
+	/**
 	 * The union of the servers' observedModelInfoKeys, across exactly the
 	 * servers that reported a set. Absent = unknown, empty = known and empty;
 	 * same handling rules as the per-server field.

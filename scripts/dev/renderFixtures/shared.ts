@@ -64,7 +64,9 @@ export const GATEWAY_SERVER: DashboardServer = {
 		expectedFailures: ["modelListing", "modelInfo"],
 		declaredModels: ["deepseek-r1"],
 	},
-	notices: ["expected-failures-nothing-declared"],
+	// No nothing-declared notice: the declared model IS serving (served 1,
+	// declared 1), and the builder only flags an expected failure serving
+	// nothing at all.
 };
 
 export const MISCONFIGURED_SERVER: DashboardServer = {
@@ -463,9 +465,14 @@ export const RESOLVED_VIEW: ResolvedModelsView = {
 };
 
 export function baseState(overrides: Partial<DashboardState> = {}): DashboardState {
+	// The merged served count derives from whichever server rows the fixture
+	// renders (an explicit override still wins), so fixture states stay
+	// producible: the hero's count is the rows' sum in production too.
+	const servers = overrides.servers ?? [PROD_SERVER, GATEWAY_SERVER, EXTERNAL_SERVER];
 	return {
-		servers: [PROD_SERVER, GATEWAY_SERVER, EXTERNAL_SERVER],
+		servers,
 		hiddenGroups: [],
+		servedModelCount: servers.reduce((sum, server) => sum + server.servedModelCount, 0),
 		models: [...MODELS],
 		settings: {
 			numbers: {

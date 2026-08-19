@@ -395,15 +395,21 @@ type RpcResponse<K extends ReadMethod> = {
 
 export type RpcResponseType = { [K in ReadMethod]: RpcResponse<K> }[ReadMethod];
 
+/** The one non-quiet success register an ack may carry; every tone-carrying surface derives from this. */
+export type IntentAckTone = "warning";
+
 /**
  * An acked intent's success notice. `message` is an optional caveat about the
- * success - informational text only, never a value from the payload.
+ * success - informational text only, never a value from the payload. `tone`
+ * marks a success worth a warning rendering (the draft probe's zero-model
+ * outcome); absent renders the quiet success.
  */
 interface IntentAckMessage {
 	readonly kind: "ack";
 	readonly id: string;
 	readonly method: AckedMethod;
 	readonly message?: string | undefined;
+	readonly tone?: IntentAckTone | undefined;
 }
 
 /**

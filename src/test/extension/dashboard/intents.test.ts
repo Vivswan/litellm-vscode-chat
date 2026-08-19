@@ -4,6 +4,7 @@ import { DASHBOARD_COMMAND_IDS } from "../../../dashboard/endpoints";
 import type { ServerFormDraft } from "../../../dashboard/serverForm";
 import { applyInlinePrefill, EMPTY_SERVER_FORM, parseServerForm } from "../../../dashboard/serverForm";
 import type { AdoptableGroupCredentials } from "../../../extension/dashboard/adopt";
+import type { IntentAckNotice } from "../../../extension/dashboard/intents";
 import {
 	DashboardOperationError,
 	executeDashboardIntent,
@@ -211,7 +212,7 @@ suite("extension/dashboard/intents", () => {
 		const save = (
 			recorded: RecordedEnv,
 			partial: Partial<RequestPayload<"saveServerSetting">>
-		): Promise<string | undefined> =>
+		): Promise<IntentAckNotice | undefined> =>
 			executeDashboardIntent(
 				{
 					method: "saveServerSetting",
@@ -1216,7 +1217,7 @@ suite("extension/dashboard/intents", () => {
 		const adopt = (
 			recorded: RecordedEnv,
 			partial: Partial<RequestPayload<"adoptServer">> = {}
-		): Promise<string | undefined> =>
+		): Promise<IntentAckNotice | undefined> =>
 			executeDashboardIntent(
 				{
 					method: "adoptServer",
@@ -1387,7 +1388,10 @@ suite("extension/dashboard/intents", () => {
 
 			const notice = await adopt(recorded);
 
-			assert.ok(notice !== undefined && /could not be read/.test(notice), notice ?? "expected a caveat notice");
+			assert.ok(
+				typeof notice === "string" && /could not be read/.test(notice),
+				JSON.stringify(notice) ?? "expected a caveat notice"
+			);
 			assert.deepStrictEqual(recorded.serverWrites, [[{ label: "Adopted", baseUrl: "http://ext.test" }]]);
 			assert.deepStrictEqual(recorded.secretOps, [], "no secrets to copy");
 			assert.strictEqual(recorded.syncRequests, 1);

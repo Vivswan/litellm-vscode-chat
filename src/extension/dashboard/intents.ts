@@ -10,10 +10,11 @@ import * as l10n from "@vscode/l10n";
 import type {
 	DashboardCommandId,
 	DashboardIntent,
+	IntentAckTone,
 	SaveServerPayload,
 	SecretDirective,
 } from "../../dashboard/endpoints";
-import { unitBehavior } from "../../dashboard/presenters";
+import { unitBehavior, zeroModelExplanation } from "../../dashboard/presenters";
 import { isUsableHttpUrl } from "../../dashboard/serverForm";
 import { usableThresholds } from "../../dashboard/spendFormat";
 import { CMD, INTERNAL_CMD, manageCommandTitle } from "../../shared/config/commandIds";
@@ -359,16 +360,24 @@ export function readInlineSecretValues(raw: unknown, label: string): Readonly<Pa
 }
 
 /**
+ * An acked intent's success notice: plain text renders as the quiet success,
+ * the object form adds a tone. Only the draft probe's nothing-to-serve
+ * outcomes warn today - the shared zero-model and needs-declare vocabulary,
+ * never a green result over nothing to serve.
+ */
+export type IntentAckNotice = string | { readonly message: string; readonly tone: IntentAckTone };
+
+/**
  * Execute one validated intent against the injected environment. Resolves to
- * an optional user-facing message for the success notice: adoptServer's
- * caveat, and testServerDraft's static classification plus model count.
+ * an optional user-facing notice for the success ack: adoptServer's caveat,
+ * and testServerDraft's static classification plus model count.
  * Throws on constraint violations without logging; the panel controller is
  * the boundary that logs and reports the failure back to the webview.
  */
 export async function executeDashboardIntent(
 	intent: DashboardIntent,
 	env: IntentEnvironment
-): Promise<string | undefined> {
+): Promise<IntentAckNotice | undefined> {
 	switch (intent.method) {
 		case "setNumberSetting": {
 			const problem = validateNumberSetting(intent.payload.setting, intent.payload.value);
@@ -494,6 +503,17 @@ export async function executeDashboardIntent(
 			const outcome = await applyTestServerDraft(intent.payload, env);
 			// Static classification plus counts; never payload or response text.
 			if (outcome.kind === "expected-failure") {
+				if (outcome.declaredCount === 0) {
+					// The needs-declare state the hero and notifier warn about: the
+					// failure is declared normal, but nothing serves through it until
+					// the draft lists model IDs under Declared models.
+					return {
+						message: l10n.t(
+							"Discovery failed (expected) and no models are declared. Add model IDs to Declared models."
+						),
+						tone: "warning",
+					};
+				}
 				return outcome.declaredCount === 1
 					? l10n.t("Discovery failed (expected) - serving 1 declared model")
 					: l10n.t("Discovery failed (expected) - serving {0} declared models", outcome.declaredCount);
@@ -502,6 +522,12 @@ export async function executeDashboardIntent(
 				return outcome.modelCount === 1
 					? l10n.t("Connected - 1 model (declared)")
 					: l10n.t("Connected - {0} models ({1} declared)", outcome.modelCount, outcome.declaredCount);
+			}
+			if (outcome.modelCount === 0) {
+				// The shared zero-model vocabulary (one server answered, nothing to
+				// serve): the same warning the bar, hero, and notifier give this
+				// state, never a green success over an empty listing.
+				return { message: l10n.t("Connected - 0 models. {0}", zeroModelExplanation(0, 1)), tone: "warning" };
 			}
 			return outcome.modelCount === 1
 				? l10n.t("Connected - 1 model")

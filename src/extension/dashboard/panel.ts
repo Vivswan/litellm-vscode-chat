@@ -16,6 +16,7 @@ import type {
 	AckedMethod,
 	DashboardMethod,
 	ExtensionToWebviewMessage,
+	IntentAckTone,
 	NotifyingMethod,
 	ReadMethod,
 	RequestPayload,
@@ -78,7 +79,7 @@ import { resolveAdoptableCredentials, resolveExternalGroupIdentity } from "./ado
 import { buildConfigDiagnostics } from "./configDiagnostics";
 import { buildDashboardHtml } from "./html";
 import { parseDashboardRequest } from "./intentSchema";
-import type { IntentEnvironment } from "./intents";
+import type { IntentAckNotice, IntentEnvironment } from "./intents";
 import {
 	DashboardOperationError,
 	DashboardValidationError,
@@ -230,7 +231,7 @@ type IntentRunners = {
 	readonly [K in Exclude<DashboardMethod, ReadMethod>]: (
 		payload: RequestPayload<K>,
 		context: RequestContext
-	) => Promise<string | undefined>;
+	) => Promise<IntentAckNotice | undefined>;
 };
 
 export class DashboardController implements vscode.Disposable {
@@ -626,7 +627,7 @@ export class DashboardController implements vscode.Disposable {
 	private runIntent<K extends Exclude<DashboardMethod, ReadMethod>>(
 		request: RpcRequest<K>,
 		context: RequestContext
-	): Promise<string | undefined> {
+	): Promise<IntentAckNotice | undefined> {
 		return this.intentRunners[request.method](request.payload, context);
 	}
 
@@ -647,11 +648,16 @@ export class DashboardController implements vscode.Disposable {
 		try {
 			const notice = await this.runIntent(request, { arrivalGeneration });
 			if (isAckedRequest(request)) {
+				// The notice's plain-string form is the quiet success; the object
+				// form rides its warning tone onto the ack (see IntentAckNotice).
+				const note: { readonly message: string; readonly tone?: IntentAckTone } | undefined =
+					typeof notice === "string" ? { message: notice } : notice;
 				this.postToPanel({
 					kind: "ack",
 					id: request.id,
 					method: request.method,
-					...(notice !== undefined ? { message: notice } : {}),
+					...(note !== undefined ? { message: note.message } : {}),
+					...(note?.tone !== undefined ? { tone: note.tone } : {}),
 				});
 			}
 			this.pushState();

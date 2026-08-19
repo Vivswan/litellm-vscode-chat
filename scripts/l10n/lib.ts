@@ -127,6 +127,7 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"equivalence",
 	"parseJsonValue",
 	"formatDuration",
+	"zeroModelExplanation",
 	"keyProblem",
 	"firstGroupProblem",
 	"recordFromJsonText",

@@ -230,9 +230,36 @@ test("switching the auth form clears a standing test result", () => {
 		message: "Connected - 3 models",
 	});
 	expect(root.querySelector(".test-result")).not.toBeNull();
+	// A quiet success renders in the ok register, no warning tint.
+	expect(root.querySelector(".test-result")?.classList.contains("state-ok")).toBe(true);
 
 	// The pick changes which credentials a probe would send, so the PASS is
 	// stale the moment it lands.
 	fireCheck(authRadio(root, "API key (bearer)"), true);
 	expect(root.querySelector(".test-result")).toBeNull();
+});
+
+test("a warning-toned test ack renders the result in the warn register, still a status", () => {
+	// The zero-model probe outcome: connected, nothing to serve. The ack's tone
+	// is what keeps the form's verdict aligned with the bar and the notifier
+	// instead of calling an empty listing a green success.
+	const root = mountEditPage([], { kind: "add" });
+	fireInput(inputByLabel(root, "Base URL"), "http://localhost:4000");
+
+	resetPosted();
+	fireClick(buttonByText(root, "Test connection"));
+	const posted = postedMessages[0] as RpcRequest<"testServerDraft">;
+	pushToWebview({
+		kind: "ack",
+		id: posted.id,
+		method: "testServerDraft",
+		message: "Connected - 0 models. The server answered but listed no models.",
+		tone: "warning",
+	});
+	const result = root.querySelector(".test-result");
+	expect(result?.textContent).toContain("listed no models");
+	expect(result?.classList.contains("state-warn")).toBe(true);
+	expect(result?.classList.contains("state-ok")).toBe(false);
+	// A warning-grade success is still a pass, not an alert.
+	expect(result?.getAttribute("role")).toBe("status");
 });

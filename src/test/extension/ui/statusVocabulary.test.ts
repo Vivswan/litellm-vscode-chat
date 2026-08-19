@@ -14,6 +14,7 @@ import { classifyOverall, overallStatusText } from "../../../dashboard/presenter
 import { buildDashboardState, type SettingsReader } from "../../../extension/dashboard/state";
 import type { DeclaredServerView } from "../../../extension/servers/serverSync";
 import { Notifier } from "../../../extension/ui/notifier";
+import { isHiddenGroupServerStatus } from "../../../shared/servers";
 import type { Timer } from "../../../shared/util/timer";
 import { aggregateContradictions, uncoveredPills, uncoveredVerdicts, WINDOW_STATE_ROWS } from "../../statusVocabulary";
 import { createStatusBarManager, RecordingItem } from "./statusBarHarness";
@@ -77,7 +78,9 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 		// The one-vocabulary pin behind the modelCount/declaredModelCount split:
 		// the table's rows are hand-written for the bun suite, so this test
 		// rebuilds them through buildDashboardState and proves the mirror holds -
-		// same state, the SAME served count, same expectedness - field by field.
+		// same state, the SAME served count, same expectedness, same notices -
+		// field by field. Hidden window statuses become tombstones, the way the
+		// removal store feeds the real builder.
 		for (const row of WINDOW_STATE_ROWS) {
 			const declaredRows = row.rows.filter((server) => server.origin === "declared");
 			const declared: DeclaredServerView[] = declaredRows.map((server) => ({
@@ -91,10 +94,20 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 				reader: EMPTY_READER,
 				declared,
 				isGroupSnapshot: () => true,
+				removedGroups: {
+					tombstones: row.window
+						.filter(isHiddenGroupServerStatus)
+						.map((status) => ({ label: status.label, baseUrl: status.baseUrl })),
+					origins: [],
+				},
 			});
 			// Exactly the table's rows, no extras: a builder inventing a row would
 			// change every verdict without failing a per-row lookup.
 			assert.strictEqual(state.servers.length, declaredRows.length, `${row.name}: row count`);
+			assert.strictEqual(state.hiddenGroups.length, row.hiddenGroups ?? 0, `${row.name}: hidden groups`);
+			// The builder's merged served count is the same reduce the bar's
+			// totalModels uses, so the hero can never contradict the table.
+			assert.strictEqual(state.servedModelCount, row.totalModels, `${row.name}: servedModelCount`);
 			for (const expected of declaredRows) {
 				const built = state.servers.find((server) => server.label === expected.label);
 				assert.ok(built !== undefined, `${row.name}: the builder must produce the "${expected.label}" row`);
@@ -103,6 +116,11 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 					built.servedModelCount,
 					expected.servedModelCount,
 					`${row.name}: served count of "${expected.label}"`
+				);
+				assert.deepStrictEqual(
+					built.notices ?? [],
+					expected.notices ?? [],
+					`${row.name}: notices of "${expected.label}"`
 				);
 				if (built.state === "error" && expected.state === "error") {
 					assert.strictEqual(built.expected, expected.expected, `${row.name}: expectedness of "${expected.label}"`);
@@ -125,7 +143,11 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 
 	test("one verdict from both inputs: the window and the dashboard rows classify identically", () => {
 		for (const row of WINDOW_STATE_ROWS) {
-			assert.strictEqual(classifyOverall(row.rows), row.expect.verdict, `${row.name}: rows verdict`);
+			assert.strictEqual(
+				classifyOverall(row.rows, { hiddenGroupCount: row.hiddenGroups ?? 0 }),
+				row.expect.verdict,
+				`${row.name}: rows verdict`
+			);
 			if (row.window.length > 0) {
 				assert.strictEqual(classifyOverall(row.window), row.expect.verdict, `${row.name}: window verdict`);
 			}
@@ -177,7 +199,11 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 
 	test("the diagnostics paste line says what the table says", () => {
 		for (const row of WINDOW_STATE_ROWS) {
-			assert.strictEqual(overallStatusText([...row.rows], row.totalModels), row.expect.statusLine, row.name);
+			assert.strictEqual(
+				overallStatusText([...row.rows], row.totalModels, { hiddenGroupCount: row.hiddenGroups ?? 0 }),
+				row.expect.statusLine,
+				row.name
+			);
 		}
 	});
 });

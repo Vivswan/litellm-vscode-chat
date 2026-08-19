@@ -7,6 +7,8 @@ import {
 	serverOutcomeParts,
 	serverOutcomeText,
 	unitBehavior,
+	zeroModelEnglishDetail,
+	zeroModelExplanation,
 } from "../../../dashboard/presenters";
 import type { DashboardServer } from "../../../dashboard/viewModels";
 import type { CapabilityJsonValue, CapabilityValueKind } from "../../../shared/config/capabilityResolution";
@@ -61,14 +63,45 @@ describe("dashboard/presenters renderers", () => {
 			assert.strictEqual(overallStatusText([], 0), "Not configured");
 		});
 
+		test("connected with zero models names the empty listings through the one English detail", () => {
+			const servers = [declaredServer({ servedModelCount: 0 })];
+			assert.strictEqual(
+				overallStatusText(servers, 0),
+				"Connected, but 0 models are served (answered with an empty listing)"
+			);
+		});
+
+		test("hidden groups alone read as the connected zero-model warning, never as not configured", () => {
+			// Hidden groups leave the server list, but they are answering
+			// configuration the user chose to silence: the classifier and the
+			// paste line must match the status bar's warning.
+			assert.strictEqual(classifyOverall([], { hiddenGroupCount: 1 }), "connected");
+			assert.strictEqual(
+				overallStatusText([], 0, { hiddenGroupCount: 1 }),
+				"Connected, but 0 models are served (1 hidden by user removal)"
+			);
+			assert.strictEqual(
+				overallStatusText([], 0, { hiddenGroupCount: 2 }),
+				"Connected, but 0 models are served (2 hidden by user removal)"
+			);
+		});
+
+		test("a hidden group beside an empty-listing server names both causes on the paste line", () => {
+			const servers = [declaredServer({ servedModelCount: 0 })];
+			assert.strictEqual(
+				overallStatusText(servers, 0, { hiddenGroupCount: 1 }),
+				"Connected, but 0 models are served (1 hidden by user removal; 1 answered with an empty listing)"
+			);
+		});
+
 		test("a legacy-only registry names the registry instead of a not-configured claim", () => {
-			assert.strictEqual(overallStatusText([], 0, 1), "Legacy registry only (1 server)");
-			assert.strictEqual(overallStatusText([], 0, 2), "Legacy registry only (2 servers)");
+			assert.strictEqual(overallStatusText([], 0, { legacyServerCount: 1 }), "Legacy registry only (1 server)");
+			assert.strictEqual(overallStatusText([], 0, { legacyServerCount: 2 }), "Legacy registry only (2 servers)");
 		});
 
 		test("legacy leftovers never override a configured verdict", () => {
 			const servers = [declaredServer({ state: "ok", servedModelCount: 3 })];
-			assert.strictEqual(overallStatusText(servers, 3, 2), "Connected (3 models)");
+			assert.strictEqual(overallStatusText(servers, 3, { legacyServerCount: 2 }), "Connected (3 models)");
 		});
 
 		test("every server reachable reads as connected with the model count", () => {
@@ -109,6 +142,7 @@ describe("dashboard/presenters renderers", () => {
 					state: "error",
 					error: "404 on /models",
 					expected: true,
+					servedModelCount: 2,
 					declaredModelCount: 2,
 				}),
 			];
@@ -161,6 +195,7 @@ describe("dashboard/presenters renderers", () => {
 					state: "error",
 					error: "404 on /models",
 					expected: true,
+					servedModelCount: 1,
 					declaredModelCount: 1,
 				}),
 			];
@@ -209,13 +244,48 @@ describe("dashboard/presenters renderers", () => {
 				state: "error",
 				error: "404 on /models",
 				expected: true,
+				servedModelCount: 2,
 				declaredModelCount: 2,
 			});
 			assert.strictEqual(serverOutcomeText(server), "OK (2 declared models) - 404 on /models (expected)");
 			assert.strictEqual(
-				serverOutcomeText(declaredServer({ state: "error", error: "x", expected: true, declaredModelCount: 1 })),
+				serverOutcomeText(
+					declaredServer({ state: "error", error: "x", expected: true, servedModelCount: 1, declaredModelCount: 1 })
+				),
 				"OK (1 declared model) - x (expected)"
 			);
+		});
+
+		test("an expected failure serving stale AND declared models names the served total, declared as qualifier", () => {
+			// The declared subset must never displace the served count: the row's
+			// "5 models" and the paste line have to agree on one number.
+			const server = declaredServer({
+				state: "error",
+				error: "404 on /models",
+				expected: true,
+				servedModelCount: 5,
+				declaredModelCount: 2,
+			});
+			assert.strictEqual(serverOutcomeText(server), "OK (5 models, 2 declared) - 404 on /models (expected)");
+		});
+
+		test("the models part, when present, always states the server's servedModelCount", () => {
+			const servers: DashboardServer[] = [
+				declaredServer({ servedModelCount: 3 }),
+				declaredServer({ servedModelCount: 2, error: "upsert refused" }),
+				declaredServer({ state: "error", error: "x", servedModelCount: 4 }),
+				declaredServer({ state: "error", error: "x", expected: true, servedModelCount: 5, declaredModelCount: 2 }),
+				declaredServer({ state: "error", error: "x", expected: true, servedModelCount: 2, declaredModelCount: 2 }),
+				declaredServer({ state: "error", error: "x", expected: true, servedModelCount: 3 }),
+			];
+			for (const server of servers) {
+				const models = serverOutcomeParts(server).models;
+				assert.ok(models !== undefined, serverOutcomeText(server));
+				assert.ok(
+					models.startsWith(`${server.servedModelCount} `),
+					`"${models}" must state servedModelCount ${server.servedModelCount}`
+				);
+			}
 		});
 
 		test("an expected two-part error carries its (expected) annotation on the headline", () => {
@@ -223,6 +293,7 @@ describe("dashboard/presenters renderers", () => {
 				state: "error",
 				error: "Discovery is declared unavailable.\nHTTP 404: not found",
 				expected: true,
+				servedModelCount: 2,
 				declaredModelCount: 2,
 			});
 			assert.strictEqual(
@@ -341,7 +412,8 @@ describe("dashboard/presenters renderers", () => {
 				declaredServer({ state: "error", error: "connection refused", notices: ["entry-params-inactive"] }),
 				declaredServer({ state: "unchecked", notices: ["entry-params-inactive"] }),
 				declaredServer({ servedModelCount: 2, notices: ["entry-params-inactive", "entry-capabilities-inactive"] }),
-				declaredServer({ state: "error", error: "404", expected: true, declaredModelCount: 2 }),
+				declaredServer({ state: "error", error: "404", expected: true, servedModelCount: 2, declaredModelCount: 2 }),
+				declaredServer({ state: "error", error: "404", expected: true, servedModelCount: 5, declaredModelCount: 2 }),
 				declaredServer({
 					state: "error",
 					error: "404",
@@ -354,6 +426,7 @@ describe("dashboard/presenters renderers", () => {
 					state: "error",
 					error: "headline\nHTTP 404: detail line",
 					expected: true,
+					servedModelCount: 2,
 					declaredModelCount: 2,
 				}),
 			];
@@ -371,6 +444,29 @@ describe("dashboard/presenters renderers", () => {
 				const notice = parts.notice.map((text) => ` - ${text}`).join("");
 				assert.strictEqual(serverOutcomeText(server), `${status}${error}${notice}`);
 			}
+		});
+	});
+
+	describe("zero-model prose", () => {
+		test("the localized explanation names hidden groups first, then the empty listings", () => {
+			// The one sentence the bar tooltip, the toasts, and the draft probe
+			// share (English-bundle wording pinned here once).
+			assert.strictEqual(
+				zeroModelExplanation(1, 0),
+				"1 server is hidden by an explicit removal and serves no models. Restore it from the dashboard's server list."
+			);
+			assert.strictEqual(
+				zeroModelExplanation(2, 1),
+				"2 servers are hidden by an explicit removal and serve no models. Restore them from the dashboard's server list. The remaining servers answered but listed no models."
+			);
+			assert.strictEqual(zeroModelExplanation(0, 1), "The server answered but listed no models.");
+			assert.strictEqual(zeroModelExplanation(0, 2), "Your servers answered but listed no models.");
+		});
+
+		test("the English detail mirrors the same causes for logs and pasted reports", () => {
+			assert.strictEqual(zeroModelEnglishDetail(0, 1), "answered with an empty listing");
+			assert.strictEqual(zeroModelEnglishDetail(1, 0), "1 hidden by user removal");
+			assert.strictEqual(zeroModelEnglishDetail(2, 1), "2 hidden by user removal; 1 answered with an empty listing");
 		});
 	});
 

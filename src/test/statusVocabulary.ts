@@ -18,7 +18,7 @@
  */
 
 import type { OverallVerdict } from "../dashboard/presenters";
-import type { DashboardServer } from "../dashboard/viewModels";
+import type { DashboardServer, DeclaredServerNotice } from "../dashboard/viewModels";
 import { markLogSafe } from "../shared/logger";
 import type { ServerStatus } from "../shared/servers";
 
@@ -54,6 +54,12 @@ export interface WindowStateRow {
 	readonly configured: boolean;
 	/** The same state as the dashboard's server rows; the host suite pins this mirror against the REAL builder. */
 	readonly rows: readonly DashboardServer[];
+	/**
+	 * How many provider groups explicit removals hide (state.hiddenGroups). The
+	 * hero and paste line read it beside the rows; the window carries the same
+	 * groups as hiddenByRemoval ok statuses, which the host mirror tombstones.
+	 */
+	readonly hiddenGroups?: number;
 	readonly expect: {
 		readonly severityClass: SeverityClass;
 		/** classifyOverall over the rows (and over the window, when the window is non-empty). */
@@ -107,12 +113,13 @@ function errorStatus(overrides: {
 const NO_SECRETS = { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } as const;
 
 /**
- * A declared dashboard row mirroring one window status. Hand-written so the
- * bun suite needs no host imports; the host suite rebuilds the same rows
- * through the REAL buildDashboardState and asserts the mirror holds, so this
- * literal cannot drift from the builder without a red host test.
+ * A declared dashboard row mirroring one window status, with the notices the
+ * REAL builder derives for it. Hand-written so the bun suite needs no host
+ * imports; the host suite rebuilds the same rows through buildDashboardState
+ * and asserts the mirror holds - notices included - so this literal cannot
+ * drift from the builder without a red host test.
  */
-function declaredRow(status: ServerStatus): DashboardServer {
+function declaredRow(status: ServerStatus, notices?: readonly DeclaredServerNotice[]): DashboardServer {
 	const base = {
 		origin: "declared",
 		label: status.label,
@@ -122,6 +129,7 @@ function declaredRow(status: ServerStatus): DashboardServer {
 		hasOAuth: false,
 		lastChecked: status.lastChecked,
 		config: { secrets: NO_SECRETS },
+		...(notices !== undefined && notices.length > 0 ? { notices } : {}),
 	} as const;
 	return status.state === "ok"
 		? { ...base, state: "ok" }
@@ -168,6 +176,7 @@ function misconfiguredRow(name: string): DashboardServer {
 const allFailedDeclaredServing = errorStatus({ servedModelCount: 2, declaredModelCount: 2, error: "HTTP 500" });
 const staleServing = errorStatus({ servedModelCount: 3 });
 const answeredEmpty = okStatus({ servedModelCount: 0 });
+const hiddenGroup = okStatus({ serverId: "ghost", servedModelCount: 0, hiddenByRemoval: true });
 const expectedServing = errorStatus({
 	serverId: "gw",
 	servedModelCount: 1,
@@ -178,6 +187,13 @@ const expectedServing = errorStatus({
 const expectedStaleServing = errorStatus({
 	serverId: "gw",
 	servedModelCount: 2,
+	expected: true,
+	error: "404 on /models",
+});
+const expectedMixedServing = errorStatus({
+	serverId: "gw",
+	servedModelCount: 5,
+	declaredModelCount: 2,
 	expected: true,
 	error: "404 on /models",
 });
@@ -194,17 +210,12 @@ const healthy = okStatus({ servedModelCount: 3 });
  * renders the empty window as the neutral spinner; the misconfigured row rides
  * beside it, since a parser-refused entry never reaches the window either.
  *
- * Known residuals (left deliberately, per the vocabulary rulings - each needs
+ * Known residual (left deliberately, per the vocabulary rulings - it needs
  * plumbing of its own, not this vocabulary):
- * 1. A never-checked entry whose provider-group SYNC failed shows an error row
- *    in the dashboard (the sync error) while the status bar - which reads only
- *    the discovery window - still says "connecting". Reconciling that needs
- *    sync failures plumbed into the bar's input.
- * 2. A zero-model state consisting ONLY of hidden (tombstoned) groups: those
- *    groups leave the servers table entirely, so the bar warns "No models
- *    available (hidden...)" while the hero and paste line - reading the empty
- *    table - say "Not configured". Reconciling that needs the hero and
- *    overallStatusText taught about hidden groups.
+ * a never-checked entry whose provider-group SYNC failed shows an error row
+ * in the dashboard (the sync error) while the status bar - which reads only
+ * the discovery window - still says "connecting". Reconciling that needs
+ * sync failures plumbed into the bar's input.
  */
 export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 	{
@@ -250,11 +261,68 @@ export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 			verdict: "connected",
 			bar: { state: "connected", severity: "warning" },
 			hero: { word: "Connected, no models", tone: "warn" },
-			statusLine: "Connected, but 0 models are served (servers listed none)",
+			statusLine: "Connected, but 0 models are served (answered with an empty listing)",
 			notifier: { kind: "warning", contains: "listed no models" },
 			// The row itself is healthy: the warning is an aggregate claim, and a
 			// red or amber pill here would blame a server that answered fine.
 			pills: [{ word: "Connected", tone: "ok" }],
+		},
+	},
+	{
+		name: "only hidden groups remain, so zero models is user-chosen configuration",
+		// The hidden group leaves the servers table entirely (rows is empty); the
+		// hidden-groups count is what keeps every surface on the connected
+		// zero-model warning instead of "Not configured" beside a warning bar.
+		window: [hiddenGroup],
+		totalModels: 0,
+		configured: true,
+		rows: [],
+		hiddenGroups: 1,
+		expect: {
+			severityClass: "warn",
+			verdict: "connected",
+			bar: { state: "connected", severity: "warning" },
+			hero: { word: "Connected, no models", tone: "warn" },
+			statusLine: "Connected, but 0 models are served (1 hidden by user removal)",
+			notifier: { kind: "warning", contains: "hidden by an explicit removal" },
+			pills: [],
+		},
+	},
+	{
+		name: "a hidden group beside a server that answered with an empty listing",
+		window: [hiddenGroup, answeredEmpty],
+		totalModels: 0,
+		configured: true,
+		rows: [declaredRow(answeredEmpty)],
+		hiddenGroups: 1,
+		expect: {
+			severityClass: "warn",
+			verdict: "connected",
+			bar: { state: "connected", severity: "warning" },
+			hero: { word: "Connected, no models", tone: "warn" },
+			statusLine: "Connected, but 0 models are served (1 hidden by user removal; 1 answered with an empty listing)",
+			notifier: { kind: "warning", contains: "hidden by an explicit removal" },
+			pills: [{ word: "Connected", tone: "ok" }],
+		},
+	},
+	{
+		name: "a hidden group beside a declared entry no discovery pass has seen",
+		// The unchecked entry contributes no window status; the hidden group's
+		// synthesized row is what keeps the rows verdict on the window's
+		// "connected" instead of a muted "waiting" beside a warning bar.
+		window: [hiddenGroup],
+		totalModels: 0,
+		configured: true,
+		rows: [uncheckedRow("fresh")],
+		hiddenGroups: 1,
+		expect: {
+			severityClass: "warn",
+			verdict: "connected",
+			bar: { state: "connected", severity: "warning" },
+			hero: { word: "Connected, no models", tone: "warn" },
+			statusLine: "Connected, but 0 models are served (1 hidden by user removal)",
+			notifier: { kind: "warning", contains: "hidden by an explicit removal" },
+			pills: [{ word: "Not checked", tone: "muted" }],
 		},
 	},
 	{
@@ -321,7 +389,8 @@ export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 		rows: [declaredRow(expectedStaleServing)],
 		expect: {
 			// The failure is declared normal and models serve: quiet everywhere,
-			// never one surface's "Connected" beside another's "Error".
+			// never one surface's "Connected" beside another's "Error". Serving
+			// through the stale window alone earns NO nothing-declared notice.
 			severityClass: "ok",
 			verdict: "connected",
 			bar: { state: "connected", severity: "plain" },
@@ -332,11 +401,27 @@ export const WINDOW_STATE_ROWS: readonly WindowStateRow[] = [
 		},
 	},
 	{
+		name: "an expected failure serving the stale window beside its declared models",
+		window: [expectedMixedServing],
+		totalModels: 5,
+		configured: true,
+		rows: [declaredRow(expectedMixedServing)],
+		expect: {
+			severityClass: "ok",
+			verdict: "connected",
+			bar: { state: "connected", severity: "plain" },
+			hero: { word: "Connected", tone: "ok" },
+			statusLine: "Connected (5 models)",
+			notifier: "none",
+			pills: [{ word: "Connected", tone: "ok" }],
+		},
+	},
+	{
 		name: "every server fails expectedly and nothing is declared to serve through it",
 		window: [expectedDead],
 		totalModels: 0,
 		configured: true,
-		rows: [declaredRow(expectedDead)],
+		rows: [declaredRow(expectedDead, ["expected-failures-nothing-declared"])],
 		expect: {
 			severityClass: "warn",
 			verdict: "needs-declare",

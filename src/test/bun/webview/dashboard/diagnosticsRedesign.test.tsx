@@ -84,6 +84,7 @@ function mountDiagnostics(options: {
 		servers: [makeDeclaredServer()],
 		modelCount: 2,
 		legacyServerCount: 0,
+		hiddenGroupCount: 0,
 		diagnostics: options.diagnostics ?? [],
 		active: true,
 		stateSeq: 0,
@@ -103,6 +104,7 @@ describe("Configuration diagnostics", () => {
 				currencySymbol="$"
 				servers={[]}
 				modelCount={0}
+				hiddenGroupCount={0}
 				legacyServerCount={0}
 				diagnostics={diagnostics}
 				active={false}
@@ -533,6 +535,7 @@ describe("Resolved models", () => {
 				currencySymbol="$"
 				servers={[]}
 				modelCount={0}
+				hiddenGroupCount={0}
 				legacyServerCount={0}
 				diagnostics={[]}
 				active={false}

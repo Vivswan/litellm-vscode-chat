@@ -219,6 +219,31 @@ test("Copy diagnostics carries the configuration diagnostics, worst first, in En
 	expect(copied).not.toContain("bad auth shape");
 });
 
+test("the copied verdict quotes the served count, not the model-table row count", () => {
+	// A plumbing pin on a hand-built state: the two counts are deliberately
+	// unequal so the wire is discriminated (production's divergence runs the
+	// other way - a multi-claimant snapshot's rows overcount the served sum).
+	// The paste must quote the served window (state.servedModelCount), and the
+	// per-server line must name the same total with the declared subset as
+	// qualifier.
+	const root = mountDiagnostics({
+		servers: [
+			makeDeclaredServer({
+				label: "Gateway",
+				state: "error",
+				error: "404 on /models",
+				expected: true,
+				servedModelCount: 5,
+				declaredModelCount: 2,
+			}),
+		],
+		models: [makeModel()],
+	});
+	const copied = copyDiagnostics(root);
+	expect(copied).toContain("Connected (5 models)");
+	expect(copied).toContain("Gateway (http://localhost:4000): OK (5 models, 2 declared) - 404 on /models (expected)");
+});
+
 test("the copied block says Never with nothing checked yet, and drops the legacy line with an empty registry", () => {
 	const root = mountDiagnostics({
 		servers: [makeDeclaredServer({ label: "New", state: "unchecked", servedModelCount: 0 })],
@@ -336,9 +361,15 @@ test("Copy diagnostics never pastes a base URL: legacy leftovers and URL-scoped 
 test("Copy diagnostics reports an entry whose problems no server row states, and the hidden-group count", () => {
 	// The entry branch splices the parser's free-form English problems, and
 	// hidden groups contribute no server row at all - a hidden-only install
-	// would otherwise paste "Configuration diagnostics: 0".
+	// would otherwise paste "Configuration diagnostics: 0". The count reads
+	// state.hiddenGroups (the same source the verdict reads), never the
+	// hidden-groups diagnostic's labels.
 	const root = mountDiagnostics({
 		servers: [makeDeclaredServer({ label: "Prod", servedModelCount: 1 })],
+		hiddenGroups: [
+			{ label: "retired-eu", baseUrl: "http://eu.test" },
+			{ label: "retired-us", baseUrl: "http://us.test" },
+		],
 		models: [makeModel()],
 		diagnostics: [
 			{

@@ -593,13 +593,18 @@ suite("extension/dashboard/panel", () => {
 			"the probe has not acked yet; it is still hanging"
 		);
 
-		// Releasing the probe lets its own ack arrive, carrying the composed count.
+		// Releasing the probe lets its own ack arrive, carrying the composed
+		// zero-model warning notice (message plus tone).
 		releaseProbe();
 		await settle();
 		const probeAck = fake.posted.find((message) => (message as { id?: string }).id === "probe-1") as
 			| ExtensionToWebviewMessage
 			| undefined;
-		assert.ok(probeAck?.kind === "ack" && probeAck.message === "Connected - 0 models");
+		assert.ok(
+			probeAck?.kind === "ack" &&
+				probeAck.message === "Connected - 0 models. The server answered but listed no models." &&
+				probeAck.tone === "warning"
+		);
 	});
 
 	test("readModelCapabilities answers with the resolved walk, and a stale scope answers honestly empty", async () => {

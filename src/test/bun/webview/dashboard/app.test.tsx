@@ -77,6 +77,19 @@ test("a full state push replaces the skeleton with the rail's verdict and counts
 	expect(root.textContent).toContain("connect ECONNREFUSED");
 });
 
+test("a hidden-only state renders the connected zero-model hero, never Not configured", () => {
+	// Hidden groups leave the servers array entirely; the shell must pass
+	// state.hiddenGroups.length through to the verdict, or the hero reads
+	// "Not configured" beside a warning status bar.
+	const root = mount(<App />);
+	pushToWebview(
+		statePush(makeState({ servers: [], hiddenGroups: [{ label: "retired", baseUrl: "http://old.test" }] }))
+	);
+	const overall = root.querySelector(".rail-status");
+	expect(overall?.textContent).toContain("Connected, no models");
+	expect(overall?.classList.contains("tone-warn")).toBe(true);
+});
+
 test("unknown message types and non-object event data are ignored without crashing or clearing state", () => {
 	const root = mount(<App />);
 	pushToWebview(statePush(makeState({ servers: [makeDeclaredServer({ label: "Kept" })] })));

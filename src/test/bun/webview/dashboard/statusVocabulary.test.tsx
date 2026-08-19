@@ -34,8 +34,12 @@ test("coverage fails closed: every verdict and every pill word has a row", () =>
 
 test("the hero reads each window state with the table's word and tone", () => {
 	for (const row of WINDOW_STATE_ROWS) {
-		expect(classifyOverall(row.rows), row.name).toBe(row.expect.verdict);
-		const hero = overallState(row.rows, 0, row.totalModels);
+		const hiddenGroupCount = row.hiddenGroups ?? 0;
+		expect(classifyOverall(row.rows, { hiddenGroupCount }), row.name).toBe(row.expect.verdict);
+		// The counts the production shell passes: the merged served count (the
+		// table's totalModels pins it to the builder's servedModelCount) and the
+		// hidden-groups count.
+		const hero = overallState(row.rows, 0, row.totalModels, hiddenGroupCount);
 		expect(hero.word, `${row.name}: hero word`).toBe(row.expect.hero.word);
 		expect(hero.tone, `${row.name}: hero tone`).toBe(row.expect.hero.tone);
 	}

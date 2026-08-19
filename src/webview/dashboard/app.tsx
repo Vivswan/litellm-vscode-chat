@@ -167,9 +167,10 @@ function ToastHost({
 export function overallState(
 	servers: readonly DashboardServer[],
 	legacyServerCount: number,
-	modelCount: number
+	modelCount: number,
+	hiddenGroupCount = 0
 ): Overall {
-	switch (classifyOverall(servers)) {
+	switch (classifyOverall(servers, { hiddenGroupCount })) {
 		case "not-configured":
 			// The legacy registry is real configuration even though it
 			// contributes no server rows (see overallStatusText).
@@ -689,7 +690,12 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 					active={activeSection}
 					onSelect={selectSection}
 					serverCount={state.servers.length}
-					overall={overallState(state.servers, state.legacyServerCount, state.models.length)}
+					overall={overallState(
+						state.servers,
+						state.legacyServerCount,
+						state.servedModelCount,
+						state.hiddenGroups.length
+					)}
 					synced={lastSync(state.servers, now)}
 				/>
 				<div className="pane">
@@ -753,8 +759,9 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 					<SectionPanel section="diagnostics" active={activeSection}>
 						<DiagnosticsSection
 							servers={state.servers}
-							modelCount={state.models.length}
+							modelCount={state.servedModelCount}
 							legacyServerCount={state.legacyServerCount}
+							hiddenGroupCount={state.hiddenGroups.length}
 							diagnostics={state.diagnostics}
 							active={section === "diagnostics"}
 							stateSeq={stateSeq}

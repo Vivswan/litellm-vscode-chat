@@ -27,12 +27,23 @@ export type OverallVerdict = "not-configured" | "error" | "degraded" | "waiting"
 export function classifyOverall(
 	servers: readonly (Pick<DashboardServer, "state" | "expected" | "servedModelCount"> & {
 		readonly origin?: DashboardServer["origin"];
-	})[]
+	})[],
+	context: { readonly hiddenGroupCount?: number } = {}
 ): OverallVerdict {
-	if (servers.length === 0) {
+	// Hidden groups leave the server list, but the status window carries each
+	// one as an ok status serving zero models. Synthesizing the same members
+	// here makes the two classifier inputs equal BY CONSTRUCTION, so the rows
+	// verdict cannot diverge from the bar's on any mix of hidden groups with
+	// unchecked, failed, or misconfigured rows.
+	const hiddenAsRows = Array.from(
+		{ length: context.hiddenGroupCount ?? 0 },
+		() => ({ state: "ok", servedModelCount: 0, origin: undefined }) as const
+	);
+	const all = [...servers, ...hiddenAsRows];
+	if (all.length === 0) {
 		return "not-configured";
 	}
-	const transport = servers.filter((server) => server.origin !== "misconfigured");
+	const transport = all.filter((server) => server.origin !== "misconfigured");
 	if (transport.length === 0) {
 		return "error";
 	}
@@ -62,14 +73,18 @@ export function classifyOverall(
  * The verdict as one sentence, pinned by tests. English by policy: users paste
  * these lines into public issue reports, so localization sweeps must skip this
  * function. The legacy registry is real configuration even though it
- * contributes no server rows, so it overrides the not-configured claim.
+ * contributes no server rows, so it overrides the not-configured claim -
+ * hidden groups go further and claim the connected verdict itself (through
+ * classifyOverall), since their groups still answer.
  */
 export function overallStatusText(
 	servers: readonly DashboardServer[],
 	modelCount: number,
-	legacyServerCount = 0
+	context: { readonly legacyServerCount?: number; readonly hiddenGroupCount?: number } = {}
 ): string {
-	switch (classifyOverall(servers)) {
+	const legacyServerCount = context.legacyServerCount ?? 0;
+	const hiddenGroupCount = context.hiddenGroupCount ?? 0;
+	switch (classifyOverall(servers, { hiddenGroupCount })) {
 		case "not-configured":
 			return legacyServerCount > 0
 				? `Legacy registry only (${legacyServerCount} ${legacyServerCount === 1 ? "server" : "servers"})`
@@ -89,14 +104,63 @@ export function overallStatusText(
 			return "Waiting for first sync";
 		case "needs-declare":
 			return "Expected discovery failures; no declared models (add IDs to the entry's discovery.declared)";
-		case "connected":
+		case "connected": {
+			if (modelCount !== 0) {
+				return `Connected (${modelCount} models)`;
+			}
 			// The zero-model reading is the same warning every other surface gives
 			// this state (see zeroModelJudgment): connected, nothing failed, and
-			// still nothing to serve.
-			return modelCount === 0
-				? "Connected, but 0 models are served (servers listed none)"
-				: `Connected (${modelCount} models)`;
+			// still nothing to serve. One English detail names the causes, shared
+			// with the log rendering (zeroModelEnglishDetail).
+			return `Connected, but 0 models are served (${zeroModelEnglishDetail(
+				hiddenGroupCount,
+				servers.filter((server) => server.state === "ok").length
+			)})`;
+		}
 	}
+}
+
+/**
+ * The zero-model verdict's one explanation, shared by the status bar tooltip,
+ * the notifier and Test Connection toasts, and the edit form's draft probe so
+ * the surfaces cannot phrase the same fact differently. Localized;
+ * zeroModelEnglishDetail is the English mirror for logs and pasted reports.
+ */
+export function zeroModelExplanation(hiddenCount: number, answeredCount: number): string {
+	const sentences: string[] = [];
+	if (hiddenCount > 0) {
+		sentences.push(
+			hiddenCount === 1
+				? l10n.t(
+						"1 server is hidden by an explicit removal and serves no models. Restore it from the dashboard's server list."
+					)
+				: l10n.t(
+						"{0} servers are hidden by an explicit removal and serve no models. Restore them from the dashboard's server list.",
+						hiddenCount
+					)
+		);
+		if (answeredCount > 0) {
+			sentences.push(l10n.t("The remaining servers answered but listed no models."));
+		}
+	} else {
+		sentences.push(
+			answeredCount === 1
+				? l10n.t("The server answered but listed no models.")
+				: l10n.t("Your servers answered but listed no models.")
+		);
+	}
+	return sentences.join(" ");
+}
+
+/**
+ * The zero-model causes as the English parenthetical logs and pasted reports
+ * carry (classifications and counts only, never server text); the localized
+ * twin is zeroModelExplanation. English by the issue-report policy.
+ */
+export function zeroModelEnglishDetail(hiddenCount: number, answeredCount: number): string {
+	return hiddenCount > 0
+		? `${hiddenCount} hidden by user removal${answeredCount > 0 ? `; ${answeredCount} answered with an empty listing` : ""}`
+		: "answered with an empty listing";
 }
 
 /**
@@ -142,10 +206,10 @@ function noticeText(notice: DeclaredServerNotice): string {
 }
 
 /**
- * serverOutcomeText decomposed, for surfaces that render the pieces
- * separately. The one-line form composes exactly these parts, flattening a
- * two-part error's newline to " - " (the presenters suite pins the equality),
- * so a grid cell and the copied line cannot drift apart in wording.
+ * serverOutcomeText decomposed. serverOutcomeText composes exactly these
+ * parts, flattening a two-part error's newline to " - " (the presenters suite
+ * pins the equality), so the pieces and the copied line cannot drift apart in
+ * wording.
  */
 export interface ServerOutcomeParts {
 	/** The verdict as a Status cell shows it. */
@@ -182,13 +246,21 @@ export function serverOutcomeParts(server: DashboardServer): ServerOutcomeParts 
 				const headline = `${statusErrorHeadline(server.error)} (expected)`;
 				const error = detail === undefined ? headline : `${headline}\n${detail}`;
 				const declared = server.declaredModelCount ?? 0;
-				if (declared > 0) {
-					const models = declared === 1 ? "1 declared model" : `${declared} declared models`;
-					return { status: "OK", models, error, notice };
-				}
-				if (server.servedModelCount > 0) {
+				const served = server.servedModelCount;
+				if (served > 0) {
+					// The models part always states the served total (the count the
+					// row and the merged surfaces show); the declared subset rides as
+					// a qualifier, owning the wording only when it IS the whole set.
 					const models =
-						server.servedModelCount === 1 ? "1 model still served" : `${server.servedModelCount} models still served`;
+						declared === served
+							? declared === 1
+								? "1 declared model"
+								: `${declared} declared models`
+							: declared > 0
+								? `${served} models, ${declared} declared`
+								: served === 1
+									? "1 model still served"
+									: `${served} models still served`;
 					return { status: "OK", models, error, notice };
 				}
 				return { status: "Error", error, notice };

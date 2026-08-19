@@ -1,7 +1,7 @@
 import * as l10n from "@vscode/l10n";
 import * as vscode from "vscode";
 import { z } from "zod";
-import { classifyOverall } from "../../dashboard/presenters";
+import { classifyOverall, zeroModelEnglishDetail, zeroModelExplanation } from "../../dashboard/presenters";
 import { LAST_CONNECTION_STATUS_KEY } from "../../shared/config/storageKeys";
 import type { TransportErrorClassification } from "../../shared/errorClassification";
 import { SETUP_HINT_KINDS, TRANSPORT_ERROR_KINDS } from "../../shared/errorClassification";
@@ -123,45 +123,19 @@ export function zeroModelJudgment(
 
 /**
  * The zero-model verdict's two renderings, reached only through
- * zeroModelJudgment so no surface can mint its own zero-model prose: a
- * localized display message that names the real cause, and the English log
- * rendering (a classification, never response-derived text) for the
- * issue-report buffer.
+ * zeroModelJudgment so no surface can mint its own zero-model prose: the
+ * shared localized explanation (zeroModelExplanation, which the dashboard's
+ * surfaces consume too), and the English log rendering (a classification,
+ * never response-derived text) for the issue-report buffer.
  */
 function zeroModelStatusTexts(serverStatuses: readonly ServerStatus[]): ZeroModelTexts {
 	const hiddenCount = serverStatuses.filter(isHiddenGroupServerStatus).length;
 	const answeredCount = serverStatuses.filter(
 		(status) => status.state === "ok" && status.hiddenByRemoval !== true
 	).length;
-	const sentences: string[] = [];
-	if (hiddenCount > 0) {
-		sentences.push(
-			hiddenCount === 1
-				? l10n.t(
-						"1 server is hidden by an explicit removal and serves no models. Restore it from the dashboard's server list."
-					)
-				: l10n.t(
-						"{0} servers are hidden by an explicit removal and serve no models. Restore them from the dashboard's server list.",
-						hiddenCount
-					)
-		);
-		if (answeredCount > 0) {
-			sentences.push(l10n.t("The remaining servers answered but listed no models."));
-		}
-	} else {
-		sentences.push(
-			answeredCount === 1
-				? l10n.t("The server answered but listed no models.")
-				: l10n.t("Your servers answered but listed no models.")
-		);
-	}
-	const hiddenDetail =
-		hiddenCount > 0
-			? `${hiddenCount} hidden by user removal${answeredCount > 0 ? `; ${answeredCount} answered with an empty listing` : ""}`
-			: "answered with an empty listing";
 	return {
-		display: sentences.join(" "),
-		logSafe: markLogSafe(`Servers returned 0 models (${hiddenDetail})`),
+		display: zeroModelExplanation(hiddenCount, answeredCount),
+		logSafe: markLogSafe(`Servers returned 0 models (${zeroModelEnglishDetail(hiddenCount, answeredCount)})`),
 		hiddenCount,
 	};
 }

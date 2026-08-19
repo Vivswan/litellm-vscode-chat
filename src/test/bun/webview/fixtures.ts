@@ -204,9 +204,14 @@ export function makeModel(overrides: Partial<DashboardModel> = {}): DashboardMod
 }
 
 export function makeState(overrides: Partial<DashboardState> = {}): DashboardState {
+	// Derived like production's builder (the rows' served sum), so component
+	// tests build states the real builder could produce; an explicit override
+	// still wins for the deliberately inconsistent cases.
+	const servers = overrides.servers ?? [];
 	return {
-		servers: [],
+		servers,
 		hiddenGroups: [],
+		servedModelCount: servers.reduce((sum, server) => sum + server.servedModelCount, 0),
 		models: [],
 		settings: makeSettings(),
 		usage: makeUsage(),

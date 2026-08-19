@@ -432,9 +432,11 @@ function buildServers(
 			notices.push("entry-api-version-inactive");
 		}
 		const outcome = declaredOutcome(matched?.snapshot.status, view.syncError);
-		if (outcome.state === "error" && outcome.expected === true && (outcome.declaredModelCount ?? 0) === 0) {
-			// An expected failure with nothing declared serves nothing; only a
-			// declared-models list can fix that, so the row says so.
+		if (outcome.state === "error" && outcome.expected === true && outcome.servedModelCount === 0) {
+			// An expected failure serving NOTHING - no declared models, and the
+			// stale window holds nothing; only a declared-models list can fix
+			// that, so the row says so. A serving row stays quiet, whatever mix
+			// of declared and stale models it serves.
 			notices.push("expected-failures-nothing-declared");
 		}
 		servers.push({
@@ -856,6 +858,10 @@ export function buildDashboardState(inputs: DashboardStateInputs): DashboardStat
 	return {
 		servers,
 		hiddenGroups,
+		// The same reduce reportMerged derives totalModels with: the served-count
+		// truth for the hero and the paste line, immune to the models array's
+		// per-claimant copies.
+		servedModelCount: snapshots.reduce((sum, snapshot) => sum + snapshot.status.servedModelCount, 0),
 		models: labeled
 			.flatMap(({ snapshot, label }, index) =>
 				(snapshotLabels[index] ?? [label]).flatMap((serverLabel) =>

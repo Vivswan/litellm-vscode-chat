@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
 	AckedMethod,
 	ExtensionToWebviewMessage,
+	IntentAckTone,
 	ReadMethod,
 	RequestPayload,
 	ResponseFor,
@@ -69,6 +70,8 @@ export type IntentOutcome =
 			readonly result: "ok";
 			/** The extension's optional caveat about the success (see the ack envelope). */
 			readonly message?: string | undefined;
+			/** A success worth a warning rendering (the ack envelope's tone). */
+			readonly tone?: IntentAckTone | undefined;
 	  }
 	| {
 			readonly seq: number;
@@ -102,7 +105,7 @@ export function useIntentOutcome<K extends AckedMethod>(method: K): IntentOutcom
 			seq.current += 1;
 			setOutcome(
 				message.kind === "ack"
-					? { seq: seq.current, id: message.id, result: "ok", message: message.message }
+					? { seq: seq.current, id: message.id, result: "ok", message: message.message, tone: message.tone }
 					: {
 							seq: seq.current,
 							id: message.id,
