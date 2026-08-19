@@ -10,7 +10,7 @@ import { REPO_ROOT } from "../../util/repoRoot";
  * unexpectedFailureCount the only place reading a failure's expectedness for
  * verdicts and counts. Every headline surface consumes them instead of
  * re-deriving the rules - the surfaces once drifted (one expected + one real
- * failure showed "1 unreachable" in the tooltip and "2" in both toasts).
+ * failure counted 1 in the tooltip and 2 in both toasts).
  * Greppable-shape checks in the statusItemRegistry idiom: comments may name an
  * API, so matches require the call or comparison form.
  */
@@ -79,13 +79,13 @@ describe("dashboard/presenters overall-verdict pipeline", () => {
 		}
 	});
 
-	test("no surface counts raw error statuses; the unreachable counts read the shared helper", () => {
+	test("no surface counts raw error statuses; the failure counts read the shared helper", () => {
 		// The exact shape that diverged: counting every failure, expected or not.
 		assert.deepStrictEqual(filesContaining(sources, "filter(isErrorServerStatus).length"), []);
 		for (const surface of ["src/extension/ui/commands.ts", "src/extension/ui/status.ts"]) {
 			assert.ok(
 				filesContaining(sources, "unexpectedFailureCount(").includes(surface),
-				`${surface} must read the shared unreachable count`
+				`${surface} must read the shared failure count`
 			);
 		}
 		const commands = sources.find((source) => source.file === "src/extension/ui/commands.ts");

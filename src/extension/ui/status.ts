@@ -634,15 +634,15 @@ export class StatusBarManager {
 			}
 			case "degraded": {
 				const count = current.totalModels;
-				// Expected failures are not "unreachable" in the verdict's sense; the
-				// shared count excludes them (see handleAggregatedStatus).
+				// "failing", not "unreachable": the count also holds reachable servers
+				// whose provider-group sync failed (applySyncFailures), and a failing
+				// server may still serve stale or declared models. Expected failures stay out.
 				const failedCount = unexpectedFailureCount(current.serverStatuses);
 				const available = count === 1 ? l10n.t("1 model available") : l10n.t("{0} models available", count);
-				const unreachable =
-					failedCount === 1 ? l10n.t("1 server unreachable") : l10n.t("{0} servers unreachable", failedCount);
+				const failing = failedCount === 1 ? l10n.t("1 server failing") : l10n.t("{0} servers failing", failedCount);
 				this._statusBarItem.render({
 					text: l10n.t("$(warning) LiteLLM"),
-					tooltip: `${available}\n${unreachable}\n${l10n.t("Click for diagnostics")}`,
+					tooltip: `${available}\n${failing}\n${l10n.t("Click for diagnostics")}`,
 					severity: "warning",
 				});
 				break;

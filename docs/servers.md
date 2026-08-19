@@ -228,7 +228,7 @@ If your gateway simply does not serve one or both endpoints, say so and the exte
 "discovery": { "expectedFailures": ["modelListing", "modelInfo"] }
 ```
 
-- Each named endpoint gets a single attempt (no retries) and an info-level log line instead of a red error; the server does not count as unreachable.
+- Each named endpoint gets a single attempt (no retries) and an info-level log line instead of a red error; the server does not count as failing.
 - "Expected" marks failure as unremarkable, not the endpoint as off-limits: a named endpoint that does answer is used normally - its data wins as usual, and any [declared](#declared-models) IDs it lists go inert. The single attempt is the one standing effect, succeed or fail.
 - Unknown values in the list (anything but `"modelListing"` and `"modelInfo"`) are ignored and reported.
 - Combined with `discovery.declared`, this is the recipe for a gateway with no discovery at all: declare the models, expect both failures, and the server behaves like a first-class citizen - the status bar, dashboard, and Test connection all report the declared models instead of errors.

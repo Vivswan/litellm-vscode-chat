@@ -104,7 +104,7 @@ export function unexpectedServerFailures(statuses: readonly ServerStatus[]): Ser
 	);
 }
 
-/** The "N servers unreachable" count every surface renders; expected failures stay out (see unexpectedServerFailures). */
+/** The failed-server count every surface renders; expected failures stay out (see unexpectedServerFailures). */
 export function unexpectedFailureCount(statuses: readonly ServerStatus[]): number {
 	return unexpectedServerFailures(statuses).length;
 }

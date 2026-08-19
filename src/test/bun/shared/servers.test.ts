@@ -5,7 +5,7 @@ import type { ServerStatus } from "../../../shared/servers";
 import { unexpectedFailureCount, unexpectedServerFailures } from "../../../shared/servers";
 
 /**
- * The shared unexpected-failure reading behind every "N servers unreachable"
+ * The shared unexpected-failure reading behind every failed-server
  * count and failure verdict: a failure the entry's expectedFailures declares is
  * configured as normal and never counts.
  */
@@ -54,7 +54,7 @@ describe("shared/servers unexpected failures", () => {
 
 	test("declared models do not excuse an unexpected failure", () => {
 		// Serving declared models changes the verdict's serving side, never the
-		// failure side: the server is still unreachable.
+		// failure side: the server is still failing.
 		assert.strictEqual(unexpectedFailureCount([failure("srv1", { declaredModelCount: 2 })]), 1);
 	});
 

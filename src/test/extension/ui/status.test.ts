@@ -131,7 +131,7 @@ suite("extension/ui/status", () => {
 			assert.strictEqual(item.last.text, "$(warning) LiteLLM");
 			assert.strictEqual(item.last.severity, "warning");
 			assert.ok(item.last.tooltip.includes("7 models available"), item.last.tooltip);
-			assert.ok(item.last.tooltip.includes("1 server unreachable"), item.last.tooltip);
+			assert.ok(item.last.tooltip.includes("1 server failing"), item.last.tooltip);
 		});
 	});
 
@@ -627,7 +627,7 @@ suite("extension/ui/status", () => {
 			assert.strictEqual(status.state, "degraded");
 			assert.strictEqual(item.last.severity, "warning");
 			assert.ok(item.last.tooltip.includes("5 models available"), item.last.tooltip);
-			assert.ok(item.last.tooltip.includes("1 server unreachable"), item.last.tooltip);
+			assert.ok(item.last.tooltip.includes("1 server failing"), item.last.tooltip);
 		});
 
 		test("an expected failure with declared models rescues an otherwise all-failed report to degraded", () => {
@@ -641,8 +641,8 @@ suite("extension/ui/status", () => {
 		});
 
 		test("the degraded tooltip counts only unexpected failures, like both command toasts", async () => {
-			// One expected + one real failure once showed "1 unreachable" here and
-			// "2" in the toasts; the shared count pins the surfaces together.
+			// One expected + one real failure once showed a count of 1 here and
+			// 2 in the toasts; the shared count pins the surfaces together.
 			const item = new RecordingItem();
 			const manager = createManager(undefined, () => true, undefined, item);
 			manager.handleAggregatedStatus({
@@ -652,8 +652,8 @@ suite("extension/ui/status", () => {
 			});
 			await new Promise((resolve) => setImmediate(resolve));
 
-			assert.ok(item.last.tooltip.includes("1 server unreachable"), item.last.tooltip);
-			assert.ok(!item.last.tooltip.includes("2 servers unreachable"), item.last.tooltip);
+			assert.ok(item.last.tooltip.includes("1 server failing"), item.last.tooltip);
+			assert.ok(!item.last.tooltip.includes("2 servers failing"), item.last.tooltip);
 		});
 
 		test("expected, servedModelCount, and declaredModelCount survive the persisted round trip; junk drops the field only", () => {

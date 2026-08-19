@@ -287,11 +287,11 @@ suite("extension/ui/commands", () => {
 			const toast = expectDefined(toasts[0]);
 			assert.strictEqual(toast.kind, "warning");
 			assert.ok(toast.message.includes("2 models available"), toast.message);
-			assert.ok(toast.message.includes("1 server unreachable"), toast.message);
+			assert.ok(toast.message.includes("1 server failing"), toast.message);
 		});
 
 		test("the degraded toast counts only unexpected failures, like the status bar tooltip", async () => {
-			// One expected + one real failure once showed "1 unreachable" in the
+			// One expected + one real failure once showed a count of 1 in the
 			// tooltip and "2" here; the shared count pins them together.
 			const statusBar = makeStatusBar({ state: "not-configured" });
 			const provider = {
@@ -313,7 +313,7 @@ suite("extension/ui/commands", () => {
 			const toasts = await withToasts(() => runConnectionTest(provider, statusBar, outputChannel, logger));
 
 			const toast = expectDefined(toasts[0]);
-			assert.ok(toast.message.includes("1 server unreachable"), toast.message);
+			assert.ok(toast.message.includes("1 server failing"), toast.message);
 		});
 
 		test("a throwing refresh reports the error status it left behind", async () => {
@@ -748,7 +748,7 @@ suite("extension/ui/commands", () => {
 			const toast = expectDefined(toasts[0]);
 			assert.strictEqual(toast.kind, "warning");
 			assert.ok(toast.message.includes("2 models available"), toast.message);
-			assert.ok(toast.message.includes("1 server unreachable"), toast.message);
+			assert.ok(toast.message.includes("1 server failing"), toast.message);
 		});
 
 		test("the degraded sync toast counts only unexpected failures, like the status bar tooltip", async () => {
@@ -773,7 +773,7 @@ suite("extension/ui/commands", () => {
 			const toasts = await withToasts(() => runModelSync(provider, statusBar, outputChannel, logger));
 
 			const toast = expectDefined(toasts[0]);
-			assert.ok(toast.message.includes("1 server unreachable"), toast.message);
+			assert.ok(toast.message.includes("1 server failing"), toast.message);
 		});
 
 		test("a second invocation while one is running is refused", async () => {

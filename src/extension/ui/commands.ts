@@ -156,24 +156,20 @@ export async function runConnectionTest(
 				break;
 			}
 			case "degraded": {
-				// The shared unreachable count: expected failures stay out, matching
-				// the status bar tooltip's reading of the same window.
+				// The shared unexpected-failure count: expected failures stay out,
+				// the same reading of the same window as the status bar tooltip.
 				const failed = unexpectedFailureCount(status.serverStatuses);
-				logger.log(`WARNING: ${failed} server(s) unreachable`);
+				logger.log(`WARNING: ${failed} server(s) failing`);
 				const total = status.totalModels;
 				void showActionableMessage(
 					"warning",
 					total === 1
 						? failed === 1
-							? l10n.t("LiteLLM: Connected with issues - 1 model available, 1 server unreachable.")
-							: l10n.t("LiteLLM: Connected with issues - 1 model available, {0} servers unreachable.", failed)
+							? l10n.t("LiteLLM: Connected with issues - 1 model available, 1 server failing.")
+							: l10n.t("LiteLLM: Connected with issues - 1 model available, {0} servers failing.", failed)
 						: failed === 1
-							? l10n.t("LiteLLM: Connected with issues - {0} models available, 1 server unreachable.", total)
-							: l10n.t(
-									"LiteLLM: Connected with issues - {0} models available, {1} servers unreachable.",
-									total,
-									failed
-								),
+							? l10n.t("LiteLLM: Connected with issues - {0} models available, 1 server failing.", total)
+							: l10n.t("LiteLLM: Connected with issues - {0} models available, {1} servers failing.", total, failed),
 					[viewOutputAction(outputChannel), reconfigureAction(), reportIssueAction()]
 				);
 				break;
@@ -289,21 +285,21 @@ async function runModelSyncPass(
 				break;
 			}
 			case "degraded": {
-				// The same shared unreachable count as the connection test's toast
-				// and the status bar tooltip.
+				// The same shared unexpected-failure count as the connection test's
+				// toast and the status bar tooltip.
 				const failed = unexpectedFailureCount(status.serverStatuses);
-				logger.log(`Model sync finished with issues: ${failed} server(s) unreachable`);
+				logger.log(`Model sync finished with issues: ${failed} server(s) failing`);
 				const total = status.totalModels;
 				void showActionableMessage(
 					"warning",
 					total === 1
 						? failed === 1
-							? l10n.t("LiteLLM: Models synced with issues - 1 model available, 1 server unreachable.")
-							: l10n.t("LiteLLM: Models synced with issues - 1 model available, {0} servers unreachable.", failed)
+							? l10n.t("LiteLLM: Models synced with issues - 1 model available, 1 server failing.")
+							: l10n.t("LiteLLM: Models synced with issues - 1 model available, {0} servers failing.", failed)
 						: failed === 1
-							? l10n.t("LiteLLM: Models synced with issues - {0} models available, 1 server unreachable.", total)
+							? l10n.t("LiteLLM: Models synced with issues - {0} models available, 1 server failing.", total)
 							: l10n.t(
-									"LiteLLM: Models synced with issues - {0} models available, {1} servers unreachable.",
+									"LiteLLM: Models synced with issues - {0} models available, {1} servers failing.",
 									total,
 									failed
 								),

@@ -259,7 +259,7 @@ suite("extension/ui/notifier", () => {
 
 	test("a hidden group beside an unexpected failure is a degraded window: the notifier stands down", () => {
 		// A genuine failure is in the mix, so the verdict is degraded and the
-		// status bar says "1 server unreachable"; a zero-model toast beside it
+		// status bar says "1 server failing"; a zero-model toast beside it
 		// would blame the catalog for what is really an outage. The judgment
 		// claims the headline only when the verdict explains nothing.
 		const notifier = new Notifier(

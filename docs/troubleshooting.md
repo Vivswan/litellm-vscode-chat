@@ -13,7 +13,7 @@ Two items sit in the bottom-right corner. The left one is the **connection item*
 | `$(warning) LiteLLM` | Not Configured | No servers configured - click to set up |
 | `$(loading~spin) LiteLLM` | Loading | Fetching models from servers |
 | `$(check) LiteLLM` | Connected | All servers reachable; the tooltip carries the model count |
-| `$(warning) LiteLLM` | Degraded | Some servers unreachable; the tooltip says how many models the reachable ones serve |
+| `$(warning) LiteLLM` | Degraded | Some servers failing (unreachable, or their provider-group sync failed); the tooltip says how many models are still available |
 | `$(error) LiteLLM` | Error | All servers failed - the Diagnostics section has each server's error |
 
 Clicking it opens the [dashboard](dashboard.md); the Diagnostics section has the per-server detail.
