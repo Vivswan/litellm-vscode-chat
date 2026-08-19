@@ -735,6 +735,16 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 							/>
 						</div>
 					</SectionPanel>
+					<SectionPanel section="settings" active={activeSection}>
+						<SettingsSection
+							settings={state.settings}
+							models={state.models}
+							observedModelInfoKeys={state.observedModelInfoKeys}
+							now={now}
+							editRecordRequest={editRecordRequest}
+							writeFailures={settingWriteFailures}
+						/>
+					</SectionPanel>
 					<SectionPanel section="models" active={activeSection}>
 						<ModelsSection
 							models={state.models}
@@ -744,16 +754,6 @@ export function App({ toastDurationMs = TOAST_DURATION_MS }: { toastDurationMs?:
 								serverScope !== undefined ? { label: serverScope, onClear: () => setServerScope(undefined) } : undefined
 							}
 							onInspect={inspectModel}
-						/>
-					</SectionPanel>
-					<SectionPanel section="settings" active={activeSection}>
-						<SettingsSection
-							settings={state.settings}
-							models={state.models}
-							observedModelInfoKeys={state.observedModelInfoKeys}
-							now={now}
-							editRecordRequest={editRecordRequest}
-							writeFailures={settingWriteFailures}
 						/>
 					</SectionPanel>
 					<SectionPanel section="diagnostics" active={activeSection}>
