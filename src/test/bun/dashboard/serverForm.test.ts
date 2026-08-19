@@ -1,5 +1,6 @@
 import { describe, test } from "bun:test";
 import * as assert from "node:assert";
+import type { ReplacedEntryIdentity } from "../../../dashboard/endpoints";
 import { newParamRow } from "../../../dashboard/recordDraft";
 import type {
 	SecretFieldDraft,
@@ -45,8 +46,13 @@ function problemsOf(draft: ServerFormDraft, context?: Parameters<typeof parseSer
 	return parse.ok ? {} : parse.problems;
 }
 
-function intentOf(draft: ServerFormDraft, originalLabel?: string): ServerFormIntent {
-	const parse = parseServerForm(draft, originalLabel !== undefined ? { originalLabel } : {});
+/** A displayed-entry identity for edit-form contexts; locations default to "none". */
+function identity(label: string, baseUrl = "http://localhost:4000"): ReplacedEntryIdentity {
+	return { label, baseUrl, secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" } };
+}
+
+function intentOf(draft: ServerFormDraft, original?: ReplacedEntryIdentity): ServerFormIntent {
+	const parse = parseServerForm(draft, original !== undefined ? { original } : {});
 	if (!parse.ok) {
 		assert.fail(`expected a clean parse, got problems: ${JSON.stringify(parse.problems)}`);
 	}
@@ -80,14 +86,14 @@ describe("dashboard/serverForm", () => {
 		});
 
 		test("a rename onto a sibling label is a blocking problem; adds keep their upsert semantics", () => {
-			const context = { takenLabels: ["Prod", "Staging"], originalLabel: "Prod" };
+			const context = { takenLabels: ["Prod", "Staging"], original: identity("Prod") };
 			assert.notStrictEqual(problemsOf(draft({ label: "Staging" }), context).label, undefined);
 			assert.strictEqual(problemsOf(draft({ label: "Prod" }), context).label, undefined, "keeping the label is fine");
 			assert.strictEqual(problemsOf(draft({ label: "Fresh" }), context).label, undefined);
 			assert.strictEqual(
 				problemsOf(draft({ label: "Staging" }), { takenLabels: ["Staging"] }).label,
 				undefined,
-				"an add over an existing label replaces it; no originalLabel, no collision problem"
+				"an add over an existing label replaces it; no original identity, no collision problem"
 			);
 		});
 
@@ -255,7 +261,7 @@ describe("dashboard/serverForm", () => {
 				declaredModels: [],
 				budget: null,
 			});
-			assert.strictEqual(intent.replaceLabel, undefined);
+			assert.strictEqual(intent.replace, undefined);
 		});
 
 		test("empty secret inputs become keep, typed values become set with their location, clear wins", () => {
@@ -278,9 +284,9 @@ describe("dashboard/serverForm", () => {
 			});
 		});
 
-		test("an edit carries the original label as replaceLabel", () => {
-			const intent = intentOf(draft({ label: "Renamed" }), "Prod");
-			assert.strictEqual(intent.replaceLabel, "Prod");
+		test("an edit carries the displayed entry's identity as replace", () => {
+			const intent = intentOf(draft({ label: "Renamed" }), identity("Prod"));
+			assert.deepStrictEqual(intent.replace, identity("Prod"));
 			assert.strictEqual(intent.server.label, "Renamed");
 		});
 
@@ -532,7 +538,7 @@ describe("dashboard/serverForm", () => {
 			assert.ok(parse.ok, "connection-clean drafts must parse");
 			assert.strictEqual(parse.intent.server.label, "");
 			assert.strictEqual(parse.intent.server.modelParameters, undefined);
-			assert.strictEqual(parse.intent.replaceLabel, undefined);
+			assert.strictEqual(parse.intent.replace, undefined);
 		});
 
 		test("connection-relevant problems block with the same rules and messages as the save parse", () => {
@@ -553,7 +559,7 @@ describe("dashboard/serverForm", () => {
 			assert.strictEqual(parse.problems.label, undefined, "label problems stay out");
 		});
 
-		test("the assembled intent carries the save parse's directives and the edited entry's replaceLabel", () => {
+		test("the assembled intent carries the save parse's directives and the edited entry's replace identity", () => {
 			const edited = draft({
 				authForm: "oauth",
 				label: "Renamed",
@@ -564,9 +570,9 @@ describe("dashboard/serverForm", () => {
 				oauthClientId: "client-1",
 				oauthClientSecret: secret({ existing: "secure" }),
 			});
-			const parse = parseServerFormForTest(edited, { originalLabel: "Prod" });
+			const parse = parseServerFormForTest(edited, { original: identity("Prod") });
 			assert.ok(parse.ok, `expected a clean parse, got ${JSON.stringify(parse)}`);
-			assert.strictEqual(parse.intent.replaceLabel, "Prod");
+			assert.deepStrictEqual(parse.intent.replace, identity("Prod"));
 			assert.strictEqual(parse.intent.server.label, "Renamed");
 			assert.strictEqual(parse.intent.server.oauthClientId, "client-1");
 			assert.deepStrictEqual(parse.intent.secrets, {

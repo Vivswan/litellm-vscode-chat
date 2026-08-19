@@ -4,7 +4,7 @@
  */
 
 import { serverSecretsKey } from "../../../shared/config/storageKeys";
-import type { SecretFieldId } from "../../../shared/serverEntry";
+import type { SecretFieldId, SecretLocation } from "../../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
 import type { DeclaredServer } from "./setting";
 
@@ -62,22 +62,6 @@ export async function updateServerSecret(
 	await secrets.store(serverSecretsKey(label), JSON.stringify(blob));
 }
 
-/**
- * Copy a label's whole blob to another label (the additive half of a rename);
- * a no-op when the source holds nothing. The caller deletes the source only
- * after the settings write that depends on the copy has landed.
- */
-export async function copyServerSecrets(secrets: SecretStore, fromLabel: string, toLabel: string): Promise<void> {
-	if (fromLabel === toLabel) {
-		return;
-	}
-	const blob = await readServerSecrets(secrets, fromLabel);
-	if (Object.keys(blob).length === 0) {
-		return;
-	}
-	await secrets.store(serverSecretsKey(toLabel), JSON.stringify(blob));
-}
-
 /** Delete a label's whole blob. */
 export async function deleteServerSecrets(secrets: SecretStore, label: string): Promise<void> {
 	await secrets.delete(serverSecretsKey(label));
@@ -102,4 +86,22 @@ export function inlineSecretValues(entry: DeclaredServer): Readonly<Partial<Reco
 		}
 	}
 	return values;
+}
+
+/**
+ * Where each of an entry's secret fields lives, under the inline-wins rule:
+ * "settings" for inlineSecretValues' keys, "secure" for the label's blob
+ * fields behind them, "none" otherwise. The sync engine's views and the save
+ * path's displayed-entry identity check read the same derivation.
+ */
+export function secretLocations(
+	entry: DeclaredServer,
+	stored: StoredServerSecrets
+): Record<SecretFieldId, SecretLocation> {
+	const inline = inlineSecretValues(entry);
+	const locations = {} as Record<SecretFieldId, SecretLocation>;
+	for (const field of SECRET_FIELD_IDS) {
+		locations[field] = inline[field] !== undefined ? "settings" : stored[field] !== undefined ? "secure" : "none";
+	}
+	return locations;
 }

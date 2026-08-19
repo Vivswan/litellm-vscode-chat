@@ -16,7 +16,7 @@ import { NON_SECRET_OPTIONAL_FIELD_IDS, SECRET_FIELD_IDS } from "../shared/serve
 import type { HeaderScalar } from "../shared/util/headers";
 import { isValidHeaderName, isValidHeaderValue } from "../shared/util/headers";
 import { isUnsafeRecordKey } from "../shared/util/json";
-import type { SaveServerPayload, SecretDirective } from "./endpoints";
+import type { ReplacedEntryIdentity, SaveServerPayload, SecretDirective } from "./endpoints";
 import type { CapabilityGroupIssues, GroupHints, GroupProblems, HeaderRow, PrefixGroup } from "./recordDraft";
 import { draftRowsKey, parseCapabilityGroups, parseGroups, parseHeaderRows } from "./recordDraft";
 
@@ -429,8 +429,12 @@ export function parseDeclaredModelsText(text: string): string[] {
 export interface ServerFormContext {
 	/** Labels of the other declared entries. */
 	readonly takenLabels?: readonly string[];
-	/** The label of the entry being edited; absent when adding. Doubles as the intent's replaceLabel. */
-	readonly originalLabel?: string;
+	/**
+	 * The entry being edited, as the form displayed it; absent when adding.
+	 * Rides the intents as `replace`, so the extension can refuse a save or
+	 * probe when the label's entry no longer matches what the form showed.
+	 */
+	readonly original?: ReplacedEntryIdentity;
 	/**
 	 * The edited entry's observed /model/info key set, the evidence behind the
 	 * capability rows' unknown-key hints: with no set or an empty one, every
@@ -443,7 +447,7 @@ export interface ServerFormContext {
 export interface ServerFormIntent {
 	readonly server: SaveServerPayload;
 	readonly secrets: Readonly<Record<SecretFieldId, SecretDirective>>;
-	readonly replaceLabel?: string | undefined;
+	readonly replace?: ReplacedEntryIdentity | undefined;
 }
 
 export type ServerFormParse =
@@ -575,8 +579,8 @@ function analyzeServerForm(draft: ServerFormDraft, context: ServerFormContext): 
 	} else if (isUnsafeRecordKey(label)) {
 		problems.label = l10n.t("This label is a reserved name and cannot be used");
 	} else if (
-		context.originalLabel !== undefined &&
-		label !== context.originalLabel &&
+		context.original !== undefined &&
+		label !== context.original.label &&
 		(context.takenLabels ?? []).includes(label)
 	) {
 		// Renaming onto a sibling would leave two entries with one identity;
@@ -795,7 +799,7 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 		intent: {
 			server,
 			secrets: values.secrets,
-			...(context.originalLabel !== undefined ? { replaceLabel: context.originalLabel } : {}),
+			...(context.original !== undefined ? { replace: context.original } : {}),
 		},
 		modelCapabilityIssues: analysis.modelCapabilityIssues,
 		modelParameterHints: analysis.modelParameterHints,
@@ -806,7 +810,7 @@ export function parseServerForm(draft: ServerFormDraft, context: ServerFormConte
 interface ServerTestIntent {
 	readonly server: SaveServerPayload;
 	readonly secrets: Readonly<Record<SecretFieldId, SecretDirective>>;
-	readonly replaceLabel?: string | undefined;
+	readonly replace?: ReplacedEntryIdentity | undefined;
 }
 
 export type ServerTestParse =
@@ -844,7 +848,7 @@ export function parseServerFormForTest(draft: ServerFormDraft, context: ServerFo
 		intent: {
 			server,
 			secrets: values.secrets,
-			...(context.originalLabel !== undefined ? { replaceLabel: context.originalLabel } : {}),
+			...(context.original !== undefined ? { replace: context.original } : {}),
 		},
 	};
 }

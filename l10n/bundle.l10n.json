@@ -939,6 +939,7 @@
 	"The conversation is too long for this model - trim it, remove attachments, or start a new chat.": "The conversation is too long for this model - trim it, remove attachments, or start a new chat.",
 	"The deepest reasoning tier, on models that offer one": "The deepest reasoning tier, on models that offer one",
 	"The draft's credentials do not form a valid server entry": "The draft's credentials do not form a valid server entry",
+	"The entry being edited changed in the servers setting while the form was open; close the form and retry": "The entry being edited changed in the servers setting while the form was open; close the form and retry",
 	"The entry being edited no longer exists in the servers setting; close the form and retry": "The entry being edited no longer exists in the servers setting; close the form and retry",
 	"The extension's settings, same as the Settings editor. Reset removes your value so the next scope's value or the built-in default shows through.": "The extension's settings, same as the Settings editor. Reset removes your value so the next scope's value or the built-in default shows through.",
 	"The fastest reasoning tier, on models that offer one below Low": "The fastest reasoning tier, on models that offer one below Low",

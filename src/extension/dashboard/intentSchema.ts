@@ -10,6 +10,7 @@
 import { z } from "zod";
 import type {
 	DashboardMethod,
+	ReplacedEntryIdentity,
 	RequestPayload,
 	RpcRequest,
 	RpcRequestType,
@@ -96,6 +97,20 @@ const secretDirectivesSchema = z.strictObject(recordFromKeys(SECRET_FIELD_IDS, (
 
 const secretLocationChoiceSchema = z.union([z.literal("settings"), z.literal("secure")]);
 
+/**
+ * The identity of the entry an edit form displayed (ReplacedEntryIdentity):
+ * what the save and draft-test intents re-check "keep" resolution against.
+ * Locations only - a location outside the closed vocabulary is a malformed
+ * message, never a value.
+ */
+const replacedEntrySchema: z.ZodType<ReplacedEntryIdentity> = z.strictObject({
+	label: labelSchema,
+	baseUrl: z.string().max(WIRE_LIMITS.url),
+	secrets: z.strictObject(
+		recordFromKeys(SECRET_FIELD_IDS, () => z.union([secretLocationChoiceSchema, z.literal("none")]))
+	),
+});
+
 /** Where each of an adoption's copied secrets should land; never the values themselves. */
 const adoptSecretsSchema = z.strictObject(recordFromKeys(SECRET_FIELD_IDS, () => secretLocationChoiceSchema));
 
@@ -112,7 +127,7 @@ const requestIdSchema = z.string().min(1).max(REQUEST_ID_MAX_LENGTH);
 const serverDraftPayloadSchema = z.strictObject({
 	server: saveServerSchema,
 	secrets: secretDirectivesSchema,
-	replaceLabel: labelSchema.optional(),
+	replace: replacedEntrySchema.optional(),
 });
 
 /**

@@ -301,7 +301,11 @@ test("the edit form round-trips per-entry model parameters into the save intent"
 	expect(postedMessages.length).toBe(1);
 	const saved = postedMessages[0] as RpcRequest<"saveServerSetting">;
 	expect(saved.method).toBe("saveServerSetting");
-	expect(saved.payload.replaceLabel).toBe("Prod");
+	expect(saved.payload.replace).toEqual({
+		label: "Prod",
+		baseUrl: "http://localhost:4000",
+		secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+	});
 	expect(saved.payload.server.modelParameters).toEqual({ "gpt-4": { temperature: 0.9 } });
 });
 
@@ -1133,8 +1137,13 @@ test("a failed test renders its message inline and the result clears on any cred
 	resetPosted();
 	fireClick(buttonByText(root, "Test connection"));
 	const posted = postedMessages[0] as RpcRequest<"testServerDraft">;
-	// Editing an entry: the intent addresses "keep" resolution at the original label.
-	expect(posted.payload.replaceLabel).toBe("Prod");
+	// Editing an entry: the intent carries the displayed identity so "keep"
+	// resolution is refused if the entry changed underneath the form.
+	expect(posted.payload.replace).toEqual({
+		label: "Prod",
+		baseUrl: "http://localhost:4000",
+		secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+	});
 
 	pushToWebview({
 		kind: "fail",

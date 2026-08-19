@@ -63,7 +63,6 @@ import type { GroupRemovalStore } from "../servers/groupRemovals";
 import type { ServerRegistry } from "../servers/serverRegistry";
 import type { DeclaredServerView, ServerSyncEngine } from "../servers/serverSync";
 import {
-	copyServerSecrets,
 	deleteServerSecrets,
 	inlineSecretValues,
 	parseServersSetting,
@@ -944,7 +943,6 @@ export function registerDashboardCommand(
 		writeServersSetting: (value) => settingsAccess.writeGlobal(SERVERS_SETTING_KEY, value),
 		storeServerSecret: (label, field, value) => updateServerSecret(context.secrets, label, field, value),
 		readServerSecrets: (label) => readServerSecrets(context.secrets, label),
-		copyServerSecrets: (fromLabel, toLabel) => copyServerSecrets(context.secrets, fromLabel, toLabel),
 		deleteServerSecrets: (label) => deleteServerSecrets(context.secrets, label),
 		requestServerSync: () => syncEngine.requestSync(),
 		// The adopt intent's credential source: the provider's in-memory group

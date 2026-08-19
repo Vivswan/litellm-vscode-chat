@@ -195,7 +195,6 @@ function makeHarness(): Harness {
 			secretOps.push([label, field, value]);
 		},
 		readServerSecrets: async () => ({}),
-		copyServerSecrets: async () => {},
 		deleteServerSecrets: async () => {},
 		requestServerSync: () => {},
 		resolveAdoptionCredentials: () => undefined,
@@ -979,7 +978,11 @@ suite("extension/dashboard/panel", () => {
 						oauthClientSecret: { action: "keep" },
 						virtualKeyValue: { action: "keep" },
 					},
-					replaceLabel: "Prod",
+					replace: {
+						label: "Prod",
+						baseUrl: "http://prod.test",
+						secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+					},
 				},
 				"req-carry"
 			)
@@ -1068,7 +1071,11 @@ suite("extension/dashboard/panel", () => {
 						oauthClientSecret: { action: "keep" },
 						virtualKeyValue: { action: "keep" },
 					},
-					replaceLabel: "Prod",
+					replace: {
+						label: "Prod",
+						baseUrl: "http://prod.test",
+						secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+					},
 				},
 				"req-cleanup"
 			)
@@ -1103,7 +1110,11 @@ suite("extension/dashboard/panel", () => {
 						oauthClientSecret: { action: "keep" },
 						virtualKeyValue: { action: "keep" },
 					},
-					replaceLabel: "Prod",
+					replace: {
+						label: "Prod",
+						baseUrl: "http://prod.test",
+						secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+					},
 				},
 				"req-clear"
 			)
@@ -1150,7 +1161,11 @@ suite("extension/dashboard/panel", () => {
 						oauthClientSecret: { action: "keep" },
 						virtualKeyValue: { action: "keep" },
 					},
-					replaceLabel: "Prod",
+					replace: {
+						label: "Prod",
+						baseUrl: "http://prod.test",
+						secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+					},
 				},
 				"req-rollback"
 			)

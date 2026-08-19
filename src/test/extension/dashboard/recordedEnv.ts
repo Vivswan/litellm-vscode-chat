@@ -3,16 +3,49 @@
  * IntentEnvironment fake plus the keep-everything secrets directive.
  */
 
-import type { SaveServerPayload } from "../../../dashboard/endpoints";
+import type { ReplacedEntryIdentity, SaveServerPayload } from "../../../dashboard/endpoints";
 import type { AdoptableGroupCredentials } from "../../../extension/dashboard/adopt";
 import type { IntentEnvironment } from "../../../extension/dashboard/intents";
 import type { DraftConnection } from "../../../extension/dashboard/testDraftConnection";
+import { acceptedEntry, secretLocations } from "../../../extension/servers/serverSync";
 
 export const KEEP_ALL = {
 	apiKey: { action: "keep" },
 	oauthClientSecret: { action: "keep" },
 	virtualKeyValue: { action: "keep" },
 } as const;
+
+/** A ReplacedEntryIdentity with every location "none", for hand-built mismatch and gone-entry cases. */
+export function replaceIdentity(
+	label: string,
+	baseUrl: string,
+	secrets: Partial<ReplacedEntryIdentity["secrets"]> = {}
+): ReplacedEntryIdentity {
+	return {
+		label,
+		baseUrl,
+		secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none", ...secrets },
+	};
+}
+
+/**
+ * The identity an open edit form of the env's CURRENT entry under `label`
+ * would display, by the production derivation, so intents whose subject is
+ * something else can identify the entry they replace without hand-writing
+ * locations. Tests about the identity check itself build mismatches by hand
+ * (replaceIdentity).
+ */
+export async function displayedReplace(recorded: RecordedEnv, label: string): Promise<ReplacedEntryIdentity> {
+	const match = acceptedEntry(recorded.env.readServersSetting(), label);
+	if (match === undefined) {
+		throw new Error(`displayedReplace: no accepted entry under "${label}"`);
+	}
+	return {
+		label,
+		baseUrl: match.entry.baseUrl,
+		secrets: secretLocations(match.entry, await recorded.env.readServerSecrets(label)),
+	};
+}
 
 /**
  * A full SaveServerPayload with the always-sent record and list fields empty.
@@ -39,8 +72,6 @@ export interface RecordedEnv {
 	serverWrites: unknown[][];
 	/** Every storeServerSecret call. */
 	secretOps: [string, string, string | undefined][];
-	/** Every copyServerSecrets call. */
-	secretCopies: [string, string][];
 	/** Every deleteServerSecrets call. */
 	secretDeletes: string[];
 	/** Every mutation in call order, for atomicity-ordering assertions. */
@@ -60,6 +91,10 @@ export interface RecordedEnv {
 	failStoreField?: string;
 	/** When set, deleteServerSecrets rejects with this error. */
 	failBlobDeletes?: Error;
+	/** When set, runs after each readServerSecrets call: the seam for injecting a concurrent edit between the plan read and the guarded unit. */
+	onSecretsRead?: ((label: string) => void) | undefined;
+	/** When set, runs after each successful writeServersSetting with the now-visible array: the seam for injecting a concurrent edit between the write and the cleanup. */
+	afterWrite?: (current: unknown[]) => void;
 	/** What resolveAdoptionCredentials returns; every call is recorded in adoptionLookups. */
 	adoptionCredentials?: AdoptableGroupCredentials;
 	adoptionLookups: [string, string][];
@@ -83,13 +118,15 @@ export interface RecordedEnv {
 }
 
 export function makeEnv(serversSetting: unknown = []): RecordedEnv {
+	// The visible setting: reads reflect landed writes, like the real
+	// machine-scoped configuration (post-write re-reads must see the write).
+	let currentSetting = serversSetting;
 	const recorded: RecordedEnv = {
 		updates: [],
 		removals: [],
 		commands: [],
 		serverWrites: [],
 		secretOps: [],
-		secretCopies: [],
 		secretDeletes: [],
 		ops: [],
 		storedSecrets: new Map(),
@@ -114,13 +151,16 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 			executeCommand: async (command, ...args) => {
 				recorded.commands.push([command, ...args]);
 			},
-			readServersSetting: () => serversSetting,
+			readServersSetting: () => currentSetting,
 			writeServersSetting: async (value) => {
 				if (recorded.failWrites !== undefined) {
 					throw recorded.failWrites;
 				}
 				recorded.serverWrites.push([...value]);
 				recorded.ops.push("write");
+				const visible = [...value];
+				currentSetting = visible;
+				recorded.afterWrite?.(visible);
 			},
 			storeServerSecret: async (label, field, value) => {
 				if (value === undefined && recorded.failUnstore !== undefined) {
@@ -144,15 +184,9 @@ export function makeEnv(serversSetting: unknown = []): RecordedEnv {
 				recorded.storedSecrets.set(label, blob);
 			},
 			readServerSecrets: async (label) => {
-				return { ...recorded.storedSecrets.get(label) };
-			},
-			copyServerSecrets: async (fromLabel, toLabel) => {
-				recorded.secretCopies.push([fromLabel, toLabel]);
-				recorded.ops.push(`copy:${fromLabel}->${toLabel}`);
-				const source = recorded.storedSecrets.get(fromLabel);
-				if (source !== undefined && Object.keys(source).length > 0) {
-					recorded.storedSecrets.set(toLabel, { ...source });
-				}
+				const blob = { ...recorded.storedSecrets.get(label) };
+				recorded.onSecretsRead?.(label);
+				return blob;
 			},
 			deleteServerSecrets: async (label) => {
 				if (recorded.failBlobDeletes !== undefined) {

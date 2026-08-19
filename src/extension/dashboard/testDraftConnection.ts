@@ -29,7 +29,7 @@ import { acceptedEntry } from "../servers/serverSync/setting";
 import { assembleEntryAuth, pairingFailureMessage } from "./entryAuth";
 import type { IntentEnvironment } from "./intents";
 import { DashboardValidationError, rawServerEntries } from "./intents";
-import { entryShownByForm, planResolves, readKeepSources, secretPlans } from "./saveServer";
+import { planResolves, readKeepSources, requireEntryShownByForm, secretPlans } from "./saveServer";
 
 /**
  * One draft's connection material, fully resolved: what the probe needs and
@@ -107,23 +107,17 @@ export async function applyTestServerDraft(
 	env: IntentEnvironment
 ): Promise<DraftProbeOutcome> {
 	const label = intent.server.label.trim();
-	const targetLabel = (intent.replaceLabel ?? intent.server.label).trim();
+	const targetLabel = (intent.replace?.label ?? intent.server.label).trim();
 	const entries = rawServerEntries(env.readServersSetting());
 	const sources = await readKeepSources(entries, label, targetLabel, (secretsLabel) =>
 		env.readServerSecrets(secretsLabel)
 	);
-	if (intent.replaceLabel !== undefined && sources.accepted === undefined) {
-		// Same refusal as the save path: with the edited entry gone, "keep"
-		// resolves nothing and the probe would test a different configuration
-		// than the one the form shows.
-		throw new DashboardValidationError(
-			l10n.t("The entry being edited no longer exists in the servers setting; close the form and retry")
-		);
-	}
-	// The entry the form was showing, resolved by the save path's own rule, so
-	// the probe tests exactly the credentials the form displayed - never a
-	// retired label's leftovers, and never a replaced entry's own key.
-	const showing = entryShownByForm(sources.accepted?.entry, intent.replaceLabel);
+	// The entry the form was showing, resolved AND verified by the save path's
+	// own rule: gone or swapped refuses like a save would, so the probe tests
+	// exactly the credentials the form displayed - never a retired label's
+	// leftovers, never a replaced entry's own key, and never the credentials of
+	// an entry that took the label while the form was open.
+	const showing = requireEntryShownByForm(intent.replace, sources);
 	const plans = secretPlans(intent.secrets, showing, sources.storedOld);
 	const inlineValues: { -readonly [K in SecretFieldId]?: string } = {};
 	const secureValues: { -readonly [K in SecretFieldId]?: string } = {};

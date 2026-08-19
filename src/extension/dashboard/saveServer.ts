@@ -5,13 +5,14 @@
  */
 
 import * as l10n from "@vscode/l10n";
-import type { RequestPayload, SecretDirective } from "../../dashboard/endpoints";
+import type { ReplacedEntryIdentity, RequestPayload, SecretDirective } from "../../dashboard/endpoints";
 import type { SecretFieldId } from "../../shared/serverEntry";
 import { pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../shared/serverEntry";
+import { normalizeBaseUrl } from "../../shared/util/baseUrl";
 import { recordFromKeys } from "../../shared/util/json";
 import type { DeclaredServer } from "../servers/serverSync";
-import { acceptedEntry, inlineSecretValues } from "../servers/serverSync";
-import { declaredEntryLabel, rawDeclaredLabels } from "../servers/serverSync/setting";
+import { acceptedEntry, inlineSecretValues, secretLocations } from "../servers/serverSync";
+import { declaredEntryLabel, rawDeclaredLabels, stillDeclaredIn } from "../servers/serverSync/setting";
 import { assembleEntryAuth, pairingFailureMessage } from "./entryAuth";
 import type { IntentEnvironment } from "./intents";
 import { DashboardOperationError, DashboardValidationError, rawServerEntries } from "./intents";
@@ -28,7 +29,7 @@ import { DashboardOperationError, DashboardValidationError, rawServerEntries } f
  * "upsert" is the add form saving onto a label that already has an entry (its
  * documented "saving replaces it"): it writes in place like an edit, but the
  * form showed a blank credential-less draft, so its secrets resolve like a
- * create's - see entryShownByForm.
+ * create's - see requireEntryShownByForm.
  */
 type SaveMode =
 	| { kind: "create" }
@@ -41,8 +42,8 @@ type SaveMode =
  * directive means, and the one rule the save and the draft-connection test both
  * read so a directive cannot resolve differently on the two paths.
  *
- * Only a draft that NAMES the entry it replaces (`replaceLabel`, which the edit
- * form always sends and the add form never does) may resolve that entry's
+ * Only a draft that identifies the entry it replaces (`replace`, which the
+ * edit form always sends and the add form never does) may resolve that entry's
  * credentials - and only that entry's: its inline fields and its own label's
  * blob, never a blob already sitting under the draft's new label. A draft from
  * the blank add form showed every field as "none", so it resolves nothing -
@@ -51,12 +52,43 @@ type SaveMode =
  * entry's own key, would ride to whatever host the new draft names; the caller
  * wipes such leftovers for the same reason (the sync engine resolves a label's
  * blob unconditionally).
+ *
+ * The identity is verified, never assumed: a label alone can be spoofed by
+ * time. An entry swapped in under the form's label while the form was open
+ * (another window, a hand edit of settings.json) would otherwise hand ITS
+ * credentials to the host the form displays - the probe would send the new
+ * entry's key to the old host, and a save would write a mixed entry. Gone and
+ * changed both refuse as validation failures: nothing durable happened, and
+ * the form the refusal returns to still shows the state it was opened on.
  */
-export function entryShownByForm(
-	accepted: DeclaredServer | undefined,
-	replaceLabel: string | undefined
+export function requireEntryShownByForm(
+	replace: ReplacedEntryIdentity | undefined,
+	sources: KeepSources
 ): DeclaredServer | undefined {
-	return replaceLabel === undefined ? undefined : accepted;
+	if (replace === undefined) {
+		return undefined;
+	}
+	if (sources.accepted === undefined) {
+		throw new DashboardValidationError(
+			l10n.t("The entry being edited no longer exists in the servers setting; close the form and retry")
+		);
+	}
+	const entry = sources.accepted.entry;
+	// The identity the form displayed: the host, and where each credential
+	// lived. Locations compare against the same derivation the dashboard's
+	// state push used, so an unchanged entry always passes; the values behind
+	// "secure" locations are deliberately not part of the identity (the webview
+	// never sees them).
+	const locations = secretLocations(entry, sources.storedOld);
+	const unchanged =
+		normalizeBaseUrl(entry.baseUrl) === normalizeBaseUrl(replace.baseUrl) &&
+		SECRET_FIELD_IDS.every((field) => locations[field] === replace.secrets[field]);
+	if (!unchanged) {
+		throw new DashboardValidationError(
+			l10n.t("The entry being edited changed in the servers setting while the form was open; close the form and retry")
+		);
+	}
+	return entry;
 }
 
 /**
@@ -81,7 +113,8 @@ export function planResolves(plan: SecretPlan): boolean {
  * Resolve every secret directive of a draft into its plan: what the field does
  * and where its value will live. Shared with the draft-connection test, so a
  * directive cannot mean two different values on the two paths. `existing` is
- * the entry the saved form was showing (entryShownByForm) and `storedShown` is
+ * the entry the saved form was showing (requireEntryShownByForm) and
+ * `storedShown` is
  * that entry's own label's blob (KeepSources.storedOld); an undefined entry
  * means the form showed no credentials at all, and "keep" then resolves
  * NOTHING - a label's leftover SecretStorage blob (removals keep blobs on
@@ -199,24 +232,24 @@ export async function applySaveServerSetting(
 	const label = intent.server.label.trim();
 	// Trimmed like entry matching trims, so the secret-store operations below
 	// hit the same label the entry lookup resolves.
-	const targetLabel = (intent.replaceLabel ?? label).trim();
+	const targetLabel = (intent.replace?.label ?? label).trim();
 	const entries = rawServerEntries(env.readServersSetting());
 	// The entry being edited is the one the dashboard row described, never a
 	// rejected same-label sibling sitting earlier in the raw array. The same
 	// helper reads what the sync engine will read for this label after the save
 	// (see KeepSources), so the pairing checks and the draft test share one
 	// "keep" truth.
-	const { accepted, storedOld, storedNew, willCopy } = await readKeepSources(
-		entries,
-		label,
-		targetLabel,
-		(secretsLabel) => env.readServerSecrets(secretsLabel)
+	const sources = await readKeepSources(entries, label, targetLabel, (secretsLabel) =>
+		env.readServerSecrets(secretsLabel)
 	);
-	if (intent.replaceLabel !== undefined && accepted === undefined) {
-		throw new DashboardValidationError(
-			l10n.t("The entry being edited no longer exists in the servers setting; close the form and retry")
-		);
-	}
+	const { accepted, storedOld, storedNew, willCopy } = sources;
+	// The entry this save's form was showing - verified against the identity
+	// the form displayed, refused when it is gone or changed - and the mode
+	// that follows from it: with no entry carrying the label the save appends,
+	// and with one it writes in place - as an edit or rename when the draft
+	// identified it, as an upsert (the add form's documented "saving replaces
+	// it") when it did not.
+	const showing = requireEntryShownByForm(intent.replace, sources);
 	const renaming = targetLabel !== label;
 	// Raw labels count as taken (the webview's own rule): a parser-rejected
 	// entry still occupies its label, and a rename beside it would land two
@@ -229,12 +262,8 @@ export async function applySaveServerSetting(
 		throw new DashboardValidationError(`label: ${l10n.t("an entry with this label already exists")}`);
 	}
 
-	// The entry this save's form was showing, and the mode that follows from it:
-	// with no entry carrying the label the save appends, and with one it writes
-	// in place - as an edit or rename when the draft named it, as an upsert (the
-	// add form's documented "saving replaces it") when it did not. The fallback
-	// index covers the parser-rejected carrier an acceptedEntry lookup misses.
-	const showing = entryShownByForm(accepted?.entry, intent.replaceLabel);
+	// The fallback index covers the parser-rejected carrier an acceptedEntry
+	// lookup misses.
 	const writeIndex = accepted?.index ?? entries.findIndex((item) => declaredEntryLabel(item) === label);
 	const mode: SaveMode =
 		writeIndex === -1
@@ -337,8 +366,20 @@ export async function applySaveServerSetting(
 	const wipesLeftovers = showing === undefined || (mode.kind === "rename" && !mode.willCopy);
 	const overwritten = new Map<SecretFieldId, string | undefined>();
 	try {
-		if (mode.kind === "rename") {
-			await env.copyServerSecrets(mode.oldLabel, label);
+		if (mode.kind === "rename" && mode.willCopy) {
+			// The rename's copy writes the SNAPSHOT the plans resolved from, field
+			// by field, never the source blob as it stands NOW: a concurrent edit
+			// of the old label's blob between the read and this write must not
+			// ride to the new label under a form that never showed it. Fields the
+			// snapshot lacks are deleted when the target held them, so the new
+			// label's whole blob becomes the snapshot; fields neither side held
+			// are skipped - touching them would be a no-op delete whose failure
+			// could abort an otherwise clean save.
+			for (const field of SECRET_FIELD_IDS) {
+				if (storedOld[field] !== undefined || storedNew[field] !== undefined) {
+					await env.storeServerSecret(label, field, storedOld[field]);
+				}
+			}
 		}
 		for (const field of SECRET_FIELD_IDS) {
 			const plan = plans[field];
@@ -383,16 +424,25 @@ export async function applySaveServerSetting(
 		if (restoreFailures.length > 0) {
 			// The durable state DID change: a freshly stored secret survived the
 			// rollback and now resolves for the unchanged entry, so this must not
-			// surface as "nothing landed". A sync is requested too: the failed
-			// settings write fires no configuration event, and the changed secure
-			// value must still reach the provider group (the clean-rollback
-			// rethrow below stays sync-free, nothing durable changed there).
-			// The detail line's field ids and label are webview-legal; neither
-			// reaches the log, which stays classification-only.
+			// surface as "nothing landed". The detail line's field ids and label
+			// are webview-legal; neither reaches the log, which stays
+			// classification-only.
 			env.log("A failed save left a secure value unrestored", {
 				error: error instanceof Error ? error.name : typeof error,
 			});
-			env.requestServerSync();
+			// A sync is requested because the failed settings write fires no
+			// configuration event (the clean-rollback rethrow below stays
+			// sync-free, nothing durable changed there) - but ONLY when the entry
+			// still standing in the setting names the host the user was saving:
+			// a re-point's failed write leaves the OLD base URL standing, and
+			// syncing then would hand the changed credential to the old host. A
+			// create has no standing entry to pair with, so it skips too.
+			if (
+				accepted !== undefined &&
+				normalizeBaseUrl(accepted.entry.baseUrl) === normalizeBaseUrl(intent.server.baseUrl.trim())
+			) {
+				env.requestServerSync();
+			}
 			throw new DashboardOperationError(
 				`${l10n.t(
 					"The save failed and a stored secret may have been left changed. Check it with LiteLLM: Set Server Secret, then redo the edit."
@@ -435,10 +485,19 @@ export async function applySaveServerSetting(
 		}
 	}
 	if (mode.kind === "rename") {
-		try {
-			await env.deleteServerSecrets(mode.oldLabel);
-		} catch {
-			env.log("Post-rename secret cleanup failed; the old label's blob remains");
+		// Presence re-checked at delete time, not assumed from pass start: a
+		// concurrent save may have re-created an entry under the old label, and
+		// this blob is then that entry's live credentials (kept exactly like a
+		// removal keeps blobs). The leftover blob is dormant, so skipping errs
+		// toward keeping a secret, never deleting a live one.
+		if (stillDeclaredIn(env.readServersSetting())(mode.oldLabel)) {
+			env.log("Post-rename secret cleanup skipped; the old label was re-declared");
+		} else {
+			try {
+				await env.deleteServerSecrets(mode.oldLabel);
+			} catch {
+				env.log("Post-rename secret cleanup failed; the old label's blob remains");
+			}
 		}
 	}
 	env.requestServerSync();

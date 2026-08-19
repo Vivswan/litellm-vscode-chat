@@ -85,11 +85,21 @@ const saveServerPayload = fc.record(
 	{ requiredKeys: ["label", "baseUrl", "modelCapabilities", "expectedFailures", "headers", "declaredModels", "budget"] }
 );
 
+const secretLocation = fc.constantFrom("settings", "secure", "none");
+
 const serverDraftPayload = fc.record(
 	{
 		server: saveServerPayload,
 		secrets: secretDirectives,
-		replaceLabel: fc.string(),
+		replace: fc.record({
+			label: fc.string(),
+			baseUrl: fc.string(),
+			secrets: fc.record({
+				apiKey: secretLocation,
+				oauthClientSecret: secretLocation,
+				virtualKeyValue: secretLocation,
+			}),
+		}),
 	},
 	{ requiredKeys: ["server", "secrets"] }
 );

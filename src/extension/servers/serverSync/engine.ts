@@ -15,12 +15,12 @@ import type {
 	SecretFieldId,
 	SecretLocation,
 } from "../../../shared/serverEntry";
-import { OPTIONAL_ENTRY_FIELDS, pickNonSecretOptionalFields, SECRET_FIELD_IDS } from "../../../shared/serverEntry";
+import { OPTIONAL_ENTRY_FIELDS, pickNonSecretOptionalFields } from "../../../shared/serverEntry";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { fingerprint } from "../../../shared/util/fingerprint";
 import { isUnsafeRecordKey } from "../../../shared/util/json";
 import type { StoredServerSecrets } from "./secrets";
-import { inlineSecretValues } from "./secrets";
+import { inlineSecretValues, secretLocations } from "./secrets";
 import type { DeclaredServer, EntryModelCapabilities, EntryModelParameters } from "./setting";
 import { acceptedEntry, parseServersSetting, stillDeclaredIn } from "./setting";
 
@@ -198,15 +198,6 @@ export function buildGroupArgs(entry: DeclaredServer, stored: StoredServerSecret
  */
 function groupArgsFingerprint(args: Record<string, string>): string {
 	return fingerprint(JSON.stringify(args));
-}
-
-function secretLocations(entry: DeclaredServer, stored: StoredServerSecrets): Record<SecretFieldId, SecretLocation> {
-	const inline = inlineSecretValues(entry);
-	const locations = {} as Record<SecretFieldId, SecretLocation>;
-	for (const field of SECRET_FIELD_IDS) {
-		locations[field] = inline[field] !== undefined ? "settings" : stored[field] !== undefined ? "secure" : "none";
-	}
-	return locations;
 }
 
 /**

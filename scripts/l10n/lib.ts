@@ -228,6 +228,7 @@ export const LAZY_L10N_HELPERS: readonly string[] = [
 	"executeDashboardIntent",
 	"applySaveServerSetting",
 	"applyTestServerDraft",
+	"requireEntryShownByForm",
 	"submitGroupSeed",
 	"migrateServersToProviderGroups",
 	"showMutationRefusedNotice",

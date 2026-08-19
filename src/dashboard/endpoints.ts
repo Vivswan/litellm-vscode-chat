@@ -98,6 +98,21 @@ export type SecretDirective =
 	| { readonly action: "set"; readonly location: "settings" | "secure"; readonly value: string };
 
 /**
+ * The entry an edit form is replacing, as the form displayed it: the label
+ * addresses the entry, and the base URL plus per-field secret locations are
+ * the identity the extension re-checks before resolving any "keep" directive.
+ * A label alone would be spoofable by time - an entry swapped in under the
+ * same label while the form was open would hand its credentials to the host
+ * the form shows - so a save or draft test is refused when the label's entry
+ * no longer matches this identity. Locations only, never values.
+ */
+export interface ReplacedEntryIdentity {
+	readonly label: string;
+	readonly baseUrl: string;
+	readonly secrets: Readonly<Record<SecretFieldId, SecretLocation>>;
+}
+
+/**
  * The non-secret half of a servers entry as the form submits it. The label is
  * the entry's identity: the sync engine names the provider group after it, so
  * renaming creates a new group.
@@ -262,21 +277,21 @@ interface DashboardEndpointIO {
 		request: {
 			readonly server: SaveServerPayload;
 			readonly secrets: Readonly<Record<SecretFieldId, SecretDirective>>;
-			/** When editing: the label of the entry to replace (differs from server.label on rename). */
-			readonly replaceLabel?: string | undefined;
+			/** When editing: the displayed identity of the entry to replace (its label differs from server.label on rename). */
+			readonly replace?: ReplacedEntryIdentity | undefined;
 		};
 	};
 	/**
 	 * Test a DRAFT server configuration with one extension-side discovery probe.
 	 * Read-only by contract: nothing is written, synced, or cached. "keep"
-	 * directives resolve against the entry `replaceLabel` names, and the success
+	 * directives resolve against the entry `replace` identifies, and the success
 	 * notice is composed extension-side, never from payload or response text.
 	 */
 	testServerDraft: {
 		request: {
 			readonly server: SaveServerPayload;
 			readonly secrets: Readonly<Record<SecretFieldId, SecretDirective>>;
-			readonly replaceLabel?: string | undefined;
+			readonly replace?: ReplacedEntryIdentity | undefined;
 		};
 	};
 	removeServerSetting: { request: { readonly label: string } };

@@ -225,14 +225,18 @@ suite("extension/dashboard/panelIntegration", () => {
 				{
 					server: serverPayload({ label: "PanelIT-Renamed", baseUrl: "http://localhost:49999" }),
 					secrets: { apiKey: noTouch, oauthClientSecret: noTouch, virtualKeyValue: noTouch },
-					replaceLabel: "PanelIT",
+					replace: {
+						label: "PanelIT",
+						baseUrl: "http://localhost:49999",
+						secrets: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "none" },
+					},
 				},
 				"pi-rename-1"
 			)
 		);
 		assert.strictEqual(renamed, "ok");
 
-		// The location under the NEW label proves copyServerSecrets ran: had the
+		// The location under the NEW label proves the rename's snapshot write ran: had the
 		// blob been orphaned under the old label, the view would read "none" and
 		// the renamed server would silently lose auth.
 		const views = await declaredEventually(
@@ -294,7 +298,11 @@ suite("extension/dashboard/panelIntegration", () => {
 						expectedFailures: ["modelListing", "modelInfo"],
 					}),
 					secrets: { apiKey: noTouch, oauthClientSecret: noTouch, virtualKeyValue: noTouch },
-					replaceLabel: "PanelIT-Caps",
+					replace: {
+						label: "PanelIT-Caps",
+						baseUrl: "http://localhost:49999",
+						secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+					},
 				},
 				"pi-caps-2"
 			)

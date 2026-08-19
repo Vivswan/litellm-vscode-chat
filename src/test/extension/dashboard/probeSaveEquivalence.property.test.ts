@@ -15,13 +15,18 @@
  */
 import * as assert from "node:assert";
 import * as fc from "fast-check";
-import type { RequestPayload, SecretDirective } from "../../../dashboard/endpoints";
+import type { ReplacedEntryIdentity, RequestPayload, SecretDirective } from "../../../dashboard/endpoints";
 import type { ServerFormDraft } from "../../../dashboard/serverForm";
 import { EMPTY_SERVER_FORM, parseServerForm } from "../../../dashboard/serverForm";
 import { executeDashboardIntent } from "../../../extension/dashboard/intents";
-import { entryShownByForm, planResolves, readKeepSources, secretPlans } from "../../../extension/dashboard/saveServer";
+import {
+	planResolves,
+	readKeepSources,
+	requireEntryShownByForm,
+	secretPlans,
+} from "../../../extension/dashboard/saveServer";
 import { buildGroupArgs } from "../../../extension/servers/serverSync/engine";
-import { inlineSecretValues } from "../../../extension/servers/serverSync/secrets";
+import { inlineSecretValues, secretLocations } from "../../../extension/servers/serverSync/secrets";
 import { acceptedEntry } from "../../../extension/servers/serverSync/setting";
 import type { SecretFieldId, SecretLocation } from "../../../shared/serverEntry";
 import { SECRET_FIELD_IDS } from "../../../shared/serverEntry";
@@ -102,6 +107,20 @@ function compact(record: Record<string, unknown>): Record<string, unknown> {
 	return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined));
 }
 
+/**
+ * The replace identity an edit form of `existing` would display: the entry's
+ * own base URL and the pushed secret locations - the production derivation
+ * (secretLocations over the entry and its label's blob).
+ */
+function displayedIdentity(
+	existing: Record<string, unknown>,
+	blob: Partial<Record<SecretFieldId, string>>
+): ReplacedEntryIdentity {
+	const parsed = acceptedEntry([existing], "Prod");
+	assert.ok(parsed !== undefined, "the existing fixtures all parse");
+	return { label: "Prod", baseUrl: parsed.entry.baseUrl, secrets: secretLocations(parsed.entry, blob) };
+}
+
 async function outcomeOf(run: Promise<unknown>): Promise<Error | undefined> {
 	try {
 		await run;
@@ -122,19 +141,20 @@ suite("extension/dashboard: probe-save equivalence", () => {
 				blobArb,
 				orphanArb,
 				// Independent of `existing` on purpose: an entry under the label with
-				// NO replaceLabel is the add form saving onto a taken label, the route
-				// whose secret resolution differs from an edit's.
+				// NO replace identity is the add form saving onto a taken label, the
+				// route whose secret resolution differs from an edit's.
 				fc.boolean(),
 				// The draft's label, independent of the replaced entry's: "Renamed"
-				// with a replaceLabel is a rename, whose keeps must resolve the source
-				// entry alone - never the orphan blob seeded under "Renamed".
+				// with a replace identity is a rename, whose keeps must resolve the
+				// source entry alone - never the orphan blob seeded under "Renamed".
 				fc.constantFrom("Prod", "Renamed"),
 				async (fields, secrets, existing, blob, orphan, declaresReplacement, label) => {
 					const setting = existing !== undefined ? [existing] : [];
+					const replace = existing !== undefined && declaresReplacement ? displayedIdentity(existing, blob) : undefined;
 					const payload = {
 						server: serverPayload({ label, baseUrl: "http://prod.test", ...compact(fields) }),
 						secrets,
-						...(existing !== undefined && declaresReplacement ? { replaceLabel: "Prod" } : {}),
+						...(replace !== undefined ? { replace } : {}),
 					} satisfies RequestPayload<"saveServerSetting">;
 					const seeded = (): RecordedEnv => {
 						const env = makeEnv(setting);
@@ -227,15 +247,16 @@ suite("extension/dashboard: probe-save equivalence", () => {
 					if (label !== "Prod" && Object.keys(orphan).length > 0) {
 						env.storedSecrets.set(label, { ...orphan } as Record<string, string>);
 					}
-					const targetLabel = declaresReplacement ? "Prod" : label;
+					const replace = existing !== undefined && declaresReplacement ? displayedIdentity(existing, blob) : undefined;
+					const targetLabel = replace?.label ?? label;
 					const sources = await readKeepSources(setting, label, targetLabel, (secretsLabel) =>
 						env.env.readServerSecrets(secretsLabel)
 					);
 					// Which entry the form was showing, by the production rule itself:
-					// the edit form names the entry it replaces (replaceLabel), the add
+					// the edit form identifies the entry it replaces (replace), the add
 					// form never does - not even when its label collides with an entry
 					// and the save replaces it.
-					const showing = entryShownByForm(sources.accepted?.entry, declaresReplacement ? "Prod" : undefined);
+					const showing = requireEntryShownByForm(replace, sources);
 					const editing = showing !== undefined;
 					// What that form showed per field. The edit form is prefilled from
 					// the pushed entry locations (serverSync's secretLocations rule:
@@ -268,7 +289,10 @@ suite("extension/dashboard: probe-save equivalence", () => {
 								}))
 							: recordFromKeys(SECRET_FIELD_IDS, (field) => ({ ...EMPTY_SERVER_FORM[field], clear: removals[field] }))),
 					};
-					const parse = parseServerForm(draft, editing ? { originalLabel: "Prod" } : { takenLabels: ["Prod"] });
+					const parse = parseServerForm(
+						draft,
+						editing && replace !== undefined ? { original: replace } : { takenLabels: ["Prod"] }
+					);
 					// An inactive field's directive is clear or keep, nothing else
 					// (parseInactiveSecret never sets); the contested half is the
 					// resolution the parse reports through its problems.

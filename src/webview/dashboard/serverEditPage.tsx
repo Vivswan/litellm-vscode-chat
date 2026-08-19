@@ -6,7 +6,7 @@
 import * as l10n from "@vscode/l10n";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { IntentAckTone } from "../../dashboard/endpoints";
+import type { IntentAckTone, ReplacedEntryIdentity } from "../../dashboard/endpoints";
 import type { GroupProblems, HeaderRow } from "../../dashboard/recordDraft";
 import { toCapabilityGroups, toGroups, toggleExpectedFailure, toHeaderRows } from "../../dashboard/recordDraft";
 import type {
@@ -1180,12 +1180,19 @@ function ServerForm({
 		}
 	}, [testOutcome, testState]);
 
-	const originalLabel = target.kind === "edit" ? target.original.label : undefined;
+	// The identity of the entry this form displays, riding the save and test
+	// intents as `replace`: the extension refuses both when the label's entry
+	// no longer matches it, so "keep" can never resolve credentials this form
+	// never showed. Locations only, never values.
+	const original: ReplacedEntryIdentity | undefined =
+		target.kind === "edit"
+			? { label: target.original.label, baseUrl: target.original.baseUrl, secrets: target.original.config.secrets }
+			: undefined;
 	// One parse per keystroke: it carries either the intent Save posts or the problems the
 	// form renders, so shown and saved can never diverge. Observed keys are the live prop.
 	const parse = parseServerForm(draft, {
 		takenLabels: declaredLabels,
-		...(originalLabel !== undefined ? { originalLabel } : {}),
+		...(original !== undefined ? { original } : {}),
 		...(observedModelInfoKeys !== undefined ? { observedModelInfoKeys } : {}),
 	});
 	const label = draft.label.trim();
@@ -1245,7 +1252,7 @@ function ServerForm({
 		if (testState.kind === "testing" || saving) {
 			return;
 		}
-		const testParse = parseServerFormForTest(draft, originalLabel !== undefined ? { originalLabel } : {});
+		const testParse = parseServerFormForTest(draft, original !== undefined ? { original } : {});
 		if (!testParse.ok) {
 			setTouched((current) => {
 				const next = new Set(current);

@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import type { DashboardIntent, RequestPayload } from "../../../dashboard/endpoints";
+import type { DashboardIntent, ReplacedEntryIdentity, RequestPayload } from "../../../dashboard/endpoints";
 import { DASHBOARD_COMMAND_IDS } from "../../../dashboard/endpoints";
 import type { ServerFormDraft } from "../../../dashboard/serverForm";
 import { applyInlinePrefill, EMPTY_SERVER_FORM, parseServerForm } from "../../../dashboard/serverForm";
@@ -14,11 +14,11 @@ import { buildGroupArgs } from "../../../extension/servers/serverSync/engine";
 import { acceptedEntry, parseServersSetting } from "../../../extension/servers/serverSync/setting";
 import { stripEntrySecrets } from "../../../extension/settingsTransfer/secretSurgery";
 import { isRecord } from "../../../shared/util/json";
-import { KEEP_ALL, makeEnv, type RecordedEnv, serverPayload } from "./recordedEnv";
+import { displayedReplace, KEEP_ALL, makeEnv, type RecordedEnv, replaceIdentity, serverPayload } from "./recordedEnv";
 
 /** The intent body a clean draft parses to; fails the test if the draft has problems. */
-function parseClean(draft: ServerFormDraft, originalLabel: string) {
-	const parse = parseServerForm(draft, { originalLabel });
+function parseClean(draft: ServerFormDraft, original: ReplacedEntryIdentity) {
+	const parse = parseServerForm(draft, { original });
 	assert.ok(parse.ok, "the draft must parse clean");
 	return parse.intent;
 }
@@ -313,7 +313,7 @@ suite("extension/dashboard/intents", () => {
 		});
 
 		test("the add form saving onto a taken label replaces the entry without inheriting its credentials", async () => {
-			// No replaceLabel means the blank add form: it showed no credentials,
+			// No replace identity means the blank add form: it showed no credentials,
 			// so the replacement carries none - neither the replaced entry's inline
 			// key nor the label's stored blob may follow the new base URL.
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://old.test", auth: { apiKey: "sk-inline-old" } }]);
@@ -365,11 +365,13 @@ suite("extension/dashboard/intents", () => {
 			// tolerated the second (a fragment never claims its label).
 			const refused = makeEnv([{ label: "A", baseUrl: "http://a.test" }, { label: "B" }]);
 			await assert.rejects(
-				save(refused, { server: serverPayload({ label: "B", baseUrl: "http://a.test" }), replaceLabel: "A" }),
+				save(refused, {
+					server: serverPayload({ label: "B", baseUrl: "http://a.test" }),
+					replace: await displayedReplace(refused, "A"),
+				}),
 				/already exists/
 			);
 			assert.deepStrictEqual(refused.serverWrites, []);
-			assert.deepStrictEqual(refused.secretCopies, []);
 			assert.deepStrictEqual(refused.secretOps, []);
 
 			const replaced = makeEnv([{ label: "B" }]);
@@ -389,7 +391,7 @@ suite("extension/dashboard/intents", () => {
 			]);
 			await save(recorded, {
 				server: serverPayload({ label: "Prod", baseUrl: "http://new.test" }),
-				replaceLabel: "Prod",
+				replace: await displayedReplace(recorded, "Prod"),
 			});
 
 			assert.deepStrictEqual(recorded.serverWrites, [
@@ -399,7 +401,7 @@ suite("extension/dashboard/intents", () => {
 					{ label: "Z", baseUrl: "http://z.test" },
 				],
 			]);
-			assert.deepStrictEqual(recorded.secretCopies, [], "no rename, no copy");
+			assert.deepStrictEqual(recorded.secretOps, [], "no rename, no secret traffic");
 			assert.deepStrictEqual(recorded.secretDeletes, []);
 		});
 
@@ -417,7 +419,7 @@ suite("extension/dashboard/intents", () => {
 			]);
 			await save(recorded, {
 				server: serverPayload({ label: "Prod", baseUrl: "http://new.test" }),
-				replaceLabel: "Prod",
+				replace: await displayedReplace(recorded, "Prod"),
 			});
 
 			assert.deepStrictEqual(recorded.serverWrites, [[{ label: "Prod", baseUrl: "http://new.test" }]]);
@@ -433,7 +435,7 @@ suite("extension/dashboard/intents", () => {
 					declaredModels: ["deepseek-r1"],
 					budget: 50,
 				}),
-				replaceLabel: "Prod",
+				replace: await displayedReplace(recorded, "Prod"),
 			});
 
 			assert.deepStrictEqual(recorded.serverWrites, [
@@ -476,7 +478,7 @@ suite("extension/dashboard/intents", () => {
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://old.test", apiVersion: "v2" }]);
 			await save(recorded, {
 				server: serverPayload({ label: "Prod", baseUrl: "http://old.test" }),
-				replaceLabel: "Prod",
+				replace: await displayedReplace(recorded, "Prod"),
 			});
 
 			assert.deepStrictEqual(recorded.serverWrites, [[{ label: "Prod", baseUrl: "http://old.test" }]]);
@@ -518,7 +520,7 @@ suite("extension/dashboard/intents", () => {
 		test("junk sibling entries survive a save verbatim", async () => {
 			const junk = ["not an object", 42, { baseUrl: "http://no-label.test" }];
 			const recorded = makeEnv([junk[0], { label: "Prod", baseUrl: "http://old.test" }, junk[1], junk[2]]);
-			await save(recorded, { replaceLabel: "Prod" });
+			await save(recorded, { replace: await displayedReplace(recorded, "Prod") });
 
 			assert.deepStrictEqual(recorded.serverWrites, [
 				[junk[0], { label: "Prod", baseUrl: "http://prod.test" }, junk[1], junk[2]],
@@ -536,7 +538,7 @@ suite("extension/dashboard/intents", () => {
 			]);
 			await save(recorded, {
 				server: serverPayload({ label: "Prod", baseUrl: "http://new.test" }),
-				replaceLabel: "Prod",
+				replace: await displayedReplace(recorded, "Prod"),
 			});
 
 			assert.deepStrictEqual(recorded.serverWrites, [
@@ -575,7 +577,7 @@ suite("extension/dashboard/intents", () => {
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test", auth: { apiKey: "sk-old" } }]);
 			await save(recorded, {
 				secrets: { ...KEEP_ALL, apiKey: { action: "clear" } },
-				replaceLabel: "Prod",
+				replace: await displayedReplace(recorded, "Prod"),
 			});
 
 			assert.deepStrictEqual(recorded.secretOps, [["Prod", "apiKey", undefined]]);
@@ -599,7 +601,7 @@ suite("extension/dashboard/intents", () => {
 				readInlineSecretValues([entry], "Prod")
 			);
 			assert.strictEqual(prefilled.apiKey.value, "sk-inline", "the form shows the inline value");
-			const assembled = parseClean(prefilled, "Prod");
+			const assembled = parseClean(prefilled, replaceIdentity("Prod", "http://prod.test", { apiKey: "settings" }));
 			assert.deepStrictEqual(assembled.secrets.apiKey, { action: "keep" }, "untouched prefill assembles as keep");
 			await executeDashboardIntent({ method: "saveServerSetting", payload: { ...assembled } }, recorded.env);
 
@@ -620,7 +622,7 @@ suite("extension/dashboard/intents", () => {
 				readInlineSecretValues(recorded.env.readServersSetting(), "Prod")
 			);
 			const edited = { ...prefilled, apiKey: { ...prefilled.apiKey, value: "sk-rotated" } };
-			const assembled = parseClean(edited, "Prod");
+			const assembled = parseClean(edited, replaceIdentity("Prod", "http://prod.test", { apiKey: "settings" }));
 			assert.deepStrictEqual(assembled.secrets.apiKey, { action: "set", location: "settings", value: "sk-rotated" });
 			await executeDashboardIntent({ method: "saveServerSetting", payload: { ...assembled } }, recorded.env);
 
@@ -636,7 +638,7 @@ suite("extension/dashboard/intents", () => {
 			await assert.rejects(
 				save(recorded, {
 					secrets: { ...KEEP_ALL, apiKey: { action: "set", location: "secure", value: "sk-new" } },
-					replaceLabel: "Prod",
+					replace: await displayedReplace(recorded, "Prod"),
 				}),
 				/disk full/
 			);
@@ -658,7 +660,7 @@ suite("extension/dashboard/intents", () => {
 			await assert.rejects(
 				save(recorded, {
 					secrets: { ...KEEP_ALL, apiKey: { action: "set", location: "secure", value: "sk-new" } },
-					replaceLabel: "Prod",
+					replace: await displayedReplace(recorded, "Prod"),
 				}),
 				/disk full/
 			);
@@ -683,7 +685,7 @@ suite("extension/dashboard/intents", () => {
 						oauthClientSecret: { action: "set", location: "secure", value: "cs-new" },
 						virtualKeyValue: { action: "keep" },
 					},
-					replaceLabel: "Prod",
+					replace: await displayedReplace(recorded, "Prod"),
 				})
 			);
 
@@ -699,7 +701,10 @@ suite("extension/dashboard/intents", () => {
 			recorded.storedSecrets.set("New", { virtualKeyValue: "vk-orphan" });
 			recorded.failWrites = new Error("disk full");
 			await assert.rejects(
-				save(recorded, { server: serverPayload({ label: "New", baseUrl: "http://prod.test" }), replaceLabel: "Old" })
+				save(recorded, {
+					server: serverPayload({ label: "New", baseUrl: "http://prod.test" }),
+					replace: await displayedReplace(recorded, "Old"),
+				})
 			);
 
 			assert.deepStrictEqual(
@@ -719,7 +724,7 @@ suite("extension/dashboard/intents", () => {
 			await assert.rejects(
 				save(recorded, {
 					secrets: { ...KEEP_ALL, apiKey: { action: "set", location: "secure", value: "sk-new" } },
-					replaceLabel: "Prod",
+					replace: await displayedReplace(recorded, "Prod"),
 				}),
 				(error: unknown) =>
 					error instanceof DashboardOperationError &&
@@ -741,7 +746,10 @@ suite("extension/dashboard/intents", () => {
 			recorded.failWrites = new Error("disk full");
 			recorded.failUnstore = new Error("keychain locked");
 			await assert.rejects(
-				save(recorded, { server: serverPayload({ label: "New", baseUrl: "http://prod.test" }), replaceLabel: "Old" }),
+				save(recorded, {
+					server: serverPayload({ label: "New", baseUrl: "http://prod.test" }),
+					replace: await displayedReplace(recorded, "Old"),
+				}),
 				(error: unknown) =>
 					error instanceof DashboardOperationError &&
 					// Only the fields a side actually held are reported: the wholesale
@@ -759,7 +767,10 @@ suite("extension/dashboard/intents", () => {
 			recorded.storedSecrets.set("Prod", { apiKey: "sk-old" });
 			recorded.failUnstore = new Error("keychain locked");
 			await assert.rejects(
-				save(recorded, { secrets: { ...KEEP_ALL, apiKey: { action: "clear" } }, replaceLabel: "Prod" }),
+				save(recorded, {
+					secrets: { ...KEEP_ALL, apiKey: { action: "clear" } },
+					replace: await displayedReplace(recorded, "Prod"),
+				}),
 				(error: unknown) =>
 					error instanceof DashboardOperationError &&
 					error.message.includes("Edit the server and retry") &&
@@ -777,7 +788,10 @@ suite("extension/dashboard/intents", () => {
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
 			recorded.storedSecrets.set("Prod", { apiKey: "sk-old" });
 			recorded.failUnstoreTimes = 1;
-			await save(recorded, { secrets: { ...KEEP_ALL, apiKey: { action: "clear" } }, replaceLabel: "Prod" });
+			await save(recorded, {
+				secrets: { ...KEEP_ALL, apiKey: { action: "clear" } },
+				replace: await displayedReplace(recorded, "Prod"),
+			});
 
 			assert.strictEqual(recorded.storedSecrets.get("Prod")?.apiKey, undefined, "the retry removed the secret");
 		});
@@ -792,7 +806,7 @@ suite("extension/dashboard/intents", () => {
 			await save(recorded, {
 				server: serverPayload({ label: "New", baseUrl: "http://prod.test" }),
 				secrets: { ...KEEP_ALL, apiKey: { action: "set", location: "settings", value: "sk-inline" } },
-				replaceLabel: "Old",
+				replace: await displayedReplace(recorded, "Old"),
 			});
 
 			assert.strictEqual(recorded.serverWrites.length, 1);
@@ -804,7 +818,7 @@ suite("extension/dashboard/intents", () => {
 
 		test("edits and removals find hand-written entries whose labels carry whitespace", async () => {
 			const edited = makeEnv([{ label: " Prod ", baseUrl: "http://old.test" }]);
-			await save(edited, { replaceLabel: "Prod" });
+			await save(edited, { replace: await displayedReplace(edited, "Prod") });
 			assert.deepStrictEqual(edited.serverWrites, [[{ label: "Prod", baseUrl: "http://prod.test" }]]);
 
 			const removed = makeEnv([{ label: " Prod ", baseUrl: "http://old.test" }]);
@@ -817,7 +831,7 @@ suite("extension/dashboard/intents", () => {
 			recorded.storedSecrets.set("Old", { virtualKeyValue: "vk-1" });
 			await save(recorded, {
 				server: serverPayload({ label: "New", baseUrl: "http://prod.test", virtualKeyHeader: "x-vk" }),
-				replaceLabel: "Old",
+				replace: await displayedReplace(recorded, "Old"),
 			});
 
 			assert.strictEqual(recorded.serverWrites.length, 1, "the old label's secure value satisfies the pair");
@@ -833,7 +847,7 @@ suite("extension/dashboard/intents", () => {
 			await assert.rejects(
 				save(recorded, {
 					server: serverPayload({ label: "New", baseUrl: "http://prod.test", virtualKeyHeader: "x-vk" }),
-					replaceLabel: "Old",
+					replace: await displayedReplace(recorded, "Old"),
 				}),
 				/virtualKeyValue/
 			);
@@ -847,7 +861,7 @@ suite("extension/dashboard/intents", () => {
 			recorded.storedSecrets.set("New", { apiKey: "sk-orphan", virtualKeyValue: "vk-orphan" });
 			await save(recorded, {
 				server: serverPayload({ label: "New", baseUrl: "http://prod.test" }),
-				replaceLabel: "Old",
+				replace: await displayedReplace(recorded, "Old"),
 			});
 
 			assert.deepStrictEqual(recorded.storedSecrets.get("New"), {}, "the retired label's leftover blob is wiped");
@@ -858,7 +872,7 @@ suite("extension/dashboard/intents", () => {
 			);
 			assert.deepStrictEqual(
 				recorded.ops,
-				["copy:Old->New", "unstore:New.apiKey", "unstore:New.virtualKeyValue", "write", "deleteBlob:Old"],
+				["unstore:New.apiKey", "unstore:New.virtualKeyValue", "write", "deleteBlob:Old"],
 				"the wipe runs inside the guarded unit, before the write"
 			);
 		});
@@ -869,7 +883,7 @@ suite("extension/dashboard/intents", () => {
 			recorded.storedSecrets.set("New", { virtualKeyValue: "vk-orphan" });
 			await save(recorded, {
 				server: serverPayload({ label: "New", baseUrl: "http://prod.test" }),
-				replaceLabel: "Old",
+				replace: await displayedReplace(recorded, "Old"),
 			});
 
 			assert.deepStrictEqual(recorded.storedSecrets.get("New"), { apiKey: "sk-old" }, "the orphan does not survive");
@@ -880,7 +894,10 @@ suite("extension/dashboard/intents", () => {
 			recorded.storedSecrets.set("New", { apiKey: "sk-orphan" });
 			recorded.failWrites = new Error("disk full");
 			await assert.rejects(
-				save(recorded, { server: serverPayload({ label: "New", baseUrl: "http://prod.test" }), replaceLabel: "Old" }),
+				save(recorded, {
+					server: serverPayload({ label: "New", baseUrl: "http://prod.test" }),
+					replace: await displayedReplace(recorded, "Old"),
+				}),
 				/disk full/
 			);
 
@@ -902,34 +919,41 @@ suite("extension/dashboard/intents", () => {
 			await assert.rejects(
 				save(recorded, {
 					server: serverPayload({ label: "New", baseUrl: "http://prod.test", virtualKeyHeader: "x-vk" }),
-					replaceLabel: "Old",
+					replace: await displayedReplace(recorded, "Old"),
 				}),
 				/virtualKeyValue/
 			);
 		});
 
-		test("a rename copies the blob before the write and deletes the old one after it", async () => {
+		test("a rename writes the source snapshot before the write and deletes the old blob after it", async () => {
 			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
+			recorded.storedSecrets.set("Old", { apiKey: "sk-old" });
 			await save(recorded, {
 				server: serverPayload({ label: "New", baseUrl: "http://prod.test" }),
-				replaceLabel: "Old",
+				replace: await displayedReplace(recorded, "Old"),
 			});
 
-			assert.deepStrictEqual(recorded.secretCopies, [["Old", "New"]]);
+			assert.deepStrictEqual(recorded.storedSecrets.get("New"), { apiKey: "sk-old" });
 			assert.deepStrictEqual(recorded.secretDeletes, ["Old"]);
 			assert.deepStrictEqual(recorded.serverWrites, [[{ label: "New", baseUrl: "http://prod.test" }]]);
-			assert.deepStrictEqual(recorded.ops, ["copy:Old->New", "write", "deleteBlob:Old"]);
+			assert.deepStrictEqual(
+				recorded.ops,
+				["store:New.apiKey", "write", "deleteBlob:Old"],
+				"the snapshot write replaces the copy inside the guarded unit"
+			);
 		});
 
 		test("a rename whose settings write rejects leaves the old label's secrets intact", async () => {
 			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
 			recorded.failWrites = new Error("disk full");
 			await assert.rejects(
-				save(recorded, { server: serverPayload({ label: "New", baseUrl: "http://prod.test" }), replaceLabel: "Old" }),
+				save(recorded, {
+					server: serverPayload({ label: "New", baseUrl: "http://prod.test" }),
+					replace: await displayedReplace(recorded, "Old"),
+				}),
 				/disk full/
 			);
 
-			assert.deepStrictEqual(recorded.secretCopies, [["Old", "New"]], "the additive copy may have happened");
 			assert.deepStrictEqual(recorded.secretDeletes, [], "the old blob must survive the failed write");
 			assert.deepStrictEqual(recorded.secretOps, [], "no clears before or after a failed write");
 			assert.strictEqual(recorded.syncRequests, 0);
@@ -941,12 +965,14 @@ suite("extension/dashboard/intents", () => {
 				{ label: "B", baseUrl: "http://b.test" },
 			]);
 			await assert.rejects(
-				save(recorded, { server: serverPayload({ label: "B", baseUrl: "http://a.test" }), replaceLabel: "A" }),
+				save(recorded, {
+					server: serverPayload({ label: "B", baseUrl: "http://a.test" }),
+					replace: await displayedReplace(recorded, "A"),
+				}),
 				/already exists/
 			);
 
 			assert.deepStrictEqual(recorded.serverWrites, []);
-			assert.deepStrictEqual(recorded.secretCopies, []);
 			assert.deepStrictEqual(recorded.secretOps, []);
 		});
 
@@ -958,20 +984,134 @@ suite("extension/dashboard/intents", () => {
 				{ label: "B", baseUrl: "http://b.test", auth: {} },
 			]);
 			await assert.rejects(
-				save(recorded, { server: serverPayload({ label: "B", baseUrl: "http://a.test" }), replaceLabel: "A" }),
+				save(recorded, {
+					server: serverPayload({ label: "B", baseUrl: "http://a.test" }),
+					replace: await displayedReplace(recorded, "A"),
+				}),
 				/already exists/
 			);
 
 			assert.deepStrictEqual(recorded.serverWrites, []);
-			assert.deepStrictEqual(recorded.secretCopies, []);
 			assert.deepStrictEqual(recorded.secretOps, []);
 		});
 
 		test("an edit whose entry vanished from the setting is refused instead of appending a duplicate", async () => {
 			const recorded = makeEnv([{ label: "Other", baseUrl: "http://other.test" }]);
-			await assert.rejects(save(recorded, { replaceLabel: "Gone" }), /no longer exists/);
+			await assert.rejects(
+				save(recorded, { replace: replaceIdentity("Gone", "http://gone.test") }),
+				/no longer exists/
+			);
 
 			assert.deepStrictEqual(recorded.serverWrites, []);
+		});
+
+		test("an edit whose label was re-pointed at another host while the form was open is refused", async () => {
+			// The form displayed Prod at old.test; another window swapped in an
+			// entry at attacker.test under the same label. A label-only lookup
+			// would resolve THAT entry's credentials for the "keep" directives and
+			// write a mixed entry; the displayed identity refuses instead.
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://attacker.test", auth: { apiKey: "sk-new" } }]);
+			await assert.rejects(
+				save(recorded, {
+					server: serverPayload({ label: "Prod", baseUrl: "http://old.test" }),
+					replace: replaceIdentity("Prod", "http://old.test"),
+				}),
+				/changed in the servers setting/
+			);
+
+			assert.deepStrictEqual(recorded.serverWrites, [], "a mismatched identity must write nothing");
+			assert.deepStrictEqual(recorded.secretOps, [], "no secret is touched either");
+			assert.strictEqual(recorded.syncRequests, 0);
+		});
+
+		test("an edit whose secret locations moved underneath the form is refused too", async () => {
+			// Same label, same host, but the credential shape changed: the form
+			// showed no API key, the entry now carries an inline one. "keep" would
+			// silently adopt a credential the form never displayed.
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test", auth: { apiKey: "sk-swapped" } }]);
+			await assert.rejects(
+				save(recorded, { replace: replaceIdentity("Prod", "http://prod.test") }),
+				/changed in the servers setting/
+			);
+
+			assert.deepStrictEqual(recorded.serverWrites, []);
+			assert.deepStrictEqual(recorded.secretOps, []);
+		});
+
+		test("the identity refusal is validation-kind: nothing durable happened, the form stays editable", async () => {
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://moved.test" }]);
+			await assert.rejects(
+				save(recorded, { replace: replaceIdentity("Prod", "http://prod.test") }),
+				(error: unknown) => error instanceof Error && error.name === "DashboardValidationError"
+			);
+		});
+
+		test("a re-point whose write and rollback both fail does NOT request a sync: the standing entry names the old host", async () => {
+			// The setting still holds Prod at old.test; the unrestored secure value
+			// is the credential typed for new.test. A sync here would hand the new
+			// credential to the old host, so the gate keeps it un-requested (the
+			// next save or manual sync serves truth).
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://old.test" }]);
+			recorded.failWrites = new Error("disk full");
+			recorded.failUnstore = new Error("keychain locked");
+			await assert.rejects(
+				save(recorded, {
+					server: serverPayload({ label: "Prod", baseUrl: "http://new.test" }),
+					secrets: { ...KEEP_ALL, apiKey: { action: "set", location: "secure", value: "sk-for-new-host" } },
+					replace: await displayedReplace(recorded, "Prod"),
+				}),
+				(error: unknown) => error instanceof DashboardOperationError
+			);
+
+			assert.strictEqual(recorded.storedSecrets.get("Prod")?.apiKey, "sk-for-new-host", "the value is stranded");
+			assert.strictEqual(recorded.syncRequests, 0, "no sync may pair the old host with the new credential");
+		});
+
+		test("a rename's copy writes the snapshot the form resolved, not a source blob edited mid-save", async () => {
+			// Another window rotates Old's stored key between this save's plan read
+			// and its guarded unit. The copy must carry the SNAPSHOT the form's
+			// keep directive meant; a copy re-reading the source would move the
+			// rotated value to the new label under a form that never showed it.
+			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
+			recorded.storedSecrets.set("Old", { apiKey: "sk-shown" });
+			recorded.onSecretsRead = (label) => {
+				if (label === "Old") {
+					recorded.storedSecrets.set("Old", { apiKey: "sk-rotated-elsewhere" });
+					recorded.onSecretsRead = undefined;
+				}
+			};
+			await save(recorded, {
+				server: serverPayload({ label: "New", baseUrl: "http://prod.test" }),
+				replace: replaceIdentity("Old", "http://prod.test", { apiKey: "secure" }),
+			});
+
+			assert.deepStrictEqual(
+				recorded.storedSecrets.get("New"),
+				{ apiKey: "sk-shown" },
+				"the new label serves the snapshot the form displayed"
+			);
+		});
+
+		test("a rename skips the old label's blob delete when a concurrent save re-declared the label", async () => {
+			// Between the settings write and the cleanup another window re-created
+			// an entry under Old; its blob is now live credentials, kept exactly
+			// like a removal keeps blobs.
+			const recorded = makeEnv([{ label: "Old", baseUrl: "http://prod.test" }]);
+			recorded.storedSecrets.set("Old", { apiKey: "sk-live" });
+			recorded.afterWrite = (current) => {
+				current.push({ label: "Old", baseUrl: "http://elsewhere.test" });
+			};
+			await save(recorded, {
+				server: serverPayload({ label: "New", baseUrl: "http://prod.test" }),
+				replace: replaceIdentity("Old", "http://prod.test", { apiKey: "secure" }),
+			});
+
+			assert.deepStrictEqual(recorded.secretDeletes, [], "the re-declared label keeps its blob");
+			assert.deepStrictEqual(recorded.storedSecrets.get("Old"), { apiKey: "sk-live" });
+			assert.ok(
+				recorded.logs.some(([message]) => message.includes("old label was re-declared")),
+				"the skip logs a classification"
+			);
 		});
 
 		test("OAuth pairing is enforced at the boundary: a token URL without a client ID never saves", async () => {
@@ -1008,28 +1148,34 @@ suite("extension/dashboard/intents", () => {
 
 			const storedSecretOnly = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
 			storedSecretOnly.storedSecrets.set("Prod", { oauthClientSecret: "cs-stored" });
-			await assert.rejects(save(storedSecretOnly, { replaceLabel: "Prod" }), /oauthTokenUrl/);
+			await assert.rejects(
+				save(storedSecretOnly, { replace: await displayedReplace(storedSecretOnly, "Prod") }),
+				/oauthTokenUrl/
+			);
 
 			const cleared = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
 			cleared.storedSecrets.set("Prod", { oauthClientSecret: "cs-stored" });
 			await save(cleared, {
 				secrets: { ...KEEP_ALL, oauthClientSecret: { action: "clear" } },
-				replaceLabel: "Prod",
+				replace: await displayedReplace(cleared, "Prod"),
 			});
 			assert.strictEqual(cleared.serverWrites.length, 1, "clearing the dangling secret makes the entry savable");
 		});
 
-		test("a padded replaceLabel targets the trimmed label's secret blob, not a padded key", async () => {
+		test("a padded replace label targets the trimmed label's secret blob, not a padded key", async () => {
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test" }]);
 			recorded.storedSecrets.set("Prod", { apiKey: "sk-old" });
 			await save(recorded, {
 				server: serverPayload({ label: "Renamed", baseUrl: "http://prod.test" }),
-				replaceLabel: " Prod ",
+				replace: replaceIdentity(" Prod ", "http://prod.test", { apiKey: "secure" }),
 			});
 
-			assert.deepStrictEqual(recorded.secretCopies, [["Prod", "Renamed"]], "the copy reads the trimmed label");
+			assert.deepStrictEqual(
+				recorded.storedSecrets.get("Renamed"),
+				{ apiKey: "sk-old" },
+				"the snapshot reads the trimmed label"
+			);
 			assert.deepStrictEqual(recorded.secretDeletes, ["Prod"], "the cleanup deletes the trimmed label");
-			assert.deepStrictEqual(recorded.storedSecrets.get("Renamed"), { apiKey: "sk-old" });
 		});
 
 		test("virtual key pairing is enforced against the resolved secrets", async () => {
@@ -1045,7 +1191,7 @@ suite("extension/dashboard/intents", () => {
 			secureValue.storedSecrets.set("Prod", { virtualKeyValue: "vk-stored" });
 			await save(secureValue, {
 				server: serverPayload({ label: "Prod", baseUrl: "http://prod.test", virtualKeyHeader: "x-vk" }),
-				replaceLabel: "Prod",
+				replace: await displayedReplace(secureValue, "Prod"),
 			});
 			assert.strictEqual(secureValue.serverWrites.length, 1, "an edit's kept secure value satisfies the pair");
 

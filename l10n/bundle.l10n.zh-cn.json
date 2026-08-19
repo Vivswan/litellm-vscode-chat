@@ -824,6 +824,7 @@
  "The conversation is too long for this model - trim it, remove attachments, or start a new chat.": "对话对于此模型来说过长 - 请精简对话、移除附件, 或开始新的聊天。",
  "The deepest reasoning tier, on models that offer one": "最深的推理档位, 用于提供该档的模型",
  "The draft's credentials do not form a valid server entry": "草稿的凭据无法构成有效的服务器条目",
+ "The entry being edited changed in the servers setting while the form was open; close the form and retry": "表单打开期间, 正在编辑的条目在 servers 设置中发生了变化; 请关闭表单后重试",
  "The entry being edited no longer exists in the servers setting; close the form and retry": "正在编辑的条目已不存在于 servers 设置中; 请关闭表单后重试",
  "The extension's settings, same as the Settings editor. Reset removes your value so the next scope's value or the built-in default shows through.": "扩展的设置, 与设置编辑器相同。「重置」会删除你的值, 让下一个作用域的值或内置默认值生效。",
  "The fastest reasoning tier, on models that offer one below Low": "最快的推理档位, 用于提供低于 Low 档的模型",

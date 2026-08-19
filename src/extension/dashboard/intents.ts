@@ -100,8 +100,6 @@ export interface IntentEnvironment {
 	storeServerSecret(label: string, field: SecretFieldId, value: string | undefined): Promise<void>;
 	/** A label's secure-side blob; read for pairing validation and write rollback, never logged. */
 	readServerSecrets(label: string): Promise<Partial<Readonly<Record<SecretFieldId, string>>>>;
-	/** Copy a label's secure-side secrets to a new name (the additive half of a rename). */
-	copyServerSecrets(fromLabel: string, toLabel: string): Promise<void>;
 	/** Delete a label's whole secure-side blob (the cleanup half of a rename). */
 	deleteServerSecrets(label: string): Promise<void>;
 	/** Ask the sync engine for a pass; secure-only changes fire no configuration event. */

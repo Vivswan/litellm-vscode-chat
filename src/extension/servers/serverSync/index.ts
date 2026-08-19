@@ -24,10 +24,10 @@ export {
 } from "./engine";
 export type { SecretStore, StoredServerSecrets } from "./secrets";
 export {
-	copyServerSecrets,
 	deleteServerSecrets,
 	inlineSecretValues,
 	readServerSecrets,
+	secretLocations,
 	updateServerSecret,
 } from "./secrets";
 export type { DeclaredServer, ServerEntryReport } from "./setting";

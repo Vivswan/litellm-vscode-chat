@@ -42,7 +42,7 @@ import type { NumberSettingId } from "../../../shared/config/settingSpec";
 import { normalizeBaseUrl } from "../../../shared/util/baseUrl";
 import { assertOmits, makeModelInfo } from "../../pureHelpers";
 import { makeServerStatus } from "../../testUtils";
-import { KEEP_ALL, makeEnv, type RecordedEnv, serverPayload } from "./recordedEnv";
+import { displayedReplace, KEEP_ALL, makeEnv, type RecordedEnv, replaceIdentity, serverPayload } from "./recordedEnv";
 
 /** The menu the built-in default level list produces; fixtures here carry no per-level server flags. */
 const REASONING_EFFORT_SCHEMA = reasoningEffortSchema(DEFAULT_REASONING_EFFORT_LEVELS);
@@ -2246,7 +2246,11 @@ suite("extension/dashboard/state", () => {
 						oauthClientSecret: { action: "clear" },
 						virtualKeyValue: { action: "set", location: "settings", value: "vk-1" },
 					},
-					replaceLabel: "Old Prod",
+					replace: {
+						label: "Old Prod",
+						baseUrl: "http://old.test",
+						secrets: { apiKey: "secure", oauthClientSecret: "none", virtualKeyValue: "none" },
+					},
 				}),
 				req("removeServerSetting", { label: "Prod" }),
 				req("testServerDraft", {
@@ -2256,7 +2260,11 @@ suite("extension/dashboard/state", () => {
 				req("testServerDraft", {
 					server: serverPayload({ label: "Prod", baseUrl: "http://prod.test" }),
 					secrets: { ...KEEP_ALL, apiKey: { action: "set", location: "secure", value: "sk-1" } },
-					replaceLabel: "Prod",
+					replace: {
+						label: "Prod",
+						baseUrl: "http://prod.test",
+						secrets: { apiKey: "none", oauthClientSecret: "none", virtualKeyValue: "none" },
+					},
 				}),
 				req("readInlineSecrets", { label: "Prod" }),
 				req("adoptServer", {
@@ -2756,7 +2764,7 @@ suite("extension/dashboard/state", () => {
 					baseUrl: "http://prod.test",
 					declaredModels: ["my-model", "gpt-4"],
 				}),
-				replaceLabel: "Prod",
+				replace: await displayedReplace(recorded, "Prod"),
 			});
 			// gpt-4 is discovered, so its declaration is inert; my-model adds one.
 			assert.strictEqual(notice, "Connected - 2 models (1 declared)");
@@ -2767,7 +2775,7 @@ suite("extension/dashboard/state", () => {
 			recorded.probeResult = [];
 			const notice = await draftTest(recorded, {
 				server: serverPayload({ label: "Prod", baseUrl: "http://prod.test", declaredModels: ["my-model"] }),
-				replaceLabel: "Prod",
+				replace: await displayedReplace(recorded, "Prod"),
 			});
 			assert.strictEqual(notice, "Connected - 1 model (declared)");
 		});
@@ -2784,7 +2792,7 @@ suite("extension/dashboard/state", () => {
 					baseUrl: "http://prod.test",
 					headers: { "x-cf-access": "token-1" },
 				}),
-				replaceLabel: "Prod",
+				replace: await displayedReplace(recorded, "Prod"),
 			});
 			assert.deepStrictEqual(recorded.probes[0]?.headers, { "x-cf-access": "token-1" });
 		});
@@ -2802,7 +2810,7 @@ suite("extension/dashboard/state", () => {
 					declaredModels: ["my-model"],
 					expectedFailures: ["modelListing"],
 				}),
-				replaceLabel: "Prod",
+				replace: await displayedReplace(recorded, "Prod"),
 			});
 			assert.strictEqual(notice, "Discovery failed (expected) - serving 1 declared model");
 			// The draft's expectedFailures reach the probe in discovery's
@@ -2862,7 +2870,7 @@ suite("extension/dashboard/state", () => {
 					oauthClientId: "client-1",
 					oauthScopes: "read write",
 				}),
-				replaceLabel: "Prod",
+				replace: await displayedReplace(recorded, "Prod"),
 			});
 
 			assert.deepStrictEqual(recorded.probes, [
@@ -2906,7 +2914,7 @@ suite("extension/dashboard/state", () => {
 			]);
 		});
 
-		test("the add form over a taken label probes credential-less: no replaceLabel, nothing resolves", async () => {
+		test("the add form over a taken label probes credential-less: no replace identity, nothing resolves", async () => {
 			// The add form never names an entry to replace, so neither the entry's
 			// inline key nor the label's stored blob may be probed against the newly
 			// typed base URL - the save writes the same credential-less entry.
@@ -2927,7 +2935,7 @@ suite("extension/dashboard/state", () => {
 			recorded.storedSecrets.set("New", { apiKey: "sk-orphan" });
 			await draftTest(recorded, {
 				server: serverPayload({ label: "New", baseUrl: "http://prod.test" }),
-				replaceLabel: "Old",
+				replace: await displayedReplace(recorded, "Old"),
 			});
 
 			assert.deepStrictEqual(recorded.probes, [
@@ -2939,7 +2947,7 @@ suite("extension/dashboard/state", () => {
 			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://prod.test", apiKey: "sk-inline" }]);
 			await draftTest(recorded, {
 				secrets: { ...KEEP_ALL, apiKey: { action: "clear" } },
-				replaceLabel: "Prod",
+				replace: await displayedReplace(recorded, "Prod"),
 			});
 
 			assert.deepStrictEqual(recorded.probes, [
@@ -3002,7 +3010,38 @@ suite("extension/dashboard/state", () => {
 
 		test("editing an entry that vanished is refused like the save path", async () => {
 			const recorded = makeEnv([]);
-			await assert.rejects(draftTest(recorded, { replaceLabel: "Gone" }), /no longer exists/);
+			await assert.rejects(
+				draftTest(recorded, { replace: replaceIdentity("Gone", "http://gone.test") }),
+				/no longer exists/
+			);
+			assert.deepStrictEqual(recorded.probes, []);
+		});
+
+		test("a probe for an entry swapped underneath the form is refused before any network call", async () => {
+			// The form displayed Prod at old.test with no credentials; another
+			// window replaced the entry with one at old.test carrying an inline
+			// key. A label-only lookup would resolve THAT key for "keep" and send
+			// it wherever the draft's base URL points; the identity refuses first.
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://old.test", auth: { apiKey: "sk-swapped-in" } }]);
+			await assert.rejects(
+				draftTest(recorded, {
+					server: serverPayload({ label: "Prod", baseUrl: "http://old.test" }),
+					replace: replaceIdentity("Prod", "http://old.test"),
+				}),
+				/changed in the servers setting/
+			);
+			assert.deepStrictEqual(recorded.probes, [], "the swapped entry's credential never rides a probe");
+		});
+
+		test("a probe for a re-pointed label is refused: the displayed host is not the entry's host anymore", async () => {
+			const recorded = makeEnv([{ label: "Prod", baseUrl: "http://moved.test" }]);
+			await assert.rejects(
+				draftTest(recorded, {
+					server: serverPayload({ label: "Prod", baseUrl: "http://old.test" }),
+					replace: replaceIdentity("Prod", "http://old.test"),
+				}),
+				/changed in the servers setting/
+			);
 			assert.deepStrictEqual(recorded.probes, []);
 		});
 

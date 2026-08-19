@@ -13,7 +13,6 @@ import type {
 import {
 	acceptedEntry,
 	buildGroupArgs,
-	copyServerSecrets,
 	createServerSyncEnv,
 	deleteServerSecrets,
 	entryExpectedFailuresFor,
@@ -210,17 +209,10 @@ suite("extension/servers/serverSync", () => {
 			assert.deepStrictEqual(await readServerSecrets(store, "Prod"), {});
 		});
 
-		test("copyServerSecrets duplicates the blob without touching the source; deleteServerSecrets removes it", async () => {
+		test("deleteServerSecrets removes the label's whole blob", async () => {
 			const store = makeSecretStore({ [serverSecretsKey("Old")]: JSON.stringify({ apiKey: "sk-1" }) });
-			await copyServerSecrets(store, "Old", "New");
-			assert.deepStrictEqual(await readServerSecrets(store, "New"), { apiKey: "sk-1" });
-			assert.deepStrictEqual(await readServerSecrets(store, "Old"), { apiKey: "sk-1" }, "a copy leaves the source");
-
 			await deleteServerSecrets(store, "Old");
 			assert.strictEqual(store.values.has(serverSecretsKey("Old")), false);
-
-			await copyServerSecrets(store, "Missing", "Elsewhere");
-			assert.strictEqual(store.values.has(serverSecretsKey("Elsewhere")), false, "no blob, no copy");
 		});
 	});
 
