@@ -535,9 +535,11 @@
 	.sort-arrow.desc {
 		transform: rotate(180deg);
 	}
-	/* A server row's model count doubling as the jump into the models
-		   destination: keeps the numeric look, with a dotted underline as the only
-		   hint that it does something. */
+	/* The drawer's models Fact doubling as the jump into the models destination:
+		   tabular figures so it lines up with the spend and request counts filling
+		   the same value column, and the action vocabulary's supporting rank for
+		   its colour, so hue now separates it from the inert values around it and
+		   the dotted underline no longer carries that alone. */
 	button.count-link {
 		font-variant-numeric: tabular-nums;
 		text-decoration: underline dotted;
@@ -1228,10 +1230,11 @@
 		padding: 0;
 		margin: 8px 0 0;
 	}
-	/* The Support links continue the tools' stack one rank quieter: muted at rest, because
-	   a blue row under four grey tools outshone the actions it is subordinate to; hover
-	   restores link colour as hit feedback. The 6px icon gap matches the buttons' own, so
-	   the two groups share one icon column. */
+	/* The Support links continue the tools' stack one rank quieter: the link hue's quiet
+	   tier at rest (theme.css --link-quiet) - full link blue under the accent-ranked tools
+	   outshone the actions it is subordinate to, and plain muted read as inert prose;
+	   hover restores full link colour as hit feedback. The 6px icon gap matches the
+	   buttons' own, so the two groups share one icon column. */
 	.feedback-links {
 		display: flex;
 		flex-direction: column;
@@ -1244,7 +1247,7 @@
 	}
 	.feedback-links a.docs-link {
 		gap: 6px;
-		color: var(--muted-foreground);
+		color: var(--link-quiet);
 	}
 	.feedback-links a.docs-link:hover {
 		color: var(--vscode-textLink-activeForeground);

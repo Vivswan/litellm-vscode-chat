@@ -1396,7 +1396,9 @@ test("the Import & Export group renders last with its help, and each button post
 	const importButton = buttonByText(group, "Import settings");
 	for (const button of [exportButton, importButton]) {
 		expect(button.getAttribute("type")).toBe("button");
-		expect(button.getAttribute("data-variant")).toBe("secondary");
+		// Primary rank: the two actions are the section's whole content, so there
+		// is no quieter neighbour for a supporting rank to sit under.
+		expect(button.getAttribute("data-variant")).toBe("default");
 	}
 
 	fireClick(exportButton);

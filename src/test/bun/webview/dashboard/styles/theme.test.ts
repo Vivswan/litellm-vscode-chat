@@ -28,6 +28,11 @@ const REQUIRED_UTILITIES = [
 	"border-control-outline",
 	"text-accent-text",
 	"hover:bg-accent-soft",
+	// The action vocabulary's quiet tier and its hover strengthening: secondary
+	// buttons rest on these, and losing either from the scan turns every
+	// supporting action back into flat grey prose with the suites green.
+	"text-accent-quiet",
+	"hover:text-accent-strong",
 	"text-err-quiet",
 	"hover:bg-err-wash",
 	"hover:text-err-strong",
@@ -790,7 +795,7 @@ test("every forced host token carries !important, because inline styles are what
 	}
 	// And the tokens we own carry none: nothing shadows them, and !important
 	// there would only make them harder to override later.
-	const ours = [...forcedBlock("light").matchAll(/^\s*(--(?!vscode-)[a-z-]+):\s*([^;]+);/gm)];
+	const ours = [...forcedBlock("light").matchAll(/^\s*(--(?!vscode-)[a-z0-9-]+):\s*([^;]+);/gm)];
 	expect(ours.length).toBeGreaterThan(0);
 	expect(ours.filter((match) => (match[2] ?? "").includes("!important")).map((match) => match[1])).toBeEmpty();
 });
@@ -808,13 +813,41 @@ test("the two light blocks agree on everything a light surface changes", () => {
 	// its color-scheme; those are what forcing a theme means, not what being
 	// light means.
 	const ownTokens = (block: string): string[] =>
-		[...block.matchAll(/^\s*(--(?!vscode-)[a-z-]+):\s*([^;]+);/gm)]
+		[...block.matchAll(/^\s*(--(?!vscode-)[a-z0-9-]+):\s*([^;]+);/gm)]
 			.map((match) => `${match[1]}: ${match[2]?.trim()}`)
 			.sort();
 	// A floor, not a count: it only has to be big enough that an extraction
 	// finding nothing cannot pass the equality below vacuously.
 	expect(ownTokens(hostDerived).length).toBeGreaterThanOrEqual(4);
 	expect(ownTokens(forcedBlock("light"))).toEqual(ownTokens(hostDerived));
+});
+
+test("a forced-light override of a body-declared token is repeated on the body twin", () => {
+	// The fourth block, and the one no equality reached. A token in the `:root, body`
+	// block is declared DIRECTLY on body, and a direct declaration beats an inherited
+	// one - so the forced light block, which sits on `html`, silently loses for exactly
+	// those tokens and needs the twin to win where they are read. Which tokens those are
+	// is DERIVED from the two blocks rather than listed, because the failure mode is a
+	// quiet tier landing in three of its four homes and forced light keeping the dark
+	// lean with every suite green.
+	const source = readFileSync(themeEntry, "utf8");
+	const rootAndBody = /^:root,\nbody \{([\s\S]*?)\n\}/m.exec(source)?.[1] ?? "";
+	const twin = /&\[data-theme="light"\] body \{([\s\S]*?)\n\t\}/.exec(source)?.[1] ?? "";
+	const declarations = (block: string) =>
+		[...block.matchAll(/^\s*(--(?!vscode-)[a-z0-9-]+):\s*([^;]+);/gm)].map(
+			(match) => `${match[1]}: ${match[2]?.trim()}`
+		);
+	const nameOf = (declaration: string) => declaration.split(":")[0] ?? "";
+	// Floors as the extractions' positive controls: a regex that stopped matching would
+	// otherwise satisfy the equality below with two empty lists.
+	const onBody = new Set(declarations(rootAndBody).map(nameOf));
+	expect(onBody.size).toBeGreaterThanOrEqual(8);
+	const owed = declarations(forcedBlock("light"))
+		.filter((declaration) => onBody.has(nameOf(declaration)))
+		.sort();
+	expect(owed.length).toBeGreaterThan(0);
+	// Equality, so the twin cannot carry a stale token either.
+	expect(declarations(twin).sort()).toEqual(owed);
 });
 
 test("severity as text resolves to the readable tier, as fills to the raw hue", async () => {

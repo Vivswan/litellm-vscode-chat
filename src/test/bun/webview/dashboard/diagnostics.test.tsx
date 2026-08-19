@@ -445,6 +445,12 @@ test("the external rows link the pinned destinations with decorative glyphs", ()
 		"Copy diagnostics",
 		"Report a bug",
 	]);
+	// All four tools carry the primary rank: they are the page's whole content,
+	// with nothing louder to rank under, and the Support links below them take
+	// the quiet link tier - the rank order the stack reads in.
+	for (const button of Array.from(tools.querySelectorAll("button"))) {
+		expect(button.getAttribute("data-variant"), (button.textContent ?? "").trim()).toBe("default");
+	}
 	expect(support.querySelector(".toolbar")).toBeNull();
 	expect(support.querySelectorAll("button")).toHaveLength(0);
 	expect(tools.compareDocumentPosition(support) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

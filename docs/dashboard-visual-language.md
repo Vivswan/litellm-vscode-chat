@@ -174,9 +174,10 @@ One idiom for actions that rest hidden on a row, and it has one home:
   (`recordEditors.tsx HeadingRevealButton`). The Diagnostics page is the other
   section-actions exception, because a destination whose whole subject is
   acting on this install leads with its actions, and eight of them cannot
-  share a header line: they open the body as one vertical list, tools first,
-  with the Support links continuing the stack one rank quieter - muted at
-  rest, so the escape hatches never outshine the actions above them
+  share a header line: they open the body as one vertical list, tools first at
+  the primary rank (section 9), with the Support links continuing the stack
+  one rank quieter - the link hue's quiet tier at rest, so the escape hatches
+  never outshine the actions above them
   (`diagnostics.tsx DiagnosticsSection`; `dashboard.css .feedback-links`).
 
 ## 3. Annotations: what is visible at rest
@@ -399,7 +400,82 @@ One idiom for detail that opens in place:
   in a sentence rather than leaving a gap where a heading was
   (`diagnostics.tsx ConfigDiagnostics`).
 
-## 9. Tone parity and forced colors
+## 9. Action colour
+
+An action's colour is assigned by scenario, never per site, and the whole
+vocabulary is declared once: the Button's variant map
+(`ui/button.tsx buttonVariants`) for buttons, the link rules for anchors.
+Flat grey is not in it - a control that carries WORDS and rests on the page's
+prose colour reads as prose.
+
+- Three hue families, one job each. The ACCENT is action: the primary rank
+  rests on the readable tier, semibold (`theme.css --accent-text`), the
+  supporting rank on the quiet tier (`theme.css --accent-quiet`), so a
+  Save and the Edit beside it read as two volumes of one voice rather than
+  two vocabularies. The ERROR hue is destructive: quiet at rest, so a Remove
+  is tellable from its neighbours before the pointer arrives without putting
+  a column of alarm down a calm table (`theme.css --err-quiet`). The theme's
+  LINK colour is leaving the app: anchors wear it with the external glyph
+  (`dashboard.css a.docs-link`), and links subordinated to a stack of actions
+  rest on its quiet tier (`theme.css --link-quiet`;
+  `dashboard.css .feedback-links`).
+- A quiet tier is the hue leaned into a neutral, and WHICH neutral, in what
+  share, is measured rather than assumed. The accent hues take the full
+  foreground because the muted lean misses AA on the page itself - their blue
+  is the darkest thing the dark page paints - and their share answers to the
+  lightest surface a supporting action rests on, which is the error banner a
+  Dismiss sits in rather than the page. The error hue on light takes the
+  foreground too, where the derived muted tier is too light to carry a hue.
+  The link hue keeps the muted lean, which clears every surface it lands on.
+  The error hue on dark keeps it too, for a reason older than this
+  measurement - a table of Removes has to stay calm - and pays 4.19:1 for it
+  on a hovered row, named here rather than hidden.
+- The readable tier is not derived here and carries misses of its own: the
+  selected rail tab at 4.34:1, a warn band under an emphasized band action at
+  4.49:1, the chip's fill at 4.05:1. Recorded as a sample rather than a
+  census, because a prose list cannot stay exhaustive - what that tier wants
+  is its own derivation pass, against the same surface enumeration this
+  section applies to the quiet tiers.
+- Contrast is therefore a floor to derive against, not the axis rank travels
+  on. A supporting action carries LESS OF THE HUE than a primary one, and
+  less weight, which is the axis that already separated the two ranks when
+  the supporting one rested on flat grey. On a dark page it has to be: the
+  accent hues are darker than the body text, so below the readable tier there
+  is no compliant step down left to take.
+- Hover strengthens AWAY from the surface, never toward the raw hue, because
+  a hue gains no contrast on its own wash. Both accent ranks deepen to
+  `theme.css --accent-strong`, derived against the deepest stack a label
+  reaches - a hovered button on a chip, then one in an error banner, then one
+  in a washed row - and danger to `theme.css --err-strong`, derived earlier
+  against its own wash on the page. The subordinated links take the host's
+  active link colour.
+- Rank is the scenario's, not the label's: a surface whose whole content is
+  its actions renders them at the primary rank (the settings transfer pair,
+  `settings.tsx settings-transfer`; the Diagnostics tools,
+  `diagnostics.tsx DiagnosticsTools`), while the same action on a crowded
+  surface stays supporting - the rail's own Report a bug is a quiet compact
+  secondary (`rail.tsx reportIssue`).
+- High contrast pins all three RESTING quiet tiers to their plain hue (the HC
+  block's `theme.css --accent-quiet`): a lean toward a neutral only dilutes,
+  exactly where the reader chose legibility, and the hues named there are ones
+  an HC theme guarantees. The hover tiers keep their derivation, because HC
+  nulls the ghost wash and a rest tier equal to its hover tier would leave a
+  hovered button with no feedback at all. Under forced colours author colour
+  is not a channel, and the destructive rank rides width and weight instead
+  (section 10).
+- Three controls sit outside the vocabulary because a hue would say the wrong
+  thing about them, and each already carries a mark colour is not doing: the
+  help glyph is a bordered circle whose ring IS its affordance, and painting
+  every heading's "?" accent would spend the accent on annotation
+  (`dashboard.css button.help`); the model-ID catalog suggestions are listbox
+  OPTIONS, not ranked actions, and their mark is the selection fill that says
+  which one Enter takes (`dashboard.css .catalog-results button`); and the
+  models list's sort direction is a bare arrow rather than an action, taking
+  the plain foreground per site - the one place that is sanctioned - because
+  at any quieter tier the ENABLED arrow read as its own disabled state
+  (`models.tsx sort-dir`).
+
+## 10. Tone parity and forced colors
 
 - Every member of a tone vocabulary carries comparable perceptual weight at the
   same nominal size: the warn triangle scales up because a triangle inside a
@@ -473,7 +549,7 @@ One idiom for detail that opens in place:
   (`announceOnce.tsx useAlertOnce`; carriers remount by keying the line on
   the seq, `app.tsx PaneFailureLine`).
 
-## 10. Deliberate deviations
+## 11. Deliberate deviations
 
 Frontend-design guidance written for landing pages and marketing surfaces -
 including the design checklists reviewers bring - does not govern dashboards;

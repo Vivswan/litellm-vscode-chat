@@ -1118,8 +1118,9 @@ function DiagnosticsTools({
 	return (
 		<ul className="diagnostics-tools">
 			<li>
+				{/* Primary rank for all four tools: they ARE the page's content, with nothing louder
+				    to rank under - the same promotion the settings transfer section makes. */}
 				<Button
-					variant="secondary"
 					// Registry-only installs get no offer to test: the legacy registry's
 					// serving path retires with this release train, so with no server
 					// rows there is nothing a connection test could durably reach.
@@ -1130,17 +1131,17 @@ function DiagnosticsTools({
 				</Button>
 			</li>
 			<li>
-				<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "openOutput" })}>
+				<Button onClick={() => sendRequest("executeCommand", { command: "openOutput" })}>
 					<IconOutput /> {l10n.t("Open output log")}
 				</Button>
 			</li>
 			<li>
-				<Button variant="secondary" onClick={copyDiagnostics}>
+				<Button onClick={copyDiagnostics}>
 					{copied ? <IconCheck /> : <IconCopy />} {l10n.t("Copy diagnostics")}
 				</Button>
 			</li>
 			<li>
-				<Button variant="secondary" onClick={() => sendRequest("executeCommand", { command: "reportIssue" })}>
+				<Button onClick={() => sendRequest("executeCommand", { command: "reportIssue" })}>
 					<IconBug /> {l10n.t("Report a bug")}
 				</Button>
 			</li>
@@ -1149,9 +1150,9 @@ function DiagnosticsTools({
 }
 
 /**
- * The external escape hatches, one rank quieter than the tools (the muted register at
- * rest, `.feedback-links` - link blue outshone the actions above). No heading: four
- * links are a shelf, and the nav's aria-label keeps the grouping.
+ * The external escape hatches, one rank quieter than the tools (the link hue's quiet
+ * tier at rest, `.feedback-links` - full link blue outshone the actions above). No
+ * heading: four links are a shelf, and the nav's aria-label keeps the grouping.
  */
 function Support() {
 	return (

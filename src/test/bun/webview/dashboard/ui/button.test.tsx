@@ -60,9 +60,32 @@ test("danger is a variant, not a colour a caller paints on", () => {
 	// the hue.
 	expect(classes).toContain("hover:text-err-strong");
 	// Distinct AT REST too: a Remove sits beside an Edit, and on a broken row beside a Fix, so it has to be tellable
-	// apart before the pointer arrives. text-muted-foreground is secondary's and quiet's resting colour.
+	// apart before the pointer arrives. text-accent-quiet is secondary's resting colour - the same quiet-tier ROLE,
+	// each derived against its own surfaces rather than a shared share, so the hue family is what tells them apart.
 	expect(classes).toContain("text-err-quiet");
-	expect(classes).not.toContain("text-muted-foreground");
+	expect(classes).not.toContain("text-accent-quiet");
+});
+
+test("the action colour vocabulary: every rank rests on its scenario's hue and strengthens on hover", () => {
+	// One vocabulary, declared once in the variant map: the accent family for actions
+	// (readable tier for primary, quiet tier for supporting), the error family for
+	// destructive. Equality on the resting colour and the hover colour set, so a rank
+	// silently falling back to flat grey - the look this vocabulary replaced - fails here.
+	const colours = (variant: (typeof VARIANTS)[number]) => {
+		const classes = classesOf(mount(<Button variant={variant} />));
+		return {
+			rest: classes.filter((name) => name.startsWith("text-")),
+			hover: classes.filter((name) => /^hover:text-/.test(name)),
+		};
+	};
+	// EVERY rank strengthens away from the surface under the pointer, never toward the raw
+	// hue: each rank's own hover wash lifts the surface toward its own label, so the rest
+	// colour would lose contrast at the aiming moment. The two accent ranks land on the
+	// same hover colour on purpose - rank is legible at rest, and only one button is under
+	// the pointer at a time - so the rest colours below are what has to stay distinct.
+	expect(colours("default")).toEqual({ rest: ["text-accent-text"], hover: ["hover:text-accent-strong"] });
+	expect(colours("secondary")).toEqual({ rest: ["text-accent-quiet"], hover: ["hover:text-accent-strong"] });
+	expect(colours("danger")).toEqual({ rest: ["text-err-quiet"], hover: ["hover:text-err-strong"] });
 });
 
 test("no variant rests on the same colour as another, so rank is legible before hover", () => {
@@ -109,9 +132,9 @@ test("secondary's resting underline follows the LABEL, however deeply the label 
 	// so a label inside one looks like no label. Every shape below is taken from a real call site.
 	const underlined = (node: HTMLElement) => classesOf(node).includes("underline");
 
-	// A plain string label (usage "Refresh now", settings "Export settings").
-	expect(underlined(mount(<Button variant="secondary">Export settings</Button>))).toBe(true);
-	// Icon beside a string (diagnostics "Test connection", the rail's Report a bug).
+	// A plain string label (usage "Refresh now", the notice banners' "Dismiss").
+	expect(underlined(mount(<Button variant="secondary">Dismiss</Button>))).toBe(true);
+	// Icon beside a string (the rail's Report a bug).
 	expect(
 		underlined(
 			mount(

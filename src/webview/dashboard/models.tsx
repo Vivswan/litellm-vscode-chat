@@ -304,9 +304,10 @@ function SortControl({
 				</Select>
 			</label>
 			{/* Pressed is the descending state, so the control announces which way the list runs.
-			    Disabled while unsorted: no direction to flip. text-foreground steps the glyph up from
-			    secondary's muted tier - at that tier the ENABLED arrow read as its own disabled
-			    state, which is dimmed twice below it. */}
+			    Disabled while unsorted: no direction to flip. text-foreground steps the glyph up out
+			    of secondary's resting tier - a bare direction arrow is not an action wearing the
+			    accent, and at any quieter tier the ENABLED arrow read as its own disabled state,
+			    which is dimmed twice below it. */}
 			<Button
 				variant="secondary"
 				size="compact"

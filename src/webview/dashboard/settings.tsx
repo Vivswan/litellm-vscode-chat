@@ -1792,7 +1792,9 @@ export function SettingsSection({
 					) : null}
 					{/* The trailing Import & Export group: the two actions ARE its content, so they stand in
 					    its body at full size (parked in the heading's actions slot they read as tucked-away
-					    chrome). Rendered last so file transfer never sits between rows. */}
+					    chrome) and at the primary rank - a section whose whole content is its actions has
+					    no quieter neighbour to rank under. Rendered last so file transfer never sits
+					    between rows. */}
 					<SettingGroup
 						title={() => l10n.t("Import & Export")}
 						help={helpImportExportGroup}
@@ -1803,16 +1805,10 @@ export function SettingsSection({
 						tailVisible={importExportVisible}
 						tail={
 							<div className="settings-transfer flex flex-wrap items-center gap-x-3.5 gap-y-1 py-2">
-								<Button
-									variant="secondary"
-									onClick={() => sendRequest("executeCommand", { command: "exportSettings" })}
-								>
+								<Button onClick={() => sendRequest("executeCommand", { command: "exportSettings" })}>
 									{l10n.t("Export settings")}
 								</Button>
-								<Button
-									variant="secondary"
-									onClick={() => sendRequest("executeCommand", { command: "importSettings" })}
-								>
+								<Button onClick={() => sendRequest("executeCommand", { command: "importSettings" })}>
 									{l10n.t("Import settings")}
 								</Button>
 							</div>

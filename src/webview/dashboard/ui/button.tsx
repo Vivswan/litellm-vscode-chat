@@ -5,9 +5,13 @@ import { cn } from "./cn";
 /**
  * The dashboard's button. Two independent axes: `variant` is RANK, `size` is geometry
  * (tangled, an icon-only destructive action had to choose between reading as destructive
- * and fitting its row). Rank is weight and colour, not boxes; danger is a red wash that
- * warns as you reach for it. Secondary carries a dotted underline at rest - without a
- * resting mark three quarters of the page's buttons read as prose - the same idiom as
+ * and fitting its row). Rank is weight and colour, not boxes; every rank wears its
+ * scenario's hue - the accent for actions (readable tier for primary, quiet for
+ * supporting), the error hue for destructive, which warns as a red wash as you reach
+ * for it. Every rank also STRENGTHENS on hover, because each one's wash lifts the
+ * surface toward its own label. Secondary
+ * carries a dotted underline at rest - without a resting mark three quarters of the
+ * page's buttons read as prose - the same idiom as
  * button.count-link; decided in React (`hasTextLabel`) because the rule is "has words to
  * underline" and CSS cannot see text. The negative inline margin: each size hands its
  * padding back to the layout so labels align with text and only the fill overhangs. It
@@ -29,8 +33,10 @@ const buttonVariants = cva(
 			variant: {
 				// The readable accent tier, not the raw hue: --accent-hue is tuned to be seen as a fill
 				// (3.64:1 on the dark page), not read as a word (text tier's worst case 5.06:1).
-				default: "font-semibold text-accent-text hover:bg-accent-soft",
-				secondary: "text-muted-foreground hover:bg-ghost-hover hover:text-foreground",
+				default: "font-semibold text-accent-text hover:bg-accent-soft hover:text-accent-strong",
+				// The accent's QUIET tier, not flat grey: a supporting action still says "you can act
+				// here" at rest, one rank below primary in chroma rather than in another vocabulary.
+				secondary: "text-accent-quiet hover:bg-ghost-hover hover:text-accent-strong",
 				danger: "text-err-quiet hover:bg-err-wash hover:text-err-strong",
 			},
 			size: {

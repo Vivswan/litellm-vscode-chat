@@ -364,9 +364,10 @@ body.vscode-high-contrast-light {
 	--hue-amber: #b97e2a;
 }
 
-/* The accent deploys on primary actions, selection, focus and links ONLY -
-	 never on status, never as decoration, or it stops meaning "you can act
-	 here". Focus is on that list, so a chosen accent takes --ring with it; blue
+/* The accent deploys on actions (the primary rank at the strong tier, the
+	 supporting rank at the quiet tier), selection, focus and links ONLY - never
+	 on status, never as decoration, or it stops meaning "you can act here".
+	 Focus is on that list, so a chosen accent takes --ring with it; blue
 	 deliberately does not, because blue means "my theme's own colors" and the
 	 theme published a focus color of its own. */
 :root {
@@ -633,8 +634,38 @@ body {
 		 a label that sits there all day, not a control you glance at. Leaned into
 		 the foreground so it moves AWAY from the surface in either polarity, the
 		 same rule the severity text tier uses; worst case across all four accents
-		 in both themes is 5.06:1. */
+		 in both themes is 5.06:1 against a bare surface - which is not every
+		 surface it reaches, and the selected rail item's own --accent-soft wash
+		 takes it to 4.34:1. This tier predates the action vocabulary below and
+		 has never been derived against a surface enumeration the way those are;
+		 the charter's Action colour section records what that costs. */
 	--accent-text: color-mix(in oklab, var(--accent-hue) 70%, var(--foreground));
+	/* The accent AS A SUPPORTING ACTION at rest. Leaned into the FOREGROUND, not
+		 the muted tier --err-quiet takes: the accent hues are the darkest thing
+		 the page paints (blue reads 3.64:1 on it, against the error hue's 4.92),
+		 so the muted lean put an Edit at 4.35:1. Quieter here is therefore less
+		 HUE, not less contrast - under --accent-text's 5.13:1 no compliant step
+		 down is left - which is the axis that already carried this rank when it
+		 rested on flat --muted-foreground. The share answers to the LIGHTEST
+		 surface it rests on, which is not the page but the error banner a
+		 Dismiss sits in: 4.95:1 there, 5.33:1 on a washed row, 6.33:1 on the
+		 page. */
+	--accent-quiet: color-mix(in srgb, var(--accent-hue) 45%, var(--foreground));
+	/* The accent UNDER THE POINTER, for both ranks. --err-strong's rule - a hue
+		 gains no contrast on its own wash, so strengthen AWAY from the surface -
+		 with the accent's own numbers. Its worst surface is the ghost wash over
+		 a chip, 4.55:1, then over an error banner and over a washed row, 4.68:1
+		 and 4.76:1, where --accent-text measures 3.46:1. It also gives the
+		 PRIMARY rank a hover colour it never had: on its own wash over that row,
+		 --accent-soft, 3.73:1 becomes 5.13:1. */
+	--accent-strong: color-mix(in srgb, var(--accent-hue) 35%, var(--foreground));
+	/* The link hue for anchors subordinated to a stack of actions (the
+		 Diagnostics support links). The muted lean holds here, where it failed
+		 the accent, because a link hue is published light enough to carry it -
+		 6.24:1 on the page those links live on - and the foreground lean would
+		 have made the escape hatches the brightest thing on a page they rank
+		 under. */
+	--link-quiet: color-mix(in srgb, var(--vscode-textLink-foreground) 55%, var(--muted-foreground));
 	/* The destructive control under the pointer, as against a banner sitting on
 		 the page: it takes the interactive wash strength, not an advisory one. */
 	--err-wash: color-mix(in srgb, var(--err) var(--state-mix), transparent);
@@ -683,6 +714,14 @@ body.vscode-high-contrast-light {
 		 button color that high contrast paints black. */
 	--hue-blue: var(--vscode-textLink-foreground, var(--vscode-contrastActiveBorder, var(--vscode-focusBorder)));
 	--accent-hue: var(--vscode-textLink-foreground, var(--vscode-contrastActiveBorder, var(--vscode-focusBorder)));
+	/* All three RESTING quiet tiers state their hues plain here: a lean toward a
+		 neutral only dilutes, exactly where the reader asked for legibility, and
+		 the hues named are the ones an HC theme guarantees. The strong tiers keep
+		 their derivation, because HC nulls --ghost-hover and a rest tier equal to
+		 its hover tier would leave a hovered button with no feedback at all. */
+	--accent-quiet: var(--accent-hue);
+	--err-quiet: var(--err);
+	--link-quiet: var(--vscode-textLink-foreground, var(--foreground));
 }
 
 /* Inline so utilities bake in the var() chains directly; a non-inline theme
@@ -730,6 +769,8 @@ body.vscode-high-contrast-light {
 	--color-warn-chip: var(--warn-chip);
 	--color-warn-chip-foreground: var(--warn-chip-foreground);
 	--color-accent-text: var(--accent-text);
+	--color-accent-quiet: var(--accent-quiet);
+	--color-accent-strong: var(--accent-strong);
 	/* The four choosable hues, for the settings picker's swatches: it paints
 		 every option, not just the live one. */
 	--color-hue-blue: var(--hue-blue);
