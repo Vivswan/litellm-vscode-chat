@@ -823,21 +823,20 @@ export function ModelsSection({
 													    screen reader should hear, and it has to disappear WITH the
 													    segment it follows when a narrow pane drops one, which an
 													    adjacent-sibling rule does and a dangling dash does not. */}
-													<span className="model-sep"> - </span>
-													<span className="model-cost">
-														{priced ? (
-															<>
+													{/* An unpriced model prints NOTHING here: the whole segment
+													    stays out, separator included, rather than wording the
+													    absence. The unpriced pill still names the class in words. */}
+													{priced ? (
+														<>
+															<span className="model-sep"> - </span>
+															<span className="model-cost">
 																<span className="model-price">
 																	<PriceParts model={model} currencySymbol={currencySymbol} />
 																</span>
 																<span className="price-per"> {l10n.t("per M")}</span>
-															</>
-														) : (
-															// The price pills' own word for the same fact, so
-															// the row and the filter can never disagree.
-															priceFilterLabel("unpriced")
-														)}
-													</span>
+															</span>
+														</>
+													) : null}
 													{/* Only what the model CAN do. The negative answer is one
 													    click away in the detail rather than a second clause
 													    every row carries forever. */}

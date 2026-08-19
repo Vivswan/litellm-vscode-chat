@@ -3,7 +3,6 @@
  * the pricing tooltip) and the filter, server-scope, and server-column rules.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { priceFilterLabel } from "../../../../dashboard/modelFilters";
 import { ModelsSection } from "../../../../webview/dashboard/models";
 import { makeModel } from "../fixtures";
 import { buttonByText, cleanup, fireClick, fireInput, fireSelect, mount, render, resetPosted } from "../harness";
@@ -62,11 +61,12 @@ test("a row reads as two lines - name and meta, then a spec sentence - with the 
 	expect(caps.getAttribute("aria-hidden")).toBeNull();
 	expect(rows[0]?.querySelector(".model-line-2 .visually-hidden")).toBeNull();
 
-	// The bare model: no price at all says so in words rather than with a dash
-	// nobody can read - and in the price pills' OWN words (priceFilterLabel), so
-	// the row and the filter can never disagree - and a model that can do none
-	// of the four prints no capability clause at all rather than an empty one.
-	expect(rows[1]?.querySelector(".model-cost")?.textContent).toBe(priceFilterLabel("unpriced"));
+	// The bare model: no price at all prints NOTHING where the price would be -
+	// no placeholder, no dangling separator; the second line is the limits alone
+	// - and a model that can do none of the four prints no capability clause at
+	// all rather than an empty one.
+	expect(rows[1]?.querySelector(".model-cost")).toBeNull();
+	expect(line2(rows[1] as Element)).toBe("128k context, 16k out");
 	expect(rows[1]?.querySelector(".model-caps")).toBeNull();
 	expect(rows[1]?.querySelectorAll("del").length).toBe(0);
 
@@ -162,6 +162,30 @@ test("each spec segment owns the separator that follows it, so a dropped segment
 		"model-cost",
 	]);
 	expect(bareLine.lastElementChild?.className).toBe("model-cost");
+
+	// An unpriced model renders no cost segment AT ALL - blank, not a
+	// placeholder - so the capabilities follow the limits with one dash and
+	// nothing dangles between them.
+	const unpriced = makeModel({ id: "unpriced", imageInput: true });
+	cleanup();
+	const unpricedRoot = mount(
+		<ModelsSection currencySymbol="$" models={[unpriced]} serverCount={1} onInspect={() => {}} />
+	);
+	const unpricedLine = unpricedRoot.querySelector(".model-line-2") as HTMLElement;
+	expect(Array.from(unpricedLine.children).map((child) => child.className)).toEqual([
+		"model-limits",
+		"model-sep",
+		"model-caps",
+	]);
+	expect(unpricedLine.textContent).toBe("128k context, 16k out - tools, vision");
+
+	// Unpriced AND capability-less: the limits stand alone, no separator at all.
+	const blank = makeModel({ id: "blank", toolCalling: false });
+	cleanup();
+	const blankRoot = mount(<ModelsSection currencySymbol="$" models={[blank]} serverCount={1} onInspect={() => {}} />);
+	const blankLine = blankRoot.querySelector(".model-line-2") as HTMLElement;
+	expect(Array.from(blankLine.children).map((child) => child.className)).toEqual(["model-limits"]);
+	expect(blankLine.textContent).toBe("128k context, 16k out");
 });
 
 test("filter narrows rows by name, id, family, and server label and updates 'showing N of M'", () => {

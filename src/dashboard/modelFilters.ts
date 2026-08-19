@@ -40,7 +40,7 @@ export function capabilityList(model: DashboardModel): readonly string[] {
 
 export type PriceFilterKey = "priced" | "unpriced";
 
-/** The two price pills' words; "price unknown" is the row's own phrase for an unpriced model. */
+/** The two price pills' words. The row prints nothing for an unpriced model; the pill cannot, so it names the class. */
 export function priceFilterLabel(price: PriceFilterKey): string {
 	return price === "priced" ? l10n.t("priced") : l10n.t("price unknown");
 }

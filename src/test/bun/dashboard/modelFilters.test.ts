@@ -100,8 +100,8 @@ describe("price pills", () => {
 		expect(isPriced(makeModel({ outputCost: 2 }))).toBe(true);
 		// A user-written 0 prices as genuinely free, which is a price.
 		expect(isPriced(makeModel({ inputCost: 0, outputCost: 0 }))).toBe(true);
-		// Cache-only costs do not make a model "priced": the row prints
-		// "price unknown" when both headline costs are absent.
+		// Cache-only costs do not make a model "priced": the row prints no
+		// price when both headline costs are absent.
 		expect(isPriced(makeModel({ cacheReadCost: 0.1 }))).toBe(false);
 	});
 
@@ -116,7 +116,7 @@ describe("price pills", () => {
 		expect(only(EMPTY_MODEL_FILTER)).toEqual(["p", "u"]);
 	});
 
-	test("labels speak the row's own vocabulary", () => {
+	test("the pills name the classes in words: the row prints no phrase for an unpriced model, so the pill must", () => {
 		expect(priceFilterLabel("priced")).toBe("priced");
 		expect(priceFilterLabel("unpriced")).toBe("price unknown");
 	});

@@ -390,7 +390,11 @@ One idiom for detail that opens in place:
   says so beside itself (`recordEditors.tsx ApplyStatus`).
 - A missing datum is a dim dash plus its reason, never a zero - one embodiment,
   `ui/absent.tsx AbsentDatum` (`dashboard.css .model-inspector .absent`;
-  `servers.tsx Absent` wraps the primitive in the facts' register).
+  `servers.tsx Absent` wraps the primitive in the facts' register). A SCANNED
+  list is the carve-out: the model rows drop the absent segment whole, separator
+  included, rather than repeating a placeholder down every row
+  (`models.tsx priced`), and the filter pill that selects the class names it in
+  words instead (`models.tsx priceFilterLabel`).
 - Sections never appear or disappear under the reader: the clean state says so
   in a sentence rather than leaving a gap where a heading was
   (`diagnostics.tsx ConfigDiagnostics`).
