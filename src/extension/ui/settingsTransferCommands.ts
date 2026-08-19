@@ -576,8 +576,10 @@ export async function runImportSettingsFlow(env: SettingsTransferEnv): Promise<v
 		for (const collision of prePlan.collisions) {
 			const record = await env.readServerSecrets(collision.label);
 			const standing = acceptedEntry(currentServersRaw, collision.label)?.entry;
-			storedSecrets[collision.label] =
-				standing !== undefined ? resolveOwnedSecrets(standing, record).values : record.values;
+			// No accepted entry means nothing to pair against, so nothing
+			// resolves - the same fail-closed default the save path's keep
+			// sources apply (a rejected carrier resolves no secrets at sync time).
+			storedSecrets[collision.label] = standing !== undefined ? resolveOwnedSecrets(standing, record).values : {};
 		}
 		const plan = planSettingsImport(parsed.settings, currentServersRaw, storedSecrets);
 

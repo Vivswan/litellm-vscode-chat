@@ -19,6 +19,7 @@
 
 import type { OverallVerdict } from "../dashboard/presenters";
 import type { DashboardServer, DeclaredServerNotice } from "../dashboard/viewModels";
+import type { DeclaredServerView } from "../extension/servers/serverSync";
 import { markLogSafe } from "../shared/logger";
 import type { ServerStatus } from "../shared/servers";
 
@@ -57,7 +58,8 @@ export interface WindowStateRow {
 	readonly syncFailures?: readonly {
 		readonly label: string;
 		readonly message: string;
-		readonly failureClass: "upsertFailed" | "blocked" | "secretsUnreadable" | "secretsMismatched" | "saltUnavailable";
+		/** Derived from the engine union, so a new class can never leave this registry silently narrower. */
+		readonly failureClass: NonNullable<DeclaredServerView["syncErrorClass"]>;
 	}[];
 	/** The merged count reportMerged would derive from the window (asserted, not assumed). */
 	readonly totalModels: number;
@@ -255,8 +257,9 @@ const UPDATE_UNAVAILABLE =
  *
  * Known residuals (left deliberately - each needs plumbing or a vocabulary
  * ruling of its own, not this table):
- * 1. The sync-failure residual is narrowed, not gone: a blocked or
- *    secretsUnreadable entry with no live status renders a red dashboard row
+ * 1. The sync-failure residual is narrowed, not gone: a blocked entry - or
+ *    one skipped by any of the skip classes - with no live status renders a
+ *    red dashboard row
  *    while the bar shows the spinner, because the overlay synthesizes only
  *    for upsertFailed (the one class proving no group exists; synthesizing
  *    for the others raced the first discovery report red). Transient for

@@ -302,9 +302,9 @@ suite("extension/servers/serverSync", () => {
 			// The token URL compares VERBATIM: the token exchange fetches it
 			// exactly as configured, so /token/ is a different wire request and a
 			// trailing-slash edit refuses (fail closed) rather than resolving.
-			assert.notStrictEqual(
+			assert.strictEqual(
 				secretDestination({ ...entry, oauthTokenUrl: "https://idp.test/token/" }, "oauthClientSecret"),
-				"https://idp.test/token"
+				"https://idp.test/token/"
 			);
 
 			const record = {
