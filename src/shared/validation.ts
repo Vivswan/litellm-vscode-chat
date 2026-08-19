@@ -107,7 +107,7 @@ export function validateRequest(messages: readonly vscode.LanguageModelChatReque
 
 	// The positional walk above gives the sharper errors; these catch what it
 	// cannot see (calls outside assistant messages, stray or double results,
-	// an id reused while still awaiting its result).
+	// an id reused while still awaiting its result or within one message's calls).
 	if (
 		pairing.unpairedCallIds.length > 0 ||
 		pairing.strayResultIds.length > 0 ||

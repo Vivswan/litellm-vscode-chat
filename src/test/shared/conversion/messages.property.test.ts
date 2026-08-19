@@ -23,8 +23,11 @@ type ConversationEvent =
  * How an adversarial generator corrupts one tool exchange. "empty-pair" is the
  * shape validation accepts and the mint repairs; "user-call",
  * "user-call-text", and "nested-call" are valid exotic shapes (the calls ride
- * user messages, so validation's positional walk never sees them); the rest
- * must be rejected before send.
+ * user messages, so validation's positional walk never sees them);
+ * "same-message-pair", "empty-twin-pair", and "result-then-call" mix call and
+ * result parts inside one message and stay sendable; "interleaved-reuse"
+ * reuses an id across two calls of one message (one tool_calls array on the
+ * wire) and the rest must be rejected before send.
  */
 type ExchangeCorruption =
 	| "none"
@@ -36,7 +39,11 @@ type ExchangeCorruption =
 	| "stray-result"
 	| "user-call"
 	| "user-call-text"
-	| "nested-call";
+	| "nested-call"
+	| "same-message-pair"
+	| "empty-twin-pair"
+	| "result-then-call"
+	| "interleaved-reuse";
 
 interface AdversarialEvent {
 	callId: string;
@@ -50,6 +57,9 @@ const SENDABLE_CORRUPTIONS: ReadonlySet<ExchangeCorruption> = new Set([
 	"user-call",
 	"user-call-text",
 	"nested-call",
+	"same-message-pair",
+	"empty-twin-pair",
+	"result-then-call",
 ]);
 
 // Nonempty: the converter intentionally drops messages whose only content is
@@ -129,7 +139,11 @@ const corruptionArb: fc.Arbitrary<ExchangeCorruption> = fc.constantFrom(
 	"stray-result",
 	"user-call",
 	"user-call-text",
-	"nested-call"
+	"nested-call",
+	"same-message-pair",
+	"empty-twin-pair",
+	"result-then-call",
+	"interleaved-reuse"
 );
 
 // A tiny id pool (with the mint's own prefix in it) makes cross-exchange
@@ -199,6 +213,58 @@ function buildAdversarialMessages(events: AdversarialEvent[]): vscode.LanguageMo
 					message(vscode.LanguageModelChatMessageRole.User, [
 						new vscode.LanguageModelToolCallPart(event.callId, "fn", {}),
 						new vscode.LanguageModelTextPart("alongside"),
+					])
+				);
+				user([event.callId]);
+				break;
+			case "same-message-pair":
+				// A call and its result in one message: the tool_calls array emits
+				// before the message's tool messages, so the pair closes on the wire.
+				messages.push(
+					message(vscode.LanguageModelChatMessageRole.User, [
+						new vscode.LanguageModelToolCallPart(event.callId, "fn", {}),
+						new vscode.LanguageModelToolResultPart(event.callId, [new vscode.LanguageModelTextPart("ok")]),
+					])
+				);
+				break;
+			case "empty-twin-pair":
+				// Two minted calls share one tool_calls array; the mint must keep
+				// them distinct, and the empty results pair FIFO in array order.
+				messages.push(
+					message(vscode.LanguageModelChatMessageRole.User, [
+						new vscode.LanguageModelToolCallPart("", "fn", {}),
+						new vscode.LanguageModelToolCallPart("", "fn", {}),
+						new vscode.LanguageModelToolResultPart("", [new vscode.LanguageModelTextPart("ok")]),
+						new vscode.LanguageModelToolResultPart("", [new vscode.LanguageModelTextPart("ok")]),
+					])
+				);
+				break;
+			case "result-then-call":
+				// The reopening call sits behind its predecessor's answer in one
+				// message; conversion defers the new tool_calls message until the
+				// answer emits, so the id is never live twice on the wire.
+				messages.push(
+					message(vscode.LanguageModelChatMessageRole.User, [
+						new vscode.LanguageModelToolCallPart(event.callId, "fn", {}),
+					])
+				);
+				messages.push(
+					message(vscode.LanguageModelChatMessageRole.User, [
+						new vscode.LanguageModelToolResultPart(event.callId, [new vscode.LanguageModelTextPart("ok")]),
+						new vscode.LanguageModelToolCallPart(event.callId, "fn", {}),
+					])
+				);
+				user([event.callId]);
+				break;
+			case "interleaved-reuse":
+				// Part order closes the first call before the second, but both calls
+				// ride the message's ONE tool_calls array, so the id duplicates on
+				// the wire; validation must reject the reuse.
+				messages.push(
+					message(vscode.LanguageModelChatMessageRole.Assistant, [
+						new vscode.LanguageModelToolCallPart(event.callId, "fn", {}),
+						new vscode.LanguageModelToolResultPart(event.callId, [new vscode.LanguageModelTextPart("ok")]),
+						new vscode.LanguageModelToolCallPart(event.callId, "fn", {}),
 					])
 				);
 				user([event.callId]);

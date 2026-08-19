@@ -232,6 +232,39 @@ suite("shared/validation", () => {
 		);
 	});
 
+	test("a call id reused within one message is rejected even when a result part sits between the calls", () => {
+		// Conversion ships a message's calls in ONE tool_calls array, so the
+		// part-order close cannot stop the id shipping twice in that array.
+		const messages: vscode.LanguageModelChatMessage[] = [
+			{
+				role: vscode.LanguageModelChatMessageRole.Assistant,
+				content: [
+					new vscode.LanguageModelToolCallPart("call-1", "toolA", {}),
+					new vscode.LanguageModelToolResultPart("call-1", [new vscode.LanguageModelTextPart("ok")]),
+					new vscode.LanguageModelToolCallPart("call-1", "toolA", {}),
+				],
+				name: undefined,
+			},
+			{
+				role: vscode.LanguageModelChatMessageRole.User,
+				content: [new vscode.LanguageModelToolResultPart("call-1", [new vscode.LanguageModelTextPart("ok")])],
+				name: undefined,
+			},
+		];
+		assert.throws(
+			() => validateRequest(messages),
+			(e: unknown) => {
+				assert.ok(e instanceof Error);
+				assert.match(e.message, /Tool call IDs reused while still awaiting a result: call-1\./);
+				assert.strictEqual(
+					(e as Error & { logClassification?: string }).logClassification,
+					"ValidationError(tool pairing: 0 unpaired, 0 stray, 1 duplicate)"
+				);
+				return true;
+			}
+		);
+	});
+
 	test("a tool call outside an assistant message still needs its result", () => {
 		// Conversion ships tool-call parts wherever they sit, so an unanswered
 		// call in a user message would reach the wire unreferenced.

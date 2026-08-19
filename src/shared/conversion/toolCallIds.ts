@@ -10,8 +10,9 @@ export function isToolResultPart(value: unknown): value is vscode.LanguageModelT
  * whose intent is recoverable is minted a deterministic, pair-stable id (an
  * empty callId is a real backend artifact, and rejecting it would strand the
  * whole conversation), while shapes with no recoverable pairing - a result
- * answering no live call, a call id reused while still awaiting its result,
- * a call no result ever answers - are reported for validation to reject.
+ * answering no live call, a call id reused while still awaiting its result or
+ * by two calls of one message, a call no result ever answers - are reported
+ * for validation to reject.
  * Conversion consumes only the id assignments, so it stays total.
  */
 export interface ToolCallPairing {
@@ -21,7 +22,7 @@ export interface ToolCallPairing {
 	readonly unpairedCallIds: readonly string[];
 	/** Tool results answering no call still awaiting one at their position. */
 	readonly strayResultIds: readonly string[];
-	/** Ids that recur on a call while an earlier call with the same id is still awaiting its result. */
+	/** Ids that recur on a call while an earlier call with the same id is still awaiting its result, or among one message's calls (conversion ships those in a single tool_calls array). */
 	readonly duplicateLiveCallIds: readonly string[];
 }
 
@@ -34,8 +35,11 @@ export function wireIdKey(messageIndex: number, partIndex: number): string {
  * order and role-agnostic - conversion ships these parts wherever they sit,
  * so pairing must see exactly what the wire will carry. An id may be reused
  * once its earlier call is answered (some backends mint the same id every
- * turn); an empty-id result pairs FIFO with the oldest still-open empty-id
- * call, both halves receiving the same minted id.
+ * turn), but never by two calls of one message: conversion ships a message's
+ * calls in a single tool_calls array, so the reuse is live on the wire even
+ * when a result part sits between the calls. An empty-id result pairs FIFO
+ * with the oldest still-open empty-id call, both halves receiving the same
+ * minted id.
  */
 export function pairToolCallIds(messages: readonly vscode.LanguageModelChatRequestMessage[]): ToolCallPairing {
 	const rawIds = new Set<string>();
@@ -64,14 +68,17 @@ export function pairToolCallIds(messages: readonly vscode.LanguageModelChatReque
 	const pendingMinted: string[] = [];
 
 	messages.forEach((message, messageIndex) => {
+		/** Wire ids of this message's calls so far; a repeat shares its tool_calls array. */
+		const messageCallIds = new Set<string>();
 		(message.content ?? []).forEach((part, partIndex) => {
 			if (part instanceof vscode.LanguageModelToolCallPart) {
 				let id: string;
 				if (part.callId) {
 					id = part.callId;
-					if ((pending.get(id) ?? 0) > 0) {
+					if ((pending.get(id) ?? 0) > 0 || messageCallIds.has(id)) {
 						duplicateLiveCallIds.push(id);
 					}
+					messageCallIds.add(id);
 				} else {
 					id = mint();
 					pendingMinted.push(id);
