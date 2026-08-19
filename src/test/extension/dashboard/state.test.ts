@@ -111,12 +111,10 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "b", label: "Zeta", hasApiKey: true }),
 						models: [],
 					},
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "a",
 							label: "Alpha",
@@ -151,7 +149,6 @@ suite("extension/dashboard/state", () => {
 			const external = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ state: "error", error: "LOCALIZED", logSafeError: "ENGLISH" }),
 						models: [],
 					},
@@ -164,7 +161,6 @@ suite("extension/dashboard/state", () => {
 			const declared = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ state: "error", error: "LOCALIZED", logSafeError: "ENGLISH" }),
 						models: [],
 					},
@@ -179,7 +175,6 @@ suite("extension/dashboard/state", () => {
 			const synced = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ state: "error", error: "LOCALIZED", logSafeError: "ENGLISH" }),
 						models: [],
 					},
@@ -202,7 +197,6 @@ suite("extension/dashboard/state", () => {
 			const external = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ state: "error", error: "boom", classification }),
 						models: [],
 					},
@@ -215,7 +209,6 @@ suite("extension/dashboard/state", () => {
 			const declared = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ state: "error", error: "boom", classification }),
 						models: [],
 					},
@@ -229,7 +222,7 @@ suite("extension/dashboard/state", () => {
 			// An unclassified failure carries no field at all (conditional spread,
 			// never an explicit undefined).
 			const unclassified = buildState(
-				[{ discoveredRawIds: [], status: makeServerStatus({ state: "error", error: "boom" }), models: [] }],
+				[{ status: makeServerStatus({ state: "error", error: "boom" }), models: [] }],
 				makeReader({})
 			);
 			const unclassifiedRow = unclassified.servers[0];
@@ -241,7 +234,6 @@ suite("extension/dashboard/state", () => {
 			const synced = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ state: "error", error: "boom", classification }),
 						models: [],
 					},
@@ -256,7 +248,7 @@ suite("extension/dashboard/state", () => {
 
 		test("legacy registry servers with no row of their own are counted, never listed", () => {
 			const state = buildState(
-				[{ discoveredRawIds: [], status: makeServerStatus(), models: [] }],
+				[{ status: makeServerStatus(), models: [] }],
 				makeReader({}),
 				[],
 				[
@@ -286,7 +278,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g1", label: "Prod", state: "error", error: "unreachable" }),
 						models: [makeModelInfo({ id: "m1", name: "m1" })],
 					},
@@ -306,7 +297,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ label: "Prod", baseUrl: "http://prod.test", servedModelCount: 4 }),
 						models: [],
 					},
@@ -341,7 +331,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "g1",
 							label: "x.example",
@@ -368,7 +357,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "s1",
 							label: "Staging",
@@ -378,7 +366,6 @@ suite("extension/dashboard/state", () => {
 						models: [],
 					},
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "s2", label: "Prod", baseUrl: "http://x.test", servedModelCount: 9 }),
 						models: [],
 					},
@@ -404,7 +391,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-staging:http://x.test",
 							label: "x.test",
@@ -414,7 +400,6 @@ suite("extension/dashboard/state", () => {
 						models: [],
 					},
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-prod:http://x.test",
 							label: "x.test",
@@ -448,7 +433,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-old:http://x.test",
 							label: "x.test",
@@ -474,7 +458,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-shared:http://x.test",
 							label: "x.test",
@@ -517,7 +500,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-shared:http://x.test",
 							label: "x.test",
@@ -557,7 +539,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-shared:http://x.test",
 							label: "x.test",
@@ -600,7 +581,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-shared:http://x.test",
 							label: "x.test",
@@ -639,7 +619,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-shared:http://x.test",
 							label: "x.test",
@@ -674,7 +653,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:labeled:fp-a:http://x.test",
 							label: "Prod",
@@ -684,7 +662,6 @@ suite("extension/dashboard/state", () => {
 						models: [makeModelInfo({ id: "m1", name: "m1" })],
 					},
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:labeled:fp-b:http://x.test",
 							label: "Staging",
@@ -722,7 +699,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-shared:http://x.test",
 							label: "x.test",
@@ -765,7 +741,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-prod-labeled:http://x.test",
 							label: "x.test",
@@ -798,7 +773,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-other:http://x.test",
 							label: "x.test",
@@ -828,7 +802,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-other:http://x.test",
 							label: "x.test",
@@ -860,7 +833,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-a:http://x.test",
 							label: "x.test",
@@ -913,7 +885,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ label: "Prod", baseUrl: "http://prod.test", state: "ok", servedModelCount: 4 }),
 						models: [],
 					},
@@ -931,7 +902,6 @@ suite("extension/dashboard/state", () => {
 		test("external rows carry an opaque, push-stable adopt handle; declared rows do not", () => {
 			const snapshots = [
 				{
-					discoveredRawIds: [],
 					status: makeServerStatus({
 						serverId: "group:fp-a:http://ext.test",
 						label: "ext.test",
@@ -940,7 +910,6 @@ suite("extension/dashboard/state", () => {
 					models: [],
 				},
 				{
-					discoveredRawIds: [],
 					status: makeServerStatus({
 						serverId: "group:fp-b:http://prod.test",
 						label: "Prod",
@@ -966,11 +935,9 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("no secret value ever reaches the state, only locations", () => {
-			const state = buildState(
-				[{ discoveredRawIds: [], status: makeServerStatus({ hasApiKey: true }), models: [] }],
-				makeReader({}),
-				[makeDeclared({ secrets: { apiKey: "settings", oauthClientSecret: "secure", virtualKeyValue: "none" } })]
-			);
+			const state = buildState([{ status: makeServerStatus({ hasApiKey: true }), models: [] }], makeReader({}), [
+				makeDeclared({ secrets: { apiKey: "settings", oauthClientSecret: "secure", virtualKeyValue: "none" } }),
+			]);
 
 			const serialized = JSON.stringify(state);
 			assert.ok(!serialized.includes("sk-"), serialized);
@@ -981,16 +948,14 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "s1", label: "litellm.test", baseUrl: "http://litellm.test" }),
 						models: [makeModelInfo({ id: "m1", name: "m1" })],
 					},
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "s2", label: "litellm.test", baseUrl: "http://litellm.test" }),
 						models: [makeModelInfo({ id: "m2", name: "m2" })],
 					},
-					{ discoveredRawIds: [], status: makeServerStatus({ serverId: "s3", label: "Other" }), models: [] },
+					{ status: makeServerStatus({ serverId: "s3", label: "Other" }), models: [] },
 				],
 				makeReader({})
 			);
@@ -1009,7 +974,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "group:secret-fingerprint:http://x" }),
 						models: [makeModelInfo()],
 					},
@@ -1039,7 +1003,7 @@ suite("extension/dashboard/state", () => {
 					serverDeclared: { kind: "discovered", values: {}, outputDeclared: true },
 				},
 			});
-			const state = buildState([{ discoveredRawIds: [], status: makeServerStatus(), models: [info] }], makeReader({}));
+			const state = buildState([{ status: makeServerStatus(), models: [info] }], makeReader({}));
 
 			assert.strictEqual(state.models.length, 1);
 			const model = state.models[0];
@@ -1069,10 +1033,7 @@ suite("extension/dashboard/state", () => {
 		});
 
 		test("models without pricing or capabilities stay minimal", () => {
-			const state = buildState(
-				[{ discoveredRawIds: [], status: makeServerStatus(), models: [makeModelInfo()] }],
-				makeReader({})
-			);
+			const state = buildState([{ status: makeServerStatus(), models: [makeModelInfo()] }], makeReader({}));
 
 			const model = state.models[0];
 			assert.strictEqual(model?.inputCost, undefined);
@@ -1086,12 +1047,10 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "srv2", label: "Zeta" }),
 						models: [makeModelInfo({ id: "m1", name: "m1" })],
 					},
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "srv1", label: "Alpha" }),
 						models: [makeModelInfo({ id: "b", name: "b" }), makeModelInfo({ id: "a", name: "a" })],
 					},
@@ -1111,12 +1070,10 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g1", label: "Prod", baseUrl: "http://prod.test" }),
 						models: [makeModelInfo({ id: "m1", name: "m1" })],
 					},
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g2", label: "Live", baseUrl: "http://live.test" }),
 						models: [makeModelInfo({ id: "m2", name: "m2" })],
 					},
@@ -1146,12 +1103,10 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g1", label: "Dup", baseUrl: "http://a.test" }),
 						models: [],
 					},
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g2", label: "Dup", baseUrl: "http://b.test" }),
 						models: [],
 					},
@@ -1175,7 +1130,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ label: "Prod", baseUrl: "http://prod.test" }),
 						models: [],
 					},
@@ -1228,7 +1182,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "registry-1", label: "Legacy", baseUrl: "http://legacy.test" }),
 						models: [makeModelInfo({ id: "m1", name: "m1" })],
 					},
@@ -1252,7 +1205,7 @@ suite("extension/dashboard/state", () => {
 
 		test("group-backed external rows are hideable by default", () => {
 			const state = buildState(
-				[{ discoveredRawIds: [], status: makeServerStatus({ serverId: "g1", label: "Prod" }), models: [] }],
+				[{ status: makeServerStatus({ serverId: "g1", label: "Prod" }), models: [] }],
 				makeReader({})
 			);
 			assert.strictEqual(state.servers[0]?.hideable, true);
@@ -1262,12 +1215,10 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g1", label: "Old", baseUrl: "http://host.test" }),
 						models: [],
 					},
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g2", label: "Other", baseUrl: "http://other.test" }),
 						models: [],
 					},
@@ -1299,7 +1250,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "srv1" }),
 						models: [makeModelInfo({ id: "srv1/gpt-4", name: "gpt-4" })],
 					},
@@ -1314,7 +1264,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g1" }),
 						models: [
 							makeModelInfo({ id: "gpt-4", name: "a" }),
@@ -1344,7 +1293,6 @@ suite("extension/dashboard/state", () => {
 		test("every model's scopeKey resolves through the readModelParameters responder; a stale key answers nothing", () => {
 			const snapshots = [
 				{
-					discoveredRawIds: [],
 					status: makeServerStatus({ serverId: "g1", label: "Prod", baseUrl: "http://prod.test/" }),
 					models: [makeModelInfo({ id: "m1", name: "m1" })],
 				},
@@ -1373,12 +1321,10 @@ suite("extension/dashboard/state", () => {
 			const entryParameters = { "*": { temperature: 0.2 } };
 			const snapshots = [
 				{
-					discoveredRawIds: [],
 					status: makeServerStatus({ serverId: "g1", label: "Team", baseUrl: "http://prod.test" }),
 					models: [makeModelInfo({ id: "m1", name: "m1" })],
 				},
 				{
-					discoveredRawIds: [],
 					status: makeServerStatus({ serverId: "g2", label: "Team", baseUrl: "http://prod.test" }),
 					models: [makeModelInfo({ id: "m2", name: "m2" })],
 				},
@@ -1409,12 +1355,10 @@ suite("extension/dashboard/state", () => {
 		test("a tombstoned snapshot contributes no models and the remaining scope keys stay resolvable", () => {
 			const snapshots = [
 				{
-					discoveredRawIds: [],
 					status: makeServerStatus({ serverId: "g1", label: "Hidden", baseUrl: "http://hidden.test" }),
 					models: [makeModelInfo({ id: "m1", name: "m1" })],
 				},
 				{
-					discoveredRawIds: [],
 					status: makeServerStatus({ serverId: "g2", label: "Live", baseUrl: "http://live.test" }),
 					models: [makeModelInfo({ id: "m2", name: "m2" })],
 				},
@@ -1470,7 +1414,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-other:http://x.test",
 							label: "x.test",
@@ -1499,7 +1442,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-other:http://x.test",
 							label: "x.test",
@@ -1526,7 +1468,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-prod-labeled:http://x.test",
 							label: "Prod",
@@ -1561,7 +1502,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: ["m"],
 						status: makeServerStatus({
 							serverId: "group:fp-prod-labeled:http://x.test",
 							label: "Prod",
@@ -1591,7 +1531,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-prod-labeled:http://x.test",
 							label: "Prod",
@@ -1659,7 +1598,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g1" }),
 						models: [
 							makeModelInfo({ id: "gpt-4", name: "a" }),
@@ -1693,19 +1631,16 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g1", label: "Prod", baseUrl: "http://prod.test" }),
 						models: [],
 						observedModelInfoKeys: ["max_input_tokens", "mystery_flag"],
 					},
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g2", label: "External", baseUrl: "http://ext.test" }),
 						models: [],
 						observedModelInfoKeys: ["supports_vision"],
 					},
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g3", label: "Bare", baseUrl: "http://bare.test" }),
 						models: [],
 					},
@@ -1734,7 +1669,6 @@ suite("extension/dashboard/state", () => {
 			const state = buildState(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g1" }),
 						models: [],
 						observedModelInfoKeys: ["__proto__", "constructor"],
@@ -1762,13 +1696,11 @@ suite("extension/dashboard/state", () => {
 			const byLabel = observedKeysByEntryLabel(
 				[
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g1", label: "Prod", baseUrl: "http://prod.test" }),
 						models: [],
 						observedModelInfoKeys: ["max_input_tokens"],
 					},
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "g2", label: "Bare", baseUrl: "http://bare.test" }),
 						models: [],
 					},
@@ -1800,7 +1732,6 @@ suite("extension/dashboard/state", () => {
 	suite("resolveDashboardModelCapabilities", () => {
 		const snapshots = [
 			{
-				discoveredRawIds: [],
 				status: makeServerStatus({ serverId: "g1", baseUrl: "http://x.test" }),
 				models: [makeModelInfo({ id: "gpt-4", name: "gpt-4" })],
 			},
@@ -1831,7 +1762,6 @@ suite("extension/dashboard/state", () => {
 		test("a server baseline riding the model metadata resolves at the server level", () => {
 			const withBaseline = [
 				{
-					discoveredRawIds: [],
 					status: makeServerStatus({ serverId: "g1", baseUrl: "http://x.test" }),
 					models: [
 						makeModelInfo({
@@ -1873,7 +1803,6 @@ suite("extension/dashboard/state", () => {
 			// no label enters the resolution.
 			const divergent = [
 				{
-					discoveredRawIds: [],
 					status: makeServerStatus({
 						serverId: "group:fp-other:http://x.test",
 						label: "x.test",
@@ -1900,12 +1829,10 @@ suite("extension/dashboard/state", () => {
 		test("two groups on one host resolve their own capabilities despite the ordinal display labels", () => {
 			const twoGroups = [
 				{
-					discoveredRawIds: [],
 					status: makeServerStatus({ serverId: "g-a", label: "Prod", baseUrl: "http://x.test" }),
 					models: [makeModelInfo({ id: "gpt-4", name: "gpt-4" })],
 				},
 				{
-					discoveredRawIds: [],
 					status: makeServerStatus({ serverId: "g-b", label: "Prod", baseUrl: "http://x.test" }),
 					models: [makeModelInfo({ id: "gpt-4", name: "gpt-4" })],
 				},
@@ -1946,7 +1873,6 @@ suite("extension/dashboard/state", () => {
 		suite("advisory filtering of unrecognized-key diagnostics", () => {
 			const snapshotWithKeys = (observedModelInfoKeys: readonly string[] | undefined) => [
 				{
-					discoveredRawIds: [],
 					status: makeServerStatus({ serverId: "g1", baseUrl: "http://x.test" }),
 					models: [makeModelInfo({ id: "gpt-4", name: "gpt-4" })],
 					...(observedModelInfoKeys !== undefined ? { observedModelInfoKeys } : {}),
@@ -2019,13 +1945,11 @@ suite("extension/dashboard/state", () => {
 				// or a click-through from a hint lands on a record that reads clean.
 				const twoServers = (servingSet: readonly string[] | undefined, otherSet: readonly string[] | undefined) => [
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "gB", label: "B", baseUrl: "http://b.test" }),
 						models: [makeModelInfo({ id: "gpt-4", name: "gpt-4" })],
 						...(servingSet !== undefined ? { observedModelInfoKeys: servingSet } : {}),
 					},
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({ serverId: "gA", label: "A", baseUrl: "http://a.test" }),
 						models: [],
 						...(otherSet !== undefined ? { observedModelInfoKeys: otherSet } : {}),
@@ -3135,7 +3059,6 @@ suite("extension/dashboard/state", () => {
 		]);
 		const lookup = (serverId: string) => groupServers.get(serverId);
 		const snapshotFor = (serverId: string) => ({
-			discoveredRawIds: [],
 			status: makeServerStatus({ serverId, label: "ext.test", baseUrl: "http://ext.test" }),
 			models: [],
 		});
@@ -3218,7 +3141,6 @@ suite("extension/dashboard/state", () => {
 			);
 			const registryOnly = [
 				{
-					discoveredRawIds: [],
 					status: makeServerStatus({ serverId: "registry-1", label: "ext.test", baseUrl: "http://ext.test" }),
 					models: [],
 				},
@@ -3265,7 +3187,6 @@ suite("extension/dashboard/state", () => {
 		test("resolveExternalGroupIdentity refuses registry-backed snapshots: there is no group to silence", () => {
 			const registryOnly = [
 				{
-					discoveredRawIds: [],
 					status: makeServerStatus({ serverId: "registry-1", label: "ext.test", baseUrl: "http://ext.test" }),
 					models: [],
 				},

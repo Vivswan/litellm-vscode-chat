@@ -107,7 +107,7 @@ suite("extension/ui statusVocabulary (cross-surface table, host half)", () => {
 		for (const row of WINDOW_STATE_ROWS) {
 			const declaredRows = row.rows.filter((server) => server.origin === "declared");
 			const state = buildDashboardState({
-				snapshots: row.window.map((status) => ({ status, models: [], discoveredRawIds: [] })),
+				snapshots: row.window.map((status) => ({ status, models: [] })),
 				reader: EMPTY_READER,
 				declared: declaredViews(row),
 				isGroupSnapshot: () => true,

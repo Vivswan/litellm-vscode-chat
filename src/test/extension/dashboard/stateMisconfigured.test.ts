@@ -108,7 +108,6 @@ suite("extension/dashboard/state misconfigured rows", () => {
 		const state = buildDashboardState({
 			snapshots: [
 				{
-					discoveredRawIds: [],
 					status: makeServerStatus({
 						serverId: "group:fp-other:http://x.test",
 						label: "x.test",
@@ -139,7 +138,6 @@ suite("extension/dashboard/state misconfigured rows", () => {
 			const state = buildDashboardState({
 				snapshots: [
 					{
-						discoveredRawIds: [],
 						status: makeServerStatus({
 							serverId: "group:fp-other:http://x.test",
 							label: "x.test",
@@ -171,7 +169,6 @@ suite("extension/dashboard/state misconfigured rows", () => {
 		const state = buildDashboardState({
 			snapshots: [
 				{
-					discoveredRawIds: [],
 					status: makeServerStatus({
 						serverId: "group:fp-labeled:http://x.test",
 						label: "Prod",

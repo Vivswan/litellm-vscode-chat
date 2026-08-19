@@ -817,7 +817,7 @@ suite("provider groups", () => {
 		});
 	});
 
-	test("a non-silent group failure still throws even when a last known model set exists", async () => {
+	test("a non-silent group failure still throws, yet records the stale set a silent pass keeps serving", async () => {
 		const provider = makeProvider();
 		let fail = false;
 		mswServer.use(
@@ -832,6 +832,17 @@ suite("provider groups", () => {
 				provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }, false), cancellation()),
 				(e: unknown) => e instanceof Error,
 				"Test Connection must surface the failure, stale set or not"
+			);
+
+			// The throw serves nothing NOW, but the record deliberately stays the
+			// silent-pass view: the stale set every next silent refresh serves again.
+			const snapshot = expectDefined(provider.getServerSnapshots()[0]);
+			assert.ok(snapshot.status.state === "error", "the failure still records its error status");
+			assert.strictEqual(snapshot.status.servedModelCount, 1, "the error status keeps counting the stale set");
+			assert.deepStrictEqual(
+				snapshot.models.map((info) => info.id),
+				["test-model"],
+				"the recorded set is what a silent pass keeps serving, not this call's empty throw"
 			);
 		});
 	});

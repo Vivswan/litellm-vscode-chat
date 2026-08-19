@@ -17,7 +17,6 @@ function makeReader(values: Record<string, unknown>): SettingsReader {
 
 function snapshotWith(serverId: string, label: string, modelIds: readonly string[]) {
 	return {
-		discoveredRawIds: [],
 		status: makeServerStatus({ serverId, label }),
 		models: modelIds.map((id) => makeModelInfo({ id, name: id })),
 	};
@@ -155,7 +154,6 @@ suite("extension/dashboard/resolvedModels", () => {
 				makeQuery({
 					snapshots: [
 						{
-							discoveredRawIds: [],
 							status: makeServerStatus({ serverId: "g1", label: "Prod" }),
 							models: [
 								makeModelInfo({

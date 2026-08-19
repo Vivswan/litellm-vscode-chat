@@ -234,9 +234,7 @@ function makeHarness(): Harness {
 		loggedMessages,
 		settingsValues,
 		serversSetting: [],
-		snapshots: [
-			{ discoveredRawIds: [], status: makeServerStatus(), models: [makeModelInfo({ id: "m1", name: "m1" })] },
-		],
+		snapshots: [{ status: makeServerStatus(), models: [makeModelInfo({ id: "m1", name: "m1" })] }],
 		legacyServers: [],
 		entryResolutions: {},
 		entryCapabilities: {},
@@ -661,7 +659,6 @@ suite("extension/dashboard/panel", () => {
 		harness.settingsValues["models.capabilities"] = { m1: { mystery_flag: true, observed_flag: 1 } };
 		harness.snapshots = [
 			{
-				discoveredRawIds: [],
 				status: makeServerStatus(),
 				models: [makeModelInfo({ id: "m1", name: "m1" })],
 				observedModelInfoKeys: ["observed_flag"],

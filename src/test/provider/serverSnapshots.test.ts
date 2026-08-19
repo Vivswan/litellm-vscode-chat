@@ -188,11 +188,15 @@ suite("provider server snapshots", () => {
 		assert.strictEqual(rootHits, 1, "the corrected result must have been cached for the follow-up serve");
 	});
 
-	test("snapshots carry the discovered raw IDs, carried forward across failure reports", async () => {
-		// The set behind declared-ID inertness (and the dashboard's declared
-		// projection): what discovery RETURNED, not what registration emitted -
-		// synthetic variants may be the only registered forms of a discovered ID.
-		const provider = makeProvider();
+	test("a mid-outage declared ID the last discovery listed stays inert against the stale serve", async () => {
+		// The raw IDs discovery RETURNED ride the window across failure reports,
+		// apart from the registered infos: only synthetic variants register below,
+		// so without the carried set the declared ID would duplicate into the
+		// stale serve as a second multi-model.
+		let declared: readonly string[] | undefined;
+		const provider = makeProvider(undefined, "test-key", undefined, {
+			getEntryDeclaredModels: () => declared,
+		});
 		let fail = false;
 		const payload = {
 			data: [
@@ -209,21 +213,23 @@ suite("provider server snapshots", () => {
 			http.get(MODEL_INFO_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(payload))),
 			http.get(MODELS_URL, () => (fail ? emptyErrorResponse(500) : HttpResponse.json(payload)))
 		);
+		const group = groupOptions({ baseUrl: TEST_BASE_URL, label: "Gateway" });
 
 		await withConfig({ "discovery.cacheTtl": 0 }, async () => {
-			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
-			const healthy = expectDefined(provider.getServerSnapshots()[0]);
-			assert.deepStrictEqual(healthy.discoveredRawIds, ["multi-model"]);
+			const healthy = await provider.provideLanguageModelChatInformation(group, cancellation());
 			assert.ok(
-				healthy.models.every((model) => model.id !== "multi-model"),
+				healthy.length > 0 && healthy.every((model) => model.id !== "multi-model"),
 				"only synthetic variants registered, which is why the raw-ID set must ride separately"
 			);
 
 			fail = true;
-			await provider.provideLanguageModelChatInformation(groupOptions({ baseUrl: TEST_BASE_URL }), cancellation());
-			const failed = expectDefined(provider.getServerSnapshots()[0]);
-			assert.strictEqual(failed.status.state, "error");
-			assert.deepStrictEqual(failed.discoveredRawIds, ["multi-model"], "failure reports carry the set forward");
+			declared = ["multi-model"];
+			const served = await provider.provideLanguageModelChatInformation(group, cancellation());
+			assert.strictEqual(served.length, healthy.length, "the stale set serves without a declared duplicate beside it");
+			assert.ok(
+				served.every((model) => model.id !== "multi-model"),
+				"the carried raw-ID set keeps the declared ID inert through the outage"
+			);
 		});
 	});
 
@@ -277,7 +283,7 @@ suite("provider server snapshots", () => {
 		);
 	});
 
-	test("a later fallback-only success replaces the observed keys with absence, like discoveredRawIds", async () => {
+	test("a later fallback-only success replaces the observed keys with absence", async () => {
 		// Carry-forward is a failure-report rule only: a SUCCESSFUL refresh replaces
 		// the observations wholesale, so a server that degrades to the /models
 		// fallback stops claiming keys its current listing no longer reports.

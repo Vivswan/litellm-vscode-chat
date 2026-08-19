@@ -15,9 +15,24 @@ import type { GroupServeOutcome, GroupStatusReporter } from "./statusReporting";
 import type { DiscoveryObservations, ServedModelSets, StatusWindow } from "./statusWindow";
 
 /** GroupServeOutcome minus the served-set counts, which recordAndServe derives from the served pair. */
-type ServeOutcomeShape =
-	| Omit<Extract<GroupServeOutcome, { state: "ok" }>, "servedModelCount">
-	| Omit<Extract<GroupServeOutcome, { state: "error" }>, "servedModelCount" | "declaredModelCount">;
+type OkServeShape = Omit<Extract<GroupServeOutcome, { state: "ok" }>, "servedModelCount">;
+type FailureServeShape = Omit<
+	Extract<GroupServeOutcome, { state: "error" }>,
+	"servedModelCount" | "declaredModelCount"
+>;
+
+/** What recordAndServe hands back: the served union plus the two origin sets, all group-attached. */
+type AttachedServe = {
+	served: AttachedModelInfo[];
+	discovered: AttachedModelInfo[];
+	declared: AttachedModelInfo[];
+};
+
+/** Only an ok serve may carry observations; the failure signature has none, matching StatusWindow.record. */
+type RecordAndServe = {
+	(served: ServedModelSets, outcome: OkServeShape, observations?: DiscoveryObservations): AttachedServe;
+	(served: ServedModelSets, outcome: FailureServeShape): AttachedServe;
+};
 
 /**
  * One server's cached discovery result: the registered infos plus the raw
@@ -129,24 +144,37 @@ export class GroupDiscovery {
 		// Every outcome records and serves through here: the reporter gets exactly
 		// the served pair the return value carries, and both outcome counts derive
 		// from the same pair, so no branch can record one set and serve another.
-		const recordAndServe = (
+		const recordAndServe: RecordAndServe = (
 			served: ServedModelSets,
-			outcome: ServeOutcomeShape,
+			outcome: OkServeShape | FailureServeShape,
 			observations: DiscoveryObservations = {}
-		): { served: AttachedModelInfo[]; discovered: AttachedModelInfo[]; declared: AttachedModelInfo[] } => {
+		): AttachedServe => {
 			// The one served-count derivation: both states record exactly what this
 			// serve hands out, so a failure still serving stale or declared models
 			// stays visible to the merged count and every verdict.
 			const servedModelCount = served.discovered.length + served.declared.length;
-			const recorded: GroupServeOutcome =
-				outcome.state === "ok"
-					? { ...outcome, servedModelCount }
-					: {
-							...outcome,
-							servedModelCount,
-							...(served.declared.length > 0 ? { declaredModelCount: served.declared.length } : {}),
-						};
-			this._options.reporter.reportGroupStatus(server, groupServer, silent, recorded, served, observations);
+			if (outcome.state === "ok") {
+				this._options.reporter.reportGroupStatus(
+					server,
+					groupServer,
+					silent,
+					{ ...outcome, servedModelCount },
+					served,
+					observations
+				);
+			} else {
+				this._options.reporter.reportGroupStatus(
+					server,
+					groupServer,
+					silent,
+					{
+						...outcome,
+						servedModelCount,
+						...(served.declared.length > 0 ? { declaredModelCount: served.declared.length } : {}),
+					},
+					served
+				);
+			}
 			const discovered = attach(served.discovered);
 			const declared = attach(served.declared);
 			return { served: [...discovered, ...declared], discovered, declared };
@@ -291,20 +319,14 @@ export class GroupDiscovery {
 				server,
 				groupServer.label
 			);
-			// Recorded is what a silent serve still hands out; the non-silent
-			// unexpected branch below throws past it, keeping the last-served set
-			// visible under the error. Safe against the stale source: it anchors to
-			// the last SUCCESS bundle, so this record cannot bake a mid-outage edit
-			// into later serves.
-			const failureServe = recordAndServe(
-				failureSets,
-				{
-					state: "error",
-					...texts,
-					...(expected ? { expected: true } : {}),
-				},
-				{ discoveredRawIds: servesDeclaredOnly ? [] : (stale?.discoveredRawIds ?? []) }
-			);
+			// Recorded is what stays visible under the error: the declared-only serve
+			// returns exactly this set, and the throwing unexpected branch still names
+			// the stale set every silent pass keeps serving, never flashing zero.
+			const failureServe = recordAndServe(failureSets, {
+				state: "error",
+				...texts,
+				...(expected ? { expected: true } : {}),
+			});
 			if (silent) {
 				// No success anchor means nothing servable: an empty literal, not the
 				// attached set, so a decorator surprise cannot serve unmarked models.

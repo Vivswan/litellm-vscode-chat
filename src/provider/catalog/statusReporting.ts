@@ -1,6 +1,6 @@
 import type { TransportErrorClassification, UnservedEndpointEvidence } from "../../shared/errorClassification";
 import type { LogSafeErrorText } from "../../shared/logger";
-import type { AggregatedStatus, ServerWithKey } from "../../shared/servers";
+import type { AggregatedStatus, ServerStatus, ServerWithKey } from "../../shared/servers";
 import type { GroupServer } from "./groupModels";
 import type { DiscoveryObservations, ServedModelSets, StatusWindow } from "./statusWindow";
 
@@ -67,32 +67,48 @@ export class GroupStatusReporter {
 		this._callback({ serverStatuses, totalModels, silent });
 	}
 
+	/** Only an ok outcome may carry observations, mirroring StatusWindow.record's overload pair. */
+	reportGroupStatus(
+		server: ServerWithKey,
+		groupServer: GroupServer,
+		silent: boolean,
+		outcome: Extract<GroupServeOutcome, { state: "ok" }>,
+		/** The full sets this serve handed the host; the window snapshots both while stale serving anchors to discovered only. */
+		served: ServedModelSets,
+		/** What this discovery observed (raw IDs, model_info keys); see DiscoveryObservations. */
+		observations?: DiscoveryObservations
+	): void;
+	reportGroupStatus(
+		server: ServerWithKey,
+		groupServer: GroupServer,
+		silent: boolean,
+		outcome: Extract<GroupServeOutcome, { state: "error" }>,
+		served: ServedModelSets
+	): void;
 	reportGroupStatus(
 		server: ServerWithKey,
 		groupServer: GroupServer,
 		silent: boolean,
 		outcome: GroupServeOutcome,
-		/** The full sets this serve handed the host; the window snapshots both while stale serving anchors to discovered only. */
 		served: ServedModelSets,
-		/** What this discovery observed (raw IDs, model_info keys); see DiscoveryObservations. */
 		observations: DiscoveryObservations = {}
 	): void {
 		this._groupReportCount += 1;
-		this._window.record(
-			{
-				serverId: server.id,
-				label: server.label,
-				baseUrl: server.baseUrl,
-				lastChecked: new Date().toISOString(),
-				// Diagnostics reads this as "authentication configured", so OAuth
-				// client credentials count the same as a static key.
-				hasApiKey: groupServer.apiKey.length > 0 || groupServer.oauth !== undefined,
-				...outcome,
-			},
-			served,
-			groupServer,
-			observations
-		);
+		const status: ServerStatus = {
+			serverId: server.id,
+			label: server.label,
+			baseUrl: server.baseUrl,
+			lastChecked: new Date().toISOString(),
+			// Diagnostics reads this as "authentication configured", so OAuth
+			// client credentials count the same as a static key.
+			hasApiKey: groupServer.apiKey.length > 0 || groupServer.oauth !== undefined,
+			...outcome,
+		};
+		if (status.state === "ok") {
+			this._window.record(status, served, groupServer, observations);
+		} else {
+			this._window.record(status, served, groupServer);
+		}
 		this.reportMerged(silent);
 	}
 }

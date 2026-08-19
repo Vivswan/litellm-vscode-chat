@@ -27,15 +27,8 @@ export interface ServerModelsSnapshot {
 	/** The full set the latest serve handed out: discovered infos plus declared ones (flagged `litellm.declared`). */
 	readonly models: readonly PreAttachModelInfo[];
 	/**
-	 * The raw model IDs discovery last returned, carried forward across failure
-	 * reports like lastSuccess. declared-ID inertness is judged against this
-	 * set, never against `models`: registration may emit only synthetic
-	 * variants (`foo:cheapest`) for a discovered `foo`.
-	 */
-	readonly discoveredRawIds: readonly string[];
-	/**
 	 * The model_info keys the last successful listing reported, carried forward
-	 * like discoveredRawIds so a mid-outage refresh cannot blank the set. Absent
+	 * across failure reports so a mid-outage refresh cannot blank the set. Absent
 	 * when the last success came from the /models fallback, or none were reported.
 	 */
 	readonly observedModelInfoKeys?: readonly string[] | undefined;
@@ -57,6 +50,13 @@ type StatusWindowEntry = {
 	lastSuccess: { at: number; models: readonly PreAttachModelInfo[] } | undefined;
 	status: ServerStatus;
 	models: readonly PreAttachModelInfo[];
+	/**
+	 * The raw model IDs discovery last returned, carried forward across failure
+	 * reports like lastSuccess: staleServableModels hands them out beside the
+	 * stale bundle, where declared-ID inertness is judged against this set,
+	 * never against `models` - registration may emit only synthetic variants
+	 * (`foo:cheapest`) for a discovered `foo`.
+	 */
 	discoveredRawIds: readonly string[];
 	observedModelInfoKeys: readonly string[] | undefined;
 	/** The group's resolved connection; every entry is a VS Code provider group. */
@@ -88,7 +88,7 @@ export interface ServedModelSets {
  * arrays: transposing them at a call site would type-check.
  */
 export interface DiscoveryObservations {
-	/** The raw IDs discovery returned; see ServerModelsSnapshot.discoveredRawIds. */
+	/** The raw IDs discovery returned; see StatusWindowEntry.discoveredRawIds. */
 	readonly discoveredRawIds?: readonly string[] | undefined;
 	/** The observed model_info keys, when the listing reported them; see ServerModelsSnapshot.observedModelInfoKeys. */
 	readonly observedModelInfoKeys?: readonly string[] | undefined;
@@ -173,12 +173,22 @@ export class StatusWindow {
 	 * copies: snapshots() hands them to the dashboard, and attached copies embed
 	 * the server's credentials. Snapshots carry the full served union;
 	 * lastSuccess keeps only the discovered set (see ServedModelSets.declared).
+	 *
+	 * Only an ok report may carry observations, and one omitting them blanks the
+	 * carried sets; a failure report structurally cannot carry any, so an outage
+	 * only ever carries the previous serve's observations forward.
 	 */
+	record(
+		status: Extract<ServerStatus, { state: "ok" }>,
+		served: ServedModelSets,
+		groupServer: GroupServer,
+		observations?: DiscoveryObservations
+	): void;
+	record(status: Extract<ServerStatus, { state: "error" }>, served: ServedModelSets, groupServer: GroupServer): void;
 	record(
 		status: ServerStatus,
 		served: ServedModelSets,
 		groupServer: GroupServer,
-		/** What the discovery observed when it succeeded; failure reports carry the previous observations forward. */
 		observations: DiscoveryObservations = {}
 	): void {
 		const previous = this.entries.get(status.serverId);
@@ -201,7 +211,6 @@ export class StatusWindow {
 		return [...this.entries.values()].map((entry) => ({
 			status: entry.status,
 			models: entry.models,
-			discoveredRawIds: entry.discoveredRawIds,
 			...(entry.observedModelInfoKeys !== undefined ? { observedModelInfoKeys: entry.observedModelInfoKeys } : {}),
 		}));
 	}
