@@ -211,18 +211,20 @@ export async function deleteServerSecrets(secrets: SecretStore, label: string): 
 
 /**
  * The destination one secret field's value is sent to when paired with an
- * entry: the keys go to the base URL, the OAuth client secret to the token
- * URL ("" when the entry configures none - a real stamp, so gaining a token
- * URL later still requires a deliberate re-pairing). Both compare under the
- * shared URL normalization, so a semantically null trailing-slash edit never
- * refuses a pairing. This is what ownership stamps record at store time and
- * what resolveOwnedSecrets compares at use time.
+ * entry: the keys go to the base URL (compared under the shared normalization,
+ * because the transport itself treats a trailing slash there as insignificant)
+ * and the OAuth client secret to the token URL, compared VERBATIM as parsed -
+ * the token exchange fetches the configured URL exactly, so /token and /token/
+ * are different wire requests and must be different stamps ("" when the entry
+ * configures none - a real stamp, so gaining a token URL later still requires
+ * a deliberate re-pairing). This is what ownership stamps record at store time
+ * and what resolveOwnedSecrets compares at use time.
  */
 export function secretDestination(
 	entry: { readonly baseUrl: string; readonly oauthTokenUrl?: string | undefined },
 	field: SecretFieldId
 ): string {
-	return normalizeBaseUrl(field === "oauthClientSecret" ? (entry.oauthTokenUrl ?? "") : entry.baseUrl);
+	return field === "oauthClientSecret" ? (entry.oauthTokenUrl ?? "") : normalizeBaseUrl(entry.baseUrl);
 }
 
 /** resolveOwnedSecrets' outcome; see there. */

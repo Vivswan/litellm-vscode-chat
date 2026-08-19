@@ -57,7 +57,7 @@ export interface WindowStateRow {
 	readonly syncFailures?: readonly {
 		readonly label: string;
 		readonly message: string;
-		readonly failureClass: "upsertFailed" | "blocked" | "secretsUnreadable";
+		readonly failureClass: "upsertFailed" | "blocked" | "secretsUnreadable" | "secretsMismatched" | "saltUnavailable";
 	}[];
 	/** The merged count reportMerged would derive from the window (asserted, not assumed). */
 	readonly totalModels: number;

@@ -10,10 +10,18 @@
  * Two states stay untouched on purpose. A leftover blob whose label no entry
  * declares has no derivable destination, so it stays unstamped (it resolves
  * for a future re-add exactly as before; only post-stamping writes are
- * protected against the re-add-at-another-host hazard). And a field whose
- * destination is unknowable on this entry (an OAuth client secret on an entry
- * with no token URL) waits for an activation where the entry declares one -
- * stamping "" now would refuse the pairing the user is about to complete.
+ * protected against the re-add-at-another-host hazard). SecretStorage cannot
+ * enumerate keys, so no migration can even find such a blob; refusing every
+ * unstamped value instead would turn a failed stamping pass into a
+ * whole-session credential outage while still trusting whatever pairing
+ * stands when stamping eventually succeeds. The residual is narrow: the
+ * dashboard's create and upsert paths wipe a label's leftover blob outright,
+ * so only a hand-written settings.json re-declaration can pair a
+ * pre-stamping leftover with a new host, once, until the blob is touched.
+ * And a field whose destination is unknowable on this entry (an OAuth client
+ * secret on an entry with no token URL) waits for an activation where the
+ * entry declares one - stamping "" now would refuse the pairing the user is
+ * about to complete.
  */
 
 import * as vscode from "vscode";

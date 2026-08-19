@@ -107,15 +107,27 @@ test("an upsertFailed entry discovery never saw becomes an error serving nothing
 
 test("a blocked or skipped entry with no live status synthesizes nothing: its group reports later", () => {
 	// blocked proves a group with the name EXISTS (the duplicate refusal), and
-	// secretsUnreadable means the pass skipped while live groups keep serving;
-	// a synthesized dead error would race the first discovery report red.
+	// The skip classes mean the pass left live groups serving; a synthesized
+	// dead error would race the first discovery report red.
 	expect(
 		applySyncFailures([], [view({ label: "held", syncError: "name conflict", syncErrorClass: "blocked" })])
 	).toEqual([]);
 	expect(
 		applySyncFailures(
 			[],
-			[view({ label: "skipped", syncError: "salt unavailable", syncErrorClass: "secretsUnreadable" })]
+			[view({ label: "skipped", syncError: "salt unavailable", syncErrorClass: "saltUnavailable" })]
+		)
+	).toEqual([]);
+	expect(
+		applySyncFailures(
+			[],
+			[view({ label: "unread", syncError: "secrets unreadable", syncErrorClass: "secretsUnreadable" })]
+		)
+	).toEqual([]);
+	expect(
+		applySyncFailures(
+			[],
+			[view({ label: "mismatched", syncError: "ownership refused", syncErrorClass: "secretsMismatched" })]
 		)
 	).toEqual([]);
 });

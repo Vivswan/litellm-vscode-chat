@@ -230,8 +230,11 @@ export class ServerRegistry {
 					// The restore failed too, so the entry (still at its old host)
 					// would keep serving the NEW key - a credential that belongs
 					// elsewhere. Deleting errs toward a missing credential (requests
-					// 401 and the user re-enters), never a mismatched one; if even
-					// the delete fails, this legacy surface has nothing safer left.
+					// 401 and the user re-enters), never a mismatched one. If even
+					// the delete fails, the mismatch stands: reaching it takes a
+					// Memento failure plus two consecutive SecretStorage write
+					// failures, and SecretStorage offers no transaction to close
+					// that last window on this legacy surface.
 					try {
 						await this.secrets.delete(apiKeySecret(id));
 					} catch {
