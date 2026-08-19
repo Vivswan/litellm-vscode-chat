@@ -589,7 +589,9 @@
 			 they cannot drift); declared here, unconditionally, like
 			 --actions-track, so no tier can outrun the query that declares it and
 			 compute its template to none. Unused at the wide tier, whose name
-			 track is content-sized below. */
+			 track is content-sized below. Unifying on 14em widened the 560-919
+			 tier from its old 10em deliberately: rendered with a long label down
+			 to that tier's floor, the verdict still sits beside the name. */
 		--name-cap: 14em;
 		display: grid;
 		grid-template-columns: auto minmax(7em, max-content) minmax(12ch, 1fr) auto auto auto auto var(--actions-track);

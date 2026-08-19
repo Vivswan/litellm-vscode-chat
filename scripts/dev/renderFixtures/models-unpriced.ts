@@ -19,7 +19,8 @@ import { baseState, MODELS, PROD_SERVER } from "./shared.ts";
 
 const PRICED = MODELS[0] as DashboardModel;
 
-const ROWS: readonly DashboardModel[] = [
+/** Shared with models-unpriced-columnar.ts: same rows, the other tier. */
+export const UNPRICED_ROWS: readonly DashboardModel[] = [
 	PRICED,
 	{
 		...PRICED,
@@ -46,7 +47,7 @@ const ROWS: readonly DashboardModel[] = [
 
 const fixture: RenderFixture = {
 	messages: [
-		{ kind: "push", state: baseState({ servers: [PROD_SERVER], models: ROWS }) },
+		{ kind: "push", state: baseState({ servers: [PROD_SERVER], models: UNPRICED_ROWS }) },
 		{ kind: "focusSection", section: "models" },
 	],
 	steps: [
@@ -89,7 +90,11 @@ const fixture: RenderFixture = {
 			}
 		})()`,
 	],
-	viewport: { width: 1000, height: 600 },
+	// 990, not 1000: the stylesheet's rail query reads `width < 1000px`, but
+	// the harness's emulation lands the flip a pixel over (rail collapsed at
+	// 1000, expanded at 1001 in a render), so 1000 sits exactly on it. This
+	// fixture's subject is row alignment, not the rail.
+	viewport: { width: 990, height: 600 },
 	clipViewport: true,
 };
 
